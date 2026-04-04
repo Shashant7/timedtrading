@@ -1,0 +1,3372 @@
+[TT-TRACE] {"label":"fix_bad_pullback_hard_cap","ticker":"FIX","ts":1751378400000,"phase":"entry","side":"LONG","asOfTs":1751378400000,"state":"HTF_BULL_LTF_BULL","scores":{"htf":38.8,"ltf":13.7,"rank":0},"triggers":{"momentumTrigger":false,"pullbackTrigger":false,"reclaimTrigger":false},"confirmations":{"hasStFlipBull":false,"hasStFlipBear":false,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":false,"ltfRecovering":false,"ltfConfirm":false,"c10FiveTwelveConfirmed":false,"c30FiveTwelveConfirmed":false,"c30FiveTwelveOpposed":false},"clouds":{"c10_5":{"bull":false,"bear":true,"above":false,"below":false,"inCloud":true,"distToCloudPct":0,"fastSlope":0.32887304538769513,"slowSlope":-0.07343149935786641},"c10_8":{"bull":false,"bear":true,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.0000940920611353142,"fastSlope":0.06136531165975612,"slowSlope":0.01259986790671519},"c30_5":{"bull":true,"bear":false,"above":false,"below":true,"inCloud":false,"distToCloudPct":0.003281337072953869,"fastSlope":-1.2073729648689095,"slowSlope":-0.3197275004230278},"c10_34":{"bull":true,"bear":false,"above":false,"below":true,"inCloud":false,"distToCloudPct":0.0007710355837623704,"fastSlope":-0.07598849079920456,"slowSlope":-0.01685704081990025},"c30_34":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.00908751373176434,"fastSlope":0.2951569219007979,"slowSlope":0.3734019564830078}},"st":{"m10":0,"m15":0,"m30":0,"D":0,"bearishPullbackCount":0},"rsi":{"m10":null,"m30":null,"h1":null,"h4":null,"D":null,"W":null},"emaStructure15m":0,"trendExtensionPct":0,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"neutral","blockMomentum":false,"blockReclaim":false,"reasons":["pdz_unfavorable"],"scores":{"atrExtendedCount":0,"atrExhaustedCount":0,"phaseLateCount":0,"phaseExtremeCount":0,"supportiveSignals":1,"counterSignals":2,"adverseDivCount":1,"peakExhaustionCount":1},"peak":{"lateStageConditions":[],"countertrendPeakReasons":["m30_5_12_opposed","m30_rsi_div_bear","h4_5_12_opposed"],"peakExhaustionCount":1},"participation":{"m30":{"available":true,"c5Confirmed":false,"c5Opposed":true,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"supportive","adverseRsiDiv":{"side":"bear","source":"bear","active":true,"strength":3,"barsSince":5},"supportive":false,"late":false,"exhausted":true},"h1":{"available":true,"c5Confirmed":false,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"neutral","adverseRsiDiv":null,"supportive":true,"late":false},"h4":{"available":true,"c5Confirmed":false,"c5Opposed":true,"stDir":1,"stAligned":false,"emaStructure":0.76,"emaAligned":true,"phaseStage":"neutral","adverseRsiDiv":null,"supportive":false,"late":false}}},"divergence":{"adverse":null,"dailyBear":null},"phaseContext":null,"bias":{"aligned":true,"alignedCount":3,"strongDailyTrend":true,"dAligned":true,"structuralAligned":true,"m10Aligned":true,"h1Available":true}}
+[TT-TRACE] {"label":"fix_bad_pullback_hard_cap","ticker":"FIX","ts":1751378400000,"phase":"reject","side":"LONG","asOfTs":1751378400000,"state":"HTF_BULL_LTF_BULL","scores":{"htf":38.8,"ltf":13.7,"rank":0},"triggers":{"momentumTrigger":false,"pullbackTrigger":true,"reclaimTrigger":false},"confirmations":{"hasStFlipBull":false,"hasStFlipBear":true,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":false,"ltfRecovering":true,"ltfConfirm":true,"c10FiveTwelveConfirmed":false,"c30FiveTwelveConfirmed":false,"c30FiveTwelveOpposed":true},"clouds":{"c10_5":{"bull":false,"bear":true,"above":false,"below":false,"inCloud":true,"distToCloudPct":0,"fastSlope":0.32887304538769513,"slowSlope":-0.07343149935786641},"c10_8":{"bull":false,"bear":true,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.0000940920611353142,"fastSlope":0.06136531165975612,"slowSlope":0.01259986790671519},"c30_5":{"bull":true,"bear":false,"above":false,"below":true,"inCloud":false,"distToCloudPct":0.003281337072953869,"fastSlope":-1.2073729648689095,"slowSlope":-0.3197275004230278},"c10_34":{"bull":true,"bear":false,"above":false,"below":true,"inCloud":false,"distToCloudPct":0.0007710355837623704,"fastSlope":-0.07598849079920456,"slowSlope":-0.01685704081990025},"c30_34":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.00908751373176434,"fastSlope":0.2951569219007979,"slowSlope":0.3734019564830078}},"st":{"m10":1,"m15":0,"m30":-1,"D":-1,"bearishPullbackCount":0},"rsi":{"m10":43.5,"m30":58.1,"h1":65.9,"h4":47.3,"D":63,"W":66.6},"emaStructure15m":0,"trendExtensionPct":0,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"neutral","blockMomentum":false,"blockReclaim":false,"reasons":["pdz_unfavorable"],"scores":{"atrExtendedCount":0,"atrExhaustedCount":0,"phaseLateCount":0,"phaseExtremeCount":0,"supportiveSignals":1,"counterSignals":2,"adverseDivCount":1,"peakExhaustionCount":1},"peak":{"lateStageConditions":[],"countertrendPeakReasons":["m30_5_12_opposed","m30_rsi_div_bear","h4_5_12_opposed"],"peakExhaustionCount":1},"participation":{"m30":{"available":true,"c5Confirmed":false,"c5Opposed":true,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"supportive","adverseRsiDiv":{"side":"bear","source":"bear","active":true,"strength":3,"barsSince":5},"supportive":false,"late":false,"exhausted":true},"h1":{"available":true,"c5Confirmed":false,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"neutral","adverseRsiDiv":null,"supportive":true,"late":false},"h4":{"available":true,"c5Confirmed":false,"c5Opposed":true,"stDir":1,"stAligned":false,"emaStructure":0.76,"emaAligned":true,"phaseStage":"neutral","adverseRsiDiv":null,"supportive":false,"late":false}}},"divergence":{"adverse":{"count":1,"strongest":{"tf":"30m","strength":3,"barsSince":5,"active":true},"tfs":["30m"]},"dailyBear":null},"phaseContext":null,"reason":"tt_pullback_5_12_not_reclaimed","metadata":{"c10_5":{"bull":false,"bear":true,"above":false,"below":false,"inCloud":true,"distToCloudPct":0,"fastSlope":0.32887304538769513,"slowSlope":-0.07343149935786641},"c10_8":{"bull":false,"bear":true,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.0000940920611353142,"fastSlope":0.06136531165975612,"slowSlope":0.01259986790671519},"c30_5":{"bull":true,"bear":false,"above":false,"below":true,"inCloud":false,"distToCloudPct":0.003281337072953869,"fastSlope":-1.2073729648689095,"slowSlope":-0.3197275004230278}}}
+[TT-TRACE] {"label":"fix_bad_pullback_doa","ticker":"FIX","ts":1751392800000,"phase":"entry","side":"LONG","asOfTs":1751392800000,"state":"HTF_BULL_LTF_BULL","scores":{"htf":39.8,"ltf":16,"rank":0},"triggers":{"momentumTrigger":false,"pullbackTrigger":false,"reclaimTrigger":false},"confirmations":{"hasStFlipBull":false,"hasStFlipBear":false,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":false,"ltfRecovering":false,"ltfConfirm":false,"c10FiveTwelveConfirmed":false,"c30FiveTwelveConfirmed":false,"c30FiveTwelveOpposed":false},"clouds":{"c10_5":{"bull":true,"bear":false,"above":false,"below":false,"inCloud":true,"distToCloudPct":0,"fastSlope":-0.21687467410436057,"slowSlope":0.26749961924690524},"c10_8":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.0007772490307783842,"fastSlope":0.11711366324607297,"slowSlope":0.17878415650386614},"c30_5":{"bull":true,"bear":false,"above":false,"below":true,"inCloud":false,"distToCloudPct":0.003281337072953869,"fastSlope":-1.2073729648689095,"slowSlope":-0.3197275004230278},"c10_34":{"bull":false,"bear":true,"above":false,"below":false,"inCloud":true,"distToCloudPct":0,"fastSlope":0.05975672133649823,"slowSlope":-0.012067096438386216},"c30_34":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.00908751373176434,"fastSlope":0.2951569219007979,"slowSlope":0.3734019564830078}},"st":{"m10":0,"m15":0,"m30":0,"D":0,"bearishPullbackCount":0},"rsi":{"m10":null,"m30":null,"h1":null,"h4":null,"D":null,"W":null},"emaStructure15m":0,"trendExtensionPct":0,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"neutral","blockMomentum":false,"blockReclaim":false,"reasons":["pdz_unfavorable"],"scores":{"atrExtendedCount":0,"atrExhaustedCount":0,"phaseLateCount":0,"phaseExtremeCount":0,"supportiveSignals":2,"counterSignals":2,"adverseDivCount":1,"peakExhaustionCount":1},"peak":{"lateStageConditions":[],"countertrendPeakReasons":["m30_5_12_opposed","m30_rsi_div_bear","h4_5_12_opposed"],"peakExhaustionCount":1},"participation":{"m30":{"available":true,"c5Confirmed":false,"c5Opposed":true,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"supportive","adverseRsiDiv":{"side":"bear","source":"bear","active":true,"strength":3,"barsSince":5},"supportive":false,"late":false,"exhausted":true},"h1":{"available":true,"c5Confirmed":false,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"neutral","adverseRsiDiv":null,"supportive":true,"late":false},"h4":{"available":true,"c5Confirmed":false,"c5Opposed":true,"stDir":1,"stAligned":false,"emaStructure":1,"emaAligned":true,"phaseStage":"supportive","adverseRsiDiv":null,"supportive":false,"late":false}}},"divergence":{"adverse":null,"dailyBear":null},"phaseContext":null,"bias":{"aligned":true,"alignedCount":2,"strongDailyTrend":true,"dAligned":true,"structuralAligned":true,"m10Aligned":false,"h1Available":true}}
+[TT-TRACE] {"label":"fix_bad_pullback_doa","ticker":"FIX","ts":1751392800000,"phase":"reject","side":"LONG","asOfTs":1751392800000,"state":"HTF_BULL_LTF_BULL","scores":{"htf":39.8,"ltf":16,"rank":0},"triggers":{"momentumTrigger":false,"pullbackTrigger":true,"reclaimTrigger":false},"confirmations":{"hasStFlipBull":false,"hasStFlipBear":false,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":false,"ltfRecovering":true,"ltfConfirm":true,"c10FiveTwelveConfirmed":false,"c30FiveTwelveConfirmed":false,"c30FiveTwelveOpposed":true},"clouds":{"c10_5":{"bull":true,"bear":false,"above":false,"below":false,"inCloud":true,"distToCloudPct":0,"fastSlope":-0.21687467410436057,"slowSlope":0.26749961924690524},"c10_8":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.0007772490307783842,"fastSlope":0.11711366324607297,"slowSlope":0.17878415650386614},"c30_5":{"bull":true,"bear":false,"above":false,"below":true,"inCloud":false,"distToCloudPct":0.003281337072953869,"fastSlope":-1.2073729648689095,"slowSlope":-0.3197275004230278},"c10_34":{"bull":false,"bear":true,"above":false,"below":false,"inCloud":true,"distToCloudPct":0,"fastSlope":0.05975672133649823,"slowSlope":-0.012067096438386216},"c30_34":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.00908751373176434,"fastSlope":0.2951569219007979,"slowSlope":0.3734019564830078}},"st":{"m10":-1,"m15":0,"m30":-1,"D":-1,"bearishPullbackCount":0},"rsi":{"m10":52.9,"m30":58.1,"h1":65.9,"h4":54.3,"D":63,"W":66.6},"emaStructure15m":0,"trendExtensionPct":0,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"neutral","blockMomentum":false,"blockReclaim":false,"reasons":["pdz_unfavorable"],"scores":{"atrExtendedCount":0,"atrExhaustedCount":0,"phaseLateCount":0,"phaseExtremeCount":0,"supportiveSignals":2,"counterSignals":2,"adverseDivCount":1,"peakExhaustionCount":1},"peak":{"lateStageConditions":[],"countertrendPeakReasons":["m30_5_12_opposed","m30_rsi_div_bear","h4_5_12_opposed"],"peakExhaustionCount":1},"participation":{"m30":{"available":true,"c5Confirmed":false,"c5Opposed":true,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"supportive","adverseRsiDiv":{"side":"bear","source":"bear","active":true,"strength":3,"barsSince":5},"supportive":false,"late":false,"exhausted":true},"h1":{"available":true,"c5Confirmed":false,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"neutral","adverseRsiDiv":null,"supportive":true,"late":false},"h4":{"available":true,"c5Confirmed":false,"c5Opposed":true,"stDir":1,"stAligned":false,"emaStructure":1,"emaAligned":true,"phaseStage":"supportive","adverseRsiDiv":null,"supportive":false,"late":false}}},"divergence":{"adverse":{"count":1,"strongest":{"tf":"30m","strength":3,"barsSince":5,"active":true},"tfs":["30m"]},"dailyBear":null},"phaseContext":null,"reason":"tt_pullback_5_12_not_reclaimed","metadata":{"c10_5":{"bull":true,"bear":false,"above":false,"below":false,"inCloud":true,"distToCloudPct":0,"fastSlope":-0.21687467410436057,"slowSlope":0.26749961924690524},"c10_8":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.0007772490307783842,"fastSlope":0.11711366324607297,"slowSlope":0.17878415650386614},"c30_5":{"bull":true,"bear":false,"above":false,"below":true,"inCloud":false,"distToCloudPct":0.003281337072953869,"fastSlope":-1.2073729648689095,"slowSlope":-0.3197275004230278}}}
+[TT-TRACE] {"label":"fix_bad_momentum_breakeven","ticker":"FIX","ts":1751895000000,"phase":"entry","side":"LONG","asOfTs":1751895000000,"state":"HTF_BULL_LTF_BULL","scores":{"htf":36.2,"ltf":16.6,"rank":0},"triggers":{"momentumTrigger":false,"pullbackTrigger":false,"reclaimTrigger":false},"confirmations":{"hasStFlipBull":false,"hasStFlipBear":false,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":false,"ltfRecovering":false,"ltfConfirm":false,"c10FiveTwelveConfirmed":false,"c30FiveTwelveConfirmed":false,"c30FiveTwelveOpposed":false},"clouds":{"c10_5":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.004097127156062781,"fastSlope":1.1136690170359316,"slowSlope":0.5693832112855262},"c10_8":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.0048966121974153565,"fastSlope":0.760561532854581,"slowSlope":0.6935183394915612},"c30_5":null,"c10_34":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.012670574114416692,"fastSlope":0.41746400940451167,"slowSlope":0.3674208918661179},"c30_34":null},"st":{"m10":0,"m15":0,"m30":0,"D":0,"bearishPullbackCount":0},"rsi":{"m10":null,"m30":null,"h1":null,"h4":null,"D":null,"W":null},"emaStructure15m":0,"trendExtensionPct":0,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"late_but_trend_ok","blockMomentum":false,"blockReclaim":false,"reasons":["month_atr_exhausted","D_phase_extreme","pdz_unfavorable"],"scores":{"atrExtendedCount":0,"atrExhaustedCount":1,"phaseLateCount":2,"phaseExtremeCount":1,"supportiveSignals":0,"counterSignals":2,"adverseDivCount":0,"peakExhaustionCount":2},"peak":{"lateStageConditions":["h1_phase_late","D_phase_extreme"],"countertrendPeakReasons":[],"peakExhaustionCount":2},"participation":{"m30":null,"h1":{"available":true,"c5Confirmed":true,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"late","adverseRsiDiv":null,"supportive":true,"late":true},"h4":{"available":true,"c5Confirmed":true,"c5Opposed":false,"stDir":1,"stAligned":false,"emaStructure":1,"emaAligned":true,"phaseStage":"neutral","adverseRsiDiv":null,"supportive":true,"late":false}}},"divergence":{"adverse":null,"dailyBear":null},"phaseContext":null,"bias":{"aligned":true,"alignedCount":3,"strongDailyTrend":true,"dAligned":true,"structuralAligned":true,"m10Aligned":true,"h1Available":true}}
+[TT-TRACE] {"label":"fix_bad_momentum_breakeven","ticker":"FIX","ts":1751895000000,"phase":"reject","side":"LONG","asOfTs":1751895000000,"state":"HTF_BULL_LTF_BULL","scores":{"htf":36.2,"ltf":16.6,"rank":0},"triggers":{"momentumTrigger":true,"pullbackTrigger":true,"reclaimTrigger":false},"confirmations":{"hasStFlipBull":false,"hasStFlipBear":false,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":false,"ltfRecovering":true,"ltfConfirm":true,"c10FiveTwelveConfirmed":true,"c30FiveTwelveConfirmed":false,"c30FiveTwelveOpposed":false},"clouds":{"c10_5":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.004097127156062781,"fastSlope":1.1136690170359316,"slowSlope":0.5693832112855262},"c10_8":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.0048966121974153565,"fastSlope":0.760561532854581,"slowSlope":0.6935183394915612},"c30_5":null,"c10_34":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.012670574114416692,"fastSlope":0.41746400940451167,"slowSlope":0.3674208918661179},"c30_34":null},"st":{"m10":-1,"m15":0,"m30":0,"D":-1,"bearishPullbackCount":0},"rsi":{"m10":67.4,"m30":50,"h1":73.5,"h4":65.9,"D":69.3,"W":66.3},"emaStructure15m":0,"trendExtensionPct":0.004097127156062781,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"late_but_trend_ok","blockMomentum":false,"blockReclaim":false,"reasons":["month_atr_exhausted","D_phase_extreme","pdz_unfavorable"],"scores":{"atrExtendedCount":0,"atrExhaustedCount":1,"phaseLateCount":2,"phaseExtremeCount":1,"supportiveSignals":0,"counterSignals":2,"adverseDivCount":0,"peakExhaustionCount":2},"peak":{"lateStageConditions":["h1_phase_late","D_phase_extreme"],"countertrendPeakReasons":[],"peakExhaustionCount":2},"participation":{"m30":null,"h1":{"available":true,"c5Confirmed":true,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"late","adverseRsiDiv":null,"supportive":true,"late":true},"h4":{"available":true,"c5Confirmed":true,"c5Opposed":false,"stDir":1,"stAligned":false,"emaStructure":1,"emaAligned":true,"phaseStage":"neutral","adverseRsiDiv":null,"supportive":true,"late":false}}},"divergence":{"adverse":null,"dailyBear":null},"phaseContext":null,"reason":"tt_pullback_not_deep_enough","metadata":{"stDir15m":0,"stDir30m":0,"stDir1h":-1,"bearishPullbackCount":0,"reclaimTrigger":false}}
+[TT-TRACE] {"label":"fix_good_pullback_control","ticker":"FIX","ts":1752160800000,"phase":"entry","side":"LONG","asOfTs":1752160800000,"state":"HTF_BULL_LTF_PULLBACK","scores":{"htf":38.2,"ltf":-0.8,"rank":0},"triggers":{"momentumTrigger":false,"pullbackTrigger":false,"reclaimTrigger":false},"confirmations":{"hasStFlipBull":false,"hasStFlipBear":false,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":false,"ltfRecovering":false,"ltfConfirm":false,"c10FiveTwelveConfirmed":false,"c30FiveTwelveConfirmed":false,"c30FiveTwelveOpposed":false},"clouds":{"c10_5":{"bull":false,"bear":true,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.004799532630213803,"fastSlope":1.645759541164466,"slowSlope":0.46153178414431295},"c10_8":{"bull":false,"bear":true,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.005976545138084904,"fastSlope":0.947002143749387,"slowSlope":0.7902337395204313},"c30_5":null,"c10_34":{"bull":false,"bear":true,"above":false,"below":true,"inCloud":false,"distToCloudPct":0.0019472896401000843,"fastSlope":-0.06241830410624516,"slowSlope":-0.09032121773554991},"c30_34":null},"st":{"m10":0,"m15":0,"m30":0,"D":0,"bearishPullbackCount":0},"rsi":{"m10":null,"m30":null,"h1":null,"h4":null,"D":null,"W":null},"emaStructure15m":0,"trendExtensionPct":0,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"neutral","blockMomentum":false,"blockReclaim":false,"reasons":["pdz_unfavorable"],"scores":{"atrExtendedCount":0,"atrExhaustedCount":0,"phaseLateCount":0,"phaseExtremeCount":0,"supportiveSignals":1,"counterSignals":2,"adverseDivCount":1,"peakExhaustionCount":1},"peak":{"lateStageConditions":[],"countertrendPeakReasons":["h4_rsi_div_bear"],"peakExhaustionCount":1},"participation":{"m30":null,"h1":{"available":true,"c5Confirmed":false,"c5Opposed":false,"stDir":1,"stAligned":false,"emaStructure":1,"emaAligned":true,"phaseStage":"neutral","adverseRsiDiv":null,"supportive":false,"late":false},"h4":{"available":true,"c5Confirmed":false,"c5Opposed":false,"stDir":1,"stAligned":false,"emaStructure":1,"emaAligned":true,"phaseStage":"supportive","adverseRsiDiv":{"side":"bear","source":"bear","active":true,"strength":9.4,"barsSince":9},"supportive":false,"late":false,"exhausted":true}}},"divergence":{"adverse":null,"dailyBear":null},"phaseContext":null,"bias":{"aligned":true,"alignedCount":2,"strongDailyTrend":true,"dAligned":true,"structuralAligned":true,"m10Aligned":false,"h1Available":true}}
+[TT-TRACE] {"label":"fix_good_pullback_control","ticker":"FIX","ts":1752160800000,"phase":"reject","side":"LONG","asOfTs":1752160800000,"state":"HTF_BULL_LTF_PULLBACK","scores":{"htf":38.2,"ltf":-0.8,"rank":0},"triggers":{"momentumTrigger":false,"pullbackTrigger":true,"reclaimTrigger":false},"confirmations":{"hasStFlipBull":true,"hasStFlipBear":false,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":false,"ltfRecovering":true,"ltfConfirm":true,"c10FiveTwelveConfirmed":false,"c30FiveTwelveConfirmed":false,"c30FiveTwelveOpposed":false},"clouds":{"c10_5":{"bull":false,"bear":true,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.004799532630213803,"fastSlope":1.645759541164466,"slowSlope":0.46153178414431295},"c10_8":{"bull":false,"bear":true,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.005976545138084904,"fastSlope":0.947002143749387,"slowSlope":0.7902337395204313},"c30_5":null,"c10_34":{"bull":false,"bear":true,"above":false,"below":true,"inCloud":false,"distToCloudPct":0.0019472896401000843,"fastSlope":-0.06241830410624516,"slowSlope":-0.09032121773554991},"c30_34":null},"st":{"m10":-1,"m15":0,"m30":0,"D":-1,"bearishPullbackCount":1},"rsi":{"m10":49.5,"m30":50,"h1":51.4,"h4":55.2,"D":62.5,"W":66.3},"emaStructure15m":0,"trendExtensionPct":0.004799532630213803,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"neutral","blockMomentum":false,"blockReclaim":false,"reasons":["pdz_unfavorable"],"scores":{"atrExtendedCount":0,"atrExhaustedCount":0,"phaseLateCount":0,"phaseExtremeCount":0,"supportiveSignals":1,"counterSignals":2,"adverseDivCount":1,"peakExhaustionCount":1},"peak":{"lateStageConditions":[],"countertrendPeakReasons":["h4_rsi_div_bear"],"peakExhaustionCount":1},"participation":{"m30":null,"h1":{"available":true,"c5Confirmed":false,"c5Opposed":false,"stDir":1,"stAligned":false,"emaStructure":1,"emaAligned":true,"phaseStage":"neutral","adverseRsiDiv":null,"supportive":false,"late":false},"h4":{"available":true,"c5Confirmed":false,"c5Opposed":false,"stDir":1,"stAligned":false,"emaStructure":1,"emaAligned":true,"phaseStage":"supportive","adverseRsiDiv":{"side":"bear","source":"bear","active":true,"strength":9.4,"barsSince":9},"supportive":false,"late":false,"exhausted":true}}},"divergence":{"adverse":null,"dailyBear":null},"phaseContext":null,"reason":"tt_pullback_not_deep_enough","metadata":{"stDir15m":0,"stDir30m":0,"stDir1h":1,"bearishPullbackCount":1,"reclaimTrigger":false}}
+[TT-TRACE] {"label":"fix_bad_pullback_late","ticker":"FIX","ts":1753108200000,"phase":"entry","side":"LONG","asOfTs":1753108200000,"state":"HTF_BULL_LTF_BULL","scores":{"htf":43.4,"ltf":4,"rank":0},"triggers":{"momentumTrigger":false,"pullbackTrigger":false,"reclaimTrigger":false},"confirmations":{"hasStFlipBull":false,"hasStFlipBear":false,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":false,"ltfRecovering":false,"ltfConfirm":false,"c10FiveTwelveConfirmed":false,"c30FiveTwelveConfirmed":false,"c30FiveTwelveOpposed":false},"clouds":{"c10_5":{"bull":false,"bear":true,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.0009164449434590883,"fastSlope":0.5329335575323739,"slowSlope":0.09192859227846384},"c10_8":{"bull":false,"bear":true,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.0015019703250632062,"fastSlope":0.26531570546740113,"slowSlope":0.20716113454727747},"c30_5":null,"c10_34":{"bull":true,"bear":false,"above":false,"below":true,"inCloud":false,"distToCloudPct":0.0011649029445108302,"fastSlope":-0.04150414498292321,"slowSlope":-0.026231950163264628},"c30_34":null},"st":{"m10":0,"m15":0,"m30":0,"D":0,"bearishPullbackCount":0},"rsi":{"m10":null,"m30":null,"h1":null,"h4":null,"D":null,"W":null},"emaStructure15m":0,"trendExtensionPct":0,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"neutral","blockMomentum":false,"blockReclaim":false,"reasons":["month_atr_exhausted","W_phase_extreme","pdz_unfavorable"],"scores":{"atrExtendedCount":0,"atrExhaustedCount":1,"phaseLateCount":1,"phaseExtremeCount":1,"supportiveSignals":2,"counterSignals":2,"adverseDivCount":2,"peakExhaustionCount":4},"peak":{"lateStageConditions":[],"countertrendPeakReasons":["h1_5_12_opposed","h1_rsi_div_bear","D_rsi_div_bear"],"peakExhaustionCount":4},"participation":{"m30":null,"h1":{"available":true,"c5Confirmed":false,"c5Opposed":true,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"supportive","adverseRsiDiv":{"side":"bear","source":"bear","active":true,"strength":1.5,"barsSince":9},"supportive":false,"late":false,"exhausted":true},"h4":{"available":true,"c5Confirmed":false,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"supportive","adverseRsiDiv":{"side":"bear","source":"bear","active":false,"strength":6.2,"barsSince":12},"supportive":true,"late":false,"exhausted":false}}},"divergence":{"adverse":null,"dailyBear":null},"phaseContext":null,"bias":{"aligned":true,"alignedCount":3,"strongDailyTrend":true,"dAligned":true,"structuralAligned":true,"m10Aligned":true,"h1Available":true}}
+[TT-TRACE] {"label":"fix_bad_pullback_late","ticker":"FIX","ts":1753108200000,"phase":"reject","side":"LONG","asOfTs":1753108200000,"state":"HTF_BULL_LTF_BULL","scores":{"htf":43.4,"ltf":4,"rank":0},"triggers":{"momentumTrigger":false,"pullbackTrigger":true,"reclaimTrigger":false},"confirmations":{"hasStFlipBull":false,"hasStFlipBear":false,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":false,"ltfRecovering":true,"ltfConfirm":true,"c10FiveTwelveConfirmed":false,"c30FiveTwelveConfirmed":false,"c30FiveTwelveOpposed":false},"clouds":{"c10_5":{"bull":false,"bear":true,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.0009164449434590883,"fastSlope":0.5329335575323739,"slowSlope":0.09192859227846384},"c10_8":{"bull":false,"bear":true,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.0015019703250632062,"fastSlope":0.26531570546740113,"slowSlope":0.20716113454727747},"c30_5":null,"c10_34":{"bull":true,"bear":false,"above":false,"below":true,"inCloud":false,"distToCloudPct":0.0011649029445108302,"fastSlope":-0.04150414498292321,"slowSlope":-0.026231950163264628},"c30_34":null},"st":{"m10":1,"m15":0,"m30":0,"D":-1,"bearishPullbackCount":0},"rsi":{"m10":48.4,"m30":50,"h1":52.4,"h4":60.9,"D":62,"W":78.5},"emaStructure15m":0,"trendExtensionPct":0.0009164449434590883,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"neutral","blockMomentum":false,"blockReclaim":false,"reasons":["month_atr_exhausted","W_phase_extreme","pdz_unfavorable"],"scores":{"atrExtendedCount":0,"atrExhaustedCount":1,"phaseLateCount":1,"phaseExtremeCount":1,"supportiveSignals":2,"counterSignals":2,"adverseDivCount":2,"peakExhaustionCount":4},"peak":{"lateStageConditions":[],"countertrendPeakReasons":["h1_5_12_opposed","h1_rsi_div_bear","D_rsi_div_bear"],"peakExhaustionCount":4},"participation":{"m30":null,"h1":{"available":true,"c5Confirmed":false,"c5Opposed":true,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"supportive","adverseRsiDiv":{"side":"bear","source":"bear","active":true,"strength":1.5,"barsSince":9},"supportive":false,"late":false,"exhausted":true},"h4":{"available":true,"c5Confirmed":false,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"supportive","adverseRsiDiv":{"side":"bear","source":"bear","active":false,"strength":6.2,"barsSince":12},"supportive":true,"late":false,"exhausted":false}}},"divergence":{"adverse":null,"dailyBear":null},"phaseContext":null,"reason":"tt_pullback_not_deep_enough","metadata":{"stDir15m":0,"stDir30m":0,"stDir1h":-1,"bearishPullbackCount":0,"reclaimTrigger":false}}
+[TT-TRACE] {"label":"fix_good_momentum_control","ticker":"FIX","ts":1753380000000,"phase":"entry","side":"LONG","asOfTs":1753380000000,"state":"HTF_BULL_LTF_BULL","scores":{"htf":42.9,"ltf":15.9,"rank":0},"triggers":{"momentumTrigger":false,"pullbackTrigger":false,"reclaimTrigger":false},"confirmations":{"hasStFlipBull":false,"hasStFlipBear":false,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":false,"ltfRecovering":false,"ltfConfirm":false,"c10FiveTwelveConfirmed":false,"c30FiveTwelveConfirmed":false,"c30FiveTwelveOpposed":false},"clouds":{"c10_5":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.0013008115298393504,"fastSlope":0.3631508068141329,"slowSlope":0.39788570485450236},"c10_8":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.002564911201614144,"fastSlope":0.4091729556757855,"slowSlope":0.40860134785032187},"c30_5":null,"c10_34":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.010088811983438365,"fastSlope":0.3413962258723586,"slowSlope":0.30695428528258617},"c30_34":null},"st":{"m10":0,"m15":0,"m30":0,"D":0,"bearishPullbackCount":0},"rsi":{"m10":null,"m30":null,"h1":null,"h4":null,"D":null,"W":null},"emaStructure15m":0,"trendExtensionPct":0,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"neutral","blockMomentum":false,"blockReclaim":false,"reasons":["day_atr_exhausted","week_atr_exhausted","month_atr_exhausted","W_phase_extreme","pdz_unfavorable"],"scores":{"atrExtendedCount":1,"atrExhaustedCount":3,"phaseLateCount":1,"phaseExtremeCount":1,"supportiveSignals":0,"counterSignals":2,"adverseDivCount":0,"peakExhaustionCount":4},"peak":{"lateStageConditions":[],"countertrendPeakReasons":[],"peakExhaustionCount":4},"participation":{"m30":null,"h1":{"available":true,"c5Confirmed":true,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"neutral","adverseRsiDiv":null,"supportive":true,"late":false},"h4":{"available":true,"c5Confirmed":true,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"neutral","adverseRsiDiv":null,"supportive":true,"late":false}}},"divergence":{"adverse":null,"dailyBear":null},"phaseContext":null,"bias":{"aligned":true,"alignedCount":3,"strongDailyTrend":true,"dAligned":true,"structuralAligned":true,"m10Aligned":true,"h1Available":true}}
+[TT-TRACE] {"label":"fix_good_momentum_control","ticker":"FIX","ts":1753380000000,"phase":"reject","side":"LONG","asOfTs":1753380000000,"state":"HTF_BULL_LTF_BULL","scores":{"htf":42.9,"ltf":15.9,"rank":0},"triggers":{"momentumTrigger":true,"pullbackTrigger":true,"reclaimTrigger":false},"confirmations":{"hasStFlipBull":false,"hasStFlipBear":false,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":false,"ltfRecovering":true,"ltfConfirm":true,"c10FiveTwelveConfirmed":true,"c30FiveTwelveConfirmed":false,"c30FiveTwelveOpposed":false},"clouds":{"c10_5":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.0013008115298393504,"fastSlope":0.3631508068141329,"slowSlope":0.39788570485450236},"c10_8":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.002564911201614144,"fastSlope":0.4091729556757855,"slowSlope":0.40860134785032187},"c30_5":null,"c10_34":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.010088811983438365,"fastSlope":0.3413962258723586,"slowSlope":0.30695428528258617},"c30_34":null},"st":{"m10":-1,"m15":0,"m30":0,"D":-1,"bearishPullbackCount":0},"rsi":{"m10":64.8,"m30":50,"h1":62.7,"h4":68.9,"D":65.8,"W":78.5},"emaStructure15m":0,"trendExtensionPct":0.0013008115298393504,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"neutral","blockMomentum":false,"blockReclaim":false,"reasons":["day_atr_exhausted","week_atr_exhausted","month_atr_exhausted","W_phase_extreme","pdz_unfavorable"],"scores":{"atrExtendedCount":1,"atrExhaustedCount":3,"phaseLateCount":1,"phaseExtremeCount":1,"supportiveSignals":0,"counterSignals":2,"adverseDivCount":0,"peakExhaustionCount":4},"peak":{"lateStageConditions":[],"countertrendPeakReasons":[],"peakExhaustionCount":4},"participation":{"m30":null,"h1":{"available":true,"c5Confirmed":true,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"neutral","adverseRsiDiv":null,"supportive":true,"late":false},"h4":{"available":true,"c5Confirmed":true,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"neutral","adverseRsiDiv":null,"supportive":true,"late":false}}},"divergence":{"adverse":null,"dailyBear":null},"phaseContext":null,"reason":"tt_pullback_not_deep_enough","metadata":{"stDir15m":0,"stDir30m":0,"stDir1h":-1,"bearishPullbackCount":0,"reclaimTrigger":false}}
+[TT-TRACE] {"label":"rblx_bad_momentum_hard_cap","ticker":"RBLX","ts":1751376600000,"phase":"entry","side":"LONG","asOfTs":1751376600000,"state":"HTF_BULL_LTF_BULL","scores":{"htf":35.4,"ltf":11.8,"rank":0},"triggers":{"momentumTrigger":false,"pullbackTrigger":false,"reclaimTrigger":false},"confirmations":{"hasStFlipBull":false,"hasStFlipBear":false,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":false,"ltfRecovering":false,"ltfConfirm":false,"c10FiveTwelveConfirmed":false,"c30FiveTwelveConfirmed":false,"c30FiveTwelveOpposed":false},"clouds":{"c10_5":{"bull":false,"bear":true,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.0020641933703461203,"fastSlope":0.12636554490653396,"slowSlope":0.03937764112559705},"c10_8":{"bull":false,"bear":true,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.0022723618144109194,"fastSlope":0.07019418059425675,"slowSlope":0.05960456167341022},"c30_5":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.0030065827799312297,"fastSlope":0.15811618839659047,"slowSlope":0.10077721217840008},"c10_34":{"bull":false,"bear":true,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.001595686168777296,"fastSlope":0.011417182515003788,"slowSlope":0.006833503222267723},"c30_34":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.005513674033988204,"fastSlope":0.03514716575119792,"slowSlope":0.0294648980581087}},"st":{"m10":0,"m15":0,"m30":0,"D":0,"bearishPullbackCount":0},"rsi":{"m10":null,"m30":null,"h1":null,"h4":null,"D":null,"W":null},"emaStructure15m":0,"trendExtensionPct":0,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"late_but_trend_ok","blockMomentum":false,"blockReclaim":false,"reasons":["W_phase_extreme","pdz_unfavorable"],"scores":{"atrExtendedCount":0,"atrExhaustedCount":0,"phaseLateCount":2,"phaseExtremeCount":1,"supportiveSignals":3,"counterSignals":2,"adverseDivCount":1,"peakExhaustionCount":2},"peak":{"lateStageConditions":["D_phase_late"],"countertrendPeakReasons":["h1_rsi_div_bear","D_5_12_opposed"],"peakExhaustionCount":2},"participation":{"m30":{"available":true,"c5Confirmed":true,"c5Opposed":false,"stDir":1,"stAligned":false,"emaStructure":1,"emaAligned":true,"phaseStage":"supportive","adverseRsiDiv":{"side":"bear","source":"bear","active":false,"strength":5.9,"barsSince":12},"supportive":true,"late":false,"exhausted":false},"h1":{"available":true,"c5Confirmed":true,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"supportive","adverseRsiDiv":{"side":"bear","source":"bear","active":true,"strength":11.8,"barsSince":6},"supportive":true,"late":false,"exhausted":true},"h4":{"available":true,"c5Confirmed":true,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"supportive","adverseRsiDiv":{"side":"bear","source":"bear","active":false,"strength":4.7,"barsSince":14},"supportive":true,"late":false,"exhausted":false}}},"divergence":{"adverse":null,"dailyBear":null},"phaseContext":null,"bias":{"aligned":true,"alignedCount":2,"strongDailyTrend":true,"dAligned":true,"structuralAligned":true,"m10Aligned":false,"h1Available":true}}
+[TT-TRACE] {"label":"rblx_bad_momentum_hard_cap","ticker":"RBLX","ts":1751376600000,"phase":"reject","side":"LONG","asOfTs":1751376600000,"state":"HTF_BULL_LTF_BULL","scores":{"htf":35.4,"ltf":11.8,"rank":0},"triggers":{"momentumTrigger":false,"pullbackTrigger":true,"reclaimTrigger":false},"confirmations":{"hasStFlipBull":false,"hasStFlipBear":false,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":false,"ltfRecovering":true,"ltfConfirm":true,"c10FiveTwelveConfirmed":false,"c30FiveTwelveConfirmed":true,"c30FiveTwelveOpposed":false},"clouds":{"c10_5":{"bull":false,"bear":true,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.0020641933703461203,"fastSlope":0.12636554490653396,"slowSlope":0.03937764112559705},"c10_8":{"bull":false,"bear":true,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.0022723618144109194,"fastSlope":0.07019418059425675,"slowSlope":0.05960456167341022},"c30_5":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.0030065827799312297,"fastSlope":0.15811618839659047,"slowSlope":0.10077721217840008},"c10_34":{"bull":false,"bear":true,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.001595686168777296,"fastSlope":0.011417182515003788,"slowSlope":0.006833503222267723},"c30_34":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.005513674033988204,"fastSlope":0.03514716575119792,"slowSlope":0.0294648980581087}},"st":{"m10":-1,"m15":0,"m30":1,"D":-1,"bearishPullbackCount":1},"rsi":{"m10":53.2,"m30":55.5,"h1":56.1,"h4":57.1,"D":62.2,"W":78.3},"emaStructure15m":0,"trendExtensionPct":0.0020641933703461203,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"late_but_trend_ok","blockMomentum":false,"blockReclaim":false,"reasons":["W_phase_extreme","pdz_unfavorable"],"scores":{"atrExtendedCount":0,"atrExhaustedCount":0,"phaseLateCount":2,"phaseExtremeCount":1,"supportiveSignals":3,"counterSignals":2,"adverseDivCount":1,"peakExhaustionCount":2},"peak":{"lateStageConditions":["D_phase_late"],"countertrendPeakReasons":["h1_rsi_div_bear","D_5_12_opposed"],"peakExhaustionCount":2},"participation":{"m30":{"available":true,"c5Confirmed":true,"c5Opposed":false,"stDir":1,"stAligned":false,"emaStructure":1,"emaAligned":true,"phaseStage":"supportive","adverseRsiDiv":{"side":"bear","source":"bear","active":false,"strength":5.9,"barsSince":12},"supportive":true,"late":false,"exhausted":false},"h1":{"available":true,"c5Confirmed":true,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"supportive","adverseRsiDiv":{"side":"bear","source":"bear","active":true,"strength":11.8,"barsSince":6},"supportive":true,"late":false,"exhausted":true},"h4":{"available":true,"c5Confirmed":true,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"supportive","adverseRsiDiv":{"side":"bear","source":"bear","active":false,"strength":4.7,"barsSince":14},"supportive":true,"late":false,"exhausted":false}}},"divergence":{"adverse":{"count":1,"strongest":{"tf":"1h","strength":11.8,"barsSince":6,"active":true},"tfs":["1h"]},"dailyBear":null},"phaseContext":null,"reason":"tt_pullback_not_deep_enough","metadata":{"stDir15m":0,"stDir30m":1,"stDir1h":-1,"bearishPullbackCount":1,"reclaimTrigger":false}}
+[TT-TRACE] {"label":"rblx_good_momentum_control","ticker":"RBLX","ts":1751895000000,"phase":"entry","side":"LONG","asOfTs":1751895000000,"state":"HTF_BULL_LTF_BULL","scores":{"htf":22.9,"ltf":9.9,"rank":0},"triggers":{"momentumTrigger":false,"pullbackTrigger":false,"reclaimTrigger":false},"confirmations":{"hasStFlipBull":false,"hasStFlipBear":false,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":false,"ltfRecovering":false,"ltfConfirm":false,"c10FiveTwelveConfirmed":false,"c30FiveTwelveConfirmed":false,"c30FiveTwelveOpposed":false},"clouds":{"c10_5":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.011429533329627838,"fastSlope":0.5923641386412868,"slowSlope":0.34258727263573974},"c10_8":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.015585388249483162,"fastSlope":0.4615724054286261,"slowSlope":0.4267366294395458},"c30_5":null,"c10_34":{"bull":false,"bear":true,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.015562431539604816,"fastSlope":0.10896417101275802,"slowSlope":0.06584178943828078},"c30_34":null},"st":{"m10":0,"m15":0,"m30":0,"D":0,"bearishPullbackCount":0},"rsi":{"m10":null,"m30":null,"h1":null,"h4":null,"D":null,"W":null},"emaStructure15m":0,"trendExtensionPct":0,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"late_but_trend_ok","blockMomentum":false,"blockReclaim":false,"reasons":["day_atr_exhausted","W_phase_extreme","pdz_unfavorable"],"scores":{"atrExtendedCount":0,"atrExhaustedCount":1,"phaseLateCount":2,"phaseExtremeCount":1,"supportiveSignals":1,"counterSignals":1,"adverseDivCount":0,"peakExhaustionCount":2},"peak":{"lateStageConditions":["D_phase_late"],"countertrendPeakReasons":[],"peakExhaustionCount":2},"participation":{"m30":null,"h1":{"available":true,"c5Confirmed":false,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"supportive","adverseRsiDiv":{"side":"bear","source":"bear","active":false,"strength":11.8,"barsSince":12},"supportive":true,"late":false,"exhausted":false},"h4":null}},"divergence":{"adverse":null,"dailyBear":null},"phaseContext":null,"bias":{"aligned":true,"alignedCount":2,"strongDailyTrend":true,"dAligned":true,"structuralAligned":true,"m10Aligned":false,"h1Available":true}}
+[TT-TRACE] {"label":"rblx_good_momentum_control","ticker":"RBLX","ts":1751895000000,"phase":"reject","side":"LONG","asOfTs":1751895000000,"state":"HTF_BULL_LTF_BULL","scores":{"htf":22.9,"ltf":9.9,"rank":0},"triggers":{"momentumTrigger":true,"pullbackTrigger":true,"reclaimTrigger":true},"confirmations":{"hasStFlipBull":true,"hasStFlipBear":false,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":false,"ltfRecovering":true,"ltfConfirm":true,"c10FiveTwelveConfirmed":true,"c30FiveTwelveConfirmed":false,"c30FiveTwelveOpposed":false},"clouds":{"c10_5":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.011429533329627838,"fastSlope":0.5923641386412868,"slowSlope":0.34258727263573974},"c10_8":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.015585388249483162,"fastSlope":0.4615724054286261,"slowSlope":0.4267366294395458},"c30_5":null,"c10_34":{"bull":false,"bear":true,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.015562431539604816,"fastSlope":0.10896417101275802,"slowSlope":0.06584178943828078},"c30_34":null},"st":{"m10":-1,"m15":0,"m30":0,"D":-1,"bearishPullbackCount":0},"rsi":{"m10":72.4,"m30":50,"h1":59.3,"h4":50,"D":72.4,"W":79.2},"emaStructure15m":0,"trendExtensionPct":0.011429533329627838,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"late_but_trend_ok","blockMomentum":false,"blockReclaim":false,"reasons":["day_atr_exhausted","W_phase_extreme","pdz_unfavorable"],"scores":{"atrExtendedCount":0,"atrExhaustedCount":1,"phaseLateCount":2,"phaseExtremeCount":1,"supportiveSignals":1,"counterSignals":1,"adverseDivCount":0,"peakExhaustionCount":2},"peak":{"lateStageConditions":["D_phase_late"],"countertrendPeakReasons":[],"peakExhaustionCount":2},"participation":{"m30":null,"h1":{"available":true,"c5Confirmed":false,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"supportive","adverseRsiDiv":{"side":"bear","source":"bear","active":false,"strength":11.8,"barsSince":12},"supportive":true,"late":false,"exhausted":false},"h4":null}},"divergence":{"adverse":null,"dailyBear":null},"phaseContext":null,"reason":"tt_pullback_not_deep_enough","metadata":{"stDir15m":0,"stDir30m":0,"stDir1h":-1,"bearishPullbackCount":0,"reclaimTrigger":true}}
+[TT-TRACE] {"label":"rblx_good_pullback_control","ticker":"RBLX","ts":1752162000000,"phase":"entry","side":"LONG","asOfTs":1752162000000,"state":"HTF_BULL_LTF_PULLBACK","scores":{"htf":23.7,"ltf":-13.6,"rank":0},"triggers":{"momentumTrigger":false,"pullbackTrigger":false,"reclaimTrigger":false},"confirmations":{"hasStFlipBull":false,"hasStFlipBear":false,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":false,"ltfRecovering":false,"ltfConfirm":false,"c10FiveTwelveConfirmed":false,"c30FiveTwelveConfirmed":false,"c30FiveTwelveOpposed":false},"clouds":{"c10_5":{"bull":false,"bear":true,"above":false,"below":false,"inCloud":true,"distToCloudPct":0,"fastSlope":0.1631894378812433,"slowSlope":-0.013547154879788081},"c10_8":{"bull":false,"bear":true,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.001258206605903251,"fastSlope":0.05592471784191844,"slowSlope":0.03283290138105599},"c30_5":null,"c10_34":{"bull":false,"bear":true,"above":false,"below":true,"inCloud":false,"distToCloudPct":0.009741506012540093,"fastSlope":-0.06162535742963371,"slowSlope":-0.05086603972407033},"c30_34":null},"st":{"m10":0,"m15":0,"m30":0,"D":0,"bearishPullbackCount":0},"rsi":{"m10":null,"m30":null,"h1":null,"h4":null,"D":null,"W":null},"emaStructure15m":0,"trendExtensionPct":0,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"neutral","blockMomentum":false,"blockReclaim":false,"reasons":["W_phase_extreme","pdz_unfavorable"],"scores":{"atrExtendedCount":0,"atrExhaustedCount":0,"phaseLateCount":1,"phaseExtremeCount":1,"supportiveSignals":1,"counterSignals":1,"adverseDivCount":0,"peakExhaustionCount":1},"peak":{"lateStageConditions":[],"countertrendPeakReasons":["h1_5_12_opposed"],"peakExhaustionCount":1},"participation":{"m30":null,"h1":{"available":true,"c5Confirmed":false,"c5Opposed":true,"stDir":1,"stAligned":false,"emaStructure":0.4,"emaAligned":true,"phaseStage":"neutral","adverseRsiDiv":null,"supportive":false,"late":false},"h4":null}},"divergence":{"adverse":null,"dailyBear":null},"phaseContext":null,"bias":{"aligned":true,"alignedCount":2,"strongDailyTrend":true,"dAligned":true,"structuralAligned":true,"m10Aligned":false,"h1Available":true}}
+[TT-TRACE] {"label":"rblx_good_pullback_control","ticker":"RBLX","ts":1752162000000,"phase":"reject","side":"LONG","asOfTs":1752162000000,"state":"HTF_BULL_LTF_PULLBACK","scores":{"htf":23.7,"ltf":-13.6,"rank":0},"triggers":{"momentumTrigger":false,"pullbackTrigger":false,"reclaimTrigger":false},"confirmations":{"hasStFlipBull":false,"hasStFlipBear":false,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":false,"ltfRecovering":false,"ltfConfirm":false,"c10FiveTwelveConfirmed":false,"c30FiveTwelveConfirmed":false,"c30FiveTwelveOpposed":false},"clouds":{"c10_5":{"bull":false,"bear":true,"above":false,"below":false,"inCloud":true,"distToCloudPct":0,"fastSlope":0.1631894378812433,"slowSlope":-0.013547154879788081},"c10_8":{"bull":false,"bear":true,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.001258206605903251,"fastSlope":0.05592471784191844,"slowSlope":0.03283290138105599},"c30_5":null,"c10_34":{"bull":false,"bear":true,"above":false,"below":true,"inCloud":false,"distToCloudPct":0.009741506012540093,"fastSlope":-0.06162535742963371,"slowSlope":-0.05086603972407033},"c30_34":null},"st":{"m10":1,"m15":0,"m30":0,"D":-1,"bearishPullbackCount":1},"rsi":{"m10":41.9,"m30":50,"h1":40,"h4":50,"D":62.7,"W":79.2},"emaStructure15m":0,"trendExtensionPct":0,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"neutral","blockMomentum":false,"blockReclaim":false,"reasons":["W_phase_extreme","pdz_unfavorable"],"scores":{"atrExtendedCount":0,"atrExhaustedCount":0,"phaseLateCount":1,"phaseExtremeCount":1,"supportiveSignals":1,"counterSignals":1,"adverseDivCount":0,"peakExhaustionCount":1},"peak":{"lateStageConditions":[],"countertrendPeakReasons":["h1_5_12_opposed"],"peakExhaustionCount":1},"participation":{"m30":null,"h1":{"available":true,"c5Confirmed":false,"c5Opposed":true,"stDir":1,"stAligned":false,"emaStructure":0.4,"emaAligned":true,"phaseStage":"neutral","adverseRsiDiv":null,"supportive":false,"late":false},"h4":null}},"divergence":{"adverse":null,"dailyBear":null},"phaseContext":{"phaseD":31.4,"prevPhaseD":61.55,"phase4h":null,"prevPhase4h":null,"phaseDLeaving":false,"phase4hLeaving":false,"phaseResetReady":false},"reason":"tt_no_trigger","metadata":{"cloudAlignment":{"D":"bull","h1":"bull","m10":"bear"}}}
+[TT-TRACE] {"label":"rblx_bad_momentum_soft_fuse","ticker":"RBLX","ts":1752674400000,"phase":"entry","side":"LONG","asOfTs":1752674400000,"state":"HTF_BULL_LTF_BULL","scores":{"htf":25.2,"ltf":18.7,"rank":0},"triggers":{"momentumTrigger":false,"pullbackTrigger":false,"reclaimTrigger":false},"confirmations":{"hasStFlipBull":false,"hasStFlipBear":false,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":false,"ltfRecovering":false,"ltfConfirm":false,"c10FiveTwelveConfirmed":false,"c30FiveTwelveConfirmed":false,"c30FiveTwelveOpposed":false},"clouds":{"c10_5":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.010244051367912956,"fastSlope":0.5896988169939306,"slowSlope":0.34101487516942086},"c10_8":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.01370392555905587,"fastSlope":0.45078084274689445,"slowSlope":0.41749963247613664},"c30_5":null,"c10_34":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.02082419881243069,"fastSlope":0.14530242480455513,"slowSlope":0.10462455090637945},"c30_34":null},"st":{"m10":0,"m15":0,"m30":0,"D":0,"bearishPullbackCount":0},"rsi":{"m10":null,"m30":null,"h1":null,"h4":null,"D":null,"W":null},"emaStructure15m":0,"trendExtensionPct":0,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"countertrend_peak_risk","blockMomentum":true,"blockReclaim":true,"reasons":["day_atr_exhausted","week_atr_exhausted","month_atr_exhausted","h1_phase_extreme","D_phase_extreme"],"scores":{"atrExtendedCount":3,"atrExhaustedCount":3,"phaseLateCount":3,"phaseExtremeCount":3,"supportiveSignals":1,"counterSignals":1,"adverseDivCount":0,"peakExhaustionCount":6},"peak":{"lateStageConditions":["h1_phase_extreme","D_phase_extreme"],"countertrendPeakReasons":[],"peakExhaustionCount":6},"participation":{"m30":null,"h1":{"available":true,"c5Confirmed":true,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"extreme","adverseRsiDiv":{"side":"bear","source":"bear","active":false,"strength":14.7,"barsSince":14},"supportive":true,"late":true,"exhausted":true},"h4":null}},"divergence":{"adverse":null,"dailyBear":null},"phaseContext":null,"bias":{"aligned":true,"alignedCount":3,"strongDailyTrend":true,"dAligned":true,"structuralAligned":true,"m10Aligned":true,"h1Available":true}}
+[TT-TRACE] {"label":"rblx_bad_momentum_soft_fuse","ticker":"RBLX","ts":1752674400000,"phase":"reject","side":"LONG","asOfTs":1752674400000,"state":"HTF_BULL_LTF_BULL","scores":{"htf":25.2,"ltf":18.7,"rank":0},"triggers":{"momentumTrigger":true,"pullbackTrigger":true,"reclaimTrigger":false},"confirmations":{"hasStFlipBull":false,"hasStFlipBear":false,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":true,"ltfRecovering":true,"ltfConfirm":true,"c10FiveTwelveConfirmed":true,"c30FiveTwelveConfirmed":false,"c30FiveTwelveOpposed":false},"clouds":{"c10_5":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.010244051367912956,"fastSlope":0.5896988169939306,"slowSlope":0.34101487516942086},"c10_8":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.01370392555905587,"fastSlope":0.45078084274689445,"slowSlope":0.41749963247613664},"c30_5":null,"c10_34":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.02082419881243069,"fastSlope":0.14530242480455513,"slowSlope":0.10462455090637945},"c30_34":null},"st":{"m10":-1,"m15":0,"m30":0,"D":-1,"bearishPullbackCount":0},"rsi":{"m10":77.1,"m30":50,"h1":78,"h4":50,"D":77.8,"W":85.1},"emaStructure15m":0,"trendExtensionPct":0.010244051367912956,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"countertrend_peak_risk","blockMomentum":true,"blockReclaim":true,"reasons":["day_atr_exhausted","week_atr_exhausted","month_atr_exhausted","h1_phase_extreme","D_phase_extreme"],"scores":{"atrExtendedCount":3,"atrExhaustedCount":3,"phaseLateCount":3,"phaseExtremeCount":3,"supportiveSignals":1,"counterSignals":1,"adverseDivCount":0,"peakExhaustionCount":6},"peak":{"lateStageConditions":["h1_phase_extreme","D_phase_extreme"],"countertrendPeakReasons":[],"peakExhaustionCount":6},"participation":{"m30":null,"h1":{"available":true,"c5Confirmed":true,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"extreme","adverseRsiDiv":{"side":"bear","source":"bear","active":false,"strength":14.7,"barsSince":14},"supportive":true,"late":true,"exhausted":true},"h4":null}},"divergence":{"adverse":null,"dailyBear":null},"phaseContext":null,"reason":"tt_pullback_not_deep_enough","metadata":{"stDir15m":0,"stDir30m":0,"stDir1h":-1,"bearishPullbackCount":0,"reclaimTrigger":false}}
+[TT-TRACE] {"label":"rblx_bad_momentum_confirmed","ticker":"RBLX","ts":1752761400000,"phase":"entry","side":"LONG","asOfTs":1752761400000,"state":"HTF_BULL_LTF_BULL","scores":{"htf":24.8,"ltf":14.9,"rank":0},"triggers":{"momentumTrigger":false,"pullbackTrigger":false,"reclaimTrigger":false},"confirmations":{"hasStFlipBull":false,"hasStFlipBear":false,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":false,"ltfRecovering":false,"ltfConfirm":false,"c10FiveTwelveConfirmed":false,"c30FiveTwelveConfirmed":false,"c30FiveTwelveOpposed":false},"clouds":{"c10_5":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.005520393419491809,"fastSlope":0.3345358412212107,"slowSlope":0.1894506698607188},"c10_8":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.0073363585655250255,"fastSlope":0.25404761661189923,"slowSlope":0.23427537067777848},"c30_5":null,"c10_34":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.011734849103915307,"fastSlope":0.08619780069057015,"slowSlope":0.07099548003745326},"c30_34":null},"st":{"m10":0,"m15":0,"m30":0,"D":0,"bearishPullbackCount":0},"rsi":{"m10":null,"m30":null,"h1":null,"h4":null,"D":null,"W":null},"emaStructure15m":0,"trendExtensionPct":0,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"countertrend_peak_risk","blockMomentum":true,"blockReclaim":true,"reasons":["day_atr_exhausted","week_atr_exhausted","month_atr_exhausted","D_phase_extreme","W_phase_extreme"],"scores":{"atrExtendedCount":2,"atrExhaustedCount":3,"phaseLateCount":3,"phaseExtremeCount":2,"supportiveSignals":1,"counterSignals":1,"adverseDivCount":0,"peakExhaustionCount":5},"peak":{"lateStageConditions":["h1_phase_late","D_phase_extreme"],"countertrendPeakReasons":[],"peakExhaustionCount":5},"participation":{"m30":null,"h1":{"available":true,"c5Confirmed":true,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"late","adverseRsiDiv":null,"supportive":true,"late":true},"h4":null}},"divergence":{"adverse":null,"dailyBear":null},"phaseContext":null,"bias":{"aligned":true,"alignedCount":3,"strongDailyTrend":true,"dAligned":true,"structuralAligned":true,"m10Aligned":true,"h1Available":true}}
+[TT-TRACE] {"label":"rblx_bad_momentum_confirmed","ticker":"RBLX","ts":1752761400000,"phase":"reject","side":"LONG","asOfTs":1752761400000,"state":"HTF_BULL_LTF_BULL","scores":{"htf":24.8,"ltf":14.9,"rank":0},"triggers":{"momentumTrigger":true,"pullbackTrigger":true,"reclaimTrigger":false},"confirmations":{"hasStFlipBull":false,"hasStFlipBear":false,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":false,"ltfRecovering":true,"ltfConfirm":true,"c10FiveTwelveConfirmed":true,"c30FiveTwelveConfirmed":false,"c30FiveTwelveOpposed":false},"clouds":{"c10_5":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.005520393419491809,"fastSlope":0.3345358412212107,"slowSlope":0.1894506698607188},"c10_8":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.0073363585655250255,"fastSlope":0.25404761661189923,"slowSlope":0.23427537067777848},"c30_5":null,"c10_34":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.011734849103915307,"fastSlope":0.08619780069057015,"slowSlope":0.07099548003745326},"c30_34":null},"st":{"m10":-1,"m15":0,"m30":0,"D":-1,"bearishPullbackCount":0},"rsi":{"m10":67.4,"m30":50,"h1":74.8,"h4":50,"D":79.9,"W":85.1},"emaStructure15m":0,"trendExtensionPct":0.005520393419491809,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"countertrend_peak_risk","blockMomentum":true,"blockReclaim":true,"reasons":["day_atr_exhausted","week_atr_exhausted","month_atr_exhausted","D_phase_extreme","W_phase_extreme"],"scores":{"atrExtendedCount":2,"atrExhaustedCount":3,"phaseLateCount":3,"phaseExtremeCount":2,"supportiveSignals":1,"counterSignals":1,"adverseDivCount":0,"peakExhaustionCount":5},"peak":{"lateStageConditions":["h1_phase_late","D_phase_extreme"],"countertrendPeakReasons":[],"peakExhaustionCount":5},"participation":{"m30":null,"h1":{"available":true,"c5Confirmed":true,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"late","adverseRsiDiv":null,"supportive":true,"late":true},"h4":null}},"divergence":{"adverse":null,"dailyBear":null},"phaseContext":null,"reason":"tt_pullback_not_deep_enough","metadata":{"stDir15m":0,"stDir30m":0,"stDir1h":-1,"bearishPullbackCount":0,"reclaimTrigger":false}}
+[TT-TRACE] {"label":"rblx_bad_momentum_late","ticker":"RBLX","ts":1752846000000,"phase":"entry","side":"LONG","asOfTs":1752846000000,"state":"HTF_BULL_LTF_BULL","scores":{"htf":23.9,"ltf":12,"rank":0},"triggers":{"momentumTrigger":false,"pullbackTrigger":false,"reclaimTrigger":false},"confirmations":{"hasStFlipBull":false,"hasStFlipBear":false,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":false,"ltfRecovering":false,"ltfConfirm":false,"c10FiveTwelveConfirmed":false,"c30FiveTwelveConfirmed":false,"c30FiveTwelveOpposed":false},"clouds":{"c10_5":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.007217209062807284,"fastSlope":0.4470339293502974,"slowSlope":0.2101409682465203},"c10_8":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.008645900577630957,"fastSlope":0.3060154753019759,"slowSlope":0.2755800088330176},"c30_5":null,"c10_34":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.009834386430213754,"fastSlope":0.07383538127120914,"slowSlope":0.05509025225465791},"c30_34":null},"st":{"m10":0,"m15":0,"m30":0,"D":0,"bearishPullbackCount":0},"rsi":{"m10":null,"m30":null,"h1":null,"h4":null,"D":null,"W":null},"emaStructure15m":0,"trendExtensionPct":0,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"countertrend_peak_risk","blockMomentum":true,"blockReclaim":true,"reasons":["week_atr_exhausted","month_atr_exhausted","D_phase_extreme","W_phase_extreme","pdz_unfavorable"],"scores":{"atrExtendedCount":2,"atrExhaustedCount":2,"phaseLateCount":2,"phaseExtremeCount":2,"supportiveSignals":0,"counterSignals":1,"adverseDivCount":0,"peakExhaustionCount":4},"peak":{"lateStageConditions":["D_phase_extreme"],"countertrendPeakReasons":[],"peakExhaustionCount":4},"participation":{"m30":null,"h1":{"available":true,"c5Confirmed":true,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"neutral","adverseRsiDiv":null,"supportive":true,"late":false},"h4":null}},"divergence":{"adverse":null,"dailyBear":null},"phaseContext":null,"bias":{"aligned":true,"alignedCount":3,"strongDailyTrend":true,"dAligned":true,"structuralAligned":true,"m10Aligned":true,"h1Available":true}}
+[TT-TRACE] {"label":"rblx_bad_momentum_late","ticker":"RBLX","ts":1752846000000,"phase":"reject","side":"LONG","asOfTs":1752846000000,"state":"HTF_BULL_LTF_BULL","scores":{"htf":23.9,"ltf":12,"rank":0},"triggers":{"momentumTrigger":true,"pullbackTrigger":true,"reclaimTrigger":false},"confirmations":{"hasStFlipBull":false,"hasStFlipBear":false,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":false,"ltfRecovering":true,"ltfConfirm":true,"c10FiveTwelveConfirmed":true,"c30FiveTwelveConfirmed":false,"c30FiveTwelveOpposed":false},"clouds":{"c10_5":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.007217209062807284,"fastSlope":0.4470339293502974,"slowSlope":0.2101409682465203},"c10_8":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.008645900577630957,"fastSlope":0.3060154753019759,"slowSlope":0.2755800088330176},"c30_5":null,"c10_34":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.009834386430213754,"fastSlope":0.07383538127120914,"slowSlope":0.05509025225465791},"c30_34":null},"st":{"m10":-1,"m15":0,"m30":0,"D":-1,"bearishPullbackCount":0},"rsi":{"m10":61.6,"m30":50,"h1":74.5,"h4":50,"D":81.3,"W":85.1},"emaStructure15m":0,"trendExtensionPct":0.007217209062807284,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"countertrend_peak_risk","blockMomentum":true,"blockReclaim":true,"reasons":["week_atr_exhausted","month_atr_exhausted","D_phase_extreme","W_phase_extreme","pdz_unfavorable"],"scores":{"atrExtendedCount":2,"atrExhaustedCount":2,"phaseLateCount":2,"phaseExtremeCount":2,"supportiveSignals":0,"counterSignals":1,"adverseDivCount":0,"peakExhaustionCount":4},"peak":{"lateStageConditions":["D_phase_extreme"],"countertrendPeakReasons":[],"peakExhaustionCount":4},"participation":{"m30":null,"h1":{"available":true,"c5Confirmed":true,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"neutral","adverseRsiDiv":null,"supportive":true,"late":false},"h4":null}},"divergence":{"adverse":null,"dailyBear":null},"phaseContext":null,"reason":"tt_pullback_not_deep_enough","metadata":{"stDir15m":0,"stDir30m":0,"stDir1h":-1,"bearishPullbackCount":0,"reclaimTrigger":false}}
+[TT-TRACE] {"label":"rblx_bad_pullback_hard_cap","ticker":"RBLX","ts":1753118400000,"phase":"entry","side":"LONG","asOfTs":1753118400000,"state":"HTF_BULL_LTF_BULL","scores":{"htf":24.5,"ltf":16.1,"rank":0},"triggers":{"momentumTrigger":false,"pullbackTrigger":false,"reclaimTrigger":false},"confirmations":{"hasStFlipBull":false,"hasStFlipBear":false,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":false,"ltfRecovering":false,"ltfConfirm":false,"c10FiveTwelveConfirmed":false,"c30FiveTwelveConfirmed":false,"c30FiveTwelveOpposed":false},"clouds":{"c10_5":{"bull":true,"bear":false,"above":false,"below":false,"inCloud":true,"distToCloudPct":0,"fastSlope":-0.0019168726042693152,"slowSlope":0.033228445506523485},"c10_8":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.0006723929906639999,"fastSlope":0.024389422781922576,"slowSlope":0.02739791267470082},"c30_5":null,"c10_34":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.006480536915391121,"fastSlope":0.0498624293064438,"slowSlope":0.048986627113905},"c30_34":null},"st":{"m10":0,"m15":0,"m30":0,"D":0,"bearishPullbackCount":0},"rsi":{"m10":null,"m30":null,"h1":null,"h4":null,"D":null,"W":null},"emaStructure15m":0,"trendExtensionPct":0,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"countertrend_peak_risk","blockMomentum":true,"blockReclaim":true,"reasons":["day_atr_exhausted","week_atr_exhausted","month_atr_exhausted","D_phase_extreme","W_phase_extreme"],"scores":{"atrExtendedCount":1,"atrExhaustedCount":3,"phaseLateCount":3,"phaseExtremeCount":2,"supportiveSignals":0,"counterSignals":1,"adverseDivCount":0,"peakExhaustionCount":5},"peak":{"lateStageConditions":["h1_phase_late","D_phase_extreme"],"countertrendPeakReasons":[],"peakExhaustionCount":5},"participation":{"m30":null,"h1":{"available":true,"c5Confirmed":true,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"late","adverseRsiDiv":{"side":"bear","source":"bear","active":false,"strength":6,"barsSince":16},"supportive":true,"late":true,"exhausted":false},"h4":null}},"divergence":{"adverse":null,"dailyBear":null},"phaseContext":null,"bias":{"aligned":true,"alignedCount":3,"strongDailyTrend":true,"dAligned":true,"structuralAligned":true,"m10Aligned":true,"h1Available":true}}
+[TT-TRACE] {"label":"rblx_bad_pullback_hard_cap","ticker":"RBLX","ts":1753118400000,"phase":"reject","side":"LONG","asOfTs":1753118400000,"state":"HTF_BULL_LTF_BULL","scores":{"htf":24.5,"ltf":16.1,"rank":0},"triggers":{"momentumTrigger":false,"pullbackTrigger":true,"reclaimTrigger":false},"confirmations":{"hasStFlipBull":false,"hasStFlipBear":false,"hasEmaCrossBull":false,"hasEmaCrossBear":false,"hasSqRelease":false,"ltfRecovering":true,"ltfConfirm":true,"c10FiveTwelveConfirmed":false,"c30FiveTwelveConfirmed":false,"c30FiveTwelveOpposed":false},"clouds":{"c10_5":{"bull":true,"bear":false,"above":false,"below":false,"inCloud":true,"distToCloudPct":0,"fastSlope":-0.0019168726042693152,"slowSlope":0.033228445506523485},"c10_8":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.0006723929906639999,"fastSlope":0.024389422781922576,"slowSlope":0.02739791267470082},"c30_5":null,"c10_34":{"bull":true,"bear":false,"above":true,"below":false,"inCloud":false,"distToCloudPct":0.006480536915391121,"fastSlope":0.0498624293064438,"slowSlope":0.048986627113905},"c30_34":null},"st":{"m10":-1,"m15":0,"m30":0,"D":-1,"bearishPullbackCount":0},"rsi":{"m10":56.8,"m30":50,"h1":67.9,"h4":50,"D":81.3,"W":77.9},"emaStructure15m":0,"trendExtensionPct":0,"gapContext":null,"cvgContext":null,"entrySupport":null,"movePhase":{"profile":"countertrend_peak_risk","blockMomentum":true,"blockReclaim":true,"reasons":["day_atr_exhausted","week_atr_exhausted","month_atr_exhausted","D_phase_extreme","W_phase_extreme"],"scores":{"atrExtendedCount":1,"atrExhaustedCount":3,"phaseLateCount":3,"phaseExtremeCount":2,"supportiveSignals":0,"counterSignals":1,"adverseDivCount":0,"peakExhaustionCount":5},"peak":{"lateStageConditions":["h1_phase_late","D_phase_extreme"],"countertrendPeakReasons":[],"peakExhaustionCount":5},"participation":{"m30":null,"h1":{"available":true,"c5Confirmed":true,"c5Opposed":false,"stDir":-1,"stAligned":true,"emaStructure":1,"emaAligned":true,"phaseStage":"late","adverseRsiDiv":{"side":"bear","source":"bear","active":false,"strength":6,"barsSince":16},"supportive":true,"late":true,"exhausted":false},"h4":null}},"divergence":{"adverse":null,"dailyBear":null},"phaseContext":null,"reason":"tt_pullback_not_deep_enough","metadata":{"stDir15m":0,"stDir30m":0,"stDir1h":-1,"bearishPullbackCount":0,"reclaimTrigger":false}}
+[
+  {
+    "label": "fix_bad_pullback_hard_cap",
+    "ticker": "FIX",
+    "ts": 1751378400000,
+    "bundleStatus": {
+      "10": {
+        "count": 600,
+        "lastTs": 1751378400000,
+        "ageMs": 0,
+        "fresh": true
+      },
+      "30": {
+        "count": 500,
+        "lastTs": 1751311800000,
+        "ageMs": 66600000,
+        "fresh": true
+      },
+      "60": {
+        "count": 500,
+        "lastTs": 1751311800000,
+        "ageMs": 66600000,
+        "fresh": true
+      },
+      "240": {
+        "count": 500,
+        "lastTs": 1751371200000,
+        "ageMs": 7200000,
+        "fresh": true
+      },
+      "M": {
+        "count": 146,
+        "lastTs": 1751342400000,
+        "ageMs": 36000000,
+        "fresh": true
+      },
+      "W": {
+        "count": 282,
+        "lastTs": 1751256000000,
+        "ageMs": 122400000,
+        "fresh": true
+      },
+      "D": {
+        "count": 212,
+        "lastTs": 1751342400000,
+        "ageMs": 36000000,
+        "fresh": true
+      }
+    },
+    "state": "HTF_BULL_LTF_BULL",
+    "side": "LONG",
+    "rank": null,
+    "price": 535.64,
+    "universalGate": {
+      "pass": true
+    },
+    "entryResult": {
+      "qualifies": false,
+      "reason": "tt_pullback_5_12_not_reclaimed",
+      "path": null,
+      "confidence": null,
+      "metadata": {
+        "c10_5": {
+          "bull": false,
+          "bear": true,
+          "above": false,
+          "below": false,
+          "inCloud": true,
+          "distToCloudPct": 0,
+          "fastSlope": 0.32887304538769513,
+          "slowSlope": -0.07343149935786641
+        },
+        "c10_8": {
+          "bull": false,
+          "bear": true,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "distToCloudPct": 0.0000940920611353142,
+          "fastSlope": 0.06136531165975612,
+          "slowSlope": 0.01259986790671519
+        },
+        "c30_5": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": true,
+          "inCloud": false,
+          "distToCloudPct": 0.003281337072953869,
+          "fastSlope": -1.2073729648689095,
+          "slowSlope": -0.3197275004230278
+        }
+      }
+    },
+    "contextGate": {
+      "pass": true
+    },
+    "enriched": null,
+    "tf": {
+      "m10": {
+        "stDir": 1,
+        "emaStructure": 0.4,
+        "emaDepth": 9,
+        "rsi": 43.5,
+        "c5_12": {
+          "bull": false,
+          "bear": true,
+          "above": false,
+          "below": false,
+          "inCloud": true,
+          "fastSlope": 0.32887304538769513,
+          "slowSlope": -0.07343149935786641,
+          "distToCloudPct": 0,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": false,
+          "bear": true,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.06136531165975612,
+          "slowSlope": 0.01259986790671519,
+          "distToCloudPct": 0.0000940920611353142,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": true,
+          "inCloud": false,
+          "fastSlope": -0.07598849079920456,
+          "slowSlope": -0.01685704081990025,
+          "distToCloudPct": 0.0007710355837623704,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "m15": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "m30": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 9,
+        "rsi": 58.1,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": true,
+          "inCloud": false,
+          "fastSlope": -1.2073729648689095,
+          "slowSlope": -0.3197275004230278,
+          "distToCloudPct": 0.003281337072953869,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": true,
+          "inCloud": false,
+          "fastSlope": -0.6931659574515834,
+          "slowSlope": -0.5779006079287683,
+          "distToCloudPct": 0.004313415612915704,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.2951569219007979,
+          "slowSlope": 0.3734019564830078,
+          "distToCloudPct": 0.00908751373176434,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "h1": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 11,
+        "rsi": 65.9,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": false,
+          "inCloud": true,
+          "fastSlope": -0.9337875423797186,
+          "slowSlope": 0.22139602895015287,
+          "distToCloudPct": 0,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": true,
+          "inCloud": false,
+          "fastSlope": -0.2500264850422127,
+          "slowSlope": -0.09930495231174064,
+          "distToCloudPct": 0.0007412062314255438,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.7142378598300638,
+          "slowSlope": 0.6839078984575053,
+          "distToCloudPct": 0.02199049345395757,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "h4": {
+        "stDir": 1,
+        "emaStructure": 0.76,
+        "emaDepth": 7,
+        "rsi": 47.3,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": true,
+          "inCloud": false,
+          "fastSlope": -7.09334650264816,
+          "slowSlope": -2.0842756199810992,
+          "distToCloudPct": 0.022355840105106176,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": true,
+          "inCloud": false,
+          "fastSlope": -3.9529717985484467,
+          "slowSlope": -3.3309958771455968,
+          "distToCloudPct": 0.025984073928297016,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": false,
+          "inCloud": true,
+          "fastSlope": -0.009876772157440428,
+          "slowSlope": 0.24400346818691787,
+          "distToCloudPct": 0,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "D": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 12,
+        "rsi": 63,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": false,
+          "inCloud": true,
+          "fastSlope": -0.7294188887792643,
+          "slowSlope": 1.483433221212067,
+          "distToCloudPct": 0,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.8691166156260124,
+          "slowSlope": 1.100342314898171,
+          "distToCloudPct": 0.005831208363092576,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 2.1416906045823225,
+          "slowSlope": 2.166336132863023,
+          "distToCloudPct": 0.06774123945790117,
+          "crossUp": false,
+          "crossDn": false
+        }
+      }
+    }
+  },
+  {
+    "label": "fix_bad_pullback_doa",
+    "ticker": "FIX",
+    "ts": 1751392800000,
+    "bundleStatus": {
+      "10": {
+        "count": 600,
+        "lastTs": 1751392800000,
+        "ageMs": 0,
+        "fresh": true
+      },
+      "30": {
+        "count": 500,
+        "lastTs": 1751311800000,
+        "ageMs": 81000000,
+        "fresh": true
+      },
+      "60": {
+        "count": 500,
+        "lastTs": 1751311800000,
+        "ageMs": 81000000,
+        "fresh": true
+      },
+      "240": {
+        "count": 500,
+        "lastTs": 1751385600000,
+        "ageMs": 7200000,
+        "fresh": true
+      },
+      "M": {
+        "count": 146,
+        "lastTs": 1751342400000,
+        "ageMs": 50400000,
+        "fresh": true
+      },
+      "W": {
+        "count": 282,
+        "lastTs": 1751256000000,
+        "ageMs": 136800000,
+        "fresh": true
+      },
+      "D": {
+        "count": 212,
+        "lastTs": 1751342400000,
+        "ageMs": 50400000,
+        "fresh": true
+      }
+    },
+    "state": "HTF_BULL_LTF_BULL",
+    "side": "LONG",
+    "rank": null,
+    "price": 527.37,
+    "universalGate": {
+      "pass": true
+    },
+    "entryResult": {
+      "qualifies": false,
+      "reason": "tt_pullback_5_12_not_reclaimed",
+      "path": null,
+      "confidence": null,
+      "metadata": {
+        "c10_5": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": false,
+          "inCloud": true,
+          "distToCloudPct": 0,
+          "fastSlope": -0.21687467410436057,
+          "slowSlope": 0.26749961924690524
+        },
+        "c10_8": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "distToCloudPct": 0.0007772490307783842,
+          "fastSlope": 0.11711366324607297,
+          "slowSlope": 0.17878415650386614
+        },
+        "c30_5": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": true,
+          "inCloud": false,
+          "distToCloudPct": 0.003281337072953869,
+          "fastSlope": -1.2073729648689095,
+          "slowSlope": -0.3197275004230278
+        }
+      }
+    },
+    "contextGate": {
+      "pass": true
+    },
+    "enriched": null,
+    "tf": {
+      "m10": {
+        "stDir": -1,
+        "emaStructure": 0.2,
+        "emaDepth": 9,
+        "rsi": 52.9,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": false,
+          "inCloud": true,
+          "fastSlope": -0.21687467410436057,
+          "slowSlope": 0.26749961924690524,
+          "distToCloudPct": 0,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.11711366324607297,
+          "slowSlope": 0.17878415650386614,
+          "distToCloudPct": 0.0007772490307783842,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": false,
+          "bear": true,
+          "above": false,
+          "below": false,
+          "inCloud": true,
+          "fastSlope": 0.05975672133649823,
+          "slowSlope": -0.012067096438386216,
+          "distToCloudPct": 0,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "m15": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "m30": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 9,
+        "rsi": 58.1,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": true,
+          "inCloud": false,
+          "fastSlope": -1.2073729648689095,
+          "slowSlope": -0.3197275004230278,
+          "distToCloudPct": 0.003281337072953869,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": true,
+          "inCloud": false,
+          "fastSlope": -0.6931659574515834,
+          "slowSlope": -0.5779006079287683,
+          "distToCloudPct": 0.004313415612915704,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.2951569219007979,
+          "slowSlope": 0.3734019564830078,
+          "distToCloudPct": 0.00908751373176434,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "h1": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 11,
+        "rsi": 65.9,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": false,
+          "inCloud": true,
+          "fastSlope": -0.9337875423797186,
+          "slowSlope": 0.22139602895015287,
+          "distToCloudPct": 0,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": true,
+          "inCloud": false,
+          "fastSlope": -0.2500264850422127,
+          "slowSlope": -0.09930495231174064,
+          "distToCloudPct": 0.0007412062314255438,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.7142378598300638,
+          "slowSlope": 0.6839078984575053,
+          "distToCloudPct": 0.02199049345395757,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "h4": {
+        "stDir": 1,
+        "emaStructure": 1,
+        "emaDepth": 9,
+        "rsi": 54.3,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": true,
+          "inCloud": false,
+          "fastSlope": -1.753897668432046,
+          "slowSlope": -0.3905409092146783,
+          "distToCloudPct": 0.004117260879204661,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": true,
+          "inCloud": false,
+          "fastSlope": -1.0912002877598752,
+          "slowSlope": -0.8797967017164865,
+          "distToCloudPct": 0.0067456139675406285,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.5006876148229367,
+          "slowSlope": 0.584434704268574,
+          "distToCloudPct": 0.015835433476287183,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "D": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 12,
+        "rsi": 63,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": false,
+          "inCloud": true,
+          "fastSlope": -0.7294188887792643,
+          "slowSlope": 1.483433221212067,
+          "distToCloudPct": 0,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.8691166156260124,
+          "slowSlope": 1.100342314898171,
+          "distToCloudPct": 0.005831208363092576,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 2.1416906045823225,
+          "slowSlope": 2.166336132863023,
+          "distToCloudPct": 0.06774123945790117,
+          "crossUp": false,
+          "crossDn": false
+        }
+      }
+    }
+  },
+  {
+    "label": "fix_bad_momentum_breakeven",
+    "ticker": "FIX",
+    "ts": 1751895000000,
+    "bundleStatus": {
+      "10": {
+        "count": 600,
+        "lastTs": 1751895000000,
+        "ageMs": 0,
+        "fresh": true
+      },
+      "30": {
+        "count": 500,
+        "lastTs": 1751311800000,
+        "ageMs": 583200000,
+        "fresh": false
+      },
+      "60": {
+        "count": 500,
+        "lastTs": 1751893200000,
+        "ageMs": 1800000,
+        "fresh": true
+      },
+      "240": {
+        "count": 500,
+        "lastTs": 1751889600000,
+        "ageMs": 5400000,
+        "fresh": true
+      },
+      "M": {
+        "count": 146,
+        "lastTs": 1751342400000,
+        "ageMs": 552600000,
+        "fresh": true
+      },
+      "W": {
+        "count": 283,
+        "lastTs": 1751860800000,
+        "ageMs": 34200000,
+        "fresh": true
+      },
+      "D": {
+        "count": 215,
+        "lastTs": 1751860800000,
+        "ageMs": 34200000,
+        "fresh": true
+      }
+    },
+    "state": "HTF_BULL_LTF_BULL",
+    "side": "LONG",
+    "rank": null,
+    "price": 543.6341,
+    "universalGate": {
+      "pass": true
+    },
+    "entryResult": {
+      "qualifies": false,
+      "reason": "tt_pullback_not_deep_enough",
+      "path": null,
+      "confidence": null,
+      "metadata": {
+        "stDir15m": 0,
+        "stDir30m": 0,
+        "stDir1h": -1,
+        "bearishPullbackCount": 0,
+        "reclaimTrigger": false
+      }
+    },
+    "contextGate": {
+      "pass": true
+    },
+    "enriched": null,
+    "tf": {
+      "m10": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 15,
+        "rsi": 67.4,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 1.1136690170359316,
+          "slowSlope": 0.5693832112855262,
+          "distToCloudPct": 0.004097127156062781,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.760561532854581,
+          "slowSlope": 0.6935183394915612,
+          "distToCloudPct": 0.0048966121974153565,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.41746400940451167,
+          "slowSlope": 0.3674208918661179,
+          "distToCloudPct": 0.012670574114416692,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "m15": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "m30": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "h1": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 15,
+        "rsi": 73.5,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 1.7483233144978385,
+          "slowSlope": 1.2696424822661356,
+          "distToCloudPct": 0.006430496228107395,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 1.3917175584311963,
+          "slowSlope": 1.343249630520404,
+          "distToCloudPct": 0.0089580172401595,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 1.0701934770243042,
+          "slowSlope": 0.9328895814992393,
+          "distToCloudPct": 0.03247423931679772,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "h4": {
+        "stDir": 1,
+        "emaStructure": 1,
+        "emaDepth": 15,
+        "rsi": 65.9,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 2.7873850472980166,
+          "slowSlope": 2.0413710229938715,
+          "distToCloudPct": 0.010277778976412319,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 2.4221920613362045,
+          "slowSlope": 2.3072066667401714,
+          "distToCloudPct": 0.015629638492426184,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 1.3590392399074744,
+          "slowSlope": 1.1789635379104766,
+          "distToCloudPct": 0.041341692554476735,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "D": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 14,
+        "rsi": 69.3,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 3.6335055144357966,
+          "slowSlope": 3.3256302309664534,
+          "distToCloudPct": 0.013420645321842874,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 3.542807954951627,
+          "slowSlope": 3.4908952652278913,
+          "distToCloudPct": 0.02289988151423972,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 2.839240938935859,
+          "slowSlope": 2.656705186505974,
+          "distToCloudPct": 0.08651746231152041,
+          "crossUp": false,
+          "crossDn": false
+        }
+      }
+    }
+  },
+  {
+    "label": "fix_good_pullback_control",
+    "ticker": "FIX",
+    "ts": 1752160800000,
+    "bundleStatus": {
+      "10": {
+        "count": 600,
+        "lastTs": 1752160800000,
+        "ageMs": 0,
+        "fresh": true
+      },
+      "30": {
+        "count": 500,
+        "lastTs": 1751311800000,
+        "ageMs": 849000000,
+        "fresh": false
+      },
+      "60": {
+        "count": 500,
+        "lastTs": 1752159600000,
+        "ageMs": 1200000,
+        "fresh": true
+      },
+      "240": {
+        "count": 500,
+        "lastTs": 1752148800000,
+        "ageMs": 12000000,
+        "fresh": true
+      },
+      "M": {
+        "count": 146,
+        "lastTs": 1751342400000,
+        "ageMs": 818400000,
+        "fresh": true
+      },
+      "W": {
+        "count": 283,
+        "lastTs": 1751860800000,
+        "ageMs": 300000000,
+        "fresh": true
+      },
+      "D": {
+        "count": 218,
+        "lastTs": 1752120000000,
+        "ageMs": 40800000,
+        "fresh": true
+      }
+    },
+    "state": "HTF_BULL_LTF_PULLBACK",
+    "side": "LONG",
+    "rank": null,
+    "price": 528.89,
+    "universalGate": {
+      "pass": true
+    },
+    "entryResult": {
+      "qualifies": false,
+      "reason": "tt_pullback_not_deep_enough",
+      "path": null,
+      "confidence": null,
+      "metadata": {
+        "stDir15m": 0,
+        "stDir30m": 0,
+        "stDir1h": 1,
+        "bearishPullbackCount": 1,
+        "reclaimTrigger": false
+      }
+    },
+    "contextGate": {
+      "pass": true
+    },
+    "enriched": null,
+    "tf": {
+      "m10": {
+        "stDir": -1,
+        "emaStructure": -1,
+        "emaDepth": 7,
+        "rsi": 49.5,
+        "c5_12": {
+          "bull": false,
+          "bear": true,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 1.645759541164466,
+          "slowSlope": 0.46153178414431295,
+          "distToCloudPct": 0.004799532630213803,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": false,
+          "bear": true,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.947002143749387,
+          "slowSlope": 0.7902337395204313,
+          "distToCloudPct": 0.005976545138084904,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": false,
+          "bear": true,
+          "above": false,
+          "below": true,
+          "inCloud": false,
+          "fastSlope": -0.06241830410624516,
+          "slowSlope": -0.09032121773554991,
+          "distToCloudPct": 0.0019472896401000843,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "m15": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "m30": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "h1": {
+        "stDir": 1,
+        "emaStructure": 1,
+        "emaDepth": 15,
+        "rsi": 51.4,
+        "c5_12": {
+          "bull": false,
+          "bear": true,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 1.1885447413070551,
+          "slowSlope": 0.2473731327331734,
+          "distToCloudPct": 0.00254599118627326,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": false,
+          "bear": true,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.5305483532339395,
+          "slowSlope": 0.42871852427265367,
+          "distToCloudPct": 0.0032090310392982927,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.12013666228631337,
+          "slowSlope": 0.18945883159210553,
+          "distToCloudPct": 0.003709378782769671,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "h4": {
+        "stDir": 1,
+        "emaStructure": 1,
+        "emaDepth": 11,
+        "rsi": 55.2,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": false,
+          "inCloud": true,
+          "fastSlope": -0.21550316800198743,
+          "slowSlope": 0.08185250681356138,
+          "distToCloudPct": 0,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": true,
+          "inCloud": false,
+          "fastSlope": -0.07111282717505674,
+          "slowSlope": -0.030656535323714706,
+          "distToCloudPct": 0.00022946937872126878,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.5033296725262062,
+          "slowSlope": 0.5884483675542924,
+          "distToCloudPct": 0.015540971194601691,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "D": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 13,
+        "rsi": 62.5,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.2658534857587256,
+          "slowSlope": 1.2630832214002794,
+          "distToCloudPct": 0.0009961349860753718,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.8126243189964271,
+          "slowSlope": 0.9536583757966355,
+          "distToCloudPct": 0.005328484396814054,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 2.0036063352195583,
+          "slowSlope": 2.0846046278372796,
+          "distToCloudPct": 0.06193586100965359,
+          "crossUp": false,
+          "crossDn": false
+        }
+      }
+    }
+  },
+  {
+    "label": "fix_bad_pullback_late",
+    "ticker": "FIX",
+    "ts": 1753108200000,
+    "bundleStatus": {
+      "10": {
+        "count": 600,
+        "lastTs": 1753108200000,
+        "ageMs": 0,
+        "fresh": true
+      },
+      "30": {
+        "count": 500,
+        "lastTs": 1751311800000,
+        "ageMs": 1796400000,
+        "fresh": false
+      },
+      "60": {
+        "count": 500,
+        "lastTs": 1753106400000,
+        "ageMs": 1800000,
+        "fresh": true
+      },
+      "240": {
+        "count": 500,
+        "lastTs": 1753099200000,
+        "ageMs": 9000000,
+        "fresh": true
+      },
+      "M": {
+        "count": 146,
+        "lastTs": 1751342400000,
+        "ageMs": 1765800000,
+        "fresh": true
+      },
+      "W": {
+        "count": 285,
+        "lastTs": 1753070400000,
+        "ageMs": 37800000,
+        "fresh": true
+      },
+      "D": {
+        "count": 225,
+        "lastTs": 1753070400000,
+        "ageMs": 37800000,
+        "fresh": true
+      }
+    },
+    "state": "HTF_BULL_LTF_BULL",
+    "side": "LONG",
+    "rank": null,
+    "price": 551.705,
+    "universalGate": {
+      "pass": true
+    },
+    "entryResult": {
+      "qualifies": false,
+      "reason": "tt_pullback_not_deep_enough",
+      "path": null,
+      "confidence": null,
+      "metadata": {
+        "stDir15m": 0,
+        "stDir30m": 0,
+        "stDir1h": -1,
+        "bearishPullbackCount": 0,
+        "reclaimTrigger": false
+      }
+    },
+    "contextGate": {
+      "pass": true
+    },
+    "enriched": null,
+    "tf": {
+      "m10": {
+        "stDir": 1,
+        "emaStructure": 0.4,
+        "emaDepth": 10,
+        "rsi": 48.4,
+        "c5_12": {
+          "bull": false,
+          "bear": true,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.5329335575323739,
+          "slowSlope": 0.09192859227846384,
+          "distToCloudPct": 0.0009164449434590883,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": false,
+          "bear": true,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.26531570546740113,
+          "slowSlope": 0.20716113454727747,
+          "distToCloudPct": 0.0015019703250632062,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": true,
+          "inCloud": false,
+          "fastSlope": -0.04150414498292321,
+          "slowSlope": -0.026231950163264628,
+          "distToCloudPct": 0.0011649029445108302,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "m15": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "m30": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "h1": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 10,
+        "rsi": 52.4,
+        "c5_12": {
+          "bull": false,
+          "bear": true,
+          "above": false,
+          "below": true,
+          "inCloud": false,
+          "fastSlope": -0.10151396258140721,
+          "slowSlope": -0.06592442109501917,
+          "distToCloudPct": 0.00036795752788850757,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": false,
+          "bear": true,
+          "above": false,
+          "below": true,
+          "inCloud": false,
+          "fastSlope": -0.1581207488191012,
+          "slowSlope": -0.1394749103905042,
+          "distToCloudPct": 0.0010029951263515013,
+          "crossUp": false,
+          "crossDn": true
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.19363887371901,
+          "slowSlope": 0.23574707382761062,
+          "distToCloudPct": 0.005790531229252566,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "h4": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 13,
+        "rsi": 60.9,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": false,
+          "inCloud": true,
+          "fastSlope": -0.600855724477583,
+          "slowSlope": 0.3294375614703995,
+          "distToCloudPct": 0,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.006665132445505151,
+          "slowSlope": 0.11899212475293552,
+          "distToCloudPct": 0.000042332892170329395,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.6257031915375819,
+          "slowSlope": 0.6627104952078753,
+          "distToCloudPct": 0.018734988314102367,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "D": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 12,
+        "rsi": 62,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": false,
+          "inCloud": true,
+          "fastSlope": -0.858034180988966,
+          "slowSlope": 0.8307127507516725,
+          "distToCloudPct": 0,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.22129068148660735,
+          "slowSlope": 0.4219912810118558,
+          "distToCloudPct": 0.0014212632080064698,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 1.7585676919810567,
+          "slowSlope": 1.9131138227970723,
+          "distToCloudPct": 0.053245925163202194,
+          "crossUp": false,
+          "crossDn": false
+        }
+      }
+    }
+  },
+  {
+    "label": "fix_good_momentum_control",
+    "ticker": "FIX",
+    "ts": 1753380000000,
+    "bundleStatus": {
+      "10": {
+        "count": 600,
+        "lastTs": 1753380000000,
+        "ageMs": 0,
+        "fresh": true
+      },
+      "30": {
+        "count": 500,
+        "lastTs": 1751311800000,
+        "ageMs": 2068200000,
+        "fresh": false
+      },
+      "60": {
+        "count": 500,
+        "lastTs": 1753380000000,
+        "ageMs": 0,
+        "fresh": true
+      },
+      "240": {
+        "count": 500,
+        "lastTs": 1753372800000,
+        "ageMs": 7200000,
+        "fresh": true
+      },
+      "M": {
+        "count": 146,
+        "lastTs": 1751342400000,
+        "ageMs": 2037600000,
+        "fresh": true
+      },
+      "W": {
+        "count": 285,
+        "lastTs": 1753070400000,
+        "ageMs": 309600000,
+        "fresh": true
+      },
+      "D": {
+        "count": 228,
+        "lastTs": 1753329600000,
+        "ageMs": 50400000,
+        "fresh": true
+      }
+    },
+    "state": "HTF_BULL_LTF_BULL",
+    "side": "LONG",
+    "rank": null,
+    "price": 558.345,
+    "universalGate": {
+      "pass": true
+    },
+    "entryResult": {
+      "qualifies": false,
+      "reason": "tt_pullback_not_deep_enough",
+      "path": null,
+      "confidence": null,
+      "metadata": {
+        "stDir15m": 0,
+        "stDir30m": 0,
+        "stDir1h": -1,
+        "bearishPullbackCount": 0,
+        "reclaimTrigger": false
+      }
+    },
+    "contextGate": {
+      "pass": true
+    },
+    "enriched": null,
+    "tf": {
+      "m10": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 15,
+        "rsi": 64.8,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.3631508068141329,
+          "slowSlope": 0.39788570485450236,
+          "distToCloudPct": 0.0013008115298393504,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.4091729556757855,
+          "slowSlope": 0.40860134785032187,
+          "distToCloudPct": 0.002564911201614144,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.3413962258723586,
+          "slowSlope": 0.30695428528258617,
+          "distToCloudPct": 0.010088811983438365,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "m15": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "m30": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "h1": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 15,
+        "rsi": 62.7,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 1.381378427316804,
+          "slowSlope": 1.3138151692830888,
+          "distToCloudPct": 0.004948516666010403,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 1.4162223341419349,
+          "slowSlope": 1.3991601937233327,
+          "distToCloudPct": 0.008878341697110975,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.6990594703515853,
+          "slowSlope": 0.5153976482421285,
+          "distToCloudPct": 0.02066000584059222,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "h4": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 15,
+        "rsi": 68.9,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 5.05645653036288,
+          "slowSlope": 2.7208089978093994,
+          "distToCloudPct": 0.01797244141663355,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 3.762896200629143,
+          "slowSlope": 3.442424026641561,
+          "distToCloudPct": 0.023405670444120105,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 1.197550567713506,
+          "slowSlope": 0.9838300876991752,
+          "distToCloudPct": 0.03511628848437418,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "D": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 14,
+        "rsi": 65.8,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 6.325767650077296,
+          "slowSlope": 3.4405273879156084,
+          "distToCloudPct": 0.02247843096521988,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 4.42329588991754,
+          "slowSlope": 4.08357953587813,
+          "distToCloudPct": 0.02750659278061148,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 2.52548494802852,
+          "slowSlope": 2.4123045294664394,
+          "distToCloudPct": 0.07403745650102235,
+          "crossUp": false,
+          "crossDn": false
+        }
+      }
+    }
+  },
+  {
+    "label": "rblx_bad_momentum_hard_cap",
+    "ticker": "RBLX",
+    "ts": 1751376600000,
+    "bundleStatus": {
+      "10": {
+        "count": 600,
+        "lastTs": 1751376600000,
+        "ageMs": 0,
+        "fresh": true
+      },
+      "30": {
+        "count": 500,
+        "lastTs": 1751311800000,
+        "ageMs": 64800000,
+        "fresh": true
+      },
+      "60": {
+        "count": 500,
+        "lastTs": 1751311800000,
+        "ageMs": 64800000,
+        "fresh": true
+      },
+      "240": {
+        "count": 500,
+        "lastTs": 1751299200000,
+        "ageMs": 77400000,
+        "fresh": true
+      },
+      "M": {
+        "count": 53,
+        "lastTs": 1751342400000,
+        "ageMs": 34200000,
+        "fresh": true
+      },
+      "W": {
+        "count": 226,
+        "lastTs": 1751256000000,
+        "ageMs": 120600000,
+        "fresh": true
+      },
+      "D": {
+        "count": 155,
+        "lastTs": 1751342400000,
+        "ageMs": 34200000,
+        "fresh": true
+      }
+    },
+    "state": "HTF_BULL_LTF_BULL",
+    "side": "LONG",
+    "rank": null,
+    "price": 104.9209,
+    "universalGate": {
+      "pass": true
+    },
+    "entryResult": {
+      "qualifies": false,
+      "reason": "tt_pullback_not_deep_enough",
+      "path": null,
+      "confidence": null,
+      "metadata": {
+        "stDir15m": 0,
+        "stDir30m": 1,
+        "stDir1h": -1,
+        "bearishPullbackCount": 1,
+        "reclaimTrigger": false
+      }
+    },
+    "contextGate": {
+      "pass": true
+    },
+    "enriched": null,
+    "tf": {
+      "m10": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 15,
+        "rsi": 53.2,
+        "c5_12": {
+          "bull": false,
+          "bear": true,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.12636554490653396,
+          "slowSlope": 0.03937764112559705,
+          "distToCloudPct": 0.0020641933703461203,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": false,
+          "bear": true,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.07019418059425675,
+          "slowSlope": 0.05960456167341022,
+          "distToCloudPct": 0.0022723618144109194,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": false,
+          "bear": true,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.011417182515003788,
+          "slowSlope": 0.006833503222267723,
+          "distToCloudPct": 0.001595686168777296,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "m15": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "m30": {
+        "stDir": 1,
+        "emaStructure": 1,
+        "emaDepth": 15,
+        "rsi": 55.5,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.15811618839659047,
+          "slowSlope": 0.10077721217840008,
+          "distToCloudPct": 0.0030065827799312297,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.13714596369295862,
+          "slowSlope": 0.1273118396700852,
+          "distToCloudPct": 0.004563708622602797,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.03514716575119792,
+          "slowSlope": 0.0294648980581087,
+          "distToCloudPct": 0.005513674033988204,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "h1": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 15,
+        "rsi": 56.1,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.192999020850948,
+          "slowSlope": 0.08291579614791544,
+          "distToCloudPct": 0.003669880601843198,
+          "crossUp": true,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.12684679501143137,
+          "slowSlope": 0.11220000270118646,
+          "distToCloudPct": 0.004220990516638102,
+          "crossUp": true,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.053371107179586375,
+          "slowSlope": 0.06419148244931705,
+          "distToCloudPct": 0.008372535353329767,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "h4": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 15,
+        "rsi": 57.1,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.09468978835951702,
+          "slowSlope": 0.05797385718362591,
+          "distToCloudPct": 0.001801556095119646,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.05370535640051344,
+          "slowSlope": 0.05264832468721181,
+          "distToCloudPct": 0.001788134963867797,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.12702908888208242,
+          "slowSlope": 0.15706531805598445,
+          "distToCloudPct": 0.01993892662247224,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "D": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 6,
+        "rsi": 62.2,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": true,
+          "inCloud": false,
+          "fastSlope": -1.2883885043772096,
+          "slowSlope": -0.17634326050394122,
+          "distToCloudPct": 0.009636243743384412,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": true,
+          "inCloud": false,
+          "fastSlope": -0.6261856898011757,
+          "slowSlope": -0.48414840557872196,
+          "distToCloudPct": 0.019240870564479477,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.4807821376069512,
+          "slowSlope": 0.5390912758104918,
+          "distToCloudPct": 0.07881674386999045,
+          "crossUp": false,
+          "crossDn": false
+        }
+      }
+    }
+  },
+  {
+    "label": "rblx_good_momentum_control",
+    "ticker": "RBLX",
+    "ts": 1751895000000,
+    "bundleStatus": {
+      "10": {
+        "count": 600,
+        "lastTs": 1751895000000,
+        "ageMs": 0,
+        "fresh": true
+      },
+      "30": {
+        "count": 500,
+        "lastTs": 1751311800000,
+        "ageMs": 583200000,
+        "fresh": false
+      },
+      "60": {
+        "count": 500,
+        "lastTs": 1751893200000,
+        "ageMs": 1800000,
+        "fresh": true
+      },
+      "240": {
+        "count": 500,
+        "lastTs": 1751299200000,
+        "ageMs": 595800000,
+        "fresh": false
+      },
+      "M": {
+        "count": 53,
+        "lastTs": 1751342400000,
+        "ageMs": 552600000,
+        "fresh": true
+      },
+      "W": {
+        "count": 227,
+        "lastTs": 1751860800000,
+        "ageMs": 34200000,
+        "fresh": true
+      },
+      "D": {
+        "count": 158,
+        "lastTs": 1751860800000,
+        "ageMs": 34200000,
+        "fresh": true
+      }
+    },
+    "state": "HTF_BULL_LTF_BULL",
+    "side": "LONG",
+    "rank": null,
+    "price": 103.655,
+    "universalGate": {
+      "pass": true
+    },
+    "entryResult": {
+      "qualifies": false,
+      "reason": "tt_pullback_not_deep_enough",
+      "path": null,
+      "confidence": null,
+      "metadata": {
+        "stDir15m": 0,
+        "stDir30m": 0,
+        "stDir1h": -1,
+        "bearishPullbackCount": 0,
+        "reclaimTrigger": true
+      }
+    },
+    "contextGate": {
+      "pass": true
+    },
+    "enriched": null,
+    "tf": {
+      "m10": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 15,
+        "rsi": 72.4,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.5923641386412868,
+          "slowSlope": 0.34258727263573974,
+          "distToCloudPct": 0.011429533329627838,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.4615724054286261,
+          "slowSlope": 0.4267366294395458,
+          "distToCloudPct": 0.015585388249483162,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": false,
+          "bear": true,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.10896417101275802,
+          "slowSlope": 0.06584178943828078,
+          "distToCloudPct": 0.015562431539604816,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "m15": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "m30": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "h1": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 15,
+        "rsi": 59.3,
+        "c5_12": {
+          "bull": false,
+          "bear": true,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 1.4870808468236731,
+          "slowSlope": 0.5041649608964462,
+          "distToCloudPct": 0.026231267476401723,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": false,
+          "bear": true,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.8594072692665833,
+          "slowSlope": 0.7395379975080942,
+          "distToCloudPct": 0.027983653297061286,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.13364205041503396,
+          "slowSlope": 0.10345361850204426,
+          "distToCloudPct": 0.020859841375915813,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "h4": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "D": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 12,
+        "rsi": 72.4,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 1.531958961666021,
+          "slowSlope": 0.8823792081334858,
+          "distToCloudPct": 0.028432794388752777,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 1.0729743599426484,
+          "slowSlope": 1.0005160163437097,
+          "distToCloudPct": 0.034849761133994905,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.7942802957243345,
+          "slowSlope": 0.7498398768786245,
+          "distToCloudPct": 0.1216186421626898,
+          "crossUp": false,
+          "crossDn": false
+        }
+      }
+    }
+  },
+  {
+    "label": "rblx_good_pullback_control",
+    "ticker": "RBLX",
+    "ts": 1752162000000,
+    "bundleStatus": {
+      "10": {
+        "count": 600,
+        "lastTs": 1752162000000,
+        "ageMs": 0,
+        "fresh": true
+      },
+      "30": {
+        "count": 500,
+        "lastTs": 1751311800000,
+        "ageMs": 850200000,
+        "fresh": false
+      },
+      "60": {
+        "count": 500,
+        "lastTs": 1752159600000,
+        "ageMs": 2400000,
+        "fresh": true
+      },
+      "240": {
+        "count": 500,
+        "lastTs": 1751299200000,
+        "ageMs": 862800000,
+        "fresh": false
+      },
+      "M": {
+        "count": 53,
+        "lastTs": 1751342400000,
+        "ageMs": 819600000,
+        "fresh": true
+      },
+      "W": {
+        "count": 227,
+        "lastTs": 1751860800000,
+        "ageMs": 301200000,
+        "fresh": true
+      },
+      "D": {
+        "count": 161,
+        "lastTs": 1752120000000,
+        "ageMs": 42000000,
+        "fresh": true
+      }
+    },
+    "state": "HTF_BULL_LTF_PULLBACK",
+    "side": "LONG",
+    "rank": null,
+    "price": 104.38,
+    "universalGate": {
+      "pass": true
+    },
+    "entryResult": {
+      "qualifies": false,
+      "reason": "tt_no_trigger",
+      "path": null,
+      "confidence": null,
+      "metadata": {
+        "cloudAlignment": {
+          "D": "bull",
+          "h1": "bull",
+          "m10": "bear"
+        }
+      }
+    },
+    "contextGate": {
+      "pass": true
+    },
+    "enriched": null,
+    "tf": {
+      "m10": {
+        "stDir": 1,
+        "emaStructure": -1,
+        "emaDepth": 4,
+        "rsi": 41.9,
+        "c5_12": {
+          "bull": false,
+          "bear": true,
+          "above": false,
+          "below": false,
+          "inCloud": true,
+          "fastSlope": 0.1631894378812433,
+          "slowSlope": -0.013547154879788081,
+          "distToCloudPct": 0,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": false,
+          "bear": true,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.05592471784191844,
+          "slowSlope": 0.03283290138105599,
+          "distToCloudPct": 0.001258206605903251,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": false,
+          "bear": true,
+          "above": false,
+          "below": true,
+          "inCloud": false,
+          "fastSlope": -0.06162535742963371,
+          "slowSlope": -0.05086603972407033,
+          "distToCloudPct": 0.009741506012540093,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "m15": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "m30": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "h1": {
+        "stDir": 1,
+        "emaStructure": 0.4,
+        "emaDepth": 4,
+        "rsi": 40,
+        "c5_12": {
+          "bull": false,
+          "bear": true,
+          "above": false,
+          "below": true,
+          "inCloud": false,
+          "fastSlope": -0.2494379114580454,
+          "slowSlope": -0.17581720110376864,
+          "distToCloudPct": 0.004756180979274796,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": false,
+          "bear": true,
+          "above": false,
+          "below": true,
+          "inCloud": false,
+          "fastSlope": -0.22938026677961432,
+          "slowSlope": -0.21548500788998126,
+          "distToCloudPct": 0.007654027397546681,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": true,
+          "inCloud": false,
+          "fastSlope": -0.05645875538597522,
+          "slowSlope": -0.02787809543451658,
+          "distToCloudPct": 0.006511710726909819,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "h4": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "D": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 10,
+        "rsi": 62.7,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": false,
+          "inCloud": true,
+          "fastSlope": -0.12719734469155242,
+          "slowSlope": 0.1966075220872341,
+          "distToCloudPct": 0,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.05982195536397228,
+          "slowSlope": 0.09970420036796668,
+          "distToCloudPct": 0.00199349560862498,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.5219589734681023,
+          "slowSlope": 0.5638064671573915,
+          "distToCloudPct": 0.08199869620321658,
+          "crossUp": false,
+          "crossDn": false
+        }
+      }
+    }
+  },
+  {
+    "label": "rblx_bad_momentum_soft_fuse",
+    "ticker": "RBLX",
+    "ts": 1752674400000,
+    "bundleStatus": {
+      "10": {
+        "count": 600,
+        "lastTs": 1752674400000,
+        "ageMs": 0,
+        "fresh": true
+      },
+      "30": {
+        "count": 500,
+        "lastTs": 1751311800000,
+        "ageMs": 1362600000,
+        "fresh": false
+      },
+      "60": {
+        "count": 500,
+        "lastTs": 1752674400000,
+        "ageMs": 0,
+        "fresh": true
+      },
+      "240": {
+        "count": 500,
+        "lastTs": 1751299200000,
+        "ageMs": 1375200000,
+        "fresh": false
+      },
+      "M": {
+        "count": 53,
+        "lastTs": 1751342400000,
+        "ageMs": 1332000000,
+        "fresh": true
+      },
+      "W": {
+        "count": 228,
+        "lastTs": 1752465600000,
+        "ageMs": 208800000,
+        "fresh": true
+      },
+      "D": {
+        "count": 165,
+        "lastTs": 1752638400000,
+        "ageMs": 36000000,
+        "fresh": true
+      }
+    },
+    "state": "HTF_BULL_LTF_BULL",
+    "side": "LONG",
+    "rank": null,
+    "price": 115.13,
+    "universalGate": {
+      "pass": true
+    },
+    "entryResult": {
+      "qualifies": false,
+      "reason": "tt_pullback_not_deep_enough",
+      "path": null,
+      "confidence": null,
+      "metadata": {
+        "stDir15m": 0,
+        "stDir30m": 0,
+        "stDir1h": -1,
+        "bearishPullbackCount": 0,
+        "reclaimTrigger": false
+      }
+    },
+    "contextGate": {
+      "pass": true
+    },
+    "enriched": null,
+    "tf": {
+      "m10": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 15,
+        "rsi": 77.1,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.5896988169939306,
+          "slowSlope": 0.34101487516942086,
+          "distToCloudPct": 0.010244051367912956,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.45078084274689445,
+          "slowSlope": 0.41749963247613664,
+          "distToCloudPct": 0.01370392555905587,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.14530242480455513,
+          "slowSlope": 0.10462455090637945,
+          "distToCloudPct": 0.02082419881243069,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "m15": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "m30": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "h1": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 15,
+        "rsi": 78,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 1.1523995494524115,
+          "slowSlope": 0.5895301080271622,
+          "distToCloudPct": 0.019797277949706066,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.8098455339384572,
+          "slowSlope": 0.7386225114905471,
+          "distToCloudPct": 0.024346842198803037,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.294753392048392,
+          "slowSlope": 0.23823873213410707,
+          "distToCloudPct": 0.041774875182943996,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "h4": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "D": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 12,
+        "rsi": 77.8,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 3.274133857838706,
+          "slowSlope": 1.9293915034795361,
+          "distToCloudPct": 0.05501821303711475,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 2.481983312731117,
+          "slowSlope": 2.3063428404707196,
+          "distToCloudPct": 0.07298724243453972,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 1.1647471205492934,
+          "slowSlope": 1.0066198810169027,
+          "distToCloudPct": 0.1614714122757792,
+          "crossUp": false,
+          "crossDn": false
+        }
+      }
+    }
+  },
+  {
+    "label": "rblx_bad_momentum_confirmed",
+    "ticker": "RBLX",
+    "ts": 1752761400000,
+    "bundleStatus": {
+      "10": {
+        "count": 600,
+        "lastTs": 1752761400000,
+        "ageMs": 0,
+        "fresh": true
+      },
+      "30": {
+        "count": 500,
+        "lastTs": 1751311800000,
+        "ageMs": 1449600000,
+        "fresh": false
+      },
+      "60": {
+        "count": 500,
+        "lastTs": 1752760800000,
+        "ageMs": 600000,
+        "fresh": true
+      },
+      "240": {
+        "count": 500,
+        "lastTs": 1751299200000,
+        "ageMs": 1462200000,
+        "fresh": false
+      },
+      "M": {
+        "count": 53,
+        "lastTs": 1751342400000,
+        "ageMs": 1419000000,
+        "fresh": true
+      },
+      "W": {
+        "count": 228,
+        "lastTs": 1752465600000,
+        "ageMs": 295800000,
+        "fresh": true
+      },
+      "D": {
+        "count": 166,
+        "lastTs": 1752724800000,
+        "ageMs": 36600000,
+        "fresh": true
+      }
+    },
+    "state": "HTF_BULL_LTF_BULL",
+    "side": "LONG",
+    "rank": null,
+    "price": 121.2,
+    "universalGate": {
+      "pass": true
+    },
+    "entryResult": {
+      "qualifies": false,
+      "reason": "tt_pullback_not_deep_enough",
+      "path": null,
+      "confidence": null,
+      "metadata": {
+        "stDir15m": 0,
+        "stDir30m": 0,
+        "stDir1h": -1,
+        "bearishPullbackCount": 0,
+        "reclaimTrigger": false
+      }
+    },
+    "contextGate": {
+      "pass": true
+    },
+    "enriched": null,
+    "tf": {
+      "m10": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 15,
+        "rsi": 67.4,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.3345358412212107,
+          "slowSlope": 0.1894506698607188,
+          "distToCloudPct": 0.005520393419491809,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.25404761661189923,
+          "slowSlope": 0.23427537067777848,
+          "distToCloudPct": 0.0073363585655250255,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.08619780069057015,
+          "slowSlope": 0.07099548003745326,
+          "distToCloudPct": 0.011734849103915307,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "m15": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "m30": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "h1": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 15,
+        "rsi": 74.8,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.2970205912843653,
+          "slowSlope": 0.26809509909503504,
+          "distToCloudPct": 0.0049130856221048895,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.2690842001596252,
+          "slowSlope": 0.2668031539929814,
+          "distToCloudPct": 0.007789220912734168,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.2692073937249546,
+          "slowSlope": 0.24838068150350523,
+          "distToCloudPct": 0.0367374245013799,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "h4": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "D": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 12,
+        "rsi": 79.9,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 3.232755905225801,
+          "slowSlope": 2.1171774260211578,
+          "distToCloudPct": 0.05292225432145045,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 2.630431465457548,
+          "slowSlope": 2.475074272376574,
+          "distToCloudPct": 0.07535819046493718,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 1.2781901422321766,
+          "slowSlope": 1.0906740033299656,
+          "distToCloudPct": 0.1726294290483021,
+          "crossUp": false,
+          "crossDn": false
+        }
+      }
+    }
+  },
+  {
+    "label": "rblx_bad_momentum_late",
+    "ticker": "RBLX",
+    "ts": 1752846000000,
+    "bundleStatus": {
+      "10": {
+        "count": 600,
+        "lastTs": 1752846000000,
+        "ageMs": 0,
+        "fresh": true
+      },
+      "30": {
+        "count": 500,
+        "lastTs": 1751311800000,
+        "ageMs": 1534200000,
+        "fresh": false
+      },
+      "60": {
+        "count": 500,
+        "lastTs": 1752843600000,
+        "ageMs": 2400000,
+        "fresh": true
+      },
+      "240": {
+        "count": 500,
+        "lastTs": 1751299200000,
+        "ageMs": 1546800000,
+        "fresh": false
+      },
+      "M": {
+        "count": 53,
+        "lastTs": 1751342400000,
+        "ageMs": 1503600000,
+        "fresh": true
+      },
+      "W": {
+        "count": 228,
+        "lastTs": 1752465600000,
+        "ageMs": 380400000,
+        "fresh": true
+      },
+      "D": {
+        "count": 167,
+        "lastTs": 1752811200000,
+        "ageMs": 34800000,
+        "fresh": true
+      }
+    },
+    "state": "HTF_BULL_LTF_BULL",
+    "side": "LONG",
+    "rank": null,
+    "price": 123.88,
+    "universalGate": {
+      "pass": true
+    },
+    "entryResult": {
+      "qualifies": false,
+      "reason": "tt_pullback_not_deep_enough",
+      "path": null,
+      "confidence": null,
+      "metadata": {
+        "stDir15m": 0,
+        "stDir30m": 0,
+        "stDir1h": -1,
+        "bearishPullbackCount": 0,
+        "reclaimTrigger": false
+      }
+    },
+    "contextGate": {
+      "pass": true
+    },
+    "enriched": null,
+    "tf": {
+      "m10": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 15,
+        "rsi": 61.6,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.4470339293502974,
+          "slowSlope": 0.2101409682465203,
+          "distToCloudPct": 0.007217209062807284,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.3060154753019759,
+          "slowSlope": 0.2755800088330176,
+          "distToCloudPct": 0.008645900577630957,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.07383538127120914,
+          "slowSlope": 0.05509025225465791,
+          "distToCloudPct": 0.009834386430213754,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "m15": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "m30": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "h1": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 15,
+        "rsi": 74.5,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.22947281429416932,
+          "slowSlope": 0.1573578554488364,
+          "distToCloudPct": 0.0037220358346239826,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.1702317113996088,
+          "slowSlope": 0.1632973610782642,
+          "distToCloudPct": 0.004832009974442659,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.1975308782485996,
+          "slowSlope": 0.20404191010210582,
+          "distToCloudPct": 0.02643250063745846,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "h4": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "D": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 12,
+        "rsi": 81.3,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 2.931837270150538,
+          "slowSlope": 2.14991936047943,
+          "distToCloudPct": 0.04709778747229769,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 2.5636689175780702,
+          "slowSlope": 2.4460594179012674,
+          "distToCloudPct": 0.07207101374717512,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 1.338293562676057,
+          "slowSlope": 1.1392750228072117,
+          "distToCloudPct": 0.1773642071016467,
+          "crossUp": false,
+          "crossDn": false
+        }
+      }
+    }
+  },
+  {
+    "label": "rblx_bad_pullback_hard_cap",
+    "ticker": "RBLX",
+    "ts": 1753118400000,
+    "bundleStatus": {
+      "10": {
+        "count": 600,
+        "lastTs": 1753118400000,
+        "ageMs": 0,
+        "fresh": true
+      },
+      "30": {
+        "count": 500,
+        "lastTs": 1751311800000,
+        "ageMs": 1806600000,
+        "fresh": false
+      },
+      "60": {
+        "count": 500,
+        "lastTs": 1753117200000,
+        "ageMs": 1200000,
+        "fresh": true
+      },
+      "240": {
+        "count": 500,
+        "lastTs": 1751299200000,
+        "ageMs": 1819200000,
+        "fresh": false
+      },
+      "M": {
+        "count": 53,
+        "lastTs": 1751342400000,
+        "ageMs": 1776000000,
+        "fresh": true
+      },
+      "W": {
+        "count": 229,
+        "lastTs": 1753070400000,
+        "ageMs": 48000000,
+        "fresh": true
+      },
+      "D": {
+        "count": 168,
+        "lastTs": 1753070400000,
+        "ageMs": 48000000,
+        "fresh": true
+      }
+    },
+    "state": "HTF_BULL_LTF_BULL",
+    "side": "LONG",
+    "rank": null,
+    "price": 126.954,
+    "universalGate": {
+      "pass": true
+    },
+    "entryResult": {
+      "qualifies": false,
+      "reason": "tt_pullback_not_deep_enough",
+      "path": null,
+      "confidence": null,
+      "metadata": {
+        "stDir15m": 0,
+        "stDir30m": 0,
+        "stDir1h": -1,
+        "bearishPullbackCount": 0,
+        "reclaimTrigger": false
+      }
+    },
+    "contextGate": {
+      "pass": true
+    },
+    "enriched": null,
+    "tf": {
+      "m10": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 13,
+        "rsi": 56.8,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": false,
+          "below": false,
+          "inCloud": true,
+          "fastSlope": -0.0019168726042693152,
+          "slowSlope": 0.033228445506523485,
+          "distToCloudPct": 0,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.024389422781922576,
+          "slowSlope": 0.02739791267470082,
+          "distToCloudPct": 0.0006723929906639999,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.0498624293064438,
+          "slowSlope": 0.048986627113905,
+          "distToCloudPct": 0.006480536915391121,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "m15": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "m30": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "h1": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 14,
+        "rsi": 67.9,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.07565305094937003,
+          "slowSlope": 0.17251636257790892,
+          "distToCloudPct": 0.0011962375135290812,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.15115441850335287,
+          "slowSlope": 0.16051883536577805,
+          "distToCloudPct": 0.00418263402586681,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 0.1792697974658921,
+          "slowSlope": 0.1840659286961852,
+          "distToCloudPct": 0.023385790079356313,
+          "crossUp": false,
+          "crossDn": false
+        }
+      },
+      "h4": {
+        "stDir": 0,
+        "emaStructure": 0,
+        "emaDepth": 0,
+        "rsi": null,
+        "c5_12": null,
+        "c8_9": null,
+        "c34_50": null
+      },
+      "D": {
+        "stDir": -1,
+        "emaStructure": 1,
+        "emaDepth": 12,
+        "rsi": 81.3,
+        "c5_12": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 1.9545581801003635,
+          "slowSlope": 1.8191625357902979,
+          "distToCloudPct": 0.031398524981531714,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c8_9": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 1.9939647136718577,
+          "slowSlope": 1.9568475343210139,
+          "distToCloudPct": 0.05605523291446944,
+          "crossUp": false,
+          "crossDn": false
+        },
+        "c34_50": {
+          "bull": true,
+          "bear": false,
+          "above": true,
+          "below": false,
+          "inCloud": false,
+          "fastSlope": 1.2618196448088526,
+          "slowSlope": 1.0945975709324216,
+          "distToCloudPct": 0.1672291095529812,
+          "crossUp": false,
+          "crossDn": false
+        }
+      }
+    }
+  }
+]

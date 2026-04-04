@@ -1,0 +1,35 @@
+{
+  "generated_at_utc": "2026-04-03T10:15:14.359130+00:00",
+  "decision_rows": 0,
+  "rows_with_outcome": 0,
+  "approve_adjust_rows": 0,
+  "reject_rows": 0,
+  "approve_adjust_win_rate": 0.0,
+  "reject_counterfactual_win_rate": 0.0,
+  "calibration_buckets": {
+    "0.00-0.25": {
+      "sample_size": 0,
+      "win_rate": 0.0,
+      "avg_confidence": 0.0
+    },
+    "0.25-0.50": {
+      "sample_size": 0,
+      "win_rate": 0.0,
+      "avg_confidence": 0.0
+    },
+    "0.50-0.75": {
+      "sample_size": 0,
+      "win_rate": 0.0,
+      "avg_confidence": 0.0
+    },
+    "0.75-1.00": {
+      "sample_size": 0,
+      "win_rate": 0.0,
+      "avg_confidence": 0.0
+    }
+  },
+  "notes": [
+    "Reject counterfactual win-rate should trend below approve/adjust win-rate.",
+    "Confidence buckets should be monotonic over time as calibration improves."
+  ]
+}

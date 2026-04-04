@@ -1,0 +1,60 @@
+{
+  "ok": true,
+  "run_id": "focused_replay_20260402-114211@2026-04-02T15:42:12.419Z",
+  "report": [
+    {
+      "ticker": "CELH",
+      "total_trades": 1,
+      "closed_trades": 1,
+      "wins": 0,
+      "losses": 1,
+      "total_pnl": -178.48852783473967,
+      "avg_pnl_pct": -1.4874043986228305
+    },
+    {
+      "ticker": "FIX",
+      "total_trades": 0,
+      "closed_trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "total_pnl": 0,
+      "avg_pnl_pct": 0
+    },
+    {
+      "ticker": "RBLX",
+      "total_trades": 0,
+      "closed_trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "total_pnl": 0,
+      "avg_pnl_pct": 0
+    },
+    {
+      "ticker": "ETN",
+      "total_trades": 0,
+      "closed_trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "total_pnl": 0,
+      "avg_pnl_pct": 0
+    },
+    {
+      "ticker": "ULTA",
+      "total_trades": 0,
+      "closed_trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "total_pnl": 0,
+      "avg_pnl_pct": 0
+    },
+    {
+      "ticker": "CAT",
+      "total_trades": 1,
+      "closed_trades": 1,
+      "wins": 1,
+      "losses": 0,
+      "total_pnl": 49.643738753305186,
+      "avg_pnl_pct": 0.6216563196294129
+    }
+  ]
+}

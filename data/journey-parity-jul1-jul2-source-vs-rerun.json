@@ -1,0 +1,128 @@
+{
+  "generated_at_utc": "2026-04-02T17:18:50.722917+00:00",
+  "reference_path": "data/backtest-artifacts/iter5-source-run-export-20260402/trade-autopsy-trades.json",
+  "candidate_path": "data/backtest-artifacts/iter5-jul1-apr1-clean-rerun-v2-aborted-20260402/trade-autopsy-trades.json",
+  "reference_run_id": "backtest_2025-07-01_2026-03-23@2026-03-24T06:23:53.734Z",
+  "candidate_run_id": "backtest_2025-07-01_2026-04-01@2026-04-02T15:52:12.147Z",
+  "reference_trade_count": 12,
+  "candidate_trade_count": 13,
+  "matched_count": 1,
+  "missing_count": 11,
+  "entry_tolerance_min": 120.0,
+  "hold_tolerance_ratio": 0.5,
+  "journey_score": 0.3516,
+  "details": [
+    {
+      "reference_trade_id": "ULTA-1751376600000-iffvezyo5",
+      "ticker": "ULTA",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "H-1751376600000-hoiulrk5j",
+      "ticker": "H",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "NKE-1751376600000-1wtdd8ce1",
+      "ticker": "NKE",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "ELF-1751376600000-pkwc7li7n",
+      "ticker": "ELF",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "CELH-1751376600000-c9rg8slur",
+      "ticker": "CELH",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "AMZN-1751385900000-l2yf068bt",
+      "candidate_trade_id": "AMZN-1751379000000-25oswngaq",
+      "ticker": "AMZN",
+      "direction": "LONG",
+      "matched": true,
+      "reference": {
+        "entry_ts": 1751385900000,
+        "exit_ts": 1753725600000,
+        "hold_days": 27.08,
+        "entry_path": "tt_pullback",
+        "exit_reason": "RUNNER_STALE_FORCE_CLOSE",
+        "exit_class": "other",
+        "pnl_pct": 2.5442
+      },
+      "candidate": {
+        "entry_ts": 1751379000000,
+        "exit_ts": 1752251400000,
+        "hold_days": 10.097,
+        "entry_path": "tt_momentum",
+        "exit_reason": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+        "exit_class": "other",
+        "pnl_pct": 0.6074
+      },
+      "metric": {
+        "entry_delta_min": -115.0,
+        "hold_delta_days": -16.983,
+        "entry_score": 0.0417,
+        "hold_score": 0.0,
+        "exit_score": 1.0,
+        "path_score": 0.0,
+        "pnl_score": 0.6955,
+        "journey_score": 0.3516
+      }
+    },
+    {
+      "reference_trade_id": "MNST-1751463000000-w0ni103h8",
+      "ticker": "MNST",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "ELF-1751463000000-85cvm7hg5",
+      "ticker": "ELF",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "ETN-1751463000000-z982dh8ix",
+      "ticker": "ETN",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "PH-1751463000000-f1hwiadsw",
+      "ticker": "PH",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "TT-1751463000000-13m4kp9kn",
+      "ticker": "TT",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "XYZ-1751472000000-exsowjdax",
+      "ticker": "XYZ",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    }
+  ]
+}

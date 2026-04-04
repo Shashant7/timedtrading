@@ -1,0 +1,442 @@
+{
+  "generated_at": "2026-04-02T15:29:27.295099+00:00",
+  "artifacts": [
+    "data/backtest-artifacts/focused-refinement-iter5-restored-july-slice-fixed--20260325-012139/trade-autopsy-trades.json",
+    "data/backtest-artifacts/focused-refinement-iter9-july-slice-fixed--20260325-003001/trade-autopsy-trades.json"
+  ],
+  "losers": [
+    "CELH",
+    "FIX",
+    "RBLX"
+  ],
+  "winners": [
+    "CAT",
+    "ETN",
+    "ULTA"
+  ],
+  "loser_summary": {
+    "trade_count": 15,
+    "wins": 8,
+    "losses": 7,
+    "avg_pnl": 3.24,
+    "avg_pnl_pct": -0.094,
+    "avg_entry_quality_score": 70.0,
+    "avg_rvol_best": 8.54,
+    "tf30_confirmed_rate": 0.867,
+    "tf30_opposed_rate": 0.067,
+    "late_phase_rate": 0.067,
+    "high_atr_rate": 0.6,
+    "pdz_adverse_rate": 0.0,
+    "entry_paths_top": [
+      [
+        "tt_momentum",
+        13
+      ],
+      [
+        "tt_pullback",
+        2
+      ]
+    ],
+    "exit_reasons_top": [
+      [
+        "SOFT_FUSE_RSI_CONFIRMED",
+        4
+      ],
+      [
+        "PROFIT_GIVEBACK",
+        2
+      ],
+      [
+        "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+        2
+      ],
+      [
+        "PHASE_LEAVE_100",
+        2
+      ],
+      [
+        "max_loss",
+        2
+      ]
+    ],
+    "profiles_top": [
+      [
+        "correction_transition",
+        14
+      ],
+      [
+        "choppy_selective",
+        1
+      ]
+    ],
+    "rsi_divergence_presence": {
+      "present": 8,
+      "absent": 7
+    }
+  },
+  "winner_summary": {
+    "trade_count": 19,
+    "wins": 12,
+    "losses": 7,
+    "avg_pnl": 21.44,
+    "avg_pnl_pct": 0.229,
+    "avg_entry_quality_score": 75.32,
+    "avg_rvol_best": 5.0,
+    "tf30_confirmed_rate": 0.895,
+    "tf30_opposed_rate": 0.316,
+    "late_phase_rate": 0.053,
+    "high_atr_rate": 0.368,
+    "pdz_adverse_rate": 0.0,
+    "entry_paths_top": [
+      [
+        "tt_pullback",
+        10
+      ],
+      [
+        "tt_momentum",
+        9
+      ]
+    ],
+    "exit_reasons_top": [
+      [
+        "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+        8
+      ],
+      [
+        "SOFT_FUSE_RSI_CONFIRMED",
+        5
+      ],
+      [
+        "doa_early_exit",
+        3
+      ],
+      [
+        "ripster_34_50_lost_mtf",
+        2
+      ],
+      [
+        "time_exit_loser_trending",
+        1
+      ]
+    ],
+    "profiles_top": [
+      [
+        "correction_transition",
+        18
+      ],
+      [
+        "choppy_selective",
+        1
+      ]
+    ],
+    "rsi_divergence_presence": {
+      "absent": 5,
+      "present": 14
+    }
+  },
+  "by_ticker": {
+    "CAT": {
+      "trade_count": 6,
+      "wins": 4,
+      "losses": 2,
+      "avg_pnl": 12.06,
+      "avg_pnl_pct": 0.281,
+      "avg_entry_quality_score": 74.67,
+      "avg_rvol_best": 4.97,
+      "tf30_confirmed_rate": 0.667,
+      "tf30_opposed_rate": 0.5,
+      "late_phase_rate": 0.0,
+      "high_atr_rate": 0.667,
+      "pdz_adverse_rate": 0.0,
+      "entry_paths_top": [
+        [
+          "tt_pullback",
+          3
+        ],
+        [
+          "tt_momentum",
+          3
+        ]
+      ],
+      "exit_reasons_top": [
+        [
+          "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+          3
+        ],
+        [
+          "doa_early_exit",
+          2
+        ],
+        [
+          "SOFT_FUSE_RSI_CONFIRMED",
+          1
+        ]
+      ],
+      "profiles_top": [
+        [
+          "correction_transition",
+          6
+        ]
+      ],
+      "rsi_divergence_presence": {
+        "present": 6
+      }
+    },
+    "CELH": {
+      "trade_count": 2,
+      "wins": 0,
+      "losses": 2,
+      "avg_pnl": -149.24,
+      "avg_pnl_pct": -2.403,
+      "avg_entry_quality_score": 73.0,
+      "avg_rvol_best": 6.27,
+      "tf30_confirmed_rate": 1.0,
+      "tf30_opposed_rate": 0.0,
+      "late_phase_rate": 0.0,
+      "high_atr_rate": 1.0,
+      "pdz_adverse_rate": 0.0,
+      "entry_paths_top": [
+        [
+          "tt_momentum",
+          1
+        ],
+        [
+          "tt_pullback",
+          1
+        ]
+      ],
+      "exit_reasons_top": [
+        [
+          "SMART_RUNNER_SUPPORT_BREAK_CLOUD",
+          1
+        ],
+        [
+          "max_loss",
+          1
+        ]
+      ],
+      "profiles_top": [
+        [
+          "correction_transition",
+          2
+        ]
+      ],
+      "rsi_divergence_presence": {
+        "present": 1,
+        "absent": 1
+      }
+    },
+    "ETN": {
+      "trade_count": 7,
+      "wins": 4,
+      "losses": 3,
+      "avg_pnl": 25.66,
+      "avg_pnl_pct": 0.011,
+      "avg_entry_quality_score": 83.29,
+      "avg_rvol_best": 7.48,
+      "tf30_confirmed_rate": 1.0,
+      "tf30_opposed_rate": 0.143,
+      "late_phase_rate": 0.0,
+      "high_atr_rate": 0.143,
+      "pdz_adverse_rate": 0.0,
+      "entry_paths_top": [
+        [
+          "tt_pullback",
+          5
+        ],
+        [
+          "tt_momentum",
+          2
+        ]
+      ],
+      "exit_reasons_top": [
+        [
+          "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+          3
+        ],
+        [
+          "ripster_34_50_lost_mtf",
+          2
+        ],
+        [
+          "SOFT_FUSE_RSI_CONFIRMED",
+          1
+        ],
+        [
+          "doa_early_exit",
+          1
+        ]
+      ],
+      "profiles_top": [
+        [
+          "correction_transition",
+          7
+        ]
+      ],
+      "rsi_divergence_presence": {
+        "absent": 3,
+        "present": 4
+      }
+    },
+    "FIX": {
+      "trade_count": 5,
+      "wins": 2,
+      "losses": 3,
+      "avg_pnl": -19.98,
+      "avg_pnl_pct": -0.697,
+      "avg_entry_quality_score": 74.6,
+      "avg_rvol_best": 5.71,
+      "tf30_confirmed_rate": 1.0,
+      "tf30_opposed_rate": 0.0,
+      "late_phase_rate": 0.0,
+      "high_atr_rate": 0.0,
+      "pdz_adverse_rate": 0.0,
+      "entry_paths_top": [
+        [
+          "tt_momentum",
+          4
+        ],
+        [
+          "tt_pullback",
+          1
+        ]
+      ],
+      "exit_reasons_top": [
+        [
+          "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+          1
+        ],
+        [
+          "ripster_34_50_lost_mtf",
+          1
+        ],
+        [
+          "PHASE_LEAVE_100",
+          1
+        ],
+        [
+          "doa_early_exit",
+          1
+        ],
+        [
+          "max_loss",
+          1
+        ]
+      ],
+      "profiles_top": [
+        [
+          "correction_transition",
+          4
+        ],
+        [
+          "choppy_selective",
+          1
+        ]
+      ],
+      "rsi_divergence_presence": {
+        "present": 4,
+        "absent": 1
+      }
+    },
+    "RBLX": {
+      "trade_count": 8,
+      "wins": 6,
+      "losses": 2,
+      "avg_pnl": 55.86,
+      "avg_pnl_pct": 0.861,
+      "avg_entry_quality_score": 66.38,
+      "avg_rvol_best": 10.87,
+      "tf30_confirmed_rate": 0.75,
+      "tf30_opposed_rate": 0.125,
+      "late_phase_rate": 0.125,
+      "high_atr_rate": 0.875,
+      "pdz_adverse_rate": 0.0,
+      "entry_paths_top": [
+        [
+          "tt_momentum",
+          8
+        ]
+      ],
+      "exit_reasons_top": [
+        [
+          "SOFT_FUSE_RSI_CONFIRMED",
+          4
+        ],
+        [
+          "PROFIT_GIVEBACK",
+          2
+        ],
+        [
+          "PHASE_LEAVE_100",
+          1
+        ],
+        [
+          "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+          1
+        ]
+      ],
+      "profiles_top": [
+        [
+          "correction_transition",
+          8
+        ]
+      ],
+      "rsi_divergence_presence": {
+        "present": 3,
+        "absent": 5
+      }
+    },
+    "ULTA": {
+      "trade_count": 6,
+      "wins": 4,
+      "losses": 2,
+      "avg_pnl": 25.88,
+      "avg_pnl_pct": 0.432,
+      "avg_entry_quality_score": 66.67,
+      "avg_rvol_best": 2.14,
+      "tf30_confirmed_rate": 1.0,
+      "tf30_opposed_rate": 0.333,
+      "late_phase_rate": 0.167,
+      "high_atr_rate": 0.333,
+      "pdz_adverse_rate": 0.0,
+      "entry_paths_top": [
+        [
+          "tt_momentum",
+          4
+        ],
+        [
+          "tt_pullback",
+          2
+        ]
+      ],
+      "exit_reasons_top": [
+        [
+          "SOFT_FUSE_RSI_CONFIRMED",
+          3
+        ],
+        [
+          "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+          2
+        ],
+        [
+          "time_exit_loser_trending",
+          1
+        ]
+      ],
+      "profiles_top": [
+        [
+          "correction_transition",
+          5
+        ],
+        [
+          "choppy_selective",
+          1
+        ]
+      ],
+      "rsi_divergence_presence": {
+        "absent": 2,
+        "present": 4
+      }
+    }
+  }
+}

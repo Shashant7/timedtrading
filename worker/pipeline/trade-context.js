@@ -98,6 +98,9 @@ export function buildTradeContext(tickerData, asOfTs = null) {
   const exitDebounceBars = Math.max(1, Number(env._ripsterExitDebounceBars) || 3);
   const movePhase = buildMovePhaseProfile(d, side, tf, deepAuditConfig);
   if (movePhase) d.move_phase_profile = movePhase;
+  const structureHealth = buildStructureHealthProfile(d, side, tf, movePhase, stSupportScore, rvolBest);
+  const progression = buildProgressionProfile(d, side, tf, movePhase, structureHealth, rvolBest);
+  const eventRisk = buildEventRiskProfile(d);
 
   return {
     ticker,
@@ -149,12 +152,19 @@ export function buildTradeContext(tickerData, asOfTs = null) {
     profile: d._tickerProfile || null,
 
     rvol: { best: rvolBest, m30: rvol30, h1: rvol1H },
+    divergence: {
+      rsi: d.rsi_divergence || null,
+      phase: d.phase_divergence || null,
+    },
 
     pdz: {
       zoneD: String(d.pdz_zone_D || "unknown"),
       pctD: Number(d.pdz_pct_D) || 50,
     },
     movePhase,
+    structureHealth,
+    progression,
+    eventRisk,
 
     fvg: { D: d.fvg_D || {} },
     liq: { D: d.liq_D || {}, h4: d.liq_4h || {} },
@@ -310,6 +320,65 @@ function buildMovePhaseProfile(d, side, tf, daCfg = {}) {
     };
   }
 
+  const adverseDivSide = side === "LONG" ? "bear" : "bull";
+  const participation = {};
+  const lateStageConditions = [];
+  const countertrendPeakReasons = [];
+  let adverseRsiDivCount = 0;
+  let adversePhaseDivCount = 0;
+  for (const [label, src] of Object.entries({ m30: tf?.m30, h1: tf?.h1, h4: tf?.h4, D: tf?.D, W: tf?.W })) {
+    if (!src || typeof src !== "object" || Object.keys(src).length === 0) continue;
+    const c5 = src?.ripster?.c5_12 || {};
+    const stDir = Number(src?.stDir);
+    const emaStructure = Number(src?.ema?.structure);
+    const phaseStage = phase[label]?.stage || "neutral";
+    const adverseRsiDiv = summarizeTfDiv(src, "rsiDiv", adverseDivSide);
+    const adversePhaseDiv = summarizeTfDiv(src, "phaseDiv", adverseDivSide);
+    const c5Confirmed = side === "LONG"
+      ? !!(c5?.bull && c5?.above)
+      : !!(c5?.bear && c5?.below);
+    const c5Opposed = side === "LONG" ? !!c5?.below : !!c5?.above;
+    const stAligned = Number.isFinite(stDir)
+      ? (side === "LONG" ? stDir <= 0 : stDir >= 0)
+      : false;
+    const emaAligned = Number.isFinite(emaStructure)
+      ? (side === "LONG" ? emaStructure >= 0 : emaStructure <= 0)
+      : false;
+    const late = phaseStage === "late" || phaseStage === "extreme";
+    const exhausted = phaseStage === "extreme"
+      || (adverseRsiDiv?.active && (adverseRsiDiv?.strength || 0) >= 1.5)
+      || (adversePhaseDiv?.active && (adversePhaseDiv?.strength || 0) >= 1.5);
+    const supportive = !!(
+      c5Confirmed
+      || (stAligned && emaAligned && !c5Opposed && !late && !exhausted)
+    );
+    if (late) lateStageConditions.push(`${label}_phase_${phaseStage}`);
+    if (c5Opposed) countertrendPeakReasons.push(`${label}_5_12_opposed`);
+    if (adverseRsiDiv?.active) {
+      adverseRsiDivCount++;
+      countertrendPeakReasons.push(`${label}_rsi_div_${adverseDivSide}`);
+    }
+    if (adversePhaseDiv?.active) {
+      adversePhaseDivCount++;
+      countertrendPeakReasons.push(`${label}_phase_div_${adverseDivSide}`);
+    }
+    participation[label] = {
+      available: true,
+      c5Confirmed,
+      c5Opposed,
+      stDir: Number.isFinite(stDir) ? stDir : null,
+      stAligned,
+      emaStructure: Number.isFinite(emaStructure) ? round3(emaStructure) : null,
+      emaAligned,
+      phaseStage,
+      adverseRsiDiv,
+      adversePhaseDiv,
+      supportive,
+      late,
+      exhausted,
+    };
+  }
+
   const supportiveSignals = atrSupportiveCount + phaseSupportiveCount + favorablePdz + ewSupportiveCount;
   const counterSignals = ewCounterCount + (tdCounterSignal ? 1 : 0) + unfavorablePdz;
   let profile = "neutral";
@@ -317,6 +386,7 @@ function buildMovePhaseProfile(d, side, tf, daCfg = {}) {
   const trendIsCrowded = atrExtendedCount >= 2 && phaseExtremeCount >= 1;
   const countertrendConfluence = counterSignals >= 2 && phaseLateCount >= 1;
   const unfavorableContext = unfavorablePdz > 0 || tdCounterSignal || ewCounterCount > 0;
+  const peakExhaustionCount = atrExhaustedCount + phaseExtremeCount + adverseRsiDivCount + adversePhaseDivCount + (tdCounterSignal ? 1 : 0);
 
   if (strongPeakStructure && (countertrendConfluence || unfavorableContext)) {
     profile = "countertrend_peak_risk";
@@ -355,9 +425,161 @@ function buildMovePhaseProfile(d, side, tf, daCfg = {}) {
       phaseExtremeCount,
       supportiveSignals,
       counterSignals,
+      adverseRsiDivCount,
+      adversePhaseDivCount,
+      peakExhaustionCount,
+    },
+    participation,
+    peak: {
+      lateStageConditions: [...new Set(lateStageConditions)].slice(0, 8),
+      countertrendPeakReasons: [...new Set(countertrendPeakReasons)].slice(0, 8),
+      peakExhaustionCount,
     },
     reasons: [...new Set(reasons)].slice(0, 8),
     version: Number(daCfg.deep_audit_move_phase_profile_version) || 1,
+  };
+}
+
+function summarizeTfDiv(tf, keyName, side) {
+  if (!tf?.[keyName]) return null;
+  const keys = side === "bear" ? ["bear", "rb"] : ["bull", "ru"];
+  for (const key of keys) {
+    const div = tf[keyName][key];
+    if (!div) continue;
+    const active = div?.active ?? div?.a;
+    const strength = Number(div?.strength ?? div?.s) || 0;
+    const barsSince = Number(div?.barsSince ?? div?.bs);
+    return {
+      side,
+      source: key,
+      active: !!active,
+      strength: round3(strength),
+      barsSince: Number.isFinite(barsSince) ? barsSince : null,
+    };
+  }
+  return null;
+}
+
+function buildStructureHealthProfile(d, side, tf, movePhase, stSupportScore, rvolBest) {
+  if (!side) return null;
+  const checks = [];
+  const addCheck = (label, aligned, reason) => {
+    if (aligned == null) return;
+    checks.push({ label, aligned: !!aligned, reason });
+  };
+
+  const st30 = Number(tf?.m30?.stDir);
+  const st1 = Number(tf?.h1?.stDir);
+  const st4 = Number(tf?.h4?.stDir);
+  const ema30 = Number(tf?.m30?.ema?.structure);
+  const emaD = Number(tf?.D?.ema?.structure);
+  addCheck("st_30m", Number.isFinite(st30) ? (side === "LONG" ? st30 <= 0 : st30 >= 0) : null, "supertrend");
+  addCheck("st_1h", Number.isFinite(st1) ? (side === "LONG" ? st1 <= 0 : st1 >= 0) : null, "supertrend");
+  addCheck("st_4h", Number.isFinite(st4) ? (side === "LONG" ? st4 <= 0 : st4 >= 0) : null, "supertrend");
+  addCheck("ema_30m", Number.isFinite(ema30) ? (side === "LONG" ? ema30 >= 0 : ema30 <= 0) : null, "ema_structure");
+  addCheck("ema_D", Number.isFinite(emaD) ? (side === "LONG" ? emaD >= 0 : emaD <= 0) : null, "ema_structure");
+
+  const intactCount = checks.filter((c) => c.aligned).length;
+  const brokenCount = checks.filter((c) => !c.aligned).length;
+  const participation = movePhase?.participation || {};
+  const supportiveParticipation = Object.values(participation).filter((row) => row?.supportive).length;
+  const exhaustedParticipation = Object.values(participation).filter((row) => row?.exhausted).length;
+  const score = round3(
+    (intactCount * 1.25)
+    + (supportiveParticipation * 0.75)
+    + ((Number(stSupportScore) || 0.5) * 2)
+    + (Math.min(3, Number(rvolBest) || 0) >= 1.2 ? 0.5 : 0)
+    - (brokenCount * 1.5)
+    - (exhaustedParticipation * 0.75)
+  );
+  const intact = brokenCount === 0 && intactCount >= 3;
+  const fragile = !intact && brokenCount <= 1 && intactCount >= 2;
+  const broken = brokenCount >= 2 || intactCount === 0;
+  const posture = broken ? "broken" : intact ? "intact" : fragile ? "fragile" : "mixed";
+
+  return {
+    posture,
+    intact,
+    fragile,
+    broken,
+    score,
+    intactCount,
+    brokenCount,
+    supportiveParticipation,
+    exhaustedParticipation,
+    checks,
+  };
+}
+
+function buildProgressionProfile(d, side, tf, movePhase, structureHealth, rvolBest) {
+  if (!side) return null;
+  const emaMom30 = Number(d?.ema_map?.["30"]?.momentum ?? tf?.m30?.ema?.momentum) || 0;
+  const emaMomD = Number(d?.ema_map?.D?.momentum ?? tf?.D?.ema?.momentum) || 0;
+  const atrExtendedCount = Number(movePhase?.scores?.atrExtendedCount) || 0;
+  const phaseLateCount = Number(movePhase?.scores?.phaseLateCount) || 0;
+  const peakExhaustionCount = Number(movePhase?.scores?.peakExhaustionCount) || 0;
+  const favorablePdz = Number(movePhase?.pdz?.favorableCount) || 0;
+  const unfavorablePdz = Number(movePhase?.pdz?.unfavorableCount) || 0;
+  const sponsorship = (Number(rvolBest) || 0) >= 1.8 ? "strong"
+    : (Number(rvolBest) || 0) >= 1.2 ? "moderate"
+    : "weak";
+  const momentumAligned = side === "LONG"
+    ? (emaMom30 >= 0 && emaMomD >= 0)
+    : (emaMom30 <= 0 && emaMomD <= 0);
+  const advancementScore = round3(
+    ((structureHealth?.intactCount || 0) * 0.8)
+    + ((structureHealth?.supportiveParticipation || 0) * 0.7)
+    + (momentumAligned ? 1.0 : 0)
+    + (favorablePdz > 0 ? 0.6 : 0)
+    + (sponsorship === "strong" ? 0.8 : sponsorship === "moderate" ? 0.4 : 0)
+  );
+  const exhaustionScore = round3(
+    (peakExhaustionCount * 0.9)
+    + (atrExtendedCount * 0.5)
+    + (phaseLateCount * 0.6)
+    + (unfavorablePdz > 0 ? 0.8 : 0)
+  );
+  const status = exhaustionScore >= 3.5
+    ? "stretched"
+    : advancementScore >= 3.2 && exhaustionScore <= 2.0
+      ? "advancing"
+      : structureHealth?.fragile
+        ? "fragile"
+        : "mixed";
+  return {
+    status,
+    momentumAligned,
+    sponsorship,
+    advancementScore,
+    exhaustionScore,
+    favorablePdz,
+    unfavorablePdz,
+    emaMom30: round3(emaMom30),
+    emaMomD: round3(emaMomD),
+  };
+}
+
+function buildEventRiskProfile(d) {
+  const event = d?.__eventRiskProfile || d?._eventRiskProfile || d?.eventRiskProfile || null;
+  const upcoming = d?.__upcomingRiskEvent || d?._upcomingRiskEvent || d?.upcomingRiskEvent || null;
+  const trimPct = Number(event?.trimPct);
+  const scheduledTs = Number(upcoming?.scheduledTs || event?.scheduledTs);
+  const nowTs = Number(d?.ts || d?.ingest_ts || d?.snapshot_ts || Date.now());
+  const hoursToEvent = Number.isFinite(scheduledTs) && Number.isFinite(nowTs)
+    ? round3((scheduledTs - nowTs) / 3600000)
+    : null;
+  const severity = Number.isFinite(trimPct)
+    ? (trimPct >= 0.5 ? "high" : trimPct >= 0.2 ? "medium" : "low")
+    : "none";
+  return {
+    active: !!upcoming || !!event,
+    severity,
+    trimPct: Number.isFinite(trimPct) ? trimPct : null,
+    eventType: upcoming?.eventType || event?.eventType || null,
+    eventKey: upcoming?.eventKey || event?.eventKey || null,
+    session: upcoming?.session || event?.session || null,
+    hoursToEvent,
+    reasons: Array.isArray(event?.reasons) ? event.reasons.slice(0, 6) : [],
   };
 }
 

@@ -204,19 +204,7 @@ export async function d1InsertTrailPoint(env, ticker, payload) {
         point?.trigger_reason != null ? String(point.trigger_reason) : null,
         point?.trigger_dir != null ? String(point.trigger_dir) : null,
         point?.kanban_stage != null ? String(point.kanban_stage) : null,
-        (() => {
-          try {
-            let slim = slimPayloadForD1(payload);
-            let s = JSON.stringify(slim);
-            if (s.length > D1_MAX_PAYLOAD_BYTES) {
-              slim = minimalPayloadForD1(payload);
-              s = JSON.stringify(slim);
-            }
-            return s.length <= D1_MAX_PAYLOAD_BYTES ? s : null;
-          } catch {
-            return null;
-          }
-        })(),
+        null,
       )
       .run();
 

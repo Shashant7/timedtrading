@@ -1,0 +1,40 @@
+{
+  "generated_at": "2026-04-02T17:34:26.813Z",
+  "baseline": {
+    "source": "/Users/shashant/timedtrading/data/backtest-artifacts/candidate-tsm-gdx-julaug-v6-v4b-rankrecompute-export-20260402/model-config.json",
+    "run_id": "backtest_2025-07-01_2025-08-08@2026-03-31T13:20:22.786Z",
+    "key_count": 135
+  },
+  "compare": {
+    "source": "/Users/shashant/timedtrading/data/backtest-artifacts/iter5-jul1-apr1-clean-rerun-v2-aborted-20260402/model-config.json",
+    "run_id": "backtest_2025-07-01_2026-04-01@2026-04-02T15:52:12.147Z",
+    "key_count": 133
+  },
+  "summary": {
+    "baseline_only": 2,
+    "compare_only": 0,
+    "changed": 3
+  },
+  "baseline_only_keys": [
+    "deep_audit_phase_leave_runner_trail_atr_mult",
+    "smart_runner_td_exhaustion_support_hold_enabled"
+  ],
+  "compare_only_keys": [],
+  "changed_keys": [
+    {
+      "key": "consensus_signal_weights",
+      "baseline": "{\"ema_cross\":0.15,\"supertrend\":0.24,\"ema_structure\":0.25,\"ema_depth\":0.21,\"rsi\":0.16}",
+      "compare": "{\"ema_cross\":0.14,\"supertrend\":0.26,\"ema_structure\":0.23,\"ema_depth\":0.2,\"rsi\":0.16}"
+    },
+    {
+      "key": "consensus_tf_weights",
+      "baseline": "{\"10\":1,\"30\":1.06,\"60\":1.2,\"240\":1.19,\"D\":1.17}",
+      "compare": "{\"10\":1,\"30\":0.83,\"60\":0.98,\"240\":0.97,\"D\":1.03}"
+    },
+    {
+      "key": "scoring_weight_adj",
+      "baseline": "{\"10\":0.996,\"30\":0.996,\"60\":1.003,\"240\":1.003,\"W\":1.003,\"D\":1.003}",
+      "compare": "{\"10\":0.993,\"30\":0.993,\"60\":0.997,\"240\":0.997,\"W\":0.997,\"D\":0.997}"
+    }
+  ]
+}

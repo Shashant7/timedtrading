@@ -1,0 +1,35 @@
+{
+  "ok": true,
+  "count": 1,
+  "hasMore": false,
+  "nextCursor": null,
+  "trades": [
+    {
+      "trade_id": "FIX-1751485800000-4uq0t3ssv",
+      "ticker": "FIX",
+      "direction": "LONG",
+      "entry_ts": 1751485800000,
+      "entry_price": 529.37,
+      "rank": 0,
+      "rr": 4.737681159420305,
+      "status": "OPEN",
+      "exit_ts": null,
+      "exit_price": null,
+      "exit_reason": "unknown",
+      "trimmed_pct": 0,
+      "pnl": -17.454710316035634,
+      "pnl_pct": -0.14545591930029694,
+      "script_version": "alpaca_server_v2.0",
+      "created_at": 1751485800000,
+      "updated_at": 1775171747016,
+      "trim_ts": null,
+      "trim_price": null,
+      "setup_name": "TT Tt Momentum",
+      "setup_grade": "Confirmed",
+      "risk_budget": 0.01,
+      "shares": 22.66845495589097,
+      "notional": 12000.000000000002,
+      "quantity": 22.66845495589097
+    }
+  ]
+}

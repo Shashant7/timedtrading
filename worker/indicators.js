@@ -173,20 +173,21 @@ export function satyPhaseSeries(bars, closes, ema21Arr, atr14Arr, smoothPeriod =
 }
 
 /**
- * Detect RSI divergence by comparing last two swing pivots (price vs RSI).
+ * Detect regular divergence by comparing the last two price swing pivots
+ * against an aligned oscillator series.
  *
- * Bearish regular: price higher-high + RSI lower-high → reversal down likely
- * Bullish regular: price lower-low  + RSI higher-low  → reversal up likely
+ * Bearish regular: price higher-high + oscillator lower-high
+ * Bullish regular: price lower-low  + oscillator higher-low
  *
- * @param {Array} bars       - OHLC bars sorted ascending { o, h, l, c, ts }
- * @param {number[]} rsiArr  - full RSI array aligned with bars
- * @param {number} pivotLookback - bars on each side for swing pivot (default 5)
- * @param {number} maxAge    - max bars since most-recent pivot to consider "active"
+ * @param {Array} bars         - OHLC bars sorted ascending { o, h, l, c, ts }
+ * @param {number[]} valueArr  - oscillator series aligned with bars
+ * @param {number} pivotLookback - bars on each side for swing pivot
+ * @param {number} maxAge      - max bars since most-recent pivot to consider active
  * @returns {{ bear: {active,strength,barsSince}|null, bull: {active,strength,barsSince}|null }}
  */
-export function detectRsiDivergence(bars, rsiArr, pivotLookback = 5, maxAge = 10) {
+export function detectSeriesDivergence(bars, valueArr, pivotLookback = 5, maxAge = 10) {
   const result = { bear: null, bull: null };
-  if (!bars || !rsiArr || bars.length < pivotLookback * 2 + 2) return result;
+  if (!bars || !valueArr || bars.length < pivotLookback * 2 + 2) return result;
 
   const pivots = findSwingPivots(bars, pivotLookback);
   const lastIdx = bars.length - 1;
@@ -195,12 +196,12 @@ export function detectRsiDivergence(bars, rsiArr, pivotLookback = 5, maxAge = 10
     const h1 = pivots.highs[pivots.highs.length - 2];
     const h2 = pivots.highs[pivots.highs.length - 1];
     const barsSince = lastIdx - h2.idx;
-    const rsi1 = rsiArr[h1.idx];
-    const rsi2 = rsiArr[h2.idx];
-    if (Number.isFinite(rsi1) && Number.isFinite(rsi2) && h2.price > h1.price && rsi2 < rsi1) {
+    const v1 = valueArr[h1.idx];
+    const v2 = valueArr[h2.idx];
+    if (Number.isFinite(v1) && Number.isFinite(v2) && h2.price > h1.price && v2 < v1) {
       result.bear = {
         active: barsSince <= maxAge,
-        strength: Math.round((rsi1 - rsi2) * 10) / 10,
+        strength: Math.round((v1 - v2) * 10) / 10,
         barsSince,
       };
     }
@@ -210,18 +211,25 @@ export function detectRsiDivergence(bars, rsiArr, pivotLookback = 5, maxAge = 10
     const l1 = pivots.lows[pivots.lows.length - 2];
     const l2 = pivots.lows[pivots.lows.length - 1];
     const barsSince = lastIdx - l2.idx;
-    const rsi1 = rsiArr[l1.idx];
-    const rsi2 = rsiArr[l2.idx];
-    if (Number.isFinite(rsi1) && Number.isFinite(rsi2) && l2.price < l1.price && rsi2 > rsi1) {
+    const v1 = valueArr[l1.idx];
+    const v2 = valueArr[l2.idx];
+    if (Number.isFinite(v1) && Number.isFinite(v2) && l2.price < l1.price && v2 > v1) {
       result.bull = {
         active: barsSince <= maxAge,
-        strength: Math.round((rsi2 - rsi1) * 10) / 10,
+        strength: Math.round((v2 - v1) * 10) / 10,
         barsSince,
       };
     }
   }
 
   return result;
+}
+
+/**
+ * Detect RSI divergence by comparing last two swing pivots (price vs RSI).
+ */
+export function detectRsiDivergence(bars, rsiArr, pivotLookback = 5, maxAge = 10) {
+  return detectSeriesDivergence(bars, rsiArr, pivotLookback, maxAge);
 }
 
 /**
@@ -1181,6 +1189,7 @@ export function computeTfBundle(bars, anchors = null) {
   // TT Phase Oscillator — pure price-displacement with EMA(3) smoothing
   // Computes full series for proper zone-exit detection (prev bar vs current bar)
   const satyPhase = satyPhaseSeries(bars, closes, e21s, atr14Arr, 3);
+  const phaseDiv = detectSeriesDivergence(bars, satyPhase.series, 2, 12);
 
   // Compression (Bollinger expansion logic from Pine)
   let compressed = false;
@@ -1389,7 +1398,7 @@ export function computeTfBundle(bars, anchors = null) {
     compressed,
     atr14, atrRatio,
     volRatio, rvol5, rvolSpike,
-    rsi, rsiDiv,
+    rsi, rsiDiv, phaseDiv,
     ggUpCross, ggDnCross, ggDist,
     ggUpCross_ts, ggDnCross_ts,
     emaStack,
@@ -4060,6 +4069,10 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
         bear: b.rsiDiv.bear ? { s: b.rsiDiv.bear.strength, bs: b.rsiDiv.bear.barsSince, a: b.rsiDiv.bear.active } : undefined,
         bull: b.rsiDiv.bull ? { s: b.rsiDiv.bull.strength, bs: b.rsiDiv.bull.barsSince, a: b.rsiDiv.bull.active } : undefined,
       } : undefined,
+      phaseDiv: b.phaseDiv && (b.phaseDiv.bear || b.phaseDiv.bull) ? {
+        bear: b.phaseDiv.bear ? { s: b.phaseDiv.bear.strength, bs: b.phaseDiv.bear.barsSince, a: b.phaseDiv.bear.active } : undefined,
+        bull: b.phaseDiv.bull ? { s: b.phaseDiv.bull.strength, bs: b.phaseDiv.bull.barsSince, a: b.phaseDiv.bull.active } : undefined,
+      } : undefined,
       ripster: b.ripsterClouds || undefined,
       ich: b.ichimoku ? {
         pvc: b.ichimoku.priceVsCloud || undefined,
@@ -4223,8 +4236,20 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
     saty_phase_exit: satyPhaseExitSignal,
     rsi_divergence: (() => {
       const out = {};
-      for (const [label, b] of [["1H", b1H], ["30", b30], ["D", bD]]) {
-        if (b?.rsiDiv && (b.rsiDiv.bear || b.rsiDiv.bull)) out[label] = b.rsiDiv;
+      for (const [label, b] of Object.entries(tfMap)) {
+        if (!b?.rsiDiv) continue;
+        const hasPrimary = !!(b.rsiDiv.bear || b.rsiDiv.bull);
+        const hasRecent = !!(b.rsiDiv.recentBear || b.rsiDiv.recentBull);
+        if (hasPrimary || hasRecent) out[label] = b.rsiDiv;
+      }
+      return Object.keys(out).length > 0 ? out : undefined;
+    })(),
+    phase_divergence: (() => {
+      const out = {};
+      for (const [label, b] of Object.entries(tfMap)) {
+        if (!b?.phaseDiv) continue;
+        const hasPrimary = !!(b.phaseDiv.bear || b.phaseDiv.bull);
+        if (hasPrimary) out[label] = b.phaseDiv;
       }
       return Object.keys(out).length > 0 ? out : undefined;
     })(),

@@ -21,6 +21,22 @@ export function evaluateExit(ctx, position) {
       ? ((currentPrice - entryPrice) / entryPrice) * 100
       : ((entryPrice - currentPrice) / entryPrice) * 100;
   }
+  const structureHealth = ctx.structureHealth || null;
+  const progression = ctx.progression || null;
+  const eventRisk = ctx.eventRisk || null;
+  const st15Dir = Number(ctx.tf.m15?.stDir) || 0;
+  const st15Slope = Number(ctx.tf.m15?.stSlope) || 0;
+  const st15Supportive = direction === "LONG" ? st15Dir === -1 : st15Dir === 1;
+  const st15SlopeSupportive = direction === "LONG" ? st15Slope >= 0 : st15Slope <= 0;
+  const st15TrendSupportive = st15Supportive && st15SlopeSupportive;
+  const elevatedEventRisk = !!(
+    eventRisk?.active
+    && (
+      eventRisk?.severity === "high"
+      || eventRisk?.severity === "medium"
+      || (Number.isFinite(Number(eventRisk?.hoursToEvent)) && Number(eventRisk.hoursToEvent) <= 24)
+    )
+  );
 
   // PDZ zone context
   const pdzZone = String(d?.pdz_zone_D || "unknown");
@@ -128,21 +144,55 @@ export function evaluateExit(ctx, position) {
       : isFuelCritical ? "fuel_critical"
       : pdzPnlExtreme ? "pdz_extended"
       : "pnl_extreme";
+    const canDeferExhaustion =
+      pnlPct > 0
+      && !elevatedEventRisk
+      && !structureHealth?.broken
+      && (structureHealth?.intact || progression?.status === "advancing");
+    const canDeferSoftFuseLike =
+      isRsiExtreme
+      && pnlPct > 0
+      && !elevatedEventRisk
+      && st15TrendSupportive
+      && !structureHealth?.broken
+      && (
+        structureHealth?.intact
+        || progression?.status === "advancing"
+        || (structureHealth?.fragile && progression?.status !== "stretched")
+      );
 
     // Runner: exhaustion signals don't force exit if structure intact
     if (trimmedPct >= 0.5) {
+      if (elevatedEventRisk && pnlPct > 0) {
+        return result("exit", "runner_pre_event_risk_exit", "tt_context");
+      }
       if (isRunnerStructureIntact(d, ctx, direction) && pnlPct > 0) {
         return result("hold", "runner_structure_holds", "tt_runner");
       }
       return result("exit", "runner_exhausted_no_structure", "tt_runner");
+    }
+    if (canDeferSoftFuseLike) {
+      return result("defend", "soft_fuse_deferred_st15_supportive", "tt_context", {
+        st15Dir,
+        st15Slope,
+      });
+    }
+    if (canDeferExhaustion && (isRsiExtreme || isFuelCritical)) {
+      return result("defend", "exhaustion_deferred_structure_intact", "tt_context");
     }
     return result("trim", trimReason, "tt_trim");
   }
 
   // ── RUNNER TRAILING (post-trim, no active exhaustion signal) ──
   if (trimmedPct >= 0.5) {
+    if (elevatedEventRisk && pnlPct > 0) {
+      return result("exit", "runner_pre_event_risk_exit", "tt_context");
+    }
     if (!isRunnerStructureIntact(d, ctx, direction)) {
       return result("exit", "runner_structure_broken", "tt_runner");
+    }
+    if (progression?.status === "stretched" && structureHealth?.fragile) {
+      return result("defend", "runner_stretched_fragile", "tt_context");
     }
     if (mfePct >= 1.0 && pnlPct <= 0.1) {
       return result("exit", "runner_breakeven_stop", "tt_runner");

@@ -1,0 +1,39 @@
+{
+  "ok": true,
+  "count": 1,
+  "totalCount": 1,
+  "version": "all",
+  "versions": [
+    "alpaca_server_v2.0"
+  ],
+  "trades": [
+    {
+      "id": "FIX-1751485800000-4uq0t3ssv",
+      "trade_id": "FIX-1751485800000-4uq0t3ssv",
+      "ticker": "FIX",
+      "direction": "LONG",
+      "entryPrice": 529.37,
+      "entry_price": 529.37,
+      "entry_ts": 1751485800000,
+      "entryTime": "2025-07-02T19:50:00.000Z",
+      "rank": 0,
+      "rr": 4.737681159420305,
+      "status": "OPEN",
+      "exitReason": "unknown",
+      "trimmedPct": 0,
+      "pnl": -17.454710316035634,
+      "pnlPct": -0.14545591930029694,
+      "scriptVersion": "alpaca_server_v2.0",
+      "script_version": "alpaca_server_v2.0",
+      "created_at": 1751485800000,
+      "updated_at": 1775171747016,
+      "shares": 22.66845495589097,
+      "notional": 12000.000000000002,
+      "setup_grade": "Confirmed",
+      "setup_name": "TT Tt Momentum",
+      "risk_budget": 0.01,
+      "history": []
+    }
+  ],
+  "source": "d1"
+}

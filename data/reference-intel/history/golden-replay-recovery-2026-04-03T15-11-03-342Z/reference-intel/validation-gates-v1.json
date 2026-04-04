@@ -1,0 +1,64 @@
+{
+  "generated_at_utc": "2026-04-03T10:15:14.415301+00:00",
+  "gates_total": 8,
+  "gates_passed": 8,
+  "overall_pass": true,
+  "gates": [
+    {
+      "gate": "lineage_missing_entry_path_max",
+      "value": 0.3715,
+      "threshold": 0.5,
+      "operator": "<=",
+      "pass": true
+    },
+    {
+      "gate": "lineage_missing_signal_snapshot_max",
+      "value": 0.3763,
+      "threshold": 0.5,
+      "operator": "<=",
+      "pass": true
+    },
+    {
+      "gate": "reference_count_min",
+      "value": 250.0,
+      "threshold": 200.0,
+      "operator": ">=",
+      "pass": true
+    },
+    {
+      "gate": "canonical_sector_coverage_min",
+      "value": 14.0,
+      "threshold": 8.0,
+      "operator": ">=",
+      "pass": true
+    },
+    {
+      "gate": "context_profile_present_rate_min",
+      "value": 0.9911,
+      "threshold": 0.95,
+      "operator": ">=",
+      "pass": true
+    },
+    {
+      "gate": "context_daily_brief_present_rate_min",
+      "value": 1.0,
+      "threshold": 0.95,
+      "operator": ">=",
+      "pass": true
+    },
+    {
+      "gate": "context_hyper_state_present_rate_min",
+      "value": 1.0,
+      "threshold": 0.95,
+      "operator": ">=",
+      "pass": true
+    },
+    {
+      "gate": "policy_rule_count_min",
+      "value": 31.0,
+      "threshold": 20.0,
+      "operator": ">=",
+      "pass": true
+    }
+  ]
+}

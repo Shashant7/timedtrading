@@ -1,0 +1,135 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "run_id": "focused_replay_20260402-160626@2026-04-02T20:06:26.641Z",
+  "totals": {
+    "totalTrades": 35,
+    "openTrades": 7,
+    "closedTrades": 28,
+    "wins": 21,
+    "losses": 6,
+    "winRate": 75,
+    "closedPnl": 2642.294533501552,
+    "profitFactor": 3.078551071281013,
+    "avgWin": 186.35780836865334,
+    "avgLoss": 211.86990704002793,
+    "expectancy": 94.36766191076971,
+    "grossWin": 3913.51397574172,
+    "grossLoss": 1271.2194422401676
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "80+",
+        "n": 30,
+        "wins": 18,
+        "losses": 5,
+        "pnl": 2330.924782446342
+      },
+      {
+        "bucket": "<60",
+        "n": 3,
+        "wins": 2,
+        "losses": 1,
+        "pnl": 238.57685959696693
+      },
+      {
+        "bucket": "70-79",
+        "n": 1,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "bucket": "60-69",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 72.79289145824339
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "2.0+",
+        "n": 34,
+        "wins": 21,
+        "losses": 6,
+        "pnl": 2642.294533501552
+      },
+      {
+        "bucket": "1.5-1.99",
+        "n": 1,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      }
+    ],
+    "byExitReason": [
+      {
+        "bucket": "unknown",
+        "n": 7,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "bucket": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+        "n": 16,
+        "wins": 16,
+        "losses": 0,
+        "pnl": 2492.1783315428083
+      },
+      {
+        "bucket": "sl_breached",
+        "n": 4,
+        "wins": 1,
+        "losses": 3,
+        "pnl": -402.9588566606195
+      },
+      {
+        "bucket": "PHASE_LEAVE_100",
+        "n": 3,
+        "wins": 2,
+        "losses": 1,
+        "pnl": 325.5144660240828
+      },
+      {
+        "bucket": "max_loss",
+        "n": 1,
+        "wins": 0,
+        "losses": 0,
+        "pnl": 0
+      },
+      {
+        "bucket": "SMART_RUNNER_SUPPORT_BREAK_CLOUD",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 12.180080562381672
+      },
+      {
+        "bucket": "HARD_LOSS_CAP",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -553.977897888603
+      },
+      {
+        "bucket": "SOFT_FUSE_RSI_CONFIRMED",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 949.2426692857803
+      },
+      {
+        "bucket": "PROFIT_GIVEBACK",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "pnl": -179.8842593642786
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

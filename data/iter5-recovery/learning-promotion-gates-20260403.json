@@ -1,0 +1,41 @@
+{
+  "version": "learning-promotion-gates-v1",
+  "generated_at": "2026-04-03T00:00:00Z",
+  "learning_layers": [
+    "ticker_profiles",
+    "cio_memory",
+    "reference_intel",
+    "calibration_recommendations",
+    "dynamic_engine_rules"
+  ],
+  "archive_step": {
+    "required": true,
+    "script": "scripts/export-learning-snapshot.js",
+    "notes": "Learning outputs must be snapshotted before any runtime promotion decision."
+  },
+  "trader_gate": {
+    "required_checks": [
+      "frozen_config_used",
+      "market_events_seeded",
+      "jul1_fingerprint_recorded",
+      "trader_parity_report_generated",
+      "refinement_memo_generated"
+    ]
+  },
+  "investor_gate": {
+    "required_checks": [
+      "investor_scores_captured",
+      "investor_market_health_captured",
+      "investor_portfolio_snapshot_captured",
+      "investor_account_summary_captured"
+    ],
+    "workflow_script": "scripts/run-investor-parity.sh"
+  },
+  "promotion_rule": {
+    "requires_both": [
+      "trader_gate",
+      "investor_gate"
+    ],
+    "notes": "No config, profile, or CIO-memory promotion is allowed until both gates have produced reviewable artifacts."
+  }
+}

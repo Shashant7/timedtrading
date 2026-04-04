@@ -1,0 +1,24 @@
+{
+  "generated_at": "2026-04-02T15:27:41.650Z",
+  "baseline": {
+    "source": "/Users/shashant/timedtrading/configs/iter5-runtime-recovered-20260325.json",
+    "run_id": "backtest_2025-07-01_2026-03-23@2026-03-24T06:23:53.734Z",
+    "key_count": 133
+  },
+  "compare": {
+    "source": "https://timed-trading-ingest.shashant.workers.dev/timed/admin/runs/config?run_id=backtest_2025-07-01_2026-04-01%402026-04-02T04%3A48%3A44.473Z&key=AwesomeSauce",
+    "run_id": "backtest_2025-07-01_2026-04-01@2026-04-02T04:48:44.473Z",
+    "key_count": 135
+  },
+  "summary": {
+    "baseline_only": 0,
+    "compare_only": 2,
+    "changed": 0
+  },
+  "baseline_only_keys": [],
+  "compare_only_keys": [
+    "deep_audit_phase_leave_runner_trail_atr_mult",
+    "smart_runner_td_exhaustion_support_hold_enabled"
+  ],
+  "changed_keys": []
+}

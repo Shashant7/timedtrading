@@ -1,0 +1,43 @@
+{
+  "ok": true,
+  "run_id": "focused_replay_20260402-160626@2026-04-02T20:06:26.641Z",
+  "status": "completed",
+  "summary": {
+    "run_id": "focused_replay_20260402-160626@2026-04-02T20:06:26.641Z",
+    "tickers": {
+      "traded": 16
+    },
+    "trades": {
+      "total": 35,
+      "wins": 21,
+      "losses": 6,
+      "breakevens": 1,
+      "open": 7,
+      "closed": 28,
+      "win_rate": 75
+    },
+    "pnl": {
+      "realized_pnl": 2642.294533501553,
+      "realized_pnl_pct": 0,
+      "avg_win_pct": 2.000800084863941,
+      "avg_loss_pct": -1.826496680722555
+    },
+    "classifications": {
+      "unclassified": 35
+    },
+    "by_status": {
+      "WIN": 21,
+      "LOSS": 6,
+      "OPEN": 6,
+      "FLAT": 1,
+      "TP_HIT_TRIM": 1
+    },
+    "autopsy_url": "trade-autopsy.html?run_id=focused_replay_20260402-160626%402026-04-02T20%3A06%3A26.641Z"
+  },
+  "archived": {
+    "trades": 35,
+    "da": 35,
+    "annotations": 0,
+    "config": 136
+  }
+}

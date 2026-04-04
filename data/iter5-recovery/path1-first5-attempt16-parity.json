@@ -1,0 +1,213 @@
+{
+  "generated_at": "2026-04-03T02:44:05.308Z",
+  "reference_run_id": "backtest_2025-07-01_2025-08-08@2026-03-31T13:20:22.786Z",
+  "candidate_run_id": "focused_replay_20260402-223759@2026-04-03T02:38:00.269Z",
+  "candidate_label": "path1-first5-attempt16",
+  "window": {
+    "start_entry_ts": 1751485800000,
+    "end_entry_ts": 1752162000000
+  },
+  "counts": {
+    "reference_trade_count": 5,
+    "candidate_trade_count_in_window": 5,
+    "matched_trade_count": 5,
+    "missing_trade_count": 0,
+    "spurious_trade_count": 0
+  },
+  "parity": {
+    "basket_pct": 1,
+    "entry_timing_pct": 1,
+    "exit_timing_pct": 0.2,
+    "trim_timing_pct": 0.2,
+    "path_pct": 0,
+    "lifecycle_pct": 0
+  },
+  "spurious_trades": [],
+  "details": [
+    {
+      "ticker": "FIX",
+      "direction": "LONG",
+      "reference_trade_id": "FIX-1751485800000-xbsyktswp",
+      "candidate_trade_id": "FIX-1751485800000",
+      "matched": true,
+      "entry_delta_min": 0,
+      "exit_delta_min": 5,
+      "trim_delta_min": 0,
+      "path_match": true,
+      "engine_match": true,
+      "management_engine_match": true,
+      "engine_source_match": false,
+      "scenario_policy_match": true,
+      "trim_parity": false,
+      "exit_family_match": false,
+      "reference": {
+        "entry_path": "tt_momentum",
+        "selected_engine": "tt_core",
+        "selected_management_engine": "tt_core",
+        "engine_source": "reference_date_bucket",
+        "scenario_policy_source": "scenario_policy_default",
+        "exit_reason": "deferred_exit_st15_flip",
+        "exit_family": "st15_flip",
+        "trimmed_pct": 0.5
+      },
+      "candidate": {
+        "entry_path": "tt_momentum",
+        "selected_engine": "tt_core",
+        "selected_management_engine": "tt_core",
+        "engine_source": "reference_exact",
+        "scenario_policy_source": "scenario_policy_default",
+        "exit_reason": "PHASE_LEAVE_100",
+        "exit_family": "phase_leave",
+        "trimmed_pct": 0.66
+      }
+    },
+    {
+      "ticker": "MTZ",
+      "direction": "LONG",
+      "reference_trade_id": "MTZ-1752068400000-ll7k8nwzt",
+      "candidate_trade_id": "MTZ-1752068400000",
+      "matched": true,
+      "entry_delta_min": 0,
+      "exit_delta_min": 1550,
+      "trim_delta_min": null,
+      "path_match": true,
+      "engine_match": true,
+      "management_engine_match": true,
+      "engine_source_match": false,
+      "scenario_policy_match": true,
+      "trim_parity": false,
+      "exit_family_match": false,
+      "reference": {
+        "entry_path": "tt_momentum",
+        "selected_engine": "tt_core",
+        "selected_management_engine": "tt_core",
+        "engine_source": "reference_date_bucket",
+        "scenario_policy_source": "scenario_policy_default",
+        "exit_reason": "ripster_34_50_lost_mtf",
+        "exit_family": "ripster_mtf",
+        "trimmed_pct": 0
+      },
+      "candidate": {
+        "entry_path": "tt_momentum",
+        "selected_engine": "tt_core",
+        "selected_management_engine": "tt_core",
+        "engine_source": "reference_exact",
+        "scenario_policy_source": "scenario_policy_default",
+        "exit_reason": "sl_breached",
+        "exit_family": "loss_protect",
+        "trimmed_pct": 0.1
+      }
+    },
+    {
+      "ticker": "RIOT",
+      "direction": "LONG",
+      "reference_trade_id": "RIOT-1752077700000-gqvtgryi0",
+      "candidate_trade_id": "RIOT-1752077700000",
+      "matched": true,
+      "entry_delta_min": 0,
+      "exit_delta_min": null,
+      "trim_delta_min": 1170,
+      "path_match": false,
+      "engine_match": false,
+      "management_engine_match": false,
+      "engine_source_match": false,
+      "scenario_policy_match": false,
+      "trim_parity": false,
+      "exit_family_match": false,
+      "reference": {
+        "entry_path": "tt_momentum",
+        "selected_engine": "tt_core",
+        "selected_management_engine": "tt_core",
+        "engine_source": "reference_date_bucket",
+        "scenario_policy_source": "scenario_policy_default",
+        "exit_reason": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+        "exit_family": "td_exhaustion",
+        "trimmed_pct": 0.5
+      },
+      "candidate": {
+        "entry_path": null,
+        "selected_engine": null,
+        "selected_management_engine": null,
+        "engine_source": null,
+        "scenario_policy_source": null,
+        "exit_reason": null,
+        "exit_family": "unknown",
+        "trimmed_pct": 0.1
+      }
+    },
+    {
+      "ticker": "GRNY",
+      "direction": "LONG",
+      "reference_trade_id": "GRNY-1752161400000-2eam70ed5",
+      "candidate_trade_id": "GRNY-1752161400000",
+      "matched": true,
+      "entry_delta_min": 0,
+      "exit_delta_min": null,
+      "trim_delta_min": -5845,
+      "path_match": false,
+      "engine_match": false,
+      "management_engine_match": false,
+      "engine_source_match": false,
+      "scenario_policy_match": false,
+      "trim_parity": false,
+      "exit_family_match": false,
+      "reference": {
+        "entry_path": "tt_momentum",
+        "selected_engine": "tt_core",
+        "selected_management_engine": "tt_core",
+        "engine_source": "reference_date_bucket",
+        "scenario_policy_source": "scenario_policy_default",
+        "exit_reason": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+        "exit_family": "td_exhaustion",
+        "trimmed_pct": 0.5
+      },
+      "candidate": {
+        "entry_path": null,
+        "selected_engine": null,
+        "selected_management_engine": null,
+        "engine_source": null,
+        "scenario_policy_source": null,
+        "exit_reason": null,
+        "exit_family": "unknown",
+        "trimmed_pct": 0.1
+      }
+    },
+    {
+      "ticker": "IESC",
+      "direction": "LONG",
+      "reference_trade_id": "IESC-1752162000000-ax53wwkcb",
+      "candidate_trade_id": "IESC-1752162000000",
+      "matched": true,
+      "entry_delta_min": 0,
+      "exit_delta_min": -1530,
+      "trim_delta_min": 1245,
+      "path_match": true,
+      "engine_match": true,
+      "management_engine_match": true,
+      "engine_source_match": false,
+      "scenario_policy_match": true,
+      "trim_parity": false,
+      "exit_family_match": false,
+      "reference": {
+        "entry_path": "tt_momentum",
+        "selected_engine": "tt_core",
+        "selected_management_engine": "tt_core",
+        "engine_source": "reference_date_bucket",
+        "scenario_policy_source": "scenario_policy_default",
+        "exit_reason": "deferred_exit_sl_breached",
+        "exit_family": "loss_protect",
+        "trimmed_pct": 0.5
+      },
+      "candidate": {
+        "entry_path": "tt_momentum",
+        "selected_engine": "tt_core",
+        "selected_management_engine": "tt_core",
+        "engine_source": "reference_exact",
+        "scenario_policy_source": "scenario_policy_default",
+        "exit_reason": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+        "exit_family": "td_exhaustion",
+        "trimmed_pct": 0.66
+      }
+    }
+  ]
+}

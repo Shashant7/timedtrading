@@ -1,0 +1,5391 @@
+{
+  "generated_at": "2026-04-02T19:59:43.154Z",
+  "label": "golden-julaug",
+  "run_id": "backtest_2025-07-01_2025-08-08@2026-03-31T13:20:22.786Z",
+  "source": {
+    "trades": "/Users/shashant/timedtrading/data/backtest-artifacts/candidate-tsm-gdx-julaug-v6-v4b-rankrecompute-export-20260402/trades.json",
+    "autopsy": "/Users/shashant/timedtrading/data/backtest-artifacts/candidate-tsm-gdx-julaug-v6-v4b-rankrecompute-export-20260402/trade-autopsy-trades.json",
+    "config": "/Users/shashant/timedtrading/data/backtest-artifacts/candidate-tsm-gdx-julaug-v6-v4b-rankrecompute-export-20260402/model-config.json"
+  },
+  "window": {
+    "start_entry_ts": 1751485800000,
+    "end_entry_ts": 1752162000000,
+    "end_exit_ts": 1752850800000
+  },
+  "summary": {
+    "trade_count": 5,
+    "tickers": [
+      "FIX",
+      "MTZ",
+      "RIOT",
+      "GRNY",
+      "IESC"
+    ],
+    "wins": 4,
+    "losses": 1,
+    "total_pnl": 708.0532147121987
+  },
+  "config_summary": {
+    "source_run_id": null,
+    "key_count": 135,
+    "reference_execution_map_version": "reference_execution_map_v2b_semantic_tolerance_plus_behavioral",
+    "reference_execution_map_exact_entries": 234
+  },
+  "trades": [
+    {
+      "trade_id": "FIX-1751485800000-xbsyktswp",
+      "run_id": "backtest_2025-07-01_2025-08-08@2026-03-31T13:20:22.786Z",
+      "ticker": "FIX",
+      "direction": "LONG",
+      "status": "WIN",
+      "entry_ts": 1751485800000,
+      "exit_ts": 1751562000000,
+      "trim_ts": 1751551200000,
+      "entry_price": 529.37,
+      "exit_price": 540.58,
+      "trim_price": 0,
+      "pnl": 251.16648091127286,
+      "pnl_pct": 2.09305400759394,
+      "trimmed_pct": 0.5,
+      "exit_reason": "deferred_exit_st15_flip",
+      "setup_name": "TT Tt Momentum",
+      "setup_grade": "Prime",
+      "risk_budget": 0.02,
+      "shares": 22.66845495589097,
+      "notional": 12000.000000000002,
+      "entry_path": "tt_momentum",
+      "selected_engine": "tt_core",
+      "selected_management_engine": "tt_core",
+      "engine_source": "reference_date_bucket",
+      "scenario_policy_source": "scenario_policy_default",
+      "execution_profile_name": "correction_transition",
+      "execution_profile_confidence": 0.68,
+      "market_state": "balanced",
+      "consensus_direction": null,
+      "max_favorable_excursion": 2.5634,
+      "max_adverse_excursion": 0,
+      "entry_quality_score": 55,
+      "rvol_best": 7.12,
+      "criteria_fingerprint": {
+        "entry_path": "tt_momentum",
+        "direction_source": "state_bull",
+        "state": "HTF_BULL_LTF_BULL",
+        "regime_class": "TRENDING",
+        "consensus_direction": null,
+        "engine_source": "reference_date_bucket",
+        "scenario_policy_source": "scenario_policy_default",
+        "tf_bias": {
+          "10m": 0,
+          "15m": 0.49,
+          "30m": 0.804,
+          "1H": 0.573,
+          "4H": 0.58,
+          "D": 1
+        }
+      },
+      "signal_snapshot_json": {
+        "avg_bias": 0.718,
+        "tf": {
+          "15m": {
+            "bias": 0.49,
+            "signals": {
+              "ema_cross": 1,
+              "st_slope": -1,
+              "supertrend": -1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 61.9
+            }
+          },
+          "30m": {
+            "bias": 0.804,
+            "signals": {
+              "ema_cross": -1,
+              "st_slope": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 57.6
+            }
+          },
+          "1H": {
+            "bias": 0.573,
+            "signals": {
+              "ema_cross": 1,
+              "supertrend": -1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 54.6
+            }
+          },
+          "4H": {
+            "bias": 0.58,
+            "signals": {
+              "ema_cross": 1,
+              "supertrend": -1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 56
+            }
+          },
+          "D": {
+            "bias": 1,
+            "signals": {
+              "ema5_48": 1,
+              "ema_cross": 1,
+              "st_slope": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 65.8
+            }
+          },
+          "10m": {
+            "bias": null,
+            "signals": {
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 62.6
+            }
+          },
+          "M": {
+            "bias": null,
+            "signals": {
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 12,
+              "rsi": 78.6
+            }
+          },
+          "W": {
+            "bias": null,
+            "signals": {
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 12,
+              "rsi": 66.6
+            }
+          }
+        },
+        "lineage": {
+          "entry_path": "tt_momentum",
+          "direction_source": "state_bull",
+          "selected_engine": "tt_core",
+          "selected_management_engine": "tt_core",
+          "engine_source": "reference_date_bucket",
+          "learning_policy_source": null,
+          "scenario_policy_source": "scenario_policy_default",
+          "state": "HTF_BULL_LTF_BULL",
+          "regime_class": "TRENDING",
+          "regime_score": 10,
+          "scenario_policy": {
+            "source": "scenario_policy_default",
+            "match": {
+              "global_default": true
+            },
+            "recommend": {
+              "entry_engine": "tt_core",
+              "management_engine": "tt_core",
+              "exit_style": "smart_exit_bias",
+              "sl_mult": 1.2,
+              "tp_mult": 1.26,
+              "win_rate": 0.8134,
+              "sample_size": 134
+            },
+            "context": {
+              "ticker": "FIX",
+              "direction": "SHORT",
+              "entry_path": "tt_momentum",
+              "regime": "TRENDING",
+              "vix_bucket": "unknown",
+              "rvol_bucket": "surge",
+              "market_state": "balanced"
+            }
+          },
+          "learning_policy": null,
+          "execution_profile": {
+            "active_profile": "correction_transition",
+            "confidence": 0.68,
+            "reasons": [
+              "Mixed trend and transition evidence",
+              "Market internals are balanced"
+            ],
+            "ticker_regime": "TRENDING",
+            "market_state": "balanced",
+            "personality": "VOLATILE_RUNNER"
+          },
+          "market_internals": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "ticker_character": null,
+          "ripster_clouds": {
+            "D": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0177
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0025
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0324
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0159
+              },
+              "c180_200": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0119
+              }
+            },
+            "4H": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.001,
+                "xu": 1
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0,
+                "xu": 1
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0078
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0074
+              },
+              "c180_200": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0122
+              }
+            },
+            "1H": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0008,
+                "xu": 1
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0001,
+                "xu": 1
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0056
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0054
+              },
+              "c180_200": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0053
+              }
+            },
+            "W": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.071
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0103
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0424
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0455
+              }
+            }
+          },
+          "ichimoku": {
+            "30": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 0,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0,
+              "tksp": -0.867,
+              "pt": 0.019,
+              "ct": 0.063,
+              "kw": 1
+            },
+            "W": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0,
+              "tksp": 1.549,
+              "pt": 2.86,
+              "ct": 0.814,
+              "kw": 1
+            },
+            "D": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 1.117,
+              "tksp": 0.812,
+              "pt": 1.732,
+              "ct": 5.064,
+              "kw": 0
+            },
+            "4H": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 0,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0,
+              "tksp": -0.147,
+              "pt": 0.483,
+              "ct": 0.822,
+              "kw": 0
+            },
+            "1H": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 0,
+              "xu": 0,
+              "xd": 0,
+              "ca": 0,
+              "ks": 0,
+              "tksp": -0.214,
+              "pt": 0.592,
+              "ct": 0.712,
+              "kw": 0
+            }
+          },
+          "vix_at_entry": null,
+          "rvol": {
+            "30m": 7.12,
+            "1H": 2.18,
+            "D": 0.8
+          },
+          "entry_quality_score": 55,
+          "danger_score": null,
+          "danger_flags": null,
+          "regime_params": {
+            "minHTFScore": 10,
+            "minRR": 1.5,
+            "maxCompletion": 0.6,
+            "positionSizeMultiplier": 1,
+            "requireSqueezeRelease": false,
+            "defendWinnerBias": null
+          },
+          "rsi_divergence": {
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 10.9,
+                "barsSince": 17,
+                "pivotGap": 17,
+                "developing": true
+              },
+              "recentBull": null
+            }
+          },
+          "td_counts": {
+            "15": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 6,
+              "xl": 0
+            },
+            "30": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 2,
+              "xl": 0
+            },
+            "60": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 2,
+              "xl": 0
+            },
+            "240": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 3,
+              "xl": 0
+            },
+            "D": {
+              "bp": 4,
+              "bl": 0,
+              "xp": 0,
+              "xl": 0
+            },
+            "W": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 4,
+              "xl": 0
+            }
+          },
+          "saty_phase": {
+            "30": {
+              "v": 20.33,
+              "z": "LOW",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            },
+            "1H": {
+              "v": 8.83,
+              "z": "LOW",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            },
+            "D": {
+              "v": 55.26,
+              "z": "MEDIUM",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            }
+          },
+          "supertrend": {
+            "30": {
+              "d": -1,
+              "s": 1
+            },
+            "D": {
+              "d": -1,
+              "s": 1
+            },
+            "4H": {
+              "d": 1,
+              "s": 0
+            },
+            "1H": {
+              "d": 1,
+              "s": 0
+            }
+          },
+          "st_bars_since_flip_D": 58,
+          "swing_consensus": {
+            "dir": null,
+            "bias": 0.718,
+            "bull": 5,
+            "bear": 0
+          },
+          "atr_disp": {
+            "day": {
+              "d": 0.502,
+              "b": "GATE_382",
+              "r": 90.5
+            },
+            "week": {
+              "d": -0.128,
+              "b": "NEUTRAL",
+              "r": 76.4
+            }
+          },
+          "volatility_tier": "MEDIUM",
+          "ema_depth": {
+            "30": 15,
+            "60": 15,
+            "240": 15,
+            "D": 15
+          },
+          "fuel": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "mean_revert_td9": null,
+          "liq": {
+            "4H": {
+              "bsd": -1,
+              "ssd": 3.9,
+              "bc": 0,
+              "sc": 1
+            },
+            "D": {
+              "bsd": -1,
+              "ssd": 14.95,
+              "bc": 0,
+              "sc": 2
+            },
+            "W": {
+              "bsd": -1,
+              "ssd": 5.87,
+              "bc": 0,
+              "sc": 1
+            }
+          },
+          "orb": {
+            "orh": 524.2,
+            "orl": 517.58,
+            "orm": 520.89,
+            "width": 6.62,
+            "widthPct": 1.27,
+            "breakout": "LONG",
+            "holdingAbove": true,
+            "holdingBelow": false,
+            "reclaim": false,
+            "priceVsORM": 1,
+            "dayBias": -1,
+            "targetsHitUp": 2,
+            "targetsHitDn": 0,
+            "orbBias": 1,
+            "confirmed": false,
+            "against": false
+          }
+        }
+      },
+      "exit_snapshot_json": {
+        "avg_bias": 0.555,
+        "tf": {
+          "15m": {
+            "bias": -0.091,
+            "signals": {
+              "ema_cross": 1,
+              "supertrend": -1,
+              "ema_structure": 0.4,
+              "ema_depth": 4,
+              "rsi": 39.7
+            }
+          },
+          "30m": {
+            "bias": 0.026,
+            "signals": {
+              "ema_cross": 1,
+              "supertrend": -1,
+              "ema_structure": 0.4,
+              "ema_depth": 6,
+              "rsi": 47.2
+            }
+          },
+          "1H": {
+            "bias": 1,
+            "signals": {
+              "ema_cross": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 62.2
+            }
+          },
+          "4H": {
+            "bias": 0.617,
+            "signals": {
+              "ema_cross": 1,
+              "supertrend": -1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 63.3
+            }
+          },
+          "D": {
+            "bias": 1,
+            "signals": {
+              "ema5_48": 1,
+              "ema_cross": 1,
+              "st_slope": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 69.1
+            }
+          },
+          "10m": {
+            "bias": null,
+            "signals": {
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 64.1
+            }
+          },
+          "M": {
+            "bias": null,
+            "signals": {
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 12,
+              "rsi": 78.6
+            }
+          },
+          "W": {
+            "bias": null,
+            "signals": {
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 12,
+              "rsi": 66.6
+            }
+          }
+        },
+        "lineage": {
+          "entry_path": "tt_momentum",
+          "direction_source": "state_bull",
+          "selected_engine": null,
+          "selected_management_engine": null,
+          "engine_source": null,
+          "learning_policy_source": null,
+          "scenario_policy_source": "scenario_policy_default",
+          "state": "HTF_BULL_LTF_BULL",
+          "regime_class": "TRENDING",
+          "regime_score": 10,
+          "scenario_policy": {
+            "source": "scenario_policy_default",
+            "match": {
+              "global_default": true
+            },
+            "recommend": {
+              "entry_engine": "tt_core",
+              "management_engine": "tt_core",
+              "exit_style": "smart_exit_bias",
+              "sl_mult": 1.2,
+              "tp_mult": 1.26,
+              "win_rate": 0.8134,
+              "sample_size": 134
+            },
+            "context": {
+              "ticker": "FIX",
+              "direction": "SHORT",
+              "entry_path": "unknown",
+              "regime": "TRENDING",
+              "vix_bucket": "stress",
+              "rvol_bucket": "normal",
+              "market_state": "risk_off"
+            }
+          },
+          "learning_policy": null,
+          "execution_profile": {
+            "active_profile": "correction_transition",
+            "confidence": 0.68,
+            "reasons": [
+              "Mixed trend and transition evidence",
+              "Market internals are balanced"
+            ],
+            "ticker_regime": "TRENDING",
+            "market_state": "balanced",
+            "personality": "VOLATILE_RUNNER"
+          },
+          "market_internals": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "ticker_character": {
+            "personality": "VOLATILE_RUNNER",
+            "sl_mult": 1.2,
+            "tp_mult": 1.26,
+            "entry_threshold_adj": 0,
+            "atr_pct_p50": 3.81,
+            "trend_persistence": 0.45
+          },
+          "ripster_clouds": {
+            "D": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0198
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0028
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0322
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0161
+              },
+              "c180_200": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0118
+              }
+            },
+            "4H": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0083
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0011
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0083
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0075
+              },
+              "c180_200": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0119
+              }
+            },
+            "1H": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0082
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0011
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0065
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0056
+              },
+              "c180_200": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0053
+              }
+            },
+            "W": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.071
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0103
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0424
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0455
+              }
+            }
+          },
+          "ichimoku": {
+            "30": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0.379,
+              "tksp": 1.188,
+              "pt": -0.46,
+              "ct": 1.97,
+              "kw": 0
+            },
+            "W": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0,
+              "tksp": 1.549,
+              "pt": 2.86,
+              "ct": 0.814,
+              "kw": 1
+            },
+            "D": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 1.193,
+              "tksp": 0.814,
+              "pt": 2.39,
+              "ct": 5.081,
+              "kw": 0
+            },
+            "4H": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0.234,
+              "tksp": 0.382,
+              "pt": 1.417,
+              "ct": 1.205,
+              "kw": 0
+            },
+            "1H": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0.19,
+              "tksp": 0.896,
+              "pt": 2.337,
+              "ct": 0.662,
+              "kw": 0
+            }
+          },
+          "vix_at_entry": null,
+          "rvol": {
+            "30m": 0.01,
+            "1H": 0.04,
+            "D": 0.46
+          },
+          "entry_quality_score": 63,
+          "danger_score": null,
+          "danger_flags": null,
+          "regime_params": {
+            "minHTFScore": 10,
+            "minRR": 1.5,
+            "maxCompletion": 0.6,
+            "positionSizeMultiplier": 1,
+            "requireSqueezeRelease": false,
+            "defendWinnerBias": null
+          },
+          "rsi_divergence": {
+            "1H": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 15.3,
+                "barsSince": 20,
+                "pivotGap": 20,
+                "developing": true
+              },
+              "recentBull": null
+            },
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 7.6,
+                "barsSince": 18,
+                "pivotGap": 18,
+                "developing": true
+              },
+              "recentBull": null
+            }
+          },
+          "td_counts": {
+            "15": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 2,
+              "xl": 0
+            },
+            "30": {
+              "bp": 3,
+              "bl": 0,
+              "xp": 0,
+              "xl": 0
+            },
+            "60": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 6,
+              "xl": 0
+            },
+            "240": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 7,
+              "xl": 0
+            },
+            "D": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 2,
+              "xl": 0
+            },
+            "W": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 4,
+              "xl": 0
+            }
+          },
+          "saty_phase": {
+            "30": {
+              "v": 21.37,
+              "z": "LOW",
+              "l": {
+                "extUp": false,
+                "distrib": true,
+                "accum": false,
+                "extDn": false
+              }
+            },
+            "1H": {
+              "v": 53.42,
+              "z": "MEDIUM",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            },
+            "D": {
+              "v": 63.07,
+              "z": "HIGH",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            }
+          },
+          "supertrend": {
+            "30": {
+              "d": 1,
+              "s": 1
+            },
+            "D": {
+              "d": -1,
+              "s": 1
+            },
+            "4H": {
+              "d": 1,
+              "s": 0
+            },
+            "1H": {
+              "d": -1,
+              "s": -1
+            }
+          },
+          "st_bars_since_flip_D": 59,
+          "swing_consensus": {
+            "dir": null,
+            "bias": 0.555,
+            "bull": 4,
+            "bear": 1
+          },
+          "atr_disp": {
+            "day": {
+              "d": 0.033,
+              "b": "NEUTRAL",
+              "r": 95.8
+            },
+            "week": {
+              "d": -0.104,
+              "b": "NEUTRAL",
+              "r": 76.4
+            }
+          },
+          "volatility_tier": "MEDIUM",
+          "ema_depth": {
+            "30": 6,
+            "60": 15,
+            "240": 15,
+            "D": 15
+          },
+          "fuel": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "mean_revert_td9": null,
+          "liq": {
+            "4H": {
+              "bsd": -1,
+              "ssd": 5.06,
+              "bc": 0,
+              "sc": 1
+            },
+            "D": {
+              "bsd": -1,
+              "ssd": 15.73,
+              "bc": 0,
+              "sc": 2
+            },
+            "W": {
+              "bsd": -1,
+              "ssd": 5.87,
+              "bc": 0,
+              "sc": 1
+            }
+          },
+          "orb": {
+            "orh": 535.2,
+            "orl": 529.51,
+            "orm": 532.35,
+            "width": 5.69,
+            "widthPct": 1.07,
+            "breakout": null,
+            "holdingAbove": false,
+            "holdingBelow": false,
+            "reclaim": true,
+            "priceVsORM": -1,
+            "dayBias": 1,
+            "targetsHitUp": 3,
+            "targetsHitDn": 0,
+            "orbBias": 0,
+            "confirmed": false,
+            "against": false
+          }
+        }
+      }
+    },
+    {
+      "trade_id": "MTZ-1752068400000-ll7k8nwzt",
+      "run_id": "backtest_2025-07-01_2025-08-08@2026-03-31T13:20:22.786Z",
+      "ticker": "MTZ",
+      "direction": "LONG",
+      "status": "LOSS",
+      "entry_ts": 1752068400000,
+      "exit_ts": 1752083400000,
+      "trim_ts": null,
+      "entry_price": 170.024994,
+      "exit_price": 169.04,
+      "trim_price": 0,
+      "pnl": -69.69337518226205,
+      "pnl_pct": -0.5793230611729946,
+      "trimmed_pct": 0,
+      "exit_reason": "ripster_34_50_lost_mtf",
+      "setup_name": "TT Tt Momentum",
+      "setup_grade": "Confirmed",
+      "risk_budget": 0.01,
+      "shares": 70.75512661220476,
+      "notional": 12030.139977709354,
+      "entry_path": "tt_momentum",
+      "selected_engine": "tt_core",
+      "selected_management_engine": "tt_core",
+      "engine_source": "reference_date_bucket",
+      "scenario_policy_source": "scenario_policy_default",
+      "execution_profile_name": "correction_transition",
+      "execution_profile_confidence": 0.68,
+      "market_state": "balanced",
+      "consensus_direction": null,
+      "max_favorable_excursion": 0,
+      "max_adverse_excursion": -1.2557,
+      "entry_quality_score": 67,
+      "rvol_best": 1.73,
+      "criteria_fingerprint": {
+        "entry_path": "tt_momentum",
+        "direction_source": "state_bull",
+        "state": "HTF_BULL_LTF_BULL",
+        "regime_class": "TRENDING",
+        "consensus_direction": null,
+        "engine_source": "reference_date_bucket",
+        "scenario_policy_source": "scenario_policy_default",
+        "tf_bias": {
+          "10m": 0,
+          "15m": 0.598,
+          "30m": 0.621,
+          "1H": -0.639,
+          "4H": 0.526,
+          "D": 0.956
+        }
+      },
+      "signal_snapshot_json": {
+        "avg_bias": 0.462,
+        "tf": {
+          "15m": {
+            "bias": 0.598,
+            "signals": {
+              "ema_cross": 1,
+              "supertrend": -1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 59.6
+            }
+          },
+          "30m": {
+            "bias": 0.621,
+            "signals": {
+              "ema_cross": -1,
+              "supertrend": 1,
+              "ema_structure": 0.56,
+              "ema_depth": 14,
+              "rsi": 54.1
+            }
+          },
+          "1H": {
+            "bias": -0.639,
+            "signals": {
+              "ema_cross": -1,
+              "supertrend": -1,
+              "ema_structure": -0.351,
+              "ema_depth": 2,
+              "rsi": 43.7
+            }
+          },
+          "4H": {
+            "bias": 0.526,
+            "signals": {
+              "ema_cross": 1,
+              "supertrend": 1,
+              "ema_structure": 0.4,
+              "ema_depth": 6,
+              "rsi": 47.2
+            }
+          },
+          "D": {
+            "bias": 0.956,
+            "signals": {
+              "ema5_48": 1,
+              "ema_cross": 1,
+              "st_slope": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 11,
+              "rsi": 60
+            }
+          },
+          "10m": {
+            "bias": null,
+            "signals": {
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 62.8
+            }
+          },
+          "M": {
+            "bias": null,
+            "signals": {
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 12,
+              "rsi": 71.3
+            }
+          },
+          "W": {
+            "bias": null,
+            "signals": {
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 12,
+              "rsi": 66.3
+            }
+          }
+        },
+        "lineage": {
+          "entry_path": "tt_momentum",
+          "direction_source": "state_bull",
+          "selected_engine": "tt_core",
+          "selected_management_engine": "tt_core",
+          "engine_source": "reference_date_bucket",
+          "learning_policy_source": null,
+          "scenario_policy_source": "scenario_policy_default",
+          "state": "HTF_BULL_LTF_BULL",
+          "regime_class": "TRENDING",
+          "regime_score": 9,
+          "scenario_policy": {
+            "source": "scenario_policy_default",
+            "match": {
+              "global_default": true
+            },
+            "recommend": {
+              "entry_engine": "tt_core",
+              "management_engine": "tt_core",
+              "exit_style": "smart_exit_bias",
+              "sl_mult": 1.2,
+              "tp_mult": 1.26,
+              "win_rate": 0.8134,
+              "sample_size": 134
+            },
+            "context": {
+              "ticker": "MTZ",
+              "direction": "SHORT",
+              "entry_path": "tt_momentum",
+              "regime": "TRENDING",
+              "vix_bucket": "unknown",
+              "rvol_bucket": "surge",
+              "market_state": "balanced"
+            }
+          },
+          "learning_policy": null,
+          "execution_profile": {
+            "active_profile": "correction_transition",
+            "confidence": 0.68,
+            "reasons": [
+              "Mixed trend and transition evidence",
+              "Market internals are balanced"
+            ],
+            "ticker_regime": "TRENDING",
+            "market_state": "balanced",
+            "personality": "VOLATILE_RUNNER"
+          },
+          "market_internals": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "ticker_character": {
+            "personality": "VOLATILE_RUNNER",
+            "sl_mult": 1.2,
+            "tp_mult": 1.26,
+            "entry_threshold_adj": 0,
+            "atr_pct_p50": 3.52,
+            "trend_persistence": 0.47
+          },
+          "ripster_clouds": {
+            "D": {
+              "c5_12": {
+                "b": 1,
+                "ab": 0,
+                "sp": 0.0056,
+                "ic": 1
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 0,
+                "sp": 0.0009
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.029
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0171
+              },
+              "c180_200": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0126
+              }
+            },
+            "4H": {
+              "c5_12": {
+                "b": 0,
+                "ab": 0,
+                "sp": 0.0028
+              },
+              "c8_9": {
+                "b": 0,
+                "ab": 0,
+                "sp": 0.0004
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 0,
+                "sp": 0.0031
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0054
+              },
+              "c180_200": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0106
+              }
+            },
+            "1H": {
+              "c5_12": {
+                "b": 0,
+                "ab": 0,
+                "sp": 0.0032
+              },
+              "c8_9": {
+                "b": 0,
+                "ab": 0,
+                "sp": 0.0005
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 0,
+                "sp": 0.0012
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 0,
+                "sp": 0.0036
+              },
+              "c180_200": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0046
+              }
+            },
+            "W": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0576
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0086
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0425
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.027
+              }
+            }
+          },
+          "ichimoku": {
+            "30": {
+              "pvc": "inside",
+              "cb": 0,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": -2.056,
+              "tksp": 0.995,
+              "pt": 1.962,
+              "ct": 1.78,
+              "kw": 0
+            },
+            "W": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0.256,
+              "tksp": 1.862,
+              "pt": 2.748,
+              "ct": 1.327,
+              "kw": 0
+            },
+            "D": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0.481,
+              "tksp": 1.291,
+              "pt": 1.431,
+              "ct": 4.497,
+              "kw": 0
+            },
+            "4H": {
+              "pvc": "inside",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0,
+              "tksp": 0.212,
+              "pt": 0.045,
+              "ct": 0.018,
+              "kw": 0
+            },
+            "1H": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 0,
+              "xu": 0,
+              "xd": 0,
+              "ca": 0,
+              "ks": 0.318,
+              "tksp": -0.318,
+              "pt": -0.664,
+              "ct": 0.159,
+              "kw": 1
+            }
+          },
+          "vix_at_entry": null,
+          "rvol": {
+            "30m": 1.73,
+            "1H": 1.07,
+            "D": 0.62
+          },
+          "entry_quality_score": 67,
+          "danger_score": null,
+          "danger_flags": null,
+          "regime_params": {
+            "minHTFScore": 10,
+            "minRR": 1.5,
+            "maxCompletion": 0.6,
+            "positionSizeMultiplier": 1,
+            "requireSqueezeRelease": false,
+            "defendWinnerBias": null
+          },
+          "rsi_divergence": {
+            "1H": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 3.6,
+                "barsSince": 17,
+                "pivotGap": 27
+              },
+              "recentBull": null
+            },
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 0.4,
+                "barsSince": 7,
+                "pivotGap": 14
+              },
+              "recentBull": null
+            }
+          },
+          "td_counts": {
+            "15": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 1,
+              "xl": 0
+            },
+            "30": {
+              "bp": 1,
+              "bl": 0,
+              "xp": 0,
+              "xl": 0
+            },
+            "60": {
+              "bp": 2,
+              "bl": 0,
+              "xp": 0,
+              "xl": 0
+            },
+            "240": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 3,
+              "xl": 0
+            },
+            "D": {
+              "bp": 4,
+              "bl": 0,
+              "xp": 0,
+              "xl": 0
+            },
+            "W": {
+              "bp": 2,
+              "bl": 0,
+              "xp": 0,
+              "xl": 0
+            }
+          },
+          "saty_phase": {
+            "30": {
+              "v": 21.12,
+              "z": "LOW",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            },
+            "1H": {
+              "v": -22.14,
+              "z": "LOW",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            },
+            "D": {
+              "v": 26.35,
+              "z": "MEDIUM",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            }
+          },
+          "supertrend": {
+            "30": {
+              "d": -1,
+              "s": -1
+            },
+            "D": {
+              "d": -1,
+              "s": 1
+            },
+            "4H": {
+              "d": -1,
+              "s": -1
+            },
+            "1H": {
+              "d": 1,
+              "s": 1
+            }
+          },
+          "st_bars_since_flip_D": 49,
+          "swing_consensus": {
+            "dir": null,
+            "bias": 0.462,
+            "bull": 4,
+            "bear": 1
+          },
+          "atr_disp": {
+            "day": {
+              "d": 0.394,
+              "b": "GATE_382",
+              "r": 62.6
+            },
+            "week": {
+              "d": -0.152,
+              "b": "NEUTRAL",
+              "r": 73
+            }
+          },
+          "volatility_tier": "MEDIUM",
+          "ema_depth": {
+            "30": 14,
+            "60": 2,
+            "240": 6,
+            "D": 11
+          },
+          "fuel": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "mean_revert_td9": null,
+          "liq": {
+            "4H": {
+              "bsd": -1,
+              "ssd": -1,
+              "bc": 0,
+              "sc": 0
+            },
+            "D": {
+              "bsd": -1,
+              "ssd": 8.14,
+              "bc": 0,
+              "sc": 3
+            },
+            "W": {
+              "bsd": -1,
+              "ssd": 5.85,
+              "bc": 0,
+              "sc": 2
+            }
+          },
+          "orb": {
+            "orh": 170.58,
+            "orl": 169.26,
+            "orm": 169.92,
+            "width": 1.32,
+            "widthPct": 0.78,
+            "breakout": null,
+            "holdingAbove": false,
+            "holdingBelow": false,
+            "reclaim": false,
+            "priceVsORM": 0,
+            "dayBias": -1,
+            "targetsHitUp": 0,
+            "targetsHitDn": 0,
+            "orbBias": 0,
+            "confirmed": false,
+            "against": false
+          }
+        }
+      },
+      "exit_snapshot_json": {
+        "avg_bias": 0.226,
+        "tf": {
+          "15m": {
+            "bias": -0.17,
+            "signals": {
+              "ema_cross": -1,
+              "supertrend": 1,
+              "ema_structure": -0.76,
+              "ema_depth": 3,
+              "rsi": 50.1
+            }
+          },
+          "30m": {
+            "bias": -0.232,
+            "signals": {
+              "ema_cross": -1,
+              "supertrend": 1,
+              "ema_structure": -1,
+              "ema_depth": 3,
+              "rsi": 49.5
+            }
+          },
+          "1H": {
+            "bias": -0.4,
+            "signals": {
+              "ema_cross": -1,
+              "supertrend": -1,
+              "ema_structure": 0.221,
+              "ema_depth": 4,
+              "rsi": 47
+            }
+          },
+          "4H": {
+            "bias": 0.609,
+            "signals": {
+              "ema_cross": 1,
+              "supertrend": 1,
+              "ema_structure": 0.4,
+              "ema_depth": 8,
+              "rsi": 47.8
+            }
+          },
+          "D": {
+            "bias": 0.956,
+            "signals": {
+              "ema5_48": 1,
+              "ema_cross": 1,
+              "st_slope": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 11,
+              "rsi": 60
+            }
+          },
+          "10m": {
+            "bias": null,
+            "signals": {
+              "supertrend": 1,
+              "ema_structure": -1,
+              "ema_depth": 6,
+              "rsi": 50
+            }
+          },
+          "M": {
+            "bias": null,
+            "signals": {
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 12,
+              "rsi": 71.3
+            }
+          },
+          "W": {
+            "bias": null,
+            "signals": {
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 12,
+              "rsi": 66.3
+            }
+          }
+        },
+        "lineage": {
+          "entry_path": "tt_momentum",
+          "direction_source": "state_bull",
+          "selected_engine": "tt_core",
+          "selected_management_engine": "tt_core",
+          "engine_source": "reference_date_bucket",
+          "learning_policy_source": null,
+          "scenario_policy_source": "scenario_policy_default",
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "regime_class": "TRENDING",
+          "regime_score": 10,
+          "scenario_policy": {
+            "source": "scenario_policy_default",
+            "match": {
+              "global_default": true
+            },
+            "recommend": {
+              "entry_engine": "tt_core",
+              "management_engine": "tt_core",
+              "exit_style": "smart_exit_bias",
+              "sl_mult": 1.2,
+              "tp_mult": 1.26,
+              "win_rate": 0.8134,
+              "sample_size": 134
+            },
+            "context": {
+              "ticker": "MTZ",
+              "direction": "SHORT",
+              "entry_path": "tt_momentum",
+              "regime": "TRENDING",
+              "vix_bucket": "unknown",
+              "rvol_bucket": "surge",
+              "market_state": "balanced"
+            }
+          },
+          "learning_policy": null,
+          "execution_profile": {
+            "active_profile": "correction_transition",
+            "confidence": 0.68,
+            "reasons": [
+              "Mixed trend and transition evidence",
+              "Market internals are balanced"
+            ],
+            "ticker_regime": "TRENDING",
+            "market_state": "balanced",
+            "personality": "VOLATILE_RUNNER"
+          },
+          "market_internals": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "ticker_character": {
+            "personality": "VOLATILE_RUNNER",
+            "sl_mult": 1.2,
+            "tp_mult": 1.26,
+            "entry_threshold_adj": 0,
+            "atr_pct_p50": 3.52,
+            "trend_persistence": 0.47
+          },
+          "ripster_clouds": {
+            "D": {
+              "c5_12": {
+                "b": 1,
+                "ab": 0,
+                "sp": 0.0056,
+                "ic": 1
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 0,
+                "sp": 0.0009
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.029
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0171
+              },
+              "c180_200": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0126
+              }
+            },
+            "4H": {
+              "c5_12": {
+                "b": 0,
+                "ab": 0,
+                "sp": 0.0018,
+                "ic": 1
+              },
+              "c8_9": {
+                "b": 0,
+                "ab": 0,
+                "sp": 0.0003
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 0,
+                "sp": 0.0027,
+                "ic": 1
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0052
+              },
+              "c180_200": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0105
+              }
+            },
+            "1H": {
+              "c5_12": {
+                "b": 0,
+                "ab": 0,
+                "sp": 0.0008
+              },
+              "c8_9": {
+                "b": 0,
+                "ab": 0,
+                "sp": 0.0001
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 0,
+                "sp": 0.0008
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0033
+              },
+              "c180_200": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0046
+              }
+            },
+            "W": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0576
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0086
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0425
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.027
+              }
+            }
+          },
+          "ichimoku": {
+            "30": {
+              "pvc": "below",
+              "cb": 0,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 0,
+              "ks": 0,
+              "tksp": 0.209,
+              "pt": 0.067,
+              "ct": 1.176,
+              "kw": 0
+            },
+            "W": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0.256,
+              "tksp": 1.862,
+              "pt": 2.748,
+              "ct": 1.327,
+              "kw": 0
+            },
+            "D": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0.481,
+              "tksp": 1.291,
+              "pt": 1.431,
+              "ct": 4.497,
+              "kw": 0
+            },
+            "4H": {
+              "pvc": "above",
+              "cb": 0,
+              "tk": 0,
+              "xu": 0,
+              "xd": 1,
+              "ca": 1,
+              "ks": 0.232,
+              "tksp": -0.468,
+              "pt": -0.129,
+              "ct": 0.098,
+              "kw": 1
+            },
+            "1H": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 0,
+              "xu": 0,
+              "xd": 0,
+              "ca": 0,
+              "ks": 0,
+              "tksp": -0.071,
+              "pt": -0.315,
+              "ct": 0.327,
+              "kw": 0
+            }
+          },
+          "vix_at_entry": null,
+          "rvol": {
+            "30m": 0.93,
+            "1H": 0.55,
+            "D": 0.62
+          },
+          "entry_quality_score": 71,
+          "danger_score": null,
+          "danger_flags": null,
+          "regime_params": {
+            "minHTFScore": 10,
+            "minRR": 1.5,
+            "maxCompletion": 0.6,
+            "positionSizeMultiplier": 1,
+            "requireSqueezeRelease": false,
+            "defendWinnerBias": null
+          },
+          "rsi_divergence": {
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 0.4,
+                "barsSince": 7,
+                "pivotGap": 14
+              },
+              "recentBull": null
+            }
+          },
+          "td_counts": {
+            "15": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 1,
+              "xl": 0
+            },
+            "30": {
+              "bp": 2,
+              "bl": 0,
+              "xp": 0,
+              "xl": 0
+            },
+            "60": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 4,
+              "xl": 0
+            },
+            "240": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 5,
+              "xl": 0
+            },
+            "D": {
+              "bp": 4,
+              "bl": 0,
+              "xp": 0,
+              "xl": 0
+            },
+            "W": {
+              "bp": 2,
+              "bl": 0,
+              "xp": 0,
+              "xl": 0
+            }
+          },
+          "saty_phase": {
+            "30": {
+              "v": 1.38,
+              "z": "LOW",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            },
+            "1H": {
+              "v": -8.46,
+              "z": "LOW",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            },
+            "D": {
+              "v": 26.35,
+              "z": "MEDIUM",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            }
+          },
+          "supertrend": {
+            "30": {
+              "d": -1,
+              "s": 0
+            },
+            "D": {
+              "d": -1,
+              "s": 1
+            },
+            "4H": {
+              "d": -1,
+              "s": 0
+            },
+            "1H": {
+              "d": 1,
+              "s": 0
+            }
+          },
+          "st_bars_since_flip_D": 49,
+          "swing_consensus": {
+            "dir": null,
+            "bias": 0.226,
+            "bull": 2,
+            "bear": 3
+          },
+          "atr_disp": {
+            "day": {
+              "d": 0.176,
+              "b": "NEUTRAL",
+              "r": 62.6
+            },
+            "week": {
+              "d": -0.232,
+              "b": "NEUTRAL",
+              "r": 73
+            }
+          },
+          "volatility_tier": "MEDIUM",
+          "ema_depth": {
+            "30": 3,
+            "60": 4,
+            "240": 8,
+            "D": 11
+          },
+          "fuel": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "mean_revert_td9": null,
+          "liq": {
+            "4H": {
+              "bsd": -1,
+              "ssd": -1,
+              "bc": 0,
+              "sc": 0
+            },
+            "D": {
+              "bsd": -1,
+              "ssd": 8.14,
+              "bc": 0,
+              "sc": 3
+            },
+            "W": {
+              "bsd": -1,
+              "ssd": 5.85,
+              "bc": 0,
+              "sc": 2
+            }
+          },
+          "orb": {
+            "orh": 170.58,
+            "orl": 169.26,
+            "orm": 169.92,
+            "width": 1.32,
+            "widthPct": 0.78,
+            "breakout": "SHORT",
+            "holdingAbove": false,
+            "holdingBelow": true,
+            "reclaim": false,
+            "priceVsORM": -1,
+            "dayBias": -1,
+            "targetsHitUp": 0,
+            "targetsHitDn": 2,
+            "orbBias": -1,
+            "confirmed": false,
+            "against": false
+          }
+        }
+      }
+    },
+    {
+      "trade_id": "RIOT-1752077700000-gqvtgryi0",
+      "run_id": "backtest_2025-07-01_2025-08-08@2026-03-31T13:20:22.786Z",
+      "ticker": "RIOT",
+      "direction": "LONG",
+      "status": "WIN",
+      "entry_ts": 1752077700000,
+      "exit_ts": 1752161400000,
+      "trim_ts": 1752084000000,
+      "entry_price": 11.7518,
+      "exit_price": 12.475,
+      "trim_price": 0,
+      "pnl": 216.59149149499768,
+      "pnl_pct": 4.175530557021056,
+      "trimmed_pct": 0.5,
+      "exit_reason": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+      "setup_name": "TT Tt Momentum",
+      "setup_grade": "Confirmed",
+      "risk_budget": 0.01,
+      "shares": 441.39289075809563,
+      "notional": 5187.160973610988,
+      "entry_path": "tt_momentum",
+      "selected_engine": "tt_core",
+      "selected_management_engine": "tt_core",
+      "engine_source": "reference_date_bucket",
+      "scenario_policy_source": "scenario_policy_default",
+      "execution_profile_name": "correction_transition",
+      "execution_profile_confidence": 0.73,
+      "market_state": "balanced",
+      "consensus_direction": "LONG",
+      "max_favorable_excursion": 6.154,
+      "max_adverse_excursion": 0,
+      "entry_quality_score": 79,
+      "rvol_best": 3.11,
+      "criteria_fingerprint": {
+        "entry_path": "tt_momentum",
+        "direction_source": "consensus",
+        "state": "HTF_BULL_LTF_BULL",
+        "regime_class": "TRENDING",
+        "consensus_direction": "LONG",
+        "engine_source": "reference_date_bucket",
+        "scenario_policy_source": "scenario_policy_default",
+        "tf_bias": {
+          "10m": 0,
+          "15m": 0.581,
+          "30m": 0.276,
+          "1H": 0.986,
+          "4H": 1,
+          "D": 1
+        }
+      },
+      "signal_snapshot_json": {
+        "avg_bias": 0.79,
+        "tf": {
+          "15m": {
+            "bias": 0.581,
+            "signals": {
+              "ema_cross": 1,
+              "supertrend": -1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 56.2
+            }
+          },
+          "30m": {
+            "bias": 0.276,
+            "signals": {
+              "ema_cross": -1,
+              "supertrend": -1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 55.1
+            }
+          },
+          "1H": {
+            "bias": 0.986,
+            "signals": {
+              "ema_cross": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 12,
+              "rsi": 61.2
+            }
+          },
+          "4H": {
+            "bias": 1,
+            "signals": {
+              "ema_cross": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 68.6
+            }
+          },
+          "D": {
+            "bias": 1,
+            "signals": {
+              "ema5_48": 1,
+              "ema_cross": 1,
+              "st_slope": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 67.9
+            }
+          },
+          "M": {
+            "bias": null,
+            "signals": {
+              "supertrend": -1,
+              "ema_structure": 1,
+              "ema_depth": 12,
+              "rsi": 54.8
+            }
+          },
+          "W": {
+            "bias": null,
+            "signals": {
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 12,
+              "rsi": 64.2
+            }
+          },
+          "10m": {
+            "bias": null,
+            "signals": {}
+          }
+        },
+        "lineage": {
+          "entry_path": "tt_momentum",
+          "direction_source": "consensus",
+          "selected_engine": "tt_core",
+          "selected_management_engine": "tt_core",
+          "engine_source": "reference_date_bucket",
+          "learning_policy_source": null,
+          "scenario_policy_source": "scenario_policy_default",
+          "state": "HTF_BULL_LTF_BULL",
+          "regime_class": "TRENDING",
+          "regime_score": 8,
+          "scenario_policy": {
+            "source": "scenario_policy_default",
+            "match": {
+              "global_default": true
+            },
+            "recommend": {
+              "entry_engine": "tt_core",
+              "management_engine": "tt_core",
+              "exit_style": "smart_exit_bias",
+              "sl_mult": 1.2,
+              "tp_mult": 1.26,
+              "win_rate": 0.8134,
+              "sample_size": 134
+            },
+            "context": {
+              "ticker": "RIOT",
+              "direction": "SHORT",
+              "entry_path": "tt_momentum",
+              "regime": "TRENDING",
+              "vix_bucket": "unknown",
+              "rvol_bucket": "surge",
+              "market_state": "balanced"
+            }
+          },
+          "learning_policy": null,
+          "execution_profile": {
+            "active_profile": "correction_transition",
+            "confidence": 0.73,
+            "reasons": [
+              "Mixed trend and transition evidence",
+              "Market internals are balanced",
+              "Ticker-specific threshold adjustment 5"
+            ],
+            "ticker_regime": "TRENDING",
+            "market_state": "balanced",
+            "personality": "VOLATILE_RUNNER"
+          },
+          "market_internals": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "ticker_character": {
+            "personality": "VOLATILE_RUNNER",
+            "sl_mult": 1.4,
+            "tp_mult": 1.43,
+            "entry_threshold_adj": 5,
+            "atr_pct_p50": 7.96,
+            "trend_persistence": 0.52
+          },
+          "ripster_clouds": {
+            "D": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0446
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0065
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0314
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0045
+              },
+              "c180_200": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0033
+              }
+            },
+            "4H": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0091
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0011
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0174
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0145
+              },
+              "c180_200": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0113
+              }
+            },
+            "1H": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0042,
+                "xu": 1
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0005,
+                "xu": 1
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.003
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0096
+              }
+            },
+            "W": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0864
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0118
+              },
+              "c34_50": {
+                "b": 0,
+                "ab": 1,
+                "sp": 0.0072
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0032
+              }
+            }
+          },
+          "ichimoku": {
+            "30": {
+              "pvc": "above",
+              "cb": 0,
+              "tk": 0,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": -0.931,
+              "tksp": 0,
+              "pt": 1.18,
+              "ct": 0.326,
+              "kw": 1
+            },
+            "W": {
+              "pvc": "above",
+              "cb": 0,
+              "tk": 1,
+              "xu": 1,
+              "xd": 0,
+              "ca": 1,
+              "ks": -0.047,
+              "tksp": 0.067,
+              "pt": 1.197,
+              "ct": 0.354,
+              "kw": 0
+            },
+            "D": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0.816,
+              "tksp": 1.185,
+              "pt": 2.601,
+              "ct": 1.305,
+              "kw": 0
+            },
+            "4H": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 1,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0,
+              "tksp": 0.052,
+              "pt": 1.12,
+              "ct": 1.624,
+              "kw": 0
+            },
+            "1H": {
+              "pvc": "above",
+              "cb": 0,
+              "tk": 0,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0.288,
+              "tksp": -0.064,
+              "pt": 1.538,
+              "ct": 0.913,
+              "kw": 0
+            }
+          },
+          "vix_at_entry": null,
+          "rvol": {
+            "30m": 3.11,
+            "1H": 2.94,
+            "D": 0.74
+          },
+          "entry_quality_score": 79,
+          "danger_score": null,
+          "danger_flags": null,
+          "regime_params": {
+            "minHTFScore": 10,
+            "minRR": 1.5,
+            "maxCompletion": 0.6,
+            "positionSizeMultiplier": 1,
+            "requireSqueezeRelease": false,
+            "defendWinnerBias": null
+          },
+          "rsi_divergence": null,
+          "td_counts": {
+            "30": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 2,
+              "xl": 0
+            },
+            "60": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 2,
+              "xl": 0
+            },
+            "240": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 3,
+              "xl": 0
+            },
+            "D": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 2,
+              "xl": 0
+            },
+            "W": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 6,
+              "xl": 0
+            }
+          },
+          "saty_phase": {
+            "30": {
+              "v": 15.89,
+              "z": "LOW",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            },
+            "1H": {
+              "v": 26.12,
+              "z": "MEDIUM",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            },
+            "D": {
+              "v": 63.23,
+              "z": "HIGH",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            }
+          },
+          "supertrend": {
+            "30": {
+              "d": 1,
+              "s": 1
+            },
+            "D": {
+              "d": -1,
+              "s": 1
+            },
+            "4H": {
+              "d": -1,
+              "s": 0
+            },
+            "1H": {
+              "d": -1,
+              "s": -1
+            }
+          },
+          "st_bars_since_flip_D": 46,
+          "swing_consensus": {
+            "dir": "LONG",
+            "bias": 0.79,
+            "bull": 5,
+            "bear": 0
+          },
+          "atr_disp": {
+            "day": {
+              "d": 0.252,
+              "b": "TRIGGER",
+              "r": 121.7
+            },
+            "week": {
+              "d": -0.244,
+              "b": "TRIGGER",
+              "r": 122.3
+            }
+          },
+          "volatility_tier": "EXTREME",
+          "ema_depth": {
+            "30": 15,
+            "60": 12,
+            "240": 15,
+            "D": 15
+          },
+          "fuel": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "mean_revert_td9": null,
+          "liq": {
+            "4H": {
+              "bsd": -1,
+              "ssd": -1,
+              "bc": 0,
+              "sc": 0
+            },
+            "D": {
+              "bsd": 0.48,
+              "ssd": 2.03,
+              "bc": 2,
+              "sc": 5
+            },
+            "W": {
+              "bsd": 1.25,
+              "ssd": 1.54,
+              "bc": 1,
+              "sc": 1
+            }
+          },
+          "orb": null
+        }
+      },
+      "exit_snapshot_json": {
+        "avg_bias": 1,
+        "tf": {
+          "15m": {
+            "bias": 1,
+            "signals": {
+              "ema_cross": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 71.3
+            }
+          },
+          "30m": {
+            "bias": 1,
+            "signals": {
+              "ema_cross": 1,
+              "st_slope": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 69.5
+            }
+          },
+          "1H": {
+            "bias": 1,
+            "signals": {
+              "ema_cross": 1,
+              "st_slope": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 12,
+              "rsi": 68.1
+            }
+          },
+          "4H": {
+            "bias": 1,
+            "signals": {
+              "ema_cross": 1,
+              "st_slope": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 76
+            }
+          },
+          "D": {
+            "bias": 1,
+            "signals": {
+              "ema5_48": 1,
+              "ema_cross": 1,
+              "st_slope": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 70
+            }
+          },
+          "M": {
+            "bias": null,
+            "signals": {
+              "supertrend": -1,
+              "ema_structure": 1,
+              "ema_depth": 12,
+              "rsi": 54.8
+            }
+          },
+          "W": {
+            "bias": null,
+            "signals": {
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 12,
+              "rsi": 64.2
+            }
+          },
+          "10m": {
+            "bias": null,
+            "signals": {}
+          }
+        },
+        "lineage": {
+          "entry_path": "tt_momentum",
+          "direction_source": "consensus",
+          "selected_engine": "tt_core",
+          "selected_management_engine": "tt_core",
+          "engine_source": "reference_date_bucket",
+          "learning_policy_source": null,
+          "scenario_policy_source": "scenario_policy_default",
+          "state": "HTF_BULL_LTF_BULL",
+          "regime_class": "TRENDING",
+          "regime_score": 10,
+          "scenario_policy": {
+            "source": "scenario_policy_default",
+            "match": {
+              "global_default": true
+            },
+            "recommend": {
+              "entry_engine": "tt_core",
+              "management_engine": "tt_core",
+              "exit_style": "smart_exit_bias",
+              "sl_mult": 1.2,
+              "tp_mult": 1.26,
+              "win_rate": 0.8134,
+              "sample_size": 134
+            },
+            "context": {
+              "ticker": "RIOT",
+              "direction": "LONG",
+              "entry_path": "tt_momentum",
+              "regime": "TRENDING",
+              "vix_bucket": "unknown",
+              "rvol_bucket": "surge",
+              "market_state": "balanced"
+            }
+          },
+          "learning_policy": null,
+          "execution_profile": {
+            "active_profile": "correction_transition",
+            "confidence": 0.73,
+            "reasons": [
+              "Mixed trend and transition evidence",
+              "Market internals are balanced",
+              "Ticker-specific threshold adjustment 5"
+            ],
+            "ticker_regime": "TRENDING",
+            "market_state": "balanced",
+            "personality": "VOLATILE_RUNNER"
+          },
+          "market_internals": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "ticker_character": {
+            "personality": "VOLATILE_RUNNER",
+            "sl_mult": 1.4,
+            "tp_mult": 1.43,
+            "entry_threshold_adj": 5,
+            "atr_pct_p50": 7.96,
+            "trend_persistence": 0.52
+          },
+          "ripster_clouds": {
+            "D": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0481
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0069
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0328
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0055
+              },
+              "c180_200": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0034
+              }
+            },
+            "4H": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0194
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0027
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0184
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0149
+              },
+              "c180_200": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0113
+              }
+            },
+            "1H": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0075
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.001
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0076
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0104
+              }
+            },
+            "W": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0864
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0118
+              },
+              "c34_50": {
+                "b": 0,
+                "ab": 1,
+                "sp": 0.0072
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0032
+              }
+            }
+          },
+          "ichimoku": {
+            "30": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 0,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 1.662,
+              "tksp": 0,
+              "pt": 2.079,
+              "ct": 2.49,
+              "kw": 0
+            },
+            "W": {
+              "pvc": "above",
+              "cb": 0,
+              "tk": 1,
+              "xu": 1,
+              "xd": 0,
+              "ca": 1,
+              "ks": -0.047,
+              "tksp": 0.067,
+              "pt": 1.197,
+              "ct": 0.354,
+              "kw": 0
+            },
+            "D": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0.727,
+              "tksp": 1.227,
+              "pt": 2.687,
+              "ct": 1.662,
+              "kw": 0
+            },
+            "4H": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0.013,
+              "tksp": 0.601,
+              "pt": 2.112,
+              "ct": 1.127,
+              "kw": 0
+            },
+            "1H": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0.521,
+              "tksp": 1.775,
+              "pt": 3.256,
+              "ct": 2.369,
+              "kw": 0
+            }
+          },
+          "vix_at_entry": null,
+          "rvol": {
+            "30m": 3,
+            "1H": 1.8,
+            "D": 0.76
+          },
+          "entry_quality_score": 77,
+          "danger_score": null,
+          "danger_flags": null,
+          "regime_params": {
+            "minHTFScore": 10,
+            "minRR": 1.5,
+            "maxCompletion": 0.6,
+            "positionSizeMultiplier": 1,
+            "requireSqueezeRelease": false,
+            "defendWinnerBias": null
+          },
+          "rsi_divergence": {
+            "30": {
+              "bear": null,
+              "bull": {
+                "active": false,
+                "strength": 6.1,
+                "barsSince": 34
+              },
+              "recentBear": null,
+              "recentBull": null
+            },
+            "1H": {
+              "bear": null,
+              "bull": {
+                "active": false,
+                "strength": 3.4,
+                "barsSince": 17
+              },
+              "recentBear": {
+                "active": true,
+                "strength": 1.2,
+                "barsSince": 12,
+                "pivotGap": 12,
+                "developing": true
+              },
+              "recentBull": null
+            },
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 1.7,
+                "barsSince": 5,
+                "pivotGap": 5,
+                "developing": true
+              },
+              "recentBull": null
+            }
+          },
+          "td_counts": {
+            "30": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 3,
+              "xl": 0
+            },
+            "60": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 2,
+              "xl": 0
+            },
+            "240": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 8,
+              "xl": 0
+            },
+            "D": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 4,
+              "xl": 0
+            },
+            "W": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 6,
+              "xl": 0
+            }
+          },
+          "saty_phase": {
+            "30": {
+              "v": 60.3,
+              "z": "MEDIUM",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            },
+            "1H": {
+              "v": 59.54,
+              "z": "MEDIUM",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            },
+            "D": {
+              "v": 70.42,
+              "z": "HIGH",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            }
+          },
+          "supertrend": {
+            "30": {
+              "d": -1,
+              "s": 1
+            },
+            "D": {
+              "d": -1,
+              "s": 1
+            },
+            "4H": {
+              "d": -1,
+              "s": 1
+            },
+            "1H": {
+              "d": -1,
+              "s": 1
+            }
+          },
+          "st_bars_since_flip_D": 47,
+          "swing_consensus": {
+            "dir": "LONG",
+            "bias": 1,
+            "bull": 5,
+            "bear": 0
+          },
+          "atr_disp": {
+            "day": {
+              "d": 0.322,
+              "b": "TRIGGER",
+              "r": 111.7
+            },
+            "week": {
+              "d": 0.178,
+              "b": "NEUTRAL",
+              "r": 122.3
+            }
+          },
+          "volatility_tier": "EXTREME",
+          "ema_depth": {
+            "30": 15,
+            "60": 12,
+            "240": 15,
+            "D": 15
+          },
+          "fuel": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "mean_revert_td9": null,
+          "liq": {
+            "4H": {
+              "bsd": -1,
+              "ssd": -1,
+              "bc": 0,
+              "sc": 0
+            },
+            "D": {
+              "bsd": 0.67,
+              "ssd": 2.45,
+              "bc": 2,
+              "sc": 5
+            },
+            "W": {
+              "bsd": 1.25,
+              "ssd": 1.54,
+              "bc": 1,
+              "sc": 1
+            }
+          },
+          "orb": null
+        }
+      }
+    },
+    {
+      "trade_id": "GRNY-1752161400000-2eam70ed5",
+      "run_id": "backtest_2025-07-01_2025-08-08@2026-03-31T13:20:22.786Z",
+      "ticker": "GRNY",
+      "direction": "LONG",
+      "status": "WIN",
+      "entry_ts": 1752161400000,
+      "exit_ts": 1752759000000,
+      "trim_ts": 1752512400000,
+      "entry_price": 22.7299,
+      "exit_price": 23.084999,
+      "trim_price": 0,
+      "pnl": 80.24760821084568,
+      "pnl_pct": 1.001278052257157,
+      "trimmed_pct": 0.5,
+      "exit_reason": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+      "setup_name": "TT Tt Momentum",
+      "setup_grade": "Confirmed",
+      "risk_budget": 0.01,
+      "shares": 352.5980250004761,
+      "notional": 8014.517848458322,
+      "entry_path": "tt_momentum",
+      "selected_engine": "tt_core",
+      "selected_management_engine": "tt_core",
+      "engine_source": "reference_date_bucket",
+      "scenario_policy_source": "scenario_policy_default",
+      "execution_profile_name": "correction_transition",
+      "execution_profile_confidence": 0.68,
+      "market_state": "balanced",
+      "consensus_direction": null,
+      "max_favorable_excursion": 1.5623,
+      "max_adverse_excursion": -0.4879,
+      "entry_quality_score": 73,
+      "rvol_best": 2.42,
+      "criteria_fingerprint": {
+        "entry_path": "tt_momentum",
+        "direction_source": "state_bull",
+        "state": "HTF_BULL_LTF_BULL",
+        "regime_class": "TRENDING",
+        "consensus_direction": null,
+        "engine_source": "reference_date_bucket",
+        "scenario_policy_source": "scenario_policy_default",
+        "tf_bias": {
+          "10m": 0,
+          "15m": 0.582,
+          "30m": 1,
+          "1H": 0.469,
+          "4H": 1,
+          "D": 1
+        }
+      },
+      "signal_snapshot_json": {
+        "avg_bias": 0.827,
+        "tf": {
+          "15m": {
+            "bias": 0.582,
+            "signals": {
+              "ema_cross": 1,
+              "supertrend": -1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 56.5
+            }
+          },
+          "30m": {
+            "bias": 1,
+            "signals": {
+              "ema_cross": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 59.3
+            }
+          },
+          "1H": {
+            "bias": 0.469,
+            "signals": {
+              "ema_cross": 1,
+              "supertrend": -1,
+              "ema_structure": 1,
+              "ema_depth": 12,
+              "rsi": 57.8
+            }
+          },
+          "4H": {
+            "bias": 1,
+            "signals": {
+              "ema_cross": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 14,
+              "rsi": 57.6
+            }
+          },
+          "D": {
+            "bias": 1,
+            "signals": {
+              "ema5_48": 1,
+              "ema_cross": 1,
+              "st_slope": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 12,
+              "rsi": 68.7
+            }
+          },
+          "10m": {
+            "bias": null,
+            "signals": {}
+          },
+          "W": {
+            "bias": null,
+            "signals": {}
+          }
+        },
+        "lineage": {
+          "entry_path": "tt_momentum",
+          "direction_source": "state_bull",
+          "selected_engine": "tt_core",
+          "selected_management_engine": "tt_core",
+          "engine_source": "reference_date_bucket",
+          "learning_policy_source": null,
+          "scenario_policy_source": "scenario_policy_default",
+          "state": "HTF_BULL_LTF_BULL",
+          "regime_class": "TRENDING",
+          "regime_score": 10,
+          "scenario_policy": {
+            "source": "scenario_policy_default",
+            "match": {
+              "global_default": true
+            },
+            "recommend": {
+              "entry_engine": "tt_core",
+              "management_engine": "tt_core",
+              "exit_style": "smart_exit_bias",
+              "sl_mult": 1.2,
+              "tp_mult": 1.26,
+              "win_rate": 0.8134,
+              "sample_size": 134
+            },
+            "context": {
+              "ticker": "GRNY",
+              "direction": "SHORT",
+              "entry_path": "tt_momentum",
+              "regime": "TRENDING",
+              "vix_bucket": "unknown",
+              "rvol_bucket": "surge",
+              "market_state": "balanced"
+            }
+          },
+          "learning_policy": null,
+          "execution_profile": {
+            "active_profile": "correction_transition",
+            "confidence": 0.68,
+            "reasons": [
+              "Mixed trend and transition evidence",
+              "Market internals are balanced"
+            ],
+            "ticker_regime": "TRENDING",
+            "market_state": "balanced",
+            "personality": "SLOW_GRINDER"
+          },
+          "market_internals": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "ticker_character": {
+            "personality": "SLOW_GRINDER",
+            "sl_mult": 1,
+            "tp_mult": 1.1,
+            "entry_threshold_adj": 0,
+            "atr_pct_p50": 1.6,
+            "trend_persistence": 0.4
+          },
+          "ripster_clouds": {
+            "D": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.01
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0015
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0192
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0061
+              }
+            },
+            "4H": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0014
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0002
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0039
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0047
+              },
+              "c180_200": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0058
+              }
+            },
+            "1H": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0012
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0002
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0012
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0021
+              }
+            }
+          },
+          "ichimoku": {
+            "30": {
+              "pvc": "above",
+              "cb": 0,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0.49,
+              "tksp": 0.566,
+              "pt": 1.509,
+              "ct": 0.207,
+              "kw": 0
+            },
+            "D": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 1.026,
+              "tksp": 2.062,
+              "pt": 2.73,
+              "ct": 5.052,
+              "kw": 0
+            },
+            "4H": {
+              "pvc": "above",
+              "cb": 0,
+              "tk": 0,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0.455,
+              "tksp": -2.092,
+              "pt": -1.911,
+              "ct": 0.387,
+              "kw": 1
+            },
+            "1H": {
+              "pvc": "inside",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 0,
+              "ks": 0,
+              "tksp": 0.051,
+              "pt": 0.693,
+              "ct": 0.924,
+              "kw": 1
+            }
+          },
+          "vix_at_entry": null,
+          "rvol": {
+            "30m": 2.42,
+            "1H": 1.08,
+            "D": 1.22
+          },
+          "entry_quality_score": 73,
+          "danger_score": null,
+          "danger_flags": null,
+          "regime_params": {
+            "minHTFScore": 10,
+            "minRR": 1.5,
+            "maxCompletion": 0.6,
+            "positionSizeMultiplier": 1,
+            "requireSqueezeRelease": false,
+            "defendWinnerBias": null
+          },
+          "rsi_divergence": {
+            "30": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 1.6,
+                "barsSince": 5,
+                "pivotGap": 5,
+                "developing": true
+              },
+              "recentBull": null
+            },
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 9.5,
+                "barsSince": 7,
+                "pivotGap": 7,
+                "developing": true
+              },
+              "recentBull": null
+            }
+          },
+          "td_counts": {
+            "30": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 1,
+              "xl": 0
+            },
+            "60": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 1,
+              "xl": 0
+            },
+            "240": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 10,
+              "xl": 0
+            },
+            "D": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 4,
+              "xl": 0
+            },
+            "W": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 12,
+              "xl": 0
+            }
+          },
+          "saty_phase": {
+            "30": {
+              "v": 26.25,
+              "z": "MEDIUM",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            },
+            "1H": {
+              "v": 20.25,
+              "z": "LOW",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            },
+            "D": {
+              "v": 70.2,
+              "z": "HIGH",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            }
+          },
+          "supertrend": {
+            "30": {
+              "d": -1,
+              "s": -1
+            },
+            "D": {
+              "d": -1,
+              "s": 1
+            },
+            "4H": {
+              "d": -1,
+              "s": 0
+            },
+            "1H": {
+              "d": 1,
+              "s": 0
+            }
+          },
+          "st_bars_since_flip_D": 53,
+          "swing_consensus": {
+            "dir": null,
+            "bias": 0.827,
+            "bull": 5,
+            "bear": 0
+          },
+          "atr_disp": {
+            "day": {
+              "d": -0.066,
+              "b": "NEUTRAL",
+              "r": 73.6
+            }
+          },
+          "volatility_tier": "LOW",
+          "ema_depth": {
+            "30": 15,
+            "60": 12,
+            "240": 14,
+            "D": 12
+          },
+          "fuel": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "mean_revert_td9": null,
+          "liq": {
+            "4H": {
+              "bsd": -1,
+              "ssd": -1,
+              "bc": 0,
+              "sc": 0
+            },
+            "D": {
+              "bsd": -1,
+              "ssd": 8.07,
+              "bc": 0,
+              "sc": 1
+            }
+          },
+          "orb": null
+        }
+      },
+      "exit_snapshot_json": {
+        "avg_bias": 1,
+        "tf": {
+          "15m": {
+            "bias": 1,
+            "signals": {
+              "ema_cross": 1,
+              "st_slope": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 73.5
+            }
+          },
+          "30m": {
+            "bias": 1,
+            "signals": {
+              "ema_cross": 1,
+              "st_slope": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 76.2
+            }
+          },
+          "1H": {
+            "bias": 1,
+            "signals": {
+              "ema_cross": 1,
+              "st_slope": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 12,
+              "rsi": 73.3
+            }
+          },
+          "4H": {
+            "bias": 1,
+            "signals": {
+              "ema_cross": 1,
+              "st_slope": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 72.4
+            }
+          },
+          "D": {
+            "bias": 1,
+            "signals": {
+              "ema5_48": 1,
+              "ema_cross": 1,
+              "st_slope": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 12,
+              "rsi": 72.8
+            }
+          },
+          "10m": {
+            "bias": null,
+            "signals": {}
+          },
+          "W": {
+            "bias": null,
+            "signals": {}
+          }
+        },
+        "lineage": {
+          "entry_path": "tt_momentum",
+          "direction_source": "state_bull",
+          "selected_engine": null,
+          "selected_management_engine": null,
+          "engine_source": null,
+          "learning_policy_source": null,
+          "scenario_policy_source": "scenario_policy_default",
+          "state": "HTF_BULL_LTF_BULL",
+          "regime_class": "TRENDING",
+          "regime_score": 10,
+          "scenario_policy": {
+            "source": "scenario_policy_default",
+            "match": {
+              "global_default": true
+            },
+            "recommend": {
+              "entry_engine": "tt_core",
+              "management_engine": "tt_core",
+              "exit_style": "smart_exit_bias",
+              "sl_mult": 1.2,
+              "tp_mult": 1.26,
+              "win_rate": 0.8134,
+              "sample_size": 134
+            },
+            "context": {
+              "ticker": "GRNY",
+              "direction": "LONG",
+              "entry_path": "unknown",
+              "regime": "TRENDING",
+              "vix_bucket": "unknown",
+              "rvol_bucket": "surge",
+              "market_state": "balanced"
+            }
+          },
+          "learning_policy": null,
+          "execution_profile": {
+            "active_profile": "correction_transition",
+            "confidence": 0.68,
+            "reasons": [
+              "Mixed trend and transition evidence",
+              "Market internals are balanced"
+            ],
+            "ticker_regime": "TRENDING",
+            "market_state": "balanced",
+            "personality": "SLOW_GRINDER"
+          },
+          "market_internals": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "ticker_character": {
+            "personality": "SLOW_GRINDER",
+            "sl_mult": 1,
+            "tp_mult": 1.1,
+            "entry_threshold_adj": 0,
+            "atr_pct_p50": 1.6,
+            "trend_persistence": 0.4
+          },
+          "ripster_clouds": {
+            "D": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0099
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0014
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0194
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0074
+              }
+            },
+            "4H": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0038
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0005
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0032
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0039
+              },
+              "c180_200": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0054
+              }
+            },
+            "1H": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0032
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0004
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0019
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0015
+              }
+            }
+          },
+          "ichimoku": {
+            "30": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 1,
+              "xd": 0,
+              "ca": 1,
+              "ks": 1.123,
+              "tksp": 1.261,
+              "pt": 3.502,
+              "ct": 0.763,
+              "kw": 0
+            },
+            "D": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0.895,
+              "tksp": 2.315,
+              "pt": 3.563,
+              "ct": 4.342,
+              "kw": 0
+            },
+            "4H": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0.591,
+              "tksp": 0.061,
+              "pt": -0.571,
+              "ct": 0.285,
+              "kw": 1
+            },
+            "1H": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0.91,
+              "tksp": 0.101,
+              "pt": 2.756,
+              "ct": 0.773,
+              "kw": 0
+            }
+          },
+          "vix_at_entry": null,
+          "rvol": {
+            "30m": 2.02,
+            "1H": 0.83,
+            "D": 1.43
+          },
+          "entry_quality_score": 62,
+          "danger_score": null,
+          "danger_flags": null,
+          "regime_params": {
+            "minHTFScore": 10,
+            "minRR": 1.5,
+            "maxCompletion": 0.6,
+            "positionSizeMultiplier": 1,
+            "requireSqueezeRelease": false,
+            "defendWinnerBias": null
+          },
+          "rsi_divergence": {
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 5.4,
+                "barsSince": 12,
+                "pivotGap": 12,
+                "developing": true
+              },
+              "recentBull": null
+            }
+          },
+          "td_counts": {
+            "30": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 10,
+              "xl": 2
+            },
+            "60": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 5,
+              "xl": 0
+            },
+            "240": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 7,
+              "xl": 0
+            },
+            "D": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 8,
+              "xl": 0
+            },
+            "W": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 14,
+              "xl": 0
+            }
+          },
+          "saty_phase": {
+            "30": {
+              "v": 76.42,
+              "z": "HIGH",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            },
+            "1H": {
+              "v": 67.66,
+              "z": "HIGH",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            },
+            "D": {
+              "v": 79.19,
+              "z": "HIGH",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            }
+          },
+          "supertrend": {
+            "30": {
+              "d": -1,
+              "s": 1
+            },
+            "D": {
+              "d": -1,
+              "s": 1
+            },
+            "4H": {
+              "d": -1,
+              "s": 1
+            },
+            "1H": {
+              "d": -1,
+              "s": 1
+            }
+          },
+          "st_bars_since_flip_D": 58,
+          "swing_consensus": {
+            "dir": null,
+            "bias": 1,
+            "bull": 5,
+            "bear": 0
+          },
+          "atr_disp": {
+            "day": {
+              "d": 0.258,
+              "b": "TRIGGER",
+              "r": 87.8
+            }
+          },
+          "volatility_tier": "LOW",
+          "ema_depth": {
+            "30": 15,
+            "60": 12,
+            "240": 15,
+            "D": 12
+          },
+          "fuel": {
+            "30": {
+              "s": "low",
+              "p": 0
+            },
+            "60": {
+              "s": "low",
+              "p": 0
+            }
+          },
+          "mean_revert_td9": null,
+          "liq": {
+            "4H": {
+              "bsd": -1,
+              "ssd": -1,
+              "bc": 0,
+              "sc": 0
+            },
+            "D": {
+              "bsd": -1,
+              "ssd": 10.09,
+              "bc": 0,
+              "sc": 1
+            }
+          },
+          "orb": null
+        }
+      }
+    },
+    {
+      "trade_id": "IESC-1752162000000-ax53wwkcb",
+      "run_id": "backtest_2025-07-01_2025-08-08@2026-03-31T13:20:22.786Z",
+      "ticker": "IESC",
+      "direction": "LONG",
+      "status": "WIN",
+      "entry_ts": 1752162000000,
+      "exit_ts": 1752850800000,
+      "trim_ts": 1752173100000,
+      "entry_price": 306,
+      "exit_price": 327.4961,
+      "trim_price": 0,
+      "pnl": 229.74100927734457,
+      "pnl_pct": 4.26799019607843,
+      "trimmed_pct": 0.5,
+      "exit_reason": "deferred_exit_sl_breached",
+      "setup_name": "TT Tt Momentum",
+      "setup_grade": "Confirmed",
+      "risk_budget": 0.01,
+      "shares": 17.591127849996337,
+      "notional": 5382.885122098879,
+      "entry_path": "tt_momentum",
+      "selected_engine": "tt_core",
+      "selected_management_engine": "tt_core",
+      "engine_source": "reference_date_bucket",
+      "scenario_policy_source": "scenario_policy_default",
+      "execution_profile_name": "correction_transition",
+      "execution_profile_confidence": 0.68,
+      "market_state": "balanced",
+      "consensus_direction": null,
+      "max_favorable_excursion": 9.085,
+      "max_adverse_excursion": -1.0784,
+      "entry_quality_score": 73,
+      "rvol_best": 1.27,
+      "criteria_fingerprint": {
+        "entry_path": "tt_momentum",
+        "direction_source": "state_bull",
+        "state": "HTF_BULL_LTF_BULL",
+        "regime_class": "TRENDING",
+        "consensus_direction": null,
+        "engine_source": "reference_date_bucket",
+        "scenario_policy_source": "scenario_policy_default",
+        "tf_bias": {
+          "10m": 0,
+          "15m": 0.585,
+          "30m": 1,
+          "1H": 0.551,
+          "4H": 1,
+          "D": 1
+        }
+      },
+      "signal_snapshot_json": {
+        "avg_bias": 0.843,
+        "tf": {
+          "15m": {
+            "bias": 0.585,
+            "signals": {
+              "ema_cross": 1,
+              "supertrend": -1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 57.1
+            }
+          },
+          "30m": {
+            "bias": 1,
+            "signals": {
+              "ema_cross": 1,
+              "st_slope": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 60.1
+            }
+          },
+          "1H": {
+            "bias": 0.551,
+            "signals": {
+              "ema_cross": 1,
+              "supertrend": -1,
+              "ema_structure": 1,
+              "ema_depth": 14,
+              "rsi": 58.2
+            }
+          },
+          "4H": {
+            "bias": 1,
+            "signals": {
+              "ema_cross": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 63.5
+            }
+          },
+          "D": {
+            "bias": 1,
+            "signals": {
+              "ema5_48": 1,
+              "ema_cross": 1,
+              "st_slope": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 66.1
+            }
+          },
+          "10m": {
+            "bias": null,
+            "signals": {
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 61.2
+            }
+          },
+          "M": {
+            "bias": null,
+            "signals": {
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 12,
+              "rsi": 72.8
+            }
+          },
+          "W": {
+            "bias": null,
+            "signals": {
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 12,
+              "rsi": 65.5
+            }
+          }
+        },
+        "lineage": {
+          "entry_path": "tt_momentum",
+          "direction_source": "state_bull",
+          "selected_engine": "tt_core",
+          "selected_management_engine": "tt_core",
+          "engine_source": "reference_date_bucket",
+          "learning_policy_source": null,
+          "scenario_policy_source": "scenario_policy_default",
+          "state": "HTF_BULL_LTF_BULL",
+          "regime_class": "TRENDING",
+          "regime_score": 10,
+          "scenario_policy": {
+            "source": "scenario_policy_default",
+            "match": {
+              "global_default": true
+            },
+            "recommend": {
+              "entry_engine": "tt_core",
+              "management_engine": "tt_core",
+              "exit_style": "smart_exit_bias",
+              "sl_mult": 1.2,
+              "tp_mult": 1.26,
+              "win_rate": 0.8134,
+              "sample_size": 134
+            },
+            "context": {
+              "ticker": "IESC",
+              "direction": "SHORT",
+              "entry_path": "tt_momentum",
+              "regime": "TRENDING",
+              "vix_bucket": "unknown",
+              "rvol_bucket": "high",
+              "market_state": "balanced"
+            }
+          },
+          "learning_policy": null,
+          "execution_profile": {
+            "active_profile": "correction_transition",
+            "confidence": 0.68,
+            "reasons": [
+              "Mixed trend and transition evidence",
+              "Market internals are balanced",
+              "Ticker-specific threshold adjustment 5"
+            ],
+            "ticker_regime": "TRENDING",
+            "market_state": "balanced",
+            "personality": "VOLATILE_RUNNER"
+          },
+          "market_internals": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "ticker_character": {
+            "personality": "VOLATILE_RUNNER",
+            "sl_mult": 1.4,
+            "tp_mult": 1.43,
+            "entry_threshold_adj": 5,
+            "atr_pct_p50": 5.23,
+            "trend_persistence": 0.54
+          },
+          "ripster_clouds": {
+            "D": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0234
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0033
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.037
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0202
+              },
+              "c180_200": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.013
+              }
+            },
+            "4H": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0073
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.001
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0103
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0095
+              },
+              "c180_200": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0132
+              }
+            },
+            "1H": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0046
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0006
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0066
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0073
+              },
+              "c180_200": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0084
+              }
+            },
+            "W": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0807
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0116
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0527
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.051
+              }
+            }
+          },
+          "ichimoku": {
+            "30": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0.381,
+              "tksp": 0.817,
+              "pt": 2.172,
+              "ct": 0.203,
+              "kw": 0
+            },
+            "W": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0,
+              "tksp": 1.393,
+              "pt": 2.509,
+              "ct": 0.958,
+              "kw": 0
+            },
+            "D": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 1.115,
+              "tksp": 0.892,
+              "pt": 1.954,
+              "ct": 3.463,
+              "kw": 0
+            },
+            "4H": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0,
+              "tksp": 0.626,
+              "pt": 1.674,
+              "ct": 0.922,
+              "kw": 0
+            },
+            "1H": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 0,
+              "ks": 0,
+              "tksp": 0.458,
+              "pt": 1.286,
+              "ct": 1.308,
+              "kw": 0
+            }
+          },
+          "vix_at_entry": null,
+          "rvol": {
+            "30m": 0.86,
+            "1H": 1.27,
+            "D": 0.84
+          },
+          "entry_quality_score": 73,
+          "danger_score": null,
+          "danger_flags": null,
+          "regime_params": {
+            "minHTFScore": 10,
+            "minRR": 1.5,
+            "maxCompletion": 0.6,
+            "positionSizeMultiplier": 1,
+            "requireSqueezeRelease": false,
+            "defendWinnerBias": null
+          },
+          "rsi_divergence": {
+            "30": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 3.2,
+                "barsSince": 6,
+                "pivotGap": 6,
+                "developing": true
+              },
+              "recentBull": null
+            },
+            "1H": {
+              "bear": {
+                "active": false,
+                "strength": 27.5,
+                "barsSince": 16
+              },
+              "bull": null,
+              "recentBear": null,
+              "recentBull": null
+            },
+            "D": {
+              "bear": {
+                "active": false,
+                "strength": 7.4,
+                "barsSince": 21
+              },
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 0.9,
+                "barsSince": 11,
+                "pivotGap": 11
+              },
+              "recentBull": null
+            }
+          },
+          "td_counts": {
+            "15": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 7,
+              "xl": 0
+            },
+            "30": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 2,
+              "xl": 0
+            },
+            "60": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 2,
+              "xl": 0
+            },
+            "240": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 7,
+              "xl": 0
+            },
+            "D": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 2,
+              "xl": 0
+            },
+            "W": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 6,
+              "xl": 0
+            }
+          },
+          "saty_phase": {
+            "30": {
+              "v": 32.83,
+              "z": "MEDIUM",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            },
+            "1H": {
+              "v": 25.93,
+              "z": "MEDIUM",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            },
+            "D": {
+              "v": 54.06,
+              "z": "MEDIUM",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            }
+          },
+          "supertrend": {
+            "30": {
+              "d": -1,
+              "s": 1
+            },
+            "D": {
+              "d": -1,
+              "s": 1
+            },
+            "4H": {
+              "d": -1,
+              "s": 0
+            },
+            "1H": {
+              "d": 1,
+              "s": 0
+            }
+          },
+          "st_bars_since_flip_D": 53,
+          "swing_consensus": {
+            "dir": null,
+            "bias": 0.843,
+            "bull": 5,
+            "bear": 0
+          },
+          "atr_disp": {
+            "day": {
+              "d": 0.133,
+              "b": "NEUTRAL",
+              "r": 134.7
+            },
+            "week": {
+              "d": -0.013,
+              "b": "NEUTRAL",
+              "r": 76
+            }
+          },
+          "volatility_tier": "HIGH",
+          "ema_depth": {
+            "30": 15,
+            "60": 14,
+            "240": 15,
+            "D": 15
+          },
+          "fuel": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "mean_revert_td9": null,
+          "liq": {
+            "4H": {
+              "bsd": -1,
+              "ssd": 17.34,
+              "bc": 0,
+              "sc": 1
+            },
+            "D": {
+              "bsd": -1,
+              "ssd": 8.56,
+              "bc": 0,
+              "sc": 4
+            },
+            "W": {
+              "bsd": -1,
+              "ssd": -1,
+              "bc": 0,
+              "sc": 0
+            }
+          },
+          "orb": {
+            "orh": 307.1,
+            "orl": 301.9,
+            "orm": 304.5,
+            "width": 5.2,
+            "widthPct": 1.71,
+            "breakout": null,
+            "holdingAbove": false,
+            "holdingBelow": false,
+            "reclaim": true,
+            "priceVsORM": 1,
+            "dayBias": 1,
+            "targetsHitUp": 0,
+            "targetsHitDn": 2,
+            "orbBias": 0,
+            "confirmed": false,
+            "against": false
+          }
+        }
+      },
+      "exit_snapshot_json": {
+        "avg_bias": 0.941,
+        "tf": {
+          "15m": {
+            "bias": 0.832,
+            "signals": {
+              "ema_cross": 1,
+              "st_slope": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 9,
+              "rsi": 51.7
+            }
+          },
+          "30m": {
+            "bias": 0.844,
+            "signals": {
+              "ema_cross": 1,
+              "st_slope": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 9,
+              "rsi": 54.4
+            }
+          },
+          "1H": {
+            "bias": 1,
+            "signals": {
+              "ema_cross": 1,
+              "st_slope": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 13,
+              "rsi": 61.9
+            }
+          },
+          "4H": {
+            "bias": 1,
+            "signals": {
+              "ema_cross": 1,
+              "st_slope": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 13,
+              "rsi": 67.5
+            }
+          },
+          "D": {
+            "bias": 1,
+            "signals": {
+              "ema5_48": 1,
+              "ema_cross": 1,
+              "st_slope": 1,
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 15,
+              "rsi": 70.2
+            }
+          },
+          "10m": {
+            "bias": null,
+            "signals": {
+              "supertrend": -1,
+              "ema_structure": 1,
+              "ema_depth": 7,
+              "rsi": 46.5
+            }
+          },
+          "M": {
+            "bias": null,
+            "signals": {
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 12,
+              "rsi": 72.8
+            }
+          },
+          "W": {
+            "bias": null,
+            "signals": {
+              "supertrend": 1,
+              "ema_structure": 1,
+              "ema_depth": 12,
+              "rsi": 68.1
+            }
+          }
+        },
+        "lineage": {
+          "entry_path": "tt_momentum",
+          "direction_source": "state_bull",
+          "selected_engine": null,
+          "selected_management_engine": null,
+          "engine_source": null,
+          "learning_policy_source": null,
+          "scenario_policy_source": "scenario_policy_default",
+          "state": "HTF_BULL_LTF_BULL",
+          "regime_class": "TRENDING",
+          "regime_score": 10,
+          "scenario_policy": {
+            "source": "scenario_policy_default",
+            "match": {
+              "global_default": true
+            },
+            "recommend": {
+              "entry_engine": "tt_core",
+              "management_engine": "tt_core",
+              "exit_style": "smart_exit_bias",
+              "sl_mult": 1.2,
+              "tp_mult": 1.26,
+              "win_rate": 0.8134,
+              "sample_size": 134
+            },
+            "context": {
+              "ticker": "IESC",
+              "direction": "SHORT",
+              "entry_path": "unknown",
+              "regime": "TRENDING",
+              "vix_bucket": "unknown",
+              "rvol_bucket": "surge",
+              "market_state": "balanced"
+            }
+          },
+          "learning_policy": null,
+          "execution_profile": {
+            "active_profile": "correction_transition",
+            "confidence": 0.68,
+            "reasons": [
+              "Mixed trend and transition evidence",
+              "Market internals are balanced",
+              "Ticker-specific threshold adjustment 5"
+            ],
+            "ticker_regime": "TRENDING",
+            "market_state": "balanced",
+            "personality": "VOLATILE_RUNNER"
+          },
+          "market_internals": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "ticker_character": {
+            "personality": "VOLATILE_RUNNER",
+            "sl_mult": 1.4,
+            "tp_mult": 1.43,
+            "entry_threshold_adj": 5,
+            "atr_pct_p50": 5.23,
+            "trend_persistence": 0.54
+          },
+          "ripster_clouds": {
+            "D": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0293
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0041
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0378
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0219
+              },
+              "c180_200": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0109
+              }
+            },
+            "4H": {
+              "c5_12": {
+                "b": 1,
+                "ab": 0,
+                "sp": 0.0104,
+                "ic": 1
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0016
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0134
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0108
+              },
+              "c180_200": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0124
+              }
+            },
+            "1H": {
+              "c5_12": {
+                "b": 1,
+                "ab": 0,
+                "sp": 0.0074,
+                "ic": 1
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0011
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0113
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0089
+              },
+              "c180_200": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0084
+              }
+            },
+            "W": {
+              "c5_12": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0835
+              },
+              "c8_9": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.012
+              },
+              "c34_50": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0529
+              },
+              "c72_89": {
+                "b": 1,
+                "ab": 1,
+                "sp": 0.0497
+              }
+            }
+          },
+          "ichimoku": {
+            "30": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0.076,
+              "tksp": 1.144,
+              "pt": 0.323,
+              "ct": 3.716,
+              "kw": 0
+            },
+            "W": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0.258,
+              "tksp": 1.459,
+              "pt": 2.827,
+              "ct": 1.013,
+              "kw": 0
+            },
+            "D": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0.895,
+              "tksp": 1.21,
+              "pt": 2.378,
+              "ct": 1.745,
+              "kw": 0
+            },
+            "4H": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0.038,
+              "tksp": 1.518,
+              "pt": 1.28,
+              "ct": 1.558,
+              "kw": 0
+            },
+            "1H": {
+              "pvc": "above",
+              "cb": 1,
+              "tk": 1,
+              "xu": 0,
+              "xd": 0,
+              "ca": 1,
+              "ks": 0.048,
+              "tksp": 1.999,
+              "pt": 1.704,
+              "ct": 1.821,
+              "kw": 0
+            }
+          },
+          "vix_at_entry": null,
+          "rvol": {
+            "30m": 0.67,
+            "1H": 0.64,
+            "D": 2.41
+          },
+          "entry_quality_score": 73,
+          "danger_score": null,
+          "danger_flags": null,
+          "regime_params": {
+            "minHTFScore": 10,
+            "minRR": 1.5,
+            "maxCompletion": 0.6,
+            "positionSizeMultiplier": 1,
+            "requireSqueezeRelease": false,
+            "defendWinnerBias": null
+          },
+          "rsi_divergence": {
+            "D": {
+              "bear": {
+                "active": false,
+                "strength": 7.4,
+                "barsSince": 27
+              },
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 0.9,
+                "barsSince": 17,
+                "pivotGap": 11
+              },
+              "recentBull": null
+            }
+          },
+          "td_counts": {
+            "15": {
+              "bp": 5,
+              "bl": 0,
+              "xp": 0,
+              "xl": 0
+            },
+            "30": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 4,
+              "xl": 0
+            },
+            "60": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 2,
+              "xl": 0
+            },
+            "240": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 7,
+              "xl": 0
+            },
+            "D": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 6,
+              "xl": 0
+            },
+            "W": {
+              "bp": 0,
+              "bl": 0,
+              "xp": 8,
+              "xl": 0
+            }
+          },
+          "saty_phase": {
+            "30": {
+              "v": 19.17,
+              "z": "LOW",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            },
+            "1H": {
+              "v": 43.27,
+              "z": "MEDIUM",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            },
+            "D": {
+              "v": 68.39,
+              "z": "HIGH",
+              "l": {
+                "extUp": false,
+                "distrib": false,
+                "accum": false,
+                "extDn": false
+              }
+            }
+          },
+          "supertrend": {
+            "30": {
+              "d": -1,
+              "s": 1
+            },
+            "D": {
+              "d": -1,
+              "s": 1
+            },
+            "4H": {
+              "d": -1,
+              "s": 1
+            },
+            "1H": {
+              "d": -1,
+              "s": 1
+            }
+          },
+          "st_bars_since_flip_D": 59,
+          "swing_consensus": {
+            "dir": null,
+            "bias": 0.941,
+            "bull": 5,
+            "bear": 0
+          },
+          "atr_disp": {
+            "day": {
+              "d": 0.204,
+              "b": "NEUTRAL",
+              "r": 82.8
+            },
+            "week": {
+              "d": 0.63,
+              "b": "KEY_618",
+              "r": 106
+            }
+          },
+          "volatility_tier": "HIGH",
+          "ema_depth": {
+            "30": 9,
+            "60": 13,
+            "240": 13,
+            "D": 15
+          },
+          "fuel": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "mean_revert_td9": null,
+          "liq": {
+            "4H": {
+              "bsd": -1,
+              "ssd": 21.18,
+              "bc": 0,
+              "sc": 1
+            },
+            "D": {
+              "bsd": -1,
+              "ssd": 9.93,
+              "bc": 0,
+              "sc": 4
+            },
+            "W": {
+              "bsd": -1,
+              "ssd": -1,
+              "bc": 0,
+              "sc": 0
+            }
+          },
+          "orb": {
+            "orh": 333.82,
+            "orl": 327.47,
+            "orm": 330.65,
+            "width": 6.35,
+            "widthPct": 1.92,
+            "breakout": null,
+            "holdingAbove": false,
+            "holdingBelow": false,
+            "reclaim": true,
+            "priceVsORM": -1,
+            "dayBias": 1,
+            "targetsHitUp": 0,
+            "targetsHitDn": 0,
+            "orbBias": 0,
+            "confirmed": false,
+            "against": false
+          }
+        }
+      }
+    }
+  ]
+}

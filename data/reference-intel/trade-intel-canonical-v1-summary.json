@@ -1,185 +1,185 @@
 {
-  "generated_at_utc": "2026-03-25T10:15:06.210543+00:00",
-  "runs_scanned": 182,
-  "runs_with_data": 160,
-  "row_count": 7065,
-  "unique_tickers": 211,
+  "generated_at_utc": "2026-04-04T22:15:02.918647+00:00",
+  "runs_scanned": 252,
+  "runs_with_data": 218,
+  "row_count": 8437,
+  "unique_tickers": 217,
   "status_counts": {
-    "WIN": 2971,
-    "LOSS": 2831,
-    "FLAT": 407,
-    "OPEN": 704,
-    "TP_HIT_TRIM": 145,
+    "WIN": 3654,
+    "LOSS": 3205,
+    "FLAT": 474,
+    "OPEN": 785,
+    "TP_HIT_TRIM": 312,
     "": 1,
     "ARCHIVED": 6
   },
   "exit_class_counts": {
-    "other": 4309,
-    "loss_protect": 1832,
-    "tp_full": 188,
-    "regime_reversal": 225,
-    "fuse": 329,
+    "other": 5335,
+    "loss_protect": 1943,
+    "tp_full": 190,
+    "regime_reversal": 242,
+    "fuse": 388,
     "trim_related": 19,
-    "unknown": 163
+    "unknown": 320
   },
   "top_tickers": [
     [
-      "FIX",
-      272
+      "CAT",
+      244
     ],
     [
-      "CAT",
-      260
+      "FIX",
+      237
     ],
     [
       "ULTA",
-      226
+      224
     ],
     [
       "H",
-      166
+      199
     ],
     [
       "AMZN",
-      158
-    ],
-    [
-      "CSX",
-      149
+      189
     ],
     [
       "WMT",
-      148
+      175
     ],
     [
-      "AAPL",
-      140
-    ],
-    [
-      "RBLX",
-      131
-    ],
-    [
-      "ETN",
-      123
-    ],
-    [
-      "COST",
-      118
+      "CSX",
+      164
     ],
     [
       "PH",
-      101
+      159
+    ],
+    [
+      "AAPL",
+      142
+    ],
+    [
+      "COST",
+      124
     ],
     [
       "HII",
-      101
+      120
     ],
     [
       "TSLA",
-      99
-    ],
-    [
-      "APP",
-      88
-    ],
-    [
-      "GE",
-      87
-    ],
-    [
-      "KLAC",
-      86
-    ],
-    [
-      "BABA",
-      84
-    ],
-    [
-      "EXPE",
-      81
-    ],
-    [
-      "MNST",
-      80
-    ],
-    [
-      "ELF",
-      80
-    ],
-    [
-      "PWR",
-      79
+      119
     ],
     [
       "IESC",
-      78
+      117
+    ],
+    [
+      "ETN",
+      116
+    ],
+    [
+      "APP",
+      114
+    ],
+    [
+      "MNST",
+      112
+    ],
+    [
+      "GE",
+      106
+    ],
+    [
+      "EXPE",
+      106
+    ],
+    [
+      "BABA",
+      98
+    ],
+    [
+      "ELF",
+      97
+    ],
+    [
+      "MTZ",
+      93
+    ],
+    [
+      "TJX",
+      93
+    ],
+    [
+      "PWR",
+      92
+    ],
+    [
+      "KLAC",
+      90
     ],
     [
       "DY",
-      73
-    ],
-    [
-      "ORCL",
-      68
+      90
     ]
   ],
   "top_sectors": [
     [
       "Industrials",
-      2290
+      2661
     ],
     [
       "Consumer Discretionary",
-      1345
+      1632
     ],
     [
       "Information Technology",
-      1340
+      1547
     ],
     [
       "Consumer Staples",
-      559
+      700
     ],
     [
       "Basic Materials",
-      344
+      404
     ],
     [
       "Financials",
-      329
+      366
     ],
     [
       "ETF",
-      229
+      302
     ],
     [
       "Energy",
-      200
+      236
     ],
     [
       "Communication Services",
-      168
-    ],
-    [
-      "Healthcare",
-      79
-    ],
-    [
-      "Health Care",
-      72
-    ],
-    [
-      "Precious Metals",
-      52
+      192
     ],
     [
       "Crypto",
-      36
+      97
+    ],
+    [
+      "Health Care",
+      93
+    ],
+    [
+      "Precious Metals",
+      92
+    ],
+    [
+      "Healthcare",
+      83
     ],
     [
       "Commodity ETF",
-      17
+      27
     ],
     [
       "unknown",
@@ -196,12 +196,24 @@
       704
     ],
     [
+      "iter5-source-run-export-20260402",
+      580
+    ],
+    [
       "doa-gate-v2--20260318-101738",
       326
     ],
     [
       "15m-profile-lineage-jul1-mar4--20260311-133409",
       237
+    ],
+    [
+      "golden-julaug-fullbatch-recovery-v5--20260402-182308",
+      229
+    ],
+    [
+      "iter5-jul1-apr1-mar31-fullrun-export-20260402",
+      218
     ],
     [
       "15m-backtest--20260309-003059",
@@ -348,10 +360,6 @@
       41
     ],
     [
-      "focused-iter5-pinned-clean-july-hlc350-20260325--20260325-040140",
-      41
-    ],
-    [
       "paragon-legacy-dynamic-v4--20260321-212405",
       41
     ],
@@ -372,15 +380,7 @@
       38
     ],
     [
-      "focused-iter5-pinned-clean-july-10mfix-20260325--20260325-034349",
-      38
-    ],
-    [
-      "focused-iter5-pinned-clean-july-ltf30-20260325--20260325-035323",
-      38
-    ],
-    [
-      "focused-iter5-pinned-clean-july-postfix-20260325--20260325-043424",
+      "jul1-apr2-clean-recovery-v3--20260403-111223",
       38
     ],
     [
@@ -389,10 +389,10 @@
     ]
   ],
   "lineage_missing_rates": {
-    "has_entry_path": 0.415,
-    "has_signal_snapshot": 0.4207,
-    "has_tf_stack": 0.4207,
-    "has_mfe_mae": 0.5713,
-    "has_exit_reason": 0.0231
+    "has_entry_path": 0.3697,
+    "has_signal_snapshot": 0.3744,
+    "has_tf_stack": 0.3744,
+    "has_mfe_mae": 0.5225,
+    "has_exit_reason": 0.0379
   }
 }

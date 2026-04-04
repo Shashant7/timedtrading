@@ -1,56 +1,56 @@
 {
-  "generated_at_utc": "2026-03-25T10:15:06.550574+00:00",
-  "canonical_closed_rows": 6354,
+  "generated_at_utc": "2026-04-04T22:15:03.392467+00:00",
+  "canonical_closed_rows": 7645,
   "reference_rows": 250,
   "coverage_map": {
     "canonical": {
       "sector": {
-        "Information Technology": 1210,
-        "Basic Materials": 297,
-        "Consumer Discretionary": 1233,
-        "Financials": 296,
-        "Crypto": 30,
-        "Healthcare": 69,
-        "Industrials": 2082,
-        "Communication Services": 151,
-        "ETF": 212,
-        "Energy": 168,
-        "Consumer Staples": 483,
-        "Health Care": 59,
-        "Precious Metals": 48,
+        "Information Technology": 1401,
+        "Basic Materials": 353,
+        "Consumer Discretionary": 1511,
+        "Financials": 330,
+        "Crypto": 86,
+        "Healthcare": 72,
+        "Industrials": 2420,
+        "Communication Services": 173,
+        "ETF": 283,
+        "Energy": 203,
+        "Consumer Staples": 624,
+        "Health Care": 79,
+        "Precious Metals": 85,
         "unknown": 4,
-        "Commodity ETF": 12
+        "Commodity ETF": 21
       },
       "direction": {
-        "LONG": 5471,
-        "SHORT": 883
+        "LONG": 6757,
+        "SHORT": 888
       },
       "month": {
-        "unknown": 1651,
-        "2026-02": 291,
-        "2026-01": 195,
-        "2025-12": 143,
-        "2025-11": 206,
-        "2025-10": 241,
-        "2025-09": 339,
-        "2025-08": 561,
-        "2025-07": 2681,
-        "2026-03": 46
+        "unknown": 1650,
+        "2026-02": 393,
+        "2026-01": 308,
+        "2025-12": 221,
+        "2025-11": 271,
+        "2025-10": 332,
+        "2025-09": 422,
+        "2025-08": 678,
+        "2025-07": 3254,
+        "2026-03": 116
       },
       "exit_class": {
-        "other": 3734,
-        "loss_protect": 1831,
-        "tp_full": 188,
-        "regime_reversal": 225,
-        "fuse": 329,
+        "other": 4717,
+        "loss_protect": 1942,
+        "tp_full": 190,
+        "regime_reversal": 242,
+        "fuse": 388,
         "trim_related": 19,
-        "unknown": 28
+        "unknown": 147
       },
       "entry_path": {
-        "unknown": 2234,
+        "unknown": 2340,
         "ripster_momentum": 1350,
         "ripster_pullback": 285,
-        "ema_regime_confirmed_long": 1648,
+        "ema_regime_confirmed_long": 1653,
         "ema_regime_confirmed_short": 179,
         "gold_short_pullback_deep": 75,
         "breakout_atr_breakout_long": 1,
@@ -59,254 +59,255 @@
         "gold_short_pullback": 14,
         "breakout_ema_stack_short": 1,
         "momentum_score_short": 2,
-        "tt_momentum": 237,
-        "tt_pullback": 156,
+        "tt_momentum": 1155,
+        "tt_pullback": 400,
         "gold_short_corridor": 3,
-        "momentum_score": 44
+        "momentum_score": 56,
+        "tt_reclaim": 6
       }
     },
     "reference": {
       "sector": {
-        "Information Technology": 55,
-        "Energy": 13,
         "Industrials": 55,
-        "Basic Materials": 33,
-        "Healthcare": 6,
-        "Consumer Discretionary": 41,
+        "Information Technology": 55,
+        "Energy": 14,
+        "Consumer Discretionary": 55,
+        "Basic Materials": 16,
+        "Healthcare": 4,
+        "Consumer Staples": 25,
         "Financials": 9,
-        "Health Care": 2,
-        "Communication Services": 10,
-        "Commodity ETF": 4,
-        "Precious Metals": 2,
-        "Consumer Staples": 15,
-        "ETF": 4,
+        "Communication Services": 3,
+        "Health Care": 5,
+        "Commodity ETF": 2,
+        "Precious Metals": 4,
+        "ETF": 2,
         "Crypto": 1
       },
       "direction": {
-        "SHORT": 71,
-        "LONG": 179
+        "LONG": 213,
+        "SHORT": 37
       },
       "month": {
-        "2026-02": 50,
-        "2025-07": 45,
-        "2025-08": 34,
-        "2025-10": 24,
-        "2025-09": 32,
-        "2026-01": 21,
-        "2026-03": 5,
-        "2025-12": 12,
-        "2025-11": 27
+        "2025-09": 31,
+        "2025-10": 29,
+        "2026-02": 48,
+        "2025-07": 36,
+        "2025-08": 31,
+        "2025-12": 14,
+        "2026-01": 34,
+        "2025-11": 17,
+        "2026-03": 10
       }
     },
     "reference_to_canonical_sector_ratio": {
-      "Information Technology": 0.0455,
-      "Basic Materials": 0.1111,
-      "Consumer Discretionary": 0.0333,
-      "Financials": 0.0304,
-      "Crypto": 0.0333,
-      "Healthcare": 0.087,
-      "Industrials": 0.0264,
-      "Communication Services": 0.0662,
-      "ETF": 0.0189,
-      "Energy": 0.0774,
-      "Consumer Staples": 0.0311,
-      "Health Care": 0.0339,
-      "Precious Metals": 0.0417,
+      "Information Technology": 0.0393,
+      "Basic Materials": 0.0453,
+      "Consumer Discretionary": 0.0364,
+      "Financials": 0.0273,
+      "Crypto": 0.0116,
+      "Healthcare": 0.0556,
+      "Industrials": 0.0227,
+      "Communication Services": 0.0173,
+      "ETF": 0.0071,
+      "Energy": 0.069,
+      "Consumer Staples": 0.0401,
+      "Health Care": 0.0633,
+      "Precious Metals": 0.0471,
       "unknown": 0.0,
-      "Commodity ETF": 0.3333
+      "Commodity ETF": 0.0952
     }
   },
   "top_views": {
     "top_tickers_canonical": [
       [
         "FIX",
-        268
+        226
       ],
       [
         "CAT",
-        238
+        222
       ],
       [
         "ULTA",
-        208
+        206
       ],
       [
         "H",
-        157
-      ],
-      [
-        "CSX",
-        141
+        188
       ],
       [
         "AMZN",
-        132
+        163
       ],
       [
-        "AAPL",
-        130
-      ],
-      [
-        "RBLX",
-        129
-      ],
-      [
-        "ETN",
-        119
+        "CSX",
+        153
       ],
       [
         "WMT",
-        118
-      ],
-      [
-        "COST",
-        106
-      ],
-      [
-        "TSLA",
-        95
+        144
       ],
       [
         "PH",
-        87
+        144
       ],
       [
-        "HII",
-        82
+        "AAPL",
+        132
       ],
       [
-        "EXPE",
-        81
-      ],
-      [
-        "GE",
-        77
-      ],
-      [
-        "KLAC",
-        77
-      ],
-      [
-        "ELF",
-        77
-      ],
-      [
-        "MNST",
-        75
-      ],
-      [
-        "APP",
-        74
+        "TSLA",
+        115
       ],
       [
         "IESC",
-        73
+        112
+      ],
+      [
+        "COST",
+        112
+      ],
+      [
+        "ETN",
+        110
+      ],
+      [
+        "MNST",
+        107
+      ],
+      [
+        "EXPE",
+        106
+      ],
+      [
+        "HII",
+        101
+      ],
+      [
+        "APP",
+        100
+      ],
+      [
+        "GE",
+        94
+      ],
+      [
+        "ELF",
+        94
+      ],
+      [
+        "MTZ",
+        89
       ],
       [
         "BABA",
-        72
-      ],
-      [
-        "PWR",
-        68
+        86
       ],
       [
         "DY",
-        65
-      ],
-      [
-        "DPZ",
-        63
-      ],
-      [
-        "MLI",
-        61
-      ],
-      [
-        "ORCL",
-        60
-      ],
-      [
-        "NVDA",
-        59
-      ],
-      [
-        "ITT",
-        55
-      ],
-      [
-        "CDNS",
-        54
-      ],
-      [
-        "AWI",
-        54
-      ],
-      [
-        "GOOGL",
-        53
-      ],
-      [
-        "PLTR",
-        53
-      ],
-      [
-        "GEV",
-        53
-      ],
-      [
-        "CW",
-        50
-      ],
-      [
-        "ANET",
-        50
-      ],
-      [
-        "MSFT",
-        50
-      ],
-      [
-        "KO",
-        50
+        82
       ],
       [
         "TJX",
-        48
+        82
       ],
       [
-        "XLC",
-        48
+        "KLAC",
+        81
+      ],
+      [
+        "PWR",
+        81
+      ],
+      [
+        "GRNY",
+        79
+      ],
+      [
+        "CDNS",
+        73
+      ],
+      [
+        "ORCL",
+        71
+      ],
+      [
+        "DPZ",
+        71
+      ],
+      [
+        "ITT",
+        67
+      ],
+      [
+        "PLTR",
+        66
+      ],
+      [
+        "KO",
+        66
+      ],
+      [
+        "CELH",
+        65
+      ],
+      [
+        "MLI",
+        64
+      ],
+      [
+        "NVDA",
+        63
+      ],
+      [
+        "GEV",
+        63
+      ],
+      [
+        "ANET",
+        62
+      ],
+      [
+        "GOOGL",
+        58
+      ],
+      [
+        "AWI",
+        58
+      ],
+      [
+        "RIOT",
+        57
       ]
     ],
     "top_entry_path_canonical": [
       [
         "unknown",
-        2234
+        2340
       ],
       [
         "ema_regime_confirmed_long",
-        1648
+        1653
       ],
       [
         "ripster_momentum",
         1350
       ],
       [
+        "tt_momentum",
+        1155
+      ],
+      [
+        "tt_pullback",
+        400
+      ],
+      [
         "ripster_pullback",
         285
       ],
       [
-        "tt_momentum",
-        237
-      ],
-      [
         "ema_regime_confirmed_short",
         179
-      ],
-      [
-        "tt_pullback",
-        156
       ],
       [
         "ema_regime_early_long",
@@ -318,11 +319,15 @@
       ],
       [
         "momentum_score",
-        44
+        56
       ],
       [
         "gold_short_pullback",
         14
+      ],
+      [
+        "tt_reclaim",
+        6
       ],
       [
         "ema_regime_early_short",
@@ -348,35 +353,35 @@
     "top_sector_direction_canonical": [
       [
         "Industrials|LONG",
-        1991
-      ],
-      [
-        "Information Technology|LONG",
-        1050
+        2329
       ],
       [
         "Consumer Discretionary|LONG",
-        1001
+        1275
+      ],
+      [
+        "Information Technology|LONG",
+        1240
       ],
       [
         "Consumer Staples|LONG",
-        321
-      ],
-      [
-        "Financials|LONG",
-        266
+        462
       ],
       [
         "Basic Materials|LONG",
-        251
+        307
       ],
       [
-        "Consumer Discretionary|SHORT",
-        232
+        "Financials|LONG",
+        300
       ],
       [
         "ETF|LONG",
-        195
+        266
+      ],
+      [
+        "Consumer Discretionary|SHORT",
+        236
       ],
       [
         "Consumer Staples|SHORT",
@@ -384,27 +389,35 @@
       ],
       [
         "Information Technology|SHORT",
-        160
-      ],
-      [
-        "Communication Services|LONG",
-        121
+        161
       ],
       [
         "Energy|LONG",
-        112
+        147
+      ],
+      [
+        "Communication Services|LONG",
+        143
       ],
       [
         "Industrials|SHORT",
         91
       ],
       [
+        "Crypto|LONG",
+        85
+      ],
+      [
+        "Precious Metals|LONG",
+        85
+      ],
+      [
         "Energy|SHORT",
         56
       ],
       [
-        "Precious Metals|LONG",
-        48
+        "Health Care|LONG",
+        56
       ],
       [
         "Basic Materials|SHORT",
@@ -412,11 +425,7 @@
       ],
       [
         "Healthcare|LONG",
-        36
-      ],
-      [
-        "Health Care|LONG",
-        36
+        39
       ],
       [
         "Healthcare|SHORT",
@@ -431,20 +440,16 @@
         30
       ],
       [
-        "Crypto|LONG",
-        29
-      ],
-      [
         "Health Care|SHORT",
         23
       ],
       [
-        "ETF|SHORT",
-        17
+        "Commodity ETF|LONG",
+        21
       ],
       [
-        "Commodity ETF|LONG",
-        12
+        "ETF|SHORT",
+        17
       ],
       [
         "unknown|LONG",
@@ -462,51 +467,55 @@
     "top_month_direction_canonical": [
       [
         "2025-07|LONG",
-        2466
+        3040
       ],
       [
         "unknown|LONG",
-        1355
+        1354
       ],
       [
         "2025-08|LONG",
-        504
+        621
       ],
       [
         "2025-09|LONG",
-        306
+        389
+      ],
+      [
+        "2025-10|LONG",
+        297
       ],
       [
         "unknown|SHORT",
         296
       ],
       [
-        "2025-07|SHORT",
-        215
-      ],
-      [
-        "2025-10|LONG",
-        208
-      ],
-      [
         "2026-02|LONG",
-        190
+        290
       ],
       [
         "2026-01|LONG",
-        161
+        274
+      ],
+      [
+        "2025-07|SHORT",
+        214
       ],
       [
         "2025-11|LONG",
-        134
+        199
       ],
       [
         "2025-12|LONG",
-        117
+        195
       ],
       [
         "2026-02|SHORT",
-        101
+        103
+      ],
+      [
+        "2026-03|LONG",
+        98
       ],
       [
         "2025-11|SHORT",
@@ -517,20 +526,16 @@
         57
       ],
       [
+        "2025-10|SHORT",
+        35
+      ],
+      [
         "2026-01|SHORT",
         34
       ],
       [
-        "2025-10|SHORT",
-        33
-      ],
-      [
         "2025-09|SHORT",
         33
-      ],
-      [
-        "2026-03|LONG",
-        30
       ],
       [
         "2025-12|SHORT",
@@ -538,7 +543,7 @@
       ],
       [
         "2026-03|SHORT",
-        16
+        18
       ]
     ]
   },

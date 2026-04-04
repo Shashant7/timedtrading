@@ -1,0 +1,240 @@
+{
+  "generated_at_utc": "2026-04-02T17:34:46.296216+00:00",
+  "reference_path": "data/backtest-artifacts/candidate-tsm-gdx-julaug-v6-v4b-rankrecompute-export-20260402/trades.json",
+  "candidate_path": "data/backtest-artifacts/iter5-jul1-apr1-clean-rerun-v2-aborted-20260402/trades.json",
+  "reference_run_id": "backtest_2025-07-01_2025-08-08@2026-03-31T13:20:22.786Z",
+  "candidate_run_id": "backtest_2025-07-01_2026-04-01@2026-04-02T15:52:12.147Z",
+  "reference_trade_count": 24,
+  "candidate_trade_count": 13,
+  "matched_count": 2,
+  "missing_count": 22,
+  "entry_tolerance_min": 240.0,
+  "hold_tolerance_ratio": 0.6,
+  "journey_score": 0.4361,
+  "details": [
+    {
+      "reference_trade_id": "FIX-1751485800000-xbsyktswp",
+      "ticker": "FIX",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "MTZ-1752068400000-ll7k8nwzt",
+      "ticker": "MTZ",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "RIOT-1752077700000-gqvtgryi0",
+      "ticker": "RIOT",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "GRNY-1752161400000-2eam70ed5",
+      "candidate_trade_id": "GRNY-1751473800000-8qsnrzuuk",
+      "ticker": "GRNY",
+      "direction": "LONG",
+      "matched": true,
+      "reference": {
+        "entry_ts": 1752161400000,
+        "exit_ts": 1752759000000,
+        "hold_days": 6.917,
+        "entry_path": "",
+        "exit_reason": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+        "exit_class": "other",
+        "pnl_pct": 1.0013
+      },
+      "candidate": {
+        "entry_ts": 1751473800000,
+        "exit_ts": 1751553000000,
+        "hold_days": 0.917,
+        "entry_path": "",
+        "exit_reason": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+        "exit_class": "other",
+        "pnl_pct": 0.8431
+      },
+      "metric": {
+        "entry_delta_min": -11460.0,
+        "hold_delta_days": -6.0,
+        "entry_score": 0.0,
+        "hold_score": 0.0,
+        "exit_score": 1.0,
+        "path_score": 1.0,
+        "pnl_score": 0.9368,
+        "journey_score": 0.4874
+      }
+    },
+    {
+      "reference_trade_id": "IESC-1752162000000-ax53wwkcb",
+      "ticker": "IESC",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "XLY-1752251400000-8t7h3q3t5",
+      "ticker": "XLY",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "AU-1752256800000-c2evp3y26",
+      "ticker": "AU",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "PH-1752512400000-jogbabnh7",
+      "ticker": "PH",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "ON-1752516600000-0nq6npzrv",
+      "ticker": "ON",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "ETN-1752692400000-9j1v2ys6i",
+      "ticker": "ETN",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "KWEB-1752760200000-rdz60wyrg",
+      "ticker": "KWEB",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "AGQ-1752762600000-xj3y2xqob",
+      "ticker": "AGQ",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "PANW-1753363800000-y8jm9id56",
+      "ticker": "PANW",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "GDX-1753373700000-qod6yyaoi",
+      "ticker": "GDX",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "PH-1753380600000-cff2dy9ph",
+      "ticker": "PH",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "SWK-1753461000000-znre2ygzq",
+      "ticker": "SWK",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "AYI-1753468200000-59el0j12k",
+      "candidate_trade_id": "AYI-1751917200000-ui21p8isg",
+      "ticker": "AYI",
+      "direction": "LONG",
+      "matched": true,
+      "reference": {
+        "entry_ts": 1753468200000,
+        "exit_ts": 1753711200000,
+        "hold_days": 2.812,
+        "entry_path": "",
+        "exit_reason": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+        "exit_class": "other",
+        "pnl_pct": 1.5409
+      },
+      "candidate": {
+        "entry_ts": 1751917200000,
+        "exit_ts": 1752244200000,
+        "hold_days": 3.785,
+        "entry_path": "",
+        "exit_reason": "SMART_RUNNER_SUPPORT_BREAK_CLOUD",
+        "exit_class": "other",
+        "pnl_pct": -0.4293
+      },
+      "metric": {
+        "entry_delta_min": -25850.0,
+        "hold_delta_days": 0.972,
+        "entry_score": 0.0,
+        "hold_score": 0.4239,
+        "exit_score": 1.0,
+        "path_score": 1.0,
+        "pnl_score": 0.0,
+        "journey_score": 0.3848
+      }
+    },
+    {
+      "reference_trade_id": "B-1753810800000-vic1vaexr",
+      "ticker": "B",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "IREN-1753897200000-lgdqdsxn3",
+      "ticker": "IREN",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "GRNY-1753898400000-lybvqyl9y",
+      "ticker": "GRNY",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "GDX-1754060400000-eh7is03sh",
+      "ticker": "GDX",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "PLTR-1754063400000-op7qmc5ad",
+      "ticker": "PLTR",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "DY-1754337000000-nfq3ju9z8",
+      "ticker": "DY",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    },
+    {
+      "reference_trade_id": "WDC-1754660400000-4rpdjvvc4",
+      "ticker": "WDC",
+      "direction": "LONG",
+      "matched": false,
+      "reason": "no_candidate_trade_same_ticker_direction"
+    }
+  ]
+}

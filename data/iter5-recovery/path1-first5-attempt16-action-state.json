@@ -1,0 +1,4076 @@
+{
+  "generated_at": "2026-04-03T03:58:45.706Z",
+  "golden_autopsy": "/Users/shashant/timedtrading/data/backtest-artifacts/candidate-tsm-gdx-julaug-v6-v4b-rankrecompute-export-20260402/trade-autopsy-trades.json",
+  "candidate_autopsy": "/Users/shashant/timedtrading/data/backtest-artifacts/focused-path1-first5-attempt16--20260402-223759/trade-autopsy-trades.json",
+  "details": [
+    {
+      "ticker": "WDC",
+      "golden_trade_id": "WDC-1754660400000-4rpdjvvc4",
+      "candidate_trade_id": null,
+      "entry_ts_golden": 1754660400000,
+      "entry_ts_candidate": null,
+      "trim_ts_golden": 1754670600000,
+      "trim_ts_candidate": null,
+      "exit_ts_golden": 1754674200000,
+      "exit_ts_candidate": null,
+      "exit_reason_golden": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+      "exit_reason_candidate": null,
+      "trimmed_pct_golden": 0.5,
+      "trimmed_pct_candidate": null,
+      "entry_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.727,
+          "candidate": null
+        },
+        {
+          "field": "entry_path",
+          "golden": "tt_momentum",
+          "candidate": null
+        },
+        {
+          "field": "selected_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "selected_management_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "engine_source",
+          "golden": "reference_date_bucket",
+          "candidate": null
+        },
+        {
+          "field": "scenario_policy_source",
+          "golden": "scenario_policy_default",
+          "candidate": null
+        },
+        {
+          "field": "regime_class",
+          "golden": "TRENDING",
+          "candidate": null
+        },
+        {
+          "field": "state",
+          "golden": "HTF_BULL_LTF_BULL",
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "fuel",
+          "golden": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "ema_depth",
+          "golden": {
+            "30": 15,
+            "60": 15,
+            "240": 15,
+            "D": 15
+          },
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "30": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 3.4,
+                "barsSince": 9
+              },
+              "recentBull": null
+            },
+            "D": {
+              "bear": {
+                "active": true,
+                "strength": 2,
+                "barsSince": 6
+              },
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 7.5,
+                "barsSince": 18
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        }
+      ],
+      "exit_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.843,
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "30": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 7.8,
+                "barsSince": 17
+              },
+              "recentBull": null
+            },
+            "D": {
+              "bear": {
+                "active": true,
+                "strength": 2,
+                "barsSince": 6
+              },
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 7.5,
+                "barsSince": 18
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        }
+      ]
+    },
+    {
+      "ticker": "DY",
+      "golden_trade_id": "DY-1754337000000-nfq3ju9z8",
+      "candidate_trade_id": null,
+      "entry_ts_golden": 1754337000000,
+      "entry_ts_candidate": null,
+      "trim_ts_golden": 1754400600000,
+      "trim_ts_candidate": null,
+      "exit_ts_golden": 1754510400000,
+      "exit_ts_candidate": null,
+      "exit_reason_golden": "deferred_exit_sl_breached",
+      "exit_reason_candidate": null,
+      "trimmed_pct_golden": 0.5,
+      "trimmed_pct_candidate": null,
+      "entry_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.488,
+          "candidate": null
+        },
+        {
+          "field": "entry_path",
+          "golden": "tt_momentum",
+          "candidate": null
+        },
+        {
+          "field": "selected_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "selected_management_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "engine_source",
+          "golden": "reference_date_bucket",
+          "candidate": null
+        },
+        {
+          "field": "scenario_policy_source",
+          "golden": "scenario_policy_default",
+          "candidate": null
+        },
+        {
+          "field": "regime_class",
+          "golden": "TRENDING",
+          "candidate": null
+        },
+        {
+          "field": "state",
+          "golden": "HTF_BULL_LTF_BULL",
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "fuel",
+          "golden": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "ema_depth",
+          "golden": {
+            "30": 15,
+            "60": 15,
+            "240": 15,
+            "D": 13
+          },
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 10,
+                "barsSince": 20
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        }
+      ],
+      "exit_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 1,
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "30": {
+              "bear": null,
+              "bull": null,
+              "recentBear": null,
+              "recentBull": {
+                "active": true,
+                "strength": 2.6,
+                "barsSince": 5
+              }
+            },
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 2.4,
+                "barsSince": 6
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        }
+      ]
+    },
+    {
+      "ticker": "PLTR",
+      "golden_trade_id": "PLTR-1754063400000-op7qmc5ad",
+      "candidate_trade_id": null,
+      "entry_ts_golden": 1754063400000,
+      "entry_ts_candidate": null,
+      "trim_ts_golden": 1754314200000,
+      "trim_ts_candidate": null,
+      "exit_ts_golden": 1754589600000,
+      "exit_ts_candidate": null,
+      "exit_reason_golden": "deferred_exit_st15_flip",
+      "exit_reason_candidate": null,
+      "trimmed_pct_golden": 0.5,
+      "trimmed_pct_candidate": null,
+      "entry_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.564,
+          "candidate": null
+        },
+        {
+          "field": "entry_path",
+          "golden": "tt_momentum",
+          "candidate": null
+        },
+        {
+          "field": "selected_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "selected_management_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "engine_source",
+          "golden": "reference_date_bucket",
+          "candidate": null
+        },
+        {
+          "field": "scenario_policy_source",
+          "golden": "scenario_policy_ticker_direction_fallback",
+          "candidate": null
+        },
+        {
+          "field": "regime_class",
+          "golden": "TRENDING",
+          "candidate": null
+        },
+        {
+          "field": "state",
+          "golden": "HTF_BULL_LTF_BULL",
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "fuel",
+          "golden": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "ema_depth",
+          "golden": {
+            "30": 13,
+            "60": 15,
+            "240": 7,
+            "D": 10
+          },
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "1H": {
+              "bear": null,
+              "bull": null,
+              "recentBear": null,
+              "recentBull": {
+                "active": false,
+                "strength": 4.3,
+                "barsSince": 22
+              }
+            }
+          },
+          "candidate": null
+        }
+      ],
+      "exit_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.696,
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "1H": {
+              "bear": {
+                "active": true,
+                "strength": 3.8,
+                "barsSince": 10
+              },
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 3.8,
+                "barsSince": 10
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        }
+      ]
+    },
+    {
+      "ticker": "GDX",
+      "golden_trade_id": "GDX-1754060400000-eh7is03sh",
+      "candidate_trade_id": null,
+      "entry_ts_golden": 1754060400000,
+      "entry_ts_candidate": null,
+      "trim_ts_golden": 0,
+      "trim_ts_candidate": null,
+      "exit_ts_golden": 1754683200000,
+      "exit_ts_candidate": null,
+      "exit_reason_golden": "replay_end_close",
+      "exit_reason_candidate": null,
+      "trimmed_pct_golden": 0,
+      "trimmed_pct_candidate": null,
+      "entry_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.468,
+          "candidate": null
+        },
+        {
+          "field": "entry_path",
+          "golden": "tt_momentum",
+          "candidate": null
+        },
+        {
+          "field": "selected_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "selected_management_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "engine_source",
+          "golden": "reference_date_bucket",
+          "candidate": null
+        },
+        {
+          "field": "scenario_policy_source",
+          "golden": "scenario_policy_default",
+          "candidate": null
+        },
+        {
+          "field": "regime_class",
+          "golden": "TRENDING",
+          "candidate": null
+        },
+        {
+          "field": "state",
+          "golden": "HTF_BULL_LTF_BULL",
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "fuel",
+          "golden": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "ema_depth",
+          "golden": {
+            "30": 14,
+            "60": 11,
+            "240": 6,
+            "D": 10
+          },
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "D": {
+              "bear": {
+                "active": true,
+                "strength": 3.5,
+                "barsSince": 8
+              },
+              "bull": null,
+              "recentBear": null,
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        }
+      ],
+      "exit_diffs": []
+    },
+    {
+      "ticker": "GRNY",
+      "golden_trade_id": "GRNY-1753898400000-lybvqyl9y",
+      "candidate_trade_id": null,
+      "entry_ts_golden": 1753898400000,
+      "entry_ts_candidate": null,
+      "trim_ts_golden": 1754668800000,
+      "trim_ts_candidate": null,
+      "exit_ts_golden": 1754683200000,
+      "exit_ts_candidate": null,
+      "exit_reason_golden": "replay_end_close",
+      "exit_reason_candidate": null,
+      "trimmed_pct_golden": 0.5,
+      "trimmed_pct_candidate": null,
+      "entry_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.645,
+          "candidate": null
+        },
+        {
+          "field": "entry_path",
+          "golden": "tt_momentum",
+          "candidate": null
+        },
+        {
+          "field": "selected_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "selected_management_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "engine_source",
+          "golden": "reference_date_bucket",
+          "candidate": null
+        },
+        {
+          "field": "scenario_policy_source",
+          "golden": "scenario_policy_default",
+          "candidate": null
+        },
+        {
+          "field": "regime_class",
+          "golden": "TRENDING",
+          "candidate": null
+        },
+        {
+          "field": "state",
+          "golden": "HTF_BULL_LTF_BULL",
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "fuel",
+          "golden": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "ema_depth",
+          "golden": {
+            "30": 15,
+            "60": 4,
+            "240": 10,
+            "D": 13
+          },
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "30": {
+              "bear": {
+                "active": false,
+                "strength": 4,
+                "barsSince": 22
+              },
+              "bull": null,
+              "recentBear": null,
+              "recentBull": {
+                "active": true,
+                "strength": 1.8,
+                "barsSince": 10
+              }
+            },
+            "1H": {
+              "bear": {
+                "active": false,
+                "strength": 2.2,
+                "barsSince": 12
+              },
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 0.6,
+                "barsSince": 12
+              },
+              "recentBull": null
+            },
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 5.4,
+                "barsSince": 9
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        }
+      ],
+      "exit_diffs": []
+    },
+    {
+      "ticker": "IREN",
+      "golden_trade_id": "IREN-1753897200000-lgdqdsxn3",
+      "candidate_trade_id": null,
+      "entry_ts_golden": 1753897200000,
+      "entry_ts_candidate": null,
+      "trim_ts_golden": 1753900200000,
+      "trim_ts_candidate": null,
+      "exit_ts_golden": 1753901400000,
+      "exit_ts_candidate": null,
+      "exit_reason_golden": "PROFIT_GIVEBACK",
+      "exit_reason_candidate": null,
+      "trimmed_pct_golden": 0.5,
+      "trimmed_pct_candidate": null,
+      "entry_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.316,
+          "candidate": null
+        },
+        {
+          "field": "entry_path",
+          "golden": "tt_momentum",
+          "candidate": null
+        },
+        {
+          "field": "selected_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "selected_management_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "engine_source",
+          "golden": "reference_date_bucket",
+          "candidate": null
+        },
+        {
+          "field": "scenario_policy_source",
+          "golden": "scenario_policy_default",
+          "candidate": null
+        },
+        {
+          "field": "regime_class",
+          "golden": "TRENDING",
+          "candidate": null
+        },
+        {
+          "field": "state",
+          "golden": "HTF_BULL_LTF_BULL",
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "fuel",
+          "golden": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "ema_depth",
+          "golden": {
+            "30": 10,
+            "60": 10,
+            "240": 8,
+            "D": 8
+          },
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "30": {
+              "bear": {
+                "active": true,
+                "strength": 1,
+                "barsSince": 8
+              },
+              "bull": null,
+              "recentBear": null,
+              "recentBull": {
+                "active": true,
+                "strength": 1.2,
+                "barsSince": 8
+              }
+            },
+            "D": {
+              "bear": {
+                "active": true,
+                "strength": 9.1,
+                "barsSince": 7
+              },
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 6.6,
+                "barsSince": 5
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        }
+      ],
+      "exit_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": -0.011,
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "30": {
+              "bear": {
+                "active": true,
+                "strength": 1,
+                "barsSince": 10
+              },
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 9.5,
+                "barsSince": 16
+              },
+              "recentBull": {
+                "active": true,
+                "strength": 1.2,
+                "barsSince": 10
+              }
+            },
+            "D": {
+              "bear": {
+                "active": true,
+                "strength": 9.1,
+                "barsSince": 7
+              },
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 6.6,
+                "barsSince": 5
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        }
+      ]
+    },
+    {
+      "ticker": "B",
+      "golden_trade_id": "B-1753810800000-vic1vaexr",
+      "candidate_trade_id": null,
+      "entry_ts_golden": 1753810800000,
+      "entry_ts_candidate": null,
+      "trim_ts_golden": 1754314200000,
+      "trim_ts_candidate": null,
+      "exit_ts_golden": 1754595900000,
+      "exit_ts_candidate": null,
+      "exit_reason_golden": "deferred_exit_st15_flip",
+      "exit_reason_candidate": null,
+      "trimmed_pct_golden": 0.5,
+      "trimmed_pct_candidate": null,
+      "entry_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.72,
+          "candidate": null
+        },
+        {
+          "field": "entry_path",
+          "golden": "tt_momentum",
+          "candidate": null
+        },
+        {
+          "field": "selected_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "selected_management_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "engine_source",
+          "golden": "reference_date_bucket",
+          "candidate": null
+        },
+        {
+          "field": "scenario_policy_source",
+          "golden": "scenario_policy",
+          "candidate": null
+        },
+        {
+          "field": "regime_class",
+          "golden": "TRENDING",
+          "candidate": null
+        },
+        {
+          "field": "state",
+          "golden": "HTF_BULL_LTF_BULL",
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "fuel",
+          "golden": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "ema_depth",
+          "golden": {
+            "30": 15,
+            "60": 15,
+            "240": 15,
+            "D": 14
+          },
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 1.9,
+                "barsSince": 5
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        }
+      ],
+      "exit_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.781,
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "1H": {
+              "bear": {
+                "active": false,
+                "strength": 1.3,
+                "barsSince": 12
+              },
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 14.4,
+                "barsSince": 13
+              },
+              "recentBull": null
+            },
+            "D": {
+              "bear": {
+                "active": false,
+                "strength": 3.8,
+                "barsSince": 11
+              },
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 1.9,
+                "barsSince": 12
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        }
+      ]
+    },
+    {
+      "ticker": "AYI",
+      "golden_trade_id": "AYI-1753468200000-59el0j12k",
+      "candidate_trade_id": null,
+      "entry_ts_golden": 1753468200000,
+      "entry_ts_candidate": null,
+      "trim_ts_golden": 1753472700000,
+      "trim_ts_candidate": null,
+      "exit_ts_golden": 1753711200000,
+      "exit_ts_candidate": null,
+      "exit_reason_golden": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+      "exit_reason_candidate": null,
+      "trimmed_pct_golden": 0.5,
+      "trimmed_pct_candidate": null,
+      "entry_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.735,
+          "candidate": null
+        },
+        {
+          "field": "entry_path",
+          "golden": "tt_momentum",
+          "candidate": null
+        },
+        {
+          "field": "selected_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "selected_management_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "engine_source",
+          "golden": "reference_date_bucket",
+          "candidate": null
+        },
+        {
+          "field": "scenario_policy_source",
+          "golden": "scenario_policy_default",
+          "candidate": null
+        },
+        {
+          "field": "regime_class",
+          "golden": "TRENDING",
+          "candidate": null
+        },
+        {
+          "field": "state",
+          "golden": "HTF_BULL_LTF_BULL",
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "fuel",
+          "golden": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "ema_depth",
+          "golden": {
+            "30": 15,
+            "60": 12,
+            "240": 15,
+            "D": 15
+          },
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "30": {
+              "bear": null,
+              "bull": null,
+              "recentBear": null,
+              "recentBull": {
+                "active": true,
+                "strength": 6.7,
+                "barsSince": 7
+              }
+            }
+          },
+          "candidate": null
+        }
+      ],
+      "exit_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 1,
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "30": {
+              "bear": null,
+              "bull": null,
+              "recentBear": null,
+              "recentBull": {
+                "active": true,
+                "strength": 6.7,
+                "barsSince": 18
+              }
+            },
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": false,
+                "strength": 9.1,
+                "barsSince": 21
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        }
+      ]
+    },
+    {
+      "ticker": "SWK",
+      "golden_trade_id": "SWK-1753461000000-znre2ygzq",
+      "candidate_trade_id": null,
+      "entry_ts_golden": 1753461000000,
+      "entry_ts_candidate": null,
+      "trim_ts_golden": 1753467000000,
+      "trim_ts_candidate": null,
+      "exit_ts_golden": 1753725600000,
+      "exit_ts_candidate": null,
+      "exit_reason_golden": "PRE_EARNINGS_RUNNER_CLOSE",
+      "exit_reason_candidate": null,
+      "trimmed_pct_golden": 0.5,
+      "trimmed_pct_candidate": null,
+      "entry_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.682,
+          "candidate": null
+        },
+        {
+          "field": "entry_path",
+          "golden": "tt_momentum",
+          "candidate": null
+        },
+        {
+          "field": "selected_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "selected_management_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "engine_source",
+          "golden": "reference_date_bucket",
+          "candidate": null
+        },
+        {
+          "field": "scenario_policy_source",
+          "golden": "scenario_policy_default",
+          "candidate": null
+        },
+        {
+          "field": "regime_class",
+          "golden": "TRANSITIONAL",
+          "candidate": null
+        },
+        {
+          "field": "state",
+          "golden": "HTF_BULL_LTF_BULL",
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "fuel",
+          "golden": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "ema_depth",
+          "golden": {
+            "30": 15,
+            "60": 15,
+            "240": 15,
+            "D": 12
+          },
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "30": {
+              "bear": null,
+              "bull": null,
+              "recentBear": null,
+              "recentBull": {
+                "active": true,
+                "strength": 0.3,
+                "barsSince": 6
+              }
+            }
+          },
+          "candidate": null
+        }
+      ],
+      "exit_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.659,
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        }
+      ]
+    },
+    {
+      "ticker": "PH",
+      "golden_trade_id": "PH-1753380600000-cff2dy9ph",
+      "candidate_trade_id": null,
+      "entry_ts_golden": 1753380600000,
+      "entry_ts_candidate": null,
+      "trim_ts_golden": 1753462800000,
+      "trim_ts_candidate": null,
+      "exit_ts_golden": 1753722000000,
+      "exit_ts_candidate": null,
+      "exit_reason_golden": "deferred_exit_st15_flip",
+      "exit_reason_candidate": null,
+      "trimmed_pct_golden": 0.5,
+      "trimmed_pct_candidate": null,
+      "entry_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.841,
+          "candidate": null
+        },
+        {
+          "field": "entry_path",
+          "golden": "tt_momentum",
+          "candidate": null
+        },
+        {
+          "field": "selected_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "selected_management_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "engine_source",
+          "golden": "reference_date_bucket",
+          "candidate": null
+        },
+        {
+          "field": "scenario_policy_source",
+          "golden": "scenario_policy_ticker_direction_fallback",
+          "candidate": null
+        },
+        {
+          "field": "regime_class",
+          "golden": "TRENDING",
+          "candidate": null
+        },
+        {
+          "field": "state",
+          "golden": "HTF_BULL_LTF_BULL",
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "fuel",
+          "golden": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "ema_depth",
+          "golden": {
+            "30": 15,
+            "60": 15,
+            "240": 15,
+            "D": 15
+          },
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "1H": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": false,
+                "strength": 2.5,
+                "barsSince": 33
+              },
+              "recentBull": null
+            },
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 5,
+                "barsSince": 5
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        }
+      ],
+      "exit_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.615,
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "1H": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 11.1,
+                "barsSince": 17
+              },
+              "recentBull": null
+            },
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 5,
+                "barsSince": 7
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        }
+      ]
+    },
+    {
+      "ticker": "GDX",
+      "golden_trade_id": "GDX-1753373700000-qod6yyaoi",
+      "candidate_trade_id": null,
+      "entry_ts_golden": 1753373700000,
+      "entry_ts_candidate": null,
+      "trim_ts_golden": 1753469400000,
+      "trim_ts_candidate": null,
+      "exit_ts_golden": 1753713000000,
+      "exit_ts_candidate": null,
+      "exit_reason_golden": "SMART_RUNNER_SUPPORT_BREAK_CLOUD",
+      "exit_reason_candidate": null,
+      "trimmed_pct_golden": 0.5,
+      "trimmed_pct_candidate": null,
+      "entry_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.483,
+          "candidate": null
+        },
+        {
+          "field": "entry_path",
+          "golden": "tt_momentum",
+          "candidate": null
+        },
+        {
+          "field": "selected_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "selected_management_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "engine_source",
+          "golden": "reference_date_bucket",
+          "candidate": null
+        },
+        {
+          "field": "scenario_policy_source",
+          "golden": "scenario_policy_default",
+          "candidate": null
+        },
+        {
+          "field": "regime_class",
+          "golden": "TRANSITIONAL",
+          "candidate": null
+        },
+        {
+          "field": "state",
+          "golden": "HTF_BULL_LTF_BULL",
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "fuel",
+          "golden": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "ema_depth",
+          "golden": {
+            "30": 9,
+            "60": 8,
+            "240": 8,
+            "D": 14
+          },
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "30": {
+              "bear": {
+                "active": true,
+                "strength": 15.6,
+                "barsSince": 6
+              },
+              "bull": {
+                "active": true,
+                "strength": 4.7,
+                "barsSince": 5
+              },
+              "recentBear": null,
+              "recentBull": {
+                "active": true,
+                "strength": 1.7,
+                "barsSince": 6
+              }
+            },
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 1.2,
+                "barsSince": 13
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        }
+      ],
+      "exit_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": -0.212,
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 5.6,
+                "barsSince": 15
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        }
+      ]
+    },
+    {
+      "ticker": "PANW",
+      "golden_trade_id": "PANW-1753363800000-y8jm9id56",
+      "candidate_trade_id": null,
+      "entry_ts_golden": 1753363800000,
+      "entry_ts_candidate": null,
+      "trim_ts_golden": 1753452000000,
+      "trim_ts_candidate": null,
+      "exit_ts_golden": 1753464600000,
+      "exit_ts_candidate": null,
+      "exit_reason_golden": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+      "exit_reason_candidate": null,
+      "trimmed_pct_golden": 0.5,
+      "trimmed_pct_candidate": null,
+      "entry_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.715,
+          "candidate": null
+        },
+        {
+          "field": "entry_path",
+          "golden": "tt_momentum",
+          "candidate": null
+        },
+        {
+          "field": "selected_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "selected_management_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "engine_source",
+          "golden": "reference_date_bucket",
+          "candidate": null
+        },
+        {
+          "field": "scenario_policy_source",
+          "golden": "scenario_policy_default",
+          "candidate": null
+        },
+        {
+          "field": "regime_class",
+          "golden": "TRANSITIONAL",
+          "candidate": null
+        },
+        {
+          "field": "state",
+          "golden": "HTF_BULL_LTF_BULL",
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "fuel",
+          "golden": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "ema_depth",
+          "golden": {
+            "30": 15,
+            "60": 12,
+            "240": 15,
+            "D": 15
+          },
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "30": {
+              "bear": {
+                "active": false,
+                "strength": 5.3,
+                "barsSince": 35
+              },
+              "bull": null,
+              "recentBear": null,
+              "recentBull": null
+            },
+            "1H": {
+              "bear": null,
+              "bull": null,
+              "recentBear": null,
+              "recentBull": {
+                "active": true,
+                "strength": 5.3,
+                "barsSince": 16
+              }
+            },
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 2.9,
+                "barsSince": 11
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        }
+      ],
+      "exit_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.899,
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 2.9,
+                "barsSince": 12
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        }
+      ]
+    },
+    {
+      "ticker": "AGQ",
+      "golden_trade_id": "AGQ-1752762600000-xj3y2xqob",
+      "candidate_trade_id": null,
+      "entry_ts_golden": 1752762600000,
+      "entry_ts_candidate": null,
+      "trim_ts_golden": 1752845400000,
+      "trim_ts_candidate": null,
+      "exit_ts_golden": 1753191900000,
+      "exit_ts_candidate": null,
+      "exit_reason_golden": "deferred_exit_st15_flip",
+      "exit_reason_candidate": null,
+      "trimmed_pct_golden": 0.5,
+      "trimmed_pct_candidate": null,
+      "entry_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.477,
+          "candidate": null
+        },
+        {
+          "field": "entry_path",
+          "golden": "tt_momentum",
+          "candidate": null
+        },
+        {
+          "field": "selected_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "selected_management_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "engine_source",
+          "golden": "reference_date_bucket",
+          "candidate": null
+        },
+        {
+          "field": "scenario_policy_source",
+          "golden": "scenario_policy_default",
+          "candidate": null
+        },
+        {
+          "field": "regime_class",
+          "golden": "TRENDING",
+          "candidate": null
+        },
+        {
+          "field": "state",
+          "golden": "HTF_BULL_LTF_BULL",
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "fuel",
+          "golden": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "ema_depth",
+          "golden": {
+            "30": 15,
+            "60": 15,
+            "240": 15,
+            "D": 15
+          },
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "30": {
+              "bear": {
+                "active": true,
+                "strength": 2.5,
+                "barsSince": 5
+              },
+              "bull": null,
+              "recentBear": null,
+              "recentBull": null
+            },
+            "D": {
+              "bear": {
+                "active": false,
+                "strength": 1.4,
+                "barsSince": 20
+              },
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 1.4,
+                "barsSince": 20
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        }
+      ],
+      "exit_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.677,
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "30": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 18.2,
+                "barsSince": 12
+              },
+              "recentBull": null
+            },
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 2.1,
+                "barsSince": 7
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        }
+      ]
+    },
+    {
+      "ticker": "KWEB",
+      "golden_trade_id": "KWEB-1752760200000-rdz60wyrg",
+      "candidate_trade_id": null,
+      "entry_ts_golden": 1752760200000,
+      "entry_ts_candidate": null,
+      "trim_ts_golden": 1752763200000,
+      "trim_ts_candidate": null,
+      "exit_ts_golden": 1752863400000,
+      "exit_ts_candidate": null,
+      "exit_reason_golden": "deferred_exit_st15_flip",
+      "exit_reason_candidate": null,
+      "trimmed_pct_golden": 0.5,
+      "trimmed_pct_candidate": null,
+      "entry_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.826,
+          "candidate": null
+        },
+        {
+          "field": "entry_path",
+          "golden": "tt_momentum",
+          "candidate": null
+        },
+        {
+          "field": "selected_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "selected_management_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "engine_source",
+          "golden": "reference_date_bucket",
+          "candidate": null
+        },
+        {
+          "field": "scenario_policy_source",
+          "golden": "scenario_policy_default",
+          "candidate": null
+        },
+        {
+          "field": "regime_class",
+          "golden": "TRENDING",
+          "candidate": null
+        },
+        {
+          "field": "state",
+          "golden": "HTF_BULL_LTF_BULL",
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "fuel",
+          "golden": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "ema_depth",
+          "golden": {
+            "30": 15,
+            "60": 15,
+            "240": 15,
+            "D": 15
+          },
+          "candidate": null
+        }
+      ],
+      "exit_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.801,
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "1H": {
+              "bear": {
+                "active": true,
+                "strength": 0.6,
+                "barsSince": 5
+              },
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 0.8,
+                "barsSince": 5
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        }
+      ]
+    },
+    {
+      "ticker": "ETN",
+      "golden_trade_id": "ETN-1752692400000-9j1v2ys6i",
+      "candidate_trade_id": null,
+      "entry_ts_golden": 1752692400000,
+      "entry_ts_candidate": null,
+      "trim_ts_golden": 1752759000000,
+      "trim_ts_candidate": null,
+      "exit_ts_golden": 1752858900000,
+      "exit_ts_candidate": null,
+      "exit_reason_golden": "deferred_exit_st15_flip",
+      "exit_reason_candidate": null,
+      "trimmed_pct_golden": 0.5,
+      "trimmed_pct_candidate": null,
+      "entry_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.825,
+          "candidate": null
+        },
+        {
+          "field": "entry_path",
+          "golden": "tt_momentum",
+          "candidate": null
+        },
+        {
+          "field": "selected_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "selected_management_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "engine_source",
+          "golden": "reference_date_bucket",
+          "candidate": null
+        },
+        {
+          "field": "scenario_policy_source",
+          "golden": "scenario_policy_default",
+          "candidate": null
+        },
+        {
+          "field": "regime_class",
+          "golden": "TRENDING",
+          "candidate": null
+        },
+        {
+          "field": "state",
+          "golden": "HTF_BULL_LTF_BULL",
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "fuel",
+          "golden": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "ema_depth",
+          "golden": {
+            "30": 15,
+            "60": 15,
+            "240": 15,
+            "D": 15
+          },
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 1,
+                "barsSince": 20
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        }
+      ],
+      "exit_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.55,
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "30": {
+              "bear": null,
+              "bull": null,
+              "recentBear": null,
+              "recentBull": {
+                "active": true,
+                "strength": 4.7,
+                "barsSince": 14
+              }
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": -1,
+            "vix": {
+              "state": "fear",
+              "price": 26.74,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "risk_on",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        }
+      ]
+    },
+    {
+      "ticker": "ON",
+      "golden_trade_id": "ON-1752516600000-0nq6npzrv",
+      "candidate_trade_id": null,
+      "entry_ts_golden": 1752516600000,
+      "entry_ts_candidate": null,
+      "trim_ts_golden": 1752586200000,
+      "trim_ts_candidate": null,
+      "exit_ts_golden": 1753115400000,
+      "exit_ts_candidate": null,
+      "exit_reason_golden": "deferred_exit_st15_flip",
+      "exit_reason_candidate": null,
+      "trimmed_pct_golden": 0.5,
+      "trimmed_pct_candidate": null,
+      "entry_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.821,
+          "candidate": null
+        },
+        {
+          "field": "entry_path",
+          "golden": "tt_momentum",
+          "candidate": null
+        },
+        {
+          "field": "selected_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "selected_management_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "engine_source",
+          "golden": "reference_date_bucket",
+          "candidate": null
+        },
+        {
+          "field": "scenario_policy_source",
+          "golden": "scenario_policy_default",
+          "candidate": null
+        },
+        {
+          "field": "regime_class",
+          "golden": "TRENDING",
+          "candidate": null
+        },
+        {
+          "field": "state",
+          "golden": "HTF_BULL_LTF_BULL",
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "fuel",
+          "golden": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "ema_depth",
+          "golden": {
+            "30": 15,
+            "60": 15,
+            "240": 9,
+            "D": 15
+          },
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "D": {
+              "bear": {
+                "active": false,
+                "strength": 1.4,
+                "barsSince": 17
+              },
+              "bull": null,
+              "recentBear": {
+                "active": false,
+                "strength": 6.1,
+                "barsSince": 22
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        }
+      ],
+      "exit_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.779,
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "30": {
+              "bear": {
+                "active": false,
+                "strength": 9.5,
+                "barsSince": 38
+              },
+              "bull": null,
+              "recentBear": {
+                "active": false,
+                "strength": 16.7,
+                "barsSince": 24
+              },
+              "recentBull": null
+            },
+            "1H": {
+              "bear": {
+                "active": false,
+                "strength": 4.8,
+                "barsSince": 31
+              },
+              "bull": null,
+              "recentBear": null,
+              "recentBull": null
+            },
+            "D": {
+              "bear": {
+                "active": false,
+                "strength": 1.4,
+                "barsSince": 22
+              },
+              "bull": null,
+              "recentBear": {
+                "active": false,
+                "strength": 3.9,
+                "barsSince": 27
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        }
+      ]
+    },
+    {
+      "ticker": "PH",
+      "golden_trade_id": "PH-1752512400000-jogbabnh7",
+      "candidate_trade_id": null,
+      "entry_ts_golden": 1752512400000,
+      "entry_ts_candidate": null,
+      "trim_ts_golden": 1752759600000,
+      "trim_ts_candidate": null,
+      "exit_ts_golden": 1752845400000,
+      "exit_ts_candidate": null,
+      "exit_reason_golden": "deferred_exit_st15_flip",
+      "exit_reason_candidate": null,
+      "trimmed_pct_golden": 0.5,
+      "trimmed_pct_candidate": null,
+      "entry_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.701,
+          "candidate": null
+        },
+        {
+          "field": "entry_path",
+          "golden": "tt_momentum",
+          "candidate": null
+        },
+        {
+          "field": "selected_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "selected_management_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "engine_source",
+          "golden": "reference_date_bucket",
+          "candidate": null
+        },
+        {
+          "field": "scenario_policy_source",
+          "golden": "scenario_policy_default",
+          "candidate": null
+        },
+        {
+          "field": "regime_class",
+          "golden": "TRENDING",
+          "candidate": null
+        },
+        {
+          "field": "state",
+          "golden": "HTF_BULL_LTF_BULL",
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "fuel",
+          "golden": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "ema_depth",
+          "golden": {
+            "30": 15,
+            "60": 15,
+            "240": 9,
+            "D": 14
+          },
+          "candidate": null
+        }
+      ],
+      "exit_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.836,
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "30": {
+              "bear": {
+                "active": false,
+                "strength": 5.5,
+                "barsSince": 11
+              },
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 5.5,
+                "barsSince": 11
+              },
+              "recentBull": null
+            },
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 5.6,
+                "barsSince": 10
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        }
+      ]
+    },
+    {
+      "ticker": "AU",
+      "golden_trade_id": "AU-1752256800000-c2evp3y26",
+      "candidate_trade_id": null,
+      "entry_ts_golden": 1752256800000,
+      "entry_ts_candidate": null,
+      "trim_ts_golden": 1752260400000,
+      "trim_ts_candidate": null,
+      "exit_ts_golden": 1752505200000,
+      "exit_ts_candidate": null,
+      "exit_reason_golden": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+      "exit_reason_candidate": null,
+      "trimmed_pct_golden": 0.5,
+      "trimmed_pct_candidate": null,
+      "entry_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.659,
+          "candidate": null
+        },
+        {
+          "field": "entry_path",
+          "golden": "tt_momentum",
+          "candidate": null
+        },
+        {
+          "field": "selected_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "selected_management_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "engine_source",
+          "golden": "reference_date_bucket",
+          "candidate": null
+        },
+        {
+          "field": "scenario_policy_source",
+          "golden": "scenario_policy_ticker_direction_fallback",
+          "candidate": null
+        },
+        {
+          "field": "regime_class",
+          "golden": "TRANSITIONAL",
+          "candidate": null
+        },
+        {
+          "field": "state",
+          "golden": "HTF_BULL_LTF_BULL",
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "fuel",
+          "golden": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "ema_depth",
+          "golden": {
+            "30": 15,
+            "60": 12,
+            "240": 15,
+            "D": 15
+          },
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "30": {
+              "bear": {
+                "active": true,
+                "strength": 8.1,
+                "barsSince": 9
+              },
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 0.2,
+                "barsSince": 6
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        }
+      ],
+      "exit_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.734,
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "30": {
+              "bear": null,
+              "bull": {
+                "active": true,
+                "strength": 7.8,
+                "barsSince": 6
+              },
+              "recentBear": null,
+              "recentBull": null
+            },
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 0.8,
+                "barsSince": 5
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        }
+      ]
+    },
+    {
+      "ticker": "XLY",
+      "golden_trade_id": "XLY-1752251400000-8t7h3q3t5",
+      "candidate_trade_id": null,
+      "entry_ts_golden": 1752251400000,
+      "entry_ts_candidate": null,
+      "trim_ts_golden": 1752508800000,
+      "trim_ts_candidate": null,
+      "exit_ts_golden": 1752595200000,
+      "exit_ts_candidate": null,
+      "exit_reason_golden": "SMART_RUNNER_SUPPORT_BREAK_CLOUD",
+      "exit_reason_candidate": null,
+      "trimmed_pct_golden": 0.5,
+      "trimmed_pct_candidate": null,
+      "entry_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.741,
+          "candidate": null
+        },
+        {
+          "field": "entry_path",
+          "golden": "tt_momentum",
+          "candidate": null
+        },
+        {
+          "field": "selected_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "selected_management_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "engine_source",
+          "golden": "reference_date_bucket",
+          "candidate": null
+        },
+        {
+          "field": "scenario_policy_source",
+          "golden": "scenario_policy_default",
+          "candidate": null
+        },
+        {
+          "field": "regime_class",
+          "golden": "TRENDING",
+          "candidate": null
+        },
+        {
+          "field": "state",
+          "golden": "HTF_BULL_LTF_BULL",
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "fuel",
+          "golden": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "ema_depth",
+          "golden": {
+            "30": 15,
+            "60": 12,
+            "240": 15,
+            "D": 15
+          },
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "30": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 4.9,
+                "barsSince": 18
+              },
+              "recentBull": null
+            },
+            "D": {
+              "bear": {
+                "active": false,
+                "strength": 4.3,
+                "barsSince": 20
+              },
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 6.6,
+                "barsSince": 5
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        }
+      ],
+      "exit_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": -0.142,
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "30": {
+              "bear": {
+                "active": true,
+                "strength": 12.4,
+                "barsSince": 5
+              },
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 7.2,
+                "barsSince": 9
+              },
+              "recentBull": null
+            },
+            "D": {
+              "bear": {
+                "active": false,
+                "strength": 4.3,
+                "barsSince": 22
+              },
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 6.6,
+                "barsSince": 7
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        }
+      ]
+    },
+    {
+      "ticker": "IESC",
+      "golden_trade_id": "IESC-1752162000000-ax53wwkcb",
+      "candidate_trade_id": "IESC-1752162000000",
+      "entry_ts_golden": 1752162000000,
+      "entry_ts_candidate": 1752162000000,
+      "trim_ts_golden": 1752173100000,
+      "trim_ts_candidate": 1752247800000,
+      "exit_ts_golden": 1752850800000,
+      "exit_ts_candidate": 1752759000000,
+      "exit_reason_golden": "deferred_exit_sl_breached",
+      "exit_reason_candidate": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+      "trimmed_pct_golden": 0.5,
+      "trimmed_pct_candidate": 0.66,
+      "entry_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.843,
+          "candidate": 0.85
+        },
+        {
+          "field": "engine_source",
+          "golden": "reference_date_bucket",
+          "candidate": "reference_exact"
+        },
+        {
+          "field": "regime_class",
+          "golden": "TRENDING",
+          "candidate": "TRANSITIONAL"
+        },
+        {
+          "field": "ema_depth",
+          "golden": {
+            "30": 15,
+            "60": 14,
+            "240": 15,
+            "D": 15
+          },
+          "candidate": {
+            "30": 15,
+            "60": 15,
+            "240": 15,
+            "D": 15
+          }
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "30": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 3.2,
+                "barsSince": 6
+              },
+              "recentBull": null
+            },
+            "1H": {
+              "bear": {
+                "active": false,
+                "strength": 27.5,
+                "barsSince": 16
+              },
+              "bull": null,
+              "recentBear": null,
+              "recentBull": null
+            },
+            "D": {
+              "bear": {
+                "active": false,
+                "strength": 7.4,
+                "barsSince": 21
+              },
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 0.9,
+                "barsSince": 11
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": {
+            "1H": {
+              "bear": {
+                "active": false,
+                "strength": 27.5,
+                "barsSince": 16
+              },
+              "bull": null,
+              "recentBear": null,
+              "recentBull": null
+            }
+          }
+        }
+      ],
+      "exit_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.941,
+          "candidate": 1
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "D": {
+              "bear": {
+                "active": false,
+                "strength": 7.4,
+                "barsSince": 27
+              },
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 0.9,
+                "barsSince": 17
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": {
+            "1H": {
+              "bear": {
+                "active": false,
+                "strength": 15,
+                "barsSince": 14
+              },
+              "bull": null,
+              "recentBear": null,
+              "recentBull": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "ticker": "GRNY",
+      "golden_trade_id": "GRNY-1752161400000-2eam70ed5",
+      "candidate_trade_id": null,
+      "entry_ts_golden": 1752161400000,
+      "entry_ts_candidate": null,
+      "trim_ts_golden": 1752512400000,
+      "trim_ts_candidate": null,
+      "exit_ts_golden": 1752759000000,
+      "exit_ts_candidate": null,
+      "exit_reason_golden": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+      "exit_reason_candidate": null,
+      "trimmed_pct_golden": 0.5,
+      "trimmed_pct_candidate": null,
+      "entry_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.827,
+          "candidate": null
+        },
+        {
+          "field": "entry_path",
+          "golden": "tt_momentum",
+          "candidate": null
+        },
+        {
+          "field": "selected_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "selected_management_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "engine_source",
+          "golden": "reference_date_bucket",
+          "candidate": null
+        },
+        {
+          "field": "scenario_policy_source",
+          "golden": "scenario_policy_default",
+          "candidate": null
+        },
+        {
+          "field": "regime_class",
+          "golden": "TRENDING",
+          "candidate": null
+        },
+        {
+          "field": "state",
+          "golden": "HTF_BULL_LTF_BULL",
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "fuel",
+          "golden": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "ema_depth",
+          "golden": {
+            "30": 15,
+            "60": 12,
+            "240": 14,
+            "D": 12
+          },
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "30": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 1.6,
+                "barsSince": 5
+              },
+              "recentBull": null
+            },
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 9.5,
+                "barsSince": 7
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        }
+      ],
+      "exit_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 1,
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 5.4,
+                "barsSince": 12
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        }
+      ]
+    },
+    {
+      "ticker": "RIOT",
+      "golden_trade_id": "RIOT-1752077700000-gqvtgryi0",
+      "candidate_trade_id": null,
+      "entry_ts_golden": 1752077700000,
+      "entry_ts_candidate": null,
+      "trim_ts_golden": 1752084000000,
+      "trim_ts_candidate": null,
+      "exit_ts_golden": 1752161400000,
+      "exit_ts_candidate": null,
+      "exit_reason_golden": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+      "exit_reason_candidate": null,
+      "trimmed_pct_golden": 0.5,
+      "trimmed_pct_candidate": null,
+      "entry_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.79,
+          "candidate": null
+        },
+        {
+          "field": "entry_path",
+          "golden": "tt_momentum",
+          "candidate": null
+        },
+        {
+          "field": "selected_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "selected_management_engine",
+          "golden": "tt_core",
+          "candidate": null
+        },
+        {
+          "field": "engine_source",
+          "golden": "reference_date_bucket",
+          "candidate": null
+        },
+        {
+          "field": "scenario_policy_source",
+          "golden": "scenario_policy_default",
+          "candidate": null
+        },
+        {
+          "field": "regime_class",
+          "golden": "TRENDING",
+          "candidate": null
+        },
+        {
+          "field": "state",
+          "golden": "HTF_BULL_LTF_BULL",
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "fuel",
+          "golden": {
+            "30": {
+              "s": "healthy",
+              "p": 0
+            },
+            "60": {
+              "s": "healthy",
+              "p": 0
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "ema_depth",
+          "golden": {
+            "30": 15,
+            "60": 12,
+            "240": 15,
+            "D": 15
+          },
+          "candidate": null
+        }
+      ],
+      "exit_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 1,
+          "candidate": null
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "30": {
+              "bear": null,
+              "bull": {
+                "active": false,
+                "strength": 6.1,
+                "barsSince": 34
+              },
+              "recentBear": null,
+              "recentBull": null
+            },
+            "1H": {
+              "bear": null,
+              "bull": {
+                "active": false,
+                "strength": 3.4,
+                "barsSince": 17
+              },
+              "recentBear": {
+                "active": true,
+                "strength": 1.2,
+                "barsSince": 12
+              },
+              "recentBull": null
+            },
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 1.7,
+                "barsSince": 5
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": null
+        },
+        {
+          "field": "market_internals",
+          "golden": {
+            "overall": "balanced",
+            "score": 0,
+            "vix": {
+              "state": null,
+              "price": 0,
+              "pct_change": null
+            },
+            "sector_rotation": {
+              "state": "balanced",
+              "offense_avg": null,
+              "defense_avg": null
+            },
+            "tick": null,
+            "squeeze": {
+              "on_30m": false,
+              "release_30m": false,
+              "release_1h": false
+            }
+          },
+          "candidate": null
+        }
+      ]
+    },
+    {
+      "ticker": "MTZ",
+      "golden_trade_id": "MTZ-1752068400000-ll7k8nwzt",
+      "candidate_trade_id": "MTZ-1752068400000",
+      "entry_ts_golden": 1752068400000,
+      "entry_ts_candidate": 1752068400000,
+      "trim_ts_golden": 0,
+      "trim_ts_candidate": 1752154200000,
+      "exit_ts_golden": 1752083400000,
+      "exit_ts_candidate": 1752176400000,
+      "exit_reason_golden": "ripster_34_50_lost_mtf",
+      "exit_reason_candidate": "sl_breached",
+      "trimmed_pct_golden": 0,
+      "trimmed_pct_candidate": 0.1,
+      "entry_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.462,
+          "candidate": 0.466
+        },
+        {
+          "field": "engine_source",
+          "golden": "reference_date_bucket",
+          "candidate": "reference_exact"
+        },
+        {
+          "field": "regime_class",
+          "golden": "TRENDING",
+          "candidate": "TRANSITIONAL"
+        },
+        {
+          "field": "ema_depth",
+          "golden": {
+            "30": 14,
+            "60": 2,
+            "240": 6,
+            "D": 11
+          },
+          "candidate": {
+            "30": 14,
+            "60": 3,
+            "240": 6,
+            "D": 10
+          }
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "1H": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 3.6,
+                "barsSince": 17
+              },
+              "recentBull": null
+            },
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 0.4,
+                "barsSince": 7
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": {
+            "D": {
+              "bear": {
+                "active": true,
+                "strength": 9,
+                "barsSince": 7
+              },
+              "bull": null,
+              "recentBear": null,
+              "recentBull": null
+            }
+          }
+        }
+      ],
+      "exit_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.226,
+          "candidate": 0.45
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 0.4,
+                "barsSince": 7
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": {
+            "D": {
+              "bear": {
+                "active": true,
+                "strength": 9,
+                "barsSince": 9
+              },
+              "bull": null,
+              "recentBear": null,
+              "recentBull": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "ticker": "FIX",
+      "golden_trade_id": "FIX-1751485800000-xbsyktswp",
+      "candidate_trade_id": "FIX-1751485800000",
+      "entry_ts_golden": 1751485800000,
+      "entry_ts_candidate": 1751485800000,
+      "trim_ts_golden": 1751551200000,
+      "trim_ts_candidate": 1751551200000,
+      "exit_ts_golden": 1751562000000,
+      "exit_ts_candidate": 1751562300000,
+      "exit_reason_golden": "deferred_exit_st15_flip",
+      "exit_reason_candidate": "PHASE_LEAVE_100",
+      "trimmed_pct_golden": 0.5,
+      "trimmed_pct_candidate": 0.66,
+      "entry_diffs": [
+        {
+          "field": "avg_bias",
+          "golden": 0.718,
+          "candidate": 0.739
+        },
+        {
+          "field": "engine_source",
+          "golden": "reference_date_bucket",
+          "candidate": "reference_exact"
+        },
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 10.9,
+                "barsSince": 17
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": {
+            "D": {
+              "bear": {
+                "active": false,
+                "strength": 17.9,
+                "barsSince": 22
+              },
+              "bull": null,
+              "recentBear": null,
+              "recentBull": null
+            }
+          }
+        }
+      ],
+      "exit_diffs": [
+        {
+          "field": "rsi_divergence",
+          "golden": {
+            "1H": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 15.3,
+                "barsSince": 20
+              },
+              "recentBull": null
+            },
+            "D": {
+              "bear": null,
+              "bull": null,
+              "recentBear": {
+                "active": true,
+                "strength": 7.6,
+                "barsSince": 18
+              },
+              "recentBull": null
+            }
+          },
+          "candidate": {
+            "D": {
+              "bear": {
+                "active": false,
+                "strength": 17.9,
+                "barsSince": 24
+              },
+              "bull": null,
+              "recentBear": null,
+              "recentBull": null
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

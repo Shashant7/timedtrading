@@ -1,0 +1,85 @@
+{
+  "ok": true,
+  "since": null,
+  "until": null,
+  "totals": {
+    "totalTrades": 12,
+    "openTrades": 1,
+    "closedTrades": 11,
+    "wins": 8,
+    "losses": 3,
+    "winRate": 72.72727272727273,
+    "closedPnl": 663.2434598716882,
+    "profitFactor": 3.127833967989426,
+    "avgWin": 121.86779220336044,
+    "avgLoss": 103.89962591839844,
+    "expectancy": 60.29485998833529,
+    "grossWin": 974.9423376268835,
+    "grossLoss": 311.6988777551953
+  },
+  "breakdown": {
+    "byRank": [
+      {
+        "bucket": "70-79",
+        "n": 3,
+        "wins": 2,
+        "losses": 1,
+        "pnl": 147.65018248808465
+      },
+      {
+        "bucket": "80+",
+        "n": 5,
+        "wins": 3,
+        "losses": 1,
+        "pnl": 534.910846041289
+      },
+      {
+        "bucket": "<60",
+        "n": 4,
+        "wins": 3,
+        "losses": 1,
+        "pnl": -19.317568657685495
+      }
+    ],
+    "byRR": [
+      {
+        "bucket": "2.0+",
+        "n": 12,
+        "wins": 8,
+        "losses": 3,
+        "pnl": 663.2434598716882
+      }
+    ],
+    "byExitReason": [
+      {
+        "reason": "unknown",
+        "n": 6,
+        "wins": 4,
+        "losses": 1,
+        "pnl": 209.98585004680433
+      },
+      {
+        "reason": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+        "n": 3,
+        "wins": 3,
+        "losses": 0,
+        "pnl": 318.2886550298136
+      },
+      {
+        "reason": "ripster_34_50_lost_mtf",
+        "n": 2,
+        "wins": 0,
+        "losses": 2,
+        "pnl": -301.5500181500871
+      },
+      {
+        "reason": "PHASE_LEAVE_100",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "pnl": 436.51897294515743
+      }
+    ],
+    "byTriggerReason": []
+  }
+}

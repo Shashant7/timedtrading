@@ -1,0 +1,99 @@
+{
+  "generated_at_utc": "2026-04-03T10:18:02.997844+00:00",
+  "window": {
+    "start_date": "2025-07-31",
+    "end_date": "2025-08-01",
+    "tickers": [
+      "CSX",
+      "CDNS",
+      "ORCL",
+      "ITT"
+    ],
+    "interval_minutes": 5
+  },
+  "legs": [
+    {
+      "name": "control_ref_priors_off",
+      "reset_ok": true,
+      "days": [
+        {
+          "date": "2025-07-31",
+          "scored": 316,
+          "tradesCreated": 3,
+          "totalTrades": 3,
+          "errorsCount": 0
+        },
+        {
+          "date": "2025-08-01",
+          "scored": 316,
+          "tradesCreated": 0,
+          "totalTrades": 145,
+          "errorsCount": 0
+        }
+      ],
+      "summary": {
+        "trade_count_total": 5,
+        "trade_count_closed": 2,
+        "trade_count_open": 3,
+        "wins": 1,
+        "losses": 1,
+        "flats": 0,
+        "win_rate_closed": 0.5,
+        "realized_pnl": 293.7215,
+        "exit_class_counts": {
+          "other": 2
+        },
+        "ticker_counts": {
+          "ORCL": 2,
+          "CSX": 1,
+          "CDNS": 2
+        }
+      }
+    },
+    {
+      "name": "candidate_ref_priors_on",
+      "reset_ok": true,
+      "days": [
+        {
+          "date": "2025-07-31",
+          "scored": 316,
+          "tradesCreated": 3,
+          "totalTrades": 3,
+          "errorsCount": 0
+        },
+        {
+          "date": "2025-08-01",
+          "scored": 316,
+          "tradesCreated": 1,
+          "totalTrades": 4,
+          "errorsCount": 0
+        }
+      ],
+      "summary": {
+        "trade_count_total": 6,
+        "trade_count_closed": 2,
+        "trade_count_open": 4,
+        "wins": 0,
+        "losses": 2,
+        "flats": 0,
+        "win_rate_closed": 0.0,
+        "realized_pnl": -837.9702,
+        "exit_class_counts": {
+          "other": 1,
+          "loss_protect": 1
+        },
+        "ticker_counts": {
+          "ITT": 1,
+          "ORCL": 2,
+          "CSX": 1,
+          "CDNS": 2
+        }
+      }
+    }
+  ],
+  "delta": {
+    "closed_trade_delta": 0,
+    "win_rate_delta": -0.5,
+    "realized_pnl_delta": -1131.6917
+  }
+}

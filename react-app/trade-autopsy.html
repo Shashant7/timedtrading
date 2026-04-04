@@ -179,6 +179,14 @@
         return `${Number(n).toFixed(digits)}%`;
       }
 
+      function fmtQty(n, digits = 2) {
+        if (!Number.isFinite(Number(n))) return "—";
+        return new Intl.NumberFormat("en-US", {
+          minimumFractionDigits: 0,
+          maximumFractionDigits: digits,
+        }).format(Number(n));
+      }
+
       function shortRunId(runId) {
         const r = String(runId || "").trim();
         if (!r) return "—";
@@ -377,11 +385,12 @@
         { key: 'cloud512', s: 5, l: 12, color: '#4caf50', bullFill: 'rgba(3,97,3,0.55)', bearFill: 'rgba(136,14,79,0.55)', label: '5-12' },
       ];
       const INDICATOR_KEYS = ["cloud512", "cloud3450", "cloud7289", "cloud180200", "superTrend", "tdSeq"];
-      function AutopsyChart({ ticker, entryPrice, exitPrice, entryTs, exitTs, trimTs, height = 360 }) {
+      function AutopsyChart({ ticker, entryPrice, trimPrice, exitPrice, entryTs, exitTs, trimTs, height = 360 }) {
         const containerRef = useRef(null);
         const chartRef = useRef(null);
         const seriesRef = useRef(null);
         const priceLinesRef = useRef([]);
+        const executionOverlayRef = useRef([]);
         const cloudAreaRef = useRef([]);
         const cloudCanvasRef = useRef(null);
         const emaSeriesRef = useRef([]);
@@ -448,6 +457,40 @@
               }
             }
           });
+          const candleSeries = seriesRef.current;
+          const executionPoints = executionOverlayRef.current || [];
+          if (candleSeries && executionPoints.length) {
+            for (const pt of executionPoints) {
+              const x = ts.timeToCoordinate(pt.time);
+              const y = candleSeries.priceToCoordinate(pt.price);
+              if (x == null || y == null) continue;
+              const r = 10;
+              ctx.save();
+              ctx.shadowColor = pt.color;
+              ctx.shadowBlur = 14;
+              ctx.beginPath();
+              ctx.arc(x, y, r, 0, Math.PI * 2);
+              ctx.fillStyle = pt.color;
+              ctx.fill();
+              ctx.restore();
+              ctx.beginPath();
+              ctx.arc(x, y, r, 0, Math.PI * 2);
+              ctx.lineWidth = 2.5;
+              ctx.strokeStyle = "#0b0e11";
+              ctx.stroke();
+              ctx.fillStyle = "#ffffff";
+              ctx.font = "bold 11px Inter, sans-serif";
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+              ctx.fillText(pt.code || "", x, y + 0.5);
+              const label = pt.code === "E" ? "Entry" : pt.code === "T" ? "Trim" : pt.code === "X" ? "Exit" : "";
+              if (label) {
+                ctx.font = "600 10px Inter, sans-serif";
+                ctx.fillStyle = pt.color;
+                ctx.fillText(label, x, y - r - 6);
+              }
+            }
+          }
         }, []);
 
         const intradaySessionMode = useMemo(() => {
@@ -693,7 +736,9 @@
               try { candleSeries.removePriceLine(pl); } catch (_) {}
             }
             priceLinesRef.current = [];
+            executionOverlayRef.current = [];
             const ep = Number(entryPrice);
+            const tp = Number(trimPrice);
             const xp = Number(exitPrice);
             if (Number.isFinite(ep) && ep > 0) {
               const pl = candleSeries.createPriceLine({
@@ -703,6 +748,17 @@
                 lineStyle: LightweightCharts.LineStyle.Solid,
                 axisLabelVisible: true,
                 title: "Entry",
+              });
+              priceLinesRef.current.push(pl);
+            }
+            if (Number.isFinite(tp) && tp > 0 && tp !== ep && tp !== xp) {
+              const pl = candleSeries.createPriceLine({
+                price: tp,
+                color: "#a78bfa",
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+                axisLabelVisible: true,
+                title: "Trim",
               });
               priceLinesRef.current.push(pl);
             }
@@ -730,25 +786,20 @@
               priceLinesRef.current.push(pl);
             }
 
-            // Bar markers: Entry, Exit, Trim(s) + TD Sequential
+            // Plot exact execution-price points so marker placement stays aligned with
+            // raw lifecycle prices even when the active bar's high/low is far away.
             const entryMs = Number(entryTs);
             const exitMs = Number(exitTs);
             const trimMs = Number(trimTs);
             const tradeMarkers = [];
             const entryBar = findBarTime(mapped, entryMs);
-            if (entryBar != null) {
-              tradeMarkers.push({ time: entryBar, position: "inBar", color: "#60a5fa", shape: "arrowUp", text: "Entry", size: 2 });
-            }
             const exitBar = findBarTime(mapped, exitMs);
-            if (exitBar != null && exitBar !== entryBar) {
-              tradeMarkers.push({ time: exitBar, position: "aboveBar", color: "#f59e0b", shape: "arrowDown", text: "Exit", size: 2 });
-            }
-            if (Number.isFinite(trimMs) && trimMs > 0) {
-              const trimBar = findBarTime(mapped, trimMs);
-              if (trimBar != null && trimBar !== entryBar && trimBar !== exitBar) {
-                tradeMarkers.push({ time: trimBar, position: "aboveBar", color: "#a78bfa", shape: "circle", text: "Trim", size: 1.5 });
-              }
-            }
+            const trimBar = Number.isFinite(trimMs) && trimMs > 0 ? findBarTime(mapped, trimMs) : null;
+            executionOverlayRef.current = [
+              { time: entryBar, price: ep, color: "#60a5fa", code: "E" },
+              { time: trimBar, price: tp, color: "#a78bfa", code: "T" },
+              { time: exitBar, price: xp, color: "#f59e0b", code: "X" },
+            ].filter((pt) => pt.time != null && Number.isFinite(pt.price) && pt.price > 0);
             tradeMarkersRef.current = tradeMarkers;
             const markers = [...tradeMarkers, ...(showIndicators.tdSeq ? tdData : [])];
             markers.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
@@ -780,23 +831,11 @@
                 chart.timeScale().setVisibleRange({ from: visibleFrom, to: visibleTo });
               } catch (_) {}
             }
-            // Constrain price scale to visible range so indicators (e.g. SuperTrend) don't stretch the axis
-            const visibleCandles = mapped.filter(b => (isDailyTime ? String(b.time) >= String(visibleFrom) && String(b.time) <= String(visibleTo) : b.time >= visibleFrom && b.time <= visibleTo));
-            const priceValues = [...visibleCandles.flatMap(b => [b.low, b.high])];
-            if (Number.isFinite(ep)) priceValues.push(ep);
-            if (Number.isFinite(xp)) priceValues.push(xp);
-            if (priceValues.length > 0) {
-              let priceMin = Math.min(...priceValues);
-              let priceMax = Math.max(...priceValues);
-              const paddingPct = 0.08;
-              const range = Math.max(priceMax - priceMin, 1) * (1 + 2 * paddingPct);
-              const center = (priceMin + priceMax) / 2;
-              priceMin = center - range / 2;
-              priceMax = center + range / 2;
-              try {
-                candleSeries.priceScale().setVisibleRange({ from: priceMin, to: priceMax });
-              } catch (_) {}
-            }
+            // Let autoScale handle price range — just ensure margins are generous enough
+            // to show execution lines without clipping
+            try {
+              chart.priceScale("right").applyOptions({ autoScale: true, scaleMargins: { top: 0.08, bottom: 0.08 } });
+            } catch (_) {}
             requestAnimationFrame(() => {
               if (chartRef.current && containerRef.current) {
                 if (!hasTradeRange) chartRef.current.timeScale().scrollToPosition(-3, false);
@@ -816,39 +855,32 @@
             setLoading(false);
           };
 
-          fetch(url, { cache: "no-store" })
-            .then(r => r.json())
-            .then(data => {
+          const tryFetchCandles = (tfParam, asOf) => {
+            let u = `${API_BASE}/timed/candles?ticker=${encodeURIComponent(ticker)}&tf=${tfParam}&limit=${limit}`;
+            if (asOf) u += `&asOfTs=${asOf}`;
+            return fetch(u, { cache: "no-store" }).then(r => r.json());
+          };
+          tryFetchCandles(tf, asOfTsParam)
+            .then(async (data) => {
               if (cancelled) return;
-              if (!data.ok || !data.candles) {
-                setError("No chart data for this ticker");
+              let candles = (data?.ok && data?.candles) ? data.candles : [];
+              if (candles.length < 2 && asOfTsParam) {
+                const d = await tryFetchCandles(tf, null).catch(() => ({}));
+                if (d?.ok && d?.candles?.length >= 2) candles = d.candles;
+              }
+              if (candles.length < 2 && tf !== "D") {
+                const d = await tryFetchCandles("D", asOfTsParam).catch(() => ({}));
+                if (d?.ok && d?.candles?.length >= 2) candles = d.candles;
+              }
+              if (candles.length < 2 && tf !== "D") {
+                const d = await tryFetchCandles("D", null).catch(() => ({}));
+                if (d?.ok && d?.candles?.length >= 2) candles = d.candles;
+              }
+              if (cancelled) return;
+              if (candles.length < 2) {
+                setError("Insufficient chart data (try a different timeframe)");
                 setLoading(false);
                 return;
-              }
-              let candles = data.candles;
-              if (candles.length < 2 && asOfTsParam) {
-                const fallbackUrl = `${API_BASE}/timed/candles?ticker=${encodeURIComponent(ticker)}&tf=${tf}&limit=${limit}`;
-                return fetch(fallbackUrl, { cache: "no-store" })
-                  .then(r => r.json())
-                  .then(d => {
-                    if (cancelled) return;
-                    if (d.ok && d.candles && d.candles.length >= 2) candles = d.candles;
-                    if (candles.length < 2) {
-                      setError("Insufficient chart data (try a different timeframe)");
-                      setLoading(false);
-                      return;
-                    }
-                    doRender(candles);
-                  })
-                  .catch(() => {
-                    if (cancelled) return;
-                    if (candles.length < 2) {
-                      setError("Insufficient chart data (try a different timeframe)");
-                      setLoading(false);
-                    } else {
-                      doRender(candles);
-                    }
-                  });
               }
               doRender(candles);
             })
@@ -880,6 +912,7 @@
             if (ro) ro.disconnect();
             window.removeEventListener("resize", handleResize);
             priceLinesRef.current = [];
+            executionOverlayRef.current = [];
             emaSeriesRef.current = [];
             cloudAreaRef.current = [];
             if (cloudCanvasRef.current) {
@@ -890,7 +923,7 @@
             chartRef.current = null;
             seriesRef.current = null;
           };
-        }, [ticker, tf, entryPrice, exitPrice, entryTs, exitTs, trimTs, height, mapCandles]);
+        }, [ticker, tf, entryPrice, trimPrice, exitPrice, entryTs, exitTs, trimTs, height, mapCandles]);
 
         useEffect(() => {
           const series = emaSeriesRef.current;
@@ -986,16 +1019,35 @@
           setTradeManagement(Array.isArray(annotations?.trade_management) ? annotations.trade_management : []);
         }, [trade?.trade_id, trade?.id, annotations?.entry_grade, annotations?.trade_management]);
         const tradeId = trade?.trade_id || trade?.id || `${trade?.ticker}-${trade?.entry_ts}`;
-        const rawEntry = Number(trade?.entry_price ?? trade?.entryPrice);
-        const rawExit = Number(trade?.exit_price ?? trade?.exitPrice);
+        const rawEntry = Number(trade?.raw_entry_price ?? trade?.entry_price ?? trade?.entryPrice);
+        const rawExit = Number(trade?.raw_exit_price ?? trade?.exit_price ?? trade?.exitPrice);
+        const rawTrim = Number(trade?.raw_trim_price ?? trade?.trim_price ?? trade?.trimPrice);
         const effectiveEntry = Number(trade?.effective_entry_price);
         const effectiveExit = Number(trade?.effective_exit_price);
-        const displayEntry = Number.isFinite(effectiveEntry) ? effectiveEntry : rawEntry;
-        const displayExit = Number.isFinite(effectiveExit) ? effectiveExit : rawExit;
+        const lifecycleRealizedPnl = Number(trade?.lifecycle_realized_pnl ?? trade?.realizedPnl ?? trade?.pnl);
+        const displayEntry = Number.isFinite(rawEntry) ? rawEntry : effectiveEntry;
+        const displayExit = Number.isFinite(rawExit) ? rawExit : effectiveExit;
+        const displayPnl = Number.isFinite(lifecycleRealizedPnl) ? lifecycleRealizedPnl : Number(trade?.pnl);
+        const rawStatus = String(trade?.status || "").trim().toUpperCase();
+        const displayStatus = (() => {
+          if ((rawStatus === "FLAT" || !rawStatus) && Number.isFinite(displayPnl) && Math.abs(displayPnl) > 1e-6) {
+            return displayPnl > 0 ? "WIN" : "LOSS";
+          }
+          if (rawStatus === "FLAT") return "BREAKEVEN";
+          return rawStatus || "";
+        })();
         const hasEffectiveEntryOverride = Number.isFinite(effectiveEntry) && Number.isFinite(rawEntry) && Math.abs(effectiveEntry - rawEntry) > 1e-6;
         const hasEffectiveExitOverride = Number.isFinite(effectiveExit) && Number.isFinite(rawExit) && Math.abs(effectiveExit - rawExit) > 1e-6;
         const effectiveExitBasis = typeof trade?.effective_exit_basis === "string" ? trade.effective_exit_basis : null;
         const trimmedPctVal = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
+        const lifecycleEntryShares = Number(trade?.lifecycle_entry_shares ?? trade?.shares);
+        const lifecycleTrimShares = Number.isFinite(Number(trade?.lifecycle_trim_shares))
+          ? Number(trade?.lifecycle_trim_shares)
+          : (Number.isFinite(lifecycleEntryShares) ? lifecycleEntryShares * Math.min(Math.max(trimmedPctVal, 0), 1) : NaN);
+        const lifecycleExitShares = Number.isFinite(Number(trade?.lifecycle_exit_shares))
+          ? Number(trade?.lifecycle_exit_shares)
+          : (Number.isFinite(lifecycleEntryShares) ? lifecycleEntryShares * Math.max(0, 1 - Math.min(Math.max(trimmedPctVal, 0), 1)) : NaN);
+        const lifecycleRiskAmount = Number(trade?.lifecycle_risk_amount);
         const hasRealizedTrimCarry =
           Number.isFinite(trimmedPctVal) && trimmedPctVal > 0.001 &&
           Number.isFinite(rawEntry) && Number.isFinite(rawExit) && Math.abs(rawEntry - rawExit) < 1e-6 &&
@@ -1133,43 +1185,55 @@
                     <span className="text-[8px] font-bold text-[#60a5fa] uppercase">Entry</span>
                     <span className="text-[11px] font-semibold text-white">{formatDate(trade?.entry_ts)} @ {fmtUsd(displayEntry)}</span>
                     {hasEffectiveEntryOverride && (
-                      <span className="text-[9px] text-[#93c5fd]/80">raw {fmtUsd(rawEntry)}</span>
+                      <span className="text-[9px] text-[#93c5fd]/80">inferred {fmtUsd(effectiveEntry)}</span>
                     )}
                   </div>
+                  {Number.isFinite(rawTrim) && Number(trade?.trim_ts) > 0 && (
+                    <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#14b8a6]/10 border border-[#14b8a6]/20">
+                      <span className="text-[8px] font-bold text-[#14b8a6] uppercase">Trim</span>
+                      <span className="text-[11px] font-semibold text-white">{formatDate(trade?.trim_ts)} @ {fmtUsd(rawTrim)}</span>
+                      {Number.isFinite(lifecycleTrimShares) && lifecycleTrimShares > 0 && (
+                        <span className="text-[9px] text-[#99f6e4]/80">{fmtQty(lifecycleTrimShares)} sh</span>
+                      )}
+                    </div>
+                  )}
                   <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#f59e0b]/10 border border-[#f59e0b]/20">
                     <span className="text-[8px] font-bold text-[#f59e0b] uppercase">Exit</span>
                     <span className="text-[11px] font-semibold text-white">{formatDate(trade?.exit_ts)} @ {fmtUsd(displayExit)}</span>
                     {hasEffectiveExitOverride && (
-                      <span className="text-[9px] text-[#fcd34d]/80">raw {fmtUsd(rawExit)}</span>
+                      <span className="text-[9px] text-[#fcd34d]/80">inferred {fmtUsd(effectiveExit)}</span>
                     )}
                     {effectiveExitBasis && (
                       <span className="text-[8px] text-[#9ca3af] uppercase">({effectiveExitBasis.replace(/_/g, " ")})</span>
                     )}
                   </div>
-                  <div className="flex items-center gap-1 px-2 py-0.5 rounded" style={{ background: Number(trade?.pnl) >= 0 ? "rgba(34,197,94,0.08)" : "rgba(239,68,72,0.08)", border: `1px solid ${Number(trade?.pnl) >= 0 ? "rgba(34,197,94,0.2)" : "rgba(239,68,72,0.2)"}` }}>
-                    <span className="text-[8px] font-bold uppercase" style={{ color: Number(trade?.pnl) >= 0 ? "#22c55e" : "#ef4444" }}>P&L</span>
-                    <span className="text-[11px] font-bold" style={{ color: Number(trade?.pnl) >= 0 ? "#22c55e" : "#ef4444" }}>{fmtUsd(trade?.pnl)}</span>
+                  <div className="flex items-center gap-1 px-2 py-0.5 rounded" style={{ background: Number(displayPnl) >= 0 ? "rgba(34,197,94,0.08)" : "rgba(239,68,72,0.08)", border: `1px solid ${Number(displayPnl) >= 0 ? "rgba(34,197,94,0.2)" : "rgba(239,68,72,0.2)"}` }}>
+                    <span className="text-[8px] font-bold uppercase" style={{ color: Number(displayPnl) >= 0 ? "#22c55e" : "#ef4444" }}>P&L</span>
+                    <span className="text-[11px] font-bold" style={{ color: Number(displayPnl) >= 0 ? "#22c55e" : "#ef4444" }}>{fmtUsd(displayPnl)}</span>
                     {hasRealizedTrimCarry && (
                       <span className="text-[8px] text-[#9ca3af] uppercase">includes realized trim</span>
                     )}
                   </div>
                   {(() => {
-                    const _sh = Number(trade?.shares);
+                    const _sh = lifecycleEntryShares;
                     if (!_sh || !Number.isFinite(_sh) || _sh <= 0) return null;
-                    const _trimPct = Number(trade?.trimmed_pct || trade?.trimmedPct || 0);
-                    const _trimmed = Math.round(_sh * Math.min(_trimPct, 1));
-                    const _remaining = Math.max(0, Math.round(_sh) - _trimmed);
                     return (
                       <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#a78bfa]/10 border border-[#a78bfa]/20">
                         <span className="text-[8px] font-bold text-[#a78bfa] uppercase">Shares</span>
-                        <span className="text-[11px] font-semibold text-white">{Math.round(_sh)}</span>
-                        {_trimmed > 0 && (
-                          <span className="text-[9px] text-[#a78bfa]/70">({_trimmed} trimmed · {_remaining} left)</span>
+                        <span className="text-[11px] font-semibold text-white">{fmtQty(_sh)}</span>
+                        {Number.isFinite(lifecycleTrimShares) && lifecycleTrimShares > 0 && (
+                          <span className="text-[9px] text-[#a78bfa]/70">({fmtQty(lifecycleTrimShares)} trimmed · {fmtQty(lifecycleExitShares)} exit)</span>
                         )}
                       </div>
                     );
                   })()}
-                  {trade?.status && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase" style={{ background: trade.status === "WIN" ? "#22c55e1a" : trade.status === "LOSS" ? "#ef44441a" : "#9ca3af1a", color: trade.status === "WIN" ? "#22c55e" : trade.status === "LOSS" ? "#ef4444" : "#9ca3af" }}>{trade.status}</span>}
+                  {Number.isFinite(lifecycleRiskAmount) && lifecycleRiskAmount > 0 && (
+                    <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-white/[0.03] border border-white/[0.08]">
+                      <span className="text-[8px] font-bold text-[#d1d5db] uppercase">Risk</span>
+                      <span className="text-[11px] font-semibold text-white">{fmtUsd(lifecycleRiskAmount)}</span>
+                    </div>
+                  )}
+                  {displayStatus && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase" style={{ background: displayStatus === "WIN" ? "#22c55e1a" : displayStatus === "LOSS" ? "#ef44441a" : "#9ca3af1a", color: displayStatus === "WIN" ? "#22c55e" : displayStatus === "LOSS" ? "#ef4444" : "#9ca3af" }}>{displayStatus}</span>}
                   <span className="ml-auto text-[9px] font-mono text-[#4b5563] hidden sm:inline" title={trade?.run_id || ""}>{shortRunId(trade?.run_id)}</span>
                 </div>
 
@@ -1237,8 +1301,9 @@
                       }
                       const hasSnap = Object.keys(snapMap).length > 0;
                       const hasTD = lineageData?.td_counts;
-                      const hasDiv = lineageData?.rsi_divergence;
-                      if (!hasSnap && !hasTD) return (
+                      const hasRsiDiv = lineageData?.rsi_divergence;
+                      const hasPhaseDiv = lineageData?.phase_divergence;
+                      if (!hasSnap && !hasTD && !hasRsiDiv && !hasPhaseDiv) return (
                         <div className="flex-1 min-w-0">
                           <div className="text-[8px] font-bold uppercase tracking-widest mb-1" style={{color: accentColor + "b3"}}>{label}</div>
                           <div className="text-[9px] text-[#4b5563] italic py-4 text-center">No snapshot data captured</div>
@@ -1259,7 +1324,8 @@
                                 <th className="text-center px-1 pb-1 font-semibold" title="Bullish Leadup — seller exhaustion countdown" style={{color:"#22c55e88"}}>BL</th>
                                 <th className="text-center px-1 pb-1 font-semibold" title="Bearish Prep — buyer exhaustion" style={{color:"#ef444488"}}>XP</th>
                                 <th className="text-center px-1 pb-1 font-semibold" title="Bearish Leadup — buyer exhaustion countdown" style={{color:"#ef444488"}}>XL</th>
-                                <th className="text-center pb-1 font-semibold" title="RSI Divergence">D</th>
+                                <th className="text-center pb-1 font-semibold" title="RSI Divergence">RD</th>
+                                <th className="text-center pb-1 font-semibold" title="Phase Divergence">PD</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -1268,7 +1334,8 @@
                                 const sig = tfPresent ? (snapMap[tf] || {}) : {};
                                 const tdKey = tdTfMap[tf];
                                 const tc = hasTD ? (lineageData.td_counts[tdKey] || lineageData.td_counts[tf]) : null;
-                                const dv = hasDiv ? (lineageData.rsi_divergence[tf] || lineageData.rsi_divergence[tdKey]) : null;
+                                const dv = hasRsiDiv ? (lineageData.rsi_divergence[tf] || lineageData.rsi_divergence[tdKey]) : null;
+                                const pdv = hasPhaseDiv ? (lineageData.phase_divergence[tf] || lineageData.phase_divergence[tdKey]) : null;
                                 const emaCross = sig.ema_cross;
                                 const st = sig.supertrend;
                                 const stSlope = sig.st_slope;
@@ -1279,10 +1346,12 @@
                                 const stLabel = st === 1 ? "Bull" : st === -1 ? "Bear" : "";
                                 const slopeTag = stSlope != null ? " ↗" : (st != null ? " —" : "");
                                 const depthColor = emaD != null ? (emaD >= 12 ? "#22c55e" : emaD >= 8 ? "#14b8a6" : emaD >= 5 ? "#f59e0b" : "#ef4444") : null;
-                                const hasAny = emaCross != null || st != null || emaD != null || rsi != null || tc || dv;
+                                const hasAny = emaCross != null || st != null || emaD != null || rsi != null || tc || dv || pdv;
                                 const emptyGlyph = tfPresent ? "·" : "—";
                                 const hB = dv?.bear?.active !== false && dv?.bear;
                                 const hU = dv?.bull?.active !== false && dv?.bull;
+                                const pB = pdv?.bear?.active !== false && pdv?.bear;
+                                const pU = pdv?.bull?.active !== false && pdv?.bull;
                                 const isHTF = tf === "W" || tf === "D";
                                 return (
                                   <tr key={tf} className={`border-t border-white/[0.05] ${isHTF ? "bg-white/[0.015]" : ""} ${!tfPresent ? "opacity-45" : !hasAny ? "opacity-60" : ""}`}>
@@ -1296,6 +1365,7 @@
                                     <td className="text-center px-1 py-1"><span style={{color:tdCountColor(tc?.xp)}}>{tc?.xp || emptyGlyph}</span></td>
                                     <td className="text-center px-1 py-1"><span style={{color:tdCountColor(tc?.xl)}}>{tc?.xl || emptyGlyph}</span></td>
                                     <td className="text-center py-1">{(hB || hU) ? <span>{hB && <span className="text-[#ef4444] font-bold">B</span>}{hU && <span className="text-[#22c55e] font-bold">U</span>}</span> : <span className="text-[#4b5563]">{emptyGlyph}</span>}</td>
+                                    <td className="text-center py-1">{(pB || pU) ? <span>{pB && <span className="text-[#ef4444] font-bold">B</span>}{pU && <span className="text-[#22c55e] font-bold">U</span>}</span> : <span className="text-[#4b5563]">{emptyGlyph}</span>}</td>
                                   </tr>
                                 );
                               })}
@@ -1452,6 +1522,7 @@
                     <AutopsyChart
                       ticker={trade?.ticker}
                       entryPrice={displayEntry}
+                      trimPrice={rawTrim}
                       exitPrice={displayExit}
                       entryTs={chartEntryTs}
                       exitTs={chartExitTs}
@@ -1633,6 +1704,9 @@
         const [filterDateFrom, setFilterDateFrom] = useState("");
         const [filterDateTo, setFilterDateTo] = useState("");
         const [filterRunId, setFilterRunId] = useState(RUN_FILTER_LATEST);
+        const [sortOrder, setSortOrder] = useState("newest");
+        const [tradeSourceMeta, setTradeSourceMeta] = useState({ source: "", archiveRunId: "", liveRunId: "" });
+        const [autoSelectedLive, setAutoSelectedLive] = useState(false);
 
         const tradeIdFromUrl = (() => {
           const params = new URLSearchParams(window.location.search);
@@ -1691,6 +1765,15 @@
           if (!exists) setFilterRunId(RUN_FILTER_LATEST);
         }, [runMeta, filterRunId, runIdFromUrl]);
 
+        useEffect(() => {
+          if (autoSelectedLive) return;
+          if (runIdFromUrl) return;
+          if (!liveRun) return;
+          if (filterRunId !== RUN_FILTER_LATEST) return;
+          setFilterRunId(RUN_FILTER_LIVE);
+          setAutoSelectedLive(true);
+        }, [autoSelectedLive, filterRunId, liveRun, runIdFromUrl]);
+
         const buildTradesUrl = useCallback((runId, liveOnly = false) => {
           const base = `${API_BASE}/timed/admin/trade-autopsy/trades`;
           if (runId) return `${base}?run_id=${encodeURIComponent(runId)}`;
@@ -1736,6 +1819,11 @@
             const d = await r.json();
             if (d.ok && Array.isArray(d.trades)) {
               setTrades(d.trades);
+              setTradeSourceMeta({
+                source: d.source || "",
+                archiveRunId: d.archive_run_id || "",
+                liveRunId: d.live_run_id || "",
+              });
               setSelectedTrade(prev => {
                 if (!prev) return prev;
                 const id = prev.trade_id || prev.id || `${prev.ticker}-${prev.entry_ts}`;
@@ -1761,7 +1849,14 @@
               fetch(buildTradesUrl(resolvedRunId, liveOnly), fetchOpts).then(r => r.json()),
               fetch(buildAnnotationsUrl(resolvedRunId), fetchOpts).then(r => r.json()),
             ]);
-            if (tradesRes.ok && Array.isArray(tradesRes.trades)) setTrades(tradesRes.trades);
+            if (tradesRes.ok && Array.isArray(tradesRes.trades)) {
+              setTrades(tradesRes.trades);
+              setTradeSourceMeta({
+                source: tradesRes.source || "",
+                archiveRunId: tradesRes.archive_run_id || "",
+                liveRunId: tradesRes.live_run_id || "",
+              });
+            }
             else setError(tradesRes?.error === "unauthorized" ? "Admin access required" : "Failed to load trades");
             if (annRes.ok && annRes.annotations) setAnnotations(annRes.annotations);
           } catch (_) {
@@ -1792,7 +1887,14 @@
                 fetch(buildAnnotationsUrl(resolvedRunId), fetchOpts).then(r => r.json()),
               ]);
               if (cancelled) return;
-              if (tradesData.ok && Array.isArray(tradesData.trades)) setTrades(tradesData.trades);
+              if (tradesData.ok && Array.isArray(tradesData.trades)) {
+                setTrades(tradesData.trades);
+                setTradeSourceMeta({
+                  source: tradesData.source || "",
+                  archiveRunId: tradesData.archive_run_id || "",
+                  liveRunId: tradesData.live_run_id || "",
+                });
+              }
               else setError(tradesData?.error === "unauthorized" ? "Admin access required" : "Failed to load trades");
               if (annData.ok && annData.annotations) setAnnotations(annData.annotations);
             } catch (_) {
@@ -1852,6 +1954,35 @@
           }
           return out;
         }, [trades, annotations, filterTicker, filterClassification, filterDateFrom, filterDateTo, filterRunId, runMeta, resolveSelectedRunId]);
+
+        const sortedTrades = useMemo(() => {
+          const out = [...filteredTrades];
+          out.sort((a, b) => {
+            const left = Number(a?.entry_ts || 0);
+            const right = Number(b?.entry_ts || 0);
+            return sortOrder === "oldest" ? left - right : right - left;
+          });
+          return out;
+        }, [filteredTrades, sortOrder]);
+
+        const activeSourceLabel = useMemo(() => {
+          if (tradeSourceMeta.source === "replay_kv") {
+            return `Source: live replay KV${tradeSourceMeta.liveRunId ? ` · ${shortRunId(tradeSourceMeta.liveRunId)}` : ""}`;
+          }
+          if (tradeSourceMeta.source === "archive") {
+            return `Source: archived run${tradeSourceMeta.archiveRunId ? ` · ${shortRunId(tradeSourceMeta.archiveRunId)}` : ""}`;
+          }
+          if (tradeSourceMeta.source === "trades_d1_live_fallback") {
+            return "Source: trades D1 live fallback";
+          }
+          if (tradeSourceMeta.source === "trades_d1") {
+            return "Source: trades D1";
+          }
+          if (filterRunId === RUN_FILTER_LIVE) return "Source: live replay";
+          if (filterRunId === RUN_FILTER_LATEST) return "Source: latest completed run";
+          if (filterRunId) return `Source: selected run · ${shortRunId(filterRunId)}`;
+          return "Source: all available trades";
+        }, [filterRunId, tradeSourceMeta]);
 
         const getAnnotation = (t) => {
           const id = t?.trade_id || t?.id || `${t?.ticker}-${t?.entry_ts}`;
@@ -1976,16 +2107,29 @@
                         onChange={e => setFilterDateTo(e.target.value)}
                         className="px-3 py-2 sm:py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[13px] text-white col-span-1"
                       />
+                      <select
+                        value={sortOrder}
+                        onChange={e => setSortOrder(e.target.value)}
+                        className="px-3 py-2 sm:py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[13px] text-white col-span-1"
+                        title="Sort trades by entry time"
+                      >
+                        <option value="newest">Newest first</option>
+                        <option value="oldest">Oldest first</option>
+                      </select>
                     </>
                   )}
-                  {(filterTicker || filterClassification || filterDateFrom || filterDateTo || filterRunId !== RUN_FILTER_LATEST) && (
-                    <button onClick={() => { setFilterTicker(""); setFilterClassification(""); setFilterDateFrom(""); setFilterDateTo(""); setFilterRunId(RUN_FILTER_LATEST); }} className="px-3 py-2 sm:py-1.5 text-[12px] text-[#6b7280] hover:text-white col-span-2 sm:col-span-1">Clear filters</button>
+                  {(filterTicker || filterClassification || filterDateFrom || filterDateTo || filterRunId !== RUN_FILTER_LATEST || sortOrder !== "newest") && (
+                    <button onClick={() => { setFilterTicker(""); setFilterClassification(""); setFilterDateFrom(""); setFilterDateTo(""); setFilterRunId(liveRun ? RUN_FILTER_LIVE : RUN_FILTER_LATEST); setSortOrder("newest"); }} className="px-3 py-2 sm:py-1.5 text-[12px] text-[#6b7280] hover:text-white col-span-2 sm:col-span-1">Clear filters</button>
                   )}
-                  {filteredTrades.length !== trades.length && (
+                  <span className="text-[12px] text-[#6b7280] self-center col-span-2 sm:col-span-1">
+                    {activeSourceLabel}
+                  </span>
+                  {(sortedTrades.length !== trades.length || sortOrder !== "newest" || filterRunId === RUN_FILTER_LIVE || filterRunId === RUN_FILTER_LATEST) && (
                     <span className="text-[12px] text-[#6b7280] self-center col-span-2 sm:col-span-1">
-                      Showing {filteredTrades.length} of {trades.length}
+                      Showing {sortedTrades.length} of {trades.length}
                       {filterRunId === RUN_FILTER_LATEST && runMeta.latestRunId ? ` · latest completed: ${runMeta.latestRunId}` : ""}
                       {filterRunId === RUN_FILTER_LIVE ? ` · live replay${runMeta.liveRunId ? `: ${runMeta.liveRunId}` : ""}` : ""}
+                      {sortOrder === "oldest" ? " · oldest first" : ""}
                     </span>
                   )}
                 </div>
@@ -2057,11 +2201,11 @@
                 </div>
               )}
 
-              {!loading && !error && trades.length > 0 && filteredTrades.length === 0 && (
+              {!loading && !error && trades.length > 0 && sortedTrades.length === 0 && (
                 <div className="tt-card p-12 text-center text-[#6b7280]">No trades match the current filters.</div>
               )}
 
-              {!loading && !error && filteredTrades.length > 0 && (
+              {!loading && !error && sortedTrades.length > 0 && (
                 <>
                   {/* Desktop table */}
                   <div className="tt-card overflow-hidden hidden md:block">
@@ -2081,7 +2225,7 @@
                           </tr>
                         </thead>
                         <tbody>
-                          {filteredTrades.map((t, i) => {
+                          {sortedTrades.map((t, i) => {
                             const ann = getAnnotation(t);
                             const clsOpt = CLASSIFICATION_OPTIONS.find(o => o.value === ann.classification);
                             return (
@@ -2122,7 +2266,7 @@
                   </div>
                   {/* Mobile card list */}
                   <div className="md:hidden space-y-2">
-                    {filteredTrades.map((t, i) => {
+                    {sortedTrades.map((t, i) => {
                       const ann = getAnnotation(t);
                       const clsOpt = CLASSIFICATION_OPTIONS.find(o => o.value === ann.classification);
                       return (

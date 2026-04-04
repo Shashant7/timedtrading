@@ -1,0 +1,195 @@
+{
+  "ok": true,
+  "run_id": "focused_replay_20260402-160626@2026-04-02T20:06:26.641Z",
+  "report": [
+    {
+      "ticker": "SWK",
+      "total_trades": 2,
+      "closed_trades": 2,
+      "wins": 0,
+      "losses": 2,
+      "total_pnl": -733.8621572528816,
+      "avg_pnl_pct": -3.2685958127369537
+    },
+    {
+      "ticker": "GRNY",
+      "total_trades": 3,
+      "closed_trades": 3,
+      "wins": 2,
+      "losses": 1,
+      "total_pnl": -67.57376178372385,
+      "avg_pnl_pct": 0.003925251903745079
+    },
+    {
+      "ticker": "AU",
+      "total_trades": 0,
+      "closed_trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "total_pnl": 0,
+      "avg_pnl_pct": 0
+    },
+    {
+      "ticker": "KWEB",
+      "total_trades": 1,
+      "closed_trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "total_pnl": 0,
+      "avg_pnl_pct": 0
+    },
+    {
+      "ticker": "PANW",
+      "total_trades": 0,
+      "closed_trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "total_pnl": 0,
+      "avg_pnl_pct": 0
+    },
+    {
+      "ticker": "GDX",
+      "total_trades": 0,
+      "closed_trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "total_pnl": 0,
+      "avg_pnl_pct": 0
+    },
+    {
+      "ticker": "AYI",
+      "total_trades": 0,
+      "closed_trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "total_pnl": 0,
+      "avg_pnl_pct": 0
+    },
+    {
+      "ticker": "B",
+      "total_trades": 0,
+      "closed_trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "total_pnl": 0,
+      "avg_pnl_pct": 0
+    },
+    {
+      "ticker": "IREN",
+      "total_trades": 0,
+      "closed_trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "total_pnl": 0,
+      "avg_pnl_pct": 0
+    },
+    {
+      "ticker": "PLTR",
+      "total_trades": 0,
+      "closed_trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "total_pnl": 0,
+      "avg_pnl_pct": 0
+    },
+    {
+      "ticker": "DY",
+      "total_trades": 0,
+      "closed_trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "total_pnl": 0,
+      "avg_pnl_pct": 0
+    },
+    {
+      "ticker": "WDC",
+      "total_trades": 0,
+      "closed_trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "total_pnl": 0,
+      "avg_pnl_pct": 0
+    },
+    {
+      "ticker": "FIX",
+      "total_trades": 1,
+      "closed_trades": 1,
+      "wins": 1,
+      "losses": 0,
+      "total_pnl": 171.84048963862747,
+      "avg_pnl_pct": 1.4320040803218954
+    },
+    {
+      "ticker": "IESC",
+      "total_trades": 1,
+      "closed_trades": 1,
+      "wins": 1,
+      "losses": 0,
+      "total_pnl": 189.63181323783888,
+      "avg_pnl_pct": 3.3398681699346415
+    },
+    {
+      "ticker": "PH",
+      "total_trades": 4,
+      "closed_trades": 4,
+      "wins": 3,
+      "losses": 1,
+      "total_pnl": 196.9874015616266,
+      "avg_pnl_pct": 0.696300831851341
+    },
+    {
+      "ticker": "ON",
+      "total_trades": 1,
+      "closed_trades": 1,
+      "wins": 1,
+      "losses": 0,
+      "total_pnl": 218.48141185351105,
+      "avg_pnl_pct": 1.8166807076663842
+    },
+    {
+      "ticker": "ETN",
+      "total_trades": 4,
+      "closed_trades": 3,
+      "wins": 3,
+      "losses": 0,
+      "total_pnl": 308.91508223112703,
+      "avg_pnl_pct": 1.0397631477948563
+    },
+    {
+      "ticker": "AGQ",
+      "total_trades": 1,
+      "closed_trades": 1,
+      "wins": 1,
+      "losses": 0,
+      "total_pnl": 321.79663131628104,
+      "avg_pnl_pct": 2.6816385943023415
+    },
+    {
+      "ticker": "XLY",
+      "total_trades": 6,
+      "closed_trades": 6,
+      "wins": 5,
+      "losses": 1,
+      "total_pnl": 510.6413757908326,
+      "avg_pnl_pct": 0.8131159175530236
+    },
+    {
+      "ticker": "MTZ",
+      "total_trades": 4,
+      "closed_trades": 4,
+      "wins": 3,
+      "losses": 1,
+      "total_pnl": 576.1935776225332,
+      "avg_pnl_pct": 1.4741530132808423
+    },
+    {
+      "ticker": "RIOT",
+      "total_trades": 3,
+      "closed_trades": 2,
+      "wins": 1,
+      "losses": 0,
+      "total_pnl": 949.2426692857803,
+      "avg_pnl_pct": 5.816622843056699
+    }
+  ]
+}

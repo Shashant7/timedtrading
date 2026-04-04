@@ -1,0 +1,25 @@
+{
+  "ok": true,
+  "type": "focused_replay",
+  "label": "iter5-july-proof-lane-v1",
+  "run_id": "focused_replay_20260402-113227@2026-04-02T15:32:28.241Z",
+  "tickers": [
+  "FIX",
+  "CELH",
+  "RBLX",
+  "ETN",
+  "ULTA",
+  "CAT"
+],
+  "start_date": "2025-07-01",
+  "end_date": "2025-07-31",
+  "interval_min": 5,
+  "days_processed": 22,
+  "total_scored": 10428,
+  "created_trade_events": 2,
+  "archived_trade_count": 2,
+  "archived_closed_trade_count": 2,
+  "archived_config_count": 135,
+  "git_sha": "0799690fe59c5626c8e17b64cbf4055ece269933",
+  "captured_at": "20260402-113227"
+}

@@ -1,0 +1,531 @@
+{
+  "generated_at_utc": "2026-04-02T15:29:27.449436+00:00",
+  "reference": "data/backtest-artifacts/focused-refinement-iter5-restored-july-slice-fixed--20260325-012139/trade-autopsy-trades.json",
+  "tickers": [
+    "CAT",
+    "ETN",
+    "FIX",
+    "RBLX",
+    "ULTA"
+  ],
+  "report": [
+    {
+      "ticker": "CAT",
+      "reference_trade": {
+        "trade_id": "CAT-1753363800000-k6z82vr8g",
+        "entry_et": "2025-07-24 09:30 AM",
+        "exit_et": "2025-07-25 03:00 PM",
+        "pnl": 72.57,
+        "pnl_pct": 0.905,
+        "entry_path": "tt_pullback",
+        "exit_reason": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+        "direction": "LONG"
+      },
+      "overlap_window_stats": {
+        "total_trades": 10,
+        "wins": 8,
+        "losses": 2,
+        "win_rate": 80.0,
+        "avg_pnl": 729.55,
+        "entry_paths_top": [
+          [
+            "ripster_momentum",
+            6
+          ],
+          [
+            "ripster_pullback",
+            2
+          ],
+          [
+            "ema_regime_confirmed_long",
+            1
+          ],
+          [
+            "tt_pullback",
+            1
+          ]
+        ],
+        "exit_reasons_top": [
+          [
+            "below_trigger,trigger_breached_5pct,overextended,large_adverse_move",
+            2
+          ],
+          [
+            "ripster_5_12_lost",
+            2
+          ],
+          [
+            "below_trigger,trigger_breached_5pct,late_cycle,overextended,large_adverse_move",
+            1
+          ],
+          [
+            "sl_breached",
+            1
+          ],
+          [
+            "dedup_reconcile",
+            1
+          ]
+        ],
+        "sources_count": 8
+      },
+      "nearest_alternates": [
+        {
+          "source": "calibration-post-should-have-held--20260306-160337",
+          "run_id": "backtest_2025-07-01_2025-07-31@2026-03-06T19:24:57.022Z",
+          "trade_id": "CAT-1753365600000-a3iml39cr",
+          "entry_et": "2025-07-24 10:00 AM",
+          "exit_et": "2025-07-25 09:30 AM",
+          "entry_path": "ripster_momentum",
+          "exit_reason": "below_trigger,trigger_breached_5pct,overextended,large_adverse_move",
+          "pnl": 33.39,
+          "pnl_pct": 0.417
+        },
+        {
+          "source": "ripster-v2-feedback-targeted-0701-0703--20260304-184940",
+          "run_id": "",
+          "trade_id": "CAT-1753381200000-h5o91ebxn",
+          "entry_et": "2025-07-24 02:20 PM",
+          "exit_et": "2025-07-25 09:30 AM",
+          "entry_path": "ripster_momentum",
+          "exit_reason": "below_trigger,trigger_breached_5pct,overextended,large_adverse_move",
+          "pnl": 26.42,
+          "pnl_pct": 0.33
+        },
+        {
+          "source": "ripster-tune-v2-quick-jul--20260304-165144",
+          "run_id": "",
+          "trade_id": "CAT-1753384800000-9db1wzm1y",
+          "entry_et": "2025-07-24 03:20 PM",
+          "exit_et": "2025-07-25 09:40 AM",
+          "entry_path": "ripster_pullback",
+          "exit_reason": "ripster_5_12_lost",
+          "pnl": -10.24,
+          "pnl_pct": -0.128
+        },
+        {
+          "source": "ab-variant-ripster-jul2025-classified-20260304-160557",
+          "run_id": "",
+          "trade_id": "CAT-1753384800000-9db1wzm1y",
+          "entry_et": "2025-07-24 03:20 PM",
+          "exit_et": "2025-07-25 09:40 AM",
+          "entry_path": "ripster_pullback",
+          "exit_reason": "ripster_5_12_lost",
+          "pnl": -10.24,
+          "pnl_pct": -0.128
+        },
+        {
+          "source": "calibration-post-should-have-held--20260306-160337",
+          "run_id": "backtest_2025-07-01_2025-07-31@2026-03-06T19:24:57.022Z",
+          "trade_id": "CAT-1753279500000-8bx5i4wfq",
+          "entry_et": "2025-07-23 10:05 AM",
+          "exit_et": "2025-07-24 09:30 AM",
+          "entry_path": "ripster_momentum",
+          "exit_reason": "below_trigger,trigger_breached_5pct,late_cycle,overextended,large_adverse_move",
+          "pnl": 31.29,
+          "pnl_pct": 0.504
+        }
+      ]
+    },
+    {
+      "ticker": "ETN",
+      "reference_trade": {
+        "trade_id": "ETN-1752247800000-u2m47kbj0",
+        "entry_et": "2025-07-11 11:30 AM",
+        "exit_et": "2025-07-17 09:30 AM",
+        "pnl": 287.14,
+        "pnl_pct": 2.398,
+        "entry_path": "tt_pullback",
+        "exit_reason": "SOFT_FUSE_RSI_CONFIRMED",
+        "direction": "LONG"
+      },
+      "overlap_window_stats": {
+        "total_trades": 9,
+        "wins": 6,
+        "losses": 3,
+        "win_rate": 66.7,
+        "avg_pnl": 158.63,
+        "entry_paths_top": [
+          [
+            "ema_regime_confirmed_long",
+            3
+          ],
+          [
+            "momentum_score",
+            2
+          ],
+          [
+            "ripster_momentum",
+            2
+          ],
+          [
+            "ripster_pullback",
+            1
+          ],
+          [
+            "tt_pullback",
+            1
+          ]
+        ],
+        "exit_reasons_top": [
+          [
+            "SOFT_FUSE_RSI_CONFIRMED",
+            3
+          ],
+          [
+            "ema_regime_reversed",
+            2
+          ],
+          [
+            "dedup_reconcile",
+            1
+          ],
+          [
+            "sl_breached",
+            1
+          ],
+          [
+            "TP_FULL",
+            1
+          ]
+        ],
+        "sources_count": 9
+      },
+      "nearest_alternates": [
+        {
+          "source": "variant-a-intel-driven--20260311-232337",
+          "run_id": "backtest_2025-07-01_2026-03-04@2026-03-12T03:23:36.241Z",
+          "trade_id": "ETN-1752245100000-mzjrsgnxr",
+          "entry_et": "2025-07-11 10:45 AM",
+          "exit_et": "2025-07-17 09:45 AM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "SOFT_FUSE_RSI_CONFIRMED",
+          "pnl": 391.14,
+          "pnl_pct": 4.889
+        },
+        {
+          "source": "with-calibration-jul1-aug8-final",
+          "run_id": "backtest_2025-07-01_2025-08-08@2026-03-11T23:57:30.315Z",
+          "trade_id": "ETN-1752245100000-mzjrsgnxr",
+          "entry_et": "2025-07-11 10:45 AM",
+          "exit_et": "2025-07-17 09:45 AM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "SOFT_FUSE_RSI_CONFIRMED",
+          "pnl": 391.14,
+          "pnl_pct": 4.889
+        },
+        {
+          "source": "15m-profile-lineage-jul1-mar4--20260311-133409",
+          "run_id": "",
+          "trade_id": "ETN-1752242400000-yt5mq92zg",
+          "entry_et": "2025-07-11 10:00 AM",
+          "exit_et": "2025-07-16 09:45 AM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "sl_breached",
+          "pnl": 99.8,
+          "pnl_pct": 1.248
+        },
+        {
+          "source": "ripster-v2-feedback-targeted-0701-0703--20260304-184940",
+          "run_id": "",
+          "trade_id": "ETN-1752261000000-9dq8h6fdd",
+          "entry_et": "2025-07-11 03:10 PM",
+          "exit_et": "2025-07-16 09:40 AM",
+          "entry_path": "ripster_momentum",
+          "exit_reason": "ripster_34_50_lost_mtf",
+          "pnl": 51.22,
+          "pnl_pct": 0.64
+        },
+        {
+          "source": "locked-validation-v3-targeted-promotion--20260323-105316",
+          "run_id": "backtest_2025-07-01_2026-03-04@2026-03-23T14:53:15.674Z",
+          "trade_id": "ETN-1752590700000-kquwt66ge",
+          "entry_et": "2025-07-15 10:45 AM",
+          "exit_et": "2025-08-28 12:05 PM",
+          "entry_path": "momentum_score",
+          "exit_reason": "ema_regime_reversed",
+          "pnl": -227.13,
+          "pnl_pct": -1.893
+        }
+      ]
+    },
+    {
+      "ticker": "FIX",
+      "reference_trade": {
+        "trade_id": "FIX-1752247200000-0tq6krag4",
+        "entry_et": "2025-07-11 11:20 AM",
+        "exit_et": "2025-07-17 10:50 AM",
+        "pnl": 148.0,
+        "pnl_pct": 1.236,
+        "entry_path": "tt_pullback",
+        "exit_reason": "PHASE_LEAVE_100",
+        "direction": "LONG"
+      },
+      "overlap_window_stats": {
+        "total_trades": 19,
+        "wins": 13,
+        "losses": 6,
+        "win_rate": 68.4,
+        "avg_pnl": 75.63,
+        "entry_paths_top": [
+          [
+            "ema_regime_confirmed_long",
+            15
+          ],
+          [
+            "ripster_momentum",
+            3
+          ],
+          [
+            "tt_pullback",
+            1
+          ]
+        ],
+        "exit_reasons_top": [
+          [
+            "below_trigger,trigger_breached_5pct,overextended,large_adverse_move",
+            9
+          ],
+          [
+            "PHASE_LEAVE_100",
+            4
+          ],
+          [
+            "sl_breached",
+            3
+          ],
+          [
+            "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+            3
+          ]
+        ],
+        "sources_count": 15
+      },
+      "nearest_alternates": [
+        {
+          "source": "variant-d-tiered-sizing--20260312-160621",
+          "run_id": "backtest_2025-07-01_2026-03-12@2026-03-12T20:06:19.680Z",
+          "trade_id": "FIX-1752244200000-ofltvgrw2",
+          "entry_et": "2025-07-11 10:30 AM",
+          "exit_et": "2025-07-11 02:30 PM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "below_trigger,trigger_breached_5pct,overextended,large_adverse_move",
+          "pnl": -15.09,
+          "pnl_pct": -0.189
+        },
+        {
+          "source": "variant-d-tiered-sizing--20260312-154946",
+          "run_id": "backtest_2025-07-01_2026-03-12@2026-03-12T19:49:35.101Z",
+          "trade_id": "FIX-1752244200000-ofltvgrw2",
+          "entry_et": "2025-07-11 10:30 AM",
+          "exit_et": "2025-07-11 02:30 PM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "below_trigger,trigger_breached_5pct,overextended,large_adverse_move",
+          "pnl": -15.09,
+          "pnl_pct": -0.189
+        },
+        {
+          "source": "smart-exits-v1--20260317-021831",
+          "run_id": "backtest_2025-07-01_2026-03-16@2026-03-17T06:18:27.307Z",
+          "trade_id": "FIX-1752165300000-q62tpqbqe",
+          "entry_et": "2025-07-10 12:35 PM",
+          "exit_et": "2025-07-18 10:30 AM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+          "pnl": 240.09,
+          "pnl_pct": 3.984
+        },
+        {
+          "source": "calibrated-v5--20260315-213634",
+          "run_id": "backtest_2025-07-01_2025-12-31@2026-03-16T01:36:11.863Z",
+          "trade_id": "FIX-1752161700000-9q3ixn9sb",
+          "entry_et": "2025-07-10 11:35 AM",
+          "exit_et": "2025-07-17 10:00 AM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "PHASE_LEAVE_100",
+          "pnl": 170.11,
+          "pnl_pct": 1.512
+        },
+        {
+          "source": "sizing-fix-v1--20260314-123742",
+          "run_id": "backtest_2025-07-01_2025-12-31@2026-03-14T16:37:40.536Z",
+          "trade_id": "FIX-1752161700000-atppuifm2",
+          "entry_et": "2025-07-10 11:35 AM",
+          "exit_et": "2025-07-17 10:00 AM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "PHASE_LEAVE_100",
+          "pnl": 75.61,
+          "pnl_pct": 1.512
+        }
+      ]
+    },
+    {
+      "ticker": "RBLX",
+      "reference_trade": {
+        "trade_id": "RBLX-1751895000000-w3gwgcowi",
+        "entry_et": "2025-07-07 09:30 AM",
+        "exit_et": "2025-07-07 11:30 AM",
+        "pnl": 123.66,
+        "pnl_pct": 2.057,
+        "entry_path": "tt_momentum",
+        "exit_reason": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+        "direction": "LONG"
+      },
+      "overlap_window_stats": {
+        "total_trades": 2,
+        "wins": 2,
+        "losses": 0,
+        "win_rate": 100.0,
+        "avg_pnl": 138.59,
+        "entry_paths_top": [
+          [
+            "tt_momentum",
+            1
+          ],
+          [
+            "ema_regime_confirmed_long",
+            1
+          ]
+        ],
+        "exit_reasons_top": [
+          [
+            "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+            2
+          ]
+        ],
+        "sources_count": 2
+      },
+      "nearest_alternates": [
+        {
+          "source": "annotated-parity-restore-v1--20260321-205708",
+          "run_id": "backtest_2025-07-01_2026-03-04@2026-03-22T00:57:07.231Z",
+          "trade_id": "RBLX-1751481000000-bicnhid4g",
+          "entry_et": "2025-07-02 02:30 PM",
+          "exit_et": "2025-07-07 11:30 AM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+          "pnl": 153.52,
+          "pnl_pct": 2.047
+        }
+      ]
+    },
+    {
+      "ticker": "ULTA",
+      "reference_trade": {
+        "trade_id": "ULTA-1751908200000-uw4rwyhiu",
+        "entry_et": "2025-07-07 01:10 PM",
+        "exit_et": "2025-07-16 03:30 PM",
+        "pnl": 118.02,
+        "pnl_pct": 1.961,
+        "entry_path": "tt_momentum",
+        "exit_reason": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+        "direction": "LONG"
+      },
+      "overlap_window_stats": {
+        "total_trades": 28,
+        "wins": 14,
+        "losses": 14,
+        "win_rate": 50.0,
+        "avg_pnl": 15.27,
+        "entry_paths_top": [
+          [
+            "ema_regime_confirmed_long",
+            15
+          ],
+          [
+            "ripster_momentum",
+            8
+          ],
+          [
+            "ripster_pullback",
+            4
+          ],
+          [
+            "tt_momentum",
+            1
+          ]
+        ],
+        "exit_reasons_top": [
+          [
+            "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,large_adverse_move",
+            21
+          ],
+          [
+            "sl_breached",
+            2
+          ],
+          [
+            "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,left_entry_corridor,large_adverse_move",
+            2
+          ],
+          [
+            "ripster_34_50_lost_mtf",
+            1
+          ],
+          [
+            "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+            1
+          ]
+        ],
+        "sources_count": 16
+      },
+      "nearest_alternates": [
+        {
+          "source": "ripster-v2-feedback-targeted-0701-0703--20260304-184940",
+          "run_id": "",
+          "trade_id": "ULTA-1751904000000-lugao6toa",
+          "entry_et": "2025-07-07 12:00 PM",
+          "exit_et": "2025-07-08 09:35 AM",
+          "entry_path": "ripster_pullback",
+          "exit_reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,left_entry_corridor,large_adverse_move",
+          "pnl": 189.99,
+          "pnl_pct": 2.375
+        },
+        {
+          "source": "with-calibration-jul1-aug8--20260311-172921",
+          "run_id": "backtest_2025-07-01_2025-08-08@2026-03-11T21:29:20.509Z",
+          "trade_id": "ULTA-1751897700000-kse8r3wsn",
+          "entry_et": "2025-07-07 10:15 AM",
+          "exit_et": "2025-07-07 02:15 PM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,large_adverse_move",
+          "pnl": -26.13,
+          "pnl_pct": -0.327
+        },
+        {
+          "source": "15m-profile-lineage-jul1-mar4--20260311-133409",
+          "run_id": "",
+          "trade_id": "ULTA-1751897700000-2mypi76r5",
+          "entry_et": "2025-07-07 10:15 AM",
+          "exit_et": "2025-07-07 02:15 PM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,large_adverse_move",
+          "pnl": 40.64,
+          "pnl_pct": 0.508
+        },
+        {
+          "source": "15m-best-foot-forward-jul1-mar4--20260310-220845",
+          "run_id": "",
+          "trade_id": "ULTA-1751897100000-dc324gyyd",
+          "entry_et": "2025-07-07 10:05 AM",
+          "exit_et": "2025-07-07 02:05 PM",
+          "entry_path": "ema_regime_confirmed_long",
+          "exit_reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,large_adverse_move",
+          "pnl": 26.17,
+          "pnl_pct": 0.327
+        },
+        {
+          "source": "ab-swingcheck-control-jul2025--20260306-093734",
+          "run_id": "backtest_2025-07-01_2025-07-31@2026-03-06T13:57:58.935Z",
+          "trade_id": "ULTA-1751983500000-441c32htl",
+          "entry_et": "2025-07-08 10:05 AM",
+          "exit_et": "2025-07-08 02:05 PM",
+          "entry_path": "ripster_momentum",
+          "exit_reason": "below_trigger,trigger_breached_5pct,daily_ema_regime_break,overextended,large_adverse_move",
+          "pnl": -111.94,
+          "pnl_pct": -1.399
+        }
+      ]
+    }
+  ]
+}

@@ -314,7 +314,7 @@ const MACRO_EVENT_DEFAULT_TIME_ET = {
   FOMC: "14:00",
 };
 
-function classifyMarketEventKey(eventName, eventType = "macro") {
+export function classifyMarketEventKey(eventName, eventType = "macro") {
   if (eventType === "earnings") return "EARNINGS";
   const name = String(eventName || "").toUpperCase();
   if (!name) return "OTHER";
@@ -407,7 +407,7 @@ function nyWallTimeToUtcMs(dayKey, hh = 0, mm = 0, ss = 0) {
   return ts;
 }
 
-function buildScheduledEventMeta({ dateKey, timeHint, eventKey, eventType, hasActual }) {
+export function buildScheduledEventMeta({ dateKey, timeHint, eventKey, eventType, hasActual }) {
   const fallback = eventType === "earnings"
     ? (String(timeHint || "").trim().toLowerCase() === "bmo" ? "08:00" : String(timeHint || "").trim().toLowerCase() === "amc" ? "16:05" : "")
     : (MACRO_EVENT_DEFAULT_TIME_ET[eventKey] || "");
@@ -424,7 +424,7 @@ function buildScheduledEventMeta({ dateKey, timeHint, eventKey, eventType, hasAc
   };
 }
 
-function parseSurprise(actual, estimate) {
+export function parseSurprise(actual, estimate) {
   const a = parseFloat(String(actual).replace(/[^0-9.\-]/g, ""));
   const e = parseFloat(String(estimate).replace(/[^0-9.\-]/g, ""));
   if (!Number.isFinite(a) || !Number.isFinite(e) || e === 0) return null;
