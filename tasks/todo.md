@@ -2,7 +2,26 @@
 
 > **Plan:** See `tasks/PLAN.md` for consolidated status, phases, and clear next steps.
 
+## Jul/Aug Recovery Incident [2026-04-02]
+- [ ] Build a July trade-forensics scoreboard against the golden benchmark: trade count, win rate, avg pnl/trade, and named loser patterns
+- [ ] Validate each named July loser against trade snapshots/autopsy evidence and map it to an avoid / defend / exit-earlier refinement bucket
+- [ ] Patch the smallest July-specific entry/management regressions first, then rerun July and compare against the golden benchmark before extending into August
+- [ ] Carry the proven July refinements forward into August and repeat the same monthly audit process before moving beyond August
+- [ ] Expand divergence telemetry so both RSI divergence and phase divergence are computed and exposed for all supported timeframes
+- [ ] Integrate all-timeframe divergence and ATR-horizon context into July/Aug entry and exit diagnostics before the next month-specific rerun
+- [ ] Run focused loss forensics on the latest Jul→Apr candidate lane: big losses, immediate-MAE / DOA trades, and spurious entries
+- [ ] Convert the forensics into a minimal entry-selectivity patch (rank / entry-quality / confirmation / correlation only where evidence is clear)
+- [ ] Re-run the full Jul→Apr candidate after the selectivity patch and compare loss basket, trade count, and winner retention
+- [ ] Stop all concurrent replay/backtest processes and verify only one clean recovery lane can run at a time
+- [ ] Freeze the exact "working 1.5 days ago" recovery anchor: deployed worker version, local code diff, config snapshot, and artifact bundle
+- [ ] Build a deterministic replay harness that disables stale archive/KV trade rehydration for fresh runs and records the active replay inputs
+- [ ] Disable reference-execution replay assists for fresh validation lanes so TT-core loser blocks (for example `WMT`) are validated without seeded trade resurrection
+- [ ] Audit parity-critical live/replay inputs against the Jul/Aug lane: market_events, divergence/exhaustion state, HTF candle coverage, and engine routing
+- [ ] Re-run a single clean Jul/Aug validation lane from the frozen anchor and produce a missing/spurious trade diff against the golden evidence
+- [ ] Patch only the highest-confidence regression points and repeat until the golden basket/timestamps materially recover
+
 ## Replay Accounting + Iter-5 Reset [2026-03-25]
+- [ ] Patch live `tt_core` management dispatch so inline lifecycle exits (`PHASE_LEAVE_*`, `PROFIT_GIVEBACK`, `RUNNER_STALE_FORCE_CLOSE`) can fire again, then validate on a focused live replay lane
 - [ ] Reconstruct the exact historical iter-5 baseline config/sizing state before further refinement comparisons
 - [ ] Pin focused replay/backtest runs to the recovered iter-5 config snapshot instead of live `model_config`
 - [ ] Fix `/timed/admin/runs/finalize` archived-count reporting so completed focused runs show total archived trades/config consistently
@@ -12,6 +31,8 @@
 - [ ] Re-anchor management to `30m` + `1h` structure so winners can ride trend without low-TF churn
 - [ ] Build a shared move-phase profile from ATR displacement, phase, PDZ, TD, and Elliott Wave context
 - [ ] Gate late-stage momentum/reclaim entries with replay-visible move-phase diagnostics before changing loss controls
+- [ ] Trace live-vs-golden state/bias construction drift for `IREN` and `GDX` before `tt_bias_not_aligned` fires
+- [ ] Relax parity-breaking `PANW`/`AYI` `tt_core` entry blockers (`tt_pullback_not_deep_enough`, `tt_momentum_30m_5_12_unconfirmed`, `tt_reference_30m_not_participating`, `tt_entry_support_weak`) using focused live replay evidence
 - [x] Instrument `tt_core` replay decisions for surviving `FIX`/`RBLX` July entries so runtime trigger/reject state can be compared directly against autopsy artifacts
 - [ ] Fix focused replay config archival so pinned config-file runs persist all config keys, not just top-level wrapper rows
 - [ ] Forensically compare `FIX`, `CELH`, and `RBLX` July losers against surviving winners to isolate blockable peak/fakeout signatures

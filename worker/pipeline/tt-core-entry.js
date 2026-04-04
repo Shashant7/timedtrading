@@ -46,6 +46,11 @@ const TT_CORE_TRACE_CASES = new Map([
   ["APP:1761767400000", "app_oct29_pre_pce_loss"],
   ["APP:1765822200000", "app_dec15_pre_earnings_reclaim"],
   ["APP:1766523000000", "app_dec23_mtf_loss"],
+  ["NKE:1753904400000", "nke_jul30_late_pullback_loss"],
+  ["XYZ:1753972200000", "xyz_jul31_divergent_pullback_loss"],
+  ["AGQ:1754678400000", "agq_aug8_speculative_pullback_loss"],
+  ["WMT:1755008400000", "wmt_aug12_speculative_pullback_loss"],
+  ["FIX:1755181800000", "fix_aug14_speculative_momentum_loss"],
   ["IESC:1753378800000", "iesc_regression_entry_0724"],
   ["IREN:1753299000000", "iren_timing_entry_0723"],
   ["KWEB:1753731000000", "kweb_pullback_entry_0728"],
@@ -92,6 +97,7 @@ export function evaluateEntry(ctx) {
   let bearishPullbackCount = 0;
   let emaStructure15m = 0;
   let adverseRsiDivSummary = null;
+  let adversePhaseDivSummary = null;
   let dailyBearDivergenceSummary = null;
   let phaseContext = null;
 
@@ -154,6 +160,7 @@ export function evaluateEntry(ctx) {
       movePhase: summarizeMovePhase(movePhase),
       divergence: {
         adverse: adverseRsiDivSummary,
+        adversePhase: adversePhaseDivSummary,
         dailyBear: dailyBearDivergenceSummary,
       },
       phaseContext,
@@ -292,6 +299,10 @@ export function evaluateEntry(ctx) {
     ? collectActiveRsiDivergence([m10, m30, h1, h4, D], "bear")
     : collectActiveRsiDivergence([m10, m30, h1, h4, D], "bull");
   adverseRsiDivSummary = summarizeDivergence(adverseRsiDiv);
+  const adversePhaseDiv = side === "LONG"
+    ? collectActivePhaseDivergence([m10, m15, m30, h1, h4, D, W], "bear")
+    : collectActivePhaseDivergence([m10, m15, m30, h1, h4, D, W], "bull");
+  adversePhaseDivSummary = summarizeDivergence(adversePhaseDiv);
   ltfConfirm = side === "LONG"
     ? (ltfRecovering || hasRsiDivBull)
     : (scores.ltf < 10 || hasStFlipBear || hasEmaCrossBear || hasSqRelease || hasRsiDivBear);
@@ -372,6 +383,8 @@ export function evaluateEntry(ctx) {
   const volatileRunnerPersonality = tickerPersonality === "VOLATILE_RUNNER";
   const setupGrade = String(d?.setup_grade || d?.setupGrade || "").trim();
   const isPrimeGrade = setupGrade.toLowerCase() === "prime";
+  const isConfirmedGrade = setupGrade.toLowerCase() === "confirmed";
+  const isSpeculativeGrade = setupGrade.toLowerCase() === "speculative";
   const entryQualityScore = Number(
     d?.entry_quality_score
     ?? d?.entryQualityScore
@@ -396,15 +409,33 @@ export function evaluateEntry(ctx) {
   const openNoiseEndMin = Number(daCfg.deep_audit_ripster_opening_noise_end_minute) || 45;
   const nowEt = getEasternParts(new Date(now));
   const inOpeningNoise = nowEt.hour === 9 && nowEt.minute < openNoiseEndMin;
+  const inLateSession = nowEt.hour === 15 && nowEt.minute >= 30;
 
   const momentumPullbackLtfMinScore = Number(daCfg.deep_audit_momentum_pullback_ltf_min_score) || 0;
   const momentumPullbackMin4hRegime = Number(daCfg.deep_audit_momentum_pullback_min_ema_regime_4h) || 2;
+  const movePhaseScorecard = movePhase?.scores || {};
+  const pullbackLateSessionGuardEnabled = String(daCfg.deep_audit_pullback_late_session_guard_enabled ?? "true") === "true";
+  const speculativePullbackPhaseDivGuardEnabled = String(daCfg.deep_audit_speculative_pullback_phase_div_guard_enabled ?? "true") === "true";
+  const confirmedPullbackPremiumPhaseDivGuardEnabled = String(daCfg.deep_audit_confirmed_pullback_premium_phase_div_guard_enabled ?? "true") === "true";
+  const speculativeMomentumPhaseDivGuardEnabled = String(daCfg.deep_audit_speculative_momentum_phase_div_guard_enabled ?? "true") === "true";
 
   const shouldRejectWeakMomentumPullback = config.ripsterTuneV2
     && side === "LONG"
     && momentumTrigger
     && currentState.includes("PULLBACK")
     && (scores.ltf < momentumPullbackLtfMinScore || emaRegime4h < momentumPullbackMin4hRegime);
+  const shouldRejectSpeculativeMomentumPhaseDivergence = config.ripsterTuneV2
+    && speculativeMomentumPhaseDivGuardEnabled
+    && side === "LONG"
+    && momentumTrigger
+    && !reclaimTrigger
+    && isSpeculativeGrade
+    && correctionTransitionProfile
+    && !confirmedBullContinuationLong
+    && !h1Aligned
+    && Number(movePhaseScorecard.adversePhaseDivCount) >= 1
+    && Number(movePhaseScorecard.adverseRsiDivCount) >= 1
+    && entryQualityScore < 85;
   const pdz4h = h4?.pdz || {};
   const pdzZone4h = String(pdz4h.zone || d?.pdz_zone_4h || "unknown");
   const fvgD = d?.fvg_D || {};
@@ -568,6 +599,31 @@ export function evaluateEntry(ctx) {
     });
   }
 
+  const shouldRejectLateSessionDeepPullback = config.ripsterTuneV2
+    && pullbackLateSessionGuardEnabled
+    && side === "LONG"
+    && pullbackTrigger
+    && !reclaimTrigger
+    && !confirmedBullContinuationLong
+    && correctionTransitionProfile
+    && inLateSession
+    && bearishPullbackCount >= 2
+    && !hasStFlipBull
+    && !hasEmaCrossBull
+    && !hasSqRelease
+    && entryQualityScore < 75;
+  if (shouldRejectLateSessionDeepPullback) {
+    return rejectEntry("tt_pullback_late_session_unreclaimed", {
+      setupGrade,
+      entryQualityScore,
+      bearishPullbackCount,
+      inLateSession,
+      nowEt: { hour: nowEt.hour, minute: nowEt.minute },
+      executionProfileName,
+      reclaimTrigger,
+    });
+  }
+
   const bullishPullbackCount = [stDir15m, stDir30m, Number(h1?.stDir) || 0]
     .filter((dir) => dir === -1)
     .length;
@@ -632,6 +688,57 @@ export function evaluateEntry(ctx) {
         { setupGrade, rank: rankScore, requiredRank },
       );
     }
+  }
+
+  const shouldRejectSpeculativeDivergentPullback = config.ripsterTuneV2
+    && speculativePullbackPhaseDivGuardEnabled
+    && side === "LONG"
+    && pullbackTrigger
+    && !reclaimTrigger
+    && isSpeculativeGrade
+    && !confirmedBullContinuationLong
+    && Number(movePhaseScorecard.adversePhaseDivCount) >= 1
+    && (
+      Number(movePhaseScorecard.adverseRsiDivCount) >= 1
+      || Number(movePhaseScorecard.peakExhaustionCount) >= 3
+      || (executionProfileName === "choppy_selective" && Number(movePhaseScorecard.atrExhaustedCount) >= 1)
+    );
+  if (shouldRejectSpeculativeDivergentPullback) {
+    return rejectEntry("tt_pullback_speculative_phase_divergence", {
+      setupGrade,
+      executionProfileName,
+      movePhase: summarizeMovePhase(movePhase),
+      adverseRsiDivergence: adverseRsiDivSummary,
+      adversePhaseDivergence: adversePhaseDivSummary,
+      phaseContext,
+    });
+  }
+
+  const shouldRejectConfirmedPremiumDivergentPullback = config.ripsterTuneV2
+    && confirmedPullbackPremiumPhaseDivGuardEnabled
+    && side === "LONG"
+    && pullbackTrigger
+    && !reclaimTrigger
+    && isConfirmedGrade
+    && correctionTransitionProfile
+    && !confirmedBullContinuationLong
+    && rankScore <= 90
+    && entryQualityScore < 75
+    && ["premium", "premium_approach"].includes(String(pdz.zoneD || "unknown"))
+    && ["premium", "premium_approach"].includes(String(pdzZone4h || "unknown"))
+    && Number(movePhaseScorecard.adversePhaseDivCount) >= 1
+    && Number(movePhaseScorecard.peakExhaustionCount) >= 2;
+  if (shouldRejectConfirmedPremiumDivergentPullback) {
+    return rejectEntry("tt_pullback_confirmed_premium_phase_divergence", {
+      setupGrade,
+      rank: rankScore,
+      entryQualityScore,
+      executionProfileName,
+      pdzZone: { D: pdz.zoneD, h4: pdzZone4h },
+      movePhase: summarizeMovePhase(movePhase),
+      adversePhaseDivergence: adversePhaseDivSummary,
+      phaseContext,
+    });
   }
 
   const primeSupportLeniency = config.ripsterTuneV2
@@ -1235,6 +1342,19 @@ export function evaluateEntry(ctx) {
     });
   }
 
+  if (shouldRejectSpeculativeMomentumPhaseDivergence) {
+    return rejectEntry("tt_momentum_speculative_phase_div_countertrend", {
+      setupGrade,
+      entryQualityScore,
+      executionProfileName,
+      h1Aligned,
+      movePhase: movePhaseSummary,
+      adverseRsiDivergence: adverseRsiDivSummary,
+      adversePhaseDivergence: adversePhaseDivSummary,
+      phaseContext,
+    });
+  }
+
   if (momentumTrigger
     && config.ripsterTuneV2
     && !isPrimeGrade
@@ -1468,6 +1588,10 @@ function collectActiveRsiDivergence(tfs, side) {
   return collectRsiDivergence(tfs, side);
 }
 
+function collectActivePhaseDivergence(tfs, side) {
+  return collectSeriesDivergence(tfs, "phaseDiv", side);
+}
+
 function collectTfRsiDivergence(tf, tfLabel, side, opts = {}) {
   if (!tf?.rsiDiv) return null;
   const requireActive = opts.requireActive ?? true;
@@ -1524,6 +1648,33 @@ function collectRsiDivergence(tfs, side, opts = {}) {
   return hits.length ? hits : null;
 }
 
+function collectSeriesDivergence(tfs, field, side, opts = {}) {
+  const requireActive = opts.requireActive ?? true;
+  const minStrength = Number(opts.minStrength ?? 1.5);
+  const defaultMaxAge = Number(opts.maxAge ?? 8);
+  const maxAgeByTf = opts.maxAgeByTf || {};
+  const hits = [];
+  for (const [idx, tf] of (tfs || []).entries()) {
+    const div = tf?.[field]?.[side];
+    if (!div) continue;
+    const active = div?.active ?? div?.a;
+    if (requireActive && !active) continue;
+    const strength = Number(div?.strength ?? div?.s) || 0;
+    const barsSince = Number(div?.barsSince ?? div?.bs);
+    const tfLabel = tfLabelForIndex(idx, tfs.length);
+    const maxAge = Number(maxAgeByTf?.[tfLabel] ?? defaultMaxAge);
+    if (strength < minStrength) continue;
+    if (Number.isFinite(barsSince) && barsSince > maxAge) continue;
+    hits.push({
+      tf: tfLabel,
+      strength,
+      barsSince: Number.isFinite(barsSince) ? barsSince : null,
+      active: !!active,
+    });
+  }
+  return hits.length ? hits : null;
+}
+
 function summarizeDivergence(hits) {
   if (!hits || !hits.length) return null;
   return {
@@ -1533,8 +1684,11 @@ function summarizeDivergence(hits) {
   };
 }
 
-function tfLabelForIndex(idx) {
-  return ["10m", "30m", "1h", "4h", "D"][idx] || `tf_${idx}`;
+function tfLabelForIndex(idx, total = 0) {
+  const labels = total >= 7
+    ? ["10m", "15m", "30m", "1h", "4h", "D", "W"]
+    : ["10m", "30m", "1h", "4h", "D"];
+  return labels[idx] || `tf_${idx}`;
 }
 
 function summarizeCloud(cloud) {

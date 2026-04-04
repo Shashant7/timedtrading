@@ -11,6 +11,7 @@
 # Investor-only backfill (after trader-only): ./scripts/full-backtest.sh --investor-only 2025-07-01 2026-03-04
 # Sequence (trader-only then investor-only): ./scripts/full-backtest.sh --sequence 2025-07-01 2026-03-04 20
 # --skip-backfill: Skip gap detection + backfill entirely (use when candles exist from prior runs)
+# --skip-market-events: Skip historical market-event seeding (not recommended for replay validity)
 # --force-backfill: Force full-universe backfill even if gap check fails or returns no ticker list
 # --snapshot-replay: Use pre-scored snapshots from timed_trail.payload_json (10-50x faster, requires prior scoring pass)
 # Interval: 4th arg defaults to 5 (minutes). We use 5 min for replay fidelity; 10 is optional for faster runs.
@@ -21,8 +22,43 @@
 
 set -e
 
+LOCK_ROOT="data/.locks"
+LOCK_DIR="$LOCK_ROOT/full-backtest.lock"
+mkdir -p "$LOCK_ROOT"
+
+acquire_script_lock() {
+  if mkdir "$LOCK_DIR" 2>/dev/null; then
+    echo "$$" > "$LOCK_DIR/pid"
+    return 0
+  fi
+
+  local existing_pid=""
+  if [[ -f "$LOCK_DIR/pid" ]]; then
+    existing_pid=$(tr -cd '0-9' < "$LOCK_DIR/pid" 2>/dev/null || true)
+  fi
+
+  if [[ -n "$existing_pid" ]] && ! kill -0 "$existing_pid" 2>/dev/null; then
+    rm -rf "$LOCK_DIR"
+    mkdir "$LOCK_DIR"
+    echo "$$" > "$LOCK_DIR/pid"
+    return 0
+  fi
+
+  echo "ERROR: another full-backtest run is already active (pid=${existing_pid:-unknown})."
+  echo "Stop the existing run before starting a new one."
+  exit 1
+}
+
+release_script_lock() {
+  rm -rf "$LOCK_DIR"
+}
+
+acquire_script_lock
+trap release_script_lock EXIT INT TERM
+
 API_BASE="https://timed-trading-ingest.shashant.workers.dev"
 API_KEY="AwesomeSauce"
+DEFAULT_RECOVERED_CONFIG="configs/iter5-runtime-recovered-20260325.json"
 CHECKPOINT_FILE="data/replay-checkpoint.txt"
 HOLIDAYS="2025-07-04 2025-09-01 2025-11-27 2025-12-25 2026-01-01 2026-01-19 2026-02-16 2026-05-25 2026-07-03 2026-09-07 2026-11-26 2026-12-25"
 # Symbols known to be unavailable in our current Alpaca backfill route.
@@ -36,6 +72,7 @@ SEQUENCE=false
 KEEP_OPEN_AT_END=false
 LOW_WRITE=false
 SKIP_BACKFILL=false
+SKIP_MARKET_EVENTS=false
 FORCE_BACKFILL=false
 SNAPSHOT_REPLAY=false
 INTERVAL_MODE=false
@@ -45,6 +82,8 @@ RUN_LABEL=""
 RUN_DESCRIPTION=""
 SNAPSHOT_BEFORE_RESET=true
 FROZEN_DATASET=""
+CONFIG_FILE=""
+USE_LIVE_CONFIG=false
 ENV_OVERRIDES=()
 POSARGS=()
 while [[ $# -gt 0 ]]; do
@@ -58,6 +97,7 @@ while [[ $# -gt 0 ]]; do
     --keep-open-at-end) KEEP_OPEN_AT_END=true ;;
     --low-write) LOW_WRITE=true ;;
     --skip-backfill) SKIP_BACKFILL=true ;;
+    --skip-market-events) SKIP_MARKET_EVENTS=true ;;
     --force-backfill) FORCE_BACKFILL=true ;;
     --snapshot-replay) SNAPSHOT_REPLAY=true ;;
     --interval-mode) INTERVAL_MODE=true ;;
@@ -69,6 +109,11 @@ while [[ $# -gt 0 ]]; do
     --frozen-dataset|--dataset-manifest)
       [[ -n "$1" && "$1" != --* ]] && FROZEN_DATASET="$1" && shift
       ;;
+    --config-file=*) CONFIG_FILE="${arg#--config-file=}" ;;
+    --config-file)
+      [[ -n "$1" && "$1" != --* ]] && CONFIG_FILE="$1" && shift
+      ;;
+    --live-config) USE_LIVE_CONFIG=true ;;
     --label=*) RUN_LABEL="${arg#--label=}" ;;
     --desc=*|--description=*) RUN_DESCRIPTION="${arg#*=}" ;;
     --env-override=*) ENV_OVERRIDES+=("${arg#--env-override=}") ;;
@@ -83,6 +128,13 @@ done
 if $SEQUENCE; then TRADER_ONLY=true; fi
 if $PARITY_CANONICAL; then
   INTERVAL_MODE=true
+fi
+if [[ -z "$CONFIG_FILE" && "$USE_LIVE_CONFIG" != "true" && -f "$DEFAULT_RECOVERED_CONFIG" ]]; then
+  CONFIG_FILE="$DEFAULT_RECOVERED_CONFIG"
+fi
+if [[ -n "$CONFIG_FILE" && ! -f "$CONFIG_FILE" ]]; then
+  echo "ERROR: --config-file not found: $CONFIG_FILE"
+  exit 1
 fi
 
 sanitize_tag() {
@@ -187,6 +239,7 @@ else
   $LOW_WRITE && echo "║  Mode: low-write (skip timed_trail writes + lifecycle)"
   $INTERVAL_MODE && echo "║  Mode: interval-first (all tickers per interval chunk, $INTERVAL_COUNT intervals/req)"
   $SEQUENCE && echo "║  Mode: sequence (trader-only then investor-only)"
+  [[ -n "$CONFIG_FILE" ]] && echo "║  Config: ${CONFIG_FILE}"
   echo "╚══════════════════════════════════════════════════════╝"
   echo ""
 fi
@@ -195,6 +248,14 @@ BF_START_DATE=$(compute_backfill_start_date "$START_DATE")
 FROZEN_DATASET_MANIFEST=""
 if [[ -n "$FROZEN_DATASET" ]]; then
   FROZEN_DATASET_MANIFEST=$(resolve_frozen_dataset_manifest "$FROZEN_DATASET")
+fi
+CONFIG_OVERRIDE_JSON="null"
+CONFIG_OVERRIDE_KEY_COUNT=0
+CONFIG_OVERRIDE_SOURCE_RUN_ID=""
+if [[ -n "$CONFIG_FILE" ]]; then
+  CONFIG_OVERRIDE_JSON=$(jq -c '.config // .' "$CONFIG_FILE")
+  CONFIG_OVERRIDE_KEY_COUNT=$(echo "$CONFIG_OVERRIDE_JSON" | jq 'keys | length')
+  CONFIG_OVERRIDE_SOURCE_RUN_ID=$(jq -r '.source_run_id // empty' "$CONFIG_FILE")
 fi
 
 # ─── Investor-only only: no lock/reset/backfill/replay, just investor-replay per day ─
@@ -249,8 +310,23 @@ ENV_OVERRIDES_JSON=$(printf '%s\n' "${ENV_OVERRIDES[@]}" | jq -Rn '
     if $pair == null then . else . + { ($pair.key): $pair.value } end
   )
 ')
-RUN_PARAMS_JSON=$(jq -nc --argjson env_overrides "$ENV_OVERRIDES_JSON" '
-  if ($env_overrides | length) == 0 then null else { env_overrides: $env_overrides } end
+RUN_PARAMS_JSON=$(jq -nc \
+  --argjson env_overrides "$ENV_OVERRIDES_JSON" \
+  --arg config_file "$CONFIG_FILE" \
+  --arg config_source_run_id "$CONFIG_OVERRIDE_SOURCE_RUN_ID" \
+  --arg dataset_manifest "$FROZEN_DATASET_MANIFEST" \
+  --argjson skip_backfill "$($SKIP_BACKFILL && echo true || echo false)" \
+  --argjson skip_market_events "$($SKIP_MARKET_EVENTS && echo true || echo false)" \
+  --argjson config_key_count "$CONFIG_OVERRIDE_KEY_COUNT" '
+  {
+    env_overrides: (if ($env_overrides | length) > 0 then $env_overrides else null end),
+    config_file: (if ($config_file | length) > 0 then $config_file else null end),
+    config_source_run_id: (if ($config_source_run_id | length) > 0 then $config_source_run_id else null end),
+    dataset_manifest: (if ($dataset_manifest | length) > 0 then $dataset_manifest else null end),
+    skip_backfill: $skip_backfill,
+    skip_market_events: $skip_market_events,
+    config_key_count: (if $config_key_count > 0 then $config_key_count else null end)
+  } | with_entries(select(.value != null)) | if length == 0 then null else . end
 ')
 
 REGISTER_PAYLOAD=$(jq -nc \
@@ -268,6 +344,10 @@ REGISTER_PAYLOAD=$(jq -nc \
   --arg status "running" \
   --arg status_note "Replay started" \
   --argjson params "$RUN_PARAMS_JSON" \
+  --arg config_file "$CONFIG_FILE" \
+  --arg config_source_run_id "$CONFIG_OVERRIDE_SOURCE_RUN_ID" \
+  --argjson config_key_count "$CONFIG_OVERRIDE_KEY_COUNT" \
+  --argjson config_override "$CONFIG_OVERRIDE_JSON" \
   --argjson tags "$(jq -nc --arg label "${RUN_LABEL:-}" '[($label | select(length>0)), "backtest"] | map(select(. != null))')" \
   '{
     run_id: $run_id,
@@ -284,7 +364,8 @@ REGISTER_PAYLOAD=$(jq -nc \
     status: $status,
     status_note: $status_note,
     params: $params,
-    tags: $tags
+    tags: $tags,
+    config_override: (if ($config_override | type) == "object" and ($config_override | length) > 0 then $config_override else empty end)
   }')
 curl -s -m 30 -X POST "$API_BASE/timed/admin/runs/register?key=$API_KEY" \
   -H "Content-Type: application/json" \
@@ -329,6 +410,17 @@ else
   curl -s -m 30 -X POST "$API_BASE/timed/admin/runs/register?key=$API_KEY" \
     -H "Content-Type: application/json" \
     -d "$REGISTER_PAYLOAD" >/dev/null || true
+
+  # ─── Step 1.25: Seed historical market events ──────────────────────────────
+  if $SKIP_MARKET_EVENTS; then
+    echo "Step 1.25: SKIPPED (--skip-market-events)"
+    echo ""
+  else
+    echo "Step 1.25: Seeding historical market events ($START_DATE → $END_DATE)..."
+    TIMED_API_KEY="$API_KEY" TIMED_API_BASE="$API_BASE" \
+      node scripts/backfill-market-events.js --start "$START_DATE" --end "$END_DATE"
+    echo ""
+  fi
 
   # ─── Step 1.5: Backfill candle data ─────────────────────────────────────────
   # Backfill from 60 days before start (EMA/indicator warm-up) through end date
@@ -616,7 +708,7 @@ while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]
     fi
     SKIP_PAYLOAD_P=""
     $LOW_WRITE && SKIP_PAYLOAD_P="&skipPayload=1"
-    REPLAY_URL="$API_BASE/timed/admin/interval-replay?date=$CURRENT_DATE&interval=$INTERVAL_IDX&intervalMinutes=$INTERVAL_MIN&key=$API_KEY${CLEAN_PARAM}${SKIP_INV}${SKIP_PAYLOAD_P}${ENV_OVERRIDE_PARAM}${END_OF_DAY_P}"
+    REPLAY_URL="$API_BASE/timed/admin/interval-replay?date=$CURRENT_DATE&interval=$INTERVAL_IDX&intervalMinutes=$INTERVAL_MIN&disableReferenceExecution=1&key=$API_KEY${CLEAN_PARAM}${SKIP_INV}${SKIP_PAYLOAD_P}${ENV_OVERRIDE_PARAM}${END_OF_DAY_P}"
     CLEAN_PARAM=""
 
     RESULT=""
@@ -661,7 +753,7 @@ while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]
   BATCH_NUM=0
   while true; do
     BATCH_NUM=$((BATCH_NUM + 1))
-    REPLAY_URL="$API_BASE/timed/admin/candle-replay?date=$CURRENT_DATE&tickerOffset=$BATCH_OFFSET&tickerBatch=$TICKER_BATCH&intervalMinutes=$INTERVAL_MIN&key=$API_KEY${CLEAN_PARAM}${SKIP_INV}${LOW_WRITE_PARAM}${ENV_OVERRIDE_PARAM}"
+    REPLAY_URL="$API_BASE/timed/admin/candle-replay?date=$CURRENT_DATE&tickerOffset=$BATCH_OFFSET&tickerBatch=$TICKER_BATCH&intervalMinutes=$INTERVAL_MIN&freshRun=1&disableReferenceExecution=1&key=$API_KEY${CLEAN_PARAM}${SKIP_INV}${LOW_WRITE_PARAM}${ENV_OVERRIDE_PARAM}"
     CLEAN_PARAM=""
 
     RESULT=""
@@ -841,6 +933,7 @@ FINALIZE_PAYLOAD=$(jq -nc \
   --arg status "completed" \
   --arg status_note "Replay completed" \
   --argjson params "$RUN_PARAMS_JSON" \
+  --argjson preserve_registered_config "$(if [[ -n "$CONFIG_FILE" ]]; then echo true; else echo false; fi)" \
   '{
     run_id: $run_id,
     label: $label,
@@ -855,7 +948,8 @@ FINALIZE_PAYLOAD=$(jq -nc \
     low_write: $low_write,
     status: $status,
     status_note: $status_note,
-    params: $params
+    params: $params,
+    preserve_registered_config: $preserve_registered_config
   }')
 echo ""
 echo "=== Recording run summary ==="
@@ -863,6 +957,17 @@ FINALIZE_RESULT=$(curl -s -m 45 -X POST "$API_BASE/timed/admin/runs/finalize?key
   -H "Content-Type: application/json" \
   -d "$FINALIZE_PAYLOAD" 2>&1 || true)
 echo "Run summary: $(echo "$FINALIZE_RESULT" | jq -c '{ok, run_id, status}' 2>/dev/null || echo "$FINALIZE_RESULT")"
+
+FINGERPRINT_DIR="data/iter5-recovery/checkpoints"
+FINGERPRINT_FILE="$FINGERPRINT_DIR/jul1-fingerprint-${RUN_ID//[^[:alnum:]._-]/-}.json"
+if [[ "$START_DATE" < "2025-07-02" && "$END_DATE" > "2025-06-30" ]] || [[ "$START_DATE" == "2025-07-01" ]] || [[ "$END_DATE" == "2025-07-01" ]]; then
+  mkdir -p "$FINGERPRINT_DIR"
+  echo ""
+  echo "=== Jul 1 Fingerprint Check ==="
+  FINGERPRINT_JSON=$(node "$(dirname "$0")/check-jul1-fingerprint.js" --run-id "$RUN_ID" --api-base "$API_BASE" --api-key "$API_KEY" --interval-min "$INTERVAL_MIN" --output "$FINGERPRINT_FILE")
+  echo "$FINGERPRINT_JSON" | jq '{matched_targets, total_targets, parity_passed, unexpected_early_tickers}' 2>/dev/null || echo "$FINGERPRINT_JSON"
+  echo "Fingerprint artifact: $FINGERPRINT_FILE"
+fi
 
 # ─── Step 4: Release replay lock ─────────────────────────────────────────────
 echo ""

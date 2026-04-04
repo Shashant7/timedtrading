@@ -8,13 +8,68 @@
 #   ./scripts/replay-focused.sh --tickers "AAPL" --start 2025-10-01 --end 2025-10-31 --label "aapl-deep-dive"
 #   ./scripts/replay-focused.sh --tickers "FIX,ETN" --start 2025-07-01 --end 2025-07-25 --config-file "configs/iter5-runtime-recovered-20260325.json"
 #   ./scripts/replay-focused.sh --tickers "FIX,ETN" --start 2025-07-01 --end 2025-07-25 --skip-backfill --clean-slate
+#   ./scripts/replay-focused.sh --tickers "CDNS,ORCL,CSX,ITT" --start 2025-07-01 --end 2025-07-02 --clean-slate --dataset-manifest data/replay-datasets/jul1-parity/manifest.json
 #   ./scripts/replay-focused.sh --from-losses 20  # Auto-pick the 20 worst-performing tickers
 
 set -e
 
+LOCK_ROOT="data/.locks"
+LOCK_DIR="$LOCK_ROOT/replay-focused.lock"
+mkdir -p "$LOCK_ROOT"
+
+acquire_script_lock() {
+  if mkdir "$LOCK_DIR" 2>/dev/null; then
+    echo "$$" > "$LOCK_DIR/pid"
+    return 0
+  fi
+
+  local existing_pid=""
+  if [[ -f "$LOCK_DIR/pid" ]]; then
+    existing_pid=$(tr -cd '0-9' < "$LOCK_DIR/pid" 2>/dev/null || true)
+  fi
+
+  if [[ -n "$existing_pid" ]] && ! kill -0 "$existing_pid" 2>/dev/null; then
+    rm -rf "$LOCK_DIR"
+    mkdir "$LOCK_DIR"
+    echo "$$" > "$LOCK_DIR/pid"
+    return 0
+  fi
+
+  echo "ERROR: another replay-focused run is already active (pid=${existing_pid:-unknown})."
+  echo "Stop the existing focused replay before starting a new one."
+  exit 1
+}
+
+acquire_script_lock
+
 API_BASE="https://timed-trading-ingest.shashant.workers.dev"
 API_KEY="AwesomeSauce"
+DEFAULT_RECOVERED_CONFIG="configs/iter5-runtime-recovered-20260325.json"
 HOLIDAYS="2025-07-04 2025-09-01 2025-11-27 2025-12-25 2026-01-01 2026-01-19 2026-02-16 2026-05-25 2026-07-03 2026-09-07 2026-11-26 2026-12-25"
+
+compute_backfill_start_date() {
+  local base_start="$1"
+  date -j -v-60d -f "%Y-%m-%d" "$base_start" "+%Y-%m-%d" 2>/dev/null || \
+    date -d "$base_start 60 days ago" "+%Y-%m-%d" 2>/dev/null || \
+    echo "$base_start"
+}
+
+resolve_frozen_dataset_manifest() {
+  local ref="$1"
+  if [[ -z "$ref" ]]; then
+    echo ""
+    return 0
+  fi
+  if [[ -f "$ref" ]]; then
+    echo "$ref"
+    return 0
+  fi
+  if [[ -f "data/replay-datasets/$ref/manifest.json" ]]; then
+    echo "data/replay-datasets/$ref/manifest.json"
+    return 0
+  fi
+  echo "$ref"
+}
 
 TICKERS=""
 START_DATE=""
@@ -23,8 +78,11 @@ RUN_LABEL=""
 INTERVAL_MIN=5
 FROM_LOSSES=0
 SKIP_BACKFILL=0
+SKIP_MARKET_EVENTS=0
 CONFIG_FILE=""
 CLEAN_SLATE=0
+USE_LIVE_CONFIG=0
+FROZEN_DATASET=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -35,11 +93,18 @@ while [[ $# -gt 0 ]]; do
     --interval) INTERVAL_MIN="$2"; shift 2 ;;
     --from-losses) FROM_LOSSES="$2"; shift 2 ;;
     --skip-backfill) SKIP_BACKFILL=1; shift ;;
+    --skip-market-events) SKIP_MARKET_EVENTS=1; shift ;;
     --config-file) CONFIG_FILE="$2"; shift 2 ;;
     --clean-slate) CLEAN_SLATE=1; shift ;;
+    --live-config) USE_LIVE_CONFIG=1; shift ;;
+    --frozen-dataset|--dataset-manifest) FROZEN_DATASET="$2"; shift 2 ;;
+    --frozen-dataset=*|--dataset-manifest=*) FROZEN_DATASET="${1#*=}"; shift ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
+if [[ -z "$CONFIG_FILE" && "$USE_LIVE_CONFIG" -ne 1 && -f "$DEFAULT_RECOVERED_CONFIG" ]]; then
+  CONFIG_FILE="$DEFAULT_RECOVERED_CONFIG"
+fi
 
 if [[ "$FROM_LOSSES" -gt 0 ]]; then
   echo "Fetching top $FROM_LOSSES underperforming tickers from losing-trades-report..."
@@ -73,6 +138,15 @@ SNAPSHOT_TS=$(date "+%Y%m%d-%H%M%S")
 OUT_DIR="data/backtest-artifacts/focused-${RUN_LABEL}--${SNAPSHOT_TS}"
 mkdir -p "$OUT_DIR"
 GIT_SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
+BF_START=$(compute_backfill_start_date "$START_DATE")
+FROZEN_DATASET_MANIFEST=""
+if [[ -n "$FROZEN_DATASET" ]]; then
+  FROZEN_DATASET_MANIFEST=$(resolve_frozen_dataset_manifest "$FROZEN_DATASET")
+  if [[ ! -f "$FROZEN_DATASET_MANIFEST" ]]; then
+    echo "ERROR: --dataset-manifest not found: $FROZEN_DATASET_MANIFEST"
+    exit 1
+  fi
+fi
 CONFIG_OVERRIDE_JSON="null"
 CONFIG_OVERRIDE_KEY_COUNT=0
 CONFIG_OVERRIDE_SOURCE_RUN_ID=""
@@ -88,6 +162,7 @@ cleanup() {
   if [[ -n "$REPLAY_LOCK" ]]; then
     curl -s -X DELETE "$API_BASE/timed/admin/replay-lock?key=$API_KEY" >/dev/null 2>&1 || true
   fi
+  rm -rf "$LOCK_DIR"
 }
 trap cleanup EXIT
 
@@ -98,24 +173,40 @@ echo "║  Range:   $START_DATE → $END_DATE"
 echo "║  Interval: ${INTERVAL_MIN}m"
 if [[ -n "$CONFIG_FILE" ]]; then echo "║  Config:  $CONFIG_FILE (${CONFIG_OVERRIDE_KEY_COUNT} keys)"; fi
 if [[ "$CLEAN_SLATE" -eq 1 ]]; then echo "║  Mode:    clean-slate (reset working replay state on day 1)"; fi
+if [[ -n "$FROZEN_DATASET_MANIFEST" ]]; then echo "║  Dataset: $FROZEN_DATASET_MANIFEST"; fi
 echo "║  Output:  $OUT_DIR"
 echo "╚══════════════════════════════════════════════════════╝"
 echo ""
 
 # Step 1: Ensure candle data exists for these tickers
-if [[ "$SKIP_BACKFILL" -eq 1 ]]; then
+IFS=',' read -ra TICKER_ARR <<< "$TICKERS"
+if [[ -n "$FROZEN_DATASET_MANIFEST" ]]; then
+  echo "Step 1: Using frozen dataset manifest ($FROZEN_DATASET_MANIFEST)"
+  echo ""
+elif [[ "$SKIP_BACKFILL" -eq 1 ]]; then
   echo "Step 1: Skipping backfill (--skip-backfill). Candle data assumed present in D1."
   echo ""
 else
   echo "Step 1: Checking/backfilling candle data..."
-  IFS=',' read -ra TICKER_ARR <<< "$TICKERS"
-  BF_START=$(date -j -v-60d -f "%Y-%m-%d" "$START_DATE" "+%Y-%m-%d" 2>/dev/null || date -d "$START_DATE 60 days ago" "+%Y-%m-%d" 2>/dev/null || echo "$START_DATE")
   for t in "${TICKER_ARR[@]}"; do
     echo -n "  $t ... "
     BF_RES=$(curl -s -m 300 -X POST "$API_BASE/timed/admin/alpaca-backfill?startDate=$BF_START&endDate=$END_DATE&tf=all&ticker=$t&key=$API_KEY" 2>&1)
     UPSERTED=$(echo "$BF_RES" | jq -r '.upserted // 0' 2>/dev/null || echo "?")
     echo "ok (${UPSERTED} candles)"
     sleep 1
+  done
+  echo ""
+fi
+
+# Step 1.25: Ensure historical market events exist for the focused window
+if [[ "$SKIP_MARKET_EVENTS" -eq 1 || -n "$FROZEN_DATASET_MANIFEST" ]]; then
+  echo "Step 1.25: Skipping market-event seeding"
+  echo ""
+else
+  echo "Step 1.25: Seeding historical market events..."
+  TIMED_API_KEY="$API_KEY" TIMED_API_BASE="$API_BASE" node scripts/backfill-market-events.js --start "$START_DATE" --end "$END_DATE" --macro-only
+  for t in "${TICKER_ARR[@]}"; do
+    TIMED_API_KEY="$API_KEY" TIMED_API_BASE="$API_BASE" node scripts/backfill-market-events.js --start "$START_DATE" --end "$END_DATE" --ticker "$t"
   done
   echo ""
 fi
@@ -132,7 +223,7 @@ echo ""
 
 # Step 1.6: Register focused run so config is snapshotted immediately
 echo "Step 1.6: Registering focused run..."
-REGISTER_PAYLOAD=$(jq -nc   --arg run_id "$REPLAY_LOCK"   --arg label "$RUN_LABEL"   --arg description "Focused replay for $TICKERS from $START_DATE to $END_DATE"   --arg start_date "$START_DATE"   --arg end_date "$END_DATE"   --argjson interval_min "$INTERVAL_MIN"   --argjson ticker_batch 0   --argjson ticker_universe_count 0   --arg status "running"   --arg status_note "Focused replay started"   --argjson trader_only true   --argjson keep_open_at_end false   --argjson low_write false   --argjson active_experiment_slot false   --arg config_file "$CONFIG_FILE"   --arg config_source_run_id "$CONFIG_OVERRIDE_SOURCE_RUN_ID"   --argjson config_key_count "$CONFIG_OVERRIDE_KEY_COUNT"   --argjson config_override "$CONFIG_OVERRIDE_JSON"   --argjson params "$(jq -nc     --arg tickers "$TICKERS"     --arg snapshot_ts "$SNAPSHOT_TS"     --arg git_sha "$GIT_SHA"     --arg config_file "$CONFIG_FILE"     --arg config_source_run_id "$CONFIG_OVERRIDE_SOURCE_RUN_ID"     --argjson config_key_count "$CONFIG_OVERRIDE_KEY_COUNT"     '{tickers: ($tickers | split(",") | map(select(length > 0))), snapshot_ts: $snapshot_ts, git_sha: ($git_sha | select(length > 0)), config_file: ($config_file | select(length > 0)), config_source_run_id: ($config_source_run_id | select(length > 0)), config_key_count: (if $config_key_count > 0 then $config_key_count else empty end)}')"   --argjson tags "$(jq -nc --arg label "$RUN_LABEL" '[$label, "focused_replay"] | map(select(length > 0))')"   '{
+REGISTER_PAYLOAD=$(jq -nc   --arg run_id "$REPLAY_LOCK"   --arg label "$RUN_LABEL"   --arg description "Focused replay for $TICKERS from $START_DATE to $END_DATE"   --arg start_date "$START_DATE"   --arg end_date "$END_DATE"   --argjson interval_min "$INTERVAL_MIN"   --argjson ticker_batch 0   --argjson ticker_universe_count 0   --arg status "running"   --arg status_note "Focused replay started"   --argjson trader_only true   --argjson keep_open_at_end false   --argjson low_write false   --argjson active_experiment_slot false   --arg config_file "$CONFIG_FILE"   --arg config_source_run_id "$CONFIG_OVERRIDE_SOURCE_RUN_ID"   --arg dataset_manifest "$FROZEN_DATASET_MANIFEST"   --argjson config_key_count "$CONFIG_OVERRIDE_KEY_COUNT"   --argjson config_override "$CONFIG_OVERRIDE_JSON"   --argjson params "$(jq -nc     --arg tickers "$TICKERS"     --arg snapshot_ts "$SNAPSHOT_TS"     --arg git_sha "$GIT_SHA"     --arg config_file "$CONFIG_FILE"     --arg config_source_run_id "$CONFIG_OVERRIDE_SOURCE_RUN_ID"     --arg dataset_manifest "$FROZEN_DATASET_MANIFEST"     --argjson config_key_count "$CONFIG_OVERRIDE_KEY_COUNT"     --argjson clean_slate "$([[ "$CLEAN_SLATE" -eq 1 ]] && echo true || echo false)"     --argjson skip_backfill "$([[ "$SKIP_BACKFILL" -eq 1 ]] && echo true || echo false)"     --argjson skip_market_events "$([[ "$SKIP_MARKET_EVENTS" -eq 1 ]] && echo true || echo false)"     '{tickers: ($tickers | split(",") | map(select(length > 0))), snapshot_ts: $snapshot_ts, git_sha: ($git_sha | select(length > 0)), config_file: ($config_file | select(length > 0)), config_source_run_id: ($config_source_run_id | select(length > 0)), dataset_manifest: ($dataset_manifest | select(length > 0)), config_key_count: (if $config_key_count > 0 then $config_key_count else empty end), clean_slate: $clean_slate, skip_backfill: $skip_backfill, skip_market_events: $skip_market_events}')"   --argjson tags "$(jq -nc --arg label "$RUN_LABEL" '[$label, "focused_replay"] | map(select(length > 0))')"   '{
     run_id: $run_id,
     label: $label,
     description: $description,
@@ -174,7 +265,7 @@ while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]
   fi
 
   DAY_COUNT=$((DAY_COUNT + 1))
-  REPLAY_URL="$API_BASE/timed/admin/candle-replay?date=$CURRENT_DATE&tickers=$TICKERS&intervalMinutes=$INTERVAL_MIN&skipInvestor=1&key=$API_KEY"
+  REPLAY_URL="$API_BASE/timed/admin/candle-replay?date=$CURRENT_DATE&tickers=$TICKERS&intervalMinutes=$INTERVAL_MIN&freshRun=1&skipInvestor=1&disableReferenceExecution=1&key=$API_KEY"
   if [[ "$CLEAN_SLATE" -eq 1 && "$DAY_COUNT" -eq 1 ]]; then
     REPLAY_URL="${REPLAY_URL}&cleanSlate=1"
   fi
@@ -226,6 +317,14 @@ echo "$EXPORT_SUMMARY"
 ARCHIVED_TRADE_COUNT=$(echo "$EXPORT_SUMMARY" | jq -r '.trade_count // 0' 2>/dev/null || echo "0")
 ARCHIVED_CLOSED_COUNT=$(echo "$EXPORT_SUMMARY" | jq -r '.closed_trade_count // 0' 2>/dev/null || echo "0")
 ARCHIVED_CONFIG_FILE_COUNT=$(echo "$EXPORT_SUMMARY" | jq -r '.config_key_count // 0' 2>/dev/null || echo "0")
+FINGERPRINT_FILE="$OUT_DIR/jul1-fingerprint.json"
+FINGERPRINT_MATCHED=0
+FINGERPRINT_TOTAL=0
+if [[ "$START_DATE" < "2025-07-02" && "$END_DATE" > "2025-06-30" ]] || [[ "$START_DATE" == "2025-07-01" ]] || [[ "$END_DATE" == "2025-07-01" ]]; then
+  FINGERPRINT_JSON=$(node "$(dirname "$0")/check-jul1-fingerprint.js" --run-id "$REPLAY_LOCK" --api-base "$API_BASE" --api-key "$API_KEY" --interval-min "$INTERVAL_MIN" --output "$FINGERPRINT_FILE")
+  FINGERPRINT_MATCHED=$(echo "$FINGERPRINT_JSON" | jq -r '.matched_targets // 0' 2>/dev/null || echo "0")
+  FINGERPRINT_TOTAL=$(echo "$FINGERPRINT_JSON" | jq -r '.total_targets // 0' 2>/dev/null || echo "0")
+fi
 
 cat > "$OUT_DIR/manifest.json" <<EOF
 {
@@ -244,6 +343,10 @@ cat > "$OUT_DIR/manifest.json" <<EOF
   "archived_trade_count": $ARCHIVED_TRADE_COUNT,
   "archived_closed_trade_count": $ARCHIVED_CLOSED_COUNT,
   "archived_config_count": $ARCHIVED_CONFIG_FILE_COUNT,
+  "dataset_manifest": $(if [[ -n "$FROZEN_DATASET_MANIFEST" ]]; then jq -Rn --arg v "$FROZEN_DATASET_MANIFEST" '$v'; else echo "null"; fi),
+  "jul1_fingerprint_file": $(if [[ -f "$FINGERPRINT_FILE" ]]; then jq -Rn --arg v "$FINGERPRINT_FILE" '$v'; else echo "null"; fi),
+  "jul1_fingerprint_matched": $FINGERPRINT_MATCHED,
+  "jul1_fingerprint_total": $FINGERPRINT_TOTAL,
   "git_sha": "${GIT_SHA}",
   "captured_at": "$SNAPSHOT_TS"
 }
