@@ -1718,7 +1718,14 @@
         })();
         const isReadonly = new URLSearchParams(window.location.search).get("readonly") === "1";
         const reviewableRuns = useMemo(
-          () => (availableRuns || []).filter(r => String(r?.status || "").trim().toLowerCase() === "completed" && Number(r?.total_trades || 0) > 0),
+          () => (availableRuns || []).filter(r => {
+            const status = String(r?.status || "").trim().toLowerCase();
+            if (status !== "completed") return false;
+            const totalTrades = Number(r?.total_trades || 0);
+            const closedTrades = Number(r?.closed_trades || 0);
+            const openTrades = Number(r?.open_trades || 0);
+            return totalTrades > 0 || closedTrades > 0 || openTrades > 0;
+          }),
           [availableRuns]
         );
         const liveRun = useMemo(
@@ -1728,6 +1735,20 @@
           }) || null,
           [availableRuns]
         );
+        const runLabelMap = useMemo(() => {
+          const map = new Map();
+          for (const run of (availableRuns || [])) {
+            const runId = String(run?.run_id || "").trim();
+            if (!runId) continue;
+            map.set(runId, String(run?.label || "").trim() || null);
+          }
+          return map;
+        }, [availableRuns]);
+        const resolveRunLabel = useCallback((runId) => {
+          const key = String(runId || "").trim();
+          if (!key) return "";
+          return runLabelMap.get(key) || "";
+        }, [runLabelMap]);
         const runMeta = useMemo(() => ({
           runs: reviewableRuns.map(r => ({ runId: String(r.run_id || "").trim(), label: r.label || null, startDate: r.start_date || null, endDate: r.end_date || null })),
           latestRunId: reviewableRuns.length ? String(reviewableRuns[0].run_id || "").trim() : "",
@@ -1966,11 +1987,14 @@
         }, [filteredTrades, sortOrder]);
 
         const activeSourceLabel = useMemo(() => {
+          const archiveLabel = resolveRunLabel(tradeSourceMeta.archiveRunId);
+          const liveLabel = resolveRunLabel(tradeSourceMeta.liveRunId);
+          const selectedLabel = resolveRunLabel(filterRunId);
           if (tradeSourceMeta.source === "replay_kv") {
-            return `Source: live replay KV${tradeSourceMeta.liveRunId ? ` · ${shortRunId(tradeSourceMeta.liveRunId)}` : ""}`;
+            return `Source: live replay KV${tradeSourceMeta.liveRunId ? ` · ${liveLabel || shortRunId(tradeSourceMeta.liveRunId)}` : ""}`;
           }
           if (tradeSourceMeta.source === "archive") {
-            return `Source: archived run${tradeSourceMeta.archiveRunId ? ` · ${shortRunId(tradeSourceMeta.archiveRunId)}` : ""}`;
+            return `Source: archived run${tradeSourceMeta.archiveRunId ? ` · ${archiveLabel || shortRunId(tradeSourceMeta.archiveRunId)}` : ""}`;
           }
           if (tradeSourceMeta.source === "trades_d1_live_fallback") {
             return "Source: trades D1 live fallback";
@@ -1980,9 +2004,9 @@
           }
           if (filterRunId === RUN_FILTER_LIVE) return "Source: live replay";
           if (filterRunId === RUN_FILTER_LATEST) return "Source: latest completed run";
-          if (filterRunId) return `Source: selected run · ${shortRunId(filterRunId)}`;
+          if (filterRunId) return `Source: selected run · ${selectedLabel || shortRunId(filterRunId)}`;
           return "Source: all available trades";
-        }, [filterRunId, tradeSourceMeta]);
+        }, [filterRunId, resolveRunLabel, tradeSourceMeta]);
 
         const getAnnotation = (t) => {
           const id = t?.trade_id || t?.id || `${t?.ticker}-${t?.entry_ts}`;
@@ -2238,7 +2262,12 @@
                                 <td className="px-4 py-2.5 text-[#9ca3af]">{t.direction || "—"}</td>
                                 <td className="px-4 py-2.5 text-[#9ca3af]">{formatDate(t.entry_ts)}</td>
                                 <td className="px-4 py-2.5 text-[#9ca3af]">{formatDate(t.exit_ts)}</td>
-                                <td className="px-4 py-2.5 text-[#9ca3af] font-mono text-[11px]" title={t.run_id || ""}>{shortRunId(t.run_id)}</td>
+                                <td className="px-4 py-2.5 text-[#9ca3af] text-[11px]" title={t.run_id || ""}>
+                                  <div className="font-medium text-[#cbd5e1]">{resolveRunLabel(t.run_id) || shortRunId(t.run_id)}</div>
+                                  {resolveRunLabel(t.run_id) && (
+                                    <div className="font-mono text-[10px] text-[#4b5563]">{shortRunId(t.run_id)}</div>
+                                  )}
+                                </td>
                                 <td className="px-4 py-2.5 text-right font-medium text-[#a78bfa]">{Number(t.shares) > 0 ? Math.round(Number(t.shares)) : "—"}</td>
                                 <td className={`px-4 py-2.5 text-right font-medium ${Number(t.pnl) >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`}>{fmtUsd(t.pnl)}</td>
                                 <td className="px-4 py-2.5 text-[#9ca3af]">{t.status || "—"}</td>
@@ -2288,7 +2317,12 @@
                             <span>{formatDate(t.exit_ts)}</span>
                             {Number(t.shares) > 0 && <span className="text-[#a78bfa] font-medium">{Math.round(Number(t.shares))} shares</span>}
                           </div>
-                          <div className="mt-1 text-[10px] text-[#4b5563] font-mono break-all" title={t.run_id || ""}>Run: {shortRunId(t.run_id)}</div>
+                          <div className="mt-1 text-[10px] text-[#4b5563] break-all" title={t.run_id || ""}>
+                            Run: {resolveRunLabel(t.run_id) || shortRunId(t.run_id)}
+                            {resolveRunLabel(t.run_id) && (
+                              <span className="font-mono"> · {shortRunId(t.run_id)}</span>
+                            )}
+                          </div>
                           <div className="flex items-center justify-between mt-1.5 flex-wrap gap-1">
                             <span className="text-[11px] text-[#6b7280]">{t.status || ""}</span>
                             <div className="flex items-center gap-1">
