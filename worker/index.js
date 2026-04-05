@@ -586,6 +586,7 @@ const ROUTES = [
   ["POST", "/timed/admin/close-replay-positions", "POST /timed/admin/close-replay-positions"],
   ["POST", "/timed/admin/reconcile-replay", "POST /timed/admin/reconcile-replay"],
   ["POST", "/timed/admin/replay-lock", "POST /timed/admin/replay-lock"],
+  ["GET", "/timed/admin/replay-lock", "GET /timed/admin/replay-lock"],
   ["DELETE", "/timed/admin/replay-lock", "DELETE /timed/admin/replay-lock"],
   ["POST", "/timed/admin/runs/register", "POST /timed/admin/runs/register"],
   ["POST", "/timed/admin/runs/finalize", "POST /timed/admin/runs/finalize"],
@@ -41391,7 +41392,7 @@ export default {
       //   disableReferenceExecution=1  ignore reference execution assists for raw engine validation
       // ═══════════════════════════════════════════════════════════════════════════
       if (routeKey === "POST /timed/admin/candle-replay") {
-        const authFail = requireKeyOr401(req, env);
+        const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
 
         const db = env?.DB;
@@ -42524,7 +42525,7 @@ export default {
       // ═══════════════════════════════════════════════════════════════════════════
       if (routeKey === "POST /timed/admin/interval-replay") {
         try {
-        const authFail = requireKeyOr401(req, env);
+        const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
         const db = env?.DB;
         if (!db) return sendJSON({ ok: false, error: "no_db_binding" }, 500, corsHeaders(env, req));
@@ -43537,7 +43538,7 @@ export default {
       // After a replay, close all open positions at their last known price.
       // Timestamps the exit at the given date's market close (4 PM ET).
       if (routeKey === "POST /timed/admin/close-replay-positions") {
-        const authFail = requireKeyOr401(req, env);
+        const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
         const db = env?.DB;
         const KV = env?.KV_TIMED;
@@ -44035,7 +44036,7 @@ export default {
       // POST /timed/admin/replay-lock?key=...&reason=backtest
       // Acquire replay lock — prevents live cron from running trade simulation.
       if (routeKey === "POST /timed/admin/replay-lock") {
-        const authFail = requireKeyOr401(req, env);
+        const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
         const KV = env?.KV_TIMED;
         if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
@@ -44045,10 +44046,21 @@ export default {
         return sendJSON({ ok: true, lock: lockVal }, 200, corsHeaders(env, req));
       }
 
+      // GET /timed/admin/replay-lock?key=...
+      // Inspect the active replay lock so the UI can avoid silent takeovers.
+      if (routeKey === "GET /timed/admin/replay-lock") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const KV = env?.KV_TIMED;
+        if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+        const lock = await KV.get("timed:replay:lock");
+        return sendJSON({ ok: true, locked: !!lock, lock: lock || null }, 200, corsHeaders(env, req));
+      }
+
       // DELETE /timed/admin/replay-lock?key=...
       // Release replay lock — re-enables live cron trade simulation.
       if (routeKey === "DELETE /timed/admin/replay-lock") {
-        const authFail = requireKeyOr401(req, env);
+        const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
         const KV = env?.KV_TIMED;
         if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
@@ -44094,6 +44106,11 @@ export default {
             params ? JSON.stringify(params) : null,
             now, now,
           ).run();
+          if (status === "running") {
+            try {
+              await db.prepare(`UPDATE backtest_runs SET started_at = COALESCE(started_at, ?2), updated_at = ?2 WHERE run_id = ?1`).bind(runId, now).run();
+            } catch {}
+          }
           // Snapshot model_config at registration unless the caller supplied an explicit
           // pinned config override for deterministic replay/backtest reproduction.
           try {
@@ -44249,7 +44266,50 @@ export default {
         try {
           const body = await req.json().catch(() => ({}));
           if (!body?.run_id) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
-          await db.prepare(`UPDATE backtest_runs SET description = ?2, updated_at = ?3 WHERE run_id = ?1`).bind(body.run_id, body?.description || null, Date.now()).run();
+          const runId = String(body.run_id).trim();
+          const existing = await db.prepare(`SELECT params_json FROM backtest_runs WHERE run_id = ?1`).bind(runId).first();
+          if (!existing) {
+            return sendJSON({ ok: false, error: "not_found" }, 404, corsHeaders(env, req));
+          }
+          const fields = [];
+          const values = [runId];
+          let bindIdx = 2;
+          if (Object.prototype.hasOwnProperty.call(body, "description")) {
+            fields.push(`description = ?${bindIdx++}`);
+            values.push(body?.description != null ? String(body.description) : null);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "status")) {
+            fields.push(`status = ?${bindIdx++}`);
+            values.push(body?.status != null ? String(body.status).trim().toLowerCase() : null);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "status_note")) {
+            fields.push(`status_note = ?${bindIdx++}`);
+            values.push(body?.status_note != null ? String(body.status_note) : null);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "ticker_universe_count")) {
+            fields.push(`ticker_universe_count = ?${bindIdx++}`);
+            values.push(Number(body?.ticker_universe_count) || 0);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "started_at")) {
+            fields.push(`started_at = ?${bindIdx++}`);
+            values.push(Number(body?.started_at) || null);
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "ended_at")) {
+            fields.push(`ended_at = ?${bindIdx++}`);
+            values.push(Number(body?.ended_at) || null);
+          }
+          const hasParamsObject = body?.params && typeof body.params === "object" && !Array.isArray(body.params);
+          const hasParamsPatch = body?.params_patch && typeof body.params_patch === "object" && !Array.isArray(body.params_patch);
+          if (hasParamsObject || hasParamsPatch) {
+            let baseParams = {};
+            try { baseParams = existing?.params_json ? JSON.parse(existing.params_json) || {} : {}; } catch {}
+            const nextParams = hasParamsObject ? body.params : { ...baseParams, ...body.params_patch };
+            fields.push(`params_json = ?${bindIdx++}`);
+            values.push(JSON.stringify(nextParams || {}));
+          }
+          fields.push(`updated_at = ?${bindIdx++}`);
+          values.push(Date.now());
+          await db.prepare(`UPDATE backtest_runs SET ${fields.join(", ")} WHERE run_id = ?1`).bind(...values).run();
           return sendJSON({ ok: true }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
@@ -57174,8 +57234,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           url.searchParams.get("resetMl") === "1" ||
           url.searchParams.get("resetMl") === "true";
 
+        const skipTickerLatest =
+          url.searchParams.get("skipTickerLatest") === "1" ||
+          url.searchParams.get("skipTickerLatest") === "true" ||
+          url.searchParams.get("replayOnly") === "1" ||
+          url.searchParams.get("replayOnly") === "true";
+
         const now = Date.now();
-        const tickerIndex = (await kvGetJSON(KV, "timed:tickers")) || [];
+        const tickerIndex = skipTickerLatest ? [] : ((await kvGetJSON(KV, "timed:tickers")) || []);
         const tickers = Array.isArray(tickerIndex) ? tickerIndex : [];
 
         const resetPayload = (p) => {
@@ -57356,7 +57422,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             d1Cleared,
             resetMl,
             resetLedger,
-            note: "Lanes recompute from fresh state; new KV simulated trades will be created as new data/alerts come in. D1 ledger is preserved unless resetLedger=1.",
+            skipTickerLatest,
+            note: skipTickerLatest
+              ? "Replay-safe reset complete. Trade/portfolio state was cleared without rewriting per-ticker latest payloads."
+              : "Lanes recompute from fresh state; new KV simulated trades will be created as new data/alerts come in. D1 ledger is preserved unless resetLedger=1.",
           },
           200,
           corsHeaders(env, req),

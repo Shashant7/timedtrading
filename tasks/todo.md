@@ -18,6 +18,11 @@
 - [ ] Disable reference-execution replay assists for fresh validation lanes so TT-core loser blocks (for example `WMT`) are validated without seeded trade resurrection
 - [ ] Audit parity-critical live/replay inputs against the Jul/Aug lane: market_events, divergence/exhaustion state, HTF candle coverage, and engine routing
 - [ ] Re-run a single clean Jul/Aug validation lane from the frozen anchor and produce a missing/spurious trade diff against the golden evidence
+- [ ] Run a pushed-checkpoint Jul/Aug regression lane in interval-first mode and confirm `WMT` stays absent in the actual validation lane
+- [ ] If Jul/Aug regression holds, continue the same checkpointed lane into September and audit only newly introduced regressions before broadening further
+- [ ] Build a UI-driven validation console so monthly replays/backtests can be launched, monitored, compared, and retried without shell scripts
+- [ ] Harden replay/backtest orchestration so config-pinned validation no longer depends on fragile global reset / stale lock / shell wrapper behavior
+- [ ] Replace the current July regression launcher with a deterministic backend validation-run flow and verify the golden-entry-restored config boots cleanly
 - [ ] Patch only the highest-confidence regression points and repeat until the golden basket/timestamps materially recover
 
 ## Replay Accounting + Iter-5 Reset [2026-03-25]

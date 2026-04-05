@@ -587,24 +587,31 @@ function AutopsyChart({
         const x = ts.timeToCoordinate(pt.time);
         const y = candleSeries.priceToCoordinate(pt.price);
         if (x == null || y == null) continue;
+        const r = 10;
         ctx.save();
         ctx.shadowColor = pt.color;
-        ctx.shadowBlur = 10;
+        ctx.shadowBlur = 14;
         ctx.beginPath();
-        ctx.arc(x, y, 7, 0, Math.PI * 2);
+        ctx.arc(x, y, r, 0, Math.PI * 2);
         ctx.fillStyle = pt.color;
         ctx.fill();
         ctx.restore();
         ctx.beginPath();
-        ctx.arc(x, y, 7, 0, Math.PI * 2);
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = "rgba(10,10,15,0.95)";
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = "#0b0e11";
         ctx.stroke();
         ctx.fillStyle = "#ffffff";
-        ctx.font = "bold 9px Inter, sans-serif";
+        ctx.font = "bold 11px Inter, sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(pt.code || "", x, y + 0.5);
+        const label = pt.code === "E" ? "Entry" : pt.code === "T" ? "Trim" : pt.code === "X" ? "Exit" : "";
+        if (label) {
+          ctx.font = "600 10px Inter, sans-serif";
+          ctx.fillStyle = pt.color;
+          ctx.fillText(label, x, y - r - 6);
+        }
       }
     }
   }, []);
@@ -731,7 +738,7 @@ function AutopsyChart({
           top: 0.08,
           bottom: 0.08
         },
-        autoScale: false
+        autoScale: true
       },
       timeScale: {
         borderColor: "rgba(38,50,95,0.5)",
@@ -1027,37 +1034,15 @@ function AutopsyChart({
           });
         } catch (_) {}
       }
-      const visibleCandles = mapped.filter(b => isDailyTime ? String(b.time) >= String(visibleFrom) && String(b.time) <= String(visibleTo) : b.time >= visibleFrom && b.time <= visibleTo);
-      const priceValues = [...visibleCandles.flatMap(b => [b.low, b.high])];
-      if (Number.isFinite(ep)) priceValues.push(ep);
-      if (Number.isFinite(tp)) priceValues.push(tp);
-      if (Number.isFinite(xp)) priceValues.push(xp);
-      if (priceValues.length > 0) {
-        let priceMin = Math.min(...priceValues);
-        let priceMax = Math.max(...priceValues);
-        const paddingPct = 0.08;
-        const range = Math.max(priceMax - priceMin, 1) * (1 + 2 * paddingPct);
-        const center = (priceMin + priceMax) / 2;
-        priceMin = center - range / 2;
-        priceMax = center + range / 2;
-        try {
-          chart.priceScale("right").applyOptions({
-            autoScale: false
-          });
-        } catch (_) {}
-        try {
-          chart.priceScale("right").setVisibleRange({
-            from: priceMin,
-            to: priceMax
-          });
-        } catch (_) {}
-        try {
-          candleSeries.priceScale().setVisibleRange({
-            from: priceMin,
-            to: priceMax
-          });
-        } catch (_) {}
-      }
+      try {
+        chart.priceScale("right").applyOptions({
+          autoScale: true,
+          scaleMargins: {
+            top: 0.08,
+            bottom: 0.08
+          }
+        });
+      } catch (_) {}
       requestAnimationFrame(() => {
         if (chartRef.current && containerRef.current) {
           if (!hasTradeRange) chartRef.current.timeScale().scrollToPosition(-3, false);
@@ -1076,38 +1061,33 @@ function AutopsyChart({
       }, 200);
       setLoading(false);
     };
-    fetch(url, {
-      cache: "no-store"
-    }).then(r => r.json()).then(data => {
+    const tryFetchCandles = (tfParam, asOf) => {
+      let u = `${API_BASE}/timed/candles?ticker=${encodeURIComponent(ticker)}&tf=${tfParam}&limit=${limit}`;
+      if (asOf) u += `&asOfTs=${asOf}`;
+      return fetch(u, {
+        cache: "no-store"
+      }).then(r => r.json());
+    };
+    tryFetchCandles(tf, asOfTsParam).then(async data => {
       if (cancelled) return;
-      if (!data.ok || !data.candles) {
-        setError("No chart data for this ticker");
+      let candles = data?.ok && data?.candles ? data.candles : [];
+      if (candles.length < 2 && asOfTsParam) {
+        const d = await tryFetchCandles(tf, null).catch(() => ({}));
+        if (d?.ok && d?.candles?.length >= 2) candles = d.candles;
+      }
+      if (candles.length < 2 && tf !== "D") {
+        const d = await tryFetchCandles("D", asOfTsParam).catch(() => ({}));
+        if (d?.ok && d?.candles?.length >= 2) candles = d.candles;
+      }
+      if (candles.length < 2 && tf !== "D") {
+        const d = await tryFetchCandles("D", null).catch(() => ({}));
+        if (d?.ok && d?.candles?.length >= 2) candles = d.candles;
+      }
+      if (cancelled) return;
+      if (candles.length < 2) {
+        setError("Insufficient chart data (try a different timeframe)");
         setLoading(false);
         return;
-      }
-      let candles = data.candles;
-      if (candles.length < 2 && asOfTsParam) {
-        const fallbackUrl = `${API_BASE}/timed/candles?ticker=${encodeURIComponent(ticker)}&tf=${tf}&limit=${limit}`;
-        return fetch(fallbackUrl, {
-          cache: "no-store"
-        }).then(r => r.json()).then(d => {
-          if (cancelled) return;
-          if (d.ok && d.candles && d.candles.length >= 2) candles = d.candles;
-          if (candles.length < 2) {
-            setError("Insufficient chart data (try a different timeframe)");
-            setLoading(false);
-            return;
-          }
-          doRender(candles);
-        }).catch(() => {
-          if (cancelled) return;
-          if (candles.length < 2) {
-            setError("Insufficient chart data (try a different timeframe)");
-            setLoading(false);
-          } else {
-            doRender(candles);
-          }
-        });
       }
       doRender(candles);
     }).catch(e => {
@@ -1609,8 +1589,9 @@ function AutopsyModal({
       }
       const hasSnap = Object.keys(snapMap).length > 0;
       const hasTD = lineageData?.td_counts;
-      const hasDiv = lineageData?.rsi_divergence;
-      if (!hasSnap && !hasTD) return React.createElement("div", {
+      const hasRsiDiv = lineageData?.rsi_divergence;
+      const hasPhaseDiv = lineageData?.phase_divergence;
+      if (!hasSnap && !hasTD && !hasRsiDiv && !hasPhaseDiv) return React.createElement("div", {
         className: "flex-1 min-w-0"
       }, React.createElement("div", {
         className: "text-[8px] font-bold uppercase tracking-widest mb-1",
@@ -1671,12 +1652,16 @@ function AutopsyModal({
       }, "XL"), React.createElement("th", {
         className: "text-center pb-1 font-semibold",
         title: "RSI Divergence"
-      }, "D"))), React.createElement("tbody", null, allTFs.map(tf => {
+      }, "RD"), React.createElement("th", {
+        className: "text-center pb-1 font-semibold",
+        title: "Phase Divergence"
+      }, "PD"))), React.createElement("tbody", null, allTFs.map(tf => {
         const tfPresent = Object.prototype.hasOwnProperty.call(snapMap, tf);
         const sig = tfPresent ? snapMap[tf] || {} : {};
         const tdKey = tdTfMap[tf];
         const tc = hasTD ? lineageData.td_counts[tdKey] || lineageData.td_counts[tf] : null;
-        const dv = hasDiv ? lineageData.rsi_divergence[tf] || lineageData.rsi_divergence[tdKey] : null;
+        const dv = hasRsiDiv ? lineageData.rsi_divergence[tf] || lineageData.rsi_divergence[tdKey] : null;
+        const pdv = hasPhaseDiv ? lineageData.phase_divergence[tf] || lineageData.phase_divergence[tdKey] : null;
         const emaCross = sig.ema_cross;
         const st = sig.supertrend;
         const stSlope = sig.st_slope;
@@ -1687,10 +1672,12 @@ function AutopsyModal({
         const stLabel = st === 1 ? "Bull" : st === -1 ? "Bear" : "";
         const slopeTag = stSlope != null ? " ↗" : st != null ? " —" : "";
         const depthColor = emaD != null ? emaD >= 12 ? "#22c55e" : emaD >= 8 ? "#14b8a6" : emaD >= 5 ? "#f59e0b" : "#ef4444" : null;
-        const hasAny = emaCross != null || st != null || emaD != null || rsi != null || tc || dv;
+        const hasAny = emaCross != null || st != null || emaD != null || rsi != null || tc || dv || pdv;
         const emptyGlyph = tfPresent ? "·" : "—";
         const hB = dv?.bear?.active !== false && dv?.bear;
         const hU = dv?.bull?.active !== false && dv?.bull;
+        const pB = pdv?.bear?.active !== false && pdv?.bear;
+        const pU = pdv?.bull?.active !== false && pdv?.bull;
         const isHTF = tf === "W" || tf === "D";
         return React.createElement("tr", {
           key: tf,
@@ -1767,6 +1754,14 @@ function AutopsyModal({
         }, hB || hU ? React.createElement("span", null, hB && React.createElement("span", {
           className: "text-[#ef4444] font-bold"
         }, "B"), hU && React.createElement("span", {
+          className: "text-[#22c55e] font-bold"
+        }, "U")) : React.createElement("span", {
+          className: "text-[#4b5563]"
+        }, emptyGlyph)), React.createElement("td", {
+          className: "text-center py-1"
+        }, pB || pU ? React.createElement("span", null, pB && React.createElement("span", {
+          className: "text-[#ef4444] font-bold"
+        }, "B"), pU && React.createElement("span", {
           className: "text-[#22c55e] font-bold"
         }, "U")) : React.createElement("span", {
           className: "text-[#4b5563]"

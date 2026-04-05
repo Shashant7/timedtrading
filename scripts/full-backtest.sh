@@ -390,8 +390,8 @@ else
     fi
   fi
 
-  echo "Step 1: Resetting all trade state (D1 + KV)..."
-  RESET_RESULT=$(curl -s -m 300 -X POST "$API_BASE/timed/admin/reset?resetLedger=1&key=$API_KEY")
+  echo "Step 1: Resetting replay state (fast D1 + KV clear)..."
+  RESET_RESULT=$(curl -s -m 300 -X POST "$API_BASE/timed/admin/reset?resetLedger=1&skipTickerLatest=1&replayOnly=1&key=$API_KEY")
   echo "Reset: $(echo "$RESET_RESULT" | jq -c '{ok, kvCleared}' 2>/dev/null || echo "$RESET_RESULT")"
   # Verify D1 trades are actually deleted (admin/reset may silently fail on D1)
   D1_CHECK=$(echo "$RESET_RESULT" | jq -r '.d1Cleared[] | select(.sql == "DELETE FROM trades") | .changes // 0' 2>/dev/null || echo "?")
