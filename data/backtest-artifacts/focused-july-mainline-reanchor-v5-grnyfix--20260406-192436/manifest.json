@@ -1,0 +1,32 @@
+{
+  "ok": true,
+  "type": "focused_replay",
+  "label": "july-mainline-reanchor-v5-grnyfix",
+  "run_id": "focused_replay_20260406-192436@2026-04-06T23:24:37.390Z",
+  "tickers": [
+  "UNP",
+  "INTU",
+  "SANM",
+  "RIOT",
+  "B",
+  "ORCL",
+  "GRNY"
+],
+  "start_date": "2025-07-01",
+  "end_date": "2025-08-05",
+  "interval_min": 5,
+  "days_processed": 25,
+  "total_scored": 13825,
+  "created_trade_events": 8,
+  "replay_reported_trade_increments": 8,
+  "last_replay_total_trades": 8,
+  "archived_trade_count": 8,
+  "archived_closed_trade_count": 6,
+  "archived_config_count": 144,
+  "dataset_manifest": null,
+  "jul1_fingerprint_file": "data/backtest-artifacts/focused-july-mainline-reanchor-v5-grnyfix--20260406-192436/jul1-fingerprint.json",
+  "jul1_fingerprint_matched": 0,
+  "jul1_fingerprint_total": 4,
+  "git_sha": "3a572d0cfc59b3fda8b832e5e4f8e2a106a028b2",
+  "captured_at": "20260406-192436"
+}

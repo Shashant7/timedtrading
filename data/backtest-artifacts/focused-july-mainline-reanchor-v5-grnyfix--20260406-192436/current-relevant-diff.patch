@@ -1,0 +1,2620 @@
+diff --git a/react-app/trade-autopsy.html b/react-app/trade-autopsy.html
+index 429191d..8598b56 100644
+--- a/react-app/trade-autopsy.html
++++ b/react-app/trade-autopsy.html
+@@ -1705,7 +1705,8 @@
+         const [filterDateTo, setFilterDateTo] = useState("");
+         const [filterRunId, setFilterRunId] = useState(RUN_FILTER_LATEST);
+         const [sortOrder, setSortOrder] = useState("newest");
+-        const [tradeSourceMeta, setTradeSourceMeta] = useState({ source: "", archiveRunId: "", liveRunId: "" });
++        const [tradeSourceMeta, setTradeSourceMeta] = useState({ source: "", archiveRunId: "", liveRunId: "", activeSource: "", cleanLane: false });
++        const [activeRunTruth, setActiveRunTruth] = useState(null);
+         const [autoSelectedLive, setAutoSelectedLive] = useState(false);
+ 
+         const tradeIdFromUrl = (() => {
+@@ -1728,13 +1729,14 @@
+           }),
+           [availableRuns]
+         );
+-        const liveRun = useMemo(
+-          () => (availableRuns || []).find(r => {
++        const liveRun = useMemo(() => {
++          const canonical = activeRunTruth?.read_model?.active || activeRunTruth?.run || activeRunTruth?.active || activeRunTruth?.live || activeRunTruth || null;
++          if (canonical && (canonical.run_id || canonical.active_run_id)) return canonical;
++          return (availableRuns || []).find(r => {
+             const status = String(r?.status || "").trim().toLowerCase();
+             return status === "running" || status === "queued";
+-          }) || null,
+-          [availableRuns]
+-        );
++          }) || null;
++        }, [activeRunTruth, availableRuns]);
+         const runLabelMap = useMemo(() => {
+           const map = new Map();
+           for (const run of (availableRuns || [])) {
+@@ -1825,6 +1827,18 @@
+           }
+           return [];
+         }, []);
++        const refreshActiveRunTruth = useCallback(async () => {
++          try {
++            const r = await fetch(`${API_BASE}/timed/admin/runs/live`, fetchOpts);
++            const d = await r.json();
++            if (d?.ok) {
++              setActiveRunTruth(d);
++              return d;
++            }
++          } catch (_) {}
++          setActiveRunTruth(null);
++          return null;
++        }, []);
+ 
+         const refreshAnnotations = useCallback(async () => {
+           try {
+@@ -1839,11 +1853,15 @@
+             const r = await fetch(tradesUrl, fetchOpts);
+             const d = await r.json();
+             if (d.ok && Array.isArray(d.trades)) {
++              const liveTruth = activeRunTruth?.read_model?.active || activeRunTruth?.run || activeRunTruth?.active || activeRunTruth?.live || activeRunTruth || null;
++              const sourceMeta = d?.read_model?.source_meta || {};
+               setTrades(d.trades);
+               setTradeSourceMeta({
+-                source: d.source || "",
+-                archiveRunId: d.archive_run_id || "",
+-                liveRunId: d.live_run_id || "",
++                source: sourceMeta.source || d.source || "",
++                archiveRunId: sourceMeta.archive_run_id || d.archive_run_id || "",
++                liveRunId: sourceMeta.live_run_id || d.live_run_id || liveTruth?.active_run_id || liveTruth?.run_id || "",
++                activeSource: sourceMeta.active_source || liveTruth?.active_source || "",
++                cleanLane: !!(sourceMeta.is_clean_lane ?? liveTruth?.is_clean_lane),
+               });
+               setSelectedTrade(prev => {
+                 if (!prev) return prev;
+@@ -1857,13 +1875,14 @@
+           } catch (_) {
+             setError("Failed to load trades");
+           }
+-        }, [tradesUrl]);
++        }, [tradesUrl, activeRunTruth]);
+ 
+         const refreshAll = useCallback(async () => {
+           setLoading(true);
+           setError(null);
+           try {
+-            const runs = await refreshRuns();
++            const [runs, liveTruthRes] = await Promise.all([refreshRuns(), refreshActiveRunTruth()]);
++            const liveTruth = liveTruthRes?.read_model?.active || liveTruthRes?.run || liveTruthRes?.active || liveTruthRes?.live || liveTruthRes || null;
+             const resolvedRunId = String(runIdFromUrl || "").trim() || resolveSelectedRunId(filterRunId, resolveLatestCompletedRunId(runs));
+             const liveOnly = !String(runIdFromUrl || "").trim() && filterRunId === RUN_FILTER_LIVE;
+             const [tradesRes, annRes] = await Promise.all([
+@@ -1871,11 +1890,14 @@
+               fetch(buildAnnotationsUrl(resolvedRunId), fetchOpts).then(r => r.json()),
+             ]);
+             if (tradesRes.ok && Array.isArray(tradesRes.trades)) {
++              const sourceMeta = tradesRes?.read_model?.source_meta || {};
+               setTrades(tradesRes.trades);
+               setTradeSourceMeta({
+-                source: tradesRes.source || "",
+-                archiveRunId: tradesRes.archive_run_id || "",
+-                liveRunId: tradesRes.live_run_id || "",
++                source: sourceMeta.source || tradesRes.source || "",
++                archiveRunId: sourceMeta.archive_run_id || tradesRes.archive_run_id || "",
++                liveRunId: sourceMeta.live_run_id || tradesRes.live_run_id || liveTruth?.active_run_id || liveTruth?.run_id || "",
++                activeSource: sourceMeta.active_source || liveTruth?.active_source || "",
++                cleanLane: !!(sourceMeta.is_clean_lane ?? liveTruth?.is_clean_lane),
+               });
+             }
+             else setError(tradesRes?.error === "unauthorized" ? "Admin access required" : "Failed to load trades");
+@@ -1885,7 +1907,7 @@
+           } finally {
+             setLoading(false);
+           }
+-        }, [buildAnnotationsUrl, buildTradesUrl, filterRunId, refreshRuns, resolveLatestCompletedRunId, resolveSelectedRunId, runIdFromUrl]);
++        }, [buildAnnotationsUrl, buildTradesUrl, filterRunId, refreshRuns, refreshActiveRunTruth, resolveLatestCompletedRunId, resolveSelectedRunId, runIdFromUrl]);
+ 
+         useEffect(() => {
+           let cancelled = false;
+@@ -1893,14 +1915,19 @@
+           setError(null);
+           (async () => {
+             try {
+-              const runsRes = await fetch(`${API_BASE}/timed/admin/runs?limit=100&include_archived=1`, fetchOpts).then(r => r.json());
++              const [runsRes, liveTruthRes] = await Promise.all([
++                fetch(`${API_BASE}/timed/admin/runs?limit=100&include_archived=1`, fetchOpts).then(r => r.json()),
++                fetch(`${API_BASE}/timed/admin/runs/live`, fetchOpts).then(r => r.json()).catch(() => null),
++              ]);
+               if (cancelled) return;
++              if (liveTruthRes?.ok) setActiveRunTruth(liveTruthRes);
+               const runs = runsRes.ok && Array.isArray(runsRes.runs) ? runsRes.runs : [];
+               if (runsRes.ok && Array.isArray(runsRes.runs)) setAvailableRuns(runsRes.runs);
+               else if (runsRes?.error === "unauthorized") {
+                 setError("Admin access required");
+                 return;
+               }
++              const liveTruth = liveTruthRes?.read_model?.active || liveTruthRes?.run || liveTruthRes?.active || liveTruthRes?.live || liveTruthRes || null;
+               const resolvedRunId = String(runIdFromUrl || "").trim() || resolveSelectedRunId(filterRunId, resolveLatestCompletedRunId(runs));
+               const liveOnly = !String(runIdFromUrl || "").trim() && filterRunId === RUN_FILTER_LIVE;
+               const [tradesData, annData] = await Promise.all([
+@@ -1909,11 +1936,14 @@
+               ]);
+               if (cancelled) return;
+               if (tradesData.ok && Array.isArray(tradesData.trades)) {
++                const sourceMeta = tradesData?.read_model?.source_meta || {};
+                 setTrades(tradesData.trades);
+                 setTradeSourceMeta({
+-                  source: tradesData.source || "",
+-                  archiveRunId: tradesData.archive_run_id || "",
+-                  liveRunId: tradesData.live_run_id || "",
++                  source: sourceMeta.source || tradesData.source || "",
++                  archiveRunId: sourceMeta.archive_run_id || tradesData.archive_run_id || "",
++                  liveRunId: sourceMeta.live_run_id || tradesData.live_run_id || liveTruth?.active_run_id || liveTruth?.run_id || "",
++                  activeSource: sourceMeta.active_source || liveTruth?.active_source || "",
++                  cleanLane: !!(sourceMeta.is_clean_lane ?? liveTruth?.is_clean_lane),
+                 });
+               }
+               else setError(tradesData?.error === "unauthorized" ? "Admin access required" : "Failed to load trades");
+@@ -1944,10 +1974,10 @@
+         }, [runIdFromUrl, trades]);
+ 
+         useEffect(() => {
+-          if (!liveRun || (filterRunId !== RUN_FILTER_LIVE && filterRunId !== RUN_FILTER_LATEST)) return;
+-          const iv = setInterval(() => { refreshAll(); }, 60_000);
++          if (filterRunId !== RUN_FILTER_LIVE && filterRunId !== RUN_FILTER_LATEST) return;
++          const iv = setInterval(() => { refreshAll(); }, 15_000);
+           return () => clearInterval(iv);
+-        }, [liveRun, filterRunId, refreshAll]);
++        }, [filterRunId, refreshAll]);
+ 
+         const filteredTrades = useMemo(() => {
+           let out = trades;
+@@ -1990,8 +2020,15 @@
+           const archiveLabel = resolveRunLabel(tradeSourceMeta.archiveRunId);
+           const liveLabel = resolveRunLabel(tradeSourceMeta.liveRunId);
+           const selectedLabel = resolveRunLabel(filterRunId);
++          const cleanLaneSuffix = tradeSourceMeta.cleanLane ? " · clean lane" : "";
+           if (tradeSourceMeta.source === "replay_kv") {
+-            return `Source: live replay KV${tradeSourceMeta.liveRunId ? ` · ${liveLabel || shortRunId(tradeSourceMeta.liveRunId)}` : ""}`;
++            return `Source: live replay KV${tradeSourceMeta.liveRunId ? ` · ${liveLabel || shortRunId(tradeSourceMeta.liveRunId)}` : ""}${cleanLaneSuffix}`;
++          }
++          if (tradeSourceMeta.source === "live_run_archive") {
++            return `Source: live backtest archive${tradeSourceMeta.liveRunId ? ` · ${liveLabel || shortRunId(tradeSourceMeta.liveRunId)}` : ""}${cleanLaneSuffix}`;
++          }
++          if (tradeSourceMeta.source === "live_empty") {
++            return `Source: live backtest${cleanLaneSuffix}`;
+           }
+           if (tradeSourceMeta.source === "archive") {
+             return `Source: archived run${tradeSourceMeta.archiveRunId ? ` · ${archiveLabel || shortRunId(tradeSourceMeta.archiveRunId)}` : ""}`;
+@@ -2002,7 +2039,7 @@
+           if (tradeSourceMeta.source === "trades_d1") {
+             return "Source: trades D1";
+           }
+-          if (filterRunId === RUN_FILTER_LIVE) return "Source: live replay";
++          if (filterRunId === RUN_FILTER_LIVE) return `Source: live replay${cleanLaneSuffix}`;
+           if (filterRunId === RUN_FILTER_LATEST) return "Source: latest completed run";
+           if (filterRunId) return `Source: selected run · ${selectedLabel || shortRunId(filterRunId)}`;
+           return "Source: all available trades";
+@@ -2169,7 +2206,7 @@
+                 <div className="tt-card p-6 text-center text-[#ef4444]">{error}</div>
+               )}
+ 
+-              {!loading && !error && liveRun && (
++              {!loading && !error && (liveRun || filterRunId === RUN_FILTER_LIVE) && (
+                 <div className={`tt-card p-4 mb-4 ${filterRunId === RUN_FILTER_LIVE ? "border-[#f59e0b]/30 bg-[#f59e0b]/[0.03]" : ""}`}>
+                   <div className="flex items-center gap-3">
+                     <div className="relative flex-shrink-0">
+@@ -2177,10 +2214,10 @@
+                     </div>
+                     <div className="flex-1 min-w-0">
+                       <p className="text-[13px] text-white font-medium">
+-                        Backtest in progress{liveRun.label ? `: ${liveRun.label}` : ""}
++                        Backtest in progress{liveRun?.label ? `: ${liveRun.label}` : ""}
+                       </p>
+                       <p className="text-[12px] text-[#6b7280] mt-0.5">
+-                        {liveRun.start_date || ""} → {liveRun.end_date || ""} · {liveRun.status_note || liveRun.status || "running"}
++                        {liveRun?.start_date || ""} {liveRun ? "→" : ""} {liveRun?.end_date || ""}{liveRun ? ` · ${liveRun.status_note || liveRun.status || "running"}` : "Polling live replay feed"}
+                       </p>
+                     </div>
+                     <div className="flex items-center gap-2 shrink-0">
+@@ -2202,19 +2239,19 @@
+                     <div className="mt-3 pt-3 border-t border-white/[0.06]">
+                       <div className="flex items-center gap-2 text-[12px] text-[#9ca3af]">
+                         <div className="loading-spinner" style={{ width: 16, height: 16 }} />
+-                        <span>Waiting for trades — the backtest is backfilling candle data before replay begins. Trades will appear here automatically.</span>
++                        <span>Waiting for live trades. They will appear here automatically once replay starts closing or trimming positions.</span>
+                       </div>
+                     </div>
+                   )}
+                   {filterRunId === RUN_FILTER_LIVE && trades.length > 0 && (
+                     <div className="mt-3 pt-3 border-t border-white/[0.06]">
+-                      <p className="text-[12px] text-[#9ca3af]">{trades.length} trade{trades.length !== 1 ? "s" : ""} so far · auto-refreshing every 60s</p>
++                      <p className="text-[12px] text-[#9ca3af]">{trades.length} trade{trades.length !== 1 ? "s" : ""} so far · auto-refreshing every 15s</p>
+                     </div>
+                   )}
+                 </div>
+               )}
+ 
+-              {!loading && !error && trades.length === 0 && !liveRun && (
++              {!loading && !error && trades.length === 0 && !liveRun && filterRunId !== RUN_FILTER_LIVE && (
+                 <div className="tt-card p-12 text-center text-[#6b7280]">No closed trades to review.</div>
+               )}
+ 
+diff --git a/scripts/export-focused-run-artifacts.js b/scripts/export-focused-run-artifacts.js
+index 9b7286a..30ba78d 100644
+--- a/scripts/export-focused-run-artifacts.js
++++ b/scripts/export-focused-run-artifacts.js
+@@ -45,6 +45,43 @@ function safeNum(v, fallback = 0) {
+   return Number.isFinite(n) ? n : fallback;
+ }
+ 
++function logicalTradeKey(row) {
++  const ticker = String(row?.ticker || "").toUpperCase();
++  const direction = String(row?.direction || "").toUpperCase();
++  const entryTs = Number(row?.entry_ts);
++  return `${ticker}:${direction}:${Number.isFinite(entryTs) && entryTs > 0 ? entryTs : String(row?.trade_id || "")}`;
++}
++
++function logicalTradePreferenceScore(row) {
++  const status = String(row?.status || "").toUpperCase();
++  const closed = ["WIN", "LOSS", "FLAT"].includes(status) ? 1 : 0;
++  const hasExit = Number.isFinite(Number(row?.exit_ts)) && Number(row.exit_ts) > 0 ? 1 : 0;
++  const hasTrim = Number.isFinite(Number(row?.trimmed_pct)) && Number(row.trimmed_pct) > 0 ? 1 : 0;
++  const hasTrimPrice = Number.isFinite(Number(row?.trim_price)) && Number(row.trim_price) > 0 ? 1 : 0;
++  const updatedAt = Number(row?.updated_at) || 0;
++  const pnlAbs = Math.abs(Number(row?.pnl) || 0);
++  return (
++    closed * 1e15 +
++    hasExit * 1e14 +
++    hasTrim * 1e13 +
++    hasTrimPrice * 1e12 +
++    pnlAbs * 1e6 +
++    updatedAt
++  );
++}
++
++function dedupeTrades(rows) {
++  const bestByKey = new Map();
++  for (const row of Array.isArray(rows) ? rows : []) {
++    const key = logicalTradeKey(row);
++    const existing = bestByKey.get(key);
++    if (!existing || logicalTradePreferenceScore(row) >= logicalTradePreferenceScore(existing)) {
++      bestByKey.set(key, row);
++    }
++  }
++  return [...bestByKey.values()].sort((a, b) => safeNum(b.entry_ts) - safeNum(a.entry_ts));
++}
++
+ function fetchJson(url) {
+   try {
+     return JSON.parse(execSync(`curl -sS "${url}"`, {
+@@ -157,7 +194,7 @@ function summarizeBuckets(trades, keyFn) {
+   return Array.from(map.values());
+ }
+ 
+-const rows = loadRunTrades();
++const rows = dedupeTrades(loadRunTrades());
+ const runConfigBundle = loadRunConfig();
+ const runConfig = runConfigBundle.config || {};
+ 
+diff --git a/scripts/replay-focused.sh b/scripts/replay-focused.sh
+index c068669..61372eb 100755
+--- a/scripts/replay-focused.sh
++++ b/scripts/replay-focused.sh
+@@ -223,7 +223,31 @@ echo ""
+ 
+ # Step 1.6: Register focused run so config is snapshotted immediately
+ echo "Step 1.6: Registering focused run..."
+-REGISTER_PAYLOAD=$(jq -nc   --arg run_id "$REPLAY_LOCK"   --arg label "$RUN_LABEL"   --arg description "Focused replay for $TICKERS from $START_DATE to $END_DATE"   --arg start_date "$START_DATE"   --arg end_date "$END_DATE"   --argjson interval_min "$INTERVAL_MIN"   --argjson ticker_batch 0   --argjson ticker_universe_count 0   --arg status "running"   --arg status_note "Focused replay started"   --argjson trader_only true   --argjson keep_open_at_end false   --argjson low_write false   --argjson active_experiment_slot false   --arg config_file "$CONFIG_FILE"   --arg config_source_run_id "$CONFIG_OVERRIDE_SOURCE_RUN_ID"   --arg dataset_manifest "$FROZEN_DATASET_MANIFEST"   --argjson config_key_count "$CONFIG_OVERRIDE_KEY_COUNT"   --argjson config_override "$CONFIG_OVERRIDE_JSON"   --argjson params "$(jq -nc     --arg tickers "$TICKERS"     --arg snapshot_ts "$SNAPSHOT_TS"     --arg git_sha "$GIT_SHA"     --arg config_file "$CONFIG_FILE"     --arg config_source_run_id "$CONFIG_OVERRIDE_SOURCE_RUN_ID"     --arg dataset_manifest "$FROZEN_DATASET_MANIFEST"     --argjson config_key_count "$CONFIG_OVERRIDE_KEY_COUNT"     --argjson clean_slate "$([[ "$CLEAN_SLATE" -eq 1 ]] && echo true || echo false)"     --argjson skip_backfill "$([[ "$SKIP_BACKFILL" -eq 1 ]] && echo true || echo false)"     --argjson skip_market_events "$([[ "$SKIP_MARKET_EVENTS" -eq 1 ]] && echo true || echo false)"     '{tickers: ($tickers | split(",") | map(select(length > 0))), snapshot_ts: $snapshot_ts, git_sha: ($git_sha | select(length > 0)), config_file: ($config_file | select(length > 0)), config_source_run_id: ($config_source_run_id | select(length > 0)), dataset_manifest: ($dataset_manifest | select(length > 0)), config_key_count: (if $config_key_count > 0 then $config_key_count else empty end), clean_slate: $clean_slate, skip_backfill: $skip_backfill, skip_market_events: $skip_market_events}')"   --argjson tags "$(jq -nc --arg label "$RUN_LABEL" '[$label, "focused_replay"] | map(select(length > 0))')"   '{
++RUN_PARAMS_JSON=$(jq -nc \
++  --arg tickers "$TICKERS" \
++  --arg snapshot_ts "$SNAPSHOT_TS" \
++  --arg git_sha "$GIT_SHA" \
++  --arg config_file "$CONFIG_FILE" \
++  --arg config_source_run_id "$CONFIG_OVERRIDE_SOURCE_RUN_ID" \
++  --arg dataset_manifest "$FROZEN_DATASET_MANIFEST" \
++  --argjson config_key_count "$CONFIG_OVERRIDE_KEY_COUNT" \
++  --argjson clean_slate "$([[ "$CLEAN_SLATE" -eq 1 ]] && echo true || echo false)" \
++  --argjson skip_backfill "$([[ "$SKIP_BACKFILL" -eq 1 ]] && echo true || echo false)" \
++  --argjson skip_market_events "$([[ "$SKIP_MARKET_EVENTS" -eq 1 ]] && echo true || echo false)" \
++  '({
++    tickers: ($tickers | split(",") | map(select(length > 0))),
++    snapshot_ts: $snapshot_ts,
++    clean_slate: $clean_slate,
++    skip_backfill: $skip_backfill,
++    skip_market_events: $skip_market_events
++  }
++  + (if ($git_sha | length) > 0 then { git_sha: $git_sha } else {} end)
++  + (if ($config_file | length) > 0 then { config_file: $config_file } else {} end)
++  + (if ($config_source_run_id | length) > 0 then { config_source_run_id: $config_source_run_id } else {} end)
++  + (if ($dataset_manifest | length) > 0 then { dataset_manifest: $dataset_manifest } else {} end)
++  + (if $config_key_count > 0 then { config_key_count: $config_key_count } else {} end))')
++RUN_TAGS_JSON=$(jq -nc --arg label "$RUN_LABEL" '[$label, "focused_replay"] | map(select(length > 0))')
++REGISTER_PAYLOAD=$(jq -nc   --arg run_id "$REPLAY_LOCK"   --arg label "$RUN_LABEL"   --arg description "Focused replay for $TICKERS from $START_DATE to $END_DATE"   --arg start_date "$START_DATE"   --arg end_date "$END_DATE"   --argjson interval_min "$INTERVAL_MIN"   --argjson ticker_batch 0   --argjson ticker_universe_count 0   --arg status "running"   --arg status_note "Focused replay started"   --argjson trader_only true   --argjson keep_open_at_end false   --argjson low_write false   --argjson active_experiment_slot false   --arg config_file "$CONFIG_FILE"   --arg config_source_run_id "$CONFIG_OVERRIDE_SOURCE_RUN_ID"   --arg dataset_manifest "$FROZEN_DATASET_MANIFEST"   --argjson config_key_count "$CONFIG_OVERRIDE_KEY_COUNT"   --arg config_override_json "$CONFIG_OVERRIDE_JSON"   --arg params_json "$RUN_PARAMS_JSON"   --arg tags_json "$RUN_TAGS_JSON"   '{
+     run_id: $run_id,
+     label: $label,
+     description: $description,
+@@ -238,9 +262,9 @@ REGISTER_PAYLOAD=$(jq -nc   --arg run_id "$REPLAY_LOCK"   --arg label "$RUN_LABE
+     status: $status,
+     status_note: $status_note,
+     active_experiment_slot: $active_experiment_slot,
+-    params: $params,
+-    tags: $tags,
+-    config_override: (if ($config_override | type) == "object" and ($config_override | length) > 0 then $config_override else empty end)
++    params: ($params_json | fromjson),
++    tags: ($tags_json | fromjson),
++    config_override: (($config_override_json | fromjson) as $cfg | if ($cfg | type) == "object" and ($cfg | length) > 0 then $cfg else empty end)
+   }')
+ REGISTER_RESULT=$(curl -s -m 30 -X POST "$API_BASE/timed/admin/runs/register?key=$API_KEY"   -H "Content-Type: application/json"   -d "$REGISTER_PAYLOAD")
+ if ! echo "$REGISTER_RESULT" | jq -e '.ok' >/dev/null 2>&1; then
+@@ -256,6 +280,7 @@ CURRENT_DATE="$START_DATE"
+ DAY_COUNT=0
+ TOTAL_SCORED=0
+ TOTAL_TRADES=0
++LAST_TOTAL_TRADES=0
+ 
+ while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]]; do
+   DOW=$(date -j -f "%Y-%m-%d" "$CURRENT_DATE" "+%u" 2>/dev/null || date -d "$CURRENT_DATE" "+%u")
+@@ -280,6 +305,7 @@ while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]
+ 
+   SCORED=$(echo "$RESULT" | jq -r '.scored // 0' 2>/dev/null || echo "0")
+   TRADES=$(echo "$RESULT" | jq -r '.tradesCreated // 0' 2>/dev/null || echo "0")
++  LAST_TOTAL_TRADES=$(echo "$RESULT" | jq -r '.totalTrades // 0' 2>/dev/null || echo "0")
+   TOTAL_SCORED=$((TOTAL_SCORED + SCORED))
+   TOTAL_TRADES=$((TOTAL_TRADES + TRADES))
+ 
+@@ -339,7 +365,9 @@ cat > "$OUT_DIR/manifest.json" <<EOF
+   "interval_min": $INTERVAL_MIN,
+   "days_processed": $DAY_COUNT,
+   "total_scored": $TOTAL_SCORED,
+-  "created_trade_events": $TOTAL_TRADES,
++  "created_trade_events": $ARCHIVED_TRADE_COUNT,
++  "replay_reported_trade_increments": $TOTAL_TRADES,
++  "last_replay_total_trades": $LAST_TOTAL_TRADES,
+   "archived_trade_count": $ARCHIVED_TRADE_COUNT,
+   "archived_closed_trade_count": $ARCHIVED_CLOSED_COUNT,
+   "archived_config_count": $ARCHIVED_CONFIG_FILE_COUNT,
+@@ -355,7 +383,7 @@ EOF
+ echo ""
+ echo "╔══════════════════════════════════════════════════════╗"
+ echo "║  Focused Replay Complete"
+-echo "║  Days: $DAY_COUNT | Scored: $TOTAL_SCORED | Created: $TOTAL_TRADES | Archived: $ARCHIVED_TRADE_COUNT"
++echo "║  Days: $DAY_COUNT | Scored: $TOTAL_SCORED | Run Trades: $ARCHIVED_TRADE_COUNT | Replay increments: $TOTAL_TRADES"
+ echo "║  Artifacts: $OUT_DIR"
+ echo "╚══════════════════════════════════════════════════════╝"
+ 
+diff --git a/worker/index.js b/worker/index.js
+index 1cfd27c..c5b1b79 100644
+--- a/worker/index.js
++++ b/worker/index.js
+@@ -137,6 +137,27 @@ import {
+   fetchForexFactoryCalendar,
+ } from "./daily-brief.js";
+ import { seedHistoricalMarketEvents } from "./market-events-seed.js";
++import {
++  resolveStaticBehaviorProfile,
++  normalizeLearnedTickerProfile,
++  resolveTickerProfileContext,
++  buildTickerCharacterEvidence,
++} from "./profile-resolution.js";
++import {
++  resolveMarketVolatilityRegime,
++  resolveMarketBackdropClass,
++  resolveRegimeVocabulary,
++} from "./regime-vocabulary.js";
++import {
++  recordAdaptiveLineageFact,
++  buildAdaptiveInfluenceSnapshot,
++} from "./adaptive-lineage.js";
++import {
++  buildRunOperatorSummary,
++  buildActiveRunReadModel,
++  buildRunDetailReadModel,
++  buildTradeAutopsyReadModel,
++} from "./read-models.js";
+ import {
+   sendEmail,
+   sendWelcomeEmail,
+@@ -159,7 +180,7 @@ import {
+   computeETFWeightBoost,
+   loadETFWeightMap,
+ } from "./etf-holdings.js";
+-import { buildTradeContext, parseBool as pipelineParseBool } from "./pipeline/trade-context.js";
++import { buildTradeContext } from "./pipeline/trade-context.js";
+ import { runUniversalGates } from "./pipeline/gates.js";
+ import {
+   gatherSizingMultipliers,
+@@ -169,7 +190,7 @@ import {
+   PORTFOLIO_START_CASH as PIPELINE_PORTFOLIO_START_CASH,
+ } from "./pipeline/sizing.js";
+ import { evaluateEntry, registerEntryEngine, hasEngine } from "./pipeline/entry-engine.js";
+-import { evaluateExit, registerExitEngine, hasExitEngine } from "./pipeline/exit-engine.js";
++import { registerExitEngine, hasExitEngine } from "./pipeline/exit-engine.js";
+ import { evaluateEntry as ttCoreEvaluateEntry } from "./pipeline/tt-core-entry.js";
+ import { evaluateEntry as ripsterEvaluateEntry } from "./pipeline/ripster-entry.js";
+ import { evaluateEntry as legacyEvaluateEntry } from "./pipeline/legacy-entry.js";
+@@ -177,6 +198,7 @@ import { enrichEntry } from "./pipeline/enrichment.js";
+ import { evaluateExit as ttCoreEvaluateExit } from "./pipeline/tt-core-exit.js";
+ import { evaluateExit as ripsterEvaluateExit } from "./pipeline/ripster-exit.js";
+ import { evaluateExit as legacyEvaluateExit } from "./pipeline/legacy-exit.js";
++import { runLifecycleEngineSeam } from "./pipeline/lifecycle-seam.js";
+ import {
+   buildCIOProposal as _cioBuildProposal,
+   buildCIOLifecycleProposal as _cioBuildLifecycleProposal,
+@@ -591,6 +613,7 @@ const ROUTES = [
+   ["POST", "/timed/admin/runs/register", "POST /timed/admin/runs/register"],
+   ["POST", "/timed/admin/runs/finalize", "POST /timed/admin/runs/finalize"],
+   ["POST", "/timed/admin/runs/mark-live", "POST /timed/admin/runs/mark-live"],
++  ["POST", "/timed/admin/runs/validate-sentinels", "POST /timed/admin/runs/validate-sentinels"],
+   ["POST", "/timed/admin/runs/archive", "POST /timed/admin/runs/archive"],
+   ["POST", "/timed/admin/runs/update", "POST /timed/admin/runs/update"],
+   ["POST", "/timed/admin/runs/delete", "POST /timed/admin/runs/delete"],
+@@ -599,6 +622,7 @@ const ROUTES = [
+   ["GET", "/timed/admin/runs/detail", "GET /timed/admin/runs/detail"],
+   ["GET", "/timed/admin/runs/trades", "GET /timed/admin/runs/trades"],
+   ["GET", "/timed/admin/runs/config", "GET /timed/admin/runs/config"],
++  ["GET", "/timed/admin/runs/validations", "GET /timed/admin/runs/validations"],
+   ["POST", "/timed/admin/run-lifecycle", "POST /timed/admin/run-lifecycle"],
+   ["POST", "/timed/admin/model-resolve", "POST /timed/admin/model-resolve"],
+   ["POST", "/timed/admin/model-retro", "POST /timed/admin/model-retro"],
+@@ -2600,37 +2624,8 @@ function computeCompletionToTier(tickerData, tier = "TRIM") {
+   return Math.min(1, currentMove / totalMove);
+ }
+ 
+-// ═══════════════════════════════════════════════════════════════════════════
+-// TICKER BEHAVIOR PROFILES — data-driven from 421-trade backtest analysis.
+-// Each profile adjusts SL width, DOA speed, max hold, and min rank per ticker.
+-// ═══════════════════════════════════════════════════════════════════════════
+-const TICKER_BEHAVIOR_PROFILES = {
+-  trend_rider: { sl_mult: 1.5, doa_hours: 8, max_hold_hours: 504, min_rank: 65, label: "Trend-Rider" },
+-  high_vol:    { sl_mult: 2.0, doa_hours: 3, max_hold_hours: 168, min_rank: 75, label: "High-Vol Quick-Fail" },
+-  churner:     { sl_mult: 1.2, doa_hours: 4, max_hold_hours: 336, min_rank: 80, label: "High-Freq Churner" },
+-  catastrophic:{ sl_mult: 1.0, doa_hours: 4, max_hold_hours: 168, min_rank: 80, max_loss_usd: 500, label: "Catastrophic Hold" },
+-  default:     { sl_mult: 1.2, doa_hours: 6, max_hold_hours: 504, min_rank: 70, label: "Default" },
+-};
+-
+-const TICKER_PROFILE_MAP = {
+-  AVGO: "trend_rider", PH: "trend_rider", KTOS: "trend_rider", MLI: "trend_rider",
+-  HII: "trend_rider", TJX: "trend_rider", MNST: "trend_rider", CSX: "trend_rider",
+-  FN: "trend_rider", JCI: "trend_rider", STRL: "trend_rider", DY: "trend_rider",
+-
+-  CLS: "high_vol", BE: "high_vol", IESC: "high_vol", LITE: "high_vol",
+-  IONQ: "high_vol", PLTR: "high_vol", RKLB: "high_vol", RDDT: "high_vol", TSLA: "high_vol",
+-
+-  CAT: "churner", FIX: "churner", BABA: "churner", WMT: "churner", H: "churner",
+-  GE: "churner", PWR: "churner", DCI: "churner", WTS: "churner",
+-
+-  META: "catastrophic", LRN: "catastrophic", APP: "catastrophic", CCJ: "catastrophic",
+-  CDNS: "catastrophic", TT: "catastrophic", MDB: "catastrophic", ORCL: "catastrophic",
+-  ON: "catastrophic", SGI: "catastrophic",
+-};
+-
+ function getTickerProfile(sym) {
+-  const key = TICKER_PROFILE_MAP[String(sym || "").toUpperCase()] || "default";
+-  return { ...TICKER_BEHAVIOR_PROFILES[key], profileKey: key };
++  return resolveStaticBehaviorProfile(sym);
+ }
+ 
+ function parseBoolFlag(v, defaultVal = false) {
+@@ -2653,34 +2648,11 @@ let _referenceExecutionMapCache = null;
+ let _scenarioExecutionPolicyCache = null;
+ 
+ function classifyVixRegime(vix) {
+-  if (vix == null || !Number.isFinite(vix)) return "unknown";
+-  if (vix < 15) return "low_vol";
+-  if (vix < 20) return "normal";
+-  if (vix < 25) return "elevated";
+-  if (vix < 30) return "high_vol";
+-  return "extreme";
++  return String(resolveMarketVolatilityRegime(vix) || "UNKNOWN").toLowerCase();
+ }
+ 
+ function classifyMarketRegime(d) {
+-  const vix = Number(d?._vix) || 0;
+-  const vixR = classifyVixRegime(vix);
+-  if (vixR === "high_vol" || vixR === "extreme") return "crisis";
+-  const mktRegime = String(d?._env?._marketRegime?.regime || "").toUpperCase();
+-  const spyHtf = Number(d?._env?._marketRegime?.htf_score);
+-  let trend = "sideways";
+-  if (Number.isFinite(spyHtf)) {
+-    if (spyHtf > 5) trend = "uptrend";
+-    else if (spyHtf < -5) trend = "downtrend";
+-  } else if (mktRegime.includes("BULL") || mktRegime.includes("UPTREND")) {
+-    trend = "uptrend";
+-  } else if (mktRegime.includes("BEAR") || mktRegime.includes("DOWNTREND")) {
+-    trend = "downtrend";
+-  }
+-  if (trend === "uptrend" && (vixR === "low_vol" || vixR === "normal")) return "bull_calm";
+-  if (trend === "uptrend") return "bull_elevated";
+-  if (trend === "downtrend" && (vixR === "low_vol" || vixR === "normal")) return "bear_calm";
+-  if (trend === "downtrend") return "bear_elevated";
+-  return "choppy";
++  return String(resolveMarketBackdropClass(d) || "CHOPPY").toLowerCase();
+ }
+ 
+ function _inferDirectionForEngineResolution(d) {
+@@ -3600,6 +3572,16 @@ function qualifiesForEnter(d, asOfTs = null) {
+   d.__selected_management_engine = engineResolution.managementEngine || resolveEngineMode(d?._env?._managementEngine);
+   d.__engine_source = engineResolution.source || d.__engine_source || null;
+   if (engineResolution.reference) d.__reference_execution = engineResolution.reference;
++  recordAdaptiveLineageFact(d, "entry_engine_resolution", {
++    source: engineResolution.source || null,
++    selected_engine: entryEngine || null,
++    selected_management_engine: d.__selected_management_engine || null,
++    blocked: engineResolution.blocked === true,
++    regime: engineResolution.regime || null,
++    sector: engineResolution.sector || null,
++    direction: engineResolution.direction || null,
++    score: Number.isFinite(Number(engineResolution.score)) ? Number(engineResolution.score) : null,
++  });
+   const ripsterTuneV2 = parseBoolFlag(d?._env?._ripsterTuneV2, false);
+   const leadingLtf = resolveLeadingLtf(d);
+   const leadingLtfLabel = leadingLtf === "30" ? "30m" : leadingLtf === "15" ? "15m" : "10m";
+@@ -3689,6 +3671,10 @@ function qualifiesForEnter(d, asOfTs = null) {
+       _dispatched.learningPolicy = engineResolution.learningPolicy;
+       d.__learning_policy = engineResolution.learningPolicy;
+       d.__learning_policy_source = engineResolution.learningPolicy?.source || "ticker_learning_policy";
++      recordAdaptiveLineageFact(d, "engine_learning_policy", {
++        source: d.__learning_policy_source,
++        recommend: engineResolution.learningPolicy?.recommend || null,
++      });
+     }
+     const _scenarioPolicy = _resolveScenarioExecutionPolicy(
+       d,
+@@ -3703,11 +3689,21 @@ function qualifiesForEnter(d, asOfTs = null) {
+       _dispatched.scenarioPolicy = _scenarioPolicy;
+       d.__scenario_policy = _scenarioPolicy;
+       d.__scenario_policy_source = _scenarioPolicy?.source || "scenario_policy";
++      recordAdaptiveLineageFact(d, "scenario_policy_entry_path", {
++        source: d.__scenario_policy_source,
++        path: _dispatched.path || null,
++        recommend: _scenarioPolicy?.recommend || null,
++      });
+     }
+     if (_learningPolicy) {
+       _dispatched.learningPolicy = _learningPolicy;
+       d.__learning_policy = _learningPolicy;
+       d.__learning_policy_source = _learningPolicy?.source || "ticker_learning_policy";
++      recordAdaptiveLineageFact(d, "ticker_learning_policy", {
++        source: d.__learning_policy_source,
++        path: _dispatched.path || null,
++        recommend: _learningPolicy?.recommend || null,
++      });
+     }
+     if (_dispatched.qualifies) {
+       if (entryEngine === "tt_core") {
+@@ -3716,6 +3712,11 @@ function qualifiesForEnter(d, asOfTs = null) {
+       }
+       const _learningPolicyGuard = _applyTickerLearningPolicyGuard(d, inferredSide, _dispatched.path || d?.__entry_path || null, _learningPolicy);
+       if (_learningPolicyGuard?.block) {
++        recordAdaptiveLineageFact(d, "learning_policy_guard", {
++          block: true,
++          reason: _learningPolicyGuard.reason || null,
++          source: _learningPolicyGuard.learningPolicy?.source || _learningPolicy?.source || null,
++        });
+         return { qualifies: false, reason: _learningPolicyGuard.reason, learningPolicy: _learningPolicyGuard.learningPolicy || _learningPolicy };
+       }
+       const _enriched = enrichEntry(_dispatched, _ctx);
+@@ -3728,12 +3729,22 @@ function qualifiesForEnter(d, asOfTs = null) {
+         _enriched.selectedManagementEngine = resolveEngineMode(_learningPolicy?.recommend?.management_engine) || _enriched.selectedManagementEngine;
+         d.__learning_policy = _learningPolicy;
+         d.__learning_policy_source = _learningPolicy?.source || "ticker_learning_policy";
++        recordAdaptiveLineageFact(d, "learning_policy_management_overlay", {
++          source: d.__learning_policy_source,
++          selected_management_engine: _enriched.selectedManagementEngine || null,
++          recommend: _learningPolicy?.recommend || null,
++        });
+       }
+       if (_scenarioPolicy) {
+         _enriched.scenarioPolicy = _scenarioPolicy;
+         _enriched.selectedManagementEngine = resolveEngineMode(_scenarioPolicy?.recommend?.management_engine) || _enriched.selectedManagementEngine;
+         d.__scenario_policy = _scenarioPolicy;
+         d.__scenario_policy_source = _scenarioPolicy?.source || "scenario_policy";
++        recordAdaptiveLineageFact(d, "scenario_policy_management_overlay", {
++          source: d.__scenario_policy_source,
++          selected_management_engine: _enriched.selectedManagementEngine || null,
++          recommend: _scenarioPolicy?.recommend || null,
++        });
+       }
+       return _enriched;
+     }
+@@ -4899,6 +4910,11 @@ function qualifiesForEnter(d, asOfTs = null) {
+     if (_pdzSizeMult !== 1.0) {
+       d.__pdz_size_mult = _pdzSizeMult;
+       result.pdz_size_mult = _pdzSizeMult;
++      recordAdaptiveLineageFact(d, "pdz_sizing_overlay", {
++        pdz_zone: _pdzZoneForSizing,
++        side: _pdzSide,
++        pdz_size_mult: _pdzSizeMult,
++      });
+     }
+     result.selectedEngine = entryEngine;
+     result.selectedManagementEngine = engineResolution.managementEngine || resolveEngineMode(d?._env?._managementEngine);
+@@ -5020,8 +5036,11 @@ function qualifiesForEnter(d, asOfTs = null) {
+     const _learnedExtremeFriendly = inferredSide === "LONG"
+       ? (String(_entryParams.long_rsi_sweet_spot || "").toLowerCase() === "high" && Number(_rsiAtOrigin.high_zone_pct) >= daRsiExtremeProfileMinPct)
+       : (String(_entryParams.short_rsi_sweet_spot || "").toLowerCase() === "low" && Number(_rsiAtOrigin.low_zone_pct) >= daRsiExtremeProfileMinPct);
+-    const ltfOpposedLong = inferredSide === "LONG" && stDir10m === 1 && stDir30m === 1;
+-    const ltfOpposedShort = inferredSide === "SHORT" && stDir10m === -1 && stDir30m === -1;
++    const stDir15mLtfGate = Number(d?.tf_tech?.["15"]?.stDir) || 0;
++    const ltfOpposedLong = inferredSide === "LONG" && stDir30m === 1
++      && (stDir10m === 1 || (stDir10m === 0 && stDir15mLtfGate === 1));
++    const ltfOpposedShort = inferredSide === "SHORT" && stDir30m === -1
++      && (stDir10m === -1 || (stDir10m === 0 && stDir15mLtfGate === -1));
+ 
+     if (ripsterTuneV2 && (chasingLong || chasingShort) && momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
+       return {
+@@ -5280,12 +5299,15 @@ function qualifiesForEnter(d, asOfTs = null) {
+   // LTF SuperTrend alignment: block when BOTH leading LTF + 30m ST oppose trade direction.
+   // Pullbacks: still require at least one LTF ST aligned (full opposition = breakdown, not dip).
+   const stDir10m = d?.tf_tech?.[leadingLtf]?.stDir ?? 0;
++  const stDir15m = d?.tf_tech?.["15"]?.stDir ?? 0;
+   const stDir30m = d?.tf_tech?.["30"]?.stDir ?? 0;
+-  if (inferredSide === "LONG" && stDir10m === 1 && stDir30m === 1) {
+-    return { qualifies: false, reason: isPullback ? "ltf_st_both_bearish_pullback" : "ltf_st_both_bearish", stDir10m, stDir30m, leadingLtf };
++  const ltfBearishLong = stDir10m === 1 || (stDir10m === 0 && stDir15m === 1);
++  const ltfBullishShort = stDir10m === -1 || (stDir10m === 0 && stDir15m === -1);
++  if (inferredSide === "LONG" && ltfBearishLong && stDir30m === 1) {
++    return { qualifies: false, reason: isPullback ? "ltf_st_both_bearish_pullback" : "ltf_st_both_bearish", stDir10m, stDir15m, stDir30m, leadingLtf };
+   }
+-  if (inferredSide === "SHORT" && stDir10m === -1 && stDir30m === -1) {
+-    return { qualifies: false, reason: isPullback ? "ltf_st_both_bullish_pullback" : "ltf_st_both_bullish", stDir10m, stDir30m, leadingLtf };
++  if (inferredSide === "SHORT" && ltfBullishShort && stDir30m === -1) {
++    return { qualifies: false, reason: isPullback ? "ltf_st_both_bullish_pullback" : "ltf_st_both_bullish", stDir10m, stDir15m, stDir30m, leadingLtf };
+   }
+ 
+   // ═══════════════════════════════════════════════════════════════════════════
+@@ -5358,10 +5380,20 @@ function qualifiesForEnter(d, asOfTs = null) {
+ 
+   // Ticker behavior profile gate: enforce profile-specific min rank
+   const _sym = String(d?.sym || d?.ticker || "").toUpperCase();
+-  const _tickerProfile = getTickerProfile(_sym);
+-  d.__ticker_profile = _tickerProfile;
+-  if (_tickerProfile.min_rank > 0 && score < _tickerProfile.min_rank) {
+-    return { qualifies: false, reason: "ticker_profile_rank_gate", rank: score, required: _tickerProfile.min_rank, profile: _tickerProfile.profileKey };
++  const _profileContext = resolveTickerProfileContext(_sym, d?._tickerProfile, {
++    learnedSource: d?.__profile_resolution?.learned_profile_source || null,
++  });
++  const _staticBehaviorProfile = _profileContext.staticBehaviorProfile;
++  d.__static_behavior_profile = _staticBehaviorProfile;
++  d.__profile_resolution = _profileContext.lineage;
++  if (_staticBehaviorProfile.minRank > 0 && score < _staticBehaviorProfile.minRank) {
++    return {
++      qualifies: false,
++      reason: "ticker_profile_rank_gate",
++      rank: score,
++      required: _staticBehaviorProfile.minRank,
++      profile: _staticBehaviorProfile.profileKey,
++    };
+   }
+ 
+   // Elliott Wave context (soft annotation, not a gate).
+@@ -5912,7 +5944,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
+     const leadTfTech = tickerData?.tf_tech?.[leadingLtf] || tickerData?.tf_tech?.["10"] || {};
+     const mgmtTfTech = tickerData?.tf_tech?.["30"] || tickerData?.tf_tech?.["15"] || leadTfTech;
+     const mgmt1HTfTech = tickerData?.tf_tech?.["1H"] || tickerData?.tf_tech?.["60"] || {};
+-    const _tickerProfileMgmt = getTickerProfile(String(tickerData?.ticker || "").toUpperCase());
++    const _staticBehaviorProfileMgmt = resolveStaticBehaviorProfile(String(tickerData?.ticker || "").toUpperCase());
+     const currentTrimPct = clamp(Number(openPosition?.trimmedPct ?? openPosition?.trimmed_pct ?? 0), 0, 1);
+     
+     // Calculate P&L
+@@ -5977,44 +6009,23 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
+       tickerData?._env?._managementEngine
+     );
+     const ripsterTuneV2 = parseBoolFlag(tickerData?._env?._ripsterTuneV2, false);
+-    const allowTtCoreInlineLifecycle = managementEngine === "tt_core";
+-    if (managementEngine === "tt_core" || managementEngine === "ripster_core") {
+-      try {
+-        const _exitCtx = buildTradeContext(tickerData, now);
+-        const _exitResult = evaluateExit(_exitCtx, openPosition);
+-        if (_exitResult && _exitResult.stage) {
+-          const _pipelineStage = String(_exitResult.stage || "");
+-          const _allowInlineLifecycleFallback = allowTtCoreInlineLifecycle;
+-          if (!_allowInlineLifecycleFallback) {
+-            tickerData.__exit_reason = _exitResult.reason || _pipelineStage;
+-            tickerData.__exit_family = _exitResult.family || "";
+-            if (_pipelineStage === "trim") tickerData.__trim_reason = _exitResult.reason;
+-            if (_pipelineStage === "defend") tickerData.__defend_reason = _exitResult.reason;
+-          } else {
+-            if (_pipelineStage === "defend") {
+-              tickerData.__defend_reason = _exitResult.reason;
+-              if (isSoftFuseDeferredReason(_exitResult.reason)) {
+-                tickerData.__force_defend_stage = true;
+-                tickerData.__exit_family = _exitResult.family || "tt_context";
+-              }
+-            }
+-          }
+-          if (openPosition?.__tradeRef && typeof openPosition.__tradeRef === "object") {
+-            openPosition.__tradeRef.ripster_pending_5_12 = openPosition.ripster_pending_5_12 || 0;
+-            openPosition.__tradeRef.ripster_pending_34_50 = openPosition.ripster_pending_34_50 || 0;
+-          }
+-          if (!_allowInlineLifecycleFallback) {
+-            return _pipelineStage;
+-          }
+-        }
+-      } catch (_exitErr) {
+-        console.warn("[EXIT ENGINE] dispatch error:", String(_exitErr?.message || _exitErr).slice(0, 150));
+-      }
++    const lifecycleDispatch = runLifecycleEngineSeam({
++      tickerData,
++      openPosition,
++      now,
++      managementEngine,
++      isSoftFuseDeferredReason,
++    });
++    if (lifecycleDispatch?.error) {
++      console.warn("[EXIT ENGINE] dispatch error:", String(lifecycleDispatch.error?.message || lifecycleDispatch.error).slice(0, 150));
++    }
++    if (lifecycleDispatch?.handled) {
++      return lifecycleDispatch.stage;
+     }
+     // ─────────────────────────────────────────────────────────────────────────
+     // LEGACY INLINE CLOUD MANAGEMENT (fallback when pipeline engine returns null)
+     // ─────────────────────────────────────────────────────────────────────────
+-    if (managementEngine === "ripster_core" || allowTtCoreInlineLifecycle) {
++    if (lifecycleDispatch?.continueInlineFallback) {
+       const _tfTechRow = (td, key) => td?.tf_tech?.[key] || null;
+       const rt10 = _tfTechRow(tickerData, "10")?.ripster;
+       const rt30 = _tfTechRow(tickerData, "30")?.ripster;
+@@ -6063,6 +6074,18 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
+       const _lost72_89_1H = direction === "LONG"
+         ? !!(c72_89_1H?.bear || c72_89_1H?.below)
+         : !!(c72_89_1H?.bull || c72_89_1H?.above);
++      const _trendHealth72 = assessTrendHealth(tickerData, direction);
++      const _cloudExp72 = assessCloudExpansion(tickerData, direction);
++      const _ltfTrendSupportive = direction === "LONG"
++        ? (_tfTechRow(tickerData, "15")?.stDir === -1 || _tfTechRow(tickerData, "15m")?.stDir === -1)
++        : (_tfTechRow(tickerData, "15")?.stDir === 1 || _tfTechRow(tickerData, "15m")?.stDir === 1);
++      const _canDefer72_89_1H = pnlPct > 0
++        && _ltfTrendSupportive
++        && (
++          _trendHealth72?.structuralSupport
++          || _trendHealth72?.isPullback
++          || (_cloudExp72?.allAligned && !_cloudExp72?.isCompressing)
++        );
+ 
+       // ── PDZ-aware min-green window: reduce from default when in target zone ──
+       const _pdzMinGreenMin = (_inExtendedZone && positionAgeMin >= 360) ? 360 : 720;
+@@ -6157,6 +6180,11 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
+       // 1H 72-89 structural trailing stop: price closed below 72 EMA on 1H = meaningful break
+       if (ripsterTuneV2 && _lost72_89_1H && positionAgeMin >= _pdzMinGreenMin && pnlPct > 0) {
+         const trimmedPct = Number(openPosition?.trimmedPct ?? openPosition?.trimmed_pct) || 0;
++        if (_canDefer72_89_1H) {
++          tickerData.__exit_reason = "ripster_72_89_1h_deferred_structure_reclaim";
++          tickerData.__exit_family = "ripster_pdz";
++          return "defend";
++        }
+         if (trimmedPct < 0.5 && _mfeTrimReady) {
+           tickerData.__exit_reason = "ripster_72_89_1h_trim";
+           tickerData.__exit_family = "ripster_pdz";
+@@ -6274,7 +6302,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
+     // intact — the trade is consolidating, not dead. Skip DOA and let management exits handle it.
+     const _doaEarlyExitEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_doa_early_exit_enabled ?? "true") === "true";
+     const _mfePctDoa = Number(openPosition?.maxFavorableExcursion || 0);
+-    const _doaThresholdH = _tickerProfileMgmt.doa_hours || 6;
++    const _doaThresholdH = _staticBehaviorProfileMgmt.doaHours || 6;
+     const _doaMfeFloor = 0.3;
+     const _mgmt30mStSupports = (direction === "LONG" && (mgmtTfTech?.stDir ?? 0) === -1)
+       || (direction === "SHORT" && (mgmtTfTech?.stDir ?? 0) === 1);
+@@ -6287,7 +6315,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
+     }
+ 
+     // Hard max hold: 3 weeks (504h calendar) or ticker-profile max — catastrophic hold prevention
+-    const _profileMaxHoldH = _tickerProfileMgmt.max_hold_hours || 504;
++    const _profileMaxHoldH = _staticBehaviorProfileMgmt.maxHoldHours || 504;
+     const _positionAgeCalendarH = positionAgeMin / 60;
+     if (_positionAgeCalendarH >= _profileMaxHoldH) {
+       tickerData.__exit_reason = `hard_max_hold_${_profileMaxHoldH}h`;
+@@ -6303,11 +6331,11 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
+     }
+ 
+     // Per-ticker max loss for catastrophic profiles
+-    if (_tickerProfileMgmt.max_loss_usd && Number.isFinite(entryPrice) && entryPrice > 0) {
++    if (_staticBehaviorProfileMgmt.maxLossUsd && Number.isFinite(entryPrice) && entryPrice > 0) {
+       const _shares = Number(openPosition?.qty || openPosition?.shares) || 0;
+       const _notional = _shares * entryPrice;
+       const _pnlUsd = _notional * (pnlPct / 100);
+-      if (_pnlUsd < -_tickerProfileMgmt.max_loss_usd) {
++      if (_pnlUsd < -_staticBehaviorProfileMgmt.maxLossUsd) {
+         tickerData.__exit_reason = "ticker_profile_max_loss";
+         return "exit";
+       }
+@@ -10108,6 +10136,23 @@ function evaluateRunnerExit(tickerData, openTrade, execState, dir, mark, entry,
+   }
+   const rsiConfirms = isLong ? rsi1H >= 65 : rsi1H <= 35;
+   if (tdExhausted && (rsiConfirms || phaseDeclining)) {
++    const _tdSupportHoldEnabled = String(cfg.smart_runner_td_exhaustion_support_hold_enabled ?? "false") === "true";
++    if (_tdSupportHoldEnabled) {
++      const pnlPct = entry > 0 ? ((isLong ? (mark - entry) : (entry - mark)) / entry) * 100 : 0;
++      if (pnlPct > 0) {
++        if (pullbackSupportHolding) {
++          return { action: "defend", reason: "td_exhaustion_deferred_support_hold", rsi1H, phaseDeclining, pnlPct, ...supportDetails };
++        }
++        if (htf4HSupports) {
++          return { action: "defend", reason: "td_exhaustion_deferred_htf_intact", rsi1H, phaseDeclining, pnlPct, st4HDir };
++        }
++        const st15Supportive = (isLong && stDir15 === -1) || (!isLong && stDir15 === 1);
++        const st30Supportive = (isLong && (tf30?.stDir ?? 0) === -1) || (!isLong && (tf30?.stDir ?? 0) === 1);
++        if (st15Supportive || st30Supportive) {
++          return { action: "defend", reason: "td_exhaustion_deferred_ltf_trend", rsi1H, phaseDeclining, pnlPct, stDir15, st30Dir: tf30?.stDir };
++        }
++      }
++    }
+     return { action: "close", reason: "td_exhaustion_runner", rsi1H, phaseDeclining };
+   }
+ 
+@@ -11933,6 +11978,40 @@ async function processTradeSimulation(
+       openTrade == null ||
+       !Number.isFinite(entryMsNorm) ||
+       now - entryMsNorm >= minEntryAgeMs;
++    const positionAgeMinForTrim =
++      openTrade == null || !Number.isFinite(entryMsNorm)
++        ? 999
++        : Math.max(0, (now - entryMsNorm) / 60000);
++    const canTakeInitialSignalTrim = (pnlPct, trimReason) => {
++      const currentTrimPct = clamp(Number(openTrade?.trimmedPct || 0), 0, 1);
++      if (currentTrimPct >= THREE_TIER_CONFIG.TRIM.trimPct - 0.01) {
++        return { allow: true, alreadyTrimmed: true };
++      }
++      const comp = Number(tickerData?.completion);
++      const completionToTrim = computeCompletionToTier(tickerData, "TRIM");
++      const minProfitPct = 0.5;
++      const matureCompletion =
++        completionToTrim >= 0.9 ||
++        (Number.isFinite(comp) && comp >= 0.6);
++      const matureProfitOverride =
++        pnlPct >= 1.0 &&
++        positionAgeMinForTrim >= 30 &&
++        completionToTrim >= 0.75;
++      const allow =
++        trimMinAgeOk &&
++        pnlPct >= minProfitPct &&
++        (matureCompletion || matureProfitOverride);
++      return {
++        allow,
++        alreadyTrimmed: false,
++        pnlPct,
++        minProfitPct,
++        completionToTrim,
++        completion: Number.isFinite(comp) ? comp : null,
++        positionAgeMin: positionAgeMinForTrim,
++        trimReason,
++      };
++    };
+     // Exit minimum age: position must be open for at least 15 min before exit is allowed
+     const minExitAgeMs = MIN_MINUTES_SINCE_ENTRY_BEFORE_EXIT * 60 * 1000;
+     const exitMinAgeOk =
+@@ -13143,12 +13222,21 @@ async function processTradeSimulation(
+               const _sfCloudRunnerHold = _sfTH.htfIntact && _sfPnlPct > 0
+                 && _sfCloudExp2.allAligned && !_sfCloudExp2.isCompressing;
+             if (currentTrimPct < THREE_TIER_CONFIG.TRIM.trimPct - 0.01) {
+-              console.log(`[FUSE TRIM] ${sym} SOFT FUSE: trimming ${Math.round(THREE_TIER_CONFIG.TRIM.trimPct * 100)}% first (rsi1H=${rsi1H} dEma21Break=${dEma21Break} stConfirm=${stConfirm})`);
+-              await trimTradeToPct(openTrade, THREE_TIER_CONFIG.TRIM.trimPct, pxNow, "SOFT_FUSE_TRIM");
+-              const fuseExecUpdate = { ...execState, lastTrimMs: now, runnerPeakPrice: pxNow };
+-              if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, fuseExecUpdate);
+-              else if (!isReplay) await kvPutJSON(KV, execKey, fuseExecUpdate);
++              const _sfFirstTrimGuard = canTakeInitialSignalTrim(_sfPnlPct, "SOFT_FUSE_TRIM");
++              if (_sfFirstTrimGuard.allow) {
++                console.log(`[FUSE TRIM] ${sym} SOFT FUSE: trimming ${Math.round(THREE_TIER_CONFIG.TRIM.trimPct * 100)}% first (rsi1H=${rsi1H} dEma21Break=${dEma21Break} stConfirm=${stConfirm})`);
++                await trimTradeToPct(openTrade, THREE_TIER_CONFIG.TRIM.trimPct, pxNow, "SOFT_FUSE_TRIM");
++                const fuseExecUpdate = { ...execState, lastTrimMs: now, runnerPeakPrice: pxNow };
++                if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, fuseExecUpdate);
++                else if (!isReplay) await kvPutJSON(KV, execKey, fuseExecUpdate);
+                 fuseExitFired = true;
++              } else {
++                console.log(`[FIRST_TRIM_GUARD] ${sym} SOFT FUSE trim deferred: pnl=${_sfPnlPct.toFixed(2)}% completionToTrim=${Number(_sfFirstTrimGuard.completionToTrim || 0).toFixed(2)} completion=${Number(_sfFirstTrimGuard.completion || 0).toFixed(2)} age=${Number(_sfFirstTrimGuard.positionAgeMin || 0).toFixed(0)}m`);
++                tickerData.__force_defend_stage = true;
++                tickerData.__defend_reason = "soft_fuse_first_trim_maturity_guard";
++                tickerData.__exit_family = "tt_context";
++                _sfDeferred = true;
++              }
+               } else if (_sfCloudRunnerHold) {
+                 console.log(`[FUSE CLOUD HOLD] ${sym} SOFT FUSE: clouds aligned+not-compressing (exp=${_sfCloudExp2.expandingCount}/3, comp=${_sfCloudExp2.compressingCount}/3), defending trimmed runner (pnl=${_sfPnlPct.toFixed(2)}%, trimmed=${(currentTrimPct*100).toFixed(0)}%)`);
+                 tickerData.__force_defend_stage = true;
+@@ -13260,21 +13348,31 @@ async function processTradeSimulation(
+             const _spTH = assessTrendHealth(tickerData, String(openTrade.direction || ""));
+             const _spCloudExp = _spTH.cloudExpansion || {};
+             const _spCloudAligned = _spCloudExp.allAligned && !_spCloudExp.isCompressing;
++            const _spSt15Dir = Number(tickerData?.tf_tech?.["15"]?.stDir) || 0;
++            const _spSt30Dir = Number(tickerData?.tf_tech?.["30"]?.stDir) || 0;
++            const _spLtfSupportive = isLong
++              ? (_spSt15Dir === -1 || _spSt30Dir === -1)
++              : (_spSt15Dir === 1 || _spSt30Dir === 1);
++            const _spCanDeferSafetyNet = _spPnlPct > 0 && (
++              (_spCloudAligned && _spTH.htfIntact) ||
++              _spTH.htfIntact ||
++              _spLtfSupportive
++            );
+ 
+             if (_spPnlPct > 0.5) {
+-              if (_spCloudAligned && _spTH.htfIntact && _spPnlPct > 0) {
++              if (_spCanDeferSafetyNet) {
+                 const PL_CLOUD_TRIM_PCT = 0.50;
+                 if (_spTrimPct < PL_CLOUD_TRIM_PCT - 0.01) {
+-                  console.log(`[${_spLabel} CLOUD TRIM] ${sym} Phase peak-decline deferred: clouds aligned (exp=${_spCloudExp.expandingCount}/3), trimming 50% and defending (pnl=${_spPnlPct.toFixed(1)}%)`);
++                  console.log(`[${_spLabel} CLOUD TRIM] ${sym} Phase peak-decline deferred: structure still supports move (htfIntact=${_spTH.htfIntact ? 1 : 0} st15=${_spSt15Dir} st30=${_spSt30Dir} exp=${_spCloudExp.expandingCount || 0}/3), trimming 50% and defending (pnl=${_spPnlPct.toFixed(1)}%)`);
+                   await trimTradeToPct(openTrade, PL_CLOUD_TRIM_PCT, pxNow, `${_spLabel}_CLOUD_TRIM`);
+                   const _spExecUpdate = { ...execState, lastTrimMs: now, runnerPeakPrice: pxNow };
+                   if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _spExecUpdate);
+                   else if (!isReplay) await kvPutJSON(KV, execKey, _spExecUpdate);
+                   fuseExitFired = true;
+                 } else {
+-                  console.log(`[${_spLabel} CLOUD HOLD] ${sym} Phase peak-decline: clouds aligned+healthy, defending trimmed runner (pnl=${_spPnlPct.toFixed(1)}%, trimmed=${(_spTrimPct*100).toFixed(0)}%)`);
++                  console.log(`[${_spLabel} CLOUD HOLD] ${sym} Phase peak-decline deferred by safety net: htfIntact=${_spTH.htfIntact ? 1 : 0} st15=${_spSt15Dir} st30=${_spSt30Dir} exp=${_spCloudExp.expandingCount || 0}/3 (pnl=${_spPnlPct.toFixed(1)}%, trimmed=${(_spTrimPct*100).toFixed(0)}%)`);
+                   tickerData.__force_defend_stage = true;
+-                  tickerData.__defend_reason = "soft_fuse_deferred_cloud_expanding";
++                  tickerData.__defend_reason = "phase_leave_deferred_structure_support";
+                   tickerData.__exit_family = "tt_context";
+                   fuseExitFired = true;
+                 }
+@@ -13412,12 +13510,17 @@ async function processTradeSimulation(
+               : ((entryPx - pxNow) / entryPx) * 100;
+ 
+             if (_divTrimPct < THREE_TIER_CONFIG.TRIM.trimPct - 0.01 && _divPnlPct > 0.3 && trimMinAgeOk) {
+-              console.log(`[RSI_DIVERGENCE] ${sym} div on ${execState.rsiDivTf} str=${execState.rsiDivStrength}: trimming (pnl=${_divPnlPct.toFixed(1)}%)`);
+-              await trimTradeToPct(openTrade, THREE_TIER_CONFIG.TRIM.trimPct, pxNow, "RSI_DIVERGENCE");
+-              const _divExec = { ...execState, lastTrimMs: now, runnerPeakPrice: pxNow };
+-              if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _divExec);
+-              else if (!isReplay) await kvPutJSON(KV, execKey, _divExec);
+-              fuseExitFired = true;
++              const _divFirstTrimGuard = canTakeInitialSignalTrim(_divPnlPct, "RSI_DIVERGENCE");
++              if (_divFirstTrimGuard.allow) {
++                console.log(`[RSI_DIVERGENCE] ${sym} div on ${execState.rsiDivTf} str=${execState.rsiDivStrength}: trimming (pnl=${_divPnlPct.toFixed(1)}%)`);
++                await trimTradeToPct(openTrade, THREE_TIER_CONFIG.TRIM.trimPct, pxNow, "RSI_DIVERGENCE");
++                const _divExec = { ...execState, lastTrimMs: now, runnerPeakPrice: pxNow };
++                if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _divExec);
++                else if (!isReplay) await kvPutJSON(KV, execKey, _divExec);
++                fuseExitFired = true;
++              } else {
++                console.log(`[FIRST_TRIM_GUARD] ${sym} RSI divergence trim blocked: pnl=${_divPnlPct.toFixed(2)}% completionToTrim=${Number(_divFirstTrimGuard.completionToTrim || 0).toFixed(2)} completion=${Number(_divFirstTrimGuard.completion || 0).toFixed(2)} age=${Number(_divFirstTrimGuard.positionAgeMin || 0).toFixed(0)}m`);
++              }
+             } else if (_divTrimPct >= THREE_TIER_CONFIG.TRIM.trimPct - 0.01) {
+               const currentSL = Number(openTrade.sl);
+               if (Number.isFinite(currentSL) && Number.isFinite(pxNow) && pxNow > 0) {
+@@ -13462,12 +13565,17 @@ async function processTradeSimulation(
+             else if (!isReplay) await kvPutJSON(KV, execKey, _stExec);
+             fuseExitFired = true;
+           } else if (_stTrimPct < THREE_TIER_CONFIG.TRIM.trimPct - 0.01 && _stPnl > 0.3) {
+-            console.log(`[ST_FLIP_FUSE] ${sym} 4H ST flip against ${isLong ? "LONG" : "SHORT"}: trimming (pnl=${_stPnl.toFixed(1)}%)`);
+-            await trimTradeToPct(openTrade, THREE_TIER_CONFIG.TRIM.trimPct, pxNow, "ST_FLIP_4H_TRIM");
+-            const _stExec = { ...execState, lastTrimMs: now, runnerPeakPrice: pxNow };
+-            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _stExec);
+-            else if (!isReplay) await kvPutJSON(KV, execKey, _stExec);
+-            fuseExitFired = true;
++            const _stFirstTrimGuard = canTakeInitialSignalTrim(_stPnl, "ST_FLIP_4H_TRIM");
++            if (_stFirstTrimGuard.allow) {
++              console.log(`[ST_FLIP_FUSE] ${sym} 4H ST flip against ${isLong ? "LONG" : "SHORT"}: trimming (pnl=${_stPnl.toFixed(1)}%)`);
++              await trimTradeToPct(openTrade, THREE_TIER_CONFIG.TRIM.trimPct, pxNow, "ST_FLIP_4H_TRIM");
++              const _stExec = { ...execState, lastTrimMs: now, runnerPeakPrice: pxNow };
++              if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _stExec);
++              else if (!isReplay) await kvPutJSON(KV, execKey, _stExec);
++              fuseExitFired = true;
++            } else {
++              console.log(`[FIRST_TRIM_GUARD] ${sym} ST flip trim blocked: pnl=${_stPnl.toFixed(2)}% completionToTrim=${Number(_stFirstTrimGuard.completionToTrim || 0).toFixed(2)} completion=${Number(_stFirstTrimGuard.completion || 0).toFixed(2)} age=${Number(_stFirstTrimGuard.positionAgeMin || 0).toFixed(0)}m`);
++            }
+           }
+         }
+       }
+@@ -13721,15 +13829,23 @@ async function processTradeSimulation(
+             const _bePnlPct = _beDir === "LONG"
+               ? ((pxNow - _beEntry) / _beEntry) * 100
+               : ((_beEntry - pxNow) / _beEntry) * 100;
++            const _bePullback = assessPullbackStructure(tickerData, _beDir);
++            const _beHealthyPullback = !!(_bePullback?.isPullback && _bePullback?.htfIntact && _bePullback?.structuralSupport);
++            const _beCloudSupport = !!(_bePullback?.cloudExpansion?.isExpanding || _bePullback?.cloudExpansion?.allAligned);
++            const _beMinorGiveback = _bePnlPct > -Math.max(_beBuffer + 0.25, 0.35);
+             if (_bePnlPct <= -_beBuffer) {
+-              const _beReason = "BREAKEVEN_STOP";
+-              console.log(`[BREAKEVEN_STOP] ${sym} MFE +${_beMfePct.toFixed(2)}% now ${_bePnlPct.toFixed(2)}% → close (thr=${_beThreshold}% buf=${_beBuffer}% htf=${_beHtfAligned})`);
+-              tickerData.__exit_reason = _beReason;
+-              await closeTradeAtPrice(openTrade, pxNow, _beReason);
+-              const _beExec = { ...execState, lastExitMs: now };
+-              if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _beExec);
+-              else if (!isReplay) await kvPutJSON(KV, execKey, _beExec);
+-              fuseExitFired = true;
++              if ((_beHealthyPullback || _beCloudSupport) && _beMinorGiveback) {
++                console.log(`[BREAKEVEN_STOP] ${sym} deferred (pnl=${_bePnlPct.toFixed(2)}% pullback=${_beHealthyPullback} cloud=${_beCloudSupport})`);
++              } else {
++                const _beReason = "BREAKEVEN_STOP";
++                console.log(`[BREAKEVEN_STOP] ${sym} MFE +${_beMfePct.toFixed(2)}% now ${_bePnlPct.toFixed(2)}% → close (thr=${_beThreshold}% buf=${_beBuffer}% htf=${_beHtfAligned})`);
++                tickerData.__exit_reason = _beReason;
++                await closeTradeAtPrice(openTrade, pxNow, _beReason);
++                const _beExec = { ...execState, lastExitMs: now };
++                if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _beExec);
++                else if (!isReplay) await kvPutJSON(KV, execKey, _beExec);
++                fuseExitFired = true;
++              }
+             }
+           }
+           }
+@@ -13874,6 +13990,17 @@ async function processTradeSimulation(
+                 const _sfcMem = buildCIOMemory(sym, String(openTrade?.direction || "LONG"), tickerData, allTrades, _sfcMemCache);
+                 const _sfcCio = await evaluateCIOLifecycle(env, _sfcProposal, _sfcMem);
+                 _sfcCio.latency_ms = Date.now() - _sfcCioStart;
++                tickerData.__cio_lifecycle_decision = {
++                  stage: "STALL_FORCE_CLOSE",
++                  decision: _sfcCio.decision,
++                  confidence: _sfcCio.confidence,
++                  fallback: _sfcCio.fallback === true,
++                  model: _sfcCio.model || null,
++                  latency_ms: _sfcCio.latency_ms,
++                  reasoning: _sfcCio.reasoning || null,
++                  risk_flags: Array.isArray(_sfcCio.risk_flags) ? _sfcCio.risk_flags : [],
++                  override: _sfcCio.override || null,
++                };
+                 console.log(`[AI_CIO_EXIT] ${sym} STALL ${_sfcCio.decision} (conf=${_sfcCio.confidence.toFixed(2)}, edge=${_sfcCio.edge_remaining.toFixed(2)}, ${_sfcCio.latency_ms}ms${_sfcCio.fallback ? " FALLBACK" : ""})`);
+                 if (env?.DB && !_sfcCio.fallback) {
+                   env.DB.prepare(
+@@ -13942,6 +14069,17 @@ async function processTradeSimulation(
+                 const _rsfcMem = buildCIOMemory(sym, String(openTrade?.direction || "LONG"), tickerData, allTrades, _rsfcMemCache);
+                 const _rsfcCio = await evaluateCIOLifecycle(env, _rsfcProposal, _rsfcMem);
+                 _rsfcCio.latency_ms = Date.now() - _rsfcCioStart;
++                tickerData.__cio_lifecycle_decision = {
++                  stage: "RUNNER_STALE_FORCE_CLOSE",
++                  decision: _rsfcCio.decision,
++                  confidence: _rsfcCio.confidence,
++                  fallback: _rsfcCio.fallback === true,
++                  model: _rsfcCio.model || null,
++                  latency_ms: _rsfcCio.latency_ms,
++                  reasoning: _rsfcCio.reasoning || null,
++                  risk_flags: Array.isArray(_rsfcCio.risk_flags) ? _rsfcCio.risk_flags : [],
++                  override: _rsfcCio.override || null,
++                };
+                 console.log(`[AI_CIO_EXIT] ${sym} RUNNER_STALE ${_rsfcCio.decision} (conf=${_rsfcCio.confidence.toFixed(2)}, edge=${_rsfcCio.edge_remaining.toFixed(2)}, ${_rsfcCio.latency_ms}ms${_rsfcCio.fallback ? " FALLBACK" : ""})`);
+                 if (env?.DB && !_rsfcCio.fallback) {
+                   env.DB.prepare(
+@@ -13994,11 +14132,21 @@ async function processTradeSimulation(
+           const _sreTH = assessTrendHealth(tickerData, isLong ? "LONG" : "SHORT");
+           const _sreCloudExp = _sreTH.cloudExpansion || {};
+           const _sreCloudAligned = _sreCloudExp.allAligned && !_sreCloudExp.isCompressing;
++          const _sreSt15Dir = Number(tickerData?.tf_tech?.["15"]?.stDir) || 0;
++          const _sreSt30Dir = Number(tickerData?.tf_tech?.["30"]?.stDir) || 0;
++          const _sreLtfSupportive = isLong
++            ? (_sreSt15Dir === -1 || _sreSt30Dir === -1)
++            : (_sreSt15Dir === 1 || _sreSt30Dir === 1);
++          const _sreCanDeferSafetyNet = _srePnlPct > 0 && (
++            (_sreCloudAligned && _sreTH.htfIntact) ||
++            _sreTH.htfIntact ||
++            _sreLtfSupportive
++          );
+ 
+-          if (_sreCloudAligned && _sreTH.htfIntact && _srePnlPct > 0) {
+-            console.log(`[SMART_RUNNER CLOUD HOLD] ${sym} ${_sreReason} deferred: clouds aligned+healthy (exp=${_sreCloudExp.expandingCount}/3), defending runner (pnl=${_srePnlPct.toFixed(1)}%)`);
++          if (_sreCanDeferSafetyNet) {
++            console.log(`[SMART_RUNNER CLOUD HOLD] ${sym} ${_sreReason} deferred by safety net: htfIntact=${_sreTH.htfIntact ? 1 : 0} st15=${_sreSt15Dir} st30=${_sreSt30Dir} exp=${_sreCloudExp.expandingCount || 0}/3 (pnl=${_srePnlPct.toFixed(1)}%)`);
+             tickerData.__force_defend_stage = true;
+-            tickerData.__defend_reason = "soft_fuse_deferred_cloud_expanding";
++            tickerData.__defend_reason = "smart_runner_deferred_structure_support";
+             tickerData.__exit_family = "tt_context";
+             fuseExitFired = true;
+           } else {
+@@ -14170,6 +14318,17 @@ async function processTradeSimulation(
+             } catch (_) {}
+             const _exitCio = await evaluateCIOLifecycle(env, _exitProposal, _exitMemory, _exitChartSvg);
+             _exitCio.latency_ms = Date.now() - _exitStart;
++            tickerData.__cio_lifecycle_decision = {
++              stage: "EXIT",
++              decision: _exitCio.decision,
++              confidence: _exitCio.confidence,
++              fallback: _exitCio.fallback === true,
++              model: _exitCio.model || null,
++              latency_ms: _exitCio.latency_ms,
++              reasoning: _exitCio.reasoning || null,
++              risk_flags: Array.isArray(_exitCio.risk_flags) ? _exitCio.risk_flags : [],
++              override: _exitCio.override || null,
++            };
+             console.log(`[AI_CIO_EXIT] ${sym} ${_exitCio.decision} exit reason=${exitReasonRaw} (conf=${_exitCio.confidence.toFixed(2)}, edge=${_exitCio.edge_remaining.toFixed(2)}, latency=${_exitCio.latency_ms}ms${_exitCio.fallback ? " FALLBACK" : ""})`);
+             if (env?.DB && !_exitCio.fallback) {
+               env.DB.prepare(
+@@ -14459,6 +14618,17 @@ async function processTradeSimulation(
+             const _trimMemory = buildCIOMemory(sym, String(openTrade?.direction || "LONG"), tickerData, allTrades, _memCache);
+             const _trimCio = await evaluateCIOLifecycle(env, _trimProposal, _trimMemory);
+             _trimCio.latency_ms = Date.now() - _trimStart;
++            tickerData.__cio_lifecycle_decision = {
++              stage: "TRIM",
++              decision: _trimCio.decision,
++              confidence: _trimCio.confidence,
++              fallback: _trimCio.fallback === true,
++              model: _trimCio.model || null,
++              latency_ms: _trimCio.latency_ms,
++              reasoning: _trimCio.reasoning || null,
++              risk_flags: Array.isArray(_trimCio.risk_flags) ? _trimCio.risk_flags : [],
++              override: _trimCio.override || null,
++            };
+             console.log(`[AI_CIO_TRIM] ${sym} ${_trimCio.decision} trim ${(target*100).toFixed(0)}%→${_trimCio.decision === "OVERRIDE" && _trimCio.override?.trim_pct != null ? ((_trimCio.override.trim_pct*100).toFixed(0)+"%") : "as-is"} (conf=${_trimCio.confidence.toFixed(2)}, latency=${_trimCio.latency_ms}ms${_trimCio.fallback ? " FALLBACK" : ""})`);
+             if (env?.DB && !_trimCio.fallback) {
+               env.DB.prepare(
+@@ -15149,9 +15319,15 @@ async function processTradeSimulation(
+         }
+ 
+         // ── Three-Tier: Ticker Profile SL/TP Multiplier ──
+-        const _tickerProfile = tickerData?._ticker_profile;
+-        const profileSlMult = Number(_tickerProfile?.sl_mult) || 1.0;
+-        const profileTpMult = Number(_tickerProfile?.tp_mult) || 1.0;
++        const _learnedTickerProfile = normalizeLearnedTickerProfile(
++          tickerData?._tickerProfile || tickerData?._ticker_profile || null,
++          {
++            ticker: sym,
++            source: tickerData?.__profile_resolution?.learned_profile_source || "runtime",
++          }
++        );
++        const profileSlMult = Number(_learnedTickerProfile?.slMult) || 1.0;
++        const profileTpMult = Number(_learnedTickerProfile?.tpMult) || 1.0;
+         if (profileSlMult !== 1.0 && Number.isFinite(finalSL) && Number.isFinite(entryPx)) {
+           const preSL = finalSL;
+           const slDist = Math.abs(entryPx - finalSL);
+@@ -15159,11 +15335,11 @@ async function processTradeSimulation(
+           finalSL = direction === "LONG"
+             ? Math.round((entryPx - adjustedDist) * 100) / 100
+             : Math.round((entryPx + adjustedDist) * 100) / 100;
+-          console.log(`[PROFILE_SL] ${sym}: ${preSL.toFixed(2)} → ${finalSL.toFixed(2)} (type=${_tickerProfile?.behavior_type}, mult=${profileSlMult})`);
++          console.log(`[PROFILE_SL] ${sym}: ${preSL.toFixed(2)} → ${finalSL.toFixed(2)} (type=${_learnedTickerProfile?.behaviorType}, mult=${profileSlMult})`);
+         }
+ 
+         // ── Ticker Learning: personality-aware SL/TP adjustment ──
+-        const _learning = _tickerProfile?.learning;
++        const _learning = _learnedTickerProfile?.learning;
+         if (_learning?.entry_params && Number.isFinite(finalSL) && Number.isFinite(entryPx)) {
+           const lep = _learning.entry_params;
+           const dAtr = Number(tickerData?.tf_tech?.D?.atr) || Number(tickerData?.atr) || 0;
+@@ -15330,6 +15506,17 @@ async function processTradeSimulation(
+                 _cioDecision = await evaluateWithAICIO(env, proposal, _cioMemory, _cioChartSvg);
+                 _cioDecision.latency_ms = Date.now() - _cioStart;
+                 _cioDecision.proposal = proposal;
++                tickerData.__cio_entry_decision = {
++                  decision: _cioDecision.decision,
++                  confidence: _cioDecision.confidence,
++                  fallback: _cioDecision.fallback === true,
++                  model: _cioDecision.model || _cioDecision.model_used || null,
++                  latency_ms: _cioDecision.latency_ms,
++                  reasoning: _cioDecision.reasoning || null,
++                  risk_flags: Array.isArray(_cioDecision.risk_flags) ? _cioDecision.risk_flags : [],
++                  adjustments: _cioDecision.adjustments || null,
++                  applied: null,
++                };
+ 
+                 if (_cioDecision.decision === "REJECT" && !_cioDecision.fallback) {
+                   console.log(`[AI_CIO] REJECTED ${sym} ${direction}: ${_cioDecision.reasoning} (latency=${_cioDecision.latency_ms}ms)`);
+@@ -15422,11 +15609,13 @@ async function processTradeSimulation(
+ 
+                 if (_cioDecision.decision === "ADJUST" && !_cioDecision.fallback && _cioDecision.adjustments) {
+                   const adj = _cioDecision.adjustments;
++                  const _cioApplied = { sl: null, tp: null, size_mult: null };
+                   if (adj.sl != null && Number.isFinite(adj.sl) && adj.sl > 0) {
+                     const validSL = direction === "LONG" ? adj.sl < entryPx : adj.sl > entryPx;
+                     if (validSL) {
+                       console.log(`[AI_CIO] ADJUST SL ${sym}: ${finalSL.toFixed(2)} → ${adj.sl.toFixed(2)} (${adj.reason})`);
+                       finalSL = Math.round(adj.sl * 100) / 100;
++                      _cioApplied.sl = finalSL;
+                     }
+                   }
+                   if (adj.tp != null && Number.isFinite(adj.tp) && adj.tp > 0) {
+@@ -15434,6 +15623,7 @@ async function processTradeSimulation(
+                     if (validTP2) {
+                       console.log(`[AI_CIO] ADJUST TP ${sym}: ${validTP.toFixed(2)} → ${adj.tp.toFixed(2)} (${adj.reason})`);
+                       validTP = Math.round(adj.tp * 100) / 100;
++                      _cioApplied.tp = validTP;
+                     }
+                   }
+                   if (adj.size_mult != null && Number.isFinite(adj.size_mult)) {
+@@ -15442,6 +15632,10 @@ async function processTradeSimulation(
+                     console.log(`[AI_CIO] ADJUST SIZE ${sym}: ${shares.toFixed(2)} → ${adjShares.toFixed(2)} shares (${adj.size_mult}x, ${adj.reason})`);
+                     shares = adjShares;
+                     notional = adjNotional;
++                    _cioApplied.size_mult = adj.size_mult;
++                  }
++                  if (tickerData.__cio_entry_decision && typeof tickerData.__cio_entry_decision === "object") {
++                    tickerData.__cio_entry_decision.applied = _cioApplied;
+                   }
+                 }
+ 
+@@ -20966,15 +21160,16 @@ async function d1EnsureBacktestRunsSchema(env) {
+   if (!db) return;
+   try {
+     await db.batch([
+-      db.prepare(`CREATE TABLE IF NOT EXISTS backtest_runs (run_id TEXT PRIMARY KEY, label TEXT, description TEXT, start_date TEXT, end_date TEXT, interval_min INTEGER, ticker_batch INTEGER, ticker_universe_count INTEGER, trader_only INTEGER DEFAULT 0, keep_open_at_end INTEGER DEFAULT 0, low_write INTEGER DEFAULT 0, status TEXT DEFAULT 'registered', status_note TEXT, live_config_slot INTEGER DEFAULT 0, active_experiment_slot INTEGER DEFAULT 0, is_protected_baseline INTEGER DEFAULT 0, archived_at INTEGER, archived_by TEXT, archived_reason TEXT, tags_json TEXT, params_json TEXT, metrics_json TEXT, created_at INTEGER NOT NULL, started_at INTEGER, ended_at INTEGER, updated_at INTEGER NOT NULL)`),
++      db.prepare(`CREATE TABLE IF NOT EXISTS backtest_runs (run_id TEXT PRIMARY KEY, label TEXT, description TEXT, start_date TEXT, end_date TEXT, interval_min INTEGER, ticker_batch INTEGER, ticker_universe_count INTEGER, trader_only INTEGER DEFAULT 0, keep_open_at_end INTEGER DEFAULT 0, low_write INTEGER DEFAULT 0, status TEXT DEFAULT 'registered', status_note TEXT, live_config_slot INTEGER DEFAULT 0, active_experiment_slot INTEGER DEFAULT 0, is_protected_baseline INTEGER DEFAULT 0, archived_at INTEGER, archived_by TEXT, archived_reason TEXT, tags_json TEXT, params_json TEXT, manifest_json TEXT, metrics_json TEXT, created_at INTEGER NOT NULL, started_at INTEGER, ended_at INTEGER, updated_at INTEGER NOT NULL)`),
+       db.prepare(`CREATE TABLE IF NOT EXISTS backtest_run_metrics (run_id TEXT PRIMARY KEY, total_tickers_traded INTEGER DEFAULT 0, total_trades INTEGER DEFAULT 0, wins INTEGER DEFAULT 0, losses INTEGER DEFAULT 0, breakevens INTEGER DEFAULT 0, open_trades INTEGER DEFAULT 0, closed_trades INTEGER DEFAULT 0, win_rate REAL DEFAULT 0, realized_pnl REAL DEFAULT 0, realized_pnl_pct REAL DEFAULT 0, avg_win_pct REAL DEFAULT 0, avg_loss_pct REAL DEFAULT 0, classifications_json TEXT, by_status_json TEXT, autopsy_url TEXT, updated_at INTEGER NOT NULL)`),
+     ]);
+     try {
+       await db.batch([
+         db.prepare(`CREATE TABLE IF NOT EXISTS backtest_run_trades (run_id TEXT NOT NULL, trade_id TEXT NOT NULL, ticker TEXT, direction TEXT, entry_ts INTEGER, entry_price REAL, rank INTEGER, rr REAL, status TEXT, exit_ts INTEGER, exit_price REAL, exit_reason TEXT, trimmed_pct REAL, pnl REAL, pnl_pct REAL, script_version TEXT, created_at INTEGER, updated_at INTEGER, trim_ts INTEGER, trim_price REAL, PRIMARY KEY (run_id, trade_id))`),
+-        db.prepare(`CREATE TABLE IF NOT EXISTS backtest_run_direction_accuracy (run_id TEXT NOT NULL, trade_id TEXT NOT NULL, ticker TEXT, ts INTEGER, signal_snapshot_json TEXT, regime_daily TEXT, regime_weekly TEXT, regime_combined TEXT, entry_path TEXT, execution_profile_name TEXT, execution_profile_confidence REAL, market_state TEXT, execution_profile_json TEXT, rvol_best REAL, entry_quality_score REAL, PRIMARY KEY (run_id, trade_id))`),
++        db.prepare(`CREATE TABLE IF NOT EXISTS backtest_run_direction_accuracy (run_id TEXT NOT NULL, trade_id TEXT NOT NULL, ticker TEXT, ts INTEGER, signal_snapshot_json TEXT, exit_snapshot_json TEXT, regime_daily TEXT, regime_weekly TEXT, regime_combined TEXT, entry_path TEXT, consensus_direction TEXT, execution_profile_name TEXT, execution_profile_confidence REAL, market_state TEXT, execution_profile_json TEXT, tf_stack_json TEXT, max_favorable_excursion REAL, max_adverse_excursion REAL, rvol_best REAL, entry_quality_score REAL, exit_reason TEXT, PRIMARY KEY (run_id, trade_id))`),
+         db.prepare(`CREATE TABLE IF NOT EXISTS backtest_run_annotations (run_id TEXT NOT NULL, trade_id TEXT NOT NULL, classification TEXT, notes TEXT, updated_at INTEGER, PRIMARY KEY (run_id, trade_id))`),
+         db.prepare(`CREATE TABLE IF NOT EXISTS backtest_run_config (run_id TEXT NOT NULL, config_key TEXT NOT NULL, config_value TEXT, PRIMARY KEY (run_id, config_key))`),
++        db.prepare(`CREATE TABLE IF NOT EXISTS backtest_run_validation_artifacts (run_id TEXT NOT NULL, artifact_type TEXT NOT NULL, reference_run_id TEXT, gate_status TEXT, artifact_json TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (run_id, artifact_type))`),
+         db.prepare(`CREATE TABLE IF NOT EXISTS promoted_trade_datasets (dataset_id TEXT PRIMARY KEY, label TEXT, source_run_id TEXT, status TEXT DEFAULT 'draft', notes TEXT, promoted_by TEXT, promoted_at INTEGER NOT NULL, trade_count INTEGER DEFAULT 0, metrics_json TEXT)`),
+         db.prepare(`CREATE TABLE IF NOT EXISTS promoted_trades (dataset_id TEXT NOT NULL, trade_id TEXT NOT NULL, ticker TEXT, direction TEXT, entry_ts INTEGER, entry_price REAL, rank INTEGER, rr REAL, status TEXT, exit_ts INTEGER, exit_price REAL, exit_reason TEXT, trimmed_pct REAL, pnl REAL, pnl_pct REAL, script_version TEXT, created_at INTEGER, updated_at INTEGER, trim_ts INTEGER, trim_price REAL, setup_name TEXT, setup_grade TEXT, risk_budget REAL, shares REAL, notional REAL, promoted_at INTEGER, promoted_from_run_id TEXT, PRIMARY KEY (dataset_id, trade_id))`),
+       ]);
+@@ -20986,16 +21181,24 @@ async function d1EnsureBacktestRunsSchema(env) {
+         db.prepare(`CREATE INDEX IF NOT EXISTS idx_backtest_runs_live ON backtest_runs(live_config_slot, updated_at DESC)`),
+         db.prepare(`CREATE INDEX IF NOT EXISTS idx_brt_run ON backtest_run_trades(run_id)`),
+         db.prepare(`CREATE INDEX IF NOT EXISTS idx_brda_run ON backtest_run_direction_accuracy(run_id)`),
++        db.prepare(`CREATE INDEX IF NOT EXISTS idx_brva_run ON backtest_run_validation_artifacts(run_id, updated_at DESC)`),
+         db.prepare(`CREATE INDEX IF NOT EXISTS idx_promoted_trade_datasets_status ON promoted_trade_datasets(status, promoted_at DESC)`),
+         db.prepare(`CREATE INDEX IF NOT EXISTS idx_promoted_trades_dataset ON promoted_trades(dataset_id, entry_ts DESC)`),
+       ]);
+     } catch {}
+-    try {
+-      await db.batch([
+-        db.prepare(`ALTER TABLE backtest_run_direction_accuracy ADD COLUMN rvol_best REAL`),
+-        db.prepare(`ALTER TABLE backtest_run_direction_accuracy ADD COLUMN entry_quality_score REAL`),
+-      ]);
+-    } catch {}
++    const brdaExtraCols = [
++      `ALTER TABLE backtest_run_direction_accuracy ADD COLUMN exit_snapshot_json TEXT`,
++      `ALTER TABLE backtest_run_direction_accuracy ADD COLUMN consensus_direction TEXT`,
++      `ALTER TABLE backtest_run_direction_accuracy ADD COLUMN tf_stack_json TEXT`,
++      `ALTER TABLE backtest_run_direction_accuracy ADD COLUMN max_favorable_excursion REAL`,
++      `ALTER TABLE backtest_run_direction_accuracy ADD COLUMN max_adverse_excursion REAL`,
++      `ALTER TABLE backtest_run_direction_accuracy ADD COLUMN rvol_best REAL`,
++      `ALTER TABLE backtest_run_direction_accuracy ADD COLUMN entry_quality_score REAL`,
++      `ALTER TABLE backtest_run_direction_accuracy ADD COLUMN exit_reason TEXT`,
++    ];
++    for (const stmt of brdaExtraCols) {
++      try { await db.prepare(stmt).run(); } catch {}
++    }
+     // v2: Add missing columns to backtest_run_trades for full parity with trades table
+     const brtExtraCols = [
+       `ALTER TABLE backtest_run_trades ADD COLUMN setup_name TEXT`,
+@@ -21007,8 +21210,7 @@ async function d1EnsureBacktestRunsSchema(env) {
+     for (const stmt of brtExtraCols) {
+       try { await db.prepare(stmt).run(); } catch {}
+     }
+-    // v3: Add exit_reason to backtest_run_direction_accuracy
+-    try { await db.prepare(`ALTER TABLE backtest_run_direction_accuracy ADD COLUMN exit_reason TEXT`).run(); } catch {}
++    try { await db.prepare(`ALTER TABLE backtest_runs ADD COLUMN manifest_json TEXT`).run(); } catch {}
+     _backtestRunsSchemaReady = true;
+   } catch (e) {
+     console.error("[BACKTEST RUNS] Schema migration failed:", String(e).slice(0, 200));
+@@ -21021,6 +21223,212 @@ function parseBool01(v) {
+   return (s === "1" || s === "true" || s === "yes" || s === "y" || s === "on") ? 1 : 0;
+ }
+ 
++function parseJSONSafe(raw, fallback = null) {
++  if (raw == null || raw === "") return fallback;
++  if (typeof raw === "object") return raw;
++  try {
++    return JSON.parse(raw);
++  } catch {
++    return fallback;
++  }
++}
++
++function firstNonEmptyString(...vals) {
++  for (const v of vals) {
++    if (v == null) continue;
++    const s = String(v).trim();
++    if (s) return s;
++  }
++  return null;
++}
++
++function buildRunManifest(sources = {}) {
++  const row = sources?.row && typeof sources.row === "object" ? sources.row : {};
++  const body = sources?.body && typeof sources.body === "object" ? sources.body : {};
++  const params = (body?.params && typeof body.params === "object" && !Array.isArray(body.params))
++    ? body.params
++    : parseJSONSafe(row?.params_json, {});
++  const tags = Array.isArray(body?.tags)
++    ? body.tags
++    : (Array.isArray(parseJSONSafe(row?.tags_json, null)) ? parseJSONSafe(row?.tags_json, null) : []);
++  const configOverride = body?.config_override && typeof body.config_override === "object" && !Array.isArray(body.config_override)
++    ? body.config_override
++    : null;
++  const envOverrides = params?.env_overrides && typeof params.env_overrides === "object" && !Array.isArray(params.env_overrides)
++    ? params.env_overrides
++    : {};
++
++  const entryEngine = firstNonEmptyString(
++    body?.entry_engine,
++    envOverrides?.ENTRY_ENGINE,
++    params?.entry_engine,
++    "tt_core",
++  );
++  const managementEngine = firstNonEmptyString(
++    body?.management_engine,
++    envOverrides?.MANAGEMENT_ENGINE,
++    params?.management_engine,
++    "tt_core",
++  );
++  const leadingLtf = firstNonEmptyString(
++    body?.leading_ltf,
++    envOverrides?.LEADING_LTF,
++    params?.leading_ltf,
++    "10",
++  );
++  const rehydrationPolicy = firstNonEmptyString(
++    body?.rehydration_policy,
++    params?.rehydration_policy,
++    parseBool01(body?.resume ?? params?.resume) === 1 ? "checkpoint_resume" : "fresh_reset",
++  );
++  const replayCleanLane = body?.replay_clean_lane != null
++    ? parseBool01(body.replay_clean_lane) === 1
++    : params?.replay_clean_lane != null
++      ? parseBool01(params.replay_clean_lane) === 1
++      : (rehydrationPolicy === "fresh_reset" || rehydrationPolicy === "clean_lane");
++  const configKeyCount = configOverride
++    ? Object.keys(configOverride).length
++    : Math.max(0, Number(params?.config_key_count) || 0);
++  const configSource = configOverride || params?.config_file || params?.config_source_run_id || configKeyCount > 0
++    ? "explicit_override"
++    : "registered_snapshot";
++
++  return {
++    runId: firstNonEmptyString(body?.run_id, row?.run_id),
++    label: firstNonEmptyString(body?.label, row?.label),
++    description: firstNonEmptyString(body?.description, row?.description),
++    codeRevision: firstNonEmptyString(body?.code_revision, params?.code_revision),
++    engineSelection: {
++      entryEngine,
++      managementEngine,
++      leadingLtf,
++    },
++    dataset: {
++      startDate: firstNonEmptyString(body?.start_date, row?.start_date),
++      endDate: firstNonEmptyString(body?.end_date, row?.end_date),
++      intervalMin: Number(body?.interval_min ?? row?.interval_min) || 15,
++      tickerBatch: Number(body?.ticker_batch ?? row?.ticker_batch) || 15,
++      tickerUniverseCount: Number(body?.ticker_universe_count ?? row?.ticker_universe_count) || 0,
++      traderOnly: parseBool01(body?.trader_only ?? row?.trader_only) === 1,
++      keepOpenAtEnd: parseBool01(body?.keep_open_at_end ?? row?.keep_open_at_end) === 1,
++      lowWrite: parseBool01(body?.low_write ?? row?.low_write) === 1,
++    },
++    replayMode: {
++      isReplay: true,
++      cleanLane: replayCleanLane,
++      rehydrationPolicy,
++    },
++    config: {
++      source: configSource,
++      snapshotKeys: configOverride ? Object.keys(configOverride) : null,
++      keyCount: configKeyCount || null,
++      configFile: firstNonEmptyString(params?.config_file),
++      configSourceRunId: firstNonEmptyString(params?.config_source_run_id),
++      datasetManifest: firstNonEmptyString(params?.dataset_manifest),
++    },
++    tags: Array.isArray(tags) ? tags : [],
++    params: params && typeof params === "object" && !Array.isArray(params) ? params : null,
++    createdAt: Number(body?.created_at ?? row?.created_at) || Date.now(),
++  };
++}
++
++function parseRunRecord(row) {
++  if (!row || typeof row !== "object") return null;
++  const out = { ...row };
++  out.tags = Array.isArray(parseJSONSafe(row.tags_json, null)) ? parseJSONSafe(row.tags_json, null) : null;
++  out.params = parseJSONSafe(row.params_json, null);
++  out.metrics = parseJSONSafe(row.metrics_json, null);
++  const manifest = parseJSONSafe(row.manifest_json, null);
++  out.manifest = manifest && typeof manifest === "object" ? manifest : buildRunManifest({ row });
++  return out;
++}
++
++function isRunManifestCleanLane(manifest) {
++  if (!manifest || typeof manifest !== "object") return false;
++  if (manifest?.replayMode?.cleanLane === true) return true;
++  const policy = String(manifest?.replayMode?.rehydrationPolicy || "").trim().toLowerCase();
++  return policy === "fresh_reset" || policy === "clean_lane";
++}
++
++async function loadRunManifest(db, runId) {
++  const rid = String(runId || "").trim();
++  if (!db || !rid) return null;
++  try {
++    const row = await db.prepare(`SELECT * FROM backtest_runs WHERE run_id = ?1`).bind(rid).first();
++    return parseRunRecord(row)?.manifest || null;
++  } catch {
++    return null;
++  }
++}
++
++async function loadActiveRunState(db, KV) {
++  const replayLockVal = await KV.get("timed:replay:lock") || null;
++  const replayRunning = await kvGetJSON(KV, "timed:replay:running");
++  const runWithMetricsSql = `SELECT r.*, m.total_trades, m.wins, m.losses, m.win_rate, m.realized_pnl, m.realized_pnl_pct, m.avg_win_pct, m.avg_loss_pct
++                               FROM backtest_runs r
++                          LEFT JOIN backtest_run_metrics m ON r.run_id = m.run_id`;
++  let row = null;
++  let activeSource = "none";
++  if (replayLockVal) {
++    row = await db.prepare(`${runWithMetricsSql} WHERE r.run_id = ?1 LIMIT 1`).bind(replayLockVal).first();
++    if (row) activeSource = "replay_lock";
++  }
++  if (!row) {
++    row = await db.prepare(
++      `${runWithMetricsSql}
++        WHERE r.status IN ('running', 'registered')
++        ORDER BY
++          CASE r.status WHEN 'running' THEN 0 WHEN 'registered' THEN 1 ELSE 2 END,
++          COALESCE(CAST(r.started_at AS INTEGER), CAST(r.created_at AS INTEGER), CAST(r.updated_at AS INTEGER)) DESC,
++          CAST(r.updated_at AS INTEGER) DESC
++        LIMIT 1`
++    ).first();
++    if (row) activeSource = "running_status";
++  }
++  if (!row) {
++    row = await db.prepare(
++      `${runWithMetricsSql}
++        WHERE r.live_config_slot = 1
++        ORDER BY r.updated_at DESC
++        LIMIT 1`
++    ).first();
++    if (row) activeSource = "live_config_slot";
++  }
++  const live = parseRunRecord(row) || null;
++  const activeRunId = String(live?.run_id || replayLockVal || "").trim() || null;
++  const activeManifest = live?.manifest || (activeRunId ? await loadRunManifest(db, activeRunId) : null);
++  const isCleanLane = isRunManifestCleanLane(activeManifest);
++  const replay = {
++    locked: !!replayLockVal,
++    lock: replayLockVal || null,
++    running: replayRunning || null,
++  };
++  const active = live ? {
++    ...live,
++    active_run_id: activeRunId,
++    active_source: activeSource,
++    is_clean_lane: isCleanLane,
++    replay,
++  } : (replayLockVal || replayRunning ? {
++    run_id: activeRunId,
++    active_run_id: activeRunId,
++    active_source: replayLockVal ? "replay_lock_without_row" : "replay_running_without_row",
++    is_clean_lane: isCleanLane,
++    replay,
++  } : null);
++  return {
++    replayLockVal,
++    replayRunning,
++    activeRunId,
++    activeSource: active?.active_source || activeSource,
++    activeManifest,
++    isCleanLane,
++    live,
++    active,
++    replay,
++  };
++}
++
+ function buildTradeAutopsyRunUrl(runId) {
+   const safe = encodeURIComponent(String(runId || "").trim());
+   return safe ? `trade-autopsy.html?run_id=${safe}` : "trade-autopsy.html";
+@@ -21044,6 +21452,34 @@ async function loadRunConfigMap(db, runId) {
+   }
+ }
+ 
++const REPLAY_DA_KEYS = [
++  "deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_doa_early_exit_enabled", "deep_audit_confirmed_min_rank", "deep_audit_parity_defer_confirmed_opening_minutes", "deep_audit_legacy_momentum_precedence", "deep_audit_legacy_momentum_min_rr", "deep_audit_legacy_momentum_relax_trigger", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "deep_audit_hard_loss_cap_pct", "deep_audit_breakeven_mfe_threshold", "deep_audit_breakeven_skip_trimmed_runner", "deep_audit_parity_runner_tp_full_only", "deep_audit_parity_skip_stall_force_close", "deep_audit_parity_skip_sl_breach", "deep_audit_parity_no_reentry_after_tp_full_hours", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist", "ai_cio_enabled", "ai_cio_replay_enabled", "ai_cio_reference_enabled", "short_min_rank", "short_require_daily_st_aligned", "short_min_4h_ema_depth", "min_entry_confidence", "entry_ticker_blacklist", "choppy_regime_rank_floor", "tt_spy_directional_gate", "tt_pdz_hard_gate", "deep_audit_phase_peak_extreme", "deep_audit_phase_decline_extreme", "deep_audit_bias_spread_min",
++  // Keys added for GRNY deferral iterations and v6 config parity
++  "smart_runner_td_exhaustion_support_hold_enabled", "deep_audit_phase_leave_runner_trail_atr_mult", "deep_audit_min_minutes_since_entry_before_exit_min", "deep_audit_phase_decline_distrib", "deep_audit_phase_peak_distrib", "deep_audit_pullback_bull_state_ltf_conflict_guard_enabled", "deep_audit_pullback_bull_state_ltf_conflict_avg_bias_max", "deep_audit_repeat_churn_guard_enabled", "deep_audit_repeat_churn_guard_include_tickers", "deep_audit_runner_stale_force_close_hours", "deep_audit_ripster_chase_dist_to_cloud_pct", "deep_audit_ripster_chase_rsi10_long", "deep_audit_ripster_chase_rsi30_long", "deep_audit_ripster_momentum_heat_rsi30", "deep_audit_ripster_momentum_heat_rsi1h", "deep_audit_ripster_pullback_trigger_noise_max_loss_pct", "deep_audit_ripster_trigger_noise_max_loss_pct", "deep_audit_reference_exact_entry_leniency", "deep_audit_reference_exact_tolerance_minutes", "deep_audit_swing_checklist_v1", "deep_audit_swing_phase_early_max", "deep_audit_swing_phase_near_zero_abs", "deep_audit_swing_require_squeeze_build", "deep_audit_variant_guardrails_v3", "deep_audit_variant_max_loss_pct", "deep_audit_variant_min_rank", "deep_audit_variant_min_rr", "deep_audit_variant_regime_exit_min_age_min", "golden_julaug_reference_run_id", "live_config_run_id", "member_ticker_list", "consensus_signal_weights", "consensus_tf_weights", "scoring_weight_adj",
++];
++
++async function loadRunConfigSubset(db, runId, keys = []) {
++  const rid = String(runId || "").trim();
++  if (!db || !rid || !Array.isArray(keys) || keys.length === 0) return null;
++  try {
++    const uniqKeys = [...new Set(keys.map((key) => String(key || "").trim()).filter(Boolean))];
++    if (!uniqKeys.length) return null;
++    const placeholders = uniqKeys.map((_, idx) => `?${idx + 2}`).join(",");
++    const rows = (await db.prepare(
++      `SELECT config_key, config_value
++         FROM backtest_run_config
++        WHERE run_id = ?1
++          AND config_key IN (${placeholders})`
++    ).bind(rid, ...uniqKeys).all())?.results || [];
++    if (!rows.length) return null;
++    const out = {};
++    for (const row of rows) out[row.config_key] = row.config_value;
++    return out;
++  } catch {
++    return null;
++  }
++}
++
+ function replayConfigHasKey(runConfig, key) {
+   return !!runConfig && Object.prototype.hasOwnProperty.call(runConfig, key);
+ }
+@@ -21134,6 +21570,172 @@ async function summarizeRunMetrics(db, runId) {
+   };
+ }
+ 
++const SENTINEL_BASKET_V1 = ["RIOT", "GRNY", "FIX", "SOFI", "CSCO", "SWK"];
++
++async function resolveSentinelReferenceRunId(db, candidateRunId) {
++  const candidate = String(candidateRunId || "").trim();
++  if (!db || !candidate) return null;
++  try {
++    const live = await db.prepare(
++      `SELECT run_id
++         FROM backtest_runs
++        WHERE live_config_slot = 1
++          AND run_id != ?1
++        ORDER BY updated_at DESC
++        LIMIT 1`
++    ).bind(candidate).first();
++    if (live?.run_id) return String(live.run_id);
++  } catch {}
++  try {
++    const protectedRow = await db.prepare(
++      `SELECT run_id
++         FROM backtest_runs
++        WHERE is_protected_baseline = 1
++          AND run_id != ?1
++        ORDER BY COALESCE(ended_at, updated_at, created_at) DESC
++        LIMIT 1`
++    ).bind(candidate).first();
++    if (protectedRow?.run_id) return String(protectedRow.run_id);
++  } catch {}
++  try {
++    const latestCompleted = await db.prepare(
++      `SELECT run_id
++         FROM backtest_runs
++        WHERE status = 'completed'
++          AND run_id != ?1
++        ORDER BY COALESCE(ended_at, updated_at, created_at) DESC
++        LIMIT 1`
++    ).bind(candidate).first();
++    if (latestCompleted?.run_id) return String(latestCompleted.run_id);
++  } catch {}
++  return null;
++}
++
++async function loadRunTradesForValidation(db, runId) {
++  const rid = String(runId || "").trim();
++  if (!db || !rid) return [];
++  let rows = [];
++  try {
++    rows = (await db.prepare(
++      `SELECT * FROM backtest_run_trades WHERE run_id = ?1 ORDER BY entry_ts ASC`
++    ).bind(rid).all())?.results || [];
++  } catch {}
++  if (rows.length === 0) {
++    try {
++      rows = (await db.prepare(
++        `SELECT * FROM trades WHERE run_id = ?1 ORDER BY entry_ts ASC`
++      ).bind(rid).all())?.results || [];
++    } catch {}
++  }
++  return rows.map((r) => ({
++    trade_id: r.trade_id || null,
++    ticker: String(r.ticker || "").toUpperCase(),
++    direction: String(r.direction || "").toUpperCase(),
++    entry_ts: Number(r.entry_ts || 0) || 0,
++    exit_ts: Number(r.exit_ts || 0) || 0,
++    entry_price: Number(r.entry_price || 0) || 0,
++    exit_price: Number(r.exit_price || 0) || 0,
++    status: String(r.status || "").toUpperCase(),
++    exit_reason: r.exit_reason || null,
++    pnl: Number(r.pnl || 0) || 0,
++    pnl_pct: Number(r.pnl_pct || 0) || 0,
++    trimmed_pct: Number(r.trimmed_pct || 0) || 0,
++  }));
++}
++
++function buildSentinelTradeSummary(trades) {
++  const wins = trades.filter((t) => t.status === "WIN").length;
++  const losses = trades.filter((t) => t.status === "LOSS").length;
++  const open = trades.filter((t) => t.status === "OPEN" || t.status === "TP_HIT_TRIM").length;
++  return {
++    trade_count: trades.length,
++    wins,
++    losses,
++    open,
++    total_pnl: Math.round(trades.reduce((sum, t) => sum + (Number(t.pnl) || 0), 0) * 100) / 100,
++    exit_reasons: [...new Set(trades.map((t) => String(t.exit_reason || "").trim()).filter(Boolean))],
++  };
++}
++
++function buildSentinelValidationArtifact(candidateRunId, referenceRunId, candidateTrades, referenceTrades, basket = SENTINEL_BASKET_V1) {
++  const tickers = [...new Set((Array.isArray(basket) ? basket : []).map((t) => String(t || "").trim().toUpperCase()).filter(Boolean))];
++  const sentinels = [];
++  let totalMatchedPairs = 0;
++  let totalMissingInCandidate = 0;
++  let totalExtraInCandidate = 0;
++  let totalPnlDelta = 0;
++
++  for (const ticker of tickers) {
++    const candidateTickerTrades = candidateTrades.filter((t) => t.ticker === ticker).sort((a, b) => a.entry_ts - b.entry_ts);
++    const referenceTickerTrades = referenceTrades.filter((t) => t.ticker === ticker).sort((a, b) => a.entry_ts - b.entry_ts);
++    const matchedCount = Math.min(candidateTickerTrades.length, referenceTickerTrades.length);
++    const comparisons = [];
++    for (let i = 0; i < matchedCount; i++) {
++      const c = candidateTickerTrades[i];
++      const r = referenceTickerTrades[i];
++      const entryDeltaMin = c.entry_ts > 0 && r.entry_ts > 0 ? Math.round((c.entry_ts - r.entry_ts) / 60000) : null;
++      const exitDeltaMin = c.exit_ts > 0 && r.exit_ts > 0 ? Math.round((c.exit_ts - r.exit_ts) / 60000) : null;
++      const pnlDelta = Math.round((((Number(c.pnl) || 0) - ((Number(r.pnl) || 0))) * 100)) / 100;
++      comparisons.push({
++        index: i + 1,
++        candidate_trade_id: c.trade_id,
++        reference_trade_id: r.trade_id,
++        candidate_status: c.status,
++        reference_status: r.status,
++        entry_delta_min: entryDeltaMin,
++        exit_delta_min: exitDeltaMin,
++        pnl_delta: pnlDelta,
++        candidate_exit_reason: c.exit_reason || null,
++        reference_exit_reason: r.exit_reason || null,
++        exit_reason_changed: String(c.exit_reason || "") !== String(r.exit_reason || ""),
++      });
++    }
++    const candidateSummary = buildSentinelTradeSummary(candidateTickerTrades);
++    const referenceSummary = buildSentinelTradeSummary(referenceTickerTrades);
++    const tradeCountDelta = candidateSummary.trade_count - referenceSummary.trade_count;
++    const pnlDelta = Math.round((candidateSummary.total_pnl - referenceSummary.total_pnl) * 100) / 100;
++    totalMatchedPairs += matchedCount;
++    totalMissingInCandidate += Math.max(0, referenceTickerTrades.length - candidateTickerTrades.length);
++    totalExtraInCandidate += Math.max(0, candidateTickerTrades.length - referenceTickerTrades.length);
++    totalPnlDelta += pnlDelta;
++    sentinels.push({
++      ticker,
++      candidate: candidateSummary,
++      reference: referenceSummary,
++      diff: {
++        trade_count_delta: tradeCountDelta,
++        total_pnl_delta: pnlDelta,
++        missing_in_candidate: Math.max(0, referenceTickerTrades.length - candidateTickerTrades.length),
++        extra_in_candidate: Math.max(0, candidateTickerTrades.length - referenceTickerTrades.length),
++        matched_pairs: matchedCount,
++        comparisons,
++      },
++    });
++  }
++
++  return {
++    artifact_type: "sentinel_basket_v1",
++    run_id: candidateRunId,
++    reference_run_id: referenceRunId,
++    basket: tickers,
++    compared_at: Date.now(),
++    summary: {
++      matched_pairs: totalMatchedPairs,
++      missing_in_candidate: totalMissingInCandidate,
++      extra_in_candidate: totalExtraInCandidate,
++      total_pnl_delta: Math.round(totalPnlDelta * 100) / 100,
++      candidate_trade_count: candidateTrades.filter((t) => tickers.includes(t.ticker)).length,
++      reference_trade_count: referenceTrades.filter((t) => tickers.includes(t.ticker)).length,
++    },
++    sentinels,
++    gate: {
++      ok: true,
++      status: "ok",
++      reason: "artifact_generated",
++    },
++  };
++}
++
+ let _learningSchemaReady = false;
+ async function d1EnsureLearningSchema(env) {
+   if (_learningSchemaReady) return;
+@@ -22925,6 +23527,9 @@ async function runCalibrationInCron(env) {
+ }
+ 
+ function buildTradeLineageSnapshot(tickerData, entryPathOverride = null) {
++  const regimeVocabulary = resolveRegimeVocabulary(tickerData, {
++    executionFallback: tickerData?.regime_class || "UNKNOWN",
++  });
+   const _scenarioResolved =
+     tickerData?.__scenario_policy ||
+     _resolveScenarioExecutionPolicy(
+@@ -22943,7 +23548,10 @@ function buildTradeLineageSnapshot(tickerData, entryPathOverride = null) {
+           : [],
+         ticker_regime: tickerData.execution_profile.ticker_regime || tickerData?.regime_class || null,
+         market_state: tickerData.execution_profile.market_state || tickerData?.market_internals?.overall || null,
+-        personality: tickerData.execution_profile.personality || tickerData?._ticker_profile?.learning?.personality || tickerData?._ticker_profile?.behavior_type || null,
++        personality: tickerData.execution_profile.personality
++          || normalizeLearnedTickerProfile(tickerData?._tickerProfile || tickerData?._ticker_profile || null)?.learning?.personality
++          || normalizeLearnedTickerProfile(tickerData?._tickerProfile || tickerData?._ticker_profile || null)?.behaviorType
++          || null,
+       }
+     : null;
+   const internals = tickerData?.market_internals && typeof tickerData.market_internals === "object"
+@@ -23027,17 +23635,12 @@ function buildTradeLineageSnapshot(tickerData, entryPathOverride = null) {
+     return Object.keys(out).length ? out : null;
+   })();
+ 
+-  // Ticker character evidence for traceability
+-  const tickerCharacter = tickerData?._ticker_profile
+-    ? {
+-        personality: tickerData._ticker_profile.learning?.personality || tickerData._ticker_profile.behavior_type || null,
+-        sl_mult: tickerData._ticker_profile.sl_mult ?? 1.0,
+-        tp_mult: tickerData._ticker_profile.tp_mult ?? 1.0,
+-        entry_threshold_adj: tickerData._ticker_profile.entry_threshold_adj ?? 0,
+-        atr_pct_p50: tickerData._ticker_profile.atr_pct_p50 ?? null,
+-        trend_persistence: tickerData._ticker_profile.trend_persistence ?? null,
+-      }
+-    : null;
++  const profileContext = resolveTickerProfileContext(
++    tickerData?.ticker || tickerData?.sym || "",
++    tickerData?._tickerProfile || tickerData?._ticker_profile || null,
++    { learnedSource: tickerData?.__profile_resolution?.learned_profile_source || "runtime" }
++  );
++  const tickerCharacter = buildTickerCharacterEvidence(profileContext);
+ 
+   const rvolMap = tickerData?.rvol_map;
+   const rvol30 = rvolMap?.["30"]?.vr ?? rvolMap?.["60"]?.vr ?? null;
+@@ -23067,6 +23670,16 @@ function buildTradeLineageSnapshot(tickerData, entryPathOverride = null) {
+     state: tickerData?.state || null,
+     regime_class: tickerData?.regime_class || null,
+     regime_score: Number.isFinite(Number(tickerData?.regime_score)) ? Number(tickerData.regime_score) : null,
++    regime_vocabulary: {
++      execution_regime_class: regimeVocabulary.executionRegimeClass,
++      execution_regime_score: regimeVocabulary.executionRegimeScore,
++      swing_regime_snapshot: regimeVocabulary.swingRegimeSnapshot,
++      market_volatility_regime: regimeVocabulary.marketVolatilityRegime,
++      market_backdrop_class: regimeVocabulary.marketBackdropClass,
++      market_trend_bias: regimeVocabulary.marketTrendBias,
++      market_regime_label: regimeVocabulary.marketRegimeLabel,
++      market_regime_score: regimeVocabulary.marketRegimeScore,
++    },
+     scenario_policy: _scenarioResolved
+       ? {
+           source: _scenarioResolved.source || tickerData?.__scenario_policy_source || null,
+@@ -23084,6 +23697,8 @@ function buildTradeLineageSnapshot(tickerData, entryPathOverride = null) {
+           investor: tickerData.__learning_policy.investor || null,
+         }
+       : null,
++    profile_resolution: profileContext?.lineage || tickerData?.__profile_resolution || null,
++    adaptive_influence: buildAdaptiveInfluenceSnapshot(tickerData),
+     execution_profile: executionProfile,
+     market_internals: internals,
+     ticker_character: tickerCharacter,
+@@ -40371,14 +40986,35 @@ export default {
+           await d1EnsureLearningSchema(env);
+           const requestedRunId = String(url.searchParams.get("run_id") || "").trim();
+           const KV = env?.KV_TIMED;
+-          const replayRunning = KV ? await kvGetJSON(KV, "timed:replay:running") : null;
+-          const replayLockActive = KV ? await KV.get("timed:replay:lock") : null;
++          const activeState = await loadActiveRunState(db, KV);
++          const replayRunning = activeState.replayRunning;
++          const replayLockActive = activeState.replayLockVal;
+           const liveOnly = url.searchParams.get("live") === "1" || (!requestedRunId && (!!replayRunning || !!replayLockActive));
+           if (liveOnly) {
+-            const replayLock = replayLockActive || (KV ? await KV.get("timed:replay:lock") : null);
++            if (!replayRunning && !replayLockActive) {
++              const readModel = buildTradeAutopsyReadModel({
++                source: "replay_kv",
++                archiveRun: null,
++                liveRun: activeState.active || activeState.live || null,
++                tradeCount: 0,
++                isLive: true,
++                isCleanLane: activeState.isCleanLane,
++                replay: activeState.replay,
++              });
++              return sendJSON({
++                ok: true,
++                count: 0,
++                trades: [],
++                source: "replay_kv",
++                live_run_id: null,
++                read_model: readModel,
++              }, 200, corsHeaders(env, req));
++            }
++            const replayLock = replayLockActive || null;
++            const liveCleanLane = activeState.isCleanLane;
+             const replayTrades = KV ? ((await kvGetJSON(KV, REPLAY_TRADES_KV_KEY)) || []) : [];
+             let archivedReplayTrades = [];
+-            if (replayLock && db) {
++            if (replayLock && db && !liveCleanLane) {
+               try {
+                 await d1EnsureBacktestRunsSchema(env);
+                 const { results: archiveRows } = await db.prepare(
+@@ -40531,28 +41167,36 @@ export default {
+                 lifecycle_realized_pnl: Number.isFinite(realizedPnl) ? realizedPnl : null,
+               };
+             };
+-            const closedTrades = Array.isArray(mergedReplayTrades)
++            const liveVisibleTrades = Array.isArray(mergedReplayTrades)
+               ? mergedReplayTrades.filter((t) => {
+                   const status = String(t?.status || "").toUpperCase();
+-                  return status && status !== "OPEN";
++                  const trimTs = Number(t?.trim_ts ?? t?.trimTs ?? 0);
++                  const trimmedPct = Number(t?.trimmed_pct ?? t?.trimmedPct ?? 0);
++                  if (!status) return false;
++                  if (status === "ARCHIVED") return false;
++                  if (status !== "OPEN") return true;
++                  return trimTs > 0 || trimmedPct > 0;
+                 })
+               : [];
+-            const tradeIds = closedTrades.map((t) => String(t?.trade_id || t?.id || "")).filter(Boolean);
++            const tradeIds = liveVisibleTrades.map((t) => String(t?.trade_id || t?.id || "")).filter(Boolean);
+             const directionMap = new Map();
+             if (tradeIds.length > 0) {
+               const CHUNK = 95;
+               for (let ci = 0; ci < tradeIds.length; ci += CHUNK) {
+                 const chunk = tradeIds.slice(ci, ci + CHUNK);
+                 const placeholders = chunk.map((_, i) => `?${i + 1}`).join(",");
+-                const { results: daRows } = await db.prepare(
+-                  `SELECT trade_id, run_id, ts, signal_snapshot_json, exit_snapshot_json, entry_path, consensus_direction,
+-                      max_favorable_excursion, max_adverse_excursion, tf_stack_json,
++                  const scopeClause = liveCleanLane
++                    ? `AND (?${chunk.length + 1} IS NULL OR run_id = ?${chunk.length + 1})`
++                    : `AND (?${chunk.length + 1} IS NULL OR run_id = ?${chunk.length + 1} OR run_id IS NULL)`;
++                  const { results: daRows } = await db.prepare(
++                    `SELECT trade_id, run_id, ts, signal_snapshot_json, exit_snapshot_json, entry_path, consensus_direction,
++                        max_favorable_excursion, max_adverse_excursion, tf_stack_json,
+                           execution_profile_name, execution_profile_confidence, market_state, execution_profile_json,
+                           rvol_best, entry_quality_score
+-                   FROM direction_accuracy
+-                   WHERE trade_id IN (${placeholders})
+-                     AND (?${chunk.length + 1} IS NULL OR run_id = ?${chunk.length + 1} OR run_id IS NULL)`
+-                ).bind(...chunk, replayLock || null).all();
++                     FROM direction_accuracy
++                     WHERE trade_id IN (${placeholders})
++                       ${scopeClause}`
++                  ).bind(...chunk, replayLock || null).all();
+                 for (const row of daRows || []) {
+                   const id = String(row.trade_id || "");
+                   if (!id) continue;
+@@ -40572,7 +41216,7 @@ export default {
+                 }
+               }
+             }
+-            const trades = closedTrades
++            const trades = liveVisibleTrades
+               .map((t) => {
+                 const tradeId = String(t?.trade_id || t?.id || "");
+                 const da = directionMap.get(tradeId) || {};
+@@ -40635,14 +41279,14 @@ export default {
+                 const scopedCountRow = await db.prepare(
+                   `SELECT COUNT(*) AS c
+                    FROM trades
+-                   WHERE UPPER(COALESCE(status, '')) <> 'OPEN'
++                   WHERE UPPER(COALESCE(status, '')) NOT IN ('OPEN', 'ARCHIVED')
+                      AND (?1 IS NULL OR run_id = ?1)`
+                 ).bind(replayLock || null).first();
+                 const scopedCount = Number(scopedCountRow?.c ?? scopedCountRow?.count ?? 0) || 0;
+                 const unscopedCountRow = await db.prepare(
+                   `SELECT COUNT(*) AS c
+                    FROM trades
+-                   WHERE UPPER(COALESCE(status, '')) <> 'OPEN'`
++                   WHERE UPPER(COALESCE(status, '')) NOT IN ('OPEN', 'ARCHIVED')`
+                 ).first();
+                 const unscopedCount = Number(unscopedCountRow?.c ?? unscopedCountRow?.count ?? 0) || 0;
+                 const d1ClosedCount = Math.max(scopedCount, unscopedCount);
+@@ -40652,14 +41296,14 @@ export default {
+                   const unscopedCountRow = await db.prepare(
+                     `SELECT COUNT(*) AS c
+                      FROM trades
+-                     WHERE UPPER(COALESCE(status, '')) <> 'OPEN'`
++                     WHERE UPPER(COALESCE(status, '')) NOT IN ('OPEN', 'ARCHIVED')`
+                   ).first();
+                   const d1ClosedCount = Number(unscopedCountRow?.c ?? unscopedCountRow?.count ?? 0) || 0;
+                   if (d1ClosedCount > trades.length) shouldUseD1Fallback = true;
+                 } catch {}
+               }
+             }
+-            if (shouldUseD1Fallback) {
++            if (shouldUseD1Fallback && !liveCleanLane) {
+               // Only use D1 fallback when there is no active replay lock/running marker.
+               // During active replay, D1 rows can be partially reconciled or contaminated
+               // with wall-clock close timestamps that do not belong in the live autopsy view.
+@@ -40668,7 +41312,7 @@ export default {
+                 const { results } = await db.prepare(
+                   `SELECT *
+                    FROM trades
+-                   WHERE UPPER(COALESCE(status, '')) <> 'OPEN'
++                   WHERE UPPER(COALESCE(status, '')) NOT IN ('OPEN', 'ARCHIVED')
+                      AND (?1 IS NULL OR run_id = ?1)
+                    ORDER BY entry_ts DESC
+                    LIMIT 500`
+@@ -40679,7 +41323,7 @@ export default {
+                   const { results } = await db.prepare(
+                     `SELECT *
+                      FROM trades
+-                     WHERE UPPER(COALESCE(status, '')) <> 'OPEN'
++                     WHERE UPPER(COALESCE(status, '')) NOT IN ('OPEN', 'ARCHIVED')
+                      ORDER BY entry_ts DESC
+                      LIMIT 500`
+                   ).all();
+@@ -40773,20 +41417,40 @@ export default {
+                   };
+                 })
+                 .sort((a, b) => Number(b?.entry_ts || 0) - Number(a?.entry_ts || 0));
++              const readModel = buildTradeAutopsyReadModel({
++                source: "trades_d1_live_fallback",
++                archiveRun: null,
++                liveRun: activeState.active || activeState.live || null,
++                tradeCount: fallbackTrades.length,
++                isLive: true,
++                isCleanLane: liveCleanLane,
++                replay: activeState.replay,
++              });
+               return sendJSON({
+                 ok: true,
+                 count: fallbackTrades.length,
+                 trades: fallbackTrades,
+                 source: "trades_d1_live_fallback",
+                 live_run_id: replayLock || null,
++                read_model: readModel,
+               }, 200, corsHeaders(env, req));
+             }
++            const readModel = buildTradeAutopsyReadModel({
++              source: "replay_kv",
++              archiveRun: null,
++              liveRun: activeState.active || activeState.live || null,
++              tradeCount: trades.length,
++              isLive: true,
++              isCleanLane: liveCleanLane,
++              replay: activeState.replay,
++            });
+             return sendJSON({
+               ok: true,
+               count: trades.length,
+               trades,
+               source: "replay_kv",
+               live_run_id: replayLock || null,
++              read_model: readModel,
+             }, 200, corsHeaders(env, req));
+           }
+           // Determine which run to show: explicit run_id, or most recent completed run from archive
+@@ -40878,7 +41542,21 @@ export default {
+           let source = "trades_d1";
+           if (!archiveRunId) {
+             const latestRun = await db.prepare(
+-              `SELECT run_id FROM backtest_runs WHERE status = 'completed' ORDER BY ended_at DESC, updated_at DESC LIMIT 1`
++              `SELECT run_id
++                 FROM backtest_runs
++                WHERE status = 'completed'
++                ORDER BY
++                  COALESCE(
++                    CASE
++                      WHEN ended_at IS NULL THEN NULL
++                      WHEN typeof(ended_at) = 'text' THEN CAST(strftime('%s', ended_at) AS INTEGER) * 1000
++                      ELSE CAST(ended_at AS INTEGER)
++                    END,
++                    CAST(updated_at AS INTEGER),
++                    CAST(created_at AS INTEGER)
++                  ) DESC,
++                  CAST(created_at AS INTEGER) DESC
++                LIMIT 1`
+             ).first();
+             if (latestRun?.run_id) archiveRunId = latestRun.run_id;
+           }
+@@ -40895,20 +41573,9 @@ export default {
+                       da.execution_profile_name, da.execution_profile_confidence, da.market_state, da.execution_profile_json,
+                       da.rvol_best, da.entry_quality_score, da.exit_reason AS da_exit_reason
+                  FROM backtest_run_trades brt
+-                 LEFT JOIN direction_accuracy da ON da.rowid = (
+-                   SELECT da2.rowid
+-                   FROM direction_accuracy da2
+-                   WHERE da2.trade_id = brt.trade_id
+-                     AND (da2.run_id = ?1 OR da2.run_id IS NULL)
+-                   ORDER BY
+-                     CASE
+-                       WHEN da2.run_id = ?1 THEN 2
+-                       WHEN da2.run_id IS NULL THEN 1
+-                       ELSE 0
+-                     END DESC,
+-                     COALESCE(da2.ts, 0) DESC
+-                   LIMIT 1
+-                 )
++                 LEFT JOIN backtest_run_direction_accuracy da
++                   ON da.run_id = brt.run_id
++                  AND da.trade_id = brt.trade_id
+                WHERE brt.run_id = ?1 AND brt.status NOT IN ('OPEN', 'TP_HIT_TRIM')
+                ORDER BY brt.entry_ts DESC`
+             ).bind(archiveRunId).all();
+@@ -40930,7 +41597,18 @@ export default {
+               rvol_best: r.rvol_best ?? null, entry_quality_score: r.entry_quality_score ?? null,
+               ...deriveEffectiveExecution(r),
+             }));
+-            return sendJSON({ ok: true, count: trades.length, trades, source, archive_run_id: archiveRunId }, 200, corsHeaders(env, req));
++            const archiveRunRow = await db.prepare(`SELECT r.*, m.total_trades, m.wins, m.losses, m.win_rate, m.realized_pnl, m.realized_pnl_pct, m.avg_win_pct, m.avg_loss_pct FROM backtest_runs r LEFT JOIN backtest_run_metrics m ON r.run_id = m.run_id WHERE r.run_id = ?1`).bind(archiveRunId).first().catch(() => null);
++            const archiveRun = parseRunRecord(archiveRunRow);
++            const readModel = buildTradeAutopsyReadModel({
++              source,
++              archiveRun,
++              liveRun: activeState.active || activeState.live || null,
++              tradeCount: trades.length,
++              isLive: false,
++              isCleanLane: archiveRun ? isRunManifestCleanLane(archiveRun.manifest) : false,
++              replay: activeState.replay,
++            });
++            return sendJSON({ ok: true, count: trades.length, trades, source, archive_run_id: archiveRunId, read_model: readModel }, 200, corsHeaders(env, req));
+           }
+ 
+           // Fallback: read from trades table (live system or no archive available)
+@@ -40971,7 +41649,16 @@ export default {
+             rvol_best: r.rvol_best ?? null, entry_quality_score: r.entry_quality_score ?? null,
+             ...deriveEffectiveExecution(r),
+           }));
+-          return sendJSON({ ok: true, count: trades.length, trades, source }, 200, corsHeaders(env, req));
++          const readModel = buildTradeAutopsyReadModel({
++            source,
++            archiveRun: null,
++            liveRun: activeState.active || activeState.live || null,
++            tradeCount: trades.length,
++            isLive: false,
++            isCleanLane: false,
++            replay: activeState.replay,
++          });
++          return sendJSON({ ok: true, count: trades.length, trades, source, read_model: readModel }, 200, corsHeaders(env, req));
+         } catch (e) {
+           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+         }
+@@ -41462,6 +42149,8 @@ export default {
+ 
+         // Set replay-running lock (prevents live scoring cron from overwriting replay trades)
+         const replayLockVal = await KV.get("timed:replay:lock") || null;
++        const replayManifest = replayLockVal ? await loadRunManifest(db, replayLockVal) : null;
++        const cleanReplayLane = !!(freshRun || cleanSlate || isRunManifestCleanLane(replayManifest));
+         await kvPutJSON(KV, "timed:replay:running", { since: Date.now(), date: dateParam, offset: tickerOffset, fullDay: !!fullDay });
+ 
+         // Clean slate: purge working-state tables (KV + D1) for a fresh run.
+@@ -41528,7 +42217,7 @@ export default {
+         // Resume-from-archive: if KV is empty but the run has trades in backtest_run_trades, restore them.
+         // SKIP entirely when freshRun=1 (new backtest, not a resume) or cleanSlate — stale trades from
+         // prior runs or KV eventual consistency can feed loss-streak cooldown and recent-trade gates.
+-        if (!freshRun && !cleanSlate && (!allTrades || allTrades.length === 0) && replayLockVal && db) {
++        if (!cleanReplayLane && (!allTrades || allTrades.length === 0) && replayLockVal && db) {
+           try {
+             await d1EnsureBacktestRunsSchema(env);
+             const { results: archiveRows } = await db.prepare(
+@@ -41561,9 +42250,23 @@ export default {
+           }
+         }
+         const replayCtx = { allTrades, execStates: new Map(), processDebug: [], candleCache, _blockedEntries: {}, _leadingLtf: replayLeadingLtf };
+-        const stripReplayCarryState = (existing) => {
++        const sanitizeReplayTickerState = (existing) => {
+           if (!existing || typeof existing !== "object") return {};
+           const clean = { ...existing };
++          for (const key of [
++            "_env",
++            "_marketInternals",
++            "_tickerProfile",
++            "__entry_block_reason",
++            "__entry_block_fuel_pct",
++          ]) {
++            delete clean[key];
++          }
++          return clean;
++        };
++        const stripReplayCarryState = (existing) => {
++          if (!existing || typeof existing !== "object") return {};
++          const clean = sanitizeReplayTickerState(existing);
+           for (const key of [
+             "entry_ts",
+             "entry_price",
+@@ -41605,7 +42308,7 @@ export default {
+               }
+             } catch { /* D1 fallback non-critical */ }
+           }
+-          stateMap[ticker] = existing || {};
++          stateMap[ticker] = sanitizeReplayTickerState(existing || {});
+         }
+ 
+         // Load calibration + adaptive config from model_config for replay parity with live cron.
+@@ -41617,21 +42320,31 @@ export default {
+         let _replayCalibratedSlAtr = 0;
+         let _replayCalibratedRankMin = 0;
+         let _replayCurrentVix = null;
+-        const replayRunConfig = replayLockVal ? await loadRunConfigMap(db, replayLockVal) : null;
++        const cfgKeys = [
++          "adaptive_entry_gates",
++          "adaptive_regime_gates",
++          "adaptive_sl_tp",
++          "calibrated_sl_atr",
++          "calibrated_tp_tiers",
++          "calibrated_rank_min",
++          "adaptive_rank_weights",
++        ];
++        const daKeys = REPLAY_DA_KEYS;
++        const replayPinnedConfigKeys = [...new Set([
++          ...cfgKeys,
++          ...daKeys,
++          "dynamic_engine_rules",
++          "reference_execution_map",
++          "scenario_execution_policy",
++          "cio_franchise_blacklist",
++          "cio_reference_features",
++        ])];
++        const replayRunConfig = replayLockVal ? await loadRunConfigSubset(db, replayLockVal, replayPinnedConfigKeys) : null;
+         const replayConfigValue = (key) => replayRunConfig?.[key];
+         if (replayRunConfig) {
+           console.log(`[REPLAY] Using pinned run config from archive for ${replayLockVal} (${Object.keys(replayRunConfig).length} keys)`);
+         }
+         try {
+-          const cfgKeys = [
+-            "adaptive_entry_gates",
+-            "adaptive_regime_gates",
+-            "adaptive_sl_tp",
+-            "calibrated_sl_atr",
+-            "calibrated_tp_tiers",
+-            "calibrated_rank_min",
+-            "adaptive_rank_weights",
+-          ];
+           const cfgValues = replayRunConfig
+             ? cfgKeys.map((key) => replayConfigValue(key))
+             : (await db.batch(cfgKeys.map((key) => db.prepare(`SELECT config_value FROM model_config WHERE config_key=?1`).bind(key))))
+@@ -41654,7 +42367,6 @@ export default {
+         } catch {}
+         // Load deep audit config for replay parity with live
+         try {
+-          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_doa_early_exit_enabled", "deep_audit_confirmed_min_rank", "deep_audit_parity_defer_confirmed_opening_minutes", "deep_audit_legacy_momentum_precedence", "deep_audit_legacy_momentum_min_rr", "deep_audit_legacy_momentum_relax_trigger", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "deep_audit_hard_loss_cap_pct", "deep_audit_breakeven_mfe_threshold", "deep_audit_breakeven_skip_trimmed_runner", "deep_audit_parity_runner_tp_full_only", "deep_audit_parity_skip_stall_force_close", "deep_audit_parity_skip_sl_breach", "deep_audit_parity_no_reentry_after_tp_full_hours", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist", "ai_cio_enabled", "ai_cio_replay_enabled", "ai_cio_reference_enabled", "short_min_rank", "short_require_daily_st_aligned", "short_min_4h_ema_depth", "min_entry_confidence", "entry_ticker_blacklist", "choppy_regime_rank_floor", "tt_spy_directional_gate", "tt_pdz_hard_gate", "deep_audit_phase_peak_extreme", "deep_audit_phase_decline_extreme", "deep_audit_bias_spread_min"];
+           const _daConfig = {};
+           if (replayRunConfig) {
+             for (const key of daKeys) {
+@@ -41797,16 +42509,22 @@ export default {
+         }
+ 
+         // Load ticker profiles from D1 for replay parity with live scoring
+-        // Live path loads from KV (timed:profile:{ticker}); replay loads all from D1 once
++        // Live path loads from KV (timed:profile:{ticker}); replay only needs the
++        // current batch's profiles, and loading all profiles can blow memory on
++        // replay cold starts.
+         let _replayTickerProfiles = {}; // { TICKER: { ...profileRow } }
+         try {
+-          const { results: profRows } = await db.prepare(
+-            `SELECT ticker, behavior_type, sl_mult, tp_mult, entry_threshold_adj, atr_pct_p50,
+-                    trend_persistence, ichimoku_responsiveness, learning_json
+-             FROM ticker_profiles`
+-          ).all();
+-          for (const r of (profRows || [])) {
+-            _replayTickerProfiles[r.ticker] = r;
++          if (batchTickers.length > 0) {
++            const profilePlaceholders = batchTickers.map((_, idx) => `?${idx + 1}`).join(",");
++            const { results: profRows } = await db.prepare(
++              `SELECT ticker, behavior_type, sl_mult, tp_mult, entry_threshold_adj, atr_pct_p50,
++                      trend_persistence, ichimoku_responsiveness, learning_json
++                 FROM ticker_profiles
++                WHERE ticker IN (${profilePlaceholders})`
++            ).bind(...batchTickers.map((ticker) => String(ticker || "").toUpperCase())).all();
++            for (const r of (profRows || [])) {
++              _replayTickerProfiles[r.ticker] = r;
++            }
+           }
+           if (Object.keys(_replayTickerProfiles).length > 0) {
+             console.log(`[REPLAY] Loaded ${Object.keys(_replayTickerProfiles).length} ticker profiles for personality-aware SL/TP`);
+@@ -41985,7 +42703,10 @@ export default {
+                 : rawExisting;
+               // Inject ticker profile so assembleTickerData / computeServerSideScores can use it
+               if (_replayTickerProfiles[ticker] && !existing._tickerProfile) {
+-                existing._tickerProfile = _replayTickerProfiles[ticker];
++                existing._tickerProfile = normalizeLearnedTickerProfile(_replayTickerProfiles[ticker], {
++                  ticker,
++                  source: "replay_d1_batch",
++                });
+               }
+               if (_replayMarketInternals) existing._marketInternals = _replayMarketInternals;
+               const result = assembleTickerData(ticker, bundleMap, existing, { rawBars, leadingLtf: replayLeadingLtf, asOfTs: intervalTs });
+@@ -42213,7 +42934,7 @@ export default {
+                 if (countAfter > countBefore) tradesCreated += countAfter - countBefore;
+               }
+ 
+-              stateMap[ticker] = result;
++              stateMap[ticker] = sanitizeReplayTickerState(result);
+               scored++;
+               processed++;
+             } catch (e) {
+@@ -42601,7 +43322,24 @@ export default {
+ 
+         await kvPutJSON(KV, "timed:replay:running", { since: Date.now(), date: dateParam, interval: intervalIdx, mode: "single_interval" });
+         const replayLockVal = await KV.get("timed:replay:lock") || null;
+-        const replayRunConfig = replayLockVal ? await loadRunConfigMap(db, replayLockVal) : null;
++        const replayManifest = replayLockVal ? await loadRunManifest(db, replayLockVal) : null;
++        const cfgKeys = [
++          "adaptive_entry_gates",
++          "adaptive_regime_gates",
++          "adaptive_sl_tp",
++          "calibrated_sl_atr",
++          "calibrated_tp_tiers",
++          "calibrated_rank_min",
++        ];
++        const daKeys = REPLAY_DA_KEYS;
++        const replayPinnedConfigKeys = [...new Set([
++          ...cfgKeys,
++          ...daKeys,
++          "dynamic_engine_rules",
++          "reference_execution_map",
++          "scenario_execution_policy",
++        ])];
++        const replayRunConfig = replayLockVal ? await loadRunConfigSubset(db, replayLockVal, replayPinnedConfigKeys) : null;
+         const replayConfigValue = (key) => replayRunConfig?.[key];
+         if (replayRunConfig) {
+           console.log(`[INTERVAL REPLAY] Using pinned run config from archive for ${replayLockVal} (${Object.keys(replayRunConfig).length} keys)`);
+@@ -42611,14 +43349,6 @@ export default {
+         let _replayGoldenProfiles = null, _replayAdaptiveEntryGates = null, _replayAdaptiveRegimeGates = null;
+         let _replayAdaptiveSLTP = null, _replayCalibratedSlAtr = 0, _replayCalibratedRankMin = 0;
+         try {
+-          const cfgKeys = [
+-            "adaptive_entry_gates",
+-            "adaptive_regime_gates",
+-            "adaptive_sl_tp",
+-            "calibrated_sl_atr",
+-            "calibrated_tp_tiers",
+-            "calibrated_rank_min",
+-          ];
+           const cfgValues = replayRunConfig
+             ? cfgKeys.map((key) => replayConfigValue(key))
+             : (await db.batch(cfgKeys.map((key) => db.prepare(`SELECT config_value FROM model_config WHERE config_key=?1`).bind(key))))
+@@ -42638,7 +43368,6 @@ export default {
+         } catch {}
+         try {
+           const _daConfig = {};
+-          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_doa_early_exit_enabled", "deep_audit_confirmed_min_rank", "deep_audit_parity_defer_confirmed_opening_minutes", "deep_audit_legacy_momentum_precedence", "deep_audit_legacy_momentum_min_rr", "deep_audit_legacy_momentum_relax_trigger", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "deep_audit_hard_loss_cap_pct", "deep_audit_breakeven_mfe_threshold", "deep_audit_breakeven_skip_trimmed_runner", "deep_audit_parity_runner_tp_full_only", "deep_audit_parity_skip_stall_force_close", "deep_audit_parity_skip_sl_breach", "deep_audit_parity_no_reentry_after_tp_full_hours", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist", "ai_cio_enabled", "ai_cio_replay_enabled", "ai_cio_reference_enabled", "short_min_rank", "short_require_daily_st_aligned", "short_min_4h_ema_depth", "min_entry_confidence", "entry_ticker_blacklist", "choppy_regime_rank_floor", "tt_spy_directional_gate", "tt_pdz_hard_gate", "deep_audit_phase_peak_extreme", "deep_audit_phase_decline_extreme", "deep_audit_bias_spread_min"];
+           if (replayRunConfig) {
+             for (const key of daKeys) {
+               const value = replayConfigValue(key);
+@@ -42680,10 +43409,16 @@ export default {
+ 
+         let _replayTickerProfiles = {};
+         try {
+-          const { results: profRows } = await db.prepare(
+-            `SELECT ticker, behavior_type, sl_mult, tp_mult, entry_threshold_adj, atr_pct_p50, trend_persistence, ichimoku_responsiveness, learning_json FROM ticker_profiles`
+-          ).all();
+-          for (const r of (profRows || [])) _replayTickerProfiles[r.ticker] = r;
++          if (batchTickers.length > 0) {
++            const profilePlaceholders = batchTickers.map((_, idx) => `?${idx + 1}`).join(",");
++            const { results: profRows } = await db.prepare(
++              `SELECT ticker, behavior_type, sl_mult, tp_mult, entry_threshold_adj, atr_pct_p50,
++                      trend_persistence, ichimoku_responsiveness, learning_json
++                 FROM ticker_profiles
++                WHERE ticker IN (${profilePlaceholders})`
++            ).bind(...batchTickers.map((ticker) => String(ticker || "").toUpperCase())).all();
++            for (const r of (profRows || [])) _replayTickerProfiles[r.ticker] = r;
++          }
+         } catch {}
+ 
+         replayEnv._adaptiveEntryGates = _replayAdaptiveEntryGates;
+@@ -42700,9 +43435,10 @@ export default {
+         // ── Load existing trades from KV (archive fallback for resume) ──
+         const _intervalCleanSlate = cleanSlate && intervalIdx === 0;
+         const _intervalFreshRun = freshRun;
++        const cleanReplayLane = !!(_intervalFreshRun || _intervalCleanSlate || isRunManifestCleanLane(replayManifest));
+         let allTrades = _intervalCleanSlate ? [] : ((await kvGetJSON(KV, REPLAY_TRADES_KV_KEY)) || []);
+         // Skip archive fallback when freshRun or cleanSlate — same rationale as candle-replay
+-        if (!_intervalFreshRun && !_intervalCleanSlate && (!allTrades || allTrades.length === 0) && replayLockVal && db) {
++        if (!cleanReplayLane && (!allTrades || allTrades.length === 0) && replayLockVal && db) {
+           try {
+             await d1EnsureBacktestRunsSchema(env);
+             const { results: archiveRows } = await db.prepare(
+@@ -42776,7 +43512,12 @@ export default {
+               };
+ 
+               // 3. Inject ticker profile + market internals (same as live cron)
+-              if (_replayTickerProfiles[ticker]) existing._tickerProfile = _replayTickerProfiles[ticker];
++              if (_replayTickerProfiles[ticker]) {
++                existing._tickerProfile = normalizeLearnedTickerProfile(_replayTickerProfiles[ticker], {
++                  ticker,
++                  source: "replay_d1_batch",
++                });
++              }
+ 
+               // 4. computeServerSideScores (same function live cron uses)
+               const result = await computeServerSideScores(ticker, getCandlesCached, replayEnv, existing);
+@@ -43220,7 +43961,7 @@ export default {
+         // Load config (same as candle-replay, but much faster — no candle loading)
+         const replayEnv = { ...env, _isReplay: true };
+         try {
+-          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_doa_early_exit_enabled", "deep_audit_confirmed_min_rank", "deep_audit_parity_defer_confirmed_opening_minutes", "deep_audit_legacy_momentum_precedence", "deep_audit_legacy_momentum_min_rr", "deep_audit_legacy_momentum_relax_trigger", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "deep_audit_hard_loss_cap_pct", "deep_audit_breakeven_mfe_threshold", "deep_audit_breakeven_skip_trimmed_runner", "deep_audit_parity_runner_tp_full_only", "deep_audit_parity_skip_stall_force_close", "deep_audit_parity_skip_sl_breach", "deep_audit_parity_no_reentry_after_tp_full_hours", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist", "ai_cio_enabled", "ai_cio_replay_enabled", "short_min_rank", "short_require_daily_st_aligned", "short_min_4h_ema_depth", "min_entry_confidence", "entry_ticker_blacklist", "choppy_regime_rank_floor", "tt_spy_directional_gate", "tt_pdz_hard_gate", "deep_audit_phase_peak_extreme", "deep_audit_phase_decline_extreme", "deep_audit_bias_spread_min"];
++          const daKeys = REPLAY_DA_KEYS;
+           const daRows = (await db.prepare(
+             `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
+           ).bind(...daKeys).all())?.results || [];
+@@ -44094,7 +44835,17 @@ export default {
+           if (activeSlot) {
+             try { await db.prepare(`UPDATE backtest_runs SET active_experiment_slot = 0 WHERE active_experiment_slot = 1`).run(); } catch {}
+           }
+-          await db.prepare(`INSERT OR REPLACE INTO backtest_runs (run_id, label, description, start_date, end_date, interval_min, ticker_batch, ticker_universe_count, trader_only, keep_open_at_end, low_write, status, status_note, live_config_slot, active_experiment_slot, is_protected_baseline, tags_json, params_json, created_at, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)`).bind(
++          const manifest = buildRunManifest({
++            row: { run_id: runId, created_at: now },
++            body: {
++              ...body,
++              created_at: now,
++              params,
++              tags,
++              config_override: configOverride,
++            },
++          });
++          await db.prepare(`INSERT OR REPLACE INTO backtest_runs (run_id, label, description, start_date, end_date, interval_min, ticker_batch, ticker_universe_count, trader_only, keep_open_at_end, low_write, status, status_note, live_config_slot, active_experiment_slot, is_protected_baseline, tags_json, params_json, manifest_json, created_at, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)`).bind(
+             runId, label, description, body?.start_date || null, body?.end_date || null,
+             Number(body?.interval_min) || 15, Number(body?.ticker_batch) || 15,
+             Number(body?.ticker_universe_count) || 0,
+@@ -44104,6 +44855,7 @@ export default {
+             parseBool01(body?.is_protected_baseline),
+             tags.length ? JSON.stringify(tags) : null,
+             params ? JSON.stringify(params) : null,
++            JSON.stringify(manifest),
+             now, now,
+           ).run();
+           if (status === "running") {
+@@ -44130,7 +44882,7 @@ export default {
+               ).bind(runId).run();
+             }
+           } catch {}
+-          return sendJSON({ ok: true, run_id: runId, status }, 200, corsHeaders(env, req));
++          return sendJSON({ ok: true, run_id: runId, status, manifest }, 200, corsHeaders(env, req));
+         } catch (e) {
+           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+         }
+@@ -44149,11 +44901,21 @@ export default {
+           const now = Date.now();
+           const status = String(body?.status || "completed").trim().toLowerCase();
+           const preserveRegisteredConfig = parseBool01(body?.preserve_registered_config) === 1;
++          const existingRun = await db.prepare(`SELECT * FROM backtest_runs WHERE run_id = ?1`).bind(runId).first();
++          const manifest = parseRunRecord(existingRun)?.manifest || buildRunManifest({ row: existingRun || { run_id: runId }, body });
++          const cleanReplayLane = isRunManifestCleanLane(manifest);
++          if (!existingRun?.manifest_json) {
++            try {
++              await db.prepare(`UPDATE backtest_runs SET manifest_json = ?2 WHERE run_id = ?1`).bind(runId, JSON.stringify(manifest)).run();
++            } catch {}
++          }
+ 
+           // Claim orphaned trades (NULL run_id) so metrics + archival capture them
+-          try {
+-            await db.prepare(`UPDATE trades SET run_id = ?1 WHERE run_id IS NULL`).bind(runId).run();
+-          } catch {}
++          if (!cleanReplayLane) {
++            try {
++              await db.prepare(`UPDATE trades SET run_id = ?1 WHERE run_id IS NULL`).bind(runId).run();
++            } catch {}
++          }
+ 
+           const summary = await summarizeRunMetrics(db, runId);
+           if (!summary) return sendJSON({ ok: false, error: "summary_failed" }, 500, corsHeaders(env, req));
+@@ -44180,19 +44942,19 @@ export default {
+           let archived = { trades: 0, da: 0, annotations: 0, config: 0 };
+           try {
+             const archRes = await db.prepare(
+-              `INSERT OR IGNORE INTO backtest_run_trades (run_id, trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status, exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version, created_at, updated_at, trim_ts, trim_price) SELECT COALESCE(run_id, ?1), trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status, exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version, created_at, updated_at, trim_ts, trim_price FROM trades WHERE run_id = ?1 OR run_id IS NULL`
++              `INSERT OR IGNORE INTO backtest_run_trades (run_id, trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status, exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version, created_at, updated_at, trim_ts, trim_price) SELECT COALESCE(run_id, ?1), trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status, exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version, created_at, updated_at, trim_ts, trim_price FROM trades WHERE run_id = ?1 ${cleanReplayLane ? "" : "OR run_id IS NULL"}`
+             ).bind(runId).run();
+             archived.trades = archRes?.meta?.changes ?? 0;
+           } catch (ae) { console.error("[ARCHIVE] trades:", String(ae).slice(0, 200)); }
+           try {
+             const daRes = await db.prepare(
+-              `INSERT OR IGNORE INTO backtest_run_direction_accuracy (run_id, trade_id, ticker, ts, signal_snapshot_json, regime_daily, regime_weekly, regime_combined, entry_path, execution_profile_name, execution_profile_confidence, market_state, execution_profile_json, rvol_best, entry_quality_score) SELECT ?1, da.trade_id, da.ticker, da.ts, da.signal_snapshot_json, da.regime_daily, da.regime_weekly, da.regime_combined, da.entry_path, da.execution_profile_name, da.execution_profile_confidence, da.market_state, da.execution_profile_json, da.rvol_best, da.entry_quality_score FROM direction_accuracy da INNER JOIN trades t ON da.trade_id = t.trade_id WHERE t.run_id = ?1 OR t.run_id IS NULL`
++              `INSERT OR IGNORE INTO backtest_run_direction_accuracy (run_id, trade_id, ticker, ts, signal_snapshot_json, exit_snapshot_json, regime_daily, regime_weekly, regime_combined, entry_path, consensus_direction, execution_profile_name, execution_profile_confidence, market_state, execution_profile_json, tf_stack_json, max_favorable_excursion, max_adverse_excursion, rvol_best, entry_quality_score, exit_reason) SELECT ?1, da.trade_id, da.ticker, da.ts, da.signal_snapshot_json, da.exit_snapshot_json, da.regime_daily, da.regime_weekly, da.regime_combined, da.entry_path, da.consensus_direction, da.execution_profile_name, da.execution_profile_confidence, da.market_state, da.execution_profile_json, da.tf_stack_json, da.max_favorable_excursion, da.max_adverse_excursion, da.rvol_best, da.entry_quality_score, da.exit_reason FROM direction_accuracy da INNER JOIN trades t ON da.trade_id = t.trade_id WHERE t.run_id = ?1 ${cleanReplayLane ? "" : "OR t.run_id IS NULL"}`
+             ).bind(runId).run();
+             archived.da = daRes?.meta?.changes ?? 0;
+           } catch (ae) { console.error("[ARCHIVE] da:", String(ae).slice(0, 200)); }
+           try {
+             const annRes = await db.prepare(
+-              `INSERT OR IGNORE INTO backtest_run_annotations (run_id, trade_id, classification, notes, updated_at) SELECT ?1, a.trade_id, a.classification, a.notes, a.updated_at FROM trade_autopsy_annotations a INNER JOIN trades t ON a.trade_id = t.trade_id WHERE t.run_id = ?1 OR t.run_id IS NULL`
++              `INSERT OR IGNORE INTO backtest_run_annotations (run_id, trade_id, classification, notes, updated_at) SELECT ?1, a.trade_id, a.classification, a.notes, a.updated_at FROM trade_autopsy_annotations a INNER JOIN trades t ON a.trade_id = t.trade_id WHERE t.run_id = ?1 ${cleanReplayLane ? "" : "OR t.run_id IS NULL"}`
+             ).bind(runId).run();
+             archived.annotations = annRes?.meta?.changes ?? 0;
+           } catch (ae) { console.error("[ARCHIVE] annotations:", String(ae).slice(0, 200)); }
+@@ -44218,7 +44980,7 @@ export default {
+             };
+           } catch {}
+ 
+-          return sendJSON({ ok: true, run_id: runId, status, summary: metricsPayload, archived }, 200, corsHeaders(env, req));
++          return sendJSON({ ok: true, run_id: runId, status, summary: metricsPayload, archived, manifest }, 200, corsHeaders(env, req));
+         } catch (e) {
+           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+         }
+@@ -44233,6 +44995,27 @@ export default {
+         try {
+           const body = await req.json().catch(() => ({}));
+           if (!body?.run_id) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
++          const validationRow = await db.prepare(
++            `SELECT gate_status, reference_run_id, updated_at
++               FROM backtest_run_validation_artifacts
++              WHERE run_id = ?1
++                AND artifact_type = 'sentinel_basket_v1'
++              LIMIT 1`
++          ).bind(body.run_id).first();
++          if (!validationRow) {
++            return sendJSON({
++              ok: false,
++              error: "sentinel_validation_required",
++              detail: "Generate a sentinel validation artifact before promoting this run.",
++            }, 409, corsHeaders(env, req));
++          }
++          if (String(validationRow?.gate_status || "").toLowerCase() === "error") {
++            return sendJSON({
++              ok: false,
++              error: "sentinel_validation_failed",
++              detail: "The latest sentinel validation artifact is in an error state.",
++            }, 409, corsHeaders(env, req));
++          }
+           await db.prepare(`UPDATE backtest_runs SET live_config_slot = 0 WHERE live_config_slot = 1`).run();
+           await db.prepare(`UPDATE backtest_runs SET live_config_slot = 1, updated_at = ?2 WHERE run_id = ?1`).bind(body.run_id, Date.now()).run();
+           return sendJSON({ ok: true, run_id: body.run_id }, 200, corsHeaders(env, req));
+@@ -44241,6 +45024,57 @@ export default {
+         }
+       }
+ 
++      if (routeKey === "POST /timed/admin/runs/validate-sentinels") {
++        const authFail = await requireKeyOrAdmin(req, env);
++        if (authFail) return authFail;
++        const db = env?.DB;
++        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
++        await d1EnsureBacktestRunsSchema(env);
++        try {
++          const body = await req.json().catch(() => ({}));
++          const runId = String(body?.run_id || "").trim();
++          if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
++          const referenceRunId = String(body?.reference_run_id || "").trim() || await resolveSentinelReferenceRunId(db, runId);
++          if (!referenceRunId) {
++            return sendJSON({ ok: false, error: "reference_run_not_found" }, 404, corsHeaders(env, req));
++          }
++          if (referenceRunId === runId) {
++            return sendJSON({ ok: false, error: "reference_run_matches_candidate" }, 400, corsHeaders(env, req));
++          }
++          const basket = Array.isArray(body?.tickers) && body.tickers.length ? body.tickers : SENTINEL_BASKET_V1;
++          const [candidateTrades, referenceTrades, candidateRun, referenceRun] = await Promise.all([
++            loadRunTradesForValidation(db, runId),
++            loadRunTradesForValidation(db, referenceRunId),
++            db.prepare(`SELECT run_id, label, status FROM backtest_runs WHERE run_id = ?1`).bind(runId).first().catch(() => null),
++            db.prepare(`SELECT run_id, label, status FROM backtest_runs WHERE run_id = ?1`).bind(referenceRunId).first().catch(() => null),
++          ]);
++          const artifact = buildSentinelValidationArtifact(runId, referenceRunId, candidateTrades, referenceTrades, basket);
++          const now = Date.now();
++          await db.prepare(
++            `INSERT OR REPLACE INTO backtest_run_validation_artifacts
++             (run_id, artifact_type, reference_run_id, gate_status, artifact_json, created_at, updated_at)
++             VALUES (?1, ?2, ?3, ?4, ?5, COALESCE((SELECT created_at FROM backtest_run_validation_artifacts WHERE run_id = ?1 AND artifact_type = ?2), ?6), ?6)`
++          ).bind(
++            runId,
++            "sentinel_basket_v1",
++            referenceRunId,
++            String(artifact?.gate?.status || "ok"),
++            JSON.stringify(artifact),
++            now,
++          ).run();
++          return sendJSON({
++            ok: true,
++            run_id: runId,
++            reference_run_id: referenceRunId,
++            candidate_label: candidateRun?.label || null,
++            reference_label: referenceRun?.label || null,
++            artifact,
++          }, 200, corsHeaders(env, req));
++        } catch (e) {
++          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
++        }
++      }
++
+       if (routeKey === "POST /timed/admin/runs/archive") {
+         const authFail = await requireKeyOrAdmin(req, env);
+         if (authFail) return authFail;
+@@ -44345,8 +45179,33 @@ export default {
+         if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+         await d1EnsureBacktestRunsSchema(env);
+         try {
+-          const row = await db.prepare(`SELECT r.*, m.total_trades, m.wins, m.losses, m.win_rate, m.realized_pnl, m.realized_pnl_pct, m.avg_win_pct, m.avg_loss_pct FROM backtest_runs r LEFT JOIN backtest_run_metrics m ON r.run_id = m.run_id WHERE r.live_config_slot = 1 ORDER BY r.updated_at DESC LIMIT 1`).first();
+-          return sendJSON({ ok: true, live: row || null }, 200, corsHeaders(env, req));
++          const activeState = await loadActiveRunState(db, KV);
++          const run = buildRunOperatorSummary(activeState.active || activeState.live || null, {
++            activeRunId: activeState.activeRunId,
++            activeSource: activeState.activeSource,
++            isCleanLane: activeState.isCleanLane,
++            replay: activeState.replay,
++          });
++          const readModel = buildActiveRunReadModel({
++            active_run_id: activeState.activeRunId,
++            active_source: activeState.activeSource,
++            is_clean_lane: activeState.isCleanLane,
++            replay: activeState.replay,
++            active: activeState.active,
++            live: activeState.live,
++          });
++          return sendJSON({
++            ok: true,
++            active_run_id: activeState.activeRunId,
++            active_source: activeState.activeSource,
++            replay_lock: activeState.replayLockVal || null,
++            replay_running: activeState.replayRunning || null,
++            live: activeState.live,
++            active: activeState.active,
++            summary: run,
++            run,
++            read_model: readModel,
++          }, 200, corsHeaders(env, req));
+         } catch (e) {
+           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+         }
+@@ -44363,11 +45222,11 @@ export default {
+           if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+           const row = await db.prepare(`SELECT r.*, m.total_trades, m.wins, m.losses, m.win_rate, m.realized_pnl, m.realized_pnl_pct, m.avg_win_pct, m.avg_loss_pct FROM backtest_runs r LEFT JOIN backtest_run_metrics m ON r.run_id = m.run_id WHERE r.run_id = ?1`).bind(runId).first();
+           if (!row) return sendJSON({ ok: false, error: "not_found" }, 404, corsHeaders(env, req));
+-          const parsed = { ...row };
+-          try { parsed.tags = row.tags_json ? JSON.parse(row.tags_json) : null; } catch { parsed.tags = null; }
+-          try { parsed.params = row.params_json ? JSON.parse(row.params_json) : null; } catch { parsed.params = null; }
+-          try { parsed.metrics = row.metrics_json ? JSON.parse(row.metrics_json) : null; } catch { parsed.metrics = null; }
+-          return sendJSON({ ok: true, ...parsed }, 200, corsHeaders(env, req));
++          const parsed = parseRunRecord(row);
++          const readModel = buildRunDetailReadModel(parsed, {
++            isCleanLane: isRunManifestCleanLane(parsed?.manifest),
++          });
++          return sendJSON({ ok: true, ...parsed, run: readModel.run, read_model: readModel }, 200, corsHeaders(env, req));
+         } catch (e) {
+           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+         }
+@@ -44416,6 +45275,31 @@ export default {
+         }
+       }
+ 
++      if (routeKey === "GET /timed/admin/runs/validations") {
++        const authFail = await requireKeyOrAdmin(req, env);
++        if (authFail) return authFail;
++        const db = env?.DB;
++        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
++        await d1EnsureBacktestRunsSchema(env);
++        try {
++          const runId = String(url.searchParams.get("run_id") || "").trim();
++          if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
++          const rows = (await db.prepare(
++            `SELECT run_id, artifact_type, reference_run_id, gate_status, artifact_json, created_at, updated_at
++               FROM backtest_run_validation_artifacts
++              WHERE run_id = ?1
++              ORDER BY updated_at DESC`
++          ).bind(runId).all())?.results || [];
++          const artifacts = rows.map((row) => ({
++            ...row,
++            artifact: parseJSONSafe(row.artifact_json, null),
++          }));
++          return sendJSON({ ok: true, run_id: runId, artifacts }, 200, corsHeaders(env, req));
++        } catch (e) {
++          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
++        }
++      }
++
+       if (routeKey === "GET /timed/admin/runs") {
+         const authFail = await requireKeyOrAdmin(req, env);
+         if (authFail) return authFail;
+@@ -44427,14 +45311,16 @@ export default {
+           const includeArchived = url.searchParams.get("include_archived") === "1";
+           const where = includeArchived ? "" : "WHERE (r.archived_at IS NULL OR r.archived_at = 0)";
+           const rows = (await db.prepare(`SELECT r.*, m.total_trades, m.wins, m.losses, m.win_rate, m.realized_pnl, m.realized_pnl_pct, m.avg_win_pct, m.avg_loss_pct FROM backtest_runs r LEFT JOIN backtest_run_metrics m ON r.run_id = m.run_id ${where} ORDER BY r.created_at DESC LIMIT ?1`).bind(limit).all())?.results || [];
+-          const summaries = rows.map(r => {
+-            const out = { ...r };
+-            try { out.tags = r.tags_json ? JSON.parse(r.tags_json) : null; } catch { out.tags = null; }
+-            try { out.params = r.params_json ? JSON.parse(r.params_json) : null; } catch { out.params = null; }
+-            try { out.metrics = r.metrics_json ? JSON.parse(r.metrics_json) : null; } catch { out.metrics = null; }
+-            return out;
+-          });
+-          return sendJSON({ ok: true, runs: summaries, summaries }, 200, corsHeaders(env, req));
++          const summaries = rows.map(r => parseRunRecord(r));
++          const runs = summaries.map((run) => ({
++            ...run,
++            run: buildRunOperatorSummary(run, {
++              activeRunId: run?.run_id || null,
++              activeSource: null,
++              isCleanLane: isRunManifestCleanLane(run?.manifest),
++            }),
++          }));
++          return sendJSON({ ok: true, runs, summaries: runs }, 200, corsHeaders(env, req));
+         } catch (e) {
+           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+         }
+@@ -55392,7 +56278,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
+             if (replaySource === "trail_5m_facts" || (debug && !payload?.tf_tech)) {
+               try {
+                 const replayExisting = { ...(existingState || {}) };
+-                if (replayTickerProfile) replayExisting._tickerProfile = replayTickerProfile;
++                if (replayTickerProfile) {
++                  replayExisting._tickerProfile = normalizeLearnedTickerProfile(replayTickerProfile, {
++                    ticker,
++                    source: "replay_trade_row",
++                  });
++                }
+                 const scored = await computeServerSideScores(ticker, getReplayCandlesCached, env, replayExisting, { asOfTs: rowTs });
+                 if (scored && typeof scored === "object") {
+                   const preserve = {
+@@ -58706,7 +59597,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
+         try {
+           const db2 = env?.DB;
+           if (db2) {
+-          const daKeys = ["deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_doa_early_exit_enabled", "deep_audit_confirmed_min_rank", "deep_audit_parity_defer_confirmed_opening_minutes", "deep_audit_legacy_momentum_precedence", "deep_audit_legacy_momentum_min_rr", "deep_audit_legacy_momentum_relax_trigger", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "deep_audit_hard_loss_cap_pct", "deep_audit_breakeven_mfe_threshold", "deep_audit_breakeven_skip_trimmed_runner", "deep_audit_parity_runner_tp_full_only", "deep_audit_parity_skip_stall_force_close", "deep_audit_parity_skip_sl_breach", "deep_audit_parity_no_reentry_after_tp_full_hours", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist", "ai_cio_enabled", "ai_cio_replay_enabled", "short_min_rank", "short_require_daily_st_aligned", "short_min_4h_ema_depth", "min_entry_confidence", "entry_ticker_blacklist", "choppy_regime_rank_floor", "tt_spy_directional_gate", "tt_pdz_hard_gate", "deep_audit_phase_peak_extreme", "deep_audit_phase_decline_extreme", "deep_audit_bias_spread_min"];
++          const daKeys = REPLAY_DA_KEYS;
+             const daRows = (await db2.prepare(
+               `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
+             ).bind(...daKeys).all())?.results || [];
+@@ -58872,7 +59763,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
+             // Three-Tier: inject ticker profile for SL/TP multipliers and behavior type
+             try {
+               const profileCached = await kvGetJSON(KV, `timed:profile:${ticker}`);
+-              if (profileCached) existWithWeights._tickerProfile = profileCached;
++              if (profileCached) {
++                existWithWeights._tickerProfile = normalizeLearnedTickerProfile(profileCached, {
++                  ticker,
++                  source: "kv_profile_cache",
++                });
++              }
+             } catch { /* non-critical */ }
+ 
+             const result = await computeServerSideScores(ticker, getCandlesCached, env, existWithWeights);
