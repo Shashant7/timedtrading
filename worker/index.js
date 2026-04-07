@@ -24274,7 +24274,8 @@ async function d1LogDirectionEntry(env, trade, tickerData) {
 // Update direction accuracy on trade close
 async function d1UpdateDirectionOutcome(env, trade) {
   const db = env?.DB;
-  if (!db || !trade?.id) return;
+  const tradeId = String(trade?.id || trade?.trade_id || "").trim();
+  if (!db || !tradeId) return;
   try {
     await d1EnsureLearningSchema(env);
     const isLong = trade.direction === "LONG";
@@ -24288,7 +24289,7 @@ async function d1UpdateDirectionOutcome(env, trade) {
     const status = String(trade.status || "");
     const exitReason = trade.exitReason || trade.exit_reason || null;
     const runId = String(trade.run_id || trade.runId || "").trim() || null;
-    await db.prepare(
+    let outcomeRes = await db.prepare(
       `UPDATE direction_accuracy SET exit_ts=?, exit_price=?, pnl=?, pnl_pct=?,
        direction_correct=?, max_favorable_excursion=?, max_adverse_excursion=?, status=?,
        exit_reason=?, run_id=COALESCE(run_id, ?10)
@@ -24298,8 +24299,35 @@ async function d1UpdateDirectionOutcome(env, trade) {
       dirCorrect, mfe, mae, status,
       exitReason != null ? String(exitReason) : null,
       runId,
-      trade.id
+      tradeId
     ).run();
+    if (Number(outcomeRes?.meta?.changes || 0) === 0) {
+      await db.prepare(
+        `INSERT OR IGNORE INTO direction_accuracy
+          (trade_id, ticker, ts, traded_direction, status, run_id, exit_reason)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
+      ).bind(
+        tradeId,
+        String(trade?.ticker || "").trim() || null,
+        Number(trade?.exit_ts || trade?.entry_ts || Date.now()) || Date.now(),
+        String(trade?.direction || "").trim() || null,
+        status || "OPEN",
+        runId,
+        exitReason != null ? String(exitReason) : null,
+      ).run();
+      await db.prepare(
+        `UPDATE direction_accuracy SET exit_ts=?, exit_price=?, pnl=?, pnl_pct=?,
+         direction_correct=?, max_favorable_excursion=?, max_adverse_excursion=?, status=?,
+         exit_reason=?, run_id=COALESCE(run_id, ?10)
+         WHERE trade_id=?11`
+      ).bind(
+        trade.exit_ts || Date.now(), exitPx, pnl, pnlPct,
+        dirCorrect, mfe, mae, status,
+        exitReason != null ? String(exitReason) : null,
+        runId,
+        tradeId
+      ).run();
+    }
   } catch (e) {
     console.warn("[LEARNING] Failed to update direction outcome:", String(e).slice(0, 150));
   }
@@ -24436,6 +24464,8 @@ async function d1UpdateLearningOnClose(env, trade, tickerData) {
 async function d1LogDirectionAccuracy(env, trade, tickerData, entryPath) {
   const db = env?.DB;
   if (!db) return;
+  const tradeId = String(trade?.id || trade?.trade_id || "").trim();
+  if (!tradeId) return;
   try {
     await d1EnsureLearningSchema(env);
     const sc = tickerData?.swing_consensus || {};
@@ -24483,7 +24513,7 @@ async function d1LogDirectionAccuracy(env, trade, tickerData, entryPath) {
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21,
                ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, 'OPEN')`
     ).bind(
-      trade.id,
+      tradeId,
       trade.ticker,
       trade.entry_ts || Date.now(),
       trade.direction,
@@ -24531,6 +24561,8 @@ async function d1LogDirectionAccuracy(env, trade, tickerData, entryPath) {
 async function d1UpdateDirectionAccuracyOnExit(env, trade) {
   const db = env?.DB;
   if (!db) return;
+  const tradeId = String(trade?.id || trade?.trade_id || "").trim();
+  if (!tradeId) return;
   try {
     await d1EnsureLearningSchema(env);
     const isLong = trade.direction === "LONG";
@@ -24556,7 +24588,7 @@ async function d1UpdateDirectionAccuracyOnExit(env, trade) {
       pnlPct,
       directionCorrect,
       trade.status || (pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "FLAT"),
-      trade.id,
+      tradeId,
     ).run();
   } catch (e) {
     console.warn("[LEARNING] d1UpdateDirectionAccuracyOnExit failed:", String(e).slice(0, 150));
