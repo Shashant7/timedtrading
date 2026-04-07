@@ -42464,7 +42464,6 @@ export default {
         const replayLockVal = await KV.get("timed:replay:lock") || null;
         const replayManifest = replayLockVal ? await loadRunManifest(db, replayLockVal) : null;
         const replayTradeScope = buildReplayTradeScope(replayManifest);
-        const replayTradeScope = buildReplayTradeScope(replayManifest);
         const cleanReplayLane = !!(freshRun || cleanSlate || isRunManifestCleanLane(replayManifest));
         await kvPutJSON(KV, "timed:replay:running", { since: Date.now(), date: dateParam, offset: tickerOffset, fullDay: !!fullDay });
 
