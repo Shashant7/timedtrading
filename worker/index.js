@@ -1008,7 +1008,9 @@ function eventIsDueForRiskReduction(event, nowTs) {
     const deltaMs = event.scheduledTs - nowTs;
     return deltaMs > 0 && deltaMs <= 24 * 60 * 60 * 1000;
   }
-  if (event.status === "resolved") return false;
+  // Historical earnings rows are often backfilled with status=resolved even when the
+  // replay clock is still before the event. Use replay-relative date/session timing
+  // instead of resolved status alone so pre-event guards still activate.
   if (event.dateKey === nowDateKey) {
     return event.session === "amc" || event.session === "afterhours" || event.session === "rth" || event.session === "unknown";
   }
@@ -1038,7 +1040,8 @@ async function findUpcomingPositionRiskEvent(env, replayCtx, sym, nowTs) {
       const eventKey = classifyRiskEventKey(row);
       return PRE_EVENT_RISK_MACRO_KEYS.has(eventKey);
     });
-  } else if (env?.DB) {
+  }
+  if ((!Array.isArray(rows) || rows.length === 0) && env?.DB) {
     try {
       const q = await env.DB.prepare(
         `SELECT *
@@ -6301,14 +6304,68 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     // OVERRIDE: If 30m OR 1H SuperTrend still supports the trade direction, structure is
     // intact — the trade is consolidating, not dead. Skip DOA and let management exits handle it.
     const _doaEarlyExitEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_doa_early_exit_enabled ?? "true") === "true";
-    const _mfePctDoa = Number(openPosition?.maxFavorableExcursion || 0);
+    const _mfePctDoa = Math.max(
+      Number(openPosition?.maxFavorableExcursion ?? openPosition?.max_favorable_excursion ?? openPosition?.mfePct) || 0,
+      Number(openPosition?.__tradeRef?.maxFavorableExcursion ?? openPosition?.__tradeRef?.max_favorable_excursion ?? openPosition?.__tradeRef?.mfePct) || 0,
+    );
     const _doaThresholdH = _staticBehaviorProfileMgmt.doaHours || 6;
     const _doaMfeFloor = 0.3;
     const _mgmt30mStSupports = (direction === "LONG" && (mgmtTfTech?.stDir ?? 0) === -1)
       || (direction === "SHORT" && (mgmtTfTech?.stDir ?? 0) === 1);
     const _mgmt1hStSupports = (direction === "LONG" && (mgmt1HTfTech?.stDir ?? 0) === -1)
       || (direction === "SHORT" && (mgmt1HTfTech?.stDir ?? 0) === 1);
-    const _doaStructureIntact = _mgmt30mStSupports || _mgmt1hStSupports;
+    const _doaTrendHealth = assessTrendHealth(tickerData, direction);
+    const _doaCloudExpansion = assessCloudExpansion(tickerData, direction);
+    const _doaSupportScore = Number(tickerData?.st_support?.supportScore ?? 0.5);
+    const _doaProfileLabel = String(_staticBehaviorProfileMgmt?.label || "").toLowerCase();
+    const _doaAvgBias = Number(tickerData?.avg_bias ?? tickerData?.swing_consensus?.bias) || 0;
+    const _emaStruct4H = Number(tickerData?.tf_tech?.["4H"]?.ema?.structure) || 0;
+    const _emaStructD = Number(tickerData?.tf_tech?.D?.ema?.structure) || 0;
+    const _emaHtfSupportive = direction === "LONG"
+      ? (_emaStruct4H >= 0.75 && _emaStructD >= 0.75)
+      : (_emaStruct4H <= -0.75 && _emaStructD <= -0.75);
+    const _doaHigherTfSupportive = !!(
+      _doaSupportScore >= 0.58
+      && (
+        (_doaTrendHealth?.htfIntact && _doaTrendHealth?.structuralSupport)
+        || (_doaProfileLabel === "trend-rider" && _emaHtfSupportive)
+      )
+      && (
+        !_doaTrendHealth?.ltfBroken
+        || (_doaProfileLabel === "trend-rider" && direction === "LONG" && _doaAvgBias >= 0.20 && _emaHtfSupportive)
+        || (_doaCloudExpansion?.allAligned && !_doaCloudExpansion?.isCompressing)
+      )
+    );
+    const _doaStructureIntact = _mgmt30mStSupports || _mgmt1hStSupports || _doaHigherTfSupportive;
+    const _doaTraceTicker = String(tickerData?.ticker || tickerData?.sym || "").toUpperCase();
+    const _doaTraceEntryTs = Number(openPosition?.entryTs ?? openPosition?.entry_ts ?? openPosition?.created_at);
+    if (_doaTraceTicker === "JCI" && _doaTraceEntryTs === 1751388300000) {
+      try {
+        console.log(`[TT-DOA-TRACE] ${JSON.stringify({
+          ticker: _doaTraceTicker,
+          entryTs: _doaTraceEntryTs,
+          now,
+          positionAgeMarketMin,
+          pnlPct,
+          doaEnabled: _doaEarlyExitEnabled,
+          mfePct: _mfePctDoa,
+          doaThresholdH: _doaThresholdH,
+          doaMfeFloor: _doaMfeFloor,
+          mgmt30mStSupports: _mgmt30mStSupports,
+          mgmt1hStSupports: _mgmt1hStSupports,
+          doaSupportScore: _doaSupportScore,
+          doaProfileLabel: _doaProfileLabel,
+          doaAvgBias: _doaAvgBias,
+          emaStruct4H: _emaStruct4H,
+          emaStructD: _emaStructD,
+          emaHtfSupportive: _emaHtfSupportive,
+          doaTrendHealth: _doaTrendHealth,
+          doaCloudExpansion: _doaCloudExpansion,
+          doaHigherTfSupportive: _doaHigherTfSupportive,
+          doaStructureIntact: _doaStructureIntact,
+        })}`);
+      } catch {}
+    }
     if (_doaEarlyExitEnabled && pnlPct < 0 && positionAgeMarketMin >= _doaThresholdH * 60 && _mfePctDoa < _doaMfeFloor && !_doaStructureIntact) {
       tickerData.__exit_reason = "doa_early_exit";
       return "exit";
@@ -11745,6 +11802,11 @@ async function processTradeSimulation(
           entryPrice: Number(openTrade.entryPrice),
           avgEntry: Number(openTrade.entryPrice),
           entry_ts: Number(openTrade.entry_ts) || Number(openTrade.created_at) || 0,
+          maxFavorableExcursion: Number(openTrade.maxFavorableExcursion ?? openTrade.max_favorable_excursion ?? openTrade.mfePct) || 0,
+          maxAdverseExcursion: Number(openTrade.maxAdverseExcursion ?? openTrade.max_adverse_excursion ?? openTrade.maePct) || 0,
+          trimmedPct: Number(openTrade.trimmedPct ?? openTrade.trimmed_pct) || 0,
+          shares: Number(openTrade.shares ?? openTrade.qty) || 0,
+          __tradeRef: openTrade,
         };
       }
     } else if (env?.DB) {
@@ -11798,8 +11860,16 @@ async function processTradeSimulation(
       console.log(`[ZOMBIE FIX] ${sym} trade 100% trimmed but status was ${openTrade.status} — closed as ${openTrade.status}`);
       if (env?.DB) {
         try {
+          const _zombieExitSc = tickerData?.swing_consensus || {};
+          const _zombieExitSnap = buildDirectionSignalSnapshot(_zombieExitSc, tickerData, openTrade.entryPath || null);
+          if (_zombieExitSnap) {
+            openTrade.exit_snapshot_json = _zombieExitSnap;
+            await d1PersistTradeExitSnapshot(env, openTrade, _zombieExitSnap).catch(() => {});
+          }
           await env.DB.prepare(`UPDATE trades SET status=?, exit_price=?, exit_reason=?, exit_ts=?, pnl=?, pnl_pct=? WHERE trade_id=?`)
             .bind(openTrade.status, openTrade.exitPrice, openTrade.exitReason, openTrade.exit_ts, openTrade.pnl, openTrade.pnlPct || 0, openTrade.trade_id || openTrade.id).run();
+          d1UpdateDirectionOutcome(env, openTrade).catch(() => {});
+          d1UpdateLearningOnClose(env, openTrade, tickerData).catch(() => {});
         } catch (e) { console.error(`[ZOMBIE FIX] D1 update failed for ${sym}:`, e); }
       }
       // If TP_FULL is synthesized in this same cycle, block immediate re-entry.
@@ -11818,6 +11888,12 @@ async function processTradeSimulation(
         sl: openTrade.sl,
         entryPrice: openTrade.entryPrice,
         avgEntry: openTrade.entryPrice,
+        entry_ts: Number(openTrade.entry_ts) || Number(openTrade.created_at) || 0,
+        maxFavorableExcursion: Number(openTrade.maxFavorableExcursion ?? openTrade.max_favorable_excursion ?? openTrade.mfePct) || 0,
+        maxAdverseExcursion: Number(openTrade.maxAdverseExcursion ?? openTrade.max_adverse_excursion ?? openTrade.maePct) || 0,
+        trimmedPct: Number(openTrade.trimmedPct ?? openTrade.trimmed_pct) || 0,
+        shares: Number(openTrade.shares ?? openTrade.qty) || 0,
+        __tradeRef: openTrade,
       };
     }
     
@@ -12293,23 +12369,16 @@ async function processTradeSimulation(
         trade.exit_flags = _ef;
       } catch (_) {}
 
-      // Capture full signal snapshot at exit for autopsy comparison
+      // Capture full signal snapshot at exit for autopsy comparison.
+      // This must complete before finalize/archive so Trade Autopsy does not lose the exit context.
       try {
         const _exitSc = tickerData?.swing_consensus || {};
         const _exitSnap = buildDirectionSignalSnapshot(_exitSc, tickerData, trade.entryPath || null);
         if (_exitSnap && env?.DB) {
-          const _exitTradeId = trade.id || trade.trade_id;
-          env.DB.prepare(`UPDATE direction_accuracy SET exit_snapshot_json = ?1 WHERE trade_id = ?2`)
-            .bind(_exitSnap, _exitTradeId)
-            .run()
-            .then(r => {
-              if (r?.meta?.changes === 0 && _exitTradeId) {
-                return env.DB.prepare(
-                  `INSERT OR IGNORE INTO direction_accuracy (trade_id, exit_snapshot_json) VALUES (?1, ?2)`
-                ).bind(_exitTradeId, _exitSnap).run();
-              }
-            })
-            .catch(e => console.warn("[EXIT_SNAP] write failed:", String(e).slice(0, 100)));
+          trade.exit_snapshot_json = _exitSnap;
+          await d1PersistTradeExitSnapshot(env, trade, _exitSnap).catch((e) => {
+            console.warn("[EXIT_SNAP] write failed:", String(e?.message || e).slice(0, 100));
+          });
         }
       } catch (_) {}
 
@@ -12777,6 +12846,20 @@ async function processTradeSimulation(
           balance: portfolio.cash,
           note: `${isFullClose ? "Exit" : "Trim"} ${sym} ${trimShares.toFixed(1)}sh @$${p.toFixed(2)} PnL=$${pnlRealized.toFixed(2)}`,
         }).catch(e => console.error("[LEDGER] TRIM insert failed:", e));
+        if (isFullClose) {
+          try {
+            const _tpFullExitSc = tickerData?.swing_consensus || {};
+            const _tpFullExitSnap = buildDirectionSignalSnapshot(_tpFullExitSc, tickerData, trade.entryPath || null);
+            if (_tpFullExitSnap) {
+              trade.exit_snapshot_json = _tpFullExitSnap;
+              await d1PersistTradeExitSnapshot(env, trade, _tpFullExitSnap).catch(() => {});
+            }
+            d1UpdateDirectionOutcome(env, trade).catch(() => {});
+            d1UpdateLearningOnClose(env, trade, tickerData).catch(() => {});
+          } catch (e) {
+            console.warn("[TP_FULL_EXIT_SNAP] failed:", String(e?.message || e).slice(0, 150));
+          }
+        }
       }
 
       // Persist via execution adapter (D1 source of truth)
@@ -14956,6 +15039,43 @@ async function processTradeSimulation(
     if (recentTradeBlocked) {
       console.log(`[RECENT_TRADE_BLOCKED] ${sym}: Found recent trade ${recentTrade?.id} (status=${recentTrade?.status}), blocking new entry`);
     }
+    const _entryExactOnlyTickers = Array.isArray(tickerData?._env?._referenceExecutionMap?.exact_only_tickers)
+      ? tickerData._env._referenceExecutionMap.exact_only_tickers.map((x) => String(x || "").toUpperCase()).filter(Boolean)
+      : [];
+    const _entryExactOnlyTicker = _entryExactOnlyTickers.includes(sym);
+    const _preEarningsEntryBlockEnabled =
+      String(tickerData?._env?._deepAuditConfig?.deep_audit_pre_earnings_entry_block_enabled ?? "true") === "true";
+    if (
+      isEnter &&
+      _preEarningsEntryBlockEnabled &&
+      !_entryExactOnlyTicker &&
+      !weekendNow &&
+      !outsideRTH &&
+      !openTrade &&
+      !recentTradeBlocked &&
+      !parityNoReentryBlocked &&
+      !smartGateBlocked &&
+      !parityOpeningConfirmedDeferred
+    ) {
+      try {
+        const _entryRiskEvent = await findUpcomingPositionRiskEvent(env, replayCtx, sym, now);
+        if (_entryRiskEvent?.eventType === "earnings") {
+          const _entryHoursToEvent = Number.isFinite(_entryRiskEvent.scheduledTs)
+            ? Math.max(0, (_entryRiskEvent.scheduledTs - now) / 3600000)
+            : null;
+          tickerData.__upcomingRiskEvent = _entryRiskEvent;
+          tickerData.__entry_block_reason = "tt_pre_earnings_entry_block";
+          smartGateBlocked = true;
+          smartGateReason = `pre_earnings_entry:${_entryRiskEvent.dateKey}:${_entryRiskEvent.session || "unknown"}`;
+          console.log(
+            `[ENTRY_EVENT_BLOCK] ${sym} blocked ${String(tickerData?.__entry_path || tickerData?.entry_path || "entry")} ahead of earnings ` +
+            `(${_entryRiskEvent.dateKey} ${_entryRiskEvent.session || "unknown"}${_entryHoursToEvent != null ? `, ${_entryHoursToEvent.toFixed(1)}h` : ""})`
+          );
+        }
+      } catch (e) {
+        console.warn(`[ENTRY_EVENT_BLOCK] lookup failed for ${sym}:`, String(e?.message || e).slice(0, 150));
+      }
+    }
     
     if (isEnter && (weekendNow || outsideRTH || !enterCooldownOk || sameEnterCycle || openTrade || recentTradeBlocked || parityNoReentryBlocked || smartGateBlocked || parityOpeningConfirmedDeferred)) {
       // Replay debug: capture why we're blocked
@@ -16206,6 +16326,64 @@ async function processTradeSimulation(
                 candidate = _ptTrailSL;
                 slReason = "POST_TRIM_TIGHT_TRAIL";
                 console.log(`[TIGHT TRAIL] ${sym} peak=$${_ptPeak.toFixed(2)} tightTrail=${_ptTightTrailPct}% → SL $${_ptTrailSL.toFixed(2)} (mark=$${mark.toFixed(2)})`);
+              }
+            }
+          }
+
+          // ─────────────────────────────────────────────────────────────────────
+          // PEAK REACTION LOCK: once a trimmed trade tags an exhaustion/target
+          // zone and starts giving back, ratchet the stop up much faster so we
+          // keep more of the runner instead of waiting for a full breakdown.
+          // ─────────────────────────────────────────────────────────────────────
+          const _peakReactionLockEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_peak_reaction_lock_enabled ?? "true") === "true";
+          if (_peakReactionLockEnabled && trimmedPct > 0) {
+            const _prPeak = Number(execState.runnerPeakPrice) || Number(openTrade.runnerPeakPrice) || 0;
+            let _prAtr = Number(tickerData?.atr);
+            if (!Number.isFinite(_prAtr) || _prAtr <= 0) _prAtr = entry * 0.02;
+            const _prDrawdownPx = dir === "LONG" ? (_prPeak - mark) : (mark - _prPeak);
+            const _prDrawdownAtr = _prAtr > 0 ? (_prDrawdownPx / _prAtr) : 0;
+            const _prMove = dir === "LONG" ? (_prPeak - entry) : (entry - _prPeak);
+            const _prTd1H = tickerData?.td_sequential?.per_tf?.["60"] || {};
+            const _prTd4H = tickerData?.td_sequential?.per_tf?.["240"] || {};
+            const _prRsi1H = Number(tickerData?.tf_tech?.["1H"]?.rsi?.r5) || 50;
+            const _prPhaseCurr1H = Number(tickerData?.saty_phase_exit?.value1H ?? tickerData?.tf_tech?.["1H"]?.ph?.v) || 0;
+            const _prPhasePeak = Number(execState.satyPhasePeak1H) || 0;
+            const _prPhaseDirNow = dir === "LONG" ? _prPhaseCurr1H : -_prPhaseCurr1H;
+            const _prPhaseDeclining = _prPhasePeak > 0 && _prPhaseDirNow < (_prPhasePeak * 0.75);
+            const _prTdHot = dir === "LONG"
+              ? (Number(_prTd1H?.bearish_prep_count) || 0) >= 8 || (Number(_prTd4H?.bearish_prep_count) || 0) >= 8
+              : (Number(_prTd1H?.bullish_prep_count) || 0) >= 8 || (Number(_prTd4H?.bullish_prep_count) || 0) >= 8;
+            const _prPivot = tickerData?.regime?.pivots?.daily || {};
+            const _prSwingTarget = dir === "LONG"
+              ? (Number(_prPivot?.lastHigh?.price) || 0)
+              : (Number(_prPivot?.lastLow?.price) || 0);
+            const _prNearSwing = _prSwingTarget > 0 && _prAtr > 0 && Math.abs(_prPeak - _prSwingTarget) <= (_prAtr * 0.75);
+            const _prExhaustionZone = _prTdHot
+              || _prPhaseDeclining
+              || (dir === "LONG" ? _prRsi1H >= 68 : _prRsi1H <= 32)
+              || _prNearSwing;
+            if (_prPeak > 0 && _prMove > 0 && _prDrawdownAtr >= 0.75 && _prExhaustionZone) {
+              const _prTrend = assessTrendHealth(tickerData, dir);
+              const _prLockFrac = _prTrend.htfStrong && _prTrend.structuralSupport ? 0.45 : 0.60;
+              const _prLockMove = Math.max(_prMove * _prLockFrac, _prAtr * 0.25);
+              if (dir === "LONG") {
+                const _prPreferred = Math.max(entry + _prLockMove, _prPeak - (_prAtr * 0.35));
+                const _prMaxValid = mark - Math.max(_prAtr * 0.05, mark * 0.001);
+                const _prStop = Math.min(_prPreferred, _prMaxValid);
+                if (Number.isFinite(_prStop) && _prStop < mark && (candidate == null || _prStop > candidate)) {
+                  candidate = _prStop;
+                  slReason = "PEAK_REACTION_LOCK";
+                  console.log(`[PEAK REACTION] ${sym} peak=$${_prPeak.toFixed(2)} dd=${_prDrawdownAtr.toFixed(2)}ATR exhausted=${_prExhaustionZone ? 1 : 0} → SL $${_prStop.toFixed(2)} (mark=$${mark.toFixed(2)})`);
+                }
+              } else {
+                const _prPreferred = Math.min(entry - _prLockMove, _prPeak + (_prAtr * 0.35));
+                const _prMinValid = mark + Math.max(_prAtr * 0.05, mark * 0.001);
+                const _prStop = Math.max(_prPreferred, _prMinValid);
+                if (Number.isFinite(_prStop) && _prStop > mark && (candidate == null || _prStop < candidate)) {
+                  candidate = _prStop;
+                  slReason = "PEAK_REACTION_LOCK";
+                  console.log(`[PEAK REACTION] ${sym} peak=$${_prPeak.toFixed(2)} dd=${_prDrawdownAtr.toFixed(2)}ATR exhausted=${_prExhaustionZone ? 1 : 0} → SL $${_prStop.toFixed(2)} (mark=$${mark.toFixed(2)})`);
+                }
               }
             }
           }
@@ -17566,9 +17744,20 @@ async function processTradeSimulation(
             (t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM"),
         );
 
-        // If open trade exists, check if entry price is significantly different
+        // If open trade exists, check if entry price is significantly different.
+        // Clean replay lanes should behave as single-position validation paths.
         let shouldBlockOpenTrade = false;
-        if (anyOpenTrade && anyOpenTrade.entryPrice) {
+        const strictReplaySingleTicker =
+          isReplay && (
+            replayCtx?.strictSingleTickerPosition === true ||
+            options?.replayBatchContext?.strictSingleTickerPosition === true
+          );
+        if (anyOpenTrade && strictReplaySingleTicker) {
+          shouldBlockOpenTrade = true;
+          console.log(
+            `[TRADE SIM] ⚠️ ${ticker} ${direction}: Replay strict single-position mode blocked overlapping same-ticker entry`,
+          );
+        } else if (anyOpenTrade && anyOpenTrade.entryPrice) {
           const existingEntryPrice = Number(anyOpenTrade.entryPrice);
           const priceDiffPct =
             Math.abs(entryPrice - existingEntryPrice) / existingEntryPrice;
@@ -21361,6 +21550,76 @@ async function loadRunManifest(db, runId) {
   }
 }
 
+function buildReplayTradeScope(manifest) {
+  if (!manifest || typeof manifest !== "object") return null;
+  const rawTickers = Array.isArray(manifest?.params?.tickers)
+    ? manifest.params.tickers
+    : Array.isArray(manifest?.dataset?.tickers)
+      ? manifest.dataset.tickers
+      : [];
+  const tickers = rawTickers
+    .map((ticker) => String(ticker || "").trim().toUpperCase())
+    .filter(Boolean);
+  const startDate = firstNonEmptyString(
+    manifest?.dataset?.startDate,
+    manifest?.start_date,
+    manifest?.params?.start_date,
+    manifest?.params?.startDate,
+  );
+  const endDate = firstNonEmptyString(
+    manifest?.dataset?.endDate,
+    manifest?.end_date,
+    manifest?.params?.end_date,
+    manifest?.params?.endDate,
+  );
+  if (!tickers.length && !startDate && !endDate) return null;
+  return {
+    tickers: tickers.length ? new Set(tickers) : null,
+    startDate: startDate || null,
+    endDate: endDate || null,
+  };
+}
+
+function replayTradeEntryTsMs(trade) {
+  let entryTs = Number(trade?.entry_ts ?? trade?.entryTs);
+  if (!Number.isFinite(entryTs) || entryTs <= 0) {
+    entryTs = isoToMs(trade?.entryTime) || Number(trade?.created_at) || 0;
+  }
+  if (!Number.isFinite(entryTs) || entryTs <= 0) return null;
+  return entryTs < 1e12 ? entryTs * 1000 : entryTs;
+}
+
+function tradeMatchesReplayScope(trade, scope) {
+  if (!scope || !trade || typeof trade !== "object") return true;
+  const ticker = String(trade?.ticker || "").trim().toUpperCase();
+  if (scope.tickers && (!ticker || !scope.tickers.has(ticker))) return false;
+  if (scope.startDate || scope.endDate) {
+    const entryTs = replayTradeEntryTsMs(trade);
+    const dayKey = entryTs != null ? nyTradingDayKey(entryTs) : null;
+    if (!dayKey) return false;
+    if (scope.startDate && dayKey < scope.startDate) return false;
+    if (scope.endDate && dayKey > scope.endDate) return false;
+  }
+  return true;
+}
+
+function sanitizeReplayTradesForScope(trades, scope) {
+  if (!Array.isArray(trades) || trades.length === 0) return [];
+  if (!scope) return trades;
+  return trades.filter((trade) => tradeMatchesReplayScope(trade, scope));
+}
+
+async function clearReplayRunningMarker(KV) {
+  if (!KV) return;
+  try {
+    await KV.delete("timed:replay:running");
+  } catch {
+    try {
+      await kvPutJSON(KV, "timed:replay:running", null);
+    } catch {}
+  }
+}
+
 async function loadActiveRunState(db, KV) {
   const replayLockVal = await KV.get("timed:replay:lock") || null;
   const replayRunning = await kvGetJSON(KV, "timed:replay:running");
@@ -21373,7 +21632,7 @@ async function loadActiveRunState(db, KV) {
     row = await db.prepare(`${runWithMetricsSql} WHERE r.run_id = ?1 LIMIT 1`).bind(replayLockVal).first();
     if (row) activeSource = "replay_lock";
   }
-  if (!row) {
+  if (!row && (replayLockVal || replayRunning)) {
     row = await db.prepare(
       `${runWithMetricsSql}
         WHERE r.status IN ('running', 'registered')
@@ -21455,7 +21714,7 @@ async function loadRunConfigMap(db, runId) {
 const REPLAY_DA_KEYS = [
   "deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_doa_early_exit_enabled", "deep_audit_confirmed_min_rank", "deep_audit_parity_defer_confirmed_opening_minutes", "deep_audit_legacy_momentum_precedence", "deep_audit_legacy_momentum_min_rr", "deep_audit_legacy_momentum_relax_trigger", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "deep_audit_hard_loss_cap_pct", "deep_audit_breakeven_mfe_threshold", "deep_audit_breakeven_skip_trimmed_runner", "deep_audit_parity_runner_tp_full_only", "deep_audit_parity_skip_stall_force_close", "deep_audit_parity_skip_sl_breach", "deep_audit_parity_no_reentry_after_tp_full_hours", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist", "ai_cio_enabled", "ai_cio_replay_enabled", "ai_cio_reference_enabled", "short_min_rank", "short_require_daily_st_aligned", "short_min_4h_ema_depth", "min_entry_confidence", "entry_ticker_blacklist", "choppy_regime_rank_floor", "tt_spy_directional_gate", "tt_pdz_hard_gate", "deep_audit_phase_peak_extreme", "deep_audit_phase_decline_extreme", "deep_audit_bias_spread_min",
   // Keys added for GRNY deferral iterations and v6 config parity
-  "smart_runner_td_exhaustion_support_hold_enabled", "deep_audit_phase_leave_runner_trail_atr_mult", "deep_audit_min_minutes_since_entry_before_exit_min", "deep_audit_phase_decline_distrib", "deep_audit_phase_peak_distrib", "deep_audit_pullback_bull_state_ltf_conflict_guard_enabled", "deep_audit_pullback_bull_state_ltf_conflict_avg_bias_max", "deep_audit_repeat_churn_guard_enabled", "deep_audit_repeat_churn_guard_include_tickers", "deep_audit_runner_stale_force_close_hours", "deep_audit_ripster_chase_dist_to_cloud_pct", "deep_audit_ripster_chase_rsi10_long", "deep_audit_ripster_chase_rsi30_long", "deep_audit_ripster_momentum_heat_rsi30", "deep_audit_ripster_momentum_heat_rsi1h", "deep_audit_ripster_pullback_trigger_noise_max_loss_pct", "deep_audit_ripster_trigger_noise_max_loss_pct", "deep_audit_reference_exact_entry_leniency", "deep_audit_reference_exact_tolerance_minutes", "deep_audit_swing_checklist_v1", "deep_audit_swing_phase_early_max", "deep_audit_swing_phase_near_zero_abs", "deep_audit_swing_require_squeeze_build", "deep_audit_variant_guardrails_v3", "deep_audit_variant_max_loss_pct", "deep_audit_variant_min_rank", "deep_audit_variant_min_rr", "deep_audit_variant_regime_exit_min_age_min", "golden_julaug_reference_run_id", "live_config_run_id", "member_ticker_list", "consensus_signal_weights", "consensus_tf_weights", "scoring_weight_adj",
+  "smart_runner_td_exhaustion_support_hold_enabled", "deep_audit_phase_leave_runner_trail_atr_mult", "deep_audit_min_minutes_since_entry_before_exit_min", "deep_audit_phase_decline_distrib", "deep_audit_phase_peak_distrib", "deep_audit_peak_reaction_lock_enabled", "deep_audit_pre_earnings_entry_block_enabled", "deep_audit_pullback_bull_state_ltf_conflict_guard_enabled", "deep_audit_pullback_bull_state_ltf_conflict_avg_bias_max", "deep_audit_repeat_churn_guard_enabled", "deep_audit_repeat_churn_guard_include_tickers", "deep_audit_runner_stale_force_close_hours", "deep_audit_ripster_chase_dist_to_cloud_pct", "deep_audit_ripster_chase_rsi10_long", "deep_audit_ripster_chase_rsi30_long", "deep_audit_ripster_momentum_heat_rsi30", "deep_audit_ripster_momentum_heat_rsi1h", "deep_audit_ripster_pullback_trigger_noise_max_loss_pct", "deep_audit_ripster_trigger_noise_max_loss_pct", "deep_audit_reference_exact_entry_leniency", "deep_audit_reference_exact_tolerance_minutes", "deep_audit_swing_checklist_v1", "deep_audit_swing_phase_early_max", "deep_audit_swing_phase_near_zero_abs", "deep_audit_swing_require_squeeze_build", "deep_audit_variant_guardrails_v3", "deep_audit_variant_max_loss_pct", "deep_audit_variant_min_rank", "deep_audit_variant_min_rr", "deep_audit_variant_regime_exit_min_age_min", "golden_julaug_reference_run_id", "live_config_run_id", "member_ticker_list", "consensus_signal_weights", "consensus_tf_weights", "scoring_weight_adj",
 ];
 
 async function loadRunConfigSubset(db, runId, keys = []) {
@@ -24028,19 +24287,77 @@ async function d1UpdateDirectionOutcome(env, trade) {
     const mae = Number(trade.maxAdverseExcursion) || null;
     const status = String(trade.status || "");
     const exitReason = trade.exitReason || trade.exit_reason || null;
+    const runId = String(trade.run_id || trade.runId || "").trim() || null;
     await db.prepare(
       `UPDATE direction_accuracy SET exit_ts=?, exit_price=?, pnl=?, pnl_pct=?,
        direction_correct=?, max_favorable_excursion=?, max_adverse_excursion=?, status=?,
-       exit_reason=?
-       WHERE trade_id=?`
+       exit_reason=?, run_id=COALESCE(run_id, ?10)
+       WHERE trade_id=?11`
     ).bind(
       trade.exit_ts || Date.now(), exitPx, pnl, pnlPct,
       dirCorrect, mfe, mae, status,
       exitReason != null ? String(exitReason) : null,
+      runId,
       trade.id
     ).run();
   } catch (e) {
     console.warn("[LEARNING] Failed to update direction outcome:", String(e).slice(0, 150));
+  }
+}
+
+async function d1PersistTradeExitSnapshot(env, trade, exitSnapshotJson) {
+  const db = env?.DB;
+  const tradeId = String(trade?.id || trade?.trade_id || "").trim();
+  if (!db || !tradeId || !exitSnapshotJson) return;
+  try {
+    await d1EnsureLearningSchema(env);
+    await d1EnsureBacktestRunsSchema(env);
+    const runId = String(trade?.run_id || trade?.runId || "").trim() || null;
+    const ticker = String(trade?.ticker || "").trim() || null;
+    const direction = String(trade?.direction || "").trim() || null;
+    const ts = Number(trade?.exit_ts || trade?.entry_ts || Date.now()) || Date.now();
+    const status = String(trade?.status || "").trim() || "OPEN";
+    const exitReason = String(trade?.exitReason || trade?.exit_reason || "").trim() || null;
+
+    await db.prepare(
+      `UPDATE direction_accuracy
+          SET exit_snapshot_json = ?1,
+              run_id = COALESCE(run_id, ?3)
+        WHERE trade_id = ?2`
+    ).bind(exitSnapshotJson, tradeId, runId).run();
+
+    await db.prepare(
+      `INSERT OR IGNORE INTO direction_accuracy
+        (trade_id, ticker, ts, traded_direction, status, run_id, exit_snapshot_json, exit_reason)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`
+    ).bind(
+      tradeId,
+      ticker,
+      ts,
+      direction,
+      status,
+      runId,
+      exitSnapshotJson,
+      exitReason,
+    ).run();
+
+    if (runId) {
+      await db.prepare(
+        `UPDATE backtest_run_direction_accuracy
+            SET exit_snapshot_json = ?1,
+                exit_reason = COALESCE(?4, exit_reason)
+          WHERE run_id = ?2
+            AND trade_id = ?3`
+      ).bind(exitSnapshotJson, runId, tradeId, exitReason).run();
+
+      await db.prepare(
+        `INSERT OR IGNORE INTO backtest_run_direction_accuracy
+          (run_id, trade_id, ticker, ts, exit_snapshot_json, exit_reason)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
+      ).bind(runId, tradeId, ticker, ts, exitSnapshotJson, exitReason).run();
+    }
+  } catch (e) {
+    console.warn("[EXIT_SNAP] persist helper failed:", String(e?.message || e).slice(0, 150));
   }
 }
 
@@ -40989,17 +41306,17 @@ export default {
           const activeState = await loadActiveRunState(db, KV);
           const replayRunning = activeState.replayRunning;
           const replayLockActive = activeState.replayLockVal;
-          const liveOnly = url.searchParams.get("live") === "1" || (!requestedRunId && (!!replayRunning || !!replayLockActive));
+          const liveOnly = url.searchParams.get("live") === "1" || (!requestedRunId && !!replayLockActive);
           if (liveOnly) {
-            if (!replayRunning && !replayLockActive) {
+            if (!replayLockActive) {
               const readModel = buildTradeAutopsyReadModel({
                 source: "replay_kv",
                 archiveRun: null,
-                liveRun: activeState.active || activeState.live || null,
+                liveRun: null,
                 tradeCount: 0,
                 isLive: true,
-                isCleanLane: activeState.isCleanLane,
-                replay: activeState.replay,
+                isCleanLane: false,
+                replay: { locked: false, lock: null, running: null },
               });
               return sendJSON({
                 ok: true,
@@ -41014,7 +41331,7 @@ export default {
             const liveCleanLane = activeState.isCleanLane;
             const replayTrades = KV ? ((await kvGetJSON(KV, REPLAY_TRADES_KV_KEY)) || []) : [];
             let archivedReplayTrades = [];
-            if (replayLock && db && !liveCleanLane) {
+            if (replayLock && db) {
               try {
                 await d1EnsureBacktestRunsSchema(env);
                 const { results: archiveRows } = await db.prepare(
@@ -41170,12 +41487,9 @@ export default {
             const liveVisibleTrades = Array.isArray(mergedReplayTrades)
               ? mergedReplayTrades.filter((t) => {
                   const status = String(t?.status || "").toUpperCase();
-                  const trimTs = Number(t?.trim_ts ?? t?.trimTs ?? 0);
-                  const trimmedPct = Number(t?.trimmed_pct ?? t?.trimmedPct ?? 0);
                   if (!status) return false;
                   if (status === "ARCHIVED") return false;
-                  if (status !== "OPEN") return true;
-                  return trimTs > 0 || trimmedPct > 0;
+                  return true;
                 })
               : [];
             const tradeIds = liveVisibleTrades.map((t) => String(t?.trade_id || t?.id || "")).filter(Boolean);
@@ -41185,9 +41499,7 @@ export default {
               for (let ci = 0; ci < tradeIds.length; ci += CHUNK) {
                 const chunk = tradeIds.slice(ci, ci + CHUNK);
                 const placeholders = chunk.map((_, i) => `?${i + 1}`).join(",");
-                  const scopeClause = liveCleanLane
-                    ? `AND (?${chunk.length + 1} IS NULL OR run_id = ?${chunk.length + 1})`
-                    : `AND (?${chunk.length + 1} IS NULL OR run_id = ?${chunk.length + 1} OR run_id IS NULL)`;
+                  const scopeClause = `AND (?${chunk.length + 1} IS NULL OR run_id = ?${chunk.length + 1} OR run_id IS NULL)`;
                   const { results: daRows } = await db.prepare(
                     `SELECT trade_id, run_id, ts, signal_snapshot_json, exit_snapshot_json, entry_path, consensus_direction,
                         max_favorable_excursion, max_adverse_excursion, tf_stack_json,
@@ -41546,6 +41858,7 @@ export default {
                  FROM backtest_runs
                 WHERE status = 'completed'
                 ORDER BY
+                  CAST(created_at AS INTEGER) DESC,
                   COALESCE(
                     CASE
                       WHEN ended_at IS NULL THEN NULL
@@ -42150,6 +42463,8 @@ export default {
         // Set replay-running lock (prevents live scoring cron from overwriting replay trades)
         const replayLockVal = await KV.get("timed:replay:lock") || null;
         const replayManifest = replayLockVal ? await loadRunManifest(db, replayLockVal) : null;
+        const replayTradeScope = buildReplayTradeScope(replayManifest);
+        const replayTradeScope = buildReplayTradeScope(replayManifest);
         const cleanReplayLane = !!(freshRun || cleanSlate || isRunManifestCleanLane(replayManifest));
         await kvPutJSON(KV, "timed:replay:running", { since: Date.now(), date: dateParam, offset: tickerOffset, fullDay: !!fullDay });
 
@@ -42249,7 +42564,20 @@ export default {
             console.warn("[REPLAY RESUME] Archive load failed:", String(e).slice(0, 150));
           }
         }
-        const replayCtx = { allTrades, execStates: new Map(), processDebug: [], candleCache, _blockedEntries: {}, _leadingLtf: replayLeadingLtf };
+        const initialReplayTrades = sanitizeReplayTradesForScope(allTrades, replayTradeScope);
+        if (initialReplayTrades.length !== allTrades.length) {
+          console.warn(`[REPLAY SCOPE] Dropped ${allTrades.length - initialReplayTrades.length} out-of-scope trade(s) before ${dateParam}`);
+        }
+        const replayCtx = {
+          allTrades: initialReplayTrades,
+          execStates: new Map(),
+          processDebug: [],
+          candleCache,
+          _blockedEntries: {},
+          _leadingLtf: replayLeadingLtf,
+          replayTradeScope,
+          strictSingleTickerPosition: cleanReplayLane,
+        };
         const sanitizeReplayTickerState = (existing) => {
           if (!existing || typeof existing !== "object") return {};
           const clean = { ...existing };
@@ -43047,6 +43375,7 @@ export default {
           }
 
           // Persist replay trades to isolated KV so live dashboards do not mix replay and production rows.
+          replayCtx.allTrades = sanitizeReplayTradesForScope(replayCtx.allTrades, replayTradeScope);
           try {
             await kvPutJSON(KV, REPLAY_TRADES_KV_KEY, replayCtx.allTrades);
           } catch (e) {
@@ -43132,7 +43461,7 @@ export default {
 
         // End-of-day processing: investor replay + portfolio snapshots (last batch only; skip if skipInvestor=1)
         if (!hasMore) {
-          await kvPutJSON(KV, "timed:replay:running", null);
+          await clearReplayRunningMarker(KV);
           if (!skipInvestor) {
             console.log(`[REPLAY] End-of-day for ${dateParam}: investor replay + snapshots (this can take 30-60s)`);
             try {
@@ -43468,7 +43797,19 @@ export default {
             console.warn("[REPLAY RESUME] Archive load failed:", String(e).slice(0, 150));
           }
         }
-        const replayCtx = { allTrades, execStates: new Map(), processDebug: [], _blockedEntries: {}, _leadingLtf: replayLeadingLtf };
+        const initialIntervalReplayTrades = sanitizeReplayTradesForScope(allTrades, replayTradeScope);
+        if (initialIntervalReplayTrades.length !== allTrades.length) {
+          console.warn(`[INTERVAL REPLAY] Dropped ${allTrades.length - initialIntervalReplayTrades.length} out-of-scope trade(s) before ${dateParam} interval ${intervalIdx}`);
+        }
+        const replayCtx = {
+          allTrades: initialIntervalReplayTrades,
+          execStates: new Map(),
+          processDebug: [],
+          _blockedEntries: {},
+          _leadingLtf: replayLeadingLtf,
+          replayTradeScope,
+          strictSingleTickerPosition: cleanReplayLane,
+        };
 
         // ── TF configs matching the live scoring cron (small limits) ──
         const LIVE_TF_CONFIGS = [
@@ -43715,6 +44056,7 @@ export default {
         }
 
         // ── Persist trades (replayLockVal already declared above for resume) ──
+        replayCtx.allTrades = sanitizeReplayTradesForScope(replayCtx.allTrades, replayTradeScope);
         try { await kvPutJSON(KV, REPLAY_TRADES_KV_KEY, replayCtx.allTrades); } catch {}
         if (db) {
           for (const trade of replayCtx.allTrades) {
@@ -43737,7 +44079,7 @@ export default {
 
         // ── End-of-day: investor replay + portfolio snapshots ──
         if (endOfDay) {
-          await kvPutJSON(KV, "timed:replay:running", null);
+          await clearReplayRunningMarker(KV);
           if (!skipInvestor) {
             try {
               const invResult = await runInvestorDailyReplay(env, KV, replayCtx, dateParam);
@@ -44006,9 +44348,18 @@ export default {
 
         // Group snapshots by timestamp, then process chronologically
         const allTrades = (await kvGetJSON(KV, REPLAY_TRADES_KV_KEY)) || [];
-        const replayCtx = { allTrades, execStates: new Map(), processDebug: [], _blockedEntries: {} };
         const stateMap = {};
         const replayLockVal = await KV.get("timed:replay:lock") || null;
+        const replayManifest = replayLockVal ? await loadRunManifest(db, replayLockVal) : null;
+        const replayTradeScope = buildReplayTradeScope(replayManifest);
+        const replayCtx = {
+          allTrades: sanitizeReplayTradesForScope(allTrades, replayTradeScope),
+          execStates: new Map(),
+          processDebug: [],
+          _blockedEntries: {},
+          replayTradeScope,
+          strictSingleTickerPosition: isRunManifestCleanLane(replayManifest),
+        };
         let scored = 0, tradesCreated = 0, skipped = 0;
         const errors = [];
         const stageCounts = {};
@@ -44121,6 +44472,7 @@ export default {
         }
 
         // Persist trades to KV + D1
+        replayCtx.allTrades = sanitizeReplayTradesForScope(replayCtx.allTrades, replayTradeScope);
         try {
           await kvPutJSON(KV, REPLAY_TRADES_KV_KEY, replayCtx.allTrades);
           await kvPutJSON(KV, "timed:trades:all", replayCtx.allTrades);
@@ -59486,7 +59838,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             console.log(`[SCORING CRON] Replay in progress (${Math.round(lockAge / 1000)}s) — scoring + snapshot only, no trade execution`);
           } else {
             console.warn(`[SCORING CRON] Stale replay lock (${Math.round(lockAge / 1000)}s old), clearing and proceeding`);
-            await kvPutJSON(KV, "timed:replay:running", null);
+            await clearReplayRunningMarker(KV);
           }
         }
 
