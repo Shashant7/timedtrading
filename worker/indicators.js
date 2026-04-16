@@ -4,6 +4,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { normalizeTfKey } from "./ingest.js";
+import {
+  normalizeLearnedTickerProfile,
+  resolveTickerProfileContext,
+  buildLegacyLearnedProfileView,
+} from "./profile-resolution.js";
+import { resolveRegimeVocabulary } from "./regime-vocabulary.js";
+import { recordAdaptiveLineageFact } from "./adaptive-lineage.js";
 
 // Bump this whenever scoring logic changes (indicator weights, TF architecture,
 // regime classification, entry quality formula, etc.). Snapshots tagged with
@@ -3438,6 +3445,121 @@ const RTH_OPEN_ET = 570;  // 9:30 AM ET in minutes
 const RTH_CLOSE_ET = 960; // 4:00 PM ET in minutes
 
 /**
+ * Compute overnight gap context from the previous RTH close and today's open.
+ *
+ * This powers entry guards that need to know whether an opening gap remains
+ * untested or has already been meaningfully reclaimed/filled.
+ *
+ * @param {Array} intradayBars - intraday bars (5m/10m/15m) sorted ascending by ts
+ * @param {Array} dailyBars - daily bars sorted ascending by ts
+ * @param {number} price - current price
+ * @param {number} [asOfTs] - optional "now" timestamp for replay (default: Date.now())
+ * @returns {object|null}
+ */
+export function computeOvernightGapContext(intradayBars, dailyBars, price, asOfTs = null) {
+  if (!Array.isArray(intradayBars) || intradayBars.length < 2 || !Number.isFinite(price) || price <= 0) return null;
+
+  const now = asOfTs || Date.now();
+  const todayKey = tsToEtDateKey(now);
+
+  const todayBars = [];
+  for (const bar of intradayBars) {
+    const ts = bar.ts || bar.t || 0;
+    if (!ts) continue;
+    const barDateKey = tsToEtDateKey(ts);
+    const etMin = tsToEtMinutes(ts);
+    if (barDateKey === todayKey && etMin >= RTH_OPEN_ET && etMin < RTH_CLOSE_ET) {
+      todayBars.push({ ...bar, _etMin: etMin, _ts: ts });
+    }
+  }
+  if (todayBars.length === 0) return null;
+
+  const visibleBars = todayBars.filter((bar) => bar._ts <= now);
+  const activeBars = visibleBars.length > 0 ? visibleBars : [todayBars[0]];
+  const openBar = activeBars[0];
+  const sessionOpen = Number(openBar?.o);
+  if (!Number.isFinite(sessionOpen) || sessionOpen <= 0) return null;
+
+  let prevClose = null;
+  if (Array.isArray(dailyBars) && dailyBars.length > 0) {
+    for (let i = dailyBars.length - 1; i >= 0; i--) {
+      const bar = dailyBars[i];
+      const ts = bar?.ts || bar?.t || 0;
+      if (!ts || tsToEtDateKey(ts) >= todayKey) continue;
+      const close = Number(bar?.c);
+      if (Number.isFinite(close) && close > 0) {
+        prevClose = close;
+        break;
+      }
+    }
+  }
+  if (!Number.isFinite(prevClose) || prevClose <= 0) return null;
+
+  const gap = sessionOpen - prevClose;
+  const absGap = Math.abs(gap);
+  const absGapPct = prevClose > 0 ? (absGap / prevClose) * 100 : 0;
+  const direction = gap > 0 ? "up" : gap < 0 ? "down" : "flat";
+  if (!Number.isFinite(absGapPct)) return null;
+
+  const gapTop = Math.max(sessionOpen, prevClose);
+  const gapBottom = Math.min(sessionOpen, prevClose);
+  const gapMid = (gapTop + gapBottom) / 2;
+
+  let highSinceOpen = -Infinity;
+  let lowSinceOpen = Infinity;
+  for (const bar of activeBars) {
+    const high = Number(bar?.h);
+    const low = Number(bar?.l);
+    if (Number.isFinite(high)) highSinceOpen = Math.max(highSinceOpen, high);
+    if (Number.isFinite(low)) lowSinceOpen = Math.min(lowSinceOpen, low);
+  }
+  if (!Number.isFinite(highSinceOpen) || !Number.isFinite(lowSinceOpen)) return null;
+
+  const rangeTouchesGap = highSinceOpen >= gapBottom && lowSinceOpen <= gapTop;
+  const enteredGapBody = direction === "flat"
+    ? false
+    : rangeTouchesGap && (
+      (direction === "up" && lowSinceOpen < sessionOpen)
+      || (direction === "down" && highSinceOpen > sessionOpen)
+    );
+  const halfGapTouched = direction === "up"
+    ? lowSinceOpen <= gapMid
+    : direction === "down"
+      ? highSinceOpen >= gapMid
+      : false;
+  const halfGapHeld = direction === "up"
+    ? (halfGapTouched && price >= gapMid)
+    : direction === "down"
+      ? (halfGapTouched && price <= gapMid)
+      : false;
+  const fullGapFilled = direction === "up"
+    ? lowSinceOpen <= gapBottom
+    : direction === "down"
+      ? highSinceOpen >= gapTop
+      : true;
+  const untestedImpulse = direction === "flat" ? false : !enteredGapBody;
+  const priceVsOpenPct = sessionOpen > 0 ? ((price - sessionOpen) / sessionOpen) * 100 : 0;
+
+  return {
+    direction,
+    gapPct: Math.round((sessionOpen > 0 ? (gap / prevClose) * 100 : 0) * 1000) / 1000,
+    absGapPct: Math.round(absGapPct * 1000) / 1000,
+    prevClose: Math.round(prevClose * 100) / 100,
+    sessionOpen: Math.round(sessionOpen * 100) / 100,
+    gapTop: Math.round(gapTop * 100) / 100,
+    gapBottom: Math.round(gapBottom * 100) / 100,
+    gapMid: Math.round(gapMid * 100) / 100,
+    enteredGapBody,
+    halfGapTouched,
+    halfGapHeld,
+    fullGapFilled,
+    untestedImpulse,
+    priceVsOpenPct: Math.round(priceVsOpenPct * 1000) / 1000,
+    barsSinceOpen: Math.max(0, activeBars.length - 1),
+  };
+}
+
+/**
  * Compute Opening Range levels for the current trading day.
  *
  * For each ORB window (5m, 15m, 30m, 60m), tracks the high and low
@@ -3852,7 +3974,10 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   const rawBarsEarly = opts?.rawBars || null;
   let regimeEarly = opts?.regime || null;
   const marketInternals = opts?.marketInternals || existingData?._marketInternals || null;
-  const liveTickerProfile = existingData?._tickerProfile || null;
+  const liveTickerProfile = normalizeLearnedTickerProfile(existingData?._tickerProfile || null, {
+    ticker,
+    source: existingData?.__profile_resolution?.learned_profile_source || "runtime",
+  });
   const enableExecutionProfileRuntime = opts?.enableExecutionProfileRuntime === true;
   if (!regimeEarly && rawBarsEarly) {
     const dailyBars = rawBarsEarly.D || rawBarsEarly.daily || [];
@@ -4185,6 +4310,15 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
     runtimeMarketInternals?.overall === "risk_off" ? "CHOPPY" : null,
     runtimeMarketInternals,
   );
+  const baseRegimeParams = { ...regimeParams };
+  const regimeVocabulary = resolveRegimeVocabulary({
+    ...existingData,
+    regime_class: regimeClass.regime,
+    regime_score: regimeClass.score,
+    regime,
+    _vix: existingData?._vix ?? existingData?._vixLevel ?? null,
+    _env: existingData?._env || {},
+  }, { executionFallback: regimeClass.regime });
   if (enableExecutionProfileRuntime && executionProfile?.adjustments) {
     const adj = executionProfile.adjustments;
     regimeParams.minHTFScore = Math.max(0, (regimeParams.minHTFScore || 0) + (adj.minHTFScoreAdj || 0));
@@ -4194,6 +4328,13 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
     regimeParams.slCushionMultiplier = Math.max(0.8, (regimeParams.slCushionMultiplier || 1) * (adj.slCushionMultiplierAdj || 1));
     regimeParams.requireSqueezeRelease = !!adj.requireSqueezeRelease;
     regimeParams.defendWinnerBias = adj.defendWinnerBias || regimeParams.defendWinnerBias || "standard";
+    recordAdaptiveLineageFact(tickerData, "execution_profile_runtime_overlay", {
+      source: "execution_profile_runtime",
+      active_profile: executionProfile.active_profile || null,
+      adjustments: adj,
+      regime_params_before: baseRegimeParams,
+      regime_params_after: regimeParams,
+    });
   }
 
   // ── Breakout Detection (daily level, ATR-relative, EMA stack) ──
@@ -4202,6 +4343,7 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
 
   // ── Opening Range Breakout (ORB) ──
   const orbIntradayBars = rawBarsEarly?.["10"] || rawBarsEarly?.["15"] || rawBarsEarly?.["5"] || [];
+  const overnightGap = computeOvernightGapContext(orbIntradayBars, rawDailyBars, price, opts?.asOfTs || null);
   const orb = computeORB(orbIntradayBars, price, opts?.asOfTs || null);
 
   return {
@@ -4325,9 +4467,11 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
     regime_score: regimeClass.score,           // -15 to +15
     regime_factors: regimeClass.factors,       // breakdown for debugging/UI
     regime_params: regimeParams,               // adaptive trading parameters
+    regimeVocabulary,
     market_internals: marketInternals || regimeClass.market_internals || undefined,
     execution_profile: executionProfile || undefined,
     breakout: breakout || undefined,           // breakout detection result
+    overnight_gap: overnightGap || undefined,  // prior-close vs open gap context
     orb: orb || undefined,                     // Opening Range Breakout levels + signals
     data_source: "alpaca",
     // ── Ichimoku native data (replaces external ichimoku_d/ichimoku_w) ──
@@ -5763,42 +5907,21 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
   if (!tickerData) return null;
 
   // ── Three-Tier Awareness: attach ticker profile if available ──
-  const tickerProfile = existingData?._tickerProfile || null;
+  const tickerProfile = normalizeLearnedTickerProfile(existingData?._tickerProfile || null, {
+    ticker,
+    source: existingData?.__profile_resolution?.learned_profile_source || "runtime",
+  });
+  const profileContext = resolveTickerProfileContext(ticker, tickerProfile, {
+    learnedSource: existingData?.__profile_resolution?.learned_profile_source || "runtime",
+  });
+  tickerData.__static_behavior_profile = profileContext.staticBehaviorProfile;
+  tickerData.__profile_resolution = profileContext.lineage;
   if (tickerProfile) {
-    tickerData._ticker_profile = {
-      behavior_type: tickerProfile.behaviorType || tickerProfile.behavior_type,
-      sl_mult: tickerProfile.slMult || tickerProfile.sl_mult || 1.0,
-      tp_mult: tickerProfile.tpMult || tickerProfile.tp_mult || 1.0,
-      entry_threshold_adj: tickerProfile.entryThresholdAdj || tickerProfile.entry_threshold_adj || 0,
-      atr_pct_p50: tickerProfile.atrPctP50 || tickerProfile.atr_pct_p50 || 0,
-      trend_persistence: tickerProfile.trendPersistence || tickerProfile.trend_persistence || 0.5,
-      ichimoku_responsiveness: tickerProfile.ichimokuResponsiveness || tickerProfile.ichimoku_responsiveness || 0.5,
-    };
-
-    // Ticker Learning System: inject learned personality + entry params
-    const learning = tickerProfile.learning_json
-      ? (typeof tickerProfile.learning_json === "string" ? JSON.parse(tickerProfile.learning_json) : tickerProfile.learning_json)
-      : null;
-    if (learning) {
-      tickerData._ticker_profile.learning = {
-        personality: learning.personality,
-        entry_params: learning.entry_params,
-        long_profile: learning.long_profile ? {
-          avg_move_pct: learning.long_profile.avg_move_pct,
-          avg_pullback_pct: learning.long_profile.avg_pullback_pct,
-          ema_aligned_pct: learning.long_profile.ema_precision?.aligned_pct,
-          st_aligned_pct: learning.long_profile.st_precision?.aligned_pct,
-          rsi_best_zone: learning.long_profile.rsi_at_origin?.best_zone,
-        } : null,
-        short_profile: learning.short_profile ? {
-          avg_move_pct: learning.short_profile.avg_move_pct,
-          avg_pullback_pct: learning.short_profile.avg_pullback_pct,
-          ema_aligned_pct: learning.short_profile.ema_precision?.aligned_pct,
-          st_aligned_pct: learning.short_profile.st_precision?.aligned_pct,
-          rsi_best_zone: learning.short_profile.rsi_at_origin?.best_zone,
-        } : null,
-      };
-    }
+    tickerData._tickerProfile = tickerProfile;
+    tickerData._ticker_profile = buildLegacyLearnedProfileView(tickerProfile, {
+      ticker,
+      source: profileContext.lineage.learned_profile_source || "runtime",
+    });
   }
 
   // ── Compute TD Sequential (D/W/M) and attach ──

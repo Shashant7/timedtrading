@@ -9,6 +9,7 @@ import {
   AI_CIO_LIFECYCLE_PROMPT,
   AI_CIO_LIFECYCLE_TEMPLATE,
 } from "./cio-prompts.js";
+import { resolveRegimeVocabulary } from "../regime-vocabulary.js";
 
 // ── Proposal Builders ──────────────────────────────────────────────────────
 
@@ -19,6 +20,9 @@ import {
 export function buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tickerData, sizingMeta, confidence, setupGrade, setupName, calculatedRR, getTickerProfile) {
   const orb = tickerData?.orb?.primary;
   const _tp = getTickerProfile(sym);
+  const regimeVocabulary = resolveRegimeVocabulary(tickerData, {
+    executionFallback: tickerData?.regime_class || "UNKNOWN",
+  });
   return {
     ticker: sym,
     direction,
@@ -44,10 +48,15 @@ export function buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tick
     fvg_imbalance: tickerData?.__fvg_imbalance || null,
     ema21_dist_pct: tickerData?.__ema21_dist_pct ?? null,
     regime: {
-      ticker: tickerData?.regime_class,
-      score: tickerData?.regime_score,
-      market: tickerData?._env?._marketRegime?.regime,
-      market_score: tickerData?._env?._marketInternals?.score,
+      ticker: regimeVocabulary.executionRegimeClass,
+      score: regimeVocabulary.executionRegimeScore,
+      market: regimeVocabulary.marketRegimeLabel,
+      market_score: regimeVocabulary.marketRegimeScore,
+      execution_regime_class: regimeVocabulary.executionRegimeClass,
+      swing_regime_snapshot: regimeVocabulary.swingRegimeSnapshot,
+      market_volatility_regime: regimeVocabulary.marketVolatilityRegime,
+      market_backdrop_class: regimeVocabulary.marketBackdropClass,
+      market_trend_bias: regimeVocabulary.marketTrendBias,
     },
     scores: {
       htf: Number(tickerData?.htf_score) || 0,
@@ -124,6 +133,9 @@ export function buildCIOLifecycleProposal(action, sym, openTrade, tickerData, px
 
   const profitRetainedPct = mfe > 0 ? +(pnlPct / mfe * 100).toFixed(0) : null;
   const _tp = getTickerProfile(sym);
+  const regimeVocabulary = resolveRegimeVocabulary(tickerData, {
+    executionFallback: tickerData?.regime_class || "UNKNOWN",
+  });
 
   return {
     action,
@@ -144,8 +156,13 @@ export function buildCIOLifecycleProposal(action, sym, openTrade, tickerData, px
     ticker_profile: { type: _tp.profileKey, label: _tp.label, max_hold_hours: _tp.max_hold_hours },
     fvg_imbalance: tickerData?.fvg_imbalance_D || null,
     regime: {
-      ticker: tickerData?.regime_class,
-      market: tickerData?._env?._marketRegime?.regime,
+      ticker: regimeVocabulary.executionRegimeClass,
+      market: regimeVocabulary.marketRegimeLabel,
+      execution_regime_class: regimeVocabulary.executionRegimeClass,
+      swing_regime_snapshot: regimeVocabulary.swingRegimeSnapshot,
+      market_volatility_regime: regimeVocabulary.marketVolatilityRegime,
+      market_backdrop_class: regimeVocabulary.marketBackdropClass,
+      market_trend_bias: regimeVocabulary.marketTrendBias,
     },
     technicals: {
       ema_regime_d: tickerData?.ema_regime_daily,

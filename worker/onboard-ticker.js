@@ -19,6 +19,7 @@ import {
 } from "./indicators.js";
 
 import { backfill as tdBackfill } from "./data-provider.js";
+import { normalizeLearnedTickerProfile } from "./profile-resolution.js";
 
 import { SECTOR_MAP, SECTOR_ETF_MAP, getSector } from "./sector-mapping.js";
 
@@ -749,11 +750,11 @@ export async function onboardTicker(env, ticker, opts = {}) {
       const existing = await kvGetJSON(KV, `timed:latest:${sym}`);
       const withProfile = {
         ...(existing || {}),
-        _tickerProfile: profile,
+        _tickerProfile: normalizeLearnedTickerProfile(profile, { ticker: sym, source: "onboard_d1" }),
       };
       scored = await computeServerSideScores(sym, d1GetCandles, env, withProfile);
       if (scored) {
-        scored._tickerProfile = { behaviorType: fingerprint.behaviorType, slMult: calibration.slMult, tpMult: calibration.tpMult };
+        scored._tickerProfile = normalizeLearnedTickerProfile(profile, { ticker: sym, source: "onboard_d1" });
         await kvPutJSON(KV, `timed:latest:${sym}`, scored);
         console.log(`[ONBOARD] ${sym}: scored, state=${scored.state}, price=${scored.price}`);
       }

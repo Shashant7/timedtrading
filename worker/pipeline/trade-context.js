@@ -3,6 +3,8 @@
 // Single input contract for all pipeline stages.
 
 import { normalizeTfKey } from "../ingest.js";
+import { resolveTickerProfileContext } from "../profile-resolution.js";
+import { resolveRegimeVocabulary } from "../regime-vocabulary.js";
 
 export function buildTradeContext(tickerData, asOfTs = null) {
   const d = tickerData || {};
@@ -83,6 +85,7 @@ export function buildTradeContext(tickerData, asOfTs = null) {
 
   const regimeClass = String(d.regime_class || "TRANSITIONAL");
   const rParams = d.regime_params || {};
+  const regimeVocabulary = resolveRegimeVocabulary(d, { executionFallback: regimeClass });
 
   const rvol30 = d.rvol_map?.["30"]?.vr ?? d.rvol_map?.["60"]?.vr ?? 1.0;
   const rvol1H = d.rvol_map?.["60"]?.vr ?? 1.0;
@@ -101,6 +104,9 @@ export function buildTradeContext(tickerData, asOfTs = null) {
   const structureHealth = buildStructureHealthProfile(d, side, tf, movePhase, stSupportScore, rvolBest);
   const progression = buildProgressionProfile(d, side, tf, movePhase, structureHealth, rvolBest);
   const eventRisk = buildEventRiskProfile(d);
+  const profileContext = resolveTickerProfileContext(ticker, d._tickerProfile || d._ticker_profile || null, {
+    learnedSource: d?.__profile_resolution?.learned_profile_source || "runtime",
+  });
 
   return {
     ticker,
@@ -134,22 +140,35 @@ export function buildTradeContext(tickerData, asOfTs = null) {
     patterns: d.pattern_match || null,
 
     regime: {
-      class: regimeClass,
+      class: regimeVocabulary.executionRegimeClass,
       params: rParams,
-      swing: String(d.regime?.combined || "").toUpperCase(),
-      market: String(d.regime?.market || ""),
-      sector: String(d.regime?.sector || ""),
+      swing: regimeVocabulary.swingRegimeSnapshot.combined,
+      market: regimeVocabulary.swingRegimeSnapshot.market,
+      sector: regimeVocabulary.swingRegimeSnapshot.sector,
+      executionClass: regimeVocabulary.executionRegimeClass,
+      executionScore: regimeVocabulary.executionRegimeScore,
+      swingSnapshot: regimeVocabulary.swingRegimeSnapshot,
+      volatility: regimeVocabulary.marketVolatilityRegime,
+      backdropClass: regimeVocabulary.marketBackdropClass,
+      trendBias: regimeVocabulary.marketTrendBias,
+      marketLabel: regimeVocabulary.marketRegimeLabel,
+      marketScore: regimeVocabulary.marketRegimeScore,
     },
 
     market: {
       internals: d._marketInternals || env._marketInternals || null,
       vix: vixLevel,
       vixTier,
+      volatilityRegime: regimeVocabulary.marketVolatilityRegime,
+      backdropClass: regimeVocabulary.marketBackdropClass,
+      trendBias: regimeVocabulary.marketTrendBias,
       spy: d._spyData || null,
       cryptoLead: d._cryptoLead || null,
     },
 
-    profile: d._tickerProfile || null,
+    profile: profileContext.learnedProfile,
+    staticBehaviorProfile: profileContext.staticBehaviorProfile,
+    profileResolution: profileContext.lineage,
 
     rvol: { best: rvolBest, m30: rvol30, h1: rvol1H },
     divergence: {

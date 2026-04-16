@@ -89,8 +89,25 @@ export function evaluateExit(ctx, position) {
   const positionAgeMarketMin = positionAgeMin;
   const mgmt30mST = Number(ctx.tf.m30?.stDir) || 0;
   const mgmt1hST = Number(ctx.tf.h1?.stDir) || 0;
+  const stSupportScore = Number(ctx.raw?.st_support?.supportScore ?? 0.5);
+  const emaStruct4H = Number(ctx.raw?.tf_tech?.["4H"]?.ema?.structure) || 0;
+  const emaStructD = Number(ctx.raw?.tf_tech?.D?.ema?.structure) || 0;
+  const profileLabel = String(ctx.raw?.__static_behavior_profile?.label || "").toLowerCase();
+  const avgBias = Number(ctx.raw?.avg_bias ?? ctx.raw?.swing_consensus?.bias) || 0;
+  const higherTfSupportive = direction === "LONG"
+    ? stSupportScore >= 0.58
+      && profileLabel === "trend-rider"
+      && emaStruct4H >= 0.75
+      && emaStructD >= 0.75
+      && avgBias >= 0.20
+    : stSupportScore <= 0.42
+      && profileLabel === "trend-rider"
+      && emaStruct4H <= -0.75
+      && emaStructD <= -0.75
+      && avgBias <= -0.20;
   const doaStructureIntact = (direction === "LONG" && (mgmt30mST === -1 || mgmt1hST === -1))
-    || (direction === "SHORT" && (mgmt30mST === 1 || mgmt1hST === 1));
+    || (direction === "SHORT" && (mgmt30mST === 1 || mgmt1hST === 1))
+    || higherTfSupportive;
   if (doaEnabled && pnlPct < 0 && positionAgeMarketMin >= doaThresholdH * 60 && mfePct < 0.3 && !doaStructureIntact) {
     return result("exit", "doa_early_exit", "safety");
   }
@@ -214,6 +231,22 @@ function evaluateRipsterCloudExits(ctx, position, direction, price, pnlPct, ageM
   if (!ctx.config.ripsterTuneV2) return null;
 
   const d = ctx.raw;
+  const structureHealth = ctx.structureHealth || null;
+  const progression = ctx.progression || null;
+  const eventRisk = ctx.eventRisk || null;
+  const st15Dir = Number(ctx.tf.m15?.stDir) || 0;
+  const st15Slope = Number(ctx.tf.m15?.stSlope) || 0;
+  const st15Supportive = direction === "LONG" ? st15Dir === -1 : st15Dir === 1;
+  const st15SlopeSupportive = direction === "LONG" ? st15Slope >= 0 : st15Slope <= 0;
+  const st15TrendSupportive = st15Supportive && st15SlopeSupportive;
+  const elevatedEventRisk = !!(
+    eventRisk?.active
+    && (
+      eventRisk?.severity === "high"
+      || eventRisk?.severity === "medium"
+      || (Number.isFinite(Number(eventRisk?.hoursToEvent)) && Number(eventRisk.hoursToEvent) <= 24)
+    )
+  );
   const tfTech = (key) => d?.tf_tech?.[key] || null;
   const rt10 = tfTech("10")?.ripster;
   const rt30 = tfTech("30")?.ripster;
@@ -299,8 +332,24 @@ function evaluateRipsterCloudExits(ctx, position, direction, price, pnlPct, ageM
     ? !!(c72_89_1H?.bear || c72_89_1H?.below)
     : !!(c72_89_1H?.bull || c72_89_1H?.above);
   const pdzMinGreenMin = (inExtended && ageMin >= 360) ? 360 : 720;
+  const canDefer72_89Break =
+    pnlPct > 0
+    && !elevatedEventRisk
+    && st15TrendSupportive
+    && !structureHealth?.broken
+    && (
+      structureHealth?.intact
+      || progression?.status === "advancing"
+      || (structureHealth?.fragile && progression?.status !== "stretched")
+    );
 
   if (lost72_89_1H && ageMin >= pdzMinGreenMin && pnlPct > 0) {
+    if (canDefer72_89Break) {
+      return result("defend", "ripster_72_89_1h_deferred_structure_reclaim", "ripster_pdz", {
+        st15Dir,
+        st15Slope,
+      });
+    }
     if (trimPct < 0.5 && mfePct >= 2.0) {
       return result("trim", "ripster_72_89_1h_trim", "ripster_pdz");
     }

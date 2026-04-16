@@ -3,6 +3,7 @@
 
 import { TICKER_PROXY_MAP } from "../sector-mapping.js";
 import { getReferencePriors } from "./cio-reference.js";
+import { resolveRegimeVocabulary } from "../regime-vocabulary.js";
 
 function computeCryptoTrend(snapshots, idx) {
   if (idx < 10) return 0;
@@ -103,7 +104,10 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
   }
 
   // Layer 2: Regime context
-  const regimeClass = tickerData?.regime_class;
+  const regimeVocabulary = resolveRegimeVocabulary(tickerData, {
+    executionFallback: tickerData?.regime_class || "UNKNOWN",
+  });
+  const regimeClass = regimeVocabulary.executionRegimeClass;
   if (regimeClass) {
     const regimeTrades = closedTrades.filter(t => t._regime === regimeClass || t.regime_class === regimeClass);
     if (regimeTrades.length >= 3) {
@@ -112,6 +116,11 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
       const rDirWins = rDir.filter(t => t.status === "WIN").length;
       mem.regime_context = {
         regime: regimeClass,
+        execution_regime_class: regimeVocabulary.executionRegimeClass,
+        swing_regime_snapshot: regimeVocabulary.swingRegimeSnapshot,
+        market_volatility_regime: regimeVocabulary.marketVolatilityRegime,
+        market_backdrop_class: regimeVocabulary.marketBackdropClass,
+        market_trend_bias: regimeVocabulary.marketTrendBias,
         wr_all: Math.round((rWins / regimeTrades.length) * 100),
         trades_all: regimeTrades.length,
         wr_dir: rDir.length >= 2 ? Math.round((rDirWins / rDir.length) * 100) : null,

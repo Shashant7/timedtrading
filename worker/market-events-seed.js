@@ -290,6 +290,34 @@ async function buildEarningsStatements(env, db, reactions, tickers, startDate, e
           addEvent(ticker, ev, dateKey);
         }
       }
+      // Twelve Data's per-symbol earnings endpoint can intermittently return an
+      // empty list even when the same symbol is present in the date-range
+      // earnings calendar. Fall back to the calendar feed so focused replay
+      // seeding does not silently miss known earnings events for a single ticker.
+      if (seeded === 0) {
+        for (const chunk of monthChunks(startDate, endDate)) {
+          try {
+            const calRes = await tdFetchEarningsCalendar(env, chunk.startDate, chunk.endDate);
+            if (calRes?._error) {
+              errors.push({ ticker, range: `${chunk.startDate}:${chunk.endDate}`, error: String(calRes._error) });
+              continue;
+            }
+            const calendar = calRes?.earnings && typeof calRes.earnings === "object" ? calRes.earnings : {};
+            for (const [dateKeyRaw, events] of Object.entries(calendar)) {
+              const dateKey = asDateKey(dateKeyRaw);
+              if (!dateKey || dateKey < startDate || dateKey > endDate || !Array.isArray(events)) continue;
+              for (const ev of events) {
+                const evTicker = String(ev?.symbol || ev?.ticker || "").toUpperCase().trim();
+                if (evTicker !== ticker) continue;
+                addEvent(ticker, ev, dateKey);
+              }
+            }
+            if (seeded > 0) break;
+          } catch (err) {
+            errors.push({ ticker, range: `${chunk.startDate}:${chunk.endDate}`, error: String(err?.message || err).slice(0, 200) });
+          }
+        }
+      }
     } catch (err) {
       errors.push({ ticker, error: String(err?.message || err).slice(0, 200) });
     }

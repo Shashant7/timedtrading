@@ -15,6 +15,9 @@ const TT_CORE_TRACE_CASES = new Map([
   ["FIX:1752160800000", "fix_good_pullback_control"],
   ["FIX:1753108200000", "fix_bad_pullback_late"],
   ["FIX:1753380000000", "fix_good_momentum_control"],
+  ["INTU:1751388300000", "intu_jul1_bad_pullback_confirmation"],
+  ["JCI:1751388300000", "jci_jul1_pullback_doa_entry"],
+  ["SOFI:1751376600000", "sofi_bad_pullback_unconfirmed_st_0701"],
   ["RBLX:1751376600000", "rblx_bad_momentum_hard_cap"],
   ["RBLX:1751994000000", "rblx_good_pullback_remote_0708"],
   ["RBLX:1751895000000", "rblx_good_momentum_control"],
@@ -48,6 +51,7 @@ const TT_CORE_TRACE_CASES = new Map([
   ["APP:1766523000000", "app_dec23_mtf_loss"],
   ["NKE:1753904400000", "nke_jul30_late_pullback_loss"],
   ["XYZ:1753972200000", "xyz_jul31_divergent_pullback_loss"],
+  ["RIOT:1759345200000", "riot_oct01_pullback_selective"],
   ["AGQ:1754678400000", "agq_aug8_speculative_pullback_loss"],
   ["WMT:1755008400000", "wmt_aug12_speculative_pullback_loss"],
   ["FIX:1755181800000", "fix_aug14_speculative_momentum_loss"],
@@ -56,6 +60,47 @@ const TT_CORE_TRACE_CASES = new Map([
   ["KWEB:1753731000000", "kweb_pullback_entry_0728"],
   ["TSM:1753799400000", "tsm_timing_entry_0729"],
 ]);
+
+function deepAuditTickerSet(rawValue) {
+  return new Set(
+    String(rawValue || "")
+      .split(",")
+      .map((v) => v.trim().toUpperCase())
+      .filter(Boolean),
+  );
+}
+
+function continuationProofActive({
+  ticker,
+  daCfg,
+  side,
+  currentState,
+  rankScore,
+  completionPct,
+  phasePct,
+}) {
+  const enabled = String(daCfg.deep_audit_continuation_trigger_enabled ?? "false") === "true";
+  if (!enabled) return false;
+
+  const includeTickers = deepAuditTickerSet(daCfg.deep_audit_continuation_trigger_include_tickers);
+  const tickerUpper = String(ticker || "").toUpperCase();
+  if (includeTickers.size > 0 && !includeTickers.has(tickerUpper)) return false;
+
+  const alignedLong = side === "LONG" && currentState === "HTF_BULL_LTF_BULL";
+  const alignedShort = side === "SHORT" && currentState === "HTF_BEAR_LTF_BEAR";
+  if (!alignedLong && !alignedShort) return false;
+
+  const minRank = Number(daCfg.deep_audit_continuation_trigger_min_rank) || 60;
+  if (rankScore < minRank) return false;
+
+  const maxCompletion = Number(daCfg.deep_audit_continuation_trigger_max_completion) || 0.45;
+  if (!Number.isFinite(completionPct) || completionPct > maxCompletion) return false;
+
+  const maxPhase = Number(daCfg.deep_audit_continuation_trigger_max_phase) || 0.55;
+  if (!Number.isFinite(phasePct) || phasePct > maxPhase) return false;
+
+  return true;
+}
 
 /**
  * Evaluate entry using TT Core hybrid engine.
@@ -113,6 +158,30 @@ export function evaluateEntry(ctx) {
         ltf: scores?.ltf ?? null,
         rank: scores?.rank ?? null,
       },
+      rawInputs: {
+        rankFromScores: scores?.rank ?? null,
+        rankFromRaw: d?.rank ?? null,
+        scoreField: d?.score ?? null,
+        setupGrade: d?.setup_grade ?? d?.setupGrade ?? null,
+        entryQualityScore: d?.entry_quality_score ?? d?.entryQualityScore ?? d?.entry_quality?.score ?? null,
+      },
+      rankContext: {
+        rr: d?.rr ?? null,
+        completion: d?.completion ?? null,
+        phasePct: d?.phase_pct ?? null,
+        moveStatus: d?.move_status?.status ?? null,
+        completenessScore: d?.data_completeness?.score ?? null,
+        tfSummaryScore: d?.tf_summary?.score ?? null,
+        triggerSummaryScore: d?.trigger_summary?.score ?? null,
+        regimeCombined: d?.regime?.combined ?? d?.regime_combined ?? null,
+        executionProfileName: d?.execution_profile?.active_profile ?? d?.execution_profile_name ?? d?.executionProfileName ?? d?.execution_profile?.name ?? null,
+        sq30Release: d?.flags?.sq30_release ?? null,
+        sq30On: d?.flags?.sq30_on ?? null,
+        phaseZoneChange: d?.flags?.phase_zone_change ?? null,
+        momentumElite: d?.flags?.momentum_elite ?? null,
+        emaCross1H1348: d?.flags?.ema_cross_1h_13_48 ?? null,
+        buyableDip1H1348: d?.flags?.buyable_dip_1h_13_48 ?? null,
+      },
       triggers: {
         momentumTrigger,
         pullbackTrigger,
@@ -157,13 +226,32 @@ export function evaluateEntry(ctx) {
       gapContext: summarizeGapContext(gapContext),
       cvgContext: summarizeCvgContext(cvgContext),
       entrySupport: summarizeEntrySupport(entrySupportProfile),
+      entrySupportRaw: entrySupportProfile ? {
+        profile: entrySupportProfile.profile ?? null,
+        score: entrySupportProfile.score ?? null,
+        regimeAligned: entrySupportProfile.regimeAligned ?? null,
+        htfAligned: entrySupportProfile.htfAligned ?? null,
+        ltfAligned: entrySupportProfile.ltfAligned ?? null,
+        supportFlags: entrySupportProfile.supportFlags ?? null,
+      } : null,
       movePhase: summarizeMovePhase(movePhase),
+      movePhaseScores: movePhase?.scores || null,
       divergence: {
         adverse: adverseRsiDivSummary,
         adversePhase: adversePhaseDivSummary,
         dailyBear: dailyBearDivergenceSummary,
       },
       phaseContext,
+      carryState: {
+        entryTs: d?.entry_ts ?? null,
+        entryPrice: d?.entry_price ?? null,
+        prevKanbanStage: d?.prev_kanban_stage ?? null,
+        kanbanCycleEnterTs: d?.kanban_cycle_enter_now_ts ?? null,
+        kanbanCycleTriggerTs: d?.kanban_cycle_trigger_ts ?? null,
+        kanbanCycleSide: d?.kanban_cycle_side ?? null,
+        setupReason: d?.__setup_reason ?? null,
+        entryBlockReason: d?.__entry_block_reason ?? null,
+      },
       ...payload,
     });
   };
@@ -191,6 +279,8 @@ export function evaluateEntry(ctx) {
   const emaRegime1h = Number(d?.ema_regime_1H ?? d?.ema_regime_1h) || 0;
   const daCfg = config.deepAudit || {};
   const currentState = String(ctx.state || d?.state || "");
+  const completionPct = Number(d?.completion);
+  const phasePct = Number(d?.phase_pct);
 
   // ── 1. CLOUD BIAS ALIGNMENT (D + 1H + LTF 34/50) ──
   const cD_34 = D?.ripster?.c34_50;
@@ -211,6 +301,16 @@ export function evaluateEntry(ctx) {
   const strongDailyTrend = (side === "LONG" && emaRegimeDaily >= 2)
     || (side === "SHORT" && emaRegimeDaily <= -2);
   const rankScore = Number(scores?.rank ?? d?.rank) || 0;
+  const scopedContinuationProof = continuationProofActive({
+    ticker: ctx.ticker,
+    daCfg,
+    side,
+    currentState,
+    rankScore,
+    completionPct,
+    phasePct,
+  });
+  const consensusDirection = String(d?.swing_consensus?.dir ?? d?.consensus_direction ?? "").toUpperCase();
   const laggingH1BreakoutLong = config.ripsterTuneV2
     && side === "LONG"
     && strongDailyTrend
@@ -362,6 +462,8 @@ export function evaluateEntry(ctx) {
   const chaseDistPct = Number(daCfg.deep_audit_ripster_chase_dist_to_cloud_pct) || 0.0045;
   const heatRsi30 = Number(daCfg.deep_audit_ripster_momentum_heat_rsi30) || 70;
   const heatRsi1H = Number(daCfg.deep_audit_ripster_momentum_heat_rsi1h) || 70;
+  const tickerUpper = String(d?.ticker || d?.sym || ctx.ticker || "").trim().toUpperCase();
+  const orbPrimary = d?.orb?.primary || d?.orb || null;
   const executionProfileName = String(
     d?.execution_profile?.active_profile
     || d?.execution_profile_name
@@ -415,9 +517,35 @@ export function evaluateEntry(ctx) {
   const momentumPullbackMin4hRegime = Number(daCfg.deep_audit_momentum_pullback_min_ema_regime_4h) || 2;
   const movePhaseScorecard = movePhase?.scores || {};
   const pullbackLateSessionGuardEnabled = String(daCfg.deep_audit_pullback_late_session_guard_enabled ?? "true") === "true";
+  const pullbackMinBearishCount = Math.max(
+    0,
+    Number(daCfg.deep_audit_pullback_min_bearish_count) || 2,
+  );
   const speculativePullbackPhaseDivGuardEnabled = String(daCfg.deep_audit_speculative_pullback_phase_div_guard_enabled ?? "true") === "true";
   const confirmedPullbackPremiumPhaseDivGuardEnabled = String(daCfg.deep_audit_confirmed_pullback_premium_phase_div_guard_enabled ?? "true") === "true";
   const speculativeMomentumPhaseDivGuardEnabled = String(daCfg.deep_audit_speculative_momentum_phase_div_guard_enabled ?? "true") === "true";
+  const weakOrbGapPullbackGuardEnabled = String(daCfg.deep_audit_weak_orb_gap_pullback_guard_enabled ?? "true") === "true";
+  const weakOrbGapPullbackMinGapPct = Number(daCfg.deep_audit_weak_orb_gap_pullback_min_gap_pct) || 2.0;
+  const weakOrbGapPullbackMaxPriceVsOpenPct = Number.isFinite(Number(daCfg.deep_audit_weak_orb_gap_pullback_max_price_vs_open_pct))
+    ? Number(daCfg.deep_audit_weak_orb_gap_pullback_max_price_vs_open_pct)
+    : -1.0;
+  const weakOrbGapPullbackTickers = deepAuditTickerSet(
+    daCfg.deep_audit_weak_orb_gap_pullback_include_tickers || "AGQ,IESC",
+  );
+  const agqPullbackExceptionEnabled = String(daCfg.deep_audit_agq_pullback_exception_enabled ?? "true") === "true";
+  const agqPullbackExceptionTickers = deepAuditTickerSet(
+    daCfg.deep_audit_agq_pullback_exception_include_tickers || "AGQ",
+  );
+  const agqPullbackWeakConsensusAvgBiasMax = Number.isFinite(Number(daCfg.deep_audit_agq_pullback_weak_consensus_avg_bias_max))
+    ? Number(daCfg.deep_audit_agq_pullback_weak_consensus_avg_bias_max)
+    : 0.10;
+  const agqPullbackLateFilledGapMinBarsSinceOpen = Math.max(
+    0,
+    Number(daCfg.deep_audit_agq_pullback_late_filled_gap_min_bars_since_open) || 20,
+  );
+  const agqPullbackLateFilledGapEntryQualityMax = Number.isFinite(Number(daCfg.deep_audit_agq_pullback_late_filled_gap_entry_quality_max))
+    ? Number(daCfg.deep_audit_agq_pullback_late_filled_gap_entry_quality_max)
+    : 70;
 
   const shouldRejectWeakMomentumPullback = config.ripsterTuneV2
     && side === "LONG"
@@ -544,10 +672,11 @@ export function evaluateEntry(ctx) {
     }
   }
 
-  if (config.ripsterTuneV2 && momentumTrigger && c30_5 && !c30FiveTwelveConfirmed) {
+  if (config.ripsterTuneV2 && momentumTrigger && c30_5 && !c30FiveTwelveConfirmed && !scopedContinuationProof) {
     return rejectEntry("tt_momentum_30m_5_12_unconfirmed", {
       c10_5: summarizeCloud(c10_5),
       c30_5: summarizeCloud(c30_5),
+      scopedContinuationProof,
     });
   }
 
@@ -589,12 +718,13 @@ export function evaluateEntry(ctx) {
   if (config.ripsterTuneV2 && side === "LONG"
     && (pullbackTrigger || reclaimTrigger)
     && !confirmedBullContinuationLong
-    && bearishPullbackCount < 2) {
+    && bearishPullbackCount < pullbackMinBearishCount) {
     return rejectEntry("tt_pullback_not_deep_enough", {
       stDir15m,
       stDir30m,
       stDir1h: Number(h1?.stDir) || 0,
       bearishPullbackCount,
+      requiredBearishCount: pullbackMinBearishCount,
       reclaimTrigger,
     });
   }
@@ -621,6 +751,142 @@ export function evaluateEntry(ctx) {
       nowEt: { hour: nowEt.hour, minute: nowEt.minute },
       executionProfileName,
       reclaimTrigger,
+    });
+  }
+
+  const weakOrbGapFailureShape = !!(
+    orbPrimary
+    && orbPrimary.breakout === "SHORT"
+    && orbPrimary.holdingBelow === true
+    && orbPrimary.reclaim === false
+  );
+  const shouldRejectWeakOrbGapPullback = config.ripsterTuneV2
+    && weakOrbGapPullbackGuardEnabled
+    && side === "LONG"
+    && weakOrbGapPullbackTickers.has(tickerUpper)
+    && pullbackTrigger
+    && !reclaimTrigger
+    && !confirmedBullContinuationLong
+    && correctionTransitionProfile
+    && !c10FiveTwelveConfirmed
+    && gapContext?.direction === "up"
+    && Number(gapContext?.absGapPct) >= weakOrbGapPullbackMinGapPct
+    && !gapContext?.fullGapFilled
+    && Number(gapContext?.priceVsOpenPct) <= weakOrbGapPullbackMaxPriceVsOpenPct
+    && weakOrbGapFailureShape
+    && entryQualityScore < 80;
+  if (shouldRejectWeakOrbGapPullback) {
+    return rejectEntry("tt_pullback_weak_orb_open_gap_risk", {
+      ticker: tickerUpper,
+      setupGrade,
+      entryQualityScore,
+      executionProfileName,
+      gapContext: summarizeGapContext(gapContext),
+      orb: orbPrimary ? {
+        breakout: orbPrimary.breakout || null,
+        holdingBelow: !!orbPrimary.holdingBelow,
+        reclaim: !!orbPrimary.reclaim,
+        confirmed: orbPrimary.confirmed ?? null,
+        dayBias: Number(orbPrimary.dayBias) || 0,
+      } : null,
+      weakOrbGapPullbackMinGapPct,
+      weakOrbGapPullbackMaxPriceVsOpenPct,
+    });
+  }
+
+  const avgBiasScore = Number(d?.avg_bias ?? d?.swing_consensus?.bias) || 0;
+  const lowerTfStillCounterLong = (Number(m15?.ema?.structure) || 0) < 0
+    && (Number(m30?.ema?.structure) || 0) <= 0.4
+    && (Number(h1?.ema?.structure) || 0) <= 0;
+  const structuralBullReclaimSignal = hasStFlipBull || c10FiveTwelveConfirmed || c30FiveTwelveConfirmed;
+  const agqPullbackCounterLtfLong = (Number(m30?.ema?.structure) || 0) <= 0
+    && (Number(h1?.ema?.structure) || 0) <= 0;
+  const agqLateWeakSupportLtfFractured = (
+    (Number(m15?.ema?.structure) || 0) < 0
+    || (Number(m30?.ema?.structure) || 0) < 0.9
+    || (Number(h1?.ema?.structure) || 0) <= 0
+  ) && !structuralBullReclaimSignal;
+  const shouldRejectAgqWeakConsensusCounterLtfPullback = config.ripsterTuneV2
+    && agqPullbackExceptionEnabled
+    && side === "LONG"
+    && agqPullbackExceptionTickers.has(tickerUpper)
+    && executionProfileName === "choppy_selective"
+    && pullbackTrigger
+    && !reclaimTrigger
+    && !confirmedBullContinuationLong
+    && avgBiasScore <= agqPullbackWeakConsensusAvgBiasMax
+    && consensusDirection !== "LONG"
+    && agqPullbackCounterLtfLong;
+  if (shouldRejectAgqWeakConsensusCounterLtfPullback) {
+    return rejectEntry("tt_pullback_agq_weak_consensus_counter_ltf", {
+      ticker: tickerUpper,
+      setupGrade,
+      consensusDirection,
+      avgBiasScore,
+      entryQualityScore,
+      executionProfileName,
+      gapContext: summarizeGapContext(gapContext),
+      emaStructure15m: Number(m15?.ema?.structure) || 0,
+      emaStructure30m: Number(m30?.ema?.structure) || 0,
+      emaStructure1h: Number(h1?.ema?.structure) || 0,
+      structuralBullReclaimSignal,
+      agqPullbackWeakConsensusAvgBiasMax,
+    });
+  }
+  const shouldRejectAgqLateFilledGapWeakSupportPullback = config.ripsterTuneV2
+    && agqPullbackExceptionEnabled
+    && side === "LONG"
+    && agqPullbackExceptionTickers.has(tickerUpper)
+    && executionProfileName === "choppy_selective"
+    && pullbackTrigger
+    && !reclaimTrigger
+    && !confirmedBullContinuationLong
+    && !!gapContext?.fullGapFilled
+    && Number(gapContext?.barsSinceOpen) >= agqPullbackLateFilledGapMinBarsSinceOpen
+    && Number(gapContext?.priceVsOpenPct) < 0
+    && entryQualityScore < agqPullbackLateFilledGapEntryQualityMax
+    && agqLateWeakSupportLtfFractured;
+  if (shouldRejectAgqLateFilledGapWeakSupportPullback) {
+    return rejectEntry("tt_pullback_agq_late_filled_gap_weak_support", {
+      ticker: tickerUpper,
+      setupGrade,
+      entryQualityScore,
+      executionProfileName,
+      gapContext: summarizeGapContext(gapContext),
+      emaStructure15m: Number(m15?.ema?.structure) || 0,
+      emaStructure30m: Number(m30?.ema?.structure) || 0,
+      emaStructure1h: Number(h1?.ema?.structure) || 0,
+      structuralBullReclaimSignal,
+      agqPullbackLateFilledGapMinBarsSinceOpen,
+      agqPullbackLateFilledGapEntryQualityMax,
+    });
+  }
+  const speculativeLongMissingReclaim = config.ripsterTuneV2
+    && side === "LONG"
+    && pullbackTrigger
+    && !reclaimTrigger
+    && !confirmedBullContinuationLong
+    && !isPrimeGrade
+    && !isConfirmedGrade
+    && consensusDirection !== "LONG"
+    && avgBiasScore <= 0.15
+    && lowerTfStillCounterLong
+    && !structuralBullReclaimSignal
+    && entryQualityScore < 75
+    && rsi30m < 45;
+  if (speculativeLongMissingReclaim) {
+    return rejectEntry("tt_pullback_speculative_unconfirmed_counter_ltf", {
+      setupGrade,
+      consensusDirection,
+      avgBiasScore,
+      entryQualityScore,
+      emaStructure15m: Number(m15?.ema?.structure) || 0,
+      emaStructure30m: Number(m30?.ema?.structure) || 0,
+      emaStructure1h: Number(h1?.ema?.structure) || 0,
+      hasEmaCrossBull,
+      hasSqRelease,
+      structuralBullReclaimSignal,
+      rsi30m,
     });
   }
 

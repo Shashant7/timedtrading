@@ -474,7 +474,7 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
   }
 
   // ── v3: Regime + Ichimoku enrichment ──
-  const tickerRegime = String(tickerData?.regime_class || "");
+  const tickerRegime = String(tickerData?.regimeVocabulary?.executionRegimeClass || tickerData?.regime_class || "");
   const ichW = tickerData?.ichimoku_w;
 
   // ── With open position ──
