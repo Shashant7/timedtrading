@@ -1,43 +1,71 @@
 {
-  "generated_at_utc": "2026-04-04T22:15:02.918647+00:00",
-  "runs_scanned": 252,
-  "runs_with_data": 218,
-  "row_count": 8437,
+  "generated_at_utc": "2026-04-16T10:20:52.935641+00:00",
+  "runs_scanned": 612,
+  "runs_with_data": 490,
+  "row_count": 10928,
   "unique_tickers": 217,
   "status_counts": {
-    "WIN": 3654,
-    "LOSS": 3205,
-    "FLAT": 474,
-    "OPEN": 785,
-    "TP_HIT_TRIM": 312,
+    "WIN": 5101,
+    "LOSS": 3979,
+    "FLAT": 485,
+    "OPEN": 884,
+    "TP_HIT_TRIM": 453,
     "": 1,
-    "ARCHIVED": 6
+    "ARCHIVED": 25
   },
   "exit_class_counts": {
-    "other": 5335,
-    "loss_protect": 1943,
-    "tp_full": 190,
-    "regime_reversal": 242,
-    "fuse": 388,
-    "trim_related": 19,
-    "unknown": 320
+    "other": 6790,
+    "loss_protect": 2399,
+    "tp_full": 298,
+    "regime_reversal": 248,
+    "fuse": 548,
+    "trim_related": 102,
+    "unknown": 543
   },
   "top_tickers": [
+    [
+      "RIOT",
+      486
+    ],
+    [
+      "FIX",
+      454
+    ],
+    [
+      "GRNY",
+      428
+    ],
+    [
+      "PH",
+      278
+    ],
+    [
+      "IESC",
+      252
+    ],
+    [
+      "AGQ",
+      249
+    ],
     [
       "CAT",
       244
     ],
     [
-      "FIX",
-      237
+      "ULTA",
+      225
     ],
     [
-      "ULTA",
-      224
+      "CDNS",
+      222
     ],
     [
       "H",
       199
+    ],
+    [
+      "ETN",
+      195
     ],
     [
       "AMZN",
@@ -45,38 +73,46 @@
     ],
     [
       "WMT",
-      175
+      177
     ],
     [
       "CSX",
-      164
+      167
     ],
     [
-      "PH",
-      159
+      "MTZ",
+      156
+    ],
+    [
+      "ORCL",
+      156
     ],
     [
       "AAPL",
-      142
+      143
+    ],
+    [
+      "XLY",
+      135
+    ],
+    [
+      "SGI",
+      132
     ],
     [
       "COST",
-      124
+      125
     ],
     [
       "HII",
-      120
+      123
     ],
     [
       "TSLA",
-      119
+      121
     ],
     [
-      "IESC",
-      117
-    ],
-    [
-      "ETN",
+      "MNST",
       116
     ],
     [
@@ -84,102 +120,66 @@
       114
     ],
     [
-      "MNST",
-      112
-    ],
-    [
       "GE",
       106
-    ],
-    [
-      "EXPE",
-      106
-    ],
-    [
-      "BABA",
-      98
-    ],
-    [
-      "ELF",
-      97
-    ],
-    [
-      "MTZ",
-      93
-    ],
-    [
-      "TJX",
-      93
-    ],
-    [
-      "PWR",
-      92
-    ],
-    [
-      "KLAC",
-      90
-    ],
-    [
-      "DY",
-      90
     ]
   ],
   "top_sectors": [
     [
       "Industrials",
-      2661
+      3427
     ],
     [
       "Consumer Discretionary",
-      1632
+      2061
     ],
     [
       "Information Technology",
-      1547
+      1970
     ],
     [
       "Consumer Staples",
-      700
-    ],
-    [
-      "Basic Materials",
-      404
-    ],
-    [
-      "Financials",
-      366
-    ],
-    [
-      "ETF",
-      302
-    ],
-    [
-      "Energy",
-      236
-    ],
-    [
-      "Communication Services",
-      192
+      713
     ],
     [
       "Crypto",
-      97
+      522
     ],
     [
-      "Health Care",
-      93
+      "Basic Materials",
+      426
+    ],
+    [
+      "Financials",
+      395
+    ],
+    [
+      "ETF",
+      388
     ],
     [
       "Precious Metals",
-      92
+      313
+    ],
+    [
+      "Energy",
+      258
+    ],
+    [
+      "Communication Services",
+      204
     ],
     [
       "Healthcare",
-      83
+      120
+    ],
+    [
+      "Health Care",
+      98
     ],
     [
       "Commodity ETF",
-      27
+      28
     ],
     [
       "unknown",
@@ -264,6 +264,10 @@
       80
     ],
     [
+      "focused-jul-oct-cumulative-julsep-anchor-v1--20260413-233052",
+      79
+    ],
+    [
       "variant-a-intel-driven--20260311-232337",
       78
     ],
@@ -288,6 +292,10 @@
       72
     ],
     [
+      "focused-july-mainline-reanchor-v1--20260406-184246",
+      67
+    ],
+    [
       "liq-sweep-tuned-v1--20260317-191052",
       67
     ],
@@ -297,6 +305,10 @@
     ],
     [
       "15m-calibration-only-jul1-mar4--20260307-235702",
+      65
+    ],
+    [
+      "focused-jul1-oct15-fullbasket-agqtrace-v2--20260415-201911",
       65
     ],
     [
@@ -312,6 +324,22 @@
       62
     ],
     [
+      "focused-jul-sep-cumulative-julaug-anchor-v3-livefix--20260413-200322",
+      61
+    ],
+    [
+      "focused-jul-sep-mainline-deterministic-postdeploy-v1-20260411--20260411-082805",
+      61
+    ],
+    [
+      "focused-jul-sep-mainline-deterministic-v1-20260410--20260410-134007",
+      61
+    ],
+    [
+      "focused-julsep-mainline-agq-exception-v2-20260412--20260411-225718",
+      60
+    ],
+    [
       "doa-gate-v1--20260317-210746",
       59
     ],
@@ -324,8 +352,20 @@
       58
     ],
     [
+      "focused-jul-oct-cumulative-julsep-anchor-v2-sessionseed--20260414-221523",
+      57
+    ],
+    [
+      "focused-jul-oct-cumulative-julsep-anchor-v3-carriedsessiononly--20260414-232611",
+      57
+    ],
+    [
       "roadmap-runtime-smoke--20260323-071101",
       56
+    ],
+    [
+      "focused-jul-oct-cumulative-julsep-anchor-v4-c512revert-rerun--20260415-065321",
+      55
     ],
     [
       "15m-backtest--20260310-081413",
@@ -346,53 +386,13 @@
     [
       "calibrated-v5--20260315-213634",
       44
-    ],
-    [
-      "locked-validation-v2--20260323-090109",
-      44
-    ],
-    [
-      "clean-launch-v1--20260315-101522",
-      41
-    ],
-    [
-      "doa-gate-v1--20260317-210827",
-      41
-    ],
-    [
-      "paragon-legacy-dynamic-v4--20260321-212405",
-      41
-    ],
-    [
-      "ab-swingcheck-control-jul2025--20260306-085816",
-      40
-    ],
-    [
-      "calibrated-from-winners-v1--20260316-142623",
-      40
-    ],
-    [
-      "calibration-post-should-have-held--20260306-160337",
-      38
-    ],
-    [
-      "exit-upgrade-v3--20260315-094435",
-      38
-    ],
-    [
-      "jul1-apr2-clean-recovery-v3--20260403-111223",
-      38
-    ],
-    [
-      "july-rsi-posttrim-v1--20260305-212137",
-      38
     ]
   ],
   "lineage_missing_rates": {
-    "has_entry_path": 0.3697,
-    "has_signal_snapshot": 0.3744,
-    "has_tf_stack": 0.3744,
-    "has_mfe_mae": 0.5225,
-    "has_exit_reason": 0.0379
+    "has_entry_path": 0.3115,
+    "has_signal_snapshot": 0.3152,
+    "has_tf_stack": 0.3152,
+    "has_mfe_mae": 0.446,
+    "has_exit_reason": 0.0497
   }
 }

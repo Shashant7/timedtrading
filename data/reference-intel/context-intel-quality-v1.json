@@ -1,10 +1,10 @@
 {
-  "generated_at_utc": "2026-04-04T22:15:07.841257+00:00",
-  "row_count": 6787,
-  "profile_present_count": 6727,
-  "daily_brief_present_count": 6787,
-  "hyper_state_present_count": 6787,
-  "profile_present_rate": 0.9912,
+  "generated_at_utc": "2026-04-16T10:20:54.944192+00:00",
+  "row_count": 9278,
+  "profile_present_count": 9213,
+  "daily_brief_present_count": 9278,
+  "hyper_state_present_count": 9278,
+  "profile_present_rate": 0.993,
   "daily_brief_present_rate": 1.0,
   "hyper_state_present_rate": 1.0,
   "known_gap": null

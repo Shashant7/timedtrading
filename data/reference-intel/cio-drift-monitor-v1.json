@@ -1,12 +1,12 @@
 {
-  "generated_at_utc": "2026-04-04T22:15:09.717749+00:00",
-  "source": "d1",
+  "generated_at_utc": "2026-04-16T10:25:36.987933+00:00",
+  "source": "none",
   "window_sizes": {
     "recent": 400,
     "prior": 400
   },
   "recent": {
-    "decision_rows": 400,
+    "decision_rows": 0,
     "rows_with_outcome": 0,
     "approve_adjust_rows": 0,
     "reject_rows": 0,
@@ -16,7 +16,7 @@
     "avg_edge_score": 0.0
   },
   "prior": {
-    "decision_rows": 400,
+    "decision_rows": 0,
     "rows_with_outcome": 0,
     "approve_adjust_rows": 0,
     "reject_rows": 0,

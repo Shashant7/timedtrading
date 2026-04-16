@@ -1,10 +1,10 @@
 {
-  "generated_at_utc": "2026-04-04T22:19:01.008488+00:00",
+  "generated_at_utc": "2026-04-15T22:18:59.185312+00:00",
   "overall_pass": true,
   "gates": [
     {
       "gate": "candidate_has_trades",
-      "value": 5,
+      "value": 1,
       "threshold": 1,
       "operator": ">=",
       "pass": true

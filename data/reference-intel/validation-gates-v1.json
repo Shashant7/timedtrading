@@ -1,19 +1,19 @@
 {
-  "generated_at_utc": "2026-04-04T22:15:08.254836+00:00",
+  "generated_at_utc": "2026-04-16T10:20:55.278783+00:00",
   "gates_total": 8,
   "gates_passed": 8,
   "overall_pass": true,
   "gates": [
     {
       "gate": "lineage_missing_entry_path_max",
-      "value": 0.3697,
+      "value": 0.3115,
       "threshold": 0.5,
       "operator": "<=",
       "pass": true
     },
     {
       "gate": "lineage_missing_signal_snapshot_max",
-      "value": 0.3744,
+      "value": 0.3152,
       "threshold": 0.5,
       "operator": "<=",
       "pass": true
@@ -34,7 +34,7 @@
     },
     {
       "gate": "context_profile_present_rate_min",
-      "value": 0.9912,
+      "value": 0.993,
       "threshold": 0.95,
       "operator": ">=",
       "pass": true

@@ -1,30 +1,53 @@
 {
-  "generated_at_utc": "2026-04-04T22:15:08.199362+00:00",
+  "generated_at_utc": "2026-04-16T10:20:55.232238+00:00",
   "source": "data/reference-intel/reference-selection-v1.json",
   "row_count": 250,
   "priors": {
     "ticker": {
       "AA": {
-        "sample_size": 1,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 2.1623,
-        "median_hybrid_score": 0.8009,
-        "preferred_exit_classes": [
-          "other"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5343
-      },
-      "AGQ": {
         "sample_size": 2,
         "win_rate": 1.0,
-        "avg_pnl_pct": 1.9204,
-        "median_hybrid_score": 0.799,
+        "avg_pnl_pct": 1.6186,
+        "median_hybrid_score": 0.8009,
         "preferred_exit_classes": [
-          "other"
+          "other",
+          "loss_protect"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5677
+        "confidence_prior": 0.5665
+      },
+      "ABT": {
+        "sample_size": 1,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 0.0739,
+        "median_hybrid_score": 0.7547,
+        "preferred_exit_classes": [
+          "loss_protect"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.5301
+      },
+      "AGQ": {
+        "sample_size": 4,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 10.3261,
+        "median_hybrid_score": 0.858,
+        "preferred_exit_classes": [
+          "fuse"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.7
+      },
+      "AGYS": {
+        "sample_size": 1,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 16.4711,
+        "median_hybrid_score": 0.8908,
+        "preferred_exit_classes": [
+          "fuse"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.55
       },
       "ALB": {
         "sample_size": 2,
@@ -72,15 +95,15 @@
         "confidence_prior": 0.6451
       },
       "AR": {
-        "sample_size": 3,
+        "sample_size": 2,
         "win_rate": 1.0,
-        "avg_pnl_pct": 2.9193,
-        "median_hybrid_score": 0.7465,
+        "avg_pnl_pct": 3.2673,
+        "median_hybrid_score": 0.7777,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6075
+        "confidence_prior": 0.5731
       },
       "ARRY": {
         "sample_size": 2,
@@ -139,49 +162,37 @@
         "confidence_prior": 0.531
       },
       "AXP": {
-        "sample_size": 3,
+        "sample_size": 2,
         "win_rate": 1.0,
-        "avg_pnl_pct": 2.0155,
-        "median_hybrid_score": 0.7984,
-        "preferred_exit_classes": [
-          "fuse",
-          "other"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6021
-      },
-      "AYI": {
-        "sample_size": 4,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 1.9851,
-        "median_hybrid_score": 0.7998,
+        "avg_pnl_pct": 2.1205,
+        "median_hybrid_score": 0.8041,
         "preferred_exit_classes": [
           "fuse"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6359
+        "confidence_prior": 0.5685
       },
-      "B": {
-        "sample_size": 3,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 3.4558,
-        "median_hybrid_score": 0.7929,
-        "preferred_exit_classes": [
-          "other"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6107
-      },
-      "BA": {
+      "AYI": {
         "sample_size": 1,
         "win_rate": 1.0,
-        "avg_pnl_pct": 2.3598,
-        "median_hybrid_score": 0.7753,
+        "avg_pnl_pct": 1.6006,
+        "median_hybrid_score": 0.797,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5347
+        "confidence_prior": 0.5332
+      },
+      "B": {
+        "sample_size": 2,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 3.3985,
+        "median_hybrid_score": 0.7959,
+        "preferred_exit_classes": [
+          "other"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.5736
       },
       "BABA": {
         "sample_size": 4,
@@ -258,13 +269,13 @@
       "CDNS": {
         "sample_size": 4,
         "win_rate": 1.0,
-        "avg_pnl_pct": 3.2629,
-        "median_hybrid_score": 0.801,
+        "avg_pnl_pct": 5.6449,
+        "median_hybrid_score": 0.8217,
         "preferred_exit_classes": [
           "fuse"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6461
+        "confidence_prior": 0.6652
       },
       "CELH": {
         "sample_size": 4,
@@ -278,28 +289,27 @@
         "confidence_prior": 0.6359
       },
       "CLS": {
-        "sample_size": 2,
+        "sample_size": 1,
         "win_rate": 1.0,
-        "avg_pnl_pct": 8.6137,
+        "avg_pnl_pct": 2.4197,
         "median_hybrid_score": 0.8027,
         "preferred_exit_classes": [
-          "fuse",
-          "other"
+          "fuse"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5945
+        "confidence_prior": 0.5348
       },
       "COST": {
-        "sample_size": 3,
+        "sample_size": 2,
         "win_rate": 1.0,
-        "avg_pnl_pct": 1.3778,
-        "median_hybrid_score": 0.766,
+        "avg_pnl_pct": 1.1864,
+        "median_hybrid_score": 0.7952,
         "preferred_exit_classes": [
           "other",
           "fuse"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5983
+        "confidence_prior": 0.5647
       },
       "CSCO": {
         "sample_size": 1,
@@ -313,15 +323,15 @@
         "confidence_prior": 0.5364
       },
       "CSX": {
-        "sample_size": 2,
+        "sample_size": 1,
         "win_rate": 1.0,
-        "avg_pnl_pct": 8.1484,
+        "avg_pnl_pct": 15.5554,
         "median_hybrid_score": 0.8187,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5926
+        "confidence_prior": 0.55
       },
       "CVNA": {
         "sample_size": 2,
@@ -335,15 +345,15 @@
         "confidence_prior": 0.569
       },
       "CW": {
-        "sample_size": 2,
+        "sample_size": 1,
         "win_rate": 1.0,
-        "avg_pnl_pct": 0.4889,
+        "avg_pnl_pct": 0.573,
         "median_hybrid_score": 0.7898,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.562
+        "confidence_prior": 0.5311
       },
       "DCI": {
         "sample_size": 3,
@@ -358,27 +368,26 @@
         "confidence_prior": 0.5949
       },
       "DINO": {
-        "sample_size": 2,
+        "sample_size": 1,
         "win_rate": 1.0,
-        "avg_pnl_pct": 1.6149,
-        "median_hybrid_score": 0.7713,
+        "avg_pnl_pct": 1.015,
+        "median_hybrid_score": 0.7929,
         "preferred_exit_classes": [
-          "other",
           "loss_protect"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5665
+        "confidence_prior": 0.532
       },
       "DKNG": {
-        "sample_size": 4,
+        "sample_size": 3,
         "win_rate": 1.0,
-        "avg_pnl_pct": 1.993,
+        "avg_pnl_pct": 2.0264,
         "median_hybrid_score": 0.7993,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6359
+        "confidence_prior": 0.6022
       },
       "DTM": {
         "sample_size": 2,
@@ -392,16 +401,16 @@
         "confidence_prior": 0.5652
       },
       "DY": {
-        "sample_size": 4,
+        "sample_size": 3,
         "win_rate": 1.0,
-        "avg_pnl_pct": 2.0013,
+        "avg_pnl_pct": 1.9674,
         "median_hybrid_score": 0.7913,
         "preferred_exit_classes": [
           "other",
           "loss_protect"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.636
+        "confidence_prior": 0.6018
       },
       "ELF": {
         "sample_size": 4,
@@ -416,27 +425,16 @@
         "lineage_quality_rate": 1.0,
         "confidence_prior": 0.6392
       },
-      "EMR": {
+      "ETN": {
         "sample_size": 1,
         "win_rate": 1.0,
-        "avg_pnl_pct": 2.5049,
-        "median_hybrid_score": 0.7763,
+        "avg_pnl_pct": 3.3338,
+        "median_hybrid_score": 0.8091,
         "preferred_exit_classes": [
-          "other"
+          "fuse"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.535
-      },
-      "ETHA": {
-        "sample_size": 1,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 0.0555,
-        "median_hybrid_score": 0.7802,
-        "preferred_exit_classes": [
-          "loss_protect"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5301
+        "confidence_prior": 0.5367
       },
       "EXPE": {
         "sample_size": 4,
@@ -451,15 +449,15 @@
         "confidence_prior": 0.6348
       },
       "FIX": {
-        "sample_size": 2,
+        "sample_size": 4,
         "win_rate": 1.0,
-        "avg_pnl_pct": 1.1106,
-        "median_hybrid_score": 0.7981,
+        "avg_pnl_pct": 17.6211,
+        "median_hybrid_score": 0.8058,
         "preferred_exit_classes": [
-          "other"
+          "fuse"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5644
+        "confidence_prior": 0.7
       },
       "FN": {
         "sample_size": 1,
@@ -516,6 +514,17 @@
         "lineage_quality_rate": 1.0,
         "confidence_prior": 0.5343
       },
+      "GRNY": {
+        "sample_size": 4,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 1.3741,
+        "median_hybrid_score": 0.771,
+        "preferred_exit_classes": [
+          "other"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.631
+      },
       "H": {
         "sample_size": 4,
         "win_rate": 1.0,
@@ -537,17 +546,6 @@
         ],
         "lineage_quality_rate": 1.0,
         "confidence_prior": 0.5379
-      },
-      "HII": {
-        "sample_size": 1,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 2.9998,
-        "median_hybrid_score": 0.7797,
-        "preferred_exit_classes": [
-          "other"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.536
       },
       "HL": {
         "sample_size": 1,
@@ -597,24 +595,24 @@
       "IESC": {
         "sample_size": 4,
         "win_rate": 1.0,
-        "avg_pnl_pct": 1.9532,
-        "median_hybrid_score": 0.7985,
+        "avg_pnl_pct": 2.204,
+        "median_hybrid_score": 0.8021,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6356
+        "confidence_prior": 0.6376
       },
       "INTC": {
-        "sample_size": 1,
+        "sample_size": 2,
         "win_rate": 1.0,
-        "avg_pnl_pct": 5.4364,
+        "avg_pnl_pct": 2.9237,
         "median_hybrid_score": 0.7578,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5409
+        "confidence_prior": 0.5717
       },
       "IONQ": {
         "sample_size": 3,
@@ -683,15 +681,15 @@
         "confidence_prior": 0.6293
       },
       "KTOS": {
-        "sample_size": 3,
+        "sample_size": 2,
         "win_rate": 1.0,
-        "avg_pnl_pct": 3.5777,
-        "median_hybrid_score": 0.7808,
+        "avg_pnl_pct": 3.9924,
+        "median_hybrid_score": 0.7926,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6115
+        "confidence_prior": 0.576
       },
       "KWEB": {
         "sample_size": 2,
@@ -716,15 +714,15 @@
         "confidence_prior": 0.535
       },
       "LMND": {
-        "sample_size": 3,
+        "sample_size": 2,
         "win_rate": 1.0,
-        "avg_pnl_pct": 1.6199,
-        "median_hybrid_score": 0.7689,
+        "avg_pnl_pct": 1.9035,
+        "median_hybrid_score": 0.8023,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5997
+        "confidence_prior": 0.5676
       },
       "LRCX": {
         "sample_size": 2,
@@ -760,15 +758,15 @@
         "confidence_prior": 0.5664
       },
       "LULU": {
-        "sample_size": 4,
+        "sample_size": 3,
         "win_rate": 1.0,
-        "avg_pnl_pct": 3.1519,
+        "avg_pnl_pct": 3.9577,
         "median_hybrid_score": 0.8051,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6452
+        "confidence_prior": 0.6137
       },
       "MCD": {
         "sample_size": 2,
@@ -806,13 +804,13 @@
       "MNST": {
         "sample_size": 4,
         "win_rate": 1.0,
-        "avg_pnl_pct": 1.5086,
+        "avg_pnl_pct": 1.5822,
         "median_hybrid_score": 0.7738,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6321
+        "confidence_prior": 0.6327
       },
       "MP": {
         "sample_size": 2,
@@ -838,38 +836,38 @@
         "confidence_prior": 0.534
       },
       "MTZ": {
-        "sample_size": 1,
+        "sample_size": 4,
         "win_rate": 1.0,
-        "avg_pnl_pct": 3.6568,
-        "median_hybrid_score": 0.8113,
+        "avg_pnl_pct": 2.8066,
+        "median_hybrid_score": 0.8053,
+        "preferred_exit_classes": [
+          "other",
+          "tp_full"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.6425
+      },
+      "NBIS": {
+        "sample_size": 2,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 29.5769,
+        "median_hybrid_score": 0.8187,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5373
+        "confidence_prior": 0.6
       },
-      "NBIS": {
-        "sample_size": 3,
+      "NFLX": {
+        "sample_size": 1,
         "win_rate": 1.0,
-        "avg_pnl_pct": 20.3913,
-        "median_hybrid_score": 0.8187,
+        "avg_pnl_pct": 0.3942,
+        "median_hybrid_score": 0.7885,
         "preferred_exit_classes": [
-          "other",
           "loss_protect"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.65
-      },
-      "NVDA": {
-        "sample_size": 1,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 0.6139,
-        "median_hybrid_score": 0.745,
-        "preferred_exit_classes": [
-          "other"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5312
+        "confidence_prior": 0.5308
       },
       "NXT": {
         "sample_size": 2,
@@ -882,17 +880,6 @@
         "lineage_quality_rate": 1.0,
         "confidence_prior": 0.574
       },
-      "OKE": {
-        "sample_size": 1,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 0.0414,
-        "median_hybrid_score": 0.7334,
-        "preferred_exit_classes": [
-          "other"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5301
-      },
       "ON": {
         "sample_size": 1,
         "win_rate": 1.0,
@@ -903,6 +890,17 @@
         ],
         "lineage_quality_rate": 1.0,
         "confidence_prior": 0.5375
+      },
+      "ORCL": {
+        "sample_size": 1,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 2.0812,
+        "median_hybrid_score": 0.8003,
+        "preferred_exit_classes": [
+          "other"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.5342
       },
       "PANW": {
         "sample_size": 2,
@@ -915,17 +913,6 @@
         "lineage_quality_rate": 1.0,
         "confidence_prior": 0.5701
       },
-      "PATH": {
-        "sample_size": 2,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 1.9992,
-        "median_hybrid_score": 0.7997,
-        "preferred_exit_classes": [
-          "other"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.568
-      },
       "PEGA": {
         "sample_size": 2,
         "win_rate": 1.0,
@@ -936,17 +923,6 @@
         ],
         "lineage_quality_rate": 1.0,
         "confidence_prior": 0.6
-      },
-      "PH": {
-        "sample_size": 1,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 3.2762,
-        "median_hybrid_score": 0.7817,
-        "preferred_exit_classes": [
-          "fuse"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5366
       },
       "PI": {
         "sample_size": 3,
@@ -1005,39 +981,63 @@
         "confidence_prior": 0.5308
       },
       "RBLX": {
-        "sample_size": 4,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 2.9532,
-        "median_hybrid_score": 0.7998,
-        "preferred_exit_classes": [
-          "fuse",
-          "other"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6436
-      },
-      "RDDT": {
-        "sample_size": 1,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 1.1313,
-        "median_hybrid_score": 0.7937,
-        "preferred_exit_classes": [
-          "other"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5323
-      },
-      "RGLD": {
         "sample_size": 3,
         "win_rate": 1.0,
-        "avg_pnl_pct": 5.0665,
-        "median_hybrid_score": 0.753,
+        "avg_pnl_pct": 3.2663,
+        "median_hybrid_score": 0.7875,
+        "preferred_exit_classes": [
+          "other",
+          "fuse"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.6096
+      },
+      "RDDT": {
+        "sample_size": 2,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 0.944,
+        "median_hybrid_score": 0.7937,
         "preferred_exit_classes": [
           "other",
           "loss_protect"
         ],
         "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.5638
+      },
+      "RGLD": {
+        "sample_size": 3,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 5.0662,
+        "median_hybrid_score": 0.7847,
+        "preferred_exit_classes": [
+          "loss_protect",
+          "other"
+        ],
+        "lineage_quality_rate": 1.0,
         "confidence_prior": 0.6204
+      },
+      "RIOT": {
+        "sample_size": 4,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 11.3733,
+        "median_hybrid_score": 0.8394,
+        "preferred_exit_classes": [
+          "loss_protect",
+          "fuse"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.7
+      },
+      "RKLB": {
+        "sample_size": 1,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 0.1204,
+        "median_hybrid_score": 0.7866,
+        "preferred_exit_classes": [
+          "other"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.5302
       },
       "RTX": {
         "sample_size": 1,
@@ -1050,16 +1050,16 @@
         "lineage_quality_rate": 1.0,
         "confidence_prior": 0.5328
       },
-      "SANM": {
-        "sample_size": 1,
+      "SGI": {
+        "sample_size": 4,
         "win_rate": 1.0,
-        "avg_pnl_pct": 1.1549,
-        "median_hybrid_score": 0.7465,
+        "avg_pnl_pct": 1.9695,
+        "median_hybrid_score": 0.7876,
         "preferred_exit_classes": [
-          "other"
+          "fuse"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5323
+        "confidence_prior": 0.6358
       },
       "SHOP": {
         "sample_size": 2,
@@ -1073,27 +1073,26 @@
         "confidence_prior": 0.5973
       },
       "SN": {
-        "sample_size": 2,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 6.8888,
-        "median_hybrid_score": 0.8002,
-        "preferred_exit_classes": [
-          "other",
-          "fuse"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5876
-      },
-      "SOFI": {
         "sample_size": 1,
         "win_rate": 1.0,
-        "avg_pnl_pct": 3.0041,
+        "avg_pnl_pct": 2.0587,
+        "median_hybrid_score": 0.8002,
+        "preferred_exit_classes": [
+          "other"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.5341
+      },
+      "SOFI": {
+        "sample_size": 2,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 2.4047,
         "median_hybrid_score": 0.8068,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.536
+        "confidence_prior": 0.5696
       },
       "STRL": {
         "sample_size": 1,
@@ -1140,16 +1139,15 @@
         "confidence_prior": 0.6369
       },
       "TPL": {
-        "sample_size": 3,
+        "sample_size": 4,
         "win_rate": 1.0,
-        "avg_pnl_pct": 7.3307,
-        "median_hybrid_score": 0.7926,
+        "avg_pnl_pct": 5.503,
+        "median_hybrid_score": 0.798,
         "preferred_exit_classes": [
-          "other",
-          "fuse"
+          "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.634
+        "confidence_prior": 0.664
       },
       "TSLA": {
         "sample_size": 4,
@@ -1186,15 +1184,15 @@
         "confidence_prior": 0.63
       },
       "UNH": {
-        "sample_size": 1,
+        "sample_size": 2,
         "win_rate": 1.0,
-        "avg_pnl_pct": 1.4039,
-        "median_hybrid_score": 0.7686,
+        "avg_pnl_pct": 1.8706,
+        "median_hybrid_score": 0.7751,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5328
+        "confidence_prior": 0.5675
       },
       "UPS": {
         "sample_size": 2,
@@ -1207,50 +1205,29 @@
         "lineage_quality_rate": 1.0,
         "confidence_prior": 0.5666
       },
-      "USO": {
-        "sample_size": 1,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 1.7924,
-        "median_hybrid_score": 0.7983,
-        "preferred_exit_classes": [
-          "other"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5336
-      },
       "UTHR": {
         "sample_size": 4,
         "win_rate": 1.0,
-        "avg_pnl_pct": 1.5552,
+        "avg_pnl_pct": 1.4345,
         "median_hybrid_score": 0.7979,
         "preferred_exit_classes": [
           "fuse",
-          "other"
+          "other",
+          "regime_reversal"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6324
-      },
-      "UUUU": {
-        "sample_size": 1,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 6.2428,
-        "median_hybrid_score": 0.7234,
-        "preferred_exit_classes": [
-          "loss_protect"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5425
+        "confidence_prior": 0.6315
       },
       "WDC": {
-        "sample_size": 3,
+        "sample_size": 4,
         "win_rate": 1.0,
-        "avg_pnl_pct": 4.2896,
+        "avg_pnl_pct": 4.1611,
         "median_hybrid_score": 0.7498,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6157
+        "confidence_prior": 0.6533
       },
       "WFRD": {
         "sample_size": 2,
@@ -1267,14 +1244,13 @@
       "WMT": {
         "sample_size": 4,
         "win_rate": 1.0,
-        "avg_pnl_pct": 0.8003,
+        "avg_pnl_pct": 0.9069,
         "median_hybrid_score": 0.7931,
         "preferred_exit_classes": [
-          "other",
-          "fuse"
+          "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6264
+        "confidence_prior": 0.6273
       },
       "WTS": {
         "sample_size": 1,
@@ -1308,41 +1284,53 @@
         ],
         "lineage_quality_rate": 1.0,
         "confidence_prior": 0.5317
-      },
-      "XYZ": {
-        "sample_size": 1,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 1.4841,
-        "median_hybrid_score": 0.7301,
-        "preferred_exit_classes": [
-          "other"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.533
       }
     },
     "ticker_direction": {
       "AA|LONG": {
-        "sample_size": 1,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 2.1623,
-        "median_hybrid_score": 0.8009,
-        "preferred_exit_classes": [
-          "other"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5343
-      },
-      "AGQ|LONG": {
         "sample_size": 2,
         "win_rate": 1.0,
-        "avg_pnl_pct": 1.9204,
-        "median_hybrid_score": 0.799,
+        "avg_pnl_pct": 1.6186,
+        "median_hybrid_score": 0.8009,
         "preferred_exit_classes": [
-          "other"
+          "other",
+          "loss_protect"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5677
+        "confidence_prior": 0.5665
+      },
+      "ABT|SHORT": {
+        "sample_size": 1,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 0.0739,
+        "median_hybrid_score": 0.7547,
+        "preferred_exit_classes": [
+          "loss_protect"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.5301
+      },
+      "AGQ|LONG": {
+        "sample_size": 4,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 10.3261,
+        "median_hybrid_score": 0.858,
+        "preferred_exit_classes": [
+          "fuse"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.7
+      },
+      "AGYS|LONG": {
+        "sample_size": 1,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 16.4711,
+        "median_hybrid_score": 0.8908,
+        "preferred_exit_classes": [
+          "fuse"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.55
       },
       "ALB|LONG": {
         "sample_size": 2,
@@ -1433,17 +1421,6 @@
         "lineage_quality_rate": 1.0,
         "confidence_prior": 0.5731
       },
-      "AR|SHORT": {
-        "sample_size": 1,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 2.2233,
-        "median_hybrid_score": 0.7293,
-        "preferred_exit_classes": [
-          "other"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5344
-      },
       "ASTS|LONG": {
         "sample_size": 1,
         "win_rate": 1.0,
@@ -1489,27 +1466,26 @@
         "confidence_prior": 0.531
       },
       "AXP|LONG": {
-        "sample_size": 3,
+        "sample_size": 2,
         "win_rate": 1.0,
-        "avg_pnl_pct": 2.0155,
-        "median_hybrid_score": 0.7984,
-        "preferred_exit_classes": [
-          "fuse",
-          "other"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6021
-      },
-      "AYI|LONG": {
-        "sample_size": 4,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 1.9851,
-        "median_hybrid_score": 0.7998,
+        "avg_pnl_pct": 2.1205,
+        "median_hybrid_score": 0.8041,
         "preferred_exit_classes": [
           "fuse"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6359
+        "confidence_prior": 0.5685
+      },
+      "AYI|LONG": {
+        "sample_size": 1,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 1.6006,
+        "median_hybrid_score": 0.797,
+        "preferred_exit_classes": [
+          "other"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.5332
       },
       "BABA|LONG": {
         "sample_size": 4,
@@ -1523,17 +1499,6 @@
         ],
         "lineage_quality_rate": 1.0,
         "confidence_prior": 0.6459
-      },
-      "BA|LONG": {
-        "sample_size": 1,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 2.3598,
-        "median_hybrid_score": 0.7753,
-        "preferred_exit_classes": [
-          "other"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5347
       },
       "BE|LONG": {
         "sample_size": 4,
@@ -1571,15 +1536,15 @@
         "confidence_prior": 0.5349
       },
       "B|LONG": {
-        "sample_size": 3,
+        "sample_size": 2,
         "win_rate": 1.0,
-        "avg_pnl_pct": 3.4558,
-        "median_hybrid_score": 0.7929,
+        "avg_pnl_pct": 3.3985,
+        "median_hybrid_score": 0.7959,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6107
+        "confidence_prior": 0.5736
       },
       "CAT|LONG": {
         "sample_size": 4,
@@ -1608,13 +1573,13 @@
       "CDNS|LONG": {
         "sample_size": 4,
         "win_rate": 1.0,
-        "avg_pnl_pct": 3.2629,
-        "median_hybrid_score": 0.801,
+        "avg_pnl_pct": 5.6449,
+        "median_hybrid_score": 0.8217,
         "preferred_exit_classes": [
           "fuse"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6461
+        "confidence_prior": 0.6652
       },
       "CELH|LONG": {
         "sample_size": 4,
@@ -1628,28 +1593,26 @@
         "confidence_prior": 0.6359
       },
       "CLS|LONG": {
-        "sample_size": 2,
+        "sample_size": 1,
         "win_rate": 1.0,
-        "avg_pnl_pct": 8.6137,
+        "avg_pnl_pct": 2.4197,
         "median_hybrid_score": 0.8027,
         "preferred_exit_classes": [
-          "fuse",
-          "other"
+          "fuse"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5945
+        "confidence_prior": 0.5348
       },
       "COST|LONG": {
-        "sample_size": 2,
+        "sample_size": 1,
         "win_rate": 1.0,
-        "avg_pnl_pct": 1.3946,
+        "avg_pnl_pct": 1.0285,
         "median_hybrid_score": 0.766,
         "preferred_exit_classes": [
-          "fuse",
-          "other"
+          "fuse"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5656
+        "confidence_prior": 0.5321
       },
       "COST|SHORT": {
         "sample_size": 1,
@@ -1674,15 +1637,15 @@
         "confidence_prior": 0.5364
       },
       "CSX|LONG": {
-        "sample_size": 2,
+        "sample_size": 1,
         "win_rate": 1.0,
-        "avg_pnl_pct": 8.1484,
+        "avg_pnl_pct": 15.5554,
         "median_hybrid_score": 0.8187,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5926
+        "confidence_prior": 0.55
       },
       "CVNA|LONG": {
         "sample_size": 2,
@@ -1696,15 +1659,15 @@
         "confidence_prior": 0.569
       },
       "CW|LONG": {
-        "sample_size": 2,
+        "sample_size": 1,
         "win_rate": 1.0,
-        "avg_pnl_pct": 0.4889,
+        "avg_pnl_pct": 0.573,
         "median_hybrid_score": 0.7898,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.562
+        "confidence_prior": 0.5311
       },
       "DCI|LONG": {
         "sample_size": 3,
@@ -1719,27 +1682,26 @@
         "confidence_prior": 0.5949
       },
       "DINO|LONG": {
-        "sample_size": 2,
+        "sample_size": 1,
         "win_rate": 1.0,
-        "avg_pnl_pct": 1.6149,
-        "median_hybrid_score": 0.7713,
+        "avg_pnl_pct": 1.015,
+        "median_hybrid_score": 0.7929,
         "preferred_exit_classes": [
-          "other",
           "loss_protect"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5665
+        "confidence_prior": 0.532
       },
       "DKNG|LONG": {
-        "sample_size": 2,
+        "sample_size": 1,
         "win_rate": 1.0,
-        "avg_pnl_pct": 1.9109,
+        "avg_pnl_pct": 1.9292,
         "median_hybrid_score": 0.7993,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5676
+        "confidence_prior": 0.5339
       },
       "DKNG|SHORT": {
         "sample_size": 2,
@@ -1764,16 +1726,16 @@
         "confidence_prior": 0.5652
       },
       "DY|LONG": {
-        "sample_size": 4,
+        "sample_size": 3,
         "win_rate": 1.0,
-        "avg_pnl_pct": 2.0013,
+        "avg_pnl_pct": 1.9674,
         "median_hybrid_score": 0.7913,
         "preferred_exit_classes": [
           "other",
           "loss_protect"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.636
+        "confidence_prior": 0.6018
       },
       "ELF|LONG": {
         "sample_size": 4,
@@ -1788,27 +1750,16 @@
         "lineage_quality_rate": 1.0,
         "confidence_prior": 0.6392
       },
-      "EMR|LONG": {
+      "ETN|LONG": {
         "sample_size": 1,
         "win_rate": 1.0,
-        "avg_pnl_pct": 2.5049,
-        "median_hybrid_score": 0.7763,
+        "avg_pnl_pct": 3.3338,
+        "median_hybrid_score": 0.8091,
         "preferred_exit_classes": [
-          "other"
+          "fuse"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.535
-      },
-      "ETHA|LONG": {
-        "sample_size": 1,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 0.0555,
-        "median_hybrid_score": 0.7802,
-        "preferred_exit_classes": [
-          "loss_protect"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5301
+        "confidence_prior": 0.5367
       },
       "EXPE|LONG": {
         "sample_size": 4,
@@ -1823,15 +1774,15 @@
         "confidence_prior": 0.6348
       },
       "FIX|LONG": {
-        "sample_size": 2,
+        "sample_size": 4,
         "win_rate": 1.0,
-        "avg_pnl_pct": 1.1106,
-        "median_hybrid_score": 0.7981,
+        "avg_pnl_pct": 17.6211,
+        "median_hybrid_score": 0.8058,
         "preferred_exit_classes": [
-          "other"
+          "fuse"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5644
+        "confidence_prior": 0.7
       },
       "FN|LONG": {
         "sample_size": 1,
@@ -1888,6 +1839,17 @@
         "lineage_quality_rate": 1.0,
         "confidence_prior": 0.5343
       },
+      "GRNY|LONG": {
+        "sample_size": 4,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 1.3741,
+        "median_hybrid_score": 0.771,
+        "preferred_exit_classes": [
+          "other"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.631
+      },
       "HALO|LONG": {
         "sample_size": 1,
         "win_rate": 1.0,
@@ -1898,17 +1860,6 @@
         ],
         "lineage_quality_rate": 1.0,
         "confidence_prior": 0.5379
-      },
-      "HII|LONG": {
-        "sample_size": 1,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 2.9998,
-        "median_hybrid_score": 0.7797,
-        "preferred_exit_classes": [
-          "other"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.536
       },
       "HL|LONG": {
         "sample_size": 1,
@@ -1969,24 +1920,24 @@
       "IESC|LONG": {
         "sample_size": 4,
         "win_rate": 1.0,
-        "avg_pnl_pct": 1.9532,
-        "median_hybrid_score": 0.7985,
+        "avg_pnl_pct": 2.204,
+        "median_hybrid_score": 0.8021,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6356
+        "confidence_prior": 0.6376
       },
       "INTC|LONG": {
-        "sample_size": 1,
+        "sample_size": 2,
         "win_rate": 1.0,
-        "avg_pnl_pct": 5.4364,
+        "avg_pnl_pct": 2.9237,
         "median_hybrid_score": 0.7578,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5409
+        "confidence_prior": 0.5717
       },
       "IONQ|SHORT": {
         "sample_size": 3,
@@ -2055,15 +2006,15 @@
         "confidence_prior": 0.6293
       },
       "KTOS|LONG": {
-        "sample_size": 3,
+        "sample_size": 2,
         "win_rate": 1.0,
-        "avg_pnl_pct": 3.5777,
-        "median_hybrid_score": 0.7808,
+        "avg_pnl_pct": 3.9924,
+        "median_hybrid_score": 0.7926,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6115
+        "confidence_prior": 0.576
       },
       "KWEB|SHORT": {
         "sample_size": 2,
@@ -2088,15 +2039,15 @@
         "confidence_prior": 0.535
       },
       "LMND|LONG": {
-        "sample_size": 3,
+        "sample_size": 2,
         "win_rate": 1.0,
-        "avg_pnl_pct": 1.6199,
-        "median_hybrid_score": 0.7689,
+        "avg_pnl_pct": 1.9035,
+        "median_hybrid_score": 0.8023,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5997
+        "confidence_prior": 0.5676
       },
       "LRCX|LONG": {
         "sample_size": 2,
@@ -2132,15 +2083,15 @@
         "confidence_prior": 0.5664
       },
       "LULU|LONG": {
-        "sample_size": 2,
+        "sample_size": 1,
         "win_rate": 1.0,
-        "avg_pnl_pct": 3.4054,
+        "avg_pnl_pct": 6.0761,
         "median_hybrid_score": 0.8283,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5736
+        "confidence_prior": 0.5422
       },
       "LULU|SHORT": {
         "sample_size": 2,
@@ -2200,13 +2151,13 @@
       "MNST|LONG": {
         "sample_size": 4,
         "win_rate": 1.0,
-        "avg_pnl_pct": 1.5086,
+        "avg_pnl_pct": 1.5822,
         "median_hybrid_score": 0.7738,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6321
+        "confidence_prior": 0.6327
       },
       "MP|LONG": {
         "sample_size": 1,
@@ -2242,38 +2193,38 @@
         "confidence_prior": 0.534
       },
       "MTZ|LONG": {
-        "sample_size": 1,
+        "sample_size": 4,
         "win_rate": 1.0,
-        "avg_pnl_pct": 3.6568,
-        "median_hybrid_score": 0.8113,
+        "avg_pnl_pct": 2.8066,
+        "median_hybrid_score": 0.8053,
+        "preferred_exit_classes": [
+          "other",
+          "tp_full"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.6425
+      },
+      "NBIS|LONG": {
+        "sample_size": 2,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 29.5769,
+        "median_hybrid_score": 0.8187,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5373
+        "confidence_prior": 0.6
       },
-      "NBIS|LONG": {
-        "sample_size": 3,
+      "NFLX|SHORT": {
+        "sample_size": 1,
         "win_rate": 1.0,
-        "avg_pnl_pct": 20.3913,
-        "median_hybrid_score": 0.8187,
+        "avg_pnl_pct": 0.3942,
+        "median_hybrid_score": 0.7885,
         "preferred_exit_classes": [
-          "other",
           "loss_protect"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.65
-      },
-      "NVDA|LONG": {
-        "sample_size": 1,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 0.6139,
-        "median_hybrid_score": 0.745,
-        "preferred_exit_classes": [
-          "other"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5312
+        "confidence_prior": 0.5308
       },
       "NXT|LONG": {
         "sample_size": 2,
@@ -2286,17 +2237,6 @@
         "lineage_quality_rate": 1.0,
         "confidence_prior": 0.574
       },
-      "OKE|SHORT": {
-        "sample_size": 1,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 0.0414,
-        "median_hybrid_score": 0.7334,
-        "preferred_exit_classes": [
-          "other"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5301
-      },
       "ON|LONG": {
         "sample_size": 1,
         "win_rate": 1.0,
@@ -2307,6 +2247,17 @@
         ],
         "lineage_quality_rate": 1.0,
         "confidence_prior": 0.5375
+      },
+      "ORCL|LONG": {
+        "sample_size": 1,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 2.0812,
+        "median_hybrid_score": 0.8003,
+        "preferred_exit_classes": [
+          "other"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.5342
       },
       "PANW|SHORT": {
         "sample_size": 2,
@@ -2319,17 +2270,6 @@
         "lineage_quality_rate": 1.0,
         "confidence_prior": 0.5701
       },
-      "PATH|LONG": {
-        "sample_size": 2,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 1.9992,
-        "median_hybrid_score": 0.7997,
-        "preferred_exit_classes": [
-          "other"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.568
-      },
       "PEGA|SHORT": {
         "sample_size": 2,
         "win_rate": 1.0,
@@ -2340,17 +2280,6 @@
         ],
         "lineage_quality_rate": 1.0,
         "confidence_prior": 0.6
-      },
-      "PH|LONG": {
-        "sample_size": 1,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 3.2762,
-        "median_hybrid_score": 0.7817,
-        "preferred_exit_classes": [
-          "fuse"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5366
       },
       "PI|LONG": {
         "sample_size": 1,
@@ -2419,16 +2348,15 @@
         "confidence_prior": 0.5308
       },
       "RBLX|LONG": {
-        "sample_size": 2,
+        "sample_size": 1,
         "win_rate": 1.0,
-        "avg_pnl_pct": 2.524,
-        "median_hybrid_score": 0.7998,
+        "avg_pnl_pct": 3.0344,
+        "median_hybrid_score": 0.78,
         "preferred_exit_classes": [
-          "fuse",
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5701
+        "confidence_prior": 0.5361
       },
       "RBLX|SHORT": {
         "sample_size": 2,
@@ -2443,38 +2371,62 @@
         "confidence_prior": 0.5735
       },
       "RDDT|LONG": {
-        "sample_size": 1,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 1.1313,
-        "median_hybrid_score": 0.7937,
-        "preferred_exit_classes": [
-          "other"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5323
-      },
-      "RGLD|LONG": {
         "sample_size": 2,
         "win_rate": 1.0,
-        "avg_pnl_pct": 0.0796,
+        "avg_pnl_pct": 0.944,
+        "median_hybrid_score": 0.7937,
+        "preferred_exit_classes": [
+          "other",
+          "loss_protect"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.5638
+      },
+      "RGLD|LONG": {
+        "sample_size": 1,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 0.0133,
         "median_hybrid_score": 0.753,
+        "preferred_exit_classes": [
+          "loss_protect"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.53
+      },
+      "RGLD|SHORT": {
+        "sample_size": 2,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 7.5927,
+        "median_hybrid_score": 0.7868,
         "preferred_exit_classes": [
           "loss_protect",
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5603
+        "confidence_prior": 0.5904
       },
-      "RGLD|SHORT": {
+      "RIOT|LONG": {
+        "sample_size": 4,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 11.3733,
+        "median_hybrid_score": 0.8394,
+        "preferred_exit_classes": [
+          "loss_protect",
+          "fuse"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.7
+      },
+      "RKLB|LONG": {
         "sample_size": 1,
         "win_rate": 1.0,
-        "avg_pnl_pct": 15.0401,
-        "median_hybrid_score": 0.7847,
+        "avg_pnl_pct": 0.1204,
+        "median_hybrid_score": 0.7866,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.55
+        "confidence_prior": 0.5302
       },
       "RTX|LONG": {
         "sample_size": 1,
@@ -2487,16 +2439,16 @@
         "lineage_quality_rate": 1.0,
         "confidence_prior": 0.5328
       },
-      "SANM|LONG": {
-        "sample_size": 1,
+      "SGI|LONG": {
+        "sample_size": 4,
         "win_rate": 1.0,
-        "avg_pnl_pct": 1.1549,
-        "median_hybrid_score": 0.7465,
+        "avg_pnl_pct": 1.9695,
+        "median_hybrid_score": 0.7876,
         "preferred_exit_classes": [
-          "other"
+          "fuse"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5323
+        "confidence_prior": 0.6358
       },
       "SHOP|LONG": {
         "sample_size": 2,
@@ -2520,27 +2472,16 @@
         "lineage_quality_rate": 1.0,
         "confidence_prior": 0.5341
       },
-      "SN|SHORT": {
-        "sample_size": 1,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 11.7189,
-        "median_hybrid_score": 0.7348,
-        "preferred_exit_classes": [
-          "fuse"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.55
-      },
       "SOFI|LONG": {
-        "sample_size": 1,
+        "sample_size": 2,
         "win_rate": 1.0,
-        "avg_pnl_pct": 3.0041,
+        "avg_pnl_pct": 2.4047,
         "median_hybrid_score": 0.8068,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.536
+        "confidence_prior": 0.5696
       },
       "STRL|LONG": {
         "sample_size": 1,
@@ -2587,27 +2528,26 @@
         "confidence_prior": 0.6369
       },
       "TPL|LONG": {
-        "sample_size": 1,
+        "sample_size": 3,
         "win_rate": 1.0,
-        "avg_pnl_pct": 4.8419,
+        "avg_pnl_pct": 2.5021,
         "median_hybrid_score": 0.7926,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5397
+        "confidence_prior": 0.605
       },
       "TPL|SHORT": {
-        "sample_size": 2,
+        "sample_size": 1,
         "win_rate": 1.0,
-        "avg_pnl_pct": 8.5752,
+        "avg_pnl_pct": 14.5058,
         "median_hybrid_score": 0.8153,
         "preferred_exit_classes": [
-          "other",
-          "fuse"
+          "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5943
+        "confidence_prior": 0.55
       },
       "TSLA|LONG": {
         "sample_size": 4,
@@ -2633,15 +2573,15 @@
         "confidence_prior": 0.63
       },
       "UNH|SHORT": {
-        "sample_size": 1,
+        "sample_size": 2,
         "win_rate": 1.0,
-        "avg_pnl_pct": 1.4039,
-        "median_hybrid_score": 0.7686,
+        "avg_pnl_pct": 1.8706,
+        "median_hybrid_score": 0.7751,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5328
+        "confidence_prior": 0.5675
       },
       "UPS|LONG": {
         "sample_size": 2,
@@ -2654,39 +2594,28 @@
         "lineage_quality_rate": 1.0,
         "confidence_prior": 0.5666
       },
-      "USO|LONG": {
-        "sample_size": 1,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 1.7924,
-        "median_hybrid_score": 0.7983,
-        "preferred_exit_classes": [
-          "other"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5336
-      },
       "UTHR|LONG": {
-        "sample_size": 4,
+        "sample_size": 3,
         "win_rate": 1.0,
-        "avg_pnl_pct": 1.5552,
+        "avg_pnl_pct": 1.8329,
         "median_hybrid_score": 0.7979,
         "preferred_exit_classes": [
           "fuse",
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6324
+        "confidence_prior": 0.601
       },
-      "UUUU|LONG": {
+      "UTHR|SHORT": {
         "sample_size": 1,
         "win_rate": 1.0,
-        "avg_pnl_pct": 6.2428,
-        "median_hybrid_score": 0.7234,
+        "avg_pnl_pct": 0.2394,
+        "median_hybrid_score": 0.7874,
         "preferred_exit_classes": [
-          "loss_protect"
+          "regime_reversal"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5425
+        "confidence_prior": 0.5305
       },
       "U|LONG": {
         "sample_size": 1,
@@ -2700,15 +2629,15 @@
         "confidence_prior": 0.5359
       },
       "WDC|LONG": {
-        "sample_size": 3,
+        "sample_size": 4,
         "win_rate": 1.0,
-        "avg_pnl_pct": 4.2896,
+        "avg_pnl_pct": 4.1611,
         "median_hybrid_score": 0.7498,
         "preferred_exit_classes": [
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6157
+        "confidence_prior": 0.6533
       },
       "WFRD|LONG": {
         "sample_size": 2,
@@ -2725,14 +2654,13 @@
       "WMT|LONG": {
         "sample_size": 4,
         "win_rate": 1.0,
-        "avg_pnl_pct": 0.8003,
+        "avg_pnl_pct": 0.9069,
         "median_hybrid_score": 0.7931,
         "preferred_exit_classes": [
-          "other",
-          "fuse"
+          "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6264
+        "confidence_prior": 0.6273
       },
       "WTS|LONG": {
         "sample_size": 1,
@@ -2766,44 +2694,33 @@
         ],
         "lineage_quality_rate": 1.0,
         "confidence_prior": 0.5317
-      },
-      "XYZ|SHORT": {
-        "sample_size": 1,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 1.4841,
-        "median_hybrid_score": 0.7301,
-        "preferred_exit_classes": [
-          "other"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.533
       }
     },
     "entry_path_direction": {
       "ema_regime_confirmed_long|LONG": {
-        "sample_size": 81,
+        "sample_size": 67,
         "win_rate": 1.0,
-        "avg_pnl_pct": 3.3701,
-        "median_hybrid_score": 0.7973,
+        "avg_pnl_pct": 3.6484,
+        "median_hybrid_score": 0.7984,
         "preferred_exit_classes": [
           "other",
           "loss_protect",
           "fuse"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.8674
+        "confidence_prior": 0.873
       },
       "ema_regime_confirmed_short|SHORT": {
-        "sample_size": 6,
+        "sample_size": 5,
         "win_rate": 1.0,
-        "avg_pnl_pct": 3.6625,
+        "avg_pnl_pct": 2.0512,
         "median_hybrid_score": 0.7952,
         "preferred_exit_classes": [
           "other",
           "fuse"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.7239
+        "confidence_prior": 0.6705
       },
       "ema_regime_early_long|LONG": {
         "sample_size": 7,
@@ -2839,16 +2756,16 @@
         "confidence_prior": 0.5701
       },
       "gold_short_pullback_deep|SHORT": {
-        "sample_size": 24,
+        "sample_size": 20,
         "win_rate": 1.0,
-        "avg_pnl_pct": 4.0089,
-        "median_hybrid_score": 0.7908,
+        "avg_pnl_pct": 4.491,
+        "median_hybrid_score": 0.7954,
         "preferred_exit_classes": [
           "other",
           "fuse"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.8802
+        "confidence_prior": 0.8898
       },
       "gold_short_pullback|SHORT": {
         "sample_size": 2,
@@ -2884,17 +2801,17 @@
         "confidence_prior": 0.55
       },
       "tt_momentum|LONG": {
-        "sample_size": 90,
+        "sample_size": 81,
         "win_rate": 1.0,
-        "avg_pnl_pct": 3.1963,
-        "median_hybrid_score": 0.7926,
+        "avg_pnl_pct": 3.1793,
+        "median_hybrid_score": 0.792,
         "preferred_exit_classes": [
           "other",
           "fuse",
           "loss_protect"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.8639
+        "confidence_prior": 0.8636
       },
       "tt_momentum|SHORT": {
         "sample_size": 1,
@@ -2908,17 +2825,30 @@
         "confidence_prior": 0.55
       },
       "tt_pullback|LONG": {
-        "sample_size": 32,
+        "sample_size": 55,
         "win_rate": 1.0,
-        "avg_pnl_pct": 2.2129,
-        "median_hybrid_score": 0.7938,
+        "avg_pnl_pct": 5.0061,
+        "median_hybrid_score": 0.7982,
         "preferred_exit_classes": [
           "other",
           "fuse",
-          "regime_reversal"
+          "loss_protect"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.8443
+        "confidence_prior": 0.9001
+      },
+      "tt_pullback|SHORT": {
+        "sample_size": 5,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 0.638,
+        "median_hybrid_score": 0.7868,
+        "preferred_exit_classes": [
+          "loss_protect",
+          "regime_reversal",
+          "other"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.6564
       },
       "tt_reclaim|LONG": {
         "sample_size": 2,
@@ -2934,81 +2864,92 @@
     },
     "sector_direction": {
       "Basic Materials|LONG": {
-        "sample_size": 13,
+        "sample_size": 12,
         "win_rate": 1.0,
-        "avg_pnl_pct": 2.2709,
-        "median_hybrid_score": 0.7935,
+        "avg_pnl_pct": 2.0173,
+        "median_hybrid_score": 0.7936,
         "preferred_exit_classes": [
           "other",
           "loss_protect"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.8454
+        "confidence_prior": 0.8403
       },
       "Basic Materials|SHORT": {
         "sample_size": 3,
         "win_rate": 1.0,
-        "avg_pnl_pct": 9.8338,
-        "median_hybrid_score": 0.77,
+        "avg_pnl_pct": 5.9759,
+        "median_hybrid_score": 0.7847,
         "preferred_exit_classes": [
           "other",
+          "loss_protect"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.6259
+      },
+      "Commodity ETF|LONG": {
+        "sample_size": 1,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 2.1721,
+        "median_hybrid_score": 0.801,
+        "preferred_exit_classes": [
           "fuse"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.649
-      },
-      "Commodity ETF|LONG": {
-        "sample_size": 2,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 1.9823,
-        "median_hybrid_score": 0.801,
-        "preferred_exit_classes": [
-          "fuse",
-          "other"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5679
+        "confidence_prior": 0.5343
       },
       "Communication Services|LONG": {
-        "sample_size": 3,
+        "sample_size": 4,
         "win_rate": 1.0,
-        "avg_pnl_pct": 2.0815,
+        "avg_pnl_pct": 1.7503,
         "median_hybrid_score": 0.801,
         "preferred_exit_classes": [
-          "other"
+          "other",
+          "loss_protect"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6025
+        "confidence_prior": 0.634
+      },
+      "Communication Services|SHORT": {
+        "sample_size": 1,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 0.3942,
+        "median_hybrid_score": 0.7885,
+        "preferred_exit_classes": [
+          "loss_protect"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.5308
       },
       "Consumer Discretionary|LONG": {
-        "sample_size": 44,
+        "sample_size": 45,
         "win_rate": 1.0,
-        "avg_pnl_pct": 2.2911,
-        "median_hybrid_score": 0.7954,
+        "avg_pnl_pct": 2.2592,
+        "median_hybrid_score": 0.7937,
         "preferred_exit_classes": [
           "other",
           "fuse",
           "loss_protect"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.8458
+        "confidence_prior": 0.8452
       },
       "Consumer Discretionary|SHORT": {
-        "sample_size": 11,
+        "sample_size": 10,
         "win_rate": 1.0,
-        "avg_pnl_pct": 2.6053,
-        "median_hybrid_score": 0.7954,
+        "avg_pnl_pct": 2.7175,
+        "median_hybrid_score": 0.8004,
         "preferred_exit_classes": [
           "other",
           "fuse"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.8521
+        "confidence_prior": 0.8543
       },
       "Consumer Staples|LONG": {
-        "sample_size": 24,
+        "sample_size": 23,
         "win_rate": 1.0,
-        "avg_pnl_pct": 1.6085,
+        "avg_pnl_pct": 1.6332,
         "median_hybrid_score": 0.7925,
         "preferred_exit_classes": [
           "other",
@@ -3016,7 +2957,7 @@
           "regime_reversal"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.8322
+        "confidence_prior": 0.8327
       },
       "Consumer Staples|SHORT": {
         "sample_size": 1,
@@ -3030,15 +2971,16 @@
         "confidence_prior": 0.5327
       },
       "Crypto|LONG": {
-        "sample_size": 1,
+        "sample_size": 4,
         "win_rate": 1.0,
-        "avg_pnl_pct": 0.0555,
-        "median_hybrid_score": 0.7802,
+        "avg_pnl_pct": 11.3733,
+        "median_hybrid_score": 0.8394,
         "preferred_exit_classes": [
-          "loss_protect"
+          "loss_protect",
+          "fuse"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5301
+        "confidence_prior": 0.7
       },
       "ETF|LONG": {
         "sample_size": 2,
@@ -3053,41 +2995,40 @@
         "confidence_prior": 0.5622
       },
       "Energy|LONG": {
-        "sample_size": 10,
+        "sample_size": 11,
         "win_rate": 1.0,
-        "avg_pnl_pct": 3.2537,
-        "median_hybrid_score": 0.7825,
+        "avg_pnl_pct": 2.9987,
+        "median_hybrid_score": 0.7926,
         "preferred_exit_classes": [
           "other",
           "loss_protect",
           "fuse"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.8651
+        "confidence_prior": 0.86
       },
       "Energy|SHORT": {
-        "sample_size": 4,
+        "sample_size": 1,
         "win_rate": 1.0,
-        "avg_pnl_pct": 4.8538,
-        "median_hybrid_score": 0.7334,
+        "avg_pnl_pct": 14.5058,
+        "median_hybrid_score": 0.8153,
         "preferred_exit_classes": [
-          "other",
-          "fuse"
+          "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6588
+        "confidence_prior": 0.55
       },
       "Financials|LONG": {
-        "sample_size": 8,
+        "sample_size": 7,
         "win_rate": 1.0,
-        "avg_pnl_pct": 1.8973,
+        "avg_pnl_pct": 2.018,
         "median_hybrid_score": 0.7984,
         "preferred_exit_classes": [
           "other",
           "fuse"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.7704
+        "confidence_prior": 0.7383
       },
       "Financials|SHORT": {
         "sample_size": 1,
@@ -3101,52 +3042,63 @@
         "confidence_prior": 0.5309
       },
       "Health Care|LONG": {
-        "sample_size": 5,
+        "sample_size": 4,
         "win_rate": 1.0,
-        "avg_pnl_pct": 2.0337,
-        "median_hybrid_score": 0.7949,
+        "avg_pnl_pct": 2.3615,
+        "median_hybrid_score": 0.7979,
         "preferred_exit_classes": [
-          "other",
-          "fuse"
+          "fuse",
+          "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6703
+        "confidence_prior": 0.6389
+      },
+      "Health Care|SHORT": {
+        "sample_size": 1,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 0.2394,
+        "median_hybrid_score": 0.7874,
+        "preferred_exit_classes": [
+          "regime_reversal"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.5305
       },
       "Healthcare|LONG": {
+        "sample_size": 2,
+        "win_rate": 1.0,
+        "avg_pnl_pct": 29.5769,
+        "median_hybrid_score": 0.8187,
+        "preferred_exit_classes": [
+          "other"
+        ],
+        "lineage_quality_rate": 1.0,
+        "confidence_prior": 0.6
+      },
+      "Healthcare|SHORT": {
         "sample_size": 3,
         "win_rate": 1.0,
-        "avg_pnl_pct": 20.3913,
-        "median_hybrid_score": 0.8187,
+        "avg_pnl_pct": 1.2717,
+        "median_hybrid_score": 0.7686,
         "preferred_exit_classes": [
           "other",
           "loss_protect"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.65
-      },
-      "Healthcare|SHORT": {
-        "sample_size": 1,
-        "win_rate": 1.0,
-        "avg_pnl_pct": 1.4039,
-        "median_hybrid_score": 0.7686,
-        "preferred_exit_classes": [
-          "other"
-        ],
-        "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.5328
+        "confidence_prior": 0.5976
       },
       "Industrials|LONG": {
         "sample_size": 54,
         "win_rate": 1.0,
-        "avg_pnl_pct": 4.3616,
-        "median_hybrid_score": 0.7959,
+        "avg_pnl_pct": 5.5443,
+        "median_hybrid_score": 0.797,
         "preferred_exit_classes": [
           "other",
           "fuse",
           "loss_protect"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.8872
+        "confidence_prior": 0.9109
       },
       "Industrials|SHORT": {
         "sample_size": 1,
@@ -3160,9 +3112,9 @@
         "confidence_prior": 0.5327
       },
       "Information Technology|LONG": {
-        "sample_size": 40,
+        "sample_size": 38,
         "win_rate": 1.0,
-        "avg_pnl_pct": 3.5023,
+        "avg_pnl_pct": 3.922,
         "median_hybrid_score": 0.7936,
         "preferred_exit_classes": [
           "other",
@@ -3170,7 +3122,7 @@
           "loss_protect"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.87
+        "confidence_prior": 0.8784
       },
       "Information Technology|SHORT": {
         "sample_size": 15,
@@ -3186,15 +3138,16 @@
         "confidence_prior": 0.9507
       },
       "Precious Metals|LONG": {
-        "sample_size": 4,
+        "sample_size": 6,
         "win_rate": 1.0,
-        "avg_pnl_pct": 1.802,
-        "median_hybrid_score": 0.7978,
+        "avg_pnl_pct": 7.4453,
+        "median_hybrid_score": 0.858,
         "preferred_exit_classes": [
+          "fuse",
           "other"
         ],
         "lineage_quality_rate": 1.0,
-        "confidence_prior": 0.6344
+        "confidence_prior": 0.7693
       }
     }
   }
