@@ -18,6 +18,7 @@ echo ""
 # 1. Acquire lock
 echo "Step 1: Acquiring replay lock..."
 LOCK=$(curl -s -m 30 -X POST "$API_BASE/timed/admin/replay-lock?reason=replay_three_trades&key=$API_KEY")
+LOCK_VALUE=$(echo "$LOCK" | jq -r '.lock // empty' 2>/dev/null || echo "")
 echo "$LOCK" | jq -c '{ok, lock}' 2>/dev/null || echo "$LOCK"
 echo ""
 
@@ -49,7 +50,7 @@ echo ""
 
 # 4. Close any open positions at day end
 echo "Step 4: Closing open positions at $DATE market close..."
-CLOSE=$(curl -s -m 60 -X POST "$API_BASE/timed/admin/close-replay-positions?date=$DATE&key=$API_KEY")
+CLOSE=$(curl -s -m 60 -X POST "$API_BASE/timed/admin/close-replay-positions?date=$DATE&runId=$LOCK_VALUE&key=$API_KEY")
 echo "$CLOSE" | jq -c '{ok, closed}' 2>/dev/null || echo "$CLOSE"
 echo ""
 

@@ -10,7 +10,15 @@ API_BASE="https://timed-trading-ingest.shashant.workers.dev"
 API_KEY="AwesomeSauce"
 BF_BATCH=3
 MAX_VERIFY_PASSES=3
-UNSUPPORTED_BACKFILL_TICKERS=(BRK-B CL1! ES1! GC1! NQ1! SI1! VX1! SPX BTCUSD ETHUSD)
+# Symbols served outside the Alpaca historical backfill route.
+# Keep them in the universe, but do not block dataset freezes on them.
+UNSUPPORTED_BACKFILL_TICKERS=(
+  BRK-B
+  SPX US500 DXY USOIL
+  GOLD SILVER COPPER PLATINUM PALLADIUM
+  CL1! ES1! NQ1! RTY1! YM1! VX1! GC1! SI1! HG1! NG1!
+  BTCUSD ETHUSD
+)
 UNSUPPORTED_CSV=$(IFS=,; printf '%s' "${UNSUPPORTED_BACKFILL_TICKERS[*]}")
 
 LABEL=""

@@ -45,6 +45,43 @@ function safeNum(v, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function logicalTradeKey(row) {
+  const ticker = String(row?.ticker || "").toUpperCase();
+  const direction = String(row?.direction || "").toUpperCase();
+  const entryTs = Number(row?.entry_ts);
+  return `${ticker}:${direction}:${Number.isFinite(entryTs) && entryTs > 0 ? entryTs : String(row?.trade_id || "")}`;
+}
+
+function logicalTradePreferenceScore(row) {
+  const status = String(row?.status || "").toUpperCase();
+  const closed = ["WIN", "LOSS", "FLAT"].includes(status) ? 1 : 0;
+  const hasExit = Number.isFinite(Number(row?.exit_ts)) && Number(row.exit_ts) > 0 ? 1 : 0;
+  const hasTrim = Number.isFinite(Number(row?.trimmed_pct)) && Number(row.trimmed_pct) > 0 ? 1 : 0;
+  const hasTrimPrice = Number.isFinite(Number(row?.trim_price)) && Number(row.trim_price) > 0 ? 1 : 0;
+  const updatedAt = Number(row?.updated_at) || 0;
+  const pnlAbs = Math.abs(Number(row?.pnl) || 0);
+  return (
+    closed * 1e15 +
+    hasExit * 1e14 +
+    hasTrim * 1e13 +
+    hasTrimPrice * 1e12 +
+    pnlAbs * 1e6 +
+    updatedAt
+  );
+}
+
+function dedupeTrades(rows) {
+  const bestByKey = new Map();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const key = logicalTradeKey(row);
+    const existing = bestByKey.get(key);
+    if (!existing || logicalTradePreferenceScore(row) >= logicalTradePreferenceScore(existing)) {
+      bestByKey.set(key, row);
+    }
+  }
+  return [...bestByKey.values()].sort((a, b) => safeNum(b.entry_ts) - safeNum(a.entry_ts));
+}
+
 function fetchJson(url) {
   try {
     return JSON.parse(execSync(`curl -sS "${url}"`, {
@@ -157,7 +194,7 @@ function summarizeBuckets(trades, keyFn) {
   return Array.from(map.values());
 }
 
-const rows = loadRunTrades();
+const rows = dedupeTrades(loadRunTrades());
 const runConfigBundle = loadRunConfig();
 const runConfig = runConfigBundle.config || {};
 

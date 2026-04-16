@@ -61,9 +61,9 @@ API_KEY="AwesomeSauce"
 DEFAULT_RECOVERED_CONFIG="configs/iter5-runtime-recovered-20260325.json"
 CHECKPOINT_FILE="data/replay-checkpoint.txt"
 HOLIDAYS="2025-07-04 2025-09-01 2025-11-27 2025-12-25 2026-01-01 2026-01-19 2026-02-16 2026-05-25 2026-07-03 2026-09-07 2026-11-26 2026-12-25"
-# Symbols known to be unavailable in our current Alpaca backfill route.
+# Symbols served outside the Alpaca historical backfill route.
 # Keep them in trading universe, but skip repeated backfill attempts.
-UNSUPPORTED_BACKFILL_TICKERS=" BRK-B CL1! ES1! GC1! NQ1! SI1! VX1! SPX "
+UNSUPPORTED_BACKFILL_TICKERS=" BRK-B SPX US500 DXY USOIL GOLD SILVER COPPER PLATINUM PALLADIUM CL1! ES1! NQ1! RTY1! YM1! VX1! GC1! SI1! HG1! NG1! BTCUSD ETHUSD "
 
 RESUME=false
 TRADER_ONLY=false
@@ -169,6 +169,18 @@ resolve_frozen_dataset_manifest() {
     return 0
   fi
   echo "$ref"
+}
+
+extract_env_override() {
+  local key="$1"
+  local item=""
+  for item in "${ENV_OVERRIDES[@]}"; do
+    if [[ "$item" == "$key="* ]]; then
+      echo "${item#*=}"
+      return 0
+    fi
+  done
+  echo ""
 }
 
 snapshot_replay_artifacts() {
@@ -310,11 +322,26 @@ ENV_OVERRIDES_JSON=$(printf '%s\n' "${ENV_OVERRIDES[@]}" | jq -Rn '
     if $pair == null then . else . + { ($pair.key): $pair.value } end
   )
 ')
+CODE_REVISION=$(git rev-parse HEAD 2>/dev/null || echo "")
+ENTRY_ENGINE_OVERRIDE=$(extract_env_override "ENTRY_ENGINE")
+MANAGEMENT_ENGINE_OVERRIDE=$(extract_env_override "MANAGEMENT_ENGINE")
+LEADING_LTF_OVERRIDE=$(extract_env_override "LEADING_LTF")
+MANIFEST_ENTRY_ENGINE="${ENTRY_ENGINE_OVERRIDE:-${ENTRY_ENGINE:-tt_core}}"
+MANIFEST_MANAGEMENT_ENGINE="${MANAGEMENT_ENGINE_OVERRIDE:-${MANAGEMENT_ENGINE:-tt_core}}"
+MANIFEST_LEADING_LTF="${LEADING_LTF_OVERRIDE:-${LEADING_LTF:-10}}"
+RUN_REHYDRATION_POLICY=$($RESUME && echo "checkpoint_resume" || echo "fresh_reset")
+RUN_REPLAY_CLEAN_LANE=$($RESUME && echo false || echo true)
 RUN_PARAMS_JSON=$(jq -nc \
   --argjson env_overrides "$ENV_OVERRIDES_JSON" \
   --arg config_file "$CONFIG_FILE" \
   --arg config_source_run_id "$CONFIG_OVERRIDE_SOURCE_RUN_ID" \
   --arg dataset_manifest "$FROZEN_DATASET_MANIFEST" \
+  --arg code_revision "$CODE_REVISION" \
+  --arg entry_engine "$MANIFEST_ENTRY_ENGINE" \
+  --arg management_engine "$MANIFEST_MANAGEMENT_ENGINE" \
+  --arg leading_ltf "$MANIFEST_LEADING_LTF" \
+  --arg rehydration_policy "$RUN_REHYDRATION_POLICY" \
+  --argjson replay_clean_lane "$RUN_REPLAY_CLEAN_LANE" \
   --argjson skip_backfill "$($SKIP_BACKFILL && echo true || echo false)" \
   --argjson skip_market_events "$($SKIP_MARKET_EVENTS && echo true || echo false)" \
   --argjson config_key_count "$CONFIG_OVERRIDE_KEY_COUNT" '
@@ -323,6 +350,12 @@ RUN_PARAMS_JSON=$(jq -nc \
     config_file: (if ($config_file | length) > 0 then $config_file else null end),
     config_source_run_id: (if ($config_source_run_id | length) > 0 then $config_source_run_id else null end),
     dataset_manifest: (if ($dataset_manifest | length) > 0 then $dataset_manifest else null end),
+    code_revision: (if ($code_revision | length) > 0 then $code_revision else null end),
+    entry_engine: (if ($entry_engine | length) > 0 then $entry_engine else null end),
+    management_engine: (if ($management_engine | length) > 0 then $management_engine else null end),
+    leading_ltf: (if ($leading_ltf | length) > 0 then $leading_ltf else null end),
+    rehydration_policy: $rehydration_policy,
+    replay_clean_lane: $replay_clean_lane,
     skip_backfill: $skip_backfill,
     skip_market_events: $skip_market_events,
     config_key_count: (if $config_key_count > 0 then $config_key_count else null end)
@@ -344,6 +377,12 @@ REGISTER_PAYLOAD=$(jq -nc \
   --arg status "running" \
   --arg status_note "Replay started" \
   --argjson params "$RUN_PARAMS_JSON" \
+  --arg code_revision "$CODE_REVISION" \
+  --arg entry_engine "$MANIFEST_ENTRY_ENGINE" \
+  --arg management_engine "$MANIFEST_MANAGEMENT_ENGINE" \
+  --arg leading_ltf "$MANIFEST_LEADING_LTF" \
+  --arg rehydration_policy "$RUN_REHYDRATION_POLICY" \
+  --argjson replay_clean_lane "$RUN_REPLAY_CLEAN_LANE" \
   --arg config_file "$CONFIG_FILE" \
   --arg config_source_run_id "$CONFIG_OVERRIDE_SOURCE_RUN_ID" \
   --argjson config_key_count "$CONFIG_OVERRIDE_KEY_COUNT" \
@@ -364,6 +403,12 @@ REGISTER_PAYLOAD=$(jq -nc \
     status: $status,
     status_note: $status_note,
     params: $params,
+    code_revision: (if ($code_revision | length) > 0 then $code_revision else null end),
+    entry_engine: $entry_engine,
+    management_engine: $management_engine,
+    leading_ltf: $leading_ltf,
+    rehydration_policy: $rehydration_policy,
+    replay_clean_lane: $replay_clean_lane,
     tags: $tags,
     config_override: (if ($config_override | type) == "object" and ($config_override | length) > 0 then $config_override else empty end)
   }')
@@ -890,7 +935,7 @@ if $KEEP_OPEN_AT_END; then
   echo "=== Keeping open positions at replay end (--keep-open-at-end enabled) ==="
 else
   echo "=== Closing open positions at replay end ($END_DATE) ==="
-  CLOSE_RESULT=$(curl -s -m 120 -X POST "$API_BASE/timed/admin/close-replay-positions?date=$END_DATE&key=$API_KEY" 2>&1)
+  CLOSE_RESULT=$(curl -s -m 120 -X POST "$API_BASE/timed/admin/close-replay-positions?date=$END_DATE&runId=$RUN_ID&key=$API_KEY" 2>&1)
   CLOSED_COUNT=$(echo "$CLOSE_RESULT" | jq -r '.closed // 0' 2>/dev/null || echo "0")
   echo "Closed $CLOSED_COUNT open positions at $END_DATE market close"
 fi
