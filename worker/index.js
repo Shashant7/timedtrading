@@ -3,6 +3,25 @@ import { DASHBOARD_HTML } from "./dashboard-html.js";
 export { PriceHub } from "./price-hub.js";
 export { AlpacaStream } from "./alpaca-stream.js";
 export { PriceStream } from "./price-stream.js";
+export { BacktestRunner } from "./backtest-runner-do.js";
+import { parseCandleReplayRequest } from "./backtest-runner-contracts.js";
+import { createReplayExecutors } from "./replay-executors.js";
+import { handleCandleReplayRoute, handleIntervalReplayRoute } from "./replay-route-handlers.js";
+import {
+  REPLAY_DA_KEYS,
+  loadReplayConfigValue,
+  loadReplayRuntimeConfig,
+  loadReplayScopedTrades,
+  loadReplayTickerState,
+  loadReplayTickerProfiles,
+  prepareCandleReplayBatch,
+} from "./replay-runtime-setup.js";
+import { prepareCandleReplayRuntime } from "./replay-candle-prep.js";
+import { executeCandleReplayBatches } from "./replay-candle-batches.js";
+import { createCandleReplayStep } from "./replay-candle-step.js";
+import { createIntervalReplayStep } from "./replay-interval-step.js";
+import { closeReplayPositionsAtDate, parseQueryBool, resetReplayState } from "./replay-admin-helpers.js";
+import { finalizeBacktestRun, validateSentinelBasket } from "./backtest-run-archive-helpers.js";
 import {
   kvGetJSON,
   kvPutJSON,
@@ -220,6 +239,128 @@ registerExitEngine("tt_core", { evaluateExit: ttCoreEvaluateExit });
 registerExitEngine("ripster_core", { evaluateExit: ripsterEvaluateExit });
 registerExitEngine("legacy", { evaluateExit: legacyEvaluateExit });
 
+let _replayExecutorRuntime = null;
+
+export function getReplayExecutorRuntime() {
+  if (_replayExecutorRuntime) return _replayExecutorRuntime;
+
+  const applyReplayRuntimeCaches = ({ calibratedTPTiers, dynamicEngineRules, referenceExecutionMap, scenarioExecutionPolicy } = {}) => {
+    if (calibratedTPTiers) _calibratedTPTiers = calibratedTPTiers;
+    _dynamicEngineRulesCache = dynamicEngineRules || null;
+    _referenceExecutionMapCache = referenceExecutionMap || null;
+    _scenarioExecutionPolicyCache = scenarioExecutionPolicy || null;
+  };
+
+  const runCandleReplayStepImpl = createCandleReplayStep({
+    sendJSON,
+    corsHeaders,
+    parseCandleReplayRequest,
+    SECTOR_MAP,
+    normalizeTfKey,
+    nyWallTimeToUtcMs,
+    prepareCandleReplayBatch,
+    loadRunManifest,
+    buildReplayTradeScope,
+    isRunManifestCleanLane,
+    kvPutJSON,
+    d1GetCandlesAllTfs,
+    kvGetJSON,
+    d1EnsureBacktestRunsSchema,
+    sanitizeReplayTradesForScope,
+    loadReplayScopedTrades,
+    loadReplayTickerState,
+    REPLAY_TRADES_KV_KEY,
+    loadReplayRuntimeConfig,
+    applyReplayRuntimeCaches,
+    prepareCandleReplayRuntime,
+    loadReplayConfigValue,
+    CARTER_OFFENSE_SECTORS,
+    CARTER_DEFENSE_SECTORS,
+    loadReplayTickerProfiles,
+    executeCandleReplayBatches,
+    computeTfBundle,
+    normalizeLearnedTickerProfile,
+    assembleTickerData,
+    computeTDSequentialMultiTF,
+    computeRR,
+    computeRank,
+    computeRRWarning,
+    computeMoveStatus,
+    shouldCaptureReplayTargetSnapshot,
+    buildReplayTargetSnapshot,
+    shouldCaptureReplayTargetTimeline,
+    classifyKanbanStage,
+    qualifiesForEnter,
+    sideFromStateOrScores,
+    deriveKanbanMeta,
+    processTradeSimulation,
+    isoToMs,
+    isOpenTradeStatus,
+    buildReplayCloudDebug,
+    d1UpsertTickerLatest,
+    d1UpsertTrade,
+    d1StampRunIdForTrades,
+    d1ArchiveRunTrade,
+    d1InsertPosition,
+    clearReplayRunningMarker,
+    runInvestorDailyReplay,
+    snapshotBothPortfolios,
+  });
+
+  const runIntervalReplayStepImpl = createIntervalReplayStep({
+    sendJSON,
+    corsHeaders,
+    kvPutJSON,
+    REPLAY_TRADES_KV_KEY,
+    loadRunManifest,
+    buildReplayTradeScope,
+    loadReplayRuntimeConfig,
+    applyReplayRuntimeCaches,
+    loadReplayTickerProfiles,
+    isRunManifestCleanLane,
+    loadReplayScopedTrades,
+    kvGetJSON,
+    d1EnsureBacktestRunsSchema,
+    sanitizeReplayTradesForScope,
+    d1GetCandlesAllTfs,
+    loadReplayTickerState,
+    normalizeLearnedTickerProfile,
+    computeServerSideScores,
+    computeRank,
+    computeRR,
+    computeRRWarning,
+    computeMoveStatus,
+    qualifiesForEnter,
+    classifyKanbanStage,
+    sideFromStateOrScores,
+    deriveKanbanMeta,
+    processTradeSimulation,
+    slimPayloadForD1,
+    minimalPayloadForD1,
+    d1UpsertTrade,
+    d1StampRunIdForTrades,
+    d1ArchiveRunTrade,
+    clearReplayRunningMarker,
+    runInvestorDailyReplay,
+    snapshotBothPortfolios,
+    _semanticToleranceOptions,
+    _parseJsonObjectMaybe,
+    _criteriaFingerprintCompare,
+    _runtimeCriteriaFingerprintFromTrade,
+    isoToMs,
+    isOpenTradeStatus,
+    nyWallTimeToUtcMs,
+    normalizeTfKey,
+    SECTOR_MAP,
+  });
+
+  _replayExecutorRuntime = createReplayExecutors({
+    runCandleReplayStepImpl,
+    runIntervalReplayStepImpl,
+  });
+  return _replayExecutorRuntime;
+}
+
 // ─── PriceHub DO notification helper ───────────────────────────────────────
 // Fire-and-forget POST to the Durable Object to fan out data to WS clients.
 // Always non-blocking (wrapped in ctx.waitUntil) and failure-tolerant.
@@ -352,6 +493,12 @@ async function dataStreamStop(env) {
 }
 async function dataStreamStatus(env) {
   return _usesTwelveData(env) ? priceStreamStatus(env) : alpacaStreamStatus(env);
+}
+
+function getBacktestRunnerStub(env) {
+  if (!env?.BACKTEST_RUNNER) return null;
+  const id = env.BACKTEST_RUNNER.idFromName("global");
+  return env.BACKTEST_RUNNER.get(id);
 }
 
 async function dataFetchSnapshots(env, symbols) {
@@ -610,6 +757,11 @@ const ROUTES = [
   ["POST", "/timed/admin/replay-lock", "POST /timed/admin/replay-lock"],
   ["GET", "/timed/admin/replay-lock", "GET /timed/admin/replay-lock"],
   ["DELETE", "/timed/admin/replay-lock", "DELETE /timed/admin/replay-lock"],
+  ["POST", "/timed/admin/backtests/start", "POST /timed/admin/backtests/start"],
+  ["POST", "/timed/admin/backtests/cancel", "POST /timed/admin/backtests/cancel"],
+  ["GET", "/timed/admin/backtests/status", "GET /timed/admin/backtests/status"],
+  ["GET", "/timed/admin/backtests/logs", "GET /timed/admin/backtests/logs"],
+  ["GET", "/timed/admin/backtests/artifacts", "GET /timed/admin/backtests/artifacts"],
   ["POST", "/timed/admin/runs/register", "POST /timed/admin/runs/register"],
   ["POST", "/timed/admin/runs/finalize", "POST /timed/admin/runs/finalize"],
   ["POST", "/timed/admin/runs/mark-live", "POST /timed/admin/runs/mark-live"],
@@ -19932,20 +20084,25 @@ function shouldTraceRankBreakdown(d) {
   const ticker = String(d?.ticker || d?.sym || "").toUpperCase();
   const ts = Number(d?.ts ?? d?.ingest_ts ?? 0);
   return (ticker === "RIOT" && ts === 1759345200000)
-    || (ticker === "FIX" && ts === 1759501800000);
+    || (ticker === "FIX" && ts === 1759501800000)
+    || (ticker === "AGQ" && ts === 1760449500000)
+    || (ticker === "AGQ" && ts === 1760460000000);
 }
 
 function shouldCaptureReplayTargetSnapshot(ticker, ts) {
   const sym = String(ticker || "").toUpperCase();
   const targetTs = Number(ts);
   return (sym === "RIOT" && targetTs === 1759345200000)
-    || (sym === "FIX" && targetTs === 1759501800000);
+    || (sym === "FIX" && targetTs === 1759501800000)
+    || (sym === "AGQ" && targetTs === 1760449500000)
+    || (sym === "AGQ" && targetTs === 1760460000000);
 }
 
 function shouldCaptureReplayTargetTimeline(dateKey, ticker) {
   const sym = String(ticker || "").toUpperCase();
   return (dateKey === "2025-10-01" && sym === "RIOT")
-    || (dateKey === "2025-10-03" && sym === "FIX");
+    || (dateKey === "2025-10-03" && sym === "FIX")
+    || (dateKey === "2025-10-14" && sym === "AGQ");
 }
 
 function buildReplayTargetSnapshot(result, extra = {}) {
@@ -23032,328 +23189,6 @@ async function loadRunConfigMap(db, runId) {
   } catch {
     return null;
   }
-}
-
-const REPLAY_DA_KEYS = [
-  "deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_doa_early_exit_enabled", "deep_audit_confirmed_min_rank", "deep_audit_parity_defer_confirmed_opening_minutes", "deep_audit_legacy_momentum_precedence", "deep_audit_legacy_momentum_min_rr", "deep_audit_legacy_momentum_relax_trigger", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "deep_audit_hard_loss_cap_pct", "deep_audit_breakeven_mfe_threshold", "deep_audit_breakeven_skip_trimmed_runner", "deep_audit_parity_runner_tp_full_only", "deep_audit_parity_skip_stall_force_close", "deep_audit_parity_skip_sl_breach", "deep_audit_parity_no_reentry_after_tp_full_hours", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist", "ai_cio_enabled", "ai_cio_replay_enabled", "ai_cio_reference_enabled", "short_min_rank", "short_require_daily_st_aligned", "short_min_4h_ema_depth", "min_entry_confidence", "entry_ticker_blacklist", "choppy_regime_rank_floor", "tt_spy_directional_gate", "tt_pdz_hard_gate", "deep_audit_phase_peak_extreme", "deep_audit_phase_decline_extreme", "deep_audit_bias_spread_min",
-  // Keys added for GRNY deferral iterations and v6 config parity
-  "smart_runner_td_exhaustion_support_hold_enabled", "deep_audit_phase_leave_runner_trail_atr_mult", "deep_audit_min_minutes_since_entry_before_exit_min", "deep_audit_phase_decline_distrib", "deep_audit_phase_peak_distrib", "deep_audit_peak_reaction_lock_enabled", "deep_audit_pre_earnings_entry_block_enabled", "deep_audit_pullback_bull_state_ltf_conflict_guard_enabled", "deep_audit_pullback_bull_state_ltf_conflict_avg_bias_max", "deep_audit_pullback_min_bearish_count", "deep_audit_pullback_selective_enabled", "deep_audit_pullback_non_prime_min_rank", "deep_audit_pullback_prime_min_rank", "deep_audit_continuation_trigger_enabled", "deep_audit_continuation_trigger_include_tickers", "deep_audit_continuation_trigger_min_rank", "deep_audit_continuation_trigger_max_completion", "deep_audit_continuation_trigger_max_phase", "deep_audit_repeat_churn_guard_enabled", "deep_audit_repeat_churn_guard_include_tickers", "deep_audit_runner_stale_force_close_hours", "deep_audit_ripster_chase_dist_to_cloud_pct", "deep_audit_ripster_chase_rsi10_long", "deep_audit_ripster_chase_rsi30_long", "deep_audit_ripster_momentum_heat_rsi30", "deep_audit_ripster_momentum_heat_rsi1h", "deep_audit_ripster_pullback_trigger_noise_max_loss_pct", "deep_audit_ripster_trigger_noise_max_loss_pct", "deep_audit_reference_exact_entry_leniency", "deep_audit_reference_exact_tolerance_minutes", "deep_audit_swing_checklist_v1", "deep_audit_swing_phase_early_max", "deep_audit_swing_phase_near_zero_abs", "deep_audit_swing_require_squeeze_build", "deep_audit_variant_guardrails_v3", "deep_audit_variant_max_loss_pct", "deep_audit_variant_min_rank", "deep_audit_variant_min_rr", "deep_audit_variant_regime_exit_min_age_min", "deep_audit_agq_pullback_exception_enabled", "deep_audit_agq_pullback_exception_include_tickers", "deep_audit_agq_pullback_weak_consensus_avg_bias_max", "deep_audit_agq_pullback_late_filled_gap_min_bars_since_open", "deep_audit_agq_pullback_late_filled_gap_entry_quality_max", "golden_julaug_reference_run_id", "live_config_run_id", "member_ticker_list", "consensus_signal_weights", "consensus_tf_weights", "scoring_weight_adj",
-];
-
-async function loadRunConfigSubset(db, runId, keys = []) {
-  const rid = String(runId || "").trim();
-  if (!db || !rid || !Array.isArray(keys) || keys.length === 0) return null;
-  try {
-    const uniqKeys = [...new Set(keys.map((key) => String(key || "").trim()).filter(Boolean))];
-    if (!uniqKeys.length) return null;
-    const placeholders = uniqKeys.map((_, idx) => `?${idx + 2}`).join(",");
-    const rows = (await db.prepare(
-      `SELECT config_key, config_value
-         FROM backtest_run_config
-        WHERE run_id = ?1
-          AND config_key IN (${placeholders})`
-    ).bind(rid, ...uniqKeys).all())?.results || [];
-    if (!rows.length) return null;
-    const out = {};
-    for (const row of rows) out[row.config_key] = row.config_value;
-    return out;
-  } catch {
-    return null;
-  }
-}
-
-async function loadActiveExperimentRunId(db) {
-  if (!db) return null;
-  try {
-    const row = await db.prepare(
-      `SELECT run_id
-         FROM backtest_runs
-        WHERE active_experiment_slot = 1
-        ORDER BY updated_at DESC, created_at DESC
-        LIMIT 1`
-    ).first();
-    return String(row?.run_id || "").trim() || null;
-  } catch {
-    return null;
-  }
-}
-
-async function resolveReplayPinnedConfig(db, replayLockVal, keys = [], opts = {}) {
-  const logPrefix = String(opts?.logPrefix || "[REPLAY]");
-  const lockRunId = String(replayLockVal || "").trim() || null;
-  if (lockRunId) {
-    const lockConfig = await loadRunConfigSubset(db, lockRunId, keys);
-    if (lockConfig && Object.keys(lockConfig).length > 0) {
-      return { runId: lockRunId, config: lockConfig, source: "lock" };
-    }
-  }
-
-  const activeRunId = await loadActiveExperimentRunId(db);
-  if (activeRunId && activeRunId !== lockRunId) {
-    const activeConfig = await loadRunConfigSubset(db, activeRunId, keys);
-    if (activeConfig && Object.keys(activeConfig).length > 0) {
-      console.warn(`${logPrefix} Falling back to active experiment slot config from ${activeRunId}`);
-      return { runId: activeRunId, config: activeConfig, source: "active_experiment_slot" };
-    }
-  }
-
-  return { runId: lockRunId, config: null, source: "live_fallback" };
-}
-
-function replayConfigHasKey(runConfig, key) {
-  return !!runConfig && Object.prototype.hasOwnProperty.call(runConfig, key);
-}
-
-async function loadModelConfigValue(db, key) {
-  if (!db || !key) return null;
-  try {
-    const row = await db.prepare(`SELECT config_value FROM model_config WHERE config_key = ?1`).bind(String(key)).first();
-    return row?.config_value ?? null;
-  } catch {
-    return null;
-  }
-}
-
-async function loadReplayConfigValue(db, runConfig, key, opts = {}) {
-  const allowLiveFallback = opts.allowLiveFallback !== false;
-  const warnPrefix = opts.warnPrefix || "[REPLAY]";
-  if (replayConfigHasKey(runConfig, key)) return runConfig[key];
-  if (runConfig && !allowLiveFallback) {
-    console.warn(`${warnPrefix} Missing pinned config key ${String(key)}; live fallback disabled`);
-    return null;
-  }
-  return loadModelConfigValue(db, key);
-}
-
-async function summarizeRunMetrics(db, runId) {
-  const rid = String(runId || "").trim();
-  if (!rid) return null;
-  let tradeTable = "trades";
-  try {
-    const archivedRow = await db.prepare(`SELECT COUNT(*) AS cnt FROM backtest_run_trades WHERE run_id = ?1`).bind(rid).first();
-    if (Number(archivedRow?.cnt || 0) > 0) tradeTable = "backtest_run_trades";
-  } catch {}
-  const runFilter = tradeTable === "backtest_run_trades" ? `WHERE run_id = ?1` : `WHERE run_id = ?1`;
-  const totals = await db.prepare(
-    `SELECT
-      COUNT(*) AS total_trades,
-      COUNT(DISTINCT ticker) AS total_tickers_traded,
-      SUM(CASE WHEN status='WIN' THEN 1 ELSE 0 END) AS wins,
-      SUM(CASE WHEN status='LOSS' THEN 1 ELSE 0 END) AS losses,
-      SUM(CASE WHEN status='FLAT' THEN 1 ELSE 0 END) AS breakevens,
-      SUM(CASE WHEN status='OPEN' OR status='TP_HIT_TRIM' THEN 1 ELSE 0 END) AS open_trades,
-      SUM(CASE WHEN status IN ('WIN','LOSS','FLAT') THEN 1 ELSE 0 END) AS closed_trades,
-      SUM(CASE WHEN status IN ('WIN','LOSS','FLAT') THEN COALESCE(pnl,0) ELSE 0 END) AS realized_pnl,
-      AVG(CASE WHEN status='WIN' THEN COALESCE(pnl_pct,0) ELSE NULL END) AS avg_win_pct,
-      AVG(CASE WHEN status='LOSS' THEN COALESCE(pnl_pct,0) ELSE NULL END) AS avg_loss_pct
-     FROM ${tradeTable} ${runFilter}`
-  ).bind(rid).first();
-
-  let classifications = {};
-  try {
-    const classRows = await db.prepare(
-      `SELECT COALESCE(NULLIF(a.classification,''), 'unclassified') AS classification, COUNT(*) AS count
-       FROM ${tradeTable} t LEFT JOIN trade_autopsy_annotations a ON a.trade_id = t.trade_id
-       WHERE t.run_id = ?1 GROUP BY classification ORDER BY count DESC`
-    ).bind(rid).all();
-    for (const r of (classRows?.results || [])) classifications[String(r.classification || "unclassified")] = Number(r.count || 0);
-  } catch {}
-
-  let byStatus = {};
-  try {
-    const statusRows = await db.prepare(
-      `SELECT COALESCE(status,'UNKNOWN') AS status, COUNT(*) AS count FROM ${tradeTable} WHERE run_id = ?1 GROUP BY status ORDER BY count DESC`
-    ).bind(rid).all();
-    for (const r of (statusRows?.results || [])) byStatus[String(r.status || "UNKNOWN")] = Number(r.count || 0);
-  } catch {}
-
-  const wins = Number(totals?.wins || 0);
-  const losses = Number(totals?.losses || 0);
-  const closedTrades = Number(totals?.closed_trades || 0);
-  const winRate = closedTrades > 0 ? (wins / closedTrades) * 100 : 0;
-  return {
-    run_id: rid,
-    total_tickers_traded: Number(totals?.total_tickers_traded || 0),
-    total_trades: Number(totals?.total_trades || 0),
-    wins, losses,
-    breakevens: Number(totals?.breakevens || 0),
-    open_trades: Number(totals?.open_trades || 0),
-    closed_trades: closedTrades,
-    win_rate: winRate,
-    realized_pnl: Number(totals?.realized_pnl || 0),
-    realized_pnl_pct: 0,
-    avg_win_pct: Number(totals?.avg_win_pct || 0),
-    avg_loss_pct: Number(totals?.avg_loss_pct || 0),
-    classifications_json: JSON.stringify(classifications),
-    by_status_json: JSON.stringify(byStatus),
-    autopsy_url: buildTradeAutopsyRunUrl(rid),
-  };
-}
-
-const SENTINEL_BASKET_V1 = ["RIOT", "GRNY", "FIX", "SOFI", "CSCO", "SWK"];
-
-async function resolveSentinelReferenceRunId(db, candidateRunId) {
-  const candidate = String(candidateRunId || "").trim();
-  if (!db || !candidate) return null;
-  try {
-    const live = await db.prepare(
-      `SELECT run_id
-         FROM backtest_runs
-        WHERE live_config_slot = 1
-          AND run_id != ?1
-        ORDER BY updated_at DESC
-        LIMIT 1`
-    ).bind(candidate).first();
-    if (live?.run_id) return String(live.run_id);
-  } catch {}
-  try {
-    const protectedRow = await db.prepare(
-      `SELECT run_id
-         FROM backtest_runs
-        WHERE is_protected_baseline = 1
-          AND run_id != ?1
-        ORDER BY COALESCE(ended_at, updated_at, created_at) DESC
-        LIMIT 1`
-    ).bind(candidate).first();
-    if (protectedRow?.run_id) return String(protectedRow.run_id);
-  } catch {}
-  try {
-    const latestCompleted = await db.prepare(
-      `SELECT run_id
-         FROM backtest_runs
-        WHERE status = 'completed'
-          AND run_id != ?1
-        ORDER BY COALESCE(ended_at, updated_at, created_at) DESC
-        LIMIT 1`
-    ).bind(candidate).first();
-    if (latestCompleted?.run_id) return String(latestCompleted.run_id);
-  } catch {}
-  return null;
-}
-
-async function loadRunTradesForValidation(db, runId) {
-  const rid = String(runId || "").trim();
-  if (!db || !rid) return [];
-  let rows = [];
-  try {
-    rows = (await db.prepare(
-      `SELECT * FROM backtest_run_trades WHERE run_id = ?1 ORDER BY entry_ts ASC`
-    ).bind(rid).all())?.results || [];
-  } catch {}
-  if (rows.length === 0) {
-    try {
-      rows = (await db.prepare(
-        `SELECT * FROM trades WHERE run_id = ?1 ORDER BY entry_ts ASC`
-      ).bind(rid).all())?.results || [];
-    } catch {}
-  }
-  return rows.map((r) => ({
-    trade_id: r.trade_id || null,
-    ticker: String(r.ticker || "").toUpperCase(),
-    direction: String(r.direction || "").toUpperCase(),
-    entry_ts: Number(r.entry_ts || 0) || 0,
-    exit_ts: Number(r.exit_ts || 0) || 0,
-    entry_price: Number(r.entry_price || 0) || 0,
-    exit_price: Number(r.exit_price || 0) || 0,
-    status: String(r.status || "").toUpperCase(),
-    exit_reason: r.exit_reason || null,
-    pnl: Number(r.pnl || 0) || 0,
-    pnl_pct: Number(r.pnl_pct || 0) || 0,
-    trimmed_pct: Number(r.trimmed_pct || 0) || 0,
-  }));
-}
-
-function buildSentinelTradeSummary(trades) {
-  const wins = trades.filter((t) => t.status === "WIN").length;
-  const losses = trades.filter((t) => t.status === "LOSS").length;
-  const open = trades.filter((t) => t.status === "OPEN" || t.status === "TP_HIT_TRIM").length;
-  return {
-    trade_count: trades.length,
-    wins,
-    losses,
-    open,
-    total_pnl: Math.round(trades.reduce((sum, t) => sum + (Number(t.pnl) || 0), 0) * 100) / 100,
-    exit_reasons: [...new Set(trades.map((t) => String(t.exit_reason || "").trim()).filter(Boolean))],
-  };
-}
-
-function buildSentinelValidationArtifact(candidateRunId, referenceRunId, candidateTrades, referenceTrades, basket = SENTINEL_BASKET_V1) {
-  const tickers = [...new Set((Array.isArray(basket) ? basket : []).map((t) => String(t || "").trim().toUpperCase()).filter(Boolean))];
-  const sentinels = [];
-  let totalMatchedPairs = 0;
-  let totalMissingInCandidate = 0;
-  let totalExtraInCandidate = 0;
-  let totalPnlDelta = 0;
-
-  for (const ticker of tickers) {
-    const candidateTickerTrades = candidateTrades.filter((t) => t.ticker === ticker).sort((a, b) => a.entry_ts - b.entry_ts);
-    const referenceTickerTrades = referenceTrades.filter((t) => t.ticker === ticker).sort((a, b) => a.entry_ts - b.entry_ts);
-    const matchedCount = Math.min(candidateTickerTrades.length, referenceTickerTrades.length);
-    const comparisons = [];
-    for (let i = 0; i < matchedCount; i++) {
-      const c = candidateTickerTrades[i];
-      const r = referenceTickerTrades[i];
-      const entryDeltaMin = c.entry_ts > 0 && r.entry_ts > 0 ? Math.round((c.entry_ts - r.entry_ts) / 60000) : null;
-      const exitDeltaMin = c.exit_ts > 0 && r.exit_ts > 0 ? Math.round((c.exit_ts - r.exit_ts) / 60000) : null;
-      const pnlDelta = Math.round((((Number(c.pnl) || 0) - ((Number(r.pnl) || 0))) * 100)) / 100;
-      comparisons.push({
-        index: i + 1,
-        candidate_trade_id: c.trade_id,
-        reference_trade_id: r.trade_id,
-        candidate_status: c.status,
-        reference_status: r.status,
-        entry_delta_min: entryDeltaMin,
-        exit_delta_min: exitDeltaMin,
-        pnl_delta: pnlDelta,
-        candidate_exit_reason: c.exit_reason || null,
-        reference_exit_reason: r.exit_reason || null,
-        exit_reason_changed: String(c.exit_reason || "") !== String(r.exit_reason || ""),
-      });
-    }
-    const candidateSummary = buildSentinelTradeSummary(candidateTickerTrades);
-    const referenceSummary = buildSentinelTradeSummary(referenceTickerTrades);
-    const tradeCountDelta = candidateSummary.trade_count - referenceSummary.trade_count;
-    const pnlDelta = Math.round((candidateSummary.total_pnl - referenceSummary.total_pnl) * 100) / 100;
-    totalMatchedPairs += matchedCount;
-    totalMissingInCandidate += Math.max(0, referenceTickerTrades.length - candidateTickerTrades.length);
-    totalExtraInCandidate += Math.max(0, candidateTickerTrades.length - referenceTickerTrades.length);
-    totalPnlDelta += pnlDelta;
-    sentinels.push({
-      ticker,
-      candidate: candidateSummary,
-      reference: referenceSummary,
-      diff: {
-        trade_count_delta: tradeCountDelta,
-        total_pnl_delta: pnlDelta,
-        missing_in_candidate: Math.max(0, referenceTickerTrades.length - candidateTickerTrades.length),
-        extra_in_candidate: Math.max(0, candidateTickerTrades.length - referenceTickerTrades.length),
-        matched_pairs: matchedCount,
-        comparisons,
-      },
-    });
-  }
-
-  return {
-    artifact_type: "sentinel_basket_v1",
-    run_id: candidateRunId,
-    reference_run_id: referenceRunId,
-    basket: tickers,
-    compared_at: Date.now(),
-    summary: {
-      matched_pairs: totalMatchedPairs,
-      missing_in_candidate: totalMissingInCandidate,
-      extra_in_candidate: totalExtraInCandidate,
-      total_pnl_delta: Math.round(totalPnlDelta * 100) / 100,
-      candidate_trade_count: candidateTrades.filter((t) => tickers.includes(t.ticker)).length,
-      reference_trade_count: referenceTrades.filter((t) => tickers.includes(t.ticker)).length,
-    },
-    sentinels,
-    gate: {
-      ok: true,
-      status: "ok",
-      reason: "artifact_generated",
-    },
-  };
 }
 
 let _learningSchemaReady = false;
@@ -43847,2037 +43682,29 @@ export default {
         }
       }
 
-      // POST /timed/admin/candle-replay
-      // Pure candle-based replay: generates scoring snapshots from Alpaca historical
-      // candle data (no trail/webhook dependency). Pre-loads candles into memory,
-      // then slides through 5-min intervals computing scores + running trade sim.
-      //
-      // Params:
-      //   date=YYYY-MM-DD       (required) trading day to replay
-      //   tickerOffset=0        batch start index into SECTOR_MAP
-      //   tickerBatch=15        tickers per invocation
-      //   intervalMinutes=5     interval between scoring snapshots
-      //   cleanSlate=1          purge all trades first (only on first batch of first day)
-      //   disableReferenceExecution=1  ignore reference execution assists for raw engine validation
-      // ═══════════════════════════════════════════════════════════════════════════
+      const {
+        executeCandleReplayStep,
+        executeIntervalReplayStep,
+      } = getReplayExecutorRuntime();
+
       if (routeKey === "POST /timed/admin/candle-replay") {
-        const authFail = await requireKeyOrAdmin(req, env);
-        if (authFail) return authFail;
-
-        const db = env?.DB;
-        if (!db) return sendJSON({ ok: false, error: "no_db_binding" }, 500, corsHeaders(env, req));
-        const body = await req.json().catch(() => ({}));
-        const directConfigOverride = body?.config_override && typeof body.config_override === "object" && !Array.isArray(body.config_override)
-          ? body.config_override
-          : null;
-
-        const dateParam = url.searchParams.get("date");
-        if (!dateParam || !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
-          return sendJSON({ ok: false, error: "date param required (YYYY-MM-DD)" }, 400, corsHeaders(env, req));
-        }
-
-        const fullDay = url.searchParams.get("fullDay") === "1";
-        let tickerOffset = fullDay ? 0 : (Math.max(0, Number(url.searchParams.get("tickerOffset")) || 0));
-        const tickerBatch = Math.max(1, Math.min(80, Number(url.searchParams.get("tickerBatch")) || 15));
-        const intervalMinutes = Math.max(1, Math.min(30, Number(url.searchParams.get("intervalMinutes")) || 10));
-        const cleanSlate = url.searchParams.get("cleanSlate") === "1";
-        const freshRun = url.searchParams.get("freshRun") === "1";
-        const disableReferenceExecution = url.searchParams.get("disableReferenceExecution") === "1"
-          || (url.searchParams.get("enableReferenceExecution") !== "1" && (freshRun || cleanSlate));
-        const trailOnly = url.searchParams.get("trailOnly") === "1";
-        const skipTrail = url.searchParams.get("skipTrail") === "1" || url.searchParams.get("skipTrailWrite") === "1" || url.searchParams.get("lowWrite") === "1";
-        const skipInvestor = url.searchParams.get("skipInvestor") === "1" || url.searchParams.get("traderOnly") === "1";
-        const skipPayload = url.searchParams.get("skipPayload") !== "0"; // default ON: skip heavy payload_json to avoid timeout
-        const debugTimeline = url.searchParams.get("debugTimeline") === "1";
-        const tickerFilter = url.searchParams.get("tickers"); // comma-separated filter
-        const replayEnv = { ...env, _isReplay: true };
-        for (const overrideKey of ["LEADING_LTF", "TT_EXIT_DEBOUNCE_BARS", "TT_TUNE_V2", "RIPSTER_TUNE_V2", "ENTRY_ENGINE", "MANAGEMENT_ENGINE"]) {
-          const overrideValue = url.searchParams.get(overrideKey);
-          if (overrideValue != null && overrideValue !== "") replayEnv[overrideKey] = overrideValue;
-        }
-        const replayLeadingLtf = normalizeTfKey(replayEnv.LEADING_LTF || "10") || "10";
-
-        let allTickers;
-        if (tickerFilter) {
-          allTickers = tickerFilter.split(",").map(t => t.trim().toUpperCase()).filter(Boolean);
-        } else {
-          allTickers = Object.keys(SECTOR_MAP);
-        }
-        // Ensure SPY is always first so market regime is available for all other tickers
-        const spyIdx = allTickers.indexOf("SPY");
-        if (spyIdx > 0) { allTickers.splice(spyIdx, 1); allTickers.unshift("SPY"); }
-
-        // Market hours: 9:30 AM to 4:00 PM ET
-        const marketOpenMs = nyWallTimeToUtcMs(dateParam, 9, 30, 0);
-        const marketCloseMs = nyWallTimeToUtcMs(dateParam, 16, 0, 0);
-        if (!marketOpenMs || !marketCloseMs) {
-          return sendJSON({ ok: false, error: "failed_to_compute_market_hours" }, 500, corsHeaders(env, req));
-        }
-
-        const intervalMs = intervalMinutes * 60 * 1000;
-        const intervals = [];
-        for (let ts = marketOpenMs; ts <= marketCloseMs; ts += intervalMs) {
-          intervals.push(ts);
-        }
-
-        let dayScored = 0, dayTradesCreated = 0, daySkipped = 0, dayD1State = 0, dayTrailWritten = 0;
-        const dayErrors = [];
-        const mergedStageCounts = {};
-        const mergedBlockReasons = {};
-
-        while (true) {
-        const batchTickers = allTickers.slice(tickerOffset, tickerOffset + tickerBatch);
-        const hasMore = tickerOffset + tickerBatch < allTickers.length;
-
-        if (batchTickers.length === 0) {
-          return sendJSON({ ok: true, processed: 0, hasMore: false, message: "no_tickers_in_batch", fullDay: !!fullDay }, 200, corsHeaders(env, req));
-        }
-
-        // Set replay-running lock (prevents live scoring cron from overwriting replay trades)
-        const replayLockVal = await KV.get("timed:replay:lock") || null;
-        const replayConfigRunHint = String(url.searchParams.get("runId") || "").trim() || replayLockVal || null;
-        const replayManifest = replayLockVal ? await loadRunManifest(db, replayLockVal) : null;
-        const replayTradeScope = buildReplayTradeScope(replayManifest);
-        const cleanReplayLane = !!(freshRun || cleanSlate || isRunManifestCleanLane(replayManifest));
-        await kvPutJSON(KV, "timed:replay:running", { since: Date.now(), date: dateParam, offset: tickerOffset, fullDay: !!fullDay });
-
-        // Clean slate: purge working-state tables (KV + D1) for a fresh run.
-        // ╔══════════════════════════════════════════════════════════════════════╗
-        // ║  PROTECTED — NEVER delete from these archive/learning tables:      ║
-        // ║  backtest_run_trades, backtest_run_direction_accuracy,              ║
-        // ║  backtest_run_annotations, backtest_run_config, backtest_runs,      ║
-        // ║  direction_accuracy, trade_autopsy_annotations                      ║
-        // ╚══════════════════════════════════════════════════════════════════════╝
-        if (cleanSlate && tickerOffset === 0) {
-          await kvPutJSON(KV, "timed:trades:all", []);
-          await kvPutJSON(KV, REPLAY_TRADES_KV_KEY, []);
-          await kvPutJSON(KV, "timed:portfolio:v1", null);
-          await kvPutJSON(KV, "timed:activity:feed", null);
-          await Promise.allSettled(
-            allTickers.map((ticker) => KV.delete(`timed:latest:${ticker}`))
-          );
-
-          if (db) {
-            try {
-              await db.batch([
-                db.prepare("DELETE FROM trade_events"),
-                db.prepare("DELETE FROM trades"),
-              ]);
-              console.log("[REPLAY cleanSlate] Purged D1 trade_events + trades (archive tables preserved)");
-            } catch (d1Err) {
-              console.warn("[REPLAY cleanSlate] D1 trades purge error:", String(d1Err?.message || d1Err).slice(0, 200));
-            }
-            for (const tbl of ["positions", "execution_actions", "lots", "alerts", "ticker_latest", "account_ledger", "investor_positions", "investor_lots", "portfolio_snapshots"]) {
-              try {
-                await db.prepare(`DELETE FROM ${tbl}`).run();
-              } catch { /* table may not exist */ }
-            }
-          }
-        }
-
-        // Pre-load all candles for batch tickers (all 7 TFs) in parallel
-        // CRITICAL: Use beforeTs = market close of replay date so we only load
-        // candles up to this date. Without this, d1GetCandlesAllTfs returns the
-        // latest 1500 candles (e.g. from Dec 2025+) which are ALL after a Jul 2025
-        // replay date, causing ltf_score=0 and zero trades.
-        const REPLAY_TFS = [...new Set(["M", "W", "D", "240", "60", "30", "15", "10", replayLeadingLtf])];
-        const REPLAY_TF_LIMITS = { M: 200, W: 300, D: 600, "240": 600, "60": 600, "30": 600, "15": 600, "10": 500 };
-        const candleCache = {}; // { TICKER: { TF: [candles sorted asc by ts] } }
-
-        await Promise.all(
-          batchTickers.map(async (ticker) => {
-            candleCache[ticker] = {};
-            try {
-              const tfConfigs = REPLAY_TFS.map(tf => ({ tf, limit: REPLAY_TF_LIMITS[tf] || 600 }));
-              const batchResult = await d1GetCandlesAllTfs(replayEnv, ticker, tfConfigs, { beforeTs: marketCloseMs });
-              for (const tf of REPLAY_TFS) {
-                const res = batchResult[tf];
-                candleCache[ticker][tf] = (res?.ok && Array.isArray(res.candles)) ? res.candles : [];
-              }
-            } catch {
-              for (const tf of REPLAY_TFS) candleCache[ticker][tf] = [];
-            }
-          })
-        );
-
-        // Load existing trades for trade simulation (KV first, archive fallback)
-        let allTrades = (cleanSlate && tickerOffset === 0) ? [] : ((await kvGetJSON(KV, REPLAY_TRADES_KV_KEY)) || []);
-        // Resume-from-archive: if KV is empty but the run has trades in backtest_run_trades, restore them.
-        // SKIP entirely when freshRun=1 (new backtest, not a resume) or cleanSlate — stale trades from
-        // prior runs or KV eventual consistency can feed loss-streak cooldown and recent-trade gates.
-        if (!cleanReplayLane && (!allTrades || allTrades.length === 0) && replayLockVal && db) {
-          try {
-            await d1EnsureBacktestRunsSchema(env);
-            const { results: archiveRows } = await db.prepare(
-              `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
-                      exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
-                      trim_ts, trim_price, setup_name, setup_grade, risk_budget, shares, notional
-               FROM backtest_run_trades WHERE run_id = ?1`
-            ).bind(replayLockVal).all();
-            if (archiveRows && archiveRows.length > 0) {
-              allTrades = archiveRows.map(r => ({
-                id: r.trade_id, trade_id: r.trade_id, ticker: r.ticker, direction: r.direction,
-                entry_ts: r.entry_ts, entryPrice: r.entry_price, entry_price: r.entry_price,
-                rank: r.rank, rr: r.rr, status: r.status,
-                exit_ts: r.exit_ts, exitPrice: r.exit_price, exit_price: r.exit_price,
-                exitReason: r.exit_reason, exit_reason: r.exit_reason,
-                trimmedPct: r.trimmed_pct, trimmed_pct: r.trimmed_pct,
-                pnl: r.pnl, pnlPct: r.pnl_pct, pnl_pct: r.pnl_pct,
-                trim_ts: r.trim_ts, trim_price: r.trim_price,
-                setupName: r.setup_name, setup_name: r.setup_name,
-                setupGrade: r.setup_grade, setup_grade: r.setup_grade,
-                riskBudget: r.risk_budget, risk_budget: r.risk_budget,
-                shares: r.shares, notional: r.notional,
-                run_id: replayLockVal,
-              }));
-              await kvPutJSON(KV, REPLAY_TRADES_KV_KEY, allTrades);
-              console.log(`[REPLAY RESUME] Restored ${allTrades.length} trades from archive for run ${replayLockVal}`);
-            }
-          } catch (e) {
-            console.warn("[REPLAY RESUME] Archive load failed:", String(e).slice(0, 150));
-          }
-        }
-        const initialReplayTrades = sanitizeReplayTradesForScope(allTrades, replayTradeScope);
-        if (initialReplayTrades.length !== allTrades.length) {
-          console.warn(`[REPLAY SCOPE] Dropped ${allTrades.length - initialReplayTrades.length} out-of-scope trade(s) before ${dateParam}`);
-        }
-        const replayCtx = {
-          allTrades: initialReplayTrades,
-          execStates: new Map(),
-          sessionScoreSeeds: new Map(),
-          processDebug: [],
-          candleCache,
-          _blockedEntries: {},
-          _leadingLtf: replayLeadingLtf,
-          replayTradeScope,
-          strictSingleTickerPosition: cleanReplayLane,
-        };
-        const sanitizeReplayTickerState = (existing) => {
-          if (!existing || typeof existing !== "object") return {};
-          const clean = { ...existing };
-          for (const key of [
-            "_env",
-            "_marketInternals",
-            "_tickerProfile",
-            "__entry_block_reason",
-            "__entry_block_fuel_pct",
-          ]) {
-            delete clean[key];
-          }
-          return clean;
-        };
-        const stripReplayCarryState = (existing) => {
-          if (!existing || typeof existing !== "object") return {};
-          const clean = sanitizeReplayTickerState(existing);
-          for (const key of [
-            "entry_ts",
-            "entry_price",
-            "trigger_ts",
-            "trigger_price",
-            "kanban_stage",
-            "prev_kanban_stage",
-            "prev_kanban_stage_ts",
-            "kanban_meta",
-            "kanban_cycle_enter_now_ts",
-            "kanban_cycle_trigger_ts",
-            "kanban_cycle_side",
-            "move_status",
-            "__entry_block_reason",
-            "__entry_block_fuel_pct",
-            "__position_context",
-          ]) {
-            delete clean[key];
-          }
-          return clean;
-        };
-
-        // State map: track evolving ticker state across intervals
-        // Primary: KV, Fallback: D1 ticker_latest (KV writes can silently fail)
-        const stateMap = {};
-        for (const ticker of batchTickers) {
-          let existing = null;
-          if (!(cleanSlate && tickerOffset === 0)) {
-            existing = await kvGetJSON(KV, `timed:latest:${ticker}`);
-          }
-          if ((!existing || Object.keys(existing).length === 0) && !(cleanSlate && tickerOffset === 0)) {
-            try {
-              const row = await db.prepare(
-                `SELECT payload_json FROM ticker_latest WHERE ticker = ?`
-              ).bind(ticker.toUpperCase()).first();
-              if (row?.payload_json) {
-                existing = JSON.parse(row.payload_json);
-                console.log(`[REPLAY] Loaded state for ${ticker} from D1 (KV was empty)`);
-              }
-            } catch { /* D1 fallback non-critical */ }
-          }
-          stateMap[ticker] = sanitizeReplayTickerState(existing || {});
-        }
-
-        // Load calibration + adaptive config from model_config for replay parity with live cron.
-        // Without this, replay uses default SL/TP, no rank floor, and no adaptive gates.
-        let _replayGoldenProfiles = null;
-        let _replayAdaptiveEntryGates = null;
-        let _replayAdaptiveRegimeGates = null;
-        let _replayAdaptiveSLTP = null;
-        let _replayCalibratedSlAtr = 0;
-        let _replayCalibratedRankMin = 0;
-        let _replayCurrentVix = null;
-        const cfgKeys = [
-          "adaptive_entry_gates",
-          "adaptive_regime_gates",
-          "adaptive_sl_tp",
-          "calibrated_sl_atr",
-          "calibrated_tp_tiers",
-          "calibrated_rank_min",
-          "adaptive_rank_weights",
-        ];
-        const daKeys = REPLAY_DA_KEYS;
-        const replayPinnedConfigKeys = [...new Set([
-          ...cfgKeys,
-          ...daKeys,
-          "dynamic_engine_rules",
-          "reference_execution_map",
-          "scenario_execution_policy",
-          "cio_franchise_blacklist",
-          "cio_reference_features",
-        ])];
-        const replayPinnedConfig = directConfigOverride
-          ? { config: directConfigOverride, runId: replayConfigRunHint || "direct_override", source: "direct_override" }
-          : await resolveReplayPinnedConfig(db, replayConfigRunHint, replayPinnedConfigKeys, { logPrefix: "[REPLAY]" });
-        const replayRunConfig = replayPinnedConfig.config;
-        const replayConfigRunId = replayPinnedConfig.runId;
-        const replayConfigValue = (key) => replayRunConfig?.[key];
-        if (replayRunConfig) {
-          const replayConfigSource = replayPinnedConfig.source === "direct_override" ? "direct override" : "archive";
-          console.log(`[REPLAY] Using pinned run config from ${replayConfigSource} for ${replayConfigRunId} (${Object.keys(replayRunConfig).length} keys)`);
-        }
-        try {
-          const cfgValues = replayRunConfig
-            ? cfgKeys.map((key) => replayConfigValue(key))
-            : (await db.batch(cfgKeys.map((key) => db.prepare(`SELECT config_value FROM model_config WHERE config_key=?1`).bind(key))))
-                .map((row) => row?.results?.[0]?.config_value);
-          if (cfgValues[0]) _replayAdaptiveEntryGates = JSON.parse(cfgValues[0]);
-          if (cfgValues[1]) _replayAdaptiveRegimeGates = JSON.parse(cfgValues[1]);
-          if (cfgValues[2]) _replayAdaptiveSLTP = JSON.parse(cfgValues[2]);
-          if (cfgValues[3]) _replayCalibratedSlAtr = Number(cfgValues[3]) || 0;
-          if (cfgValues[4]) {
-            const _tpRaw = JSON.parse(cfgValues[4]);
-            const _sltpDef = _replayAdaptiveSLTP?.["_default"] || {};
-            if (_sltpDef.tp_trim_atr && _sltpDef.tp_exit_atr && _sltpDef.tp_runner_atr) {
-              _calibratedTPTiers = { trim: _sltpDef.tp_trim_atr, exit: _sltpDef.tp_exit_atr, runner: _sltpDef.tp_runner_atr };
-            } else if (_tpRaw) {
-              _calibratedTPTiers = _tpRaw;
-            }
-          }
-          if (cfgValues[5]) _replayCalibratedRankMin = Number(cfgValues[5]) || 0;
-          // cfgValues[6] = adaptive_rank_weights — loaded for parity but applied via scoring
-        } catch {}
-        // Load deep audit config for replay parity with live
-        try {
-          const _daConfig = {};
-          if (replayRunConfig) {
-            for (const key of daKeys) {
-              const value = replayConfigValue(key);
-              if (value == null) continue;
-              try { _daConfig[key] = JSON.parse(value); } catch { _daConfig[key] = value; }
-            }
-          } else {
-            const daRows = (await db.prepare(
-              `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
-            ).bind(...daKeys).all())?.results || [];
-            for (const r of daRows) {
-              try { _daConfig[r.config_key] = JSON.parse(r.config_value); } catch { _daConfig[r.config_key] = r.config_value; }
-            }
-          }
-          replayEnv._deepAuditConfig = _daConfig;
-        } catch {}
-        try {
-          const dynamicEngineRulesValue = await loadReplayConfigValue(db, replayRunConfig, "dynamic_engine_rules", {
-            allowLiveFallback: false,
-            warnPrefix: "[REPLAY]",
-          });
-          if (dynamicEngineRulesValue) {
-            _dynamicEngineRulesCache = JSON.parse(dynamicEngineRulesValue);
-            console.log(`[REPLAY] Dynamic engine rules loaded: ${(_dynamicEngineRulesCache?.regime_direction_sector_rules || []).length} rules, ${(_dynamicEngineRulesCache?.blacklist_tickers || []).length} blacklisted`);
-          }
-        } catch {}
-        try {
-          const referenceExecutionMapValue = await loadReplayConfigValue(db, replayRunConfig, "reference_execution_map", {
-            allowLiveFallback: false,
-            warnPrefix: "[REPLAY]",
-          });
-          if (referenceExecutionMapValue) _referenceExecutionMapCache = JSON.parse(referenceExecutionMapValue);
-        } catch {}
-        try {
-          const scenarioPolicyValue = await loadReplayConfigValue(db, replayRunConfig, "scenario_execution_policy", {
-            allowLiveFallback: false,
-            warnPrefix: "[REPLAY]",
-          });
-          if (scenarioPolicyValue) _scenarioExecutionPolicyCache = JSON.parse(scenarioPolicyValue);
-        } catch {}
-        try {
-          const scenarioPolicyValue = await loadReplayConfigValue(db, replayRunConfig, "scenario_execution_policy", {
-            allowLiveFallback: false,
-            warnPrefix: "[REPLAY]",
-          });
-          if (scenarioPolicyValue) _scenarioExecutionPolicyCache = JSON.parse(scenarioPolicyValue);
-        } catch {}
-        try {
-          const gpData = await kvGetJSON(KV, "timed:calibration:golden-profiles");
-          _replayGoldenProfiles = gpData?.profiles || null;
-        } catch {}
-
-        // Pre-load AI CIO memory cache for replay
-        const _cioReplayEnabled = String(replayEnv._deepAuditConfig?.ai_cio_enabled ?? "false") === "true" &&
-          String(replayEnv._deepAuditConfig?.ai_cio_replay_enabled ?? "false") === "true";
-        if (_cioReplayEnabled) {
-          try {
-            const [ppRows, snapRows, eventRows, tickerSummaryRows, franchiseRow, cioRefRow] = await Promise.all([
-              db.prepare(`SELECT * FROM path_performance WHERE total_trades >= 3`).all(),
-              db.prepare(`SELECT * FROM daily_market_snapshots ORDER BY date`).all(),
-              db.prepare(`SELECT * FROM market_events ORDER BY date`).all(),
-              db.prepare(`SELECT ticker, COUNT(*) as total,
-                SUM(CASE WHEN status='WIN' THEN 1 ELSE 0 END) as wins,
-                AVG(pnl_pct) as avg_pnl_pct
-                FROM direction_accuracy WHERE status IN ('WIN','LOSS','FLAT') GROUP BY ticker`).all(),
-              loadReplayConfigValue(db, replayRunConfig, "cio_franchise_blacklist", {
-                allowLiveFallback: false,
-                warnPrefix: "[REPLAY]",
-              }).then((config_value) => ({ config_value })),
-              loadReplayConfigValue(db, replayRunConfig, "cio_reference_features", {
-                allowLiveFallback: false,
-                warnPrefix: "[REPLAY]",
-              }).then((config_value) => ({ config_value })),
-            ]);
-            const pathPerf = new Map();
-            for (const r of (ppRows?.results || [])) pathPerf.set(r.entry_path, r);
-            const tickerProfiles = {};
-            try {
-              const tpRows = await db.prepare(`SELECT * FROM ticker_profiles`).all();
-              for (const r of (tpRows?.results || [])) tickerProfiles[r.ticker] = r;
-            } catch {}
-            let franchise = null;
-            if (franchiseRow?.config_value) {
-              try { franchise = JSON.parse(franchiseRow.config_value); } catch {}
-            }
-            let referenceFeatures = null;
-            if (String(replayEnv._deepAuditConfig?.ai_cio_reference_enabled ?? "false") === "true" && cioRefRow?.config_value) {
-              try { referenceFeatures = JSON.parse(cioRefRow.config_value); } catch {}
-            }
-            replayCtx.cioMemoryCache = {
-              pathPerf,
-              marketSnapshots: (snapRows?.results || []),
-              marketEvents: (eventRows?.results || []),
-              tickerProfiles,
-              franchise,
-              referenceFeatures,
-              cioDecisions: [],
-            };
-            console.log(`[REPLAY] CIO memory loaded: ${pathPerf.size} paths, ${(snapRows?.results || []).length} snapshots, ${(eventRows?.results || []).length} events, ${Object.keys(tickerProfiles).length} profiles${referenceFeatures ? ", ref_priors=on" : ""}`);
-          } catch (e) {
-            console.warn("[REPLAY] CIO memory pre-load failed:", String(e).slice(0, 200));
-            replayCtx.cioMemoryCache = { pathPerf: new Map(), marketSnapshots: [], marketEvents: [], tickerProfiles: {}, franchise: null, referenceFeatures: null, cioDecisions: [] };
-          }
-        }
-
-        // Load historical VIX daily candles for per-day VIX during replay
-        // Falls back to static KV value if no candle data available
-        let _replayVixCandles = []; // sorted asc by ts
-        try {
-          const vixRes = await d1GetCandlesAllTfs(replayEnv, "VIX", [{ tf: "D", limit: 600 }], {});
-          const vixCandles = vixRes?.D?.ok ? (vixRes.D.candles || []) : [];
-          if (vixCandles.length > 10) {
-            _replayVixCandles = vixCandles;
-            console.log(`[REPLAY] Loaded ${vixCandles.length} VIX daily candles for historical VIX injection`);
-          }
-        } catch {}
-
-        // Pre-load sector ETF D1 candles for market internals (sector rotation).
-        // candleCache only contains the current batch's tickers — sector ETFs may
-        // not be in the batch, so we load them explicitly here.
-        const _replaySectorCandles = {}; // { SYM: [D candles asc] }
-        try {
-          const sectorSyms = [...new Set([...CARTER_OFFENSE_SECTORS, ...CARTER_DEFENSE_SECTORS])];
-          await Promise.all(sectorSyms.map(async (sym) => {
-            try {
-              const res = await d1GetCandlesAllTfs(replayEnv, sym, [{ tf: "D", limit: 600 }], {});
-              const candles = res?.D?.ok ? (res.D.candles || []) : [];
-              if (candles.length > 10) _replaySectorCandles[sym] = candles;
-            } catch {}
-          }));
-          console.log(`[REPLAY] Loaded sector ETF D1 candles: ${Object.entries(_replaySectorCandles).map(([s,c]) => `${s}=${c.length}`).join(", ")}`);
-        } catch {}
-        if (_replayVixCandles.length === 0) {
-        try {
-          const vixData = await kvGetJSON(KV, "timed:latest:VIX");
-          if (vixData?.price) _replayCurrentVix = Number(vixData.price);
-            console.log(`[REPLAY] No VIX candles — using static KV VIX: ${_replayCurrentVix}`);
-        } catch {}
-        }
-
-        // Load ticker profiles from D1 for replay parity with live scoring
-        // Live path loads from KV (timed:profile:{ticker}); replay only needs the
-        // current batch's profiles, and loading all profiles can blow memory on
-        // replay cold starts.
-        let _replayTickerProfiles = {}; // { TICKER: { ...profileRow } }
-        try {
-          if (batchTickers.length > 0) {
-            const profilePlaceholders = batchTickers.map((_, idx) => `?${idx + 1}`).join(",");
-            const { results: profRows } = await db.prepare(
-              `SELECT ticker, behavior_type, sl_mult, tp_mult, entry_threshold_adj, atr_pct_p50,
-                      trend_persistence, ichimoku_responsiveness, learning_json
-                 FROM ticker_profiles
-                WHERE ticker IN (${profilePlaceholders})`
-            ).bind(...batchTickers.map((ticker) => String(ticker || "").toUpperCase())).all();
-            for (const r of (profRows || [])) {
-              _replayTickerProfiles[r.ticker] = r;
-            }
-          }
-          if (Object.keys(_replayTickerProfiles).length > 0) {
-            console.log(`[REPLAY] Loaded ${Object.keys(_replayTickerProfiles).length} ticker profiles for personality-aware SL/TP`);
-          }
-        } catch {}
-
-        // Propagate calibration to Worker env so processTradeSimulation receives them
-        // via replayEnv = { ...env, ... } spread (mirrors live cron env setup).
-        env._adaptiveSLTP = _replayAdaptiveSLTP;
-        env._calibratedSlAtr = _replayCalibratedSlAtr;
-        env._calibratedRankMin = _replayCalibratedRankMin;
-        env._deepAuditConfig = replayEnv._deepAuditConfig;
-
-        let processed = 0;
-        let tradesCreated = 0;
-        let scored = 0;
-        let skipped = 0;
-        const errors = [];
-        const timeline = [];
-        const stageCounts = {}; // Track stage distribution
-        const blockReasons = {}; // Track why entries are blocked (diagnostic)
-        const pendingTrail = []; // Collect trail points for batch write
-        const targetSnapshots = {};
-        const targetTimeline = [];
-
-        // Bundle cache: skip recomputation when candle count hasn't changed
-        // HTF bundles (M/W/D) are identical across all intraday intervals; 4H changes ~twice/day
-        const bundleCache = {}; // { `${ticker}:${tf}`: { endIdx, bundle } }
-        const tdSeqCache = {}; // { `${ticker}`: { endIdxKey, tdSeq } }
-
-        // Compute replay market internals once per day from sector ETF D1 candles + VIX.
-        // This replaces the always-null market_internals that caused every trade to show
-        // static risk_off and execution_profile always resolving to choppy_selective.
-        let _replayMarketInternals = null;
-        {
-          const _avg = (arr) => arr.length ? arr.reduce((s, n) => s + n, 0) / arr.length : null;
-          const _getSectorPctChange = (sym) => {
-            // Use pre-loaded sector ETF candles (loaded outside the batch loop)
-            const dCandles = _replaySectorCandles[sym] || candleCache[sym]?.D;
-            if (!dCandles || dCandles.length < 2) return null;
-            let lastIdx = dCandles.length - 1;
-            while (lastIdx >= 0 && dCandles[lastIdx].ts > marketCloseMs) lastIdx--;
-            if (lastIdx < 1) return null;
-            const curr = dCandles[lastIdx];
-            const prev = dCandles[lastIdx - 1];
-            if (!prev?.c || !curr?.c || prev.c === 0) return null;
-            return ((curr.c - prev.c) / prev.c) * 100;
-          };
-          const offenseVals = CARTER_OFFENSE_SECTORS.map(_getSectorPctChange).filter(Number.isFinite);
-          const defenseVals = CARTER_DEFENSE_SECTORS.map(_getSectorPctChange).filter(Number.isFinite);
-          const offenseAvg = _avg(offenseVals);
-          const defenseAvg = _avg(defenseVals);
-
-          let miScore = 0;
-          const miEvidence = [];
-          let vixState = null;
-
-          // VIX state from historical candles
-          if (_replayVixCandles.length > 0) {
-            let lo = 0, hi = _replayVixCandles.length - 1;
-            while (lo <= hi) { const mid = (lo + hi) >> 1; if (_replayVixCandles[mid].ts <= marketCloseMs) lo = mid + 1; else hi = mid - 1; }
-            const vixCandle = _replayVixCandles[Math.max(0, lo - 1)];
-            const vixPrice = vixCandle?.c ? Number(vixCandle.c) : null;
-            if (Number.isFinite(vixPrice)) {
-              if (vixPrice < 15) { vixState = "low_fear"; miScore += 1; miEvidence.push(`VIX ${vixPrice.toFixed(1)} is low-fear`); }
-              else if (vixPrice >= 25) { vixState = "fear"; miScore -= 2; miEvidence.push(`VIX ${vixPrice.toFixed(1)} is in fear mode`); }
-              else if (vixPrice >= 20) { vixState = "elevated"; miScore -= 1; miEvidence.push(`VIX ${vixPrice.toFixed(1)} is elevated`); }
-              else { vixState = "normal"; miEvidence.push(`VIX ${vixPrice.toFixed(1)} is neutral`); }
-            }
-          } else if (_replayCurrentVix != null) {
-            const vp = _replayCurrentVix;
-            if (vp < 15) { vixState = "low_fear"; miScore += 1; }
-            else if (vp >= 25) { vixState = "fear"; miScore -= 2; }
-            else if (vp >= 20) { vixState = "elevated"; miScore -= 1; }
-            else { vixState = "normal"; }
-          }
-
-          let sectorRotation = "unknown";
-          if (Number.isFinite(offenseAvg) && Number.isFinite(defenseAvg)) {
-            const spread = offenseAvg - defenseAvg;
-            if (spread >= 0.25) {
-              sectorRotation = "risk_on"; miScore += 1;
-              miEvidence.push(`Offense sectors lead defense by ${spread.toFixed(2)}%`);
-            } else if (spread <= -0.25) {
-              sectorRotation = "risk_off"; miScore -= 1;
-              miEvidence.push(`Defense sectors lead offense by ${Math.abs(spread).toFixed(2)}%`);
-            } else {
-              sectorRotation = "balanced";
-              miEvidence.push("Sector rotation is balanced");
-            }
-          }
-
-          const miOverall = miScore >= 2 ? "risk_on" : miScore <= -2 ? "risk_off" : "balanced";
-          let _miVixPrice = _replayCurrentVix;
-          if (!_miVixPrice && _replayVixCandles.length > 0) {
-            let _vlo = 0, _vhi = _replayVixCandles.length - 1;
-            while (_vlo <= _vhi) { const mid = (_vlo + _vhi) >> 1; if (_replayVixCandles[mid].ts <= marketCloseMs) _vlo = mid + 1; else _vhi = mid - 1; }
-            const _vc = _replayVixCandles[Math.max(0, _vlo - 1)];
-            if (_vc?.c) _miVixPrice = Number(_vc.c);
-          }
-          _replayMarketInternals = {
-            overall: miOverall,
-            score: miScore,
-            vix: { state: vixState, price: _miVixPrice },
-            tick: null,
-            fx_barometer: null,
-            sector_rotation: {
-              state: sectorRotation,
-              offense_avg_pct: offenseAvg,
-              defense_avg_pct: defenseAvg,
-              offense_symbols: CARTER_OFFENSE_SECTORS,
-              defense_symbols: CARTER_DEFENSE_SECTORS,
-            },
-            squeeze: {},
-            evidence: miEvidence,
-          };
-          console.log(`[REPLAY_INTERNALS] ${dateParam}: overall=${miOverall} score=${miScore} vix=${vixState} rotation=${sectorRotation}`);
-        }
-
-        for (let intervalIdx = 0; intervalIdx < intervals.length; intervalIdx++) {
-          const intervalTs = intervals[intervalIdx];
-          const intervalTradesBefore = replayCtx.allTrades.length;
-          const intervalStageCounts = {};
-          const intervalBlockReasons = {};
-          const intervalDeepAuditDebug = {};
-          for (const ticker of batchTickers) {
-            try {
-              const bundles = {};
-              let hasData = false;
-              for (const tf of REPLAY_TFS) {
-                const allCandles = candleCache[ticker][tf] || [];
-                let lo = 0, hi = allCandles.length - 1;
-                while (lo <= hi) { const mid = (lo + hi) >> 1; if (allCandles[mid].ts <= intervalTs) lo = mid + 1; else hi = mid - 1; }
-                const endIdx = hi + 1;
-                if (endIdx >= 50) {
-                  const cacheKey = `${ticker}:${tf}`;
-                  const cached = bundleCache[cacheKey];
-                  if (cached && cached.endIdx === endIdx) {
-                    bundles[tf] = cached.bundle;
-                    hasData = true;
-                  } else {
-                    const sliced = allCandles.slice(0, endIdx);
-                    const bundle = computeTfBundle(sliced);
-                    if (bundle) {
-                      bundles[tf] = bundle;
-                      hasData = true;
-                      bundleCache[cacheKey] = { endIdx, bundle };
-                    }
-                  }
-                }
-              }
-
-              if (!hasData) { skipped++; continue; }
-
-              const bundleMap = {
-                M: bundles.M || null,
-                W: bundles.W || null,
-                D: bundles.D || null,
-                "240": bundles["240"] || null,
-                "60": bundles["60"] || null,
-                "30": bundles["30"] || null,
-                "15": bundles["15"] || null,
-                "10": bundles["10"] || null,
-              };
-
-              // Pass raw Daily/Weekly candles for Phase 2a regime detection
-              // + intraday bars (leading LTF) for ORB computation
-              const rawBars = {};
-              for (const tf of ["D", "W", replayLeadingLtf]) {
-                const allCandles = candleCache[ticker]?.[tf] || [];
-                const sliced = allCandles.filter(c => c.ts <= intervalTs);
-                const minBars = (tf === "D" || tf === "W") ? 25 : 3;
-                if (sliced.length >= minBars) rawBars[tf] = sliced;
-              }
-
-              const rawExisting = stateMap[ticker] || {};
-              const existing = (cleanSlate && tickerOffset === 0 && intervalIdx === 0)
-                ? stripReplayCarryState(rawExisting)
-                : rawExisting;
-              // Inject ticker profile so assembleTickerData / computeServerSideScores can use it
-              if (_replayTickerProfiles[ticker] && !existing._tickerProfile) {
-                existing._tickerProfile = normalizeLearnedTickerProfile(_replayTickerProfiles[ticker], {
-                  ticker,
-                  source: "replay_d1_batch",
-                });
-              }
-              if (_replayMarketInternals) existing._marketInternals = _replayMarketInternals;
-              const result = assembleTickerData(ticker, bundleMap, existing, { rawBars, leadingLtf: replayLeadingLtf, asOfTs: intervalTs });
-              if (!result) { skipped++; continue; }
-
-              // Compute TD Sequential from replay candle cache (was missing — caused stale
-              // td_counts in snapshots and bypassed TD exhaustion entry gates entirely).
-              // Uses endIdx-based cache to skip recomputation when candle counts are unchanged.
-              {
-                const _tdSeqTfs = ["10", "30", "60", "240", "D", "W", "M"];
-                let _tdEndIdxKey = "";
-                const _tdSeqCandles = {};
-                for (const tf of _tdSeqTfs) {
-                  const _allC = candleCache[ticker]?.[tf];
-                  if (!_allC || _allC.length < 14) continue;
-                  let _lo = 0, _hi = _allC.length - 1;
-                  while (_lo <= _hi) { const mid = (_lo + _hi) >> 1; if (_allC[mid].ts <= intervalTs) _lo = mid + 1; else _hi = mid - 1; }
-                  const _endIdx = _hi + 1;
-                  _tdEndIdxKey += `${tf}:${_endIdx},`;
-                  if (_endIdx >= 14) _tdSeqCandles[tf] = _allC.slice(Math.max(0, _endIdx - 60), _endIdx);
-                }
-                const _tdCacheKey = ticker;
-                const _tdCached = tdSeqCache[_tdCacheKey];
-                if (_tdCached && _tdCached.endIdxKey === _tdEndIdxKey) {
-                  result.td_sequential = _tdCached.tdSeq;
-                } else if (Object.keys(_tdSeqCandles).length > 0) {
-                  const _htfBull = (result.htf_score || 0) >= 0;
-                  const _tdSeq = computeTDSequentialMultiTF(_tdSeqCandles, _htfBull);
-                  result.td_sequential = _tdSeq;
-                  tdSeqCache[_tdCacheKey] = { endIdxKey: _tdEndIdxKey, tdSeq: _tdSeq };
-                } else if (result.td_sequential) {
-                  // No candle data available for any TD TF — clear stale td_sequential
-                  // carried from stateMap to prevent stale exhaustion counts persisting
-                  // across days (WAL showed identical counts Jul→Dec due to this).
-                  delete result.td_sequential;
-                }
-              }
-
-              // Inject golden profiles + adaptive gates + three-tier regime for entry parity
-              {
-                const _rSector = SECTOR_MAP[ticker] || "Unknown";
-                // In replay, derive market/sector regime from stateMap (latest scored data per ticker)
-                const _rSpyData = stateMap["SPY"];
-                const _rMktRegime = _rSpyData?.regime_class
-                  ? {
-                    regime: _rSpyData.regime_class,
-                    score: _rSpyData.regime_score || 0,
-                    htf_score: _rSpyData.htf_score ?? null,
-                    ema_regime_daily: _rSpyData.ema_regime_daily ?? 0,
-                    swing_dir: _rSpyData.swing_consensus?.direction || null,
-                    combined: _rSpyData.regime?.combined || null,
-                  } : null;
-                const _sectorETFs = require("./sector-mapping.js").SECTOR_ETF_MAP || {};
-                const _rSectorETF = _sectorETFs[_rSector];
-                const _rSectorData = _rSectorETF ? stateMap[_rSectorETF] : null;
-                const _rSecRegime = _rSectorData?.regime_class
-                  ? { regime: _rSectorData.regime_class, score: _rSectorData.regime_score || 0 } : null;
-                result._env = {
-                  _isReplay: true,
-                  _goldenProfiles: _replayGoldenProfiles,
-                  _adaptiveEntryGates: _replayAdaptiveEntryGates,
-                  _adaptiveRegimeGates: _replayAdaptiveRegimeGates,
-                  _adaptiveSLTP: _replayAdaptiveSLTP,
-                  _calibratedSlAtr: _replayCalibratedSlAtr,
-                  _calibratedRankMin: _replayCalibratedRankMin,
-                  _marketRegime: _rMktRegime,
-                  _sectorRegime: _rSecRegime,
-                  _marketInternals: _replayMarketInternals,
-                  _deepAuditConfig: replayEnv._deepAuditConfig || null,
-                  _leadingLtf: replayLeadingLtf,
-                  _universeSize: allTickers.length,
-                  _replayBlockedEntries: replayCtx._blockedEntries || null,
-                  _entryEngine: replayEnv.ENTRY_ENGINE || "tt_core",
-                  _managementEngine: replayEnv.MANAGEMENT_ENGINE || "tt_core",
-                  _referenceExecutionMap: _referenceExecutionMapCache,
-                  _scenarioExecutionPolicy: _scenarioExecutionPolicyCache,
-                  _ripsterTuneV2: replayEnv.RIPSTER_TUNE_V2 || "true",
-                  _ripsterExitDebounceBars: replayEnv.TT_EXIT_DEBOUNCE_BARS || "3",
-                };
-              }
-              // Inject per-day VIX from historical candles (or static fallback)
-              if (_replayVixCandles.length > 0) {
-                let lo = 0, hi = _replayVixCandles.length - 1;
-                while (lo <= hi) { const mid = (lo + hi) >> 1; if (_replayVixCandles[mid].ts <= intervalTs) lo = mid + 1; else hi = mid - 1; }
-                const vixIdx = Math.max(0, lo - 1);
-                const vixCandle = _replayVixCandles[vixIdx];
-                if (vixCandle?.c) result._vix = Number(vixCandle.c);
-              } else if (_replayCurrentVix != null) {
-                result._vix = _replayCurrentVix;
-              }
-
-              // Enrich with timestamp and derived fields
-              result.ts = intervalTs;
-              result.ingest_ts = intervalTs;
-              result.data_source = "candle_replay";
-              result.data_source_ts = intervalTs;
-
-              const openTrade = replayCtx.allTrades.find(
-                t => String(t?.ticker || "").toUpperCase() === ticker && isOpenTradeStatus(t?.status)
-              ) || null;
-
-              const staleCarryState = !openTrade
-                && (existing?.entry_ts != null || existing?.entry_price != null);
-
-              // Only retain carry entry state while the replay still has an open position.
-              if (openTrade) {
-                if (existing?.entry_ts != null && result.entry_ts == null) result.entry_ts = existing.entry_ts;
-                if (existing?.entry_price != null && result.entry_price == null) result.entry_price = existing.entry_price;
-              } else if (staleCarryState) {
-                result.entry_ts = null;
-                result.entry_price = null;
-              }
-              if (existing?.kanban_cycle_enter_now_ts != null) result.kanban_cycle_enter_now_ts = existing.kanban_cycle_enter_now_ts;
-              if (existing?.kanban_cycle_trigger_ts != null) result.kanban_cycle_trigger_ts = existing.kanban_cycle_trigger_ts;
-              if (existing?.kanban_cycle_side != null) result.kanban_cycle_side = existing.kanban_cycle_side;
-              const replayScoreSeed = {
-                existing_rank: existing?.rank ?? null,
-                existing_score: existing?.score ?? null,
-                assembled_rank: result?.rank ?? null,
-                assembled_score: result?.score ?? null,
-                session_seed_rank: null,
-                session_seed_score: null,
-                session_seed_ts: null,
-                session_seed_state: null,
-                after_guard_rank: null,
-                after_guard_score: null,
-                after_sim_rank: null,
-                after_sim_score: null,
-                after_post_close_rank: null,
-                after_post_close_score: null,
-                just_closed_replay_trade: false,
-              };
-
-              // Compute RR, rank, move status from current replay state.
-              // Replay assembles ticker payloads from prior interval state, so rank/score can
-              // otherwise stay stale even when the freshly assembled state has changed.
-              result.rr = computeRR(result);
-              if (result.rr != null && Number(result.rr) > 25) result.rr = 25;
-              const replaySessionSeedKey = `${dateParam}:${ticker}`;
-              if (!replayCtx.sessionScoreSeeds.has(replaySessionSeedKey)) {
-                const seedResult = { ...result };
-                seedResult.entry_ts = null;
-                seedResult.entry_price = null;
-                seedResult.trigger_ts = null;
-                seedResult.kanban_cycle_enter_now_ts = null;
-                seedResult.kanban_cycle_trigger_ts = null;
-                seedResult.kanban_cycle_side = null;
-                delete seedResult.__entry_path;
-                delete seedResult.__entry_confidence;
-                delete seedResult.__entry_reason;
-                delete seedResult.__setup_reason;
-                delete seedResult.__entry_block_reason;
-                delete seedResult.__entry_block_fuel_pct;
-                delete seedResult.prev_kanban_stage;
-                delete seedResult.prev_kanban_stage_ts;
-                delete seedResult.__rank_trace;
-                seedResult.rank = null;
-                seedResult.score = null;
-                seedResult.move_status = computeMoveStatus(seedResult);
-                if (seedResult.flags) {
-                  seedResult.flags.move_invalidated = seedResult.move_status?.status === "INVALIDATED";
-                  seedResult.flags.move_completed = seedResult.move_status?.status === "COMPLETED";
-                }
-                seedResult.rank = computeRank(seedResult);
-                seedResult.score = seedResult.rank;
-                replayCtx.sessionScoreSeeds.set(replaySessionSeedKey, {
-                  rank: seedResult.rank,
-                  score: seedResult.score,
-                  ts: intervalTs,
-                  state: seedResult.state ?? null,
-                });
-              }
-              const replaySessionSeed = replayCtx.sessionScoreSeeds.get(replaySessionSeedKey) || null;
-              replayScoreSeed.session_seed_rank = replaySessionSeed?.rank ?? null;
-              replayScoreSeed.session_seed_score = replaySessionSeed?.score ?? null;
-              replayScoreSeed.session_seed_ts = replaySessionSeed?.ts ?? null;
-              replayScoreSeed.session_seed_state = replaySessionSeed?.state ?? null;
-              delete result.__rank_trace;
-              result.rank = computeRank(result);
-              result.score = result.rank;
-              replayScoreSeed.after_guard_rank = result?.rank ?? null;
-              replayScoreSeed.after_guard_score = result?.score ?? null;
-              if (result.rr_warning == null && Number.isFinite(result.rr)) {
-                result.rr_warning = computeRRWarning(result.rr);
-              }
-              result.move_status = computeMoveStatus(result);
-              if (result.flags) {
-                result.flags.move_invalidated = result.move_status?.status === "INVALIDATED";
-                result.flags.move_completed = result.move_status?.status === "COMPLETED";
-              }
-              if (shouldCaptureReplayTargetSnapshot(ticker, intervalTs)) {
-                if (!result.__rank_trace) computeRank(result);
-                targetSnapshots[`${ticker}:${intervalTs}:pre_stage`] = buildReplayTargetSnapshot(result, {
-                  open_trade_status: openTrade?.status ?? null,
-                  open_trade_entry_ts: openTrade?.entry_ts ?? null,
-                  stale_carry_state: staleCarryState,
-                });
-              }
-
-              // Synthesize trigger_ts for candle-based replay (MUST happen BEFORE classifyKanbanStage):
-              // When state transitions to an aligned/actionable state, mark as fresh trigger.
-              // Carry forward trigger_ts from previous interval if state hasn't changed.
-              const prevState = existing?.state;
-              const curState = result.state;
-              const isActionable = curState && (
-                curState.includes("BULL_BULL") || curState.includes("BEAR_BEAR") ||
-                curState.includes("PULLBACK")
-              );
-              if (isActionable && curState !== prevState) {
-                result.trigger_ts = intervalTs;
-              } else if (existing?.trigger_ts) {
-                result.trigger_ts = existing.trigger_ts;
-              }
-
-              // Classify kanban stage
-              const prevStage = existing?.kanban_stage;
-              const stage = classifyKanbanStage(result, openTrade, intervalTs);
-              let finalStage = stage;
-
-              // Diagnostic: track why qualifiesForEnter rejected (for debugging)
-              // Include enter/enter_now so we capture fuel_exhausted etc when stage=enter but QFE fails
-              const needsBlockDiag = ["watch", "setup", "discovery", "in_review", "enter", "enter_now"].includes(stage) && result.state;
-              if (needsBlockDiag) {
-                const diagEntry = qualifiesForEnter(result, intervalTs);
-                if (!diagEntry.qualifies) {
-                  result.__entry_block_reason = diagEntry.reason;
-                  if (diagEntry.fuelPct != null) result.__entry_block_fuel_pct = diagEntry.fuelPct;
-                  blockReasons[diagEntry.reason] = (blockReasons[diagEntry.reason] || 0) + 1;
-                  intervalBlockReasons[diagEntry.reason] = (intervalBlockReasons[diagEntry.reason] || 0) + 1;
-                } else {
-                  // Clear stale block reasons carried from previous interval via assembleTickerData spread
-                  delete result.__entry_block_reason;
-                  delete result.__entry_block_fuel_pct;
-                }
-              }
-
-              // Enter gate: set cycle tracking
-              if (finalStage === "in_review" || finalStage === "enter_now" || finalStage === "enter") {
-                result.kanban_cycle_enter_now_ts = intervalTs;
-                result.kanban_cycle_trigger_ts = Number.isFinite(Number(result?.trigger_ts)) ? result.trigger_ts : intervalTs;
-                result.kanban_cycle_side = sideFromStateOrScores(result);
-              } else if (["hold", "just_entered", "defend", "trim", "exit"].includes(finalStage)) {
-                result.kanban_cycle_enter_now_ts = existing?.kanban_cycle_enter_now_ts ?? null;
-                result.kanban_cycle_trigger_ts = existing?.kanban_cycle_trigger_ts ?? null;
-                result.kanban_cycle_side = existing?.kanban_cycle_side ?? null;
-              } else {
-                result.kanban_cycle_enter_now_ts = null;
-                result.kanban_cycle_trigger_ts = null;
-                result.kanban_cycle_side = null;
-              }
-
-              // Track entry price on stage transitions.
-              // Use the leading LTF candle close (matches scoring TF) for entry price.
-              // Fallback chain: leading LTF bundle → leading LTF candle cache → result.price
-              const isNewEntry = (finalStage === "in_review" || finalStage === "enter_now" || finalStage === "enter") && prevStage !== "in_review" && prevStage !== "enter_now" && prevStage !== "enter";
-              if (isNewEntry) {
-                const bLtf = bundleMap[replayLeadingLtf];
-                let priceLtf = Number(bLtf?.px);
-                if (!(Number.isFinite(priceLtf) && priceLtf > 0)) {
-                  const ltfCandles = candleCache[ticker]?.[replayLeadingLtf] || [];
-                  const lastLtf = ltfCandles.filter((c) => c.ts <= intervalTs).pop();
-                  priceLtf = lastLtf ? Number(lastLtf.c) : null;
-                }
-                const priceFallback = Number(result?.price);
-                const price = (Number.isFinite(priceLtf) && priceLtf > 0) ? priceLtf : priceFallback;
-                if (Number.isFinite(price) && price > 0) {
-                  result.entry_price = price;
-                  result.entry_ts = intervalTs;
-                }
-              }
-              // Carry forward entry_price from previous interval ONLY if this is NOT a fresh entry
-              if (!isNewEntry && openTrade && finalStage && existing?.entry_price && result.entry_price == null) {
-                result.entry_price = existing.entry_price;
-                result.entry_ts = existing.entry_ts;
-              }
-
-              // Set stage transitions
-              if (prevStage && finalStage && String(prevStage) !== String(finalStage)) {
-                result.prev_kanban_stage = String(prevStage);
-                result.prev_kanban_stage_ts = intervalTs;
-              }
-
-              result.kanban_stage = finalStage;
-              result.kanban_meta = deriveKanbanMeta(result, finalStage);
-              if (shouldCaptureReplayTargetSnapshot(ticker, intervalTs)) {
-                targetSnapshots[`${ticker}:${intervalTs}:post_stage`] = buildReplayTargetSnapshot(result, {
-                  kanban_stage: finalStage,
-                  open_trade_status: openTrade?.status ?? null,
-                  open_trade_entry_ts: openTrade?.entry_ts ?? null,
-                  stale_carry_state: staleCarryState,
-                });
-              }
-
-              // Track stage distribution
-              stageCounts[finalStage || "null"] = (stageCounts[finalStage || "null"] || 0) + 1;
-              intervalStageCounts[finalStage || "null"] = (intervalStageCounts[finalStage || "null"] || 0) + 1;
-
-              if (!skipTrail) pendingTrail.push({ ticker, result: { ...result } });
-
-              let intervalTradeDelta = 0;
-              if (!trailOnly) {
-                // Run trade simulation (with Discord + email disabled, no D1 writes)
-                const replayEnv = { ...env, DISCORD_ENABLE: "false", DISCORD_WEBHOOK_URL: null, EMAIL_ENABLED: "false", SENDGRID_API_KEY: null };
-                const countBefore = replayCtx.allTrades.filter(x => String(x?.ticker).toUpperCase() === ticker).length;
-                await processTradeSimulation(KV, ticker, result, existing, replayEnv, {
-                  forceUseIngestTs: true,
-                  replayBatchContext: replayCtx,
-                  asOfTs: intervalTs,
-                });
-                replayScoreSeed.after_sim_rank = result?.rank ?? null;
-                replayScoreSeed.after_sim_score = result?.score ?? null;
-                const countAfter = replayCtx.allTrades.filter(x => String(x?.ticker).toUpperCase() === ticker).length;
-                intervalTradeDelta = Math.max(0, countAfter - countBefore);
-                if (intervalTradeDelta > 0) tradesCreated += intervalTradeDelta;
-
-                const openTradeAfter = replayCtx.allTrades.find(
-                  t => String(t?.ticker || "").toUpperCase() === ticker && isOpenTradeStatus(t?.status)
-                ) || null;
-                const justClosedReplayTrade = !!openTrade && !openTradeAfter;
-                const openTradeEntryTs = Number(
-                  openTrade?.entry_ts
-                  ?? openTrade?.entryTimeMs
-                  ?? isoToMs(openTrade?.entryTime)
-                  ?? openTrade?.entryTs
-                );
-                const carriedIntoSession = !!openTrade
-                  && Number.isFinite(openTradeEntryTs)
-                  && Number.isFinite(marketOpenMs)
-                  && openTradeEntryTs < marketOpenMs;
-                if (justClosedReplayTrade) {
-                  replayScoreSeed.just_closed_replay_trade = true;
-                  // Replay candle lanes were carrying management/discovery metadata across the
-                  // exact interval where a trade closed. Reset those fields immediately so the
-                  // next interval starts from fresh discovery instead of the old runner state.
-                  result.entry_ts = null;
-                  result.entry_price = null;
-                  result.trigger_ts = null;
-                  result.kanban_cycle_enter_now_ts = null;
-                  result.kanban_cycle_trigger_ts = null;
-                  result.kanban_cycle_side = null;
-                  delete result.__entry_path;
-                  delete result.__entry_confidence;
-                  delete result.__entry_reason;
-                  delete result.__setup_reason;
-                  delete result.__entry_block_reason;
-                  delete result.__entry_block_fuel_pct;
-                  delete result.prev_kanban_stage;
-                  delete result.prev_kanban_stage_ts;
-                  result.move_status = computeMoveStatus(result);
-                  if (result.flags) {
-                    result.flags.move_invalidated = result.move_status?.status === "INVALIDATED";
-                    result.flags.move_completed = result.move_status?.status === "COMPLETED";
-                  }
-                  if (carriedIntoSession && replaySessionSeed && Number.isFinite(Number(replaySessionSeed.rank))) {
-                    delete result.__rank_trace;
-                    result.rank = Number(replaySessionSeed.rank);
-                    result.score = Number(replaySessionSeed.score ?? replaySessionSeed.rank);
-                  } else {
-                    delete result.__rank_trace;
-                    result.rank = computeRank(result);
-                    result.score = result.rank;
-                  }
-                  const postCloseStage = classifyKanbanStage(result, null, intervalTs);
-                  result.kanban_stage = postCloseStage;
-                  result.kanban_meta = deriveKanbanMeta(result, postCloseStage);
-                  if (["watch", "setup", "discovery", "in_review", "enter", "enter_now"].includes(postCloseStage) && result.state) {
-                    const postCloseDiag = qualifiesForEnter(result, intervalTs);
-                    if (!postCloseDiag.qualifies) {
-                      result.__entry_block_reason = postCloseDiag.reason;
-                      if (postCloseDiag.fuelPct != null) result.__entry_block_fuel_pct = postCloseDiag.fuelPct;
-                    }
-                  }
-                }
-                replayScoreSeed.after_post_close_rank = result?.rank ?? null;
-                replayScoreSeed.after_post_close_score = result?.score ?? null;
-              }
-
-              if (shouldCaptureReplayTargetTimeline(dateParam, ticker)) {
-                if (!result.__rank_trace || Number(result.__rank_trace?.ts || 0) !== Number(intervalTs)) computeRank(result);
-                targetTimeline.push(buildReplayTargetSnapshot(result, {
-                  interval_date: dateParam,
-                  kanban_stage: result?.kanban_stage ?? null,
-                  open_trade_status: replayCtx.allTrades.find(
-                    t => String(t?.ticker || "").toUpperCase() === ticker && isOpenTradeStatus(t?.status)
-                  )?.status ?? null,
-                  open_trade_entry_ts: replayCtx.allTrades.find(
-                    t => String(t?.ticker || "").toUpperCase() === ticker && isOpenTradeStatus(t?.status)
-                  )?.entry_ts ?? null,
-                  stale_carry_state: staleCarryState,
-                  trades_created_delta: intervalTradeDelta,
-                  replay_score_seed: replayScoreSeed,
-                }));
-              }
-
-              intervalDeepAuditDebug[ticker] = {
-                pullback_selective_enabled: result?._env?._deepAuditConfig?.deep_audit_pullback_selective_enabled ?? null,
-                pullback_min_bearish_count: result?._env?._deepAuditConfig?.deep_audit_pullback_min_bearish_count ?? null,
-              };
-              stateMap[ticker] = sanitizeReplayTickerState(result);
-              scored++;
-              processed++;
-            } catch (e) {
-              errors.push({ ticker, ts: intervalTs, error: String(e?.message || e) });
-            }
-          }
-          if (debugTimeline) {
-            const intervalTradesAfter = replayCtx.allTrades.length;
-            const openTrades = replayCtx.allTrades.filter((t) => {
-              if (!isOpenTradeStatus(t?.status)) return false;
-              const tradeSym = String(t?.ticker || "").toUpperCase();
-              return batchTickers.includes(tradeSym);
-            }).length;
-            const latestTrades = replayCtx.allTrades
-              .filter((t) => batchTickers.includes(String(t?.ticker || "").toUpperCase()))
-              .sort((a, b) => {
-                const aTs = Number(a?.entry_ts || a?.created_at || 0);
-                const bTs = Number(b?.entry_ts || b?.created_at || 0);
-                return bTs - aTs;
-              })
-              .slice(0, 3)
-              .map((t) => ({
-                ticker: t?.ticker || null,
-                status: t?.status || null,
-                entry_ts: Number(t?.entry_ts || t?.created_at || 0) || null,
-                exit_ts: Number(t?.exit_ts || 0) || null,
-                exit_reason: t?.exitReason || t?.exit_reason || null,
-                trimmed_pct: Number(t?.trimmedPct || t?.trimmed_pct || 0) || 0,
-              }));
-            const tickerSnapshots = batchTickers.slice(0, 5).map((ticker) => {
-              const latestState = stateMap[ticker] || null;
-              const deepAuditDebug = intervalDeepAuditDebug[ticker] || {};
-              return {
-                ticker,
-                state: latestState?.state || null,
-                stage: latestState?.kanban_stage || null,
-                price: latestState?.price != null ? Number(latestState.price) : null,
-                htf_score: latestState?.htf_score != null ? Number(latestState.htf_score) : null,
-                ltf_score: latestState?.ltf_score != null ? Number(latestState.ltf_score) : null,
-                cloud_debug: buildReplayCloudDebug(latestState),
-                deep_audit_debug: {
-                  pullback_selective_enabled: deepAuditDebug.deep_audit_pullback_selective_enabled ?? null,
-                  pullback_min_bearish_count: deepAuditDebug.deep_audit_pullback_min_bearish_count ?? null,
-                },
-              };
-            });
-            timeline.push({
-              interval: intervalIdx,
-              intervalTs,
-              tradesCreated: Math.max(0, intervalTradesAfter - intervalTradesBefore),
-              totalTrades: intervalTradesAfter,
-              openTrades,
-              stageCounts: intervalStageCounts,
-              blockReasons: intervalBlockReasons,
-              latestTrades,
-              tickerSnapshots,
-            });
-          }
-        }
-
-        // Batch-write all trail points to D1 (D1 allows max 100 stmts per batch)
-        let trailWritten = 0;
-        if (pendingTrail.length > 0 && db) {
-          try {
-            const trailStmts = [];
-            for (const { ticker: t, result: r } of pendingTrail) {
-              const ts = Number(r?.ts);
-              if (!Number.isFinite(ts)) continue;
-              const flagsJson = r?.flags ? JSON.stringify(r.flags) : null;
-              const payloadJson = null;
-              trailStmts.push(
-                db.prepare(
-                  `INSERT OR REPLACE INTO timed_trail
-                    (ticker, ts, price, htf_score, ltf_score, completion, phase_pct, state, rank, flags_json, trigger_reason, trigger_dir, kanban_stage, payload_json)
-                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
-                ).bind(
-                  String(t).toUpperCase(), ts,
-                  r?.price ?? null, r?.htf_score ?? null, r?.ltf_score ?? null,
-                  r?.completion ?? null, r?.phase_pct ?? null,
-                  r?.state ?? null, r?.rank ?? null, flagsJson,
-                  r?.trigger_reason ?? null, r?.trigger_dir ?? null,
-                  r?.kanban_stage ?? null, payloadJson
-                )
-              );
-            }
-            const D1_BATCH_MAX = 100;
-            for (let i = 0; i < trailStmts.length; i += D1_BATCH_MAX) {
-              await db.batch(trailStmts.slice(i, i + D1_BATCH_MAX));
-              trailWritten += Math.min(D1_BATCH_MAX, trailStmts.length - i);
-            }
-          } catch (trailErr) {
-            errors.push({ ticker: "TRAIL_BATCH", error: String(trailErr?.message || trailErr).slice(0, 150) });
-          }
-        }
-
-        // Write final state to D1 ticker_latest (reliable) + KV (best-effort cache)
-        let d1StateWritten = 0;
-        if (!trailOnly) {
-          for (const ticker of batchTickers) {
-            if (stateMap[ticker] && Object.keys(stateMap[ticker]).length > 0) {
-              // D1: primary state store for replay persistence
-              try {
-                await d1UpsertTickerLatest(env, ticker, stateMap[ticker]);
-                d1StateWritten++;
-              } catch (d1Err) {
-                errors.push({ ticker, error: `D1_STATE: ${String(d1Err?.message || d1Err).slice(0, 100)}` });
-              }
-              // KV: best-effort cache (may silently fail)
-              try {
-                await kvPutJSON(KV, `timed:latest:${ticker}`, stateMap[ticker]);
-              } catch (kvErr) {
-                console.warn(`[REPLAY] KV write failed for ${ticker}:`, String(kvErr?.message || kvErr).slice(0, 100));
-              }
-            }
-          }
-
-          // Persist replay trades to isolated KV so live dashboards do not mix replay and production rows.
-          replayCtx.allTrades = sanitizeReplayTradesForScope(replayCtx.allTrades, replayTradeScope);
-          try {
-            await kvPutJSON(KV, REPLAY_TRADES_KV_KEY, replayCtx.allTrades);
-          } catch (e) {
-            errors.push({ ticker: "TRADES_KV_SAVE", error: String(e?.message || e) });
-          }
-
-          // Also persist trades to D1 (source of truth) so they survive cron overwrites
-          // Only upsert trades belonging to this batch's tickers to stay under D1 subrequest limits
-          if (db) {
-            const batchTickerSet = new Set(batchTickers.map(t => t.toUpperCase()));
-            const batchTrades = replayCtx.allTrades.filter(t =>
-              batchTickerSet.has(String(t?.ticker || "").toUpperCase())
-            );
-            try {
-              for (const trade of batchTrades) {
-                if (replayLockVal && !trade.run_id) trade.run_id = replayLockVal;
-                await d1UpsertTrade(env, trade).catch(() => {});
-              }
-              if (replayLockVal) {
-                await d1StampRunIdForTrades(
-                  env,
-                  replayLockVal,
-                  batchTrades.map((t) => t?.trade_id || t?.id || null),
-                );
-              }
-            } catch (e) {
-              errors.push({ ticker: "TRADES_D1_SYNC", error: String(e?.message || e).slice(0, 150) });
-            }
-
-            // Write-through to immutable archive (backtest_run_trades) — survives resets
-            if (replayLockVal) {
-              try {
-                for (const trade of batchTrades) {
-                  await d1ArchiveRunTrade(env, replayLockVal, trade).catch(() => {});
-                }
-              } catch (e) {
-                errors.push({ ticker: "TRADES_ARCHIVE_SYNC", error: String(e?.message || e).slice(0, 150) });
-              }
-            }
-
-            // ═══════════════════════════════════════════════════════════════════
-            // Sync OPEN trades → D1 positions table
-            // The capture handler + scoring cron use getPositionContext() which
-            // queries the positions table. Without this, they classify kanban in
-            // discovery mode (watch/setup/enter) and overwrite the replay's
-            // correct management stages (hold/defend/trim/exit).
-            // ═══════════════════════════════════════════════════════════════════
-            const openBatchTrades = batchTrades.filter(t =>
-              String(t?.status || "").toUpperCase() === "OPEN"
-            );
-            let positionsSynced = 0;
-            for (const trade of openBatchTrades) {
-              try {
-                const sym = String(trade.ticker).toUpperCase();
-                const dir = String(trade.direction || "LONG").toUpperCase();
-                const shares = Number(trade.shares) || 0;
-                const ep = Number(trade.entryPrice) || 0;
-                const costBasis = shares * ep;
-                const entryTs = Number(trade.entry_ts) || Number(trade.created_at) || Date.now();
-                const sl = Number(trade.sl);
-                const tp = Number(trade.tp);
-                const posId = trade.id || `replay-${sym}-${entryTs}`;
-                await d1InsertPosition(env, {
-                  position_id: posId,
-                  ticker: sym,
-                  direction: dir,
-                  status: "OPEN",
-                  total_qty: shares,
-                  cost_basis: costBasis,
-                  created_at: entryTs,
-                  updated_at: entryTs,
-                  stop_loss: Number.isFinite(sl) ? sl : null,
-                  take_profit: Number.isFinite(tp) ? tp : null,
-                });
-                positionsSynced++;
-              } catch { /* non-critical */ }
-            }
-            if (positionsSynced > 0) {
-              console.log(`[REPLAY] Synced ${positionsSynced} open positions to D1 positions table`);
-            }
-          }
-        }
-
-        // End-of-day processing: investor replay + portfolio snapshots (last batch only; skip if skipInvestor=1)
-        if (!hasMore) {
-          await clearReplayRunningMarker(KV);
-          if (!skipInvestor) {
-            console.log(`[REPLAY] End-of-day for ${dateParam}: investor replay + snapshots (this can take 30-60s)`);
-            try {
-              const invResult = await runInvestorDailyReplay(env, KV, replayCtx, dateParam);
-              if (invResult?.opened || invResult?.closed || invResult?.dcaBuys || invResult?.trimmed) {
-                console.log(`[REPLAY] Investor: +${invResult.opened} -${invResult.closed} dca=${invResult.dcaBuys} trim=${invResult.trimmed}`);
-              }
-            } catch (invErr) {
-              console.warn("[REPLAY] Investor daily replay failed:", String(invErr).slice(0, 200));
-            }
-            try {
-              await snapshotBothPortfolios(env, KV, replayCtx, dateParam);
-            } catch (snapErr) {
-              console.warn("[REPLAY] Portfolio snapshot failed:", String(snapErr).slice(0, 200));
-            }
-          } else {
-            // Persist end-of-day ticker state for later investor-only backfill
-            const dayState = {};
-            for (const sym of Object.keys(SECTOR_MAP)) {
-              try {
-                const td = await kvGetJSON(KV, `timed:latest:${sym}`);
-                if (td && td.price > 0) dayState[sym] = td;
-              } catch { /* skip */ }
-            }
-            try {
-              await kvPutJSON(KV, `timed:replay:daystate:${dateParam}`, dayState);
-              console.log(`[REPLAY] Last batch done (trader only); saved day state for ${dateParam} (${Object.keys(dayState).length} tickers)`);
-            } catch (e) {
-              console.warn("[REPLAY] Failed to save day state:", String(e).slice(0, 150));
-            }
-          }
-        }
-
-        // Diagnostic snapshot: last scoring state per ticker
-        const lastSnapshot = {};
-        for (const ticker of batchTickers) {
-          const s = stateMap[ticker];
-          if (s) {
-            lastSnapshot[ticker] = {
-              state: s.state, htf_score: s.htf_score, ltf_score: s.ltf_score,
-              ema_regime_daily: s.ema_regime_daily, ema_regime_4h: s.ema_regime_4h,
-              fuel_D: s.fuel?.D?.fuelPct ?? null, fuel_10: s.fuel?.["10"]?.fuelPct ?? null, fuel_30: s.fuel?.["30"]?.fuelPct ?? null,
-              st_support_D: s.st_support?.map?.D || null,
-              kanban_stage: s.kanban_stage, score: s.score || s.rank,
-              block_reason: s.__entry_block_reason || null,
-              block_fuel_pct: s.__entry_block_fuel_pct ?? null,
-              primary_fuel: (s.fuel != null) ? Math.max(s.fuel?.["30"]?.fuelPct ?? 50, s.fuel?.["10"]?.fuelPct ?? 50) : null,
-            };
-          }
-        }
-
-        if (fullDay) {
-          dayScored += scored;
-          dayTradesCreated += tradesCreated;
-          daySkipped += skipped;
-          dayD1State += d1StateWritten;
-          dayTrailWritten += trailWritten;
-          dayErrors.push(...errors);
-          for (const k of Object.keys(stageCounts || {})) mergedStageCounts[k] = (mergedStageCounts[k] || 0) + (stageCounts[k] || 0);
-          for (const k of Object.keys(blockReasons || {})) mergedBlockReasons[k] = (mergedBlockReasons[k] || 0) + (blockReasons[k] || 0);
-          if (hasMore) {
-            tickerOffset += tickerBatch;
-            continue;
-          }
-        }
-
-        return sendJSON({
-          ok: true,
-          date: dateParam,
-          tickerOffset,
-          tickerBatch,
-          tickersProcessed: fullDay ? allTickers.length : batchTickers.length,
-          intervals: intervals.length,
-          intervalMinutes,
-          scored: fullDay ? dayScored : scored,
-          skipped: fullDay ? daySkipped : skipped,
-          tradesCreated: fullDay ? dayTradesCreated : tradesCreated,
-          totalTrades: replayCtx.allTrades.length,
-          hasMore: fullDay ? false : hasMore,
-          nextTickerOffset: fullDay ? null : (hasMore ? tickerOffset + tickerBatch : null),
-          errorsCount: fullDay ? dayErrors.length : errors.length,
-          errors: (fullDay ? dayErrors : errors).slice(0, 10),
-          stageCounts: fullDay ? mergedStageCounts : stageCounts,
-          blockReasons: fullDay ? mergedBlockReasons : blockReasons,
-          d1StateWritten: fullDay ? dayD1State : d1StateWritten,
-          trailWritten: fullDay ? dayTrailWritten : trailWritten,
-          lastSnapshot,
-          targetSnapshots,
-          targetTimeline,
-          processDebug: replayCtx?.processDebug?.slice(0, 30) || [],
-          blockedEntryGates: replayCtx?._blockedEntries || {},
-          timeline: debugTimeline ? timeline : undefined,
-          fullDay: !!fullDay,
-        }, 200, corsHeaders(env, req));
-        }
+        return handleCandleReplayRoute({
+          req,
+          env,
+          url,
+          requireKeyOrAdmin,
+          executeCandleReplayStep,
+        });
       }
 
-      // ═══════════════════════════════════════════════════════════════════════════
-      // POST /timed/admin/interval-replay
-      // Single-interval replay: mirrors the live scoring cron exactly.
-      // One request = one 5-min interval for ALL tickers.
-      // Shell script drives the outer loop (interval 0..78 per day).
-      //
-      // Params:
-      //   date=YYYY-MM-DD       (required) trading day
-      //   interval=N            (required) 0-based interval index
-      //   intervalMinutes=N     replay fidelity (default 5)
-      //   cleanSlate=1          purge all trades (only on interval=0 of first day)
-      //   disableReferenceExecution=1  ignore reference execution assists for raw engine validation
-      //   traderOnly=1          skip investor replay
-      //   endOfDay=1            run investor replay + portfolio snapshot
-      //   tickers=SYM1,SYM2    optional ticker filter
-      // ═══════════════════════════════════════════════════════════════════════════
       if (routeKey === "POST /timed/admin/interval-replay") {
-        try {
-        const authFail = await requireKeyOrAdmin(req, env);
-        if (authFail) return authFail;
-        const db = env?.DB;
-        if (!db) return sendJSON({ ok: false, error: "no_db_binding" }, 500, corsHeaders(env, req));
-
-        const dateParam = url.searchParams.get("date");
-        if (!dateParam || !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
-          return sendJSON({ ok: false, error: "date param required (YYYY-MM-DD)" }, 400, corsHeaders(env, req));
-        }
-        const intervalIdx = Number(url.searchParams.get("interval"));
-        if (!Number.isFinite(intervalIdx) || intervalIdx < 0) {
-          return sendJSON({ ok: false, error: "interval param required (0-based index)" }, 400, corsHeaders(env, req));
-        }
-
-        const intervalMinutes = Math.max(1, Math.min(30, Number(url.searchParams.get("intervalMinutes")) || 5));
-        const cleanSlate = url.searchParams.get("cleanSlate") === "1";
-        const freshRun = url.searchParams.get("freshRun") === "1";
-        const disableReferenceExecution = url.searchParams.get("disableReferenceExecution") === "1"
-          || (url.searchParams.get("enableReferenceExecution") !== "1" && cleanSlate);
-        const skipInvestor = url.searchParams.get("skipInvestor") === "1" || url.searchParams.get("traderOnly") === "1";
-        const endOfDay = url.searchParams.get("endOfDay") === "1";
-        const skipPayload = url.searchParams.get("skipPayload") !== "0";
-        const tickerFilter = url.searchParams.get("tickers");
-
-        const replayEnv = { ...env, _isReplay: true };
-        for (const overrideKey of ["LEADING_LTF", "TT_EXIT_DEBOUNCE_BARS", "TT_TUNE_V2", "RIPSTER_TUNE_V2", "ENTRY_ENGINE", "MANAGEMENT_ENGINE"]) {
-          const ov = url.searchParams.get(overrideKey);
-          if (ov != null && ov !== "") replayEnv[overrideKey] = ov;
-        }
-        const replayLeadingLtf = normalizeTfKey(replayEnv.LEADING_LTF || "10") || "10";
-
-        let allTickers;
-        if (tickerFilter) {
-          allTickers = tickerFilter.split(",").map(t => t.trim().toUpperCase()).filter(Boolean);
-        } else {
-          allTickers = Object.keys(SECTOR_MAP);
-        }
-        const spyIdx = allTickers.indexOf("SPY");
-        if (spyIdx > 0) { allTickers.splice(spyIdx, 1); allTickers.unshift("SPY"); }
-
-        const marketOpenMs = nyWallTimeToUtcMs(dateParam, 9, 30, 0);
-        const marketCloseMs = nyWallTimeToUtcMs(dateParam, 16, 0, 0);
-        if (!marketOpenMs || !marketCloseMs) {
-          return sendJSON({ ok: false, error: "failed_to_compute_market_hours" }, 500, corsHeaders(env, req));
-        }
-
-        const intervalMs = intervalMinutes * 60 * 1000;
-        const totalIntervals = Math.floor((marketCloseMs - marketOpenMs) / intervalMs) + 1;
-        const intervalTs = marketOpenMs + (intervalIdx * intervalMs);
-
-        if (intervalIdx >= totalIntervals) {
-          return sendJSON({ ok: true, scored: 0, message: "interval_out_of_range", totalIntervals }, 200, corsHeaders(env, req));
-        }
-
-        // Clean slate on first interval of first day
-        if (cleanSlate && intervalIdx === 0) {
-          await kvPutJSON(KV, "timed:trades:all", []);
-          await kvPutJSON(KV, REPLAY_TRADES_KV_KEY, []);
-          await kvPutJSON(KV, "timed:portfolio:v1", null);
-          await kvPutJSON(KV, "timed:activity:feed", null);
-          if (db) {
-            try {
-              await db.batch([
-                db.prepare("DELETE FROM trade_events"),
-                db.prepare("DELETE FROM trades"),
-              ]);
-            } catch {}
-            for (const tbl of ["positions", "execution_actions", "lots", "alerts", "ticker_latest", "account_ledger", "investor_positions", "investor_lots", "portfolio_snapshots", "timed_trail"]) {
-              try { await db.prepare(`DELETE FROM ${tbl}`).run(); } catch {}
-            }
-            for (const t of allTickers) { try { await KV.delete(`timed:latest:${t}`); } catch {} }
-          }
-        }
-
-        await kvPutJSON(KV, "timed:replay:running", { since: Date.now(), date: dateParam, interval: intervalIdx, mode: "single_interval" });
-        const replayLockVal = await KV.get("timed:replay:lock") || null;
-        const replayManifest = replayLockVal ? await loadRunManifest(db, replayLockVal) : null;
-        const cfgKeys = [
-          "adaptive_entry_gates",
-          "adaptive_regime_gates",
-          "adaptive_sl_tp",
-          "calibrated_sl_atr",
-          "calibrated_tp_tiers",
-          "calibrated_rank_min",
-        ];
-        const daKeys = REPLAY_DA_KEYS;
-        const replayPinnedConfigKeys = [...new Set([
-          ...cfgKeys,
-          ...daKeys,
-          "dynamic_engine_rules",
-          "reference_execution_map",
-          "scenario_execution_policy",
-        ])];
-        const replayPinnedConfig = await resolveReplayPinnedConfig(db, replayLockVal, replayPinnedConfigKeys, { logPrefix: "[INTERVAL REPLAY]" });
-        const replayRunConfig = replayPinnedConfig.config;
-        const replayConfigRunId = replayPinnedConfig.runId;
-        const replayConfigValue = (key) => replayRunConfig?.[key];
-        if (replayRunConfig) {
-          console.log(`[INTERVAL REPLAY] Using pinned run config from archive for ${replayConfigRunId} (${Object.keys(replayRunConfig).length} keys)`);
-        }
-
-        // ── Load configs (same pattern as live cron) ──
-        let _replayGoldenProfiles = null, _replayAdaptiveEntryGates = null, _replayAdaptiveRegimeGates = null;
-        let _replayAdaptiveSLTP = null, _replayCalibratedSlAtr = 0, _replayCalibratedRankMin = 0;
-        try {
-          const cfgValues = replayRunConfig
-            ? cfgKeys.map((key) => replayConfigValue(key))
-            : (await db.batch(cfgKeys.map((key) => db.prepare(`SELECT config_value FROM model_config WHERE config_key=?1`).bind(key))))
-                .map((row) => row?.results?.[0]?.config_value);
-          if (cfgValues[0]) _replayAdaptiveEntryGates = JSON.parse(cfgValues[0]);
-          if (cfgValues[1]) _replayAdaptiveRegimeGates = JSON.parse(cfgValues[1]);
-          if (cfgValues[2]) _replayAdaptiveSLTP = JSON.parse(cfgValues[2]);
-          if (cfgValues[3]) _replayCalibratedSlAtr = Number(cfgValues[3]) || 0;
-          if (cfgValues[4]) {
-            const _tpRaw = JSON.parse(cfgValues[4]);
-            const _sltpDef = _replayAdaptiveSLTP?.["_default"] || {};
-            if (_sltpDef.tp_trim_atr && _sltpDef.tp_exit_atr && _sltpDef.tp_runner_atr) {
-              _calibratedTPTiers = { trim: _sltpDef.tp_trim_atr, exit: _sltpDef.tp_exit_atr, runner: _sltpDef.tp_runner_atr };
-            } else if (_tpRaw) { _calibratedTPTiers = _tpRaw; }
-          }
-          if (cfgValues[5]) _replayCalibratedRankMin = Number(cfgValues[5]) || 0;
-        } catch {}
-        try {
-          const _daConfig = {};
-          if (replayRunConfig) {
-            for (const key of daKeys) {
-              const value = replayConfigValue(key);
-              if (value == null) continue;
-              try { _daConfig[key] = JSON.parse(value); } catch { _daConfig[key] = value; }
-            }
-          } else {
-            const daRows = (await db.prepare(
-              `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
-            ).bind(...daKeys).all())?.results || [];
-            for (const r of daRows) { try { _daConfig[r.config_key] = JSON.parse(r.config_value); } catch { _daConfig[r.config_key] = r.config_value; } }
-          }
-          replayEnv._deepAuditConfig = _daConfig;
-        } catch {}
-        try {
-          const dynamicEngineRulesValue = await loadReplayConfigValue(db, replayRunConfig, "dynamic_engine_rules", {
-            allowLiveFallback: false,
-            warnPrefix: "[INTERVAL REPLAY]",
-          });
-          if (dynamicEngineRulesValue) {
-            _dynamicEngineRulesCache = JSON.parse(dynamicEngineRulesValue);
-          }
-        } catch {}
-        try {
-          const referenceExecutionMapValue = await loadReplayConfigValue(db, replayRunConfig, "reference_execution_map", {
-            allowLiveFallback: false,
-            warnPrefix: "[INTERVAL REPLAY]",
-          });
-          if (referenceExecutionMapValue) _referenceExecutionMapCache = JSON.parse(referenceExecutionMapValue);
-        } catch {}
-        try {
-          const scenarioPolicyValue = await loadReplayConfigValue(db, replayRunConfig, "scenario_execution_policy", {
-            allowLiveFallback: false,
-            warnPrefix: "[INTERVAL REPLAY]",
-          });
-          if (scenarioPolicyValue) _scenarioExecutionPolicyCache = JSON.parse(scenarioPolicyValue);
-        } catch {}
-        try { _replayGoldenProfiles = (await kvGetJSON(KV, "timed:calibration:golden-profiles"))?.profiles || null; } catch {}
-
-        let _replayTickerProfiles = {};
-        try {
-          if (batchTickers.length > 0) {
-            const profilePlaceholders = batchTickers.map((_, idx) => `?${idx + 1}`).join(",");
-            const { results: profRows } = await db.prepare(
-              `SELECT ticker, behavior_type, sl_mult, tp_mult, entry_threshold_adj, atr_pct_p50,
-                      trend_persistence, ichimoku_responsiveness, learning_json
-                 FROM ticker_profiles
-                WHERE ticker IN (${profilePlaceholders})`
-            ).bind(...batchTickers.map((ticker) => String(ticker || "").toUpperCase())).all();
-            for (const r of (profRows || [])) _replayTickerProfiles[r.ticker] = r;
-          }
-        } catch {}
-
-        replayEnv._adaptiveEntryGates = _replayAdaptiveEntryGates;
-        replayEnv._adaptiveRegimeGates = _replayAdaptiveRegimeGates;
-        replayEnv._adaptiveSLTP = _replayAdaptiveSLTP;
-        replayEnv._calibratedSlAtr = _replayCalibratedSlAtr;
-        replayEnv._calibratedRankMin = _replayCalibratedRankMin;
-        replayEnv._goldenProfiles = _replayGoldenProfiles;
-        replayEnv._deepAuditConfig = replayEnv._deepAuditConfig || {};
-        replayEnv._referenceExecutionMap = disableReferenceExecution ? null : _referenceExecutionMapCache;
-        replayEnv._scenarioExecutionPolicy = _scenarioExecutionPolicyCache;
-        replayEnv._scenarioExecutionPolicy = _scenarioExecutionPolicyCache;
-
-        // ── Load existing trades from KV (archive fallback for resume) ──
-        const _intervalCleanSlate = cleanSlate && intervalIdx === 0;
-        const _intervalFreshRun = freshRun;
-        const cleanReplayLane = !!(_intervalFreshRun || _intervalCleanSlate || isRunManifestCleanLane(replayManifest));
-        let allTrades = _intervalCleanSlate ? [] : ((await kvGetJSON(KV, REPLAY_TRADES_KV_KEY)) || []);
-        // Skip archive fallback when freshRun or cleanSlate — same rationale as candle-replay
-        if (!cleanReplayLane && (!allTrades || allTrades.length === 0) && replayLockVal && db) {
-          try {
-            await d1EnsureBacktestRunsSchema(env);
-            const { results: archiveRows } = await db.prepare(
-              `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
-                      exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
-                      trim_ts, trim_price, setup_name, setup_grade, risk_budget, shares, notional
-               FROM backtest_run_trades WHERE run_id = ?1`
-            ).bind(replayLockVal).all();
-            if (archiveRows && archiveRows.length > 0) {
-              allTrades = archiveRows.map(r => ({
-                id: r.trade_id, trade_id: r.trade_id, ticker: r.ticker, direction: r.direction,
-                entry_ts: r.entry_ts, entryPrice: r.entry_price, entry_price: r.entry_price,
-                rank: r.rank, rr: r.rr, status: r.status,
-                exit_ts: r.exit_ts, exitPrice: r.exit_price, exit_price: r.exit_price,
-                exitReason: r.exit_reason, exit_reason: r.exit_reason,
-                trimmedPct: r.trimmed_pct, trimmed_pct: r.trimmed_pct,
-                pnl: r.pnl, pnlPct: r.pnl_pct, pnl_pct: r.pnl_pct,
-                trim_ts: r.trim_ts, trim_price: r.trim_price,
-                setupName: r.setup_name, setupGrade: r.setup_grade,
-                riskBudget: r.risk_budget, shares: r.shares, notional: r.notional,
-                run_id: replayLockVal,
-              }));
-              await kvPutJSON(KV, REPLAY_TRADES_KV_KEY, allTrades);
-              console.log(`[REPLAY RESUME] Restored ${allTrades.length} trades from archive for run ${replayLockVal}`);
-            }
-          } catch (e) {
-            console.warn("[REPLAY RESUME] Archive load failed:", String(e).slice(0, 150));
-          }
-        }
-        const initialIntervalReplayTrades = sanitizeReplayTradesForScope(allTrades, replayTradeScope);
-        if (initialIntervalReplayTrades.length !== allTrades.length) {
-          console.warn(`[INTERVAL REPLAY] Dropped ${allTrades.length - initialIntervalReplayTrades.length} out-of-scope trade(s) before ${dateParam} interval ${intervalIdx}`);
-        }
-        const replayCtx = {
-          allTrades: initialIntervalReplayTrades,
-          execStates: new Map(),
-          processDebug: [],
-          _blockedEntries: {},
-          _leadingLtf: replayLeadingLtf,
-          replayTradeScope,
-          strictSingleTickerPosition: cleanReplayLane,
-        };
-
-        // ── TF configs matching the live scoring cron (small limits) ──
-        const LIVE_TF_CONFIGS = [
-          { tf: "W", limit: 100 }, { tf: "D", limit: 250 },
-          { tf: "240", limit: 250 }, { tf: "60", limit: 150 },
-          { tf: "30", limit: 100 }, { tf: "15", limit: 100 },
-          { tf: "10", limit: 100 }, { tf: replayLeadingLtf, limit: 100 },
-          { tf: "M", limit: 24 },
-        ];
-
-        // ── Score ALL tickers for this single interval ──
-        let scored = 0, tradesCreated = 0, skipped = 0;
-        const errors = [];
-        const stageCounts = {};
-        const blockReasons = {};
-        const entryDiagnostics = {};
-        const pendingTrail = [];
-        const _sectorETFs = require("./sector-mapping.js").SECTOR_ETF_MAP || {};
-
-        // Process tickers in batches of 15 (same as live cron)
-        const TICKER_BATCH_SIZE = 15;
-        for (let batchStart = 0; batchStart < allTickers.length; batchStart += TICKER_BATCH_SIZE) {
-          const batchTickers = allTickers.slice(batchStart, batchStart + TICKER_BATCH_SIZE);
-          const batchPromises = batchTickers.map(async (ticker) => {
-            try {
-              // 1. Read existing state from KV (exactly like live cron)
-              let existing = await kvGetJSON(KV, `timed:latest:${ticker}`);
-              if (!existing || Object.keys(existing).length === 0) {
-                try {
-                  const row = await db.prepare(`SELECT payload_json FROM ticker_latest WHERE ticker = ?`).bind(ticker).first();
-                  if (row?.payload_json) existing = JSON.parse(row.payload_json);
-                } catch {}
-              }
-              if (!existing) existing = {};
-
-              // 2. Load candles from D1 (exactly like live cron: d1GetCandlesAllTfs with beforeTs)
-              const candleResult = await d1GetCandlesAllTfs(replayEnv, ticker, LIVE_TF_CONFIGS, { beforeTs: intervalTs });
-              const getCandlesCached = async (_env, _ticker, tf, _limit) => {
-                const tfKey = normalizeTfKey(tf);
-                return candleResult[tfKey] || { ok: false, candles: [] };
-              };
-
-              // 3. Inject ticker profile + market internals (same as live cron)
-              if (_replayTickerProfiles[ticker]) {
-                existing._tickerProfile = normalizeLearnedTickerProfile(_replayTickerProfiles[ticker], {
-                  ticker,
-                  source: "replay_d1_batch",
-                });
-              }
-
-              // 4. computeServerSideScores (same function live cron uses)
-              const result = await computeServerSideScores(ticker, getCandlesCached, replayEnv, existing);
-              if (!result) { skipped++; return; }
-
-              result.ts = intervalTs;
-              result.ingest_ts = intervalTs;
-              result.data_source = "interval_replay";
-              result.data_source_ts = intervalTs;
-              result.trigger_ts = intervalTs;
-
-              result.rank = computeRank(result);
-              result.score = result.rank;
-              result.rr = computeRR(result);
-              if (result.rr != null && Number(result.rr) > 25) result.rr = 25;
-              if (Number.isFinite(result.rr)) result.rr_warning = computeRRWarning(result.rr);
-              result.move_status = computeMoveStatus(result);
-              if (result.flags) {
-                result.flags.move_invalidated = result.move_status?.status === "INVALIDATED";
-                result.flags.move_completed = result.move_status?.status === "COMPLETED";
-              }
-
-              // 5. Inject regime + env context (same as live cron)
-              const tickerSector = SECTOR_MAP[ticker] || "Unknown";
-              const _rSpyData = await kvGetJSON(KV, "timed:latest:SPY");
-              const _rMktRegime = _rSpyData?.regime_class ? { regime: _rSpyData.regime_class, score: _rSpyData.regime_score || 0, htf_score: _rSpyData.htf_score ?? null, ema_regime_daily: _rSpyData.ema_regime_daily ?? 0, swing_dir: _rSpyData.swing_consensus?.direction || null, combined: _rSpyData.regime?.combined || null } : null;
-              const _rSectorETF = _sectorETFs[tickerSector];
-              const _rSectorData = _rSectorETF ? (await kvGetJSON(KV, `timed:latest:${_rSectorETF}`)) : null;
-              const _rSecRegime = _rSectorData?.regime_class ? { regime: _rSectorData.regime_class, score: _rSectorData.regime_score || 0 } : null;
-              result._env = {
-                _isReplay: true,
-                _goldenProfiles: _replayGoldenProfiles, _adaptiveEntryGates: _replayAdaptiveEntryGates,
-                _adaptiveRegimeGates: _replayAdaptiveRegimeGates, _adaptiveSLTP: _replayAdaptiveSLTP,
-                _calibratedSlAtr: _replayCalibratedSlAtr, _calibratedRankMin: _replayCalibratedRankMin,
-                _marketRegime: _rMktRegime, _sectorRegime: _rSecRegime,
-                _deepAuditConfig: replayEnv._deepAuditConfig || null, _leadingLtf: replayLeadingLtf,
-                _universeSize: allTickers.length, _replayBlockedEntries: replayCtx._blockedEntries || null,
-                _entryEngine: replayEnv.ENTRY_ENGINE || "tt_core", _managementEngine: replayEnv.MANAGEMENT_ENGINE || "tt_core",
-                _referenceExecutionMap: _referenceExecutionMapCache,
-                _scenarioExecutionPolicy: _scenarioExecutionPolicyCache,
-                _ripsterTuneV2: replayEnv.RIPSTER_TUNE_V2 || "true", _ripsterExitDebounceBars: replayEnv.TT_EXIT_DEBOUNCE_BARS || "3",
-              };
-
-              // VIX injection
-              try {
-                const vixData = await kvGetJSON(KV, "timed:latest:VIX");
-                if (vixData?.price) result._vix = Number(vixData.price);
-              } catch {}
-
-              // 6. Carry forward state fields
-              if (existing?.entry_ts != null && result.entry_ts == null) result.entry_ts = existing.entry_ts;
-              if (existing?.entry_price != null && result.entry_price == null) result.entry_price = existing.entry_price;
-              if (existing?.kanban_cycle_enter_now_ts != null) result.kanban_cycle_enter_now_ts = existing.kanban_cycle_enter_now_ts;
-              if (existing?.kanban_cycle_trigger_ts != null) result.kanban_cycle_trigger_ts = existing.kanban_cycle_trigger_ts;
-              if (existing?.kanban_cycle_side != null) result.kanban_cycle_side = existing.kanban_cycle_side;
-
-              // 7. Kanban classification (same as live)
-              const openTrade = replayCtx.allTrades.find(t => String(t?.ticker || "").toUpperCase() === ticker && isOpenTradeStatus(t?.status)) || null;
-              const prevStage = existing?.kanban_stage;
-              const stage = classifyKanbanStage(result, openTrade, intervalTs);
-              let finalStage = stage;
-
-              if (["watch", "setup", "discovery", "in_review", "enter", "enter_now"].includes(stage) && result.state) {
-                const diagEntry = qualifiesForEnter(result, intervalTs);
-                if (!diagEntry.qualifies) {
-                  result.__entry_block_reason = diagEntry.reason;
-                  blockReasons[diagEntry.reason] = (blockReasons[diagEntry.reason] || 0) + 1;
-                  if (!entryDiagnostics[ticker]) {
-                    entryDiagnostics[ticker] = {
-                      qualifies: false,
-                      reason: diagEntry.reason,
-                      engine: diagEntry.engine || null,
-                      path: diagEntry.path || null,
-                      selectedEngine: diagEntry.selectedEngine || null,
-                      engineSource: diagEntry.engineSource || null,
-                      scenarioPolicySource: diagEntry?.scenarioPolicy?.source || result?.__scenario_policy?.source || null,
-                      scenarioPolicyMatch: diagEntry?.scenarioPolicy?.match || result?.__scenario_policy?.match || null,
-                      scenarioExitStyle: diagEntry?.scenarioPolicy?.recommend?.exit_style || result?.__scenario_policy?.recommend?.exit_style || null,
-                      ripster_bias: diagEntry.ripster_bias || null,
-                      metadata: diagEntry.metadata || null,
-                    };
-                  }
-                } else {
-                  delete result.__entry_block_reason;
-                  if (!entryDiagnostics[ticker]) {
-                    entryDiagnostics[ticker] = {
-                      qualifies: true,
-                      reason: diagEntry.reason || null,
-                      engine: diagEntry.engine || null,
-                      path: diagEntry.path || null,
-                      selectedEngine: diagEntry.selectedEngine || null,
-                      engineSource: diagEntry.engineSource || null,
-                      scenarioPolicySource: diagEntry?.scenarioPolicy?.source || result?.__scenario_policy?.source || null,
-                      scenarioPolicyMatch: diagEntry?.scenarioPolicy?.match || result?.__scenario_policy?.match || null,
-                      scenarioExitStyle: diagEntry?.scenarioPolicy?.recommend?.exit_style || result?.__scenario_policy?.recommend?.exit_style || null,
-                      metadata: diagEntry.metadata || null,
-                    };
-                  }
-                }
-              }
-
-              if (finalStage === "in_review" || finalStage === "enter_now" || finalStage === "enter") {
-                result.kanban_cycle_enter_now_ts = intervalTs;
-                result.kanban_cycle_trigger_ts = Number.isFinite(Number(result?.trigger_ts)) ? result.trigger_ts : intervalTs;
-                result.kanban_cycle_side = sideFromStateOrScores(result);
-              } else if (["hold", "just_entered", "defend", "trim", "exit"].includes(finalStage)) {
-                result.kanban_cycle_enter_now_ts = existing?.kanban_cycle_enter_now_ts ?? null;
-                result.kanban_cycle_trigger_ts = existing?.kanban_cycle_trigger_ts ?? null;
-                result.kanban_cycle_side = existing?.kanban_cycle_side ?? null;
-              } else { result.kanban_cycle_enter_now_ts = null; result.kanban_cycle_trigger_ts = null; result.kanban_cycle_side = null; }
-
-              const isNewEntry = (finalStage === "in_review" || finalStage === "enter_now" || finalStage === "enter") && prevStage !== "in_review" && prevStage !== "enter_now" && prevStage !== "enter";
-              if (isNewEntry) {
-                const price = Number(result?.price);
-                if (Number.isFinite(price) && price > 0) { result.entry_price = price; result.entry_ts = intervalTs; }
-              }
-              if (!isNewEntry && finalStage && existing?.entry_price && result.entry_price == null) { result.entry_price = existing.entry_price; result.entry_ts = existing.entry_ts; }
-
-              if (prevStage && finalStage && String(prevStage) !== String(finalStage)) { result.prev_kanban_stage = String(prevStage); result.prev_kanban_stage_ts = intervalTs; }
-              result.kanban_stage = finalStage;
-              result.kanban_meta = deriveKanbanMeta(result, finalStage);
-              stageCounts[finalStage || "null"] = (stageCounts[finalStage || "null"] || 0) + 1;
-
-              // 8. Trade simulation
-              {
-                const simEnv = { ...replayEnv, DISCORD_ENABLE: "false", DISCORD_WEBHOOK_URL: null, EMAIL_ENABLED: "false", SENDGRID_API_KEY: null };
-                const countBefore = replayCtx.allTrades.filter(x => String(x?.ticker).toUpperCase() === ticker).length;
-                await processTradeSimulation(KV, ticker, result, existing, simEnv, { forceUseIngestTs: true, replayBatchContext: replayCtx, asOfTs: intervalTs });
-                const countAfter = replayCtx.allTrades.filter(x => String(x?.ticker).toUpperCase() === ticker).length;
-                if (countAfter > countBefore) tradesCreated += countAfter - countBefore;
-              }
-
-              // 9. Write state to KV (exactly like live cron)
-              await kvPutJSON(KV, `timed:latest:${ticker}`, result);
-
-              // Collect trail point for batch D1 write
-              pendingTrail.push({ ticker, result: { ...result } });
-
-              scored++;
-            } catch (e) {
-              errors.push({ ticker, ts: intervalTs, error: String(e?.message || e).slice(0, 150) });
-            }
-          });
-          await Promise.all(batchPromises);
-        }
-
-        // ── Batch-write trail points to D1 ──
-        let trailWritten = 0;
-        if (pendingTrail.length > 0 && db) {
-          try {
-            const trailStmts = pendingTrail.map(({ ticker: t, result: r }) => {
-              const ts = Number(r?.ts); if (!Number.isFinite(ts)) return null;
-              const flagsJson = r?.flags ? JSON.stringify(r.flags) : null;
-              const payloadJson = null;
-              return db.prepare(
-                `INSERT OR REPLACE INTO timed_trail (ticker, ts, price, htf_score, ltf_score, completion, phase_pct, state, rank, flags_json, trigger_reason, trigger_dir, kanban_stage, payload_json)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
-              ).bind(String(t).toUpperCase(), ts, r?.price ?? null, r?.htf_score ?? null, r?.ltf_score ?? null, r?.completion ?? null, r?.phase_pct ?? null, r?.state ?? null, r?.rank ?? null, flagsJson, r?.trigger_reason ?? null, r?.trigger_dir ?? null, r?.kanban_stage ?? null, payloadJson);
-            }).filter(Boolean);
-            const D1_BATCH_MAX = 100;
-            for (let i = 0; i < trailStmts.length; i += D1_BATCH_MAX) {
-              await db.batch(trailStmts.slice(i, i + D1_BATCH_MAX));
-              trailWritten += Math.min(D1_BATCH_MAX, trailStmts.length - i);
-            }
-          } catch (trailErr) {
-            errors.push({ ticker: "TRAIL_BATCH", error: String(trailErr?.message || trailErr).slice(0, 150) });
-          }
-        }
-
-        // ── Batch state write to D1 ticker_latest ──
-        let d1StateWritten = 0;
-        {
-          const stateStmts = [];
-          for (const { ticker, result: s } of pendingTrail) {
-            try {
-              let slim = slimPayloadForD1(s);
-              let json = JSON.stringify(slim);
-              if (json.length > 50000) { slim = minimalPayloadForD1(s); json = JSON.stringify(slim); }
-              if (json.length > 50000) continue;
-              const ts = Number(s?.ts) || Date.now();
-              stateStmts.push(
-                db.prepare(
-                  `INSERT INTO ticker_latest (ticker, ts, updated_at, kanban_stage, prev_kanban_stage, payload_json)
-                   VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT(ticker) DO UPDATE SET
-                   ts=excluded.ts, updated_at=excluded.updated_at, kanban_stage=excluded.kanban_stage,
-                   prev_kanban_stage=excluded.prev_kanban_stage, payload_json=excluded.payload_json`
-                ).bind(ticker.toUpperCase(), ts, Date.now(), s?.kanban_stage ?? null, s?.prev_kanban_stage ?? null, json)
-              );
-            } catch {}
-          }
-          const D1_BATCH_MAX = 100;
-          for (let i = 0; i < stateStmts.length; i += D1_BATCH_MAX) {
-            try { await db.batch(stateStmts.slice(i, i + D1_BATCH_MAX)); d1StateWritten += Math.min(D1_BATCH_MAX, stateStmts.length - i); } catch {}
-          }
-        }
-
-        // ── Persist trades (replayLockVal already declared above for resume) ──
-        replayCtx.allTrades = sanitizeReplayTradesForScope(replayCtx.allTrades, replayTradeScope);
-        try { await kvPutJSON(KV, REPLAY_TRADES_KV_KEY, replayCtx.allTrades); } catch {}
-        if (db) {
-          for (const trade of replayCtx.allTrades) {
-            try { if (replayLockVal && !trade.run_id) trade.run_id = replayLockVal; await d1UpsertTrade(env, trade).catch(() => {}); } catch {}
-          }
-          if (replayLockVal) {
-            await d1StampRunIdForTrades(
-              env,
-              replayLockVal,
-              replayCtx.allTrades.map((t) => t?.trade_id || t?.id || null),
-            );
-          }
-          // Write-through to immutable archive
-          if (replayLockVal) {
-            for (const trade of replayCtx.allTrades) {
-              try { await d1ArchiveRunTrade(env, replayLockVal, trade).catch(() => {}); } catch {}
-            }
-          }
-        }
-
-        // ── End-of-day: investor replay + portfolio snapshots ──
-        if (endOfDay) {
-          await clearReplayRunningMarker(KV);
-          if (!skipInvestor) {
-            try {
-              const invResult = await runInvestorDailyReplay(env, KV, replayCtx, dateParam);
-              if (invResult?.opened || invResult?.closed) console.log(`[INTERVAL_REPLAY] Investor: +${invResult.opened} -${invResult.closed}`);
-            } catch {}
-            try { await snapshotBothPortfolios(env, KV, replayCtx, dateParam); } catch {}
-          }
-        }
-
-        const referenceDriftEvents = (() => {
-          const map = replayEnv?._referenceExecutionMap;
-          const driftSemantic = _semanticToleranceOptions(map, "drift");
-          const exact = Array.isArray(map?.exact_reference_entries) ? map.exact_reference_entries : [];
-          if (!exact.length) return [];
-          const expected = [];
-          for (const e of exact) {
-            const refTs = Number(e?.entry_ts);
-            const tolMs = Math.max(60_000, (Number(e?.tolerance_minutes) || 20) * 60_000);
-            const ticker = String(e?.ticker || "").toUpperCase();
-            if (!ticker || !Number.isFinite(refTs)) continue;
-            if (tickerFilter && !allTickers.includes(ticker)) continue;
-            if (Math.abs(intervalTs - refTs) > tolMs) continue;
-            expected.push({
-              ticker,
-              refTs,
-              tolMs,
-              trade_id: e?.trade_id || null,
-              run_id: e?.run_id || null,
-              entry_path_expected: e?.entry_path_expected || null,
-              engine_source_expected: e?.engine_source_expected || null,
-              scenario_policy_source_expected: e?.scenario_policy_source_expected || null,
-              criteria_fingerprint: (e?.criteria_fingerprint && typeof e.criteria_fingerprint === "object")
-                ? e.criteria_fingerprint
-                : null,
-            });
-          }
-          const events = [];
-          for (const ex of expected) {
-            const matchedTrade = (replayCtx.allTrades || []).find((t) => {
-              if (String(t?.ticker || "").toUpperCase() !== ex.ticker) return false;
-              const ets = Number(t?.entry_ts || t?.entryTs || isoToMs(t?.entryTime));
-              return Number.isFinite(ets) && Math.abs(ets - ex.refTs) <= ex.tolMs;
-            }) || null;
-            const diag = entryDiagnostics?.[ex.ticker] || null;
-            const snap = _parseJsonObjectMaybe(matchedTrade?.signal_snapshot_json);
-            const lineage = snap?.lineage && typeof snap.lineage === "object" ? snap.lineage : {};
-            const runtimeEntryPath = (matchedTrade?.entry_path || lineage?.entry_path || diag?.path || null);
-            const runtimeEngineSource = (lineage?.engine_source || diag?.engineSource || null);
-            const runtimeScenarioPolicySource = (lineage?.scenario_policy_source || diag?.scenarioPolicySource || null);
-
-            const semanticMismatches = [];
-            const mismatchSeen = new Set();
-            const pushMismatch = (field, expectedVal, actualVal) => {
-              const key = `${String(field)}|${String(expectedVal)}|${String(actualVal)}`;
-              if (mismatchSeen.has(key)) return;
-              mismatchSeen.add(key);
-              semanticMismatches.push({
-                field,
-                expected: expectedVal,
-                actual: actualVal == null ? null : actualVal,
-              });
-            };
-            const eqNorm = (a, b) => String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
-            const driftHasPath = (p) => Array.isArray(driftSemantic?.comparePaths) && driftSemantic.comparePaths.includes(String(p));
-            if (matchedTrade) {
-              if (driftSemantic.enabled && driftHasPath("entry_path") && ex.entry_path_expected && !eqNorm(runtimeEntryPath, ex.entry_path_expected)) {
-                pushMismatch("entry_path", ex.entry_path_expected, runtimeEntryPath || null);
-              }
-              if (driftSemantic.enabled && driftHasPath("engine_source") && ex.engine_source_expected && !eqNorm(runtimeEngineSource, ex.engine_source_expected)) {
-                pushMismatch("engine_source", ex.engine_source_expected, runtimeEngineSource || null);
-              }
-              if (driftSemantic.enabled && driftHasPath("scenario_policy_source") && ex.scenario_policy_source_expected && !eqNorm(runtimeScenarioPolicySource, ex.scenario_policy_source_expected)) {
-                pushMismatch("scenario_policy_source", ex.scenario_policy_source_expected, runtimeScenarioPolicySource || null);
-              }
-              const fpCmp = _criteriaFingerprintCompare(
-                ex.criteria_fingerprint,
-                _runtimeCriteriaFingerprintFromTrade(matchedTrade, diag),
-                {
-                  strictMissing: driftSemantic.strictMissing,
-                  ignoreUnknownExpected: driftSemantic.ignoreUnknownExpected,
-                  paths: driftSemantic.comparePaths,
-                  requiredPaths: driftSemantic.requiredPaths,
-                },
-              );
-              if (driftSemantic.enabled && fpCmp.available && fpCmp.mismatches.length > driftSemantic.maxMismatches) {
-                for (const mm of fpCmp.mismatches) pushMismatch(mm?.field || "unknown", mm?.expected ?? null, mm?.actual ?? null);
-              }
-            }
-            const semanticMatched = !!matchedTrade && semanticMismatches.length === 0;
-            events.push({
-              ticker: ex.ticker,
-              reference_entry_ts: ex.refTs,
-              matched: !!matchedTrade,
-              semantic_matched: semanticMatched,
-              matched_trade_id: matchedTrade?.id || matchedTrade?.trade_id || null,
-              entry_engine: diag?.engine || null,
-              block_reason: !matchedTrade ? (diag?.reason || "no_entry") : null,
-              expected_entry_path: ex.entry_path_expected || null,
-              actual_entry_path: runtimeEntryPath || null,
-              expected_engine_source: ex.engine_source_expected || null,
-              actual_engine_source: runtimeEngineSource || null,
-              expected_scenario_policy_source: ex.scenario_policy_source_expected || null,
-              actual_scenario_policy_source: runtimeScenarioPolicySource || null,
-              criteria_fingerprint_expected: ex.criteria_fingerprint || null,
-              criteria_fingerprint_actual: matchedTrade ? _runtimeCriteriaFingerprintFromTrade(matchedTrade, diag) : null,
-              semantic_mismatch_reasons: semanticMismatches,
-              reference_trade_id: ex.trade_id,
-              reference_run_id: ex.run_id,
-            });
-          }
-          return events;
-        })();
-
-        return sendJSON({
-          ok: true, date: dateParam, interval: intervalIdx, intervalTs,
-          totalIntervals, tickersProcessed: allTickers.length,
-          scored, skipped, tradesCreated,
-          totalTrades: replayCtx.allTrades.length,
-          errorsCount: errors.length, errors: errors.slice(0, 10),
-          stageCounts, blockReasons, d1StateWritten, trailWritten,
-          processDebug: replayCtx?.processDebug?.slice(0, 40) || [],
-          blockedEntryGates: replayCtx?._blockedEntries || {},
-          entryDiagnostics,
-          referenceDrift: {
-            expected: referenceDriftEvents.length,
-            matched: referenceDriftEvents.filter(e => e.matched).length,
-            missed: referenceDriftEvents.filter(e => !e.matched).length,
-            semantic_matched: referenceDriftEvents.filter(e => e.semantic_matched).length,
-            semantic_mismatched: referenceDriftEvents.filter(e => e.matched && !e.semantic_matched).length,
-            events: referenceDriftEvents.slice(0, 25),
-          },
-        }, 200, corsHeaders(env, req));
-        } catch (intervalReplayErr) {
-          console.error("[INTERVAL_REPLAY] Handler error:", String(intervalReplayErr?.message || intervalReplayErr).slice(0, 500), intervalReplayErr?.stack?.slice(0, 500));
-          return sendJSON({ ok: false, error: "interval_replay_error", detail: String(intervalReplayErr?.message || intervalReplayErr).slice(0, 300) }, 500, corsHeaders(env, req));
-        }
+        return handleIntervalReplayRoute({
+          req,
+          env,
+          url,
+          requireKeyOrAdmin,
+          executeIntervalReplayStep,
+        });
       }
 
       // ═══════════════════════════════════════════════════════════════════════════
@@ -46301,225 +44128,23 @@ export default {
 
         const dateParam = url.searchParams.get("date");
         const runIdParam = String(url.searchParams.get("runId") || "").trim();
-        if (!dateParam || !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
-          return sendJSON({ ok: false, error: "date required (YYYY-MM-DD)" }, 400, corsHeaders(env, req));
-        }
-        const exitMs = nyWallTimeToUtcMs(dateParam, 16, 0, 0) || (new Date(`${dateParam}T21:00:00Z`).getTime());
-
         try {
-          if (runIdParam) {
-            await d1EnsureBacktestRunsSchema(env);
-          }
-
-          const archivedTradeIds = new Set();
-          if (runIdParam) {
-            try {
-              const archivedRows = (await db.prepare(
-                `SELECT trade_id FROM backtest_run_trades WHERE run_id = ?1`
-              ).bind(runIdParam).all())?.results || [];
-              for (const row of archivedRows) {
-                const tradeId = String(row?.trade_id || "").trim();
-                if (tradeId) archivedTradeIds.add(tradeId);
-              }
-            } catch (archiveErr) {
-              console.warn("[CLOSE-REPLAY] archive trade lookup failed:", archiveErr);
-            }
-          }
-
-          let openRows = [];
-          if (runIdParam && archivedTradeIds.size > 0) {
-            const ids = [...archivedTradeIds];
-            const CHUNK = 90;
-            for (let i = 0; i < ids.length; i += CHUNK) {
-              const chunk = ids.slice(i, i + CHUNK);
-              const placeholders = chunk.map((_, idx) => `?${idx + 2}`).join(",");
-              const rows = (await db.prepare(
-                `SELECT trade_id, ticker, direction, entry_price, entry_ts, pnl, trimmed_pct,
-                        rank, rr, script_version, created_at, updated_at, trim_ts, trim_price,
-                        setup_name, setup_grade, risk_budget, shares, notional, run_id
-                   FROM trades
-                  WHERE (status NOT IN ('WIN','LOSS','FLAT') OR status IS NULL)
-                    AND (run_id = ?1 OR trade_id IN (${placeholders}))`
-              ).bind(runIdParam, ...chunk).all())?.results || [];
-              openRows.push(...rows);
-            }
-          } else if (runIdParam) {
-            openRows = (await db.prepare(
-              `SELECT trade_id, ticker, direction, entry_price, entry_ts, pnl, trimmed_pct,
-                      rank, rr, script_version, created_at, updated_at, trim_ts, trim_price,
-                      setup_name, setup_grade, risk_budget, shares, notional, run_id
-                 FROM trades
-                WHERE (status NOT IN ('WIN','LOSS','FLAT') OR status IS NULL)
-                  AND run_id = ?1`
-            ).bind(runIdParam).all())?.results || [];
-          } else {
-            openRows = (await db.prepare(
-              `SELECT trade_id, ticker, direction, entry_price, entry_ts, pnl, trimmed_pct,
-                      rank, rr, script_version, created_at, updated_at, trim_ts, trim_price,
-                      setup_name, setup_grade, risk_budget, shares, notional, run_id
-                 FROM trades
-                WHERE status NOT IN ('WIN','LOSS','FLAT') OR status IS NULL`
-            ).all())?.results || [];
-          }
-
-          // Build last-known close price for each ticker
-          const replayPrices = new Map();
-          // Try trail_5m_facts first (correct column names: price_close, bucket_ts)
-          try {
-            const priceRows = (await db.prepare(
-              `SELECT ticker, price_close FROM trail_5m_facts WHERE bucket_ts <= ?1 ORDER BY bucket_ts DESC`
-            ).bind(exitMs).all())?.results || [];
-            for (const r of priceRows) {
-              const sym = String(r.ticker).toUpperCase();
-              if (!replayPrices.has(sym) && Number(r.price_close) > 0) {
-                replayPrices.set(sym, Number(r.price_close));
-              }
-            }
-          } catch (_) { /* trail_5m_facts may not exist or be empty */ }
-          // Fallback: ticker_candles daily close (covers tickers missing from trail_5m_facts)
-          try {
-            const dateStart = exitMs - 5 * 86400000;
-            const candleRows = (await db.prepare(
-              `SELECT ticker, c FROM ticker_candles WHERE tf = 'D' AND ts >= ?1 AND ts <= ?2 ORDER BY ts DESC`
-            ).bind(dateStart, exitMs).all())?.results || [];
-            for (const r of candleRows) {
-              const sym = String(r.ticker).toUpperCase();
-              if (!replayPrices.has(sym) && Number(r.c) > 0) {
-                replayPrices.set(sym, Number(r.c));
-              }
-            }
-          } catch (_) { /* ticker_candles fallback */ }
-
-          const stmts = [];
-          let closed = 0;
-          const details = [];
-          for (const row of openRows) {
-            const sym = String(row.ticker).toUpperCase();
-            const entryPx = Number(row.entry_price);
-            // Priority: D1 trail_5m_facts close → KV latest → entry price (last resort)
-            const lastPx = replayPrices.get(sym) || (KV ? Number((await kvGetJSON(KV, `timed:latest:${sym}`))?.price) || 0 : 0) || entryPx;
-            const dir = String(row.direction).toUpperCase() === "SHORT" ? -1 : 1;
-            const shares = entryPx > 0 ? TRADE_SIZE / entryPx : 0;
-            const trimPct = Number(row.trimmed_pct) || 0;
-            const remainingShares = shares * Math.max(0, 1 - trimPct);
-            const realizedCarry = Number(row.pnl) || 0;
-            const pnl = realizedCarry + ((lastPx - entryPx) * remainingShares * dir);
-            const pnlPct = entryPx > 0 && shares > 0 ? (pnl / (entryPx * shares)) * 100 : 0;
-            const status = pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "FLAT";
-
-            stmts.push(db.prepare(
-              `UPDATE trades
-                  SET status = ?1,
-                      exit_ts = ?2,
-                      exit_price = ?3,
-                      exit_reason = ?4,
-                      pnl = ?5,
-                      pnl_pct = ?6,
-                      updated_at = ?7,
-                      run_id = COALESCE(run_id, ?8)
-                WHERE trade_id = ?9`
-            ).bind(status, exitMs, lastPx, "replay_end_close", pnl, pnlPct, exitMs, runIdParam || null, row.trade_id));
-            details.push({ ticker: sym, dir: dir === 1 ? "LONG" : "SHORT", entryPx, exitPx: lastPx, pnl: Math.round(pnl * 100) / 100, status });
-            closed++;
-          }
-
-          for (let i = 0; i < stmts.length; i += 100) {
-            await db.batch(stmts.slice(i, i + 100));
-          }
-
-          // Sync KV trades cache
-          try {
-            const kvTrades = await kvGetJSON(KV, "timed:trades:all") || [];
-            for (const t of kvTrades) {
-              const s = String(t.status || "").toUpperCase();
-              if (s !== "WIN" && s !== "LOSS" && s !== "FLAT") {
-                const entryPx = Number(t.entryPrice);
-                const sym = String(t.ticker).toUpperCase();
-                const lastPx = replayPrices.get(sym) || entryPx;
-                const dir = String(t.direction).toUpperCase() === "SHORT" ? -1 : 1;
-                const shares = Number(t.shares) || (entryPx > 0 ? TRADE_SIZE / entryPx : 0);
-                const trimPct = clamp(Number(t.trimmedPct ?? t.trimmed_pct ?? 0), 0, 1);
-                const remainingShares = shares * Math.max(0, 1 - trimPct);
-                const realizedCarry = Number.isFinite(Number(t.realizedPnl))
-                  ? Number(t.realizedPnl)
-                  : (Number.isFinite(Number(t.pnl)) ? Number(t.pnl) : 0);
-                const pnl = realizedCarry + ((lastPx - entryPx) * remainingShares * dir);
-                t.status = pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "FLAT";
-                t.exitPrice = lastPx;
-                t.exit_ts = exitMs;
-                t.exitReason = "replay_end_close";
-                t.pnl = pnl;
-                t.realizedPnl = pnl;
-                t.pnlPct = entryPx > 0 ? (pnl / (entryPx * shares)) * 100 : 0;
-              }
-            }
-            await kvPutJSON(KV, "timed:trades:all", kvTrades);
-          } catch (kvErr) {
-            console.warn("[CLOSE-REPLAY] KV update failed:", kvErr);
-          }
-
-          let archiveSynced = 0;
-          if (runIdParam && openRows.length > 0) {
-            const tradeIds = openRows.map((row) => String(row?.trade_id || "").trim()).filter(Boolean);
-            const CHUNK = 90;
-            for (let i = 0; i < tradeIds.length; i += CHUNK) {
-              const chunk = tradeIds.slice(i, i + CHUNK);
-              const placeholders = chunk.map((_, idx) => `?${idx + 2}`).join(",");
-              try {
-                const syncRes = await db.prepare(
-                  `INSERT OR REPLACE INTO backtest_run_trades
-                    (run_id, trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
-                     exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
-                     created_at, updated_at, trim_ts, trim_price, setup_name, setup_grade,
-                     risk_budget, shares, notional)
-                   SELECT COALESCE(run_id, ?1), trade_id, ticker, direction, entry_ts, entry_price,
-                          rank, rr, status, exit_ts, exit_price, exit_reason, trimmed_pct, pnl,
-                          pnl_pct, script_version, created_at, updated_at, trim_ts, trim_price,
-                          setup_name, setup_grade, risk_budget, shares, notional
-                     FROM trades
-                    WHERE trade_id IN (${placeholders})`
-                ).bind(runIdParam, ...chunk).run();
-                archiveSynced += Number(syncRes?.meta?.changes || 0);
-              } catch (archiveSyncErr) {
-                console.warn("[CLOSE-REPLAY] archive sync failed:", archiveSyncErr);
-              }
-            }
-          }
-
-          // Close matching open positions so account-summary unrealized goes to 0
-          let posClosed = 0;
-          try {
-            const openPos = (await db.prepare(
-              `SELECT position_id FROM positions WHERE status = 'OPEN'`
-            ).all())?.results || [];
-            if (openPos.length > 0) {
-              const posStmts = openPos.map(p =>
-                db.prepare(
-                  `UPDATE positions SET status = 'CLOSED', total_qty = 0, closed_at = ?1, updated_at = ?1 WHERE position_id = ?2`
-                ).bind(exitMs, p.position_id)
-              );
-              for (let i = 0; i < posStmts.length; i += 100) {
-                await db.batch(posStmts.slice(i, i + 100));
-              }
-              posClosed = openPos.length;
-            }
-          } catch (posErr) {
-            console.warn("[CLOSE-REPLAY] positions sync failed:", posErr);
-          }
-
-          const totalPnl = details.reduce((s, d) => s + d.pnl, 0);
-          return sendJSON({
-            ok: true,
-            closed,
-            posClosed,
-            archiveSynced,
-            run_id: runIdParam || null,
-            message: closed === 0 && posClosed === 0 ? "no open positions" : undefined,
-            exitDate: dateParam,
-            exitMs,
-            totalPnl: Math.round(totalPnl * 100) / 100,
-            details: details.slice(0, 50),
-          }, 200, corsHeaders(env, req));
+          const result = await closeReplayPositionsAtDate({
+            env,
+            KV,
+            db,
+            dateParam,
+            runIdParam,
+            deps: {
+              d1EnsureBacktestRunsSchema,
+              nyWallTimeToUtcMs,
+              kvGetJSON,
+              kvPutJSON,
+              clamp,
+              TRADE_SIZE,
+            },
+          });
+          return sendJSON(result, result?.ok ? 200 : 400, corsHeaders(env, req));
         } catch (err) {
           return sendJSON({ ok: false, error: String(err?.message || err).slice(0, 200) }, 500, corsHeaders(env, req));
         }
@@ -46884,6 +44509,77 @@ export default {
         }
       }
 
+      // POST /timed/admin/backtests/start
+      // Start a coordinated backtest job owned by the BacktestRunner Durable Object.
+      if (routeKey === "POST /timed/admin/backtests/start") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const runner = getBacktestRunnerStub(env);
+        if (!runner) return sendJSON({ ok: false, error: "backtest_runner_not_configured" }, 503, corsHeaders(env, req));
+        const body = await req.json().catch(() => ({}));
+        if (!body.api_base) body.api_base = url.origin;
+        const res = await runner.fetch(new Request("https://internal/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }));
+        const data = await res.json().catch(() => ({ ok: false, error: "invalid_runner_response" }));
+        return sendJSON(data, res.status, corsHeaders(env, req));
+      }
+
+      // POST /timed/admin/backtests/cancel
+      // Cancel the active or specified coordinated backtest job.
+      if (routeKey === "POST /timed/admin/backtests/cancel") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const runner = getBacktestRunnerStub(env);
+        if (!runner) return sendJSON({ ok: false, error: "backtest_runner_not_configured" }, 503, corsHeaders(env, req));
+        const bodyText = await req.text();
+        const res = await runner.fetch(new Request("https://internal/cancel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: bodyText || "{}",
+        }));
+        const data = await res.json().catch(() => ({ ok: false, error: "invalid_runner_response" }));
+        return sendJSON(data, res.status, corsHeaders(env, req));
+      }
+
+      // GET /timed/admin/backtests/status
+      // Inspect active BacktestRunner DO state and the selected run snapshot.
+      if (routeKey === "GET /timed/admin/backtests/status") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const runner = getBacktestRunnerStub(env);
+        if (!runner) return sendJSON({ ok: false, error: "backtest_runner_not_configured" }, 503, corsHeaders(env, req));
+        const res = await runner.fetch(new Request(`https://internal/status${url.search}`, { method: "GET" }));
+        const data = await res.json().catch(() => ({ ok: false, error: "invalid_runner_response" }));
+        return sendJSON(data, res.status, corsHeaders(env, req));
+      }
+
+      // GET /timed/admin/backtests/logs
+      // Read structured logs from the BacktestRunner DO.
+      if (routeKey === "GET /timed/admin/backtests/logs") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const runner = getBacktestRunnerStub(env);
+        if (!runner) return sendJSON({ ok: false, error: "backtest_runner_not_configured" }, 503, corsHeaders(env, req));
+        const res = await runner.fetch(new Request(`https://internal/logs${url.search}`, { method: "GET" }));
+        const data = await res.json().catch(() => ({ ok: false, error: "invalid_runner_response" }));
+        return sendJSON(data, res.status, corsHeaders(env, req));
+      }
+
+      // GET /timed/admin/backtests/artifacts
+      // Return run-scoped archive endpoints/counts for the coordinated run.
+      if (routeKey === "GET /timed/admin/backtests/artifacts") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const runner = getBacktestRunnerStub(env);
+        if (!runner) return sendJSON({ ok: false, error: "backtest_runner_not_configured" }, 503, corsHeaders(env, req));
+        const res = await runner.fetch(new Request(`https://internal/artifacts${url.search}`, { method: "GET" }));
+        const data = await res.json().catch(() => ({ ok: false, error: "invalid_runner_response" }));
+        return sendJSON(data, res.status, corsHeaders(env, req));
+      }
+
       // POST /timed/admin/replay-lock?key=...&reason=backtest
       // Acquire replay lock — prevents live cron from running trade simulation.
       if (routeKey === "POST /timed/admin/replay-lock") {
@@ -47006,145 +44702,8 @@ export default {
         await d1EnsureBacktestRunsSchema(env);
         try {
           const body = await req.json().catch(() => ({}));
-          const runId = String(body?.run_id || "").trim();
-          if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
-          const now = Date.now();
-          const status = String(body?.status || "completed").trim().toLowerCase();
-          const preserveRegisteredConfig = parseBool01(body?.preserve_registered_config) === 1;
-          const existingRun = await db.prepare(`SELECT * FROM backtest_runs WHERE run_id = ?1`).bind(runId).first();
-          const manifest = parseRunRecord(existingRun)?.manifest || buildRunManifest({ row: existingRun || { run_id: runId }, body });
-          const cleanReplayLane = isRunManifestCleanLane(manifest);
-          if (!existingRun?.manifest_json) {
-            try {
-              await db.prepare(`UPDATE backtest_runs SET manifest_json = ?2 WHERE run_id = ?1`).bind(runId, JSON.stringify(manifest)).run();
-            } catch {}
-          }
-
-          // Claim orphaned trades (NULL run_id) so metrics + archival capture them
-          if (!cleanReplayLane) {
-            try {
-              await db.prepare(`UPDATE trades SET run_id = ?1 WHERE run_id IS NULL`).bind(runId).run();
-            } catch {}
-          } else {
-            try {
-              const archivedIds = (await db.prepare(
-                `SELECT trade_id FROM backtest_run_trades WHERE run_id = ?1`
-              ).bind(runId).all())?.results || [];
-              const tradeIds = archivedIds.map((row) => String(row?.trade_id || "").trim()).filter(Boolean);
-              const CHUNK = 90;
-              for (let i = 0; i < tradeIds.length; i += CHUNK) {
-                const chunk = tradeIds.slice(i, i + CHUNK);
-                const placeholders = chunk.map((_, idx) => `?${idx + 2}`).join(",");
-                await db.prepare(
-                  `UPDATE trades
-                      SET run_id = COALESCE(run_id, ?1)
-                    WHERE trade_id IN (${placeholders})`
-                ).bind(runId, ...chunk).run();
-              }
-            } catch {}
-          }
-
-          const summary = await summarizeRunMetrics(db, runId);
-          if (!summary) return sendJSON({ ok: false, error: "summary_failed" }, 500, corsHeaders(env, req));
-          const metricsPayload = {
-                run_id: summary.run_id,
-                tickers: { traded: summary.total_tickers_traded },
-            trades: { total: summary.total_trades, wins: summary.wins, losses: summary.losses, breakevens: summary.breakevens, open: summary.open_trades, closed: summary.closed_trades, win_rate: summary.win_rate },
-            pnl: { realized_pnl: summary.realized_pnl, realized_pnl_pct: summary.realized_pnl_pct, avg_win_pct: summary.avg_win_pct, avg_loss_pct: summary.avg_loss_pct },
-                classifications: (() => { try { return JSON.parse(summary.classifications_json || "{}"); } catch { return {}; } })(),
-                by_status: (() => { try { return JSON.parse(summary.by_status_json || "{}"); } catch { return {}; } })(),
-                autopsy_url: summary.autopsy_url,
-          };
-          await db.prepare(`UPDATE backtest_runs SET status = ?2, status_note = ?3, metrics_json = ?4, ended_at = COALESCE(ended_at, ?5), updated_at = ?5, label = COALESCE(?6, label), description = COALESCE(?7, description) WHERE run_id = ?1`).bind(
-            runId, status, body?.status_note || "Finalized",
-            JSON.stringify(metricsPayload), now, body?.label || null, body?.description || null,
-          ).run();
-          try {
-            await db.prepare(`INSERT OR REPLACE INTO backtest_run_metrics (run_id, total_tickers_traded, total_trades, wins, losses, breakevens, open_trades, closed_trades, win_rate, realized_pnl, realized_pnl_pct, avg_win_pct, avg_loss_pct, classifications_json, by_status_json, autopsy_url, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)`).bind(
-              summary.run_id, summary.total_tickers_traded, summary.total_trades, summary.wins, summary.losses, summary.breakevens, summary.open_trades, summary.closed_trades, summary.win_rate, summary.realized_pnl, summary.realized_pnl_pct, summary.avg_win_pct, summary.avg_loss_pct, summary.classifications_json, summary.by_status_json, summary.autopsy_url, now,
-            ).run();
-          } catch {}
-
-          // Archive trades, direction_accuracy, annotations, and config for this run
-          let archived = { trades: 0, da: 0, annotations: 0, config: 0 };
-          try {
-            const archRes = await db.prepare(
-              `INSERT OR REPLACE INTO backtest_run_trades (run_id, trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status, exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version, created_at, updated_at, trim_ts, trim_price) SELECT COALESCE(run_id, ?1), trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status, exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version, created_at, updated_at, trim_ts, trim_price FROM trades WHERE run_id = ?1 ${cleanReplayLane ? "" : "OR run_id IS NULL"}`
-            ).bind(runId).run();
-            archived.trades = archRes?.meta?.changes ?? 0;
-          } catch (ae) { console.error("[ARCHIVE] trades:", String(ae).slice(0, 200)); }
-          try {
-            const daRes = await db.prepare(
-              `INSERT OR IGNORE INTO backtest_run_direction_accuracy (run_id, trade_id, ticker, ts, signal_snapshot_json, exit_snapshot_json, regime_daily, regime_weekly, regime_combined, entry_path, consensus_direction, execution_profile_name, execution_profile_confidence, market_state, execution_profile_json, tf_stack_json, max_favorable_excursion, max_adverse_excursion, rvol_best, entry_quality_score, exit_reason) SELECT ?1, da.trade_id, da.ticker, da.ts, da.signal_snapshot_json, da.exit_snapshot_json, da.regime_daily, da.regime_weekly, da.regime_combined, da.entry_path, da.consensus_direction, da.execution_profile_name, da.execution_profile_confidence, da.market_state, da.execution_profile_json, da.tf_stack_json, da.max_favorable_excursion, da.max_adverse_excursion, da.rvol_best, da.entry_quality_score, da.exit_reason FROM direction_accuracy da INNER JOIN trades t ON da.trade_id = t.trade_id WHERE t.run_id = ?1 ${cleanReplayLane ? "" : "OR t.run_id IS NULL"}`
-            ).bind(runId).run();
-            archived.da = daRes?.meta?.changes ?? 0;
-          } catch (ae) { console.error("[ARCHIVE] da:", String(ae).slice(0, 200)); }
-          try {
-            const annRes = await db.prepare(
-              `INSERT OR IGNORE INTO backtest_run_annotations (run_id, trade_id, classification, notes, updated_at) SELECT ?1, a.trade_id, a.classification, a.notes, a.updated_at FROM trade_autopsy_annotations a INNER JOIN trades t ON a.trade_id = t.trade_id WHERE t.run_id = ?1 ${cleanReplayLane ? "" : "OR t.run_id IS NULL"}`
-            ).bind(runId).run();
-            archived.annotations = annRes?.meta?.changes ?? 0;
-          } catch (ae) { console.error("[ARCHIVE] annotations:", String(ae).slice(0, 200)); }
-          try {
-            if (!preserveRegisteredConfig) {
-              await db.prepare(
-                `INSERT OR REPLACE INTO backtest_run_config (run_id, config_key, config_value) SELECT ?1, config_key, config_value FROM model_config`
-              ).bind(runId).run();
-            }
-          } catch (ae) { console.error("[ARCHIVE] config:", String(ae).slice(0, 200)); }
-          try {
-            const [tradeCountRow, daCountRow, annCountRow, cfgCountRow] = await Promise.all([
-              db.prepare(`SELECT COUNT(*) AS cnt FROM backtest_run_trades WHERE run_id = ?1`).bind(runId).first(),
-              db.prepare(`SELECT COUNT(*) AS cnt FROM backtest_run_direction_accuracy WHERE run_id = ?1`).bind(runId).first(),
-              db.prepare(`SELECT COUNT(*) AS cnt FROM backtest_run_annotations WHERE run_id = ?1`).bind(runId).first(),
-              db.prepare(`SELECT COUNT(*) AS cnt FROM backtest_run_config WHERE run_id = ?1`).bind(runId).first(),
-            ]);
-            archived = {
-              trades: Number(tradeCountRow?.cnt || 0),
-              da: Number(daCountRow?.cnt || 0),
-              annotations: Number(annCountRow?.cnt || 0),
-              config: Number(cfgCountRow?.cnt || 0),
-            };
-          } catch {}
-
-          const finalSummary = await summarizeRunMetrics(db, runId).catch(() => null);
-          if (finalSummary) {
-            const finalMetricsPayload = {
-              run_id: finalSummary.run_id,
-              tickers: { traded: finalSummary.total_tickers_traded },
-              trades: {
-                total: finalSummary.total_trades,
-                wins: finalSummary.wins,
-                losses: finalSummary.losses,
-                breakevens: finalSummary.breakevens,
-                open: finalSummary.open_trades,
-                closed: finalSummary.closed_trades,
-                win_rate: finalSummary.win_rate,
-              },
-              pnl: {
-                realized_pnl: finalSummary.realized_pnl,
-                realized_pnl_pct: finalSummary.realized_pnl_pct,
-                avg_win_pct: finalSummary.avg_win_pct,
-                avg_loss_pct: finalSummary.avg_loss_pct,
-              },
-              classifications: (() => { try { return JSON.parse(finalSummary.classifications_json || "{}"); } catch { return {}; } })(),
-              by_status: (() => { try { return JSON.parse(finalSummary.by_status_json || "{}"); } catch { return {}; } })(),
-              autopsy_url: finalSummary.autopsy_url,
-            };
-            try {
-              await db.prepare(`UPDATE backtest_runs SET metrics_json = ?2, updated_at = ?3 WHERE run_id = ?1`).bind(
-                runId,
-                JSON.stringify(finalMetricsPayload),
-                now,
-              ).run();
-              await db.prepare(`INSERT OR REPLACE INTO backtest_run_metrics (run_id, total_tickers_traded, total_trades, wins, losses, breakevens, open_trades, closed_trades, win_rate, realized_pnl, realized_pnl_pct, avg_win_pct, avg_loss_pct, classifications_json, by_status_json, autopsy_url, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)`).bind(
-                finalSummary.run_id, finalSummary.total_tickers_traded, finalSummary.total_trades, finalSummary.wins, finalSummary.losses, finalSummary.breakevens, finalSummary.open_trades, finalSummary.closed_trades, finalSummary.win_rate, finalSummary.realized_pnl, finalSummary.realized_pnl_pct, finalSummary.avg_win_pct, finalSummary.avg_loss_pct, finalSummary.classifications_json, finalSummary.by_status_json, finalSummary.autopsy_url, now,
-              ).run();
-            } catch {}
-            return sendJSON({ ok: true, run_id: runId, status, summary: finalMetricsPayload, archived, manifest }, 200, corsHeaders(env, req));
-          }
-
-          return sendJSON({ ok: true, run_id: runId, status, summary: metricsPayload, archived, manifest }, 200, corsHeaders(env, req));
+          const result = await finalizeBacktestRun(db, body);
+          return sendJSON(result, result?.httpStatus || (result?.ok ? 200 : 500), corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }
@@ -47196,44 +44755,8 @@ export default {
         await d1EnsureBacktestRunsSchema(env);
         try {
           const body = await req.json().catch(() => ({}));
-          const runId = String(body?.run_id || "").trim();
-          if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
-          const referenceRunId = String(body?.reference_run_id || "").trim() || await resolveSentinelReferenceRunId(db, runId);
-          if (!referenceRunId) {
-            return sendJSON({ ok: false, error: "reference_run_not_found" }, 404, corsHeaders(env, req));
-          }
-          if (referenceRunId === runId) {
-            return sendJSON({ ok: false, error: "reference_run_matches_candidate" }, 400, corsHeaders(env, req));
-          }
-          const basket = Array.isArray(body?.tickers) && body.tickers.length ? body.tickers : SENTINEL_BASKET_V1;
-          const [candidateTrades, referenceTrades, candidateRun, referenceRun] = await Promise.all([
-            loadRunTradesForValidation(db, runId),
-            loadRunTradesForValidation(db, referenceRunId),
-            db.prepare(`SELECT run_id, label, status FROM backtest_runs WHERE run_id = ?1`).bind(runId).first().catch(() => null),
-            db.prepare(`SELECT run_id, label, status FROM backtest_runs WHERE run_id = ?1`).bind(referenceRunId).first().catch(() => null),
-          ]);
-          const artifact = buildSentinelValidationArtifact(runId, referenceRunId, candidateTrades, referenceTrades, basket);
-          const now = Date.now();
-          await db.prepare(
-            `INSERT OR REPLACE INTO backtest_run_validation_artifacts
-             (run_id, artifact_type, reference_run_id, gate_status, artifact_json, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, COALESCE((SELECT created_at FROM backtest_run_validation_artifacts WHERE run_id = ?1 AND artifact_type = ?2), ?6), ?6)`
-          ).bind(
-            runId,
-            "sentinel_basket_v1",
-            referenceRunId,
-            String(artifact?.gate?.status || "ok"),
-            JSON.stringify(artifact),
-            now,
-          ).run();
-          return sendJSON({
-            ok: true,
-            run_id: runId,
-            reference_run_id: referenceRunId,
-            candidate_label: candidateRun?.label || null,
-            reference_label: referenceRun?.label || null,
-            artifact,
-          }, 200, corsHeaders(env, req));
+          const result = await validateSentinelBasket(db, body);
+          return sendJSON(result, result?.httpStatus || (result?.ok ? 200 : 500), corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }
@@ -60280,211 +57803,27 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       if (routeKey === "POST /timed/admin/reset") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
-
-        const resetLedger =
-          url.searchParams.get("resetLedger") === "1" ||
-          url.searchParams.get("resetLedger") === "true";
-
-        const resetMl =
-          url.searchParams.get("resetMl") === "1" ||
-          url.searchParams.get("resetMl") === "true";
-
-        const skipTickerLatest =
-          url.searchParams.get("skipTickerLatest") === "1" ||
-          url.searchParams.get("skipTickerLatest") === "true" ||
-          url.searchParams.get("replayOnly") === "1" ||
-          url.searchParams.get("replayOnly") === "true";
-
-        const now = Date.now();
-        const tickerIndex = skipTickerLatest ? [] : ((await kvGetJSON(KV, "timed:tickers")) || []);
-        const tickers = Array.isArray(tickerIndex) ? tickerIndex : [];
-
-        const resetPayload = (p) => {
-          if (!p || typeof p !== "object") return p;
-
-          // Clear Kanban state + entry stamps
-          p.kanban_stage = null;
-          p.prev_kanban_stage = null;
-          p.prev_kanban_stage_ts = null;
-          p.kanban_meta = null;
-          p.kanban_cycle_enter_now_ts = null;
-          p.kanban_cycle_trigger_ts = null;
-          p.kanban_cycle_side = null;
-
-          p.entry_price = null;
-          p.entry_ts = null;
-          p.entry_change_pct = null;
-
-          // Clear flip watch stickiness
-          p.flip_watch_score = null;
-          p.flip_watch_reasons = null;
-          p.flip_watch_until_ts = null;
-
-          // Force recompute on next read/ingest
-          p.move_status = null;
-
-          // Clear forcing flags
-          p.flags = p.flags && typeof p.flags === "object" ? p.flags : {};
-          p.flags.flip_watch = false;
-          for (const k of Object.keys(p.flags)) {
-            if (
-              k.startsWith("forced_") ||
-              k === "recycled_from_archive" ||
-              k === "move_invalidated" ||
-              k === "move_completed"
-            ) {
-              try {
-                delete p.flags[k];
-              } catch {}
-            }
-          }
-
-          // Recompute stage immediately so UI is clean after reset
-          try {
-            const stage = classifyKanbanStage(p);
-            p.kanban_stage = stage;
-            p.kanban_meta = deriveKanbanMeta(p, stage);
-          } catch {
-            p.kanban_stage = null;
-            p.kanban_meta = null;
-          }
-
-          p.reset_at = now;
-          return p;
-        };
-
-        // Clear KV simulated trades + paper portfolio + activity feed
-        const kvCleared = [];
-        try {
-          await KV.delete("timed:trades:all");
-          kvCleared.push("timed:trades:all");
-        } catch {}
-        try {
-          await KV.delete(REPLAY_TRADES_KV_KEY);
-          kvCleared.push(REPLAY_TRADES_KV_KEY);
-        } catch {}
-        try {
-          await KV.delete("timed:replay:running");
-          kvCleared.push("timed:replay:running");
-        } catch {}
-        try {
-          await KV.delete(PORTFOLIO_KEY);
-          kvCleared.push(PORTFOLIO_KEY);
-        } catch {}
-        try {
-          await KV.delete("timed:activity:feed");
-          kvCleared.push("timed:activity:feed");
-        } catch {}
-
-        // Clear ML model (optional; OFF by default)
-        if (resetMl) {
-          try {
-            await KV.delete("timed:model:ml_v1");
-            kvCleared.push("timed:model:ml_v1");
-          } catch {}
-          try {
-            await KV.delete("timed:model:ml_v1:last_ts");
-            kvCleared.push("timed:model:ml_v1:last_ts");
-          } catch {}
-        }
-
-        // Archive open trades (always) + optionally clear ledger (OFF by default)
-        let d1Cleared = [];
-        try {
-          if (env?.DB) {
-            // Archive all open trades by default (non-destructive)
-            try {
-              const archiveSql = "UPDATE trades SET status = 'ARCHIVED' WHERE status NOT IN ('WIN', 'LOSS', 'ARCHIVED')";
-              const archiveResult = await env.DB.prepare(archiveSql).run();
-              d1Cleared.push({ sql: archiveSql, changes: archiveResult?.meta?.changes ?? 0 });
-            } catch (archiveErr) {
-              // ignore if table doesn't exist
-            }
-            
-            if (resetLedger) {
-              // Full ledger clear (DANGEROUS; opt-in only)
-              // ╔══════════════════════════════════════════════════════════════════╗
-              // ║  PROTECTED — NEVER delete from archive/learning tables:        ║
-              // ║  backtest_run_trades, backtest_run_direction_accuracy,          ║
-              // ║  backtest_run_annotations, backtest_run_config, backtest_runs,  ║
-              // ║  direction_accuracy, trade_autopsy_annotations                 ║
-              // ╚══════════════════════════════════════════════════════════════════╝
-              for (const sql of [
-                "DELETE FROM execution_actions",
-                "DELETE FROM lots",
-                "DELETE FROM positions",
-                "DELETE FROM trade_events",
-                "DELETE FROM trades",
-                "DELETE FROM alerts",
-                "DELETE FROM ticker_latest",
-                "DELETE FROM account_ledger",
-                "DELETE FROM investor_positions",
-                "DELETE FROM investor_lots",
-                "DELETE FROM portfolio_snapshots",
-              ]) {
-                try {
-                  const r = await env.DB.prepare(sql).run();
-                  d1Cleared.push({ sql, changes: r?.meta?.changes ?? null });
-                } catch {
-                  // ignore missing tables
-                }
-              }
-            }
-            // ML queue
-            if (resetMl) {
-              try {
-                const r = await env.DB.prepare("DELETE FROM ml_v1_queue").run();
-                d1Cleared.push({
-                  sql: "DELETE FROM ml_v1_queue",
-                  changes: r?.meta?.changes ?? null,
-                });
-              } catch {}
-            }
-          }
-        } catch {}
-
-        // Reset per-ticker latest payloads (KV + D1 latest)
-        const results = { processed: 0, updated: 0, skipped: 0, errors: [] };
-        for (const t of tickers) {
-          const ticker = normTicker(t);
-          if (!ticker) continue;
-          try {
-            const latest = await kvGetJSON(KV, `timed:latest:${ticker}`);
-            if (!latest || typeof latest !== "object") {
-              results.skipped++;
-              continue;
-            }
-            const next = resetPayload({ ...latest });
-            await kvPutJSON(KV, `timed:latest:${ticker}`, next);
-            try {
-              ctx.waitUntil(d1UpsertTickerLatest(env, ticker, next));
-              ctx.waitUntil(d1UpsertTickerIndex(env, ticker, next?.ts));
-            } catch {}
-            results.updated++;
-            results.processed++;
-          } catch (e) {
-            results.errors.push({ ticker: String(t), error: String(e?.message || e) });
-          }
-        }
-
-        return sendJSON(
-          {
-            ok: true,
-            message: "System reset complete (as-of now).",
-            now,
-            tickers: { total: tickers.length, ...results },
-            kvCleared,
-            d1Cleared,
-            resetMl,
-            resetLedger,
-            skipTickerLatest,
-            note: skipTickerLatest
-              ? "Replay-safe reset complete. Trade/portfolio state was cleared without rewriting per-ticker latest payloads."
-              : "Lanes recompute from fresh state; new KV simulated trades will be created as new data/alerts come in. D1 ledger is preserved unless resetLedger=1.",
+        const result = await resetReplayState({
+          env,
+          KV,
+          now: Date.now(),
+          resetLedger: parseQueryBool(url.searchParams, "resetLedger"),
+          resetMl: parseQueryBool(url.searchParams, "resetMl"),
+          skipTickerLatest: parseQueryBool(url.searchParams, "skipTickerLatest") || parseQueryBool(url.searchParams, "replayOnly"),
+          deps: {
+            kvGetJSON,
+            kvPutJSON,
+            classifyKanbanStage,
+            deriveKanbanMeta,
+            d1UpsertTickerLatest,
+            d1UpsertTickerIndex,
+            REPLAY_TRADES_KV_KEY,
+            PORTFOLIO_KEY,
+            normTicker,
+            ctx,
           },
-          200,
-          corsHeaders(env, req),
-        );
+        });
+        return sendJSON(result, 200, corsHeaders(env, req));
       }
 
       return sendJSON(

@@ -27,6 +27,10 @@ class_name = "AlpacaStream"
 name = "PRICE_STREAM"
 class_name = "PriceStream"
 
+[[durable_objects.bindings]]
+name = "BACKTEST_RUNNER"
+class_name = "BacktestRunner"
+
 [[migrations]]
 tag = "v1"
 new_classes = ["PriceHub"]
@@ -38,6 +42,10 @@ new_classes = ["AlpacaStream"]
 [[migrations]]
 tag = "v3"
 new_classes = ["PriceStream"]
+
+[[migrations]]
+tag = "v4"
+new_classes = ["BacktestRunner"]
 
 [vars]
 DISCORD_ENABLE = "true"
@@ -133,6 +141,10 @@ class_name = "AlpacaStream"
 [[env.production.durable_objects.bindings]]
 name = "PRICE_STREAM"
 class_name = "PriceStream"
+
+[[env.production.durable_objects.bindings]]
+name = "BACKTEST_RUNNER"
+class_name = "BacktestRunner"
 
 # Environment variables (non-sensitive config - stored here for persistence)
 # IMPORTANT: Secrets (API keys, webhooks) are NOT stored here for security
