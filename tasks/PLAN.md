@@ -1,6 +1,6 @@
 # Timed Trading — Consolidated Plan
 
-**Last updated:** 2026-03-08
+**Last updated:** 2026-04-08
 
 Single reference for current status and next steps. Read this first each session.
 
@@ -15,30 +15,123 @@ Single reference for current status and next steps. Read this first each session
 
 ---
 
-## What Is Live
+## Primary Operating References
 
-1. **Runs UI + promotion flow** — Run Date, Show archived, Hide running, description editing, Compare modal, Create Variant, Promote Live
-2. **Phase 3 July baseline** — completed, promoted to live, and pushed/deployed
-3. **15m `LEADING_LTF` experiment infrastructure** — 15m replay/backfill support, variant env overrides, and rerun completed
-4. **Run-scoped trade retention** — completed runs now snapshot into archive tables so future resets do not destroy trade-by-run analysis
-5. **Historical import** — archived July artifacts imported into the run registry/run archive store so older runs remain reviewable
+Read these in order:
+
+1. `tasks/jul-apr-recovery-and-promotion-plan-2026-04-08.md`
+2. `tasks/jul-apr-validation-contract-2026-04-08.md`
+3. `tasks/jul-sep-savepoint-2026-04-11-postdeploy.md`
+4. `tasks/month-compounding-operating-model-2026-04-11.md`
+5. `tasks/variable-evidence-matrix-contract-2026-04-11.md`
+6. `tasks/variable-runtime-policy-map-2026-04-11.md`
+7. `tasks/ticker-focused-learning-loop-2026-04-11.md`
+8. `data/regime-config-decision/jul-apr-promotion-learnings-20260408.md`
+9. `tasks/todo.md`
+10. `CONTEXT.md`
+
+These now supersede the older "hardening sprint only" view as the day-to-day recovery path.
+
+---
+
+## Current Objective
+
+Produce one full `2025-07-01 -> 2026-04-03` backtest package that is:
+
+- anchored to the proven July recovery package
+- reproducible from a frozen manifest and pinned config
+- validated month-by-month before widening scope
+- promotion-eligible under one explicit go/no-go standard
+- preserved as a durable artifact bundle for future comparisons
+
+Before any new implementation or widening work, treat the latest Jul-Sep postdeploy lane as the current cumulative savepoint:
+
+- savepoint artifact:
+  `data/backtest-artifacts/focused-jul-sep-mainline-deterministic-postdeploy-v1-20260411--20260411-082805`
+- savepoint run:
+  `focused_replay_20260411-082805@2026-04-11T15:28:57.408Z`
+- savepoint note:
+  `tasks/jul-sep-savepoint-2026-04-11-postdeploy.md`
 
 ---
 
-## Experiment Workflow Phases — Status
+## Authoritative Baseline Package
 
-| Phase | Status | Notes |
-|-------|--------|-------|
-| 1 | ✅ Done | Trail facts → baseline + experiment storage; Delete Run |
-| 2 | ✅ Done | Two July candidates as protected baselines |
-| 3 | ✅ Done | July validation completed; promoted to live (71.43% WR, +$2,481) |
-| 4 | ✅ Done | Rule snapshot storage + run detail APIs |
-| 5 | — | (Not in scope) |
-| 6 | ✅ Done | Runs UI with protected/archive/delete |
-| 7 | ✅ Done | Create Variant + rule levers + env override backtest |
-| 8 | ✅ Done | Run-scoped trade archive retention + historical artifact import |
+- **Behavior anchor SHA**: `422b606d85178c2b862b3606ebd4457462ff32d3`
+- **Pinned config artifact**:
+  `data/backtest-artifacts/focused-july-core-iter1-entrytrim--20260405-021006/model-config.json`
+- **Base savepoint run**:
+  `focused_replay_20260405-021006@2026-04-05T06:10:07.510Z`
+- **Approved later overlay**:
+  validated `GRNY` lifecycle refinements plus the focused `INTU/JCI` runtime fixes
+
+Working rule:
+
+- keep hardening-safe `main` work
+- validate behavior-sensitive trading surfaces
+- do not trust current `HEAD` trading behavior by default
 
 ---
+
+## Recovery Path
+
+### Step 1: Freeze the package
+
+Use only the authoritative baseline package plus the approved overlay.
+
+### Step 2: Freeze the validation contract
+
+No new run launches without the gate in `tasks/jul-apr-validation-contract-2026-04-08.md`.
+
+### Step 3: Validate in strict order
+
+1. July focused control
+2. July broad equal-scope validation
+3. August validation
+4. September through April widening
+5. Full `Jul -> Apr` promotion candidate
+
+### Step 4: Classify every new fix before implementation
+
+- baseline behavior fix
+- regime overlay
+- profile overlay
+- rare symbol exception
+
+### Step 5: Promote only after the full blocker gate passes
+
+Use `docs/promotion-checklist-v1.md` as the hard go/no-go gate.
+
+---
+
+## Hardening Status
+
+The hardening sprint remains important background context, but its main gates are already in place:
+
+- frozen run manifests
+- replay isolation foundations
+- sentinel validation artifacts
+- lifecycle cohesion seam
+- adaptive attribution
+- stable operator read models
+
+Those foundations are now inputs to the Jul->Apr recovery path, not the primary plan by themselves.
+
+---
+
+## Current Working Rules
+
+- One authoritative replay/backtest lane at a time.
+- No promotion call from contaminated or narrowed evidence.
+- Equal-scope reruns are required before promotion.
+- `Analysis` is allowed early when the lane is trustworthy.
+- `Calibration` is diagnostic-only until July and August controls pass.
+
+---
+
+## Historical Context
+
+The sections below remain as historical planning context. They are no longer the primary execution path, but they may still be useful for provenance.
 
 ## Clear Next Steps (Pending Review)
 

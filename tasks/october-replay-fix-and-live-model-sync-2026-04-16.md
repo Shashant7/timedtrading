@@ -122,6 +122,100 @@ Interpretation:
 - because of that state shift, the same bar no longer qualifies for the strong
   pullback branch that previously won in the October basket proof
 
+## October Control Refresh
+
+After the replay freshness fix, the October control itself had to be rerun before
+using any old October winner as a repair target.
+
+Refreshed control artifact:
+
+- `data/backtest-artifacts/focused-oct-full-basket-proof-v2-freshrank--20260415-180911`
+
+Headline result:
+
+- old October proof (`v1`): `12` trades, `+1642.69`
+- refreshed October proof (`v2`): `13` trades, `+837.40`
+
+Diff vs the old October proof:
+
+- matched trades: `11`
+- missing trades: `1`
+- spurious trades: `2`
+- changed matches: `6`
+
+The missing trade from the old proof was:
+
+- `RIOT-1759345200000` (`+854.41`)
+
+The old `FIX-1759501800000` winner also did not survive as an October control
+trade. The refreshed control instead carried:
+
+- `FIX-1760551200000`
+- `FIX-1761674400000`
+
+Interpretation:
+
+- the old October proof should no longer be treated as an authoritative control
+  artifact after the replay freshness repair
+- both old marquee winners (`RIOT-1759345200000` and `FIX-1759501800000`) were
+  likely benefiting from stale replay rank inflation rather than representing
+  reproducible current-runtime behavior
+
+Supporting evidence:
+
+- refreshed `FIX:1759501800000` still computes to
+  `HTF_BULL_LTF_BULL` / `rank=72` / blocked by
+  `tt_pullback_non_prime_rank_selective`
+- refreshed `RIOT:1759345200000` still computes to
+  `HTF_BULL_LTF_PULLBACK` / `rank=83` / blocked by
+  `tt_pullback_non_prime_rank_selective`
+- the old autopsy snapshots for both trades still show near-identical
+  directional structure and execution profile context, which means the large
+  old ranks were not trustworthy repair targets once replay started recomputing
+  scores correctly every interval
+
+## Trustworthy October Composition Baseline
+
+Once the refreshed October control became the reference, the honest question was
+no longer "how do we restore the old October proof?" but "where does the
+cumulative Jul -> Oct lane still diverge from the fresh October control?"
+
+Comparison:
+
+- reference:
+  `data/backtest-artifacts/focused-oct-full-basket-proof-v2-freshrank--20260415-180911`
+- candidate:
+  `data/backtest-artifacts/focused-jul-oct-cumulative-julsep-anchor-v4-c512revert-rerun--20260415-065321`
+- diff artifact:
+  `data/backtest-artifacts/focused-jul-oct-cumulative-julsep-anchor-v4-c512revert-rerun--20260415-065321/oct-v2-control-drift.json`
+
+Headline drift:
+
+- October control: `13` trades, `+837.40`
+- Jul -> Oct cumulative October slice: `11` trades, `-546.77`
+- matched trades: `11 / 13`
+- missing trades: `2`
+- spurious trades: `0`
+
+Missing control trades in the cumulative lane:
+
+- `ETN-1760022000000`
+- `FIX-1761674400000`
+
+Largest matched-trade damage vs refreshed October control:
+
+- `AGQ`: `-893.11`
+- `FIX`: `-582.26`
+- `ON`: `-189.48`
+
+What this means:
+
+- the true October composition blockers are now the cumulative path/management
+  drifts in `AGQ`, `FIX`, and `ON`
+- `RIOT` is still useful as a replay/selectivity sanity check, but it is no
+  longer the primary composition target once the stale-proof October control is
+  retired
+
 ## Live Model Sync
 
 Tested package used as the live target:
@@ -184,23 +278,27 @@ Conclusion:
 
 ## Next Technical Target
 
-The next October fix should focus on the `FIX` state/classification seam, not on
-replay score persistence.
+The next October fix should focus on cumulative drift against the refreshed
+October control, not on restoring the stale pre-refresh October proof.
 
 Concrete objective:
 
-- trace why the current runtime sees `FIX` on `2025-10-03` as
-  `HTF_BULL_LTF_BULL` / `72`
-  while the earlier winning October proof saw the same opportunity as
-  `HTF_BULL_LTF_PULLBACK` / `93`
+- use the refreshed October proof as the authoritative month control
+- classify the cumulative Jul -> Oct damage by real control misses:
+  `AGQ`, `FIX`, `ON`, plus the missing `ETN` / later `FIX` control trades
+- avoid strategy work whose only goal is to recreate
+  `RIOT-1759345200000` or `FIX-1759501800000` from the stale October `v1`
+  artifact
 
 Likely surfaces:
 
 - `worker/indicators.js`
 - `worker/index.js`
 - `worker/pipeline/tt-core-entry.js`
+- `worker/pipeline/tt-core-exit.js` or equivalent runner-management surfaces
 
 Promotion rule:
 
-- do not widen past October until this seam is understood on focused proofs and
-  revalidated on the cumulative lane
+- do not widen past October until the refreshed October control and the
+  cumulative lane are reconciled on the real blocker set, then revalidated on
+  the cumulative lane
