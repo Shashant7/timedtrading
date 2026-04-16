@@ -2225,11 +2225,21 @@ function App({
   const [filterDateTo, setFilterDateTo] = useState("");
   const [filterRunId, setFilterRunId] = useState(RUN_FILTER_LATEST);
   const [sortOrder, setSortOrder] = useState("newest");
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(() => {
+    try {
+      return window.localStorage.getItem("tt-trade-autopsy-auto-refresh") === "1";
+    } catch (_) {
+      return false;
+    }
+  });
   const [tradeSourceMeta, setTradeSourceMeta] = useState({
     source: "",
     archiveRunId: "",
-    liveRunId: ""
+    liveRunId: "",
+    activeSource: "",
+    cleanLane: false
   });
+  const [activeRunTruth, setActiveRunTruth] = useState(null);
   const [autoSelectedLive, setAutoSelectedLive] = useState(false);
   const tradeIdFromUrl = (() => {
     const params = new URLSearchParams(window.location.search);
@@ -2248,10 +2258,14 @@ function App({
     const openTrades = Number(r?.open_trades || 0);
     return totalTrades > 0 || closedTrades > 0 || openTrades > 0;
   }), [availableRuns]);
-  const liveRun = useMemo(() => (availableRuns || []).find(r => {
-    const status = String(r?.status || "").trim().toLowerCase();
-    return status === "running" || status === "queued";
-  }) || null, [availableRuns]);
+  const liveRun = useMemo(() => {
+    const canonical = activeRunTruth?.read_model?.active || activeRunTruth?.run || activeRunTruth?.active || activeRunTruth?.live || activeRunTruth || null;
+    if (canonical && (canonical.run_id || canonical.active_run_id)) return canonical;
+    return (availableRuns || []).find(r => {
+      const status = String(r?.status || "").trim().toLowerCase();
+      return status === "running" || status === "queued";
+    }) || null;
+  }, [activeRunTruth, availableRuns]);
   const runLabelMap = useMemo(() => {
     const map = new Map();
     for (const run of availableRuns || []) {
@@ -2344,6 +2358,18 @@ function App({
     }
     return [];
   }, []);
+  const refreshActiveRunTruth = useCallback(async () => {
+    try {
+      const r = await fetch(`${API_BASE}/timed/admin/runs/live`, fetchOpts);
+      const d = await r.json();
+      if (d?.ok) {
+        setActiveRunTruth(d);
+        return d;
+      }
+    } catch (_) {}
+    setActiveRunTruth(null);
+    return null;
+  }, []);
   const refreshAnnotations = useCallback(async () => {
     try {
       const r = await fetch(annotationsUrl, fetchOpts);
@@ -2356,11 +2382,15 @@ function App({
       const r = await fetch(tradesUrl, fetchOpts);
       const d = await r.json();
       if (d.ok && Array.isArray(d.trades)) {
+        const liveTruth = activeRunTruth?.read_model?.active || activeRunTruth?.run || activeRunTruth?.active || activeRunTruth?.live || activeRunTruth || null;
+        const sourceMeta = d?.read_model?.source_meta || {};
         setTrades(d.trades);
         setTradeSourceMeta({
-          source: d.source || "",
-          archiveRunId: d.archive_run_id || "",
-          liveRunId: d.live_run_id || ""
+          source: sourceMeta.source || d.source || "",
+          archiveRunId: sourceMeta.archive_run_id || d.archive_run_id || "",
+          liveRunId: sourceMeta.live_run_id || d.live_run_id || liveTruth?.active_run_id || liveTruth?.run_id || "",
+          activeSource: sourceMeta.active_source || liveTruth?.active_source || "",
+          cleanLane: !!(sourceMeta.is_clean_lane ?? liveTruth?.is_clean_lane)
         });
         setSelectedTrade(prev => {
           if (!prev) return prev;
@@ -2374,21 +2404,25 @@ function App({
     } catch (_) {
       setError("Failed to load trades");
     }
-  }, [tradesUrl]);
+  }, [tradesUrl, activeRunTruth]);
   const refreshAll = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const runs = await refreshRuns();
+      const [runs, liveTruthRes] = await Promise.all([refreshRuns(), refreshActiveRunTruth()]);
+      const liveTruth = liveTruthRes?.read_model?.active || liveTruthRes?.run || liveTruthRes?.active || liveTruthRes?.live || liveTruthRes || null;
       const resolvedRunId = String(runIdFromUrl || "").trim() || resolveSelectedRunId(filterRunId, resolveLatestCompletedRunId(runs));
       const liveOnly = !String(runIdFromUrl || "").trim() && filterRunId === RUN_FILTER_LIVE;
       const [tradesRes, annRes] = await Promise.all([fetch(buildTradesUrl(resolvedRunId, liveOnly), fetchOpts).then(r => r.json()), fetch(buildAnnotationsUrl(resolvedRunId), fetchOpts).then(r => r.json())]);
       if (tradesRes.ok && Array.isArray(tradesRes.trades)) {
+        const sourceMeta = tradesRes?.read_model?.source_meta || {};
         setTrades(tradesRes.trades);
         setTradeSourceMeta({
-          source: tradesRes.source || "",
-          archiveRunId: tradesRes.archive_run_id || "",
-          liveRunId: tradesRes.live_run_id || ""
+          source: sourceMeta.source || tradesRes.source || "",
+          archiveRunId: sourceMeta.archive_run_id || tradesRes.archive_run_id || "",
+          liveRunId: sourceMeta.live_run_id || tradesRes.live_run_id || liveTruth?.active_run_id || liveTruth?.run_id || "",
+          activeSource: sourceMeta.active_source || liveTruth?.active_source || "",
+          cleanLane: !!(sourceMeta.is_clean_lane ?? liveTruth?.is_clean_lane)
         });
       } else setError(tradesRes?.error === "unauthorized" ? "Admin access required" : "Failed to load trades");
       if (annRes.ok && annRes.annotations) setAnnotations(annRes.annotations);
@@ -2397,30 +2431,35 @@ function App({
     } finally {
       setLoading(false);
     }
-  }, [buildAnnotationsUrl, buildTradesUrl, filterRunId, refreshRuns, resolveLatestCompletedRunId, resolveSelectedRunId, runIdFromUrl]);
+  }, [buildAnnotationsUrl, buildTradesUrl, filterRunId, refreshRuns, refreshActiveRunTruth, resolveLatestCompletedRunId, resolveSelectedRunId, runIdFromUrl]);
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
     (async () => {
       try {
-        const runsRes = await fetch(`${API_BASE}/timed/admin/runs?limit=100&include_archived=1`, fetchOpts).then(r => r.json());
+        const [runsRes, liveTruthRes] = await Promise.all([fetch(`${API_BASE}/timed/admin/runs?limit=100&include_archived=1`, fetchOpts).then(r => r.json()), fetch(`${API_BASE}/timed/admin/runs/live`, fetchOpts).then(r => r.json()).catch(() => null)]);
         if (cancelled) return;
+        if (liveTruthRes?.ok) setActiveRunTruth(liveTruthRes);
         const runs = runsRes.ok && Array.isArray(runsRes.runs) ? runsRes.runs : [];
         if (runsRes.ok && Array.isArray(runsRes.runs)) setAvailableRuns(runsRes.runs);else if (runsRes?.error === "unauthorized") {
           setError("Admin access required");
           return;
         }
+        const liveTruth = liveTruthRes?.read_model?.active || liveTruthRes?.run || liveTruthRes?.active || liveTruthRes?.live || liveTruthRes || null;
         const resolvedRunId = String(runIdFromUrl || "").trim() || resolveSelectedRunId(filterRunId, resolveLatestCompletedRunId(runs));
         const liveOnly = !String(runIdFromUrl || "").trim() && filterRunId === RUN_FILTER_LIVE;
         const [tradesData, annData] = await Promise.all([fetch(buildTradesUrl(resolvedRunId, liveOnly), fetchOpts).then(r => r.json()), fetch(buildAnnotationsUrl(resolvedRunId), fetchOpts).then(r => r.json())]);
         if (cancelled) return;
         if (tradesData.ok && Array.isArray(tradesData.trades)) {
+          const sourceMeta = tradesData?.read_model?.source_meta || {};
           setTrades(tradesData.trades);
           setTradeSourceMeta({
-            source: tradesData.source || "",
-            archiveRunId: tradesData.archive_run_id || "",
-            liveRunId: tradesData.live_run_id || ""
+            source: sourceMeta.source || tradesData.source || "",
+            archiveRunId: sourceMeta.archive_run_id || tradesData.archive_run_id || "",
+            liveRunId: sourceMeta.live_run_id || tradesData.live_run_id || liveTruth?.active_run_id || liveTruth?.run_id || "",
+            activeSource: sourceMeta.active_source || liveTruth?.active_source || "",
+            cleanLane: !!(sourceMeta.is_clean_lane ?? liveTruth?.is_clean_lane)
           });
         } else setError(tradesData?.error === "unauthorized" ? "Admin access required" : "Failed to load trades");
         if (annData.ok && annData.annotations) setAnnotations(annData.annotations);
@@ -2451,12 +2490,17 @@ function App({
     if (exists) setFilterRunId(String(runIdFromUrl).trim());
   }, [runIdFromUrl, trades]);
   useEffect(() => {
-    if (!liveRun || filterRunId !== RUN_FILTER_LIVE && filterRunId !== RUN_FILTER_LATEST) return;
+    if (filterRunId !== RUN_FILTER_LIVE || !autoRefreshEnabled) return;
     const iv = setInterval(() => {
       refreshAll();
-    }, 60_000);
+    }, 15_000);
     return () => clearInterval(iv);
-  }, [liveRun, filterRunId, refreshAll]);
+  }, [autoRefreshEnabled, filterRunId, refreshAll]);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("tt-trade-autopsy-auto-refresh", autoRefreshEnabled ? "1" : "0");
+    } catch (_) {}
+  }, [autoRefreshEnabled]);
   const filteredTrades = useMemo(() => {
     let out = trades;
     const effectiveRunId = resolveSelectedRunId(filterRunId, runMeta.latestRunId);
@@ -2496,8 +2540,15 @@ function App({
     const archiveLabel = resolveRunLabel(tradeSourceMeta.archiveRunId);
     const liveLabel = resolveRunLabel(tradeSourceMeta.liveRunId);
     const selectedLabel = resolveRunLabel(filterRunId);
+    const cleanLaneSuffix = tradeSourceMeta.cleanLane ? " · clean lane" : "";
     if (tradeSourceMeta.source === "replay_kv") {
-      return `Source: live replay KV${tradeSourceMeta.liveRunId ? ` · ${liveLabel || shortRunId(tradeSourceMeta.liveRunId)}` : ""}`;
+      return `Source: live replay KV${tradeSourceMeta.liveRunId ? ` · ${liveLabel || shortRunId(tradeSourceMeta.liveRunId)}` : ""}${cleanLaneSuffix}`;
+    }
+    if (tradeSourceMeta.source === "live_run_archive") {
+      return `Source: live backtest archive${tradeSourceMeta.liveRunId ? ` · ${liveLabel || shortRunId(tradeSourceMeta.liveRunId)}` : ""}${cleanLaneSuffix}`;
+    }
+    if (tradeSourceMeta.source === "live_empty") {
+      return `Source: live backtest${cleanLaneSuffix}`;
     }
     if (tradeSourceMeta.source === "archive") {
       return `Source: archived run${tradeSourceMeta.archiveRunId ? ` · ${archiveLabel || shortRunId(tradeSourceMeta.archiveRunId)}` : ""}`;
@@ -2508,7 +2559,7 @@ function App({
     if (tradeSourceMeta.source === "trades_d1") {
       return "Source: trades D1";
     }
-    if (filterRunId === RUN_FILTER_LIVE) return "Source: live replay";
+    if (filterRunId === RUN_FILTER_LIVE) return `Source: live replay${cleanLaneSuffix}`;
     if (filterRunId === RUN_FILTER_LATEST) return "Source: latest completed run";
     if (filterRunId) return `Source: selected run · ${selectedLabel || shortRunId(filterRunId)}`;
     return "Source: all available trades";
@@ -2808,10 +2859,16 @@ function App({
     className: "hidden sm:inline"
   }, "Review and annotate trades. Click a row to open the chart and add classification. This list is a snapshot \u2014 use ", React.createElement("strong", {
     className: "text-[#9ca3af]"
-  }, "Refresh"), " to load new trades."))), React.createElement("button", {
+  }, "Refresh"), " to load new trades."))), React.createElement("div", {
+    className: "flex items-center gap-2 shrink-0"
+  }, React.createElement("button", {
+    onClick: () => setAutoRefreshEnabled(v => !v),
+    className: `px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-all ${autoRefreshEnabled ? "bg-[#f59e0b]/10 border-[#f59e0b]/20 text-[#f59e0b] hover:bg-[#f59e0b]/20" : "bg-white/[0.03] border-white/[0.08] text-[#6b7280] hover:text-white hover:bg-white/[0.08]"}`,
+    title: "Only applies to the Live replay filter"
+  }, "Auto-refresh ", autoRefreshEnabled ? "On" : "Off"), React.createElement("button", {
     onClick: refreshAll,
     className: "shrink-0 px-3 py-1.5 rounded-lg bg-white/[0.06] border border-white/[0.08] text-[12px] font-medium text-[#9ca3af] hover:text-white hover:bg-white/[0.1] transition-all"
-  }, "Refresh")), !loading && !error && (availableRuns.length > 0 || trades.length > 0) && React.createElement("div", {
+  }, "Refresh"))), !loading && !error && (availableRuns.length > 0 || trades.length > 0) && React.createElement("div", {
     className: "grid grid-cols-2 sm:flex sm:flex-wrap gap-2 sm:gap-3 mb-4"
   }, React.createElement("select", {
     value: filterRunId,
@@ -2881,7 +2938,7 @@ function App({
     className: "loading-spinner"
   })), error && React.createElement("div", {
     className: "tt-card p-6 text-center text-[#ef4444]"
-  }, error), !loading && !error && liveRun && React.createElement("div", {
+  }, error), !loading && !error && (liveRun || filterRunId === RUN_FILTER_LIVE) && React.createElement("div", {
     className: `tt-card p-4 mb-4 ${filterRunId === RUN_FILTER_LIVE ? "border-[#f59e0b]/30 bg-[#f59e0b]/[0.03]" : ""}`
   }, React.createElement("div", {
     className: "flex items-center gap-3"
@@ -2896,9 +2953,9 @@ function App({
     className: "flex-1 min-w-0"
   }, React.createElement("p", {
     className: "text-[13px] text-white font-medium"
-  }, "Backtest in progress", liveRun.label ? `: ${liveRun.label}` : ""), React.createElement("p", {
+  }, "Backtest in progress", liveRun?.label ? `: ${liveRun.label}` : ""), React.createElement("p", {
     className: "text-[12px] text-[#6b7280] mt-0.5"
-  }, liveRun.start_date || "", " \u2192 ", liveRun.end_date || "", " \xB7 ", liveRun.status_note || liveRun.status || "running")), React.createElement("div", {
+  }, liveRun?.start_date || "", " ", liveRun ? "→" : "", " ", liveRun?.end_date || "", liveRun ? ` · ${liveRun.status_note || liveRun.status || "running"}` : "Polling live replay feed")), React.createElement("div", {
     className: "flex items-center gap-2 shrink-0"
   }, filterRunId === RUN_FILTER_LIVE ? React.createElement("span", {
     className: "px-3 py-1.5 rounded-lg bg-[#f59e0b]/15 text-[12px] font-medium text-[#f59e0b]"
@@ -2906,6 +2963,9 @@ function App({
     onClick: () => setFilterRunId(RUN_FILTER_LIVE),
     className: "px-3 py-1.5 rounded-lg bg-[#f59e0b]/10 border border-[#f59e0b]/20 text-[12px] font-medium text-[#f59e0b] hover:bg-[#f59e0b]/20 transition-all"
   }, "View live trades"), React.createElement("button", {
+    onClick: () => setAutoRefreshEnabled(v => !v),
+    className: `px-3 py-1.5 rounded-lg border text-[12px] font-medium transition-all ${autoRefreshEnabled ? "bg-[#f59e0b]/10 border-[#f59e0b]/20 text-[#f59e0b] hover:bg-[#f59e0b]/20" : "bg-white/[0.03] border-white/[0.08] text-[#6b7280] hover:text-white hover:bg-white/[0.08]"}`
+  }, "Auto-refresh ", autoRefreshEnabled ? "On" : "Off"), React.createElement("button", {
     onClick: refreshAll,
     className: "px-3 py-1.5 rounded-lg bg-white/[0.06] border border-white/[0.08] text-[12px] font-medium text-[#9ca3af] hover:text-white hover:bg-white/[0.1] transition-all"
   }, "Refresh"))), filterRunId === RUN_FILTER_LIVE && trades.length === 0 && React.createElement("div", {
@@ -2918,11 +2978,11 @@ function App({
       width: 16,
       height: 16
     }
-  }), React.createElement("span", null, "Waiting for trades \u2014 the backtest is backfilling candle data before replay begins. Trades will appear here automatically."))), filterRunId === RUN_FILTER_LIVE && trades.length > 0 && React.createElement("div", {
+  }), React.createElement("span", null, "Waiting for live trades. Use Refresh to load new positions, or turn on auto-refresh if you want the page to poll every 15 seconds."))), filterRunId === RUN_FILTER_LIVE && trades.length > 0 && React.createElement("div", {
     className: "mt-3 pt-3 border-t border-white/[0.06]"
   }, React.createElement("p", {
     className: "text-[12px] text-[#9ca3af]"
-  }, trades.length, " trade", trades.length !== 1 ? "s" : "", " so far \xB7 auto-refreshing every 60s"))), !loading && !error && trades.length === 0 && !liveRun && React.createElement("div", {
+  }, trades.length, " trade", trades.length !== 1 ? "s" : "", " so far, including open positions", autoRefreshEnabled ? " · auto-refreshing every 15s" : " · snapshot view, use Refresh to load new trades"))), !loading && !error && trades.length === 0 && !liveRun && filterRunId !== RUN_FILTER_LIVE && React.createElement("div", {
     className: "tt-card p-12 text-center text-[#6b7280]"
   }, "No closed trades to review."), !loading && !error && trades.length === 0 && !!liveRun && filterRunId !== RUN_FILTER_LIVE && React.createElement("div", {
     className: "tt-card p-8 text-center"

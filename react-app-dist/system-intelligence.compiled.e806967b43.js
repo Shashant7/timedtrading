@@ -2765,6 +2765,7 @@ function RunsTab({
   const [runs, setRuns] = useState([]);
   const [liveSummary, setLiveSummary] = useState(null);
   const [promotingRunId, setPromotingRunId] = useState("");
+  const [validatingSentinelRunId, setValidatingSentinelRunId] = useState("");
   const [finalizingRunId, setFinalizingRunId] = useState("");
   const [archivingRunId, setArchivingRunId] = useState("");
   const [deletingRunId, setDeletingRunId] = useState("");
@@ -2783,20 +2784,20 @@ function RunsTab({
   const [variantData, setVariantData] = useState(null);
   const [liveConfigData, setLiveConfigData] = useState(null);
   const [variantOverrides, setVariantOverrides] = useState({});
-  const validationAbortRef = React.useRef({
-    cancelled: false
-  });
   const [lockInfo, setLockInfo] = useState(null);
   const [validationBusy, setValidationBusy] = useState(false);
   const [validationRunId, setValidationRunId] = useState("");
   const [validationProgress, setValidationProgress] = useState(null);
   const [validationLogs, setValidationLogs] = useState([]);
+  const [runnerStatus, setRunnerStatus] = useState(null);
   const [validationForm, setValidationForm] = useState({
     label: "ui-validation",
-    description: "Validation run launched from System Intelligence",
+    description: "Validation run launched from the Runs operations console",
     startDate: "2025-07-01",
     endDate: "2025-07-31",
-    intervalMinutes: 15,
+    intervalMinutes: 5,
+    replayMode: "candle",
+    tickerBatch: 15,
     configSource: "run",
     configRunId: "",
     takeOverLock: true,
@@ -2808,6 +2809,7 @@ function RunsTab({
     tickers: "",
     progressWriteEvery: 4
   });
+  const [showLaunchDrawer, setShowLaunchDrawer] = useState(false);
   const fmtNum = n => {
     const v = Number(n);
     return Number.isFinite(v) ? v.toLocaleString() : "—";
@@ -2899,6 +2901,56 @@ function RunsTab({
     }
     return items;
   };
+  const getRunParams = run => parseMetricObj(run?.params || run?.params_json || run?.paramsJson);
+  const getRunProgressSnapshot = run => {
+    const params = getRunParams(run);
+    if (params?.validation_progress && typeof params.validation_progress === "object") return params.validation_progress;
+    return null;
+  };
+  const humanizeStatus = value => {
+    const text = cleanText(value);
+    return text ? text.replace(/_/g, " ") : "";
+  };
+  const isRunnerActiveStatus = value => {
+    const status = cleanText(value).toLowerCase();
+    return ["queued", "running", "retrying", "preparing", "seeding", "finalizing", "archiving"].includes(status);
+  };
+  const formatRunnerLogLine = entry => {
+    if (!entry || typeof entry !== "object") return null;
+    const stamp = Number(entry.ts);
+    const tsLabel = Number.isFinite(stamp) && stamp > 0 ? new Date(stamp).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    }) : "--:--:--";
+    const level = cleanText(entry.level).toUpperCase() || "INFO";
+    const event = cleanText(entry.event);
+    const message = cleanText(entry.message);
+    return `[${tsLabel}] ${level}${event ? ` ${event}` : ""}${message ? ` · ${message}` : ""}`;
+  };
+  const deriveRunnerProgress = jobLike => {
+    if (!jobLike || typeof jobLike !== "object") return null;
+    const checkpoint = jobLike.checkpoint && typeof jobLike.checkpoint === "object" ? jobLike.checkpoint : null;
+    const sessions = Array.isArray(jobLike?.contract?.runner?.sessions) ? jobLike.contract.runner.sessions : [];
+    if (!checkpoint && !sessions.length) return null;
+    const completedSteps = Math.max(0, Number(checkpoint?.session_index || 0));
+    const totalSteps = Math.max(0, sessions.length);
+    const currentDate = cleanText(checkpoint?.current_day) || cleanText(sessions[Math.min(completedSteps, Math.max(0, sessions.length - 1))]);
+    const active = isRunnerActiveStatus(jobLike?.status);
+    let dayIndex = totalSteps ? Math.min(totalSteps, completedSteps + (active && currentDate ? 1 : 0)) : null;
+    if (String(jobLike?.status || "").toLowerCase() === "completed") dayIndex = totalSteps;
+    return {
+      runId: cleanText(jobLike?.run_id) || cleanText(jobLike?.runId),
+      mode: "candle",
+      date: currentDate || null,
+      dayIndex,
+      totalDays: totalSteps || null,
+      completedSteps,
+      totalSteps: totalSteps || null,
+      scored: Number(checkpoint?.last_result?.scored || 0),
+      trades: Number(checkpoint?.last_result?.tradesCreated || 0)
+    };
+  };
   const renderTokens = (entries, emptyLabel = "—") => {
     if (!entries || entries.length === 0) return React.createElement("span", {
       className: "text-slate-500"
@@ -2915,11 +2967,13 @@ function RunsTab({
     setError(null);
     try {
       const includeArchived = showArchived ? "1" : "0";
-      const [listRes, liveRes, lockRes] = await Promise.all([fetch(`${API_BASE}/timed/admin/runs?limit=60&include_archived=${includeArchived}`, {
+      const [listRes, liveRes, lockRes, runnerRes] = await Promise.all([fetch(`${API_BASE}/timed/admin/runs?limit=60&include_archived=${includeArchived}`, {
         credentials: "include"
       }).then(r => r.json()).catch(() => null), fetch(`${API_BASE}/timed/admin/runs/live`, {
         credentials: "include"
       }).then(r => r.json()).catch(() => null), fetch(`${API_BASE}/timed/admin/replay-lock`, {
+        credentials: "include"
+      }).then(r => r.json()).catch(() => null), fetch(`${API_BASE}/timed/admin/backtests/status`, {
         credentials: "include"
       }).then(r => r.json()).catch(() => null)]);
       if (!listRes?.ok) {
@@ -2930,7 +2984,7 @@ function RunsTab({
         setRuns(rows);
       }
       if (liveRes?.ok) {
-        const liveRow = liveRes.summary || liveRes.live || null;
+        const liveRow = liveRes.run || liveRes.read_model?.run || liveRes.summary || liveRes.live || null;
         setLiveSummary(liveRow ? {
           ...liveRow,
           trades: liveRow.trades || {
@@ -2947,10 +3001,42 @@ function RunsTab({
           }
         } : null);
       }
-      if (lockRes?.ok) setLockInfo({
-        locked: !!lockRes.locked,
-        lock: lockRes.lock || null
-      });
+      const runnerJob = runnerRes?.job || runnerRes?.active || null;
+      const runnerRun = runnerRes?.run || null;
+      const runnerRunId = cleanText(runnerJob?.run_id || runnerJob?.runId || runnerRun?.run_id);
+      if (runnerRes?.ok) {
+        setRunnerStatus(runnerRes);
+        setValidationBusy(isRunnerActiveStatus(runnerJob?.status || runnerRes?.active?.status));
+        setValidationRunId(runnerRunId || "");
+        setValidationProgress(deriveRunnerProgress(runnerJob || runnerRun));
+      } else {
+        setRunnerStatus(null);
+        setValidationBusy(false);
+        setValidationProgress(null);
+      }
+      if (runnerRunId) {
+        const logsRes = await fetch(`${API_BASE}/timed/admin/backtests/logs?run_id=${encodeURIComponent(runnerRunId)}`, {
+          credentials: "include"
+        }).then(r => r.json()).catch(() => null);
+        if (logsRes?.ok && Array.isArray(logsRes.logs)) {
+          setValidationLogs(logsRes.logs.map(formatRunnerLogLine).filter(Boolean).slice(-24));
+        } else {
+          setValidationLogs([]);
+        }
+      } else {
+        setValidationLogs([]);
+      }
+      if (lockRes?.ok) {
+        setLockInfo({
+          locked: !!lockRes.locked || !!runnerRes?.locked,
+          lock: lockRes.lock || null
+        });
+      } else if (runnerRes?.ok) {
+        setLockInfo({
+          locked: !!runnerRes.locked,
+          lock: null
+        });
+      }
     } catch (e) {
       setError(String(e || "Failed to load runs"));
     }
@@ -2958,6 +3044,10 @@ function RunsTab({
   }, [showArchived]);
   useEffect(() => {
     fetchRuns();
+    const timer = setInterval(() => {
+      fetchRuns();
+    }, 5000);
+    return () => clearInterval(timer);
   }, [fetchRuns]);
   const updateRunDescription = async (runId, description) => {
     if (!isAdmin || !runId) return;
@@ -3004,7 +3094,13 @@ function RunsTab({
       });
       const data = await res.json();
       if (!data?.ok) {
-        setError(data?.error || "Failed to promote run");
+        if (data?.error === "sentinel_validation_required") {
+          setError("Sentinel validation is required before promotion. Run Validate Sentinels first.");
+        } else if (data?.error === "sentinel_validation_failed") {
+          setError("The latest sentinel validation artifact is in an error state.");
+        } else {
+          setError(data?.error || "Failed to promote run");
+        }
       } else {
         setMessage(`Live baseline updated: ${runId}`);
         await fetchRuns();
@@ -3013,6 +3109,37 @@ function RunsTab({
       setError(String(e || "Failed to promote run"));
     }
     setPromotingRunId("");
+  };
+  const validateSentinels = async run => {
+    const runId = String(run?.run_id || "").trim();
+    if (!isAdmin || !runId) return;
+    setValidatingSentinelRunId(runId);
+    setMessage(null);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/timed/admin/runs/validate-sentinels`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          run_id: runId
+        }),
+        credentials: "include"
+      });
+      const data = await res.json();
+      if (!data?.ok) {
+        setError(data?.error || "Failed to validate sentinels");
+      } else {
+        const summary = data?.artifact?.summary || {};
+        const refLabel = data?.reference_label || data?.reference_run_id || "reference run";
+        setMessage(`Sentinel validation generated for ${runId} vs ${refLabel} · matched ${summary.matched_pairs || 0}, missing ${summary.missing_in_candidate || 0}, extra ${summary.extra_in_candidate || 0}`);
+        await fetchRuns();
+      }
+    } catch (e) {
+      setError(String(e || "Failed to validate sentinels"));
+    }
+    setValidatingSentinelRunId("");
   };
   const finalizeRun = async run => {
     if (!isAdmin || !run?.run_id) return;
@@ -3141,17 +3268,6 @@ function RunsTab({
     }
     return data;
   };
-  const buildApiUrl = (path, params = {}) => {
-    const query = new URLSearchParams();
-    Object.entries(params || {}).forEach(([key, value]) => {
-      if (value == null) return;
-      const text = String(value).trim();
-      if (!text) return;
-      query.set(key, text);
-    });
-    const suffix = query.toString();
-    return `${API_BASE}${path}${suffix ? `?${suffix}` : ""}`;
-  };
   const appendValidationLog = line => {
     const stamp = new Date().toLocaleTimeString([], {
       hour: "2-digit",
@@ -3169,7 +3285,6 @@ function RunsTab({
       [field]: value
     }));
   };
-  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const enumerateTradingDates = (startDate, endDate) => {
     if (!startDate || !endDate) return [];
     const out = [];
@@ -3182,19 +3297,6 @@ function RunsTab({
     }
     return out;
   };
-  const persistRunPatch = async (runId, patch) => {
-    if (!runId) return;
-    await apiFetchJson(`${API_BASE}/timed/admin/runs/update`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        run_id: runId,
-        ...patch
-      })
-    });
-  };
   const loadConfigOverrideFromRun = async runId => {
     const data = await apiFetchJson(`${API_BASE}/timed/admin/runs/config?run_id=${encodeURIComponent(runId)}`);
     if (!data?.config || Object.keys(data.config).length === 0) {
@@ -3203,9 +3305,28 @@ function RunsTab({
     return data.config;
   };
   const requestStopValidation = () => {
-    validationAbortRef.current.cancelled = true;
-    appendValidationLog("Stop requested. Waiting for the current interval request to finish.");
-    setMessage("Stop requested. The runner will stop after the current interval completes.");
+    const targetRunId = activeRun?.run_id || validationRunId || cleanText(runnerStatus?.job?.run_id || runnerStatus?.active?.run_id);
+    if (!isAdmin || !targetRunId) return;
+    (async () => {
+      setError(null);
+      setMessage(null);
+      try {
+        const data = await apiFetchJson(`${API_BASE}/timed/admin/backtests/cancel`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            run_id: targetRunId,
+            reason: "Cancelled from Operations Console"
+          })
+        });
+        setMessage(data?.ok ? `Run cancelled: ${targetRunId}` : `Cancel requested for ${targetRunId}`);
+        await fetchRuns();
+      } catch (e) {
+        setError(String(e || "Failed to cancel run"));
+      }
+    })();
   };
   const startValidationRun = async () => {
     if (!isAdmin || validationBusy) return;
@@ -3213,229 +3334,71 @@ function RunsTab({
       setError("Choose a valid start and end date first.");
       return;
     }
+    setShowLaunchDrawer(false);
     const tradingDates = enumerateTradingDates(validationForm.startDate, validationForm.endDate);
     if (tradingDates.length === 0) {
       setError("Selected range has no weekday sessions to replay.");
       return;
     }
-    validationAbortRef.current.cancelled = false;
+    if (validationForm.configSource === "run" && !validationForm.configRunId) {
+      setError("Select a config run or switch to live model_config.");
+      return;
+    }
     setValidationBusy(true);
     setValidationRunId("");
     setValidationProgress(null);
     setValidationLogs([]);
     setMessage(null);
     setError(null);
-    let runId = "";
     try {
-      const lockState = await apiFetchJson(`${API_BASE}/timed/admin/replay-lock`);
-      if (lockState?.locked && lockState.lock) {
-        if (!validationForm.takeOverLock) {
-          throw new Error(`Replay lock already active: ${lockState.lock}`);
-        }
-        const confirmed = window.confirm(`A replay lock is already active:\n\n${lockState.lock}\n\nTake it over for this validation run?`);
-        if (!confirmed) throw new Error("start_cancelled");
-        await apiFetchJson(`${API_BASE}/timed/admin/replay-lock`, {
-          method: "DELETE"
-        });
-        appendValidationLog(`Released existing replay lock ${lockState.lock}`);
-      }
-      const lockData = await apiFetchJson(buildApiUrl("/timed/admin/replay-lock", {
-        reason: `ui_validation_${validationForm.startDate}_${validationForm.endDate}`
-      }), {
-        method: "POST"
-      });
-      runId = String(lockData?.lock || "").trim();
-      if (!runId) throw new Error("Failed to acquire replay lock");
-      setValidationRunId(runId);
-      setLockInfo({
-        locked: true,
-        lock: runId
-      });
       const configOverride = validationForm.configSource === "run" && validationForm.configRunId ? await loadConfigOverrideFromRun(validationForm.configRunId) : null;
       const tickerList = String(validationForm.tickers || "").split(",").map(t => t.trim().toUpperCase()).filter(Boolean);
       const intervalMinutes = Math.max(1, Math.min(30, Number(validationForm.intervalMinutes) || 15));
-      const totalIntervals = Math.floor(390 / intervalMinutes) + 1;
-      const totalSteps = tradingDates.length * totalIntervals;
+      const tickerBatch = Math.max(1, Math.min(80, Number(validationForm.tickerBatch) || 15));
       const tickerUniverseCount = tickerList.length || Number(liveSummary?.ticker_universe_count || 0) || Number(runs?.[0]?.ticker_universe_count || 0) || 0;
-      const registerPayload = {
-        run_id: runId,
+      const startPayload = {
         label: (validationForm.label || `ui-validation-${validationForm.startDate}`).trim(),
-        description: (validationForm.description || "Validation run from System Intelligence").trim(),
+        description: (validationForm.description || "Validation run from the Runs operations console").trim(),
         start_date: validationForm.startDate,
         end_date: validationForm.endDate,
         interval_min: intervalMinutes,
-        ticker_batch: tickerList.length || 15,
+        ticker_batch: tickerBatch,
         ticker_universe_count: tickerUniverseCount,
-        trader_only: true,
+        trader_only: !!validationForm.skipInvestor,
         keep_open_at_end: !!validationForm.keepOpenAtEnd,
         low_write: !!validationForm.lowWrite,
-        status: "running",
-        status_note: "Queued from Validation Console",
-        tags: ["ui-validation", validationForm.configSource === "run" ? "pinned-run-config" : "live-config"],
+        take_over_lock: !!validationForm.takeOverLock,
+        seed_market_events: !!validationForm.seedMarketEvents,
+        tags: ["ui-validation", "cloud-runner", validationForm.configSource === "run" ? "pinned-run-config" : "live-config"],
+        tickers: tickerList,
         params: {
-          driver: "system-intelligence-validation-console",
+          driver: "system-intelligence-cloud-console",
           config_source: validationForm.configSource,
           config_source_run_id: validationForm.configSource === "run" ? validationForm.configRunId || null : null,
-          interval_minutes: intervalMinutes,
-          tickers: tickerList,
-          flags: {
-            seed_market_events: !!validationForm.seedMarketEvents,
-            disable_reference_execution: !!validationForm.disableReferenceExecution,
-            skip_investor: !!validationForm.skipInvestor,
-            low_write: !!validationForm.lowWrite,
-            keep_open_at_end: !!validationForm.keepOpenAtEnd
-          }
+          disable_reference_execution: !!validationForm.disableReferenceExecution,
+          tickers: tickerList
         }
       };
-      if (configOverride) registerPayload.config_override = configOverride;
-      await apiFetchJson(`${API_BASE}/timed/admin/runs/register`, {
+      if (configOverride) startPayload.config_override = configOverride;
+      appendValidationLog(`Submitting coordinated run for ${validationForm.startDate} → ${validationForm.endDate}`);
+      const data = await apiFetchJson(`${API_BASE}/timed/admin/backtests/start`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify(registerPayload)
+        body: JSON.stringify(startPayload)
       });
-      appendValidationLog(`Registered run ${runId}`);
-      if (validationForm.seedMarketEvents) {
-        appendValidationLog(`Seeding market events for ${validationForm.startDate} → ${validationForm.endDate}`);
-        await apiFetchJson(buildApiUrl("/timed/admin/backfill-market-events", {
-          startDate: validationForm.startDate,
-          endDate: validationForm.endDate,
-          allTickers: 1
-        }), {
-          method: "POST"
-        });
-      }
-      const progressWriteEvery = Math.max(1, Number(validationForm.progressWriteEvery) || 4);
-      let completedSteps = 0;
-      for (let dayIdx = 0; dayIdx < tradingDates.length; dayIdx++) {
-        const tradeDate = tradingDates[dayIdx];
-        appendValidationLog(`Running ${tradeDate} (${dayIdx + 1}/${tradingDates.length})`);
-        for (let intervalIdx = 0; intervalIdx < totalIntervals; intervalIdx++) {
-          if (validationAbortRef.current.cancelled) throw new Error("__validation_cancelled__");
-          const firstInterval = dayIdx === 0 && intervalIdx === 0;
-          const lastIntervalOfDay = intervalIdx === totalIntervals - 1;
-          const params = {
-            date: tradeDate,
-            interval: intervalIdx,
-            intervalMinutes,
-            cleanSlate: firstInterval ? 1 : null,
-            disableReferenceExecution: validationForm.disableReferenceExecution ? 1 : null,
-            skipInvestor: validationForm.skipInvestor ? 1 : null,
-            endOfDay: !validationForm.skipInvestor && lastIntervalOfDay ? 1 : null,
-            lowWrite: validationForm.lowWrite ? 1 : null,
-            tickers: tickerList.length ? tickerList.join(",") : null
-          };
-          let intervalData = null;
-          let lastErr = null;
-          for (let attempt = 1; attempt <= 3; attempt++) {
-            try {
-              intervalData = await apiFetchJson(buildApiUrl("/timed/admin/interval-replay", params), {
-                method: "POST"
-              });
-              break;
-            } catch (err) {
-              lastErr = err;
-              if (attempt < 3) {
-                appendValidationLog(`Retry ${attempt} failed on ${tradeDate} interval ${intervalIdx + 1}: ${err.message}`);
-                await sleep(attempt * 1000);
-              }
-            }
-          }
-          if (!intervalData) throw lastErr || new Error(`Interval replay failed on ${tradeDate} interval ${intervalIdx + 1}`);
-          completedSteps += 1;
-          const nextProgress = {
-            runId,
-            date: tradeDate,
-            dayIndex: dayIdx + 1,
-            totalDays: tradingDates.length,
-            intervalIndex: intervalIdx + 1,
-            totalIntervals,
-            completedSteps,
-            totalSteps,
-            scored: Number(intervalData?.scored || 0),
-            trades: Number(intervalData?.trades || 0)
-          };
-          setValidationProgress(nextProgress);
-          if (intervalIdx === 0 || (intervalIdx + 1) % progressWriteEvery === 0 || completedSteps === totalSteps) {
-            await persistRunPatch(runId, {
-              status: "running",
-              status_note: `Replaying ${tradeDate} interval ${intervalIdx + 1}/${totalIntervals}`,
-              params_patch: {
-                validation_progress: nextProgress
-              }
-            });
-          }
-        }
-      }
-      if (!validationForm.keepOpenAtEnd) {
-        appendValidationLog(`Closing residual open positions at ${validationForm.endDate} close`);
-        await apiFetchJson(buildApiUrl("/timed/admin/close-replay-positions", {
-          date: validationForm.endDate
-        }), {
-          method: "POST"
-        });
-      }
-      await apiFetchJson(`${API_BASE}/timed/admin/runs/finalize`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          run_id: runId,
-          label: registerPayload.label,
-          description: registerPayload.description,
-          start_date: validationForm.startDate,
-          end_date: validationForm.endDate,
-          interval_min: intervalMinutes,
-          ticker_universe_count: tickerUniverseCount,
-          trader_only: true,
-          keep_open_at_end: !!validationForm.keepOpenAtEnd,
-          low_write: !!validationForm.lowWrite,
-          status: "completed",
-          status_note: "Completed from Validation Console",
-          preserve_registered_config: !!configOverride
-        })
-      });
-      appendValidationLog(`Completed run ${runId}`);
-      setMessage(`Validation run completed: ${runId}`);
+      const runId = cleanText(data?.run_id || data?.job?.run_id);
+      setValidationRunId(runId);
+      appendValidationLog(`Cloud runner accepted ${runId || "the request"} and scheduled session replay.`);
+      setMessage(runId ? `Coordinated run started: ${runId}` : "Coordinated run started.");
+      await fetchRuns();
     } catch (e) {
       const errMsg = String(e?.message || e || "Validation failed");
-      if (errMsg === "__validation_cancelled__" || errMsg === "start_cancelled") {
-        if (runId) {
-          try {
-            await persistRunPatch(runId, {
-              status: "cancelled",
-              status_note: "Cancelled from Validation Console",
-              ended_at: Date.now()
-            });
-          } catch {}
-        }
-        appendValidationLog(runId ? `Cancelled run ${runId}` : "Validation start cancelled");
-        setMessage("Validation run cancelled.");
-      } else {
-        if (runId) {
-          try {
-            await persistRunPatch(runId, {
-              status: "failed",
-              status_note: errMsg.slice(0, 240),
-              ended_at: Date.now()
-            });
-          } catch {}
-        }
-        appendValidationLog(`Run failed: ${errMsg}`);
-        setError(errMsg);
-      }
-    } finally {
-      validationAbortRef.current.cancelled = false;
-      if (runId) {
-        try {
-          await apiFetchJson(`${API_BASE}/timed/admin/replay-lock`, {
-            method: "DELETE"
-          });
-        } catch {}
-      }
+      appendValidationLog(`Run launch failed: ${errMsg}`);
+      setError(errMsg);
       setValidationBusy(false);
+    } finally {
       await fetchRuns();
     }
   };
@@ -3476,78 +3439,156 @@ function RunsTab({
       return !isPlaceholder;
     });
   }
+  const activeRun = useMemo(() => {
+    const runnerJob = runnerStatus?.job || runnerStatus?.active || null;
+    const runnerRun = runnerStatus?.run || null;
+    const runnerRunId = cleanText(runnerJob?.run_id || runnerJob?.runId || runnerRun?.run_id);
+    if (runnerRunId) {
+      const runMatch = runs.find(run => run?.run_id === runnerRunId);
+      return {
+        ...(runMatch || {}),
+        ...(runnerRun || {}),
+        ...(runnerJob || {}),
+        run_id: runnerRunId
+      };
+    }
+    if (validationRunId) {
+      const runMatch = runs.find(run => run?.run_id === validationRunId);
+      if (runMatch) return runMatch;
+      if (liveSummary?.run_id === validationRunId) return liveSummary;
+    }
+    const activeStatuses = new Set(["queued", "running", "retrying", "preparing", "seeding", "finalizing", "archiving"]);
+    const activeCandidate = runs.filter(run => activeStatuses.has(String(run?.status || "").toLowerCase())).sort((a, b) => Number(b?.updated_at || b?.started_at || b?.created_at || 0) - Number(a?.updated_at || a?.started_at || a?.created_at || 0))[0];
+    if (activeCandidate) return activeCandidate;
+    const liveStatus = String(liveSummary?.status || "").toLowerCase();
+    if (liveSummary?.run_id && liveStatus && liveStatus !== "completed") return liveSummary;
+    return null;
+  }, [runs, liveSummary, validationRunId, runnerStatus]);
+  const activeProgress = validationProgress || deriveRunnerProgress(activeRun) || getRunProgressSnapshot(activeRun);
+  const runnerHealth = useMemo(() => {
+    if (validationBusy || String(activeRun?.status || "").toLowerCase() === "running") {
+      return {
+        label: "Running",
+        cls: "run-pill-active",
+        detail: activeProgress?.date ? `Processing ${activeProgress.date}` : "Remote runner active"
+      };
+    }
+    if (String(activeRun?.status || "").toLowerCase() === "retrying") {
+      return {
+        label: "Retrying",
+        cls: "run-pill-protected",
+        detail: cleanText(activeRun?.status_note) || "Retrying replay step"
+      };
+    }
+    if (String(activeRun?.status || "").toLowerCase() === "failed") {
+      return {
+        label: "Degraded",
+        cls: "run-pill-status",
+        detail: cleanText(activeRun?.status_note) || "Latest run failed"
+      };
+    }
+    if (lockInfo?.locked) {
+      return {
+        label: "Blocked",
+        cls: "run-pill-status",
+        detail: lockInfo?.lock || "Replay lock is active"
+      };
+    }
+    return {
+      label: "Idle",
+      cls: "run-pill-live",
+      detail: "No active remote runner"
+    };
+  }, [validationBusy, activeRun, activeProgress, lockInfo]);
+  const activePhaseLabel = useMemo(() => {
+    if (activeProgress?.date && activeProgress?.mode === "candle") {
+      return `Replaying ${activeProgress.date} batch ${activeProgress.batchIndex || 1}`;
+    }
+    if (activeProgress?.date && activeProgress?.mode === "interval") {
+      return `Replaying ${activeProgress.date} interval ${activeProgress.intervalIndex || 1}`;
+    }
+    const note = cleanText(activeRun?.status_note);
+    if (note) return note;
+    const status = humanizeStatus(activeRun?.status);
+    if (status) return status;
+    return runnerHealth.detail;
+  }, [activeProgress, activeRun, runnerHealth]);
+  const queuedRuns = useMemo(() => {
+    const queuedStatuses = new Set(["queued", "running", "retrying", "preparing", "seeding", "finalizing", "archiving"]);
+    return runs.filter(run => queuedStatuses.has(String(run?.status || "").toLowerCase())).sort((a, b) => Number(b?.updated_at || b?.started_at || b?.created_at || 0) - Number(a?.updated_at || a?.started_at || a?.created_at || 0)).slice(0, 6);
+  }, [runs]);
+  const recentCompletedRuns = useMemo(() => {
+    return runs.filter(run => String(run?.status || "").toLowerCase() === "completed").sort((a, b) => Number(b?.updated_at || b?.started_at || b?.created_at || 0) - Number(a?.updated_at || a?.started_at || a?.created_at || 0)).slice(0, 6);
+  }, [runs]);
+  const remoteLogLines = useMemo(() => {
+    if (validationLogs.length) return validationLogs.slice(-24);
+    const lines = [];
+    if (activeRun?.run_id) lines.push(`[Run] ${activeRun.run_id}`);
+    if (activeRun?.status) lines.push(`[Status] ${humanizeStatus(activeRun.status)}`);
+    if (activeRun?.status_note) lines.push(`[Note] ${activeRun.status_note}`);
+    if (activeProgress?.date) {
+      if (activeProgress.mode === "candle") {
+        lines.push(`[Progress] ${activeProgress.date} batch ${activeProgress.batchIndex || 1} · ${activeProgress.completedSteps || 0}/${activeProgress.totalSteps || 0}`);
+      } else {
+        lines.push(`[Progress] ${activeProgress.date} interval ${activeProgress.intervalIndex || 1} · ${activeProgress.completedSteps || 0}/${activeProgress.totalSteps || 0}`);
+      }
+    }
+    if (lockInfo?.locked) lines.push(`[Lock] ${lockInfo.lock || "Active replay lock"}`);
+    return lines.length ? lines : ["No active remote logs yet."];
+  }, [validationLogs, activeRun, activeProgress, lockInfo]);
+  const contractSummary = useMemo(() => {
+    const tickerList = String(validationForm.tickers || "").split(",").map(t => t.trim()).filter(Boolean);
+    const tradingDates = enumerateTradingDates(validationForm.startDate, validationForm.endDate);
+    return {
+      tickerCount: tickerList.length || Number(activeRun?.ticker_universe_count || liveSummary?.ticker_universe_count || 0) || 0,
+      sessionCount: tradingDates.length,
+      mode: "Cloud session replay",
+      configLabel: validationForm.configSource === "run" ? validationRunOptions.find(run => run.run_id === validationForm.configRunId)?.label || "Pinned run config" : "Live model_config"
+    };
+  }, [validationForm, activeRun, liveSummary, validationRunOptions]);
   return React.createElement("div", {
     className: "space-y-4"
-  }, React.createElement("div", {
-    className: "card runs-shell p-5"
-  }, React.createElement("div", {
-    className: "flex items-center justify-between mb-4"
-  }, React.createElement("div", null, React.createElement("div", {
-    className: "text-[10px] uppercase tracking-[0.18em] text-slate-500 mb-1"
-  }, "Current Baseline"), React.createElement("h3", {
-    className: "text-base font-semibold text-white"
-  }, "Live Baseline")), React.createElement("button", {
-    className: "run-action-btn run-action-btn-muted",
-    onClick: fetchRuns,
-    disabled: loading
-  }, "Refresh")), liveSummary ? React.createElement("div", {
-    className: "grid grid-cols-1 md:grid-cols-4 gap-3"
-  }, React.createElement("div", {
-    className: "runs-metric-card"
-  }, React.createElement("div", {
-    className: "runs-metric-label"
-  }, "Run ID"), React.createElement("div", {
-    className: "runs-metric-value font-mono break-all"
-  }, liveSummary.run_id || "—")), React.createElement("div", {
-    className: "runs-metric-card"
-  }, React.createElement("div", {
-    className: "runs-metric-label"
-  }, "Date Range"), React.createElement("div", {
-    className: "runs-metric-value"
-  }, liveSummary.start_date || "—", " \u2192 ", liveSummary.end_date || "—")), React.createElement("div", {
-    className: "runs-metric-card"
-  }, React.createElement("div", {
-    className: "runs-metric-label"
-  }, "Trades / Win Rate"), React.createElement("div", {
-    className: "runs-metric-value"
-  }, fmtNum(liveSummary?.trades?.total), " / ", fmtPct(liveSummary?.trades?.win_rate))), React.createElement("div", {
-    className: "runs-metric-card"
-  }, React.createElement("div", {
-    className: "runs-metric-label"
-  }, "Realized P&L"), React.createElement("div", {
-    className: `runs-metric-value ${Number(liveSummary?.pnl?.realized || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`
-  }, fmtMoney(liveSummary?.pnl?.realized)))) : React.createElement("p", {
-    className: "text-xs text-slate-500"
-  }, "No live baseline selected yet.")), message && React.createElement("div", {
+  }, message && React.createElement("div", {
     className: "p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300"
   }, message), error && React.createElement("div", {
     className: "p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300"
-  }, error), isAdmin && React.createElement("div", {
-    className: "card runs-shell p-5",
-    "data-admin-only": true
+  }, error), React.createElement("div", {
+    className: "card runs-shell overflow-hidden"
+  }, React.createElement("div", {
+    className: "px-5 py-4 border-b border-white/[0.06]"
   }, React.createElement("div", {
     className: "flex flex-wrap items-start justify-between gap-4"
   }, React.createElement("div", null, React.createElement("div", {
     className: "text-[10px] uppercase tracking-[0.18em] text-slate-500 mb-1"
-  }, "Validation Console"), React.createElement("h3", {
+  }, "Remote Operations"), React.createElement("h3", {
     className: "text-base font-semibold text-white"
-  }, "Run Replays From The UI"), React.createElement("p", {
+  }, "Backtest Operations Console"), React.createElement("p", {
     className: "text-[11px] text-slate-500 mt-1.5 max-w-3xl"
-  }, "Launch a pinned validation run without `full-backtest.sh`. This uses interval replay, `cleanSlate` on the first interval, optional market-event seeding, replay-lock tracking, and live progress persisted into the run registry.")), React.createElement("div", {
+  }, "Launch, monitor, and inspect coordinated cloud backtests from the `Runs` screen. This console now talks directly to the `BacktestRunner` coordinator for start, cancel, status, and logs.")), React.createElement("div", {
     className: "flex flex-wrap items-center gap-2"
-  }, React.createElement("button", {
+  }, React.createElement("span", {
+    className: `run-pill ${runnerHealth.cls}`
+  }, runnerHealth.label), React.createElement("button", {
     className: "run-action-btn run-action-btn-muted",
     onClick: fetchRuns,
-    disabled: loading || validationBusy
-  }, "Refresh State"), validationBusy ? React.createElement("button", {
+    disabled: loading
+  }, "Refresh State"), isAdmin ? validationBusy ? React.createElement("button", {
     className: "run-action-btn run-action-btn-danger",
     onClick: requestStopValidation
   }, "Stop Run") : React.createElement("button", {
     className: "run-action-btn run-action-btn-primary",
-    onClick: startValidationRun
-  }, "Start Validation"))), React.createElement("div", {
+    onClick: () => setShowLaunchDrawer(true)
+  }, "New Run") : null)), React.createElement("div", {
     className: "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mt-4"
   }, React.createElement("div", {
+    className: "runs-metric-card"
+  }, React.createElement("div", {
+    className: "runs-metric-label"
+  }, "Runner Health"), React.createElement("div", {
+    className: "runs-metric-value"
+  }, runnerHealth.label), React.createElement("div", {
+    className: "text-[10px] text-slate-500 mt-1"
+  }, runnerHealth.detail)), React.createElement("div", {
     className: "runs-metric-card"
   }, React.createElement("div", {
     className: "runs-metric-label"
@@ -3559,11 +3600,230 @@ function RunsTab({
     className: "runs-metric-card"
   }, React.createElement("div", {
     className: "runs-metric-label"
-  }, "Current Run"), React.createElement("div", {
+  }, "Active Run"), React.createElement("div", {
     className: "runs-metric-value font-mono break-all"
-  }, validationRunId || "—"), React.createElement("div", {
+  }, activeRun?.run_id || validationRunId || "—"), React.createElement("div", {
     className: "text-[10px] text-slate-500 mt-1"
-  }, validationBusy ? "Runner active" : "No local runner active")), React.createElement("div", {
+  }, activePhaseLabel)), React.createElement("div", {
+    className: "runs-metric-card"
+  }, React.createElement("div", {
+    className: "runs-metric-label"
+  }, "Live Baseline"), liveSummary ? React.createElement(React.Fragment, null, React.createElement("div", {
+    className: "runs-metric-value"
+  }, fmtMoney(liveSummary?.pnl?.realized)), React.createElement("div", {
+    className: "text-[10px] text-slate-500 mt-1"
+  }, fmtNum(liveSummary?.trades?.total), " trades \xB7 ", fmtPct(liveSummary?.trades?.win_rate))) : React.createElement(React.Fragment, null, React.createElement("div", {
+    className: "runs-metric-value"
+  }, "\u2014"), React.createElement("div", {
+    className: "text-[10px] text-slate-500 mt-1"
+  }, "No live baseline selected"))))), React.createElement("div", {
+    className: "grid grid-cols-1 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.95fr)] gap-4 p-5"
+  }, React.createElement("div", {
+    className: "space-y-4"
+  }, React.createElement("div", {
+    className: "rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4"
+  }, React.createElement("div", {
+    className: "flex flex-wrap items-start justify-between gap-3"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "text-[10px] uppercase tracking-[0.12em] text-slate-500"
+  }, "Active Run Console"), React.createElement("h4", {
+    className: "text-sm font-semibold text-white mt-1"
+  }, activeRun?.label || activeRun?.run_id || (validationBusy ? "Validation runner active" : "No run in flight")), React.createElement("p", {
+    className: "text-[11px] text-slate-500 mt-1"
+  }, activeRun ? `${activeRun.start_date || "—"} → ${activeRun.end_date || "—"}` : "When a run is active, this panel shows phase, progress, and the operator contract for the job.")), React.createElement("div", {
+    className: "flex flex-wrap items-center gap-2"
+  }, activeRun?.run_id ? React.createElement("button", {
+    className: "run-action-btn run-action-btn-muted",
+    onClick: () => viewRunDetails(activeRun.run_id)
+  }, "View Details") : null, isAdmin && !validationBusy ? React.createElement("button", {
+    className: "run-action-btn run-action-btn-primary",
+    onClick: () => setShowLaunchDrawer(true)
+  }, "Launch Drawer") : null)), React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mt-4"
+  }, React.createElement("div", {
+    className: "runs-metric-card"
+  }, React.createElement("div", {
+    className: "runs-metric-label"
+  }, "Phase"), React.createElement("div", {
+    className: "runs-metric-value"
+  }, activePhaseLabel), React.createElement("div", {
+    className: "text-[10px] text-slate-500 mt-1"
+  }, activeRun?.status ? humanizeStatus(activeRun.status) : "Awaiting work")), React.createElement("div", {
+    className: "runs-metric-card"
+  }, React.createElement("div", {
+    className: "runs-metric-label"
+  }, "Trades / Win Rate"), React.createElement("div", {
+    className: "runs-metric-value"
+  }, fmtNum(activeRun?.trades?.total ?? activeRun?.total_trades), " / ", fmtPct(activeRun?.trades?.win_rate ?? activeRun?.win_rate)), React.createElement("div", {
+    className: "text-[10px] text-slate-500 mt-1"
+  }, "Run-scoped metrics")), React.createElement("div", {
+    className: "runs-metric-card"
+  }, React.createElement("div", {
+    className: "runs-metric-label"
+  }, "P&L"), React.createElement("div", {
+    className: `runs-metric-value ${Number(activeRun?.pnl?.realized ?? activeRun?.realized_pnl ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`
+  }, fmtMoney(activeRun?.pnl?.realized ?? activeRun?.realized_pnl)), React.createElement("div", {
+    className: "text-[10px] text-slate-500 mt-1"
+  }, "Realized archive view")), React.createElement("div", {
+    className: "runs-metric-card"
+  }, React.createElement("div", {
+    className: "runs-metric-label"
+  }, "Universe / Batch"), React.createElement("div", {
+    className: "runs-metric-value"
+  }, fmtNum(activeRun?.ticker_universe_count), " / ", fmtNum(activeRun?.ticker_batch)), React.createElement("div", {
+    className: "text-[10px] text-slate-500 mt-1"
+  }, "Ticker universe / batch size"))), activeProgress ? React.createElement("div", {
+    className: "mt-4 p-4 rounded-xl bg-slate-950/40 border border-white/[0.06]"
+  }, React.createElement("div", {
+    className: "flex flex-wrap items-center justify-between gap-3"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "text-[10px] uppercase tracking-[0.12em] text-slate-500"
+  }, "Replay Progress"), React.createElement("div", {
+    className: "text-sm text-white font-semibold mt-1"
+  }, activeProgress.mode === "interval" ? `${activeProgress.date} · interval ${activeProgress.intervalIndex || 1}/${activeProgress.totalIntervals || 1}` : `${activeProgress.date} · batch ${activeProgress.batchIndex || 1}`)), React.createElement("div", {
+    className: "text-right"
+  }, React.createElement("div", {
+    className: "text-[10px] uppercase tracking-[0.12em] text-slate-500"
+  }, "Steps"), React.createElement("div", {
+    className: "text-sm text-slate-200 font-semibold mt-1"
+  }, fmtNum(activeProgress.completedSteps), "/", fmtNum(activeProgress.totalSteps)))), React.createElement("div", {
+    className: "meter-bar mt-3"
+  }, React.createElement("div", {
+    className: "meter-fill bg-emerald-400",
+    style: {
+      width: `${Math.max(0, Math.min(100, (activeProgress.completedSteps || 0) / Math.max(1, activeProgress.totalSteps || 1) * 100))}%`
+    }
+  })), React.createElement("div", {
+    className: "grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 text-[11px]"
+  }, React.createElement("div", null, React.createElement("span", {
+    className: "text-slate-500"
+  }, "Day"), React.createElement("div", {
+    className: "text-slate-200 mt-1"
+  }, fmtNum(activeProgress.dayIndex), "/", fmtNum(activeProgress.totalDays))), React.createElement("div", null, React.createElement("span", {
+    className: "text-slate-500"
+  }, "Scored"), React.createElement("div", {
+    className: "text-slate-200 mt-1"
+  }, fmtNum(activeProgress.scored))), React.createElement("div", null, React.createElement("span", {
+    className: "text-slate-500"
+  }, "Trades"), React.createElement("div", {
+    className: "text-slate-200 mt-1"
+  }, fmtNum(activeProgress.trades))), React.createElement("div", null, React.createElement("span", {
+    className: "text-slate-500"
+  }, "Mode"), React.createElement("div", {
+    className: "text-slate-200 mt-1"
+  }, activeProgress.mode === "interval" ? "Interval" : "Candle")))) : React.createElement("div", {
+    className: "mt-4 rounded-xl border border-dashed border-white/[0.08] bg-slate-950/25 p-4 text-[11px] text-slate-500"
+  }, "No active step telemetry yet. Once a run starts, the console will stream phase, step count, scored rows, and trade creation activity here.")), React.createElement("div", {
+    className: "grid grid-cols-1 xl:grid-cols-2 gap-4"
+  }, React.createElement("div", {
+    className: "rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4"
+  }, React.createElement("div", {
+    className: "flex items-start justify-between gap-3"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "text-[10px] uppercase tracking-[0.12em] text-slate-500"
+  }, "Queue / Job History"), React.createElement("h4", {
+    className: "text-sm font-semibold text-white mt-1"
+  }, "Queued And Running Jobs")), React.createElement("div", {
+    className: "text-[10px] text-slate-500"
+  }, queuedRuns.length, " visible")), React.createElement("div", {
+    className: "mt-4 space-y-2"
+  }, queuedRuns.length ? queuedRuns.map(run => {
+    const descMeta = getRunDescriptionMeta(run);
+    return React.createElement("button", {
+      key: run.run_id,
+      className: "w-full text-left rounded-xl border border-white/[0.06] bg-slate-950/35 p-3 hover:border-white/[0.12] transition-colors",
+      onClick: () => viewRunDetails(run.run_id)
+    }, React.createElement("div", {
+      className: "flex items-start justify-between gap-3"
+    }, React.createElement("div", {
+      className: "min-w-0"
+    }, React.createElement("div", {
+      className: "text-[11px] text-white font-medium truncate"
+    }, run.label || shortRunId(run.run_id)), React.createElement("div", {
+      className: "text-[10px] text-slate-500 font-mono truncate mt-1"
+    }, run.run_id)), React.createElement("span", {
+      className: "run-pill run-pill-status"
+    }, humanizeStatus(run.status) || "running")), React.createElement("div", {
+      className: "text-[10px] text-slate-500 mt-2 truncate"
+    }, descMeta.displayDescription), React.createElement("div", {
+      className: "flex flex-wrap items-center gap-3 mt-2 text-[10px] text-slate-400"
+    }, React.createElement("span", null, run.start_date || "—", " \u2192 ", run.end_date || "—"), React.createElement("span", null, fmtNum(run?.trades?.total ?? run?.total_trades), " trades"), React.createElement("span", null, fmtMoney(run?.pnl?.realized ?? run?.realized_pnl))));
+  }) : React.createElement("div", {
+    className: "rounded-xl border border-dashed border-white/[0.08] p-4 text-[11px] text-slate-500"
+  }, "No queued or running jobs in the registry right now."))), React.createElement("div", {
+    className: "rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4"
+  }, React.createElement("div", {
+    className: "flex items-start justify-between gap-3"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "text-[10px] uppercase tracking-[0.12em] text-slate-500"
+  }, "Baseline + Recent"), React.createElement("h4", {
+    className: "text-sm font-semibold text-white mt-1"
+  }, "Recent Completed Runs")), React.createElement("div", {
+    className: "text-[10px] text-slate-500"
+  }, recentCompletedRuns.length, " visible")), liveSummary ? React.createElement("div", {
+    className: "mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3"
+  }, React.createElement("div", {
+    className: "flex items-center justify-between gap-3"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "text-[10px] uppercase tracking-[0.12em] text-emerald-300/80"
+  }, "Live Baseline"), React.createElement("div", {
+    className: "text-sm text-white font-semibold mt-1"
+  }, liveSummary.label || shortRunId(liveSummary.run_id))), React.createElement("button", {
+    className: "run-action-btn run-action-btn-muted",
+    onClick: () => liveSummary?.run_id && viewRunDetails(liveSummary.run_id)
+  }, "Inspect")), React.createElement("div", {
+    className: "grid grid-cols-2 gap-3 mt-3 text-[11px]"
+  }, React.createElement("div", null, React.createElement("span", {
+    className: "text-slate-500"
+  }, "Window"), React.createElement("div", {
+    className: "text-slate-200 mt-1"
+  }, liveSummary.start_date || "—", " \u2192 ", liveSummary.end_date || "—")), React.createElement("div", null, React.createElement("span", {
+    className: "text-slate-500"
+  }, "Trades"), React.createElement("div", {
+    className: "text-slate-200 mt-1"
+  }, fmtNum(liveSummary?.trades?.total), " / ", fmtPct(liveSummary?.trades?.win_rate))))) : null, React.createElement("div", {
+    className: "mt-4 space-y-2"
+  }, recentCompletedRuns.length ? recentCompletedRuns.map(run => React.createElement("button", {
+    key: run.run_id,
+    className: "w-full text-left rounded-xl border border-white/[0.06] bg-slate-950/35 p-3 hover:border-white/[0.12] transition-colors",
+    onClick: () => viewRunDetails(run.run_id)
+  }, React.createElement("div", {
+    className: "flex items-start justify-between gap-3"
+  }, React.createElement("div", {
+    className: "min-w-0"
+  }, React.createElement("div", {
+    className: "text-[11px] text-white font-medium truncate"
+  }, run.label || shortRunId(run.run_id)), React.createElement("div", {
+    className: "text-[10px] text-slate-500 mt-1"
+  }, run.start_date || "—", " \u2192 ", run.end_date || "—")), React.createElement("div", {
+    className: `text-[11px] font-semibold ${Number(run?.pnl?.realized ?? run?.realized_pnl ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`
+  }, fmtMoney(run?.pnl?.realized ?? run?.realized_pnl))), React.createElement("div", {
+    className: "flex flex-wrap items-center gap-3 mt-2 text-[10px] text-slate-400"
+  }, React.createElement("span", null, fmtNum(run?.trades?.total ?? run?.total_trades), " trades"), React.createElement("span", null, fmtPct(run?.trades?.win_rate ?? run?.win_rate), " win rate"), React.createElement("span", null, fmtRunDate(run?.started_at ?? run?.created_at))))) : React.createElement("div", {
+    className: "rounded-xl border border-dashed border-white/[0.08] p-4 text-[11px] text-slate-500"
+  }, "No completed runs are available yet."))))), React.createElement("div", {
+    className: "space-y-4"
+  }, React.createElement("div", {
+    className: "rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4"
+  }, React.createElement("div", {
+    className: "flex items-start justify-between gap-3"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "text-[10px] uppercase tracking-[0.12em] text-slate-500"
+  }, "Recent Logs Panel"), React.createElement("h4", {
+    className: "text-sm font-semibold text-white mt-1"
+  }, "Operator Feed")), React.createElement("div", {
+    className: "text-[10px] text-slate-500"
+  }, remoteLogLines.length, " lines")), React.createElement("pre", {
+    className: "mt-4 bg-slate-950/70 border border-white/[0.06] rounded-xl p-3 text-[11px] text-slate-300 overflow-auto max-h-[420px] whitespace-pre-wrap"
+  }, remoteLogLines.join("\n"))), React.createElement("div", {
+    className: "rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4"
+  }, React.createElement("div", {
+    className: "text-[10px] uppercase tracking-[0.12em] text-slate-500"
+  }, "Launch Contract"), React.createElement("h4", {
+    className: "text-sm font-semibold text-white mt-1"
+  }, "Next Run Snapshot"), React.createElement("div", {
+    className: "grid grid-cols-2 gap-3 mt-4 text-[11px]"
+  }, React.createElement("div", {
     className: "runs-metric-card"
   }, React.createElement("div", {
     className: "runs-metric-label"
@@ -3571,16 +3831,89 @@ function RunsTab({
     className: "runs-metric-value"
   }, validationForm.startDate || "—", " \u2192 ", validationForm.endDate || "—"), React.createElement("div", {
     className: "text-[10px] text-slate-500 mt-1"
-  }, "Weekends are skipped automatically")), React.createElement("div", {
+  }, contractSummary.sessionCount, " weekday sessions")), React.createElement("div", {
     className: "runs-metric-card"
   }, React.createElement("div", {
     className: "runs-metric-label"
   }, "Mode"), React.createElement("div", {
     className: "runs-metric-value"
-  }, Number(validationForm.intervalMinutes) || 15, "m interval replay"), React.createElement("div", {
+  }, contractSummary.mode), React.createElement("div", {
     className: "text-[10px] text-slate-500 mt-1"
-  }, "Keep this tab open while the run is active"))), React.createElement("div", {
-    className: "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mt-4 text-[12px]"
+  }, Number(validationForm.intervalMinutes) || 5, " minute cadence")), React.createElement("div", {
+    className: "runs-metric-card"
+  }, React.createElement("div", {
+    className: "runs-metric-label"
+  }, "Config Source"), React.createElement("div", {
+    className: "runs-metric-value"
+  }, contractSummary.configLabel), React.createElement("div", {
+    className: "text-[10px] text-slate-500 mt-1"
+  }, validationForm.configSource === "run" ? "Pinned archive snapshot" : "Current live model_config")), React.createElement("div", {
+    className: "runs-metric-card"
+  }, React.createElement("div", {
+    className: "runs-metric-label"
+  }, "Ticker Scope"), React.createElement("div", {
+    className: "runs-metric-value"
+  }, contractSummary.tickerCount ? `${fmtNum(contractSummary.tickerCount)} tickers` : "Full universe"), React.createElement("div", {
+    className: "text-[10px] text-slate-500 mt-1"
+  }, validationForm.tickers ? "Manual filter applied" : "Uses registry/live universe count"))), isAdmin ? React.createElement("div", {
+    className: "mt-4 flex flex-wrap gap-2"
+  }, React.createElement("button", {
+    className: "run-action-btn run-action-btn-primary",
+    onClick: () => setShowLaunchDrawer(true)
+  }, "Open Launch Drawer"), !validationBusy ? React.createElement("button", {
+    className: "run-action-btn run-action-btn-muted",
+    onClick: startValidationRun
+  }, "Start With Current Settings") : null) : React.createElement("div", {
+    className: "mt-4 text-[11px] text-slate-500"
+  }, "Run launch controls are admin-only."))))), showLaunchDrawer && isAdmin && React.createElement("div", {
+    className: "fixed inset-0 z-50 bg-black/70 backdrop-blur-sm",
+    onClick: () => setShowLaunchDrawer(false)
+  }, React.createElement("div", {
+    className: "absolute inset-y-0 right-0 w-full max-w-2xl bg-[rgba(15,17,23,0.98)] border-l border-white/[0.08] shadow-[-20px_0_50px_rgba(0,0,0,0.45)] overflow-y-auto",
+    onClick: e => e.stopPropagation()
+  }, React.createElement("div", {
+    className: "sticky top-0 z-10 px-5 py-4 border-b border-white/[0.06] bg-[rgba(15,17,23,0.98)]"
+  }, React.createElement("div", {
+    className: "flex items-start justify-between gap-4"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "text-[10px] uppercase tracking-[0.18em] text-slate-500 mb-1"
+  }, "Run Launch Drawer"), React.createElement("h3", {
+    className: "text-base font-semibold text-white"
+  }, "Configure Next Validation Run"), React.createElement("p", {
+    className: "text-[11px] text-slate-500 mt-1.5"
+  }, "This drawer launches the cloud-native `BacktestRunner` directly and keeps the archive model aligned with the run registry.")), React.createElement("button", {
+    className: "text-slate-400 hover:text-white text-xl leading-none",
+    onClick: () => setShowLaunchDrawer(false)
+  }, "\xD7"))), React.createElement("div", {
+    className: "p-5 space-y-5"
+  }, React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-3 gap-3"
+  }, React.createElement("div", {
+    className: "runs-metric-card"
+  }, React.createElement("div", {
+    className: "runs-metric-label"
+  }, "Mode"), React.createElement("div", {
+    className: "runs-metric-value"
+  }, contractSummary.mode), React.createElement("div", {
+    className: "text-[10px] text-slate-500 mt-1"
+  }, Number(validationForm.intervalMinutes) || 5, " minute cadence")), React.createElement("div", {
+    className: "runs-metric-card"
+  }, React.createElement("div", {
+    className: "runs-metric-label"
+  }, "Sessions"), React.createElement("div", {
+    className: "runs-metric-value"
+  }, fmtNum(contractSummary.sessionCount)), React.createElement("div", {
+    className: "text-[10px] text-slate-500 mt-1"
+  }, "Weekdays in selected range")), React.createElement("div", {
+    className: "runs-metric-card"
+  }, React.createElement("div", {
+    className: "runs-metric-label"
+  }, "Ticker Scope"), React.createElement("div", {
+    className: "runs-metric-value"
+  }, contractSummary.tickerCount ? fmtNum(contractSummary.tickerCount) : "Full"), React.createElement("div", {
+    className: "text-[10px] text-slate-500 mt-1"
+  }, "Ticker filter or run universe"))), React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-2 gap-3 text-[12px]"
   }, React.createElement("label", {
     className: "block"
   }, React.createElement("div", {
@@ -3590,6 +3923,17 @@ function RunsTab({
     value: validationForm.label,
     onChange: e => updateValidationFormField("label", e.target.value)
   })), React.createElement("label", {
+    className: "block"
+  }, React.createElement("div", {
+    className: "text-[10px] uppercase tracking-[0.08em] text-slate-500 mb-1"
+  }, "Execution Mode"), React.createElement("select", {
+    className: "w-full px-3 py-2 rounded-lg bg-slate-900/60 border border-white/10 text-slate-200",
+    value: validationForm.replayMode,
+    onChange: e => updateValidationFormField("replayMode", e.target.value),
+    disabled: true
+  }, React.createElement("option", {
+    value: "candle"
+  }, "Cloud session loop (BacktestRunner)"))), React.createElement("label", {
     className: "block"
   }, React.createElement("div", {
     className: "text-[10px] uppercase tracking-[0.08em] text-slate-500 mb-1"
@@ -3618,6 +3962,17 @@ function RunsTab({
     className: "w-full px-3 py-2 rounded-lg bg-slate-900/60 border border-white/10 text-slate-200",
     value: validationForm.intervalMinutes,
     onChange: e => updateValidationFormField("intervalMinutes", e.target.value)
+  })), React.createElement("label", {
+    className: "block"
+  }, React.createElement("div", {
+    className: "text-[10px] uppercase tracking-[0.08em] text-slate-500 mb-1"
+  }, "Ticker Batch"), React.createElement("input", {
+    type: "number",
+    min: "1",
+    max: "80",
+    className: "w-full px-3 py-2 rounded-lg bg-slate-900/60 border border-white/10 text-slate-200",
+    value: validationForm.tickerBatch,
+    onChange: e => updateValidationFormField("tickerBatch", e.target.value)
   })), React.createElement("label", {
     className: "block md:col-span-2"
   }, React.createElement("div", {
@@ -3653,7 +4008,7 @@ function RunsTab({
     key: run.run_id,
     value: run.run_id
   }, run.live ? "[Live] " : run.protected ? "[Protected] " : "", run.label)))), React.createElement("label", {
-    className: "block xl:col-span-2"
+    className: "block md:col-span-2"
   }, React.createElement("div", {
     className: "text-[10px] uppercase tracking-[0.08em] text-slate-500 mb-1"
   }, "Optional Ticker Filter"), React.createElement("input", {
@@ -3662,7 +4017,11 @@ function RunsTab({
     onChange: e => updateValidationFormField("tickers", e.target.value),
     placeholder: "WMT,AGQ,FIX"
   }))), React.createElement("div", {
-    className: "flex flex-wrap gap-3 mt-4 text-[11px] text-slate-300"
+    className: "rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4"
+  }, React.createElement("div", {
+    className: "text-[10px] uppercase tracking-[0.12em] text-slate-500"
+  }, "Execution Flags"), React.createElement("div", {
+    className: "flex flex-wrap gap-3 mt-3 text-[11px] text-slate-300"
   }, React.createElement("label", {
     className: "runs-control cursor-pointer hover:text-slate-200 transition-colors"
   }, React.createElement("input", {
@@ -3705,52 +4064,22 @@ function RunsTab({
     checked: validationForm.keepOpenAtEnd,
     onChange: e => updateValidationFormField("keepOpenAtEnd", e.target.checked),
     className: "rounded"
-  }), "Keep positions open at end")), validationProgress && React.createElement("div", {
-    className: "mt-4 p-4 rounded-xl bg-white/[0.03] border border-white/[0.06]"
+  }), "Keep positions open at end"))), React.createElement("div", {
+    className: "rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4 text-[11px] text-slate-400"
+  }, "The coordinator checkpoints progress automatically after prep, each trading session, closeout, and final archive steps. No client-side progress writer is needed."), React.createElement("div", {
+    className: "flex flex-wrap items-center justify-between gap-3 pt-1"
   }, React.createElement("div", {
-    className: "flex flex-wrap items-center justify-between gap-3"
-  }, React.createElement("div", null, React.createElement("div", {
-    className: "text-[10px] uppercase tracking-[0.12em] text-slate-500"
-  }, "Progress"), React.createElement("div", {
-    className: "text-sm text-white font-semibold mt-1"
-  }, validationProgress.date, " \xB7 interval ", validationProgress.intervalIndex, "/", validationProgress.totalIntervals)), React.createElement("div", {
-    className: "text-right"
-  }, React.createElement("div", {
-    className: "text-[10px] uppercase tracking-[0.12em] text-slate-500"
-  }, "Steps"), React.createElement("div", {
-    className: "text-sm text-slate-200 font-semibold mt-1"
-  }, validationProgress.completedSteps, "/", validationProgress.totalSteps))), React.createElement("div", {
-    className: "meter-bar mt-3"
-  }, React.createElement("div", {
-    className: "meter-fill bg-emerald-400",
-    style: {
-      width: `${Math.max(0, Math.min(100, (validationProgress.completedSteps || 0) / Math.max(1, validationProgress.totalSteps || 1) * 100))}%`
-    }
-  })), React.createElement("div", {
-    className: "grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 text-[11px]"
-  }, React.createElement("div", null, React.createElement("span", {
-    className: "text-slate-500"
-  }, "Day"), React.createElement("div", {
-    className: "text-slate-200 mt-1"
-  }, validationProgress.dayIndex, "/", validationProgress.totalDays)), React.createElement("div", null, React.createElement("span", {
-    className: "text-slate-500"
-  }, "Scored"), React.createElement("div", {
-    className: "text-slate-200 mt-1"
-  }, fmtNum(validationProgress.scored))), React.createElement("div", null, React.createElement("span", {
-    className: "text-slate-500"
-  }, "Trades"), React.createElement("div", {
-    className: "text-slate-200 mt-1"
-  }, fmtNum(validationProgress.trades))), React.createElement("div", null, React.createElement("span", {
-    className: "text-slate-500"
-  }, "Run ID"), React.createElement("div", {
-    className: "text-slate-200 mt-1 font-mono break-all"
-  }, validationProgress.runId)))), React.createElement("div", {
-    className: "mt-4"
-  }, React.createElement("div", {
-    className: "text-[10px] uppercase tracking-[0.12em] text-slate-500 mb-2"
-  }, "Runner Log"), React.createElement("pre", {
-    className: "bg-slate-950/70 border border-white/6 rounded-xl p-3 text-[11px] text-slate-300 overflow-auto max-h-56 whitespace-pre-wrap"
-  }, validationLogs.length ? validationLogs.join("\n") : "No validation activity yet."))), detailRunId && React.createElement("div", {
+    className: "text-[11px] text-slate-500"
+  }, "Launches register the coordinated run, optionally seed market events, execute sessions in the Durable Object, then close out and finalize the archive automatically."), React.createElement("div", {
+    className: "flex flex-wrap gap-2"
+  }, React.createElement("button", {
+    className: "run-action-btn run-action-btn-muted",
+    onClick: () => setShowLaunchDrawer(false)
+  }, "Close"), React.createElement("button", {
+    className: "run-action-btn run-action-btn-primary",
+    onClick: startValidationRun,
+    disabled: validationBusy
+  }, validationBusy ? "Runner Active" : "Start Coordinated Run")))))), detailRunId && React.createElement("div", {
     className: "fixed inset-0 z-50 flex items-center justify-center p-6",
     style: {
       background: "rgba(0,0,0,0.7)",
@@ -4033,9 +4362,7 @@ function RunsTab({
     className: "text-base font-semibold text-white"
   }, "Backtest Runs"), React.createElement("p", {
     className: "text-[11px] text-slate-500 mt-1.5 max-w-3xl"
-  }, "Track run metrics, compare candidates, and promote a run to live baseline. Backtests run locally via ", React.createElement("code", {
-    className: "text-[10px] bg-white/[0.06] px-1 rounded"
-  }, "full-backtest.sh"), ".")), React.createElement("div", {
+  }, "Review archived metrics, compare candidates, inspect details, and promote a validated run to the live baseline. Use the operations console above for active launch and monitoring work.")), React.createElement("div", {
     className: "flex flex-wrap items-center gap-5 text-[11px] text-slate-400"
   }, React.createElement("label", {
     className: "runs-control cursor-pointer hover:text-slate-200 transition-colors"
@@ -4064,17 +4391,9 @@ function RunsTab({
     className: "text-slate-300 font-medium"
   }, "Refresh Metrics"), " when done."), React.createElement("span", {
     className: "text-amber-400/90"
-  }, "To see a backtest in progress, uncheck \"Show completed only\" and \"Hide running\".")), React.createElement("details", {
-    className: "mt-3 group"
-  }, React.createElement("summary", {
-    className: "text-[10px] text-slate-500 cursor-pointer hover:text-slate-400 list-none [&::-webkit-details-marker]:hidden"
-  }, React.createElement("span", {
-    className: "inline-flex items-center gap-1"
-  }, "Run July backtest locally ", React.createElement("span", {
-    className: "text-slate-600 group-open:rotate-90 transition-transform"
-  }, "\u25B8"))), React.createElement("code", {
-    className: "block mt-1.5 text-[10px] text-slate-500 bg-white/[0.04] rounded px-2.5 py-1.5 font-mono break-all"
-  }, "./scripts/full-backtest.sh --trader-only --low-write --keep-open-at-end 2025-07-01 2025-07-31 15 --label=calibration-post --desc=\"Post-calibration\""))), loading ? React.createElement("div", {
+  }, "To see a backtest in progress, uncheck \"Show completed only\" and \"Hide running\".")), React.createElement("div", {
+    className: "mt-3 text-[10px] text-slate-500"
+  }, "The registry remains the durable archive and promotion surface while the new top-of-page console acts as the operator view for launch, queue, progress, and logs.")), loading ? React.createElement("div", {
     className: "p-5 text-center text-xs text-slate-500"
   }, "Loading runs...") : filteredRuns.length === 0 ? React.createElement("div", {
     className: "p-5 text-center text-xs text-slate-500"
@@ -4243,7 +4562,11 @@ function RunsTab({
       onClick: () => {
         if (compareRuns?.length === 1 && compareRuns[0]?.run_id === runId) setCompareRuns(null);else if (compareRuns?.length === 1) setCompareRuns([compareRuns[0], r]);else setCompareRuns([r]);
       }
-    }, compareRuns?.length === 1 && compareRuns[0]?.run_id === runId ? "Cancel Compare" : "Compare"), isProtected ? React.createElement("button", {
+    }, compareRuns?.length === 1 && compareRuns[0]?.run_id === runId ? "Cancel Compare" : "Compare"), React.createElement("button", {
+      className: "run-action-btn run-action-btn-info",
+      disabled: validatingSentinelRunId === runId,
+      onClick: () => validateSentinels(r)
+    }, validatingSentinelRunId === runId ? "Validating..." : "Validate Sentinels"), isProtected ? React.createElement("button", {
       className: "run-action-btn run-action-btn-primary",
       onClick: () => {
         setVariantRunId(runId);
@@ -4260,7 +4583,7 @@ function RunsTab({
               ...(detailRes?.rule_snapshot?.env_flags || {})
             });
           }
-          const liveRun = liveRes?.run || liveRes?.live || null;
+          const liveRun = liveRes?.run || liveRes?.read_model?.run || liveRes?.live || null;
           if (liveRes?.ok && liveRun) {
             let snap = null;
             try {
@@ -4338,7 +4661,7 @@ function RunsTab({
     className: "px-4 py-3 border-b border-white/10 flex items-center justify-between"
   }, React.createElement("h3", {
     className: "text-sm font-semibold text-white"
-  }, "Create Variant: ", shortRunId(variantRunId)), React.createElement("button", {
+  }, "Create Variant Snapshot: ", shortRunId(variantRunId)), React.createElement("button", {
     className: "text-slate-400 hover:text-white text-lg leading-none",
     onClick: () => {
       setVariantRunId(null);
@@ -4354,7 +4677,7 @@ function RunsTab({
     className: "text-slate-300 font-medium mb-2"
   }, "Rule levers"), React.createElement("p", {
     className: "text-slate-500 text-[11px] mb-3"
-  }, "Adjust values below, then copy and run the command to backtest with these overrides."), React.createElement("div", {
+  }, "Adjust values below to define a candidate experiment. The generated command is a temporary launch fallback until remote variant launches land in the operations console."), React.createElement("div", {
     className: "space-y-2.5"
   }, Object.keys(variantData?.rule_snapshot?.env_flags || {}).sort().map(k => {
     const base = variantData.rule_snapshot.env_flags[k];
@@ -4424,7 +4747,7 @@ function RunsTab({
     }, JSON.stringify(v[k]))))));
   })(), React.createElement("div", null, React.createElement("div", {
     className: "text-slate-300 font-medium mb-1"
-  }, "Run backtest"), React.createElement("div", {
+  }, "Launch fallback"), React.createElement("div", {
     className: "relative"
   }, React.createElement("pre", {
     className: "bg-slate-900/50 p-3 pr-20 rounded font-mono text-slate-300 overflow-x-auto text-[11px] whitespace-pre-wrap break-all"

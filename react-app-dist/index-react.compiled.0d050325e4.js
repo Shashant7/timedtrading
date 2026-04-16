@@ -3100,7 +3100,7 @@ const SVGBubble = memo(({
     minRadius: 6,
     maxRadius: 28
   });
-  const ks = String(ticker?.kanban_stage || "").toLowerCase();
+  const ks = String(ticker?._effectiveKanbanStage || ticker?.kanban_stage || "").toLowerCase();
   const isActionable = ["in_review", "enter", "enter_now", "just_entered", "just_flipped", "flip_watch", "trim", "defend", "exit"].includes(ks);
   const finalSize = isActionable ? baseBubbleR + 2 : baseBubbleR;
   const move = getMoveStatusInfo(ticker);
@@ -4560,7 +4560,7 @@ function BubbleChart({
     const labelY = cy - bubbleSize - (emojiText ? isTopRanked ? 20 : 12 : 8);
     const rcGradId = `rc-bg-${ticker.ticker}`;
     const rcRenderedSize = Math.max(3, bubbleSize);
-    const ks = String(ticker.kanban_stage || "").toLowerCase();
+    const ks = String(ticker?._effectiveKanbanStage || ticker.kanban_stage || "").toLowerCase();
     const isActionable = ["in_review", "enter", "enter_now", "just_entered", "just_flipped", "flip_watch"].includes(ks);
     return React.createElement("g", {
       className: "bubble-g",
@@ -5440,8 +5440,61 @@ function SetupCard({
     title: decision.blockers?.length > 0 ? `Blocked: ${decision.blockers.join(", ")}` : decision.warnings?.length > 0 ? `Warnings: ${decision.warnings.join(", ")}` : ""
   }, decision.status)));
 }
+function getProtectionStageInfo(ticker, trade) {
+  const stage = String(trade?.protectionStage || trade?.protection_stage || ticker?.kanban_meta?.protection_stage || ticker?.__protection_stage || "").trim().toLowerCase();
+  const labelMap = {
+    original_invalidation: "Original Invalidation",
+    breakeven_eligible: "Breakeven Eligible",
+    breakeven_locked: "Breakeven Locked",
+    profit_lock: "Profit Lock",
+    runner_protect: "Runner Protect"
+  };
+  const reasons = Array.isArray(ticker?.kanban_meta?.protection_reasons) ? ticker.kanban_meta.protection_reasons : [];
+  return {
+    stage,
+    label: labelMap[stage] || "",
+    reasons
+  };
+}
+function getTradeLifecycleState(ticker, trade) {
+  const resolvedTrade = trade || ticker?._openTrade || null;
+  const rawStage = String(ticker?.kanban_stage || "").trim().toLowerCase();
+  const protection = getProtectionStageInfo(ticker, resolvedTrade);
+  if (!resolvedTrade) {
+    return {
+      trade: null,
+      rawStage,
+      effectiveStage: rawStage,
+      tradeStatus: "",
+      trimmedPct: 0,
+      tradeIsOpen: false,
+      tradeIsClosed: false,
+      protection
+    };
+  }
+  const tradeStatus = String(resolvedTrade.status || "").toUpperCase();
+  const trimmedPct = Number(resolvedTrade?.trimmed_pct ?? resolvedTrade?.trimmedPct ?? 0);
+  const tradeIsClosed = tradeStatus === "WIN" || tradeStatus === "LOSS" || !!(resolvedTrade?.exit_ts ?? resolvedTrade?.exitTs) || trimmedPct >= 0.9999;
+  const tradeIsOpen = !tradeIsClosed && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !tradeStatus);
+  let effectiveStage = rawStage;
+  if (tradeIsOpen) {
+    if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) effectiveStage = "trim";else if (!["defend", "trim", "exit", "hold", "active", "just_entered"].includes(rawStage)) effectiveStage = "hold";
+  }
+  return {
+    trade: resolvedTrade,
+    rawStage,
+    effectiveStage,
+    tradeStatus,
+    trimmedPct,
+    tradeIsOpen,
+    tradeIsClosed,
+    protection
+  };
+}
 function getActionDescription(ticker, trade) {
-  const stage = String(ticker?.kanban_stage || "").trim().toLowerCase();
+  const lifecycle = getTradeLifecycleState(ticker, trade);
+  const activeTrade = lifecycle.trade;
+  const stage = lifecycle.effectiveStage;
   const state = String(ticker.state || "");
   const phase = Number(ticker.phase_pct) || 0;
   const comp = completionForSize(ticker);
@@ -5457,17 +5510,17 @@ function getActionDescription(ticker, trade) {
   const inCorridor = ent.corridor;
   const sqRelease = !!flags.sq30_release;
   const sqOn = !!flags.sq30_on;
-  const tradeStatus = trade ? String(trade.status || "").toUpperCase() : "";
-  const tradeIsClosed = tradeStatus === "WIN" || tradeStatus === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs);
-  const tradeIsOpen = trade && !tradeIsClosed && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !tradeStatus);
+  const tradeStatus = lifecycle.tradeStatus;
+  const tradeIsClosed = lifecycle.tradeIsClosed;
+  const tradeIsOpen = lifecycle.tradeIsOpen;
   if (tradeIsOpen) {
-    const ep = Number(trade?.entryPrice ?? trade?.entry_price) || 0;
+    const ep = Number(activeTrade?.entryPrice ?? activeTrade?.entry_price) || 0;
     const cp = Number(ticker?.price ?? ticker?.close) || 0;
-    const tradeDir = String(trade?.direction || "").toUpperCase();
+    const tradeDir = String(activeTrade?.direction || "").toUpperCase();
     const isLong = tradeDir === "LONG";
-    const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
-    const sl = Number(ticker?.sl ?? ticker?.sl_price ?? trade?.sl ?? 0);
-    const tp = numFromAny(ticker?.tp ?? ticker?.tp_trim ?? trade?.tp);
+    const trimmedPct = lifecycle.trimmedPct;
+    const sl = Number(ticker?.sl ?? ticker?.sl_price ?? activeTrade?.sl ?? 0);
+    const tp = numFromAny(ticker?.tp ?? ticker?.tp_trim ?? activeTrade?.tp);
     const dirSign = isLong ? 1 : -1;
     const unrealizedPct = ep > 0 && cp > 0 ? (cp - ep) / ep * 100 * dirSign : 0;
     const isProfit = unrealizedPct > 0;
@@ -5477,11 +5530,29 @@ function getActionDescription(ticker, trade) {
     const nearTp = tp > 0 && cp > 0 && !tpReached && Math.abs(cp - tp) / cp < 0.015;
     const meta = ticker?.kanban_meta || {};
     const metaReason = meta?.reason || "";
+    const protectionStage = lifecycle.protection?.stage || "";
+    const protectionLabel = lifecycle.protection?.label || "";
+    const protectionSummary = protectionLabel ? `Protection stage: ${protectionLabel}. ` : "";
+    const trimmedProtectionText = (() => {
+      if (protectionStage === "runner_protect") {
+        return "The runner has graduated into full runner protection, so the system can trail structure and peak reactions more aggressively.";
+      }
+      if (protectionStage === "profit_lock") {
+        return "The trade has reached profit lock, so the system can tighten stops to preserve gains without treating every pullback like failure.";
+      }
+      if (protectionStage === "breakeven_locked") {
+        return "The trade has earned breakeven protection, so the system can defend entry while still giving the move room to mature.";
+      }
+      if (protectionStage === "breakeven_eligible") {
+        return "The trade is eligible for breakeven protection, but the system is still waiting for stronger confirmation before ratcheting the stop.";
+      }
+      return "The original invalidation stays in force until the system confirms a stronger protection stage.";
+    })();
     const priceSummary = `${isLong ? "Long" : "Short"} from $${ep.toFixed(2)}, current $${cp.toFixed(2)} (${unrealizedPct >= 0 ? "+" : ""}${unrealizedPct.toFixed(1)}%).`;
     if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) {
       return {
-        action: "✂️ Position Trimmed — Manage Runner",
-        description: `${(trimmedPct * 100).toFixed(0)}% of position trimmed. ${priceSummary} Trail your TSL to protect remaining gains. ${!isAligned ? "Timeframes no longer aligned — consider closing the runner." : "Trend alignment still intact — let it ride with a trailing stop."}`,
+        action: "✂️ Position Trimmed — Let Runner Work",
+        description: `${(trimmedPct * 100).toFixed(0)}% of position trimmed. ${priceSummary} ${protectionSummary}${trimmedProtectionText} ${!isAligned ? "Timeframes are weakening, so watch for a defend or exit signal instead of tightening on noise." : "Trend alignment is still intact, so let the runner work until a true defend signal appears."}`,
         color: "text-yellow-300",
         bg: "bg-yellow-500/15"
       };
@@ -5499,7 +5570,7 @@ function getActionDescription(ticker, trade) {
       const defendReason = metaReason || "Warning indicators detected";
       return {
         action: "🛡 DEFEND — Tighten Stop",
-        description: `System says DEFEND. Reason: ${defendReason}. ${priceSummary} The system is tightening TSL to ${isProfit ? "protect gains" : "limit further downside"}. Do NOT trim yet — just defending. Monitor for recovery (back to HOLD) or further deterioration (to EXIT).`,
+        description: `System says DEFEND. Reason: ${defendReason}. ${priceSummary} ${protectionSummary}The system is tightening TSL to ${isProfit ? "protect gains" : "limit further downside"}. Do NOT trim yet — just defending. Monitor for recovery (back to HOLD) or further deterioration (to EXIT).`,
         color: "text-amber-400",
         bg: "bg-amber-500/15"
       };
@@ -5525,7 +5596,7 @@ function getActionDescription(ticker, trade) {
       const holdExtra = isPullback ? `HTF still supports the ${isLong ? "bullish" : "bearish"} case but LTF pulling back — hold above TSL.` : isAligned ? "All timeframes aligned — conditions favor holding." : "Monitor alignment.";
       return {
         action: isProfit ? "🔒 HOLD — Trend Intact" : "🔄 HOLD — Position Building",
-        description: `System says HOLD. Position is healthy and working as expected. ${priceSummary} ${holdExtra} TSL at $${sl > 0 ? sl.toFixed(2) : "N/A"}, TP at $${tp > 0 ? tp.toFixed(2) : "N/A"}. ${comp > 0.5 ? `Completion at ${(comp * 100).toFixed(0)}% — watch for trim indicators.` : "Let the trade develop."}`,
+        description: `System says HOLD. Position is healthy and working as expected. ${priceSummary} ${protectionSummary}${holdExtra} TSL at $${sl > 0 ? sl.toFixed(2) : "N/A"}, TP at $${tp > 0 ? tp.toFixed(2) : "N/A"}. ${comp > 0.5 ? `Completion at ${(comp * 100).toFixed(0)}% — watch for trim indicators.` : "Let the trade develop."}`,
         color: isProfit ? "text-teal-300" : "text-sky-300",
         bg: isProfit ? "bg-teal-500/15" : "bg-sky-500/15"
       };
@@ -8762,7 +8833,8 @@ const CompactCard = React.memo(function CompactCard({
     if (biasLabel === "CAUTION") return "bg-orange-500/20 text-orange-200 border-orange-400/50";
     return "bg-slate-500/20 text-slate-200 border-slate-400/50";
   })();
-  const stage = String(t?.kanban_stage || "");
+  const effectiveStage = getTradeLifecycleState(t, openTrade).effectiveStage;
+  const stage = String(effectiveStage || t?.kanban_stage || "");
   const flags = t?.flags || {};
   const score = Number(rankScoreForTicker(t)) || Number(t?.score ?? t?.flip_watch_score ?? t?.weighted_score);
   const price = Number(t?.price ?? t?.close);
@@ -8909,10 +8981,11 @@ const CompactCard = React.memo(function CompactCard({
             cls: tradeStatus === "WIN" ? "text-[#00e676]" : "text-rose-400"
           };
         }
-      } else if (hasOpenTrade && trimPct > 0) {
+      } else if (hasOpenTrade && (trimPct > 0 || tradeStatus === "TP_HIT_TRIM")) {
         const pxStr = trimPx > 0 ? ` @ $${trimPx.toFixed(2)}` : "";
+        const trimLabel = trimPct > 0 ? `Trimmed ${(trimPct * 100).toFixed(0)}%` : "Trimmed position";
         return {
-          text: `Trimmed ${(trimPct * 100).toFixed(0)}%${pxStr}`,
+          text: `${trimLabel}${pxStr}`,
           cls: "text-yellow-400"
         };
       }
@@ -11174,11 +11247,12 @@ function OpportunitiesPanel({
   }) => {
     const t = item.t;
     const c = item.c;
+    const trade = tradeByTicker.get(String(t?.ticker || "").toUpperCase()) || null;
     const winnerSig = isWinnerSignature(t);
     const flags = t?.flags || {};
     const isInSqueeze = !!flags.sq30_on && !flags.sq30_release;
     const badgeEmojis = [isPrimeBubble(t) ? "💎" : null, flags.flip_watch ? "🎯" : null, flags.momentum_elite ? "🔥" : null, flags.sq30_release ? "⚡" : null, isInSqueeze ? "🧨" : null, item?.isNew ? "🆕" : null, item?.dropped ? "⚠️" : null].filter(Boolean);
-    const actionInfo = getActionDescription(t);
+    const actionInfo = getActionDescription(t, trade);
     const price = Number(t?.price);
     const rr = Number(t?.rr);
     const eta = computeEtaDays(t);
@@ -11224,7 +11298,7 @@ function OpportunitiesPanel({
       return r ? `Move: ${moveStatus} — ${r}` : `Move: ${moveStatus}`;
     })();
     const dirOutlineCls = c.dir === "LONG" ? "border border-cyan-400/40" : c.dir === "SHORT" ? "border border-rose-500/40" : "border border-white/[0.06]";
-    const stage = String(t?.kanban_stage || "").toLowerCase();
+    const stage = getTradeLifecycleState(t, trade).effectiveStage;
     const isActionLane = ["trim", "exit"].includes(stage);
     const pulseCls = isActionLane ? c.dir === "LONG" ? "card-pulse" : c.dir === "SHORT" ? "card-pulse-short" : "" : "";
     return React.createElement("button", {
@@ -13157,6 +13231,29 @@ function App() {
   const {
     trades
   } = useTrades(tradeDataReady);
+  const tradeByTicker = React.useMemo(() => {
+    const map = new Map();
+    if (!Array.isArray(trades)) return map;
+    trades.forEach(tr => {
+      const sym = String(tr?.ticker || "").toUpperCase();
+      if (!sym) return;
+      const existing = map.get(sym);
+      const exitTs = tr.exit_ts ?? tr.exitTs ?? 0;
+      const entryTs = tr.entry_ts ?? tr.entryTime ?? tr.entryTs ?? 0;
+      if (!existing) {
+        map.set(sym, tr);
+        return;
+      }
+      const exExit = existing.exit_ts ?? existing.exitTs ?? 0;
+      const exEntry = existing.entry_ts ?? existing.entryTime ?? existing.entryTs ?? 0;
+      const trOpen = !exitTs;
+      const exOpen = !exExit;
+      if (trOpen && !exOpen || trOpen && exOpen && entryTs > exEntry || !trOpen && !exOpen && exitTs > exExit) {
+        map.set(sym, tr);
+      }
+    });
+    return map;
+  }, [trades]);
   const accountMode = dashboardMode === "investor" ? "investor" : "trader";
   const {
     summary: accountSummary
@@ -13860,8 +13957,16 @@ function App() {
     if (!window._ttIsAdmin && GROUPS.Futures) {
       filtered = filtered.filter(t => !GROUPS.Futures.has(normTicker(t?.ticker || "")));
     }
-    return filtered;
-  }, [data, bubbleMapFilters, trades, socialAdditions, timeTravelTickers, savedTickers, activeInsightTickers]);
+    return filtered.map(t => {
+      const trade = tradeByTicker.get(String(t?.ticker || "").toUpperCase()) || null;
+      if (!trade) return t;
+      return {
+        ...t,
+        _openTrade: trade,
+        _effectiveKanbanStage: getTradeLifecycleState(t, trade).effectiveStage
+      };
+    });
+  }, [data, bubbleMapFilters, trades, socialAdditions, timeTravelTickers, savedTickers, activeInsightTickers, tradeByTicker]);
   const timeTravelBaseTickers = useMemo(() => {
     return applyFilters(data, effectiveFilters, trades, socialAdditions, savedTickers);
   }, [data, effectiveFilters, trades, socialAdditions, savedTickers]);
