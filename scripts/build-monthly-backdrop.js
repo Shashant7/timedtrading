@@ -727,9 +727,15 @@ async function computeEventDensity(apikey, start, end, cache) {
   const macroInside = CURATED_MACRO_EVENTS
     .filter((ev) => ev.date >= start && ev.date <= end)
     .sort((a, b) => (a.date < b.date ? -1 : 1));
-  const macroDates = new Set(macroInside.map((ev) => ev.date));
+  // Count every (ticker, date) earnings occurrence and every macro-event
+  // occurrence separately so a date with 4 tickers reporting + 1 FOMC shows
+  // density = 5, not 2. Using a deduped dateSet here was undercounting.
   const densityByDate = {};
-  for (const d of datesSet) densityByDate[d] = (densityByDate[d] || 0) + 1;
+  for (const arr of Object.values(perTicker)) {
+    for (const r of arr) {
+      densityByDate[r.date] = (densityByDate[r.date] || 0) + 1;
+    }
+  }
   for (const ev of macroInside) {
     densityByDate[ev.date] = (densityByDate[ev.date] || 0) + 1;
   }
