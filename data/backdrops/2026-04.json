@@ -1,0 +1,556 @@
+{
+  "schema_version": "1.0",
+  "month": "2026-04",
+  "generated_at": "2026-04-17T23:21:11.764Z",
+  "window": {
+    "start": "2026-04-01",
+    "end": "2026-04-30"
+  },
+  "trading_days": [
+    "2026-04-01",
+    "2026-04-02",
+    "2026-04-06",
+    "2026-04-07",
+    "2026-04-08",
+    "2026-04-09",
+    "2026-04-10",
+    "2026-04-13",
+    "2026-04-14",
+    "2026-04-15",
+    "2026-04-16",
+    "2026-04-17"
+  ],
+  "universe": {
+    "tier1": [
+      "SPY",
+      "QQQ",
+      "IWM",
+      "AAPL",
+      "MSFT",
+      "GOOGL",
+      "AMZN",
+      "META",
+      "NVDA",
+      "TSLA"
+    ],
+    "tier2": [
+      "AGQ",
+      "CDNS",
+      "ETN",
+      "FIX",
+      "GRNY",
+      "HUBS",
+      "IESC",
+      "MTZ",
+      "ON",
+      "PH",
+      "RIOT",
+      "SGI",
+      "SWK",
+      "XLY"
+    ]
+  },
+  "cycle": {
+    "label": "uptrend",
+    "fractions": {
+      "HTF_BULL_LTF_BULL": 0.7083,
+      "BULL_PULLBACK": 0,
+      "BEAR_LTF_BOUNCE": 0.1167,
+      "HTF_BEAR_LTF_BEAR": 0.1167,
+      "TRANSITIONAL": 0.0583
+    },
+    "method": "Tier-1 × trading-day joint EMA(20) daily + 4H bias vote"
+  },
+  "sector_leadership": {
+    "spy_ret_pct": 8.379,
+    "spy_prev_ret_pct": -5.251,
+    "by_sector": {
+      "XLK": {
+        "ret_pct": 14.41,
+        "rs_vs_spy_pct": 6.031
+      },
+      "XLF": {
+        "ret_pct": 6.048,
+        "rs_vs_spy_pct": -2.331
+      },
+      "XLE": {
+        "ret_pct": -6.698,
+        "rs_vs_spy_pct": -15.077
+      },
+      "XLY": {
+        "ret_pct": 9.663,
+        "rs_vs_spy_pct": 1.284
+      },
+      "XLI": {
+        "ret_pct": 5.522,
+        "rs_vs_spy_pct": -2.857
+      },
+      "XLV": {
+        "ret_pct": 0.724,
+        "rs_vs_spy_pct": -7.654
+      },
+      "XLP": {
+        "ret_pct": 1.228,
+        "rs_vs_spy_pct": -7.151
+      },
+      "XLU": {
+        "ret_pct": 0.108,
+        "rs_vs_spy_pct": -8.27
+      },
+      "XLRE": {
+        "ret_pct": 8.62,
+        "rs_vs_spy_pct": 0.242
+      },
+      "XLB": {
+        "ret_pct": 2.814,
+        "rs_vs_spy_pct": -5.565
+      },
+      "XLC": {
+        "ret_pct": 7.066,
+        "rs_vs_spy_pct": -1.313
+      }
+    },
+    "top": [
+      {
+        "etf": "XLK",
+        "label": "Technology",
+        "rs_vs_spy_pct": 6.031,
+        "ret_pct": 14.41,
+        "rotation_delta_pp": 5.539
+      },
+      {
+        "etf": "XLY",
+        "label": "Consumer Discretionary",
+        "rs_vs_spy_pct": 1.284,
+        "ret_pct": 9.663,
+        "rotation_delta_pp": 1.613
+      },
+      {
+        "etf": "XLRE",
+        "label": "Real Estate",
+        "rs_vs_spy_pct": 0.242,
+        "ret_pct": 8.62,
+        "rotation_delta_pp": 2.027
+      }
+    ],
+    "bottom": [
+      {
+        "etf": "XLE",
+        "label": "Energy",
+        "rs_vs_spy_pct": -15.077,
+        "ret_pct": -6.698,
+        "rotation_delta_pp": -27.726
+      },
+      {
+        "etf": "XLU",
+        "label": "Utilities",
+        "rs_vs_spy_pct": -8.27,
+        "ret_pct": 0.108,
+        "rotation_delta_pp": -10.396
+      },
+      {
+        "etf": "XLV",
+        "label": "Health Care",
+        "rs_vs_spy_pct": -7.654,
+        "ret_pct": 0.724,
+        "rotation_delta_pp": -5.386
+      }
+    ]
+  },
+  "regime_frequency": {
+    "counts": {
+      "HTF_BULL_LTF_BULL": 85,
+      "BULL_PULLBACK": 0,
+      "BEAR_LTF_BOUNCE": 14,
+      "HTF_BEAR_LTF_BEAR": 14,
+      "TRANSITIONAL": 7
+    },
+    "per_ticker": {
+      "SPY": {
+        "HTF_BULL_LTF_BULL": 8,
+        "BULL_PULLBACK": 0,
+        "BEAR_LTF_BOUNCE": 4,
+        "HTF_BEAR_LTF_BEAR": 0,
+        "TRANSITIONAL": 0
+      },
+      "QQQ": {
+        "HTF_BULL_LTF_BULL": 8,
+        "BULL_PULLBACK": 0,
+        "BEAR_LTF_BOUNCE": 4,
+        "HTF_BEAR_LTF_BEAR": 0,
+        "TRANSITIONAL": 0
+      },
+      "IWM": {
+        "HTF_BULL_LTF_BULL": 11,
+        "BULL_PULLBACK": 0,
+        "BEAR_LTF_BOUNCE": 0,
+        "HTF_BEAR_LTF_BEAR": 0,
+        "TRANSITIONAL": 1
+      },
+      "AAPL": {
+        "HTF_BULL_LTF_BULL": 11,
+        "BULL_PULLBACK": 0,
+        "BEAR_LTF_BOUNCE": 0,
+        "HTF_BEAR_LTF_BEAR": 1,
+        "TRANSITIONAL": 0
+      },
+      "MSFT": {
+        "HTF_BULL_LTF_BULL": 5,
+        "BULL_PULLBACK": 0,
+        "BEAR_LTF_BOUNCE": 1,
+        "HTF_BEAR_LTF_BEAR": 3,
+        "TRANSITIONAL": 3
+      },
+      "GOOGL": {
+        "HTF_BULL_LTF_BULL": 11,
+        "BULL_PULLBACK": 0,
+        "BEAR_LTF_BOUNCE": 1,
+        "HTF_BEAR_LTF_BEAR": 0,
+        "TRANSITIONAL": 0
+      },
+      "AMZN": {
+        "HTF_BULL_LTF_BULL": 11,
+        "BULL_PULLBACK": 0,
+        "BEAR_LTF_BOUNCE": 0,
+        "HTF_BEAR_LTF_BEAR": 0,
+        "TRANSITIONAL": 1
+      },
+      "META": {
+        "HTF_BULL_LTF_BULL": 8,
+        "BULL_PULLBACK": 0,
+        "BEAR_LTF_BOUNCE": 1,
+        "HTF_BEAR_LTF_BEAR": 3,
+        "TRANSITIONAL": 0
+      },
+      "NVDA": {
+        "HTF_BULL_LTF_BULL": 9,
+        "BULL_PULLBACK": 0,
+        "BEAR_LTF_BOUNCE": 1,
+        "HTF_BEAR_LTF_BEAR": 0,
+        "TRANSITIONAL": 2
+      },
+      "TSLA": {
+        "HTF_BULL_LTF_BULL": 3,
+        "BULL_PULLBACK": 0,
+        "BEAR_LTF_BOUNCE": 2,
+        "HTF_BEAR_LTF_BEAR": 7,
+        "TRANSITIONAL": 0
+      }
+    }
+  },
+  "cross_asset_vol": {
+    "spy_realized_vol": {
+      "note": "annualized stdev of SPY daily log returns within the month (in-sample proxy for VIX level)",
+      "annualized_pct": 11.817,
+      "prev_month_annualized_pct": 18.624,
+      "delta_pp": -6.807
+    },
+    "vix_proxy": {
+      "symbol": "VIXY",
+      "note": "VIXY (ETF) used because ^VIX is not on the TwelveData plan",
+      "avg_close": 30.384,
+      "max_close": 35.98,
+      "min_close": 27.405,
+      "prev_month_avg_close": 32.858
+    },
+    "move_proxy": {
+      "symbol": null,
+      "note": "MOVE not available via TwelveData; leave null until a bond-vol proxy is wired",
+      "value": null
+    },
+    "dxy_proxy": {
+      "symbol": "UUP",
+      "note": "UUP as DXY proxy",
+      "ret_pct": -1.334,
+      "prev_month_ret_pct": 1.647,
+      "trend": "falling"
+    },
+    "gold_oil_dispersion": {
+      "gold_symbol": "GLD",
+      "oil_symbol": "USO",
+      "gold_ret_pct": 1.852,
+      "oil_ret_pct": -6.487,
+      "dispersion_pp": 8.34
+    },
+    "rates_proxy": {
+      "symbol": "TLT",
+      "note": "TLT as long-duration treasury proxy",
+      "ret_pct": 0.939
+    }
+  },
+  "event_density": {
+    "earnings": {
+      "total_events": 14,
+      "unique_tickers_reporting": 14,
+      "by_ticker": {
+        "AAPL": [
+          {
+            "date": "2026-04-28",
+            "time": null,
+            "eps_estimate": null,
+            "eps_actual": null,
+            "surprise_pct": null
+          }
+        ],
+        "MSFT": [
+          {
+            "date": "2026-04-28",
+            "time": null,
+            "eps_estimate": null,
+            "eps_actual": null,
+            "surprise_pct": null
+          }
+        ],
+        "GOOGL": [
+          {
+            "date": "2026-04-17",
+            "time": null,
+            "eps_estimate": 0.22,
+            "eps_actual": 0.15,
+            "surprise_pct": -31.82
+          }
+        ],
+        "AMZN": [
+          {
+            "date": "2026-04-28",
+            "time": null,
+            "eps_estimate": null,
+            "eps_actual": null,
+            "surprise_pct": null
+          }
+        ],
+        "META": [
+          {
+            "date": "2026-04-27",
+            "time": null,
+            "eps_estimate": null,
+            "eps_actual": null,
+            "surprise_pct": null
+          }
+        ],
+        "NVDA": [],
+        "TSLA": [
+          {
+            "date": "2026-04-19",
+            "time": null,
+            "eps_estimate": null,
+            "eps_actual": null,
+            "surprise_pct": null
+          }
+        ],
+        "CDNS": [
+          {
+            "date": "2026-04-26",
+            "time": null,
+            "eps_estimate": null,
+            "eps_actual": null,
+            "surprise_pct": null
+          }
+        ],
+        "ETN": [
+          {
+            "date": "2026-04-29",
+            "time": null,
+            "eps_estimate": null,
+            "eps_actual": null,
+            "surprise_pct": null
+          }
+        ],
+        "FIX": [
+          {
+            "date": "2026-04-21",
+            "time": null,
+            "eps_estimate": null,
+            "eps_actual": null,
+            "surprise_pct": null
+          }
+        ],
+        "GRNY": [],
+        "HUBS": [],
+        "IESC": [
+          {
+            "date": "2026-04-29",
+            "time": null,
+            "eps_estimate": null,
+            "eps_actual": null,
+            "surprise_pct": null
+          }
+        ],
+        "MTZ": [
+          {
+            "date": "2026-04-28",
+            "time": null,
+            "eps_estimate": null,
+            "eps_actual": null,
+            "surprise_pct": null
+          }
+        ],
+        "ON": [],
+        "PH": [
+          {
+            "date": "2026-04-28",
+            "time": null,
+            "eps_estimate": null,
+            "eps_actual": null,
+            "surprise_pct": null
+          }
+        ],
+        "RIOT": [
+          {
+            "date": "2026-04-28",
+            "time": null,
+            "eps_estimate": null,
+            "eps_actual": null,
+            "surprise_pct": null
+          }
+        ],
+        "SGI": [],
+        "SWK": [
+          {
+            "date": "2026-04-27",
+            "time": null,
+            "eps_estimate": null,
+            "eps_actual": null,
+            "surprise_pct": null
+          }
+        ]
+      },
+      "clusters_ge3_tickers_within_3d": [
+        {
+          "anchor": "2026-04-19",
+          "window_dates": [
+            "2026-04-17",
+            "2026-04-19",
+            "2026-04-21"
+          ],
+          "tickers": [
+            "FIX",
+            "GOOGL",
+            "TSLA"
+          ]
+        },
+        {
+          "anchor": "2026-04-26",
+          "window_dates": [
+            "2026-04-26",
+            "2026-04-27",
+            "2026-04-28"
+          ],
+          "tickers": [
+            "AAPL",
+            "AMZN",
+            "CDNS",
+            "META",
+            "MSFT",
+            "MTZ",
+            "PH",
+            "RIOT",
+            "SWK"
+          ]
+        },
+        {
+          "anchor": "2026-04-27",
+          "window_dates": [
+            "2026-04-26",
+            "2026-04-27",
+            "2026-04-28",
+            "2026-04-29"
+          ],
+          "tickers": [
+            "AAPL",
+            "AMZN",
+            "CDNS",
+            "ETN",
+            "IESC",
+            "META",
+            "MSFT",
+            "MTZ",
+            "PH",
+            "RIOT",
+            "SWK"
+          ]
+        },
+        {
+          "anchor": "2026-04-28",
+          "window_dates": [
+            "2026-04-26",
+            "2026-04-27",
+            "2026-04-28",
+            "2026-04-29"
+          ],
+          "tickers": [
+            "AAPL",
+            "AMZN",
+            "CDNS",
+            "ETN",
+            "IESC",
+            "META",
+            "MSFT",
+            "MTZ",
+            "PH",
+            "RIOT",
+            "SWK"
+          ]
+        },
+        {
+          "anchor": "2026-04-29",
+          "window_dates": [
+            "2026-04-27",
+            "2026-04-28",
+            "2026-04-29"
+          ],
+          "tickers": [
+            "AAPL",
+            "AMZN",
+            "ETN",
+            "IESC",
+            "META",
+            "MSFT",
+            "MTZ",
+            "PH",
+            "RIOT",
+            "SWK"
+          ]
+        }
+      ]
+    },
+    "macro": {
+      "total_events": 0,
+      "events": [],
+      "fomc_count": 0,
+      "cpi_count": 0,
+      "nfp_count": 0
+    },
+    "density_by_date": {
+      "2026-04-28": 6,
+      "2026-04-17": 1,
+      "2026-04-27": 2,
+      "2026-04-19": 1,
+      "2026-04-26": 1,
+      "2026-04-29": 2,
+      "2026-04-21": 1
+    },
+    "high_density_dates": [
+      {
+        "date": "2026-04-27",
+        "events": 2
+      },
+      {
+        "date": "2026-04-28",
+        "events": 6
+      },
+      {
+        "date": "2026-04-29",
+        "events": 2
+      }
+    ]
+  },
+  "provenance": {
+    "data_provider": "twelvedata",
+    "daily_series": "1day",
+    "intraday_series": "4h",
+    "ema_period": 20,
+    "slope_epsilon": 0.0001,
+    "builder": "scripts/build-monthly-backdrop.js"
+  }
+}
