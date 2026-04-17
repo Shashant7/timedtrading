@@ -28,6 +28,7 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
     stripReplayCarryState,
     replayTradeScope,
     replayLockVal,
+    replayRunId,
     replayEnv,
     replayAdaptiveEntryGates,
     replayAdaptiveRegimeGates,
@@ -691,13 +692,13 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
         );
         try {
           for (const trade of batchTrades) {
-            if (replayLockVal && !trade.run_id) trade.run_id = replayLockVal;
+            if (replayRunId && !trade.run_id) trade.run_id = replayRunId;
             await d1UpsertTrade(env, trade).catch(() => {});
           }
-          if (replayLockVal) {
+          if (replayRunId) {
             await d1StampRunIdForTrades(
               env,
-              replayLockVal,
+              replayRunId,
               batchTrades.map((t) => t?.trade_id || t?.id || null),
             );
           }
@@ -705,10 +706,10 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
           errors.push({ ticker: "TRADES_D1_SYNC", error: String(e?.message || e).slice(0, 150) });
         }
 
-        if (replayLockVal) {
+        if (replayRunId) {
           try {
             for (const trade of batchTrades) {
-              await d1ArchiveRunTrade(env, replayLockVal, trade).catch(() => {});
+              await d1ArchiveRunTrade(env, replayRunId, trade).catch(() => {});
             }
           } catch (e) {
             errors.push({ ticker: "TRADES_ARCHIVE_SYNC", error: String(e?.message || e).slice(0, 150) });
@@ -741,7 +742,11 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
               take_profit: Number.isFinite(tp) ? tp : null,
             });
             positionsSynced++;
-          } catch {}
+          } catch (error) {
+            console.warn(
+              `[REPLAY] d1InsertPosition failed during open-position sync: ${String(error?.message || error).slice(0, 200)}`
+            );
+          }
         }
         if (positionsSynced > 0) {
           console.log(`[REPLAY] Synced ${positionsSynced} open positions to D1 positions table`);
@@ -772,7 +777,11 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
           try {
             const td = await deps.kvGetJSON?.(KV, `timed:latest:${sym}`);
             if (td && td.price > 0) dayState[sym] = td;
-          } catch {}
+          } catch (error) {
+            console.warn(
+              `[REPLAY] daystate sector KV read failed for ${sym}: ${String(error?.message || error).slice(0, 200)}`
+            );
+          }
         }
         try {
           await kvPutJSON(KV, `timed:replay:daystate:${dateParam}`, dayState);

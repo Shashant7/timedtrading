@@ -75,12 +75,85 @@ export function evaluateExit(ctx, position) {
   }
 
   // ── MAX LOSS ──
+  // R1 (2026-04-17): PDZ relaxation is a window, not a perpetual grant.
+  // After `deep_audit_max_loss_pdz_window_min` market-minutes (default 390
+  // = 1 market day) a trade in a favorable zone reverts to the strict normal
+  // floor. See worker/index.js classifyKanbanStage EARLY HARD-EXIT GUARDS
+  // for the matching inline enforcement and the SGI 2025-07-28 motivating
+  // case. Both implementations must agree so tt_core (which uses the inline
+  // path via applyInlineFallbackHints) and ripster_core (which uses the
+  // pipeline via applyHandledLifecycleDecision) behave identically.
   const daMaxLoss = ctx.config.deepAudit?.deep_audit_max_loss_pct;
-  const maxLossPct = daMaxLoss
-    ? ((inFavorable && regimeConfirms) ? Number(daMaxLoss.pdz || -3) : Number(daMaxLoss.normal || -2))
-    : ((inFavorable && regimeConfirms) ? -5 : -3);
+  const normalMaxLossPct = daMaxLoss ? Number(daMaxLoss.normal || -3) : -3;
+  const pdzMaxLossPct = daMaxLoss ? Number(daMaxLoss.pdz || -5) : -5;
+  const pdzWindowMin = Number(ctx.config.deepAudit?.deep_audit_max_loss_pdz_window_min) || 390;
+  const pdzToleranceActive = inFavorable && regimeConfirms;
+  const pdzWindowOpen = positionAgeMin < pdzWindowMin;
+  const maxLossPct = (pdzToleranceActive && pdzWindowOpen) ? pdzMaxLossPct : normalMaxLossPct;
   if (pnlPct <= maxLossPct) {
-    return result("exit", "max_loss", "safety");
+    const reason = (pdzToleranceActive && !pdzWindowOpen)
+      ? "max_loss_pdz_window_expired"
+      : "max_loss";
+    return result("exit", reason, "safety");
+  }
+
+  // ── R6 (2026-04-17): MFE-PROPORTIONAL STOP TRAIL ──
+  // Mirrors the inline check in worker/index.js classifyKanbanStage. Once MFE
+  // >= 3%, trails stop at 40% of peak-gain; at MFE >= 6% ratchet to 60%; at
+  // MFE >= 10% tighten to 75%. Exits when pnlPct <= ratio * MFE_peak. Works
+  // as a generalization of R2 v3's giveback math without the 1H ST flip gate.
+  {
+    const r6Raw = ctx.config.deepAudit?.deep_audit_mfe_trail_enabled;
+    const r6Enabled = r6Raw == null
+      ? true
+      : String(r6Raw).toLowerCase() !== "false" && r6Raw !== false && r6Raw !== 0;
+    if (r6Enabled) {
+      const r6MinCfg = Number(ctx.config.deepAudit?.deep_audit_mfe_trail_min_pct);
+      const r6Min = Number.isFinite(r6MinCfg) && r6MinCfg > 0 ? r6MinCfg : 3.0;
+      if (mfePct >= r6Min) {
+        const ratio = mfePct >= 10.0
+          ? (Number(ctx.config.deepAudit?.deep_audit_mfe_trail_ratio_high) || 0.75)
+          : mfePct >= 6.0
+            ? (Number(ctx.config.deepAudit?.deep_audit_mfe_trail_ratio_mid) || 0.60)
+            : (Number(ctx.config.deepAudit?.deep_audit_mfe_trail_ratio_low) || 0.40);
+        const stopPct = ratio * mfePct;
+        if (pnlPct <= stopPct) {
+          return result("exit", "mfe_proportional_trail", "safety");
+        }
+      }
+    }
+  }
+
+  // ── R2 v3 (2026-04-17): STRUCTURAL MFE-DECAY GUARD ──
+  // Mirrors the inline check in worker/index.js classifyKanbanStage. Fires ANYWHERE
+  // (not just EOD) when a multi-day runner peaked >= 3% and gave back >= 60% AND
+  // 1H SuperTrend flipped against the trade. Targets v1 profit-giveback cluster.
+  {
+    const mdGuardRaw = ctx.config.deepAudit?.deep_audit_mfe_decay_flatten_enabled;
+    const mdGuardEnabled = mdGuardRaw == null
+      ? true
+      : String(mdGuardRaw).toLowerCase() !== "false" && mdGuardRaw !== false && mdGuardRaw !== 0;
+    const mdMinAgeMin = Number(ctx.config.deepAudit?.deep_audit_mfe_decay_min_age_market_min) || 390;
+    if (mdGuardEnabled && positionAgeMin >= mdMinAgeMin) {
+      const mdPeakMin = Number.isFinite(Number(ctx.config.deepAudit?.deep_audit_mfe_decay_peak_min))
+        ? Number(ctx.config.deepAudit.deep_audit_mfe_decay_peak_min)
+        : 3.0;
+      const mdGivebackMax = Number.isFinite(Number(ctx.config.deepAudit?.deep_audit_mfe_decay_giveback_pct_max))
+        ? Number(ctx.config.deepAudit.deep_audit_mfe_decay_giveback_pct_max)
+        : 0.6;
+      if (mfePct >= mdPeakMin) {
+        const retained = mfePct > 0 ? pnlPct / mfePct : 0;
+        const giveback = 1 - retained;
+        if (giveback >= mdGivebackMax) {
+          const requireFlip = String(ctx.config.deepAudit?.deep_audit_mfe_decay_require_1h_st_flip ?? "true").toLowerCase() !== "false";
+          const h1StDir = Number(ctx.tf.h1?.stDir) || 0;
+          const flipped = direction === "LONG" ? h1StDir === 1 : h1StDir === -1;
+          if (!requireFlip || flipped) {
+            return result("exit", "mfe_decay_structural_flatten", "safety");
+          }
+        }
+      }
+    }
   }
 
   // ── DOA EARLY EXIT ──

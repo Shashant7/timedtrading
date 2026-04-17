@@ -2,6 +2,7 @@ export function createIntervalReplayStep(deps = {}) {
   const {
     sendJSON,
     corsHeaders,
+    resolveReplayRunId,
     kvPutJSON,
     REPLAY_TRADES_KV_KEY,
     loadRunManifest,
@@ -49,8 +50,12 @@ export function createIntervalReplayStep(deps = {}) {
   return async function runIntervalReplayStepImpl({ req, env, url }) {
     try {
       const db = env?.DB;
-      const KV = env?.KV;
+      // Fallback matches replay-candle-step: accept KV explicit injection OR
+      // the wrangler KV_TIMED binding. Without this, external HTTP callers
+      // crash with TypeError on first .get() inside prepareCandleReplayBatch.
+      const KV = env?.KV || env?.KV_TIMED || null;
       if (!db) return sendJSON({ ok: false, error: "no_db_binding" }, 500, corsHeaders(env, req));
+      if (!KV) return sendJSON({ ok: false, error: "no_kv_binding" }, 500, corsHeaders(env, req));
 
       const dateParam = url.searchParams.get("date");
       if (!dateParam || !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
@@ -112,18 +117,34 @@ export function createIntervalReplayStep(deps = {}) {
             db.prepare("DELETE FROM trade_events"),
             db.prepare("DELETE FROM trades"),
           ]);
-        } catch {}
+        } catch (error) {
+          console.warn(
+            `[INTERVAL_REPLAY cleanSlate] trades/trade_events purge failed: ${String(error?.message || error).slice(0, 200)}`
+          );
+        }
         for (const tbl of ["positions", "execution_actions", "lots", "alerts", "ticker_latest", "account_ledger", "investor_positions", "investor_lots", "portfolio_snapshots", "timed_trail"]) {
-          try { await db.prepare(`DELETE FROM ${tbl}`).run(); } catch {}
+          try { await db.prepare(`DELETE FROM ${tbl}`).run(); } catch (error) {
+            console.warn(
+              `[INTERVAL_REPLAY cleanSlate] DELETE FROM ${tbl} failed (table may not exist): ${String(error?.message || error).slice(0, 200)}`
+            );
+          }
         }
         for (const ticker of allTickers) {
-          try { await KV.delete(`timed:latest:${ticker}`); } catch {}
+          try { await KV.delete(`timed:latest:${ticker}`); } catch (error) {
+            console.warn(
+              `[INTERVAL_REPLAY cleanSlate] KV.delete timed:latest:${ticker} failed: ${String(error?.message || error).slice(0, 200)}`
+            );
+          }
         }
       }
 
       await kvPutJSON(KV, "timed:replay:running", { since: Date.now(), date: dateParam, interval: intervalIdx, mode: "single_interval" });
       const replayLockVal = await KV.get("timed:replay:lock") || null;
-      const replayManifest = replayLockVal ? await loadRunManifest(db, replayLockVal) : null;
+      const runIdHint = String(url.searchParams.get("runId") || "").trim() || null;
+      const replayRunId = resolveReplayRunId
+        ? (await resolveReplayRunId(db, replayLockVal, { runIdHint }))?.runId || null
+        : (runIdHint || replayLockVal || null);
+      const replayManifest = replayRunId ? await loadRunManifest(db, replayRunId) : null;
       const replayTradeScope = buildReplayTradeScope(replayManifest);
       const {
         replayAdaptiveEntryGates: replayAdaptiveEntryGates,
@@ -139,7 +160,7 @@ export function createIntervalReplayStep(deps = {}) {
       } = await loadReplayRuntimeConfig({
         db,
         KV,
-        replayConfigRunHint: replayLockVal,
+        replayConfigRunHint: replayRunId || replayLockVal,
         replayEnv,
         logPrefix: "[INTERVAL REPLAY]",
         disableReferenceExecution,
@@ -289,7 +310,11 @@ export function createIntervalReplayStep(deps = {}) {
             try {
               const vixData = await kvGetJSON(KV, "timed:latest:VIX");
               if (vixData?.price) result._vix = Number(vixData.price);
-            } catch {}
+            } catch (error) {
+              console.warn(
+                `[INTERVAL_REPLAY] VIX KV read failed: ${String(error?.message || error).slice(0, 200)}`
+              );
+            }
 
             if (existing?.entry_ts != null && result.entry_ts == null) result.entry_ts = existing.entry_ts;
             if (existing?.entry_price != null && result.entry_price == null) result.entry_price = existing.entry_price;
@@ -457,34 +482,62 @@ export function createIntervalReplayStep(deps = {}) {
                  prev_kanban_stage=excluded.prev_kanban_stage, payload_json=excluded.payload_json`
               ).bind(ticker.toUpperCase(), ts, Date.now(), s?.kanban_stage ?? null, s?.prev_kanban_stage ?? null, json)
             );
-          } catch {}
+          } catch (error) {
+            console.warn(
+              `[INTERVAL_REPLAY] ticker_latest stmt build failed for ${ticker}: ${String(error?.message || error).slice(0, 200)}`
+            );
+          }
         }
         const D1_BATCH_MAX = 100;
         for (let i = 0; i < stateStmts.length; i += D1_BATCH_MAX) {
           try {
             await db.batch(stateStmts.slice(i, i + D1_BATCH_MAX));
             d1StateWritten += Math.min(D1_BATCH_MAX, stateStmts.length - i);
-          } catch {}
+          } catch (error) {
+            console.warn(
+              `[INTERVAL_REPLAY] ticker_latest batch ${i} write failed: ${String(error?.message || error).slice(0, 200)}`
+            );
+          }
         }
       }
 
       replayCtx.allTrades = sanitizeReplayTradesForScope(replayCtx.allTrades, replayTradeScope);
-      try { await kvPutJSON(KV, REPLAY_TRADES_KV_KEY, replayCtx.allTrades); } catch {}
+      try { await kvPutJSON(KV, REPLAY_TRADES_KV_KEY, replayCtx.allTrades); } catch (error) {
+        console.warn(
+          `[INTERVAL_REPLAY] kvPutJSON ${REPLAY_TRADES_KV_KEY} failed: ${String(error?.message || error).slice(0, 200)}`
+        );
+      }
       if (db) {
         for (const trade of replayCtx.allTrades) {
           try {
-            if (replayLockVal && !trade.run_id) trade.run_id = replayLockVal;
-            await d1UpsertTrade(env, trade).catch(() => {});
-          } catch {}
+            if (replayRunId && !trade.run_id) trade.run_id = replayRunId;
+            await d1UpsertTrade(env, trade).catch((error) => {
+              console.warn(
+                `[INTERVAL_REPLAY] d1UpsertTrade failed for trade_id=${trade?.trade_id || trade?.id || "?"}: ${String(error?.message || error).slice(0, 200)}`
+              );
+            });
+          } catch (error) {
+            console.warn(
+              `[INTERVAL_REPLAY] d1UpsertTrade wrapper failed for trade_id=${trade?.trade_id || trade?.id || "?"}: ${String(error?.message || error).slice(0, 200)}`
+            );
+          }
         }
-        if (replayLockVal) {
+        if (replayRunId) {
           await d1StampRunIdForTrades(
             env,
-            replayLockVal,
+            replayRunId,
             replayCtx.allTrades.map((t) => t?.trade_id || t?.id || null),
           );
           for (const trade of replayCtx.allTrades) {
-            try { await d1ArchiveRunTrade(env, replayLockVal, trade).catch(() => {}); } catch {}
+            try { await d1ArchiveRunTrade(env, replayRunId, trade).catch((error) => {
+              console.warn(
+                `[INTERVAL_REPLAY] d1ArchiveRunTrade failed for run=${replayRunId} trade_id=${trade?.trade_id || trade?.id || "?"}: ${String(error?.message || error).slice(0, 200)}`
+              );
+            }); } catch (error) {
+              console.warn(
+                `[INTERVAL_REPLAY] d1ArchiveRunTrade wrapper failed for trade_id=${trade?.trade_id || trade?.id || "?"}: ${String(error?.message || error).slice(0, 200)}`
+              );
+            }
           }
         }
       }
@@ -495,8 +548,16 @@ export function createIntervalReplayStep(deps = {}) {
           try {
             const invResult = await runInvestorDailyReplay(env, KV, replayCtx, dateParam);
             if (invResult?.opened || invResult?.closed) console.log(`[INTERVAL_REPLAY] Investor: +${invResult.opened} -${invResult.closed}`);
-          } catch {}
-          try { await snapshotBothPortfolios(env, KV, replayCtx, dateParam); } catch {}
+          } catch (error) {
+            console.warn(
+              `[INTERVAL_REPLAY] Investor daily replay failed: ${String(error?.message || error).slice(0, 200)}`
+            );
+          }
+          try { await snapshotBothPortfolios(env, KV, replayCtx, dateParam); } catch (error) {
+            console.warn(
+              `[INTERVAL_REPLAY] snapshotBothPortfolios failed for ${dateParam}: ${String(error?.message || error).slice(0, 200)}`
+            );
+          }
         }
       }
 
