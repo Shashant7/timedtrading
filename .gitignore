@@ -20,6 +20,9 @@ dist/
 build/
 worker/dashboard-html.js
 
+# Phase B monthly-backdrop TwelveData cache (rebuilt by scripts/build-monthly-backdrop.js)
+data/backdrops/.cache.json
+
 # IDE
 .vscode/
 .idea/
