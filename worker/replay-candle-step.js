@@ -30,8 +30,14 @@ export function createCandleReplayStep(deps = {}) {
 
   return async function runCandleReplayStepImpl({ req, env, url, body = {} }) {
     const db = env?.DB;
-    const KV = env?.KV;
+    // Fall back to KV_TIMED when KV is not explicitly injected (BacktestRunner
+    // DO injects KV alongside KV_TIMED; external HTTP callers only have
+    // KV_TIMED because that is the wrangler binding name). Without this fallback
+    // the external /timed/admin/candle-replay path throws 1101 when KV.get is
+    // first called inside prepareCandleReplayBatch. See lessons.md 2026-04-17.
+    const KV = env?.KV || env?.KV_TIMED || null;
     if (!db) return sendJSON({ ok: false, error: "no_db_binding" }, 500, corsHeaders(env, req));
+    if (!KV) return sendJSON({ ok: false, error: "no_kv_binding" }, 500, corsHeaders(env, req));
 
     const directConfigOverride = body?.config_override && typeof body.config_override === "object" && !Array.isArray(body.config_override)
       ? body.config_override
@@ -108,6 +114,7 @@ export function createCandleReplayStep(deps = {}) {
     });
     const {
       replayLockVal,
+      replayRunId,
       replayConfigRunHint,
       replayTradeScope,
       replayTfs: REPLAY_TFS,
@@ -205,6 +212,7 @@ export function createCandleReplayStep(deps = {}) {
       stripReplayCarryState,
       replayTradeScope,
       replayLockVal,
+      replayRunId,
       replayEnv,
       replayAdaptiveEntryGates,
       replayAdaptiveRegimeGates,

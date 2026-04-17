@@ -1,4 +1,4 @@
-import { seedHistoricalMarketEvents } from "./market-events-seed.js";
+import { seedHistoricalMarketEvents, checkMarketEventsCoverage } from "./market-events-seed.js";
 import { buildBacktestRunnerContract, normalizeTickerList } from "./backtest-runner-contracts.js";
 import { closeReplayPositionsAtDate, resetReplayState } from "./replay-admin-helpers.js";
 import { finalizeBacktestRun, validateSentinelBasket } from "./backtest-run-archive-helpers.js";
@@ -36,6 +36,34 @@ function cleanText(value, fallback = null) {
 
 function sanitizeTickerList(value) {
   return normalizeTickerList(value).slice(0, 500);
+}
+
+async function clearReplayMarkers(KV, expectedLock = null) {
+  if (!KV) return;
+  try {
+    const currentLock = await KV.get("timed:replay:lock");
+    if (currentLock && (!expectedLock || currentLock === expectedLock)) {
+      await KV.delete("timed:replay:lock");
+    }
+  } catch (error) {
+    console.warn(
+      `[BacktestRunner] clearReplayMarkers lock-delete failed (expected=${expectedLock || "any"}): ${String(error?.message || error).slice(0, 200)}`
+    );
+  }
+  try {
+    await KV.delete("timed:replay:running");
+  } catch (error) {
+    console.warn(
+      `[BacktestRunner] clearReplayMarkers running-delete failed, trying kvPutJSON null: ${String(error?.message || error).slice(0, 200)}`
+    );
+    try {
+      await kvPutJSON(KV, "timed:replay:running", null);
+    } catch (fallbackError) {
+      console.warn(
+        `[BacktestRunner] clearReplayMarkers kvPutJSON fallback failed: ${String(fallbackError?.message || fallbackError).slice(0, 200)}`
+      );
+    }
+  }
 }
 
 function makeRunId() {
@@ -134,23 +162,67 @@ async function ensureBacktestRunnerSchema(env) {
   ]);
 }
 
-async function snapshotConfig(db, runId, configOverride) {
-  if (!db || !runId) return;
-  if (configOverride && typeof configOverride === "object" && !Array.isArray(configOverride)) {
-    await db.prepare(`DELETE FROM backtest_run_config WHERE run_id = ?1`).bind(runId).run();
-    const entries = Object.entries(configOverride);
-    for (const [configKey, configValue] of entries) {
+async function snapshotConfig(db, runId, configOverride, configSourceRunId = null) {
+  if (!db || !runId) return { mode: "skipped", keys: 0 };
+
+  const hasOverride = configOverride && typeof configOverride === "object" && !Array.isArray(configOverride);
+  const overrideEntries = hasOverride ? Object.entries(configOverride) : [];
+  const sourceRunId = String(configSourceRunId || "").trim();
+  const hasSource = sourceRunId && sourceRunId !== runId;
+
+  // Base layer: source-run snapshot OR live model_config.
+  let baseMode = "registered_snapshot";
+  let sourceKeyCount = 0;
+  await db.prepare(`DELETE FROM backtest_run_config WHERE run_id = ?1`).bind(runId).run();
+  if (hasSource) {
+    const countRow = await db.prepare(
+      `SELECT COUNT(*) AS cnt FROM backtest_run_config WHERE run_id = ?1`
+    ).bind(sourceRunId).first().catch((error) => {
+      console.warn(
+        `[BacktestRunner] snapshotConfig source-count query failed for run_id=${runId} source=${sourceRunId}: ${String(error?.message || error).slice(0, 200)}`
+      );
+      return null;
+    });
+    sourceKeyCount = Number(countRow?.cnt || 0) || 0;
+    if (sourceKeyCount > 0) {
+      await db.prepare(
+        `INSERT OR REPLACE INTO backtest_run_config (run_id, config_key, config_value)
+         SELECT ?1, config_key, config_value FROM backtest_run_config WHERE run_id = ?2`
+      ).bind(runId, sourceRunId).run();
+      baseMode = "pinned_run_snapshot";
+    } else {
+      console.warn(
+        `[BacktestRunner] snapshotConfig: source run_id=${sourceRunId} has 0 pinned config rows; base layer will use live model_config`
+      );
+    }
+  }
+  if (baseMode !== "pinned_run_snapshot") {
+    await db.prepare(
+      `INSERT OR IGNORE INTO backtest_run_config (run_id, config_key, config_value)
+       SELECT ?1, config_key, config_value FROM model_config`
+    ).bind(runId).run();
+  }
+
+  // Override layer: apply explicit overrides on top of base.
+  if (hasOverride) {
+    for (const [configKey, configValue] of overrideEntries) {
       await db.prepare(
         `INSERT OR REPLACE INTO backtest_run_config (run_id, config_key, config_value)
          VALUES (?1, ?2, ?3)`
       ).bind(runId, String(configKey), String(configValue ?? "")).run();
     }
-    return;
   }
-  await db.prepare(
-    `INSERT OR IGNORE INTO backtest_run_config (run_id, config_key, config_value)
-     SELECT ?1, config_key, config_value FROM model_config`
-  ).bind(runId).run();
+
+  const mode = hasOverride && baseMode === "pinned_run_snapshot" ? "pinned_run_snapshot_with_override"
+    : hasOverride ? "explicit_override"
+    : baseMode;
+  return {
+    mode,
+    keys: hasOverride ? overrideEntries.length : (baseMode === "pinned_run_snapshot" ? sourceKeyCount : null),
+    sourceRunId: hasSource ? sourceRunId : null,
+    baseMode,
+    overrideKeys: overrideEntries.length,
+  };
 }
 
 async function updateRunRow(db, runId, patch = {}) {
@@ -360,7 +432,11 @@ export class BacktestRunner {
         seedResult: null,
       };
 
-      await db.prepare(`UPDATE backtest_runs SET active_experiment_slot = 0 WHERE active_experiment_slot = 1`).run().catch(() => {});
+      await db.prepare(`UPDATE backtest_runs SET active_experiment_slot = 0 WHERE active_experiment_slot = 1`).run().catch((error) => {
+        console.warn(
+          `[BacktestRunner] reset active_experiment_slot failed: ${String(error?.message || error).slice(0, 200)}`
+        );
+      });
       await db.prepare(
         `INSERT OR REPLACE INTO backtest_runs
          (run_id, label, description, start_date, end_date, interval_min, ticker_batch, ticker_universe_count, trader_only, keep_open_at_end, low_write, status, status_note, live_config_slot, active_experiment_slot, is_protected_baseline, tags_json, params_json, manifest_json, created_at, started_at, updated_at)
@@ -384,7 +460,9 @@ export class BacktestRunner {
         JSON.stringify(manifest),
         now,
       ).run();
-      await snapshotConfig(db, runId, body?.config_override);
+      const configSourceRunId = cleanText(params?.config_source_run_id);
+      const snapshotResult = await snapshotConfig(db, runId, body?.config_override, configSourceRunId);
+      await this.appendLog(runId, "info", "config_snapshot", `Pinned ${snapshotResult.mode} config for run.`, snapshotResult);
 
       await this.saveJob(job);
       await this.appendLog(runId, "info", "runner_start", "BacktestRunner claimed the run lifecycle and replay lock.", {
@@ -452,30 +530,55 @@ export class BacktestRunner {
           end_date: cleanText(body?.end_date),
           tickers,
         });
+
+        // Coverage-first: market events are immutable historical facts. Check
+        // what is already in D1 before making any TwelveData calls so repeated
+        // backtests do not pay the per-run seeding tax.
         let seedResult;
         if (tickers.length > 0) {
-          const macroResult = await seedHistoricalMarketEvents(this.env, {
+          const coverage = await checkMarketEventsCoverage(this.env, {
             startDate: cleanText(body?.start_date),
             endDate: cleanText(body?.end_date),
-            includeMacro: true,
-            includeEarnings: false,
-          });
-          const earningsResults = [];
-          for (const ticker of tickers) {
-            earningsResults.push(await seedHistoricalMarketEvents(this.env, {
-              startDate: cleanText(body?.start_date),
-              endDate: cleanText(body?.end_date),
-              includeMacro: false,
-              includeEarnings: true,
-              ticker,
-            }));
-          }
-          seedResult = {
-            ok: macroResult?.ok !== false && earningsResults.every((result) => result?.ok !== false),
-            mode: "macro_plus_targeted_earnings",
-            macro: macroResult,
-            earnings: earningsResults,
             tickers,
+          });
+          await this.appendLog(runId, "info", "seed_coverage", "Coverage check against existing market_events rows.", coverage);
+
+          // Macro is curated + idempotent; always refresh it (<100ms, no TD).
+          const macroResult = coverage?.macro?.covered
+            ? { ok: true, skipped: true, reason: "already_covered", macroSeeded: 0 }
+            : await seedHistoricalMarketEvents(this.env, {
+                startDate: cleanText(body?.start_date),
+                endDate: cleanText(body?.end_date),
+                includeMacro: true,
+                includeEarnings: false,
+              });
+
+          // Earnings: only fetch TD for tickers with zero in-window rows.
+          // Use one batch/calendar pass for the missing set instead of one
+          // per-ticker request so start-up cost stays bounded.
+          const missingTickers = Array.isArray(coverage?.earnings?.missing_tickers)
+            ? coverage.earnings.missing_tickers
+            : tickers;
+          const earningsResult = missingTickers.length > 0
+            ? await seedHistoricalMarketEvents(this.env, {
+                startDate: cleanText(body?.start_date),
+                endDate: cleanText(body?.end_date),
+                includeMacro: false,
+                includeEarnings: true,
+                tickers: missingTickers,
+              })
+            : { ok: true, skipped: true, reason: "already_covered", earningsTickersProcessed: 0, earningsSeeded: 0 };
+          seedResult = {
+            ok: macroResult?.ok !== false && earningsResult?.ok !== false,
+            mode: "coverage_first_gap_fill",
+            coverage,
+            macro: macroResult,
+            earnings: earningsResult,
+            tickers,
+            tickers_seeded: missingTickers,
+            tickers_skipped: Array.isArray(coverage?.earnings?.covered_tickers)
+              ? coverage.earnings.covered_tickers
+              : [],
           };
         } else {
           seedResult = await seedHistoricalMarketEvents(this.env, {
@@ -550,10 +653,7 @@ export class BacktestRunner {
         ended_at: now,
         active_experiment_slot: 0,
       });
-      const currentLock = await KV.get("timed:replay:lock");
-      if (currentLock && currentLock === job.lock) {
-        await KV.delete("timed:replay:lock");
-      }
+      await clearReplayMarkers(KV, job.lock);
       await this.state.storage.delete(ACTIVE_JOB_KEY);
       await this.appendLog(runId, "warn", "runner_cancelled", job.statusNote, {
         run_id: runId,
@@ -573,7 +673,12 @@ export class BacktestRunner {
         `SELECT run_id, label, description, status, status_note, created_at, started_at, ended_at, updated_at, manifest_json, params_json
          FROM backtest_runs
          WHERE run_id = ?1`
-      ).bind(lookupRunId).first().catch(() => null);
+      ).bind(lookupRunId).first().catch((error) => {
+        console.warn(
+          `[BacktestRunner] handleStatus run-row lookup failed for run_id=${lookupRunId}: ${String(error?.message || error).slice(0, 200)}`
+        );
+        return null;
+      });
     }
     return json({
       ok: true,
@@ -604,8 +709,7 @@ export class BacktestRunner {
           job.endedAt = now;
           job.checkpoint = { ...(job.checkpoint || {}), phase: "finalized" };
           await this.saveJob(job);
-          const currentLock = await KV?.get?.("timed:replay:lock");
-          if (currentLock && currentLock === job.lock) await KV.delete("timed:replay:lock");
+          await clearReplayMarkers(KV, job.lock);
           await this.appendLog(runId, "info", "runner_finalize", "BacktestRunner finalized run archive.", {
             archived: result?.archived || null,
           });
@@ -650,10 +754,16 @@ export class BacktestRunner {
     if (!runId) return json({ ok: false, error: "run_id_required" }, 400);
     const db = this.env?.DB;
     if (!db) return json({ ok: false, error: "no_db" }, 500);
+    const warnArtifactCount = (table) => (error) => {
+      console.warn(
+        `[BacktestRunner] handleArtifacts ${table} count failed for run_id=${runId}: ${String(error?.message || error).slice(0, 200)}`
+      );
+      return null;
+    };
     const [tradeCountRow, configCountRow, validationCountRow] = await Promise.all([
-      db.prepare(`SELECT COUNT(*) AS cnt FROM backtest_run_trades WHERE run_id = ?1`).bind(runId).first().catch(() => null),
-      db.prepare(`SELECT COUNT(*) AS cnt FROM backtest_run_config WHERE run_id = ?1`).bind(runId).first().catch(() => null),
-      db.prepare(`SELECT COUNT(*) AS cnt FROM backtest_run_validation_artifacts WHERE run_id = ?1`).bind(runId).first().catch(() => null),
+      db.prepare(`SELECT COUNT(*) AS cnt FROM backtest_run_trades WHERE run_id = ?1`).bind(runId).first().catch(warnArtifactCount("backtest_run_trades")),
+      db.prepare(`SELECT COUNT(*) AS cnt FROM backtest_run_config WHERE run_id = ?1`).bind(runId).first().catch(warnArtifactCount("backtest_run_config")),
+      db.prepare(`SELECT COUNT(*) AS cnt FROM backtest_run_validation_artifacts WHERE run_id = ?1`).bind(runId).first().catch(warnArtifactCount("backtest_run_validation_artifacts")),
     ]);
     return json({
       ok: true,
@@ -695,7 +805,16 @@ export class BacktestRunner {
         sessionDate,
         sessionIndex === 0 && params?.clean_slate === true,
       );
-      const requestBody = job?.configOverride ? { config_override: job.configOverride } : {};
+      // Do NOT re-send config_override in the replay body. snapshotConfig()
+      // already merged the source-run snapshot + override into
+      // backtest_run_config keyed by runId, and loadReplayRuntimeConfig reads
+      // from there via resolveReplayPinnedConfig(). Re-sending triggers the
+      // `directConfigOverride` short-circuit in loadReplayRuntimeConfig, which
+      // REPLACES the full pinned snapshot with only the override keys and
+      // silently drops every inherited value. Found 2026-04-17 while validating
+      // R1 + R2 + R3: a 6-key override collapsed a 146-key pinned config to 6
+      // keys at runtime. D1 is the single source of truth for pinned config.
+      const requestBody = {};
 
       job.phase = "running";
       job.status = "running";
@@ -796,9 +915,7 @@ export class BacktestRunner {
         if (retryable) {
           await this.state.storage.setAlarm(Date.now() + (job.retries * 2000));
         } else {
-          if ((await KV.get("timed:replay:lock")) === job.lock) {
-            await KV.delete("timed:replay:lock");
-          }
+          await clearReplayMarkers(KV, job.lock);
           await this.state.storage.delete(ACTIVE_JOB_KEY);
         }
       }
@@ -872,9 +989,7 @@ export class BacktestRunner {
       active_experiment_slot: 0,
       params_json: JSON.stringify({ ...params, runner_checkpoint: job.checkpoint }),
     });
-    if ((await KV.get("timed:replay:lock")) === job.lock) {
-      await KV.delete("timed:replay:lock");
-    }
+    await clearReplayMarkers(KV, job.lock);
     await this.state.storage.delete(ACTIVE_JOB_KEY);
     await this.appendLog(job.runId, finalizeResult?.ok ? "info" : "error", "runner_complete", job.statusNote, finalizeResult);
   }

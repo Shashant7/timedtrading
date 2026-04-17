@@ -11,6 +11,7 @@ import {
   REPLAY_DA_KEYS,
   loadReplayConfigValue,
   loadReplayRuntimeConfig,
+  resolveReplayRunId,
   loadReplayScopedTrades,
   loadReplayTickerState,
   loadReplayTickerProfiles,
@@ -21,7 +22,7 @@ import { executeCandleReplayBatches } from "./replay-candle-batches.js";
 import { createCandleReplayStep } from "./replay-candle-step.js";
 import { createIntervalReplayStep } from "./replay-interval-step.js";
 import { closeReplayPositionsAtDate, parseQueryBool, resetReplayState } from "./replay-admin-helpers.js";
-import { finalizeBacktestRun, validateSentinelBasket } from "./backtest-run-archive-helpers.js";
+import { finalizeBacktestRun, summarizeRunMetrics, validateSentinelBasket } from "./backtest-run-archive-helpers.js";
 import {
   kvGetJSON,
   kvPutJSON,
@@ -155,7 +156,7 @@ import {
   fetchFinnhubEconomicCalendar,
   fetchForexFactoryCalendar,
 } from "./daily-brief.js";
-import { seedHistoricalMarketEvents } from "./market-events-seed.js";
+import { seedHistoricalMarketEvents, checkMarketEventsCoverage } from "./market-events-seed.js";
 import {
   resolveStaticBehaviorProfile,
   normalizeLearnedTickerProfile,
@@ -310,6 +311,7 @@ export function getReplayExecutorRuntime() {
   const runIntervalReplayStepImpl = createIntervalReplayStep({
     sendJSON,
     corsHeaders,
+    resolveReplayRunId,
     kvPutJSON,
     REPLAY_TRADES_KV_KEY,
     loadRunManifest,
@@ -775,6 +777,8 @@ const ROUTES = [
   ["GET", "/timed/admin/runs/trades", "GET /timed/admin/runs/trades"],
   ["GET", "/timed/admin/runs/config", "GET /timed/admin/runs/config"],
   ["GET", "/timed/admin/runs/validations", "GET /timed/admin/runs/validations"],
+  ["GET", "/timed/admin/runs/direction-accuracy", "GET /timed/admin/runs/direction-accuracy"],
+  ["GET", "/timed/admin/runs/trade-events", "GET /timed/admin/runs/trade-events"],
   ["POST", "/timed/admin/run-lifecycle", "POST /timed/admin/run-lifecycle"],
   ["POST", "/timed/admin/model-resolve", "POST /timed/admin/model-resolve"],
   ["POST", "/timed/admin/model-retro", "POST /timed/admin/model-retro"],
@@ -782,6 +786,7 @@ const ROUTES = [
   ["GET", "/timed/admin/ai-cio/decisions", "GET /timed/admin/ai-cio/decisions"],
   ["GET", "/timed/admin/ai-cio/accuracy", "GET /timed/admin/ai-cio/accuracy"],
   ["POST", "/timed/admin/backfill-market-events", "POST /timed/admin/backfill-market-events"],
+  ["GET", "/timed/admin/market-events/coverage", "GET /timed/admin/market-events/coverage"],
   ["GET", "/timed/admin/validate-10m", "GET /timed/admin/validate-10m"],
   ["GET", "/timed/model/health", "GET /timed/model/health"],
   ["GET", "/timed/model/predictions", "GET /timed/model/predictions"],
@@ -6412,7 +6417,178 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         ? ((currentPrice - entryPrice) / entryPrice) * 100
         : ((entryPrice - currentPrice) / entryPrice) * 100;
     }
-    
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // EARLY HARD-EXIT GUARDS (R1 + R2 — 2026-04-17)
+    // These run BEFORE any pipeline lifecycle dispatch or inline fallback so
+    // that no downstream DEFEND / TRIM path can mask them. Placement matters:
+    // the late max-loss check (see further below) is shadowed by dozens of
+    // `return "defend"` paths in the legacy inline management flow and by the
+    // pipeline lifecycleDispatch short-circuit for ripster_core.
+    // ═════════════════════════════════════════════════════════════════════════
+    {
+      const _earlyRegimeForExit = Number(tickerData?.ema_regime_daily) || 0;
+      const _earlyPdzZone = String(tickerData?.pdz_zone_D || "unknown");
+      const _earlyRegimeConfirms = (direction === "LONG" && _earlyRegimeForExit >= 1)
+        || (direction === "SHORT" && _earlyRegimeForExit <= -1);
+      const _earlyInFavorableZone = direction === "LONG"
+        ? (_earlyPdzZone === "discount" || _earlyPdzZone === "eq" || _earlyPdzZone === "lower_eq")
+        : (_earlyPdzZone === "premium" || _earlyPdzZone === "eq" || _earlyPdzZone === "upper_eq");
+
+      // R1: HARD MAX-LOSS FLOOR WITH PDZ WINDOW
+      // PDZ tolerance (looser max-loss threshold) is only valid during the
+      // initial-move window. After `deep_audit_max_loss_pdz_window_min`
+      // market-minutes (default 390 = 1 full market day) the trade reverts
+      // to the strict `normal` threshold even in a favorable zone. Motivation:
+      // SGI 2025-07-28 sat between -2% and -4% for 4 market days in DEFEND
+      // before finally hitting HARD_LOSS_CAP at -5.27% on day 5; with a 1-day
+      // PDZ window it flattens on day 2 at roughly -3%. This exit reason is
+      // NOT `sl_breached`, so the execution-layer `deep_audit_parity_skip_sl_breach`
+      // suppression at worker/index.js L15358 does not match and cannot block it.
+      const _earlyDaMaxLoss = tickerData?._env?._deepAuditConfig?.deep_audit_max_loss_pct;
+      const _earlyNormalMaxLossPct = _earlyDaMaxLoss ? Number(_earlyDaMaxLoss.normal || -3) : -3;
+      const _earlyPdzMaxLossPct = _earlyDaMaxLoss ? Number(_earlyDaMaxLoss.pdz || -5) : -5;
+      const _earlyPdzWindowMin = Number(tickerData?._env?._deepAuditConfig?.deep_audit_max_loss_pdz_window_min) || 390;
+      const _earlyPdzToleranceActive = _earlyInFavorableZone && _earlyRegimeConfirms;
+      const _earlyPdzWindowOpen = positionAgeMarketMin < _earlyPdzWindowMin;
+      const _earlyMaxLossPct = (_earlyPdzToleranceActive && _earlyPdzWindowOpen) ? _earlyPdzMaxLossPct : _earlyNormalMaxLossPct;
+      if (pnlPct <= _earlyMaxLossPct) {
+        tickerData.__exit_reason = (_earlyPdzToleranceActive && !_earlyPdzWindowOpen)
+          ? "max_loss_pdz_window_expired"
+          : "max_loss";
+        tickerData.__exit_family = "safety";
+        return "exit";
+      }
+
+      // R2: OVERNIGHT EXPOSURE GUARD
+      // Trimmed AND underwater AND within 30 min of RTH close → flatten the
+      // remainder rather than carry overnight gap risk. Motivation: RIOT
+      // 2025-09-24 trimmed 50% 10 min after entry at near-breakeven, held the
+      // remainder overnight, and gapped down to HARD_LOSS_CAP pre-market on
+      // 09-25. Disable via `deep_audit_eod_trimmed_underwater_flatten_enabled=false`.
+      {
+        const _eodGuardEnabledRaw = tickerData?._env?._deepAuditConfig?.deep_audit_eod_trimmed_underwater_flatten_enabled;
+        const _eodGuardEnabled = _eodGuardEnabledRaw == null
+          ? true
+          : String(_eodGuardEnabledRaw).toLowerCase() !== "false" && _eodGuardEnabledRaw !== false && _eodGuardEnabledRaw !== 0;
+        if (_eodGuardEnabled && Number.isFinite(now) && now > 0) {
+          const _eodDayKey = nyTradingDayKey(now);
+          const _eodCloseMs = _eodDayKey ? nyWallTimeToUtcMs(_eodDayKey, 16, 0, 0) : null;
+          const _eodMinsToClose = (_eodCloseMs && Number.isFinite(_eodCloseMs))
+            ? (_eodCloseMs - now) / 60000
+            : null;
+          const _eodTrimmedMin = Number(tickerData?._env?._deepAuditConfig?.deep_audit_eod_trimmed_underwater_min_trim_pct) || 0.4;
+          const _eodMinsWindow = Number(tickerData?._env?._deepAuditConfig?.deep_audit_eod_trimmed_underwater_window_min) || 30;
+          const _eodMinAgeMin = Number(tickerData?._env?._deepAuditConfig?.deep_audit_eod_trimmed_underwater_min_age_min) || 60;
+          if (
+            Number.isFinite(_eodMinsToClose)
+            && _eodMinsToClose > 0
+            && _eodMinsToClose <= _eodMinsWindow
+            && currentTrimPct >= _eodTrimmedMin
+            && pnlPct < 0
+            && positionAgeMarketMin >= _eodMinAgeMin
+          ) {
+            tickerData.__exit_reason = "eod_trimmed_underwater_flatten";
+            tickerData.__exit_family = "safety";
+            return "exit";
+          }
+        }
+      }
+
+      // R6 (2026-04-17): MFE-PROPORTIONAL STOP TRAIL (big-winner protection)
+      // Goal: preserve realized gains of trades that built meaningful MFE. Once a
+      // trade reaches band 1 (MFE >= 3.0%), a trailing stop at 40% of peak-gain
+      // activates. At band 2 (MFE >= 6.0%) the stop ratchets to 60%. At band 3
+      // (MFE >= 10.0%) it tightens to 75%. Exits when pnlPct <= ratio * MFE_peak.
+      // This generalizes R2 v3's giveback math without the 1H ST flip
+      // dependency, and escalates protection as MFE grows. Motivation: v1 Jul-Apr
+      // had 49 profit_giveback trades worth $7.7K of potential uplift; RIOT
+      // Sep 30 peaked 26% and gave back to 12.13% (with R6 band3=0.75 would have
+      // locked ~19.5%); ON Jul 16 peaked 7% and gave back to -0.79% (with R6
+      // band2=0.60 would have locked ~4.2%, saving ~$1K). Disable by config via
+      // `deep_audit_mfe_trail_enabled=false`.
+      {
+        const _r6Raw = tickerData?._env?._deepAuditConfig?.deep_audit_mfe_trail_enabled;
+        const _r6Enabled = _r6Raw == null
+          ? true
+          : String(_r6Raw).toLowerCase() !== "false" && _r6Raw !== false && _r6Raw !== 0;
+        if (_r6Enabled) {
+          const _r6MinPct = Number(tickerData?._env?._deepAuditConfig?.deep_audit_mfe_trail_min_pct);
+          const _r6MinActivate = Number.isFinite(_r6MinPct) && _r6MinPct > 0 ? _r6MinPct : 3.0;
+          const _r6MfePct = Math.max(
+            Number(openPosition?.maxFavorableExcursion ?? openPosition?.max_favorable_excursion ?? openPosition?.mfePct) || 0,
+            Number(openPosition?.__tradeRef?.maxFavorableExcursion ?? openPosition?.__tradeRef?.max_favorable_excursion ?? openPosition?.__tradeRef?.mfePct) || 0,
+          );
+          if (_r6MfePct >= _r6MinActivate) {
+            const _r6Ratio = _r6MfePct >= 10.0
+              ? (Number(tickerData?._env?._deepAuditConfig?.deep_audit_mfe_trail_ratio_high) || 0.75)
+              : _r6MfePct >= 6.0
+                ? (Number(tickerData?._env?._deepAuditConfig?.deep_audit_mfe_trail_ratio_mid) || 0.60)
+                : (Number(tickerData?._env?._deepAuditConfig?.deep_audit_mfe_trail_ratio_low) || 0.40);
+            const _r6StopPct = _r6Ratio * _r6MfePct;
+            if (pnlPct <= _r6StopPct) {
+              tickerData.__exit_reason = "mfe_proportional_trail";
+              tickerData.__exit_family = "safety";
+              tickerData.__exit_detail = {
+                mfe_peak_pct: _r6MfePct,
+                ratio: _r6Ratio,
+                stop_pct: _r6StopPct,
+                pnl_pct: pnlPct,
+              };
+              return "exit";
+            }
+          }
+        }
+      }
+
+      // R2 v3 (2026-04-17): STRUCTURAL MFE-DECAY GUARD (fires anywhere, not just EOD)
+      // Original EOD-only R2 v2 (1.5% MFE peak / 60% giveback) clipped normal
+      // intraday wiggles and cost $1.8K on a Jul-Oct A/B. Redesign: capture
+      // MULTI-DAY givebacks by flattening when ALL of the following hold:
+      //   1. position has been open >= `deep_audit_mfe_decay_min_age_market_min` (default 390 = 1 full market day)
+      //   2. MFE peak exceeded `deep_audit_mfe_decay_peak_min` (default 3.0%) at some point
+      //   3. retained_from_mfe <= (1 - `deep_audit_mfe_decay_giveback_pct_max`) (default clip when retained <= 40%)
+      //   4. 1H SuperTrend has flipped against the position direction -- the trade thesis
+      //      is no longer structurally supported. This is the key differentiator vs EOD-only:
+      //      a single ST flip on a trade that peaked big and gave most of it back is a
+      //      structural invalidation, not a pullback.
+      // Targets v1's real givebacks (RIOT Sep 30 26%->12%, AGQ Jan 7 32%->16%, IESC 11.5%->3.2%).
+      // Disabled when `deep_audit_mfe_decay_flatten_enabled=false`.
+      {
+        const _mdGuardRaw = tickerData?._env?._deepAuditConfig?.deep_audit_mfe_decay_flatten_enabled;
+        const _mdGuardEnabled = _mdGuardRaw == null
+          ? true
+          : String(_mdGuardRaw).toLowerCase() !== "false" && _mdGuardRaw !== false && _mdGuardRaw !== 0;
+        if (_mdGuardEnabled) {
+          const _mdMinAgeMin = Number(tickerData?._env?._deepAuditConfig?.deep_audit_mfe_decay_min_age_market_min) || 390;
+          if (positionAgeMarketMin >= _mdMinAgeMin) {
+            const _mdPeakMinCfg = Number(tickerData?._env?._deepAuditConfig?.deep_audit_mfe_decay_peak_min);
+            const _mdGivebackMaxCfg = Number(tickerData?._env?._deepAuditConfig?.deep_audit_mfe_decay_giveback_pct_max);
+            const _mdPeakMin = Number.isFinite(_mdPeakMinCfg) ? _mdPeakMinCfg : 3.0;
+            const _mdGivebackMax = Number.isFinite(_mdGivebackMaxCfg) ? _mdGivebackMaxCfg : 0.6;
+            const _mdMfePct = Math.max(
+              Number(openPosition?.maxFavorableExcursion ?? openPosition?.max_favorable_excursion ?? openPosition?.mfePct) || 0,
+              Number(openPosition?.__tradeRef?.maxFavorableExcursion ?? openPosition?.__tradeRef?.max_favorable_excursion ?? openPosition?.__tradeRef?.mfePct) || 0,
+            );
+            if (_mdMfePct >= _mdPeakMin) {
+              const _mdRetained = _mdMfePct > 0 ? pnlPct / _mdMfePct : 0;
+              const _mdGiveback = 1 - _mdRetained;
+              if (_mdGiveback >= _mdGivebackMax) {
+                const _mdRequireFlip = String(tickerData?._env?._deepAuditConfig?.deep_audit_mfe_decay_require_1h_st_flip ?? "true").toLowerCase() !== "false";
+                const _md1hStDir = Number(tickerData?.tf_tech?.["1H"]?.stDir) || 0;
+                const _mdFlipped = direction === "LONG" ? _md1hStDir === 1 : _md1hStDir === -1;
+                if (!_mdRequireFlip || _mdFlipped) {
+                  tickerData.__exit_reason = "mfe_decay_structural_flatten";
+                  tickerData.__exit_family = "safety";
+                  return "exit";
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
     // Management uses 30m+1H (not the entry LTF) to avoid LTF noise
     const rsi5_10m = Number(leadTfTech?.rsi?.r5) || 50;
     const rsi5_30m = Number(mgmtTfTech?.rsi?.r5) || 50;
@@ -6744,14 +6920,23 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       }
     }
 
-    // Hard exit: capital protection
-    // PDZ-aware: wider tolerance in favorable zone with regime, tighter when extended
+    // Hard exit: capital protection.
+    // Authoritative R1 max-loss floor now runs at the top of the `hasPosition`
+    // block (see EARLY HARD-EXIT GUARDS). The duplicate block below is retained
+    // in case an engine branch re-enters this section, but in normal flow the
+    // early guard already fired. This instance still recomputes the same
+    // thresholds for defense-in-depth; the check is cheap and idempotent.
     const _daMaxLoss = tickerData?._env?._deepAuditConfig?.deep_audit_max_loss_pct;
-    const maxLossPct = _daMaxLoss
-      ? ((_inFavorableZone && _regimeConfirms) ? Number(_daMaxLoss.pdz || -3) : Number(_daMaxLoss.normal || -2))
-      : ((_inFavorableZone && _regimeConfirms) ? -5 : -3);
+    const _normalMaxLossPct = _daMaxLoss ? Number(_daMaxLoss.normal || -3) : -3;
+    const _pdzMaxLossPct = _daMaxLoss ? Number(_daMaxLoss.pdz || -5) : -5;
+    const _pdzWindowMin = Number(tickerData?._env?._deepAuditConfig?.deep_audit_max_loss_pdz_window_min) || 390;
+    const _pdzToleranceActive = _inFavorableZone && _regimeConfirms;
+    const _pdzWindowOpen = positionAgeMarketMin < _pdzWindowMin;
+    const maxLossPct = (_pdzToleranceActive && _pdzWindowOpen) ? _pdzMaxLossPct : _normalMaxLossPct;
     if (pnlPct <= maxLossPct) {
-      tickerData.__exit_reason = "max_loss";
+      tickerData.__exit_reason = (_pdzToleranceActive && !_pdzWindowOpen)
+        ? "max_loss_pdz_window_expired"
+        : "max_loss";
       return "exit";
     }
 
@@ -23100,16 +23285,28 @@ async function clearReplayRunningMarker(KV) {
   }
 }
 
+function isActiveRunStatus(status) {
+  return new Set(["preparing", "seeding", "queued", "running", "retrying", "finalizing", "archiving"]).has(String(status || "").toLowerCase());
+}
+
 async function loadActiveRunState(db, KV) {
   const replayLockVal = await KV.get("timed:replay:lock") || null;
-  const replayRunning = await kvGetJSON(KV, "timed:replay:running");
+  let replayRunning = await kvGetJSON(KV, "timed:replay:running");
+  if (replayRunning && typeof replayRunning === "object" && replayRunning.since) {
+    const runningAgeMs = Date.now() - Number(replayRunning.since || 0);
+    if (!Number.isFinite(runningAgeMs) || runningAgeMs >= 15 * 60 * 1000) {
+      await clearReplayRunningMarker(KV);
+      replayRunning = null;
+    }
+  }
+  const { runId: replayRunId } = await resolveReplayRunId(db, replayLockVal);
   const runWithMetricsSql = `SELECT r.*, m.total_trades, m.wins, m.losses, m.win_rate, m.realized_pnl, m.realized_pnl_pct, m.avg_win_pct, m.avg_loss_pct
                                FROM backtest_runs r
                           LEFT JOIN backtest_run_metrics m ON r.run_id = m.run_id`;
   let row = null;
   let activeSource = "none";
-  if (replayLockVal) {
-    row = await db.prepare(`${runWithMetricsSql} WHERE r.run_id = ?1 LIMIT 1`).bind(replayLockVal).first();
+  if (replayRunId) {
+    row = await db.prepare(`${runWithMetricsSql} WHERE r.run_id = ?1 LIMIT 1`).bind(replayRunId).first();
     if (row) activeSource = "replay_lock";
   }
   if (!row && (replayLockVal || replayRunning)) {
@@ -23133,10 +23330,26 @@ async function loadActiveRunState(db, KV) {
     ).first();
     if (row) activeSource = "live_config_slot";
   }
-  const live = parseRunRecord(row) || null;
-  const activeRunId = String(live?.run_id || replayLockVal || "").trim() || null;
+  let live = parseRunRecord(row) || null;
+  const activeRunId = String(live?.run_id || replayRunId || replayLockVal || "").trim() || null;
   const activeManifest = live?.manifest || (activeRunId ? await loadRunManifest(db, activeRunId) : null);
   const isCleanLane = isRunManifestCleanLane(activeManifest);
+  if (live && activeRunId && isActiveRunStatus(live?.status)) {
+    const liveSummary = await summarizeRunMetrics(db, activeRunId).catch(() => null);
+    if (liveSummary) {
+      live = {
+        ...live,
+        total_trades: liveSummary.total_trades,
+        wins: liveSummary.wins,
+        losses: liveSummary.losses,
+        win_rate: liveSummary.win_rate,
+        realized_pnl: liveSummary.realized_pnl,
+        realized_pnl_pct: liveSummary.realized_pnl_pct,
+        avg_win_pct: liveSummary.avg_win_pct,
+        avg_loss_pct: liveSummary.avg_loss_pct,
+      };
+    }
+  }
   const replay = {
     locked: !!replayLockVal,
     lock: replayLockVal || null,
@@ -23157,6 +23370,7 @@ async function loadActiveRunState(db, KV) {
   } : null);
   return {
     replayLockVal,
+    replayRunId,
     replayRunning,
     activeRunId,
     activeSource: active?.active_source || activeSource,
@@ -41960,6 +42174,40 @@ export default {
         }
       }
 
+      // GET /timed/admin/market-events/coverage?key=...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&tickers=CSV
+      // Report which macro events and per-ticker earnings rows already exist in
+      // D1 for the requested window. Used by the BacktestRunner to skip
+      // redundant TwelveData fetches when events are already seeded.
+      if (routeKey === "GET /timed/admin/market-events/coverage") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+
+        const startDate = url.searchParams.get("startDate") || null;
+        const endDate = url.searchParams.get("endDate") || null;
+        const tickerParam = url.searchParams.get("tickers") || "";
+        const tickers = tickerParam
+          .split(",")
+          .map((t) => String(t || "").trim().toUpperCase())
+          .filter(Boolean);
+
+        try {
+          const result = await checkMarketEventsCoverage(env, {
+            startDate,
+            endDate,
+            tickers,
+          });
+          const status = result?.ok ? 200 : 400;
+          return sendJSON(result, status, corsHeaders(env, req));
+        } catch (err) {
+          console.error("[MARKET_EVENTS_COVERAGE]", err);
+          return sendJSON(
+            { ok: false, error: String(err?.message || err).slice(0, 300) },
+            500,
+            corsHeaders(env, req),
+          );
+        }
+      }
+
       // ═══════════════════════════════════════════════════════════════════════
       // ALPACA INTEGRATION ENDPOINTS
       // ═══════════════════════════════════════════════════════════════════════
@@ -42600,6 +42848,7 @@ export default {
           const activeState = await loadActiveRunState(db, KV);
           const replayRunning = activeState.replayRunning;
           const replayLockActive = activeState.replayLockVal;
+          const replayRunId = activeState.activeRunId || activeState.replayRunId || null;
           const liveOnly = url.searchParams.get("live") === "1" || (!requestedRunId && !!replayLockActive);
           if (liveOnly) {
             if (!replayLockActive) {
@@ -42622,10 +42871,11 @@ export default {
               }, 200, corsHeaders(env, req));
             }
             const replayLock = replayLockActive || null;
+            const liveRunId = replayRunId || replayLock || null;
             const liveCleanLane = activeState.isCleanLane;
             const replayTrades = KV ? ((await kvGetJSON(KV, REPLAY_TRADES_KV_KEY)) || []) : [];
             let archivedReplayTrades = [];
-            if (replayLock && db) {
+            if (liveRunId && db) {
               try {
                 await d1EnsureBacktestRunsSchema(env);
                 const { results: archiveRows } = await db.prepare(
@@ -42634,7 +42884,7 @@ export default {
                           trim_ts, trim_price, setup_name, setup_grade, risk_budget, shares, notional
                    FROM backtest_run_trades
                    WHERE run_id = ?1`
-                ).bind(replayLock).all();
+                ).bind(liveRunId).all();
                 archivedReplayTrades = (archiveRows || []).map((r) => ({
                   id: r.trade_id,
                   trade_id: r.trade_id,
@@ -42666,7 +42916,7 @@ export default {
                   risk_budget: r.risk_budget,
                   shares: r.shares,
                   notional: r.notional,
-                  run_id: replayLock,
+                  run_id: liveRunId,
                 }));
               } catch (e) {
                 console.warn("[TRADE_AUTOPSY] Live archive merge failed:", String(e?.message || e).slice(0, 150));
@@ -42684,7 +42934,7 @@ export default {
               mergedReplayTradesMap.set(tradeId, {
                 ...mergedReplayTradesMap.get(tradeId),
                 ...trade,
-                run_id: replayLock || trade?.run_id || null,
+                run_id: trade?.run_id || liveRunId || null,
               });
             }
             const mergedReplayTrades = [...mergedReplayTradesMap.values()];
@@ -42802,7 +43052,7 @@ export default {
                      FROM direction_accuracy
                      WHERE trade_id IN (${placeholders})
                        ${scopeClause}`
-                  ).bind(...chunk, replayLock || null).all();
+                  ).bind(...chunk, liveRunId || null).all();
                 for (const row of daRows || []) {
                   const id = String(row.trade_id || "");
                   if (!id) continue;
@@ -42812,8 +43062,8 @@ export default {
                     continue;
                   }
                   const score = (r) => {
-                    const runScore = replayLock
-                      ? (String(r?.run_id || "") === String(replayLock) ? 2 : (r?.run_id == null ? 1 : 0))
+                    const runScore = liveRunId
+                      ? (String(r?.run_id || "") === String(liveRunId) ? 2 : (r?.run_id == null ? 1 : 0))
                       : (r?.run_id == null ? 1 : 0);
                     const tsScore = Number(r?.ts || 0);
                     return runScore * 1e15 + tsScore;
@@ -42838,7 +43088,7 @@ export default {
                 const derived = deriveEffectiveExecution(t);
                 return {
                   trade_id: tradeId,
-                  run_id: replayLock || null,
+                  run_id: t?.run_id || t?.runId || liveRunId || null,
                   ticker: t?.ticker || null,
                   direction: t?.direction || null,
                   status: t?.status || null,
@@ -42888,7 +43138,7 @@ export default {
                    FROM trades
                    WHERE UPPER(COALESCE(status, '')) NOT IN ('OPEN', 'ARCHIVED')
                      AND (?1 IS NULL OR run_id = ?1)`
-                ).bind(replayLock || null).first();
+                    ).bind(liveRunId || null).first();
                 const scopedCount = Number(scopedCountRow?.c ?? scopedCountRow?.count ?? 0) || 0;
                 const unscopedCountRow = await db.prepare(
                   `SELECT COUNT(*) AS c
@@ -42929,7 +43179,7 @@ export default {
                      ${runClause}
                    ORDER BY entry_ts DESC
                    LIMIT 500`
-                ).bind(replayLock || null).all();
+                ).bind(liveRunId || null).all();
                 d1Rows = (results || []).filter((trade) => {
                   if (!useActiveReplayD1Fallback) return true;
                   return tradeMatchesReplayScope(trade, replayTradeScope);
@@ -42961,7 +43211,7 @@ export default {
                      FROM direction_accuracy
                      WHERE trade_id IN (${placeholders})
                        AND (?${chunk.length + 1} IS NULL OR run_id = ?${chunk.length + 1} OR run_id IS NULL)`
-                  ).bind(...chunk, replayLock || null).all();
+                  ).bind(...chunk, liveRunId || null).all();
                   for (const row of daRows || []) {
                     const id = String(row?.trade_id || "");
                     if (!id) continue;
@@ -42971,8 +43221,8 @@ export default {
                       continue;
                     }
                     const score = (r) => {
-                      const runScore = replayLock
-                        ? (String(r?.run_id || "") === String(replayLock) ? 2 : (r?.run_id == null ? 1 : 0))
+                      const runScore = liveRunId
+                        ? (String(r?.run_id || "") === String(liveRunId) ? 2 : (r?.run_id == null ? 1 : 0))
                         : (r?.run_id == null ? 1 : 0);
                       const tsScore = Number(r?.ts || 0);
                       return runScore * 1e15 + tsScore;
@@ -42997,7 +43247,7 @@ export default {
                   const derived = deriveEffectiveExecution(t);
                   return {
                     trade_id: tradeId,
-                    run_id: t?.run_id || t?.runId || replayLock || null,
+                    run_id: t?.run_id || t?.runId || liveRunId || null,
                     ticker: t?.ticker || null,
                     direction: t?.direction || null,
                     status: t?.status || null,
@@ -43047,7 +43297,7 @@ export default {
                 count: fallbackTrades.length,
                 trades: fallbackTrades,
                 source: "trades_d1_live_fallback",
-                live_run_id: replayLock || null,
+                live_run_id: liveRunId || null,
                 read_model: readModel,
               }, 200, corsHeaders(env, req));
             }
@@ -43065,7 +43315,7 @@ export default {
               count: trades.length,
               trades,
               source: "replay_kv",
-              live_run_id: replayLock || null,
+              live_run_id: liveRunId || null,
               read_model: readModel,
             }, 200, corsHeaders(env, req));
           }
@@ -43839,7 +44089,9 @@ export default {
         const allTrades = (await kvGetJSON(KV, REPLAY_TRADES_KV_KEY)) || [];
         const stateMap = {};
         const replayLockVal = await KV.get("timed:replay:lock") || null;
-        const replayManifest = replayLockVal ? await loadRunManifest(db, replayLockVal) : null;
+        const runIdParam = String(url.searchParams.get("runId") || "").trim() || null;
+        const { runId: replayRunId } = await resolveReplayRunId(db, replayLockVal, { runIdHint: runIdParam });
+        const replayManifest = replayRunId ? await loadRunManifest(db, replayRunId) : null;
         const replayTradeScope = buildReplayTradeScope(replayManifest);
         const replayCtx = {
           allTrades: sanitizeReplayTradesForScope(allTrades, replayTradeScope),
@@ -43969,14 +44221,14 @@ export default {
         if (db) {
           for (const trade of replayCtx.allTrades) {
             try {
-              if (replayLockVal && !trade.run_id) trade.run_id = replayLockVal;
+              if (replayRunId && !trade.run_id) trade.run_id = replayRunId;
               await d1UpsertTrade(env, trade).catch(() => {});
             } catch {}
           }
           // Write-through to immutable archive
-          if (replayLockVal) {
+          if (replayRunId) {
             for (const trade of replayCtx.allTrades) {
-              try { await d1ArchiveRunTrade(env, replayLockVal, trade).catch(() => {}); } catch {}
+              try { await d1ArchiveRunTrade(env, replayRunId, trade).catch(() => {}); } catch {}
             }
           }
         }
@@ -44982,6 +45234,97 @@ export default {
             artifact: parseJSONSafe(row.artifact_json, null),
           }));
           return sendJSON({ ok: true, run_id: runId, artifacts }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/runs/direction-accuracy?run_id=...
+      // Returns per-trade MFE/MAE + execution-profile context. Prefers the archived view
+      // (`backtest_run_direction_accuracy`) keyed by (run_id, trade_id); falls back to the
+      // live `direction_accuracy` table joined via `backtest_run_trades.trade_id` when the
+      // archive is empty (e.g. when a run was force-cancelled during finalizing before the
+      // archive copy could run — see tasks/lessons.md finalizing-stall entry).
+      // Response `source` field tells the caller which view supplied the rows.
+      if (routeKey === "GET /timed/admin/runs/direction-accuracy") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        try {
+          const runId = String(url.searchParams.get("run_id") || "").trim();
+          if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+          const limit = Math.min(Number(url.searchParams.get("limit")) || 5000, 10000);
+          let rows = [];
+          let source = "archive";
+          try {
+            rows = (await db.prepare(
+              `SELECT run_id, trade_id, ticker, ts, regime_daily, regime_weekly, regime_combined,
+                      entry_path, consensus_direction, execution_profile_name, execution_profile_confidence,
+                      market_state, max_favorable_excursion, max_adverse_excursion, rvol_best,
+                      entry_quality_score, exit_reason
+                 FROM backtest_run_direction_accuracy
+                WHERE run_id = ?1
+                ORDER BY ts ASC
+                LIMIT ?2`
+            ).bind(runId, limit).all())?.results || [];
+          } catch (error) {
+            console.warn(
+              `[ADMIN] runs/direction-accuracy archive query failed for run_id=${runId}: ${String(error?.message || error).slice(0, 200)}`
+            );
+          }
+          if (rows.length === 0) {
+            try {
+              rows = (await db.prepare(
+                `SELECT ?1 AS run_id, da.trade_id, da.ticker, da.ts, da.regime_daily, da.regime_weekly, da.regime_combined,
+                        da.entry_path, da.consensus_direction, da.execution_profile_name, da.execution_profile_confidence,
+                        da.market_state, da.max_favorable_excursion, da.max_adverse_excursion, da.rvol_best,
+                        da.entry_quality_score, da.exit_reason
+                   FROM direction_accuracy da
+                   INNER JOIN backtest_run_trades brt ON brt.trade_id = da.trade_id
+                  WHERE brt.run_id = ?1
+                  ORDER BY da.ts ASC
+                  LIMIT ?2`
+              ).bind(runId, limit).all())?.results || [];
+              source = rows.length > 0 ? "live_fallback" : "empty";
+            } catch (error) {
+              console.warn(
+                `[ADMIN] runs/direction-accuracy live-fallback query failed for run_id=${runId}: ${String(error?.message || error).slice(0, 200)}`
+              );
+            }
+          }
+          return sendJSON({ ok: true, run_id: runId, source, count: rows.length, rows }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/runs/trade-events?run_id=...
+      // Returns trade_events rows scoped to a run by joining on trade_id in backtest_run_trades.
+      // Event types: ENTRY / TRIM / EXIT / SCALE_IN / ENTRY_CORRECTION / DEFEND.
+      // Used by scripts/analyze-run-trades.js to reconstruct lifecycle timelines per trade.
+      if (routeKey === "GET /timed/admin/runs/trade-events") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        try {
+          const runId = String(url.searchParams.get("run_id") || "").trim();
+          if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+          const limit = Math.min(Number(url.searchParams.get("limit")) || 20000, 50000);
+          const rows = (await db.prepare(
+            `SELECT te.event_id, te.trade_id, te.ts, te.type, te.price,
+                    te.qty_pct_delta, te.qty_pct_total, te.pnl_realized, te.reason, te.meta_json,
+                    brt.ticker, brt.direction, brt.entry_ts
+               FROM trade_events te
+               INNER JOIN backtest_run_trades brt ON brt.trade_id = te.trade_id
+              WHERE brt.run_id = ?1
+              ORDER BY te.ts ASC
+              LIMIT ?2`
+          ).bind(runId, limit).all())?.results || [];
+          return sendJSON({ ok: true, run_id: runId, count: rows.length, events: rows }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }

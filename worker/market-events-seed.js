@@ -141,12 +141,18 @@ async function loadSnapshotReactions(db, startDate, endDate) {
 
 function getEligibleEarningsTickers({
   ticker = null,
+  tickers = null,
   offset = 0,
   limit = HISTORICAL_MARKET_EVENTS_DEFAULTS.earningsLimit,
   allTickers = false,
 } = {}) {
   const single = String(ticker || "").toUpperCase().trim();
   if (single) return [single];
+  if (Array.isArray(tickers) && tickers.length > 0) {
+    return tickers
+      .map((sym) => String(sym || "").toUpperCase().trim())
+      .filter(Boolean);
+  }
   const excluded = new Set(["crypto", "sector_etf", "broad_etf", "commodity_etf"]);
   const all = Object.keys(SECTOR_MAP).filter((sym) => !excluded.has(String(TICKER_TYPE_MAP[sym] || "").toLowerCase()));
   if (allTickers) return all;
@@ -347,6 +353,121 @@ async function buildEarningsStatements(env, db, reactions, tickers, startDate, e
   return { statements, seeded, errors };
 }
 
+/**
+ * Check whether `market_events` already has rows covering the requested
+ * (ticker, window) pairs so callers can skip redundant TwelveData fetches.
+ *
+ * Macro coverage is computed from the curated list: if every in-window curated
+ * macro event is already present in D1, macro is considered covered.
+ *
+ * Earnings coverage is heuristic: if a ticker has at least one `earnings` row
+ * whose `date` falls in `[startDate, endDate]`, we treat it as covered for the
+ * purposes of avoiding a re-fetch. Tickers with zero in-window rows are
+ * reported as missing and the caller can decide whether to gap-fill.
+ */
+export async function checkMarketEventsCoverage(env, options = {}) {
+  const db = env?.DB;
+  if (!db) return { ok: false, error: "d1_not_configured" };
+
+  const startDate = asDateKey(options.startDate, HISTORICAL_MARKET_EVENTS_DEFAULTS.startDate);
+  const endDate = asDateKey(options.endDate, HISTORICAL_MARKET_EVENTS_DEFAULTS.endDate);
+  if (!startDate || !endDate || startDate > endDate) {
+    return { ok: false, error: "invalid_date_range" };
+  }
+
+  const tickersRaw = Array.isArray(options.tickers) ? options.tickers : [];
+  const tickers = tickersRaw
+    .map((t) => String(t || "").trim().toUpperCase())
+    .filter(Boolean);
+
+  // Macro coverage: every in-window curated event must exist in D1 by id.
+  const expectedMacroIds = CURATED_MACRO_EVENTS
+    .filter((ev) => ev?.date && ev.date >= startDate && ev.date <= endDate)
+    .map((ev) => `macro-${ev.name.replace(/[^a-zA-Z0-9]/g, "-").toLowerCase()}-${ev.date}`);
+
+  let macroPresentIds = [];
+  if (expectedMacroIds.length > 0) {
+    const placeholders = expectedMacroIds.map((_, idx) => `?${idx + 1}`).join(",");
+    const query = `SELECT id FROM market_events WHERE id IN (${placeholders})`;
+    try {
+      const { results } = await db.prepare(query).bind(...expectedMacroIds).all();
+      macroPresentIds = (results || []).map((row) => String(row?.id || ""));
+    } catch (err) {
+      return { ok: false, error: `macro_lookup_failed:${String(err?.message || err).slice(0, 200)}` };
+    }
+  }
+  const macroPresentSet = new Set(macroPresentIds);
+  const macroMissingIds = expectedMacroIds.filter((id) => !macroPresentSet.has(id));
+
+  // Earnings coverage: per-ticker row existence in the window.
+  const tickerCoverage = {};
+  const missingTickers = [];
+  const coveredTickers = [];
+  if (tickers.length > 0) {
+    // D1 accepts batched IN clauses fine for our typical basket sizes (<= 100).
+    const placeholders = tickers.map((_, idx) => `?${idx + 3}`).join(",");
+    const query = `
+      SELECT ticker, COUNT(*) AS n, MIN(date) AS min_date, MAX(date) AS max_date
+      FROM market_events
+      WHERE event_type = 'earnings'
+        AND date >= ?1 AND date <= ?2
+        AND ticker IN (${placeholders})
+      GROUP BY ticker
+    `;
+    try {
+      const { results } = await db.prepare(query).bind(startDate, endDate, ...tickers).all();
+      const seen = new Map();
+      for (const row of results || []) {
+        const sym = String(row?.ticker || "").toUpperCase();
+        if (!sym) continue;
+        seen.set(sym, {
+          count: Number(row?.n) || 0,
+          min_date: row?.min_date || null,
+          max_date: row?.max_date || null,
+        });
+      }
+      for (const sym of tickers) {
+        const info = seen.get(sym);
+        const covered = !!info && info.count > 0;
+        tickerCoverage[sym] = {
+          covered,
+          count: info?.count || 0,
+          min_date: info?.min_date || null,
+          max_date: info?.max_date || null,
+        };
+        if (covered) coveredTickers.push(sym);
+        else missingTickers.push(sym);
+      }
+    } catch (err) {
+      return { ok: false, error: `earnings_lookup_failed:${String(err?.message || err).slice(0, 200)}` };
+    }
+  }
+
+  const macroCovered = macroMissingIds.length === 0;
+  const earningsCovered = tickers.length === 0 || missingTickers.length === 0;
+  const fullyCovered = macroCovered && earningsCovered;
+
+  return {
+    ok: true,
+    start_date: startDate,
+    end_date: endDate,
+    fully_covered: fullyCovered,
+    macro: {
+      covered: macroCovered,
+      expected: expectedMacroIds.length,
+      present: macroPresentIds.length,
+      missing_ids: macroMissingIds,
+    },
+    earnings: {
+      covered: earningsCovered,
+      requested_tickers: tickers,
+      covered_tickers: coveredTickers,
+      missing_tickers: missingTickers,
+      coverage: tickerCoverage,
+    },
+  };
+}
+
 export async function seedHistoricalMarketEvents(env, options = {}) {
   const db = env?.DB;
   if (!db) return { ok: false, error: "d1_not_configured" };
@@ -371,7 +492,7 @@ export async function seedHistoricalMarketEvents(env, options = {}) {
   const nowTs = Date.now();
 
   const earningsTickers = includeEarnings
-    ? getEligibleEarningsTickers({ ticker, offset, limit, allTickers })
+    ? getEligibleEarningsTickers({ ticker, tickers: options.tickers, offset, limit, allTickers })
     : [];
 
   let macroSeeded = 0;

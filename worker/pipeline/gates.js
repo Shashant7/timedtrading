@@ -37,10 +37,21 @@ export function runUniversalGates(ctx) {
   }
 
   // Gate 3: Ticker blacklist (applies to all engines)
-  const daBlacklist = daCfg.deep_audit_ticker_blacklist;
-  if (Array.isArray(daBlacklist) && daBlacklist.length > 0) {
-    if (daBlacklist.includes(ticker)) {
-      return { pass: false, reason: "da_ticker_blacklisted", ticker };
+  // Accept JSON-array, CSV, or bare single-ticker strings so that pinned
+  // backtest_run_config values like "ABT" or "[\"ABT\"]" behave identically.
+  // Previously this gate only fired when the value was already an Array, which
+  // silently bypassed the blacklist any time JSON.parse() fell through to the
+  // raw string form during replay runtime loading.
+  const daBlacklistRaw = daCfg.deep_audit_ticker_blacklist;
+  const daBlacklist = Array.isArray(daBlacklistRaw)
+    ? daBlacklistRaw.map((t) => String(t || "").trim().toUpperCase()).filter(Boolean)
+    : typeof daBlacklistRaw === "string" && daBlacklistRaw.trim().length > 0
+      ? daBlacklistRaw.split(",").map((t) => String(t || "").trim().toUpperCase()).filter(Boolean)
+      : [];
+  if (daBlacklist.length > 0) {
+    const symNorm = String(ticker || "").toUpperCase();
+    if (daBlacklist.includes(symNorm)) {
+      return { pass: false, reason: "da_ticker_blacklisted", ticker: symNorm };
     }
   }
 

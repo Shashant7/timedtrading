@@ -1,6 +1,29 @@
 export const REPLAY_DA_KEYS = [
   "deep_audit_short_min_rank", "deep_audit_ticker_blacklist", "deep_audit_max_loss_pct", "deep_audit_sl_cap_mult", "deep_audit_sl_floor_mult", "deep_audit_rsi_tp_delay", "deep_audit_avoid_hours", "deep_audit_block_regime", "deep_audit_vix_ceiling", "deep_audit_regime_size_mult", "deep_audit_min_hold_regime_exit_hours", "deep_audit_loss_cooldown_hours", "deep_audit_min_htf_score", "deep_audit_momentum_elite_rank_boost", "deep_audit_breakout_daily_level_enabled", "deep_audit_breakout_atr_breakout_enabled", "deep_audit_breakout_ema_stack_enabled", "deep_audit_breakout_min_rr", "deep_audit_breakout_min_entry_quality", "deep_audit_opening_noise_end_minute", "deep_audit_min_1h_bias", "deep_audit_min_4h_bias", "deep_audit_ltf_momentum_min_bias", "deep_audit_ltf_momentum_min_rsi", "deep_audit_ripster_opening_noise_end_minute", "deep_audit_ltf_rsi_floor", "deep_audit_min_ltf_ema_depth", "deep_audit_post_trim_breakeven", "deep_audit_stall_max_hours", "deep_audit_stall_breakeven_pnl_pct", "deep_audit_stall_force_close_hours", "deep_audit_soft_fuse_defer_min_1h_depth", "deep_audit_runner_trail_pct", "deep_audit_post_trim_trail_pct", "deep_audit_stale_runner_bars", "deep_audit_momentum_fade_exit", "deep_audit_min_hold_before_mgmt_exit_min", "deep_audit_tp_atr_override", "deep_audit_phase_exit_enabled", "deep_audit_atr_exhaustion_exit", "deep_audit_rvol_ceiling", "deep_audit_rvol_ceiling_short", "deep_audit_rvol_high_threshold", "deep_audit_rvol_high_size_mult", "deep_audit_danger_max_signals", "deep_audit_danger_ema_depth_min", "deep_audit_danger_vix_threshold", "deep_audit_danger_min_st_aligned", "deep_audit_danger_size_mult", "deep_audit_danger_size_threshold", "deep_audit_danger_div_enabled", "deep_audit_div_exit_enabled", "deep_audit_div_exit_min_strength", "deep_audit_div_pivot_lookback", "deep_audit_div_max_age_bars", "deep_audit_div_runner_trail_pct", "deep_audit_mean_revert_td9_enabled", "deep_audit_td_exit_enabled", "deep_audit_td_exit_trail_pct", "deep_audit_td_ltf_trail_pct", "deep_audit_mfe_safety_trim_pct", "deep_audit_max_runner_drawdown_pct", "deep_audit_doa_early_exit_enabled", "deep_audit_confirmed_min_rank", "deep_audit_parity_defer_confirmed_opening_minutes", "deep_audit_legacy_momentum_precedence", "deep_audit_legacy_momentum_min_rr", "deep_audit_legacy_momentum_relax_trigger", "deep_audit_min_entry_quality", "deep_audit_hard_loss_cap", "deep_audit_hard_loss_cap_pct", "deep_audit_breakeven_mfe_threshold", "deep_audit_breakeven_skip_trimmed_runner", "deep_audit_parity_runner_tp_full_only", "deep_audit_parity_skip_stall_force_close", "deep_audit_parity_skip_sl_breach", "deep_audit_parity_no_reentry_after_tp_full_hours", "tier_risk_map", "grade_risk_map", "smart_runner_exit_enabled", "smart_runner_swing_atr_proximity", "smart_runner_min_bars_post_trim", "rank_gate_mode", "doa_gate_enabled", "doa_gate_ema_depth_threshold", "doa_gate_ticker_blacklist", "ai_cio_enabled", "ai_cio_replay_enabled", "ai_cio_reference_enabled", "short_min_rank", "short_require_daily_st_aligned", "short_min_4h_ema_depth", "min_entry_confidence", "entry_ticker_blacklist", "choppy_regime_rank_floor", "tt_spy_directional_gate", "tt_pdz_hard_gate", "deep_audit_phase_peak_extreme", "deep_audit_phase_decline_extreme", "deep_audit_bias_spread_min",
-  "smart_runner_td_exhaustion_support_hold_enabled", "deep_audit_phase_leave_runner_trail_atr_mult", "deep_audit_min_minutes_since_entry_before_exit_min", "deep_audit_phase_decline_distrib", "deep_audit_phase_peak_distrib", "deep_audit_peak_reaction_lock_enabled", "deep_audit_pre_earnings_entry_block_enabled", "deep_audit_pullback_bull_state_ltf_conflict_guard_enabled", "deep_audit_pullback_bull_state_ltf_conflict_avg_bias_max", "deep_audit_pullback_min_bearish_count", "deep_audit_pullback_selective_enabled", "deep_audit_pullback_non_prime_min_rank", "deep_audit_pullback_prime_min_rank", "deep_audit_continuation_trigger_enabled", "deep_audit_continuation_trigger_include_tickers", "deep_audit_continuation_trigger_min_rank", "deep_audit_continuation_trigger_max_completion", "deep_audit_continuation_trigger_max_phase", "deep_audit_repeat_churn_guard_enabled", "deep_audit_repeat_churn_guard_include_tickers", "deep_audit_runner_stale_force_close_hours", "deep_audit_ripster_chase_dist_to_cloud_pct", "deep_audit_ripster_chase_rsi10_long", "deep_audit_ripster_chase_rsi30_long", "deep_audit_ripster_momentum_heat_rsi30", "deep_audit_ripster_momentum_heat_rsi1h", "deep_audit_ripster_pullback_trigger_noise_max_loss_pct", "deep_audit_ripster_trigger_noise_max_loss_pct", "deep_audit_reference_exact_entry_leniency", "deep_audit_reference_exact_tolerance_minutes", "deep_audit_swing_checklist_v1", "deep_audit_swing_phase_early_max", "deep_audit_swing_phase_near_zero_abs", "deep_audit_swing_require_squeeze_build", "deep_audit_variant_guardrails_v3", "deep_audit_variant_max_loss_pct", "deep_audit_variant_min_rank", "deep_audit_variant_min_rr", "deep_audit_variant_regime_exit_min_age_min", "deep_audit_agq_pullback_exception_enabled", "deep_audit_agq_pullback_exception_include_tickers", "deep_audit_agq_pullback_weak_consensus_avg_bias_max", "deep_audit_agq_pullback_late_filled_gap_min_bars_since_open", "deep_audit_agq_pullback_late_filled_gap_entry_quality_max", "golden_julaug_reference_run_id", "live_config_run_id", "member_ticker_list", "consensus_signal_weights", "consensus_tf_weights", "scoring_weight_adj",
+  "smart_runner_td_exhaustion_support_hold_enabled", "deep_audit_phase_leave_runner_trail_atr_mult", "deep_audit_min_minutes_since_entry_before_exit_min", "deep_audit_phase_decline_distrib", "deep_audit_phase_peak_distrib", "deep_audit_peak_reaction_lock_enabled", "deep_audit_pre_earnings_entry_block_enabled", "deep_audit_pullback_bull_state_ltf_conflict_guard_enabled", "deep_audit_pullback_bull_state_ltf_conflict_avg_bias_max", "deep_audit_pullback_min_bearish_count", "deep_audit_pullback_selective_enabled", "deep_audit_pullback_non_prime_min_rank", "deep_audit_pullback_prime_min_rank", "deep_audit_continuation_trigger_enabled", "deep_audit_continuation_trigger_include_tickers", "deep_audit_continuation_trigger_min_rank", "deep_audit_continuation_trigger_max_completion", "deep_audit_continuation_trigger_max_phase", "deep_audit_repeat_churn_guard_enabled", "deep_audit_repeat_churn_guard_include_tickers", "deep_audit_abt_long_quality_guard_enabled", "deep_audit_abt_long_quality_guard_include_tickers", "deep_audit_abt_long_quality_guard_avg_bias_max", "deep_audit_momentum_unfilled_gap_open_chase_guard_enabled", "deep_audit_momentum_unfilled_gap_open_chase_include_tickers", "deep_audit_momentum_unfilled_gap_open_chase_min_gap_pct", "deep_audit_momentum_unfilled_gap_open_chase_max_bars_since_open", "deep_audit_runner_stale_force_close_hours", "deep_audit_ripster_chase_dist_to_cloud_pct", "deep_audit_ripster_chase_rsi10_long", "deep_audit_ripster_chase_rsi30_long", "deep_audit_ripster_momentum_heat_rsi30", "deep_audit_ripster_momentum_heat_rsi1h", "deep_audit_ripster_pullback_trigger_noise_max_loss_pct", "deep_audit_ripster_trigger_noise_max_loss_pct", "deep_audit_reference_exact_entry_leniency", "deep_audit_reference_exact_tolerance_minutes", "deep_audit_swing_checklist_v1", "deep_audit_swing_phase_early_max", "deep_audit_swing_phase_near_zero_abs", "deep_audit_swing_require_squeeze_build", "deep_audit_variant_guardrails_v3", "deep_audit_variant_max_loss_pct", "deep_audit_variant_min_rank", "deep_audit_variant_min_rr", "deep_audit_variant_regime_exit_min_age_min", "deep_audit_agq_pullback_exception_enabled", "deep_audit_agq_pullback_exception_include_tickers", "deep_audit_agq_pullback_weak_consensus_avg_bias_max", "deep_audit_agq_pullback_late_filled_gap_min_bars_since_open", "deep_audit_agq_pullback_late_filled_gap_entry_quality_max",
+  // R1 (2026-04-17): configurable PDZ max-loss window before strict normal floor takes over
+  "deep_audit_max_loss_pdz_window_min",
+  // R2 (2026-04-17): end-of-day flatten guard for trimmed underwater positions
+  "deep_audit_eod_trimmed_underwater_flatten_enabled",
+  "deep_audit_eod_trimmed_underwater_min_trim_pct",
+  "deep_audit_eod_trimmed_underwater_window_min",
+  "deep_audit_eod_trimmed_underwater_min_age_min",
+  // R2 v3 (2026-04-17): structural MFE-decay guard — fires anywhere with 1H ST flip
+  "deep_audit_mfe_decay_flatten_enabled",
+  "deep_audit_mfe_decay_peak_min",
+  "deep_audit_mfe_decay_giveback_pct_max",
+  "deep_audit_mfe_decay_min_age_market_min",
+  "deep_audit_mfe_decay_require_1h_st_flip",
+  // R5 (2026-04-17): tt_momentum entry-path bias — protect tt_pullback as big-winner source
+  "deep_audit_tt_momentum_reject_speculative_grade",
+  "deep_audit_tt_momentum_reject_correction_transition",
+  // R6 (2026-04-17): MFE-proportional stop trail — lock in progressively more of the peak as MFE grows
+  "deep_audit_mfe_trail_enabled",
+  "deep_audit_mfe_trail_min_pct",
+  "deep_audit_mfe_trail_ratio_low",
+  "deep_audit_mfe_trail_ratio_mid",
+  "deep_audit_mfe_trail_ratio_high",
+  "golden_julaug_reference_run_id", "live_config_run_id", "member_ticker_list", "consensus_signal_weights", "consensus_tf_weights", "scoring_weight_adj",
 ];
 
 const REPLAY_CFG_KEYS = [
@@ -14,23 +37,31 @@ const REPLAY_CFG_KEYS = [
 ];
 
 async function loadRunConfigSubset(db, runId, keys = []) {
+  // Read all rows for the run and filter in JS. The previous implementation
+  // used an `IN (?,?,…)` filter which exceeds Cloudflare D1's bind-parameter
+  // cap (~100) once REPLAY_DA_KEYS passes ~90 entries, silently throwing and
+  // forcing every pinned-config consumer into a live-model fallback.
   const rid = String(runId || "").trim();
-  if (!db || !rid || !Array.isArray(keys) || keys.length === 0) return null;
+  if (!db || !rid) return null;
   try {
-    const uniqKeys = [...new Set(keys.map((key) => String(key || "").trim()).filter(Boolean))];
-    if (!uniqKeys.length) return null;
-    const placeholders = uniqKeys.map((_, idx) => `?${idx + 2}`).join(",");
     const rows = (await db.prepare(
-      `SELECT config_key, config_value
-         FROM backtest_run_config
-        WHERE run_id = ?1
-          AND config_key IN (${placeholders})`
-    ).bind(rid, ...uniqKeys).all())?.results || [];
+      `SELECT config_key, config_value FROM backtest_run_config WHERE run_id = ?1`
+    ).bind(rid).all())?.results || [];
     if (!rows.length) return null;
+    const allowed = Array.isArray(keys) && keys.length > 0
+      ? new Set(keys.map((key) => String(key || "").trim()).filter(Boolean))
+      : null;
     const out = {};
-    for (const row of rows) out[row.config_key] = row.config_value;
-    return out;
-  } catch {
+    for (const row of rows) {
+      const key = row?.config_key;
+      if (!key) continue;
+      if (!allowed || allowed.has(key)) out[key] = row.config_value;
+    }
+    return Object.keys(out).length ? out : null;
+  } catch (error) {
+    console.warn(
+      `[REPLAY] loadRunConfigSubset failed for run_id=${rid}: ${String(error?.message || error).slice(0, 300)}`
+    );
     return null;
   }
 }
@@ -46,9 +77,71 @@ async function loadActiveExperimentRunId(db) {
         LIMIT 1`
     ).first();
     return String(row?.run_id || "").trim() || null;
-  } catch {
+  } catch (error) {
+    console.warn(
+      `[REPLAY] loadActiveExperimentRunId failed: ${String(error?.message || error).slice(0, 300)}`
+    );
     return null;
   }
+}
+
+async function runRecordExists(db, runId) {
+  const rid = String(runId || "").trim();
+  if (!db || !rid) return false;
+  try {
+    const row = await db.prepare(
+      `SELECT run_id
+         FROM backtest_runs
+        WHERE run_id = ?1
+        LIMIT 1`
+    ).bind(rid).first();
+    return String(row?.run_id || "").trim() === rid;
+  } catch (error) {
+    console.warn(
+      `[REPLAY] runRecordExists failed for run_id=${rid}: ${String(error?.message || error).slice(0, 300)}`
+    );
+    return false;
+  }
+}
+
+function extractReplayLockReason(lockValue) {
+  const raw = String(lockValue || "").trim();
+  if (!raw) return null;
+  const atIdx = raw.indexOf("@");
+  return atIdx >= 0 ? raw.slice(0, atIdx).trim() || null : raw;
+}
+
+function extractRunnerRunId(lockValue) {
+  const reason = extractReplayLockReason(lockValue);
+  if (!reason) return null;
+  if (reason.startsWith("backtest_runner:")) {
+    return reason.slice("backtest_runner:".length).trim() || null;
+  }
+  return reason;
+}
+
+export async function resolveReplayRunId(db, replayLockVal, opts = {}) {
+  const runIdHint = String(opts?.runIdHint || "").trim() || null;
+  if (runIdHint) {
+    return { runId: runIdHint, source: "run_id_hint" };
+  }
+
+  const rawLock = String(replayLockVal || "").trim() || null;
+  if (rawLock && await runRecordExists(db, rawLock)) {
+    return { runId: rawLock, source: "lock" };
+  }
+
+  const runnerRunId = extractRunnerRunId(rawLock);
+  if (runnerRunId && await runRecordExists(db, runnerRunId)) {
+    return { runId: runnerRunId, source: "lock_reason" };
+  }
+
+  const activeRunId = await loadActiveExperimentRunId(db);
+  if (activeRunId) {
+    return { runId: activeRunId, source: "active_experiment_slot" };
+  }
+
+  return { runId: rawLock, source: rawLock ? "lock_fallback" : "none" };
 }
 
 export async function resolveReplayPinnedConfig(db, replayLockVal, keys = [], opts = {}) {
@@ -70,6 +163,14 @@ export async function resolveReplayPinnedConfig(db, replayLockVal, keys = [], op
     }
   }
 
+  // Explicitly flag the live-model fallback: this is the state that silently
+  // masked Bug C for days. If the caller expected a pinned run snapshot, the
+  // absence of this line in tails is the first hint something is off.
+  if (lockRunId) {
+    console.warn(
+      `${logPrefix} No pinned config found for run_id=${lockRunId}; falling back to live model_config`
+    );
+  }
   return { runId: lockRunId, config: null, source: "live_fallback" };
 }
 
@@ -82,7 +183,10 @@ async function loadModelConfigValue(db, key) {
   try {
     const row = await db.prepare(`SELECT config_value FROM model_config WHERE config_key = ?1`).bind(String(key)).first();
     return row?.config_value ?? null;
-  } catch {
+  } catch (error) {
+    console.warn(
+      `[REPLAY] loadModelConfigValue failed for key=${String(key)}: ${String(error?.message || error).slice(0, 300)}`
+    );
     return null;
   }
 }
@@ -161,7 +265,11 @@ export async function loadReplayRuntimeConfig(args = {}) {
       }
     }
     if (cfgValues[5]) replayCalibratedRankMin = Number(cfgValues[5]) || 0;
-  } catch {}
+  } catch (error) {
+    console.warn(
+      `[REPLAY] adaptive entry/regime/SLTP config load failed (runConfig=${replayRunConfig ? "pinned" : "live"}): ${String(error?.message || error).slice(0, 300)}`
+    );
+  }
 
   let deepAuditConfig = {};
   try {
@@ -172,14 +280,25 @@ export async function loadReplayRuntimeConfig(args = {}) {
         try { deepAuditConfig[key] = JSON.parse(value); } catch { deepAuditConfig[key] = value; }
       }
     } else {
+      // Read all model_config rows and post-filter in JS. The previous
+      // `WHERE config_key IN (?,?,…)` form exceeds D1's bind-parameter cap
+      // once REPLAY_DA_KEYS passes ~90 entries and silently returns nothing,
+      // leaving deepAuditConfig empty for the entire run.
+      const daAllowed = new Set(REPLAY_DA_KEYS);
       const daRows = (await db.prepare(
-        `SELECT config_key, config_value FROM model_config WHERE config_key IN (${REPLAY_DA_KEYS.map((_, i) => `?${i + 1}`).join(",")})`
-      ).bind(...REPLAY_DA_KEYS).all())?.results || [];
+        `SELECT config_key, config_value FROM model_config`
+      ).all())?.results || [];
       for (const row of daRows) {
-        try { deepAuditConfig[row.config_key] = JSON.parse(row.config_value); } catch { deepAuditConfig[row.config_key] = row.config_value; }
+        const key = row?.config_key;
+        if (!key || !daAllowed.has(key)) continue;
+        try { deepAuditConfig[key] = JSON.parse(row.config_value); } catch { deepAuditConfig[key] = row.config_value; }
       }
     }
-  } catch {}
+  } catch (error) {
+    console.warn(
+      `[REPLAY] deepAuditConfig load failed (runConfig=${replayRunConfig ? "pinned" : "live"}): ${String(error?.message || error).slice(0, 300)}`
+    );
+  }
 
   let dynamicEngineRules = null;
   try {
@@ -188,7 +307,11 @@ export async function loadReplayRuntimeConfig(args = {}) {
       warnPrefix: logPrefix,
     });
     if (value) dynamicEngineRules = JSON.parse(value);
-  } catch {}
+  } catch (error) {
+    console.warn(
+      `${logPrefix} dynamic_engine_rules load/parse failed: ${String(error?.message || error).slice(0, 300)}`
+    );
+  }
 
   let referenceExecutionMap = null;
   try {
@@ -197,7 +320,11 @@ export async function loadReplayRuntimeConfig(args = {}) {
       warnPrefix: logPrefix,
     });
     if (value) referenceExecutionMap = JSON.parse(value);
-  } catch {}
+  } catch (error) {
+    console.warn(
+      `${logPrefix} reference_execution_map load/parse failed: ${String(error?.message || error).slice(0, 300)}`
+    );
+  }
 
   let scenarioExecutionPolicy = null;
   try {
@@ -206,12 +333,20 @@ export async function loadReplayRuntimeConfig(args = {}) {
       warnPrefix: logPrefix,
     });
     if (value) scenarioExecutionPolicy = JSON.parse(value);
-  } catch {}
+  } catch (error) {
+    console.warn(
+      `${logPrefix} scenario_execution_policy load/parse failed: ${String(error?.message || error).slice(0, 300)}`
+    );
+  }
 
   let goldenProfiles = null;
   try {
     goldenProfiles = (await KV.get("timed:calibration:golden-profiles", "json"))?.profiles || null;
-  } catch {}
+  } catch (error) {
+    console.warn(
+      `${logPrefix} goldenProfiles KV fetch failed: ${String(error?.message || error).slice(0, 300)}`
+    );
+  }
 
   if (replayEnv) {
     replayEnv._adaptiveEntryGates = replayAdaptiveEntryGates;
@@ -260,7 +395,11 @@ export async function loadReplayTickerProfiles(db, batchTickers = [], opts = {})
     if (Object.keys(out).length > 0) {
       console.log(`${logPrefix} Loaded ${Object.keys(out).length} ticker profiles for personality-aware SL/TP`);
     }
-  } catch {}
+  } catch (error) {
+    console.warn(
+      `${logPrefix} loadReplayTickerProfiles failed for ${batchTickers.length} tickers: ${String(error?.message || error).slice(0, 300)}`
+    );
+  }
   return out;
 }
 
@@ -383,7 +522,11 @@ export async function loadReplayTickerState(args = {}) {
         existing = JSON.parse(row.payload_json);
         console.log(`${logPrefix} Loaded state for ${ticker} from D1 (KV was empty)`);
       }
-    } catch {}
+    } catch (error) {
+      console.warn(
+        `${logPrefix} ticker_latest D1 load failed for ${String(ticker).toUpperCase()}: ${String(error?.message || error).slice(0, 300)}`
+      );
+    }
   }
   return existing || {};
 }
@@ -424,8 +567,10 @@ export async function prepareCandleReplayBatch(args = {}) {
   }
 
   const replayLockVal = await KV.get("timed:replay:lock") || null;
-  const replayConfigRunHint = String(url.searchParams.get("runId") || "").trim() || replayLockVal || null;
-  const replayManifest = replayLockVal ? await loadRunManifest(db, replayLockVal) : null;
+  const runIdHint = String(url.searchParams.get("runId") || "").trim() || null;
+  const { runId: replayRunId } = await resolveReplayRunId(db, replayLockVal, { runIdHint });
+  const replayConfigRunHint = replayRunId || replayLockVal || null;
+  const replayManifest = replayRunId ? await loadRunManifest(db, replayRunId) : null;
   const replayTradeScope = buildReplayTradeScope(replayManifest);
   const cleanReplayLane = !!(freshRun || cleanSlate || isRunManifestCleanLane(replayManifest));
   await kvPutJSON(KV, "timed:replay:running", { since: Date.now(), date: dateParam, offset: tickerOffset, fullDay: !!fullDay });
@@ -452,7 +597,11 @@ export async function prepareCandleReplayBatch(args = {}) {
       for (const tbl of ["positions", "execution_actions", "lots", "alerts", "ticker_latest", "account_ledger", "investor_positions", "investor_lots", "portfolio_snapshots"]) {
         try {
           await db.prepare(`DELETE FROM ${tbl}`).run();
-        } catch {}
+        } catch (error) {
+          console.warn(
+            `[REPLAY cleanSlate] DELETE FROM ${tbl} failed (table may not exist): ${String(error?.message || error).slice(0, 200)}`
+          );
+        }
       }
     }
   }
@@ -562,6 +711,7 @@ export async function prepareCandleReplayBatch(args = {}) {
 
   return {
     replayLockVal,
+    replayRunId,
     replayConfigRunHint,
     replayManifest,
     replayTradeScope,

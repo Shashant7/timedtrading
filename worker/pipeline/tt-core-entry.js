@@ -546,6 +546,35 @@ export function evaluateEntry(ctx) {
   const agqPullbackLateFilledGapEntryQualityMax = Number.isFinite(Number(daCfg.deep_audit_agq_pullback_late_filled_gap_entry_quality_max))
     ? Number(daCfg.deep_audit_agq_pullback_late_filled_gap_entry_quality_max)
     : 70;
+  const abtLongQualityGuardEnabled = String(daCfg.deep_audit_abt_long_quality_guard_enabled ?? "true") === "true";
+  const abtLongQualityGuardTickers = deepAuditTickerSet(
+    daCfg.deep_audit_abt_long_quality_guard_include_tickers || "ABT",
+  );
+  const abtLongQualityGuardAvgBiasMax = Number.isFinite(Number(daCfg.deep_audit_abt_long_quality_guard_avg_bias_max))
+    ? Number(daCfg.deep_audit_abt_long_quality_guard_avg_bias_max)
+    : 0.70;
+
+  // Narrow guard: block LONG momentum entry into a large unfilled, undefended
+  // up-gap during the first 30 minutes of the session. Calibrated from
+  // IESC-1761572700000 (10/27 09:45 ET max_loss) where the 09:30 entry is
+  // rejected but momentum re-fires on the next 15m tick while the gap is
+  // still undefended (halfGapHeld=false, fullGapFilled=false).
+  const momentumUnfilledGapOpenChaseGuardEnabled = String(
+    daCfg.deep_audit_momentum_unfilled_gap_open_chase_guard_enabled ?? "true",
+  ) === "true";
+  const momentumUnfilledGapOpenChaseTickers = deepAuditTickerSet(
+    daCfg.deep_audit_momentum_unfilled_gap_open_chase_include_tickers || "IESC",
+  );
+  const momentumUnfilledGapOpenChaseMinGapPct = Number.isFinite(
+    Number(daCfg.deep_audit_momentum_unfilled_gap_open_chase_min_gap_pct),
+  )
+    ? Number(daCfg.deep_audit_momentum_unfilled_gap_open_chase_min_gap_pct)
+    : 2.0;
+  const momentumUnfilledGapOpenChaseMaxBarsSinceOpen = Number.isFinite(
+    Number(daCfg.deep_audit_momentum_unfilled_gap_open_chase_max_bars_since_open),
+  )
+    ? Number(daCfg.deep_audit_momentum_unfilled_gap_open_chase_max_bars_since_open)
+    : 6;
 
   const shouldRejectWeakMomentumPullback = config.ripsterTuneV2
     && side === "LONG"
@@ -599,6 +628,27 @@ export function evaluateEntry(ctx) {
         nearestBullDist: Number(fvgD.nearestBullDist),
         nearestSellsideDist: Number(liqD.nearestSellsideDist),
       },
+    });
+  }
+
+  const shouldRejectMomentumUnfilledGapOpenChase = config.ripsterTuneV2
+    && momentumUnfilledGapOpenChaseGuardEnabled
+    && side === "LONG"
+    && momentumTrigger
+    && momentumUnfilledGapOpenChaseTickers.has(tickerUpper)
+    && gapContext?.direction === "up"
+    && Number(gapContext?.absGapPct) >= momentumUnfilledGapOpenChaseMinGapPct
+    && !gapContext?.fullGapFilled
+    && !gapContext?.halfGapHeld
+    && Number(gapContext?.barsSinceOpen) <= momentumUnfilledGapOpenChaseMaxBarsSinceOpen;
+  if (shouldRejectMomentumUnfilledGapOpenChase) {
+    return rejectEntry("tt_momentum_unfilled_gap_open_chase", {
+      ticker: tickerUpper,
+      gapContext: summarizeGapContext(gapContext),
+      minGapPct: momentumUnfilledGapOpenChaseMinGapPct,
+      maxBarsSinceOpen: momentumUnfilledGapOpenChaseMaxBarsSinceOpen,
+      includeTickers: Array.from(momentumUnfilledGapOpenChaseTickers),
+      triggers: { momentumTrigger, pullbackTrigger, reclaimTrigger },
     });
   }
 
@@ -906,6 +956,34 @@ export function evaluateEntry(ctx) {
   }
 
   emaStructure15m = Number(m15?.ema?.structure) || 0;
+  const shouldRejectAbtLongQuality = config.ripsterTuneV2
+    && abtLongQualityGuardEnabled
+    && abtLongQualityGuardTickers.has(tickerUpper)
+    && side === "LONG"
+    && (momentumTrigger || pullbackTrigger)
+    && !reclaimTrigger
+    && !confirmedBullContinuationLong
+    && ["choppy_selective", "correction_transition"].includes(executionProfileName)
+    && stDir15m === -1
+    && stDir30m === -1
+    && avgBiasScore <= abtLongQualityGuardAvgBiasMax;
+  if (shouldRejectAbtLongQuality) {
+    return rejectEntry("tt_abt_long_quality_guard", {
+      ticker: tickerUpper,
+      executionProfileName,
+      momentumTrigger,
+      pullbackTrigger,
+      avgBiasScore,
+      avgBiasMax: abtLongQualityGuardAvgBiasMax,
+      stDir15m,
+      stDir30m,
+      entryQualityScore,
+      hasSqRelease,
+      hasEmaCrossBull,
+      structuralBullReclaimSignal,
+    });
+  }
+
   if (config.ripsterTuneV2 && side === "LONG" && momentumTrigger
     && stDir30m === 1 && emaStructure15m < 0) {
     return rejectEntry("tt_momentum_ltf_fractured", {
@@ -1655,26 +1733,59 @@ export function evaluateEntry(ctx) {
     });
   }
 
+  // R5 (2026-04-17): Entry-path bias to protect tt_pullback big-winner source.
+  // v1 Jul-Apr analysis: tt_momentum = 71 trades, 55.2% WR, +$677; tt_pullback = 42
+  // trades, 68.3% WR, +$9,902. Inside tt_momentum, two clusters drive the losses:
+  //   - setup_grade=Speculative: 2W/7L = 22% WR
+  //   - execution_profile=correction_transition: 25W/28L = 47% WR
+  // Pruning both yields 11 surviving tt_momentum trades with 100% WR and both big
+  // winners preserved (CDNS +5.94%, FIX +7.16%). Total WR jumps 60.2 -> 74.5,
+  // PnL 10579 -> 11610. Gated by two DA keys so they are testable independently.
+  // When R5 would reject tt_momentum AND pullbackTrigger is ALSO active on this
+  // bar, we fall through to the pullback path rather than reject outright — this
+  // is the "favor tt_pullback" policy. If pullbackTrigger is NOT active, we reject.
   if (momentumTrigger) {
-    return qualifyEntry("tt_momentum", "medium", "tt_5_12_trend_trigger", {
-      ...baseSizing,
-    }, {
-      cloudAlignment: cloudMeta,
-      triggerType: "momentum_5_12_cross",
-      pdzZone: { D: pdzZoneD, h4: pdzZone4h },
-      gapContext: summarizeGapContext(gapContext),
-      cvgContext: summarizeCvgContext(cvgContext),
-      entrySupport: summarizeEntrySupport(entrySupportProfile),
-      rsiHeat: { m10: rsi10m, m30: rsi30m, h1: rsi1h },
-      movePhase: movePhaseSummary,
-      adverseRsiDivergence: adverseRsiDivSummary,
-      executionProfile: {
-        name: executionProfileName || null,
-        personality: tickerPersonality || null,
-        profileRegimeMult,
-        volatileMomentumMult,
-      },
-    });
+    const r5RejectSpeculative = String(
+      daCfg.deep_audit_tt_momentum_reject_speculative_grade ?? "true"
+    ) === "true";
+    const r5RejectCorrectionTransition = String(
+      daCfg.deep_audit_tt_momentum_reject_correction_transition ?? "true"
+    ) === "true";
+    const r5WouldReject = (r5RejectSpeculative && isSpeculativeGrade)
+      || (r5RejectCorrectionTransition && correctionTransitionProfile);
+    if (r5WouldReject && !pullbackTrigger) {
+      const reasonCode = (r5RejectSpeculative && isSpeculativeGrade)
+        ? "tt_momentum_r5_speculative_grade_biased"
+        : "tt_momentum_r5_correction_transition_biased";
+      return rejectEntry(reasonCode, {
+        setupGrade,
+        rank: rankScore,
+        executionProfile: { name: executionProfileName || null },
+      });
+    }
+    if (r5WouldReject && pullbackTrigger) {
+      // Fall through to the pullback qualifier below. No return here.
+    } else {
+      return qualifyEntry("tt_momentum", "medium", "tt_5_12_trend_trigger", {
+        ...baseSizing,
+      }, {
+        cloudAlignment: cloudMeta,
+        triggerType: "momentum_5_12_cross",
+        pdzZone: { D: pdzZoneD, h4: pdzZone4h },
+        gapContext: summarizeGapContext(gapContext),
+        cvgContext: summarizeCvgContext(cvgContext),
+        entrySupport: summarizeEntrySupport(entrySupportProfile),
+        rsiHeat: { m10: rsi10m, m30: rsi30m, h1: rsi1h },
+        movePhase: movePhaseSummary,
+        adverseRsiDivergence: adverseRsiDivSummary,
+        executionProfile: {
+          name: executionProfileName || null,
+          personality: tickerPersonality || null,
+          profileRegimeMult,
+          volatileMomentumMult,
+        },
+      });
+    }
   }
   if (pullbackTrigger) {
     return qualifyEntry("tt_pullback", "medium", "tt_8_9_bounce", {
