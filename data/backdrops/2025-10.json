@@ -1,0 +1,588 @@
+{
+  "schema_version": "1.0",
+  "month": "2025-10",
+  "generated_at": "2026-04-17T22:18:33.268Z",
+  "window": {
+    "start": "2025-10-01",
+    "end": "2025-10-31"
+  },
+  "trading_days": [
+    "2025-10-01",
+    "2025-10-02",
+    "2025-10-03",
+    "2025-10-06",
+    "2025-10-07",
+    "2025-10-08",
+    "2025-10-09",
+    "2025-10-10",
+    "2025-10-13",
+    "2025-10-14",
+    "2025-10-15",
+    "2025-10-16",
+    "2025-10-17",
+    "2025-10-20",
+    "2025-10-21",
+    "2025-10-22",
+    "2025-10-23",
+    "2025-10-24",
+    "2025-10-27",
+    "2025-10-28",
+    "2025-10-29",
+    "2025-10-30",
+    "2025-10-31"
+  ],
+  "universe": {
+    "tier1": [
+      "SPY",
+      "QQQ",
+      "IWM",
+      "AAPL",
+      "MSFT",
+      "GOOGL",
+      "AMZN",
+      "META",
+      "NVDA",
+      "TSLA"
+    ],
+    "tier2": [
+      "AGQ",
+      "CDNS",
+      "ETN",
+      "FIX",
+      "GRNY",
+      "HUBS",
+      "IESC",
+      "MTZ",
+      "ON",
+      "PH",
+      "RIOT",
+      "SGI",
+      "SWK",
+      "XLY"
+    ]
+  },
+  "cycle": {
+    "label": "transitional",
+    "fractions": {
+      "HTF_BULL_LTF_BULL": 0.6348,
+      "BULL_PULLBACK": 0.0826,
+      "BEAR_LTF_BOUNCE": 0.0043,
+      "HTF_BEAR_LTF_BEAR": 0.2174,
+      "TRANSITIONAL": 0.0609
+    },
+    "method": "Tier-1 × trading-day joint EMA(20) daily + 4H bias vote"
+  },
+  "sector_leadership": {
+    "spy_ret_pct": 2.036,
+    "spy_prev_ret_pct": 4.047,
+    "by_sector": {
+      "XLK": {
+        "ret_pct": 5.643,
+        "rs_vs_spy_pct": 3.607
+      },
+      "XLF": {
+        "ret_pct": -1.91,
+        "rs_vs_spy_pct": -3.947
+      },
+      "XLE": {
+        "ret_pct": -1.354,
+        "rs_vs_spy_pct": -3.39
+      },
+      "XLY": {
+        "ret_pct": -0.502,
+        "rs_vs_spy_pct": -2.538
+      },
+      "XLI": {
+        "ret_pct": 0.819,
+        "rs_vs_spy_pct": -1.217
+      },
+      "XLV": {
+        "ret_pct": 0.544,
+        "rs_vs_spy_pct": -1.492
+      },
+      "XLP": {
+        "ret_pct": -2.518,
+        "rs_vs_spy_pct": -4.554
+      },
+      "XLU": {
+        "ret_pct": 1.192,
+        "rs_vs_spy_pct": -0.844
+      },
+      "XLRE": {
+        "ret_pct": -2.92,
+        "rs_vs_spy_pct": -4.956
+      },
+      "XLB": {
+        "ret_pct": -3.394,
+        "rs_vs_spy_pct": -5.43
+      },
+      "XLC": {
+        "ret_pct": -1.628,
+        "rs_vs_spy_pct": -3.664
+      }
+    },
+    "top": [
+      {
+        "etf": "XLK",
+        "label": "Technology",
+        "rs_vs_spy_pct": 3.607,
+        "ret_pct": 5.643,
+        "rotation_delta_pp": -0.837
+      },
+      {
+        "etf": "XLU",
+        "label": "Utilities",
+        "rs_vs_spy_pct": -0.844,
+        "ret_pct": 1.192,
+        "rotation_delta_pp": -0.569
+      },
+      {
+        "etf": "XLI",
+        "label": "Industrials",
+        "rs_vs_spy_pct": -1.217,
+        "ret_pct": 0.819,
+        "rotation_delta_pp": 0.392
+      }
+    ],
+    "bottom": [
+      {
+        "etf": "XLB",
+        "label": "Materials",
+        "rs_vs_spy_pct": -5.43,
+        "ret_pct": -3.394,
+        "rotation_delta_pp": 0.768
+      },
+      {
+        "etf": "XLRE",
+        "label": "Real Estate",
+        "rs_vs_spy_pct": -4.956,
+        "ret_pct": -2.92,
+        "rotation_delta_pp": -2.208
+      },
+      {
+        "etf": "XLP",
+        "label": "Consumer Staples",
+        "rs_vs_spy_pct": -4.554,
+        "ret_pct": -2.518,
+        "rotation_delta_pp": 2.32
+      }
+    ]
+  },
+  "regime_frequency": {
+    "counts": {
+      "HTF_BULL_LTF_BULL": 146,
+      "BULL_PULLBACK": 19,
+      "BEAR_LTF_BOUNCE": 1,
+      "HTF_BEAR_LTF_BEAR": 50,
+      "TRANSITIONAL": 14
+    },
+    "per_ticker": {
+      "SPY": {
+        "HTF_BULL_LTF_BULL": 17,
+        "BULL_PULLBACK": 0,
+        "BEAR_LTF_BOUNCE": 0,
+        "HTF_BEAR_LTF_BEAR": 2,
+        "TRANSITIONAL": 4
+      },
+      "QQQ": {
+        "HTF_BULL_LTF_BULL": 19,
+        "BULL_PULLBACK": 1,
+        "BEAR_LTF_BOUNCE": 0,
+        "HTF_BEAR_LTF_BEAR": 1,
+        "TRANSITIONAL": 2
+      },
+      "IWM": {
+        "HTF_BULL_LTF_BULL": 16,
+        "BULL_PULLBACK": 3,
+        "BEAR_LTF_BOUNCE": 0,
+        "HTF_BEAR_LTF_BEAR": 3,
+        "TRANSITIONAL": 1
+      },
+      "AAPL": {
+        "HTF_BULL_LTF_BULL": 17,
+        "BULL_PULLBACK": 1,
+        "BEAR_LTF_BOUNCE": 0,
+        "HTF_BEAR_LTF_BEAR": 4,
+        "TRANSITIONAL": 1
+      },
+      "MSFT": {
+        "HTF_BULL_LTF_BULL": 15,
+        "BULL_PULLBACK": 1,
+        "BEAR_LTF_BOUNCE": 0,
+        "HTF_BEAR_LTF_BEAR": 7,
+        "TRANSITIONAL": 0
+      },
+      "GOOGL": {
+        "HTF_BULL_LTF_BULL": 17,
+        "BULL_PULLBACK": 3,
+        "BEAR_LTF_BOUNCE": 0,
+        "HTF_BEAR_LTF_BEAR": 2,
+        "TRANSITIONAL": 1
+      },
+      "AMZN": {
+        "HTF_BULL_LTF_BULL": 8,
+        "BULL_PULLBACK": 0,
+        "BEAR_LTF_BOUNCE": 0,
+        "HTF_BEAR_LTF_BEAR": 12,
+        "TRANSITIONAL": 3
+      },
+      "META": {
+        "HTF_BULL_LTF_BULL": 8,
+        "BULL_PULLBACK": 0,
+        "BEAR_LTF_BOUNCE": 1,
+        "HTF_BEAR_LTF_BEAR": 13,
+        "TRANSITIONAL": 1
+      },
+      "NVDA": {
+        "HTF_BULL_LTF_BULL": 14,
+        "BULL_PULLBACK": 3,
+        "BEAR_LTF_BOUNCE": 0,
+        "HTF_BEAR_LTF_BEAR": 5,
+        "TRANSITIONAL": 1
+      },
+      "TSLA": {
+        "HTF_BULL_LTF_BULL": 15,
+        "BULL_PULLBACK": 7,
+        "BEAR_LTF_BOUNCE": 0,
+        "HTF_BEAR_LTF_BEAR": 1,
+        "TRANSITIONAL": 0
+      }
+    }
+  },
+  "cross_asset_vol": {
+    "spy_realized_vol": {
+      "note": "annualized stdev of SPY daily log returns within the month (in-sample proxy for VIX level)",
+      "annualized_pct": 14.067,
+      "prev_month_annualized_pct": 6.441,
+      "delta_pp": 7.626
+    },
+    "vix_proxy": {
+      "symbol": "VIXY",
+      "note": "VIXY (ETF) used because ^VIX is not on the TwelveData plan",
+      "avg_close": 33.372,
+      "max_close": 39.7,
+      "min_close": 30.96,
+      "prev_month_avg_close": 33.33
+    },
+    "move_proxy": {
+      "symbol": null,
+      "note": "MOVE not available via TwelveData; leave null until a bond-vol proxy is wired",
+      "value": null
+    },
+    "dxy_proxy": {
+      "symbol": "UUP",
+      "note": "UUP as DXY proxy",
+      "ret_pct": 2.582,
+      "prev_month_ret_pct": -0.145,
+      "trend": "rising"
+    },
+    "gold_oil_dispersion": {
+      "gold_symbol": "GLD",
+      "oil_symbol": "USO",
+      "gold_ret_pct": 3.396,
+      "oil_ret_pct": -0.793,
+      "dispersion_pp": 4.189
+    },
+    "rates_proxy": {
+      "symbol": "TLT",
+      "note": "TLT as long-duration treasury proxy",
+      "ret_pct": 1.12
+    }
+  },
+  "event_density": {
+    "earnings": {
+      "total_events": 15,
+      "unique_tickers_reporting": 12,
+      "by_ticker": {
+        "AAPL": [
+          {
+            "date": "2025-10-30",
+            "time": null,
+            "eps_estimate": 1.77,
+            "eps_actual": 1.85,
+            "surprise_pct": 4.52
+          }
+        ],
+        "MSFT": [
+          {
+            "date": "2025-10-29",
+            "time": null,
+            "eps_estimate": 3.66,
+            "eps_actual": 4.13,
+            "surprise_pct": 12.84
+          }
+        ],
+        "GOOGL": [
+          {
+            "date": "2025-10-29",
+            "time": null,
+            "eps_estimate": 2.26,
+            "eps_actual": 2.87,
+            "surprise_pct": 26.99
+          }
+        ],
+        "AMZN": [
+          {
+            "date": "2025-10-30",
+            "time": null,
+            "eps_estimate": 1.56,
+            "eps_actual": 1.95,
+            "surprise_pct": 25
+          },
+          {
+            "date": "2025-10-14",
+            "time": null,
+            "eps_estimate": 0.45,
+            "eps_actual": 0.51,
+            "surprise_pct": 13.33
+          }
+        ],
+        "META": [
+          {
+            "date": "2025-10-29",
+            "time": null,
+            "eps_estimate": 6.71,
+            "eps_actual": 1.05,
+            "surprise_pct": -84.35
+          }
+        ],
+        "NVDA": [],
+        "TSLA": [
+          {
+            "date": "2025-10-22",
+            "time": null,
+            "eps_estimate": 0.56,
+            "eps_actual": 0.5,
+            "surprise_pct": -10.71
+          }
+        ],
+        "CDNS": [
+          {
+            "date": "2025-10-27",
+            "time": null,
+            "eps_estimate": 1.79,
+            "eps_actual": 1.93,
+            "surprise_pct": 7.82
+          },
+          {
+            "date": "2025-10-14",
+            "time": null,
+            "eps_estimate": 0.45,
+            "eps_actual": 0.51,
+            "surprise_pct": 13.33
+          }
+        ],
+        "ETN": [],
+        "FIX": [
+          {
+            "date": "2025-10-23",
+            "time": null,
+            "eps_estimate": 6.23,
+            "eps_actual": 8.25,
+            "surprise_pct": 32.42
+          }
+        ],
+        "GRNY": [],
+        "HUBS": [
+          {
+            "date": "2025-10-06",
+            "time": null,
+            "eps_estimate": 0.82,
+            "eps_actual": 0.85,
+            "surprise_pct": 3.66
+          }
+        ],
+        "IESC": [],
+        "MTZ": [
+          {
+            "date": "2025-10-30",
+            "time": null,
+            "eps_estimate": 2.3,
+            "eps_actual": 2.48,
+            "surprise_pct": 7.83
+          },
+          {
+            "date": "2025-10-23",
+            "time": null,
+            "eps_estimate": -0.3,
+            "eps_actual": -0.19,
+            "surprise_pct": -36.67
+          }
+        ],
+        "ON": [
+          {
+            "date": "2025-10-17",
+            "time": null,
+            "eps_estimate": 0.66,
+            "eps_actual": 0.69,
+            "surprise_pct": 4.55
+          }
+        ],
+        "PH": [],
+        "RIOT": [
+          {
+            "date": "2025-10-30",
+            "time": null,
+            "eps_estimate": -0.09,
+            "eps_actual": 0.19,
+            "surprise_pct": -311.11
+          }
+        ],
+        "SGI": [],
+        "SWK": []
+      },
+      "clusters_ge3_tickers_within_3d": [
+        {
+          "anchor": "2025-10-22",
+          "window_dates": [
+            "2025-10-22",
+            "2025-10-23"
+          ],
+          "tickers": [
+            "FIX",
+            "MTZ",
+            "TSLA"
+          ]
+        },
+        {
+          "anchor": "2025-10-23",
+          "window_dates": [
+            "2025-10-22",
+            "2025-10-23"
+          ],
+          "tickers": [
+            "FIX",
+            "MTZ",
+            "TSLA"
+          ]
+        },
+        {
+          "anchor": "2025-10-27",
+          "window_dates": [
+            "2025-10-27",
+            "2025-10-29"
+          ],
+          "tickers": [
+            "CDNS",
+            "GOOGL",
+            "META",
+            "MSFT"
+          ]
+        },
+        {
+          "anchor": "2025-10-29",
+          "window_dates": [
+            "2025-10-27",
+            "2025-10-29",
+            "2025-10-30"
+          ],
+          "tickers": [
+            "AAPL",
+            "AMZN",
+            "CDNS",
+            "GOOGL",
+            "META",
+            "MSFT",
+            "MTZ",
+            "RIOT"
+          ]
+        },
+        {
+          "anchor": "2025-10-30",
+          "window_dates": [
+            "2025-10-29",
+            "2025-10-30"
+          ],
+          "tickers": [
+            "AAPL",
+            "AMZN",
+            "GOOGL",
+            "META",
+            "MSFT",
+            "MTZ",
+            "RIOT"
+          ]
+        }
+      ]
+    },
+    "macro": {
+      "total_events": 7,
+      "events": [
+        {
+          "date": "2025-10-01",
+          "name": "ISM Manufacturing PMI (Sep 2025)",
+          "impact": "medium"
+        },
+        {
+          "date": "2025-10-04",
+          "name": "Non-Farm Payrolls (Sep 2025)",
+          "impact": "high"
+        },
+        {
+          "date": "2025-10-14",
+          "name": "PPI (Sep 2025)",
+          "impact": "high"
+        },
+        {
+          "date": "2025-10-15",
+          "name": "CPI (Sep 2025)",
+          "impact": "high"
+        },
+        {
+          "date": "2025-10-17",
+          "name": "Retail Sales (Sep 2025)",
+          "impact": "medium"
+        },
+        {
+          "date": "2025-10-30",
+          "name": "GDP Q3 2025 Advance",
+          "impact": "high"
+        },
+        {
+          "date": "2025-10-31",
+          "name": "PCE Price Index (Sep 2025)",
+          "impact": "high"
+        }
+      ],
+      "fomc_count": 0,
+      "cpi_count": 1,
+      "nfp_count": 1
+    },
+    "density_by_date": {
+      "2025-10-30": 2,
+      "2025-10-29": 1,
+      "2025-10-14": 2,
+      "2025-10-22": 1,
+      "2025-10-27": 1,
+      "2025-10-23": 1,
+      "2025-10-06": 1,
+      "2025-10-17": 2,
+      "2025-10-01": 1,
+      "2025-10-04": 1,
+      "2025-10-15": 1,
+      "2025-10-31": 1
+    },
+    "high_density_dates": [
+      {
+        "date": "2025-10-14",
+        "events": 2
+      },
+      {
+        "date": "2025-10-17",
+        "events": 2
+      },
+      {
+        "date": "2025-10-30",
+        "events": 2
+      }
+    ]
+  },
+  "provenance": {
+    "data_provider": "twelvedata",
+    "daily_series": "1day",
+    "intraday_series": "4h",
+    "ema_period": 20,
+    "slope_epsilon": 0.0001,
+    "builder": "scripts/build-monthly-backdrop.js"
+  }
+}

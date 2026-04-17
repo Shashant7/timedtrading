@@ -1,0 +1,639 @@
+{
+  "schema_version": "1.0",
+  "month": "2026-02",
+  "generated_at": "2026-04-17T22:19:12.929Z",
+  "window": {
+    "start": "2026-02-01",
+    "end": "2026-02-28"
+  },
+  "trading_days": [
+    "2026-02-02",
+    "2026-02-03",
+    "2026-02-04",
+    "2026-02-05",
+    "2026-02-06",
+    "2026-02-09",
+    "2026-02-10",
+    "2026-02-11",
+    "2026-02-12",
+    "2026-02-13",
+    "2026-02-17",
+    "2026-02-18",
+    "2026-02-19",
+    "2026-02-20",
+    "2026-02-23",
+    "2026-02-24",
+    "2026-02-25",
+    "2026-02-26",
+    "2026-02-27"
+  ],
+  "universe": {
+    "tier1": [
+      "SPY",
+      "QQQ",
+      "IWM",
+      "AAPL",
+      "MSFT",
+      "GOOGL",
+      "AMZN",
+      "META",
+      "NVDA",
+      "TSLA"
+    ],
+    "tier2": [
+      "AGQ",
+      "CDNS",
+      "ETN",
+      "FIX",
+      "GRNY",
+      "HUBS",
+      "IESC",
+      "MTZ",
+      "ON",
+      "PH",
+      "RIOT",
+      "SGI",
+      "SWK",
+      "XLY"
+    ]
+  },
+  "cycle": {
+    "label": "downtrend",
+    "fractions": {
+      "HTF_BULL_LTF_BULL": 0.2737,
+      "BULL_PULLBACK": 0.0316,
+      "BEAR_LTF_BOUNCE": 0.0632,
+      "HTF_BEAR_LTF_BEAR": 0.5684,
+      "TRANSITIONAL": 0.0632
+    },
+    "method": "Tier-1 × trading-day joint EMA(20) daily + 4H bias vote"
+  },
+  "sector_leadership": {
+    "spy_ret_pct": -1.355,
+    "spy_prev_ret_pct": 1.288,
+    "by_sector": {
+      "XLK": {
+        "ret_pct": -4.475,
+        "rs_vs_spy_pct": -3.12
+      },
+      "XLF": {
+        "ret_pct": -4.812,
+        "rs_vs_spy_pct": -3.458
+      },
+      "XLE": {
+        "ret_pct": 11.728,
+        "rs_vs_spy_pct": 13.083
+      },
+      "XLY": {
+        "ret_pct": -4.19,
+        "rs_vs_spy_pct": -2.835
+      },
+      "XLI": {
+        "ret_pct": 5.736,
+        "rs_vs_spy_pct": 7.091
+      },
+      "XLV": {
+        "ret_pct": 2.897,
+        "rs_vs_spy_pct": 4.251
+      },
+      "XLP": {
+        "ret_pct": 6.521,
+        "rs_vs_spy_pct": 7.875
+      },
+      "XLU": {
+        "ret_pct": 11.99,
+        "rs_vs_spy_pct": 13.344
+      },
+      "XLRE": {
+        "ret_pct": 7.031,
+        "rs_vs_spy_pct": 8.386
+      },
+      "XLB": {
+        "ret_pct": 7.573,
+        "rs_vs_spy_pct": 8.928
+      },
+      "XLC": {
+        "ret_pct": -1.354,
+        "rs_vs_spy_pct": 0.001
+      }
+    },
+    "top": [
+      {
+        "etf": "XLU",
+        "label": "Utilities",
+        "rs_vs_spy_pct": 13.344,
+        "ret_pct": 11.99,
+        "rotation_delta_pp": 14.47
+      },
+      {
+        "etf": "XLE",
+        "label": "Energy",
+        "rs_vs_spy_pct": 13.083,
+        "ret_pct": 11.728,
+        "rotation_delta_pp": 2.542
+      },
+      {
+        "etf": "XLB",
+        "label": "Materials",
+        "rs_vs_spy_pct": 8.928,
+        "ret_pct": 7.573,
+        "rotation_delta_pp": 3.386
+      }
+    ],
+    "bottom": [
+      {
+        "etf": "XLF",
+        "label": "Financials",
+        "rs_vs_spy_pct": -3.458,
+        "ret_pct": -4.812,
+        "rotation_delta_pp": 0.543
+      },
+      {
+        "etf": "XLK",
+        "label": "Technology",
+        "rs_vs_spy_pct": -3.12,
+        "ret_pct": -4.475,
+        "rotation_delta_pp": -1.541
+      },
+      {
+        "etf": "XLY",
+        "label": "Consumer Discretionary",
+        "rs_vs_spy_pct": -2.835,
+        "ret_pct": -4.19,
+        "rotation_delta_pp": -3.93
+      }
+    ]
+  },
+  "regime_frequency": {
+    "counts": {
+      "HTF_BULL_LTF_BULL": 52,
+      "BULL_PULLBACK": 6,
+      "BEAR_LTF_BOUNCE": 12,
+      "HTF_BEAR_LTF_BEAR": 108,
+      "TRANSITIONAL": 12
+    },
+    "per_ticker": {
+      "SPY": {
+        "HTF_BULL_LTF_BULL": 8,
+        "BULL_PULLBACK": 0,
+        "BEAR_LTF_BOUNCE": 0,
+        "HTF_BEAR_LTF_BEAR": 10,
+        "TRANSITIONAL": 1
+      },
+      "QQQ": {
+        "HTF_BULL_LTF_BULL": 2,
+        "BULL_PULLBACK": 0,
+        "BEAR_LTF_BOUNCE": 3,
+        "HTF_BEAR_LTF_BEAR": 12,
+        "TRANSITIONAL": 2
+      },
+      "IWM": {
+        "HTF_BULL_LTF_BULL": 11,
+        "BULL_PULLBACK": 1,
+        "BEAR_LTF_BOUNCE": 0,
+        "HTF_BEAR_LTF_BEAR": 5,
+        "TRANSITIONAL": 2
+      },
+      "AAPL": {
+        "HTF_BULL_LTF_BULL": 12,
+        "BULL_PULLBACK": 0,
+        "BEAR_LTF_BOUNCE": 0,
+        "HTF_BEAR_LTF_BEAR": 6,
+        "TRANSITIONAL": 1
+      },
+      "MSFT": {
+        "HTF_BULL_LTF_BULL": 0,
+        "BULL_PULLBACK": 0,
+        "BEAR_LTF_BOUNCE": 2,
+        "HTF_BEAR_LTF_BEAR": 17,
+        "TRANSITIONAL": 0
+      },
+      "GOOGL": {
+        "HTF_BULL_LTF_BULL": 2,
+        "BULL_PULLBACK": 1,
+        "BEAR_LTF_BOUNCE": 3,
+        "HTF_BEAR_LTF_BEAR": 12,
+        "TRANSITIONAL": 1
+      },
+      "AMZN": {
+        "HTF_BULL_LTF_BULL": 1,
+        "BULL_PULLBACK": 0,
+        "BEAR_LTF_BOUNCE": 3,
+        "HTF_BEAR_LTF_BEAR": 14,
+        "TRANSITIONAL": 1
+      },
+      "META": {
+        "HTF_BULL_LTF_BULL": 4,
+        "BULL_PULLBACK": 4,
+        "BEAR_LTF_BOUNCE": 0,
+        "HTF_BEAR_LTF_BEAR": 8,
+        "TRANSITIONAL": 3
+      },
+      "NVDA": {
+        "HTF_BULL_LTF_BULL": 11,
+        "BULL_PULLBACK": 0,
+        "BEAR_LTF_BOUNCE": 0,
+        "HTF_BEAR_LTF_BEAR": 8,
+        "TRANSITIONAL": 0
+      },
+      "TSLA": {
+        "HTF_BULL_LTF_BULL": 1,
+        "BULL_PULLBACK": 0,
+        "BEAR_LTF_BOUNCE": 1,
+        "HTF_BEAR_LTF_BEAR": 16,
+        "TRANSITIONAL": 1
+      }
+    }
+  },
+  "cross_asset_vol": {
+    "spy_realized_vol": {
+      "note": "annualized stdev of SPY daily log returns within the month (in-sample proxy for VIX level)",
+      "annualized_pct": 13.595,
+      "prev_month_annualized_pct": 10.58,
+      "delta_pp": 3.015
+    },
+    "vix_proxy": {
+      "symbol": "VIXY",
+      "note": "VIXY (ETF) used because ^VIX is not on the TwelveData plan",
+      "avg_close": 27.132,
+      "max_close": 29.25,
+      "min_close": 25.21,
+      "prev_month_avg_close": 25.802
+    },
+    "move_proxy": {
+      "symbol": null,
+      "note": "MOVE not available via TwelveData; leave null until a bond-vol proxy is wired",
+      "value": null
+    },
+    "dxy_proxy": {
+      "symbol": "UUP",
+      "note": "UUP as DXY proxy",
+      "ret_pct": 0.333,
+      "prev_month_ret_pct": -0.959,
+      "trend": "flat"
+    },
+    "gold_oil_dispersion": {
+      "gold_symbol": "GLD",
+      "oil_symbol": "USO",
+      "gold_ret_pct": 13.256,
+      "oil_ret_pct": 8.788,
+      "dispersion_pp": 4.468
+    },
+    "rates_proxy": {
+      "symbol": "TLT",
+      "note": "TLT as long-duration treasury proxy",
+      "ret_pct": 4.934
+    }
+  },
+  "event_density": {
+    "earnings": {
+      "total_events": 16,
+      "unique_tickers_reporting": 13,
+      "by_ticker": {
+        "AAPL": [],
+        "MSFT": [],
+        "GOOGL": [
+          {
+            "date": "2026-02-04",
+            "time": null,
+            "eps_estimate": 2.64,
+            "eps_actual": 2.82,
+            "surprise_pct": 6.82
+          }
+        ],
+        "AMZN": [
+          {
+            "date": "2026-02-23",
+            "time": null,
+            "eps_estimate": 0.42,
+            "eps_actual": 0.4,
+            "surprise_pct": -4.76
+          },
+          {
+            "date": "2026-02-05",
+            "time": null,
+            "eps_estimate": 1.96,
+            "eps_actual": 1.95,
+            "surprise_pct": -0.51
+          }
+        ],
+        "META": [],
+        "NVDA": [
+          {
+            "date": "2026-02-25",
+            "time": null,
+            "eps_estimate": 1.54,
+            "eps_actual": 1.62,
+            "surprise_pct": 5.19
+          }
+        ],
+        "TSLA": [],
+        "CDNS": [
+          {
+            "date": "2026-02-17",
+            "time": null,
+            "eps_estimate": 1.91,
+            "eps_actual": 1.99,
+            "surprise_pct": 4.19
+          }
+        ],
+        "ETN": [
+          {
+            "date": "2026-02-03",
+            "time": null,
+            "eps_estimate": 3.32,
+            "eps_actual": 3.33,
+            "surprise_pct": 0.3
+          }
+        ],
+        "FIX": [
+          {
+            "date": "2026-02-19",
+            "time": null,
+            "eps_estimate": 6.75,
+            "eps_actual": 9.37,
+            "surprise_pct": 38.81
+          }
+        ],
+        "GRNY": [
+          {
+            "date": "2026-02-17",
+            "time": null,
+            "eps_estimate": 3.94,
+            "eps_actual": 4.07,
+            "surprise_pct": 3.3
+          }
+        ],
+        "HUBS": [
+          {
+            "date": "2026-02-11",
+            "time": null,
+            "eps_estimate": 2.99,
+            "eps_actual": 3.09,
+            "surprise_pct": 3.34
+          }
+        ],
+        "IESC": [],
+        "MTZ": [
+          {
+            "date": "2026-02-26",
+            "time": null,
+            "eps_estimate": 1.54,
+            "eps_actual": 1.81,
+            "surprise_pct": 17.53
+          }
+        ],
+        "ON": [
+          {
+            "date": "2026-02-09",
+            "time": null,
+            "eps_estimate": 0.59,
+            "eps_actual": 0.45,
+            "surprise_pct": -23.73
+          }
+        ],
+        "PH": [],
+        "RIOT": [
+          {
+            "date": "2026-02-25",
+            "time": null,
+            "eps_estimate": 0.16,
+            "eps_actual": 0.43,
+            "surprise_pct": 168.75
+          }
+        ],
+        "SGI": [
+          {
+            "date": "2026-02-17",
+            "time": null,
+            "eps_estimate": 0.72,
+            "eps_actual": 0.72,
+            "surprise_pct": 0
+          },
+          {
+            "date": "2026-02-02",
+            "time": null,
+            "eps_estimate": 0.85,
+            "eps_actual": 0.87,
+            "surprise_pct": 2.35
+          }
+        ],
+        "SWK": [
+          {
+            "date": "2026-02-25",
+            "time": null,
+            "eps_estimate": 0.16,
+            "eps_actual": 0.43,
+            "surprise_pct": 168.75
+          },
+          {
+            "date": "2026-02-04",
+            "time": null,
+            "eps_estimate": 1.28,
+            "eps_actual": 1.41,
+            "surprise_pct": 10.16
+          }
+        ]
+      },
+      "clusters_ge3_tickers_within_3d": [
+        {
+          "anchor": "2026-02-02",
+          "window_dates": [
+            "2026-02-02",
+            "2026-02-03",
+            "2026-02-04"
+          ],
+          "tickers": [
+            "ETN",
+            "GOOGL",
+            "SGI",
+            "SWK"
+          ]
+        },
+        {
+          "anchor": "2026-02-03",
+          "window_dates": [
+            "2026-02-02",
+            "2026-02-03",
+            "2026-02-04",
+            "2026-02-05"
+          ],
+          "tickers": [
+            "AMZN",
+            "ETN",
+            "GOOGL",
+            "SGI",
+            "SWK"
+          ]
+        },
+        {
+          "anchor": "2026-02-04",
+          "window_dates": [
+            "2026-02-02",
+            "2026-02-03",
+            "2026-02-04",
+            "2026-02-05"
+          ],
+          "tickers": [
+            "AMZN",
+            "ETN",
+            "GOOGL",
+            "SGI",
+            "SWK"
+          ]
+        },
+        {
+          "anchor": "2026-02-05",
+          "window_dates": [
+            "2026-02-03",
+            "2026-02-04",
+            "2026-02-05"
+          ],
+          "tickers": [
+            "AMZN",
+            "ETN",
+            "GOOGL",
+            "SWK"
+          ]
+        },
+        {
+          "anchor": "2026-02-17",
+          "window_dates": [
+            "2026-02-17",
+            "2026-02-19"
+          ],
+          "tickers": [
+            "CDNS",
+            "FIX",
+            "GRNY",
+            "SGI"
+          ]
+        },
+        {
+          "anchor": "2026-02-19",
+          "window_dates": [
+            "2026-02-17",
+            "2026-02-19"
+          ],
+          "tickers": [
+            "CDNS",
+            "FIX",
+            "GRNY",
+            "SGI"
+          ]
+        },
+        {
+          "anchor": "2026-02-23",
+          "window_dates": [
+            "2026-02-23",
+            "2026-02-25"
+          ],
+          "tickers": [
+            "AMZN",
+            "NVDA",
+            "RIOT",
+            "SWK"
+          ]
+        },
+        {
+          "anchor": "2026-02-25",
+          "window_dates": [
+            "2026-02-23",
+            "2026-02-25",
+            "2026-02-26"
+          ],
+          "tickers": [
+            "AMZN",
+            "MTZ",
+            "NVDA",
+            "RIOT",
+            "SWK"
+          ]
+        },
+        {
+          "anchor": "2026-02-26",
+          "window_dates": [
+            "2026-02-25",
+            "2026-02-26"
+          ],
+          "tickers": [
+            "MTZ",
+            "NVDA",
+            "RIOT",
+            "SWK"
+          ]
+        }
+      ]
+    },
+    "macro": {
+      "total_events": 6,
+      "events": [
+        {
+          "date": "2026-02-03",
+          "name": "ISM Manufacturing PMI (Jan 2026)",
+          "impact": "medium"
+        },
+        {
+          "date": "2026-02-07",
+          "name": "Non-Farm Payrolls (Jan 2026)",
+          "impact": "high"
+        },
+        {
+          "date": "2026-02-12",
+          "name": "CPI (Jan 2026)",
+          "impact": "high"
+        },
+        {
+          "date": "2026-02-13",
+          "name": "PPI (Jan 2026)",
+          "impact": "high"
+        },
+        {
+          "date": "2026-02-14",
+          "name": "Retail Sales (Jan 2026)",
+          "impact": "medium"
+        },
+        {
+          "date": "2026-02-28",
+          "name": "PCE Price Index (Jan 2026)",
+          "impact": "high"
+        }
+      ],
+      "fomc_count": 0,
+      "cpi_count": 1,
+      "nfp_count": 1
+    },
+    "density_by_date": {
+      "2026-02-04": 1,
+      "2026-02-23": 1,
+      "2026-02-05": 1,
+      "2026-02-25": 1,
+      "2026-02-17": 1,
+      "2026-02-03": 2,
+      "2026-02-19": 1,
+      "2026-02-11": 1,
+      "2026-02-26": 1,
+      "2026-02-09": 1,
+      "2026-02-02": 1,
+      "2026-02-07": 1,
+      "2026-02-12": 1,
+      "2026-02-13": 1,
+      "2026-02-14": 1,
+      "2026-02-28": 1
+    },
+    "high_density_dates": [
+      {
+        "date": "2026-02-03",
+        "events": 2
+      }
+    ]
+  },
+  "provenance": {
+    "data_provider": "twelvedata",
+    "daily_series": "1day",
+    "intraday_series": "4h",
+    "ema_period": 20,
+    "slope_epsilon": 0.0001,
+    "builder": "scripts/build-monthly-backdrop.js"
+  }
+}
