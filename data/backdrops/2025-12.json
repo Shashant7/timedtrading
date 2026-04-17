@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "month": "2025-12",
-  "generated_at": "2026-04-17T22:18:53.094Z",
+  "generated_at": "2026-04-17T23:21:06.172Z",
   "window": {
     "start": "2025-12-01",
     "end": "2025-12-31"
@@ -25,7 +25,6 @@
     "2025-12-22",
     "2025-12-23",
     "2025-12-24",
-    "2025-12-25",
     "2025-12-26",
     "2025-12-29",
     "2025-12-30",
@@ -64,11 +63,11 @@
   "cycle": {
     "label": "transitional",
     "fractions": {
-      "HTF_BULL_LTF_BULL": 0.487,
-      "BULL_PULLBACK": 0.0565,
-      "BEAR_LTF_BOUNCE": 0.0565,
-      "HTF_BEAR_LTF_BEAR": 0.2391,
-      "TRANSITIONAL": 0.1609
+      "HTF_BULL_LTF_BULL": 0.5091,
+      "BULL_PULLBACK": 0.0591,
+      "BEAR_LTF_BOUNCE": 0.0591,
+      "HTF_BEAR_LTF_BEAR": 0.25,
+      "TRANSITIONAL": 0.1227
     },
     "method": "Tier-1 × trading-day joint EMA(20) daily + 4H bias vote"
   },
@@ -174,7 +173,7 @@
       "BULL_PULLBACK": 13,
       "BEAR_LTF_BOUNCE": 13,
       "HTF_BEAR_LTF_BEAR": 55,
-      "TRANSITIONAL": 37
+      "TRANSITIONAL": 27
     },
     "per_ticker": {
       "SPY": {
@@ -182,70 +181,70 @@
         "BULL_PULLBACK": 2,
         "BEAR_LTF_BOUNCE": 0,
         "HTF_BEAR_LTF_BEAR": 4,
-        "TRANSITIONAL": 2
+        "TRANSITIONAL": 1
       },
       "QQQ": {
         "HTF_BULL_LTF_BULL": 14,
         "BULL_PULLBACK": 0,
         "BEAR_LTF_BOUNCE": 0,
         "HTF_BEAR_LTF_BEAR": 6,
-        "TRANSITIONAL": 3
+        "TRANSITIONAL": 2
       },
       "IWM": {
         "HTF_BULL_LTF_BULL": 14,
         "BULL_PULLBACK": 2,
         "BEAR_LTF_BOUNCE": 0,
         "HTF_BEAR_LTF_BEAR": 3,
-        "TRANSITIONAL": 4
+        "TRANSITIONAL": 3
       },
       "AAPL": {
         "HTF_BULL_LTF_BULL": 3,
         "BULL_PULLBACK": 3,
         "BEAR_LTF_BOUNCE": 0,
         "HTF_BEAR_LTF_BEAR": 10,
-        "TRANSITIONAL": 7
+        "TRANSITIONAL": 6
       },
       "MSFT": {
         "HTF_BULL_LTF_BULL": 6,
         "BULL_PULLBACK": 0,
         "BEAR_LTF_BOUNCE": 3,
         "HTF_BEAR_LTF_BEAR": 10,
-        "TRANSITIONAL": 4
+        "TRANSITIONAL": 3
       },
       "GOOGL": {
         "HTF_BULL_LTF_BULL": 14,
         "BULL_PULLBACK": 3,
         "BEAR_LTF_BOUNCE": 0,
         "HTF_BEAR_LTF_BEAR": 3,
-        "TRANSITIONAL": 3
+        "TRANSITIONAL": 2
       },
       "AMZN": {
         "HTF_BULL_LTF_BULL": 6,
         "BULL_PULLBACK": 0,
         "BEAR_LTF_BOUNCE": 7,
         "HTF_BEAR_LTF_BEAR": 8,
-        "TRANSITIONAL": 2
+        "TRANSITIONAL": 1
       },
       "META": {
         "HTF_BULL_LTF_BULL": 16,
         "BULL_PULLBACK": 3,
         "BEAR_LTF_BOUNCE": 0,
         "HTF_BEAR_LTF_BEAR": 0,
-        "TRANSITIONAL": 4
+        "TRANSITIONAL": 3
       },
       "NVDA": {
         "HTF_BULL_LTF_BULL": 7,
         "BULL_PULLBACK": 0,
         "BEAR_LTF_BOUNCE": 3,
         "HTF_BEAR_LTF_BEAR": 8,
-        "TRANSITIONAL": 5
+        "TRANSITIONAL": 4
       },
       "TSLA": {
         "HTF_BULL_LTF_BULL": 17,
         "BULL_PULLBACK": 0,
         "BEAR_LTF_BOUNCE": 0,
         "HTF_BEAR_LTF_BEAR": 3,
-        "TRANSITIONAL": 3
+        "TRANSITIONAL": 2
       }
     }
   },
