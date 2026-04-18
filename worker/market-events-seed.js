@@ -404,27 +404,34 @@ export async function checkMarketEventsCoverage(env, options = {}) {
   const missingTickers = [];
   const coveredTickers = [];
   if (tickers.length > 0) {
-    // D1 accepts batched IN clauses fine for our typical basket sizes (<= 100).
-    const placeholders = tickers.map((_, idx) => `?${idx + 3}`).join(",");
-    const query = `
-      SELECT ticker, COUNT(*) AS n, MIN(date) AS min_date, MAX(date) AS max_date
-      FROM market_events
-      WHERE event_type = 'earnings'
-        AND date >= ?1 AND date <= ?2
-        AND ticker IN (${placeholders})
-      GROUP BY ticker
-    `;
+    // D1's bind-parameter cap is ~100 per statement; chunk the IN clause so
+    // a full-universe audit (200+ tickers) doesn't fail with
+    // 'variable number must be between ?1 and ?100'. Chunk size 80 leaves
+    // two positional slots for the date range plus headroom.
+    const CHUNK_SIZE = 80;
+    const seen = new Map();
     try {
-      const { results } = await db.prepare(query).bind(startDate, endDate, ...tickers).all();
-      const seen = new Map();
-      for (const row of results || []) {
-        const sym = String(row?.ticker || "").toUpperCase();
-        if (!sym) continue;
-        seen.set(sym, {
-          count: Number(row?.n) || 0,
-          min_date: row?.min_date || null,
-          max_date: row?.max_date || null,
-        });
+      for (let i = 0; i < tickers.length; i += CHUNK_SIZE) {
+        const chunk = tickers.slice(i, i + CHUNK_SIZE);
+        const placeholders = chunk.map((_, idx) => `?${idx + 3}`).join(",");
+        const query = `
+          SELECT ticker, COUNT(*) AS n, MIN(date) AS min_date, MAX(date) AS max_date
+          FROM market_events
+          WHERE event_type = 'earnings'
+            AND date >= ?1 AND date <= ?2
+            AND ticker IN (${placeholders})
+          GROUP BY ticker
+        `;
+        const { results } = await db.prepare(query).bind(startDate, endDate, ...chunk).all();
+        for (const row of results || []) {
+          const sym = String(row?.ticker || "").toUpperCase();
+          if (!sym) continue;
+          seen.set(sym, {
+            count: Number(row?.n) || 0,
+            min_date: row?.min_date || null,
+            max_date: row?.max_date || null,
+          });
+        }
       }
       for (const sym of tickers) {
         const info = seen.get(sym);
