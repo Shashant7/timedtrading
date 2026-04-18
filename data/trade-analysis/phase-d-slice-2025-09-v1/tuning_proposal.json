@@ -1,0 +1,111 @@
+{
+  "schema_version": "phase-d.v1",
+  "run_id": "phase-d-slice-2025-09-v1",
+  "month": "2025-09",
+  "ships_now": [],
+  "candidates": [
+    {
+      "id": "T1",
+      "title": "Raise SMART_RUNNER_TRIM_REASSESS round-trip threshold — narrowed to rank = 100 only",
+      "evidence_months": ["2025-07", "2025-08", "2025-09"],
+      "narrowed": true,
+      "previous_scope": "rank >= 95",
+      "new_scope": "rank == 100",
+      "rationale": "5 hits across 3 months; only 2 are at rank 100. Rank-65 and rank-69 cases showed the guard protecting correctly against weak setups.",
+      "status": "deferred_low_impact"
+    },
+    {
+      "id": "T3",
+      "title": "Earnings-cluster entry block on anchor day +/- 1 for cluster participants",
+      "evidence_months": ["2025-07", "2025-08"],
+      "sep_silent": true,
+      "rationale": "Sep had 0 earnings clusters, so Sep provided no new evidence. Wait for Oct (5 clusters per backdrop) and Nov (5 clusters).",
+      "status": "needs_cluster_heavy_month"
+    },
+    {
+      "id": "T5",
+      "title": "Narrow PRE_EVENT_RECOVERY_EXIT to FOMC/NFP/CPI + MFE-giveback >50 pct only",
+      "evidence_months": ["2025-07", "2025-08", "2025-09"],
+      "signal_strength": "strong",
+      "rationale": "7 firings across 3 months, mean PnL -0.09 pct, 0 wins above +0.10 pct. Rule is exiting flat on non-impactful events (low-surprise CPI/PPI). Narrowing to high-impact events + significant MFE giveback preserves the intended behaviour in risky cases while eliminating the dead-weight exits.",
+      "estimated_impact_sum_pnl_pct": 1.5,
+      "status": "candidate_if_oct_confirms"
+    },
+    {
+      "id": "T6",
+      "title": "Joint relaxation of tt_pullback_not_deep_enough + tt_bias_not_aligned for index ETFs",
+      "evidence_months": ["2025-07", "2025-08", "2025-09"],
+      "signal_strength": "consistent_3_months",
+      "rationale": "Same top-2 blockers for SPY/QQQ/IWM across all 3 months. Consistent pattern justifies moving forward with the joint-relaxation simulation.",
+      "next_step": "compare-block-chains.js offline simulation",
+      "status": "needs_simulation_before_code_change"
+    },
+    {
+      "id": "T7",
+      "title": "End-of-window protective trail on runners",
+      "evidence_months": ["2025-07", "2025-08", "2025-09"],
+      "signal_strength": "weakening",
+      "rationale": "Jul 3W/1L, Aug 2W/1L, Sep 1W/1L. Still net positive by PnL (big winners dwarf clear losers) but count ratio evened out. Decision point: if Oct looks like Sep, T7 is not worth the code change.",
+      "status": "hold_reassess_after_oct"
+    },
+    {
+      "id": "T8",
+      "title": "Block non-Prime entries in 48h pre-FOMC window",
+      "evidence_months": ["2025-09"],
+      "newly_proposed": true,
+      "signal_strength": "single_month_but_strong",
+      "rationale": "5 entries bunched on Sep 16, 4 into the 48h pre-FOMC window, 4 lost or near-flat. Would eliminate ~4 of 6 clear Sep losers. Preserves Prime setups.",
+      "estimated_impact_sum_pnl_pct": 10.0,
+      "status": "needs_oct_fomc_confirmation"
+    },
+    {
+      "id": "T9",
+      "title": "Regime-conditional entry gates: transitional + vol < 8 pct -> drop pullback_min_bearish_count to 1 for Tier-1 Prime",
+      "evidence_months": ["2025-07", "2025-08", "2025-09"],
+      "signal_strength": "regime_pattern_confirmed",
+      "rationale": "Transitional months produce inconsistent output (Aug 15 trades 66 pct WR, Sep 28 trades 46 pct WR) vs uptrend (36 trades 78 pct). Engine is tuned for uptrend-style 2-of-3 ST pullbacks; transitional backdrops break that pattern.",
+      "dependencies": ["Phase-B backdrop JSON wiring into replay runtime"],
+      "status": "phase_f_candidate"
+    }
+  ],
+  "observation_baselines": {
+    "2025-07": {
+      "run_id": "phase-c-cleanslate-regression-v1",
+      "trades": 36,
+      "wr_pct": 77.8,
+      "big_winners": 5,
+      "clear_losers": 3,
+      "sum_pnl_pct": 109.06,
+      "cycle": "uptrend",
+      "realized_vol_pct": 6.7
+    },
+    "2025-08": {
+      "run_id": "phase-d-slice-2025-08-v1",
+      "trades": 15,
+      "wr_pct": 66.7,
+      "big_winners": 2,
+      "clear_losers": 1,
+      "sum_pnl_pct": 53.82,
+      "cycle": "transitional",
+      "realized_vol_pct": 10.4
+    },
+    "2025-09": {
+      "run_id": "phase-d-slice-2025-09-v1",
+      "trades": 28,
+      "wr_pct": 46.4,
+      "big_winners": 3,
+      "clear_losers": 6,
+      "sum_pnl_pct": 6.48,
+      "cycle": "transitional",
+      "realized_vol_pct": 6.4
+    }
+  },
+  "acceptance_budget": {
+    "per_month": {
+      "min_wr_pp_below_best": 2,
+      "min_big_winners_delta": -1,
+      "min_pnl_pct_of_baseline": 0.9
+    },
+    "note": "Sep's 46.4 pct WR is now the binding floor: any DA-key change must hold Sep to >= 44.4 pct WR (-2 pp) and >= +5.83 pct sum_pnl (0.9x)."
+  }
+}
