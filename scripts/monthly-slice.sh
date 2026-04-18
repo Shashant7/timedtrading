@@ -45,7 +45,7 @@
 #   scripts/monthly-slice.sh \
 #     --month=2025-07 \
 #     [--run-id=<run_id>] \
-#     [--tickers=<csv>|tier1-tier2] \
+#     [--tickers=<csv>|tier1|tier2|tier1-tier2|phase-d-40|@path/to/file.txt] \
 #     [--ticker-batch=24] \
 #     [--interval-minutes=5] \
 #     [--label="phase-c-2025-07"] \
@@ -129,7 +129,7 @@ die_usage() {
   echo "ERROR: $1" >&2
   echo "" >&2
   echo "Usage: $0 --month=YYYY-MM [--resume] [--dry-run] [--block-chain] [--no-reset] \\" >&2
-  echo "             [--tickers=csv|tier1-tier2] \\" >&2
+  echo "             [--tickers=csv|tier1|tier2|tier1-tier2|phase-d-40|@path.txt] \\" >&2
   echo "             [--ticker-batch=N] [--interval-minutes=N] [--watchdog-seconds=N] \\" >&2
   echo "             [--label=str] [--run-id=str] [--api-base=url] [--api-key=str]" >&2
   exit 2
@@ -166,12 +166,29 @@ if ! [[ "$MONTH" =~ ^[0-9]{4}-(0[1-9]|1[0-2])$ ]]; then
 fi
 [[ -z "$API_KEY" ]] && die_usage "TIMED_API_KEY env var or --api-key is required"
 
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if [[ "$TICKERS_ARG" == "" || "$TICKERS_ARG" == "tier1-tier2" ]]; then
   TICKERS="$DEFAULT_TICKERS"
 elif [[ "$TICKERS_ARG" == "tier1" ]]; then
   TICKERS="$TIER1_TICKERS"
 elif [[ "$TICKERS_ARG" == "tier2" ]]; then
   TICKERS="$TIER2_TICKERS"
+elif [[ "$TICKERS_ARG" == "phase-d-40" ]]; then
+  # Phase D go-forward 40-ticker backtest universe (Mag 7 + SPY/QQQ/IWM +
+  # semis + momentum/cloud tech + industrials + finance + sector ETFs).
+  # See configs/backtest-universe-phase-d-40.txt for the canonical list
+  # and docs/backtest-mode.md for the rationale.
+  UNI_FILE="$REPO_ROOT/configs/backtest-universe-phase-d-40.txt"
+  if [[ ! -f "$UNI_FILE" ]]; then
+    die_usage "--tickers=phase-d-40 requires $UNI_FILE"
+  fi
+  TICKERS=$(tr '\n' ',' < "$UNI_FILE" | sed 's/,$//')
+elif [[ "$TICKERS_ARG" =~ ^@(.+)$ ]]; then
+  # @path — read universe from a file, one ticker per line, joined as CSV.
+  UNI_FILE="${TICKERS_ARG:1}"
+  [[ ! "$UNI_FILE" =~ ^/ ]] && UNI_FILE="$REPO_ROOT/$UNI_FILE"
+  [[ -f "$UNI_FILE" ]] || die_usage "--tickers=@$UNI_FILE file not found"
+  TICKERS=$(tr '\n' ',' < "$UNI_FILE" | sed 's/,$//')
 else
   TICKERS="$TICKERS_ARG"
 fi
@@ -190,7 +207,7 @@ command -v curl >/dev/null || die_usage "curl is required but not on PATH"
 # Paths
 # ---------------------------------------------------------------------------
 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# REPO_ROOT already resolved earlier for the universe file lookup.
 LOCK_ROOT="$REPO_ROOT/data/.locks"
 LOCK_DIR="$LOCK_ROOT/monthly-slice.${MONTH}.lock"
 SAFE_RUN_ID="${RUN_ID//[^[:alnum:]._-]/-}"
