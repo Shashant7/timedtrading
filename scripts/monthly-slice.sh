@@ -30,6 +30,16 @@
 #      data/trade-analysis/<run_id>/block_chain.jsonl. This is the input
 #      to scripts/compare-block-chains.js for redistribution analysis.
 #
+#   6. Clean-slate on fresh runs: by default, a fresh (non-resume) run
+#      first calls POST /timed/admin/reset?replayOnly=1 to clear KV
+#      replay trades + paper portfolio + activity feed and archive any
+#      leftover OPEN trade rows in D1. Then its first candle-replay POST
+#      also carries cleanSlate=1 so the worker wipes lingering replay
+#      trade state scoped to this run_id. This makes the per-run trade
+#      count deterministic across reruns, which matters for baselines
+#      and for any proposal→baseline comparison. --no-reset disables the
+#      reset step for diagnostic probes that intentionally share state.
+#
 # Usage:
 #
 #   scripts/monthly-slice.sh \
@@ -103,13 +113,23 @@ WATCHDOG_SECONDS="$DEFAULT_WATCHDOG_SECONDS"
 RESUME=false
 DRY_RUN=false
 BLOCK_CHAIN=false
+# T7 (2026-04-18): reset replay state at the start of every fresh run.
+# Without this, KV (timed:trades:replay, timed:portfolio:v1, activity feed)
+# and D1 (open trades on ARCHIVED status) carry leftover state from the
+# previous run, which produced 36 ghost trades in the block-chain
+# regression instead of the expected 25 Phase-C parity number. --no-reset
+# disables it for diagnostic probes or back-to-back experiments that
+# intentionally share state; --resume also skips reset (so an interrupted
+# run can pick up mid-session).
+RESET_ON_FRESH=true
 API_BASE="$DEFAULT_API_BASE"
 API_KEY="${TIMED_API_KEY:-}"
 
 die_usage() {
   echo "ERROR: $1" >&2
   echo "" >&2
-  echo "Usage: $0 --month=YYYY-MM [--resume] [--dry-run] [--block-chain] [--tickers=csv|tier1-tier2] \\" >&2
+  echo "Usage: $0 --month=YYYY-MM [--resume] [--dry-run] [--block-chain] [--no-reset] \\" >&2
+  echo "             [--tickers=csv|tier1-tier2] \\" >&2
   echo "             [--ticker-batch=N] [--interval-minutes=N] [--watchdog-seconds=N] \\" >&2
   echo "             [--label=str] [--run-id=str] [--api-base=url] [--api-key=str]" >&2
   exit 2
@@ -133,6 +153,7 @@ while [[ $# -gt 0 ]]; do
     --resume) RESUME=true ;;
     --dry-run) DRY_RUN=true ;;
     --block-chain) BLOCK_CHAIN=true ;;
+    --no-reset) RESET_ON_FRESH=false ;;
     --api-base=*) API_BASE="${arg#*=}" ;;
     --api-key=*) API_KEY="${arg#*=}" ;;
     *) die_usage "unknown argument: $arg" ;;
@@ -369,6 +390,25 @@ release_replay_lock() {
   log "Released replay lock: $(echo "$resp" | jq -c '{ok,released}' 2>/dev/null || echo "$resp")"
 }
 
+reset_replay_state() {
+  # T7 (2026-04-18): canonical clean-slate for a fresh run. Mirrors
+  # scripts/full-backtest.sh Step 1 — clears KV simulated trades, paper
+  # portfolio, activity feed, and archives OPEN trades in D1. Only the
+  # replay lane is reset (replayOnly=1, skipTickerLatest=1); live-data
+  # surfaces are untouched.
+  local resp
+  resp=$(http POST "$API_BASE/timed/admin/reset?resetLedger=1&skipTickerLatest=1&replayOnly=1&key=$API_KEY" --timeout 120)
+  local ok
+  ok=$(echo "$resp" | jq -r '.ok // false' 2>/dev/null || echo "false")
+  if [[ "$ok" != "true" ]]; then
+    log "ERROR: replay-state reset failed: $(echo "$resp" | head -c 400)"
+    exit 6
+  fi
+  local summary
+  summary=$(echo "$resp" | jq -c '{ok, kvCleared, d1_archive: (.d1Cleared // []) | map(select(.sql | test("ARCHIVED"))) | .[0] // null}' 2>/dev/null || echo "$resp")
+  log "Reset replay state: $summary"
+}
+
 assert_lock_still_ours() {
   # Dual-writer guard: re-check the lock token before each per-day call so a
   # foreign writer (e.g. an accidentally-started BacktestRunner DO) cannot
@@ -441,6 +481,12 @@ register_run() {
 
 replay_day() {
   local date="$1"
+  # T7 (2026-04-18): caller passes clean_slate=1 on the very first
+  # candle-replay POST of a fresh (non-resume) run so the worker wipes
+  # lingering D1 replay-scope trade rows AND KV state for this run_id
+  # before the first bar scores. Subsequent sessions must not clean-slate
+  # or they'd wipe the trades they just wrote.
+  local clean_slate="${2:-0}"
   local attempt=1
   local ok_ret=1
   while [[ "$attempt" -le "$DEFAULT_RETRIES_PER_DAY" ]]; do
@@ -454,6 +500,9 @@ replay_day() {
     url+="&freshRun=1"
     url+="&skipInvestor=1"
     url+="&disableReferenceExecution=1"
+    if [[ "$clean_slate" == "1" ]]; then
+      url+="&cleanSlate=1"
+    fi
     if $BLOCK_CHAIN; then
       url+="&blockChainTrace=1"
     fi
@@ -626,7 +675,7 @@ log "month=$MONTH  start=$START_DATE  end=$END_DATE"
 log "run_id=$RUN_ID  label=$LABEL"
 log "tickers ($TICKER_COUNT): $TICKERS"
 log "ticker_batch=$TICKER_BATCH  interval_minutes=$INTERVAL_MINUTES"
-log "watchdog=${WATCHDOG_SECONDS}s  resume=$RESUME  dry_run=$DRY_RUN  block_chain=$BLOCK_CHAIN"
+log "watchdog=${WATCHDOG_SECONDS}s  resume=$RESUME  dry_run=$DRY_RUN  block_chain=$BLOCK_CHAIN  reset_on_fresh=$RESET_ON_FRESH"
 
 mapfile -t ALL_DAYS < <(trading_days_for_month "$MONTH" | awk -v end="$END_DATE" '$0 <= end')
 if [[ "${#ALL_DAYS[@]}" -eq 0 ]]; then
@@ -676,17 +725,34 @@ assert_single_writer
 if ! $RESUME; then
   acquire_replay_lock
   register_run "$START_DATE" "$END_DATE"
+  # T7 (2026-04-18): canonical clean-slate reset before the first session of
+  # a fresh run. Must come AFTER acquire_replay_lock so no other writer can
+  # race us in between the reset and the first candle-replay POST. --no-reset
+  # disables it for diagnostic probes that intentionally share state.
+  if $RESET_ON_FRESH; then
+    reset_replay_state
+  else
+    log "--no-reset: skipping replay-state reset (explicit request; state may carry from prior runs)"
+  fi
 else
-  log "RESUME: skipping runs/register and replay-lock acquire"
+  log "RESUME: skipping runs/register, replay-lock acquire, and replay-state reset"
 fi
 trap 'release_replay_lock; release_script_lock' EXIT INT TERM
 
-# Main per-day loop.
+# Main per-day loop. The very first session of a fresh (non-resume) run
+# also passes cleanSlate=1 so the worker wipes lingering replay-lane trade
+# state that survived the reset (D1 trade rows for the same run_id from
+# an earlier crashed run, etc.). Subsequent sessions must not clean-slate
+# or they'd wipe the trades the run just created.
 for ((i=START_INDEX; i<${#ALL_DAYS[@]}; i++)); do
   d="${ALL_DAYS[$i]}"
   log ">>> session $((i+1))/${#ALL_DAYS[@]} $d"
   assert_lock_still_ours
-  replay_day "$d"
+  local_clean=0
+  if [[ "$i" -eq "$START_INDEX" ]] && ! $RESUME; then
+    local_clean=1
+  fi
+  replay_day "$d" "$local_clean"
   write_checkpoint "$d" "session_complete"
 done
 
