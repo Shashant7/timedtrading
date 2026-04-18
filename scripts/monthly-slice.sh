@@ -24,6 +24,12 @@
 #      and starts the loop from the next trading day. Raw trades already
 #      written to backtest_run_trades survive the restart.
 #
+#   5. --block-chain: when present, the worker returns a per-bar trace of
+#      rejected entry candidates (ticker, ts, reason, kanban_stage, state,
+#      score) and the script appends them to
+#      data/trade-analysis/<run_id>/block_chain.jsonl. This is the input
+#      to scripts/compare-block-chains.js for redistribution analysis.
+#
 # Usage:
 #
 #   scripts/monthly-slice.sh \
@@ -96,13 +102,14 @@ LABEL=""
 WATCHDOG_SECONDS="$DEFAULT_WATCHDOG_SECONDS"
 RESUME=false
 DRY_RUN=false
+BLOCK_CHAIN=false
 API_BASE="$DEFAULT_API_BASE"
 API_KEY="${TIMED_API_KEY:-}"
 
 die_usage() {
   echo "ERROR: $1" >&2
   echo "" >&2
-  echo "Usage: $0 --month=YYYY-MM [--resume] [--dry-run] [--tickers=csv|tier1-tier2] \\" >&2
+  echo "Usage: $0 --month=YYYY-MM [--resume] [--dry-run] [--block-chain] [--tickers=csv|tier1-tier2] \\" >&2
   echo "             [--ticker-batch=N] [--interval-minutes=N] [--watchdog-seconds=N] \\" >&2
   echo "             [--label=str] [--run-id=str] [--api-base=url] [--api-key=str]" >&2
   exit 2
@@ -125,6 +132,7 @@ while [[ $# -gt 0 ]]; do
     --watchdog-seconds=*) WATCHDOG_SECONDS="${arg#*=}" ;;
     --resume) RESUME=true ;;
     --dry-run) DRY_RUN=true ;;
+    --block-chain) BLOCK_CHAIN=true ;;
     --api-base=*) API_BASE="${arg#*=}" ;;
     --api-key=*) API_KEY="${arg#*=}" ;;
     *) die_usage "unknown argument: $arg" ;;
@@ -446,6 +454,9 @@ replay_day() {
     url+="&freshRun=1"
     url+="&skipInvestor=1"
     url+="&disableReferenceExecution=1"
+    if $BLOCK_CHAIN; then
+      url+="&blockChainTrace=1"
+    fi
     url+="&key=$API_KEY"
 
     local t0 t1
@@ -480,7 +491,21 @@ replay_day() {
       scored=$(echo "$body" | jq -r '.scored // 0')
       trades=$(echo "$body" | jq -r '.tradesCreated // 0')
       total_trades=$(echo "$body" | jq -r '.totalTrades // 0')
-      log "day $date ok intervals=$intervals scored=$scored trades=$trades (cumulative=$total_trades, ${elapsed}s)"
+      if $BLOCK_CHAIN; then
+        # Append one line per blocked bar to block_chain.jsonl. Adds an
+        # explicit `date` field so downstream consumers don't have to
+        # reconstruct it from the ts.
+        local bc_count
+        bc_count=$(echo "$body" | jq -r '(.blockChainBars // []) | length')
+        if [[ "$bc_count" -gt 0 ]]; then
+          echo "$body" | jq -c --arg date "$date" --arg run_id "$RUN_ID" \
+            '(.blockChainBars // [])[] | . + {date: $date, run_id: $run_id}' \
+            >> "$ARTIFACT_DIR/block_chain.jsonl" || true
+        fi
+        log "day $date ok intervals=$intervals scored=$scored trades=$trades blocked_bars=$bc_count (cumulative=$total_trades, ${elapsed}s)"
+      else
+        log "day $date ok intervals=$intervals scored=$scored trades=$trades (cumulative=$total_trades, ${elapsed}s)"
+      fi
       ok_ret=0
       break
     fi
@@ -601,7 +626,7 @@ log "month=$MONTH  start=$START_DATE  end=$END_DATE"
 log "run_id=$RUN_ID  label=$LABEL"
 log "tickers ($TICKER_COUNT): $TICKERS"
 log "ticker_batch=$TICKER_BATCH  interval_minutes=$INTERVAL_MINUTES"
-log "watchdog=${WATCHDOG_SECONDS}s  resume=$RESUME  dry_run=$DRY_RUN"
+log "watchdog=${WATCHDOG_SECONDS}s  resume=$RESUME  dry_run=$DRY_RUN  block_chain=$BLOCK_CHAIN"
 
 mapfile -t ALL_DAYS < <(trading_days_for_month "$MONTH" | awk -v end="$END_DATE" '$0 <= end')
 if [[ "${#ALL_DAYS[@]}" -eq 0 ]]; then
