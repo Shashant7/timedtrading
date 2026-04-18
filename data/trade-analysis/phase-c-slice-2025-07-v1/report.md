@@ -149,9 +149,15 @@ cannot be used as the primary acceptance gate.
 
 ## Open questions for Phase D
 
-1. **Why did SPY/QQQ/IWM produce zero entries?** The Tier-1 aggregate is
-   86.5 % bull but the large-cap ETFs didn't trigger. Check whether the
-   pullback-depth gate is too strict for index ETFs at elevated rank.
+1. **Why did SPY/QQQ/IWM produce zero entries?** — **Answered by the T4
+   targeted probe in `proposed_tuning.md`.** SPY/QQQ/IWM are enabled and
+   scored every interval (237/day, 0 skipped), reach `setup`/`in_review`
+   stage frequently (SPY hit `score=100` on Jul 9), but two gates filter
+   them out: `tt_pullback_not_deep_enough` (requires 2-of-3 ST bearish,
+   index ETFs rarely satisfy that in calm uptrends) and
+   `tt_pullback_non_prime_rank_selective` (rank floor 90, SPY sits at
+   87–88 at setup moments). T6 proposes a ticker-scoped override for
+   SPY/QQQ/IWM/XLY.
 2. **Are the two `eod_trimmed_underwater_flatten` exits** the right call? AMZN
    closed +0.35 % but the flatten looks like it would have been an
    un-necessary cut during an uptrending week.

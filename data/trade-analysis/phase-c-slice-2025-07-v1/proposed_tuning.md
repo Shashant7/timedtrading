@@ -89,16 +89,42 @@ replay of the same month.
   opportunities. Must replay Oct and Jan (both have 5 clusters) to confirm
   the gate doesn't kill good entries in those months.
 
-### T4. Investigate why SPY/QQQ/IWM produced zero entries in an 82 % bull month
+### T4. Unentered-candidates diagnostic (SPY/QQQ/IWM) — findings from the targeted probe
 
-- **Evidence:** No trades on the three large-cap ETFs despite 22 days of
-  bull-bias. Phase-A locked config has `deep_audit_confirmed_min_rank` +
-  pullback-depth gates that appear to filter out qualifying ETF entries.
-- **Proposal (diagnostic, not tuning):** Phase D needs an "unentered
-  candidates" diagnostic — `intervals × tickers × block_reasons` matrix for
-  each month — so we can tell *why* SPY/QQQ/IWM never triggered. This is a
-  Phase D analyzer requirement, not a DA-key change.
-- **Expected impact:** diagnostic clarity; no metric change.
+Follow-up to the original report question "why did SPY/QQQ/IWM produce zero
+entries in an 82 % bull month?" I re-ran 2025-07-01 / 07-09 / 07-15 / 07-22
+with `tickers=SPY,QQQ,IWM&fullDay=1` so the worker returned its full
+`blockReasons` counter for those three tickers. Aggregated over the four
+probe days (948 scored ETF intervals total):
+
+| `block_reason` | count | share | Gate source |
+|---|---:|---:|---|
+| `tt_no_trigger` | 418 | 48.5 % | no pullback/reclaim trigger in the bar |
+| `tt_pullback_not_deep_enough` | 223 | 25.9 % | `tt-core-entry.js:768-780`, `deep_audit_pullback_min_bearish_count=2` |
+| `tt_momentum_30m_5_12_unconfirmed` | 82 | 9.5 % | 30m cloud not confirming |
+| `tt_pullback_non_prime_rank_selective` | 72 | 8.4 % | `tt-core-entry.js:1026-1033`, `deep_audit_pullback_non_prime_min_rank=90` |
+| `tt_pullback_5_12_not_reclaimed` | 44 | 5.1 % | 5/12 cloud reclaim still missing |
+| `tt_bias_not_aligned` | 19 | 2.2 % | daily/4H/1H/10m cloud vote not unanimous |
+| `tt_momentum_ltf_fractured` | 3 | 0.3 % | LTF structure fractured |
+
+Critical finding: the ETFs are **enabled and scored** every 5-min interval
+(`scored=237 / skipped=0` per day × 22 days ⇒ ~5,200 ETF observations) and
+reach `setup` / `in_review` stage frequently. On 2025-07-09 both SPY
+(`score=100`, `kanban_stage=in_review`) and QQQ (`score=99`,
+`in_review`) were a single structural signal away from qualifying. Two
+specific gates are the pinch points:
+
+- **`tt_pullback_not_deep_enough`** requires **2 of {15m, 30m, 1H
+  SuperTrend}** to have flipped bearish before the pullback is deep
+  enough. Index ETFs in a calm uptrend (July 2025 realized vol 6.7 %,
+  SPY +2.34 % monthly) almost never produce simultaneous 2-of-3 ST flips
+  — the index pulls back mildly, then resumes higher.
+- **`tt_pullback_non_prime_rank_selective`** bumps any non-Prime setup at
+  `rank < 90` out of the entry path. SPY scored 87–88 at multiple
+  setup-stage moments in July; those all got filtered here.
+
+These gates are tuned for individual stock pullbacks; index ETFs need a
+different sensitivity. Hence T6.
 
 ### T5. `PRE_EVENT_RECOVERY_EXIT` is firing as intended but costing marginal edges
 
@@ -108,6 +134,66 @@ replay of the same month.
 - **Proposal:** keep the rule as-is for this slice. Revisit in Phase D once
   we have 3+ months of PRE_EVENT_RECOVERY_EXIT data — single-month sample
   is too noisy.
+
+### T6. Relax the pullback-depth gate for index / sector ETFs (SPY/QQQ/IWM/XLY)
+
+- **Evidence:** Direct consequence of T4. The two ETF-blocking gates are:
+  - `tt_pullback_not_deep_enough` — requires 2 of 3 ST timeframes flipped
+    bearish; index ETFs rarely satisfy that in calm uptrends.
+  - `tt_pullback_non_prime_rank_selective` — non-Prime rank floor 90;
+    SPY sits at 87–88 at setup-stage moments.
+- **Proposal (two variants, same expected effect, different blast radius):**
+
+  **Variant A — minimal, ticker-scoped override.** Introduce a new DA key
+  `deep_audit_pullback_min_bearish_count_index_etf_tickers="SPY,QQQ,IWM,XLY"`
+  (CSV) and a paired
+  `deep_audit_pullback_min_bearish_count_index_etf=1` override. When the
+  current ticker is in the CSV, `pullbackMinBearishCount` is replaced with
+  the override (1 instead of 2). Same pattern for
+  `deep_audit_pullback_non_prime_min_rank_index_etf=85`. Zero impact on
+  single-stock behaviour; all existing 2025-07 stock trades are
+  preserved.
+
+  **Variant B — regime-conditional.** Make
+  `pullbackMinBearishCount = (cycle == "uptrend" && realized_vol < 10) ? 1 : 2`
+  using the Phase-B backdrop JSON at runtime. This is cleaner but
+  requires wiring the backdrop into the replay runtime (Phase F
+  concern).
+
+  Start with Variant A — it's narrow enough to ship in Phase D without
+  touching the backdrop plumbing.
+
+- **Expected 2025-07 impact:** SPY and QQQ should each produce 2–4
+  entries over the month. Based on the probe, SPY was at `in_review`
+  `score=100` on Jul 9 and at `setup` `score=88` on Jul 15; those are
+  the most likely trigger dates. IWM hit `score=100` on Jul 9 but stayed
+  in `watch` — may or may not cross into entry depending on the trigger
+  bar. Net estimated new trades: **+4 to +8** across the slice,
+  bias toward wins given the strong bull backdrop.
+
+- **Risks and anti-overfit considerations:**
+  - **2025-11 downtrend:** relaxing the ETF pullback depth in a bear
+    cycle would produce *more* SPY LONG entries in the exact month that
+    already had the R3 drought and the defensive-rotation bottom for
+    Tech. Phase D replay of 2025-11 under Variant A must confirm the
+    new ETF entries don't cluster into losers. If they do, the
+    override must be gated on cycle or realized_vol before merge
+    (pushing the proposal toward Variant B).
+  - **Holdout discipline:** 2026-03 and 2026-04 stay frozen until
+    Phase G; Variant A must pass the full-coverage rule (all 10 months
+    ± regression budget) on the 8 training months before it gets
+    replayed against the holdouts.
+  - **SPY overlay interaction:** Phase E's SPY-overlay track is
+    expected to *tighten* SPY entries to hit ≥ 80 % WR. T6 *loosens*
+    SPY entries. These may work against each other — final Phase E
+    config will need to reconcile ("loosen pullback depth but require
+    higher rank" is a plausible reconciliation).
+
+- **Plan mapping:** T6 belongs to Phase D if it can be made
+  unconditional, and to Phase F (regime-aware DA keys) if it needs
+  cycle / realized-vol gating. Either way it supersedes the plan's
+  original Phase E "raise min rank floor" candidate — the diagnostic
+  shows raising the floor is the *opposite* of what's needed.
 
 ## What's NOT proposed (yet)
 
@@ -119,15 +205,30 @@ replay of the same month.
   `MFE_DECAY_*` exit reasons). Need more data before tuning.
 - **Max-loss defaults** — the 3 `max_loss` hits are all from the earnings
   cluster (see T3). The fix is entry-gating, not loss-sizing.
-- **SPY overlay** — zero SPY trades in July ⇒ no data to tune. Phase E will
-  start from this observation.
+- **SPY overlay (Phase E)** — the plan's original Phase E candidate was
+  "raise min rank floor" for SPY. The T4 diagnostic inverts that: SPY is
+  already being filtered *by* the non-Prime rank floor, and the fix is to
+  *relax* it for the ETF subset (T6). Phase E will still own the SPY
+  ≥ 80 % WR acceptance gate but starts from T6's new baseline.
 
 ## Next step
 
-This doc is **not actionable** in Phase C. Phase D picks it up, applies T3
-as the first narrow DA-key experiment (the only proposal with unambiguous
-evidence in a single slice), replays July + Aug + Sep + Oct + Nov + Dec +
-Jan + Feb under both old and new behaviour, and only then opens a PR to
-merge the DA-key change.
+This doc is **not actionable** in Phase C. Phase D picks it up in this
+priority order:
 
-Carry forward T1 / T2 until we have ≥ 2 months of consistent evidence.
+1. **T6 (ETF pullback-depth relaxation)** — clearest single-slice evidence
+   with a ready-made two-variant implementation. Risk is well-understood
+   (2025-11 bear month). Ship Variant A first, full-coverage replay all
+   10 training months, promote to Variant B (regime-conditional) only if
+   2025-11 regresses more than 2 pp WR.
+2. **T3 (≥4-ticker earnings-cluster entry block)** — single-month evidence
+   is strong (all 3 July `max_loss` exits trace to the Jul 28–30 cluster),
+   but the rule touches the entry gate which also affects winners. Needs
+   cross-month replay before merge.
+3. **T1 / T2 / T5** — wait for ≥ 2 months of consistent evidence before
+   proposing DA-key changes.
+
+Phase D should also produce a standing "unentered candidates" diagnostic
+— the ticker × interval × block_reason matrix this probe produced ad-hoc
+— as a committed analyzer output so every monthly report surfaces the
+same signal without a manual re-run.
