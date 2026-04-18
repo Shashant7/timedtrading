@@ -1,80 +1,108 @@
-#!/bin/bash
-# Comprehensive ticker-by-ticker, TF-by-TF backfill for the full universe.
-# Goes through every TF in backtest order, batching 8 tickers at a time.
-# Skips tickers known to be unsupported (futures, SPX).
+#!/usr/bin/env bash
+# scripts/backfill-full-universe.sh
 #
-# Usage: ./scripts/backfill-full-universe.sh [sinceDays]
-#        ./scripts/backfill-full-universe.sh 450    # ~15 months back (default)
-#        ./scripts/backfill-full-universe.sh 700    # ~2 years back
+# Hydrates D1 ticker_candles for the full 215-ticker SECTOR_MAP universe
+# (futures, crypto pairs, and TV-only symbols filtered out) across all
+# 6 TFs (10, 15, 30, 60, 240, D) using the worker's batched backfill:
+#
+#   POST /timed/admin/alpaca-backfill?tf=<tf>&offset=N&limit=20&startDate=...&endDate=...&provider=<p>
+#
+# Batches of 20 tickers at a time keep each HTTP call under ~30s, well
+# below any worker wall-time ceiling. Alpaca serves 10m; TwelveData
+# serves 15/30/60/240/D.
+#
+# Usage:
+#   TIMED_API_KEY=... scripts/backfill-full-universe.sh
+#
+# Env:
+#   START_DATE (default 2025-07-01)
+#   END_DATE   (default today, clamped)
+#   BATCH_SIZE (default 20)
 
 set -euo pipefail
 
-API_BASE="${WORKER_BASE:-https://timed-trading-ingest.shashant.workers.dev}"
-API_KEY="${TIMED_API_KEY:-AwesomeSauce}"
-SINCE_DAYS="${1:-450}"
-BATCH_SIZE=8
-SLEEP_BETWEEN=2
+API_BASE="${API_BASE:-https://timed-trading-ingest.shashant.workers.dev}"
+API_KEY="${TIMED_API_KEY:?TIMED_API_KEY required}"
+START_DATE="${START_DATE:-2025-07-01}"
+TODAY="$(date -u '+%Y-%m-%d')"
+END_DATE_RAW="${END_DATE:-2026-04-17}"
+if [[ "$END_DATE_RAW" > "$TODAY" ]]; then
+  END_DATE="$TODAY"
+else
+  END_DATE="$END_DATE_RAW"
+fi
+BATCH_SIZE="${BATCH_SIZE:-20}"
 
-# Timeframes in priority order (critical for backtest first)
-TFS=("D" "W" "M" "240" "60" "30" "15" "10")
+# TF sequence: Alpaca 10m first (fastest), then TD in order of bar density.
+# Daily + 4H are smallest (~1-2 bars/day) so they run last — they're also
+# what the cron currently maintains, so least value-add.
+declare -a TFS=(10 15 30 60 240 D)
 
-# Unsupported tickers (futures + SPX — no TwelveData/Alpaca data)
-SKIP="BRK-B CL1! ES1! GC1! NQ1! SI1! VX1! SPX"
+log() { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] $*"; }
 
-echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║  Full Universe Backfill — ticker by ticker, TF by TF        ║"
-echo "║  Since: ${SINCE_DAYS} days | Batch: ${BATCH_SIZE} tickers   ║"
-echo "║  TFs: ${TFS[*]}                                             ║"
-echo "╚══════════════════════════════════════════════════════════════╝"
-echo ""
+backfill_batch() {
+  local tf="$1" offset="$2" provider="$3"
+  local url="$API_BASE/timed/admin/alpaca-backfill?tf=$tf&offset=$offset&limit=$BATCH_SIZE&startDate=$START_DATE&endDate=$END_DATE&provider=$provider&key=$API_KEY"
+  local attempt=1 rc=1
+  while [[ "$attempt" -le 3 ]]; do
+    local t0 t1
+    t0=$(date -u +%s)
+    local resp
+    resp=$(curl -sS -m 900 -X POST "$url" -H "Content-Type: application/json" -d '{}' 2>&1) && rc=$? || rc=$?
+    t1=$(date -u +%s)
+    local elapsed=$((t1 - t0))
+    if [[ "$rc" -eq 0 ]]; then
+      local ok up err tickers
+      ok=$(echo "$resp" | jq -r '.ok // false' 2>/dev/null || echo "false")
+      up=$(echo "$resp" | jq -r '.upserted // 0' 2>/dev/null || echo "?")
+      err=$(echo "$resp" | jq -r '.errors // 0' 2>/dev/null || echo "?")
+      tickers=$(echo "$resp" | jq -r '.tickers // 0' 2>/dev/null || echo "?")
+      if [[ "$ok" == "true" ]]; then
+        log "  tf=$tf offset=$offset provider=$provider tickers=$tickers upserted=$up errors=$err ${elapsed}s"
+        return 0
+      fi
+    fi
+    log "  WARN tf=$tf offset=$offset rc=$rc attempt=$attempt resp=$(echo "$resp" | head -c 300)"
+    attempt=$((attempt + 1))
+    sleep 15
+  done
+  log "  ERROR tf=$tf offset=$offset FAILED after 3 attempts"
+  return 1
+}
 
-# Total tickers in SECTOR_MAP (hardcoded, matches worker/index.js)
-TOTAL=304
-echo "Universe size: $TOTAL tickers"
-echo "Skipping: $SKIP"
-echo ""
+# Read the filtered universe from configs/backfill-universe-*.txt
+UNIVERSE_FILE="configs/backfill-universe-2026-04-18.txt"
+if [[ ! -f "$UNIVERSE_FILE" ]]; then
+  echo "ERROR: universe file not found: $UNIVERSE_FILE" >&2
+  exit 2
+fi
+TOTAL=$(wc -l < "$UNIVERSE_FILE" | tr -d ' ')
 
-grand_upserted=0
-grand_errors=0
-grand_skipped=0
+log "=== Full-universe backfill ==="
+log "API_BASE=$API_BASE  START=$START_DATE  END=$END_DATE  BATCH=$BATCH_SIZE"
+log "Universe: $TOTAL tickers  TFs: ${TFS[*]}"
+log "Note: worker iterates SECTOR_MAP for offset/limit; universe file is informational only (filtering happens worker-side)."
+log ""
+
+FAILURES=0
+START_TS=$(date -u +%s)
 
 for tf in "${TFS[@]}"; do
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "  TF=$tf — backfilling $TOTAL tickers (batch=$BATCH_SIZE)"
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  tf_upserted=0
-  tf_errors=0
-  tf_batches=0
-
-  for ((offset=0; offset<TOTAL; offset+=BATCH_SIZE)); do
-    tf_batches=$((tf_batches + 1))
-    result=$(curl -s -m 120 \
-      "$API_BASE/timed/admin/alpaca-backfill?key=$API_KEY&tf=$tf&sinceDays=$SINCE_DAYS&offset=$offset&limit=$BATCH_SIZE" \
-      -X POST 2>&1)
-
-    ups=$(echo "$result" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('upserted',0))" 2>/dev/null || echo "0")
-    errs=$(echo "$result" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('errors',0))" 2>/dev/null || echo "0")
-
-    tf_upserted=$((tf_upserted + ups))
-    tf_errors=$((tf_errors + errs))
-
-    # Progress indicator
-    pct=$(( (offset + BATCH_SIZE) * 100 / TOTAL ))
-    [[ $pct -gt 100 ]] && pct=100
-    printf "  [%3d%%] Batch %2d (offset=%3d): +%-6d err=%-4d\n" "$pct" "$tf_batches" "$offset" "$ups" "$errs"
-
-    sleep $SLEEP_BETWEEN
+  provider=$([[ "$tf" == "10" ]] && echo "alpaca" || echo "twelvedata")
+  log ">>> TF=$tf provider=$provider"
+  # Worker's SECTOR_MAP has 219 tickers; batches of BATCH_SIZE until exhausted.
+  # We rely on the worker to return tickers=0 or matching tickers=count when offset exceeds the list.
+  offset=0
+  SECTOR_MAP_SIZE=219  # upper bound; worker clamps internally
+  while [[ "$offset" -lt "$SECTOR_MAP_SIZE" ]]; do
+    if ! backfill_batch "$tf" "$offset" "$provider"; then
+      FAILURES=$((FAILURES + 1))
+    fi
+    offset=$((offset + BATCH_SIZE))
   done
-
-  grand_upserted=$((grand_upserted + tf_upserted))
-  grand_errors=$((grand_errors + tf_errors))
-  echo "  ── TF=$tf done: upserted=$tf_upserted errors=$tf_errors ($tf_batches batches)"
-  echo ""
+  log ">>> TF=$tf done; failures so far=$FAILURES"
 done
 
-echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║  COMPLETE                                                    ║"
-echo "║  Total upserted: $grand_upserted                            ║"
-echo "║  Total errors:   $grand_errors                               ║"
-echo "║  TFs covered:    ${TFS[*]}                                   ║"
-echo "╚══════════════════════════════════════════════════════════════╝"
+END_TS=$(date -u +%s)
+log "=== Full-universe backfill complete. Failures: $FAILURES. Wall-clock: $((END_TS - START_TS))s ==="
+exit "$FAILURES"
