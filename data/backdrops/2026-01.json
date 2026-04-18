@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "month": "2026-01",
-  "generated_at": "2026-04-17T23:21:07.248Z",
+  "generated_at": "2026-04-18T23:28:28.817Z",
   "window": {
     "start": "2026-01-01",
     "end": "2026-01-31"
@@ -355,9 +355,9 @@
           {
             "date": "2026-01-28",
             "time": null,
-            "eps_estimate": 0.45,
-            "eps_actual": 0.5,
-            "surprise_pct": 11.11
+            "eps_estimate": 0.35,
+            "eps_actual": 0.24,
+            "surprise_pct": -31.43
           }
         ],
         "CDNS": [

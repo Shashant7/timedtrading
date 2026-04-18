@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "month": "2025-07",
-  "generated_at": "2026-04-17T23:21:00.288Z",
+  "generated_at": "2026-04-18T23:26:23.990Z",
   "window": {
     "start": "2025-07-01",
     "end": "2025-07-31"
@@ -290,10 +290,18 @@
   },
   "event_density": {
     "earnings": {
-      "total_events": 7,
-      "unique_tickers_reporting": 7,
+      "total_events": 11,
+      "unique_tickers_reporting": 11,
       "by_ticker": {
-        "AAPL": [],
+        "AAPL": [
+          {
+            "date": "2025-07-31",
+            "time": null,
+            "eps_estimate": 1.43,
+            "eps_actual": 1.57,
+            "surprise_pct": 9.79
+          }
+        ],
         "MSFT": [
           {
             "date": "2025-07-30",
@@ -312,14 +320,22 @@
             "surprise_pct": 5
           }
         ],
-        "AMZN": [],
+        "AMZN": [
+          {
+            "date": "2025-07-31",
+            "time": null,
+            "eps_estimate": 1.33,
+            "eps_actual": 1.68,
+            "surprise_pct": 26.32
+          }
+        ],
         "META": [
           {
             "date": "2025-07-30",
             "time": null,
-            "eps_estimate": 5.9,
+            "eps_estimate": 5.86,
             "eps_actual": 7.14,
-            "surprise_pct": 21.02
+            "surprise_pct": 21.84
           }
         ],
         "NVDA": [],
@@ -354,10 +370,26 @@
         "GRNY": [],
         "HUBS": [],
         "IESC": [],
-        "MTZ": [],
+        "MTZ": [
+          {
+            "date": "2025-07-31",
+            "time": null,
+            "eps_estimate": 1.4,
+            "eps_actual": 1.49,
+            "surprise_pct": 6.43
+          }
+        ],
         "ON": [],
         "PH": [],
-        "RIOT": [],
+        "RIOT": [
+          {
+            "date": "2025-07-31",
+            "time": null,
+            "eps_estimate": 0.06,
+            "eps_actual": 0.57,
+            "surprise_pct": 850
+          }
+        ],
         "SGI": [],
         "SWK": [
           {
@@ -413,12 +445,17 @@
           "window_dates": [
             "2025-07-28",
             "2025-07-29",
-            "2025-07-30"
+            "2025-07-30",
+            "2025-07-31"
           ],
           "tickers": [
+            "AAPL",
+            "AMZN",
             "CDNS",
             "META",
             "MSFT",
+            "MTZ",
+            "RIOT",
             "SWK"
           ]
         },
@@ -427,12 +464,34 @@
           "window_dates": [
             "2025-07-28",
             "2025-07-29",
-            "2025-07-30"
+            "2025-07-30",
+            "2025-07-31"
           ],
           "tickers": [
+            "AAPL",
+            "AMZN",
             "CDNS",
             "META",
             "MSFT",
+            "MTZ",
+            "RIOT",
+            "SWK"
+          ]
+        },
+        {
+          "anchor": "2025-07-31",
+          "window_dates": [
+            "2025-07-29",
+            "2025-07-30",
+            "2025-07-31"
+          ],
+          "tickers": [
+            "AAPL",
+            "AMZN",
+            "META",
+            "MSFT",
+            "MTZ",
+            "RIOT",
             "SWK"
           ]
         }
@@ -487,6 +546,7 @@
       "nfp_count": 1
     },
     "density_by_date": {
+      "2025-07-31": 4,
       "2025-07-30": 4,
       "2025-07-23": 2,
       "2025-07-28": 1,
@@ -506,6 +566,10 @@
       },
       {
         "date": "2025-07-30",
+        "events": 4
+      },
+      {
+        "date": "2025-07-31",
         "events": 4
       }
     ]
