@@ -19,6 +19,7 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
     skipTrail,
     skipInvestor,
     debugTimeline,
+    blockChainTrace,
     marketOpenMs,
     REPLAY_TFS,
     candleCache,
@@ -89,6 +90,12 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
   const dayErrors = [];
   const mergedStageCounts = {};
   const mergedBlockReasons = {};
+  // Phase D analyzer: per-bar block trace. Accumulated across all ticker
+  // batches in a fullDay call so the caller gets one consolidated array.
+  // Capped to avoid pathological responses; 50k bars is ~24 tickers ×
+  // 79 intervals × 22 trading days = 41.7k, one month of output.
+  const dayBlockChainBars = blockChainTrace ? [] : null;
+  const BLOCK_CHAIN_CAP = 100000;
 
   while (true) {
     if (batchTickers.length === 0) {
@@ -103,6 +110,7 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
     const timeline = [];
     const stageCounts = {};
     const blockReasons = {};
+    const blockChainBars = blockChainTrace ? [] : null;
     const pendingTrail = [];
     const targetSnapshots = {};
     const targetTimeline = [];
@@ -402,6 +410,19 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
               if (diagEntry.fuelPct != null) result.__entry_block_fuel_pct = diagEntry.fuelPct;
               blockReasons[diagEntry.reason] = (blockReasons[diagEntry.reason] || 0) + 1;
               intervalBlockReasons[diagEntry.reason] = (intervalBlockReasons[diagEntry.reason] || 0) + 1;
+              if (blockChainBars && blockChainBars.length < BLOCK_CHAIN_CAP) {
+                blockChainBars.push({
+                  ticker,
+                  ts: intervalTs,
+                  reason: diagEntry.reason,
+                  kanban_stage: stage,
+                  state: result.state,
+                  score: Number.isFinite(Number(result?.score)) ? Number(result.score) : null,
+                  rank: Number.isFinite(Number(result?.rank)) ? Number(result.rank) : null,
+                  htf_score: Number.isFinite(Number(result?.htf_score)) ? Number(result.htf_score) : null,
+                  ltf_score: Number.isFinite(Number(result?.ltf_score)) ? Number(result.ltf_score) : null,
+                });
+              }
             } else {
               delete result.__entry_block_reason;
               delete result.__entry_block_fuel_pct;
@@ -824,6 +845,12 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
       dayErrors.push(...errors);
       for (const k of Object.keys(stageCounts || {})) mergedStageCounts[k] = (mergedStageCounts[k] || 0) + (stageCounts[k] || 0);
       for (const k of Object.keys(blockReasons || {})) mergedBlockReasons[k] = (mergedBlockReasons[k] || 0) + (blockReasons[k] || 0);
+      if (dayBlockChainBars && blockChainBars) {
+        const room = Math.max(0, BLOCK_CHAIN_CAP - dayBlockChainBars.length);
+        if (room > 0) {
+          dayBlockChainBars.push(...blockChainBars.slice(0, room));
+        }
+      }
       if (hasMore) {
         tickerOffset += tickerBatch;
         batchTickers = allTickers.slice(tickerOffset, tickerOffset + tickerBatch);
@@ -858,6 +885,10 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
       processDebug: replayCtx?.processDebug?.slice(0, 30) || [],
       blockedEntryGates: replayCtx?._blockedEntries || {},
       timeline: debugTimeline ? timeline : undefined,
+      blockChainBars: blockChainTrace
+        ? (fullDay ? (dayBlockChainBars || []) : (blockChainBars || []))
+        : undefined,
+      blockChainCap: blockChainTrace ? BLOCK_CHAIN_CAP : undefined,
       fullDay: !!fullDay,
     }, 200, corsHeaders(env, req));
   }
