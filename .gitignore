@@ -56,6 +56,16 @@ data/onboard-summary.json
 losing-trades-report.txt
 data/reference-intel/trade-intel-canonical-v1.jsonl
 
+# Phase C monthly-slice local PID locks and per-run artifact dirs. Only
+# `report.md` and `proposed_tuning.md` are committed out of trade-analysis
+# per the plan; raw trades.json / trades.csv / slice.checkpoint.json /
+# slice.progress.log stay local.
+data/.locks/
+data/trade-analysis/**/slice.progress.log
+data/trade-analysis/**/slice.checkpoint.json
+data/trade-analysis/**/trades.json
+data/trade-analysis/**/trades.csv
+
 # CloudFlare
 .wrangler/
 wrangler.toml.local
