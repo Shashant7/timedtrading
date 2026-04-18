@@ -1,0 +1,71 @@
+{
+  "schema_version": "phase-d.v1",
+  "run_id": "phase-d-slice-2025-08-v1",
+  "month": "2025-08",
+  "ships_now": [],
+  "candidates": [
+    {
+      "id": "T1",
+      "title": "Raise SMART_RUNNER_TRIM_REASSESS round-trip threshold for rank >= 95 runners",
+      "evidence_months": ["2025-07", "2025-08"],
+      "single_month_impact_estimate_pct_sum_pnl": 1.0,
+      "status": "deferred_needs_more_months",
+      "rationale": "Two-month pattern: high-rank runners cut early by round-trip-failure guard. Not strong enough to justify unilateral change; revisit at 3+ months."
+    },
+    {
+      "id": "T3",
+      "title": "Block entries on earnings-cluster anchor day +/- 1 for participating tickers only",
+      "evidence_months": ["2025-07", "2025-08"],
+      "narrowed_from_phase_c": true,
+      "single_month_impact_estimate_pct_sum_pnl": null,
+      "status": "needs_cluster_week_replay",
+      "rationale": "Phase C's broad 'any cluster day' rule would kill the Phase C CDNS Jul 28 +5.61 % big winner. Aug shows PRE_EARNINGS_FORCE_EXIT already handles direct participants. T3 should target late-cluster entries only; definition TBD with Sep + Oct data."
+    },
+    {
+      "id": "T6",
+      "title": "Joint relaxation of tt_pullback_not_deep_enough + tt_bias_not_aligned for index ETFs",
+      "evidence_months": ["2025-07", "2025-08"],
+      "supersedes_phase_c_variant_a": true,
+      "single_month_impact_estimate_pct_sum_pnl": null,
+      "status": "needs_analyzer_simulation",
+      "rationale": "Aug confirms two-gate binding constraint. Phase C T6 single-gate relaxation was symptomatic. Next step is a compare-block-chains.js simulation that relaxes BOTH gates for {SPY,QQQ,IWM,XLY} and counts redistribution."
+    },
+    {
+      "id": "T7",
+      "title": "End-of-window protective trail on runners",
+      "evidence_months": ["2025-07", "2025-08"],
+      "newly_proposed": true,
+      "single_month_impact_estimate_pct_sum_pnl": 8.0,
+      "status": "candidate_if_sep_confirms",
+      "rationale": "Jul + Aug both show replay_end_close as net positive (big winners preserved, 1-2 clear losers per month). Adding a tight protective trail in final 2 sessions would convert clear losers to near-breakeven with no loss of big winners. If Sep reinforces, first DA-key experiment worth shipping.",
+      "proposed_da_keys": {
+        "deep_audit_eow_protective_trail_enabled": "true",
+        "deep_audit_eow_protective_trail_sessions": 2,
+        "deep_audit_eow_protective_trail_lock_mfe_pct": 0.5
+      }
+    }
+  ],
+  "observation_baselines": {
+    "2025-07": {
+      "run_id": "phase-c-cleanslate-regression-v1",
+      "trades": 36,
+      "wr_pct": 77.8,
+      "big_winners": 5,
+      "sum_pnl_pct": 109.06
+    },
+    "2025-08": {
+      "run_id": "phase-d-slice-2025-08-v1",
+      "trades": 15,
+      "wr_pct": 66.7,
+      "big_winners": 2,
+      "sum_pnl_pct": 53.82
+    }
+  },
+  "acceptance_budget": {
+    "per_month": {
+      "min_wr_pp_below_best": 2,
+      "min_big_winners_delta": -1,
+      "min_pnl_pct_of_baseline": 0.9
+    }
+  }
+}
