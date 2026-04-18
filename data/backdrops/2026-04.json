@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "month": "2026-04",
-  "generated_at": "2026-04-17T23:21:11.764Z",
+  "generated_at": "2026-04-18T23:30:02.353Z",
   "window": {
     "start": "2026-04-01",
     "end": "2026-04-30"
@@ -250,7 +250,7 @@
       "note": "VIXY (ETF) used because ^VIX is not on the TwelveData plan",
       "avg_close": 30.384,
       "max_close": 35.98,
-      "min_close": 27.405,
+      "min_close": 27.4,
       "prev_month_avg_close": 32.858
     },
     "move_proxy": {
