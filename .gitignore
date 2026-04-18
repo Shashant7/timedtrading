@@ -65,6 +65,8 @@ data/trade-analysis/**/slice.progress.log
 data/trade-analysis/**/slice.checkpoint.json
 data/trade-analysis/**/trades.json
 data/trade-analysis/**/trades.csv
+data/trade-analysis/**/block_chain.jsonl
+data/trade-analysis/**/block_chain_summary.md
 
 # CloudFlare
 .wrangler/

@@ -107,6 +107,13 @@ export function parseCandleReplayRequest({ url, tickerUniverse = [] } = {}) {
   const skipInvestor = url.searchParams.get("skipInvestor") === "1" || url.searchParams.get("traderOnly") === "1";
   const skipPayload = url.searchParams.get("skipPayload") !== "0";
   const debugTimeline = url.searchParams.get("debugTimeline") === "1";
+  // Phase D analyzer: per-bar block trace. When ?blockChainTrace=1, the
+  // response includes `blockChainBars`, one record per rejected bar with
+  // (ticker, ts, reason, kanban_stage, state, score). This is the
+  // input the Phase-D scripts/compare-block-chains.js consumes to
+  // answer the redistribution question that aggregated `blockReasons`
+  // counters can't.
+  const blockChainTrace = url.searchParams.get("blockChainTrace") === "1";
   const tickerFilter = cleanText(url.searchParams.get("tickers"));
   let allTickers = tickerFilter
     ? tickerFilter.split(",").map((item) => item.trim().toUpperCase()).filter(Boolean)
@@ -134,6 +141,7 @@ export function parseCandleReplayRequest({ url, tickerUniverse = [] } = {}) {
       skipInvestor,
       skipPayload,
       debugTimeline,
+      blockChainTrace,
       tickerFilter,
       allTickers,
       batchTickers,
