@@ -13005,6 +13005,46 @@ async function processTradeSimulation(
         pxNow = exitLtf;
       }
     }
+
+    // Candle-coverage guard (2026-04-18): cross-check pxNow against the
+    // freshest intraday bar from the replay candleCache. When any TF
+    // (10/15/30/60) has a bar closer to asOfMs than `pxNow` implies, and
+    // divergence > 5%, it means the caller's pxNow is from a stale bundle
+    // (e.g. AGQ Dec 2 2025 produced pxNow=$79.33 from Oct 31's last 30m
+    // bar despite Nov/Dec 60m bars at $85-$115 being present). Patch pxNow
+    // to the freshest close in that case.
+    //
+    // Selection rule: among TFs [10,15,30,60], pick the one whose latest
+    // candle at or before asOfMs has the highest ts. Use its close.
+    if (isReplay && Number.isFinite(asOfMs) && replayCtx?.candleCache?.[sym]) {
+      let freshestClose = null;
+      let freshestTs = 0;
+      for (const tf of ["10", "15", "30", "60"]) {
+        const arr = replayCtx.candleCache[sym][tf];
+        if (!Array.isArray(arr) || arr.length === 0) continue;
+        // Binary-friendly scan: cache is ascending by ts
+        let hi = arr.length - 1;
+        while (hi >= 0 && arr[hi].ts > asOfMs) hi--;
+        if (hi < 0) continue;
+        const bar = arr[hi];
+        if (!bar || !Number.isFinite(bar.c) || bar.c <= 0) continue;
+        if (bar.ts > freshestTs) {
+          freshestTs = bar.ts;
+          freshestClose = Number(bar.c);
+        }
+      }
+      if (Number.isFinite(freshestClose) && freshestClose > 0 && Number.isFinite(pxNow) && pxNow > 0) {
+        const divergePct = Math.abs(pxNow - freshestClose) / freshestClose * 100;
+        // 5% divergence with a fresher bar available = bundle is almost
+        // certainly stale. Prefer the freshest bar; log so it shows up in
+        // tails and the forensics later can correlate with the coverage
+        // audit.
+        if (divergePct > 5) {
+          console.warn(`[CANDLE_STALE_GUARD] ${sym} at ${asOfMs}: pxNow=$${pxNow.toFixed(4)} diverges ${divergePct.toFixed(1)}% from freshest TF close=$${freshestClose.toFixed(4)} (ts=${freshestTs}); using freshest`);
+          pxNow = freshestClose;
+        }
+      }
+    }
     // CRITICAL: Always prefer current market price (pxNow) for entry.
     // tickerData.entry_price is set when the signal first fires and can be
     // hours/days stale by the time the trade is actually opened.
@@ -16484,6 +16524,36 @@ async function processTradeSimulation(
       }
       console.log(`[ENTRY_CREATE_START] ${sym} passed all gates, attempting trade creation`);
       const entryPx = Number(entryPxCandidate);
+
+      // Candle-coverage guard B (2026-04-18): final sanity check on
+      // entryPx before the trade is committed. Cross-check against the
+      // most recent daily close from the replay cache. If entryPx is
+      // more than 10% away from the daily close of the most recent
+      // trading day, the bundle almost certainly pulled a stale value
+      // (e.g. AGQ stuck on Oct 31's $79.33 bar while trading into Nov at
+      // $88). Refuse the trade and emit a loud log line so downstream
+      // monitoring can correlate with the coverage audit.
+      if (isReplay && Number.isFinite(entryPx) && entryPx > 0) {
+        const dailyArr = replayCtx?.candleCache?.[sym]?.D;
+        if (Array.isArray(dailyArr) && dailyArr.length > 0) {
+          const asOfForGuard = Number(asOfMs) || Date.now();
+          let hi = dailyArr.length - 1;
+          while (hi >= 0 && dailyArr[hi].ts > asOfForGuard) hi--;
+          const lastDaily = hi >= 0 ? dailyArr[hi] : null;
+          const dailyClose = lastDaily ? Number(lastDaily.c) : null;
+          if (Number.isFinite(dailyClose) && dailyClose > 0) {
+            const divergePct = Math.abs(entryPx - dailyClose) / dailyClose * 100;
+            if (divergePct > 10) {
+              console.warn(`[ENTRY_PRICE_DIVERGENT] ${sym} REFUSED: entryPx=$${entryPx.toFixed(4)} vs most-recent daily close=$${dailyClose.toFixed(4)} (${divergePct.toFixed(1)}% divergence, asOf=${asOfForGuard}). Likely stale bundle from candle-coverage gap. Trade aborted.`);
+              if (options?.replayBatchContext?.processDebug && options.replayBatchContext.processDebug.length < 40) {
+                options.replayBatchContext.processDebug.push({ sym, at: "entry_price_divergent_abort", entryPx, dailyClose, divergePct });
+              }
+              return { skipped: true, reason: "entry_price_divergent" };
+            }
+          }
+        }
+      }
+
       let slCandidate = Number(tickerData?.sl ?? tickerData?.sl_price ?? tickerData?.stop_loss);
       let tpCandidate = Number(tickerData?.tp ?? tickerData?.tp_max_price ?? tickerData?.tp_target_price ?? tickerData?.tp_target);
       
@@ -42218,7 +42288,18 @@ export default {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
 
-        const useTD = _usesTwelveData(env);
+        // Per-request provider override: 10m is Alpaca-sourced in production
+        // even when DATA_PROVIDER=twelvedata (TwelveData's 10m is a synthetic
+        // aggregate of 5m that was silently breaking replays in 2025-10..12).
+        // Use ?provider=alpaca to force the Alpaca backfill path for a
+        // targeted (ticker, tf, start, end) repair without changing the
+        // worker-wide DATA_PROVIDER binding.
+        const providerOverride = String(url.searchParams.get("provider") || "").trim().toLowerCase();
+        const useTD = providerOverride === "twelvedata"
+          ? true
+          : providerOverride === "alpaca"
+            ? false
+            : _usesTwelveData(env);
         if (useTD && !env.TWELVEDATA_API_KEY) {
           return sendJSON(
             { ok: false, error: "data_provider_not_configured", hint: "Set TWELVEDATA_API_KEY for TwelveData backfill" },
@@ -42227,7 +42308,7 @@ export default {
         }
         if (!useTD && (!env.ALPACA_API_KEY_ID || !env.ALPACA_API_SECRET_KEY)) {
           return sendJSON(
-            { ok: false, error: "data_provider_not_configured", hint: "Set ALPACA credentials or DATA_PROVIDER=twelvedata" },
+            { ok: false, error: "data_provider_not_configured", hint: "Set ALPACA credentials or use ?provider=twelvedata" },
             400, corsHeaders(env, req),
           );
         }
