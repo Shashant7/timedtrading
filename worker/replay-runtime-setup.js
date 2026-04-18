@@ -23,6 +23,13 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_mfe_trail_ratio_low",
   "deep_audit_mfe_trail_ratio_mid",
   "deep_audit_mfe_trail_ratio_high",
+  // T6 (2026-04-18): ticker-scoped ETF pullback-depth + non-Prime rank floor
+  // overrides. Relaxes two entry gates for SPY/QQQ/IWM/XLY without
+  // changing single-stock behaviour. Phase-C 2025-07 probe found these two
+  // gates produced 100 % of SPY/QQQ/IWM blocks at setup/in_review stage.
+  "deep_audit_pullback_min_bearish_count_index_etf",
+  "deep_audit_pullback_min_bearish_count_index_etf_tickers",
+  "deep_audit_pullback_non_prime_min_rank_index_etf",
   "golden_julaug_reference_run_id", "live_config_run_id", "member_ticker_list", "consensus_signal_weights", "consensus_tf_weights", "scoring_weight_adj",
 ];
 

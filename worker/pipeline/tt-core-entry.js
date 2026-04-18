@@ -517,10 +517,30 @@ export function evaluateEntry(ctx) {
   const momentumPullbackMin4hRegime = Number(daCfg.deep_audit_momentum_pullback_min_ema_regime_4h) || 2;
   const movePhaseScorecard = movePhase?.scores || {};
   const pullbackLateSessionGuardEnabled = String(daCfg.deep_audit_pullback_late_session_guard_enabled ?? "true") === "true";
-  const pullbackMinBearishCount = Math.max(
+  // T6 (2026-04-18): ticker-scoped overrides so the pullback-depth gate can
+  // be relaxed for index / sector ETFs (SPY, QQQ, IWM, XLY) without
+  // loosening the same gate on single-stock setups. The Phase-C 2025-07
+  // diagnostic showed ETFs rarely satisfy the default 2-of-3 ST-bearish
+  // pullback-depth rule in calm uptrends, even when they reach
+  // kanban=in_review with score=100.
+  const pullbackDepthEtfTickers = deepAuditTickerSet(
+    daCfg.deep_audit_pullback_min_bearish_count_index_etf_tickers || "",
+  );
+  const pullbackDepthEtfOverrideRaw = daCfg.deep_audit_pullback_min_bearish_count_index_etf;
+  const pullbackDepthEtfOverride = Number.isFinite(Number(pullbackDepthEtfOverrideRaw))
+    ? Math.max(0, Number(pullbackDepthEtfOverrideRaw))
+    : null;
+  const basePullbackMinBearishCount = Math.max(
     0,
     Number(daCfg.deep_audit_pullback_min_bearish_count) || 2,
   );
+  const pullbackMinBearishCount = (
+    pullbackDepthEtfOverride != null
+    && pullbackDepthEtfTickers.size > 0
+    && pullbackDepthEtfTickers.has(tickerUpper)
+  )
+    ? pullbackDepthEtfOverride
+    : basePullbackMinBearishCount;
   const speculativePullbackPhaseDivGuardEnabled = String(daCfg.deep_audit_speculative_pullback_phase_div_guard_enabled ?? "true") === "true";
   const confirmedPullbackPremiumPhaseDivGuardEnabled = String(daCfg.deep_audit_confirmed_pullback_premium_phase_div_guard_enabled ?? "true") === "true";
   const speculativeMomentumPhaseDivGuardEnabled = String(daCfg.deep_audit_speculative_momentum_phase_div_guard_enabled ?? "true") === "true";
@@ -1023,8 +1043,25 @@ export function evaluateEntry(ctx) {
 
   if (config.ripsterTuneV2 && side === "LONG" && pullbackTrigger && !reclaimTrigger) {
     const selectivePullbackEnabled = String(daCfg.deep_audit_pullback_selective_enabled ?? "true") === "true";
-    const selectiveNonPrimeMinRank = Number(daCfg.deep_audit_pullback_non_prime_min_rank) || 90;
+    // T6 (2026-04-18): ticker-scoped non-Prime rank floor override for index
+    // / sector ETFs — same CSV as the pullback-depth override so the two
+    // gates stay in lock-step. The Phase-C 2025-07 probe showed SPY
+    // typically sits at rank 87-88 at setup-stage moments, just below the
+    // 90 floor, and that single point is enough to block all qualifying
+    // entries across a 22-day month.
+    const baseNonPrimeMinRank = Number(daCfg.deep_audit_pullback_non_prime_min_rank) || 90;
     const selectivePrimeMinRank = Number(daCfg.deep_audit_pullback_prime_min_rank) || 0;
+    const nonPrimeEtfOverrideRaw = daCfg.deep_audit_pullback_non_prime_min_rank_index_etf;
+    const nonPrimeEtfOverride = Number.isFinite(Number(nonPrimeEtfOverrideRaw))
+      ? Math.max(0, Number(nonPrimeEtfOverrideRaw))
+      : null;
+    const selectiveNonPrimeMinRank = (
+      nonPrimeEtfOverride != null
+      && pullbackDepthEtfTickers.size > 0
+      && pullbackDepthEtfTickers.has(tickerUpper)
+    )
+      ? nonPrimeEtfOverride
+      : baseNonPrimeMinRank;
     const requiredRank = isPrimeGrade ? selectivePrimeMinRank : selectiveNonPrimeMinRank;
     if (!confirmedBullContinuationLong && selectivePullbackEnabled && requiredRank > 0 && rankScore < requiredRank) {
       return rejectEntry(
