@@ -42,9 +42,9 @@ const UNIVERSE = [...TIER1, ...TIER2];
 
 // TFs that matter for the replay engine. Per product guidance:
 //   - 10m is the leading LTF and is sourced from Alpaca.
-//   - 15m / 30m / 60m / 240 (4H) / D come from TwelveData.
+//   - 15m / 30m / 60m / 240 (4H) / D / W / M come from TwelveData.
 //   - 5m / 3m / 1m are not used by the strategy, so they're not audited.
-const TFS = ["10", "15", "30", "60", "240", "D"];
+const TFS = ["10", "15", "30", "60", "240", "D", "W", "M"];
 
 // Months in scope (matches plan). March + April included per user request.
 const MONTHS = [
@@ -61,7 +61,9 @@ const HOLIDAYS = new Set([
 const RTH_START_H = 13; // 09:30 NY = 13:30 UTC (summer) / 14:30 UTC (winter) — approx for bar counting
 const RTH_END_H = 21;   // 16:00 NY
 
-// Expected bars per RTH day for each TF.
+// Expected bars per RTH day for each TF. W and M aren't per-day — their
+// expected count is derived from calendar weeks / months in the scope, not
+// trading days. The audit computes the ratio differently for those.
 const BARS_PER_DAY = {
   "10": 39,   // 6.5h * 6
   "15": 26,   // 6.5h * 4
@@ -69,6 +71,8 @@ const BARS_PER_DAY = {
   "60": 7,    // 6.5h rounded up
   "240": 2,   // 4H = typically 2 bars / day (9:30 + 13:30 NY)
   "D": 1,
+  "W": 0,     // special-cased below
+  "M": 0,     // special-cased below
 };
 
 function isTradingDay(dateStr) {
@@ -191,7 +195,27 @@ async function main() {
       for (const ym of MONTHS) {
         const { start, end, days } = monthBounds(ym);
         const { count, daysWithBars } = countBarsInMonth(candles, start, end);
-        const expected = days.length * (BARS_PER_DAY[tf] || 0);
+        let expected;
+        if (tf === "W") {
+          // Expected weekly bars = number of calendar weeks fully within
+          // the month. Each trading week produces exactly one bar.
+          // Count distinct Mondays (or any anchor day) in the trading-day list.
+          const weekKeys = new Set(
+            days.map((d) => {
+              const dt = new Date(`${d}T12:00:00Z`);
+              const dow = dt.getUTCDay(); // 0..6
+              const anchor = new Date(dt);
+              anchor.setUTCDate(dt.getUTCDate() - ((dow + 6) % 7)); // Monday
+              return anchor.toISOString().slice(0, 10);
+            }),
+          );
+          expected = weekKeys.size;
+        } else if (tf === "M") {
+          // Exactly one M bar per month if there are any trading days.
+          expected = days.length > 0 ? 1 : 0;
+        } else {
+          expected = days.length * (BARS_PER_DAY[tf] || 0);
+        }
         const ratio = gapRatio(count, expected);
         const gap = ratio < 0.8; // flag if under 80% of expected
         const row = {

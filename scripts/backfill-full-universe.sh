@@ -34,9 +34,11 @@ fi
 BATCH_SIZE="${BATCH_SIZE:-20}"
 
 # TF sequence: Alpaca 10m first (fastest), then TD in order of bar density.
-# Daily + 4H are smallest (~1-2 bars/day) so they run last — they're also
-# what the cron currently maintains, so least value-add.
-declare -a TFS=(10 15 30 60 240 D)
+# Daily + 4H / Weekly / Monthly are smallest (~1-2 bars/day or less) so
+# they run last. W and M aren't strictly needed by the Oct-slice replay
+# (cron maintains them) but we include them in the one-time hydration
+# so live + replay see the same data after a scope-wide refresh.
+declare -a TFS=(10 15 30 60 240 D W M)
 
 log() { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] $*"; }
 
