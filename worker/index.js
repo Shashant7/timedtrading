@@ -3721,8 +3721,19 @@ function _applyContextGates(d, inferredSide, asOfTs, leadingLtfLabel) {
     }
     if (String(daCfg.short_require_daily_st_aligned ?? "false") === "true") {
       const dailyST = tt.D?.stDir ?? 0;
-      if (dailyST !== -1) {
-        return { qualifies: false, reason: "ctx_short_daily_st_not_bear", stDir: dailyST };
+      // PHASE-E (2026-04-19): allow SHORT when the ticker's daily ST is
+      // neutral (0) IF SPY's daily structure is bearish (price < D48 or
+      // bear-stacked). In a broad decline individual tickers' daily ST can
+      // lag the index for weeks. Explicit bullish ST (+1) still blocks.
+      const relaxEnabled = String(daCfg.deep_audit_short_allow_neutral_daily_st_when_spy_bear ?? "true") === "true";
+      const spyStruct = d?._env?._marketRegime?.spy_daily_structure || null;
+      const spyBearish = !!(spyStruct
+        && (spyStruct.above_e200 === false
+          || (Number.isFinite(spyStruct.pct_above_e48) && spyStruct.pct_above_e48 <= -0.1)
+          || spyStruct.bear_stack === true));
+      const allowNeutral = relaxEnabled && spyBearish && dailyST === 0;
+      if (dailyST !== -1 && !allowNeutral) {
+        return { qualifies: false, reason: "ctx_short_daily_st_not_bear", stDir: dailyST, spyBearish };
       }
     }
     const shortMin4hDepth = Number(daCfg.short_min_4h_ema_depth) || 0;
@@ -30275,8 +30286,12 @@ const SECTOR_MAP = {
 
 // Tickers that go through full scoring + kanban lanes but do NOT generate trades.
 // Account P&L reflects only tradeable instruments (stocks + sector ETFs).
+// Phase-E (2026-04-19): SPY/QQQ/IWM removed from WATCH_ONLY so the new
+// tt_index_etf_swing trigger can actually open trades on them when the
+// Daily-Brief-aligned structural conditions (D21/D48/D200 stacked +
+// healthy slope + non-extended) align.
 const WATCH_ONLY = new Set([
-  "SPX", "SPY", "QQQ", "IWM", "US500",
+  "SPX", "US500",
   "BTCUSD", "ETHUSD",
   "ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "CL1!", "RTY1!", "YM1!",
 ]);

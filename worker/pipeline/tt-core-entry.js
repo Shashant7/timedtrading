@@ -423,6 +423,85 @@ export function evaluateEntry(ctx) {
     reclaimTrigger = true;
   }
 
+  // tickerUpper is needed by the Phase-E ETF swing trigger below; the main
+  // QUALITY REJECTION GATES block also declares it but the trigger needs it
+  // first. Use a local identifier here.
+  const _tickerUpperEarly = String(d?.ticker || d?.sym || ctx.ticker || "").trim().toUpperCase();
+
+  // ──────────────────────────────────────────────────────────────────────
+  // PHASE-E (2026-04-19) INDEX-ETF SWING TRIGGER (Daily-Brief aligned)
+  // ──────────────────────────────────────────────────────────────────────
+  // The Daily Brief actively produces bull/bear game-plan levels for
+  // SPY/QQQ/IWM every session, yet 10 months of v2 slices produced ZERO
+  // trades on these three tickers. Block-chain analysis showed they
+  // reach kanban=setup with score=95+ in HTF_BULL_LTF_PULLBACK state,
+  // but the pullback/reclaim/momentum triggers all fail because index
+  // ETFs pull back softly to D21/D48 without the crisp 5/12 EMA reclaim
+  // the standard triggers require. This ETF-specific trigger fires when
+  // the Daily structure is clean (stacked + healthy slope + non-extended)
+  // AND the LTF is at a shallow pullback in an aligned HTF state.
+  let indexEtfSwingTrigger = false;
+  const etfSwingEnabled = String(daCfg.deep_audit_index_etf_swing_enabled ?? "true") === "true";
+  if (etfSwingEnabled && ctx?.daily) {
+    const etfSwingTickers = deepAuditTickerSet(
+      daCfg.deep_audit_index_etf_swing_tickers || "SPY,QQQ,IWM",
+    );
+    if (etfSwingTickers.has(_tickerUpperEarly) && ctx.daily) {
+      const daily = ctx.daily;
+      const minScore = Number(daCfg.deep_audit_index_etf_swing_min_score) || 92;
+      const pctAboveE48Min = Number(daCfg.deep_audit_index_etf_swing_pct_above_e48_min) ?? 1.0;
+      const pctAboveE48Max = Number(daCfg.deep_audit_index_etf_swing_pct_above_e48_max) || 7.0;
+      const pctBelowE48Min = Number(daCfg.deep_audit_index_etf_swing_pct_below_e48_min) ?? 1.0;
+      const pctBelowE48Max = Number(daCfg.deep_audit_index_etf_swing_pct_below_e48_max) || 7.0;
+      const e21SlopeMin = Number(daCfg.deep_audit_index_etf_swing_e21_slope_min) || 0.3;
+      const e21SlopeMax = Number(daCfg.deep_audit_index_etf_swing_e21_slope_max) || 3.0;
+      const rvolMin = Number(daCfg.deep_audit_index_etf_swing_rvol_min) || 0.7;
+      const rankScore = Number(scores?.rank) || Number(d?.score) || Number(d?.rank) || 0;
+      const rvolSignal = Number(ctx?.rvol?.best) || Number(d?.rvol_map?.["30"]?.vr) || 1.0;
+      const pctAbove48 = Number(daily.pct_above_e48);
+      const e21Slope = Number(daily.e21_slope_5d_pct);
+      const state = String(ctx.state || "");
+      const m30Cloud89 = tf?.m30?.ripster?.c8_9 || null;
+      if (side === "LONG"
+        && rankScore >= minScore
+        && rvolSignal >= rvolMin
+        && daily.bull_stack === true
+        && daily.above_e200 === true
+        && Number.isFinite(pctAbove48)
+        && pctAbove48 >= pctAboveE48Min
+        && pctAbove48 <= pctAboveE48Max
+        && Number.isFinite(e21Slope)
+        && e21Slope >= e21SlopeMin
+        && e21Slope <= e21SlopeMax
+        && (state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BULL_LTF_BULL")
+        && (c10_8?.above || c10_8?.inCloud || m30Cloud89?.above || m30Cloud89?.inCloud)) {
+        indexEtfSwingTrigger = true;
+      } else if (side === "SHORT"
+        && rankScore >= minScore
+        && rvolSignal >= rvolMin
+        && daily.bear_stack === true
+        && daily.above_e200 === false
+        && Number.isFinite(pctAbove48)
+        && pctAbove48 <= -pctBelowE48Min
+        && pctAbove48 >= -pctBelowE48Max
+        && Number.isFinite(e21Slope)
+        && e21Slope <= -e21SlopeMin
+        && e21Slope >= -e21SlopeMax
+        && (state === "HTF_BEAR_LTF_BOUNCE" || state === "HTF_BEAR_LTF_BEAR")
+        && (c10_8?.below || c10_8?.inCloud || m30Cloud89?.below || m30Cloud89?.inCloud)) {
+        indexEtfSwingTrigger = true;
+      }
+      if (indexEtfSwingTrigger) {
+        // Promote to reclaimTrigger semantically so downstream quality gates
+        // that test `reclaimTrigger` relax correctly (this trigger is more
+        // conservative than pullback since it requires a full daily-stack
+        // alignment).
+        reclaimTrigger = true;
+      }
+    }
+  }
+  // ──────────────────────────────────────────────────────────────────────
+
   c10FiveTwelveConfirmed = side === "LONG"
     ? !!(c10_5?.bull && c10_5?.above)
     : !!(c10_5?.bear && c10_5?.below);
@@ -454,6 +533,70 @@ export function evaluateEntry(ctx) {
   stDir30m = Number(m30?.stDir) || 0;
   stDirD = Number(D?.stDir) || 0;
   trendExtensionPct = Number(c10_5?.distToCloudPct) || 0;
+
+  // ──────────────────────────────────────────────────────────────────────
+  // PHASE-E (2026-04-19) DAILY-STRUCTURE FAKEOUT GATE
+  // ──────────────────────────────────────────────────────────────────────
+  // Evidence: 10-month v2 synthesis showed 10 of 24 clear-loser trades
+  // entered when price was > +5 % above Daily EMA-48 (max +23 %), while
+  // 8 big winners clustered tightly in +3.1 % to +6.5 %. A parabolic
+  // e21_slope_5d (> +3 %) and a decelerating e48_slope_10d (< +0.25 %)
+  // further separate winners from fakeouts. This gate rejects entries
+  // that violate the structural-extension envelope regardless of score.
+  if (ctx?.daily && (momentumTrigger || pullbackTrigger || reclaimTrigger)) {
+    const daily = ctx.daily;
+    const gateEnabled = String(daCfg.deep_audit_d_ema_overextension_gate_enabled ?? "true") === "true";
+    if (gateEnabled) {
+      const pctAboveE48 = Number(daily.pct_above_e48);
+      const pctAboveE21 = Number(daily.pct_above_e21);
+      const e21Slope5d = Number(daily.e21_slope_5d_pct);
+      const e48Slope10d = Number(daily.e48_slope_10d_pct);
+      if (side === "LONG") {
+        const maxAboveE48 = Number(daCfg.deep_audit_d_ema_long_max_above_e48_pct) || 7.0;
+        const maxE21Slope = Number(daCfg.deep_audit_d_ema_long_max_e21_slope_pct) || 3.5;
+        const minE48Slope = Number(daCfg.deep_audit_d_ema_long_min_e48_slope_pct) || 0.25;
+        if (Number.isFinite(pctAboveE48) && pctAboveE48 > maxAboveE48) {
+          return rejectEntry("tt_d_ema_long_overextended", {
+            pctAboveE48, maxAboveE48, e21: daily.e21, e48: daily.e48, e200: daily.e200,
+          });
+        }
+        if (Number.isFinite(e21Slope5d) && e21Slope5d > maxE21Slope
+          && Number.isFinite(pctAboveE21) && pctAboveE21 > 2.5) {
+          return rejectEntry("tt_d_ema_long_parabolic", {
+            e21Slope5d, maxE21Slope, pctAboveE21,
+          });
+        }
+        if ((pullbackTrigger || reclaimTrigger)
+          && Number.isFinite(e48Slope10d) && e48Slope10d < minE48Slope) {
+          return rejectEntry("tt_d_ema_long_flat_structure", {
+            e48Slope10d, minE48Slope, triggers: { pullbackTrigger, reclaimTrigger },
+          });
+        }
+      } else if (side === "SHORT") {
+        const maxBelowE48 = Number(daCfg.deep_audit_d_ema_short_max_below_e48_pct) || 7.0;
+        const maxE21SlopeS = Number(daCfg.deep_audit_d_ema_short_max_e21_slope_pct) || -3.5;
+        const maxE48SlopeS = Number(daCfg.deep_audit_d_ema_short_max_e48_slope_pct) || -0.25;
+        if (Number.isFinite(pctAboveE48) && pctAboveE48 < -maxBelowE48) {
+          return rejectEntry("tt_d_ema_short_overextended", {
+            pctAboveE48, maxBelowE48, e21: daily.e21, e48: daily.e48, e200: daily.e200,
+          });
+        }
+        if (Number.isFinite(e21Slope5d) && e21Slope5d < maxE21SlopeS
+          && Number.isFinite(pctAboveE21) && pctAboveE21 < -2.5) {
+          return rejectEntry("tt_d_ema_short_parabolic", {
+            e21Slope5d, maxE21SlopeS, pctAboveE21,
+          });
+        }
+        if ((pullbackTrigger || reclaimTrigger)
+          && Number.isFinite(e48Slope10d) && e48Slope10d > maxE48SlopeS) {
+          return rejectEntry("tt_d_ema_short_flat_structure", {
+            e48Slope10d, maxE48SlopeS, triggers: { pullbackTrigger, reclaimTrigger },
+          });
+        }
+      }
+    }
+  }
+  // ──────────────────────────────────────────────────────────────────────
 
   const chaseRsi10L = Number(daCfg.deep_audit_ripster_chase_rsi10_long) || 74;
   const chaseRsi30L = Number(daCfg.deep_audit_ripster_chase_rsi30_long) || 68;
@@ -750,7 +893,12 @@ export function evaluateEntry(ctx) {
     });
   }
 
+  // PHASE-E (2026-04-19): bypass the 5/12-reclaim requirement for index-ETF
+  // swing entries. Index ETFs on soft pullbacks often keep 30m 5/12 opposed
+  // without actually breaking down; the swing trigger's D-structure check
+  // is a more robust filter.
   if (config.ripsterTuneV2 && pullbackTrigger && !reclaimTrigger
+    && !indexEtfSwingTrigger
     && c30FiveTwelveOpposed && !c10FiveTwelveConfirmed) {
     return rejectEntry("tt_pullback_5_12_not_reclaimed", {
       c10_5: summarizeCloud(c10_5),
@@ -760,6 +908,7 @@ export function evaluateEntry(ctx) {
   }
 
   if (config.ripsterTuneV2 && (pullbackTrigger || reclaimTrigger)
+    && !indexEtfSwingTrigger
     && c30FiveTwelveOpposed && !c10FiveTwelveConfirmed) {
     return rejectEntry("tt_pullback_reclaim_5_12_unconfirmed", {
       c10_5: summarizeCloud(c10_5),
@@ -785,9 +934,14 @@ export function evaluateEntry(ctx) {
   bearishPullbackCount = [stDir15m, stDir30m, Number(h1?.stDir) || 0]
     .filter((dir) => dir === 1)
     .length;
+  // PHASE-E (2026-04-19): when the index-ETF swing trigger fired, bypass
+  // this gate. The swing trigger itself encodes a richer daily-structure
+  // qualification (bull_stack + above_e200 + slope + extension band) that
+  // is materially stronger than an LTF ST-bearish count heuristic.
   if (config.ripsterTuneV2 && side === "LONG"
     && (pullbackTrigger || reclaimTrigger)
     && !confirmedBullContinuationLong
+    && !indexEtfSwingTrigger
     && bearishPullbackCount < pullbackMinBearishCount) {
     return rejectEntry("tt_pullback_not_deep_enough", {
       stDir15m,
@@ -963,14 +1117,31 @@ export function evaluateEntry(ctx) {
   const bullishPullbackCount = [stDir15m, stDir30m, Number(h1?.stDir) || 0]
     .filter((dir) => dir === -1)
     .length;
+  // PHASE-E (2026-04-19) SHORT SPY-REGIME RELAXATION
+  // In broad market declines individual tickers lag the index; requiring
+  // 2 of 3 LTF ST to flip bearish before allowing a short prevents entry
+  // at the first clean pullback after the state has already confirmed
+  // HTF_BEAR. When SPY's daily structure is bearish (price < D48 AND
+  // D21 < D48), relax the requirement to 1 of 3.
+  const shortSpyRelaxEnabled = String(daCfg.deep_audit_short_spy_regime_relax_enabled ?? "true") === "true";
+  const spyStruct = ctx?.market?.spyDailyStructure || null;
+  const spyDailyBearish = !!(spyStruct
+    && (spyStruct.above_e200 === false
+      || (Number.isFinite(spyStruct.pct_above_e48) && spyStruct.pct_above_e48 <= -0.1)
+      || spyStruct.bear_stack === true));
+  const shortPullbackMinCount = (shortSpyRelaxEnabled && spyDailyBearish) ? 1 : 2;
+  // PHASE-E (2026-04-19): same ETF-swing bypass for shorts.
   if (config.ripsterTuneV2 && side === "SHORT"
     && (pullbackTrigger || reclaimTrigger)
-    && bullishPullbackCount < 2) {
+    && !indexEtfSwingTrigger
+    && bullishPullbackCount < shortPullbackMinCount) {
     return rejectEntry("tt_short_pullback_not_deep_enough", {
       stDir15m,
       stDir30m,
       stDir1h: Number(h1?.stDir) || 0,
       bullishPullbackCount,
+      requiredBullishCount: shortPullbackMinCount,
+      spyDailyBearish,
       reclaimTrigger,
     });
   }
@@ -1063,7 +1234,10 @@ export function evaluateEntry(ctx) {
       ? nonPrimeEtfOverride
       : baseNonPrimeMinRank;
     const requiredRank = isPrimeGrade ? selectivePrimeMinRank : selectiveNonPrimeMinRank;
-    if (!confirmedBullContinuationLong && selectivePullbackEnabled && requiredRank > 0 && rankScore < requiredRank) {
+    // PHASE-E (2026-04-19): bypass rank-selective gate for index-ETF swing
+    // trigger (rankScore is already required >= 92 in the trigger itself).
+    if (!confirmedBullContinuationLong && !indexEtfSwingTrigger
+      && selectivePullbackEnabled && requiredRank > 0 && rankScore < requiredRank) {
       return rejectEntry(
         isPrimeGrade ? "tt_pullback_prime_rank_selective" : "tt_pullback_non_prime_rank_selective",
         { setupGrade, rank: rankScore, requiredRank },

@@ -242,6 +242,11 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
                   ema_regime_daily: rSpyData.ema_regime_daily ?? 0,
                   swing_dir: rSpyData.swing_consensus?.direction || null,
                   combined: rSpyData.regime?.combined || null,
+                  // Phase-E 2026-04-19: SPY daily structure (D21/D48/D200 +
+                  // slopes + bull/bear stack). Consumed by tt-core-entry
+                  // gates that relax on bearish market regime (shorts) or
+                  // tighten in counter-regime context (longs).
+                  spy_daily_structure: rSpyData.daily_structure || null,
                 }
               : null;
             const sectorEtfs = require("./sector-mapping.js").SECTOR_ETF_MAP || {};
@@ -411,6 +416,7 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
               blockReasons[diagEntry.reason] = (blockReasons[diagEntry.reason] || 0) + 1;
               intervalBlockReasons[diagEntry.reason] = (intervalBlockReasons[diagEntry.reason] || 0) + 1;
               if (blockChainBars && blockChainBars.length < BLOCK_CHAIN_CAP) {
+                const ds = result?.daily_structure || null;
                 blockChainBars.push({
                   ticker,
                   ts: intervalTs,
@@ -421,6 +427,22 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
                   rank: Number.isFinite(Number(result?.rank)) ? Number(result.rank) : null,
                   htf_score: Number.isFinite(Number(result?.htf_score)) ? Number(result.htf_score) : null,
                   ltf_score: Number.isFinite(Number(result?.ltf_score)) ? Number(result.ltf_score) : null,
+                  // Phase-E: daily structure snapshot for diagnosing why
+                  // the index-ETF swing trigger and D-EMA gates fire or
+                  // don't fire on specific bars.
+                  daily_structure: ds ? {
+                    px: ds.px,
+                    e21: ds.e21,
+                    e48: ds.e48,
+                    e200: ds.e200,
+                    pct_above_e48: ds.pct_above_e48,
+                    pct_above_e21: ds.pct_above_e21,
+                    e21_slope_5d_pct: ds.e21_slope_5d_pct,
+                    e48_slope_10d_pct: ds.e48_slope_10d_pct,
+                    bull_stack: ds.bull_stack,
+                    bear_stack: ds.bear_stack,
+                    above_e200: ds.above_e200,
+                  } : null,
                 });
               }
             } else {
