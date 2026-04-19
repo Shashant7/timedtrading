@@ -535,6 +535,120 @@ export function evaluateEntry(ctx) {
   trendExtensionPct = Number(c10_5?.distToCloudPct) || 0;
 
   // ──────────────────────────────────────────────────────────────────────
+  // PHASE-E.3 (2026-04-19) COHORT-AWARE THRESHOLD OVERLAY
+  // ──────────────────────────────────────────────────────────────────────
+  // Pattern mining across 150 v4 trades (8 months) surfaced cohort-
+  // specific behaviour that universal thresholds miss:
+  //   - Index ETF (SPY/QQQ/IWM): WR 75 % but 10 flat-slope entries were
+  //     scratch; need slope floor ≥ 0.5 % and cap at 5 % above D48.
+  //   - Mega-Cap Tech: overbought RSI is a GREEN flag (87 % WR), extended
+  //     5-8 % above D48 still works (+1.57 % avg).
+  //   - Industrial: 2-5 % extension is the sweet spot (58 % WR, +45 %),
+  //     neutral RSI is toxic (25 % WR, −0.64 % avg).
+  //   - Speculative: parabolic slope + extended is the BEST zone for this
+  //     cohort (+6.61 % avg on 4 trades); overbought RSI 83 % WR.
+  //   - Sector ETF (XLY): only negative cohort (−5.9 % over 6 trades).
+  //
+  // Each DA-key has a global default; the cohort value, when present,
+  // overrides for that ticker only.
+  const cohortOverlayEnabled = String(daCfg.deep_audit_cohort_overlay_enabled ?? "true") === "true";
+  if (cohortOverlayEnabled && ctx?.daily) {
+    const indexEtfSet = deepAuditTickerSet(
+      daCfg.deep_audit_cohort_index_etf_tickers || "SPY,QQQ,IWM",
+    );
+    const megaCapSet = deepAuditTickerSet(
+      daCfg.deep_audit_cohort_megacap_tickers || "AAPL,MSFT,GOOGL,AMZN,META,NVDA,TSLA",
+    );
+    const industrialSet = deepAuditTickerSet(
+      daCfg.deep_audit_cohort_industrial_tickers || "ETN,FIX,IESC,MTZ,PH,SWK",
+    );
+    const speculativeSet = deepAuditTickerSet(
+      daCfg.deep_audit_cohort_speculative_tickers || "AGQ,GRNY,RIOT,SGI",
+    );
+    const sectorEtfSet = deepAuditTickerSet(
+      daCfg.deep_audit_cohort_sector_etf_tickers || "XLY",
+    );
+    const pauseSectorEtf = String(daCfg.deep_audit_cohort_sector_etf_pause_enabled ?? "true") === "true";
+    if (pauseSectorEtf && sectorEtfSet.has(_tickerUpperEarly)) {
+      return rejectEntry("tt_cohort_sector_etf_paused", {
+        ticker: _tickerUpperEarly,
+        reason: "10-month analysis: −5.9 % over 6 trades, only negative cohort",
+      });
+    }
+    const dailyDetails = ctx.daily;
+    const pctAboveE48Local = Number(dailyDetails.pct_above_e48);
+    const e21Slope5dLocal = Number(dailyDetails.e21_slope_5d_pct);
+    const rsiDLocal = Number(dailyDetails.rsi_d);
+    const isLongSide = side === "LONG";
+    // Pick cohort + apply its overlay.
+    let cohortLabel = null;
+    let slopeMinOverride = null;
+    let extensionMaxOverride = null;
+    let rsiMaxOverride = null;
+    let rsiMinWhenNeutralBlock = null;
+    if (indexEtfSet.has(_tickerUpperEarly)) {
+      cohortLabel = "index_etf";
+      slopeMinOverride = Number(daCfg.deep_audit_cohort_slope_min_index_etf);
+      extensionMaxOverride = Number(daCfg.deep_audit_cohort_extension_max_index_etf);
+      rsiMaxOverride = Number(daCfg.deep_audit_cohort_rsi_max_index_etf);
+      if (!Number.isFinite(slopeMinOverride)) slopeMinOverride = 0.5;
+      if (!Number.isFinite(extensionMaxOverride)) extensionMaxOverride = 5.0;
+      if (!Number.isFinite(rsiMaxOverride)) rsiMaxOverride = 75;
+    } else if (megaCapSet.has(_tickerUpperEarly)) {
+      cohortLabel = "megacap_tech";
+      slopeMinOverride = Number(daCfg.deep_audit_cohort_slope_min_megacap);
+      extensionMaxOverride = Number(daCfg.deep_audit_cohort_extension_max_megacap);
+      if (!Number.isFinite(slopeMinOverride)) slopeMinOverride = 0.3;
+      if (!Number.isFinite(extensionMaxOverride)) extensionMaxOverride = 8.0;
+      // RSI: overbought is GREEN for mega-caps; no cap
+    } else if (industrialSet.has(_tickerUpperEarly)) {
+      cohortLabel = "industrial";
+      slopeMinOverride = Number(daCfg.deep_audit_cohort_slope_min_industrial);
+      extensionMaxOverride = Number(daCfg.deep_audit_cohort_extension_max_industrial);
+      rsiMinWhenNeutralBlock = Number(daCfg.deep_audit_cohort_rsi_neutral_block_industrial);
+      if (!Number.isFinite(slopeMinOverride)) slopeMinOverride = 0.7;
+      if (!Number.isFinite(extensionMaxOverride)) extensionMaxOverride = 8.0;
+      if (!Number.isFinite(rsiMinWhenNeutralBlock)) rsiMinWhenNeutralBlock = 55;
+    } else if (speculativeSet.has(_tickerUpperEarly)) {
+      cohortLabel = "speculative";
+      slopeMinOverride = Number(daCfg.deep_audit_cohort_slope_min_speculative);
+      extensionMaxOverride = Number(daCfg.deep_audit_cohort_extension_max_speculative);
+      if (!Number.isFinite(slopeMinOverride)) slopeMinOverride = 0.3;
+      if (!Number.isFinite(extensionMaxOverride)) extensionMaxOverride = 99.0;
+      // RSI: overbought GREEN (+3.70 % avg) — no cap
+    }
+    // Apply cohort LONG-side overlays (gate is side-aware; SHORTs use
+    // their own SHORT gates — cohort overlay is LONG-only for now).
+    if (cohortLabel && isLongSide
+      && (momentumTrigger || pullbackTrigger || reclaimTrigger)) {
+      if (slopeMinOverride != null && Number.isFinite(e21Slope5dLocal)
+        && e21Slope5dLocal < slopeMinOverride) {
+        return rejectEntry("tt_cohort_slope_too_flat", {
+          cohort: cohortLabel, e21Slope5d: e21Slope5dLocal, slopeMin: slopeMinOverride,
+        });
+      }
+      if (extensionMaxOverride != null && Number.isFinite(pctAboveE48Local)
+        && pctAboveE48Local > extensionMaxOverride) {
+        return rejectEntry("tt_cohort_extension_too_wide", {
+          cohort: cohortLabel, pctAboveE48: pctAboveE48Local, extensionMax: extensionMaxOverride,
+        });
+      }
+      if (rsiMaxOverride != null && Number.isFinite(rsiDLocal)
+        && rsiDLocal > rsiMaxOverride) {
+        return rejectEntry("tt_cohort_rsi_too_high", {
+          cohort: cohortLabel, rsiD: rsiDLocal, rsiMax: rsiMaxOverride,
+        });
+      }
+      if (rsiMinWhenNeutralBlock != null && Number.isFinite(rsiDLocal)
+        && rsiDLocal >= 45 && rsiDLocal < rsiMinWhenNeutralBlock) {
+        return rejectEntry("tt_cohort_rsi_neutral_zone", {
+          cohort: cohortLabel, rsiD: rsiDLocal, neutralBlockBelow: rsiMinWhenNeutralBlock,
+        });
+      }
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
   // PHASE-E (2026-04-19) DAILY-STRUCTURE FAKEOUT GATE
   // ──────────────────────────────────────────────────────────────────────
   // Evidence: 10-month v2 synthesis showed 10 of 24 clear-loser trades
