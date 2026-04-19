@@ -162,6 +162,50 @@ deep_audit_short_allow_neutral_daily_st_when_spy_bear = true
    meet the bar.
 8. PR.
 
+## Relationship to T6A (2026-04-18)
+
+T6A relaxed two standard pullback gates for SPY/QQQ/IWM
+(`deep_audit_pullback_min_bearish_count_index_etf=1` and
+`..._non_prime_min_rank_index_etf=85`). It produced 0 ETF trades across
+10 months because SPY/QQQ/IWM were in `WATCH_ONLY` and never reached the
+trade-creation path — the relaxation targeted the wrong layer.
+
+**Phase-E supersedes T6A and it should be deactivated.** Reasoning:
+
+1. Phase-E creates a structurally-qualified `tt_index_etf_swing` trigger
+   that bypasses the pullback-depth / non-prime-rank / 5-12-reclaim
+   gates **only when its own daily-structure qualification passes**
+   (D21/D48/D200 stacked, healthy slope, ~1-7 % extension band,
+   score ≥ 92). That's a stronger filter than T6A's 1-of-3 LTF ST +
+   rank ≥ 85 relaxation.
+
+2. With T6A active AND WATCH_ONLY removed, ETFs get a second, looser
+   entry path (standard pullback with T6A relaxations) parallel to the
+   swing trigger. That re-introduces the fakeout risk the user
+   explicitly flagged.
+
+**Action taken**: Ran `scripts/activate-t6a.sh --deactivate` before
+launching the 10-month v3 rerun so the v3 results cleanly represent
+the Phase-E design with no overlap.
+
+Standard pullback gates now apply uniformly to all tickers (ETFs
+included). If an ETF bar happens to satisfy the standard pullback
+trigger's requirements (2-of-3 LTF ST bearish + proper 5/12 reclaim
+etc.), it can still enter via that path — which is desirable because
+it represents a genuinely deep pullback.
+
+## Settled DA-key thresholds (post-smoke)
+
+The activator script defaults were slightly relaxed after smoke-testing
+SPY Sep 8 2025 revealed borderline values:
+
+| Key | Original | Settled | Rationale |
+|---|---|---|---|
+| `deep_audit_index_etf_swing_e21_slope_min` | 0.3 | 0.2 | SPY Sep 8 at 0.27 |
+| `deep_audit_index_etf_swing_rvol_min` | 0.7 | 0.5 | RTH-first-bar rvol often < 1 |
+| `deep_audit_index_etf_swing_pct_above_e48_min` | 1.0 | 0.5 | Accommodates hugging D21/D48 |
+| `deep_audit_index_etf_swing_pct_below_e48_min` | 1.0 | 0.5 | Mirror |
+
 ## Acceptance criteria
 
 - [ ] Every training month green (sum_pnl_pct > 0)
