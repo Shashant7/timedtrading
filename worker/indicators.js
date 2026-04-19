@@ -1027,6 +1027,21 @@ export function computeTfBundle(bars, anchors = null) {
   const eFast = e13; // Pine default emaFastLen=13
   const eSlow = e48; // Pine default emaSlowLen=48
 
+  // ── EMA slopes (5-bar / 10-bar look-back) for structural trend detection ──
+  // Used by Phase-E daily-structure gates. Compared as percent change so the
+  // value is cross-ticker comparable. Daily look-backs translate to: 5-bar =
+  // ~1 trading week, 10-bar = ~2 weeks.
+  const slopeBars5 = Math.min(5, last);
+  const slopeBars10 = Math.min(10, last);
+  const e21_5bar_ago = Number.isFinite(e21s[last - slopeBars5]) ? e21s[last - slopeBars5] : null;
+  const e48_10bar_ago = Number.isFinite(e48s[last - slopeBars10]) ? e48s[last - slopeBars10] : null;
+  const e21_slope_5bar_pct = (Number.isFinite(e21) && Number.isFinite(e21_5bar_ago) && e21_5bar_ago > 0)
+    ? ((e21 - e21_5bar_ago) / e21_5bar_ago) * 100
+    : null;
+  const e48_slope_10bar_pct = (Number.isFinite(e48) && Number.isFinite(e48_10bar_ago) && e48_10bar_ago > 0)
+    ? ((e48 - e48_10bar_ago) / e48_10bar_ago) * 100
+    : null;
+
   // ── EMA TRIPLET: depth, structure, momentum ──
   //
   // emaDepth (0-10): How many EMAs price is above. Direct conviction ladder.
@@ -1396,6 +1411,7 @@ export function computeTfBundle(bars, anchors = null) {
     px, pxPrev, barHigh, barLow, lastTs,
     e3, e5, e8, e9, e12, e13, e21, e34, e48, e50, e72, e89, e180, e200, e233,
     eFast, eSlow,
+    e21_slope_5bar_pct, e48_slope_10bar_pct,
     emaDepth, emaStructure, emaMomentum, ribbonSpread,
     stLine, stDir, stLinePrev, stSlopeUp, stSlopeDn,
     stFlip, stFlipDir, stFlip_ts, stBarsSinceFlip,
@@ -4557,6 +4573,42 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
       phase_osc: bM.phaseOsc ? Math.round(bM.phaseOsc * 10) / 10 : undefined,
       px: bM.px ? Math.round(bM.px * 100) / 100 : undefined,
     } : undefined,
+    // ── Daily structural profile (Phase E 2026-04-19) ──
+    // Surfaces the raw D-EMA values + derived position/slope metrics the
+    // entry engine needs for the Daily-Brief-aligned index-ETF swing path,
+    // the D-EMA overextension fakeout gate, and the SPY-regime-activated
+    // short-side relaxation. Computed from the same D bundle that powers
+    // `ema_regime_daily` and `ema_map.D` so it stays consistent.
+    daily_structure: bD ? (() => {
+      const dpx = Number.isFinite(bD.px) ? bD.px : null;
+      const de21 = Number.isFinite(bD.e21) ? bD.e21 : null;
+      const de48 = Number.isFinite(bD.e48) ? bD.e48 : null;
+      const de200 = Number.isFinite(bD.e200) ? bD.e200 : null;
+      const pct = (ref) => (dpx != null && ref != null && ref > 0)
+        ? Math.round(((dpx - ref) / ref) * 10000) / 100
+        : null;
+      const bullStack = (de21 != null && de48 != null && de200 != null)
+        ? (de21 > de48 && de48 > de200) : null;
+      const bearStack = (de21 != null && de48 != null && de200 != null)
+        ? (de21 < de48 && de48 < de200) : null;
+      return {
+        px: dpx != null ? Math.round(dpx * 100) / 100 : undefined,
+        e21: de21 != null ? Math.round(de21 * 100) / 100 : undefined,
+        e48: de48 != null ? Math.round(de48 * 100) / 100 : undefined,
+        e200: de200 != null ? Math.round(de200 * 100) / 100 : undefined,
+        pct_above_e21: pct(de21),
+        pct_above_e48: pct(de48),
+        pct_above_e200: pct(de200),
+        e21_slope_5d_pct: Number.isFinite(bD.e21_slope_5bar_pct)
+          ? Math.round(bD.e21_slope_5bar_pct * 100) / 100 : null,
+        e48_slope_10d_pct: Number.isFinite(bD.e48_slope_10bar_pct)
+          ? Math.round(bD.e48_slope_10bar_pct * 100) / 100 : null,
+        bull_stack: bullStack,
+        bear_stack: bearStack,
+        above_e200: (dpx != null && de200 != null) ? dpx > de200 : null,
+        ema_regime_daily: Number.isFinite(bD.emaRegime) ? bD.emaRegime : null,
+      };
+    })() : undefined,
   };
 }
 

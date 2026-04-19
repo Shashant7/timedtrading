@@ -163,8 +163,21 @@ export function buildTradeContext(tickerData, asOfTs = null) {
       backdropClass: regimeVocabulary.marketBackdropClass,
       trendBias: regimeVocabulary.marketTrendBias,
       spy: d._spyData || null,
+      // Phase-E 2026-04-19: SPY's own daily structure is threaded through
+      // env._marketRegime.spy_daily_structure (see replay-candle-batches.js).
+      // Used for regime-gated SHORT-side relaxation and counter-regime
+      // LONG quality floors.
+      spyDailyStructure: env?._marketRegime?.spy_daily_structure
+        || d?._spyData?.daily_structure
+        || null,
       cryptoLead: d._cryptoLead || null,
     },
+
+    // Phase-E 2026-04-19: per-ticker daily structural profile. Raw D21/D48/
+    // D200 levels + derived position/slope metrics surfaced by
+    // assembleTickerData.daily_structure. Null on fresh tickers with
+    // insufficient daily history (need 15+ bars per computeTfBundle).
+    daily: d?.daily_structure || null,
 
     profile: profileContext.learnedProfile,
     staticBehaviorProfile: profileContext.staticBehaviorProfile,

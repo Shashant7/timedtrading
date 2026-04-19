@@ -1161,17 +1161,31 @@ function eventIsDueForRiskReduction(event, nowTs) {
   const nowDateKey = nyTradingDayKey(nowTs);
   const nextDateKey = nextTradingDayKey(nowDateKey);
   if (!nowDateKey) return false;
+  // Phase-E.2 (2026-04-19) F2 — narrower window for macro events.
+  // Earnings-event risk reduction (ticker-specific) keeps the 24h window
+  // because earnings gap risk is concrete. Macro events (FOMC / CPI /
+  // PCE / NFP / PPI etc.) clipped 14 of 15 PRE_EVENT_RECOVERY_EXIT trades
+  // at -0.00 % to -0.22 % in the Phase-E v3 5-month rerun. 13/14 held
+  // 20-166 h first and were viable continuation trades. Narrow the macro
+  // pre-event window to 6h so we only flatten trades that really are
+  // sitting at the wire.
+  const isMacro = event.eventType === "macro";
+  const macroWindowHours = Number(event?.__macroWindowHoursOverride) || 6;
   if (Number.isFinite(event.scheduledTs)) {
     const deltaMs = event.scheduledTs - nowTs;
-    return deltaMs > 0 && deltaMs <= 24 * 60 * 60 * 1000;
+    if (deltaMs <= 0) return false;
+    const limitMs = isMacro ? macroWindowHours * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+    return deltaMs <= limitMs;
   }
   // Historical earnings rows are often backfilled with status=resolved even when the
   // replay clock is still before the event. Use replay-relative date/session timing
-  // instead of resolved status alone so pre-event guards still activate.
+  // instead of resolved status alone so pre-event guards still activate. For macro
+  // events without a scheduledTs we also tighten: only fire same-day (not next-day).
   if (event.dateKey === nowDateKey) {
     return event.session === "amc" || event.session === "afterhours" || event.session === "rth" || event.session === "unknown";
   }
   if (event.dateKey === nextDateKey) {
+    if (isMacro) return false;
     return event.session === "bmo" || event.session === "premarket" || event.session === "unknown";
   }
   return false;
@@ -3721,8 +3735,19 @@ function _applyContextGates(d, inferredSide, asOfTs, leadingLtfLabel) {
     }
     if (String(daCfg.short_require_daily_st_aligned ?? "false") === "true") {
       const dailyST = tt.D?.stDir ?? 0;
-      if (dailyST !== -1) {
-        return { qualifies: false, reason: "ctx_short_daily_st_not_bear", stDir: dailyST };
+      // PHASE-E (2026-04-19): allow SHORT when the ticker's daily ST is
+      // neutral (0) IF SPY's daily structure is bearish (price < D48 or
+      // bear-stacked). In a broad decline individual tickers' daily ST can
+      // lag the index for weeks. Explicit bullish ST (+1) still blocks.
+      const relaxEnabled = String(daCfg.deep_audit_short_allow_neutral_daily_st_when_spy_bear ?? "true") === "true";
+      const spyStruct = d?._env?._marketRegime?.spy_daily_structure || null;
+      const spyBearish = !!(spyStruct
+        && (spyStruct.above_e200 === false
+          || (Number.isFinite(spyStruct.pct_above_e48) && spyStruct.pct_above_e48 <= -0.1)
+          || spyStruct.bear_stack === true));
+      const allowNeutral = relaxEnabled && spyBearish && dailyST === 0;
+      if (dailyST !== -1 && !allowNeutral) {
+        return { qualifies: false, reason: "ctx_short_daily_st_not_bear", stDir: dailyST, spyBearish };
       }
     }
     const shortMin4hDepth = Number(daCfg.short_min_4h_ema_depth) || 0;
@@ -6458,6 +6483,79 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           : "max_loss";
         tickerData.__exit_family = "safety";
         return "exit";
+      }
+
+      // ──────────────────────────────────────────────────────────────────
+      // PHASE-E.2 (2026-04-19) F1 — TIME-SCALED MAX-LOSS TIGHTENING
+      // The Phase-E v3 5-month rerun showed max_loss fires with an average
+      // hold of 53.3 hours (single worst: MSFT 144h, META 116h, QQQ 72h —
+      // all ending at −2.6 % to −3.1 %). These are "dead money" trades
+      // that never recover but bleed until the full −3% floor triggers.
+      // We ratchet the floor down as the position ages so they cut sooner.
+      //
+      // Rule (LONG, symmetric for SHORT in pnlPct semantics):
+      //   hold <  4h market-min:   use normal floor (−3 %)
+      //   hold 4-12h market-min:   floor = −2.5 %
+      //   hold 12-24h market-min:  floor = −2.0 %
+      //   hold ≥ 24h market-min:   floor = −1.5 %
+      // Disable via deep_audit_time_scaled_max_loss_enabled=false.
+      {
+        const _tsMaxLossEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_time_scaled_max_loss_enabled ?? "true") === "true";
+        if (_tsMaxLossEnabled && !_earlyPdzToleranceActive) {
+          const _agMin = positionAgeMarketMin;
+          const _tsFloor4h = Number(tickerData?._env?._deepAuditConfig?.deep_audit_time_scaled_max_loss_4h_pct) || -2.5;
+          const _tsFloor12h = Number(tickerData?._env?._deepAuditConfig?.deep_audit_time_scaled_max_loss_12h_pct) || -2.0;
+          const _tsFloor24h = Number(tickerData?._env?._deepAuditConfig?.deep_audit_time_scaled_max_loss_24h_pct) || -1.5;
+          let _tsCurrentFloor = null;
+          if (_agMin >= 240 && _agMin < 720) _tsCurrentFloor = _tsFloor4h;
+          else if (_agMin >= 720 && _agMin < 1440) _tsCurrentFloor = _tsFloor12h;
+          else if (_agMin >= 1440) _tsCurrentFloor = _tsFloor24h;
+          if (_tsCurrentFloor != null && pnlPct <= _tsCurrentFloor) {
+            tickerData.__exit_reason = "max_loss_time_scaled";
+            tickerData.__exit_family = "safety";
+            return "exit";
+          }
+        }
+      }
+
+      // ──────────────────────────────────────────────────────────────────
+      // PHASE-E.2 (2026-04-19) F3 — RUNNER DRAWDOWN CAP
+      // Aug 2025: QQQ runner +trimmed went to -10.37 %, XLY -7.08 %, Oct
+      // QQQ -8.56 %. After a trim (currentTrimPct > 0) the remainder
+      // should NOT be permitted to bleed past the initial max-loss floor.
+      // Flatten the runner at -2 % from original entry.
+      {
+        const _runnerCapEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_runner_drawdown_cap_enabled ?? "true") === "true";
+        const _runnerCapPct = Number(tickerData?._env?._deepAuditConfig?.deep_audit_runner_drawdown_cap_pct) || -2.0;
+        if (_runnerCapEnabled && currentTrimPct > 0 && pnlPct <= _runnerCapPct) {
+          tickerData.__exit_reason = "runner_drawdown_cap";
+          tickerData.__exit_family = "safety";
+          return "exit";
+        }
+      }
+
+      // ──────────────────────────────────────────────────────────────────
+      // PHASE-E.2 (2026-04-19) F4 — DEAD-MONEY DETECTOR
+      // Trade held > 24h market-min, never got anywhere (MFE peak < +1 %),
+      // currently in meaningful red (pnl <= -1 %): flatten. No recovery
+      // is likely when the trade hasn't even tagged +1 % in a full
+      // trading day.
+      {
+        const _dmEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_dead_money_exit_enabled ?? "true") === "true";
+        if (_dmEnabled) {
+          const _dmAgeMin = Number(tickerData?._env?._deepAuditConfig?.deep_audit_dead_money_age_market_min) || 1440;
+          const _dmMfeMax = Number(tickerData?._env?._deepAuditConfig?.deep_audit_dead_money_mfe_max_pct) || 1.0;
+          const _dmPnlMax = Number(tickerData?._env?._deepAuditConfig?.deep_audit_dead_money_pnl_max_pct) || -1.0;
+          const _dmMfe = Math.max(
+            Number(openPosition?.maxFavorableExcursion ?? openPosition?.max_favorable_excursion ?? openPosition?.mfePct) || 0,
+            Number(openPosition?.__tradeRef?.maxFavorableExcursion ?? openPosition?.__tradeRef?.max_favorable_excursion ?? openPosition?.__tradeRef?.mfePct) || 0,
+          );
+          if (positionAgeMarketMin >= _dmAgeMin && _dmMfe < _dmMfeMax && pnlPct <= _dmPnlMax) {
+            tickerData.__exit_reason = "dead_money_flatten";
+            tickerData.__exit_family = "safety";
+            return "exit";
+          }
+        }
       }
 
       // R2: OVERNIGHT EXPOSURE GUARD
@@ -14172,8 +14270,21 @@ async function processTradeSimulation(
           || armedResistanceNear
           || armedCounterDiv
           || armedExhaustion;
+        // Phase-E.2 (2026-04-19) F2 — skip-if-in-profit.
+        // v3 data: 14 PRE_EVENT_RECOVERY_EXIT firings averaged -0.11 % pnl.
+        // A trade already meaningfully in profit (>= +0.25 %) with the 30m
+        // trend intact should NOT be clipped just because a macro event is
+        // near — the macro noise hasn't actually destabilized it yet.
+        const _skipIfProfitEnabled = String(env?._deepAuditConfig?.deep_audit_pre_event_recovery_skip_if_profit_enabled ?? "true") === "true";
+        const _skipIfProfitMinPnl = Number(env?._deepAuditConfig?.deep_audit_pre_event_recovery_skip_if_profit_min_pnl_pct) || 0.25;
+        const _upcomingIsMacro = upcomingRiskEvent?.eventType === "macro";
+        const _skipBecauseInProfit = _skipIfProfitEnabled
+          && _upcomingIsMacro
+          && armedPnlPct >= _skipIfProfitMinPnl
+          && armedTrend.htfIntact
+          && !armedContinuationWeak;
         const armedRecoveryBand = armedPnlPct >= -0.25 && armedPnlPct <= 0.75;
-        if (armedRecoveryBand && armedContinuationWeak) {
+        if (armedRecoveryBand && armedContinuationWeak && !_skipBecauseInProfit) {
           const armedExitReason = "PRE_EVENT_RECOVERY_EXIT";
           console.log(`[EVENT_RISK] ${sym} armed recovery exit: pnl=${armedPnlPct.toFixed(2)}% weak=${armedContinuationWeak ? 1 : 0} resistance=${armedResistanceNear ? 1 : 0} div=${armedCounterDiv ? 1 : 0} exhaustion=${armedExhaustion ? 1 : 0}`);
           tickerData.__exit_reason = armedExitReason;
@@ -30275,8 +30386,12 @@ const SECTOR_MAP = {
 
 // Tickers that go through full scoring + kanban lanes but do NOT generate trades.
 // Account P&L reflects only tradeable instruments (stocks + sector ETFs).
+// Phase-E (2026-04-19): SPY/QQQ/IWM removed from WATCH_ONLY so the new
+// tt_index_etf_swing trigger can actually open trades on them when the
+// Daily-Brief-aligned structural conditions (D21/D48/D200 stacked +
+// healthy slope + non-extended) align.
 const WATCH_ONLY = new Set([
-  "SPX", "SPY", "QQQ", "IWM", "US500",
+  "SPX", "US500",
   "BTCUSD", "ETHUSD",
   "ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "CL1!", "RTY1!", "YM1!",
 ]);

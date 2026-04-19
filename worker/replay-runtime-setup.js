@@ -30,6 +30,47 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_pullback_min_bearish_count_index_etf",
   "deep_audit_pullback_min_bearish_count_index_etf_tickers",
   "deep_audit_pullback_non_prime_min_rank_index_etf",
+  // Phase-E (2026-04-19): daily-structure-aware gates
+  //   - Index ETF swing trigger (SPY/QQQ/IWM Daily-Brief-aligned entry)
+  //   - D-EMA overextension universal fakeout gate
+  //   - SPY-regime-activated SHORT pullback-depth relaxation
+  //   - SPY-regime-activated context gate ctx_short_daily_st_not_bear bypass
+  "deep_audit_index_etf_swing_enabled",
+  "deep_audit_index_etf_swing_tickers",
+  "deep_audit_index_etf_swing_min_score",
+  "deep_audit_index_etf_swing_pct_above_e48_min",
+  "deep_audit_index_etf_swing_pct_above_e48_max",
+  "deep_audit_index_etf_swing_pct_below_e48_min",
+  "deep_audit_index_etf_swing_pct_below_e48_max",
+  "deep_audit_index_etf_swing_e21_slope_min",
+  "deep_audit_index_etf_swing_e21_slope_max",
+  "deep_audit_index_etf_swing_rvol_min",
+  "deep_audit_d_ema_overextension_gate_enabled",
+  "deep_audit_d_ema_long_max_above_e48_pct",
+  "deep_audit_d_ema_long_max_e21_slope_pct",
+  "deep_audit_d_ema_long_min_e48_slope_pct",
+  "deep_audit_d_ema_short_max_below_e48_pct",
+  "deep_audit_d_ema_short_max_e21_slope_pct",
+  "deep_audit_d_ema_short_max_e48_slope_pct",
+  "deep_audit_short_spy_regime_relax_enabled",
+  "deep_audit_short_allow_neutral_daily_st_when_spy_bear",
+  // Phase-E.2 (2026-04-19): management-side loss-mitigation
+  //   F1 — time-scaled max_loss tightening
+  //   F2 — PRE_EVENT_RECOVERY_EXIT narrow window + skip-if-in-profit
+  //   F3 — runner drawdown cap
+  //   F4 — dead-money detector
+  "deep_audit_time_scaled_max_loss_enabled",
+  "deep_audit_time_scaled_max_loss_4h_pct",
+  "deep_audit_time_scaled_max_loss_12h_pct",
+  "deep_audit_time_scaled_max_loss_24h_pct",
+  "deep_audit_runner_drawdown_cap_enabled",
+  "deep_audit_runner_drawdown_cap_pct",
+  "deep_audit_dead_money_exit_enabled",
+  "deep_audit_dead_money_age_market_min",
+  "deep_audit_dead_money_mfe_max_pct",
+  "deep_audit_dead_money_pnl_max_pct",
+  "deep_audit_pre_event_recovery_skip_if_profit_enabled",
+  "deep_audit_pre_event_recovery_skip_if_profit_min_pnl_pct",
   "golden_julaug_reference_run_id", "live_config_run_id", "member_ticker_list", "consensus_signal_weights", "consensus_tf_weights", "scoring_weight_adj",
 ];
 
