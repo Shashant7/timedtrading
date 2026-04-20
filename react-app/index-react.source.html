@@ -491,6 +491,7 @@
     <script src="investor-panel.js?v=20260226a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-right-rail.compiled.js?v=20260318e"></script>
+    <script src="ticker-spider-chart.js?v=20260420a"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef, memo } = React;
 
@@ -1997,6 +1998,15 @@
           XLRE: "Real Estate",
           XLU: "Utilities",
           XLV: "Healthcare",
+          // Thematic / Style ETFs
+          IBB:  "Healthcare",                  // iShares Biotech
+          INFL: "Thematic ETF",                // Horizon Kinetics Inflation Beneficiaries
+          LIT:  "Thematic ETF",                // Global X Lithium & Battery Tech
+          RPG:  "Thematic ETF",                // Invesco S&P 500 Pure Growth
+          SPHB: "Thematic ETF",                // Invesco S&P 500 High Beta
+          GRNJ: "Thematic ETF",                // Fundstrat Granny Shots Small-Mid Cap
+          GRNI: "Thematic ETF",                // Fundstrat Granny Shots Large Cap & Income
+          DBA:  "Commodity ETF",               // Invesco Agriculture Fund
           // Consumer Discretionary
           AMZN: "Consumer Discretionary",
           TSLA: "Consumer Discretionary",
@@ -17707,9 +17717,8 @@
                     <button onClick={() => setShowWelcomeDashboard(true)} className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Guide</button>
                     <button onClick={() => { try { localStorage.removeItem("tt_coachmarks_completed_v1"); } catch {} window.__restartCoachmarks?.(); }} className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" title="Restart the UI tour">Tour</button>
                     <a href="/faq.html" className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" title="Frequently Asked Questions">FAQ</a>
-                    <button onClick={() => setShowAiChat(true)} className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#60a5fa] hover:text-[#93bbfc] hover:bg-[#60a5fa]/[0.06] transition-all font-medium" title="Ask the AI assistant">Ask AI</button>
                     {loading && <div className="loading-spinner"></div>}
-                    {window.TimedDiscordButton && <window.TimedDiscordButton apiBase={API_BASE} />}
+                    {window.TimedWaitlistButton && <window.TimedWaitlistButton apiBase={API_BASE} />}
                     {window.TimedNotificationCenter && <window.TimedNotificationCenter apiBase={API_BASE} />}
                     {window.TimedUserBadge && <window.TimedUserBadge user={window.TimedAuthHelpers?.getStoredSession()} compact />}
                     {/* Mobile hamburger */}
@@ -17739,7 +17748,6 @@
                       <button onClick={() => { setShowWelcomeDashboard(true); setMobileMenuOpen(false); }} className="px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Guide</button>
                       <button onClick={() => { try { localStorage.removeItem("tt_coachmarks_completed_v1"); } catch {} window.__restartCoachmarks?.(); setMobileMenuOpen(false); }} className="px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" title="Restart tour">Tour</button>
                       <a href="/faq.html" className="px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">FAQ</a>
-                      <button onClick={() => { setShowAiChat(true); setMobileMenuOpen(false); }} className="px-3 py-2 rounded-md text-[12px] text-[#60a5fa] hover:text-white hover:bg-white/[0.04] transition-all">Ask AI</button>
                       <a href="mailto:support@timed-trading.com" className="px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Contact</a>
                     </div>
                   </div>
@@ -17747,8 +17755,8 @@
               </nav>
               {/* Admin panel moved to dedicated /admin-clients.html page */}
 
-              {/* AI Chat Panel */}
-              <AIChatInterface isOpen={showAiChat} onClose={() => setShowAiChat(false)} tickerData={data} />
+              {/* AI Chat Panel disabled — functionality hidden pre-launch,
+                  component retained for future re-enable. */}
 
               <div className="mx-auto w-full px-2 sm:px-4 lg:px-5">
                 <header className="mb-4 pt-3">

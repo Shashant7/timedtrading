@@ -10,6 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="ticker-spider-chart.js?v=20260420a"></script>
     <script crossorigin src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -565,6 +566,11 @@
         );
       }
 
+      // ─── Ticker Signal Radar (shared spider chart) ──────────────────
+      const _SpiderChart = (window.TickerSpiderChartFactory)
+        ? window.TickerSpiderChartFactory({ React })
+        : null;
+
       // ─── Ticker Deep Dive (Right Rail) ──────────────────────────────
       function TickerDeepDive({ ticker, data }) {
         if (!ticker || !data) return React.createElement("div", { className: "card p-6 text-center text-[#6b7280] text-sm" },
@@ -600,6 +606,13 @@
             ),
             React.createElement("div", { className: "text-[11px] text-[#9ca3af] mt-2 italic leading-relaxed" }, summary),
           ),
+          // ── Signal Radar ──
+          _SpiderChart && React.createElement(_SpiderChart, {
+            ticker: { ...data, ticker },
+            direction: data.direction || data.bias,
+            compact: false,
+            size: 240,
+          }),
           // ── Price + Daily Change ──
           hasPrice && React.createElement("div", { className: "card p-3 flex items-center justify-between" },
             React.createElement("div", null,
@@ -1463,7 +1476,6 @@
                 React.createElement("button", { onClick: () => setShowInvestorGuide(true), className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "Guide"),
                 React.createElement("button", { onClick: () => { try { localStorage.removeItem("tt_investor_coachmarks_v1"); } catch {} window.__restartInvestorCoachmarks?.(); }, className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all", title: "Restart the UI tour" }, "Tour"),
                 React.createElement("a", { href: "/faq.html", className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "FAQ"),
-                React.createElement("a", { href: "index-react.html", className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#60a5fa] hover:text-[#93bbfc] hover:bg-[#60a5fa]/[0.06] transition-all font-medium" }, "Ask AI"),
                 (typeof window !== "undefined" && (window.TimedAuthHelpers?.getStoredSession()?.role === "admin" || window.TimedAuthHelpers?.getStoredSession()?.tier === "admin")) && React.createElement("a", { href: "admin-clients.html", "data-admin-only": "true", className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#a78bfa]/80 hover:text-[#a78bfa] font-medium" }, "Admin"),
                 lastComputed && React.createElement("span", { className: "hidden sm:inline text-[10px] text-[#4b5563]" }, `Scored ${new Date(lastComputed).toLocaleTimeString()}`),
                 React.createElement("button", { onClick: fetchData, className: "px-2 md:px-3 py-1 rounded-md text-[11px] md:text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] border border-white/[0.06] transition-all" }, "Refresh"),
@@ -1499,7 +1511,6 @@
                 React.createElement("button", { onClick: () => { setShowInvestorGuide(true); setMobileMenuOpen(false); }, className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "Guide"),
                 React.createElement("button", { onClick: () => { try { localStorage.removeItem("tt_investor_coachmarks_v1"); } catch {} window.__restartInvestorCoachmarks?.(); setMobileMenuOpen(false); }, className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all", title: "Restart tour" }, "Tour"),
                 React.createElement("a", { href: "/faq.html", className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "FAQ"),
-                React.createElement("a", { href: "index-react.html", className: "px-3 py-2 rounded-md text-[12px] text-[#60a5fa] hover:text-white hover:bg-white/[0.04] transition-all" }, "Ask AI"),
                 React.createElement("a", { href: "mailto:support@timed-trading.com", className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "Contact"),
               ),
             ),

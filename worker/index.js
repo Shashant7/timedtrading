@@ -835,6 +835,9 @@ const ROUTES = [
   ["GET", "/timed/email/preferences", "GET /timed/email/preferences"],
   ["POST", "/timed/email/preferences", "POST /timed/email/preferences"],
   ["POST", "/timed/admin/send-sample-emails", "POST /timed/admin/send-sample-emails"],
+  // ── Waitlist (pre-launch CTA) ──
+  ["POST", "/timed/waitlist/join", "POST /timed/waitlist/join"],
+  ["GET", "/timed/admin/waitlist", "GET /timed/admin/waitlist"],
   // ── Trade Alerts ──
   ["GET", "/timed/alerts", "GET /timed/alerts"],
   // ── Notifications ──
@@ -30349,6 +30352,14 @@ const SECTOR_MAP = {
   SOXL: "ETF",
   TNA: "ETF",
   XHB: "Sector ETF",                   // SPDR Homebuilders ETF
+  IBB:  "Thematic ETF",                // iShares Biotech ETF
+  INFL: "Thematic ETF",                // Horizon Kinetics Inflation Beneficiaries
+  LIT:  "Thematic ETF",                // Global X Lithium & Battery Tech
+  RPG:  "Thematic ETF",                // Invesco S&P 500 Pure Growth
+  SPHB: "Thematic ETF",                // Invesco S&P 500 High Beta
+  GRNJ: "Thematic ETF",                // Fundstrat Granny Shots Small-Mid Cap
+  GRNI: "Thematic ETF",                // Fundstrat Granny Shots Large Cap & Income
+  DBA:  "Commodity ETF",               // Invesco Agriculture Fund
   // ── S&P Sector ETFs (tradeable) ──
   XLB: "Sector ETF",
   XLC: "Sector ETF",
@@ -30396,29 +30407,43 @@ const WATCH_ONLY = new Set([
   "ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "CL1!", "RTY1!", "YM1!",
 ]);
 
-// Current Newton Upticks — priority picks tagged as "TT Selected"
+// Current Newton Upticks — priority picks tagged as "TT Selected".
+// Aligned with the live KV upticks list at timed:admin:upticks (PUT
+// /timed/admin/upticks is the source of truth). This hardcoded Set is a
+// fallback for dev/offline contexts; runtime merges KV on top so the
+// live list always wins. DELL removed because it's no longer in
+// SECTOR_MAP (unscorable) — update the KV list too.
 const TT_SELECTED = new Set([
-  "RDDT", "AMZN", "BABA", "TSLA", "KO", "WMT", "ETHA", "BRK-B",
-  "GLXY", "MTB", "SPGI", "AMGN", "GILD", "CSX", "GEV", "HII",
-  "JCI", "PWR", "TT", "APP", "CLS", "FSLR", "ORCL", "PANW", "CRS", "VST",
+  "AMGN", "AMZN", "AXP", "BABA", "BG", "BRK-B", "CLS", "CRS", "CRWV",
+  "CSX", "DBA", "ETHA", "GEV", "GILD", "JCI", "MRK", "MTB", "PH",
+  "PWR", "QXO", "TSLA", "TT", "VST", "WMT",
 ]);
 
 // Canonical universe: snapshot of hardcoded SECTOR_MAP before runtime KV expansion
 const CANONICAL_UNIVERSE = new Set(Object.keys(SECTOR_MAP));
 
-// Sector Ratings — as of Feb 13, 2026 (S&P Index Weight vs FSI Weight)
+// Sector Ratings — as of Apr 20, 2026 (S&P Index Weight vs FSI Weight).
+// Stance reflects Fundstrat's latest relative-weight guidance:
+//   OW: Industrials (+2.5), Info Tech (+2.5), Financials (+2.2),
+//       Basic Materials (+0.4), Communication Services (+0.2)
+//   UW: Consumer Staples (-4.0), Health Care (-2.0), Energy (-1.6)
+//   Neutral (≈ S&P weight): Consumer Discretionary, Real Estate, Utilities
+// "delta" here is the active over/underweight vs the S&P benchmark, in %.
+// "boost" is the internal ranking nudge applied by rankTickersInSector()
+// (positive = rank higher, negative = deprioritize).
 const SECTOR_RATINGS = {
-  Healthcare:                { rating: "overweight",  boost: 5,  spWeight: 8.2,  fsiWeight: 10.1, delta: 1.9  },
-  "Information Technology":  { rating: "overweight",  boost: 3,  spWeight: 26.7, fsiWeight: 27.1, delta: 0.4  },
-  Energy:                    { rating: "overweight",  boost: 5,  spWeight: 2.8,  fsiWeight: 5.1,  delta: 2.3  },
-  Financials:                { rating: "overweight",  boost: 3,  spWeight: 10.8, fsiWeight: 11.4, delta: 0.6  },
-  Industrials:               { rating: "overweight",  boost: 5,  spWeight: 7.5,  fsiWeight: 9.8,  delta: 2.3  },
-  Utilities:                 { rating: "neutral",     boost: 0,  spWeight: 1.9,  fsiWeight: 1.9,  delta: 0.0  },
-  "Communication Services":  { rating: "neutral",     boost: 0,  spWeight: 8.4,  fsiWeight: 8.4,  delta: 0.0  },
-  "Basic Materials":         { rating: "neutral",     boost: 0,  spWeight: 1.7,  fsiWeight: 1.7,  delta: 0.0  },
-  "Consumer Discretionary":  { rating: "underweight", boost: -3, spWeight: 9.3,  fsiWeight: 7.3,  delta: -2.0 },
-  "Consumer Staples":        { rating: "underweight", boost: -5, spWeight: 5.1,  fsiWeight: 3.0,  delta: -2.1 },
-  "Real Estate":             { rating: "underweight", boost: -3, spWeight: 1.6,  fsiWeight: 0.0,  delta: -1.6 },
+  Industrials:               { rating: "overweight",  boost: 5,  delta: 2.5  },
+  "Information Technology":  { rating: "overweight",  boost: 5,  delta: 2.5  },
+  Financials:                { rating: "overweight",  boost: 4,  delta: 2.2  },
+  "Basic Materials":         { rating: "overweight",  boost: 2,  delta: 0.4  },
+  "Communication Services":  { rating: "overweight",  boost: 1,  delta: 0.2  },
+  "Consumer Discretionary":  { rating: "neutral",     boost: 0,  delta: 0.0  },
+  "Real Estate":             { rating: "neutral",     boost: 0,  delta: 0.0  },
+  Utilities:                 { rating: "neutral",     boost: 0,  delta: 0.0  },
+  Energy:                    { rating: "underweight", boost: -3, delta: -1.6 },
+  Healthcare:                { rating: "underweight", boost: -4, delta: -2.0 },
+  "Health Care":             { rating: "underweight", boost: -4, delta: -2.0 },
+  "Consumer Staples":        { rating: "underweight", boost: -5, delta: -4.0 },
 };
 
 function getSector(ticker) {
@@ -47368,6 +47393,80 @@ export default {
         }
       }
 
+      // POST /timed/waitlist/join — accept pre-launch signups.
+      // Stores signups in D1 (waitlist_signups) with source, referrer, UTM params.
+      // Deduplicates by email (case-insensitive).
+      if (routeKey === "POST /timed/waitlist/join") {
+        try {
+          const body = await req.json().catch(() => ({}));
+          const rawEmail = String(body?.email || "").trim().toLowerCase();
+          if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(rawEmail)) {
+            return sendJSON({ ok: false, error: "invalid_email" }, 400, corsHeaders(env, req));
+          }
+          const source = String(body?.source || "app").slice(0, 64);
+          const referrer = String(body?.referrer || req.headers.get("referer") || "").slice(0, 512);
+          const note = String(body?.note || "").slice(0, 512);
+          const userAgent = (req.headers.get("user-agent") || "").slice(0, 256);
+          const ip = req.headers.get("cf-connecting-ip") || req.headers.get("x-forwarded-for") || "";
+          const now = Date.now();
+
+          const db = env?.DB;
+          let dbStored = false;
+          if (db) {
+            try {
+              await db.prepare(`CREATE TABLE IF NOT EXISTS waitlist_signups (
+                email TEXT PRIMARY KEY,
+                source TEXT,
+                referrer TEXT,
+                note TEXT,
+                user_agent TEXT,
+                ip_hash TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+              )`).run();
+              await db.prepare(`CREATE INDEX IF NOT EXISTS idx_waitlist_created ON waitlist_signups(created_at DESC)`).run();
+              const existing = await db.prepare(`SELECT email FROM waitlist_signups WHERE email = ?1`).bind(rawEmail).first();
+              if (existing) {
+                await db.prepare(`UPDATE waitlist_signups SET updated_at = ?1, source = COALESCE(?2, source) WHERE email = ?3`).bind(now, source || null, rawEmail).run();
+              } else {
+                await db.prepare(`INSERT INTO waitlist_signups (email, source, referrer, note, user_agent, ip_hash, created_at, updated_at)
+                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)`).bind(rawEmail, source, referrer, note, userAgent, ip ? ip.slice(-8) : "", now).run();
+              }
+              dbStored = true;
+            } catch (e) {
+              console.warn("[WAITLIST] D1 store failed:", String(e).slice(0, 120));
+            }
+          }
+
+          // KV fallback so the signup isn't lost if D1 is unavailable
+          const KV = env?.KV_TIMED;
+          if (KV && !dbStored) {
+            try {
+              await KV.put(`timed:waitlist:${rawEmail}`, JSON.stringify({ email: rawEmail, source, referrer, note, ts: now }));
+            } catch {}
+          }
+
+          return sendJSON({ ok: true, email: rawEmail, stored: dbStored ? "d1" : (KV ? "kv" : "none") }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/waitlist — list waitlist signups (admin-gated)
+      if (routeKey === "GET /timed/admin/waitlist") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const limit = Math.min(Number(url.searchParams.get("limit")) || 200, 1000);
+          const rows = (await db.prepare(`SELECT email, source, referrer, note, created_at, updated_at FROM waitlist_signups ORDER BY created_at DESC LIMIT ?1`).bind(limit).all())?.results || [];
+          return sendJSON({ ok: true, count: rows.length, signups: rows }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // GET /timed/alerts — Returns trade event alerts (ENTRY/TRIM/EXIT/DEFEND) joined with trade data
       if (routeKey === "GET /timed/alerts") {
         try {
@@ -53647,7 +53746,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
       if (routeKey === "GET /timed/etf/holdings/:symbol") {
         try {
-          const symbol = pathname.replace("/timed/etf/holdings/", "").toUpperCase();
+          const symbol = url.pathname.replace("/timed/etf/holdings/", "").toUpperCase();
           const result = await handleGetETFHoldings(env, symbol);
           return sendJSON(result, 200, corsHeaders(env, req));
         } catch (e) {
