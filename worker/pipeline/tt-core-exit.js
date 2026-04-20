@@ -74,6 +74,23 @@ export function evaluateExit(ctx, position) {
     }
   }
 
+  // ── PHASE-G.4 HARD PNL FLOOR (2026-04-20 v2) ──
+  // Standalone safety net that fires on pnl alone, independent of ATR or
+  // PDZ tolerance. Rationale: SWK Apr 2 SHORT bled to -3.23% max_loss
+  // because PDZ tolerance and regime_confirms kept the PDZ max-loss gate
+  // at -5% for a full market day. A -2% hard floor ensures no trade can
+  // bleed more than that regardless of structural thesis or PDZ posture.
+  // Configurable; set deep_audit_atr_adverse_cut_hard_pnl_floor_pct to a
+  // more negative value (or disable the block via the adverse cut flag)
+  // to relax.
+  {
+    const hardFloorEnabled = String(ctx.config.deepAudit?.deep_audit_atr_adverse_cut_enabled ?? "true") === "true";
+    const hardFloor = Number(ctx.config.deepAudit?.deep_audit_atr_adverse_cut_hard_pnl_floor_pct) || -2.0;
+    if (hardFloorEnabled && Number.isFinite(pnlPct) && pnlPct <= hardFloor) {
+      return result("exit", "atr_adverse_hard_pnl_floor", "safety");
+    }
+  }
+
   // ── MAX LOSS ──
   // R1 (2026-04-17): PDZ relaxation is a window, not a perpetual grant.
   // After `deep_audit_max_loss_pdz_window_min` market-minutes (default 390
