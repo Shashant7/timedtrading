@@ -70,11 +70,24 @@ wd_log() { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [watchdog] $*" | tee -a "$WA
 
 wd_log "=== watchdog start: run=$RUN_ID session=$SESSION poll=${POLL_MIN}min stall=${STALL_MIN}min ==="
 
-TMUX="tmux -f /exec-daemon/tmux.portal.conf"
+# tmux wrapper: use a function so flag parsing works correctly.
+# Previous TMUX="tmux -f ..." string expansion was mangling args.
+tmux_cmd() {
+  if [[ -f /exec-daemon/tmux.portal.conf ]]; then
+    tmux -f /exec-daemon/tmux.portal.conf "$@"
+  else
+    tmux "$@"
+  fi
+}
 
 current_progress_line() {
   [[ -f "$LOG_FILE" ]] || { echo ""; return; }
   grep -E '^\[.*\] (day [0-9-]+ ok|>>> day [0-9]+/[0-9]+)' "$LOG_FILE" | tail -1
+}
+
+log_file_mtime() {
+  [[ -f "$LOG_FILE" ]] || { echo 0; return; }
+  stat -c %Y "$LOG_FILE" 2>/dev/null || stat -f %m "$LOG_FILE" 2>/dev/null || echo 0
 }
 
 is_run_complete() {
@@ -83,12 +96,12 @@ is_run_complete() {
 }
 
 session_alive() {
-  $TMUX has-session -t "=$SESSION" 2>/dev/null
+  tmux_cmd has-session -t "=$SESSION" 2>/dev/null
 }
 
 relaunch_run() {
   wd_log "RELAUNCH: killing session (if any) + releasing lock"
-  $TMUX kill-session -t "$SESSION" 2>/dev/null || true
+  tmux_cmd kill-session -t "$SESSION" 2>/dev/null || true
   curl -sS -m 15 -X DELETE "$API_BASE/timed/admin/replay-lock?key=$API_KEY" > /dev/null 2>&1 || true
 
   # Build resume command
@@ -97,52 +110,58 @@ relaunch_run() {
   if [[ -n "$END_DATE" ]]; then cmd="$cmd --end=$END_DATE"; fi
   wd_log "RELAUNCH: $cmd"
 
-  $TMUX new-session -d -s "$SESSION" -c "$ROOT" -- /bin/bash -l
-  $TMUX send-keys -t "$SESSION:0.0" "$cmd" C-m
+  tmux_cmd new-session -d -s "$SESSION" -c "$ROOT" -- /bin/bash -l
+  tmux_cmd send-keys -t "$SESSION:0.0" "$cmd" C-m
   wd_log "RELAUNCH: session $SESSION recreated"
 }
 
 LAST_PROGRESS=""
 LAST_PROGRESS_TS=$(date -u +%s)
 
+# Robust outer loop: if any step in a poll cycle throws, we log it and
+# continue rather than let the watchdog die silently.
 while true; do
-  sleep $((POLL_MIN * 60))
-
-  if is_run_complete; then
-    wd_log "RUN COMPLETE — watchdog exiting"
-    exit 0
+  if ! sleep $((POLL_MIN * 60)); then
+    wd_log "sleep interrupted, continuing"
   fi
 
-  current=$(current_progress_line)
-  now=$(date -u +%s)
-
-  if [[ -n "$current" && "$current" != "$LAST_PROGRESS" ]]; then
-    LAST_PROGRESS="$current"
-    LAST_PROGRESS_TS=$now
-    wd_log "OK progress=$current"
-    if ! session_alive; then
-      wd_log "WARN tmux session dead despite progress log advancing — relaunching"
-      relaunch_run
+  # Keep running even if inner logic hits an error.
+  {
+    if is_run_complete; then
+      wd_log "RUN COMPLETE — watchdog exiting"
+      exit 0
     fi
-    continue
-  fi
 
-  # No new progress line
-  stall_s=$((now - LAST_PROGRESS_TS))
-  stall_min=$((stall_s / 60))
+    current=$(current_progress_line || true)
+    now=$(date -u +%s)
+    log_mtime=$(log_file_mtime)
+    log_age_s=$((now - log_mtime))
+    log_age_min=$((log_age_s / 60))
 
-  if ! session_alive; then
-    wd_log "ALERT tmux session missing AND no progress for ${stall_min}min — relaunching"
-    relaunch_run
-    LAST_PROGRESS_TS=$now
-    continue
-  fi
-
-  if [[ "$stall_min" -ge "$STALL_MIN" ]]; then
-    wd_log "ALERT stalled ${stall_min}min (>=${STALL_MIN}min threshold) on: ${LAST_PROGRESS:-<none>} — relaunching"
-    relaunch_run
-    LAST_PROGRESS_TS=$now
-  else
-    wd_log "QUIET last_progress_age=${stall_min}min (threshold=${STALL_MIN}min) — waiting"
-  fi
+    # Primary stall signal: log file hasn't been touched in STALL_MIN minutes.
+    # Secondary: progress line unchanged. Whichever fires first triggers relaunch.
+    if [[ -n "$current" && "$current" != "$LAST_PROGRESS" ]]; then
+      LAST_PROGRESS="$current"
+      LAST_PROGRESS_TS=$now
+      wd_log "OK log_age=${log_age_min}min progress=${current:0:110}"
+      if ! session_alive; then
+        wd_log "WARN tmux session dead despite progress log advancing — relaunching"
+        relaunch_run
+      fi
+    else
+      # No new progress line — check both stall signals
+      progress_stall_min=$(( (now - LAST_PROGRESS_TS) / 60 ))
+      if ! session_alive; then
+        wd_log "ALERT tmux session missing (stall=${progress_stall_min}min log_age=${log_age_min}min) — relaunching"
+        relaunch_run
+        LAST_PROGRESS_TS=$now
+      elif [[ "$log_age_min" -ge "$STALL_MIN" ]] || [[ "$progress_stall_min" -ge "$STALL_MIN" ]]; then
+        wd_log "ALERT stalled (progress=${progress_stall_min}min log_age=${log_age_min}min, threshold=${STALL_MIN}min) — relaunching"
+        relaunch_run
+        LAST_PROGRESS_TS=$now
+      else
+        wd_log "QUIET progress_age=${progress_stall_min}min log_age=${log_age_min}min (threshold=${STALL_MIN}min) — waiting"
+      fi
+    fi
+  } || wd_log "poll cycle error — continuing"
 done
