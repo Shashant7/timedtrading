@@ -6690,15 +6690,8 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       // under 1% and held to -2.56% avg loss. F4 dead_money_flatten fires
       // only at 24h market-min — many of these died at 2-6h. Tighten:
       // at 4h market-min, if MFE never reached +0.5% AND current pnl <= -1%,
-      // flatten.
-      //
-      // HOTFIX 2026-04-20 (SWK Mar 25 feedback): defer to TREND INTEGRITY.
-      // If the LTF ST (15m, 30m, 1H) is still ALIGNED with trade direction,
-      // the structural thesis is intact — don't flatten just because the
-      // trade is 1% red in its first 4 hours. The trade was taken on a
-      // structural signal; that signal still holds. Only flatten when
-      // BOTH: the trade isn't working (MFE<0.5, pnl<=-1) AND the structure
-      // has broken (at least 2 of 3 LTF ST NOT aligned with direction).
+      // flatten. Not symmetric with F4 (which is 24h+) — this catches the
+      // "immediate red, never recovered" pattern faster.
       {
         const _g3Enabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_early_dead_money_enabled ?? "true") === "true";
         if (_g3Enabled && positionAgeMarketMin >= 240) {  // 4h market-min
@@ -6710,44 +6703,14 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
             Number(openPosition?.__tradeRef?.maxFavorableExcursion ?? openPosition?.__tradeRef?.max_favorable_excursion ?? openPosition?.__tradeRef?.mfePct) || 0,
           );
           if (positionAgeMarketMin >= _g3AgeMin && _g3Mfe < _g3MfeMax && pnlPct <= _g3PnlMax) {
-            // Trend-integrity check — defer to the ENGINE'S OWN STATE
-            // classification. If the state is a pullback in the trade's
-            // direction (HTF_BEAR_LTF_PULLBACK for SHORT, HTF_BULL_LTF_PULLBACK
-            // for LONG), the structural thesis is intact and the adverse
-            // move is the expected pullback. Also check the 15m ST (our
-            // primary trigger TF): if 15m ST aligned with trade direction,
-            // the trigger signal still holds.
-            //
-            // Only flatten when BOTH: structure broke (state rolled to a
-            // counter-trend state) AND 15m ST flipped against us.
-            const _g3RespectTrend = String(tickerData?._env?._deepAuditConfig?.deep_audit_early_dead_money_respect_trend ?? "true") === "true";
-            const _direction = String(openPosition?.direction || direction || "").toUpperCase();
-            const _isLong = _direction !== "SHORT";
-            const _state = String(tickerData?.state || "").toUpperCase();
-            // stDir: +1 = bearish flipped (ST line above price), -1 = bullish
-            // For LONG to be aligned: state BULL AND 15m stDir = -1
-            // For SHORT to be aligned: state BEAR AND 15m stDir = +1
-            const _stateAligned = _isLong
-              ? _state.startsWith("HTF_BULL")
-              : _state.startsWith("HTF_BEAR");
-            const _st15AlignVal = _isLong ? -1 : 1;
-            const _st15 = Number(tickerData?.tf_tech?.["15"]?.stDir);
-            const _st15Aligned = _st15 === _st15AlignVal;
-            const _thesisIntact = _stateAligned && _st15Aligned;
-            if (!_g3RespectTrend || !_thesisIntact) {
-              tickerData.__exit_reason = "early_dead_money_flatten";
-              tickerData.__exit_family = "safety";
-              tickerData.__exit_detail = {
-                age_market_min: positionAgeMarketMin,
-                mfe_pct: _g3Mfe,
-                pnl_pct: pnlPct,
-                state: _state,
-                state_aligned: _stateAligned,
-                st15: _st15,
-                st15_aligned: _st15Aligned,
-              };
-              return "exit";
-            }
+            tickerData.__exit_reason = "early_dead_money_flatten";
+            tickerData.__exit_family = "safety";
+            tickerData.__exit_detail = {
+              age_market_min: positionAgeMarketMin,
+              mfe_pct: _g3Mfe,
+              pnl_pct: pnlPct,
+            };
+            return "exit";
           }
         }
       }
@@ -6869,48 +6832,10 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       }
 
       // ─────────────────────────────────────────────────────────────────
-      // PHASE-G.4 HARD-FLOOR HOTFIX (2026-04-20 v2) — SWK Apr 2 feedback.
-      //
-      // The original hard-pnl-floor was nested INSIDE the day-ATR displacement
-      // gate (`dirAdjDayDisp <= -0.382`). On SWK Apr 2, the SHORT entered
-      // mid-pullback with price still below prev close (day_disp=+0.642 for
-      // a LONG-view → dirAdjDayDisp for a SHORT = -0.642 is "favorable"),
-      // yet price then ran 3%+ against the trade on a slow intraday reversal.
-      // Because the day-ATR never went adverse, the nested hard-floor never
-      // evaluated and the trade bled to -3.23% max_loss.
-      //
-      // Fix: hoist the hard pnl floor to a standalone safety check that
-      // fires on pnl alone, independent of day-ATR displacement. This is
-      // the last line of defense before max_loss and should always engage.
-      {
-        const _g4HardFloorEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_atr_adverse_cut_enabled ?? "true") === "true";
-        const _g4HardPnlFloor = Number(tickerData?._env?._deepAuditConfig?.deep_audit_atr_adverse_cut_hard_pnl_floor_pct) || -2.0;
-        if (_g4HardFloorEnabled && Number.isFinite(pnlPct) && pnlPct <= _g4HardPnlFloor) {
-          tickerData.__exit_reason = "atr_adverse_hard_pnl_floor";
-          tickerData.__exit_family = "safety";
-          tickerData.__exit_detail = {
-            pnl_pct: pnlPct,
-            pnl_floor: _g4HardPnlFloor,
-            trigger: "standalone_hard_floor",
-          };
-          return "exit";
-        }
-      }
-
-      // ─────────────────────────────────────────────────────────────────
       // PHASE-G.4 (2026-04-20) — ADVERSE -0.382 ATR CUT (loss-mitigation)
       // Evidence: once price crosses adverse -0.382 × Day ATR from prev
       // close, 73% of the time it continues to -0.618. That's the "this
       // trade is wrong" signal. Cut here rather than wait for hard stop.
-      //
-      // HOTFIX 2026-04-20 (SWK Mar 25 feedback): defer to trend integrity.
-      // If state + 15m ST still aligned with trade direction, the structural
-      // thesis is intact and the adverse ATR displacement is a pullback
-      // within a continuing move, not a failure signal.
-      //
-      // Note: the unconditional hard pnl floor above already fires before
-      // this block for pnl <= -2%, so this block handles the -0.5% to -2%
-      // range where day-ATR adverse is the primary tell.
       {
         const _g4Enabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_atr_adverse_cut_enabled ?? "true") === "true";
         if (_g4Enabled && pnlPct < 0) {
@@ -6919,33 +6844,22 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           const dayDisp = Number(dayAtr.disp);
           const isLong = String(openPosition?.direction || "").toUpperCase() === "LONG";
           const dirAdjDayDisp = isLong ? dayDisp : -dayDisp;
+          // Adverse displacement = negative favorable displacement. If it
+          // went below -0.382 × ATR (i.e. 0.382 ATR against us), cut.
           const _g4Threshold = Number(tickerData?._env?._deepAuditConfig?.deep_audit_atr_adverse_cut_threshold) || -0.382;
           if (Number.isFinite(dirAdjDayDisp) && dirAdjDayDisp <= _g4Threshold) {
+            // Only cut if we're also meaningfully underwater (pnl < -0.5%)
+            // — otherwise small wiggles below prev close get clipped.
             const _g4PnlMin = Number(tickerData?._env?._deepAuditConfig?.deep_audit_atr_adverse_cut_pnl_min_pct) || -0.5;
             if (pnlPct <= _g4PnlMin) {
-              const _g4RespectTrend = String(tickerData?._env?._deepAuditConfig?.deep_audit_atr_adverse_cut_respect_trend ?? "true") === "true";
-              const _state = String(tickerData?.state || "").toUpperCase();
-              const _stateAligned = isLong
-                ? _state.startsWith("HTF_BULL")
-                : _state.startsWith("HTF_BEAR");
-              const _st15AlignVal = isLong ? -1 : 1;
-              const _st15 = Number(tickerData?.tf_tech?.["15"]?.stDir);
-              const _st15Aligned = _st15 === _st15AlignVal;
-              const _thesisIntact = _stateAligned && _st15Aligned;
-              if (!_g4RespectTrend || !_thesisIntact) {
-                tickerData.__exit_reason = "atr_day_adverse_382_cut";
-                tickerData.__exit_family = "safety";
-                tickerData.__exit_detail = {
-                  day_disp: dirAdjDayDisp,
-                  threshold: _g4Threshold,
-                  pnl_pct: pnlPct,
-                  state: _state,
-                  state_aligned: _stateAligned,
-                  st15: _st15,
-                  st15_aligned: _st15Aligned,
-                };
-                return "exit";
-              }
+              tickerData.__exit_reason = "atr_day_adverse_382_cut";
+              tickerData.__exit_family = "safety";
+              tickerData.__exit_detail = {
+                day_disp: dirAdjDayDisp,
+                threshold: _g4Threshold,
+                pnl_pct: pnlPct,
+              };
+              return "exit";
             }
           }
         }
