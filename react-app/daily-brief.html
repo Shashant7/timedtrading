@@ -175,6 +175,183 @@
         return cleaned.replace(/\n/g, "<br/>");
       }
 
+      // ── Brief Infographic Strip ────────────────────────────────────────────
+      // Renders above the markdown body so users can glance the regime:
+      //   - Headline bar (regime + VIX bucket + sector breadth + open trades)
+      //   - Index cards (SPY/QQQ/IWM price · %chg · ATR · Golden Gate badge)
+      //   - Sector heatmap (11 SPDR ETFs)
+      //   - Macro rail (Crude / Gold / Bonds / Dollar)
+      //   - Risks / Opportunities pill list
+      //   - Event ribbon (earnings + macro events today)
+      function BriefInfographic({ data }) {
+        if (!data) return null;
+        const hl = data.headline || {};
+        const vixBucket = hl.vix?.bucket;
+        const vixColor = vixBucket === "calm" ? "#34d399"
+          : vixBucket === "normal" ? "#86efac"
+            : vixBucket === "elevated" ? "#fbbf24"
+              : vixBucket === "high" ? "#fb923c"
+                : vixBucket === "panic" ? "#ef4444" : "#9ca3af";
+
+        const Badge = ({ label, value, color }) => (
+          <div className="flex flex-col items-start px-3 py-2 rounded-md bg-white/[0.03] border border-white/[0.06] min-w-[84px]">
+            <span className="text-[9px] uppercase tracking-wider text-[#6b7280]">{label}</span>
+            <span className="text-[13px] font-semibold tabular-nums" style={{ color: color || "#e5e7eb" }}>{value}</span>
+          </div>
+        );
+
+        const ggColor = (gg) => gg === "OPEN_UP" ? "#34d399" : gg === "OPEN_DOWN" ? "#ef4444" : "#9ca3af";
+        const pctColor = (p) => p == null ? "#9ca3af" : p > 0 ? "#34d399" : p < 0 ? "#ef4444" : "#9ca3af";
+        const indicies = Array.isArray(data.indices) ? data.indices : [];
+        const sectors = Array.isArray(data.sectors) ? data.sectors : [];
+        const macro = Array.isArray(data.macro) ? data.macro : [];
+        const events = Array.isArray(data.events) ? data.events : [];
+        const risks = Array.isArray(data.risks) ? data.risks : [];
+        const opps = Array.isArray(data.opportunities) ? data.opportunities : [];
+
+        return (
+          <div className="mb-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-4">
+            {/* Headline strip */}
+            <div className="flex flex-wrap items-center gap-2">
+              {hl.regime && <Badge label="Regime" value={hl.regime.replace(/_/g, " ")} color="#67e8f9" />}
+              {hl.vix && <Badge label="VIX" value={`${hl.vix.level.toFixed(2)} · ${vixBucket}`} color={vixColor} />}
+              {hl.breadth && <Badge label="Breadth" value={`${hl.breadth.green}/${hl.breadth.total}`} color={hl.breadth.green >= (hl.breadth.total * 0.6) ? "#34d399" : hl.breadth.green <= (hl.breadth.total * 0.4) ? "#ef4444" : "#fbbf24"} />}
+              {hl.openTrades != null && <Badge label="Open Trades" value={String(hl.openTrades)} color="#a78bfa" />}
+            </div>
+
+            {/* Index cards */}
+            {indicies.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                {indicies.map((idx) => {
+                  const lvls = idx.levels || {};
+                  const gg = lvls.goldenGate || "NEUTRAL";
+                  const anchor = lvls.anchor;
+                  const cp = lvls.currentPrice ?? idx.price;
+                  const up382 = lvls.levels?.["+38.2%"];
+                  const dn382 = lvls.levels?.["-38.2%"];
+                  const barProgress = (cp != null && up382 != null && dn382 != null)
+                    ? Math.max(0, Math.min(100, ((cp - dn382) / (up382 - dn382)) * 100))
+                    : 50;
+                  return (
+                    <div key={idx.sym} className="p-3 rounded-md bg-white/[0.02] border border-white/[0.06]">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[12px] font-semibold text-white">{idx.sym}</span>
+                        <span className="text-[10px] font-semibold" style={{ color: ggColor(gg) }}>
+                          {gg === "OPEN_UP" ? "▲ Golden Gate Up" : gg === "OPEN_DOWN" ? "▼ Golden Gate Down" : "◆ Neutral"}
+                        </span>
+                      </div>
+                      <div className="flex items-baseline gap-2 mb-2">
+                        <span className="text-lg font-bold text-white tabular-nums">
+                          {idx.price != null ? `$${idx.price.toFixed(2)}` : "—"}
+                        </span>
+                        <span className="text-[11px] font-semibold tabular-nums" style={{ color: pctColor(idx.chgPct) }}>
+                          {idx.chgPct != null ? `${idx.chgPct >= 0 ? "+" : ""}${idx.chgPct.toFixed(2)}%` : ""}
+                        </span>
+                        {idx.atr != null && (
+                          <span className="ml-auto text-[10px] text-[#6b7280]">ATR ${idx.atr.toFixed(2)}</span>
+                        )}
+                      </div>
+                      {dn382 != null && up382 != null && (
+                        <div className="relative h-2 rounded bg-white/[0.05] overflow-hidden mb-1">
+                          <div className="absolute left-0 top-0 bottom-0" style={{ width: `${barProgress}%`, background: "linear-gradient(90deg, rgba(239,68,68,0.35), rgba(107,114,128,0.25), rgba(52,211,153,0.35))" }} />
+                          {anchor != null && cp != null && (
+                            <div className="absolute top-0 bottom-0" style={{ left: `${Math.max(0, Math.min(100, ((anchor - dn382) / (up382 - dn382)) * 100))}%`, width: 2, background: "#9ca3af" }} title={`Prev close ${anchor}`} />
+                          )}
+                        </div>
+                      )}
+                      {dn382 != null && up382 != null && (
+                        <div className="flex items-center justify-between text-[9px] text-[#6b7280] tabular-nums">
+                          <span>-38.2% ${dn382.toFixed(2)}</span>
+                          <span>+38.2% ${up382.toFixed(2)}</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Sector heatmap */}
+            {sectors.length > 0 && (
+              <div>
+                <div className="text-[9px] uppercase tracking-wider text-[#6b7280] mb-1">Sectors today</div>
+                <div className="flex flex-wrap gap-1">
+                  {sectors.map((s) => (
+                    <div key={s.sym} className="px-2 py-1 rounded text-[10px] font-semibold flex items-center gap-1 border" style={{
+                      borderColor: s.status === "strong" ? "rgba(52,211,153,0.35)" : s.status === "green" ? "rgba(134,239,172,0.25)" : s.status === "weak" ? "rgba(251,191,36,0.25)" : s.status === "red" ? "rgba(239,68,68,0.35)" : "rgba(156,163,175,0.2)",
+                      background: s.status === "strong" ? "rgba(52,211,153,0.1)" : s.status === "green" ? "rgba(134,239,172,0.06)" : s.status === "weak" ? "rgba(251,191,36,0.08)" : s.status === "red" ? "rgba(239,68,68,0.1)" : "rgba(156,163,175,0.05)",
+                      color: s.status === "strong" ? "#34d399" : s.status === "green" ? "#86efac" : s.status === "weak" ? "#fbbf24" : s.status === "red" ? "#ef4444" : "#9ca3af",
+                    }}>
+                      <span>{s.sym}</span>
+                      <span className="tabular-nums">{s.chgPct != null ? `${s.chgPct >= 0 ? "+" : ""}${s.chgPct.toFixed(2)}%` : ""}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Macro rail */}
+            {macro.length > 0 && (
+              <div>
+                <div className="text-[9px] uppercase tracking-wider text-[#6b7280] mb-1">Macro cross-asset</div>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-1.5">
+                  {macro.map((m) => (
+                    <div key={m.sym + m.label} className="px-2 py-1.5 rounded bg-white/[0.02] border border-white/[0.05]" title={m.hint || ""}>
+                      <div className="text-[9px] uppercase tracking-wider text-[#6b7280]">{m.label}</div>
+                      <div className="text-[12px] font-semibold text-white tabular-nums">
+                        {m.sym === "VIX" ? m.value.toFixed(2) : m.value.toFixed(2)}
+                      </div>
+                      {m.chgPct != null && (
+                        <div className="text-[10px] tabular-nums" style={{ color: pctColor(m.chgPct) }}>
+                          {m.chgPct >= 0 ? "+" : ""}{m.chgPct.toFixed(2)}%
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Risks / Opportunities */}
+            {(risks.length > 0 || opps.length > 0) && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {risks.length > 0 && (
+                  <div className="p-2 rounded bg-red-500/5 border border-red-500/20">
+                    <div className="text-[9px] uppercase tracking-wider text-red-300/80 mb-1">Risks today</div>
+                    <ul className="space-y-0.5 text-[11px] text-[#fecaca]">
+                      {risks.map((r, i) => <li key={i}>• {r}</li>)}
+                    </ul>
+                  </div>
+                )}
+                {opps.length > 0 && (
+                  <div className="p-2 rounded bg-emerald-500/5 border border-emerald-500/20">
+                    <div className="text-[9px] uppercase tracking-wider text-emerald-300/80 mb-1">Opportunities</div>
+                    <ul className="space-y-0.5 text-[11px] text-[#bbf7d0]">
+                      {opps.map((o, i) => <li key={i}>• {o}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Events ribbon */}
+            {events.length > 0 && (
+              <div>
+                <div className="text-[9px] uppercase tracking-wider text-[#6b7280] mb-1">Today's catalysts</div>
+                <div className="flex flex-wrap gap-1">
+                  {events.map((e, i) => (
+                    <span key={i} className="px-2 py-0.5 rounded-md text-[10px] font-medium border border-white/[0.08] bg-white/[0.03] text-[#d1d5db]" title={e.kind}>
+                      {e.kind === "earnings" ? "📊 " : "📅 "}
+                      {e.title}{e.when ? ` · ${e.when}` : ""}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      }
+
       // ── Brief Card Component ───────────────────────────────────────────────
       function BriefCard({ brief, type }) {
         if (!brief) return null;
@@ -207,6 +384,7 @@
                 </div>
               )}
             </div>
+            {brief.infographic && <BriefInfographic data={brief.infographic} />}
             <div className="brief-content" dangerouslySetInnerHTML={{ __html: renderMarkdown(brief.content) }} />
           </div>
         );

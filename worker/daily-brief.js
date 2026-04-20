@@ -1887,70 +1887,63 @@ When open trades are provided, you MUST discuss each one:
   - Falling VIX + rising SPY: Risk-on, lean bullish
   - VIX divergence (VIX falling while SPY drops): Market is not panicking yet, may be short-term
 
-Writing Guidelines:
-- Write in a professional yet accessible style with clear section headers using markdown ##
-- Reference specific price levels, percentages, and zones
-- CRITICAL: ALL economic data values (CPI, PPI, GDP, etc.) MUST use EXACTLY two decimal places (e.g., 2.40%, 0.30%)
-- Logic: Bearish scenarios must target prices LOWER than the trigger level. Bullish scenarios must target HIGHER.
-- Keep total length to 1500-2200 words — be CONCISE. Every sentence must earn its place.
-- Do NOT use emojis
+Writing Guidelines (CONCISION IS NON-NEGOTIABLE):
+- Write in the voice of a veteran trader DM'ing a colleague. Scannable, decisive, zero filler.
+- **Target length: 650-900 words total.** If a sentence doesn't contain a LEVEL, a PROBABILITY, or an ACTIONABLE decision, delete it.
+- Every section below has a **hard sentence cap**. DO NOT exceed it. If you need more, you picked the wrong sentences.
+- Lead each section with the punchline, then evidence. No "as we discussed" throat-clearing.
+- Prefer bullets to paragraphs. Prefer numbers to adjectives. "VIX 19.2, up 1.4 pts" beats "VIX is elevated and ticking higher."
+- Reference specific price levels, percentages, and zones — every claim has a number attached.
+- CRITICAL: ALL economic data values (CPI, PPI, GDP, etc.) MUST use EXACTLY two decimal places (e.g., 2.40%, 0.30%).
+- Logic: Bearish scenarios target prices LOWER than the trigger. Bullish scenarios target HIGHER.
+- Do NOT use emojis.
 - CRITICAL FORMATTING: Use proper markdown with BLANK LINES before every ## and ### header. Output is rendered via markdown parser.
-- For earnings: ALWAYS include current price and daily change, e.g., "ESNT ($148.52, +1.30%)"
-- For macro events: Explain the IMPACT — what it means for the average trader, not just the data point
+- For earnings: ALWAYS include current price and daily change, e.g., "ESNT ($148.52, +1.30%)".
+- For macro events: One sentence of impact, not a lecture. "CPI prints 8:30 ET — hot read (>3.0%) likely taps SPY 575 support; cool read opens 585 test."
+- If a data field is missing, omit the bullet. Do not fill with hedging prose.
 
 ## Output Format Rules (STRICT — follow this structure exactly):
 
-### Section 1: "The Bigger Picture" (4-6 sentences)
-This is the MOST IMPORTANT section. Set the stage with the multi-week/multi-month context:
-- Where are we in the broader market cycle? Range-bound? Trending? At an inflection?
-- How long have we been in this regime? "SPY has been trapped in a 555-582 range for the past 7 weeks."
-- What's the dominant pattern forming? "A descending triangle on the daily, with lower highs converging on the 555 support."
-- Historical analog if applicable: "This consolidation pattern is similar to what we saw in July 2024 — 6 weeks of chop before a directional resolution."
-- What would change the picture? "A daily close above 585 or below 550 would break this range and set the next leg."
-- VIX context: "With VIX at 22, the market is pricing uncertainty but not panic — consistent with a range that's coiling for a move."
+### Section 1: "The Bigger Picture" (3-4 sentences, HARD CAP)
+The punchline, then the why. Lead with regime + duration ("Range-bound 7 weeks between 555-582"), then the pattern forming, the VIX read, and the invalidation trigger. NO historical-analog prose unless it changes the trade plan.
 
-### Section 2: "What's Changed" (2-3 sentences)
-What happened overnight/premarket that's new. If nothing structurally changed, say so: "Overnight session was quiet — no new catalysts. The same 565-580 range and levels from yesterday apply."
+### Section 2: "What's Changed" (1-2 sentences, HARD CAP)
+Only the overnight delta. If nothing structurally changed, one sentence: "Overnight quiet — same 565-580 range applies."
 
-### Section 3: "SPY" and "QQQ" (use separate ## for each)
-For each ticker:
+### Section 3: "SPY" and "QQQ" (use separate ## for each — TIGHT)
+For each ticker, exactly these compact bullet groups. NO paragraphs inside this section.
 
 **Bias**: [Bullish / Bearish / Neutral / Range-Bound]
-- Regime: [regime] | Phase: [zone] at [pct]% | Grade: [setup_grade]
-- Trend: HTF [score], LTF [score] — [one sentence on what this alignment or divergence means]
-- Multi-TF Read: [2 sentences synthesizing SuperTrend, RSI, EMA structure across 15m/1H/4H/D. Be specific: "SuperTrend bearish on 4H/D but flipping bullish on 15m — short-term bounce attempt within a larger downtrend."]
+- Regime/Phase: [regime] · Phase [zone] [pct]% · [setup_grade]
+- MTF: HTF [score] / LTF [score] — [ONE short sentence on convergence or divergence]
 - Swing Consensus: [direction, strength, aligned TFs]
-- Active Signals: [flags like squeeze_release, st_flip_bull, rsi_div_bear]
+- Signals: [up to 4 flags, comma-separated]
 
-**Key Levels** (state the timeframe for EVERY level):
-- Support: $XXX (daily), $XXX (4H)
-- Resistance: $XXX (weekly), $XXX (daily)
-- Range: $LOW–$HIGH (the multi-week range if applicable)
-- Unfilled Gap: $XXX–$XXX (4H) — may act as magnet
+**Levels** (TF in parens, one line each):
+- S: $XXX (D), $XXX (4H)
+- R: $XXX (W), $XXX (D)
+- Range: $LOW–$HIGH
+- Gap: $XXX–$XXX (4H)
 
-**Today's Game Plan**:
-- Bull case: Above $XXX → target $XXX, then $XXX. Confirmation by 10:30 AM.
-- Bear case: Below $XXX → target $XXX, then $XXX.
-- Base case: Expected range and most likely path. Use ATR to calibrate the range. Manage expectations — if we're mid-range, don't expect a breakout.
-- Risk note: Phase %, vol regime, or any signal that should adjust sizing.
+**Game Plan** (one bullet per case, each ≤ 20 words):
+- Bull: Above $XXX → $XXX → $XXX (confirm by 10:30)
+- Bear: Below $XXX → $XXX → $XXX
+- Base: [expected range, most likely path, one risk note]
 
-### Section 4: "Futures Reference" (compact)
-**ES** — ATR: $X.XX | O/N Range: $LOW–$HIGH
-- Bull: Above $XXXX → $XXXX | Bear: Below $XXXX → $XXXX
+### Section 4: "Futures Reference" (2 lines total — no sub-bullets)
+- **ES**: ATR $X.XX · O/N $LOW–$HIGH · Bull above $XXXX → $XXXX · Bear below $XXXX → $XXXX
+- **NQ**: ATR $X.XX · O/N $LOW–$HIGH · Bull above $XXXXX → $XXXXX · Bear below $XXXXX → $XXXXX
 
-**NQ** — ATR: $X.XX | O/N Range: $LOW–$HIGH
-- Bull: Above $XXXXX → $XXXXX | Bear: Below $XXXXX → $XXXXX
+### Section 5: "Open Positions" (only if trades are provided, 1 bullet per trade)
+Format: `TICKER LONG/SHORT @ $entry · P&L +X.X% · HOLD/TRIM/EXIT — <≤15 words why>`
 
-### Section 5: "Open Positions" (only if trades are provided)
-One bullet per trade: ticker, direction, entry, current P&L, hold/trim/exit recommendation.
+### Section 6: "Macro & Cross-Asset" (3-4 bullets, one line each)
+Connect VIX, crude, gold, TLT, dollar, or sector breadth to the equity thesis. No standalone commentary.
 
-### Section 6: "Macro & Cross-Asset" (compact)
-3-5 bullets connecting VIX, crude, gold, TLT, dollar, sector breadth to the equity thesis.
+### Section 7: "Week Ahead" (1-2 sentences, HARD CAP)
+Where we likely close the week + the single biggest catalyst to watch.
 
-### Section 7: "Week Ahead" (2-3 sentences)
-Where do you think we end the week? What are the key events that could be catalysts? What's the one thing to watch?
-
-CRITICAL: Do NOT wrap levels in long explanatory prose. Levels must be scannable at a glance. Each section adds UNIQUE value. When the market is range-bound, acknowledge it — don't force a directional bias.
+CRITICAL: Do NOT wrap levels in long explanatory prose. Levels must be scannable at a glance. When the market is range-bound, acknowledge it in one sentence — don't force a directional bias.
 
 ## Timed Trading Model Reference (how to interpret the signals):
 
@@ -2702,6 +2695,161 @@ function buildDiscordBriefEmbed(type, data, content, esPrediction) {
  * @param {"morning"|"evening"} type
  * @param {object} opts - { SECTOR_MAP, d1GetCandles, notifyDiscord }
  */
+/**
+ * Build a compact structured snapshot that the Daily Brief UI renders
+ * as an infographic above the markdown body. Surfaces the same data the
+ * AI sees so users can glance the regime without reading the wall.
+ *
+ * Shape is intentionally small and UI-friendly:
+ *   {
+ *     headline: { date, type, regime, vixLevel, vixBucket, breadthGreen, breadthTotal },
+ *     indices: [ { sym, price, chgPct, atr, goldenGate, dayAtr, levels: { "+38.2%": n, ... } } ],
+ *     sectors: [ { sym, chgPct, status } ],
+ *     macro: [ { label, value, hint } ],
+ *     events: [ { date, when, title, severity, kind } ],
+ *     risks: [string],
+ *     opportunities: [string],
+ *   }
+ *
+ * Everything is derived directly from `data` (already gathered) — no
+ * extra API calls.
+ */
+function buildBriefInfographic(data, type) {
+  if (!data || typeof data !== "object") return null;
+  const today = String(data.today || "");
+  const vixD = data.market?.VIX || {};
+  const vixLevel = Number(vixD.price) || Number(vixD.sessionClose) || null;
+  const vixBucket = vixLevel == null
+    ? null
+    : vixLevel < 15 ? "calm"
+      : vixLevel < 20 ? "normal"
+        : vixLevel < 25 ? "elevated"
+          : vixLevel < 30 ? "high"
+            : "panic";
+  const sectors = Array.isArray(data.sectors) ? data.sectors : [];
+  const sectorMini = sectors.map(s => {
+    const chg = Number(s.changePct ?? s.chgPct ?? s.pct);
+    return {
+      sym: s.symbol || s.sym,
+      chgPct: Number.isFinite(chg) ? Math.round(chg * 100) / 100 : null,
+      status: Number.isFinite(chg)
+        ? (chg > 0.3 ? "strong" : chg > 0 ? "green" : chg > -0.3 ? "weak" : "red")
+        : "unknown",
+    };
+  }).filter(x => x.sym);
+  const breadthGreen = sectorMini.filter(s => (s.chgPct ?? 0) > 0).length;
+  const breadthTotal = sectorMini.length;
+
+  const _normLevels = (tech) => {
+    if (!tech || !tech.atrFibLevels) return null;
+    const l = tech.atrFibLevels;
+    return {
+      anchor: l.anchor,
+      dayAtr: l.dayAtr,
+      currentPrice: l.currentPrice,
+      goldenGate: l.goldenGate || "NEUTRAL",
+      goldenGateNote: l.goldenGateNote || null,
+      levels: l.levels || {},
+      gamePlan: l.gamePlan || null,
+    };
+  };
+  const _extract = (sym, md, tech) => {
+    if (!md) return null;
+    const price = Number(md.price);
+    const chg = Number(md.changePct ?? md.dp);
+    const atr = Number(tech?.atr14 ?? tech?.atr);
+    return {
+      sym,
+      price: Number.isFinite(price) ? Math.round(price * 100) / 100 : null,
+      chgPct: Number.isFinite(chg) ? Math.round(chg * 100) / 100 : null,
+      atr: Number.isFinite(atr) ? Math.round(atr * 100) / 100 : null,
+      levels: _normLevels(tech),
+    };
+  };
+  const indices = [
+    _extract("SPY", data.market?.SPY, data.spyTechnical),
+    _extract("QQQ", data.market?.QQQ, data.qqqTechnical),
+    _extract("IWM", data.market?.IWM, data.iwmTechnical),
+  ].filter(Boolean);
+
+  const pf = data.priceFeedRaw || {};
+  const _macroFor = (sym, label, hint) => {
+    const d = pf[sym];
+    if (!d) return null;
+    const price = Number(d.p);
+    const pct = Number(d.dp);
+    if (!Number.isFinite(price)) return null;
+    return {
+      sym,
+      label,
+      value: Math.round(price * 100) / 100,
+      chgPct: Number.isFinite(pct) ? Math.round(pct * 100) / 100 : null,
+      hint: hint || null,
+    };
+  };
+  const macro = [
+    vixLevel != null ? { sym: "VIX", label: "VIX", value: Math.round(vixLevel * 100) / 100, bucket: vixBucket, hint: `Volatility ${vixBucket || ""}`.trim() } : null,
+    _macroFor("CL1!", "Crude", "Oil > equities rotation cue"),
+    _macroFor("GC1!", "Gold", "Risk-off flow"),
+    _macroFor("TLT", "Bonds", "Falling TLT = rising yields = tech pressure"),
+    _macroFor("DXY", "Dollar", "Stronger USD = multinational headwind"),
+  ].filter(Boolean);
+
+  const todayEconomic = (data.todayEconomicEvents || []).slice(0, 6).map(e => ({
+    date: (e.date || "").slice(0, 10),
+    when: e.time || null,
+    title: e.title || e.event || "",
+    severity: e.impact || e.severity || "medium",
+    kind: "macro",
+  }));
+  const todayEarnings = (data.todayEarnings || []).slice(0, 8).map(e => ({
+    date: today,
+    when: e.hour || (e.session === "bmo" ? "Before Open" : e.session === "amc" ? "After Close" : null),
+    title: `${(e.ticker || e.symbol || "").toUpperCase()} earnings`,
+    severity: "medium",
+    kind: "earnings",
+  }));
+  const events = [...todayEconomic, ...todayEarnings];
+
+  const risks = [];
+  const opps = [];
+  if (vixBucket === "high" || vixBucket === "panic") risks.push(`VIX ${vixLevel} — wider ranges, reduce size`);
+  if (breadthTotal > 0 && breadthGreen <= 3) risks.push(`Narrow breadth: ${breadthGreen}/${breadthTotal} sectors green`);
+  if (breadthTotal > 0 && breadthGreen >= 8) opps.push(`Broad breadth: ${breadthGreen}/${breadthTotal} sectors green`);
+  for (const idx of indices) {
+    if (!idx) continue;
+    const gg = idx.levels?.goldenGate;
+    if (gg === "OPEN_UP") opps.push(`${idx.sym} Golden Gate OPEN_UP`);
+    else if (gg === "OPEN_DOWN") risks.push(`${idx.sym} Golden Gate OPEN_DOWN`);
+  }
+  for (const e of events) {
+    if (e.severity === "high") risks.push(`${e.title} today${e.when ? " @ " + e.when : ""}`);
+  }
+
+  const openCount = (data.openTrades || []).length;
+  const regime = data.market?.SPY?.regime_class || data.regime_class || null;
+
+  return {
+    date: today,
+    type,
+    generated_at: Date.now(),
+    headline: {
+      date: today,
+      type,
+      regime,
+      vix: vixLevel != null ? { level: vixLevel, bucket: vixBucket } : null,
+      breadth: breadthTotal > 0 ? { green: breadthGreen, total: breadthTotal } : null,
+      openTrades: openCount,
+    },
+    indices,
+    sectors: sectorMini,
+    macro,
+    events,
+    risks: risks.slice(0, 5),
+    opportunities: opps.slice(0, 5),
+  };
+}
+
 export async function generateDailyBrief(env, type, opts = {}) {
   const KV = env?.KV_TIMED;
   const db = env?.DB;
@@ -2752,7 +2900,13 @@ export async function generateDailyBrief(env, type, opts = {}) {
     const now = Date.now();
     const briefId = `${data.today}-${type}`;
 
-    // 5. Store in KV (current brief)
+    // 5. Store in KV (current brief + structured infographic snapshot)
+    let infographic = null;
+    try {
+      infographic = buildBriefInfographic(data, type);
+    } catch (e) {
+      console.warn("[DAILY BRIEF] infographic build error:", String(e).slice(0, 120));
+    }
     const current = (await kvGetJSON(KV, "timed:daily-brief:current")) || {};
     current[type] = {
       id: briefId,
@@ -2761,6 +2915,7 @@ export async function generateDailyBrief(env, type, opts = {}) {
       content,
       esPrediction,
       publishedAt: now,
+      infographic,
     };
     await kvPutJSON(KV, "timed:daily-brief:current", current);
 

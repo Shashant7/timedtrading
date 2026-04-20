@@ -152,6 +152,30 @@
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    // Signal Radar — wraps window.TickerSpiderChartFactory (ticker-spider-chart.js)
+    // so both rails (Investor, Active Trader) can drop in <SignalRadar ticker={d} />
+    // ═══════════════════════════════════════════════════════════════════════
+    const SpiderChartImpl = typeof window !== "undefined" && window.TickerSpiderChartFactory ? window.TickerSpiderChartFactory({
+      React
+    }) : null;
+    function SignalRadar({
+      ticker,
+      direction,
+      compact,
+      size,
+      showLegend
+    }) {
+      if (!SpiderChartImpl || !ticker) return null;
+      return React.createElement(SpiderChartImpl, {
+        ticker,
+        direction,
+        compact,
+        size,
+        showLegend
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     // Indicator Computation Helpers (from OHLC)
     // ═══════════════════════════════════════════════════════════════════════
     function computeEMA(data, period, source = 'close') {
@@ -3184,7 +3208,12 @@
           className: "text-[10px] text-[#6b7280]"
         }, "Investor Score"))), /*#__PURE__*/React.createElement("div", {
           className: "text-[11px] text-[#9ca3af] mt-2 italic leading-relaxed"
-        }, summary)), predictionContractLoading ? /*#__PURE__*/React.createElement(SkeletonBlock, {
+        }, summary)), /*#__PURE__*/React.createElement(SignalRadar, {
+          ticker: d,
+          direction: predictionContract?.direction || predictionContract?.bias || d?.direction || d?.bias,
+          compact: false,
+          size: 240
+        }), predictionContractLoading ? /*#__PURE__*/React.createElement(SkeletonBlock, {
           height: 100,
           lines: 4
         }) : predictionContract ? /*#__PURE__*/React.createElement("div", {
@@ -3491,7 +3520,14 @@
         }, "Prime Setup"), /*#__PURE__*/React.createElement("div", {
           className: "text-[10px] text-amber-300/60"
         }, _primeReason)));
-      })(), predictionContractLoading ? /*#__PURE__*/React.createElement(SkeletonBlock, {
+      })(), /*#__PURE__*/React.createElement("div", {
+        className: "mb-4"
+      }, /*#__PURE__*/React.createElement(SignalRadar, {
+        ticker: ticker,
+        direction: predictionContract?.direction || predictionContract?.bias || ticker?.direction || ticker?.bias,
+        compact: false,
+        size: 240
+      })), predictionContractLoading ? /*#__PURE__*/React.createElement(SkeletonBlock, {
         height: 120,
         lines: 4
       }) : predictionContract ? /*#__PURE__*/React.createElement("div", {

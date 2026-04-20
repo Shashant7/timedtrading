@@ -10,6 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="ticker-spider-chart.js?v=20260420a"></script>
     <script crossorigin src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -565,6 +566,11 @@
         );
       }
 
+      // ─── Ticker Signal Radar (shared spider chart) ──────────────────
+      const _SpiderChart = (window.TickerSpiderChartFactory)
+        ? window.TickerSpiderChartFactory({ React })
+        : null;
+
       // ─── Ticker Deep Dive (Right Rail) ──────────────────────────────
       function TickerDeepDive({ ticker, data }) {
         if (!ticker || !data) return React.createElement("div", { className: "card p-6 text-center text-[#6b7280] text-sm" },
@@ -600,6 +606,13 @@
             ),
             React.createElement("div", { className: "text-[11px] text-[#9ca3af] mt-2 italic leading-relaxed" }, summary),
           ),
+          // ── Signal Radar ──
+          _SpiderChart && React.createElement(_SpiderChart, {
+            ticker: { ...data, ticker },
+            direction: data.direction || data.bias,
+            compact: false,
+            size: 240,
+          }),
           // ── Price + Daily Change ──
           hasPrice && React.createElement("div", { className: "card p-3 flex items-center justify-between" },
             React.createElement("div", null,
