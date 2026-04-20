@@ -530,7 +530,13 @@ replay_day() {
     local resp http_status
     # -w %{http_code} captures the status alongside the body so we can
     # distinguish a watchdog timeout (curl exit 28) from a 5xx worker error.
-    resp=$(curl -sS -m "$WATCHDOG_SECONDS" -X POST "$url" -H "Content-Type: application/json" -d '{}' -w "\n__HTTP_STATUS__:%{http_code}" 2>&1) && rc=$? || rc=$?
+    # --max-time alone wasn't enough on some days (Jul 23 v3, Dec 18 v4,
+    # Oct 1/24 v5, Dec 11 v5): curl held the connection open for 40 min -
+    # 2.4 h with near-zero bytes flowing. speed-limit didn't fire because
+    # TCP keepalive bytes kept the connection "alive". Wrap with coreutils
+    # `timeout` which hard-kills the whole process once $WATCHDOG_SECONDS
+    # elapses regardless of what curl thinks.
+    resp=$(timeout --kill-after=10s "${WATCHDOG_SECONDS}s" curl -sS -m "$WATCHDOG_SECONDS" --connect-timeout 30 -X POST "$url" -H "Content-Type: application/json" -d '{}' -w "\n__HTTP_STATUS__:%{http_code}" 2>&1) && rc=$? || rc=$?
     t1=$(date -u +%s)
     local elapsed=$((t1 - t0))
 
