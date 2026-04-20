@@ -115,6 +115,19 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_cohort_short_rsi_min_speculative",
   "deep_audit_short_full_bear_relax_enabled",
   "deep_audit_short_bypass_4h_depth_when_bear_structure",
+  // Phase-G (2026-04-20) — Golden-Gate-probability-weighted exit management
+  //   G.2 ATR Level TP ladder (Day horizon, cohort-aware, probability-weighted)
+  //   G.3 Early dead-money flatten (4h + MFE<0.5% + pnl<=-1%)
+  //   G.4 Adverse -0.382 ATR cut (73% continuation probability signal)
+  "deep_audit_atr_tp_ladder_enabled",
+  "deep_audit_atr_tp_ladder_week_exit_threshold",
+  "deep_audit_early_dead_money_enabled",
+  "deep_audit_early_dead_money_age_min",
+  "deep_audit_early_dead_money_mfe_max_pct",
+  "deep_audit_early_dead_money_pnl_max_pct",
+  "deep_audit_atr_adverse_cut_enabled",
+  "deep_audit_atr_adverse_cut_threshold",
+  "deep_audit_atr_adverse_cut_pnl_min_pct",
   "golden_julaug_reference_run_id", "live_config_run_id", "member_ticker_list", "consensus_signal_weights", "consensus_tf_weights", "scoring_weight_adj",
 ];
 
