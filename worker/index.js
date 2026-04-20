@@ -6497,27 +6497,6 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     // pipeline lifecycleDispatch short-circuit for ripster_core.
     // ═════════════════════════════════════════════════════════════════════════
     {
-      // ───────────────────────────────────────────────────────────────────
-      // PHASE-G.4 HARD PNL FLOOR (2026-04-20 v2) — MUST fire first.
-      // Standalone safety net tighter than the legacy max_loss PDZ tolerance
-      // (which allows -5% in favorable zones). Fires on pnl alone at -2%
-      // so no structural tolerance can mask it. SWK Apr 2 motivating case:
-      // PDZ-tolerant regime pushed the legacy max_loss threshold to -5%,
-      // letting the trade bleed to -3.23% before finally cutting.
-      // ───────────────────────────────────────────────────────────────────
-      const _g4HardFloorEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_atr_adverse_cut_enabled ?? "true") === "true";
-      const _g4HardPnlFloor = Number(tickerData?._env?._deepAuditConfig?.deep_audit_atr_adverse_cut_hard_pnl_floor_pct) || -2.0;
-      if (_g4HardFloorEnabled && Number.isFinite(pnlPct) && pnlPct <= _g4HardPnlFloor) {
-        tickerData.__exit_reason = "atr_adverse_hard_pnl_floor";
-        tickerData.__exit_family = "safety";
-        tickerData.__exit_detail = {
-          pnl_pct: pnlPct,
-          pnl_floor: _g4HardPnlFloor,
-          trigger: "standalone_hard_floor",
-        };
-        return "exit";
-      }
-
       const _earlyRegimeForExit = Number(tickerData?.ema_regime_daily) || 0;
       const _earlyPdzZone = String(tickerData?.pdz_zone_D || "unknown");
       const _earlyRegimeConfirms = (direction === "LONG" && _earlyRegimeForExit >= 1)
@@ -6890,10 +6869,33 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       }
 
       // ─────────────────────────────────────────────────────────────────
-      // PHASE-G.4 HARD PNL FLOOR — relocated to EARLY HARD-EXIT GUARDS
-      // (above), so the -2% floor fires before any max_loss / PDZ / defend
-      // path can shadow it. See EARLY HARD-EXIT GUARDS block near L6500.
-      // ─────────────────────────────────────────────────────────────────
+      // PHASE-G.4 HARD-FLOOR HOTFIX (2026-04-20 v2) — SWK Apr 2 feedback.
+      //
+      // The original hard-pnl-floor was nested INSIDE the day-ATR displacement
+      // gate (`dirAdjDayDisp <= -0.382`). On SWK Apr 2, the SHORT entered
+      // mid-pullback with price still below prev close (day_disp=+0.642 for
+      // a LONG-view → dirAdjDayDisp for a SHORT = -0.642 is "favorable"),
+      // yet price then ran 3%+ against the trade on a slow intraday reversal.
+      // Because the day-ATR never went adverse, the nested hard-floor never
+      // evaluated and the trade bled to -3.23% max_loss.
+      //
+      // Fix: hoist the hard pnl floor to a standalone safety check that
+      // fires on pnl alone, independent of day-ATR displacement. This is
+      // the last line of defense before max_loss and should always engage.
+      {
+        const _g4HardFloorEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_atr_adverse_cut_enabled ?? "true") === "true";
+        const _g4HardPnlFloor = Number(tickerData?._env?._deepAuditConfig?.deep_audit_atr_adverse_cut_hard_pnl_floor_pct) || -2.0;
+        if (_g4HardFloorEnabled && Number.isFinite(pnlPct) && pnlPct <= _g4HardPnlFloor) {
+          tickerData.__exit_reason = "atr_adverse_hard_pnl_floor";
+          tickerData.__exit_family = "safety";
+          tickerData.__exit_detail = {
+            pnl_pct: pnlPct,
+            pnl_floor: _g4HardPnlFloor,
+            trigger: "standalone_hard_floor",
+          };
+          return "exit";
+        }
+      }
 
       // ─────────────────────────────────────────────────────────────────
       // PHASE-G.4 (2026-04-20) — ADVERSE -0.382 ATR CUT (loss-mitigation)
