@@ -740,6 +740,7 @@ const ROUTES = [
   ["GET", "/timed/admin/ingestion-status", "GET /timed/admin/ingestion-status"],
   ["GET", "/timed/admin/backfill-status", "GET /timed/admin/backfill-status"],
   ["GET", "/timed/admin/losing-trades-report", "GET /timed/admin/losing-trades-report"],
+  ["GET", "/timed/admin/trail-payload", "GET /timed/admin/trail-payload"],
   ["GET", "/timed/admin/trade-autopsy/trades", "GET /timed/admin/trade-autopsy/trades"],
   ["GET", "/timed/admin/trade-autopsy/annotations", "GET /timed/admin/trade-autopsy/annotations"],
   ["POST", "/timed/admin/trade-autopsy/annotations", "POST /timed/admin/trade-autopsy/annotations"],
@@ -43072,6 +43073,43 @@ export default {
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/trail-payload?ticker=X&since=ts&until=ts&limit=N
+      // Returns timed_trail rows with the full payload_json included.
+      // Phase-G forensics: needed to reconstruct per-trade indicator
+      // state (atr_levels, tf_tech, ema_map, flags) at every 5-min bar.
+      if (routeKey === "GET /timed/admin/trail-payload") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          const ticker = normTicker(url.searchParams.get("ticker"));
+          if (!ticker) return sendJSON({ ok: false, error: "missing_ticker" }, 400, corsHeaders(env, req));
+          const sinceRaw = url.searchParams.get("since");
+          const untilRaw = url.searchParams.get("until");
+          const since = sinceRaw ? Number(sinceRaw) : null;
+          const until = untilRaw ? Number(untilRaw) : null;
+          const limit = Math.min(5000, Math.max(1, Number(url.searchParams.get("limit") || 2000)));
+          let query = `SELECT ts, price, state, kanban_stage, payload_json FROM timed_trail WHERE ticker = ?1`;
+          const binds = [ticker];
+          if (Number.isFinite(since)) { query += ` AND ts >= ?${binds.length + 1}`; binds.push(Number(since)); }
+          if (Number.isFinite(until)) { query += ` AND ts <= ?${binds.length + 1}`; binds.push(Number(until)); }
+          query += ` ORDER BY ts ASC LIMIT ?${binds.length + 1}`;
+          binds.push(limit);
+          const rows = (await db.prepare(query).bind(...binds).all())?.results || [];
+          const out = rows.map((r) => ({
+            ts: Number(r.ts),
+            price: r.price != null ? Number(r.price) : null,
+            state: r.state,
+            kanban_stage: r.kanban_stage,
+            payload: r.payload_json ? (() => { try { return JSON.parse(r.payload_json); } catch { return null; } })() : null,
+          }));
+          return sendJSON({ ok: true, ticker, count: out.length, rows: out }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
       }
 

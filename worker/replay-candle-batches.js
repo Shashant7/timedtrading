@@ -666,10 +666,79 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
     if (pendingTrail.length > 0 && db) {
       try {
         const trailStmts = [];
+        // Phase-G (2026-04-20): persist a slim forensics payload on every
+        // trail row so per-trade reconstruction (ATR Levels, MTF
+        // indicators, cohort context) is possible without a re-run.
+        // Full tickerData is too large; extract the forensics-relevant
+        // subset only — still tiny per row (~2-3 KB) but captures
+        // everything the per-trade analyzer needs.
+        const buildForensicsPayload = (r) => {
+          if (!r || typeof r !== "object") return null;
+          try {
+            const tfTechCondensed = {};
+            if (r.tf_tech && typeof r.tf_tech === "object") {
+              for (const [tf, bundle] of Object.entries(r.tf_tech)) {
+                if (!bundle || typeof bundle !== "object") continue;
+                tfTechCondensed[tf] = {
+                  stDir: bundle.stDir ?? null,
+                  stSlope: bundle.stSlope ?? null,
+                  rsi: bundle?.rsi?.r5 ?? null,
+                  ema_depth: bundle?.ema?.depth ?? null,
+                  ema_structure: bundle?.ema?.structure ?? null,
+                  ema_momentum: bundle?.ema?.momentum ?? null,
+                  price_above_ema21: bundle?.ema?.priceAboveEma21 ?? null,
+                  phase_v: bundle?.ph?.v ?? null,
+                  phase_zone: bundle?.ph?.z ?? null,
+                  saty_v: bundle?.saty?.v ?? null,
+                  saty_zone: bundle?.saty?.z ?? null,
+                  ripster_c8_9: bundle?.ripster?.c8_9
+                    ? { above: !!bundle.ripster.c8_9.above, below: !!bundle.ripster.c8_9.below, inCloud: !!bundle.ripster.c8_9.inCloud }
+                    : null,
+                  ripster_c5_12: bundle?.ripster?.c5_12
+                    ? { above: !!bundle.ripster.c5_12.above, below: !!bundle.ripster.c5_12.below, inCloud: !!bundle.ripster.c5_12.inCloud }
+                    : null,
+                };
+              }
+            }
+            return {
+              ticker: r.ticker,
+              ts: r.ts,
+              price: r.price,
+              state: r.state,
+              score: r.score ?? r.rank ?? null,
+              rank: r.rank ?? null,
+              kanban_stage: r.kanban_stage,
+              daily_structure: r.daily_structure || null,
+              atr_levels: r.atr_levels || null,
+              ema_map: r.ema_map || null,
+              pdz_zone_D: r.pdz_zone_D ?? null,
+              pdz_pct_D: r.pdz_pct_D ?? null,
+              fvg_D: r.fvg_D || null,
+              liq_D: r.liq_D || null,
+              ema_regime_daily: r.ema_regime_daily ?? null,
+              ema_regime_4h: r.ema_regime_4h ?? null,
+              ema_regime_1h: r.ema_regime_1h ?? null,
+              st_bars_since_flip_D: r.st_bars_since_flip_D ?? null,
+              rvol_map: r.rvol_map || null,
+              fuel: r.fuel || null,
+              entry_path: r.__entry_path || null,
+              entry_reason: r.__entry_reason || null,
+              entry_block_reason: r.__entry_block_reason || null,
+              tf_tech: tfTechCondensed,
+              flags: r.flags || {},
+              regime_class: r.regime_class ?? null,
+              regime_score: r.regime_score ?? null,
+            };
+          } catch {
+            return null;
+          }
+        };
         for (const { ticker: t, result: r } of pendingTrail) {
           const ts = Number(r?.ts);
           if (!Number.isFinite(ts)) continue;
           const flagsJson = r?.flags ? JSON.stringify(r.flags) : null;
+          const payloadObj = buildForensicsPayload(r);
+          const payloadJson = payloadObj ? JSON.stringify(payloadObj) : null;
           trailStmts.push(
             db.prepare(
               `INSERT OR REPLACE INTO timed_trail
@@ -689,7 +758,7 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
               r?.trigger_reason ?? null,
               r?.trigger_dir ?? null,
               r?.kanban_stage ?? null,
-              null,
+              payloadJson,
             )
           );
         }
