@@ -743,7 +743,11 @@ if [[ "$START_INDEX" -ge "${#ALL_DAYS[@]}" ]]; then
   exit 0
 fi
 
-# Single-writer + lock handshake (skipped parts on resume).
+# Single-writer + lock handshake.
+# Phase-F (2026-04-20): on resume we STILL need to acquire a fresh replay
+# lock because the prior run released it on stall. assert_lock_still_ours
+# (called every iteration) was previously failing immediately on resume
+# with "Expected 'direct_loop_...', got ''".
 assert_single_writer
 if ! $RESUME; then
   acquire_replay_lock
@@ -758,7 +762,9 @@ if ! $RESUME; then
     log "--no-reset: skipping replay-state reset (explicit request; state may carry from prior runs)"
   fi
 else
-  log "RESUME: skipping runs/register, replay-lock acquire, and replay-state reset"
+  log "RESUME: re-acquiring replay lock (prior run released it on stall)"
+  acquire_replay_lock
+  log "RESUME: skipping runs/register and replay-state reset (preserving prior D1 trades)"
 fi
 trap 'release_replay_lock; release_script_lock' EXIT INT TERM
 
