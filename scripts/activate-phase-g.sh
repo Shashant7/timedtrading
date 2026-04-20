@@ -46,7 +46,10 @@ if [[ "$MODE" == "activate" ]]; then
     {"key": "deep_audit_early_dead_money_pnl_max_pct", "value": "-1.0"},
     {"key": "deep_audit_atr_adverse_cut_enabled", "value": "true"},
     {"key": "deep_audit_atr_adverse_cut_threshold", "value": "-0.382"},
-    {"key": "deep_audit_atr_adverse_cut_pnl_min_pct", "value": "-0.5"}
+    {"key": "deep_audit_atr_adverse_cut_pnl_min_pct", "value": "-0.5"},
+    {"key": "deep_audit_early_dead_money_respect_trend", "value": "true"},
+    {"key": "deep_audit_atr_adverse_cut_respect_trend", "value": "true"},
+    {"key": "deep_audit_atr_adverse_cut_hard_pnl_floor_pct", "value": "-2.0"}
   ]
 }
 JSON

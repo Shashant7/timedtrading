@@ -128,6 +128,9 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_atr_adverse_cut_enabled",
   "deep_audit_atr_adverse_cut_threshold",
   "deep_audit_atr_adverse_cut_pnl_min_pct",
+  "deep_audit_early_dead_money_respect_trend",
+  "deep_audit_atr_adverse_cut_respect_trend",
+  "deep_audit_atr_adverse_cut_hard_pnl_floor_pct",
   "golden_julaug_reference_run_id", "live_config_run_id", "member_ticker_list", "consensus_signal_weights", "consensus_tf_weights", "scoring_weight_adj",
 ];
 
