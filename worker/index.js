@@ -835,6 +835,9 @@ const ROUTES = [
   ["GET", "/timed/email/preferences", "GET /timed/email/preferences"],
   ["POST", "/timed/email/preferences", "POST /timed/email/preferences"],
   ["POST", "/timed/admin/send-sample-emails", "POST /timed/admin/send-sample-emails"],
+  // ── Waitlist (pre-launch CTA) ──
+  ["POST", "/timed/waitlist/join", "POST /timed/waitlist/join"],
+  ["GET", "/timed/admin/waitlist", "GET /timed/admin/waitlist"],
   // ── Trade Alerts ──
   ["GET", "/timed/alerts", "GET /timed/alerts"],
   // ── Notifications ──
@@ -47365,6 +47368,80 @@ export default {
           return sendJSON({ ok: true }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/waitlist/join — accept pre-launch signups.
+      // Stores signups in D1 (waitlist_signups) with source, referrer, UTM params.
+      // Deduplicates by email (case-insensitive).
+      if (routeKey === "POST /timed/waitlist/join") {
+        try {
+          const body = await req.json().catch(() => ({}));
+          const rawEmail = String(body?.email || "").trim().toLowerCase();
+          if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(rawEmail)) {
+            return sendJSON({ ok: false, error: "invalid_email" }, 400, corsHeaders(env, req));
+          }
+          const source = String(body?.source || "app").slice(0, 64);
+          const referrer = String(body?.referrer || req.headers.get("referer") || "").slice(0, 512);
+          const note = String(body?.note || "").slice(0, 512);
+          const userAgent = (req.headers.get("user-agent") || "").slice(0, 256);
+          const ip = req.headers.get("cf-connecting-ip") || req.headers.get("x-forwarded-for") || "";
+          const now = Date.now();
+
+          const db = env?.DB;
+          let dbStored = false;
+          if (db) {
+            try {
+              await db.prepare(`CREATE TABLE IF NOT EXISTS waitlist_signups (
+                email TEXT PRIMARY KEY,
+                source TEXT,
+                referrer TEXT,
+                note TEXT,
+                user_agent TEXT,
+                ip_hash TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+              )`).run();
+              await db.prepare(`CREATE INDEX IF NOT EXISTS idx_waitlist_created ON waitlist_signups(created_at DESC)`).run();
+              const existing = await db.prepare(`SELECT email FROM waitlist_signups WHERE email = ?1`).bind(rawEmail).first();
+              if (existing) {
+                await db.prepare(`UPDATE waitlist_signups SET updated_at = ?1, source = COALESCE(?2, source) WHERE email = ?3`).bind(now, source || null, rawEmail).run();
+              } else {
+                await db.prepare(`INSERT INTO waitlist_signups (email, source, referrer, note, user_agent, ip_hash, created_at, updated_at)
+                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)`).bind(rawEmail, source, referrer, note, userAgent, ip ? ip.slice(-8) : "", now).run();
+              }
+              dbStored = true;
+            } catch (e) {
+              console.warn("[WAITLIST] D1 store failed:", String(e).slice(0, 120));
+            }
+          }
+
+          // KV fallback so the signup isn't lost if D1 is unavailable
+          const KV = env?.KV_TIMED;
+          if (KV && !dbStored) {
+            try {
+              await KV.put(`timed:waitlist:${rawEmail}`, JSON.stringify({ email: rawEmail, source, referrer, note, ts: now }));
+            } catch {}
+          }
+
+          return sendJSON({ ok: true, email: rawEmail, stored: dbStored ? "d1" : (KV ? "kv" : "none") }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/waitlist — list waitlist signups (admin-gated)
+      if (routeKey === "GET /timed/admin/waitlist") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const limit = Math.min(Number(url.searchParams.get("limit")) || 200, 1000);
+          const rows = (await db.prepare(`SELECT email, source, referrer, note, created_at, updated_at FROM waitlist_signups ORDER BY created_at DESC LIMIT ?1`).bind(limit).all())?.results || [];
+          return sendJSON({ ok: true, count: rows.length, signups: rows }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
         }
       }
 
