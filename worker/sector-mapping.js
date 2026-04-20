@@ -235,6 +235,8 @@ const SECTOR_MAP = {
   'RPG':  'ETF',
   'SPHB': 'ETF',
   'GRNJ': 'ETF',
+  'GRNI': 'ETF',
+  'DBA':  'ETF',
   'XLB': 'ETF',
   'XLC': 'ETF',
   'XLE': 'ETF',
@@ -260,6 +262,8 @@ const SECTOR_MAP = {
   'RPG':  'Thematic ETF',
   'SPHB': 'Thematic ETF',
   'GRNJ': 'Thematic ETF',
+  'GRNI': 'Thematic ETF',
+  'DBA':  'Commodity ETF',
 };
 
 // Sector Ratings — as of Apr 20, 2026 (Fundstrat OW/N/UW relative to S&P 500).
@@ -320,6 +324,7 @@ const TICKER_TYPE_MAP = {
   // Thematic ETFs
   'IBB':  'thematic_etf', 'INFL': 'thematic_etf',
   'LIT':  'thematic_etf', 'GRNJ': 'thematic_etf',
+  'GRNI': 'thematic_etf', 'DBA':  'commodity_etf',
 
   // Commodity ETFs
   'GLD': 'commodity_etf', 'SLV': 'commodity_etf',

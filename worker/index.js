@@ -30358,6 +30358,8 @@ const SECTOR_MAP = {
   RPG:  "Thematic ETF",                // Invesco S&P 500 Pure Growth
   SPHB: "Thematic ETF",                // Invesco S&P 500 High Beta
   GRNJ: "Thematic ETF",                // Fundstrat Granny Shots Small-Mid Cap
+  GRNI: "Thematic ETF",                // Fundstrat Granny Shots Large Cap & Income
+  DBA:  "Commodity ETF",               // Invesco Agriculture Fund
   // ── S&P Sector ETFs (tradeable) ──
   XLB: "Sector ETF",
   XLC: "Sector ETF",
@@ -30405,11 +30407,16 @@ const WATCH_ONLY = new Set([
   "ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "CL1!", "RTY1!", "YM1!",
 ]);
 
-// Current Newton Upticks — priority picks tagged as "TT Selected"
+// Current Newton Upticks — priority picks tagged as "TT Selected".
+// Aligned with the live KV upticks list at timed:admin:upticks (PUT
+// /timed/admin/upticks is the source of truth). This hardcoded Set is a
+// fallback for dev/offline contexts; runtime merges KV on top so the
+// live list always wins. DELL removed because it's no longer in
+// SECTOR_MAP (unscorable) — update the KV list too.
 const TT_SELECTED = new Set([
-  "RDDT", "AMZN", "BABA", "TSLA", "KO", "WMT", "ETHA", "BRK-B",
-  "GLXY", "MTB", "SPGI", "AMGN", "GILD", "CSX", "GEV", "HII",
-  "JCI", "PWR", "TT", "APP", "CLS", "FSLR", "ORCL", "PANW", "CRS", "VST",
+  "AMGN", "AMZN", "AXP", "BABA", "BG", "BRK-B", "CLS", "CRS", "CRWV",
+  "CSX", "DBA", "ETHA", "GEV", "GILD", "JCI", "MRK", "MTB", "PH",
+  "PWR", "QXO", "TSLA", "TT", "VST", "WMT",
 ]);
 
 // Canonical universe: snapshot of hardcoded SECTOR_MAP before runtime KV expansion
@@ -53739,7 +53746,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
       if (routeKey === "GET /timed/etf/holdings/:symbol") {
         try {
-          const symbol = pathname.replace("/timed/etf/holdings/", "").toUpperCase();
+          const symbol = url.pathname.replace("/timed/etf/holdings/", "").toUpperCase();
           const result = await handleGetETFHoldings(env, symbol);
           return sendJSON(result, 200, corsHeaders(env, req));
         } catch (e) {
