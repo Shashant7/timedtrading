@@ -138,30 +138,44 @@ while true; do
     log_age_s=$((now - log_mtime))
     log_age_min=$((log_age_s / 60))
 
-    # Primary stall signal: log file hasn't been touched in STALL_MIN minutes.
-    # Secondary: progress line unchanged. Whichever fires first triggers relaunch.
+    # Stall logic (fixed 2026-04-20): the "log advanced since last poll"
+    # signal is necessary but not sufficient. The log may have advanced
+    # to a line that was posted MUCH earlier than NOW. Decoupled watchdog
+    # polls can skip intervals due to VM resource contention — if we
+    # only check "is this line different from last poll?", a 60-min
+    # stale line still looks OK. So:
+    #   OK     = progress line changed AND log_age < stall threshold
+    #            AND session alive
+    #   ALERT  = log_age >= stall threshold OR session dead
+    #   QUIET  = progress changed (or not), log fresh (< stall threshold),
+    #            session alive — normal in-progress state
+    progress_changed=false
     if [[ -n "$current" && "$current" != "$LAST_PROGRESS" ]]; then
+      progress_changed=true
       LAST_PROGRESS="$current"
       LAST_PROGRESS_TS=$now
+    fi
+
+    progress_stall_min=$(( (now - LAST_PROGRESS_TS) / 60 ))
+    alive=true
+    session_alive || alive=false
+
+    if [[ "$alive" != "true" ]]; then
+      wd_log "ALERT tmux session missing (progress_age=${progress_stall_min}min log_age=${log_age_min}min) — relaunching"
+      relaunch_run
+      LAST_PROGRESS_TS=$now
+    elif [[ "$log_age_min" -ge "$STALL_MIN" ]]; then
+      wd_log "ALERT log stale ${log_age_min}min (threshold=${STALL_MIN}min) — relaunching"
+      relaunch_run
+      LAST_PROGRESS_TS=$now
+    elif [[ "$progress_stall_min" -ge "$STALL_MIN" ]]; then
+      wd_log "ALERT progress frozen ${progress_stall_min}min — relaunching"
+      relaunch_run
+      LAST_PROGRESS_TS=$now
+    elif $progress_changed; then
       wd_log "OK log_age=${log_age_min}min progress=${current:0:110}"
-      if ! session_alive; then
-        wd_log "WARN tmux session dead despite progress log advancing — relaunching"
-        relaunch_run
-      fi
     else
-      # No new progress line — check both stall signals
-      progress_stall_min=$(( (now - LAST_PROGRESS_TS) / 60 ))
-      if ! session_alive; then
-        wd_log "ALERT tmux session missing (stall=${progress_stall_min}min log_age=${log_age_min}min) — relaunching"
-        relaunch_run
-        LAST_PROGRESS_TS=$now
-      elif [[ "$log_age_min" -ge "$STALL_MIN" ]] || [[ "$progress_stall_min" -ge "$STALL_MIN" ]]; then
-        wd_log "ALERT stalled (progress=${progress_stall_min}min log_age=${log_age_min}min, threshold=${STALL_MIN}min) — relaunching"
-        relaunch_run
-        LAST_PROGRESS_TS=$now
-      else
-        wd_log "QUIET progress_age=${progress_stall_min}min log_age=${log_age_min}min (threshold=${STALL_MIN}min) — waiting"
-      fi
+      wd_log "QUIET progress_age=${progress_stall_min}min log_age=${log_age_min}min (threshold=${STALL_MIN}min) — waiting"
     fi
   } || wd_log "poll cycle error — continuing"
 done
