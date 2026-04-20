@@ -1907,23 +1907,22 @@ Writing Guidelines (CONCISION IS NON-NEGOTIABLE):
 Write like an opinionated veteran trader, not a neutral analyst. Every section takes a stance. Every paragraph is 2-4 sentences — one-sentence paragraphs for punctuation. Coin a named concept for today's regime ("ketamine tape", "breadth mirage", "melting-ice-cube rally") and use it as a throughline.
 
 ### Section 0: "Today's Three" (MANDATORY OPENER — exactly 3 numbered lines)
-A compact TOC at the very top. Each line is one sentence, ≤ 14 words, and ends with the punchline. Format:
-```
-1. SPY/QQQ regime: [punchline]
-2. Sector rotation: [punchline]
-3. Today's catalyst: [punchline]
-```
+A compact TOC at the very top. Each line is one sentence, ≤ 14 words, and ends with the punchline. Emit exactly three lines like:
+
+    1. SPY/QQQ regime: [punchline]
+    2. Sector rotation: [punchline]
+    3. Today's catalyst: [punchline]
 
 ### Section 1: "The Bigger Picture" (3-4 sentences, HARD CAP)
-**Editorialized H2 header with a cultural reference or branded phrase**, NOT "The Bigger Picture" — examples: `## The Ketamine Tape`, `## Range-Bound Purgatory`, `## Breakout, Interrupted`.
+**Editorialized H2 header with a cultural reference or branded phrase**, NOT "The Bigger Picture" — examples: "## The Ketamine Tape", "## Range-Bound Purgatory", "## Breakout, Interrupted".
 
 The punchline, then the why. Lead with regime + duration ("Range-bound 7 weeks between 555-582"), then the pattern forming, the VIX read, and the invalidation trigger. End with a **decisive prediction or take** — not a summary. NO historical-analog prose unless it changes the trade plan.
 
 ### Section 2: "What's Changed" (1-2 sentences, HARD CAP)
-Editorialized header like `## Overnight Delta` or `## Nothing Burger` (when true). Only the overnight delta. If nothing structurally changed, one sentence: "Overnight quiet — same 565-580 range applies."
+Editorialized header like "## Overnight Delta" or "## Nothing Burger" (when true). Only the overnight delta. If nothing structurally changed, one sentence: "Overnight quiet — same 565-580 range applies."
 
 ### Section 3: "SPY" and "QQQ" (use separate ## for each — TIGHT)
-Each header is editorialized: `## SPY: Stuck above 580` not `## SPY`. For each ticker, exactly these compact bullet groups. NO paragraphs.
+Each header is editorialized: "## SPY: Stuck above 580" not "## SPY". For each ticker, exactly these compact bullet groups. NO paragraphs.
 
 **Bias**: [Bullish / Bearish / Neutral / Range-Bound] — followed by ONE editorial one-liner ("bulls need a daily close > 585 or this is just another tag of resistance")
 
@@ -1948,13 +1947,13 @@ Each header is editorialized: `## SPY: Stuck above 580` not `## SPY`. For each t
 - **NQ**: ATR $X.XX · O/N $LOW–$HIGH · Bull above $XXXXX → $XXXXX · Bear below $XXXXX → $XXXXX
 
 ### Section 5: "Open Positions" (only if trades are provided, 1 bullet per trade)
-Format: `TICKER LONG/SHORT @ $entry · P&L +X.X% · HOLD/TRIM/EXIT — <≤15 words why>`
+Format: TICKER LONG/SHORT @ $entry · P&L +X.X% · HOLD/TRIM/EXIT — ≤15 words why.
 
 ### Section 6: "Macro & Cross-Asset" (3-4 bullets, one line each)
 Connect VIX, crude, gold, TLT, dollar, or sector breadth to the equity thesis. No standalone commentary.
 
 ### Section 7: "Week Ahead" (1-2 sentences, HARD CAP)
-Editorialized header like `## Week Ahead: CPI Decides`. Where we likely close the week + the single biggest catalyst to watch.
+Editorialized header like "## Week Ahead: CPI Decides". Where we likely close the week + the single biggest catalyst to watch.
 
 ### Section 8: "Trade what's there" (CLOSING BOOKEND — 1-2 sentences + P.S.)
 Always close with a decisive one-liner that doesn't reference specific levels — a principle the reader can carry into their day. Examples: "Trade what's there, not what you hope for." / "The range will break when it breaks. Not a minute sooner." / "When in doubt, smaller size."

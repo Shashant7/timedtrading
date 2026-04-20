@@ -30352,6 +30352,12 @@ const SECTOR_MAP = {
   SOXL: "ETF",
   TNA: "ETF",
   XHB: "Sector ETF",                   // SPDR Homebuilders ETF
+  IBB:  "Thematic ETF",                // iShares Biotech ETF
+  INFL: "Thematic ETF",                // Horizon Kinetics Inflation Beneficiaries
+  LIT:  "Thematic ETF",                // Global X Lithium & Battery Tech
+  RPG:  "Thematic ETF",                // Invesco S&P 500 Pure Growth
+  SPHB: "Thematic ETF",                // Invesco S&P 500 High Beta
+  GRNJ: "Thematic ETF",                // Fundstrat Granny Shots Small-Mid Cap
   // ── S&P Sector ETFs (tradeable) ──
   XLB: "Sector ETF",
   XLC: "Sector ETF",
@@ -30409,19 +30415,28 @@ const TT_SELECTED = new Set([
 // Canonical universe: snapshot of hardcoded SECTOR_MAP before runtime KV expansion
 const CANONICAL_UNIVERSE = new Set(Object.keys(SECTOR_MAP));
 
-// Sector Ratings — as of Feb 13, 2026 (S&P Index Weight vs FSI Weight)
+// Sector Ratings — as of Apr 20, 2026 (S&P Index Weight vs FSI Weight).
+// Stance reflects Fundstrat's latest relative-weight guidance:
+//   OW: Industrials (+2.5), Info Tech (+2.5), Financials (+2.2),
+//       Basic Materials (+0.4), Communication Services (+0.2)
+//   UW: Consumer Staples (-4.0), Health Care (-2.0), Energy (-1.6)
+//   Neutral (≈ S&P weight): Consumer Discretionary, Real Estate, Utilities
+// "delta" here is the active over/underweight vs the S&P benchmark, in %.
+// "boost" is the internal ranking nudge applied by rankTickersInSector()
+// (positive = rank higher, negative = deprioritize).
 const SECTOR_RATINGS = {
-  Healthcare:                { rating: "overweight",  boost: 5,  spWeight: 8.2,  fsiWeight: 10.1, delta: 1.9  },
-  "Information Technology":  { rating: "overweight",  boost: 3,  spWeight: 26.7, fsiWeight: 27.1, delta: 0.4  },
-  Energy:                    { rating: "overweight",  boost: 5,  spWeight: 2.8,  fsiWeight: 5.1,  delta: 2.3  },
-  Financials:                { rating: "overweight",  boost: 3,  spWeight: 10.8, fsiWeight: 11.4, delta: 0.6  },
-  Industrials:               { rating: "overweight",  boost: 5,  spWeight: 7.5,  fsiWeight: 9.8,  delta: 2.3  },
-  Utilities:                 { rating: "neutral",     boost: 0,  spWeight: 1.9,  fsiWeight: 1.9,  delta: 0.0  },
-  "Communication Services":  { rating: "neutral",     boost: 0,  spWeight: 8.4,  fsiWeight: 8.4,  delta: 0.0  },
-  "Basic Materials":         { rating: "neutral",     boost: 0,  spWeight: 1.7,  fsiWeight: 1.7,  delta: 0.0  },
-  "Consumer Discretionary":  { rating: "underweight", boost: -3, spWeight: 9.3,  fsiWeight: 7.3,  delta: -2.0 },
-  "Consumer Staples":        { rating: "underweight", boost: -5, spWeight: 5.1,  fsiWeight: 3.0,  delta: -2.1 },
-  "Real Estate":             { rating: "underweight", boost: -3, spWeight: 1.6,  fsiWeight: 0.0,  delta: -1.6 },
+  Industrials:               { rating: "overweight",  boost: 5,  delta: 2.5  },
+  "Information Technology":  { rating: "overweight",  boost: 5,  delta: 2.5  },
+  Financials:                { rating: "overweight",  boost: 4,  delta: 2.2  },
+  "Basic Materials":         { rating: "overweight",  boost: 2,  delta: 0.4  },
+  "Communication Services":  { rating: "overweight",  boost: 1,  delta: 0.2  },
+  "Consumer Discretionary":  { rating: "neutral",     boost: 0,  delta: 0.0  },
+  "Real Estate":             { rating: "neutral",     boost: 0,  delta: 0.0  },
+  Utilities:                 { rating: "neutral",     boost: 0,  delta: 0.0  },
+  Energy:                    { rating: "underweight", boost: -3, delta: -1.6 },
+  Healthcare:                { rating: "underweight", boost: -4, delta: -2.0 },
+  "Health Care":             { rating: "underweight", boost: -4, delta: -2.0 },
+  "Consumer Staples":        { rating: "underweight", boost: -5, delta: -4.0 },
 };
 
 function getSector(ticker) {

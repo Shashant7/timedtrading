@@ -229,6 +229,12 @@ const SECTOR_MAP = {
   'TNA': 'ETF',
   'DIA': 'ETF',
   'XHB': 'ETF',
+  'IBB':  'ETF',
+  'INFL': 'ETF',
+  'LIT':  'ETF',
+  'RPG':  'ETF',
+  'SPHB': 'ETF',
+  'GRNJ': 'ETF',
   'XLB': 'ETF',
   'XLC': 'ETF',
   'XLE': 'ETF',
@@ -246,22 +252,31 @@ const SECTOR_MAP = {
   'SLV': 'Commodity ETF',
   'USO': 'Commodity ETF',
   'VIXY': 'Commodity ETF',
+
+  // Thematic ETFs (biotech, lithium, inflation, style factor, Granny Shots)
+  'IBB':  'Thematic ETF',
+  'INFL': 'Thematic ETF',
+  'LIT':  'Thematic ETF',
+  'RPG':  'Thematic ETF',
+  'SPHB': 'Thematic ETF',
+  'GRNJ': 'Thematic ETF',
 };
 
-// Sector Ratings — as of Feb 13, 2026 (S&P Index Weight vs FSI Weight)
+// Sector Ratings — as of Apr 20, 2026 (Fundstrat OW/N/UW relative to S&P 500).
+// Mirrors the definitive copy in worker/index.js. Delta = active weight vs benchmark (%).
 const SECTOR_RATINGS = {
-  'Healthcare':               { rating: 'neutral',     boost: 0,  spWeight: 8.2,  fsiWeight: 8.2,  delta: 0.0  },
-  'Health Care':              { rating: 'neutral',     boost: 0,  spWeight: 8.2,  fsiWeight: 8.2,  delta: 0.0  },
-  'Information Technology':   { rating: 'overweight',  boost: 3,  spWeight: 26.7, fsiWeight: 27.1, delta: 0.4  },
-  'Energy':                   { rating: 'overweight',  boost: 5,  spWeight: 2.8,  fsiWeight: 5.1,  delta: 2.3  },
-  'Financials':               { rating: 'overweight',  boost: 3,  spWeight: 10.8, fsiWeight: 11.4, delta: 0.6  },
-  'Industrials':              { rating: 'overweight',  boost: 5,  spWeight: 7.5,  fsiWeight: 9.8,  delta: 2.3  },
-  'Utilities':                { rating: 'neutral',     boost: 0,  spWeight: 1.9,  fsiWeight: 1.9,  delta: 0.0  },
-  'Communication Services':   { rating: 'neutral',     boost: 0,  spWeight: 8.4,  fsiWeight: 8.4,  delta: 0.0  },
-  'Basic Materials':          { rating: 'overweight',  boost: 3,  spWeight: 1.7,  fsiWeight: 3.0,  delta: 1.3  },
-  'Consumer Discretionary':   { rating: 'underweight', boost: -3, spWeight: 9.3,  fsiWeight: 7.3,  delta: -2.0 },
-  'Consumer Staples':         { rating: 'underweight', boost: -5, spWeight: 5.1,  fsiWeight: 3.0,  delta: -2.1 },
-  'Real Estate':              { rating: 'underweight', boost: -3, spWeight: 1.6,  fsiWeight: 0.0,  delta: -1.6 },
+  'Industrials':              { rating: 'overweight',  boost: 5,  delta: 2.5  },
+  'Information Technology':   { rating: 'overweight',  boost: 5,  delta: 2.5  },
+  'Financials':               { rating: 'overweight',  boost: 4,  delta: 2.2  },
+  'Basic Materials':          { rating: 'overweight',  boost: 2,  delta: 0.4  },
+  'Communication Services':   { rating: 'overweight',  boost: 1,  delta: 0.2  },
+  'Consumer Discretionary':   { rating: 'neutral',     boost: 0,  delta: 0.0  },
+  'Real Estate':              { rating: 'neutral',     boost: 0,  delta: 0.0  },
+  'Utilities':                { rating: 'neutral',     boost: 0,  delta: 0.0  },
+  'Energy':                   { rating: 'underweight', boost: -3, delta: -1.6 },
+  'Healthcare':               { rating: 'underweight', boost: -4, delta: -2.0 },
+  'Health Care':              { rating: 'underweight', boost: -4, delta: -2.0 },
+  'Consumer Staples':         { rating: 'underweight', boost: -5, delta: -4.0 },
   'ETF':                      { rating: 'neutral',     boost: 0  },
   'Crypto':                   { rating: 'neutral',     boost: 0  },
   'Precious Metals':          { rating: 'neutral',     boost: 0  },
@@ -300,6 +315,11 @@ const TICKER_TYPE_MAP = {
   // Broad ETFs
   'SPY': 'broad_etf', 'QQQ': 'broad_etf', 'IWM': 'broad_etf',
   'TNA': 'broad_etf', 'DIA': 'broad_etf',
+  'RPG': 'broad_etf', 'SPHB': 'broad_etf',
+
+  // Thematic ETFs
+  'IBB':  'thematic_etf', 'INFL': 'thematic_etf',
+  'LIT':  'thematic_etf', 'GRNJ': 'thematic_etf',
 
   // Commodity ETFs
   'GLD': 'commodity_etf', 'SLV': 'commodity_etf',
