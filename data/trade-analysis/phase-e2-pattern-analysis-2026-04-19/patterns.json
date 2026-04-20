@@ -1,0 +1,766 @@
+{
+  "generated_at": "2026-04-19T16:55:59.318662+00:00",
+  "n_trades": 150,
+  "cohort_baselines": {
+    "MegaCap_Tech": {
+      "n": 31,
+      "w": 20,
+      "l": 9,
+      "other": 2,
+      "wr": 69.0,
+      "big": 3,
+      "clr": 8,
+      "sum_pnl": 34.2,
+      "avg_pnl": 1.103
+    },
+    "Index_ETF": {
+      "n": 47,
+      "w": 33,
+      "l": 11,
+      "other": 3,
+      "wr": 75.0,
+      "big": 2,
+      "clr": 4,
+      "sum_pnl": 40.14,
+      "avg_pnl": 0.854
+    },
+    "Industrial": {
+      "n": 41,
+      "w": 24,
+      "l": 17,
+      "other": 0,
+      "wr": 58.5,
+      "big": 3,
+      "clr": 8,
+      "sum_pnl": 56.07,
+      "avg_pnl": 1.368
+    },
+    "Speculative": {
+      "n": 20,
+      "w": 13,
+      "l": 7,
+      "other": 0,
+      "wr": 65.0,
+      "big": 4,
+      "clr": 4,
+      "sum_pnl": 51.37,
+      "avg_pnl": 2.569
+    },
+    "Sector_ETF": {
+      "n": 6,
+      "w": 4,
+      "l": 2,
+      "other": 0,
+      "wr": 66.7,
+      "big": 0,
+      "clr": 1,
+      "sum_pnl": -5.86,
+      "avg_pnl": -0.977
+    },
+    "Semi_Momentum": {
+      "n": 5,
+      "w": 3,
+      "l": 2,
+      "other": 0,
+      "wr": 60.0,
+      "big": 1,
+      "clr": 0,
+      "sum_pnl": 5.21,
+      "avg_pnl": 1.042
+    }
+  },
+  "regime_by_cohort": {
+    "Index_ETF": {
+      "bullish_stacked": {
+        "n": 47,
+        "w": 33,
+        "l": 11,
+        "other": 3,
+        "wr": 75.0,
+        "big": 2,
+        "clr": 4,
+        "sum_pnl": 40.14,
+        "avg_pnl": 0.854
+      }
+    },
+    "Sector_ETF": {
+      "bullish_stacked": {
+        "n": 6,
+        "w": 4,
+        "l": 2,
+        "other": 0,
+        "wr": 66.7,
+        "big": 0,
+        "clr": 1,
+        "sum_pnl": -5.86,
+        "avg_pnl": -0.977
+      }
+    },
+    "MegaCap_Tech": {
+      "bullish_stacked": {
+        "n": 30,
+        "w": 20,
+        "l": 8,
+        "other": 2,
+        "wr": 71.4,
+        "big": 3,
+        "clr": 8,
+        "sum_pnl": 34.6,
+        "avg_pnl": 1.153
+      },
+      "bullish_mixed": {
+        "n": 1,
+        "w": 0,
+        "l": 1,
+        "other": 0,
+        "wr": 0.0,
+        "big": 0,
+        "clr": 0,
+        "sum_pnl": -0.4,
+        "avg_pnl": -0.397
+      }
+    },
+    "Industrial": {
+      "bullish_stacked": {
+        "n": 38,
+        "w": 21,
+        "l": 17,
+        "other": 0,
+        "wr": 55.3,
+        "big": 3,
+        "clr": 8,
+        "sum_pnl": 53.5,
+        "avg_pnl": 1.408
+      },
+      "bullish_mixed": {
+        "n": 2,
+        "w": 2,
+        "l": 0,
+        "other": 0,
+        "wr": 100.0,
+        "big": 0,
+        "clr": 0,
+        "sum_pnl": 0.6,
+        "avg_pnl": 0.302
+      },
+      "bearish_mixed": {
+        "n": 1,
+        "w": 1,
+        "l": 0,
+        "other": 0,
+        "wr": 100.0,
+        "big": 0,
+        "clr": 0,
+        "sum_pnl": 1.96,
+        "avg_pnl": 1.961
+      }
+    },
+    "Semi_Momentum": {
+      "bullish_stacked": {
+        "n": 3,
+        "w": 2,
+        "l": 1,
+        "other": 0,
+        "wr": 66.7,
+        "big": 1,
+        "clr": 0,
+        "sum_pnl": 6.11,
+        "avg_pnl": 2.036
+      },
+      "bearish_mixed": {
+        "n": 2,
+        "w": 1,
+        "l": 1,
+        "other": 0,
+        "wr": 50.0,
+        "big": 0,
+        "clr": 0,
+        "sum_pnl": -0.89,
+        "avg_pnl": -0.447
+      }
+    },
+    "Speculative": {
+      "bullish_stacked": {
+        "n": 20,
+        "w": 13,
+        "l": 7,
+        "other": 0,
+        "wr": 65.0,
+        "big": 4,
+        "clr": 4,
+        "sum_pnl": 51.37,
+        "avg_pnl": 2.569
+      }
+    }
+  },
+  "dist_by_cohort": {
+    "Index_ETF": {
+      "healthy_2_5": {
+        "n": 27,
+        "w": 18,
+        "l": 7,
+        "other": 2,
+        "wr": 72.0,
+        "big": 2,
+        "clr": 2,
+        "sum_pnl": 41.39,
+        "avg_pnl": 1.533
+      },
+      "just_above_e48_0_2": {
+        "n": 20,
+        "w": 15,
+        "l": 4,
+        "other": 1,
+        "wr": 78.9,
+        "big": 0,
+        "clr": 2,
+        "sum_pnl": -1.25,
+        "avg_pnl": -0.062
+      }
+    },
+    "Sector_ETF": {
+      "just_above_e48_0_2": {
+        "n": 3,
+        "w": 3,
+        "l": 0,
+        "other": 0,
+        "wr": 100.0,
+        "big": 0,
+        "clr": 0,
+        "sum_pnl": 2.08,
+        "avg_pnl": 0.693
+      },
+      "healthy_2_5": {
+        "n": 3,
+        "w": 1,
+        "l": 2,
+        "other": 0,
+        "wr": 33.3,
+        "big": 0,
+        "clr": 1,
+        "sum_pnl": -7.94,
+        "avg_pnl": -2.647
+      }
+    },
+    "MegaCap_Tech": {
+      "healthy_2_5": {
+        "n": 26,
+        "w": 16,
+        "l": 8,
+        "other": 2,
+        "wr": 66.7,
+        "big": 3,
+        "clr": 7,
+        "sum_pnl": 30.26,
+        "avg_pnl": 1.164
+      },
+      "just_above_e48_0_2": {
+        "n": 2,
+        "w": 2,
+        "l": 0,
+        "other": 0,
+        "wr": 100.0,
+        "big": 0,
+        "clr": 0,
+        "sum_pnl": 3.18,
+        "avg_pnl": 1.589
+      },
+      "below_e48": {
+        "n": 1,
+        "w": 0,
+        "l": 1,
+        "other": 0,
+        "wr": 0.0,
+        "big": 0,
+        "clr": 1,
+        "sum_pnl": -2.37,
+        "avg_pnl": -2.368
+      },
+      "extended_5_8": {
+        "n": 2,
+        "w": 2,
+        "l": 0,
+        "other": 0,
+        "wr": 100.0,
+        "big": 0,
+        "clr": 0,
+        "sum_pnl": 3.13,
+        "avg_pnl": 1.566
+      }
+    },
+    "Industrial": {
+      "extended_5_8": {
+        "n": 10,
+        "w": 7,
+        "l": 3,
+        "other": 0,
+        "wr": 70.0,
+        "big": 1,
+        "clr": 1,
+        "sum_pnl": 12.87,
+        "avg_pnl": 1.287
+      },
+      "healthy_2_5": {
+        "n": 29,
+        "w": 17,
+        "l": 12,
+        "other": 0,
+        "wr": 58.6,
+        "big": 2,
+        "clr": 6,
+        "sum_pnl": 45.32,
+        "avg_pnl": 1.563
+      },
+      "just_above_e48_0_2": {
+        "n": 2,
+        "w": 0,
+        "l": 2,
+        "other": 0,
+        "wr": 0.0,
+        "big": 0,
+        "clr": 1,
+        "sum_pnl": -2.11,
+        "avg_pnl": -1.056
+      }
+    },
+    "Semi_Momentum": {
+      "healthy_2_5": {
+        "n": 5,
+        "w": 3,
+        "l": 2,
+        "other": 0,
+        "wr": 60.0,
+        "big": 1,
+        "clr": 0,
+        "sum_pnl": 5.21,
+        "avg_pnl": 1.042
+      }
+    },
+    "Speculative": {
+      "healthy_2_5": {
+        "n": 14,
+        "w": 8,
+        "l": 6,
+        "other": 0,
+        "wr": 57.1,
+        "big": 3,
+        "clr": 3,
+        "sum_pnl": 25.49,
+        "avg_pnl": 1.821
+      },
+      "extended_5_8": {
+        "n": 4,
+        "w": 4,
+        "l": 0,
+        "other": 0,
+        "wr": 100.0,
+        "big": 1,
+        "clr": 0,
+        "sum_pnl": 26.43,
+        "avg_pnl": 6.607
+      },
+      "below_e48": {
+        "n": 1,
+        "w": 1,
+        "l": 0,
+        "other": 0,
+        "wr": 100.0,
+        "big": 0,
+        "clr": 0,
+        "sum_pnl": 1.55,
+        "avg_pnl": 1.546
+      },
+      "just_above_e48_0_2": {
+        "n": 1,
+        "w": 0,
+        "l": 1,
+        "other": 0,
+        "wr": 0.0,
+        "big": 0,
+        "clr": 1,
+        "sum_pnl": -2.09,
+        "avg_pnl": -2.093
+      }
+    }
+  },
+  "slope_by_cohort": {
+    "Index_ETF": {
+      "healthy_rise": {
+        "n": 37,
+        "w": 26,
+        "l": 8,
+        "other": 3,
+        "wr": 76.5,
+        "big": 2,
+        "clr": 3,
+        "sum_pnl": 45.2,
+        "avg_pnl": 1.222
+      },
+      "flat_or_slow": {
+        "n": 10,
+        "w": 7,
+        "l": 3,
+        "other": 0,
+        "wr": 70.0,
+        "big": 0,
+        "clr": 1,
+        "sum_pnl": -5.05,
+        "avg_pnl": -0.505
+      }
+    },
+    "Sector_ETF": {
+      "flat_or_slow": {
+        "n": 3,
+        "w": 3,
+        "l": 0,
+        "other": 0,
+        "wr": 100.0,
+        "big": 0,
+        "clr": 0,
+        "sum_pnl": 2.08,
+        "avg_pnl": 0.693
+      },
+      "healthy_rise": {
+        "n": 3,
+        "w": 1,
+        "l": 2,
+        "other": 0,
+        "wr": 33.3,
+        "big": 0,
+        "clr": 1,
+        "sum_pnl": -7.94,
+        "avg_pnl": -2.647
+      }
+    },
+    "MegaCap_Tech": {
+      "healthy_rise": {
+        "n": 25,
+        "w": 17,
+        "l": 6,
+        "other": 2,
+        "wr": 73.9,
+        "big": 3,
+        "clr": 5,
+        "sum_pnl": 40.83,
+        "avg_pnl": 1.633
+      },
+      "flat_or_slow": {
+        "n": 4,
+        "w": 2,
+        "l": 2,
+        "other": 0,
+        "wr": 50.0,
+        "big": 0,
+        "clr": 2,
+        "sum_pnl": -2.94,
+        "avg_pnl": -0.735
+      },
+      "strong_rise": {
+        "n": 2,
+        "w": 1,
+        "l": 1,
+        "other": 0,
+        "wr": 50.0,
+        "big": 0,
+        "clr": 1,
+        "sum_pnl": -3.69,
+        "avg_pnl": -1.843
+      }
+    },
+    "Industrial": {
+      "strong_rise": {
+        "n": 13,
+        "w": 9,
+        "l": 4,
+        "other": 0,
+        "wr": 69.2,
+        "big": 1,
+        "clr": 2,
+        "sum_pnl": 15.15,
+        "avg_pnl": 1.165
+      },
+      "healthy_rise": {
+        "n": 23,
+        "w": 13,
+        "l": 10,
+        "other": 0,
+        "wr": 56.5,
+        "big": 1,
+        "clr": 4,
+        "sum_pnl": 12.01,
+        "avg_pnl": 0.522
+      },
+      "flat_or_slow": {
+        "n": 5,
+        "w": 2,
+        "l": 3,
+        "other": 0,
+        "wr": 40.0,
+        "big": 1,
+        "clr": 2,
+        "sum_pnl": 28.92,
+        "avg_pnl": 5.783
+      }
+    },
+    "Semi_Momentum": {
+      "healthy_rise": {
+        "n": 4,
+        "w": 2,
+        "l": 2,
+        "other": 0,
+        "wr": 50.0,
+        "big": 1,
+        "clr": 0,
+        "sum_pnl": 4.91,
+        "avg_pnl": 1.228
+      },
+      "flat_or_slow": {
+        "n": 1,
+        "w": 1,
+        "l": 0,
+        "other": 0,
+        "wr": 100.0,
+        "big": 0,
+        "clr": 0,
+        "sum_pnl": 0.3,
+        "avg_pnl": 0.301
+      }
+    },
+    "Speculative": {
+      "healthy_rise": {
+        "n": 14,
+        "w": 8,
+        "l": 6,
+        "other": 0,
+        "wr": 57.1,
+        "big": 3,
+        "clr": 3,
+        "sum_pnl": 25.91,
+        "avg_pnl": 1.851
+      },
+      "strong_rise": {
+        "n": 4,
+        "w": 4,
+        "l": 0,
+        "other": 0,
+        "wr": 100.0,
+        "big": 1,
+        "clr": 0,
+        "sum_pnl": 26.43,
+        "avg_pnl": 6.607
+      },
+      "flat_or_slow": {
+        "n": 2,
+        "w": 1,
+        "l": 1,
+        "other": 0,
+        "wr": 50.0,
+        "big": 0,
+        "clr": 1,
+        "sum_pnl": -0.97,
+        "avg_pnl": -0.483
+      }
+    }
+  },
+  "rsi_by_cohort": {
+    "Index_ETF": {
+      "trending_up": {
+        "n": 23,
+        "w": 18,
+        "l": 4,
+        "other": 1,
+        "wr": 81.8,
+        "big": 1,
+        "clr": 1,
+        "sum_pnl": 28.97,
+        "avg_pnl": 1.26
+      },
+      "overbought": {
+        "n": 22,
+        "w": 14,
+        "l": 6,
+        "other": 2,
+        "wr": 70.0,
+        "big": 1,
+        "clr": 3,
+        "sum_pnl": 8.6,
+        "avg_pnl": 0.391
+      },
+      "neutral": {
+        "n": 2,
+        "w": 1,
+        "l": 1,
+        "other": 0,
+        "wr": 50.0,
+        "big": 0,
+        "clr": 0,
+        "sum_pnl": 2.57,
+        "avg_pnl": 1.287
+      }
+    },
+    "Sector_ETF": {
+      "trending_up": {
+        "n": 3,
+        "w": 3,
+        "l": 0,
+        "other": 0,
+        "wr": 100.0,
+        "big": 0,
+        "clr": 0,
+        "sum_pnl": 1.5,
+        "avg_pnl": 0.501
+      },
+      "overbought": {
+        "n": 2,
+        "w": 0,
+        "l": 2,
+        "other": 0,
+        "wr": 0.0,
+        "big": 0,
+        "clr": 1,
+        "sum_pnl": -8.53,
+        "avg_pnl": -4.263
+      },
+      "neutral": {
+        "n": 1,
+        "w": 1,
+        "l": 0,
+        "other": 0,
+        "wr": 100.0,
+        "big": 0,
+        "clr": 0,
+        "sum_pnl": 1.16,
+        "avg_pnl": 1.161
+      }
+    },
+    "MegaCap_Tech": {
+      "trending_up": {
+        "n": 18,
+        "w": 11,
+        "l": 5,
+        "other": 2,
+        "wr": 68.8,
+        "big": 2,
+        "clr": 4,
+        "sum_pnl": 13.14,
+        "avg_pnl": 0.73
+      },
+      "overbought": {
+        "n": 8,
+        "w": 7,
+        "l": 1,
+        "other": 0,
+        "wr": 87.5,
+        "big": 1,
+        "clr": 1,
+        "sum_pnl": 24.47,
+        "avg_pnl": 3.059
+      },
+      "neutral": {
+        "n": 4,
+        "w": 2,
+        "l": 2,
+        "other": 0,
+        "wr": 50.0,
+        "big": 0,
+        "clr": 2,
+        "sum_pnl": -0.58,
+        "avg_pnl": -0.145
+      },
+      "pullback_zone": {
+        "n": 1,
+        "w": 0,
+        "l": 1,
+        "other": 0,
+        "wr": 0.0,
+        "big": 0,
+        "clr": 1,
+        "sum_pnl": -2.83,
+        "avg_pnl": -2.826
+      }
+    },
+    "Industrial": {
+      "overbought": {
+        "n": 9,
+        "w": 7,
+        "l": 2,
+        "other": 0,
+        "wr": 77.8,
+        "big": 0,
+        "clr": 0,
+        "sum_pnl": 9.81,
+        "avg_pnl": 1.09
+      },
+      "trending_up": {
+        "n": 28,
+        "w": 16,
+        "l": 12,
+        "other": 0,
+        "wr": 57.1,
+        "big": 3,
+        "clr": 7,
+        "sum_pnl": 48.83,
+        "avg_pnl": 1.744
+      },
+      "neutral": {
+        "n": 4,
+        "w": 1,
+        "l": 3,
+        "other": 0,
+        "wr": 25.0,
+        "big": 0,
+        "clr": 1,
+        "sum_pnl": -2.57,
+        "avg_pnl": -0.644
+      }
+    },
+    "Semi_Momentum": {
+      "trending_up": {
+        "n": 5,
+        "w": 3,
+        "l": 2,
+        "other": 0,
+        "wr": 60.0,
+        "big": 1,
+        "clr": 0,
+        "sum_pnl": 5.21,
+        "avg_pnl": 1.042
+      }
+    },
+    "Speculative": {
+      "overbought": {
+        "n": 6,
+        "w": 5,
+        "l": 1,
+        "other": 0,
+        "wr": 83.3,
+        "big": 1,
+        "clr": 1,
+        "sum_pnl": 22.22,
+        "avg_pnl": 3.704
+      },
+      "neutral": {
+        "n": 3,
+        "w": 2,
+        "l": 1,
+        "other": 0,
+        "wr": 66.7,
+        "big": 1,
+        "clr": 1,
+        "sum_pnl": 6.63,
+        "avg_pnl": 2.209
+      },
+      "trending_up": {
+        "n": 11,
+        "w": 6,
+        "l": 5,
+        "other": 0,
+        "wr": 54.5,
+        "big": 2,
+        "clr": 2,
+        "sum_pnl": 22.52,
+        "avg_pnl": 2.048
+      }
+    }
+  }
+}

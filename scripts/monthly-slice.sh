@@ -530,7 +530,13 @@ replay_day() {
     local resp http_status
     # -w %{http_code} captures the status alongside the body so we can
     # distinguish a watchdog timeout (curl exit 28) from a 5xx worker error.
-    resp=$(curl -sS -m "$WATCHDOG_SECONDS" -X POST "$url" -H "Content-Type: application/json" -d '{}' -w "\n__HTTP_STATUS__:%{http_code}" 2>&1) && rc=$? || rc=$?
+    # --max-time alone wasn't enough on some days (Jul 23 v3, Dec 18 v4,
+    # Oct 1/24 v5, Dec 11 v5): curl held the connection open for 40 min -
+    # 2.4 h with near-zero bytes flowing. speed-limit didn't fire because
+    # TCP keepalive bytes kept the connection "alive". Wrap with coreutils
+    # `timeout` which hard-kills the whole process once $WATCHDOG_SECONDS
+    # elapses regardless of what curl thinks.
+    resp=$(timeout --kill-after=10s "${WATCHDOG_SECONDS}s" curl -sS -m "$WATCHDOG_SECONDS" --connect-timeout 30 -X POST "$url" -H "Content-Type: application/json" -d '{}' -w "\n__HTTP_STATUS__:%{http_code}" 2>&1) && rc=$? || rc=$?
     t1=$(date -u +%s)
     local elapsed=$((t1 - t0))
 
@@ -737,7 +743,11 @@ if [[ "$START_INDEX" -ge "${#ALL_DAYS[@]}" ]]; then
   exit 0
 fi
 
-# Single-writer + lock handshake (skipped parts on resume).
+# Single-writer + lock handshake.
+# Phase-F (2026-04-20): on resume we STILL need to acquire a fresh replay
+# lock because the prior run released it on stall. assert_lock_still_ours
+# (called every iteration) was previously failing immediately on resume
+# with "Expected 'direct_loop_...', got ''".
 assert_single_writer
 if ! $RESUME; then
   acquire_replay_lock
@@ -752,7 +762,9 @@ if ! $RESUME; then
     log "--no-reset: skipping replay-state reset (explicit request; state may carry from prior runs)"
   fi
 else
-  log "RESUME: skipping runs/register, replay-lock acquire, and replay-state reset"
+  log "RESUME: re-acquiring replay lock (prior run released it on stall)"
+  acquire_replay_lock
+  log "RESUME: skipping runs/register and replay-state reset (preserving prior D1 trades)"
 fi
 trap 'release_replay_lock; release_script_lock' EXIT INT TERM
 

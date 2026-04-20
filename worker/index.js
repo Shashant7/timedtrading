@@ -740,6 +740,7 @@ const ROUTES = [
   ["GET", "/timed/admin/ingestion-status", "GET /timed/admin/ingestion-status"],
   ["GET", "/timed/admin/backfill-status", "GET /timed/admin/backfill-status"],
   ["GET", "/timed/admin/losing-trades-report", "GET /timed/admin/losing-trades-report"],
+  ["GET", "/timed/admin/trail-payload", "GET /timed/admin/trail-payload"],
   ["GET", "/timed/admin/trade-autopsy/trades", "GET /timed/admin/trade-autopsy/trades"],
   ["GET", "/timed/admin/trade-autopsy/annotations", "GET /timed/admin/trade-autopsy/annotations"],
   ["POST", "/timed/admin/trade-autopsy/annotations", "POST /timed/admin/trade-autopsy/annotations"],
@@ -3739,22 +3740,66 @@ function _applyContextGates(d, inferredSide, asOfTs, leadingLtfLabel) {
     if (String(daCfg.short_require_daily_st_aligned ?? "false") === "true") {
       const dailyST = tt.D?.stDir ?? 0;
       // PHASE-E (2026-04-19): allow SHORT when the ticker's daily ST is
-      // neutral (0) IF SPY's daily structure is bearish (price < D48 or
-      // bear-stacked). In a broad decline individual tickers' daily ST can
-      // lag the index for weeks. Explicit bullish ST (+1) still blocks.
+      // neutral (0) IF SPY's daily structure is bearish.
+      // PHASE-F (2026-04-20) F10: also accept the ticker's own daily
+      // STRUCTURE as a substitute for the daily ST flag. TSLA Mar 10
+      // 2026 had stDirD=0 but bear_stack=true, below D200, D48 slope
+      // −1.41 % — clearly bearish structurally but blocked by prior gate.
       const relaxEnabled = String(daCfg.deep_audit_short_allow_neutral_daily_st_when_spy_bear ?? "true") === "true";
       const spyStruct = d?._env?._marketRegime?.spy_daily_structure || null;
       const spyBearish = !!(spyStruct
         && (spyStruct.above_e200 === false
           || (Number.isFinite(spyStruct.pct_above_e48) && spyStruct.pct_above_e48 <= -0.1)
           || spyStruct.bear_stack === true));
+      const tickerDaily = d?.daily_structure || null;
+      const tickerStructurallyBearish = !!(tickerDaily
+        && (tickerDaily.bear_stack === true
+          || (tickerDaily.above_e200 === false
+            && Number.isFinite(tickerDaily.e48_slope_10d_pct)
+            && tickerDaily.e48_slope_10d_pct < 0)));
+      const acceptStructuralBearSubstitute = String(
+        daCfg.deep_audit_short_accept_structural_bear_substitute ?? "true",
+      ) === "true";
       const allowNeutral = relaxEnabled && spyBearish && dailyST === 0;
-      if (dailyST !== -1 && !allowNeutral) {
-        return { qualifies: false, reason: "ctx_short_daily_st_not_bear", stDir: dailyST, spyBearish };
+      // Phase-F (2026-04-20) F10: when ticker daily structure is clearly
+      // bearish (bear_stack, or below D200 with negative D48 slope), allow
+      // the short to pass regardless of the lagging daily ST flag. The
+      // structure is a leading-and-confirmed signal; the ST flag lags.
+      const allowStructural = acceptStructuralBearSubstitute && tickerStructurallyBearish;
+      if (dailyST !== -1 && !allowNeutral && !allowStructural) {
+        // Debug dump: why did we not allow
+        const _diagTickerDaily = tickerDaily ? {
+          bear_stack: tickerDaily.bear_stack,
+          above_e200: tickerDaily.above_e200,
+          e48_slope_10d_pct: tickerDaily.e48_slope_10d_pct,
+          pct_above_e48: tickerDaily.pct_above_e48,
+        } : null;
+        return {
+          qualifies: false,
+          reason: "ctx_short_daily_st_not_bear",
+          stDir: dailyST,
+          spyBearish,
+          tickerStructurallyBearish,
+          tickerDaily: _diagTickerDaily,
+          acceptStructuralBearSubstitute,
+        };
       }
     }
     const shortMin4hDepth = Number(daCfg.short_min_4h_ema_depth) || 0;
-    if (shortMin4hDepth > 0) {
+    // Phase-F (2026-04-20): bypass 4H-EMA depth requirement when the
+    // daily structure is already confirmed bearish. 4H depth is a
+    // tactical lookback that lags the daily regime during fast
+    // declines (Mar 2026 SPY dropped faster than 4H EMAs could roll over).
+    const tickerDailyShort = d?.daily_structure || null;
+    const tickerDailyBearShort = !!(tickerDailyShort && (
+      tickerDailyShort.bear_stack === true
+      || (tickerDailyShort.above_e200 === false
+        && Number.isFinite(tickerDailyShort.e48_slope_10d_pct)
+        && tickerDailyShort.e48_slope_10d_pct < 0)));
+    const bypass4hDepthWhenBearStructure = String(
+      daCfg.deep_audit_short_bypass_4h_depth_when_bear_structure ?? "true",
+    ) === "true";
+    if (shortMin4hDepth > 0 && !(bypass4hDepthWhenBearStructure && tickerDailyBearShort)) {
       const emaDepth4H = tt["4H"]?.ema?.depth ?? 10;
       if (emaDepth4H < shortMin4hDepth) {
         return { qualifies: false, reason: "ctx_short_4h_ema_shallow", depth: emaDepth4H, min: shortMin4hDepth };
@@ -6634,6 +6679,187 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
                 mfe_peak_pct: _r6MfePct,
                 ratio: _r6Ratio,
                 stop_pct: _r6StopPct,
+                pnl_pct: pnlPct,
+              };
+              return "exit";
+            }
+          }
+        }
+      }
+
+      // ─────────────────────────────────────────────────────────────────
+      // PHASE-G.3 (2026-04-20) — EARLY DEAD-MONEY FLATTEN
+      // Evidence (v6b forensics): 38 trades tagged 'never_worked' had MFE
+      // under 1% and held to -2.56% avg loss. F4 dead_money_flatten fires
+      // only at 24h market-min — many of these died at 2-6h. Tighten:
+      // at 4h market-min, if MFE never reached +0.5% AND current pnl <= -1%,
+      // flatten. Not symmetric with F4 (which is 24h+) — this catches the
+      // "immediate red, never recovered" pattern faster.
+      {
+        const _g3Enabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_early_dead_money_enabled ?? "true") === "true";
+        if (_g3Enabled && positionAgeMarketMin >= 240) {  // 4h market-min
+          const _g3AgeMin = Number(tickerData?._env?._deepAuditConfig?.deep_audit_early_dead_money_age_min) || 240;
+          const _g3MfeMax = Number(tickerData?._env?._deepAuditConfig?.deep_audit_early_dead_money_mfe_max_pct) || 0.5;
+          const _g3PnlMax = Number(tickerData?._env?._deepAuditConfig?.deep_audit_early_dead_money_pnl_max_pct) || -1.0;
+          const _g3Mfe = Math.max(
+            Number(openPosition?.maxFavorableExcursion ?? openPosition?.max_favorable_excursion ?? openPosition?.mfePct) || 0,
+            Number(openPosition?.__tradeRef?.maxFavorableExcursion ?? openPosition?.__tradeRef?.max_favorable_excursion ?? openPosition?.__tradeRef?.mfePct) || 0,
+          );
+          if (positionAgeMarketMin >= _g3AgeMin && _g3Mfe < _g3MfeMax && pnlPct <= _g3PnlMax) {
+            tickerData.__exit_reason = "early_dead_money_flatten";
+            tickerData.__exit_family = "safety";
+            tickerData.__exit_detail = {
+              age_market_min: positionAgeMarketMin,
+              mfe_pct: _g3Mfe,
+              pnl_pct: pnlPct,
+            };
+            return "exit";
+          }
+        }
+      }
+
+      // ─────────────────────────────────────────────────────────────────
+      // PHASE-G.2 (2026-04-20) — ATR LEVEL TP LADDER (probability-weighted)
+      // Evidence: v6b Golden Gate probability analysis. Given price crosses
+      // fib level A on Daily ATR, P(continuation to B):
+      //   0.236 → 0.382: 89% fav (don't trim at 0.236 — too early)
+      //   0.382 → 0.618: 79% fav (commit threshold — partial trim only)
+      //   0.618 → 1.0: 75% fav (meaningful trim here)
+      //   1.0 → 1.618: 65% fav (runner territory)
+      // Cohort overrides: MegaCap/Speculative run further; ETF/Industrial
+      // have ceilings earlier. This block trims the position at each fib
+      // level the trade crosses, using probability-weighted trim %.
+      //
+      // Horizon = Day (Daily ATR) because our 10m trigger naturally maps
+      // to Day mode. Week horizon is secondary (full exit trigger).
+      //
+      // Implementation: each level hit increments an execState counter
+      // (lastAtrTierTrimmed) so we don't double-trim on the same bar or
+      // ratchet down accidentally.
+      {
+        const _gLadderEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_atr_tp_ladder_enabled ?? "true") === "true";
+        if (_gLadderEnabled) {
+          const atrLevels = tickerData?.atr_levels || {};
+          const dayAtr = atrLevels.day || {};
+          const weekAtr = atrLevels.week || {};
+          const dayDisp = Number(dayAtr.disp);
+          const weekDisp = Number(weekAtr.disp);
+          const tickerUpper = String(tickerData?.ticker || "").toUpperCase();
+          const entryPx = Number(openPosition?.entryPrice);
+          // Determine cohort
+          const INDEX_ETF = new Set(["SPY", "QQQ", "IWM"]);
+          const MEGACAP = new Set(["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA"]);
+          const INDUSTRIAL = new Set(["ETN", "FIX", "IESC", "MTZ", "PH", "SWK"]);
+          const SPECULATIVE = new Set(["AGQ", "GRNY", "RIOT", "SGI"]);
+          const SEMI = new Set(["CDNS", "ON", "HUBS"]);
+          let ladderCohort = "default";
+          if (INDEX_ETF.has(tickerUpper)) ladderCohort = "index_etf";
+          else if (MEGACAP.has(tickerUpper)) ladderCohort = "megacap";
+          else if (INDUSTRIAL.has(tickerUpper)) ladderCohort = "industrial";
+          else if (SPECULATIVE.has(tickerUpper)) ladderCohort = "speculative";
+          else if (SEMI.has(tickerUpper)) ladderCohort = "semi";
+          // Cohort-specific trim percentages (probability-weighted).
+          // Format: [t_at_0382, t_at_0618, t_at_1000, t_at_1236, t_at_1618]
+          const cohortTrims = {
+            index_etf:   [0.25, 0.35, 0.30, 0.10, 0.00],  // ceilings early, rarely past 1.0
+            megacap:     [0.20, 0.25, 0.20, 0.20, 0.15],  // let runners ride, 1.0→1.618 is 78%
+            industrial:  [0.25, 0.35, 0.30, 0.10, 0.00],  // clean breaks, heavy at 0.618
+            speculative: [0.15, 0.20, 0.20, 0.20, 0.25],  // widest, reaches 2.0 in 67%
+            semi:        [0.20, 0.30, 0.25, 0.15, 0.10],
+            default:     [0.25, 0.30, 0.25, 0.15, 0.05],
+          };
+          const trims = cohortTrims[ladderCohort];
+          const fibRatios = [0.382, 0.618, 1.0, 1.236, 1.618];
+          // For LONG: direction-adjusted disp = +dayDisp (we want price up
+          // from prev close). For SHORT: -dayDisp (price down from prev
+          // close is favorable).
+          const isLong = String(openPosition?.direction || "").toUpperCase() === "LONG";
+          const dirAdjDayDisp = isLong ? dayDisp : -dayDisp;
+          const dirAdjWeekDisp = isLong ? weekDisp : -weekDisp;
+          // Infer current tier from cumulative trim % (stateless signal).
+          // cohort trims are cumulative sums: tier 1 done = currentTrimPct
+          // >= trims[0], tier 2 done = >= trims[0]+trims[1], etc.
+          const cumTrims = [];
+          let running = 0;
+          for (const t of trims) {
+            running += t;
+            cumTrims.push(running);
+          }
+          let prevTier = 0;
+          for (let i = 0; i < cumTrims.length; i++) {
+            // Allow a 5% fuzz band since other trim logic may also fire
+            if (currentTrimPct >= cumTrims[i] - 0.05) prevTier = i + 1;
+          }
+          // Find highest tier reached on this bar
+          let currentTier = 0;
+          for (let i = 0; i < fibRatios.length; i++) {
+            if (Number.isFinite(dirAdjDayDisp) && dirAdjDayDisp >= fibRatios[i]) {
+              currentTier = i + 1;
+            }
+          }
+          // Also flag WEEKLY +0.618 as a full-exit signal
+          const weekExitThreshold = 0.618;
+          const weekFullExit = Number.isFinite(dirAdjWeekDisp)
+            && dirAdjWeekDisp >= weekExitThreshold;
+          if (weekFullExit) {
+            tickerData.__exit_reason = "atr_week_618_full_exit";
+            tickerData.__exit_family = "target";
+            tickerData.__exit_detail = {
+              cohort: ladderCohort,
+              week_disp: dirAdjWeekDisp,
+              horizon: "week",
+            };
+            return "exit";
+          }
+          // Execute incremental trim at each new tier reached
+          if (currentTier > prevTier && currentTier <= trims.length) {
+            const trimPct = trims[currentTier - 1];
+            if (trimPct > 0 && currentTrimPct + trimPct < 0.98) {
+              tickerData.__scheduled_trim = {
+                pct: trimPct,
+                reason: `atr_tp_ladder_tier${currentTier}_fib${fibRatios[currentTier-1]}`,
+                cohort: ladderCohort,
+              };
+              // Signal this is a TRIM lane, not full exit (unless last tier +1.618+)
+              tickerData.__exit_reason = currentTier === trims.length
+                ? `atr_tp_ladder_runner_full`
+                : `atr_tp_ladder_tier${currentTier}_trim`;
+              tickerData.__exit_family = "target";
+              // Return 'trim' stage so management engine performs partial exit
+              // Don't return 'exit' unless this is the final tier
+              if (currentTier >= trims.length) return "exit";
+              return "trim";
+            }
+          }
+        }
+      }
+
+      // ─────────────────────────────────────────────────────────────────
+      // PHASE-G.4 (2026-04-20) — ADVERSE -0.382 ATR CUT (loss-mitigation)
+      // Evidence: once price crosses adverse -0.382 × Day ATR from prev
+      // close, 73% of the time it continues to -0.618. That's the "this
+      // trade is wrong" signal. Cut here rather than wait for hard stop.
+      {
+        const _g4Enabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_atr_adverse_cut_enabled ?? "true") === "true";
+        if (_g4Enabled && pnlPct < 0) {
+          const atrLevels = tickerData?.atr_levels || {};
+          const dayAtr = atrLevels.day || {};
+          const dayDisp = Number(dayAtr.disp);
+          const isLong = String(openPosition?.direction || "").toUpperCase() === "LONG";
+          const dirAdjDayDisp = isLong ? dayDisp : -dayDisp;
+          // Adverse displacement = negative favorable displacement. If it
+          // went below -0.382 × ATR (i.e. 0.382 ATR against us), cut.
+          const _g4Threshold = Number(tickerData?._env?._deepAuditConfig?.deep_audit_atr_adverse_cut_threshold) || -0.382;
+          if (Number.isFinite(dirAdjDayDisp) && dirAdjDayDisp <= _g4Threshold) {
+            // Only cut if we're also meaningfully underwater (pnl < -0.5%)
+            // — otherwise small wiggles below prev close get clipped.
+            const _g4PnlMin = Number(tickerData?._env?._deepAuditConfig?.deep_audit_atr_adverse_cut_pnl_min_pct) || -0.5;
+            if (pnlPct <= _g4PnlMin) {
+              tickerData.__exit_reason = "atr_day_adverse_382_cut";
+              tickerData.__exit_family = "safety";
+              tickerData.__exit_detail = {
+                day_disp: dirAdjDayDisp,
+                threshold: _g4Threshold,
                 pnl_pct: pnlPct,
               };
               return "exit";
@@ -43053,6 +43279,43 @@ export default {
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/trail-payload?ticker=X&since=ts&until=ts&limit=N
+      // Returns timed_trail rows with the full payload_json included.
+      // Phase-G forensics: needed to reconstruct per-trade indicator
+      // state (atr_levels, tf_tech, ema_map, flags) at every 5-min bar.
+      if (routeKey === "GET /timed/admin/trail-payload") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          const ticker = normTicker(url.searchParams.get("ticker"));
+          if (!ticker) return sendJSON({ ok: false, error: "missing_ticker" }, 400, corsHeaders(env, req));
+          const sinceRaw = url.searchParams.get("since");
+          const untilRaw = url.searchParams.get("until");
+          const since = sinceRaw ? Number(sinceRaw) : null;
+          const until = untilRaw ? Number(untilRaw) : null;
+          const limit = Math.min(5000, Math.max(1, Number(url.searchParams.get("limit") || 2000)));
+          let query = `SELECT ts, price, state, kanban_stage, payload_json FROM timed_trail WHERE ticker = ?1`;
+          const binds = [ticker];
+          if (Number.isFinite(since)) { query += ` AND ts >= ?${binds.length + 1}`; binds.push(Number(since)); }
+          if (Number.isFinite(until)) { query += ` AND ts <= ?${binds.length + 1}`; binds.push(Number(until)); }
+          query += ` ORDER BY ts ASC LIMIT ?${binds.length + 1}`;
+          binds.push(limit);
+          const rows = (await db.prepare(query).bind(...binds).all())?.results || [];
+          const out = rows.map((r) => ({
+            ts: Number(r.ts),
+            price: r.price != null ? Number(r.price) : null,
+            state: r.state,
+            kanban_stage: r.kanban_stage,
+            payload: r.payload_json ? (() => { try { return JSON.parse(r.payload_json); } catch { return null; } })() : null,
+          }));
+          return sendJSON({ ok: true, ticker, count: out.length, rows: out }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
       }
 
