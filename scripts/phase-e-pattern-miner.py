@@ -24,7 +24,18 @@ from pathlib import Path
 
 ROOT = Path('/workspace')
 CACHE = Path('/tmp/daily-cache')
-OUT = ROOT / 'data' / 'trade-analysis' / 'phase-e2-pattern-analysis-2026-04-19'
+# Flip by env var RUN_VERSION=v5 to mine Phase-E.3 v5 data
+import sys
+RUN_VERSION = os.environ.get('RUN_VERSION', 'v4')
+SLICE_PREFIX = {
+    'v4': 'phase-e2-slice-{m}-v4',
+    'v5': 'phase-e3-slice-{m}-v5',
+}.get(RUN_VERSION, 'phase-e2-slice-{m}-v4')
+OUT_DIR_NAME = {
+    'v4': 'phase-e2-pattern-analysis-2026-04-19',
+    'v5': 'phase-e3-pattern-analysis-2026-04-19-v5',
+}.get(RUN_VERSION, 'phase-e2-pattern-analysis-2026-04-19')
+OUT = ROOT / 'data' / 'trade-analysis' / OUT_DIR_NAME
 OUT.mkdir(parents=True, exist_ok=True)
 
 UNIVERSE = ['SPY','QQQ','IWM','AAPL','MSFT','GOOGL','AMZN','META','NVDA','TSLA',
@@ -205,9 +216,9 @@ def structure_at(ticker, entry_date_iso):
 def load_v4_trades():
     trades = []
     months = ['2025-07', '2025-08', '2025-09', '2025-10', '2025-11',
-              '2025-12', '2026-01', '2026-02']
+              '2025-12', '2026-01', '2026-02', '2026-03', '2026-04']
     for m in months:
-        p = ROOT / 'data' / 'trade-analysis' / f'phase-e2-slice-{m}-v4' / 'trades.json'
+        p = ROOT / 'data' / 'trade-analysis' / SLICE_PREFIX.format(m=m) / 'trades.json'
         if not p.exists():
             continue
         for t in json.loads(p.read_text())['trades']:

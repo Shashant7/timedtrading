@@ -617,8 +617,7 @@ export function evaluateEntry(ctx) {
       if (!Number.isFinite(extensionMaxOverride)) extensionMaxOverride = 99.0;
       // RSI: overbought GREEN (+3.70 % avg) — no cap
     }
-    // Apply cohort LONG-side overlays (gate is side-aware; SHORTs use
-    // their own SHORT gates — cohort overlay is LONG-only for now).
+    // Apply cohort LONG-side overlays.
     if (cohortLabel && isLongSide
       && (momentumTrigger || pullbackTrigger || reclaimTrigger)) {
       if (slopeMinOverride != null && Number.isFinite(e21Slope5dLocal)
@@ -643,6 +642,63 @@ export function evaluateEntry(ctx) {
         && rsiDLocal >= 45 && rsiDLocal < rsiMinWhenNeutralBlock) {
         return rejectEntry("tt_cohort_rsi_neutral_zone", {
           cohort: cohortLabel, rsiD: rsiDLocal, neutralBlockBelow: rsiMinWhenNeutralBlock,
+        });
+      }
+    }
+    // PHASE-F (2026-04-20) F11 — SHORT-side cohort overlay (mirror of LONG).
+    // Slope: more negative = deeper decline = GREEN for shorts.
+    // Extension: we want price below D48 (negative pct_above) for shorts.
+    // RSI: don't short into oversold (<25) because those bounce.
+    if (cohortLabel && !isLongSide
+      && (momentumTrigger || pullbackTrigger || reclaimTrigger)) {
+      let shortSlopeMax = null;  // "more negative than" → decline confirmation required
+      let shortExtensionMin = null;  // pct_above_e48 must be ≤ this (i.e. price below D48)
+      let shortRsiMin = null;  // don't short into oversold
+      if (cohortLabel === "index_etf") {
+        shortSlopeMax = Number(daCfg.deep_audit_cohort_short_slope_max_index_etf);
+        shortExtensionMin = Number(daCfg.deep_audit_cohort_short_extension_min_index_etf);
+        shortRsiMin = Number(daCfg.deep_audit_cohort_short_rsi_min_index_etf);
+        if (!Number.isFinite(shortSlopeMax)) shortSlopeMax = -0.5;
+        if (!Number.isFinite(shortExtensionMin)) shortExtensionMin = -1.0;
+        if (!Number.isFinite(shortRsiMin)) shortRsiMin = 25;
+      } else if (cohortLabel === "megacap_tech") {
+        shortSlopeMax = Number(daCfg.deep_audit_cohort_short_slope_max_megacap);
+        shortExtensionMin = Number(daCfg.deep_audit_cohort_short_extension_min_megacap);
+        shortRsiMin = Number(daCfg.deep_audit_cohort_short_rsi_min_megacap);
+        if (!Number.isFinite(shortSlopeMax)) shortSlopeMax = -0.3;
+        if (!Number.isFinite(shortExtensionMin)) shortExtensionMin = -1.0;
+        if (!Number.isFinite(shortRsiMin)) shortRsiMin = 30;
+      } else if (cohortLabel === "industrial") {
+        shortSlopeMax = Number(daCfg.deep_audit_cohort_short_slope_max_industrial);
+        shortExtensionMin = Number(daCfg.deep_audit_cohort_short_extension_min_industrial);
+        shortRsiMin = Number(daCfg.deep_audit_cohort_short_rsi_min_industrial);
+        if (!Number.isFinite(shortSlopeMax)) shortSlopeMax = -0.7;
+        if (!Number.isFinite(shortExtensionMin)) shortExtensionMin = -1.0;
+        if (!Number.isFinite(shortRsiMin)) shortRsiMin = 30;
+      } else if (cohortLabel === "speculative") {
+        shortSlopeMax = Number(daCfg.deep_audit_cohort_short_slope_max_speculative);
+        shortExtensionMin = Number(daCfg.deep_audit_cohort_short_extension_min_speculative);
+        shortRsiMin = Number(daCfg.deep_audit_cohort_short_rsi_min_speculative);
+        if (!Number.isFinite(shortSlopeMax)) shortSlopeMax = -0.3;
+        if (!Number.isFinite(shortExtensionMin)) shortExtensionMin = -1.0;
+        if (!Number.isFinite(shortRsiMin)) shortRsiMin = 25;
+      }
+      if (shortSlopeMax != null && Number.isFinite(e21Slope5dLocal)
+        && e21Slope5dLocal > shortSlopeMax) {
+        return rejectEntry("tt_cohort_short_slope_not_declining", {
+          cohort: cohortLabel, e21Slope5d: e21Slope5dLocal, shortSlopeMax,
+        });
+      }
+      if (shortExtensionMin != null && Number.isFinite(pctAboveE48Local)
+        && pctAboveE48Local > shortExtensionMin) {
+        return rejectEntry("tt_cohort_short_extension_insufficient", {
+          cohort: cohortLabel, pctAboveE48: pctAboveE48Local, shortExtensionMin,
+        });
+      }
+      if (shortRsiMin != null && Number.isFinite(rsiDLocal)
+        && rsiDLocal < shortRsiMin) {
+        return rejectEntry("tt_cohort_short_rsi_oversold", {
+          cohort: cohortLabel, rsiD: rsiDLocal, shortRsiMin,
         });
       }
     }
@@ -687,21 +743,48 @@ export function evaluateEntry(ctx) {
           });
         }
       } else if (side === "SHORT") {
-        const maxBelowE48 = Number(daCfg.deep_audit_d_ema_short_max_below_e48_pct) || 7.0;
+        // PHASE-F (2026-04-20) — SHORT overextension gates reworked.
+        // The prior Phase-E symmetric formulation blocked 4,194 bars in
+        // Mar 2026 alone on "price > 7 % below D48" — which is the pay
+        // zone for shorts, not the rejection zone. Inverted logic:
+        //   - overextended: only block when price is > 15 % below D48 AND
+        //     D21 is already turning up (5-day slope >= +0.5 %) = capitulation bounce.
+        //   - flat_structure: block when D48 is RISING (bull structure intact).
+        const maxBelowE48 = Number(daCfg.deep_audit_d_ema_short_max_below_e48_pct) || 15.0;
+        const capitulationBounceSlope = Number(daCfg.deep_audit_d_ema_short_capitulation_slope_pct) || 0.5;
         const maxE21SlopeS = Number(daCfg.deep_audit_d_ema_short_max_e21_slope_pct) || -3.5;
-        const maxE48SlopeS = Number(daCfg.deep_audit_d_ema_short_max_e48_slope_pct) || -0.25;
-        if (Number.isFinite(pctAboveE48) && pctAboveE48 < -maxBelowE48) {
+        const maxE48SlopeS = Number(daCfg.deep_audit_d_ema_short_max_e48_slope_pct) || 0.25;
+        const spyStructShort = ctx?.market?.spyDailyStructure || null;
+        const spyBearStackedShort = spyStructShort?.bear_stack === true
+          || spyStructShort?.above_e200 === false;
+        if (Number.isFinite(pctAboveE48)
+          && pctAboveE48 < -maxBelowE48
+          && Number.isFinite(e21Slope5d)
+          && e21Slope5d >= capitulationBounceSlope) {
           return rejectEntry("tt_d_ema_short_overextended", {
-            pctAboveE48, maxBelowE48, e21: daily.e21, e48: daily.e48, e200: daily.e200,
+            pctAboveE48, maxBelowE48, e21Slope5d, capitulationBounceSlope,
+            reason: "capitulation_bounce_risk",
+            e21: daily.e21, e48: daily.e48, e200: daily.e200,
           });
         }
+        // PHASE-F (2026-04-20): the "parabolic" short rejection only
+        // applies when price has ALSO overextended past the capitulation
+        // threshold. Just-broke-down trends like META Mar 27 (-16.78 %
+        // below D48, slope -3.9 %) are the prime short setups, not
+        // rejections. Only block when both: steep slope AND price is
+        // already deep below D48 (near capitulation).
         if (Number.isFinite(e21Slope5d) && e21Slope5d < maxE21SlopeS
-          && Number.isFinite(pctAboveE21) && pctAboveE21 < -2.5) {
+          && Number.isFinite(pctAboveE48) && pctAboveE48 < -maxBelowE48) {
           return rejectEntry("tt_d_ema_short_parabolic", {
-            e21Slope5d, maxE21SlopeS, pctAboveE21,
+            e21Slope5d, maxE21SlopeS, pctAboveE48, maxBelowE48,
+            reason: "parabolic_plus_capitulation",
           });
         }
+        // PHASE-F (2026-04-20) F9 — bypass flat_structure gate when SPY
+        // is bear-stacked. A flat/declining ticker D48 alongside a broad
+        // bearish SPY regime is confirmation, not fakeout signal.
         if ((pullbackTrigger || reclaimTrigger)
+          && !spyBearStackedShort
           && Number.isFinite(e48Slope10d) && e48Slope10d > maxE48SlopeS) {
           return rejectEntry("tt_d_ema_short_flat_structure", {
             e48Slope10d, maxE48SlopeS, triggers: { pullbackTrigger, reclaimTrigger },
@@ -1243,7 +1326,30 @@ export function evaluateEntry(ctx) {
     && (spyStruct.above_e200 === false
       || (Number.isFinite(spyStruct.pct_above_e48) && spyStruct.pct_above_e48 <= -0.1)
       || spyStruct.bear_stack === true));
-  const shortPullbackMinCount = (shortSpyRelaxEnabled && spyDailyBearish) ? 1 : 2;
+  const spyBearStacked = !!(spyStruct && spyStruct.bear_stack === true);
+  const tickerDailyShortCtx = ctx?.daily || null;
+  const tickerBearStacked = !!(tickerDailyShortCtx && tickerDailyShortCtx.bear_stack === true);
+  // PHASE-F (2026-04-20) F12: when BOTH SPY and the ticker itself are
+  // bear-stacked, allow the short to enter with 0-of-3 LTF ST bullish
+  // (reclaim-path shorts) — the daily structural confirmation is strong
+  // enough that we don't need LTF ST confirmation.
+  const shortFullBearRelaxEnabled = String(daCfg.deep_audit_short_full_bear_relax_enabled ?? "true") === "true";
+  // Phase-F (2026-04-20) F12: when BOTH SPY and the ticker are bear-stacked
+  // AND ticker D48 slope is negative (structural trend confirmed), the daily
+  // structural confirmation is strong enough to allow the short to enter
+  // with 0-of-3 LTF ST bullish, regardless of trigger path (not just
+  // reclaim). The original gate requires 2-of-3 LTF to turn bullish so the
+  // short enters on a bounce — in a smooth decline that never happens and
+  // we miss the whole move.
+  const tickerD48Declining = !!(tickerDailyShortCtx
+    && Number.isFinite(tickerDailyShortCtx.e48_slope_10d_pct)
+    && tickerDailyShortCtx.e48_slope_10d_pct < 0);
+  const shortPullbackMinCount = (
+    shortFullBearRelaxEnabled
+    && spyBearStacked && tickerBearStacked && tickerD48Declining
+  ) ? 0
+    : (shortSpyRelaxEnabled && spyDailyBearish) ? 1
+    : 2;
   // PHASE-E (2026-04-19): same ETF-swing bypass for shorts.
   if (config.ripsterTuneV2 && side === "SHORT"
     && (pullbackTrigger || reclaimTrigger)

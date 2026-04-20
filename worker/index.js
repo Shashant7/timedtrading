@@ -3736,22 +3736,66 @@ function _applyContextGates(d, inferredSide, asOfTs, leadingLtfLabel) {
     if (String(daCfg.short_require_daily_st_aligned ?? "false") === "true") {
       const dailyST = tt.D?.stDir ?? 0;
       // PHASE-E (2026-04-19): allow SHORT when the ticker's daily ST is
-      // neutral (0) IF SPY's daily structure is bearish (price < D48 or
-      // bear-stacked). In a broad decline individual tickers' daily ST can
-      // lag the index for weeks. Explicit bullish ST (+1) still blocks.
+      // neutral (0) IF SPY's daily structure is bearish.
+      // PHASE-F (2026-04-20) F10: also accept the ticker's own daily
+      // STRUCTURE as a substitute for the daily ST flag. TSLA Mar 10
+      // 2026 had stDirD=0 but bear_stack=true, below D200, D48 slope
+      // −1.41 % — clearly bearish structurally but blocked by prior gate.
       const relaxEnabled = String(daCfg.deep_audit_short_allow_neutral_daily_st_when_spy_bear ?? "true") === "true";
       const spyStruct = d?._env?._marketRegime?.spy_daily_structure || null;
       const spyBearish = !!(spyStruct
         && (spyStruct.above_e200 === false
           || (Number.isFinite(spyStruct.pct_above_e48) && spyStruct.pct_above_e48 <= -0.1)
           || spyStruct.bear_stack === true));
+      const tickerDaily = d?.daily_structure || null;
+      const tickerStructurallyBearish = !!(tickerDaily
+        && (tickerDaily.bear_stack === true
+          || (tickerDaily.above_e200 === false
+            && Number.isFinite(tickerDaily.e48_slope_10d_pct)
+            && tickerDaily.e48_slope_10d_pct < 0)));
+      const acceptStructuralBearSubstitute = String(
+        daCfg.deep_audit_short_accept_structural_bear_substitute ?? "true",
+      ) === "true";
       const allowNeutral = relaxEnabled && spyBearish && dailyST === 0;
-      if (dailyST !== -1 && !allowNeutral) {
-        return { qualifies: false, reason: "ctx_short_daily_st_not_bear", stDir: dailyST, spyBearish };
+      // Phase-F (2026-04-20) F10: when ticker daily structure is clearly
+      // bearish (bear_stack, or below D200 with negative D48 slope), allow
+      // the short to pass regardless of the lagging daily ST flag. The
+      // structure is a leading-and-confirmed signal; the ST flag lags.
+      const allowStructural = acceptStructuralBearSubstitute && tickerStructurallyBearish;
+      if (dailyST !== -1 && !allowNeutral && !allowStructural) {
+        // Debug dump: why did we not allow
+        const _diagTickerDaily = tickerDaily ? {
+          bear_stack: tickerDaily.bear_stack,
+          above_e200: tickerDaily.above_e200,
+          e48_slope_10d_pct: tickerDaily.e48_slope_10d_pct,
+          pct_above_e48: tickerDaily.pct_above_e48,
+        } : null;
+        return {
+          qualifies: false,
+          reason: "ctx_short_daily_st_not_bear",
+          stDir: dailyST,
+          spyBearish,
+          tickerStructurallyBearish,
+          tickerDaily: _diagTickerDaily,
+          acceptStructuralBearSubstitute,
+        };
       }
     }
     const shortMin4hDepth = Number(daCfg.short_min_4h_ema_depth) || 0;
-    if (shortMin4hDepth > 0) {
+    // Phase-F (2026-04-20): bypass 4H-EMA depth requirement when the
+    // daily structure is already confirmed bearish. 4H depth is a
+    // tactical lookback that lags the daily regime during fast
+    // declines (Mar 2026 SPY dropped faster than 4H EMAs could roll over).
+    const tickerDailyShort = d?.daily_structure || null;
+    const tickerDailyBearShort = !!(tickerDailyShort && (
+      tickerDailyShort.bear_stack === true
+      || (tickerDailyShort.above_e200 === false
+        && Number.isFinite(tickerDailyShort.e48_slope_10d_pct)
+        && tickerDailyShort.e48_slope_10d_pct < 0)));
+    const bypass4hDepthWhenBearStructure = String(
+      daCfg.deep_audit_short_bypass_4h_depth_when_bear_structure ?? "true",
+    ) === "true";
+    if (shortMin4hDepth > 0 && !(bypass4hDepthWhenBearStructure && tickerDailyBearShort)) {
       const emaDepth4H = tt["4H"]?.ema?.depth ?? 10;
       if (emaDepth4H < shortMin4hDepth) {
         return { qualifies: false, reason: "ctx_short_4h_ema_shallow", depth: emaDepth4H, min: shortMin4hDepth };

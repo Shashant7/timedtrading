@@ -92,6 +92,29 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_cohort_rsi_neutral_block_industrial",
   "deep_audit_cohort_slope_min_speculative",
   "deep_audit_cohort_extension_max_speculative",
+  // Phase-F (2026-04-20): SHORT-side activation
+  //   F8 — invert d_ema_short_overextended (pay zone vs rejection zone)
+  //   F9 — spy-bear bypass for d_ema_short_flat_structure
+  //   F10 — accept daily structural bear as substitute for daily ST flag
+  //   F11 — SHORT cohort overlay (mirror of LONG)
+  //   F12 — relax tt_short_pullback_not_deep_enough to 0-of-3 when
+  //         both SPY and ticker are bear-stacked
+  "deep_audit_d_ema_short_capitulation_slope_pct",
+  "deep_audit_short_accept_structural_bear_substitute",
+  "deep_audit_cohort_short_slope_max_index_etf",
+  "deep_audit_cohort_short_extension_min_index_etf",
+  "deep_audit_cohort_short_rsi_min_index_etf",
+  "deep_audit_cohort_short_slope_max_megacap",
+  "deep_audit_cohort_short_extension_min_megacap",
+  "deep_audit_cohort_short_rsi_min_megacap",
+  "deep_audit_cohort_short_slope_max_industrial",
+  "deep_audit_cohort_short_extension_min_industrial",
+  "deep_audit_cohort_short_rsi_min_industrial",
+  "deep_audit_cohort_short_slope_max_speculative",
+  "deep_audit_cohort_short_extension_min_speculative",
+  "deep_audit_cohort_short_rsi_min_speculative",
+  "deep_audit_short_full_bear_relax_enabled",
+  "deep_audit_short_bypass_4h_depth_when_bear_structure",
   "golden_julaug_reference_run_id", "live_config_run_id", "member_ticker_list", "consensus_signal_weights", "consensus_tf_weights", "scoring_weight_adj",
 ];
 
