@@ -1902,27 +1902,40 @@ Writing Guidelines (CONCISION IS NON-NEGOTIABLE):
 - For macro events: One sentence of impact, not a lecture. "CPI prints 8:30 ET — hot read (>3.0%) likely taps SPY 575 support; cool read opens 585 test."
 - If a data field is missing, omit the bullet. Do not fill with hedging prose.
 
-## Output Format Rules (STRICT — follow this structure exactly):
+## Voice & Format (STYLE GUIDE — inspired by Scott Galloway's Prof G Markets):
+
+Write like an opinionated veteran trader, not a neutral analyst. Every section takes a stance. Every paragraph is 2-4 sentences — one-sentence paragraphs for punctuation. Coin a named concept for today's regime ("ketamine tape", "breadth mirage", "melting-ice-cube rally") and use it as a throughline.
+
+### Section 0: "Today's Three" (MANDATORY OPENER — exactly 3 numbered lines)
+A compact TOC at the very top. Each line is one sentence, ≤ 14 words, and ends with the punchline. Format:
+```
+1. SPY/QQQ regime: [punchline]
+2. Sector rotation: [punchline]
+3. Today's catalyst: [punchline]
+```
 
 ### Section 1: "The Bigger Picture" (3-4 sentences, HARD CAP)
-The punchline, then the why. Lead with regime + duration ("Range-bound 7 weeks between 555-582"), then the pattern forming, the VIX read, and the invalidation trigger. NO historical-analog prose unless it changes the trade plan.
+**Editorialized H2 header with a cultural reference or branded phrase**, NOT "The Bigger Picture" — examples: `## The Ketamine Tape`, `## Range-Bound Purgatory`, `## Breakout, Interrupted`.
+
+The punchline, then the why. Lead with regime + duration ("Range-bound 7 weeks between 555-582"), then the pattern forming, the VIX read, and the invalidation trigger. End with a **decisive prediction or take** — not a summary. NO historical-analog prose unless it changes the trade plan.
 
 ### Section 2: "What's Changed" (1-2 sentences, HARD CAP)
-Only the overnight delta. If nothing structurally changed, one sentence: "Overnight quiet — same 565-580 range applies."
+Editorialized header like `## Overnight Delta` or `## Nothing Burger` (when true). Only the overnight delta. If nothing structurally changed, one sentence: "Overnight quiet — same 565-580 range applies."
 
 ### Section 3: "SPY" and "QQQ" (use separate ## for each — TIGHT)
-For each ticker, exactly these compact bullet groups. NO paragraphs inside this section.
+Each header is editorialized: `## SPY: Stuck above 580` not `## SPY`. For each ticker, exactly these compact bullet groups. NO paragraphs.
 
-**Bias**: [Bullish / Bearish / Neutral / Range-Bound]
+**Bias**: [Bullish / Bearish / Neutral / Range-Bound] — followed by ONE editorial one-liner ("bulls need a daily close > 585 or this is just another tag of resistance")
+
 - Regime/Phase: [regime] · Phase [zone] [pct]% · [setup_grade]
 - MTF: HTF [score] / LTF [score] — [ONE short sentence on convergence or divergence]
 - Swing Consensus: [direction, strength, aligned TFs]
 - Signals: [up to 4 flags, comma-separated]
 
-**Levels** (TF in parens, one line each):
+**Levels** (TF in parens, one line each. Every number paired with a benchmark — ATR% of price, distance from 20-day avg, etc.):
 - S: $XXX (D), $XXX (4H)
 - R: $XXX (W), $XXX (D)
-- Range: $LOW–$HIGH
+- Range: $LOW–$HIGH — [how long we've been here]
 - Gap: $XXX–$XXX (4H)
 
 **Game Plan** (one bullet per case, each ≤ 20 words):
@@ -1941,9 +1954,22 @@ Format: `TICKER LONG/SHORT @ $entry · P&L +X.X% · HOLD/TRIM/EXIT — <≤15 wo
 Connect VIX, crude, gold, TLT, dollar, or sector breadth to the equity thesis. No standalone commentary.
 
 ### Section 7: "Week Ahead" (1-2 sentences, HARD CAP)
-Where we likely close the week + the single biggest catalyst to watch.
+Editorialized header like `## Week Ahead: CPI Decides`. Where we likely close the week + the single biggest catalyst to watch.
+
+### Section 8: "Trade what's there" (CLOSING BOOKEND — 1-2 sentences + P.S.)
+Always close with a decisive one-liner that doesn't reference specific levels — a principle the reader can carry into their day. Examples: "Trade what's there, not what you hope for." / "The range will break when it breaks. Not a minute sooner." / "When in doubt, smaller size."
+
+End with a **P.S.** containing ONE of: the biggest event on the calendar this week, a notable trade that's been running in the book, or a single chart callout worth watching. ≤ 2 sentences.
 
 CRITICAL: Do NOT wrap levels in long explanatory prose. Levels must be scannable at a glance. When the market is range-bound, acknowledge it in one sentence — don't force a directional bias.
+
+## Opinion-First Rules (copy Prof G's spine, not his swagger):
+- Every section ends with a **prediction or decisive take**, not a summary. "Synergies is Latin for layoffs" energy.
+- **Coin one branded phrase per brief** for today's regime and use it 2-3 times as a throughline ("the ketamine tape", "breadth mirage", "melting-ice-cube rally", "trapdoor day"). Make it memorable, not corny.
+- Enumerate with "First … Second … Third …" when giving reasons. It's scannable and it commits you.
+- Pair every number with a benchmark. "SPY ATR $8.12 (1.38% of price, elevated vs. the 30-day $6.80 avg)" beats "SPY ATR $8.12".
+- One-sentence paragraphs are allowed and encouraged for emphasis ("Bold." "Full stop." "Trade it, don't trust it.").
+- NEVER use finance-advisor hedging ("it's worth noting", "one might consider", "subject to market conditions"). Be direct.
 
 ## Timed Trading Model Reference (how to interpret the signals):
 
@@ -2850,6 +2876,55 @@ function buildBriefInfographic(data, type) {
   };
 }
 
+/**
+ * Pull Galloway-style "Today's Three" TOC out of the generated markdown.
+ * Expects the model to emit exactly three numbered lines near the top
+ * ("1. SPY/QQQ regime: …") — if it doesn't, returns null and the
+ * infographic falls back to the metric badges.
+ */
+function extractTopThree(content) {
+  if (!content || typeof content !== "string") return null;
+  const head = content.slice(0, 1600);
+  // Capture the first three consecutive "1." / "2." / "3." lines
+  // anywhere in the leading section (tolerates optional bold/emph).
+  const lines = head.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const picks = [];
+  for (const line of lines) {
+    const m = line.match(/^([123])\.\s*\*{0,2}(.+?)\*{0,2}\s*$/);
+    if (!m) continue;
+    const num = Number(m[1]);
+    if (num !== picks.length + 1) continue;
+    const text = m[2].replace(/^[-\s*_]+/, "").trim();
+    if (text.length < 3) continue;
+    // Split label/punchline on first colon if present
+    const ci = text.indexOf(":");
+    const label = ci > 0 ? text.slice(0, ci).trim() : null;
+    const body = ci > 0 ? text.slice(ci + 1).trim() : text;
+    picks.push({ n: num, label, body });
+    if (picks.length === 3) break;
+  }
+  return picks.length === 3 ? picks : null;
+}
+
+/** Extract the closing one-liner ("Trade what's there, not what you hope for.") */
+function extractClosingLine(content) {
+  if (!content || typeof content !== "string") return null;
+  const tail = content.slice(-800);
+  // Look for a line after a section 8 header or directly before P.S.
+  const psIdx = tail.search(/\n\s*\*?\*?P\.S\.?/i);
+  const zone = psIdx > 0 ? tail.slice(0, psIdx) : tail;
+  const lines = zone.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  // Take the last non-header line that looks like a decisive statement
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i];
+    if (/^#{1,6}\s/.test(l)) continue;
+    if (/^[-*]\s/.test(l)) continue;
+    if (l.length < 20 || l.length > 140) continue;
+    return l.replace(/^\*+|\*+$/g, "").trim();
+  }
+  return null;
+}
+
 export async function generateDailyBrief(env, type, opts = {}) {
   const KV = env?.KV_TIMED;
   const db = env?.DB;
@@ -2904,6 +2979,17 @@ export async function generateDailyBrief(env, type, opts = {}) {
     let infographic = null;
     try {
       infographic = buildBriefInfographic(data, type);
+      // Extract Galloway-style "Today's Three" TOC from the markdown so the
+      // infographic headline strip can render it as 3 punchy badges above
+      // the body. The prompt asks the model to emit exactly:
+      //   1. SPY/QQQ regime: …
+      //   2. Sector rotation: …
+      //   3. Today's catalyst: …
+      // We grep the first 800 chars for the numbered list and expose it.
+      if (infographic) {
+        infographic.topThree = extractTopThree(content);
+        infographic.closingLine = extractClosingLine(content);
+      }
     } catch (e) {
       console.warn("[DAILY BRIEF] infographic build error:", String(e).slice(0, 120));
     }

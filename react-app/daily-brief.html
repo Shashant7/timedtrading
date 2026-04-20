@@ -88,23 +88,26 @@
       body:not([data-user-role="admin"]) a[data-admin-only] {
         display: none !important;
       }
-      /* Markdown styling for brief content */
+      /* Markdown styling for brief content — Galloway-inspired:
+         prominent editorialized H2 headlines, tighter paragraph rhythm,
+         one-sentence paragraphs carry weight. */
       .brief-content h2 {
-        font-size: 15px;
-        font-weight: 600;
-        color: #e5e7eb;
-        margin: 24px 0 10px 0;
-        padding-bottom: 8px;
-        border-bottom: 1px solid rgba(255,255,255,0.06);
+        font-size: 20px;
+        font-weight: 700;
+        color: #ffffff;
+        letter-spacing: -0.01em;
+        line-height: 1.2;
+        margin: 28px 0 10px 0;
+        padding-bottom: 10px;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
       }
       .brief-content h2:first-child { margin-top: 0; }
       .brief-content h3 {
-        font-size: 14px;
+        font-size: 14.5px;
         font-weight: 600;
-        color: #d1d5db;
+        color: #e5e7eb;
+        letter-spacing: -0.005em;
         margin: 20px 0 8px 0;
-        padding-bottom: 4px;
-        border-bottom: 1px solid rgba(255,255,255,0.03);
       }
       .brief-content h4 {
         font-size: 13px;
@@ -113,10 +116,19 @@
         margin: 16px 0 6px 0;
       }
       .brief-content p {
-        font-size: 13px;
-        line-height: 1.75;
-        color: #9ca3af;
-        margin: 8px 0;
+        font-size: 14px;
+        line-height: 1.65;
+        color: #d1d5db;
+        margin: 10px 0;
+      }
+      /* One-sentence emphasis paragraphs (Galloway "Full stop." "Bold." rhythm):
+         when a paragraph is a single short sentence wrapped in <strong>,
+         render it as a callout-style pull line. */
+      .brief-content p > strong:only-child {
+        display: inline-block;
+        font-size: 15px;
+        color: #f9fafb;
+        font-weight: 700;
       }
       .brief-content ul, .brief-content ol {
         font-size: 13px;
@@ -209,8 +221,29 @@
         const risks = Array.isArray(data.risks) ? data.risks : [];
         const opps = Array.isArray(data.opportunities) ? data.opportunities : [];
 
+        const topThree = Array.isArray(data.topThree) ? data.topThree : null;
+        const closingLine = data.closingLine || null;
+
         return (
           <div className="mb-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-4">
+            {/* Galloway-style "Today's Three" TOC */}
+            {topThree && topThree.length === 3 && (
+              <div className="rounded-lg bg-gradient-to-br from-amber-500/5 to-amber-500/[0.02] border border-amber-500/20 p-3">
+                <div className="text-[9px] uppercase tracking-[0.18em] text-amber-300/80 mb-2">Today's three</div>
+                <ol className="space-y-1.5">
+                  {topThree.map((t) => (
+                    <li key={t.n} className="flex items-baseline gap-2 text-[12.5px] leading-relaxed">
+                      <span className="font-bold text-amber-300 tabular-nums shrink-0">{t.n}.</span>
+                      <span className="text-[#e5e7eb]">
+                        {t.label && <span className="text-[#9ca3af] font-medium">{t.label}: </span>}
+                        <span>{t.body}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+
             {/* Headline strip */}
             <div className="flex flex-wrap items-center gap-2">
               {hl.regime && <Badge label="Regime" value={hl.regime.replace(/_/g, " ")} color="#67e8f9" />}
@@ -346,6 +379,13 @@
                     </span>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Galloway-style decisive closing line */}
+            {closingLine && (
+              <div className="pt-3 border-t border-white/[0.06] italic text-[#d1d5db] text-[12px] leading-relaxed">
+                &ldquo;{closingLine}&rdquo;
               </div>
             )}
           </div>
