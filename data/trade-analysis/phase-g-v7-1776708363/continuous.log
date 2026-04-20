@@ -1,0 +1,436 @@
+[2026-04-20T18:06:04Z] === continuous-slice: phase-g-v7-1776708363 ===
+[2026-04-20T18:06:04Z]     range=2025-07-01..2026-04-30  trading_days=210
+[2026-04-20T18:06:04Z]     tickers(24)=SPY,QQQ,IWM,AAPL,MSFT,GOOGL,AMZN,META,NVDA,TSLA,AMD,ARM,AVGO,MU,TSM,AGQ,APP,CDNS,CRWD,HUBS,MDB,MSTR,ORCL,PLTR,SHOP,CAT,ETN,FIX,MTZ,IESC,COIN,JPM,SPGI,NFLX,COST,XLE,XLF,XLK,XLV,XLY
+[2026-04-20T18:06:04Z]     watchdog=420s  resume=false  block_chain=true
+[2026-04-20T18:06:04Z] Acquired replay lock: continuous_phase-g-v7-1776708363@2026-04-20T18:06:04.334Z
+[2026-04-20T18:06:05Z] Registered run phase-g-v7-1776708363
+[2026-04-20T18:06:07Z] Replay state reset complete
+[2026-04-20T18:06:07Z] >>> day 1/210  2025-07-01
+[2026-04-20T18:06:54Z] day 2025-07-01 ok {"scored":336,"trades":6,"blocked_bars":259} (46s, attempt 1)
+[2026-04-20T18:06:54Z] >>> day 2/210  2025-07-02
+[2026-04-20T18:07:19Z] day 2025-07-02 ok {"scored":336,"trades":1,"blocked_bars":256} (25s, attempt 1)
+[2026-04-20T18:07:20Z] >>> day 3/210  2025-07-03
+[2026-04-20T18:07:59Z] day 2025-07-03 ok {"scored":336,"trades":0,"blocked_bars":265} (39s, attempt 1)
+[2026-04-20T18:07:59Z] >>> day 4/210  2025-07-07
+[2026-04-20T18:08:27Z] day 2025-07-07 ok {"scored":336,"trades":0,"blocked_bars":266} (28s, attempt 1)
+[2026-04-20T18:08:27Z] >>> day 5/210  2025-07-08
+[2026-04-20T18:09:12Z] day 2025-07-08 ok {"scored":336,"trades":1,"blocked_bars":273} (45s, attempt 1)
+[2026-04-20T18:09:12Z] >>> day 6/210  2025-07-09
+[2026-04-20T18:09:32Z] day 2025-07-09 ok {"scored":336,"trades":1,"blocked_bars":275} (20s, attempt 1)
+[2026-04-20T18:09:32Z] >>> day 7/210  2025-07-10
+[2026-04-20T18:10:13Z] day 2025-07-10 ok {"scored":336,"trades":0,"blocked_bars":278} (41s, attempt 1)
+[2026-04-20T18:10:13Z] >>> day 8/210  2025-07-11
+[2026-04-20T18:10:35Z] day 2025-07-11 ok {"scored":336,"trades":2,"blocked_bars":270} (22s, attempt 1)
+[2026-04-20T18:10:35Z] >>> day 9/210  2025-07-14
+[2026-04-20T18:11:17Z] day 2025-07-14 ok {"scored":336,"trades":0,"blocked_bars":283} (42s, attempt 1)
+[2026-04-20T18:11:17Z] >>> day 10/210  2025-07-15
+[2026-04-20T18:11:39Z] day 2025-07-15 ok {"scored":336,"trades":2,"blocked_bars":274} (22s, attempt 1)
+[2026-04-20T18:11:39Z] >>> day 11/210  2025-07-16
+[2026-04-20T18:15:27Z] day 2025-07-16 ok {"scored":336,"trades":0,"blocked_bars":275} (227s, attempt 1)
+[2026-04-20T18:15:27Z] >>> day 12/210  2025-07-17
+[2026-04-20T18:15:51Z] day 2025-07-17 ok {"scored":336,"trades":3,"blocked_bars":268} (24s, attempt 1)
+[2026-04-20T18:15:51Z] >>> day 13/210  2025-07-18
+[2026-04-20T18:16:35Z] day 2025-07-18 ok {"scored":336,"trades":1,"blocked_bars":245} (44s, attempt 1)
+[2026-04-20T18:16:35Z] >>> day 14/210  2025-07-21
+[2026-04-20T18:16:55Z] day 2025-07-21 ok {"scored":336,"trades":1,"blocked_bars":250} (20s, attempt 1)
+[2026-04-20T18:16:55Z] >>> day 15/210  2025-07-22
+[2026-04-20T18:17:40Z] day 2025-07-22 ok {"scored":336,"trades":1,"blocked_bars":242} (45s, attempt 1)
+[2026-04-20T18:17:40Z] >>> day 16/210  2025-07-23
+[2026-04-20T18:18:11Z] day 2025-07-23 ok {"scored":336,"trades":3,"blocked_bars":246} (30s, attempt 1)
+[2026-04-20T18:18:11Z] >>> day 17/210  2025-07-24
+[2026-04-20T18:18:52Z] day 2025-07-24 ok {"scored":336,"trades":0,"blocked_bars":246} (41s, attempt 1)
+[2026-04-20T18:18:52Z] >>> day 18/210  2025-07-25
+[2026-04-20T18:19:18Z] day 2025-07-25 ok {"scored":336,"trades":0,"blocked_bars":266} (25s, attempt 1)
+[2026-04-20T18:19:18Z] >>> day 19/210  2025-07-28
+[2026-04-20T18:29:09Z] WARN: curl rc=124 elapsed=591s on 2025-07-28 attempt 1
+[2026-04-20T18:30:04Z] day 2025-07-28 ok {"scored":336,"trades":0,"blocked_bars":250} (46s, attempt 2)
+[2026-04-20T18:30:04Z] >>> day 20/210  2025-07-29
+[2026-04-20T18:30:34Z] day 2025-07-29 ok {"scored":336,"trades":1,"blocked_bars":262} (30s, attempt 1)
+[2026-04-20T18:30:34Z] >>> day 21/210  2025-07-30
+[2026-04-20T18:31:18Z] day 2025-07-30 ok {"scored":336,"trades":0,"blocked_bars":285} (44s, attempt 1)
+[2026-04-20T18:31:18Z] >>> day 22/210  2025-07-31
+[2026-04-20T18:31:55Z] day 2025-07-31 ok {"scored":336,"trades":2,"blocked_bars":266} (37s, attempt 1)
+[2026-04-20T18:31:55Z] >>> day 23/210  2025-08-01
+[2026-04-20T18:32:47Z] day 2025-08-01 ok {"scored":336,"trades":0,"blocked_bars":318} (51s, attempt 1)
+[2026-04-20T18:32:47Z] >>> day 24/210  2025-08-04
+[2026-04-20T18:33:18Z] day 2025-08-04 ok {"scored":336,"trades":0,"blocked_bars":322} (31s, attempt 1)
+[2026-04-20T18:33:18Z] >>> day 25/210  2025-08-05
+[2026-04-20T18:34:02Z] day 2025-08-05 ok {"scored":336,"trades":1,"blocked_bars":313} (44s, attempt 1)
+[2026-04-20T18:34:02Z] >>> day 26/210  2025-08-06
+[2026-04-20T18:34:24Z] day 2025-08-06 ok {"scored":336,"trades":2,"blocked_bars":305} (21s, attempt 1)
+[2026-04-20T18:34:24Z] >>> day 27/210  2025-08-07
+[2026-04-20T18:35:11Z] day 2025-08-07 ok {"scored":336,"trades":0,"blocked_bars":303} (47s, attempt 1)
+[2026-04-20T18:35:11Z] >>> day 28/210  2025-08-08
+[2026-04-20T18:35:38Z] day 2025-08-08 ok {"scored":336,"trades":1,"blocked_bars":296} (27s, attempt 1)
+[2026-04-20T18:35:38Z] >>> day 29/210  2025-08-11
+[2026-04-20T18:36:21Z] day 2025-08-11 ok {"scored":336,"trades":0,"blocked_bars":294} (42s, attempt 1)
+[2026-04-20T18:36:21Z] >>> day 30/210  2025-08-12
+[2026-04-20T18:36:44Z] day 2025-08-12 ok {"scored":336,"trades":0,"blocked_bars":294} (23s, attempt 1)
+[2026-04-20T18:36:44Z] >>> day 31/210  2025-08-13
+[2026-04-20T18:37:31Z] day 2025-08-13 ok {"scored":336,"trades":2,"blocked_bars":286} (47s, attempt 1)
+[2026-04-20T18:37:31Z] >>> day 32/210  2025-08-14
+[2026-04-20T18:38:03Z] day 2025-08-14 ok {"scored":336,"trades":1,"blocked_bars":280} (31s, attempt 1)
+[2026-04-20T18:38:03Z] >>> day 33/210  2025-08-15
+[2026-04-20T18:38:47Z] day 2025-08-15 ok {"scored":336,"trades":1,"blocked_bars":298} (44s, attempt 1)
+[2026-04-20T18:38:47Z] >>> day 34/210  2025-08-18
+[2026-04-20T18:39:20Z] day 2025-08-18 ok {"scored":336,"trades":2,"blocked_bars":263} (32s, attempt 1)
+[2026-04-20T18:39:20Z] >>> day 35/210  2025-08-19
+[2026-04-20T18:40:07Z] day 2025-08-19 ok {"scored":336,"trades":1,"blocked_bars":273} (47s, attempt 1)
+[2026-04-20T18:40:07Z] >>> day 36/210  2025-08-20
+[2026-04-20T18:40:30Z] day 2025-08-20 ok {"scored":336,"trades":0,"blocked_bars":320} (23s, attempt 1)
+[2026-04-20T18:40:30Z] >>> day 37/210  2025-08-21
+[2026-04-20T18:41:13Z] day 2025-08-21 ok {"scored":336,"trades":0,"blocked_bars":336} (43s, attempt 1)
+[2026-04-20T18:41:13Z] >>> day 38/210  2025-08-22
+[2026-04-20T18:41:36Z] day 2025-08-22 ok {"scored":336,"trades":1,"blocked_bars":323} (23s, attempt 1)
+[2026-04-20T18:41:36Z] >>> day 39/210  2025-08-25
+[2026-04-20T18:42:31Z] day 2025-08-25 ok {"scored":336,"trades":1,"blocked_bars":316} (54s, attempt 1)
+[2026-04-20T18:42:31Z] >>> day 40/210  2025-08-26
+[2026-04-20T18:43:02Z] day 2025-08-26 ok {"scored":336,"trades":2,"blocked_bars":290} (29s, attempt 1)
+[2026-04-20T18:43:02Z] >>> day 41/210  2025-08-27
+[2026-04-20T18:43:46Z] day 2025-08-27 ok {"scored":336,"trades":0,"blocked_bars":294} (44s, attempt 1)
+[2026-04-20T18:43:46Z] >>> day 42/210  2025-08-28
+[2026-04-20T18:44:17Z] day 2025-08-28 ok {"scored":336,"trades":0,"blocked_bars":294} (31s, attempt 1)
+[2026-04-20T18:44:17Z] >>> day 43/210  2025-08-29
+[2026-04-20T18:44:59Z] day 2025-08-29 ok {"scored":336,"trades":1,"blocked_bars":292} (42s, attempt 1)
+[2026-04-20T18:44:59Z] >>> day 44/210  2025-09-02
+[2026-04-20T18:45:26Z] day 2025-09-02 ok {"scored":336,"trades":1,"blocked_bars":308} (27s, attempt 1)
+[2026-04-20T18:45:26Z] >>> day 45/210  2025-09-03
+[2026-04-20T18:46:09Z] day 2025-09-03 ok {"scored":336,"trades":1,"blocked_bars":294} (43s, attempt 1)
+[2026-04-20T18:46:09Z] >>> day 46/210  2025-09-04
+[2026-04-20T18:46:33Z] day 2025-09-04 ok {"scored":336,"trades":0,"blocked_bars":294} (23s, attempt 1)
+[2026-04-20T18:46:33Z] >>> day 47/210  2025-09-05
+[2026-04-20T18:47:19Z] day 2025-09-05 ok {"scored":336,"trades":0,"blocked_bars":307} (46s, attempt 1)
+[2026-04-20T18:47:19Z] >>> day 48/210  2025-09-08
+[2026-04-20T18:47:44Z] day 2025-09-08 ok {"scored":336,"trades":0,"blocked_bars":308} (24s, attempt 1)
+[2026-04-20T18:47:44Z] >>> day 49/210  2025-09-09
+[2026-04-20T18:48:33Z] day 2025-09-09 ok {"scored":336,"trades":0,"blocked_bars":312} (49s, attempt 1)
+[2026-04-20T18:48:33Z] >>> day 50/210  2025-09-10
+[2026-04-20T18:48:57Z] day 2025-09-10 ok {"scored":336,"trades":0,"blocked_bars":335} (24s, attempt 1)
+[2026-04-20T18:48:57Z] >>> day 51/210  2025-09-11
+[2026-04-20T18:49:39Z] day 2025-09-11 ok {"scored":336,"trades":3,"blocked_bars":298} (42s, attempt 1)
+[2026-04-20T18:49:39Z] >>> day 52/210  2025-09-12
+[2026-04-20T18:50:05Z] day 2025-09-12 ok {"scored":336,"trades":2,"blocked_bars":279} (25s, attempt 1)
+[2026-04-20T18:50:05Z] >>> day 53/210  2025-09-15
+[2026-04-20T18:50:50Z] day 2025-09-15 ok {"scored":336,"trades":1,"blocked_bars":282} (45s, attempt 1)
+[2026-04-20T18:50:50Z] >>> day 54/210  2025-09-16
+[2026-04-20T18:51:17Z] day 2025-09-16 ok {"scored":336,"trades":0,"blocked_bars":292} (26s, attempt 1)
+[2026-04-20T18:51:17Z] >>> day 55/210  2025-09-17
+[2026-04-20T18:51:59Z] day 2025-09-17 ok {"scored":336,"trades":0,"blocked_bars":309} (42s, attempt 1)
+[2026-04-20T18:51:59Z] >>> day 56/210  2025-09-18
+[2026-04-20T18:52:26Z] day 2025-09-18 ok {"scored":336,"trades":1,"blocked_bars":309} (27s, attempt 1)
+[2026-04-20T18:52:26Z] >>> day 57/210  2025-09-19
+[2026-04-20T18:53:11Z] day 2025-09-19 ok {"scored":336,"trades":0,"blocked_bars":308} (45s, attempt 1)
+[2026-04-20T18:53:11Z] >>> day 58/210  2025-09-22
+[2026-04-20T18:53:39Z] day 2025-09-22 ok {"scored":336,"trades":3,"blocked_bars":288} (27s, attempt 1)
+[2026-04-20T18:53:39Z] >>> day 59/210  2025-09-23
+[2026-04-20T18:54:24Z] day 2025-09-23 ok {"scored":336,"trades":1,"blocked_bars":279} (45s, attempt 1)
+[2026-04-20T18:54:24Z] >>> day 60/210  2025-09-24
+[2026-04-20T18:54:54Z] day 2025-09-24 ok {"scored":336,"trades":0,"blocked_bars":310} (30s, attempt 1)
+[2026-04-20T18:54:54Z] >>> day 61/210  2025-09-25
+[2026-04-20T18:55:38Z] day 2025-09-25 ok {"scored":336,"trades":0,"blocked_bars":336} (43s, attempt 1)
+[2026-04-20T18:55:38Z] >>> day 62/210  2025-09-26
+[2026-04-20T18:56:12Z] day 2025-09-26 ok {"scored":336,"trades":2,"blocked_bars":311} (33s, attempt 1)
+[2026-04-20T18:56:12Z] >>> day 63/210  2025-09-29
+[2026-04-20T18:56:53Z] day 2025-09-29 ok {"scored":336,"trades":0,"blocked_bars":320} (40s, attempt 1)
+[2026-04-20T18:56:53Z] >>> day 64/210  2025-09-30
+[2026-04-20T18:57:20Z] day 2025-09-30 ok {"scored":336,"trades":1,"blocked_bars":323} (26s, attempt 1)
+[2026-04-20T18:57:20Z] >>> day 65/210  2025-10-01
+[2026-04-20T18:58:04Z] day 2025-10-01 ok {"scored":336,"trades":0,"blocked_bars":336} (43s, attempt 1)
+[2026-04-20T18:58:04Z] >>> day 66/210  2025-10-02
+[2026-04-20T18:58:29Z] day 2025-10-02 ok {"scored":336,"trades":3,"blocked_bars":310} (25s, attempt 1)
+[2026-04-20T18:58:29Z] >>> day 67/210  2025-10-03
+[2026-04-20T18:59:13Z] day 2025-10-03 ok {"scored":336,"trades":1,"blocked_bars":287} (44s, attempt 1)
+[2026-04-20T18:59:13Z] >>> day 68/210  2025-10-06
+[2026-04-20T18:59:43Z] day 2025-10-06 ok {"scored":336,"trades":2,"blocked_bars":295} (30s, attempt 1)
+[2026-04-20T18:59:43Z] >>> day 69/210  2025-10-07
+[2026-04-20T19:00:30Z] day 2025-10-07 ok {"scored":336,"trades":1,"blocked_bars":288} (47s, attempt 1)
+[2026-04-20T19:00:30Z] >>> day 70/210  2025-10-08
+[2026-04-20T19:00:58Z] day 2025-10-08 ok {"scored":336,"trades":3,"blocked_bars":294} (27s, attempt 1)
+[2026-04-20T19:00:58Z] >>> day 71/210  2025-10-09
+[2026-04-20T19:01:45Z] day 2025-10-09 ok {"scored":336,"trades":1,"blocked_bars":308} (47s, attempt 1)
+[2026-04-20T19:01:45Z] >>> day 72/210  2025-10-10
+[2026-04-20T19:02:15Z] day 2025-10-10 ok {"scored":336,"trades":1,"blocked_bars":314} (30s, attempt 1)
+[2026-04-20T19:02:15Z] >>> day 73/210  2025-10-13
+[2026-04-20T19:02:59Z] day 2025-10-13 ok {"scored":336,"trades":1,"blocked_bars":313} (44s, attempt 1)
+[2026-04-20T19:02:59Z] >>> day 74/210  2025-10-14
+[2026-04-20T19:03:30Z] day 2025-10-14 ok {"scored":336,"trades":0,"blocked_bars":322} (31s, attempt 1)
+[2026-04-20T19:03:30Z] >>> day 75/210  2025-10-15
+[2026-04-20T19:04:17Z] day 2025-10-15 ok {"scored":336,"trades":2,"blocked_bars":299} (47s, attempt 1)
+[2026-04-20T19:04:17Z] >>> day 76/210  2025-10-16
+[2026-04-20T19:04:46Z] day 2025-10-16 ok {"scored":336,"trades":2,"blocked_bars":281} (28s, attempt 1)
+[2026-04-20T19:04:46Z] >>> day 77/210  2025-10-17
+[2026-04-20T19:05:35Z] day 2025-10-17 ok {"scored":336,"trades":0,"blocked_bars":294} (49s, attempt 1)
+[2026-04-20T19:05:35Z] >>> day 78/210  2025-10-20
+[2026-04-20T19:06:10Z] day 2025-10-20 ok {"scored":336,"trades":0,"blocked_bars":333} (35s, attempt 1)
+[2026-04-20T19:06:10Z] >>> day 79/210  2025-10-21
+[2026-04-20T19:08:40Z] day 2025-10-21 ok {"scored":336,"trades":2,"blocked_bars":317} (150s, attempt 1)
+[2026-04-20T19:08:40Z] >>> day 80/210  2025-10-22
+[2026-04-20T19:09:09Z] day 2025-10-22 ok {"scored":336,"trades":1,"blocked_bars":319} (29s, attempt 1)
+[2026-04-20T19:09:09Z] >>> day 81/210  2025-10-23
+[2026-04-20T19:09:55Z] day 2025-10-23 ok {"scored":336,"trades":1,"blocked_bars":333} (46s, attempt 1)
+[2026-04-20T19:09:55Z] >>> day 82/210  2025-10-24
+[2026-04-20T19:10:24Z] day 2025-10-24 ok {"scored":336,"trades":1,"blocked_bars":313} (29s, attempt 1)
+[2026-04-20T19:10:24Z] >>> day 83/210  2025-10-27
+[2026-04-20T19:11:12Z] day 2025-10-27 ok {"scored":336,"trades":1,"blocked_bars":317} (48s, attempt 1)
+[2026-04-20T19:11:12Z] >>> day 84/210  2025-10-28
+[2026-04-20T19:11:41Z] day 2025-10-28 ok {"scored":336,"trades":2,"blocked_bars":301} (29s, attempt 1)
+[2026-04-20T19:11:41Z] >>> day 85/210  2025-10-29
+[2026-04-20T19:12:25Z] day 2025-10-29 ok {"scored":336,"trades":1,"blocked_bars":303} (43s, attempt 1)
+[2026-04-20T19:12:25Z] >>> day 86/210  2025-10-30
+[2026-04-20T19:13:03Z] day 2025-10-30 ok {"scored":336,"trades":2,"blocked_bars":284} (38s, attempt 1)
+[2026-04-20T19:13:03Z] >>> day 87/210  2025-10-31
+[2026-04-20T19:13:47Z] day 2025-10-31 ok {"scored":336,"trades":2,"blocked_bars":277} (44s, attempt 1)
+[2026-04-20T19:13:47Z] >>> day 88/210  2025-11-03
+[2026-04-20T19:14:25Z] day 2025-11-03 ok {"scored":336,"trades":0,"blocked_bars":301} (38s, attempt 1)
+[2026-04-20T19:14:25Z] >>> day 89/210  2025-11-04
+[2026-04-20T19:15:06Z] day 2025-11-04 ok {"scored":336,"trades":0,"blocked_bars":317} (41s, attempt 1)
+[2026-04-20T19:15:06Z] >>> day 90/210  2025-11-05
+[2026-04-20T19:15:32Z] day 2025-11-05 ok {"scored":336,"trades":0,"blocked_bars":322} (26s, attempt 1)
+[2026-04-20T19:15:32Z] >>> day 91/210  2025-11-06
+[2026-04-20T19:16:11Z] day 2025-11-06 ok {"scored":336,"trades":0,"blocked_bars":322} (39s, attempt 1)
+[2026-04-20T19:16:11Z] >>> day 92/210  2025-11-07
+[2026-04-20T19:16:46Z] day 2025-11-07 ok {"scored":336,"trades":1,"blocked_bars":313} (35s, attempt 1)
+[2026-04-20T19:16:46Z] >>> day 93/210  2025-11-10
+[2026-04-20T19:17:29Z] day 2025-11-10 ok {"scored":336,"trades":1,"blocked_bars":309} (43s, attempt 1)
+[2026-04-20T19:17:29Z] >>> day 94/210  2025-11-11
+[2026-04-20T19:18:05Z] day 2025-11-11 ok {"scored":336,"trades":0,"blocked_bars":314} (36s, attempt 1)
+[2026-04-20T19:18:05Z] >>> day 95/210  2025-11-12
+[2026-04-20T19:18:49Z] day 2025-11-12 ok {"scored":336,"trades":2,"blocked_bars":308} (43s, attempt 1)
+[2026-04-20T19:18:49Z] >>> day 96/210  2025-11-13
+[2026-04-20T19:19:27Z] day 2025-11-13 ok {"scored":336,"trades":1,"blocked_bars":288} (37s, attempt 1)
+[2026-04-20T19:19:27Z] >>> day 97/210  2025-11-14
+[2026-04-20T19:20:08Z] day 2025-11-14 ok {"scored":336,"trades":0,"blocked_bars":310} (41s, attempt 1)
+[2026-04-20T19:20:08Z] >>> day 98/210  2025-11-17
+[2026-04-20T19:20:43Z] day 2025-11-17 ok {"scored":336,"trades":2,"blocked_bars":297} (35s, attempt 1)
+[2026-04-20T19:20:43Z] >>> day 99/210  2025-11-18
+[2026-04-20T19:21:26Z] day 2025-11-18 ok {"scored":336,"trades":2,"blocked_bars":276} (43s, attempt 1)
+[2026-04-20T19:21:26Z] >>> day 100/210  2025-11-19
+[2026-04-20T19:22:03Z] day 2025-11-19 ok {"scored":336,"trades":0,"blocked_bars":266} (36s, attempt 1)
+[2026-04-20T19:22:03Z] >>> day 101/210  2025-11-20
+[2026-04-20T19:22:48Z] day 2025-11-20 ok {"scored":336,"trades":2,"blocked_bars":283} (45s, attempt 1)
+[2026-04-20T19:22:48Z] >>> day 102/210  2025-11-21
+[2026-04-20T19:23:36Z] day 2025-11-21 ok {"scored":336,"trades":2,"blocked_bars":259} (48s, attempt 1)
+[2026-04-20T19:23:36Z] >>> day 103/210  2025-11-24
+[2026-04-20T19:24:08Z] day 2025-11-24 ok {"scored":336,"trades":0,"blocked_bars":290} (32s, attempt 1)
+[2026-04-20T19:24:08Z] >>> day 104/210  2025-11-25
+[2026-04-20T19:24:53Z] day 2025-11-25 ok {"scored":336,"trades":1,"blocked_bars":309} (45s, attempt 1)
+[2026-04-20T19:24:53Z] >>> day 105/210  2025-11-26
+[2026-04-20T19:25:27Z] day 2025-11-26 ok {"scored":336,"trades":0,"blocked_bars":318} (33s, attempt 1)
+[2026-04-20T19:25:27Z] >>> day 106/210  2025-11-28
+[2026-04-20T19:26:16Z] day 2025-11-28 ok {"scored":336,"trades":0,"blocked_bars":334} (48s, attempt 1)
+[2026-04-20T19:26:16Z] >>> day 107/210  2025-12-01
+[2026-04-20T19:26:46Z] day 2025-12-01 ok {"scored":336,"trades":1,"blocked_bars":325} (30s, attempt 1)
+[2026-04-20T19:26:46Z] >>> day 108/210  2025-12-02
+[2026-04-20T19:27:38Z] day 2025-12-02 ok {"scored":336,"trades":1,"blocked_bars":309} (51s, attempt 1)
+[2026-04-20T19:27:38Z] >>> day 109/210  2025-12-03
+[2026-04-20T19:28:07Z] day 2025-12-03 ok {"scored":336,"trades":2,"blocked_bars":300} (29s, attempt 1)
+[2026-04-20T19:28:07Z] >>> day 110/210  2025-12-04
+[2026-04-20T19:28:52Z] day 2025-12-04 ok {"scored":0,"trades":0,"blocked_bars":0} (44s, attempt 1)
+[2026-04-20T19:28:52Z] >>> day 111/210  2025-12-05
+[2026-04-20T19:29:26Z] day 2025-12-05 ok {"scored":336,"trades":2,"blocked_bars":280} (33s, attempt 1)
+[2026-04-20T19:29:26Z] >>> day 112/210  2025-12-08
+[2026-04-20T19:30:18Z] day 2025-12-08 ok {"scored":336,"trades":0,"blocked_bars":306} (51s, attempt 1)
+[2026-04-20T19:30:18Z] >>> day 113/210  2025-12-09
+[2026-04-20T19:30:53Z] day 2025-12-09 ok {"scored":336,"trades":2,"blocked_bars":286} (33s, attempt 1)
+[2026-04-20T19:30:53Z] >>> day 114/210  2025-12-10
+[2026-04-20T19:31:38Z] day 2025-12-10 ok {"scored":336,"trades":0,"blocked_bars":287} (45s, attempt 1)
+[2026-04-20T19:31:38Z] >>> day 115/210  2025-12-11
+[2026-04-20T19:32:19Z] day 2025-12-11 ok {"scored":336,"trades":2,"blocked_bars":296} (40s, attempt 1)
+[2026-04-20T19:32:19Z] >>> day 116/210  2025-12-12
+[2026-04-20T19:33:59Z] day 2025-12-12 ok {"scored":336,"trades":2,"blocked_bars":295} (100s, attempt 1)
+[2026-04-20T19:33:59Z] >>> day 117/210  2025-12-15
+[2026-04-20T19:34:26Z] day 2025-12-15 ok {"scored":336,"trades":1,"blocked_bars":285} (27s, attempt 1)
+[2026-04-20T19:34:26Z] >>> day 118/210  2025-12-16
+[2026-04-20T19:35:19Z] day 2025-12-16 ok {"scored":336,"trades":1,"blocked_bars":308} (53s, attempt 1)
+[2026-04-20T19:35:20Z] >>> day 119/210  2025-12-17
+[2026-04-20T19:37:41Z] day 2025-12-17 ok {"scored":336,"trades":3,"blocked_bars":293} (141s, attempt 1)
+[2026-04-20T19:37:41Z] >>> day 120/210  2025-12-18
+[2026-04-20T19:38:11Z] day 2025-12-18 ok {"scored":336,"trades":2,"blocked_bars":283} (30s, attempt 1)
+[2026-04-20T19:38:11Z] >>> day 121/210  2025-12-19
+[2026-04-20T19:38:56Z] day 2025-12-19 ok {"scored":336,"trades":0,"blocked_bars":308} (45s, attempt 1)
+[2026-04-20T19:38:56Z] >>> day 122/210  2025-12-22
+[2026-04-20T19:39:32Z] day 2025-12-22 ok {"scored":336,"trades":0,"blocked_bars":323} (35s, attempt 1)
+[2026-04-20T19:39:32Z] >>> day 123/210  2025-12-23
+[2026-04-20T19:40:23Z] day 2025-12-23 ok {"scored":336,"trades":0,"blocked_bars":336} (51s, attempt 1)
+[2026-04-20T19:40:23Z] >>> day 124/210  2025-12-24
+[2026-04-20T19:40:55Z] day 2025-12-24 ok {"scored":336,"trades":0,"blocked_bars":336} (32s, attempt 1)
+[2026-04-20T19:40:55Z] >>> day 125/210  2025-12-26
+[2026-04-20T19:41:39Z] day 2025-12-26 ok {"scored":336,"trades":0,"blocked_bars":336} (44s, attempt 1)
+[2026-04-20T19:41:39Z] >>> day 126/210  2025-12-29
+[2026-04-20T19:42:18Z] day 2025-12-29 ok {"scored":336,"trades":0,"blocked_bars":336} (39s, attempt 1)
+[2026-04-20T19:42:18Z] >>> day 127/210  2025-12-30
+[2026-04-20T19:43:16Z] day 2025-12-30 ok {"scored":336,"trades":2,"blocked_bars":318} (57s, attempt 1)
+[2026-04-20T19:43:16Z] >>> day 128/210  2025-12-31
+[2026-04-20T19:43:56Z] day 2025-12-31 ok {"scored":336,"trades":0,"blocked_bars":308} (40s, attempt 1)
+[2026-04-20T19:43:56Z] >>> day 129/210  2026-01-02
+[2026-04-20T19:44:34Z] day 2026-01-02 ok {"scored":336,"trades":0,"blocked_bars":318} (38s, attempt 1)
+[2026-04-20T19:44:34Z] >>> day 130/210  2026-01-05
+[2026-04-20T19:45:20Z] day 2026-01-05 ok {"scored":336,"trades":2,"blocked_bars":298} (45s, attempt 1)
+[2026-04-20T19:45:20Z] >>> day 131/210  2026-01-06
+[2026-04-20T19:45:56Z] day 2026-01-06 ok {"scored":336,"trades":0,"blocked_bars":317} (35s, attempt 1)
+[2026-04-20T19:45:56Z] >>> day 132/210  2026-01-07
+[2026-04-20T19:46:44Z] day 2026-01-07 ok {"scored":336,"trades":0,"blocked_bars":334} (47s, attempt 1)
+[2026-04-20T19:46:44Z] >>> day 133/210  2026-01-08
+[2026-04-20T19:47:16Z] day 2026-01-08 ok {"scored":336,"trades":1,"blocked_bars":323} (32s, attempt 1)
+[2026-04-20T19:47:16Z] >>> day 134/210  2026-01-09
+[2026-04-20T19:48:07Z] day 2026-01-09 ok {"scored":336,"trades":2,"blocked_bars":308} (51s, attempt 1)
+[2026-04-20T19:48:07Z] >>> day 135/210  2026-01-12
+[2026-04-20T19:48:40Z] day 2026-01-12 ok {"scored":336,"trades":1,"blocked_bars":290} (33s, attempt 1)
+[2026-04-20T19:48:40Z] >>> day 136/210  2026-01-13
+[2026-04-20T19:49:35Z] day 2026-01-13 ok {"scored":336,"trades":1,"blocked_bars":294} (55s, attempt 1)
+[2026-04-20T19:49:35Z] >>> day 137/210  2026-01-14
+[2026-04-20T19:50:10Z] day 2026-01-14 ok {"scored":336,"trades":0,"blocked_bars":316} (34s, attempt 1)
+[2026-04-20T19:50:10Z] >>> day 138/210  2026-01-15
+[2026-04-20T19:50:57Z] day 2026-01-15 ok {"scored":336,"trades":4,"blocked_bars":304} (47s, attempt 1)
+[2026-04-20T19:50:57Z] >>> day 139/210  2026-01-16
+[2026-04-20T19:51:34Z] day 2026-01-16 ok {"scored":336,"trades":0,"blocked_bars":288} (37s, attempt 1)
+[2026-04-20T19:51:34Z] >>> day 140/210  2026-01-20
+[2026-04-20T19:52:27Z] day 2026-01-20 ok {"scored":336,"trades":1,"blocked_bars":299} (53s, attempt 1)
+[2026-04-20T19:52:27Z] >>> day 141/210  2026-01-21
+[2026-04-20T19:53:29Z] day 2026-01-21 ok {"scored":336,"trades":4,"blocked_bars":267} (62s, attempt 1)
+[2026-04-20T19:53:29Z] >>> day 142/210  2026-01-22
+[2026-04-20T19:54:02Z] day 2026-01-22 ok {"scored":336,"trades":2,"blocked_bars":283} (32s, attempt 1)
+[2026-04-20T19:54:02Z] >>> day 143/210  2026-01-23
+[2026-04-20T19:54:51Z] day 2026-01-23 ok {"scored":336,"trades":0,"blocked_bars":277} (49s, attempt 1)
+[2026-04-20T19:54:51Z] >>> day 144/210  2026-01-26
+[2026-04-20T19:55:27Z] day 2026-01-26 ok {"scored":336,"trades":0,"blocked_bars":316} (36s, attempt 1)
+[2026-04-20T19:55:27Z] >>> day 145/210  2026-01-27
+[2026-04-20T19:56:11Z] day 2026-01-27 ok {"scored":336,"trades":0,"blocked_bars":322} (44s, attempt 1)
+[2026-04-20T19:56:11Z] >>> day 146/210  2026-01-28
+[2026-04-20T19:56:49Z] day 2026-01-28 ok {"scored":336,"trades":2,"blocked_bars":309} (38s, attempt 1)
+[2026-04-20T19:56:49Z] >>> day 147/210  2026-01-29
+[2026-04-20T19:57:36Z] day 2026-01-29 ok {"scored":336,"trades":1,"blocked_bars":315} (47s, attempt 1)
+[2026-04-20T19:57:36Z] >>> day 148/210  2026-01-30
+[2026-04-20T19:58:40Z] day 2026-01-30 ok {"scored":336,"trades":3,"blocked_bars":270} (64s, attempt 1)
+[2026-04-20T19:58:40Z] >>> day 149/210  2026-02-02
+[2026-04-20T19:59:41Z] day 2026-02-02 ok {"scored":336,"trades":3,"blocked_bars":267} (61s, attempt 1)
+[2026-04-20T19:59:41Z] >>> day 150/210  2026-02-03
+[2026-04-20T20:00:17Z] day 2026-02-03 ok {"scored":336,"trades":0,"blocked_bars":279} (36s, attempt 1)
+[2026-04-20T20:00:17Z] >>> day 151/210  2026-02-04
+[2026-04-20T20:01:10Z] day 2026-02-04 ok {"scored":336,"trades":1,"blocked_bars":279} (53s, attempt 1)
+[2026-04-20T20:01:10Z] >>> day 152/210  2026-02-05
+[2026-04-20T20:01:54Z] day 2026-02-05 ok {"scored":336,"trades":2,"blocked_bars":271} (44s, attempt 1)
+[2026-04-20T20:01:54Z] >>> day 153/210  2026-02-06
+[2026-04-20T20:02:36Z] day 2026-02-06 ok {"scored":336,"trades":0,"blocked_bars":302} (42s, attempt 1)
+[2026-04-20T20:02:36Z] >>> day 154/210  2026-02-09
+[2026-04-20T20:03:38Z] day 2026-02-09 ok {"scored":336,"trades":0,"blocked_bars":330} (62s, attempt 1)
+[2026-04-20T20:03:38Z] >>> day 155/210  2026-02-10
+[2026-04-20T20:04:40Z] day 2026-02-10 ok {"scored":336,"trades":1,"blocked_bars":324} (62s, attempt 1)
+[2026-04-20T20:04:40Z] >>> day 156/210  2026-02-11
+[2026-04-20T20:05:17Z] day 2026-02-11 ok {"scored":336,"trades":0,"blocked_bars":334} (36s, attempt 1)
+[2026-04-20T20:05:17Z] >>> day 157/210  2026-02-12
+[2026-04-20T20:06:04Z] day 2026-02-12 ok {"scored":336,"trades":2,"blocked_bars":319} (47s, attempt 1)
+[2026-04-20T20:06:04Z] >>> day 158/210  2026-02-13
+[2026-04-20T20:06:46Z] day 2026-02-13 ok {"scored":336,"trades":3,"blocked_bars":301} (42s, attempt 1)
+[2026-04-20T20:06:46Z] >>> day 159/210  2026-02-17
+[2026-04-20T20:07:30Z] day 2026-02-17 ok {"scored":336,"trades":1,"blocked_bars":277} (44s, attempt 1)
+[2026-04-20T20:07:30Z] >>> day 160/210  2026-02-18
+[2026-04-20T20:08:41Z] day 2026-02-18 ok {"scored":336,"trades":2,"blocked_bars":261} (71s, attempt 1)
+[2026-04-20T20:08:41Z] >>> day 161/210  2026-02-19
+[2026-04-20T20:09:46Z] day 2026-02-19 ok {"scored":336,"trades":2,"blocked_bars":260} (65s, attempt 1)
+[2026-04-20T20:09:46Z] >>> day 162/210  2026-02-20
+[2026-04-20T20:11:10Z] day 2026-02-20 ok {"scored":336,"trades":0,"blocked_bars":301} (84s, attempt 1)
+[2026-04-20T20:11:10Z] >>> day 163/210  2026-02-23
+[2026-04-20T20:11:46Z] day 2026-02-23 ok {"scored":336,"trades":1,"blocked_bars":314} (36s, attempt 1)
+[2026-04-20T20:11:46Z] >>> day 164/210  2026-02-24
+[2026-04-20T20:12:37Z] day 2026-02-24 ok {"scored":336,"trades":1,"blocked_bars":305} (51s, attempt 1)
+[2026-04-20T20:12:37Z] >>> day 165/210  2026-02-25
+[2026-04-20T20:13:38Z] day 2026-02-25 ok {"scored":336,"trades":1,"blocked_bars":309} (61s, attempt 1)
+[2026-04-20T20:13:38Z] >>> day 166/210  2026-02-26
+[2026-04-20T20:14:42Z] day 2026-02-26 ok {"scored":336,"trades":0,"blocked_bars":325} (63s, attempt 1)
+[2026-04-20T20:14:42Z] >>> day 167/210  2026-02-27
+[2026-04-20T20:15:45Z] day 2026-02-27 ok {"scored":336,"trades":3,"blocked_bars":301} (63s, attempt 1)
+[2026-04-20T20:15:45Z] >>> day 168/210  2026-03-02
+[2026-04-20T20:16:46Z] day 2026-03-02 ok {"scored":336,"trades":2,"blocked_bars":314} (60s, attempt 1)
+[2026-04-20T20:16:46Z] >>> day 169/210  2026-03-03
+[2026-04-20T20:17:20Z] day 2026-03-03 ok {"scored":336,"trades":1,"blocked_bars":299} (33s, attempt 1)
+[2026-04-20T20:17:20Z] >>> day 170/210  2026-03-04
+[2026-04-20T20:18:07Z] day 2026-03-04 ok {"scored":336,"trades":1,"blocked_bars":308} (47s, attempt 1)
+[2026-04-20T20:18:07Z] >>> day 171/210  2026-03-05
+[2026-04-20T20:19:09Z] day 2026-03-05 ok {"scored":336,"trades":0,"blocked_bars":325} (62s, attempt 1)
+[2026-04-20T20:19:09Z] >>> day 172/210  2026-03-06
+[2026-04-20T20:19:45Z] day 2026-03-06 ok {"scored":336,"trades":3,"blocked_bars":305} (35s, attempt 1)
+[2026-04-20T20:19:45Z] >>> day 173/210  2026-03-09
+[2026-04-20T20:20:39Z] day 2026-03-09 ok {"scored":336,"trades":1,"blocked_bars":301} (54s, attempt 1)
+[2026-04-20T20:20:39Z] >>> day 174/210  2026-03-10
+[2026-04-20T20:21:20Z] day 2026-03-10 ok {"scored":336,"trades":2,"blocked_bars":319} (41s, attempt 1)
+[2026-04-20T20:21:20Z] >>> day 175/210  2026-03-11
+[2026-04-20T20:22:08Z] day 2026-03-11 ok {"scored":336,"trades":0,"blocked_bars":316} (47s, attempt 1)
+[2026-04-20T20:22:08Z] >>> day 176/210  2026-03-12
+[2026-04-20T20:22:18Z] WARN: lock was empty; re-acquiring
+[2026-04-20T20:22:18Z] Acquired replay lock: continuous_phase-g-v7-1776708363@2026-04-20T20:22:18.181Z
+[2026-04-20T20:23:15Z] day 2026-03-12 ok {"scored":336,"trades":4,"blocked_bars":295} (57s, attempt 1)
+[2026-04-20T20:23:15Z] >>> day 177/210  2026-03-13
+[2026-04-20T20:24:19Z] day 2026-03-13 ok {"scored":336,"trades":1,"blocked_bars":263} (64s, attempt 1)
+[2026-04-20T20:24:19Z] >>> day 178/210  2026-03-16
+[2026-04-20T20:25:20Z] day 2026-03-16 ok {"scored":336,"trades":2,"blocked_bars":295} (61s, attempt 1)
+[2026-04-20T20:25:20Z] >>> day 179/210  2026-03-17
+[2026-04-20T20:26:21Z] day 2026-03-17 ok {"scored":336,"trades":1,"blocked_bars":269} (60s, attempt 1)
+[2026-04-20T20:26:21Z] >>> day 180/210  2026-03-18
+[2026-04-20T20:27:27Z] day 2026-03-18 ok {"scored":336,"trades":4,"blocked_bars":232} (65s, attempt 1)
+[2026-04-20T20:27:27Z] >>> day 181/210  2026-03-19
+[2026-04-20T20:28:30Z] day 2026-03-19 ok {"scored":336,"trades":0,"blocked_bars":233} (63s, attempt 1)
+[2026-04-20T20:28:30Z] >>> day 182/210  2026-03-20
+[2026-04-20T20:29:33Z] day 2026-03-20 ok {"scored":336,"trades":0,"blocked_bars":234} (62s, attempt 1)
+[2026-04-20T20:29:33Z] >>> day 183/210  2026-03-23
+[2026-04-20T20:30:48Z] day 2026-03-23 ok {"scored":336,"trades":4,"blocked_bars":269} (75s, attempt 1)
+[2026-04-20T20:30:48Z] >>> day 184/210  2026-03-24
+[2026-04-20T20:32:03Z] day 2026-03-24 ok {"scored":336,"trades":3,"blocked_bars":237} (75s, attempt 1)
+[2026-04-20T20:32:03Z] >>> day 185/210  2026-03-25
+[2026-04-20T20:33:07Z] day 2026-03-25 ok {"scored":336,"trades":0,"blocked_bars":252} (64s, attempt 1)
+[2026-04-20T20:33:07Z] >>> day 186/210  2026-03-26
+[2026-04-20T20:34:19Z] day 2026-03-26 ok {"scored":336,"trades":4,"blocked_bars":223} (71s, attempt 1)
+[2026-04-20T20:34:19Z] >>> day 187/210  2026-03-27
+[2026-04-20T20:35:24Z] day 2026-03-27 ok {"scored":336,"trades":2,"blocked_bars":194} (65s, attempt 1)
+[2026-04-20T20:35:24Z] >>> day 188/210  2026-03-30
+[2026-04-20T20:36:34Z] day 2026-03-30 ok {"scored":336,"trades":0,"blocked_bars":194} (70s, attempt 1)
+[2026-04-20T20:36:34Z] >>> day 189/210  2026-03-31
+[2026-04-20T20:37:45Z] day 2026-03-31 ok {"scored":336,"trades":1,"blocked_bars":263} (71s, attempt 1)
+[2026-04-20T20:37:46Z] >>> day 190/210  2026-04-01
+[2026-04-20T20:39:00Z] day 2026-04-01 ok {"scored":336,"trades":5,"blocked_bars":250} (74s, attempt 1)
+[2026-04-20T20:39:00Z] >>> day 191/210  2026-04-02
+[2026-04-20T20:40:07Z] day 2026-04-02 ok {"scored":336,"trades":1,"blocked_bars":293} (67s, attempt 1)
+[2026-04-20T20:40:07Z] >>> day 192/210  2026-04-06
+[2026-04-20T20:41:17Z] day 2026-04-06 ok {"scored":336,"trades":2,"blocked_bars":271} (69s, attempt 1)
+[2026-04-20T20:41:17Z] >>> day 193/210  2026-04-07
+[2026-04-20T20:42:23Z] day 2026-04-07 ok {"scored":336,"trades":4,"blocked_bars":236} (66s, attempt 1)
+[2026-04-20T20:42:23Z] >>> day 194/210  2026-04-08
+[2026-04-20T20:43:36Z] day 2026-04-08 ok {"scored":336,"trades":0,"blocked_bars":281} (73s, attempt 1)
+[2026-04-20T20:43:36Z] >>> day 195/210  2026-04-09
+[2026-04-20T20:44:50Z] day 2026-04-09 ok {"scored":336,"trades":4,"blocked_bars":275} (74s, attempt 1)
+[2026-04-20T20:44:50Z] >>> day 196/210  2026-04-10
+[2026-04-20T20:46:01Z] day 2026-04-10 ok {"scored":336,"trades":1,"blocked_bars":268} (70s, attempt 1)
+[2026-04-20T20:46:01Z] >>> day 197/210  2026-04-13
+[2026-04-20T20:47:13Z] day 2026-04-13 ok {"scored":336,"trades":2,"blocked_bars":302} (71s, attempt 1)
+[2026-04-20T20:47:13Z] >>> day 198/210  2026-04-14
+[2026-04-20T20:48:22Z] day 2026-04-14 ok {"scored":336,"trades":0,"blocked_bars":321} (69s, attempt 1)
+[2026-04-20T20:48:22Z] >>> day 199/210  2026-04-15
+[2026-04-20T20:49:32Z] day 2026-04-15 ok {"scored":336,"trades":1,"blocked_bars":332} (69s, attempt 1)
+[2026-04-20T20:49:32Z] >>> day 200/210  2026-04-16
+[2026-04-20T20:50:39Z] day 2026-04-16 ok {"scored":336,"trades":2,"blocked_bars":304} (67s, attempt 1)
+[2026-04-20T20:50:39Z] >>> day 201/210  2026-04-17
+[2026-04-20T20:51:47Z] day 2026-04-17 ok {"scored":336,"trades":0,"blocked_bars":321} (68s, attempt 1)
+[2026-04-20T20:51:47Z] >>> day 202/210  2026-04-20
+[2026-04-20T20:52:53Z] day 2026-04-20 ok {"scored":336,"trades":1,"blocked_bars":324} (66s, attempt 1)
+[2026-04-20T20:52:53Z] >>> day 203/210  2026-04-21
+[2026-04-20T20:54:06Z] day 2026-04-21 ok {"scored":336,"trades":0,"blocked_bars":336} (72s, attempt 1)
+[2026-04-20T20:54:06Z] >>> day 204/210  2026-04-22
+[2026-04-20T20:55:16Z] day 2026-04-22 ok {"scored":336,"trades":0,"blocked_bars":336} (70s, attempt 1)
+[2026-04-20T20:55:16Z] >>> day 205/210  2026-04-23
+[2026-04-20T20:56:22Z] day 2026-04-23 ok {"scored":336,"trades":0,"blocked_bars":336} (65s, attempt 1)
+[2026-04-20T20:56:22Z] >>> day 206/210  2026-04-24
+[2026-04-20T20:57:26Z] day 2026-04-24 ok {"scored":336,"trades":0,"blocked_bars":336} (64s, attempt 1)
+[2026-04-20T20:57:26Z] >>> day 207/210  2026-04-27
+[2026-04-20T20:58:42Z] day 2026-04-27 ok {"scored":336,"trades":0,"blocked_bars":336} (76s, attempt 1)
+[2026-04-20T20:58:42Z] >>> day 208/210  2026-04-28
+[2026-04-20T20:59:57Z] day 2026-04-28 ok {"scored":336,"trades":0,"blocked_bars":336} (74s, attempt 1)
+[2026-04-20T20:59:57Z] >>> day 209/210  2026-04-29
+[2026-04-20T21:01:13Z] day 2026-04-29 ok {"scored":336,"trades":0,"blocked_bars":336} (75s, attempt 1)
+[2026-04-20T21:01:13Z] >>> day 210/210  2026-04-30
+[2026-04-20T21:02:23Z] day 2026-04-30 ok {"scored":336,"trades":0,"blocked_bars":336} (69s, attempt 1)
+[2026-04-20T21:02:23Z] === All 210 trading days processed; finalizing ===
+[2026-04-20T21:02:23Z] Closing replay positions at 2026-04-30
+[2026-04-20T21:03:24Z] Finalized run phase-g-v7-1776708363
+[2026-04-20T21:03:24Z] Saved 231 trades to /workspace/data/trade-analysis/phase-g-v7-1776708363/trades.json
+[2026-04-20T21:03:24Z] === continuous-slice complete: phase-g-v7-1776708363 ===
+[2026-04-20T21:03:25Z] Released replay lock
