@@ -1,0 +1,55 @@
+[2026-04-21T00:04:57Z] === continuous-slice: phase-h3-smoke-apr-1776729897 ===
+[2026-04-21T00:04:57Z]     range=2026-04-01..2026-04-30  trading_days=21
+[2026-04-21T00:04:57Z]     tickers(24)=SPY,QQQ,IWM,AAPL,MSFT,GOOGL,AMZN,META,NVDA,TSLA,AMD,ARM,AVGO,MU,TSM,AGQ,APP,CDNS,CRWD,HUBS,MDB,MSTR,ORCL,PLTR,SHOP,CAT,ETN,FIX,MTZ,IESC,COIN,JPM,SPGI,NFLX,COST,XLE,XLF,XLK,XLV,XLY
+[2026-04-21T00:04:57Z]     watchdog=420s  resume=false  block_chain=true
+[2026-04-21T00:04:57Z] Acquired replay lock: continuous_phase-h3-smoke-apr-1776729897@2026-04-21T00:04:57.489Z
+[2026-04-21T00:04:58Z] Registered run phase-h3-smoke-apr-1776729897
+[2026-04-21T00:05:00Z] Replay state reset complete
+[2026-04-21T00:05:00Z] >>> day 1/21  2026-04-01
+[2026-04-21T00:05:41Z] day 2026-04-01 ok {"scored":336,"trades":0,"blocked_bars":336} (41s, attempt 1)
+[2026-04-21T00:05:41Z] >>> day 2/21  2026-04-02
+[2026-04-21T00:05:58Z] day 2026-04-02 ok {"scored":336,"trades":1,"blocked_bars":330} (16s, attempt 1)
+[2026-04-21T00:05:58Z] >>> day 3/21  2026-04-06
+[2026-04-21T00:06:37Z] day 2026-04-06 ok {"scored":336,"trades":0,"blocked_bars":322} (39s, attempt 1)
+[2026-04-21T00:06:37Z] >>> day 4/21  2026-04-07
+[2026-04-21T00:06:53Z] day 2026-04-07 ok {"scored":336,"trades":1,"blocked_bars":308} (15s, attempt 1)
+[2026-04-21T00:06:53Z] >>> day 5/21  2026-04-08
+[2026-04-21T00:07:14Z] day 2026-04-08 ok {"scored":336,"trades":1,"blocked_bars":315} (20s, attempt 1)
+[2026-04-21T00:07:14Z] >>> day 6/21  2026-04-09
+[2026-04-21T00:07:52Z] day 2026-04-09 ok {"scored":336,"trades":0,"blocked_bars":308} (37s, attempt 1)
+[2026-04-21T00:07:52Z] >>> day 7/21  2026-04-10
+[2026-04-21T00:08:09Z] day 2026-04-10 ok {"scored":336,"trades":0,"blocked_bars":309} (17s, attempt 1)
+[2026-04-21T00:08:09Z] >>> day 8/21  2026-04-13
+[2026-04-21T00:08:46Z] day 2026-04-13 ok {"scored":336,"trades":0,"blocked_bars":335} (36s, attempt 1)
+[2026-04-21T00:08:46Z] >>> day 9/21  2026-04-14
+[2026-04-21T00:09:09Z] day 2026-04-14 ok {"scored":336,"trades":0,"blocked_bars":334} (23s, attempt 1)
+[2026-04-21T00:09:09Z] >>> day 10/21  2026-04-15
+[2026-04-21T00:09:30Z] day 2026-04-15 ok {"scored":336,"trades":0,"blocked_bars":336} (20s, attempt 1)
+[2026-04-21T00:09:30Z] >>> day 11/21  2026-04-16
+[2026-04-21T00:09:56Z] day 2026-04-16 ok {"scored":336,"trades":0,"blocked_bars":336} (25s, attempt 1)
+[2026-04-21T00:09:56Z] >>> day 12/21  2026-04-17
+[2026-04-21T00:10:34Z] day 2026-04-17 ok {"scored":336,"trades":0,"blocked_bars":336} (38s, attempt 1)
+[2026-04-21T00:10:34Z] >>> day 13/21  2026-04-20
+[2026-04-21T00:11:03Z] day 2026-04-20 ok {"scored":336,"trades":0,"blocked_bars":336} (29s, attempt 1)
+[2026-04-21T00:11:03Z] >>> day 14/21  2026-04-21
+[2026-04-21T00:11:36Z] day 2026-04-21 ok {"scored":336,"trades":0,"blocked_bars":336} (32s, attempt 1)
+[2026-04-21T00:11:36Z] >>> day 15/21  2026-04-22
+[2026-04-21T00:11:51Z] day 2026-04-22 ok {"scored":336,"trades":0,"blocked_bars":336} (15s, attempt 1)
+[2026-04-21T00:11:51Z] >>> day 16/21  2026-04-23
+[2026-04-21T00:12:09Z] day 2026-04-23 ok {"scored":336,"trades":0,"blocked_bars":336} (18s, attempt 1)
+[2026-04-21T00:12:09Z] >>> day 17/21  2026-04-24
+[2026-04-21T00:12:39Z] day 2026-04-24 ok {"scored":336,"trades":0,"blocked_bars":336} (29s, attempt 1)
+[2026-04-21T00:12:39Z] >>> day 18/21  2026-04-27
+[2026-04-21T00:13:00Z] day 2026-04-27 ok {"scored":336,"trades":0,"blocked_bars":336} (21s, attempt 1)
+[2026-04-21T00:13:00Z] >>> day 19/21  2026-04-28
+[2026-04-21T00:13:15Z] day 2026-04-28 ok {"scored":336,"trades":0,"blocked_bars":336} (15s, attempt 1)
+[2026-04-21T00:13:15Z] >>> day 20/21  2026-04-29
+[2026-04-21T00:13:46Z] day 2026-04-29 ok {"scored":336,"trades":0,"blocked_bars":336} (31s, attempt 1)
+[2026-04-21T00:13:46Z] >>> day 21/21  2026-04-30
+[2026-04-21T00:14:06Z] day 2026-04-30 ok {"scored":336,"trades":0,"blocked_bars":336} (20s, attempt 1)
+[2026-04-21T00:14:06Z] === All 21 trading days processed; finalizing ===
+[2026-04-21T00:14:06Z] Closing replay positions at 2026-04-30
+[2026-04-21T00:15:00Z] Finalized run phase-h3-smoke-apr-1776729897
+[2026-04-21T00:15:01Z] Saved 3 trades to /workspace/data/trade-analysis/phase-h3-smoke-apr-1776729897/trades.json
+[2026-04-21T00:15:01Z] === continuous-slice complete: phase-h3-smoke-apr-1776729897 ===
+[2026-04-21T00:15:01Z] Released replay lock

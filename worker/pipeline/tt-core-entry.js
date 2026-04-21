@@ -301,6 +301,128 @@ export function evaluateEntry(ctx) {
   const strongDailyTrend = (side === "LONG" && emaRegimeDaily >= 2)
     || (side === "SHORT" && emaRegimeDaily <= -2);
   const rankScore = Number(scores?.rank ?? d?.rank) || 0;
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // PHASE-H.3 — ENTRY DISCIPLINE GATES
+  // Three layers:
+  //   1. Rank floor (minimum setup quality)
+  //   2. Regime-adaptive strategy (don't fight the monthly cycle)
+  //   3. Multi-signal consensus (corroboration across dimensions)
+  // Every gate is DA-key toggled; defaults lean selective per the E.3/v5
+  // peak performance (68.8% WR LONG-only sniper).
+  //
+  // See: tasks/phase-h3-entry-discipline-2026-04-20.md
+  // ═════════════════════════════════════════════════════════════════════════
+  {
+    // Layer 1 — Rank floor (default 0 = disabled; activate via DA key)
+    const _h3RankFloor = Number(daCfg.deep_audit_min_rank_floor) || 0;
+    if (_h3RankFloor > 0 && rankScore > 0 && rankScore < _h3RankFloor) {
+      return rejectEntry("h3_rank_below_floor", { rank: rankScore, floor: _h3RankFloor });
+    }
+
+    // Layer 2 — Regime-adaptive strategy
+    // Blocks SHORTs in "uptrend" cycles and LONGs in "downtrend" cycles
+    // unless ticker rank is exceptional AND cohort is permitted.
+    // Cycle label comes from ctx.market.monthlyCycle (populated by
+    // trade-context from the backdrop file for the replay date).
+    const _h3AdaptiveEnabled = String(daCfg.deep_audit_regime_adaptive_enabled ?? "false") === "true";
+    if (_h3AdaptiveEnabled) {
+      const cycle = String(ctx?.market?.monthlyCycle || "").toLowerCase();
+      const tickerCohort = String(d?._cohort || d?.cohort || "").toLowerCase();
+      const isShort = side === "SHORT";
+      const isLong = side === "LONG";
+
+      if (cycle === "uptrend" && isShort) {
+        const _upShortRankMin = Number(daCfg.deep_audit_regime_uptrend_short_rank_min) || 98;
+        const _upShortCohortsRaw = String(daCfg.deep_audit_regime_uptrend_short_cohorts || "speculative")
+          .toLowerCase().split(",").map(s => s.trim()).filter(Boolean);
+        const cohortAllowed = _upShortCohortsRaw.includes(tickerCohort);
+        if (rankScore < _upShortRankMin || !cohortAllowed) {
+          return rejectEntry("h3_short_blocked_in_uptrend", {
+            cycle, rank: rankScore, rankMin: _upShortRankMin, cohort: tickerCohort, cohortAllowed,
+          });
+        }
+      } else if (cycle === "downtrend" && isLong) {
+        const _dnLongRankMin = Number(daCfg.deep_audit_regime_downtrend_long_rank_min) || 98;
+        const _require4hBull = String(daCfg.deep_audit_regime_downtrend_long_require_4h_bull ?? "true") === "true";
+        const h4StBull = Number(h4?.stDir) > 0;
+        if (rankScore < _dnLongRankMin || (_require4hBull && !h4StBull)) {
+          return rejectEntry("h3_long_blocked_in_downtrend", {
+            cycle, rank: rankScore, rankMin: _dnLongRankMin, h4StBull,
+          });
+        }
+      } else if (cycle === "transitional" || cycle === "") {
+        // Transitional (or unknown) — bumped rank floor still applies via _h3RankFloor above
+        const _transRankMin = Number(daCfg.deep_audit_regime_transitional_rank_min) || 0;
+        if (_transRankMin > 0 && rankScore < _transRankMin) {
+          return rejectEntry("h3_rank_below_transitional_floor", {
+            cycle: cycle || "unknown", rank: rankScore, rankMin: _transRankMin,
+          });
+        }
+      }
+    }
+
+    // Layer 3 — Multi-signal consensus gate
+    // Scoring across 5 dimensions. Requires at least N of 5 to corroborate
+    // the direction before the setup is eligible. This kicks in before the
+    // setup-specific evaluation below, so it acts as a baseline quality check.
+    const _h3ConsensusEnabled = String(daCfg.deep_audit_consensus_gate_enabled ?? "false") === "true";
+    if (_h3ConsensusEnabled) {
+      const isLong = side === "LONG";
+      let signals = 0;
+      const breakdown = { trend: false, momentum: false, volume: false, sector: false, phase: false };
+
+      // 1. Trend alignment — at least 2 of (1H, 4H, D) ST aligned
+      const st1H = Number(h1?.stDir) || 0;
+      const st4H = Number(h4?.stDir) || 0;
+      const stD = Number(D?.stDir) || 0;
+      const sign = isLong ? 1 : -1;
+      const trendAligned = [st1H, st4H, stD].filter(x => Math.sign(x) === sign).length;
+      if (trendAligned >= 2) { signals += 1; breakdown.trend = true; }
+
+      // 2. Momentum alignment — RSI 30m AND RSI 1H both on direction's side of 50
+      const rsi30 = Number(m30?.rsi?.r5);
+      const rsi1h = Number(h1?.rsi?.r5);
+      if (Number.isFinite(rsi30) && Number.isFinite(rsi1h)) {
+        const momOk = isLong ? (rsi30 > 50 && rsi1h > 50) : (rsi30 < 50 && rsi1h < 50);
+        if (momOk) { signals += 1; breakdown.momentum = true; }
+      }
+
+      // 3. Volume confirmation — 30m or 1H rvol >= 1.2
+      const rvol30 = Number(d?.rvol_map?.["30"]?.vr);
+      const rvol60 = Number(d?.rvol_map?.["60"]?.vr);
+      const volMin = Number(daCfg.deep_audit_consensus_volume_rvol_min) || 1.2;
+      if ((Number.isFinite(rvol30) && rvol30 >= volMin) || (Number.isFinite(rvol60) && rvol60 >= volMin)) {
+        signals += 1; breakdown.volume = true;
+      }
+
+      // 4. Sector alignment — ticker's sector must be OW for LONGs, UW for SHORTs.
+      // Sector rating text comes from ctx.market.sectorRating[ticker] (populated
+      // by trade-context from SECTOR_RATINGS).
+      const sectorRating = String(ctx?.sectorRating || d?._sector_rating || "").toLowerCase();
+      const sectorOk = isLong
+        ? (sectorRating === "overweight" || sectorRating === "neutral")
+        : (sectorRating === "underweight" || sectorRating === "neutral");
+      if (sectorRating && sectorOk) { signals += 1; breakdown.sector = true; }
+
+      // 5. Phase positioning — phase between 15-75% (the sweet spot per Phase-E.3 miner)
+      const phase = Number(phasePct);
+      if (Number.isFinite(phase) && phase >= 15 && phase <= 75) {
+        signals += 1; breakdown.phase = true;
+      }
+
+      const _h3MinSignals = Number(daCfg.deep_audit_consensus_min_signals) || 3;
+      if (signals < _h3MinSignals) {
+        return rejectEntry("h3_consensus_below_min", {
+          signals, min: _h3MinSignals, breakdown,
+        });
+      }
+    }
+  }
+  // ═════════════════════════════════════════════════════════════════════════
+  // END PHASE-H.3 GATES
+  // ═════════════════════════════════════════════════════════════════════════
+
   const scopedContinuationProof = continuationProofActive({
     ticker: ctx.ticker,
     daCfg,

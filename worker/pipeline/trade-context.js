@@ -171,7 +171,21 @@ export function buildTradeContext(tickerData, asOfTs = null) {
         || d?._spyData?.daily_structure
         || null,
       cryptoLead: d._cryptoLead || null,
+      // Phase-H.3 2026-04-20: monthly backdrop cycle label.
+      // Populated by replay-candle-batches.js (backdrop pre-loaded per
+      // replay date). Values: "uptrend" | "downtrend" | "transitional" | "".
+      // Drives regime-adaptive entry gates in tt-core-entry.js.
+      monthlyCycle: String(env?._monthlyCycle || d?._monthly_cycle || "").toLowerCase() || null,
+      // Top/bottom sector ETFs this month (for gating entries to winning
+      // sector + blocking entries into losing sector).
+      monthlySectorTop: env?._monthlySectorTop || null,
+      monthlySectorBottom: env?._monthlySectorBottom || null,
     },
+
+    // Phase-H.3 2026-04-20: sector rating for this ticker from SECTOR_RATINGS
+    // (OW / N / UW). Exposed directly on ctx so consensus gate can use it
+    // without another lookup. Populated by replay-candle-batches.js.
+    sectorRating: String(d?._sector_rating || env?._sectorRatings?.[d?.ticker] || "").toLowerCase() || null,
 
     // Phase-E 2026-04-19: per-ticker daily structural profile. Raw D21/D48/
     // D200 levels + derived position/slope metrics surfaced by
