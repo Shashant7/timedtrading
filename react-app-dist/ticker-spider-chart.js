@@ -53,7 +53,30 @@
     return null;
   }
 
+  // ── Direction inference ─────────────────────────────────────────────
+  // Ticker payloads don't consistently carry an explicit `direction` field.
+  // Fall back to swing_consensus -> state -> htf_score.
+  function inferDirection(ticker, explicit) {
+    if (explicit) {
+      const e = String(explicit).toUpperCase();
+      if (e === "LONG" || e === "SHORT") return e;
+    }
+    const sc = ticker?.swing_consensus?.direction;
+    if (sc === "LONG" || sc === "SHORT") return sc;
+    const state = String(ticker?.state || "").toUpperCase();
+    if (state.startsWith("HTF_BULL")) return "LONG";
+    if (state.startsWith("HTF_BEAR")) return "SHORT";
+    const bias = String(ticker?.bias || ticker?.direction || "").toUpperCase();
+    if (bias === "LONG" || bias === "SHORT") return bias;
+    const htf = Number(ticker?.htf_score);
+    if (Number.isFinite(htf)) return htf >= 0 ? "LONG" : "SHORT";
+    return "LONG";
+  }
+
   // ── Score calculators (each returns 0-10) ───────────────────────────
+
+  // LTF alignment across 10m / 15m / 30m ST direction.
+  // Falls back to ltf_score (−25..+25) if tf_tech ST missing.
   function scoreLtf(ticker, dir) {
     const sign = dir === "SHORT" ? -1 : 1;
     const tf = ticker?.tf_tech || {};
@@ -68,10 +91,17 @@
       if (Math.sign(st) === sign) sum += 1;
       else if (st === 0) sum += 0.5;
     }
-    if (n === 0) return 5;
+    if (n === 0) {
+      const ltf = numFrom(ticker?.ltf_score);
+      if (ltf != null) return clamp(5 + (sign * ltf) / 5, 0, 10);
+      return 5;
+    }
     return clamp((sum / n) * 10, 0, 10);
   }
 
+  // HTF alignment across 1H / 4H / D ST. Blends ST vote with htf_score
+  // (signed −25..+25) so HTF doesn't zero out just because one TF is
+  // counter-trend (e.g. daily vs lower TF pullback).
   function scoreHtf(ticker, dir) {
     const sign = dir === "SHORT" ? -1 : 1;
     const tf = ticker?.tf_tech || {};
@@ -90,23 +120,38 @@
       if (Math.sign(st) === sign) sum += p.w;
       else if (st === 0) sum += p.w * 0.5;
     }
-    if (wSum === 0) return 5;
-    return clamp((sum / wSum) * 10, 0, 10);
+    const htf = numFrom(ticker?.htf_score);
+    if (wSum > 0) {
+      const stScore = (sum / wSum) * 10;
+      if (htf != null) {
+        const htfScore = clamp(5 + (sign * htf) / 5, 0, 10);
+        return clamp(stScore * 0.6 + htfScore * 0.4, 0, 10);
+      }
+      return clamp(stScore, 0, 10);
+    }
+    if (htf != null) return clamp(5 + (sign * htf) / 5, 0, 10);
+    return 5;
   }
 
+  // Relative volume — best of 30m / 1H / 10m from rvol_map[tf].vr
   function scoreRvol(ticker) {
     const map = ticker?.rvol_map || {};
-    const r30 = numFrom(map["30"]?.vr, map["30"]?.r5) ?? 0;
-    const r1h = numFrom(map["60"]?.vr, map["60"]?.r5) ?? 0;
-    const best = Math.max(r30, r1h);
+    const r30 = numFrom(map["30"]?.vr, map["30"]?.r5);
+    const r1h = numFrom(map["60"]?.vr, map["60"]?.r5, map["1H"]?.vr);
+    const r10 = numFrom(map["10"]?.vr, map["10"]?.r5);
+    const cands = [r30, r1h, r10].filter((x) => x != null);
+    if (cands.length === 0) return 5;
+    const best = Math.max(...cands);
     if (best <= 0) return 2;
     return clamp(((best - 0.5) / 1.5) * 10, 0, 10);
   }
 
+  // Phase/RSI — payload has `saty_phase_pct` as 0..1 typically; sometimes 0..100.
   function scorePhase(ticker, dir) {
     const raw = numFrom(ticker?.saty_phase_pct, ticker?.phase_pct);
     if (raw == null) return 5;
-    const phase = clamp(raw, 0, 100);
+    const phase01 = raw > 1.5 ? raw / 100 : raw;
+    const phase = clamp(phase01 * 100, 0, 100);
     const baseLong = phase < 30 ? 8 : phase < 60 ? 6 : phase < 80 ? 4 : 2;
     const baseShort = phase > 70 ? 8 : phase > 40 ? 6 : phase > 20 ? 4 : 2;
     let base = dir === "SHORT" ? baseShort : baseLong;
@@ -124,35 +169,54 @@
     return clamp(base, 0, 10);
   }
 
+  // R:R — derive from sl/tp if explicit rr missing (the live payload has
+  // `tp_target_price`, `tp_trim`, `sl`, `sl_dynamic` but often no `rr`).
   function scoreRR(ticker) {
-    const rr = numFrom(ticker?.rr, ticker?.swing_rr, ticker?.rr_target);
-    if (rr == null) return 5;
-    return clamp((rr / 3) * 10, 0, 10);
-  }
-
-  function scoreSector(ticker) {
-    const explicit = numFrom(
-      ticker?.sector_strength,
-      ticker?.sector_score_normalized,
-      ticker?.sector_relative_strength,
-    );
-    if (explicit != null) return clamp(explicit, 0, 10);
-    const rs = numFrom(ticker?.sector_rs_spy, ticker?.sector_beta_adj_rs);
-    if (rs != null) return clamp(5 + rs * 50, 0, 10);
-    const bucket = String(ticker?.sector_rating || "").toLowerCase();
-    if (bucket.includes("lead")) return 8;
-    if (bucket.includes("strong")) return 7;
-    if (bucket.includes("neutral")) return 5;
-    if (bucket.includes("weak")) return 3;
-    if (bucket.includes("lag")) return 2;
+    const explicit = numFrom(ticker?.rr, ticker?.swing_rr, ticker?.rr_target, ticker?.rr_now_likely);
+    if (explicit != null && explicit > 0) return clamp((explicit / 3) * 10, 0, 10);
+    const price = numFrom(ticker?.price, ticker?.current_price);
+    const sl = numFrom(ticker?.sl, ticker?.sl_dynamic);
+    const tp = numFrom(ticker?.tp_target_price, ticker?.tp_exit, ticker?.tp_likely, ticker?.tp);
+    if (price != null && sl != null && tp != null && price > 0) {
+      const risk = Math.abs(price - sl);
+      const reward = Math.abs(tp - price);
+      if (risk > 0) return clamp((reward / risk / 3) * 10, 0, 10);
+    }
     return 5;
   }
 
+  // Sector — OW/N/UW rating (from SECTOR_RATINGS) direction-adjusted.
+  // LONG: OW=10, N=5, UW=2.  SHORT: OW=2, N=5, UW=10.
+  function scoreSector(ticker, dir) {
+    const rating = String(
+      ticker?._sector_rating ||
+      ticker?.sector_rating ||
+      ticker?.sectorRating ||
+      ""
+    ).toLowerCase();
+    if (rating) {
+      if (dir === "SHORT") {
+        if (rating === "overweight") return 2;
+        if (rating === "underweight") return 10;
+        return 5;
+      }
+      if (rating === "overweight") return 10;
+      if (rating === "underweight") return 2;
+      return 5;
+    }
+    const rs = numFrom(ticker?.sector_rs_spy, ticker?.sector_beta_adj_rs);
+    if (rs != null) {
+      const base = clamp(5 + rs * 50, 0, 10);
+      return dir === "SHORT" ? clamp(10 - base, 0, 10) : base;
+    }
+    return 5;
+  }
+
+  // Volatility — ATR% of price. Tighter ATR = higher score.
   function scoreVol(ticker) {
-    const atrD = numFrom(ticker?.atr_d_pct, ticker?.atr_pct_d);
-    let val = atrD;
+    let val = numFrom(ticker?.atr_d_pct, ticker?.atr_pct_d);
     if (val == null) {
-      const price = numFrom(ticker?.price, ticker?.current_price);
+      const price = numFrom(ticker?.price, ticker?.current_price, ticker?.prev_close);
       const atr = numFrom(ticker?.atr_d);
       if (price && atr) val = (atr / price) * 100;
     }
@@ -165,13 +229,15 @@
     return 2;
   }
 
+  // Event risk — inverse of earnings proximity + macro severity.
   function scoreEvent(ticker) {
     const daysToEarn = numFrom(
       ticker?.days_to_earnings,
       ticker?.earnings_days_until,
       ticker?.earnings_countdown_days,
+      ticker?.__earnings_days,
     );
-    const macro = ticker?.event_risk || ticker?._event_risk;
+    const macro = ticker?.event_risk || ticker?._event_risk || ticker?.__eventRiskProfile;
     const macroSeverity = String(macro?.severity || "").toLowerCase();
     const macroHours = numFrom(macro?.hoursToEvent);
     let base = 10;
@@ -189,30 +255,45 @@
     return clamp(base, 0, 10);
   }
 
+  // Divergence — real payload is tf-keyed:
+  //   rsi_divergence["15"].bear = { active, strength, barsSince }
+  //   rsi_divergence["15"].bull = { ... }
+  // Active AGAINST direction subtracts; active WITH direction adds.
   function scoreDivergence(ticker, dir) {
-    const signFavors = dir === "SHORT" ? "bearish" : "bullish";
-    const pd = ticker?.phase_divergence || {};
-    const rd = ticker?.rsi_divergence || {};
-    let clean = 10;
-    const pdStr = String(pd.strength || pd.signal || "").toLowerCase();
-    const rdStr = String(rd.strength || rd.signal || "").toLowerCase();
-    const adverse = (s) => s && !s.includes(signFavors) && (s.includes("bear") || s.includes("bull") || s.includes("weak") || s.includes("strong"));
-    if (adverse(pdStr)) clean -= pdStr.includes("strong") ? 4 : 2;
-    if (adverse(rdStr)) clean -= rdStr.includes("strong") ? 4 : 2;
-    if (pdStr.includes(signFavors)) clean += 1;
-    if (rdStr.includes(signFavors)) clean += 1;
-    return clamp(clean, 0, 10);
+    const favorSide = dir === "SHORT" ? "bear" : "bull";
+    const opposeSide = dir === "SHORT" ? "bull" : "bear";
+    let score = 10;
+    const evalMap = (map) => {
+      if (!map || typeof map !== "object") return;
+      for (const tf of Object.keys(map)) {
+        const entry = map[tf];
+        if (!entry || typeof entry !== "object") continue;
+        const against = entry[opposeSide];
+        if (against && against.active === true) {
+          const str = numFrom(against.strength) ?? 10;
+          score -= clamp(str / 10, 0.5, 4);
+        }
+        const withDir = entry[favorSide];
+        if (withDir && withDir.active === true) {
+          const str = numFrom(withDir.strength) ?? 10;
+          score += clamp(str / 20, 0.25, 1.5);
+        }
+      }
+    };
+    evalMap(ticker?.rsi_divergence);
+    evalMap(ticker?.phase_divergence);
+    return clamp(score, 0, 10);
   }
 
   function computeScores(ticker, direction) {
-    const dir = String(direction || ticker?.direction || ticker?.bias || "LONG").toUpperCase();
+    const dir = inferDirection(ticker, direction);
     return {
       ltf: scoreLtf(ticker, dir),
       htf: scoreHtf(ticker, dir),
       rvol: scoreRvol(ticker),
       phase: scorePhase(ticker, dir),
       rr: scoreRR(ticker),
-      sector: scoreSector(ticker),
+      sector: scoreSector(ticker, dir),
       vol: scoreVol(ticker),
       event: scoreEvent(ticker),
       div: scoreDivergence(ticker, dir),
