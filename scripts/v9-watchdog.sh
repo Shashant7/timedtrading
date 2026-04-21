@@ -23,6 +23,11 @@ STALL_MIN="${STALL_MIN:-15}"
 POLL_SEC="${POLL_SEC:-60}"
 SESSION="${SESSION:-phase-h-v9}"
 TMUX_BIN="${TMUX_BIN:-tmux -f /exec-daemon/tmux.portal.conf}"
+# Ticker spec used by relaunch. Defaults to phase-d-40 for backwards
+# compat; pass TICKERS_SPEC to override (e.g. "@configs/backfill-universe-2026-04-18.txt").
+TICKERS_SPEC="${TICKERS_SPEC:-phase-d-40}"
+START_DATE="${START_DATE:-2025-07-01}"
+END_DATE="${END_DATE:-2026-04-30}"
 
 ts() { date -u '+%Y-%m-%dT%H:%M:%SZ'; }
 log() { echo "[$(ts)] $*" | tee -a "$WATCHDOG_LOG"; }
@@ -73,9 +78,9 @@ while true; do
 
     sleep 5
 
-    log "relaunching with --resume"
+    log "relaunching with --resume (tickers=$TICKERS_SPEC)"
     $TMUX_BIN new-session -d -s "$SESSION" -c /workspace -- bash -lc \
-      "TIMED_API_KEY=$API_KEY scripts/continuous-slice.sh --start=2025-07-01 --end=2026-04-30 --run-id=$V9_ID --tickers=phase-d-40 --watchdog-seconds=420 --resume 2>&1 | tee -a $LOG"
+      "TIMED_API_KEY=$API_KEY scripts/continuous-slice.sh --start=$START_DATE --end=$END_DATE --run-id=$V9_ID --tickers=$TICKERS_SPEC --watchdog-seconds=420 --resume 2>&1 | tee -a $LOG"
 
     last_ok_ts=$(date +%s)
     sleep 60
