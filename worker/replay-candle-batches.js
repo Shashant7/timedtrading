@@ -250,9 +250,46 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
                 }
               : null;
             const sectorEtfs = require("./sector-mapping.js").SECTOR_ETF_MAP || {};
+            const sectorRatings = require("./sector-mapping.js").SECTOR_RATINGS || {};
             const rSectorETF = sectorEtfs[sector];
             const rSectorData = rSectorETF ? stateMap[rSectorETF] : null;
             const rSecRegime = rSectorData?.regime_class ? { regime: rSectorData.regime_class, score: rSectorData.regime_score || 0 } : null;
+
+            // Phase-H.3 2026-04-20: derive monthlyCycle label from SPY's daily
+            // ema regime + htf score. Matches the logic used by
+            // scripts/build-monthly-backdrop.js (joint EMA(20) daily + 4H bias),
+            // computed live from the replay state rather than loading the JSON.
+            //
+            //   ema_regime_daily >=  2  OR   htf >= +15  -> "uptrend"
+            //   ema_regime_daily <= -2  OR   htf <= -15  -> "downtrend"
+            //   otherwise                                -> "transitional"
+            let _monthlyCycle = null;
+            if (rSpyData) {
+              const _edr = Number(rSpyData.ema_regime_daily) || 0;
+              const _htf = Number(rSpyData.htf_score) || 0;
+              if (_edr >= 2 || _htf >= 15) _monthlyCycle = "uptrend";
+              else if (_edr <= -2 || _htf <= -15) _monthlyCycle = "downtrend";
+              else _monthlyCycle = "transitional";
+            }
+            // Also attach ticker's sector rating so consensus gate can read it
+            // without needing SECTOR_RATINGS in trade-context.
+            const tickerSectorRating = sectorRatings[sector];
+            if (tickerSectorRating?.rating) {
+              result._sector_rating = tickerSectorRating.rating;
+            }
+            result._cohort = (() => {
+              const _cohorts = replayEnv._deepAuditConfig || {};
+              const _idxT = String(_cohorts.deep_audit_cohort_index_etf_tickers || "").split(",").map(s => s.trim()).filter(Boolean);
+              if (_idxT.includes(ticker)) return "index_etf";
+              const _mcT = String(_cohorts.deep_audit_cohort_megacap_tickers || "").split(",").map(s => s.trim()).filter(Boolean);
+              if (_mcT.includes(ticker)) return "megacap";
+              const _indT = String(_cohorts.deep_audit_cohort_industrial_tickers || "").split(",").map(s => s.trim()).filter(Boolean);
+              if (_indT.includes(ticker)) return "industrial";
+              const _specT = String(_cohorts.deep_audit_cohort_speculative_tickers || "").split(",").map(s => s.trim()).filter(Boolean);
+              if (_specT.includes(ticker)) return "speculative";
+              return sector?.toLowerCase() || "unknown";
+            })();
+
             result._env = {
               _isReplay: true,
               _goldenProfiles: replayGoldenProfiles,
@@ -274,6 +311,7 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
               _scenarioExecutionPolicy: replayEnv._scenarioExecutionPolicy || null,
               _ripsterTuneV2: replayEnv.RIPSTER_TUNE_V2 || "true",
               _ripsterExitDebounceBars: replayEnv.TT_EXIT_DEBOUNCE_BARS || "3",
+              _monthlyCycle,
             };
           }
 

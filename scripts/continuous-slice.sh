@@ -91,10 +91,16 @@ esac
 ARTIFACT_DIR="${ROOT}/data/trade-analysis/${RUN_ID}"
 CHECKPOINT_FILE="${ARTIFACT_DIR}/continuous.checkpoint.json"
 LOG_FILE="${ARTIFACT_DIR}/continuous.log"
+# Heartbeat file — touched on every successful HTTP response (per batch, not
+# per day). The watchdog polls this via `stat` only, so it can't be starved
+# by log-file contention or grep-on-growing-tee scenarios. This is the
+# authoritative "are we making progress?" signal.
+HEARTBEAT_FILE="${ARTIFACT_DIR}/continuous.heartbeat"
 
 mkdir -p "$ARTIFACT_DIR"
 
 log() { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] $*" | tee -a "$LOG_FILE"; }
+heartbeat() { touch "$HEARTBEAT_FILE" 2>/dev/null || true; }
 
 # Build NYSE holiday set + weekend filter — mirrors monthly-slice.sh logic.
 declare -a ALL_DAYS
@@ -121,6 +127,7 @@ EOF
 
 mapfile -t ALL_DAYS < <(build_trading_days)
 TOTAL=${#ALL_DAYS[@]}
+heartbeat  # initial heartbeat so watchdog sees a fresh mtime on launch
 log "=== continuous-slice: $RUN_ID ==="
 log "    range=${START_DATE}..${END_DATE}  trading_days=${TOTAL}"
 log "    tickers(24)=${TICKERS}"
@@ -215,47 +222,98 @@ reset_state() {
   log "Replay state reset complete"
 }
 
+# BUG FIX (2026-04-21): On the 215-ticker v10 run, `fullDay=1` silently
+# processed only the FIRST ticker batch (24 tickers) instead of iterating
+# through all 9 offsets. Root cause unclear (Worker CPU-time budget or
+# silent try/catch somewhere in the replay-candle-batches internal loop).
+# Rewriting this to loop tickerOffset EXTERNALLY in bash with fullDay=0
+# — each HTTP call now processes exactly one batch, and the script
+# advances the offset until hasMore=false. This also parallels the
+# monthly-slice.sh approach.
 replay_day() {
   local day="$1" clean_slate="$2"
-  local attempt=1
-  local max_attempts=3
-  while [[ $attempt -le $max_attempts ]]; do
-    local url="$API_BASE/timed/admin/candle-replay?date=$day&runId=$RUN_ID&tickerOffset=0&tickerBatch=24&intervalMinutes=30&tickers=$TICKERS&fullDay=1&key=$API_KEY"
-    if [[ "$clean_slate" == "1" ]]; then url="${url}&cleanSlate=1"; fi
+  local total_scored=0 total_trades=0 total_blocked=0
+  local offset=0
+  local batch=24
+  local cs="$clean_slate"  # only apply cleanSlate on the FIRST batch of the day
+  local day_t0=$(date -u +%s)
+
+  while :; do
+    local url="$API_BASE/timed/admin/candle-replay?date=$day&runId=$RUN_ID&tickerOffset=${offset}&tickerBatch=${batch}&intervalMinutes=30&tickers=$TICKERS&fullDay=0&key=$API_KEY"
+    if [[ "$cs" == "1" ]]; then url="${url}&cleanSlate=1"; cs=0; fi
     if $BLOCK_CHAIN; then url="${url}&blockChainTrace=1"; fi
-    local t0 t1
-    t0=$(date -u +%s)
-    local resp rc=0
-    set +e
-    resp=$(timeout --kill-after=10s "${WATCHDOG_SECONDS}s" curl -sS -m "$WATCHDOG_SECONDS" --connect-timeout 30 -X POST "$url" -H "Content-Type: application/json" -d '{}' -w "\n__HTTP_STATUS__:%{http_code}" 2>&1)
-    rc=$?
-    set -e
-    t1=$(date -u +%s)
-    local elapsed=$((t1 - t0))
+
+    local attempt=1 max_attempts=3 rc=0 resp=""
+    while [[ $attempt -le $max_attempts ]]; do
+      local t0=$(date -u +%s)
+      # Hard-kill wrapper: `timeout` alone has been observed to NOT kill
+      # curl processes stuck in deep TCP/kernel state (observed: Aug 19
+      # v10b hang, 3081s elapsed despite -m 420 AND timeout 420). We use
+      # `setsid` so curl runs in its own process group, then `timeout`
+      # can use SIGKILL after 5s of SIGTERM being ignored. Also, curl's
+      # internal timeout options (--max-time + --connect-timeout) give
+      # us a second line of defense.
+      set +e
+      resp=$(timeout --kill-after=5s --signal=TERM "${WATCHDOG_SECONDS}s" \
+        setsid curl -sS \
+        --max-time "$WATCHDOG_SECONDS" \
+        --connect-timeout 30 \
+        --speed-time 60 --speed-limit 1 \
+        -X POST "$url" \
+        -H "Content-Type: application/json" \
+        -d '{}' \
+        -w "\n__HTTP_STATUS__:%{http_code}" 2>&1)
+      rc=$?
+      set -e
+      local t1=$(date -u +%s)
+      local elapsed=$((t1 - t0))
+      # Heartbeat regardless of success/failure — if this line is reached,
+      # the curl process terminated and we're back in the main loop. A
+      # stalled curl would NOT reach this, and the watchdog will see a
+      # stale heartbeat file.
+      heartbeat
+      if [[ $rc -ne 0 ]]; then
+        log "WARN: curl rc=$rc elapsed=${elapsed}s on $day offset=$offset attempt $attempt"
+        attempt=$((attempt + 1))
+        sleep 8
+        assert_lock_still_ours
+        continue
+      fi
+      local body status
+      body=$(echo "$resp" | sed '$d')
+      status=$(echo "$resp" | tail -n1 | sed 's|__HTTP_STATUS__:||')
+      if [[ "$status" != "200" ]]; then
+        log "WARN: status=$status on $day offset=$offset attempt $attempt"
+        attempt=$((attempt + 1))
+        sleep 8
+        continue
+      fi
+      break
+    done
     if [[ $rc -ne 0 ]]; then
-      log "WARN: curl rc=$rc elapsed=${elapsed}s on $day attempt $attempt"
-      attempt=$((attempt + 1))
-      sleep 8
-      # Re-acquire lock on failure in case it vanished
-      assert_lock_still_ours
-      continue
+      log "WARN: $day offset=$offset failed after $max_attempts attempts — abandoning day"
+      return 1
     fi
-    local body status
-    body=$(echo "$resp" | sed '$d')
-    status=$(echo "$resp" | tail -n1 | sed 's|__HTTP_STATUS__:||')
-    if [[ "$status" != "200" ]]; then
-      log "WARN: status=$status on $day attempt $attempt"
-      attempt=$((attempt + 1))
-      sleep 8
-      continue
+
+    local body=$(echo "$resp" | sed '$d')
+    local chunk_scored chunk_trades chunk_blocked has_more
+    chunk_scored=$(echo "$body"  | jq -r '.scored // 0')
+    chunk_trades=$(echo "$body"  | jq -r '.tradesCreated // 0')
+    chunk_blocked=$(echo "$body" | jq -r '.blockChainBars | length // 0')
+    has_more=$(echo "$body"       | jq -r '.hasMore // false')
+    total_scored=$((total_scored + chunk_scored))
+    total_trades=$((total_trades + chunk_trades))
+    total_blocked=$((total_blocked + chunk_blocked))
+
+    if [[ "$has_more" != "true" ]]; then
+      break
     fi
-    local summary
-    summary=$(echo "$body" | jq -c '{scored, trades: .tradesCreated, blocked_bars: (.blockChainBars | length // 0)}' 2>/dev/null || echo "<parse error>")
-    log "day $day ok $(echo "$summary" | jq -c '.') (${elapsed}s, attempt $attempt)"
-    return 0
+    offset=$((offset + batch))
   done
-  log "WARN: $day failed after $max_attempts attempts"
-  return 1
+
+  local day_elapsed=$(( $(date -u +%s) - day_t0 ))
+  log "day $day ok {\"scored\":${total_scored},\"trades\":${total_trades},\"blocked_bars\":${total_blocked}} (${day_elapsed}s, batches=$((offset / batch + 1)))"
+  return 0
 }
 
 write_checkpoint() {

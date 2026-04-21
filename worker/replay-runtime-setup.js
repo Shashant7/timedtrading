@@ -128,6 +128,21 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_atr_adverse_cut_enabled",
   "deep_audit_atr_adverse_cut_threshold",
   "deep_audit_atr_adverse_cut_pnl_min_pct",
+  // Phase-H.3 2026-04-20: Entry Discipline + Regime-Adaptive Strategy
+  "deep_audit_min_rank_floor",
+  "deep_audit_regime_adaptive_enabled",
+  "deep_audit_regime_uptrend_short_rank_min",
+  "deep_audit_regime_uptrend_short_cohorts",
+  "deep_audit_regime_downtrend_long_rank_min",
+  "deep_audit_regime_downtrend_long_require_4h_bull",
+  "deep_audit_regime_transitional_rank_min",
+  "deep_audit_consensus_gate_enabled",
+  "deep_audit_consensus_min_signals",
+  "deep_audit_consensus_volume_rvol_min",
+  // Phase-H.4 2026-04-21: Targeted refinements from v9/v10 audit
+  "deep_audit_earnings_proximity_block_hours",
+  "deep_audit_mid_trade_regime_flip_exit_enabled",
+  "deep_audit_mid_trade_regime_flip_min_age_hours",
   "golden_julaug_reference_run_id", "live_config_run_id", "member_ticker_list", "consensus_signal_weights", "consensus_tf_weights", "scoring_weight_adj",
 ];
 
