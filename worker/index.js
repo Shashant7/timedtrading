@@ -155,6 +155,7 @@ import {
   fetchFinnhubSymbolEarnings,
   fetchFinnhubEconomicCalendar,
   fetchForexFactoryCalendar,
+  d1EnsureBriefSchema,
 } from "./daily-brief.js";
 import { seedHistoricalMarketEvents, checkMarketEventsCoverage } from "./market-events-seed.js";
 import {
@@ -787,6 +788,7 @@ const ROUTES = [
   ["GET", "/timed/admin/ai-cio/decisions", "GET /timed/admin/ai-cio/decisions"],
   ["GET", "/timed/admin/ai-cio/accuracy", "GET /timed/admin/ai-cio/accuracy"],
   ["POST", "/timed/admin/backfill-market-events", "POST /timed/admin/backfill-market-events"],
+  ["POST", "/timed/admin/market-events/bulk-seed", "POST /timed/admin/market-events/bulk-seed"],
   ["GET", "/timed/admin/market-events/coverage", "GET /timed/admin/market-events/coverage"],
   ["GET", "/timed/admin/validate-10m", "GET /timed/admin/validate-10m"],
   ["GET", "/timed/model/health", "GET /timed/model/health"],
@@ -42645,6 +42647,163 @@ export default {
             corsHeaders(env, req),
           );
         }
+      }
+
+      // POST /timed/admin/market-events/bulk-seed?key=...
+      // Body: { events: [ { ticker, date, scheduled_ts, scheduled_time_et,
+      //                     session, eps_estimate, eps_actual }, ... ] }
+      // One-shot bulk upsert of pre-computed earnings events (e.g. from
+      // yfinance). Bypasses TwelveData's forward-only earnings feed for the
+      // historical backtest window. Safe to call repeatedly: uses the same
+      // id format (`earn-<TICKER>-<DATE>`) and ON CONFLICT upsert as the
+      // provider-driven seeder so it's idempotent.
+      if (routeKey === "POST /timed/admin/market-events/bulk-seed") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+
+        const db = env?.DB;
+        if (!db) {
+          return sendJSON(
+            { ok: false, error: "d1_not_configured" },
+            400,
+            corsHeaders(env, req),
+          );
+        }
+
+        let payload;
+        try {
+          payload = await req.json();
+        } catch (err) {
+          return sendJSON(
+            { ok: false, error: "invalid_json", detail: String(err?.message || err).slice(0, 200) },
+            400,
+            corsHeaders(env, req),
+          );
+        }
+        const rows = Array.isArray(payload?.events) ? payload.events : null;
+        if (!rows || rows.length === 0) {
+          return sendJSON(
+            { ok: false, error: "events_array_required" },
+            400,
+            corsHeaders(env, req),
+          );
+        }
+        if (rows.length > 5000) {
+          return sendJSON(
+            { ok: false, error: "too_many_events", limit: 5000, received: rows.length },
+            400,
+            corsHeaders(env, req),
+          );
+        }
+
+        await d1EnsureBriefSchema(env);
+
+        const nowTs = Date.now();
+        const stmts = [];
+        const errors = [];
+        let seeded = 0;
+        const seen = new Set();
+
+        for (const ev of rows) {
+          const ticker = String(ev?.ticker || "").toUpperCase().trim();
+          const dateKey = String(ev?.date || "").slice(0, 10);
+          if (!ticker || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+            errors.push({ ticker, date: dateKey, error: "invalid_ticker_or_date" });
+            continue;
+          }
+          const id = `earn-${ticker}-${dateKey}`;
+          if (seen.has(id)) continue;
+          seen.add(id);
+
+          const epsActualRaw = ev?.eps_actual;
+          const epsEstimateRaw = ev?.eps_estimate;
+          const epsActual = (epsActualRaw === null || epsActualRaw === undefined || !Number.isFinite(Number(epsActualRaw)))
+            ? null
+            : Number(epsActualRaw);
+          const epsEstimate = (epsEstimateRaw === null || epsEstimateRaw === undefined || !Number.isFinite(Number(epsEstimateRaw)))
+            ? null
+            : Number(epsEstimateRaw);
+
+          const scheduledTs = Number.isFinite(Number(ev?.scheduled_ts)) ? Number(ev.scheduled_ts) : null;
+          const scheduledTimeEt = String(ev?.scheduled_time_et || "").trim() || null;
+          let session = String(ev?.session || "").trim().toLowerCase();
+          if (!["bmo", "premarket", "rth", "amc", "afterhours", "unknown"].includes(session)) {
+            session = "unknown";
+          }
+          const status = epsActual != null ? "resolved" : "scheduled";
+
+          const surprisePct = (epsActual != null && epsEstimate != null && epsEstimate !== 0)
+            ? Math.round(((epsActual - epsEstimate) / Math.abs(epsEstimate)) * 10000) / 100
+            : null;
+
+          const sector = (typeof getSector === "function") ? getSector(ticker) : null;
+          const eventName = `${ticker} Earnings`;
+          const briefNote = sector ? `Sector: ${sector}` : null;
+
+          const actualStr = epsActual != null ? `$${epsActual} EPS` : null;
+          const estimateStr = epsEstimate != null ? `$${epsEstimate} EPS` : null;
+
+          stmts.push(
+            db.prepare(`
+              INSERT INTO market_events (id, date, event_type, event_key, event_name, ticker, impact, source, status, scheduled_ts, scheduled_time_et, session, actual, estimate, previous, surprise_pct, spy_reaction_pct, sector_reaction_pct, brief_note, created_at)
+              VALUES (?1,?2,'earnings','EARNINGS',?3,?4,'high','historical_bulk_seed',?5,?6,?7,?8,?9,?10,NULL,?11,NULL,NULL,?12,?13)
+              ON CONFLICT(id) DO UPDATE SET
+                event_key=excluded.event_key,
+                event_name=excluded.event_name,
+                ticker=excluded.ticker,
+                impact=excluded.impact,
+                source=excluded.source,
+                status=excluded.status,
+                scheduled_ts=excluded.scheduled_ts,
+                scheduled_time_et=excluded.scheduled_time_et,
+                session=excluded.session,
+                actual=excluded.actual,
+                estimate=excluded.estimate,
+                surprise_pct=excluded.surprise_pct,
+                brief_note=excluded.brief_note
+            `).bind(
+              id,
+              dateKey,
+              eventName,
+              ticker,
+              status,
+              scheduledTs,
+              scheduledTimeEt,
+              session,
+              actualStr,
+              estimateStr,
+              surprisePct,
+              briefNote,
+              nowTs,
+            ),
+          );
+          seeded += 1;
+        }
+
+        const dryRun = String(url.searchParams.get("dryRun") || "") === "1";
+        if (!dryRun && stmts.length > 0) {
+          const BATCH = 50;
+          for (let i = 0; i < stmts.length; i += BATCH) {
+            try {
+              await db.batch(stmts.slice(i, i + BATCH));
+            } catch (err) {
+              errors.push({ batch_start: i, error: String(err?.message || err).slice(0, 300) });
+            }
+          }
+        }
+
+        return sendJSON(
+          {
+            ok: true,
+            dryRun,
+            received: rows.length,
+            seeded,
+            errorCount: errors.length,
+            errors: errors.slice(0, 25),
+          },
+          200,
+          corsHeaders(env, req),
+        );
       }
 
       // GET /timed/admin/market-events/coverage?key=...&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&tickers=CSV
