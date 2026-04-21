@@ -18,6 +18,185 @@ function renderMarkdown(md) {
   }
   return cleaned.replace(/\n/g, "<br/>");
 }
+function BriefInfographic({
+  data
+}) {
+  if (!data) return null;
+  const hl = data.headline || {};
+  const vixBucket = hl.vix?.bucket;
+  const vixColor = vixBucket === "calm" ? "#34d399" : vixBucket === "normal" ? "#86efac" : vixBucket === "elevated" ? "#fbbf24" : vixBucket === "high" ? "#fb923c" : vixBucket === "panic" ? "#ef4444" : "#9ca3af";
+  const Badge = ({
+    label,
+    value,
+    color
+  }) => React.createElement("div", {
+    className: "flex flex-col items-start px-3 py-2 rounded-md bg-white/[0.03] border border-white/[0.06] min-w-[84px]"
+  }, React.createElement("span", {
+    className: "text-[9px] uppercase tracking-wider text-[#6b7280]"
+  }, label), React.createElement("span", {
+    className: "text-[13px] font-semibold tabular-nums",
+    style: {
+      color: color || "#e5e7eb"
+    }
+  }, value));
+  const ggColor = gg => gg === "OPEN_UP" ? "#34d399" : gg === "OPEN_DOWN" ? "#ef4444" : "#9ca3af";
+  const pctColor = p => p == null ? "#9ca3af" : p > 0 ? "#34d399" : p < 0 ? "#ef4444" : "#9ca3af";
+  const indicies = Array.isArray(data.indices) ? data.indices : [];
+  const sectors = Array.isArray(data.sectors) ? data.sectors : [];
+  const macro = Array.isArray(data.macro) ? data.macro : [];
+  const events = Array.isArray(data.events) ? data.events : [];
+  const risks = Array.isArray(data.risks) ? data.risks : [];
+  const opps = Array.isArray(data.opportunities) ? data.opportunities : [];
+  const topThree = Array.isArray(data.topThree) ? data.topThree : null;
+  const closingLine = data.closingLine || null;
+  return React.createElement("div", {
+    className: "mb-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-4"
+  }, topThree && topThree.length === 3 && React.createElement("div", {
+    className: "rounded-lg bg-gradient-to-br from-amber-500/5 to-amber-500/[0.02] border border-amber-500/20 p-3"
+  }, React.createElement("div", {
+    className: "text-[9px] uppercase tracking-[0.18em] text-amber-300/80 mb-2"
+  }, "Today's three"), React.createElement("ol", {
+    className: "space-y-1.5"
+  }, topThree.map(t => React.createElement("li", {
+    key: t.n,
+    className: "flex items-baseline gap-2 text-[12.5px] leading-relaxed"
+  }, React.createElement("span", {
+    className: "font-bold text-amber-300 tabular-nums shrink-0"
+  }, t.n, "."), React.createElement("span", {
+    className: "text-[#e5e7eb]"
+  }, t.label && React.createElement("span", {
+    className: "text-[#9ca3af] font-medium"
+  }, t.label, ": "), React.createElement("span", null, t.body)))))), React.createElement("div", {
+    className: "flex flex-wrap items-center gap-2"
+  }, hl.regime && React.createElement(Badge, {
+    label: "Regime",
+    value: hl.regime.replace(/_/g, " "),
+    color: "#67e8f9"
+  }), hl.vix && React.createElement(Badge, {
+    label: "VIX",
+    value: `${hl.vix.level.toFixed(2)} · ${vixBucket}`,
+    color: vixColor
+  }), hl.breadth && React.createElement(Badge, {
+    label: "Breadth",
+    value: `${hl.breadth.green}/${hl.breadth.total}`,
+    color: hl.breadth.green >= hl.breadth.total * 0.6 ? "#34d399" : hl.breadth.green <= hl.breadth.total * 0.4 ? "#ef4444" : "#fbbf24"
+  }), hl.openTrades != null && React.createElement(Badge, {
+    label: "Open Trades",
+    value: String(hl.openTrades),
+    color: "#a78bfa"
+  })), indicies.length > 0 && React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-3 gap-2"
+  }, indicies.map(idx => {
+    const lvls = idx.levels || {};
+    const gg = lvls.goldenGate || "NEUTRAL";
+    const anchor = lvls.anchor;
+    const cp = lvls.currentPrice ?? idx.price;
+    const up382 = lvls.levels?.["+38.2%"];
+    const dn382 = lvls.levels?.["-38.2%"];
+    const barProgress = cp != null && up382 != null && dn382 != null ? Math.max(0, Math.min(100, (cp - dn382) / (up382 - dn382) * 100)) : 50;
+    return React.createElement("div", {
+      key: idx.sym,
+      className: "p-3 rounded-md bg-white/[0.02] border border-white/[0.06]"
+    }, React.createElement("div", {
+      className: "flex items-center justify-between mb-1"
+    }, React.createElement("span", {
+      className: "text-[12px] font-semibold text-white"
+    }, idx.sym), React.createElement("span", {
+      className: "text-[10px] font-semibold",
+      style: {
+        color: ggColor(gg)
+      }
+    }, gg === "OPEN_UP" ? "▲ Golden Gate Up" : gg === "OPEN_DOWN" ? "▼ Golden Gate Down" : "◆ Neutral")), React.createElement("div", {
+      className: "flex items-baseline gap-2 mb-2"
+    }, React.createElement("span", {
+      className: "text-lg font-bold text-white tabular-nums"
+    }, idx.price != null ? `$${idx.price.toFixed(2)}` : "—"), React.createElement("span", {
+      className: "text-[11px] font-semibold tabular-nums",
+      style: {
+        color: pctColor(idx.chgPct)
+      }
+    }, idx.chgPct != null ? `${idx.chgPct >= 0 ? "+" : ""}${idx.chgPct.toFixed(2)}%` : ""), idx.atr != null && React.createElement("span", {
+      className: "ml-auto text-[10px] text-[#6b7280]"
+    }, "ATR $", idx.atr.toFixed(2))), dn382 != null && up382 != null && React.createElement("div", {
+      className: "relative h-2 rounded bg-white/[0.05] overflow-hidden mb-1"
+    }, React.createElement("div", {
+      className: "absolute left-0 top-0 bottom-0",
+      style: {
+        width: `${barProgress}%`,
+        background: "linear-gradient(90deg, rgba(239,68,68,0.35), rgba(107,114,128,0.25), rgba(52,211,153,0.35))"
+      }
+    }), anchor != null && cp != null && React.createElement("div", {
+      className: "absolute top-0 bottom-0",
+      style: {
+        left: `${Math.max(0, Math.min(100, (anchor - dn382) / (up382 - dn382) * 100))}%`,
+        width: 2,
+        background: "#9ca3af"
+      },
+      title: `Prev close ${anchor}`
+    })), dn382 != null && up382 != null && React.createElement("div", {
+      className: "flex items-center justify-between text-[9px] text-[#6b7280] tabular-nums"
+    }, React.createElement("span", null, "-38.2% $", dn382.toFixed(2)), React.createElement("span", null, "+38.2% $", up382.toFixed(2))));
+  })), sectors.length > 0 && React.createElement("div", null, React.createElement("div", {
+    className: "text-[9px] uppercase tracking-wider text-[#6b7280] mb-1"
+  }, "Sectors today"), React.createElement("div", {
+    className: "flex flex-wrap gap-1"
+  }, sectors.map(s => React.createElement("div", {
+    key: s.sym,
+    className: "px-2 py-1 rounded text-[10px] font-semibold flex items-center gap-1 border",
+    style: {
+      borderColor: s.status === "strong" ? "rgba(52,211,153,0.35)" : s.status === "green" ? "rgba(134,239,172,0.25)" : s.status === "weak" ? "rgba(251,191,36,0.25)" : s.status === "red" ? "rgba(239,68,68,0.35)" : "rgba(156,163,175,0.2)",
+      background: s.status === "strong" ? "rgba(52,211,153,0.1)" : s.status === "green" ? "rgba(134,239,172,0.06)" : s.status === "weak" ? "rgba(251,191,36,0.08)" : s.status === "red" ? "rgba(239,68,68,0.1)" : "rgba(156,163,175,0.05)",
+      color: s.status === "strong" ? "#34d399" : s.status === "green" ? "#86efac" : s.status === "weak" ? "#fbbf24" : s.status === "red" ? "#ef4444" : "#9ca3af"
+    }
+  }, React.createElement("span", null, s.sym), React.createElement("span", {
+    className: "tabular-nums"
+  }, s.chgPct != null ? `${s.chgPct >= 0 ? "+" : ""}${s.chgPct.toFixed(2)}%` : ""))))), macro.length > 0 && React.createElement("div", null, React.createElement("div", {
+    className: "text-[9px] uppercase tracking-wider text-[#6b7280] mb-1"
+  }, "Macro cross-asset"), React.createElement("div", {
+    className: "grid grid-cols-2 md:grid-cols-5 gap-1.5"
+  }, macro.map(m => React.createElement("div", {
+    key: m.sym + m.label,
+    className: "px-2 py-1.5 rounded bg-white/[0.02] border border-white/[0.05]",
+    title: m.hint || ""
+  }, React.createElement("div", {
+    className: "text-[9px] uppercase tracking-wider text-[#6b7280]"
+  }, m.label), React.createElement("div", {
+    className: "text-[12px] font-semibold text-white tabular-nums"
+  }, m.sym === "VIX" ? m.value.toFixed(2) : m.value.toFixed(2)), m.chgPct != null && React.createElement("div", {
+    className: "text-[10px] tabular-nums",
+    style: {
+      color: pctColor(m.chgPct)
+    }
+  }, m.chgPct >= 0 ? "+" : "", m.chgPct.toFixed(2), "%"))))), (risks.length > 0 || opps.length > 0) && React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-2 gap-2"
+  }, risks.length > 0 && React.createElement("div", {
+    className: "p-2 rounded bg-red-500/5 border border-red-500/20"
+  }, React.createElement("div", {
+    className: "text-[9px] uppercase tracking-wider text-red-300/80 mb-1"
+  }, "Risks today"), React.createElement("ul", {
+    className: "space-y-0.5 text-[11px] text-[#fecaca]"
+  }, risks.map((r, i) => React.createElement("li", {
+    key: i
+  }, "\u2022 ", r)))), opps.length > 0 && React.createElement("div", {
+    className: "p-2 rounded bg-emerald-500/5 border border-emerald-500/20"
+  }, React.createElement("div", {
+    className: "text-[9px] uppercase tracking-wider text-emerald-300/80 mb-1"
+  }, "Opportunities"), React.createElement("ul", {
+    className: "space-y-0.5 text-[11px] text-[#bbf7d0]"
+  }, opps.map((o, i) => React.createElement("li", {
+    key: i
+  }, "\u2022 ", o))))), events.length > 0 && React.createElement("div", null, React.createElement("div", {
+    className: "text-[9px] uppercase tracking-wider text-[#6b7280] mb-1"
+  }, "Today's catalysts"), React.createElement("div", {
+    className: "flex flex-wrap gap-1"
+  }, events.map((e, i) => React.createElement("span", {
+    key: i,
+    className: "px-2 py-0.5 rounded-md text-[10px] font-medium border border-white/[0.08] bg-white/[0.03] text-[#d1d5db]",
+    title: e.kind
+  }, e.kind === "earnings" ? "📊 " : "📅 ", e.title, e.when ? ` · ${e.when}` : "")))), closingLine && React.createElement("div", {
+    className: "pt-3 border-t border-white/[0.06] italic text-[#d1d5db] text-[12px] leading-relaxed"
+  }, "\u201C", closingLine, "\u201D"));
+}
 function BriefCard({
   brief,
   type
@@ -60,7 +239,9 @@ function BriefCard({
       background: bgDim,
       color: accentColor
     }
-  }, brief.esPrediction.slice(0, 80), brief.esPrediction.length > 80 ? "..." : "")), React.createElement("div", {
+  }, brief.esPrediction.slice(0, 80), brief.esPrediction.length > 80 ? "..." : "")), brief.infographic && React.createElement(BriefInfographic, {
+    data: brief.infographic
+  }), React.createElement("div", {
     className: "brief-content",
     dangerouslySetInnerHTML: {
       __html: renderMarkdown(brief.content)
@@ -1433,10 +1614,7 @@ function App({
   }, "Tour"), React.createElement("a", {
     href: "/faq.html",
     className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "FAQ"), React.createElement("a", {
-    href: "index-react.html",
-    className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#60a5fa] hover:text-[#93bbfc] hover:bg-[#60a5fa]/[0.06] transition-all font-medium"
-  }, "Ask AI"), window.TimedNotificationCenter && React.createElement(window.TimedNotificationCenter, {
+  }, "FAQ"), window.TimedNotificationCenter && React.createElement(window.TimedNotificationCenter, {
     apiBase: ""
   }), window.TimedUserBadge && React.createElement(window.TimedUserBadge, {
     user: window.TimedAuthHelpers?.getStoredSession(),
@@ -1543,9 +1721,6 @@ function App({
     href: "/faq.html",
     className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
   }, "FAQ"), React.createElement("a", {
-    href: "index-react.html",
-    className: "px-3 py-2 rounded-md text-[12px] text-[#60a5fa] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "Ask AI"), React.createElement("a", {
     href: "mailto:support@timed-trading.com",
     className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
   }, "Contact")))), React.createElement("div", {

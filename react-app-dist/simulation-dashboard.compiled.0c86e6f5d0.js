@@ -6472,10 +6472,7 @@ function App() {
   }, "Tour"), React.createElement("a", {
     href: "/faq.html",
     className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "FAQ"), React.createElement("a", {
-    href: "index-react.html",
-    className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#60a5fa] hover:text-[#93bbfc] hover:bg-[#60a5fa]/[0.06] transition-all font-medium"
-  }, "Ask AI"), window.TimedNotificationCenter && React.createElement(window.TimedNotificationCenter, {
+  }, "FAQ"), window.TimedNotificationCenter && React.createElement(window.TimedNotificationCenter, {
     apiBase: API_BASE
   }), window.TimedUserBadge && React.createElement(window.TimedUserBadge, {
     user: window.TimedAuthHelpers?.getStoredSession(),
@@ -6582,9 +6579,6 @@ function App() {
     href: "/faq.html",
     className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
   }, "FAQ"), React.createElement("a", {
-    href: "index-react.html",
-    className: "px-3 py-2 rounded-md text-[12px] text-[#60a5fa] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "Ask AI"), React.createElement("a", {
     href: "mailto:support@timed-trading.com",
     className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
   }, "Contact")))), React.createElement("div", {
