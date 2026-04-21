@@ -91,10 +91,16 @@ esac
 ARTIFACT_DIR="${ROOT}/data/trade-analysis/${RUN_ID}"
 CHECKPOINT_FILE="${ARTIFACT_DIR}/continuous.checkpoint.json"
 LOG_FILE="${ARTIFACT_DIR}/continuous.log"
+# Heartbeat file — touched on every successful HTTP response (per batch, not
+# per day). The watchdog polls this via `stat` only, so it can't be starved
+# by log-file contention or grep-on-growing-tee scenarios. This is the
+# authoritative "are we making progress?" signal.
+HEARTBEAT_FILE="${ARTIFACT_DIR}/continuous.heartbeat"
 
 mkdir -p "$ARTIFACT_DIR"
 
 log() { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] $*" | tee -a "$LOG_FILE"; }
+heartbeat() { touch "$HEARTBEAT_FILE" 2>/dev/null || true; }
 
 # Build NYSE holiday set + weekend filter — mirrors monthly-slice.sh logic.
 declare -a ALL_DAYS
@@ -121,6 +127,7 @@ EOF
 
 mapfile -t ALL_DAYS < <(build_trading_days)
 TOTAL=${#ALL_DAYS[@]}
+heartbeat  # initial heartbeat so watchdog sees a fresh mtime on launch
 log "=== continuous-slice: $RUN_ID ==="
 log "    range=${START_DATE}..${END_DATE}  trading_days=${TOTAL}"
 log "    tickers(24)=${TICKERS}"
@@ -239,12 +246,32 @@ replay_day() {
     local attempt=1 max_attempts=3 rc=0 resp=""
     while [[ $attempt -le $max_attempts ]]; do
       local t0=$(date -u +%s)
+      # Hard-kill wrapper: `timeout` alone has been observed to NOT kill
+      # curl processes stuck in deep TCP/kernel state (observed: Aug 19
+      # v10b hang, 3081s elapsed despite -m 420 AND timeout 420). We use
+      # `setsid` so curl runs in its own process group, then `timeout`
+      # can use SIGKILL after 5s of SIGTERM being ignored. Also, curl's
+      # internal timeout options (--max-time + --connect-timeout) give
+      # us a second line of defense.
       set +e
-      resp=$(timeout --kill-after=10s "${WATCHDOG_SECONDS}s" curl -sS -m "$WATCHDOG_SECONDS" --connect-timeout 30 -X POST "$url" -H "Content-Type: application/json" -d '{}' -w "\n__HTTP_STATUS__:%{http_code}" 2>&1)
+      resp=$(timeout --kill-after=5s --signal=TERM "${WATCHDOG_SECONDS}s" \
+        setsid curl -sS \
+        --max-time "$WATCHDOG_SECONDS" \
+        --connect-timeout 30 \
+        --speed-time 60 --speed-limit 1 \
+        -X POST "$url" \
+        -H "Content-Type: application/json" \
+        -d '{}' \
+        -w "\n__HTTP_STATUS__:%{http_code}" 2>&1)
       rc=$?
       set -e
       local t1=$(date -u +%s)
       local elapsed=$((t1 - t0))
+      # Heartbeat regardless of success/failure — if this line is reached,
+      # the curl process terminated and we're back in the main loop. A
+      # stalled curl would NOT reach this, and the watchdog will see a
+      # stale heartbeat file.
+      heartbeat
       if [[ $rc -ne 0 ]]; then
         log "WARN: curl rc=$rc elapsed=${elapsed}s on $day offset=$offset attempt $attempt"
         attempt=$((attempt + 1))
