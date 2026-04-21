@@ -1432,6 +1432,14 @@ function getTickerSector(ticker) {
     XLRE: "Real Estate",
     XLU: "Utilities",
     XLV: "Healthcare",
+    IBB: "Healthcare",
+    INFL: "Thematic ETF",
+    LIT: "Thematic ETF",
+    RPG: "Thematic ETF",
+    SPHB: "Thematic ETF",
+    GRNJ: "Thematic ETF",
+    GRNI: "Thematic ETF",
+    DBA: "Commodity ETF",
     AMZN: "Consumer Discretionary",
     TSLA: "Consumer Discretionary",
     NKE: "Consumer Discretionary",
@@ -14286,13 +14294,9 @@ function App() {
     href: "/faq.html",
     className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all",
     title: "Frequently Asked Questions"
-  }, "FAQ"), React.createElement("button", {
-    onClick: () => setShowAiChat(true),
-    className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#60a5fa] hover:text-[#93bbfc] hover:bg-[#60a5fa]/[0.06] transition-all font-medium",
-    title: "Ask the AI assistant"
-  }, "Ask AI"), loading && React.createElement("div", {
+  }, "FAQ"), loading && React.createElement("div", {
     className: "loading-spinner"
-  }), window.TimedDiscordButton && React.createElement(window.TimedDiscordButton, {
+  }), window.TimedWaitlistButton && React.createElement(window.TimedWaitlistButton, {
     apiBase: API_BASE
   }), window.TimedNotificationCenter && React.createElement(window.TimedNotificationCenter, {
     apiBase: API_BASE
@@ -14409,20 +14413,10 @@ function App() {
   }, "Tour"), React.createElement("a", {
     href: "/faq.html",
     className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "FAQ"), React.createElement("button", {
-    onClick: () => {
-      setShowAiChat(true);
-      setMobileMenuOpen(false);
-    },
-    className: "px-3 py-2 rounded-md text-[12px] text-[#60a5fa] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "Ask AI"), React.createElement("a", {
+  }, "FAQ"), React.createElement("a", {
     href: "mailto:support@timed-trading.com",
     className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "Contact")))), React.createElement(AIChatInterface, {
-    isOpen: showAiChat,
-    onClose: () => setShowAiChat(false),
-    tickerData: data
-  }), React.createElement("div", {
+  }, "Contact")))), React.createElement("div", {
     className: "mx-auto w-full px-2 sm:px-4 lg:px-5"
   }, React.createElement("header", {
     className: "mb-4 pt-3"

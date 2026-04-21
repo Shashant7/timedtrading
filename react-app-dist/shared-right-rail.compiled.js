@@ -135,6 +135,25 @@
         hour12: true
       });
     }
+    const SpiderChartImpl = typeof window !== "undefined" && window.TickerSpiderChartFactory ? window.TickerSpiderChartFactory({
+      React
+    }) : null;
+    function SignalRadar({
+      ticker,
+      direction,
+      compact,
+      size,
+      showLegend
+    }) {
+      if (!SpiderChartImpl || !ticker) return null;
+      return React.createElement(SpiderChartImpl, {
+        ticker,
+        direction,
+        compact,
+        size,
+        showLegend
+      });
+    }
     function computeEMA(data, period, source = 'close') {
       const k = 2 / (period + 1);
       const out = [];
@@ -3016,7 +3035,12 @@
           className: "text-[10px] text-[#6b7280]"
         }, "Investor Score"))), React.createElement("div", {
           className: "text-[11px] text-[#9ca3af] mt-2 italic leading-relaxed"
-        }, summary)), predictionContractLoading ? React.createElement(SkeletonBlock, {
+        }, summary)), React.createElement(SignalRadar, {
+          ticker: d,
+          direction: predictionContract?.direction || predictionContract?.bias || d?.direction || d?.bias,
+          compact: false,
+          size: 240
+        }), predictionContractLoading ? React.createElement(SkeletonBlock, {
           height: 100,
           lines: 4
         }) : predictionContract ? React.createElement("div", {
@@ -3319,7 +3343,14 @@
         }, "Prime Setup"), React.createElement("div", {
           className: "text-[10px] text-amber-300/60"
         }, _primeReason)));
-      })(), predictionContractLoading ? React.createElement(SkeletonBlock, {
+      })(), React.createElement("div", {
+        className: "mb-4"
+      }, React.createElement(SignalRadar, {
+        ticker: ticker,
+        direction: predictionContract?.direction || predictionContract?.bias || ticker?.direction || ticker?.bias,
+        compact: false,
+        size: 240
+      })), predictionContractLoading ? React.createElement(SkeletonBlock, {
         height: 120,
         lines: 4
       }) : predictionContract ? React.createElement("div", {
