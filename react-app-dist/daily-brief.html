@@ -87,23 +87,26 @@
       body:not([data-user-role="admin"]) a[data-admin-only] {
         display: none !important;
       }
-      /* Markdown styling for brief content */
+      /* Markdown styling for brief content — Galloway-inspired:
+         prominent editorialized H2 headlines, tighter paragraph rhythm,
+         one-sentence paragraphs carry weight. */
       .brief-content h2 {
-        font-size: 15px;
-        font-weight: 600;
-        color: #e5e7eb;
-        margin: 24px 0 10px 0;
-        padding-bottom: 8px;
-        border-bottom: 1px solid rgba(255,255,255,0.06);
+        font-size: 20px;
+        font-weight: 700;
+        color: #ffffff;
+        letter-spacing: -0.01em;
+        line-height: 1.2;
+        margin: 28px 0 10px 0;
+        padding-bottom: 10px;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
       }
       .brief-content h2:first-child { margin-top: 0; }
       .brief-content h3 {
-        font-size: 14px;
+        font-size: 14.5px;
         font-weight: 600;
-        color: #d1d5db;
+        color: #e5e7eb;
+        letter-spacing: -0.005em;
         margin: 20px 0 8px 0;
-        padding-bottom: 4px;
-        border-bottom: 1px solid rgba(255,255,255,0.03);
       }
       .brief-content h4 {
         font-size: 13px;
@@ -112,10 +115,19 @@
         margin: 16px 0 6px 0;
       }
       .brief-content p {
-        font-size: 13px;
-        line-height: 1.75;
-        color: #9ca3af;
-        margin: 8px 0;
+        font-size: 14px;
+        line-height: 1.65;
+        color: #d1d5db;
+        margin: 10px 0;
+      }
+      /* One-sentence emphasis paragraphs (Galloway "Full stop." "Bold." rhythm):
+         when a paragraph is a single short sentence wrapped in <strong>,
+         render it as a callout-style pull line. */
+      .brief-content p > strong:only-child {
+        display: inline-block;
+        font-size: 15px;
+        color: #f9fafb;
+        font-weight: 700;
       }
       .brief-content ul, .brief-content ol {
         font-size: 13px;
@@ -154,7 +166,7 @@
   </head>
   <body>
     <div id="root"></div>
-    <script src="daily-brief.compiled.621c01e2ee.js"></script>
+    <script src="daily-brief.compiled.eee26b97fc.js"></script>
     <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> · Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
     </footer>
