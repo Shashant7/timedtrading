@@ -1,0 +1,6650 @@
+{
+  "generated_at": "2026-04-21T18:10:32.453908+00:00",
+  "source": "yfinance",
+  "start_date": "2025-06-01",
+  "end_date": "2026-05-31",
+  "tickers_requested": 215,
+  "tickers_with_events": 186,
+  "total_events": 737,
+  "errors": [
+    {
+      "ticker": "XYZ",
+      "error": "yf_error: ['Earnings Date']"
+    }
+  ],
+  "events": [
+    {
+      "ticker": "AA",
+      "date": "2026-04-16",
+      "scheduled_ts": 1776369600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.55,
+      "eps_actual": 1.4
+    },
+    {
+      "ticker": "AA",
+      "date": "2026-01-22",
+      "scheduled_ts": 1769115600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.01,
+      "eps_actual": 1.26
+    },
+    {
+      "ticker": "AA",
+      "date": "2025-10-22",
+      "scheduled_ts": 1761163200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.05,
+      "eps_actual": -0.02
+    },
+    {
+      "ticker": "AA",
+      "date": "2025-07-16",
+      "scheduled_ts": 1752696000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.39,
+      "eps_actual": 0.39
+    },
+    {
+      "ticker": "AAPL",
+      "date": "2026-04-30",
+      "scheduled_ts": 1777579200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.94,
+      "eps_actual": null
+    },
+    {
+      "ticker": "AAPL",
+      "date": "2026-01-29",
+      "scheduled_ts": 1769720400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.67,
+      "eps_actual": 2.84
+    },
+    {
+      "ticker": "AAPL",
+      "date": "2025-10-30",
+      "scheduled_ts": 1761854400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.77,
+      "eps_actual": 1.85
+    },
+    {
+      "ticker": "AAPL",
+      "date": "2025-07-31",
+      "scheduled_ts": 1753992000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.43,
+      "eps_actual": 1.57
+    },
+    {
+      "ticker": "ABT",
+      "date": "2026-04-16",
+      "scheduled_ts": 1776337200000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 1.15,
+      "eps_actual": 1.15
+    },
+    {
+      "ticker": "ABT",
+      "date": "2026-01-22",
+      "scheduled_ts": 1769083200000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 1.49,
+      "eps_actual": 1.5
+    },
+    {
+      "ticker": "ABT",
+      "date": "2025-10-15",
+      "scheduled_ts": 1760526000000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 1.3,
+      "eps_actual": 1.3
+    },
+    {
+      "ticker": "ABT",
+      "date": "2025-07-17",
+      "scheduled_ts": 1752750000000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 0.99,
+      "eps_actual": 1.01
+    },
+    {
+      "ticker": "ACN",
+      "date": "2026-03-19",
+      "scheduled_ts": 1773914400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 2.83,
+      "eps_actual": 2.93
+    },
+    {
+      "ticker": "ACN",
+      "date": "2025-12-18",
+      "scheduled_ts": 1766055600000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 3.4,
+      "eps_actual": 3.54
+    },
+    {
+      "ticker": "ACN",
+      "date": "2025-09-25",
+      "scheduled_ts": 1758794400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 2.97,
+      "eps_actual": 3.03
+    },
+    {
+      "ticker": "ACN",
+      "date": "2025-06-20",
+      "scheduled_ts": 1750413600000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 3.32,
+      "eps_actual": 3.49
+    },
+    {
+      "ticker": "AEHR",
+      "date": "2026-04-07",
+      "scheduled_ts": 1775592000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.07,
+      "eps_actual": -0.05
+    },
+    {
+      "ticker": "AEHR",
+      "date": "2026-01-08",
+      "scheduled_ts": 1767909600000,
+      "scheduled_time_et": "17:00",
+      "session": "amc",
+      "eps_estimate": -0.04,
+      "eps_actual": -0.04
+    },
+    {
+      "ticker": "AEHR",
+      "date": "2025-10-06",
+      "scheduled_ts": 1759780800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": null,
+      "eps_actual": 0.01
+    },
+    {
+      "ticker": "AEHR",
+      "date": "2025-07-08",
+      "scheduled_ts": 1752004800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.01,
+      "eps_actual": -0.01
+    },
+    {
+      "ticker": "AGYS",
+      "date": "2026-05-18",
+      "scheduled_ts": 1779134400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.5,
+      "eps_actual": null
+    },
+    {
+      "ticker": "AGYS",
+      "date": "2026-01-26",
+      "scheduled_ts": 1769461200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.46,
+      "eps_actual": 0.42
+    },
+    {
+      "ticker": "AGYS",
+      "date": "2025-10-27",
+      "scheduled_ts": 1761595200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.38,
+      "eps_actual": 0.4
+    },
+    {
+      "ticker": "AGYS",
+      "date": "2025-07-21",
+      "scheduled_ts": 1753128000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.36,
+      "eps_actual": 0.33
+    },
+    {
+      "ticker": "ALB",
+      "date": "2026-05-06",
+      "scheduled_ts": 1778097600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.15,
+      "eps_actual": null
+    },
+    {
+      "ticker": "ALB",
+      "date": "2026-02-11",
+      "scheduled_ts": 1770843600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.49,
+      "eps_actual": -0.53
+    },
+    {
+      "ticker": "ALB",
+      "date": "2025-11-05",
+      "scheduled_ts": 1762376400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -1.0,
+      "eps_actual": -1.72
+    },
+    {
+      "ticker": "ALB",
+      "date": "2025-07-30",
+      "scheduled_ts": 1753905600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.81,
+      "eps_actual": 0.11
+    },
+    {
+      "ticker": "ALLY",
+      "date": "2026-04-17",
+      "scheduled_ts": 1776423600000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 0.94,
+      "eps_actual": 1.11
+    },
+    {
+      "ticker": "ALLY",
+      "date": "2026-01-21",
+      "scheduled_ts": 1768996800000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 1.02,
+      "eps_actual": 1.09
+    },
+    {
+      "ticker": "ALLY",
+      "date": "2025-10-17",
+      "scheduled_ts": 1760698800000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 1.01,
+      "eps_actual": 1.15
+    },
+    {
+      "ticker": "ALLY",
+      "date": "2025-07-18",
+      "scheduled_ts": 1752836400000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 0.81,
+      "eps_actual": 0.99
+    },
+    {
+      "ticker": "AMD",
+      "date": "2026-05-05",
+      "scheduled_ts": 1778011200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.28,
+      "eps_actual": null
+    },
+    {
+      "ticker": "AMD",
+      "date": "2026-02-03",
+      "scheduled_ts": 1770152400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.32,
+      "eps_actual": 1.53
+    },
+    {
+      "ticker": "AMD",
+      "date": "2025-11-04",
+      "scheduled_ts": 1762290000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.68,
+      "eps_actual": 0.75
+    },
+    {
+      "ticker": "AMD",
+      "date": "2025-08-05",
+      "scheduled_ts": 1754424000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.05,
+      "eps_actual": 0.54
+    },
+    {
+      "ticker": "AMGN",
+      "date": "2026-04-30",
+      "scheduled_ts": 1777579200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 4.81,
+      "eps_actual": null
+    },
+    {
+      "ticker": "AMGN",
+      "date": "2026-02-03",
+      "scheduled_ts": 1770152400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.41,
+      "eps_actual": 2.45
+    },
+    {
+      "ticker": "AMGN",
+      "date": "2025-11-04",
+      "scheduled_ts": 1762290000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.6,
+      "eps_actual": 5.93
+    },
+    {
+      "ticker": "AMGN",
+      "date": "2025-08-05",
+      "scheduled_ts": 1754424000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 3.12,
+      "eps_actual": 2.65
+    },
+    {
+      "ticker": "AMZN",
+      "date": "2026-04-29",
+      "scheduled_ts": 1777492800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.65,
+      "eps_actual": null
+    },
+    {
+      "ticker": "AMZN",
+      "date": "2026-02-05",
+      "scheduled_ts": 1770325200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.96,
+      "eps_actual": 1.95
+    },
+    {
+      "ticker": "AMZN",
+      "date": "2025-10-30",
+      "scheduled_ts": 1761854400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.56,
+      "eps_actual": 1.95
+    },
+    {
+      "ticker": "AMZN",
+      "date": "2025-07-31",
+      "scheduled_ts": 1753992000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.32,
+      "eps_actual": 1.68
+    },
+    {
+      "ticker": "ANET",
+      "date": "2026-05-05",
+      "scheduled_ts": 1778011200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.81,
+      "eps_actual": null
+    },
+    {
+      "ticker": "ANET",
+      "date": "2026-02-12",
+      "scheduled_ts": 1770930000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.69,
+      "eps_actual": 0.75
+    },
+    {
+      "ticker": "ANET",
+      "date": "2025-11-04",
+      "scheduled_ts": 1762290000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.66,
+      "eps_actual": 0.67
+    },
+    {
+      "ticker": "ANET",
+      "date": "2025-08-05",
+      "scheduled_ts": 1754424000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.65,
+      "eps_actual": 0.73
+    },
+    {
+      "ticker": "APD",
+      "date": "2026-04-30",
+      "scheduled_ts": 1777550400000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 3.06,
+      "eps_actual": null
+    },
+    {
+      "ticker": "APD",
+      "date": "2026-01-30",
+      "scheduled_ts": 1769770800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 3.04,
+      "eps_actual": 3.16
+    },
+    {
+      "ticker": "APD",
+      "date": "2025-11-06",
+      "scheduled_ts": 1762426800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 3.42,
+      "eps_actual": 0.02
+    },
+    {
+      "ticker": "APD",
+      "date": "2025-07-31",
+      "scheduled_ts": 1753956000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 3.0,
+      "eps_actual": 3.24
+    },
+    {
+      "ticker": "APLD",
+      "date": "2026-04-08",
+      "scheduled_ts": 1775678400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.21,
+      "eps_actual": 0.09
+    },
+    {
+      "ticker": "APLD",
+      "date": "2026-01-07",
+      "scheduled_ts": 1767819600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.12,
+      "eps_actual": -0.07
+    },
+    {
+      "ticker": "APLD",
+      "date": "2025-10-09",
+      "scheduled_ts": 1760040000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.15,
+      "eps_actual": -0.03
+    },
+    {
+      "ticker": "APLD",
+      "date": "2025-07-30",
+      "scheduled_ts": 1753905600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.21,
+      "eps_actual": -0.03
+    },
+    {
+      "ticker": "APP",
+      "date": "2026-05-06",
+      "scheduled_ts": 1778097600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 3.45,
+      "eps_actual": null
+    },
+    {
+      "ticker": "APP",
+      "date": "2026-02-11",
+      "scheduled_ts": 1770843600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 3.11,
+      "eps_actual": 3.48
+    },
+    {
+      "ticker": "APP",
+      "date": "2025-11-05",
+      "scheduled_ts": 1762376400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.39,
+      "eps_actual": 2.45
+    },
+    {
+      "ticker": "APP",
+      "date": "2025-08-06",
+      "scheduled_ts": 1754510400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.98,
+      "eps_actual": 2.39
+    },
+    {
+      "ticker": "AR",
+      "date": "2026-04-29",
+      "scheduled_ts": 1777492800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.14,
+      "eps_actual": null
+    },
+    {
+      "ticker": "AR",
+      "date": "2026-02-11",
+      "scheduled_ts": 1770843600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.54,
+      "eps_actual": 0.62
+    },
+    {
+      "ticker": "AR",
+      "date": "2025-10-29",
+      "scheduled_ts": 1761768000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.25,
+      "eps_actual": 0.16
+    },
+    {
+      "ticker": "AR",
+      "date": "2025-07-30",
+      "scheduled_ts": 1753905600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.42,
+      "eps_actual": 0.35
+    },
+    {
+      "ticker": "ARM",
+      "date": "2026-05-06",
+      "scheduled_ts": 1778097600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.58,
+      "eps_actual": null
+    },
+    {
+      "ticker": "ARM",
+      "date": "2026-02-04",
+      "scheduled_ts": 1770238800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.41,
+      "eps_actual": 0.43
+    },
+    {
+      "ticker": "ARM",
+      "date": "2025-11-05",
+      "scheduled_ts": 1762376400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.33,
+      "eps_actual": 0.39
+    },
+    {
+      "ticker": "ARM",
+      "date": "2025-07-30",
+      "scheduled_ts": 1753905600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.35,
+      "eps_actual": 0.35
+    },
+    {
+      "ticker": "ARRY",
+      "date": "2026-05-06",
+      "scheduled_ts": 1778097600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.05,
+      "eps_actual": null
+    },
+    {
+      "ticker": "ARRY",
+      "date": "2026-02-25",
+      "scheduled_ts": 1772053200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": null,
+      "eps_actual": -0.01
+    },
+    {
+      "ticker": "ARRY",
+      "date": "2025-11-05",
+      "scheduled_ts": 1762376400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.2,
+      "eps_actual": 0.3
+    },
+    {
+      "ticker": "ARRY",
+      "date": "2025-08-07",
+      "scheduled_ts": 1754596800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.07,
+      "eps_actual": 0.19
+    },
+    {
+      "ticker": "ASTS",
+      "date": "2026-05-11",
+      "scheduled_ts": 1778529600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.2,
+      "eps_actual": null
+    },
+    {
+      "ticker": "ASTS",
+      "date": "2026-03-02",
+      "scheduled_ts": 1772485200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.2,
+      "eps_actual": -0.26
+    },
+    {
+      "ticker": "ASTS",
+      "date": "2025-11-10",
+      "scheduled_ts": 1762808400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.26,
+      "eps_actual": -0.45
+    },
+    {
+      "ticker": "ASTS",
+      "date": "2025-08-11",
+      "scheduled_ts": 1754942400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.22,
+      "eps_actual": -0.41
+    },
+    {
+      "ticker": "AU",
+      "date": "2026-05-08",
+      "scheduled_ts": 1778241600000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 2.22,
+      "eps_actual": null
+    },
+    {
+      "ticker": "AU",
+      "date": "2026-02-20",
+      "scheduled_ts": 1771545600000,
+      "scheduled_time_et": "19:00",
+      "session": "amc",
+      "eps_estimate": 1.94,
+      "eps_actual": 1.9
+    },
+    {
+      "ticker": "AU",
+      "date": "2025-11-11",
+      "scheduled_ts": 1762858800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.37,
+      "eps_actual": 1.32
+    },
+    {
+      "ticker": "AU",
+      "date": "2025-08-01",
+      "scheduled_ts": 1754042400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.29,
+      "eps_actual": 1.25
+    },
+    {
+      "ticker": "AVAV",
+      "date": "2026-03-10",
+      "scheduled_ts": 1773172800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.69,
+      "eps_actual": 0.64
+    },
+    {
+      "ticker": "AVAV",
+      "date": "2025-12-09",
+      "scheduled_ts": 1765314000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.37,
+      "eps_actual": -0.34
+    },
+    {
+      "ticker": "AVAV",
+      "date": "2025-09-09",
+      "scheduled_ts": 1757448000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.34,
+      "eps_actual": 0.32
+    },
+    {
+      "ticker": "AVAV",
+      "date": "2025-06-24",
+      "scheduled_ts": 1750791600000,
+      "scheduled_time_et": "15:00",
+      "session": "rth",
+      "eps_estimate": 1.39,
+      "eps_actual": 1.61
+    },
+    {
+      "ticker": "AVGO",
+      "date": "2026-03-04",
+      "scheduled_ts": 1772658000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.42,
+      "eps_actual": 1.5
+    },
+    {
+      "ticker": "AVGO",
+      "date": "2025-12-11",
+      "scheduled_ts": 1765486800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.12,
+      "eps_actual": 1.74
+    },
+    {
+      "ticker": "AVGO",
+      "date": "2025-09-04",
+      "scheduled_ts": 1757016000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.66,
+      "eps_actual": 1.69
+    },
+    {
+      "ticker": "AVGO",
+      "date": "2025-06-05",
+      "scheduled_ts": 1749153600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.57,
+      "eps_actual": 1.58
+    },
+    {
+      "ticker": "AWI",
+      "date": "2026-04-28",
+      "scheduled_ts": 1777377600000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 1.81,
+      "eps_actual": null
+    },
+    {
+      "ticker": "AWI",
+      "date": "2026-02-24",
+      "scheduled_ts": 1771930800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.68,
+      "eps_actual": 1.61
+    },
+    {
+      "ticker": "AWI",
+      "date": "2025-10-28",
+      "scheduled_ts": 1761645600000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 2.03,
+      "eps_actual": 2.05
+    },
+    {
+      "ticker": "AWI",
+      "date": "2025-07-29",
+      "scheduled_ts": 1753783200000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.78,
+      "eps_actual": 2.09
+    },
+    {
+      "ticker": "AXON",
+      "date": "2026-05-06",
+      "scheduled_ts": 1778097600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.6,
+      "eps_actual": null
+    },
+    {
+      "ticker": "AXON",
+      "date": "2026-02-24",
+      "scheduled_ts": 1771966800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.6,
+      "eps_actual": 2.15
+    },
+    {
+      "ticker": "AXON",
+      "date": "2025-11-04",
+      "scheduled_ts": 1762290000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.03,
+      "eps_actual": -0.03
+    },
+    {
+      "ticker": "AXON",
+      "date": "2025-08-04",
+      "scheduled_ts": 1754337600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.46,
+      "eps_actual": 2.12
+    },
+    {
+      "ticker": "AXP",
+      "date": "2026-04-23",
+      "scheduled_ts": 1776945600000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 3.99,
+      "eps_actual": null
+    },
+    {
+      "ticker": "AXP",
+      "date": "2026-01-30",
+      "scheduled_ts": 1769774400000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 3.55,
+      "eps_actual": 3.53
+    },
+    {
+      "ticker": "AXP",
+      "date": "2025-10-17",
+      "scheduled_ts": 1760698800000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 3.98,
+      "eps_actual": 4.14
+    },
+    {
+      "ticker": "AXP",
+      "date": "2025-07-18",
+      "scheduled_ts": 1752836400000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 3.88,
+      "eps_actual": 4.08
+    },
+    {
+      "ticker": "AYI",
+      "date": "2026-04-02",
+      "scheduled_ts": 1775124000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 4.0,
+      "eps_actual": 4.14
+    },
+    {
+      "ticker": "AYI",
+      "date": "2026-01-08",
+      "scheduled_ts": 1767870000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 4.59,
+      "eps_actual": 4.69
+    },
+    {
+      "ticker": "AYI",
+      "date": "2025-10-01",
+      "scheduled_ts": 1759312800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 3.85,
+      "eps_actual": 3.61
+    },
+    {
+      "ticker": "AYI",
+      "date": "2025-06-26",
+      "scheduled_ts": 1750932000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 4.44,
+      "eps_actual": 5.12
+    },
+    {
+      "ticker": "B",
+      "date": "2026-05-11",
+      "scheduled_ts": 1778500800000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 0.76,
+      "eps_actual": null
+    },
+    {
+      "ticker": "B",
+      "date": "2026-02-05",
+      "scheduled_ts": 1770289200000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.89,
+      "eps_actual": 1.43
+    },
+    {
+      "ticker": "B",
+      "date": "2025-11-10",
+      "scheduled_ts": 1762772400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.61,
+      "eps_actual": 0.58
+    },
+    {
+      "ticker": "B",
+      "date": "2025-08-11",
+      "scheduled_ts": 1754906400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.46,
+      "eps_actual": 0.47
+    },
+    {
+      "ticker": "BA",
+      "date": "2026-04-22",
+      "scheduled_ts": 1776859200000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": -0.68,
+      "eps_actual": null
+    },
+    {
+      "ticker": "BA",
+      "date": "2026-01-27",
+      "scheduled_ts": 1769515200000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": -0.42,
+      "eps_actual": 9.92
+    },
+    {
+      "ticker": "BA",
+      "date": "2025-10-29",
+      "scheduled_ts": 1761735600000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": -2.38,
+      "eps_actual": -7.47
+    },
+    {
+      "ticker": "BA",
+      "date": "2025-07-29",
+      "scheduled_ts": 1753786800000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": -1.27,
+      "eps_actual": -1.24
+    },
+    {
+      "ticker": "BABA",
+      "date": "2026-05-14",
+      "scheduled_ts": 1778760000000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 6.35,
+      "eps_actual": null
+    },
+    {
+      "ticker": "BABA",
+      "date": "2026-03-19",
+      "scheduled_ts": 1773910800000,
+      "scheduled_time_et": "05:00",
+      "session": "bmo",
+      "eps_estimate": 10.94,
+      "eps_actual": 7.09
+    },
+    {
+      "ticker": "BABA",
+      "date": "2025-11-25",
+      "scheduled_ts": 1764064800000,
+      "scheduled_time_et": "05:00",
+      "session": "bmo",
+      "eps_estimate": 5.78,
+      "eps_actual": 4.36
+    },
+    {
+      "ticker": "BABA",
+      "date": "2025-08-29",
+      "scheduled_ts": 1756458000000,
+      "scheduled_time_et": "05:00",
+      "session": "bmo",
+      "eps_estimate": 15.47,
+      "eps_actual": 14.75
+    },
+    {
+      "ticker": "BE",
+      "date": "2026-04-28",
+      "scheduled_ts": 1777406400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.13,
+      "eps_actual": null
+    },
+    {
+      "ticker": "BE",
+      "date": "2026-02-05",
+      "scheduled_ts": 1770325200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.3,
+      "eps_actual": 0.45
+    },
+    {
+      "ticker": "BE",
+      "date": "2025-10-28",
+      "scheduled_ts": 1761681600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.1,
+      "eps_actual": 0.15
+    },
+    {
+      "ticker": "BE",
+      "date": "2025-07-31",
+      "scheduled_ts": 1753992000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.02,
+      "eps_actual": 0.1
+    },
+    {
+      "ticker": "BG",
+      "date": "2026-04-29",
+      "scheduled_ts": 1777464000000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 0.86,
+      "eps_actual": null
+    },
+    {
+      "ticker": "BG",
+      "date": "2026-02-04",
+      "scheduled_ts": 1770202800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.82,
+      "eps_actual": 1.99
+    },
+    {
+      "ticker": "BG",
+      "date": "2025-11-05",
+      "scheduled_ts": 1762340400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.97,
+      "eps_actual": 2.27
+    },
+    {
+      "ticker": "BG",
+      "date": "2025-07-30",
+      "scheduled_ts": 1753869600000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.08,
+      "eps_actual": 1.31
+    },
+    {
+      "ticker": "BK",
+      "date": "2026-04-16",
+      "scheduled_ts": 1776333600000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.93,
+      "eps_actual": 2.25
+    },
+    {
+      "ticker": "BK",
+      "date": "2026-01-13",
+      "scheduled_ts": 1768302000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.9,
+      "eps_actual": 2.02
+    },
+    {
+      "ticker": "BK",
+      "date": "2025-10-16",
+      "scheduled_ts": 1760608800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.76,
+      "eps_actual": 1.88
+    },
+    {
+      "ticker": "BK",
+      "date": "2025-07-15",
+      "scheduled_ts": 1752573600000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.76,
+      "eps_actual": 1.94
+    },
+    {
+      "ticker": "BMNR",
+      "date": "2026-04-14",
+      "scheduled_ts": 1776196800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.17,
+      "eps_actual": -0.08
+    },
+    {
+      "ticker": "BMNR",
+      "date": "2026-01-13",
+      "scheduled_ts": 1768341600000,
+      "scheduled_time_et": "17:00",
+      "session": "amc",
+      "eps_estimate": 0.15,
+      "eps_actual": -0.19
+    },
+    {
+      "ticker": "BMNR",
+      "date": "2025-11-21",
+      "scheduled_ts": 1763755200000,
+      "scheduled_time_et": "15:00",
+      "session": "rth",
+      "eps_estimate": -0.1,
+      "eps_actual": 16.01
+    },
+    {
+      "ticker": "BWXT",
+      "date": "2026-05-04",
+      "scheduled_ts": 1777924800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.93,
+      "eps_actual": null
+    },
+    {
+      "ticker": "BWXT",
+      "date": "2026-02-23",
+      "scheduled_ts": 1771884000000,
+      "scheduled_time_et": "17:00",
+      "session": "amc",
+      "eps_estimate": 0.9,
+      "eps_actual": 1.01
+    },
+    {
+      "ticker": "BWXT",
+      "date": "2025-11-03",
+      "scheduled_ts": 1762203600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.86,
+      "eps_actual": 0.89
+    },
+    {
+      "ticker": "BWXT",
+      "date": "2025-08-04",
+      "scheduled_ts": 1754337600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.79,
+      "eps_actual": 1.02
+    },
+    {
+      "ticker": "CARR",
+      "date": "2026-04-30",
+      "scheduled_ts": 1777550400000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 0.51,
+      "eps_actual": null
+    },
+    {
+      "ticker": "CARR",
+      "date": "2026-02-05",
+      "scheduled_ts": 1770289200000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.36,
+      "eps_actual": 0.34
+    },
+    {
+      "ticker": "CARR",
+      "date": "2025-10-28",
+      "scheduled_ts": 1761645600000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.57,
+      "eps_actual": 0.67
+    },
+    {
+      "ticker": "CARR",
+      "date": "2025-07-29",
+      "scheduled_ts": 1753783200000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.9,
+      "eps_actual": 0.92
+    },
+    {
+      "ticker": "CAT",
+      "date": "2026-04-30",
+      "scheduled_ts": 1777550400000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 4.64,
+      "eps_actual": null
+    },
+    {
+      "ticker": "CAT",
+      "date": "2026-01-29",
+      "scheduled_ts": 1769684400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 4.71,
+      "eps_actual": 5.16
+    },
+    {
+      "ticker": "CAT",
+      "date": "2025-10-29",
+      "scheduled_ts": 1761732000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 4.52,
+      "eps_actual": 4.95
+    },
+    {
+      "ticker": "CAT",
+      "date": "2025-08-05",
+      "scheduled_ts": 1754388000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 4.9,
+      "eps_actual": 4.72
+    },
+    {
+      "ticker": "CCJ",
+      "date": "2026-05-05",
+      "scheduled_ts": 1777982400000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 0.32,
+      "eps_actual": null
+    },
+    {
+      "ticker": "CCJ",
+      "date": "2026-02-13",
+      "scheduled_ts": 1770980400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.44,
+      "eps_actual": 0.5
+    },
+    {
+      "ticker": "CCJ",
+      "date": "2025-11-05",
+      "scheduled_ts": 1762344000000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 0.32,
+      "eps_actual": null
+    },
+    {
+      "ticker": "CCJ",
+      "date": "2025-07-31",
+      "scheduled_ts": 1753959600000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 0.52,
+      "eps_actual": 0.71
+    },
+    {
+      "ticker": "CDNS",
+      "date": "2026-04-27",
+      "scheduled_ts": 1777320000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.89,
+      "eps_actual": null
+    },
+    {
+      "ticker": "CDNS",
+      "date": "2026-02-17",
+      "scheduled_ts": 1771362000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.91,
+      "eps_actual": 1.99
+    },
+    {
+      "ticker": "CDNS",
+      "date": "2025-10-27",
+      "scheduled_ts": 1761595200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.79,
+      "eps_actual": 1.93
+    },
+    {
+      "ticker": "CDNS",
+      "date": "2025-07-28",
+      "scheduled_ts": 1753732800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.56,
+      "eps_actual": 1.65
+    },
+    {
+      "ticker": "CELH",
+      "date": "2026-05-11",
+      "scheduled_ts": 1778500800000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 0.3,
+      "eps_actual": null
+    },
+    {
+      "ticker": "CELH",
+      "date": "2026-02-26",
+      "scheduled_ts": 1772103600000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.19,
+      "eps_actual": 0.26
+    },
+    {
+      "ticker": "CELH",
+      "date": "2025-11-06",
+      "scheduled_ts": 1762426800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.28,
+      "eps_actual": 0.42
+    },
+    {
+      "ticker": "CELH",
+      "date": "2025-08-07",
+      "scheduled_ts": 1754560800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.24,
+      "eps_actual": 0.47
+    },
+    {
+      "ticker": "CLS",
+      "date": "2026-04-27",
+      "scheduled_ts": 1777320000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.08,
+      "eps_actual": null
+    },
+    {
+      "ticker": "CLS",
+      "date": "2026-01-28",
+      "scheduled_ts": 1769634000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.76,
+      "eps_actual": 1.89
+    },
+    {
+      "ticker": "CLS",
+      "date": "2025-10-27",
+      "scheduled_ts": 1761595200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.38,
+      "eps_actual": 2.31
+    },
+    {
+      "ticker": "CLS",
+      "date": "2025-07-28",
+      "scheduled_ts": 1753732800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.1,
+      "eps_actual": 1.82
+    },
+    {
+      "ticker": "COIN",
+      "date": "2026-05-07",
+      "scheduled_ts": 1778184000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.24,
+      "eps_actual": null
+    },
+    {
+      "ticker": "COIN",
+      "date": "2026-02-12",
+      "scheduled_ts": 1770930000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.62,
+      "eps_actual": -2.49
+    },
+    {
+      "ticker": "COIN",
+      "date": "2025-10-30",
+      "scheduled_ts": 1761854400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.13,
+      "eps_actual": 1.5
+    },
+    {
+      "ticker": "COIN",
+      "date": "2025-07-31",
+      "scheduled_ts": 1753992000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.49,
+      "eps_actual": 5.14
+    },
+    {
+      "ticker": "COST",
+      "date": "2026-05-28",
+      "scheduled_ts": 1779998400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 4.9,
+      "eps_actual": null
+    },
+    {
+      "ticker": "COST",
+      "date": "2026-03-05",
+      "scheduled_ts": 1772744400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 4.55,
+      "eps_actual": 4.58
+    },
+    {
+      "ticker": "COST",
+      "date": "2025-12-11",
+      "scheduled_ts": 1765486800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 4.28,
+      "eps_actual": 4.5
+    },
+    {
+      "ticker": "COST",
+      "date": "2025-09-25",
+      "scheduled_ts": 1758830400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 5.8,
+      "eps_actual": 5.87
+    },
+    {
+      "ticker": "CRM",
+      "date": "2026-05-27",
+      "scheduled_ts": 1779912000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 3.12,
+      "eps_actual": null
+    },
+    {
+      "ticker": "CRM",
+      "date": "2026-02-25",
+      "scheduled_ts": 1772053200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 3.05,
+      "eps_actual": 3.81
+    },
+    {
+      "ticker": "CRM",
+      "date": "2025-12-03",
+      "scheduled_ts": 1764795600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.62,
+      "eps_actual": 2.19
+    },
+    {
+      "ticker": "CRM",
+      "date": "2025-09-03",
+      "scheduled_ts": 1756929600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.78,
+      "eps_actual": 2.91
+    },
+    {
+      "ticker": "CRS",
+      "date": "2026-04-29",
+      "scheduled_ts": 1777464000000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 2.66,
+      "eps_actual": null
+    },
+    {
+      "ticker": "CRS",
+      "date": "2026-01-29",
+      "scheduled_ts": 1769691600000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 2.22,
+      "eps_actual": 2.33
+    },
+    {
+      "ticker": "CRS",
+      "date": "2025-10-23",
+      "scheduled_ts": 1761220800000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 2.16,
+      "eps_actual": 2.43
+    },
+    {
+      "ticker": "CRS",
+      "date": "2025-07-31",
+      "scheduled_ts": 1753963200000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 2.06,
+      "eps_actual": 2.21
+    },
+    {
+      "ticker": "CRWD",
+      "date": "2026-03-03",
+      "scheduled_ts": 1772571600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.1,
+      "eps_actual": 1.12
+    },
+    {
+      "ticker": "CRWD",
+      "date": "2025-12-02",
+      "scheduled_ts": 1764709200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.94,
+      "eps_actual": 0.96
+    },
+    {
+      "ticker": "CRWD",
+      "date": "2025-08-27",
+      "scheduled_ts": 1756324800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.19,
+      "eps_actual": -0.31
+    },
+    {
+      "ticker": "CRWD",
+      "date": "2025-06-03",
+      "scheduled_ts": 1748980800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.66,
+      "eps_actual": 0.73
+    },
+    {
+      "ticker": "CRWV",
+      "date": "2026-05-07",
+      "scheduled_ts": 1778184000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -1.17,
+      "eps_actual": null
+    },
+    {
+      "ticker": "CRWV",
+      "date": "2026-02-26",
+      "scheduled_ts": 1772139600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.68,
+      "eps_actual": -0.89
+    },
+    {
+      "ticker": "CRWV",
+      "date": "2025-11-10",
+      "scheduled_ts": 1762808400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.48,
+      "eps_actual": -0.22
+    },
+    {
+      "ticker": "CRWV",
+      "date": "2025-08-12",
+      "scheduled_ts": 1755028800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.49,
+      "eps_actual": -0.6
+    },
+    {
+      "ticker": "CSCO",
+      "date": "2026-05-13",
+      "scheduled_ts": 1778702400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.04,
+      "eps_actual": null
+    },
+    {
+      "ticker": "CSCO",
+      "date": "2026-02-11",
+      "scheduled_ts": 1770843600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.02,
+      "eps_actual": 1.04
+    },
+    {
+      "ticker": "CSCO",
+      "date": "2025-11-12",
+      "scheduled_ts": 1762981200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.98,
+      "eps_actual": 1.0
+    },
+    {
+      "ticker": "CSCO",
+      "date": "2025-08-13",
+      "scheduled_ts": 1755115200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.98,
+      "eps_actual": 0.99
+    },
+    {
+      "ticker": "CSX",
+      "date": "2026-04-22",
+      "scheduled_ts": 1776888000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.39,
+      "eps_actual": null
+    },
+    {
+      "ticker": "CSX",
+      "date": "2026-01-22",
+      "scheduled_ts": 1769115600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.41,
+      "eps_actual": 0.39
+    },
+    {
+      "ticker": "CSX",
+      "date": "2025-10-16",
+      "scheduled_ts": 1760644800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.42,
+      "eps_actual": 0.44
+    },
+    {
+      "ticker": "CSX",
+      "date": "2025-07-23",
+      "scheduled_ts": 1753300800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.42,
+      "eps_actual": 0.44
+    },
+    {
+      "ticker": "CVNA",
+      "date": "2026-04-29",
+      "scheduled_ts": 1777492800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.5,
+      "eps_actual": null
+    },
+    {
+      "ticker": "CVNA",
+      "date": "2026-02-18",
+      "scheduled_ts": 1771448400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.11,
+      "eps_actual": 4.22
+    },
+    {
+      "ticker": "CVNA",
+      "date": "2025-10-29",
+      "scheduled_ts": 1761768000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.32,
+      "eps_actual": 1.03
+    },
+    {
+      "ticker": "CVNA",
+      "date": "2025-07-30",
+      "scheduled_ts": 1753905600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.14,
+      "eps_actual": 1.28
+    },
+    {
+      "ticker": "CVX",
+      "date": "2026-05-01",
+      "scheduled_ts": 1777636800000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 1.04,
+      "eps_actual": null
+    },
+    {
+      "ticker": "CVX",
+      "date": "2026-01-30",
+      "scheduled_ts": 1769770800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.44,
+      "eps_actual": 1.52
+    },
+    {
+      "ticker": "CVX",
+      "date": "2025-10-31",
+      "scheduled_ts": 1761904800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.53,
+      "eps_actual": 1.82
+    },
+    {
+      "ticker": "CVX",
+      "date": "2025-08-01",
+      "scheduled_ts": 1754042400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.74,
+      "eps_actual": 1.77
+    },
+    {
+      "ticker": "CW",
+      "date": "2026-05-06",
+      "scheduled_ts": 1778097600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 3.3,
+      "eps_actual": null
+    },
+    {
+      "ticker": "CW",
+      "date": "2026-02-11",
+      "scheduled_ts": 1770843600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 3.69,
+      "eps_actual": 3.79
+    },
+    {
+      "ticker": "CW",
+      "date": "2025-11-05",
+      "scheduled_ts": 1762376400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 3.29,
+      "eps_actual": 3.4
+    },
+    {
+      "ticker": "CW",
+      "date": "2025-08-06",
+      "scheduled_ts": 1754510400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 3.13,
+      "eps_actual": 3.23
+    },
+    {
+      "ticker": "DCI",
+      "date": "2026-02-26",
+      "scheduled_ts": 1772103600000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.89,
+      "eps_actual": 0.83
+    },
+    {
+      "ticker": "DCI",
+      "date": "2025-12-04",
+      "scheduled_ts": 1764846000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.92,
+      "eps_actual": 0.94
+    },
+    {
+      "ticker": "DCI",
+      "date": "2025-08-27",
+      "scheduled_ts": 1756288800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.02,
+      "eps_actual": 1.03
+    },
+    {
+      "ticker": "DCI",
+      "date": "2025-06-03",
+      "scheduled_ts": 1748944800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.95,
+      "eps_actual": 0.99
+    },
+    {
+      "ticker": "DE",
+      "date": "2026-05-21",
+      "scheduled_ts": 1779364800000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 5.74,
+      "eps_actual": null
+    },
+    {
+      "ticker": "DE",
+      "date": "2026-02-19",
+      "scheduled_ts": 1771498800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 2.1,
+      "eps_actual": 2.42
+    },
+    {
+      "ticker": "DE",
+      "date": "2025-11-26",
+      "scheduled_ts": 1764154800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 3.83,
+      "eps_actual": 3.93
+    },
+    {
+      "ticker": "DE",
+      "date": "2025-08-14",
+      "scheduled_ts": 1755165600000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 4.66,
+      "eps_actual": 4.75
+    },
+    {
+      "ticker": "DINO",
+      "date": "2026-05-01",
+      "scheduled_ts": 1777636800000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": -0.11,
+      "eps_actual": null
+    },
+    {
+      "ticker": "DINO",
+      "date": "2026-02-18",
+      "scheduled_ts": 1771412400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.45,
+      "eps_actual": 1.2
+    },
+    {
+      "ticker": "DINO",
+      "date": "2025-10-30",
+      "scheduled_ts": 1761818400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.86,
+      "eps_actual": 2.44
+    },
+    {
+      "ticker": "DINO",
+      "date": "2025-07-31",
+      "scheduled_ts": 1753956000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.08,
+      "eps_actual": 1.7
+    },
+    {
+      "ticker": "DKNG",
+      "date": "2026-05-07",
+      "scheduled_ts": 1778184000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.19,
+      "eps_actual": null
+    },
+    {
+      "ticker": "DKNG",
+      "date": "2026-02-12",
+      "scheduled_ts": 1770930000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.41,
+      "eps_actual": 0.36
+    },
+    {
+      "ticker": "DKNG",
+      "date": "2025-11-06",
+      "scheduled_ts": 1762462800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.26,
+      "eps_actual": -0.26
+    },
+    {
+      "ticker": "DKNG",
+      "date": "2025-08-06",
+      "scheduled_ts": 1754510400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.41,
+      "eps_actual": 0.38
+    },
+    {
+      "ticker": "DPZ",
+      "date": "2026-04-27",
+      "scheduled_ts": 1777291200000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 4.27,
+      "eps_actual": null
+    },
+    {
+      "ticker": "DPZ",
+      "date": "2026-02-23",
+      "scheduled_ts": 1771844400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 5.39,
+      "eps_actual": 5.35
+    },
+    {
+      "ticker": "DPZ",
+      "date": "2025-10-14",
+      "scheduled_ts": 1760436000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 3.96,
+      "eps_actual": 4.08
+    },
+    {
+      "ticker": "DPZ",
+      "date": "2025-07-21",
+      "scheduled_ts": 1753092000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 3.95,
+      "eps_actual": 3.81
+    },
+    {
+      "ticker": "DTM",
+      "date": "2026-04-30",
+      "scheduled_ts": 1777550400000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 1.13,
+      "eps_actual": null
+    },
+    {
+      "ticker": "DTM",
+      "date": "2026-02-19",
+      "scheduled_ts": 1771498800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.15,
+      "eps_actual": 1.08
+    },
+    {
+      "ticker": "DTM",
+      "date": "2025-10-30",
+      "scheduled_ts": 1761818400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.04,
+      "eps_actual": 1.13
+    },
+    {
+      "ticker": "DTM",
+      "date": "2025-07-31",
+      "scheduled_ts": 1753956000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.98,
+      "eps_actual": 1.04
+    },
+    {
+      "ticker": "DY",
+      "date": "2026-05-27",
+      "scheduled_ts": 1779883200000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 2.73,
+      "eps_actual": null
+    },
+    {
+      "ticker": "DY",
+      "date": "2026-03-04",
+      "scheduled_ts": 1772625600000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 1.78,
+      "eps_actual": 2.03
+    },
+    {
+      "ticker": "DY",
+      "date": "2025-11-19",
+      "scheduled_ts": 1763550000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 3.21,
+      "eps_actual": 3.63
+    },
+    {
+      "ticker": "DY",
+      "date": "2025-08-20",
+      "scheduled_ts": 1755687600000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 2.92,
+      "eps_actual": 3.33
+    },
+    {
+      "ticker": "ELF",
+      "date": "2026-05-27",
+      "scheduled_ts": 1779912000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.29,
+      "eps_actual": null
+    },
+    {
+      "ticker": "ELF",
+      "date": "2026-02-04",
+      "scheduled_ts": 1770238800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.72,
+      "eps_actual": 1.24
+    },
+    {
+      "ticker": "ELF",
+      "date": "2025-11-05",
+      "scheduled_ts": 1762376400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.57,
+      "eps_actual": 0.68
+    },
+    {
+      "ticker": "ELF",
+      "date": "2025-08-06",
+      "scheduled_ts": 1754510400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.84,
+      "eps_actual": 0.89
+    },
+    {
+      "ticker": "EME",
+      "date": "2026-04-29",
+      "scheduled_ts": 1777464000000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 5.9,
+      "eps_actual": null
+    },
+    {
+      "ticker": "EME",
+      "date": "2026-02-26",
+      "scheduled_ts": 1772107200000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 6.68,
+      "eps_actual": 7.19
+    },
+    {
+      "ticker": "EME",
+      "date": "2025-10-30",
+      "scheduled_ts": 1761822000000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 6.53,
+      "eps_actual": 6.57
+    },
+    {
+      "ticker": "EME",
+      "date": "2025-07-31",
+      "scheduled_ts": 1753959600000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 5.72,
+      "eps_actual": 6.72
+    },
+    {
+      "ticker": "EMR",
+      "date": "2026-05-05",
+      "scheduled_ts": 1778011200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.54,
+      "eps_actual": null
+    },
+    {
+      "ticker": "EMR",
+      "date": "2026-02-03",
+      "scheduled_ts": 1770152400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.01,
+      "eps_actual": 1.07
+    },
+    {
+      "ticker": "EMR",
+      "date": "2025-11-05",
+      "scheduled_ts": 1762340400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.62,
+      "eps_actual": 1.62
+    },
+    {
+      "ticker": "EMR",
+      "date": "2025-08-06",
+      "scheduled_ts": 1754474400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.51,
+      "eps_actual": 1.52
+    },
+    {
+      "ticker": "ENS",
+      "date": "2026-05-20",
+      "scheduled_ts": 1779307200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.99,
+      "eps_actual": null
+    },
+    {
+      "ticker": "ENS",
+      "date": "2026-02-04",
+      "scheduled_ts": 1770238800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.72,
+      "eps_actual": 2.77
+    },
+    {
+      "ticker": "ENS",
+      "date": "2025-11-05",
+      "scheduled_ts": 1762376400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.35,
+      "eps_actual": 2.56
+    },
+    {
+      "ticker": "ENS",
+      "date": "2025-08-06",
+      "scheduled_ts": 1754510400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.05,
+      "eps_actual": 2.08
+    },
+    {
+      "ticker": "ETN",
+      "date": "2026-05-05",
+      "scheduled_ts": 1777982400000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 2.73,
+      "eps_actual": null
+    },
+    {
+      "ticker": "ETN",
+      "date": "2026-02-03",
+      "scheduled_ts": 1770116400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 3.32,
+      "eps_actual": 3.33
+    },
+    {
+      "ticker": "ETN",
+      "date": "2025-11-04",
+      "scheduled_ts": 1762254000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 2.74,
+      "eps_actual": 2.59
+    },
+    {
+      "ticker": "ETN",
+      "date": "2025-08-05",
+      "scheduled_ts": 1754391600000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 2.92,
+      "eps_actual": 2.95
+    },
+    {
+      "ticker": "EWBC",
+      "date": "2026-04-21",
+      "scheduled_ts": 1776801600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.47,
+      "eps_actual": null
+    },
+    {
+      "ticker": "EWBC",
+      "date": "2026-01-22",
+      "scheduled_ts": 1769115600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.5,
+      "eps_actual": 2.52
+    },
+    {
+      "ticker": "EWBC",
+      "date": "2025-10-21",
+      "scheduled_ts": 1761076800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.37,
+      "eps_actual": 2.62
+    },
+    {
+      "ticker": "EWBC",
+      "date": "2025-07-22",
+      "scheduled_ts": 1753214400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.25,
+      "eps_actual": 2.28
+    },
+    {
+      "ticker": "EXEL",
+      "date": "2026-05-12",
+      "scheduled_ts": 1778616000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.76,
+      "eps_actual": null
+    },
+    {
+      "ticker": "EXEL",
+      "date": "2026-02-10",
+      "scheduled_ts": 1770757200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.75,
+      "eps_actual": 0.88
+    },
+    {
+      "ticker": "EXEL",
+      "date": "2025-11-04",
+      "scheduled_ts": 1762290000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.67,
+      "eps_actual": 0.78
+    },
+    {
+      "ticker": "EXEL",
+      "date": "2025-07-28",
+      "scheduled_ts": 1753732800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.56,
+      "eps_actual": 0.65
+    },
+    {
+      "ticker": "EXPE",
+      "date": "2026-05-07",
+      "scheduled_ts": 1778184000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.39,
+      "eps_actual": null
+    },
+    {
+      "ticker": "EXPE",
+      "date": "2026-02-12",
+      "scheduled_ts": 1770930000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 3.37,
+      "eps_actual": 3.78
+    },
+    {
+      "ticker": "EXPE",
+      "date": "2025-11-06",
+      "scheduled_ts": 1762462800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 6.95,
+      "eps_actual": 7.57
+    },
+    {
+      "ticker": "EXPE",
+      "date": "2025-08-07",
+      "scheduled_ts": 1754596800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 4.13,
+      "eps_actual": 4.24
+    },
+    {
+      "ticker": "FIX",
+      "date": "2026-04-23",
+      "scheduled_ts": 1776974400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 6.81,
+      "eps_actual": null
+    },
+    {
+      "ticker": "FIX",
+      "date": "2026-02-19",
+      "scheduled_ts": 1771534800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 6.75,
+      "eps_actual": 9.37
+    },
+    {
+      "ticker": "FIX",
+      "date": "2025-10-23",
+      "scheduled_ts": 1761249600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 6.29,
+      "eps_actual": 8.25
+    },
+    {
+      "ticker": "FIX",
+      "date": "2025-07-24",
+      "scheduled_ts": 1753387200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 4.84,
+      "eps_actual": 6.53
+    },
+    {
+      "ticker": "FLR",
+      "date": "2026-05-08",
+      "scheduled_ts": 1778241600000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 0.62,
+      "eps_actual": null
+    },
+    {
+      "ticker": "FLR",
+      "date": "2026-02-17",
+      "scheduled_ts": 1771326000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.36,
+      "eps_actual": -9.87
+    },
+    {
+      "ticker": "FLR",
+      "date": "2025-11-07",
+      "scheduled_ts": 1762509600000,
+      "scheduled_time_et": "05:00",
+      "session": "bmo",
+      "eps_estimate": 0.45,
+      "eps_actual": 0.68
+    },
+    {
+      "ticker": "FLR",
+      "date": "2025-08-01",
+      "scheduled_ts": 1754038800000,
+      "scheduled_time_et": "05:00",
+      "session": "bmo",
+      "eps_estimate": 0.56,
+      "eps_actual": 0.43
+    },
+    {
+      "ticker": "FN",
+      "date": "2026-05-04",
+      "scheduled_ts": 1777924800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 3.56,
+      "eps_actual": null
+    },
+    {
+      "ticker": "FN",
+      "date": "2026-02-02",
+      "scheduled_ts": 1770066000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 3.25,
+      "eps_actual": 3.36
+    },
+    {
+      "ticker": "FN",
+      "date": "2025-11-03",
+      "scheduled_ts": 1762203600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.82,
+      "eps_actual": 2.92
+    },
+    {
+      "ticker": "FN",
+      "date": "2025-08-18",
+      "scheduled_ts": 1755547200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.55,
+      "eps_actual": 2.42
+    },
+    {
+      "ticker": "FSLR",
+      "date": "2026-04-30",
+      "scheduled_ts": 1777579200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.81,
+      "eps_actual": null
+    },
+    {
+      "ticker": "FSLR",
+      "date": "2026-02-24",
+      "scheduled_ts": 1771966800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 5.17,
+      "eps_actual": 4.84
+    },
+    {
+      "ticker": "FSLR",
+      "date": "2025-10-30",
+      "scheduled_ts": 1761854400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 4.29,
+      "eps_actual": 4.24
+    },
+    {
+      "ticker": "FSLR",
+      "date": "2025-07-31",
+      "scheduled_ts": 1753992000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.68,
+      "eps_actual": 3.18
+    },
+    {
+      "ticker": "GE",
+      "date": "2026-04-21",
+      "scheduled_ts": 1776765600000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.72,
+      "eps_actual": 1.81
+    },
+    {
+      "ticker": "GE",
+      "date": "2026-01-22",
+      "scheduled_ts": 1769079600000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.43,
+      "eps_actual": 1.57
+    },
+    {
+      "ticker": "GE",
+      "date": "2025-10-21",
+      "scheduled_ts": 1761040800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.47,
+      "eps_actual": 1.66
+    },
+    {
+      "ticker": "GE",
+      "date": "2025-07-17",
+      "scheduled_ts": 1752746400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.43,
+      "eps_actual": 1.66
+    },
+    {
+      "ticker": "GEV",
+      "date": "2026-04-22",
+      "scheduled_ts": 1776859200000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 2.02,
+      "eps_actual": null
+    },
+    {
+      "ticker": "GEV",
+      "date": "2026-01-28",
+      "scheduled_ts": 1769598000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 3.22,
+      "eps_actual": 13.39
+    },
+    {
+      "ticker": "GEV",
+      "date": "2025-10-22",
+      "scheduled_ts": 1761127200000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.86,
+      "eps_actual": 1.64
+    },
+    {
+      "ticker": "GEV",
+      "date": "2025-07-23",
+      "scheduled_ts": 1753264800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.63,
+      "eps_actual": 1.86
+    },
+    {
+      "ticker": "GILD",
+      "date": "2026-04-23",
+      "scheduled_ts": 1776974400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.91,
+      "eps_actual": null
+    },
+    {
+      "ticker": "GILD",
+      "date": "2026-02-10",
+      "scheduled_ts": 1770757200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.54,
+      "eps_actual": 1.74
+    },
+    {
+      "ticker": "GILD",
+      "date": "2025-10-30",
+      "scheduled_ts": 1761854400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.69,
+      "eps_actual": 2.43
+    },
+    {
+      "ticker": "GILD",
+      "date": "2025-08-07",
+      "scheduled_ts": 1754596800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.48,
+      "eps_actual": 1.56
+    },
+    {
+      "ticker": "GLXY",
+      "date": "2026-04-28",
+      "scheduled_ts": 1777377600000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": -0.76,
+      "eps_actual": null
+    },
+    {
+      "ticker": "GLXY",
+      "date": "2026-02-03",
+      "scheduled_ts": 1770120000000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": -1.06,
+      "eps_actual": -1.08
+    },
+    {
+      "ticker": "GLXY",
+      "date": "2025-10-21",
+      "scheduled_ts": 1761044400000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 0.31,
+      "eps_actual": 1.01
+    },
+    {
+      "ticker": "GLXY",
+      "date": "2025-08-05",
+      "scheduled_ts": 1754391600000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 0.13,
+      "eps_actual": 0.08
+    },
+    {
+      "ticker": "GOOGL",
+      "date": "2026-04-29",
+      "scheduled_ts": 1777492800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.62,
+      "eps_actual": null
+    },
+    {
+      "ticker": "GOOGL",
+      "date": "2026-02-04",
+      "scheduled_ts": 1770238800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.64,
+      "eps_actual": 2.82
+    },
+    {
+      "ticker": "GOOGL",
+      "date": "2025-10-29",
+      "scheduled_ts": 1761768000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.26,
+      "eps_actual": 2.87
+    },
+    {
+      "ticker": "GOOGL",
+      "date": "2025-07-23",
+      "scheduled_ts": 1753300800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.2,
+      "eps_actual": 2.31
+    },
+    {
+      "ticker": "GS",
+      "date": "2026-04-13",
+      "scheduled_ts": 1776078000000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 16.24,
+      "eps_actual": 17.55
+    },
+    {
+      "ticker": "GS",
+      "date": "2026-01-15",
+      "scheduled_ts": 1768478400000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 11.76,
+      "eps_actual": 14.01
+    },
+    {
+      "ticker": "GS",
+      "date": "2025-10-14",
+      "scheduled_ts": 1760439600000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 10.63,
+      "eps_actual": 12.25
+    },
+    {
+      "ticker": "GS",
+      "date": "2025-07-16",
+      "scheduled_ts": 1752663600000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 9.62,
+      "eps_actual": 10.91
+    },
+    {
+      "ticker": "H",
+      "date": "2026-04-30",
+      "scheduled_ts": 1777550400000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 0.58,
+      "eps_actual": null
+    },
+    {
+      "ticker": "H",
+      "date": "2026-02-12",
+      "scheduled_ts": 1770894000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.4,
+      "eps_actual": 1.33
+    },
+    {
+      "ticker": "H",
+      "date": "2025-11-06",
+      "scheduled_ts": 1762426800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.17,
+      "eps_actual": -0.51
+    },
+    {
+      "ticker": "H",
+      "date": "2025-08-07",
+      "scheduled_ts": 1754560800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.67,
+      "eps_actual": 0.68
+    },
+    {
+      "ticker": "HALO",
+      "date": "2026-05-05",
+      "scheduled_ts": 1778011200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.52,
+      "eps_actual": null
+    },
+    {
+      "ticker": "HALO",
+      "date": "2026-02-17",
+      "scheduled_ts": 1771362000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.2,
+      "eps_actual": -0.24
+    },
+    {
+      "ticker": "HALO",
+      "date": "2025-11-03",
+      "scheduled_ts": 1762203600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.63,
+      "eps_actual": 1.72
+    },
+    {
+      "ticker": "HALO",
+      "date": "2025-08-05",
+      "scheduled_ts": 1754424000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.27,
+      "eps_actual": 1.54
+    },
+    {
+      "ticker": "HII",
+      "date": "2026-05-05",
+      "scheduled_ts": 1777982400000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 3.73,
+      "eps_actual": null
+    },
+    {
+      "ticker": "HII",
+      "date": "2026-02-05",
+      "scheduled_ts": 1770292800000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 3.89,
+      "eps_actual": 4.04
+    },
+    {
+      "ticker": "HII",
+      "date": "2025-10-30",
+      "scheduled_ts": 1761822000000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 3.36,
+      "eps_actual": 3.68
+    },
+    {
+      "ticker": "HII",
+      "date": "2025-07-31",
+      "scheduled_ts": 1753959600000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 3.43,
+      "eps_actual": 3.86
+    },
+    {
+      "ticker": "HIMS",
+      "date": "2026-05-11",
+      "scheduled_ts": 1778529600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.04,
+      "eps_actual": null
+    },
+    {
+      "ticker": "HIMS",
+      "date": "2026-02-23",
+      "scheduled_ts": 1771880400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.19,
+      "eps_actual": 0.22
+    },
+    {
+      "ticker": "HIMS",
+      "date": "2025-11-03",
+      "scheduled_ts": 1762203600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.1,
+      "eps_actual": 0.06
+    },
+    {
+      "ticker": "HIMS",
+      "date": "2025-08-04",
+      "scheduled_ts": 1754337600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.23,
+      "eps_actual": 0.29
+    },
+    {
+      "ticker": "HL",
+      "date": "2026-05-05",
+      "scheduled_ts": 1778011200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.25,
+      "eps_actual": null
+    },
+    {
+      "ticker": "HL",
+      "date": "2026-02-17",
+      "scheduled_ts": 1771362000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.14,
+      "eps_actual": 0.2
+    },
+    {
+      "ticker": "HL",
+      "date": "2025-11-05",
+      "scheduled_ts": 1762376400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.09,
+      "eps_actual": 0.12
+    },
+    {
+      "ticker": "HL",
+      "date": "2025-08-06",
+      "scheduled_ts": 1754510400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.05,
+      "eps_actual": 0.08
+    },
+    {
+      "ticker": "HOOD",
+      "date": "2026-04-28",
+      "scheduled_ts": 1777406400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.4,
+      "eps_actual": null
+    },
+    {
+      "ticker": "HOOD",
+      "date": "2026-02-10",
+      "scheduled_ts": 1770757200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.64,
+      "eps_actual": 0.66
+    },
+    {
+      "ticker": "HOOD",
+      "date": "2025-11-05",
+      "scheduled_ts": 1762376400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.54,
+      "eps_actual": 0.61
+    },
+    {
+      "ticker": "HOOD",
+      "date": "2025-07-30",
+      "scheduled_ts": 1753905600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.36,
+      "eps_actual": 0.5
+    },
+    {
+      "ticker": "HUBS",
+      "date": "2026-05-07",
+      "scheduled_ts": 1778184000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.47,
+      "eps_actual": null
+    },
+    {
+      "ticker": "HUBS",
+      "date": "2026-02-11",
+      "scheduled_ts": 1770843600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.99,
+      "eps_actual": 3.09
+    },
+    {
+      "ticker": "HUBS",
+      "date": "2025-11-05",
+      "scheduled_ts": 1762376400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.59,
+      "eps_actual": 2.66
+    },
+    {
+      "ticker": "HUBS",
+      "date": "2025-08-06",
+      "scheduled_ts": 1754510400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.12,
+      "eps_actual": 2.19
+    },
+    {
+      "ticker": "IBP",
+      "date": "2026-05-07",
+      "scheduled_ts": 1778155200000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 1.96,
+      "eps_actual": null
+    },
+    {
+      "ticker": "IBP",
+      "date": "2026-02-26",
+      "scheduled_ts": 1772107200000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 2.75,
+      "eps_actual": 3.24
+    },
+    {
+      "ticker": "IBP",
+      "date": "2025-11-05",
+      "scheduled_ts": 1762344000000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 2.74,
+      "eps_actual": 3.18
+    },
+    {
+      "ticker": "IBP",
+      "date": "2025-08-07",
+      "scheduled_ts": 1754564400000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 2.4,
+      "eps_actual": 2.95
+    },
+    {
+      "ticker": "IESC",
+      "date": "2026-05-01",
+      "scheduled_ts": 1777636800000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 3.95,
+      "eps_actual": null
+    },
+    {
+      "ticker": "IESC",
+      "date": "2026-01-30",
+      "scheduled_ts": 1769774400000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 3.94,
+      "eps_actual": 4.51
+    },
+    {
+      "ticker": "IESC",
+      "date": "2025-11-21",
+      "scheduled_ts": 1763726400000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 3.11,
+      "eps_actual": 4.99
+    },
+    {
+      "ticker": "IESC",
+      "date": "2025-08-01",
+      "scheduled_ts": 1754046000000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 3.55,
+      "eps_actual": 3.81
+    },
+    {
+      "ticker": "INTC",
+      "date": "2026-04-23",
+      "scheduled_ts": 1776974400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.01,
+      "eps_actual": null
+    },
+    {
+      "ticker": "INTC",
+      "date": "2026-01-22",
+      "scheduled_ts": 1769115600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.09,
+      "eps_actual": -0.12
+    },
+    {
+      "ticker": "INTC",
+      "date": "2025-10-23",
+      "scheduled_ts": 1761249600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.01,
+      "eps_actual": 0.23
+    },
+    {
+      "ticker": "INTC",
+      "date": "2025-07-24",
+      "scheduled_ts": 1753387200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.01,
+      "eps_actual": -0.1
+    },
+    {
+      "ticker": "INTU",
+      "date": "2026-05-21",
+      "scheduled_ts": 1779393600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 12.52,
+      "eps_actual": null
+    },
+    {
+      "ticker": "INTU",
+      "date": "2026-02-26",
+      "scheduled_ts": 1772139600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 3.68,
+      "eps_actual": 4.15
+    },
+    {
+      "ticker": "INTU",
+      "date": "2025-11-20",
+      "scheduled_ts": 1763672400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 3.09,
+      "eps_actual": 3.34
+    },
+    {
+      "ticker": "INTU",
+      "date": "2025-08-21",
+      "scheduled_ts": 1755806400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.66,
+      "eps_actual": 2.75
+    },
+    {
+      "ticker": "IONQ",
+      "date": "2026-05-06",
+      "scheduled_ts": 1778097600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.51,
+      "eps_actual": null
+    },
+    {
+      "ticker": "IONQ",
+      "date": "2026-02-25",
+      "scheduled_ts": 1772053200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.24,
+      "eps_actual": -0.2
+    },
+    {
+      "ticker": "IONQ",
+      "date": "2025-11-05",
+      "scheduled_ts": 1762376400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.44,
+      "eps_actual": -3.58
+    },
+    {
+      "ticker": "IONQ",
+      "date": "2025-08-06",
+      "scheduled_ts": 1754510400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.14,
+      "eps_actual": -0.14
+    },
+    {
+      "ticker": "IOT",
+      "date": "2026-03-05",
+      "scheduled_ts": 1772744400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.13,
+      "eps_actual": 0.18
+    },
+    {
+      "ticker": "IOT",
+      "date": "2025-12-04",
+      "scheduled_ts": 1764882000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.12,
+      "eps_actual": 0.15
+    },
+    {
+      "ticker": "IOT",
+      "date": "2025-09-04",
+      "scheduled_ts": 1757016000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.07,
+      "eps_actual": 0.12
+    },
+    {
+      "ticker": "IOT",
+      "date": "2025-06-05",
+      "scheduled_ts": 1749153600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.06,
+      "eps_actual": 0.11
+    },
+    {
+      "ticker": "IREN",
+      "date": "2026-05-13",
+      "scheduled_ts": 1778702400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.26,
+      "eps_actual": null
+    },
+    {
+      "ticker": "IREN",
+      "date": "2026-02-05",
+      "scheduled_ts": 1770325200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.07,
+      "eps_actual": -0.52
+    },
+    {
+      "ticker": "IREN",
+      "date": "2025-11-06",
+      "scheduled_ts": 1762462800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.14,
+      "eps_actual": 0.01
+    },
+    {
+      "ticker": "IREN",
+      "date": "2025-08-28",
+      "scheduled_ts": 1756411200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.22,
+      "eps_actual": 0.21
+    },
+    {
+      "ticker": "ISRG",
+      "date": "2026-04-21",
+      "scheduled_ts": 1776801600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.11,
+      "eps_actual": null
+    },
+    {
+      "ticker": "ISRG",
+      "date": "2026-01-22",
+      "scheduled_ts": 1769115600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.27,
+      "eps_actual": 2.53
+    },
+    {
+      "ticker": "ISRG",
+      "date": "2025-10-21",
+      "scheduled_ts": 1761076800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.99,
+      "eps_actual": 2.4
+    },
+    {
+      "ticker": "ISRG",
+      "date": "2025-07-22",
+      "scheduled_ts": 1753214400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.92,
+      "eps_actual": 2.19
+    },
+    {
+      "ticker": "ITT",
+      "date": "2026-05-06",
+      "scheduled_ts": 1778068800000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 1.74,
+      "eps_actual": null
+    },
+    {
+      "ticker": "ITT",
+      "date": "2026-02-05",
+      "scheduled_ts": 1770289200000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.78,
+      "eps_actual": 1.85
+    },
+    {
+      "ticker": "ITT",
+      "date": "2025-10-29",
+      "scheduled_ts": 1761732000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.67,
+      "eps_actual": 1.78
+    },
+    {
+      "ticker": "ITT",
+      "date": "2025-07-31",
+      "scheduled_ts": 1753956000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.61,
+      "eps_actual": 1.64
+    },
+    {
+      "ticker": "J",
+      "date": "2026-05-05",
+      "scheduled_ts": 1778011200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.63,
+      "eps_actual": null
+    },
+    {
+      "ticker": "J",
+      "date": "2026-02-03",
+      "scheduled_ts": 1770152400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.5,
+      "eps_actual": 1.53
+    },
+    {
+      "ticker": "J",
+      "date": "2025-11-20",
+      "scheduled_ts": 1763636400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.68,
+      "eps_actual": 1.75
+    },
+    {
+      "ticker": "J",
+      "date": "2025-08-05",
+      "scheduled_ts": 1754388000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.54,
+      "eps_actual": 1.62
+    },
+    {
+      "ticker": "JCI",
+      "date": "2026-05-06",
+      "scheduled_ts": 1778068800000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 1.12,
+      "eps_actual": null
+    },
+    {
+      "ticker": "JCI",
+      "date": "2026-02-04",
+      "scheduled_ts": 1770202800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.84,
+      "eps_actual": 0.89
+    },
+    {
+      "ticker": "JCI",
+      "date": "2025-11-05",
+      "scheduled_ts": 1762340400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.2,
+      "eps_actual": 1.26
+    },
+    {
+      "ticker": "JCI",
+      "date": "2025-07-29",
+      "scheduled_ts": 1753783200000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.01,
+      "eps_actual": 1.05
+    },
+    {
+      "ticker": "JD",
+      "date": "2026-05-07",
+      "scheduled_ts": 1778155200000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 3.64,
+      "eps_actual": null
+    },
+    {
+      "ticker": "JD",
+      "date": "2026-03-05",
+      "scheduled_ts": 1772704800000,
+      "scheduled_time_et": "05:00",
+      "session": "bmo",
+      "eps_estimate": 0.67,
+      "eps_actual": 0.57
+    },
+    {
+      "ticker": "JD",
+      "date": "2025-11-13",
+      "scheduled_ts": 1763024400000,
+      "scheduled_time_et": "04:00",
+      "session": "bmo",
+      "eps_estimate": 2.89,
+      "eps_actual": 3.73
+    },
+    {
+      "ticker": "JD",
+      "date": "2025-08-14",
+      "scheduled_ts": 1755162000000,
+      "scheduled_time_et": "05:00",
+      "session": "bmo",
+      "eps_estimate": 3.56,
+      "eps_actual": 4.97
+    },
+    {
+      "ticker": "JOBY",
+      "date": "2026-05-06",
+      "scheduled_ts": 1778097600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.2,
+      "eps_actual": null
+    },
+    {
+      "ticker": "JOBY",
+      "date": "2026-02-25",
+      "scheduled_ts": 1772053200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.2,
+      "eps_actual": -0.22
+    },
+    {
+      "ticker": "JOBY",
+      "date": "2025-11-05",
+      "scheduled_ts": 1762376400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.19,
+      "eps_actual": -0.2
+    },
+    {
+      "ticker": "JOBY",
+      "date": "2025-08-06",
+      "scheduled_ts": 1754510400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.2,
+      "eps_actual": -0.2
+    },
+    {
+      "ticker": "JPM",
+      "date": "2026-04-14",
+      "scheduled_ts": 1776160800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 5.51,
+      "eps_actual": 5.94
+    },
+    {
+      "ticker": "JPM",
+      "date": "2026-01-13",
+      "scheduled_ts": 1768302000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 4.82,
+      "eps_actual": 4.63
+    },
+    {
+      "ticker": "JPM",
+      "date": "2025-10-14",
+      "scheduled_ts": 1760436000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 4.87,
+      "eps_actual": 5.07
+    },
+    {
+      "ticker": "JPM",
+      "date": "2025-07-15",
+      "scheduled_ts": 1752573600000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 4.47,
+      "eps_actual": 4.96
+    },
+    {
+      "ticker": "KLAC",
+      "date": "2026-04-29",
+      "scheduled_ts": 1777492800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 9.15,
+      "eps_actual": null
+    },
+    {
+      "ticker": "KLAC",
+      "date": "2026-01-29",
+      "scheduled_ts": 1769720400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 8.8,
+      "eps_actual": 8.85
+    },
+    {
+      "ticker": "KLAC",
+      "date": "2025-10-29",
+      "scheduled_ts": 1761768000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 8.62,
+      "eps_actual": 8.81
+    },
+    {
+      "ticker": "KLAC",
+      "date": "2025-07-31",
+      "scheduled_ts": 1753992000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 8.55,
+      "eps_actual": 9.38
+    },
+    {
+      "ticker": "KO",
+      "date": "2026-04-28",
+      "scheduled_ts": 1777377600000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 0.81,
+      "eps_actual": null
+    },
+    {
+      "ticker": "KO",
+      "date": "2026-02-10",
+      "scheduled_ts": 1770721200000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.56,
+      "eps_actual": 0.58
+    },
+    {
+      "ticker": "KO",
+      "date": "2025-10-21",
+      "scheduled_ts": 1761040800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.78,
+      "eps_actual": 0.82
+    },
+    {
+      "ticker": "KO",
+      "date": "2025-07-22",
+      "scheduled_ts": 1753182000000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 0.84,
+      "eps_actual": 0.87
+    },
+    {
+      "ticker": "KTOS",
+      "date": "2026-05-07",
+      "scheduled_ts": 1778184000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.13,
+      "eps_actual": null
+    },
+    {
+      "ticker": "KTOS",
+      "date": "2026-02-23",
+      "scheduled_ts": 1771880400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.15,
+      "eps_actual": 0.18
+    },
+    {
+      "ticker": "KTOS",
+      "date": "2025-11-04",
+      "scheduled_ts": 1762290000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.12,
+      "eps_actual": 0.14
+    },
+    {
+      "ticker": "KTOS",
+      "date": "2025-08-07",
+      "scheduled_ts": 1754596800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.09,
+      "eps_actual": 0.11
+    },
+    {
+      "ticker": "LITE",
+      "date": "2026-05-05",
+      "scheduled_ts": 1778011200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.27,
+      "eps_actual": null
+    },
+    {
+      "ticker": "LITE",
+      "date": "2026-02-03",
+      "scheduled_ts": 1770152400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.41,
+      "eps_actual": 1.67
+    },
+    {
+      "ticker": "LITE",
+      "date": "2025-11-04",
+      "scheduled_ts": 1762290000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.03,
+      "eps_actual": 1.1
+    },
+    {
+      "ticker": "LITE",
+      "date": "2025-08-12",
+      "scheduled_ts": 1755028800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.81,
+      "eps_actual": 0.88
+    },
+    {
+      "ticker": "LLY",
+      "date": "2026-04-30",
+      "scheduled_ts": 1777550400000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 6.92,
+      "eps_actual": null
+    },
+    {
+      "ticker": "LLY",
+      "date": "2026-02-04",
+      "scheduled_ts": 1770202800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 6.91,
+      "eps_actual": 7.54
+    },
+    {
+      "ticker": "LLY",
+      "date": "2025-10-30",
+      "scheduled_ts": 1761818400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 5.89,
+      "eps_actual": 7.02
+    },
+    {
+      "ticker": "LLY",
+      "date": "2025-08-07",
+      "scheduled_ts": 1754560800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 5.5,
+      "eps_actual": 6.29
+    },
+    {
+      "ticker": "LMND",
+      "date": "2026-04-29",
+      "scheduled_ts": 1777464000000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": -0.57,
+      "eps_actual": null
+    },
+    {
+      "ticker": "LMND",
+      "date": "2026-02-19",
+      "scheduled_ts": 1771498800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": -0.43,
+      "eps_actual": -0.29
+    },
+    {
+      "ticker": "LMND",
+      "date": "2025-11-05",
+      "scheduled_ts": 1762340400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": -0.71,
+      "eps_actual": -0.55
+    },
+    {
+      "ticker": "LMND",
+      "date": "2025-08-05",
+      "scheduled_ts": 1754388000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": -0.76,
+      "eps_actual": -0.76
+    },
+    {
+      "ticker": "LRCX",
+      "date": "2026-04-22",
+      "scheduled_ts": 1776888000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.36,
+      "eps_actual": null
+    },
+    {
+      "ticker": "LRCX",
+      "date": "2026-01-28",
+      "scheduled_ts": 1769634000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.17,
+      "eps_actual": 1.27
+    },
+    {
+      "ticker": "LRCX",
+      "date": "2025-10-22",
+      "scheduled_ts": 1761163200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.22,
+      "eps_actual": 1.26
+    },
+    {
+      "ticker": "LRCX",
+      "date": "2025-07-30",
+      "scheduled_ts": 1753905600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.21,
+      "eps_actual": 1.33
+    },
+    {
+      "ticker": "LRN",
+      "date": "2026-04-28",
+      "scheduled_ts": 1777406400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.21,
+      "eps_actual": null
+    },
+    {
+      "ticker": "LRN",
+      "date": "2026-01-27",
+      "scheduled_ts": 1769547600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.32,
+      "eps_actual": 2.5
+    },
+    {
+      "ticker": "LRN",
+      "date": "2025-10-28",
+      "scheduled_ts": 1761681600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.26,
+      "eps_actual": 1.52
+    },
+    {
+      "ticker": "LRN",
+      "date": "2025-08-05",
+      "scheduled_ts": 1754424000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.89,
+      "eps_actual": 2.29
+    },
+    {
+      "ticker": "LSCC",
+      "date": "2026-05-04",
+      "scheduled_ts": 1777924800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.37,
+      "eps_actual": null
+    },
+    {
+      "ticker": "LSCC",
+      "date": "2026-02-10",
+      "scheduled_ts": 1770757200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.32,
+      "eps_actual": 0.32
+    },
+    {
+      "ticker": "LSCC",
+      "date": "2025-11-03",
+      "scheduled_ts": 1762203600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.1,
+      "eps_actual": 0.02
+    },
+    {
+      "ticker": "LSCC",
+      "date": "2025-08-04",
+      "scheduled_ts": 1754337600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.24,
+      "eps_actual": 0.24
+    },
+    {
+      "ticker": "LULU",
+      "date": "2026-03-17",
+      "scheduled_ts": 1773777600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 4.78,
+      "eps_actual": 5.01
+    },
+    {
+      "ticker": "LULU",
+      "date": "2025-12-11",
+      "scheduled_ts": 1765486800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.21,
+      "eps_actual": 2.59
+    },
+    {
+      "ticker": "LULU",
+      "date": "2025-09-04",
+      "scheduled_ts": 1757016000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.85,
+      "eps_actual": 3.1
+    },
+    {
+      "ticker": "LULU",
+      "date": "2025-06-05",
+      "scheduled_ts": 1749153600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.59,
+      "eps_actual": 2.6
+    },
+    {
+      "ticker": "MCD",
+      "date": "2026-05-07",
+      "scheduled_ts": 1778155200000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 2.75,
+      "eps_actual": null
+    },
+    {
+      "ticker": "MCD",
+      "date": "2026-02-11",
+      "scheduled_ts": 1770843600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 3.04,
+      "eps_actual": 3.03
+    },
+    {
+      "ticker": "MCD",
+      "date": "2025-11-05",
+      "scheduled_ts": 1762344000000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 3.33,
+      "eps_actual": 3.22
+    },
+    {
+      "ticker": "MCD",
+      "date": "2025-08-06",
+      "scheduled_ts": 1754478000000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 3.15,
+      "eps_actual": 3.19
+    },
+    {
+      "ticker": "MDB",
+      "date": "2026-03-02",
+      "scheduled_ts": 1772485200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.03,
+      "eps_actual": 0.18
+    },
+    {
+      "ticker": "MDB",
+      "date": "2025-12-01",
+      "scheduled_ts": 1764622800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.79,
+      "eps_actual": 1.32
+    },
+    {
+      "ticker": "MDB",
+      "date": "2025-08-26",
+      "scheduled_ts": 1756238400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.66,
+      "eps_actual": 1.0
+    },
+    {
+      "ticker": "MDB",
+      "date": "2025-06-04",
+      "scheduled_ts": 1749067200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.66,
+      "eps_actual": 1.0
+    },
+    {
+      "ticker": "META",
+      "date": "2026-04-29",
+      "scheduled_ts": 1777492800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 6.64,
+      "eps_actual": null
+    },
+    {
+      "ticker": "META",
+      "date": "2026-01-28",
+      "scheduled_ts": 1769634000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 8.18,
+      "eps_actual": 8.88
+    },
+    {
+      "ticker": "META",
+      "date": "2025-10-29",
+      "scheduled_ts": 1761768000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 6.67,
+      "eps_actual": 7.25
+    },
+    {
+      "ticker": "META",
+      "date": "2025-07-30",
+      "scheduled_ts": 1753905600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 5.86,
+      "eps_actual": 7.14
+    },
+    {
+      "ticker": "MLI",
+      "date": "2026-04-21",
+      "scheduled_ts": 1776769200000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 1.47,
+      "eps_actual": 1.89
+    },
+    {
+      "ticker": "MLI",
+      "date": "2026-02-03",
+      "scheduled_ts": 1770120000000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 1.67,
+      "eps_actual": 1.31
+    },
+    {
+      "ticker": "MLI",
+      "date": "2025-10-21",
+      "scheduled_ts": 1761044400000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 1.99,
+      "eps_actual": 1.83
+    },
+    {
+      "ticker": "MLI",
+      "date": "2025-07-22",
+      "scheduled_ts": 1753182000000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 1.62,
+      "eps_actual": 1.96
+    },
+    {
+      "ticker": "MNST",
+      "date": "2026-05-07",
+      "scheduled_ts": 1778184000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.52,
+      "eps_actual": null
+    },
+    {
+      "ticker": "MNST",
+      "date": "2026-02-26",
+      "scheduled_ts": 1772139600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.49,
+      "eps_actual": 0.5
+    },
+    {
+      "ticker": "MNST",
+      "date": "2025-11-06",
+      "scheduled_ts": 1762462800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.49,
+      "eps_actual": 0.53
+    },
+    {
+      "ticker": "MNST",
+      "date": "2025-08-07",
+      "scheduled_ts": 1754596800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.48,
+      "eps_actual": 0.51
+    },
+    {
+      "ticker": "MP",
+      "date": "2026-05-07",
+      "scheduled_ts": 1778184000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.04,
+      "eps_actual": null
+    },
+    {
+      "ticker": "MP",
+      "date": "2026-02-26",
+      "scheduled_ts": 1772139600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.08,
+      "eps_actual": 0.05
+    },
+    {
+      "ticker": "MP",
+      "date": "2025-11-06",
+      "scheduled_ts": 1762462800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.16,
+      "eps_actual": -0.1
+    },
+    {
+      "ticker": "MP",
+      "date": "2025-08-07",
+      "scheduled_ts": 1754596800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.2,
+      "eps_actual": -0.13
+    },
+    {
+      "ticker": "MRK",
+      "date": "2026-04-30",
+      "scheduled_ts": 1777550400000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": -1.47,
+      "eps_actual": null
+    },
+    {
+      "ticker": "MRK",
+      "date": "2026-02-03",
+      "scheduled_ts": 1770116400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.68,
+      "eps_actual": 1.19
+    },
+    {
+      "ticker": "MRK",
+      "date": "2025-10-30",
+      "scheduled_ts": 1761818400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 2.06,
+      "eps_actual": 2.32
+    },
+    {
+      "ticker": "MRK",
+      "date": "2025-07-29",
+      "scheduled_ts": 1753783200000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 2.03,
+      "eps_actual": 2.13
+    },
+    {
+      "ticker": "MSFT",
+      "date": "2026-04-29",
+      "scheduled_ts": 1777492800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 4.07,
+      "eps_actual": null
+    },
+    {
+      "ticker": "MSFT",
+      "date": "2026-01-28",
+      "scheduled_ts": 1769634000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 3.92,
+      "eps_actual": 4.14
+    },
+    {
+      "ticker": "MSFT",
+      "date": "2025-10-29",
+      "scheduled_ts": 1761768000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 3.66,
+      "eps_actual": 3.72
+    },
+    {
+      "ticker": "MSFT",
+      "date": "2025-07-30",
+      "scheduled_ts": 1753905600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 3.38,
+      "eps_actual": 3.65
+    },
+    {
+      "ticker": "MSTR",
+      "date": "2026-05-05",
+      "scheduled_ts": 1778011200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -35.56,
+      "eps_actual": null
+    },
+    {
+      "ticker": "MSTR",
+      "date": "2026-02-05",
+      "scheduled_ts": 1770325200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -20.99,
+      "eps_actual": -42.93
+    },
+    {
+      "ticker": "MSTR",
+      "date": "2025-10-30",
+      "scheduled_ts": 1761854400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 9.67,
+      "eps_actual": 8.42
+    },
+    {
+      "ticker": "MSTR",
+      "date": "2025-07-31",
+      "scheduled_ts": 1753992000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 21.48,
+      "eps_actual": 32.52
+    },
+    {
+      "ticker": "MTB",
+      "date": "2026-04-15",
+      "scheduled_ts": 1776243600000,
+      "scheduled_time_et": "05:00",
+      "session": "bmo",
+      "eps_estimate": 4.02,
+      "eps_actual": 4.13
+    },
+    {
+      "ticker": "MTB",
+      "date": "2026-01-16",
+      "scheduled_ts": 1768557600000,
+      "scheduled_time_et": "05:00",
+      "session": "bmo",
+      "eps_estimate": 4.47,
+      "eps_actual": 4.67
+    },
+    {
+      "ticker": "MTB",
+      "date": "2025-10-16",
+      "scheduled_ts": 1760605200000,
+      "scheduled_time_et": "05:00",
+      "session": "bmo",
+      "eps_estimate": 4.39,
+      "eps_actual": 4.82
+    },
+    {
+      "ticker": "MTB",
+      "date": "2025-07-16",
+      "scheduled_ts": 1752656400000,
+      "scheduled_time_et": "05:00",
+      "session": "bmo",
+      "eps_estimate": 4.01,
+      "eps_actual": 4.24
+    },
+    {
+      "ticker": "MTZ",
+      "date": "2026-04-30",
+      "scheduled_ts": 1777579200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.99,
+      "eps_actual": null
+    },
+    {
+      "ticker": "MTZ",
+      "date": "2026-02-26",
+      "scheduled_ts": 1772139600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.54,
+      "eps_actual": 1.81
+    },
+    {
+      "ticker": "MTZ",
+      "date": "2025-10-30",
+      "scheduled_ts": 1761854400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.3,
+      "eps_actual": 2.48
+    },
+    {
+      "ticker": "MTZ",
+      "date": "2025-07-31",
+      "scheduled_ts": 1753992000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.4,
+      "eps_actual": 1.49
+    },
+    {
+      "ticker": "MU",
+      "date": "2026-03-18",
+      "scheduled_ts": 1773864000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 9.16,
+      "eps_actual": 12.2
+    },
+    {
+      "ticker": "MU",
+      "date": "2025-12-17",
+      "scheduled_ts": 1766005200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 3.96,
+      "eps_actual": 4.78
+    },
+    {
+      "ticker": "MU",
+      "date": "2025-09-23",
+      "scheduled_ts": 1758657600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.69,
+      "eps_actual": 2.83
+    },
+    {
+      "ticker": "MU",
+      "date": "2025-06-25",
+      "scheduled_ts": 1750881600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.45,
+      "eps_actual": 1.68
+    },
+    {
+      "ticker": "NBIS",
+      "date": "2026-04-29",
+      "scheduled_ts": 1777464000000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": -0.78,
+      "eps_actual": null
+    },
+    {
+      "ticker": "NBIS",
+      "date": "2026-02-12",
+      "scheduled_ts": 1770901200000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": -0.54,
+      "eps_actual": -0.68
+    },
+    {
+      "ticker": "NBIS",
+      "date": "2025-11-11",
+      "scheduled_ts": 1762866000000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": -0.52,
+      "eps_actual": -0.4
+    },
+    {
+      "ticker": "NBIS",
+      "date": "2025-08-07",
+      "scheduled_ts": 1754568000000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": -0.42,
+      "eps_actual": -0.38
+    },
+    {
+      "ticker": "NEU",
+      "date": "2026-04-22",
+      "scheduled_ts": 1776888000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": null,
+      "eps_actual": null
+    },
+    {
+      "ticker": "NFLX",
+      "date": "2026-04-16",
+      "scheduled_ts": 1776369600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.32,
+      "eps_actual": 1.23
+    },
+    {
+      "ticker": "NFLX",
+      "date": "2026-01-20",
+      "scheduled_ts": 1768942800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.55,
+      "eps_actual": 0.56
+    },
+    {
+      "ticker": "NFLX",
+      "date": "2025-10-21",
+      "scheduled_ts": 1761076800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.7,
+      "eps_actual": 0.59
+    },
+    {
+      "ticker": "NFLX",
+      "date": "2025-07-17",
+      "scheduled_ts": 1752782400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.71,
+      "eps_actual": 0.72
+    },
+    {
+      "ticker": "NKE",
+      "date": "2026-03-31",
+      "scheduled_ts": 1774987200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.28,
+      "eps_actual": 0.35
+    },
+    {
+      "ticker": "NKE",
+      "date": "2025-12-18",
+      "scheduled_ts": 1766091600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.37,
+      "eps_actual": 0.53
+    },
+    {
+      "ticker": "NKE",
+      "date": "2025-09-30",
+      "scheduled_ts": 1759262400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.27,
+      "eps_actual": 0.49
+    },
+    {
+      "ticker": "NKE",
+      "date": "2025-06-26",
+      "scheduled_ts": 1750968000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.12,
+      "eps_actual": 0.14
+    },
+    {
+      "ticker": "NOC",
+      "date": "2026-01-27",
+      "scheduled_ts": 1769511600000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 6.96,
+      "eps_actual": 7.23
+    },
+    {
+      "ticker": "NOC",
+      "date": "2025-10-21",
+      "scheduled_ts": 1761040800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 6.46,
+      "eps_actual": 7.67
+    },
+    {
+      "ticker": "NOC",
+      "date": "2025-07-22",
+      "scheduled_ts": 1753178400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 6.8,
+      "eps_actual": 8.15
+    },
+    {
+      "ticker": "NVDA",
+      "date": "2026-05-20",
+      "scheduled_ts": 1779307200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.77,
+      "eps_actual": null
+    },
+    {
+      "ticker": "NVDA",
+      "date": "2026-02-25",
+      "scheduled_ts": 1772053200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.54,
+      "eps_actual": 1.62
+    },
+    {
+      "ticker": "NVDA",
+      "date": "2025-11-19",
+      "scheduled_ts": 1763586000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.26,
+      "eps_actual": 1.3
+    },
+    {
+      "ticker": "NVDA",
+      "date": "2025-08-27",
+      "scheduled_ts": 1756324800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.01,
+      "eps_actual": 1.05
+    },
+    {
+      "ticker": "NXT",
+      "date": "2026-05-13",
+      "scheduled_ts": 1778702400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.93,
+      "eps_actual": null
+    },
+    {
+      "ticker": "NXT",
+      "date": "2026-01-27",
+      "scheduled_ts": 1769547600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.94,
+      "eps_actual": 1.1
+    },
+    {
+      "ticker": "NXT",
+      "date": "2025-10-23",
+      "scheduled_ts": 1761249600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.01,
+      "eps_actual": 1.19
+    },
+    {
+      "ticker": "NXT",
+      "date": "2025-07-29",
+      "scheduled_ts": 1753819200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.02,
+      "eps_actual": 1.16
+    },
+    {
+      "ticker": "OKE",
+      "date": "2026-04-28",
+      "scheduled_ts": 1777406400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.34,
+      "eps_actual": null
+    },
+    {
+      "ticker": "OKE",
+      "date": "2026-02-23",
+      "scheduled_ts": 1771880400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.49,
+      "eps_actual": 1.55
+    },
+    {
+      "ticker": "OKE",
+      "date": "2025-10-28",
+      "scheduled_ts": 1761681600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.44,
+      "eps_actual": 1.49
+    },
+    {
+      "ticker": "OKE",
+      "date": "2025-08-04",
+      "scheduled_ts": 1754337600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.33,
+      "eps_actual": 1.34
+    },
+    {
+      "ticker": "ON",
+      "date": "2026-05-04",
+      "scheduled_ts": 1777924800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.61,
+      "eps_actual": null
+    },
+    {
+      "ticker": "ON",
+      "date": "2026-02-09",
+      "scheduled_ts": 1770670800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.59,
+      "eps_actual": 0.45
+    },
+    {
+      "ticker": "ON",
+      "date": "2025-11-03",
+      "scheduled_ts": 1762174800000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 0.54,
+      "eps_actual": 0.63
+    },
+    {
+      "ticker": "ON",
+      "date": "2025-08-04",
+      "scheduled_ts": 1754308800000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 0.53,
+      "eps_actual": 0.53
+    },
+    {
+      "ticker": "ORCL",
+      "date": "2026-03-10",
+      "scheduled_ts": 1773172800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.23,
+      "eps_actual": 1.27
+    },
+    {
+      "ticker": "ORCL",
+      "date": "2025-12-10",
+      "scheduled_ts": 1765400400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.64,
+      "eps_actual": 2.26
+    },
+    {
+      "ticker": "ORCL",
+      "date": "2025-09-09",
+      "scheduled_ts": 1757448000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.48,
+      "eps_actual": 1.47
+    },
+    {
+      "ticker": "ORCL",
+      "date": "2025-06-11",
+      "scheduled_ts": 1749672000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.64,
+      "eps_actual": 1.7
+    },
+    {
+      "ticker": "PANW",
+      "date": "2026-05-20",
+      "scheduled_ts": 1779307200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.8,
+      "eps_actual": null
+    },
+    {
+      "ticker": "PANW",
+      "date": "2026-02-17",
+      "scheduled_ts": 1771362000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.94,
+      "eps_actual": 1.03
+    },
+    {
+      "ticker": "PANW",
+      "date": "2025-11-19",
+      "scheduled_ts": 1763586000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.89,
+      "eps_actual": 0.93
+    },
+    {
+      "ticker": "PANW",
+      "date": "2025-08-18",
+      "scheduled_ts": 1755547200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.89,
+      "eps_actual": 0.95
+    },
+    {
+      "ticker": "PATH",
+      "date": "2026-05-28",
+      "scheduled_ts": 1779998400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.16,
+      "eps_actual": null
+    },
+    {
+      "ticker": "PATH",
+      "date": "2026-03-11",
+      "scheduled_ts": 1773259200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.09,
+      "eps_actual": 0.19
+    },
+    {
+      "ticker": "PATH",
+      "date": "2025-12-03",
+      "scheduled_ts": 1764795600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.02,
+      "eps_actual": 0.37
+    },
+    {
+      "ticker": "PATH",
+      "date": "2025-09-04",
+      "scheduled_ts": 1757016000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.08,
+      "eps_actual": 0.15
+    },
+    {
+      "ticker": "PEGA",
+      "date": "2026-04-21",
+      "scheduled_ts": 1776801600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.69,
+      "eps_actual": null
+    },
+    {
+      "ticker": "PEGA",
+      "date": "2026-02-10",
+      "scheduled_ts": 1770757200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.73,
+      "eps_actual": 0.76
+    },
+    {
+      "ticker": "PEGA",
+      "date": "2025-10-21",
+      "scheduled_ts": 1761076800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.04,
+      "eps_actual": 0.24
+    },
+    {
+      "ticker": "PEGA",
+      "date": "2025-07-22",
+      "scheduled_ts": 1753214400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.24,
+      "eps_actual": 0.28
+    },
+    {
+      "ticker": "PH",
+      "date": "2026-04-30",
+      "scheduled_ts": 1777550400000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 7.83,
+      "eps_actual": null
+    },
+    {
+      "ticker": "PH",
+      "date": "2026-01-29",
+      "scheduled_ts": 1769688000000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 7.17,
+      "eps_actual": 7.65
+    },
+    {
+      "ticker": "PH",
+      "date": "2025-11-06",
+      "scheduled_ts": 1762430400000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 6.62,
+      "eps_actual": 7.22
+    },
+    {
+      "ticker": "PH",
+      "date": "2025-08-07",
+      "scheduled_ts": 1754564400000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 7.08,
+      "eps_actual": 7.69
+    },
+    {
+      "ticker": "PI",
+      "date": "2026-04-29",
+      "scheduled_ts": 1777492800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.14,
+      "eps_actual": null
+    },
+    {
+      "ticker": "PI",
+      "date": "2026-02-05",
+      "scheduled_ts": 1770325200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.51,
+      "eps_actual": 0.5
+    },
+    {
+      "ticker": "PI",
+      "date": "2025-10-29",
+      "scheduled_ts": 1761768000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.5,
+      "eps_actual": 0.58
+    },
+    {
+      "ticker": "PI",
+      "date": "2025-07-30",
+      "scheduled_ts": 1753905600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.7,
+      "eps_actual": 0.8
+    },
+    {
+      "ticker": "PKG",
+      "date": "2026-04-22",
+      "scheduled_ts": 1776888000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.13,
+      "eps_actual": null
+    },
+    {
+      "ticker": "PKG",
+      "date": "2026-01-27",
+      "scheduled_ts": 1769551200000,
+      "scheduled_time_et": "17:00",
+      "session": "amc",
+      "eps_estimate": 2.41,
+      "eps_actual": 2.32
+    },
+    {
+      "ticker": "PKG",
+      "date": "2025-10-22",
+      "scheduled_ts": 1761166800000,
+      "scheduled_time_et": "17:00",
+      "session": "amc",
+      "eps_estimate": 2.82,
+      "eps_actual": 2.73
+    },
+    {
+      "ticker": "PKG",
+      "date": "2025-07-23",
+      "scheduled_ts": 1753304400000,
+      "scheduled_time_et": "17:00",
+      "session": "amc",
+      "eps_estimate": 2.44,
+      "eps_actual": 2.48
+    },
+    {
+      "ticker": "PLTR",
+      "date": "2026-05-04",
+      "scheduled_ts": 1777924800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.28,
+      "eps_actual": null
+    },
+    {
+      "ticker": "PLTR",
+      "date": "2026-02-02",
+      "scheduled_ts": 1770066000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.23,
+      "eps_actual": 0.25
+    },
+    {
+      "ticker": "PLTR",
+      "date": "2025-11-03",
+      "scheduled_ts": 1762203600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.17,
+      "eps_actual": 0.21
+    },
+    {
+      "ticker": "PLTR",
+      "date": "2025-08-04",
+      "scheduled_ts": 1754337600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.14,
+      "eps_actual": 0.16
+    },
+    {
+      "ticker": "PNC",
+      "date": "2026-04-15",
+      "scheduled_ts": 1776247200000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 4.16,
+      "eps_actual": 4.32
+    },
+    {
+      "ticker": "PNC",
+      "date": "2026-01-16",
+      "scheduled_ts": 1768561200000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 4.23,
+      "eps_actual": 4.88
+    },
+    {
+      "ticker": "PNC",
+      "date": "2025-10-15",
+      "scheduled_ts": 1760522400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 4.04,
+      "eps_actual": 4.35
+    },
+    {
+      "ticker": "PNC",
+      "date": "2025-07-16",
+      "scheduled_ts": 1752660000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 3.56,
+      "eps_actual": 3.85
+    },
+    {
+      "ticker": "PPG",
+      "date": "2026-04-28",
+      "scheduled_ts": 1777406400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.74,
+      "eps_actual": null
+    },
+    {
+      "ticker": "PPG",
+      "date": "2026-01-27",
+      "scheduled_ts": 1769547600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.58,
+      "eps_actual": 1.51
+    },
+    {
+      "ticker": "PPG",
+      "date": "2025-10-28",
+      "scheduled_ts": 1761681600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.08,
+      "eps_actual": 2.13
+    },
+    {
+      "ticker": "PPG",
+      "date": "2025-07-29",
+      "scheduled_ts": 1753819200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.22,
+      "eps_actual": 2.22
+    },
+    {
+      "ticker": "PSTG",
+      "date": "2026-05-27",
+      "scheduled_ts": 1779912000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.4,
+      "eps_actual": null
+    },
+    {
+      "ticker": "PSTG",
+      "date": "2026-02-25",
+      "scheduled_ts": 1772053200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.64,
+      "eps_actual": 0.69
+    },
+    {
+      "ticker": "PSTG",
+      "date": "2025-12-02",
+      "scheduled_ts": 1764709200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.58,
+      "eps_actual": 0.58
+    },
+    {
+      "ticker": "PSTG",
+      "date": "2025-08-27",
+      "scheduled_ts": 1756324800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.39,
+      "eps_actual": 0.43
+    },
+    {
+      "ticker": "PWR",
+      "date": "2026-04-30",
+      "scheduled_ts": 1777550400000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 2.03,
+      "eps_actual": null
+    },
+    {
+      "ticker": "PWR",
+      "date": "2026-02-19",
+      "scheduled_ts": 1771498800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 3.02,
+      "eps_actual": 3.16
+    },
+    {
+      "ticker": "PWR",
+      "date": "2025-10-30",
+      "scheduled_ts": 1761818400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 3.26,
+      "eps_actual": 3.33
+    },
+    {
+      "ticker": "PWR",
+      "date": "2025-07-31",
+      "scheduled_ts": 1753956000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 2.45,
+      "eps_actual": 2.48
+    },
+    {
+      "ticker": "QLYS",
+      "date": "2026-05-05",
+      "scheduled_ts": 1778011200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.8,
+      "eps_actual": null
+    },
+    {
+      "ticker": "QLYS",
+      "date": "2026-02-05",
+      "scheduled_ts": 1770325200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.78,
+      "eps_actual": 1.87
+    },
+    {
+      "ticker": "QLYS",
+      "date": "2025-11-04",
+      "scheduled_ts": 1762290000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.56,
+      "eps_actual": 1.86
+    },
+    {
+      "ticker": "QLYS",
+      "date": "2025-08-05",
+      "scheduled_ts": 1754424000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.48,
+      "eps_actual": 1.68
+    },
+    {
+      "ticker": "QXO",
+      "date": "2026-05-07",
+      "scheduled_ts": 1778184000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.08,
+      "eps_actual": null
+    },
+    {
+      "ticker": "QXO",
+      "date": "2026-02-25",
+      "scheduled_ts": 1772053200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.12,
+      "eps_actual": -0.17
+    },
+    {
+      "ticker": "QXO",
+      "date": "2025-11-06",
+      "scheduled_ts": 1762462800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.13,
+      "eps_actual": 0.14
+    },
+    {
+      "ticker": "QXO",
+      "date": "2025-08-14",
+      "scheduled_ts": 1755165600000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.04,
+      "eps_actual": 0.11
+    },
+    {
+      "ticker": "RBLX",
+      "date": "2026-04-30",
+      "scheduled_ts": 1777579200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.4,
+      "eps_actual": null
+    },
+    {
+      "ticker": "RBLX",
+      "date": "2026-02-05",
+      "scheduled_ts": 1770325200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.49,
+      "eps_actual": -0.45
+    },
+    {
+      "ticker": "RBLX",
+      "date": "2025-10-30",
+      "scheduled_ts": 1761822000000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": -0.51,
+      "eps_actual": -0.37
+    },
+    {
+      "ticker": "RBLX",
+      "date": "2025-07-31",
+      "scheduled_ts": 1753963200000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": -0.36,
+      "eps_actual": -0.41
+    },
+    {
+      "ticker": "RDDT",
+      "date": "2026-04-30",
+      "scheduled_ts": 1777579200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.57,
+      "eps_actual": null
+    },
+    {
+      "ticker": "RDDT",
+      "date": "2026-02-05",
+      "scheduled_ts": 1770325200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.45,
+      "eps_actual": 1.68
+    },
+    {
+      "ticker": "RDDT",
+      "date": "2025-10-30",
+      "scheduled_ts": 1761854400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.05,
+      "eps_actual": 1.26
+    },
+    {
+      "ticker": "RDDT",
+      "date": "2025-07-31",
+      "scheduled_ts": 1753992000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.19,
+      "eps_actual": 0.45
+    },
+    {
+      "ticker": "RGLD",
+      "date": "2026-05-06",
+      "scheduled_ts": 1778097600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.85,
+      "eps_actual": null
+    },
+    {
+      "ticker": "RGLD",
+      "date": "2026-02-18",
+      "scheduled_ts": 1771448400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.64,
+      "eps_actual": 1.92
+    },
+    {
+      "ticker": "RGLD",
+      "date": "2025-11-05",
+      "scheduled_ts": 1762376400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.35,
+      "eps_actual": 1.92
+    },
+    {
+      "ticker": "RGLD",
+      "date": "2025-08-06",
+      "scheduled_ts": 1754514000000,
+      "scheduled_time_et": "17:00",
+      "session": "amc",
+      "eps_estimate": 1.68,
+      "eps_actual": 1.81
+    },
+    {
+      "ticker": "RIOT",
+      "date": "2026-04-30",
+      "scheduled_ts": 1777579200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.32,
+      "eps_actual": null
+    },
+    {
+      "ticker": "RIOT",
+      "date": "2026-03-02",
+      "scheduled_ts": 1772488800000,
+      "scheduled_time_et": "17:00",
+      "session": "amc",
+      "eps_estimate": -0.39,
+      "eps_actual": -1.88
+    },
+    {
+      "ticker": "RIOT",
+      "date": "2025-10-30",
+      "scheduled_ts": 1761858000000,
+      "scheduled_time_et": "17:00",
+      "session": "amc",
+      "eps_estimate": 0.13,
+      "eps_actual": 0.26
+    },
+    {
+      "ticker": "RIOT",
+      "date": "2025-07-31",
+      "scheduled_ts": 1753992000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.06,
+      "eps_actual": 0.57
+    },
+    {
+      "ticker": "RKLB",
+      "date": "2026-05-07",
+      "scheduled_ts": 1778184000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.08,
+      "eps_actual": null
+    },
+    {
+      "ticker": "RKLB",
+      "date": "2026-02-26",
+      "scheduled_ts": 1772139600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.05,
+      "eps_actual": -0.05
+    },
+    {
+      "ticker": "RKLB",
+      "date": "2025-11-10",
+      "scheduled_ts": 1762808400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.06,
+      "eps_actual": -0.02
+    },
+    {
+      "ticker": "RKLB",
+      "date": "2025-08-07",
+      "scheduled_ts": 1754596800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.08,
+      "eps_actual": -0.08
+    },
+    {
+      "ticker": "RTX",
+      "date": "2026-04-21",
+      "scheduled_ts": 1776765600000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.52,
+      "eps_actual": 1.78
+    },
+    {
+      "ticker": "RTX",
+      "date": "2026-01-27",
+      "scheduled_ts": 1769511600000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.15,
+      "eps_actual": 1.19
+    },
+    {
+      "ticker": "RTX",
+      "date": "2025-10-21",
+      "scheduled_ts": 1761040800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.41,
+      "eps_actual": 1.7
+    },
+    {
+      "ticker": "RTX",
+      "date": "2025-07-22",
+      "scheduled_ts": 1753178400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.1,
+      "eps_actual": 1.22
+    },
+    {
+      "ticker": "SANM",
+      "date": "2026-04-27",
+      "scheduled_ts": 1777320000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.4,
+      "eps_actual": null
+    },
+    {
+      "ticker": "SANM",
+      "date": "2026-01-26",
+      "scheduled_ts": 1769461200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.15,
+      "eps_actual": 2.38
+    },
+    {
+      "ticker": "SANM",
+      "date": "2025-11-03",
+      "scheduled_ts": 1762203600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.57,
+      "eps_actual": 1.67
+    },
+    {
+      "ticker": "SANM",
+      "date": "2025-07-28",
+      "scheduled_ts": 1753732800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.42,
+      "eps_actual": 1.53
+    },
+    {
+      "ticker": "SATS",
+      "date": "2026-05-07",
+      "scheduled_ts": 1778155200000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": -0.56,
+      "eps_actual": null
+    },
+    {
+      "ticker": "SATS",
+      "date": "2026-03-02",
+      "scheduled_ts": 1772449200000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": -0.75,
+      "eps_actual": -4.16
+    },
+    {
+      "ticker": "SATS",
+      "date": "2025-11-06",
+      "scheduled_ts": 1762426800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": -1.13,
+      "eps_actual": -44.37
+    },
+    {
+      "ticker": "SATS",
+      "date": "2025-08-01",
+      "scheduled_ts": 1754042400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": -1.04,
+      "eps_actual": -1.06
+    },
+    {
+      "ticker": "SGI",
+      "date": "2026-05-07",
+      "scheduled_ts": 1778155200000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 0.58,
+      "eps_actual": null
+    },
+    {
+      "ticker": "SGI",
+      "date": "2026-02-17",
+      "scheduled_ts": 1771326000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.72,
+      "eps_actual": 0.72
+    },
+    {
+      "ticker": "SGI",
+      "date": "2025-11-06",
+      "scheduled_ts": 1762426800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.86,
+      "eps_actual": 0.95
+    },
+    {
+      "ticker": "SGI",
+      "date": "2025-08-07",
+      "scheduled_ts": 1754560800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.51,
+      "eps_actual": 0.53
+    },
+    {
+      "ticker": "SHOP",
+      "date": "2026-05-05",
+      "scheduled_ts": 1777982400000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 0.33,
+      "eps_actual": null
+    },
+    {
+      "ticker": "SHOP",
+      "date": "2026-02-11",
+      "scheduled_ts": 1770811200000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 0.51,
+      "eps_actual": 0.48
+    },
+    {
+      "ticker": "SHOP",
+      "date": "2025-11-04",
+      "scheduled_ts": 1762257600000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 0.34,
+      "eps_actual": 0.34
+    },
+    {
+      "ticker": "SHOP",
+      "date": "2025-08-06",
+      "scheduled_ts": 1754478000000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 0.29,
+      "eps_actual": 0.35
+    },
+    {
+      "ticker": "SN",
+      "date": "2026-05-06",
+      "scheduled_ts": 1778068800000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 1.01,
+      "eps_actual": null
+    },
+    {
+      "ticker": "SN",
+      "date": "2026-02-11",
+      "scheduled_ts": 1770807600000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.81,
+      "eps_actual": 1.93
+    },
+    {
+      "ticker": "SN",
+      "date": "2025-11-06",
+      "scheduled_ts": 1762430400000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 1.35,
+      "eps_actual": 1.5
+    },
+    {
+      "ticker": "SN",
+      "date": "2025-08-07",
+      "scheduled_ts": 1754564400000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 0.8,
+      "eps_actual": 0.97
+    },
+    {
+      "ticker": "SNDK",
+      "date": "2026-04-30",
+      "scheduled_ts": 1777579200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 14.55,
+      "eps_actual": null
+    },
+    {
+      "ticker": "SNDK",
+      "date": "2026-01-29",
+      "scheduled_ts": 1769720400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 3.54,
+      "eps_actual": 6.2
+    },
+    {
+      "ticker": "SNDK",
+      "date": "2025-11-06",
+      "scheduled_ts": 1762462800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.89,
+      "eps_actual": 1.22
+    },
+    {
+      "ticker": "SNDK",
+      "date": "2025-08-14",
+      "scheduled_ts": 1755201600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.03,
+      "eps_actual": 0.29
+    },
+    {
+      "ticker": "SOFI",
+      "date": "2026-04-29",
+      "scheduled_ts": 1777464000000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 0.12,
+      "eps_actual": null
+    },
+    {
+      "ticker": "SOFI",
+      "date": "2026-01-30",
+      "scheduled_ts": 1769774400000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 0.11,
+      "eps_actual": 0.12
+    },
+    {
+      "ticker": "SOFI",
+      "date": "2025-10-28",
+      "scheduled_ts": 1761649200000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 0.08,
+      "eps_actual": 0.1
+    },
+    {
+      "ticker": "SOFI",
+      "date": "2025-07-29",
+      "scheduled_ts": 1753786800000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 0.06,
+      "eps_actual": 0.09
+    },
+    {
+      "ticker": "SPGI",
+      "date": "2026-04-28",
+      "scheduled_ts": 1777377600000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 4.82,
+      "eps_actual": null
+    },
+    {
+      "ticker": "SPGI",
+      "date": "2026-02-10",
+      "scheduled_ts": 1770724800000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 4.34,
+      "eps_actual": 4.3
+    },
+    {
+      "ticker": "SPGI",
+      "date": "2025-10-30",
+      "scheduled_ts": 1761822000000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 4.41,
+      "eps_actual": 4.73
+    },
+    {
+      "ticker": "SPGI",
+      "date": "2025-07-31",
+      "scheduled_ts": 1753959600000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 4.22,
+      "eps_actual": 4.43
+    },
+    {
+      "ticker": "SPOT",
+      "date": "2026-04-28",
+      "scheduled_ts": 1777377600000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 2.94,
+      "eps_actual": null
+    },
+    {
+      "ticker": "SPOT",
+      "date": "2026-02-10",
+      "scheduled_ts": 1770721200000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 2.78,
+      "eps_actual": 4.43
+    },
+    {
+      "ticker": "SPOT",
+      "date": "2025-11-04",
+      "scheduled_ts": 1762254000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 2.02,
+      "eps_actual": 3.28
+    },
+    {
+      "ticker": "SPOT",
+      "date": "2025-07-29",
+      "scheduled_ts": 1753783200000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.98,
+      "eps_actual": -0.42
+    },
+    {
+      "ticker": "STRL",
+      "date": "2026-05-04",
+      "scheduled_ts": 1777924800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.16,
+      "eps_actual": null
+    },
+    {
+      "ticker": "STRL",
+      "date": "2026-02-25",
+      "scheduled_ts": 1772053200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.63,
+      "eps_actual": 3.08
+    },
+    {
+      "ticker": "STRL",
+      "date": "2025-11-03",
+      "scheduled_ts": 1762203600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.84,
+      "eps_actual": 3.48
+    },
+    {
+      "ticker": "STRL",
+      "date": "2025-08-04",
+      "scheduled_ts": 1754337600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.25,
+      "eps_actual": 2.51
+    },
+    {
+      "ticker": "STX",
+      "date": "2026-04-28",
+      "scheduled_ts": 1777406400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 3.49,
+      "eps_actual": null
+    },
+    {
+      "ticker": "STX",
+      "date": "2026-01-27",
+      "scheduled_ts": 1769547600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.84,
+      "eps_actual": 3.11
+    },
+    {
+      "ticker": "STX",
+      "date": "2025-10-28",
+      "scheduled_ts": 1761681600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.4,
+      "eps_actual": 2.61
+    },
+    {
+      "ticker": "STX",
+      "date": "2025-07-29",
+      "scheduled_ts": 1753819200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.11,
+      "eps_actual": 2.24
+    },
+    {
+      "ticker": "SWK",
+      "date": "2026-04-29",
+      "scheduled_ts": 1777464000000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 0.59,
+      "eps_actual": null
+    },
+    {
+      "ticker": "SWK",
+      "date": "2026-02-04",
+      "scheduled_ts": 1770202800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.28,
+      "eps_actual": 1.41
+    },
+    {
+      "ticker": "SWK",
+      "date": "2025-11-04",
+      "scheduled_ts": 1762254000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.08,
+      "eps_actual": 0.34
+    },
+    {
+      "ticker": "SWK",
+      "date": "2025-07-29",
+      "scheduled_ts": 1753783200000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.42,
+      "eps_actual": 1.08
+    },
+    {
+      "ticker": "TEM",
+      "date": "2026-05-05",
+      "scheduled_ts": 1778011200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.2,
+      "eps_actual": null
+    },
+    {
+      "ticker": "TEM",
+      "date": "2026-02-24",
+      "scheduled_ts": 1771966800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.05,
+      "eps_actual": -0.04
+    },
+    {
+      "ticker": "TEM",
+      "date": "2025-11-04",
+      "scheduled_ts": 1762290000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.42,
+      "eps_actual": -0.46
+    },
+    {
+      "ticker": "TEM",
+      "date": "2025-08-08",
+      "scheduled_ts": 1754647200000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": -0.25,
+      "eps_actual": -0.22
+    },
+    {
+      "ticker": "TJX",
+      "date": "2026-05-20",
+      "scheduled_ts": 1779278400000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 1.0,
+      "eps_actual": null
+    },
+    {
+      "ticker": "TJX",
+      "date": "2026-02-25",
+      "scheduled_ts": 1772020800000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 1.39,
+      "eps_actual": 1.43
+    },
+    {
+      "ticker": "TJX",
+      "date": "2025-11-19",
+      "scheduled_ts": 1763553600000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 1.22,
+      "eps_actual": 1.28
+    },
+    {
+      "ticker": "TJX",
+      "date": "2025-08-20",
+      "scheduled_ts": 1755687600000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 1.01,
+      "eps_actual": 1.1
+    },
+    {
+      "ticker": "TLN",
+      "date": "2026-05-05",
+      "scheduled_ts": 1778011200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 4.19,
+      "eps_actual": null
+    },
+    {
+      "ticker": "TLN",
+      "date": "2026-02-26",
+      "scheduled_ts": 1772139600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.66,
+      "eps_actual": -7.75
+    },
+    {
+      "ticker": "TLN",
+      "date": "2025-11-05",
+      "scheduled_ts": 1762376400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 3.67,
+      "eps_actual": 3.29
+    },
+    {
+      "ticker": "TLN",
+      "date": "2025-08-07",
+      "scheduled_ts": 1754560800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": -1.32,
+      "eps_actual": 1.5
+    },
+    {
+      "ticker": "TPL",
+      "date": "2026-05-06",
+      "scheduled_ts": 1778097600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.98,
+      "eps_actual": null
+    },
+    {
+      "ticker": "TPL",
+      "date": "2026-02-18",
+      "scheduled_ts": 1771448400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 3.6,
+      "eps_actual": 1.79
+    },
+    {
+      "ticker": "TPL",
+      "date": "2025-11-05",
+      "scheduled_ts": 1762376400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.92,
+      "eps_actual": 1.76
+    },
+    {
+      "ticker": "TPL",
+      "date": "2025-08-06",
+      "scheduled_ts": 1754510400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.32,
+      "eps_actual": 1.68
+    },
+    {
+      "ticker": "TSLA",
+      "date": "2026-04-22",
+      "scheduled_ts": 1776888000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.36,
+      "eps_actual": null
+    },
+    {
+      "ticker": "TSLA",
+      "date": "2026-01-28",
+      "scheduled_ts": 1769634000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.34,
+      "eps_actual": 0.24
+    },
+    {
+      "ticker": "TSLA",
+      "date": "2025-10-22",
+      "scheduled_ts": 1761163200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.44,
+      "eps_actual": 0.39
+    },
+    {
+      "ticker": "TSLA",
+      "date": "2025-07-23",
+      "scheduled_ts": 1753300800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.4,
+      "eps_actual": 0.4
+    },
+    {
+      "ticker": "TSM",
+      "date": "2026-04-16",
+      "scheduled_ts": 1776297600000,
+      "scheduled_time_et": "20:00",
+      "session": "amc",
+      "eps_estimate": 3.33,
+      "eps_actual": 3.49
+    },
+    {
+      "ticker": "TSM",
+      "date": "2026-01-15",
+      "scheduled_ts": 1768456800000,
+      "scheduled_time_et": "01:00",
+      "session": "bmo",
+      "eps_estimate": 2.98,
+      "eps_actual": 3.14
+    },
+    {
+      "ticker": "TSM",
+      "date": "2025-10-16",
+      "scheduled_ts": 1760572800000,
+      "scheduled_time_et": "20:00",
+      "session": "amc",
+      "eps_estimate": 2.63,
+      "eps_actual": 2.92
+    },
+    {
+      "ticker": "TSM",
+      "date": "2025-07-17",
+      "scheduled_ts": 1752732000000,
+      "scheduled_time_et": "02:00",
+      "session": "bmo",
+      "eps_estimate": 2.31,
+      "eps_actual": 2.47
+    },
+    {
+      "ticker": "TT",
+      "date": "2026-04-30",
+      "scheduled_ts": 1777550400000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 2.52,
+      "eps_actual": null
+    },
+    {
+      "ticker": "TT",
+      "date": "2026-01-29",
+      "scheduled_ts": 1769684400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 2.78,
+      "eps_actual": 2.64
+    },
+    {
+      "ticker": "TT",
+      "date": "2025-10-30",
+      "scheduled_ts": 1761818400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 3.78,
+      "eps_actual": 3.88
+    },
+    {
+      "ticker": "TT",
+      "date": "2025-07-30",
+      "scheduled_ts": 1753869600000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 3.79,
+      "eps_actual": 3.88
+    },
+    {
+      "ticker": "TWLO",
+      "date": "2026-04-30",
+      "scheduled_ts": 1777579200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.27,
+      "eps_actual": null
+    },
+    {
+      "ticker": "TWLO",
+      "date": "2026-02-12",
+      "scheduled_ts": 1770930000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.23,
+      "eps_actual": 1.33
+    },
+    {
+      "ticker": "TWLO",
+      "date": "2025-10-30",
+      "scheduled_ts": 1761854400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.14,
+      "eps_actual": 0.23
+    },
+    {
+      "ticker": "TWLO",
+      "date": "2025-08-07",
+      "scheduled_ts": 1754596800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.12,
+      "eps_actual": 0.14
+    },
+    {
+      "ticker": "U",
+      "date": "2026-05-07",
+      "scheduled_ts": 1778155200000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 0.24,
+      "eps_actual": null
+    },
+    {
+      "ticker": "U",
+      "date": "2026-02-11",
+      "scheduled_ts": 1770811200000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 0.21,
+      "eps_actual": 0.24
+    },
+    {
+      "ticker": "U",
+      "date": "2025-11-05",
+      "scheduled_ts": 1762344000000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 0.17,
+      "eps_actual": 0.2
+    },
+    {
+      "ticker": "U",
+      "date": "2025-08-06",
+      "scheduled_ts": 1754478000000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 0.15,
+      "eps_actual": 0.18
+    },
+    {
+      "ticker": "UHS",
+      "date": "2026-04-27",
+      "scheduled_ts": 1777320000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 5.5,
+      "eps_actual": null
+    },
+    {
+      "ticker": "UHS",
+      "date": "2026-02-25",
+      "scheduled_ts": 1772053200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 5.89,
+      "eps_actual": 7.06
+    },
+    {
+      "ticker": "UHS",
+      "date": "2025-10-27",
+      "scheduled_ts": 1761595200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 4.95,
+      "eps_actual": 5.69
+    },
+    {
+      "ticker": "UHS",
+      "date": "2025-07-28",
+      "scheduled_ts": 1753732800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 4.96,
+      "eps_actual": 5.35
+    },
+    {
+      "ticker": "ULTA",
+      "date": "2026-03-12",
+      "scheduled_ts": 1773345600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 8.04,
+      "eps_actual": 8.01
+    },
+    {
+      "ticker": "ULTA",
+      "date": "2025-12-04",
+      "scheduled_ts": 1764882000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 4.61,
+      "eps_actual": 5.14
+    },
+    {
+      "ticker": "ULTA",
+      "date": "2025-08-28",
+      "scheduled_ts": 1756411200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 5.1,
+      "eps_actual": 5.78
+    },
+    {
+      "ticker": "UNH",
+      "date": "2026-04-21",
+      "scheduled_ts": 1776765600000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 6.6,
+      "eps_actual": 7.23
+    },
+    {
+      "ticker": "UNH",
+      "date": "2026-01-27",
+      "scheduled_ts": 1769508000000,
+      "scheduled_time_et": "05:00",
+      "session": "bmo",
+      "eps_estimate": 2.11,
+      "eps_actual": 2.11
+    },
+    {
+      "ticker": "UNH",
+      "date": "2025-10-28",
+      "scheduled_ts": 1761642000000,
+      "scheduled_time_et": "05:00",
+      "session": "bmo",
+      "eps_estimate": 2.81,
+      "eps_actual": 2.92
+    },
+    {
+      "ticker": "UNH",
+      "date": "2025-07-29",
+      "scheduled_ts": 1753779600000,
+      "scheduled_time_et": "05:00",
+      "session": "bmo",
+      "eps_estimate": 4.45,
+      "eps_actual": 4.08
+    },
+    {
+      "ticker": "UNP",
+      "date": "2026-04-23",
+      "scheduled_ts": 1776945600000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 2.86,
+      "eps_actual": null
+    },
+    {
+      "ticker": "UNP",
+      "date": "2026-01-27",
+      "scheduled_ts": 1769515200000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 2.87,
+      "eps_actual": 2.86
+    },
+    {
+      "ticker": "UNP",
+      "date": "2025-10-23",
+      "scheduled_ts": 1761217200000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 2.98,
+      "eps_actual": 3.01
+    },
+    {
+      "ticker": "UNP",
+      "date": "2025-07-24",
+      "scheduled_ts": 1753354800000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 2.91,
+      "eps_actual": 3.03
+    },
+    {
+      "ticker": "UPS",
+      "date": "2026-04-28",
+      "scheduled_ts": 1777377600000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 1.06,
+      "eps_actual": null
+    },
+    {
+      "ticker": "UPS",
+      "date": "2026-01-27",
+      "scheduled_ts": 1769511600000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 2.2,
+      "eps_actual": 2.38
+    },
+    {
+      "ticker": "UPS",
+      "date": "2025-10-28",
+      "scheduled_ts": 1761645600000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.3,
+      "eps_actual": 1.74
+    },
+    {
+      "ticker": "UPS",
+      "date": "2025-07-29",
+      "scheduled_ts": 1753783200000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.57,
+      "eps_actual": 1.55
+    },
+    {
+      "ticker": "UTHR",
+      "date": "2026-04-29",
+      "scheduled_ts": 1777464000000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 6.78,
+      "eps_actual": null
+    },
+    {
+      "ticker": "UTHR",
+      "date": "2026-02-25",
+      "scheduled_ts": 1772017200000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 7.24,
+      "eps_actual": 7.7
+    },
+    {
+      "ticker": "UTHR",
+      "date": "2025-10-29",
+      "scheduled_ts": 1761732000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 6.96,
+      "eps_actual": 7.16
+    },
+    {
+      "ticker": "UTHR",
+      "date": "2025-07-30",
+      "scheduled_ts": 1753869600000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 6.94,
+      "eps_actual": 6.41
+    },
+    {
+      "ticker": "UUUU",
+      "date": "2026-05-06",
+      "scheduled_ts": 1778097600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": -0.05,
+      "eps_actual": null
+    },
+    {
+      "ticker": "UUUU",
+      "date": "2026-02-26",
+      "scheduled_ts": 1772143200000,
+      "scheduled_time_et": "17:00",
+      "session": "amc",
+      "eps_estimate": -0.07,
+      "eps_actual": -0.09
+    },
+    {
+      "ticker": "UUUU",
+      "date": "2025-11-04",
+      "scheduled_ts": 1762214400000,
+      "scheduled_time_et": "19:00",
+      "session": "amc",
+      "eps_estimate": -0.05,
+      "eps_actual": -0.07
+    },
+    {
+      "ticker": "UUUU",
+      "date": "2025-08-06",
+      "scheduled_ts": 1754514000000,
+      "scheduled_time_et": "17:00",
+      "session": "amc",
+      "eps_estimate": -0.04,
+      "eps_actual": -0.1
+    },
+    {
+      "ticker": "VMI",
+      "date": "2026-02-17",
+      "scheduled_ts": 1771329600000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 4.97,
+      "eps_actual": 4.92
+    },
+    {
+      "ticker": "VMI",
+      "date": "2025-10-21",
+      "scheduled_ts": 1761044400000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 4.62,
+      "eps_actual": 4.98
+    },
+    {
+      "ticker": "VMI",
+      "date": "2025-07-22",
+      "scheduled_ts": 1753182000000,
+      "scheduled_time_et": "07:00",
+      "session": "bmo",
+      "eps_estimate": 4.78,
+      "eps_actual": 4.88
+    },
+    {
+      "ticker": "VRTX",
+      "date": "2026-05-04",
+      "scheduled_ts": 1777924800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 4.29,
+      "eps_actual": null
+    },
+    {
+      "ticker": "VRTX",
+      "date": "2026-02-12",
+      "scheduled_ts": 1770930000000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 4.58,
+      "eps_actual": 4.65
+    },
+    {
+      "ticker": "VRTX",
+      "date": "2025-11-03",
+      "scheduled_ts": 1762203600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 4.58,
+      "eps_actual": 4.8
+    },
+    {
+      "ticker": "VRTX",
+      "date": "2025-08-04",
+      "scheduled_ts": 1754337600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 4.25,
+      "eps_actual": 4.52
+    },
+    {
+      "ticker": "VST",
+      "date": "2026-05-07",
+      "scheduled_ts": 1778155200000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 1.56,
+      "eps_actual": null
+    },
+    {
+      "ticker": "VST",
+      "date": "2026-02-27",
+      "scheduled_ts": 1772190000000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 2.3,
+      "eps_actual": 0.54
+    },
+    {
+      "ticker": "VST",
+      "date": "2025-11-07",
+      "scheduled_ts": 1762513200000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.96,
+      "eps_actual": 1.75
+    },
+    {
+      "ticker": "VST",
+      "date": "2025-08-08",
+      "scheduled_ts": 1754647200000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.0,
+      "eps_actual": 0.81
+    },
+    {
+      "ticker": "WAL",
+      "date": "2026-04-21",
+      "scheduled_ts": 1776801600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.36,
+      "eps_actual": null
+    },
+    {
+      "ticker": "WAL",
+      "date": "2026-01-27",
+      "scheduled_ts": 1769482800000,
+      "scheduled_time_et": "22:00",
+      "session": "amc",
+      "eps_estimate": 2.38,
+      "eps_actual": 2.59
+    },
+    {
+      "ticker": "WAL",
+      "date": "2025-10-21",
+      "scheduled_ts": 1761076800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.07,
+      "eps_actual": 2.15
+    },
+    {
+      "ticker": "WAL",
+      "date": "2025-07-17",
+      "scheduled_ts": 1752782400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.01,
+      "eps_actual": 1.99
+    },
+    {
+      "ticker": "WDC",
+      "date": "2026-04-30",
+      "scheduled_ts": 1777579200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.37,
+      "eps_actual": null
+    },
+    {
+      "ticker": "WDC",
+      "date": "2026-01-29",
+      "scheduled_ts": 1769720400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.93,
+      "eps_actual": 2.13
+    },
+    {
+      "ticker": "WDC",
+      "date": "2025-10-30",
+      "scheduled_ts": 1761854400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.45,
+      "eps_actual": 3.07
+    },
+    {
+      "ticker": "WDC",
+      "date": "2025-07-30",
+      "scheduled_ts": 1753905600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.48,
+      "eps_actual": 1.66
+    },
+    {
+      "ticker": "WFRD",
+      "date": "2026-04-21",
+      "scheduled_ts": 1776801600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.06,
+      "eps_actual": null
+    },
+    {
+      "ticker": "WFRD",
+      "date": "2026-02-03",
+      "scheduled_ts": 1770152400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.42,
+      "eps_actual": 1.91
+    },
+    {
+      "ticker": "WFRD",
+      "date": "2025-10-21",
+      "scheduled_ts": 1761076800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.19,
+      "eps_actual": 1.12
+    },
+    {
+      "ticker": "WFRD",
+      "date": "2025-07-22",
+      "scheduled_ts": 1753214400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 0.95,
+      "eps_actual": 1.15
+    },
+    {
+      "ticker": "WM",
+      "date": "2026-04-28",
+      "scheduled_ts": 1777406400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.74,
+      "eps_actual": null
+    },
+    {
+      "ticker": "WM",
+      "date": "2026-01-28",
+      "scheduled_ts": 1769637600000,
+      "scheduled_time_et": "17:00",
+      "session": "amc",
+      "eps_estimate": 1.93,
+      "eps_actual": 1.83
+    },
+    {
+      "ticker": "WM",
+      "date": "2025-10-27",
+      "scheduled_ts": 1761595200000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.01,
+      "eps_actual": 1.98
+    },
+    {
+      "ticker": "WM",
+      "date": "2025-07-28",
+      "scheduled_ts": 1753732800000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 1.89,
+      "eps_actual": 1.92
+    },
+    {
+      "ticker": "WMT",
+      "date": "2026-05-21",
+      "scheduled_ts": 1779364800000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 0.66,
+      "eps_actual": null
+    },
+    {
+      "ticker": "WMT",
+      "date": "2026-02-19",
+      "scheduled_ts": 1771498800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.73,
+      "eps_actual": 0.74
+    },
+    {
+      "ticker": "WMT",
+      "date": "2025-11-20",
+      "scheduled_ts": 1763636400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.6,
+      "eps_actual": 0.77
+    },
+    {
+      "ticker": "WMT",
+      "date": "2025-08-21",
+      "scheduled_ts": 1755770400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 0.74,
+      "eps_actual": 0.68
+    },
+    {
+      "ticker": "WTS",
+      "date": "2026-05-06",
+      "scheduled_ts": 1778097600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.68,
+      "eps_actual": null
+    },
+    {
+      "ticker": "WTS",
+      "date": "2026-02-11",
+      "scheduled_ts": 1770843600000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.34,
+      "eps_actual": 2.62
+    },
+    {
+      "ticker": "WTS",
+      "date": "2025-11-05",
+      "scheduled_ts": 1762376400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.26,
+      "eps_actual": 2.5
+    },
+    {
+      "ticker": "WTS",
+      "date": "2025-08-06",
+      "scheduled_ts": 1754510400000,
+      "scheduled_time_et": "16:00",
+      "session": "amc",
+      "eps_estimate": 2.63,
+      "eps_actual": 3.09
+    },
+    {
+      "ticker": "XOM",
+      "date": "2026-05-01",
+      "scheduled_ts": 1777636800000,
+      "scheduled_time_et": "08:00",
+      "session": "bmo",
+      "eps_estimate": 1.0,
+      "eps_actual": null
+    },
+    {
+      "ticker": "XOM",
+      "date": "2026-01-30",
+      "scheduled_ts": 1769770800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.66,
+      "eps_actual": 1.53
+    },
+    {
+      "ticker": "XOM",
+      "date": "2025-10-31",
+      "scheduled_ts": 1761904800000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.79,
+      "eps_actual": 1.76
+    },
+    {
+      "ticker": "XOM",
+      "date": "2025-08-01",
+      "scheduled_ts": 1754042400000,
+      "scheduled_time_et": "06:00",
+      "session": "bmo",
+      "eps_estimate": 1.56,
+      "eps_actual": 1.64
+    }
+  ]
+}
