@@ -6500,6 +6500,43 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     // pipeline lifecycleDispatch short-circuit for ripster_core.
     // ═════════════════════════════════════════════════════════════════════════
     {
+      // ─────────────────────────────────────────────────────────────────
+      // PHASE-H.4.2 — MID-TRADE REGIME-FLIP EXIT
+      // V9 audit evidence:
+      //   META SHORT 2026-04-07 entered on a transitional cycle day.
+      //   Next day cycle flipped to uptrend. META +7% squeeze.
+      //   Held 24h -> HARD_LOSS_CAP at -5.80%.
+      //   GOOGL LONG 2026-01-14 held 139h in deteriorating regime to max_loss -3.91%.
+      //
+      // If an open trade is >= 24h old AND the per-day cycle has flipped
+      // against direction AND pnl < 0, force exit. Escape before hard stops.
+      //
+      // DA keys:
+      //   deep_audit_mid_trade_regime_flip_exit_enabled   (default true)
+      //   deep_audit_mid_trade_regime_flip_min_age_hours  (default 24)
+      // ─────────────────────────────────────────────────────────────────
+      const _h42Enabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_mid_trade_regime_flip_exit_enabled ?? "true") === "true";
+      if (_h42Enabled && pnlPct < 0) {
+        const _h42MinAgeH = Number(tickerData?._env?._deepAuditConfig?.deep_audit_mid_trade_regime_flip_min_age_hours) || 24;
+        const _h42AgeH = positionAgeMin / 60;
+        if (_h42AgeH >= _h42MinAgeH) {
+          const _h42Cycle = String(tickerData?._env?._monthlyCycle || "").toLowerCase();
+          const _h42FlipShort = direction === "SHORT" && _h42Cycle === "uptrend";
+          const _h42FlipLong = direction === "LONG" && _h42Cycle === "downtrend";
+          if (_h42FlipShort || _h42FlipLong) {
+            tickerData.__exit_reason = "h4_regime_flip_exit";
+            tickerData.__exit_family = "safety";
+            tickerData.__exit_detail = {
+              direction,
+              cycle: _h42Cycle,
+              ageHours: _h42AgeH,
+              pnl_pct: pnlPct,
+            };
+            return "exit";
+          }
+        }
+      }
+
       const _earlyRegimeForExit = Number(tickerData?.ema_regime_daily) || 0;
       const _earlyPdzZone = String(tickerData?.pdz_zone_D || "unknown");
       const _earlyRegimeConfirms = (direction === "LONG" && _earlyRegimeForExit >= 1)

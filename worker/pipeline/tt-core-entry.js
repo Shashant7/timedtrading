@@ -314,6 +314,31 @@ export function evaluateEntry(ctx) {
   // See: tasks/phase-h3-entry-discipline-2026-04-20.md
   // ═════════════════════════════════════════════════════════════════════════
   {
+    // ─────────────────────────────────────────────────────────────────
+    // PHASE-H.4.0 — EARNINGS PROXIMITY BLOCK
+    // V9/V10 audit: ORCL Jul 31 -5.17% (×2 runs), CDNS Jul 31 -3.24%,
+    // AGYS Jul 21 -10.45% — all same-day or next-day earnings reactions.
+    // Block new entries if ticker has an earnings event within N hours.
+    // DA key: deep_audit_earnings_proximity_block_hours (default 48).
+    // Set to 0 to disable.
+    //
+    // See: tasks/phase-h4-targeted-refinements-2026-04-21.md
+    // ─────────────────────────────────────────────────────────────────
+    const _h4EarningsBlockHrs = Number(daCfg.deep_audit_earnings_proximity_block_hours ?? 48);
+    if (_h4EarningsBlockHrs > 0) {
+      const _er = ctx.eventRisk;
+      if (_er?.active && _er.eventType === "earnings" && Number.isFinite(_er.hoursToEvent)) {
+        const absHrs = Math.abs(_er.hoursToEvent);
+        if (absHrs <= _h4EarningsBlockHrs) {
+          return rejectEntry("h4_earnings_proximity", {
+            hoursToEvent: _er.hoursToEvent,
+            blockHours: _h4EarningsBlockHrs,
+            eventKey: _er.eventKey,
+          });
+        }
+      }
+    }
+
     // Layer 1 — Rank floor (default 0 = disabled; activate via DA key)
     const _h3RankFloor = Number(daCfg.deep_audit_min_rank_floor) || 0;
     if (_h3RankFloor > 0 && rankScore > 0 && rankScore < _h3RankFloor) {

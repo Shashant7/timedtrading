@@ -139,6 +139,10 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_consensus_gate_enabled",
   "deep_audit_consensus_min_signals",
   "deep_audit_consensus_volume_rvol_min",
+  // Phase-H.4 2026-04-21: Targeted refinements from v9/v10 audit
+  "deep_audit_earnings_proximity_block_hours",
+  "deep_audit_mid_trade_regime_flip_exit_enabled",
+  "deep_audit_mid_trade_regime_flip_min_age_hours",
   "golden_julaug_reference_run_id", "live_config_run_id", "member_ticker_list", "consensus_signal_weights", "consensus_tf_weights", "scoring_weight_adj",
 ];
 
