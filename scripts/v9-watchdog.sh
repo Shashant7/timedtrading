@@ -121,22 +121,23 @@ release_lock_server_side() {
 
 relaunch() {
   log "relaunching continuous-slice.sh (tickers=$TICKERS_SPEC)"
-  # Use nohup + setsid + disown so we're completely detached from this watchdog.
-  # Route stdout/stderr to LOG using `|& tee -a` via a subshell.
+  # Detach completely: setsid creates a new session so killing this
+  # watchdog won't affect the run. A SINGLE background subshell and
+  # a SINGLE redirect target avoid the double-log issue that
+  # `setsid nohup ... | tee -a` + outer `>>LOG` produced.
   mkdir -p "$(dirname "$LOG")"
-  (
-    setsid nohup bash -lc "
-      TIMED_API_KEY='$API_KEY' \
-      /workspace/scripts/continuous-slice.sh \
-        --start=$START_DATE \
-        --end=$END_DATE \
-        --run-id=$V9_ID \
-        --tickers=$TICKERS_SPEC \
-        --watchdog-seconds=420 \
-        --resume 2>&1 | tee -a $LOG
-    " </dev/null >>"$LOG" 2>&1 &
-  ) &
-  log "relaunched — new continuous-slice detached and running"
+  setsid bash -lc "
+    TIMED_API_KEY='$API_KEY' \
+    /workspace/scripts/continuous-slice.sh \
+      --start=$START_DATE \
+      --end=$END_DATE \
+      --run-id=$V9_ID \
+      --tickers=$TICKERS_SPEC \
+      --watchdog-seconds=420 \
+      --resume
+  " </dev/null >>"$LOG" 2>&1 &
+  disown
+  log "relaunched — new continuous-slice detached and running (pid=$!)"
 }
 
 heartbeat_ts=0
