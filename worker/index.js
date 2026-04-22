@@ -158,6 +158,14 @@ import {
 } from "./daily-brief.js";
 import { seedHistoricalMarketEvents, checkMarketEventsCoverage } from "./market-events-seed.js";
 import {
+  ensureOrchestratorSchema,
+  enqueueManagedRun,
+  cancelManagedRun,
+  getManagedRun,
+  listManagedRuns,
+  orchestratorTick,
+} from "./backtest-orchestrator.js";
+import {
   resolveStaticBehaviorProfile,
   normalizeLearnedTickerProfile,
   resolveTickerProfileContext,
@@ -43103,6 +43111,87 @@ export default {
       }
 
       // ═══════════════════════════════════════════════════════════════════════
+      // BACKTEST ORCHESTRATOR ENDPOINTS
+      //
+      // Cron-driven backtest management. Enqueue a run, let the Worker's
+      // scheduled handler advance it. No cloud-agent VM required; no more
+      // "VM paused mid-backtest" incidents.
+      //
+      // Normal flow:
+      //   1. (optional) Configure DA keys via POST /timed/admin/model-config
+      //   2. POST /timed/admin/backtest/enqueue → start a run
+      //   3. Worker cron advances it every few minutes
+      //   4. GET /timed/admin/backtest/status to monitor
+      //   5. When done, trades available via /timed/admin/trade-autopsy/trades
+      //
+      // See: worker/backtest-orchestrator.js + tasks/worker-cron-orchestrator-*.md
+      // ═══════════════════════════════════════════════════════════════════════
+
+      if (routeKey === "POST /timed/admin/backtest/enqueue") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        let body;
+        try { body = await req.json(); }
+        catch (err) {
+          return sendJSON({ ok: false, error: "invalid_json", detail: String(err?.message || err).slice(0, 200) }, 400, corsHeaders(env, req));
+        }
+        try {
+          const result = await enqueueManagedRun(env, body || {});
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (err) {
+          return sendJSON({ ok: false, error: String(err?.message || err).slice(0, 300) }, 400, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "POST /timed/admin/backtest/cancel") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        let body;
+        try { body = await req.json(); } catch { body = {}; }
+        const runId = String(body?.run_id || url.searchParams.get("run_id") || "").trim();
+        if (!runId) return sendJSON({ ok: false, error: "run_id required" }, 400, corsHeaders(env, req));
+        try {
+          const result = await cancelManagedRun(env, runId);
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (err) {
+          return sendJSON({ ok: false, error: String(err?.message || err).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "GET /timed/admin/backtest/status") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          await ensureOrchestratorSchema(env);
+        } catch {}
+        const runId = String(url.searchParams.get("run_id") || "").trim();
+        if (runId) {
+          const row = await getManagedRun(env, runId);
+          if (!row) return sendJSON({ ok: false, error: "not_found", run_id: runId }, 404, corsHeaders(env, req));
+          return sendJSON({ ok: true, run: row }, 200, corsHeaders(env, req));
+        }
+        const statusFilter = url.searchParams.get("status");
+        const limit = Number(url.searchParams.get("limit")) || 50;
+        const runs = await listManagedRuns(env, { status: statusFilter, limit });
+        return sendJSON({ ok: true, runs, count: runs.length }, 200, corsHeaders(env, req));
+      }
+
+      // Manual tick for dev / smoke testing. Cron triggers the same function
+      // automatically — this endpoint is just for faster feedback loops.
+      if (routeKey === "POST /timed/admin/backtest/tick") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const baseUrl = `${url.protocol}//${url.host}`;
+        const apiKey = url.searchParams.get("key") || env?.API_KEY || env?.ADMIN_KEY || "";
+        try {
+          const result = await orchestratorTick(env, { baseUrl, apiKey, logger: console });
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (err) {
+          return sendJSON({ ok: false, error: String(err?.message || err).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
       // ALPACA INTEGRATION ENDPOINTS
       // ═══════════════════════════════════════════════════════════════════════
 
@@ -59277,6 +59366,53 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     }
 
     console.log(`[CRON] ${event.cron} → [${[...vc].join(", ")}] at ${_utcH}:${String(_utcM).padStart(2,"0")} day=${_utcDay}`);
+
+    // ───────────────────────────────────────────────────────────────
+    // Backtest orchestrator tick (Phase-I, 2026-04-22)
+    //
+    // Every 2 minutes (even minutes only, gated inside the */1 cron),
+    // advance any queued/running managed backtest. Each tick processes up
+    // to ORCHESTRATOR_MAX_BATCHES_PER_TICK batches before yielding.
+    //
+    // Running inside ctx.waitUntil so the main cron work can't be delayed
+    // by orchestrator latency; the orchestrator has its own per-batch
+    // timeout + TTL-protected lock.
+    //
+    // See: worker/backtest-orchestrator.js
+    // ───────────────────────────────────────────────────────────────
+    if (_isEveryMin && _utcM % 2 === 0) {
+      const _orchBaseUrl = (() => {
+        try {
+          const h = event?.request?.url || event?.request?.host;
+          if (h) {
+            const u = new URL(h);
+            return `${u.protocol}//${u.host}`;
+          }
+        } catch {}
+        return "https://timed-trading-ingest.shashant.workers.dev";
+      })();
+      const _orchKey = env?.API_KEY || env?.ADMIN_KEY || env?.TIMED_API_KEY || "";
+      ctx.waitUntil((async () => {
+        if (!_orchKey) {
+          console.warn("[ORCH] no API key available in env; orchestrator tick skipped");
+          return;
+        }
+        try {
+          const out = await orchestratorTick(env, {
+            baseUrl: _orchBaseUrl,
+            apiKey: _orchKey,
+            logger: console,
+          });
+          if (out?.claimed) {
+            console.log(`[ORCH] cron tick processed ${out.claimed}: advanced=${out.advanced || 0} day=${out.day || "-"} scored=${out.scored || 0} trades=${out.trades || 0} finalized=${!!out.finalized}`);
+          } else if (out?.reason && out.reason !== "no_runs_due") {
+            console.log(`[ORCH] tick skipped: ${out.reason}`);
+          }
+        } catch (err) {
+          console.error(`[ORCH] cron tick failed: ${String(err?.message || err).slice(0, 300)}`);
+        }
+      })());
+    }
 
     // Load dynamic market calendar (Alpaca API + KV cache, static fallback)
     try {
