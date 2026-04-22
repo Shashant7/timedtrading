@@ -6711,6 +6711,13 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       // replay days without meaningful MFE. RTX/WM/ELF/TPL×2 sat open
       // from early August (92+ days) with no exit rule firing.
       //
+      // V11 fix (2026-04-22): age is measured in CALENDAR days (matches
+      // the DA-key semantics — "deep_audit_stale_position_force_close_days"
+      // reads naturally as calendar days). Prior version converted
+      // positionAgeMarketMin -> market days (= /6.5h), which required
+      // ~64 calendar days to hit a 45-day threshold. That's why ALLY (61d),
+      // WAL (57d), ARM/PH/AWI (47d) all stayed open in early V11.
+      //
       // Hard timeout for positions that have been open too long without
       // either reaching meaningful MFE (≥ 2%) OR being currently profitable
       // (≥ 1%). Prevents orphaned trades from locking capital indefinitely.
@@ -6718,7 +6725,12 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       {
         const _stalePosDays = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stale_position_force_close_days ?? 45);
         if (_stalePosDays > 0) {
-          const _agDays = positionAgeMarketMin / (60 * 6.5);  // market days (6.5h/day)
+          // Calendar days since entry. now and entryTsMs are both ms UTC.
+          const _entryTsMs = Number(entryTsMs);
+          const _nowMs = Number(now) > 1e12 ? Number(now) : Number(now) * 1000;
+          const _agDays = Number.isFinite(_entryTsMs) && _entryTsMs > 0
+            ? (_nowMs - _entryTsMs) / (24 * 60 * 60 * 1000)
+            : (positionAgeMarketMin / (60 * 6.5));
           const _mfeAbs = Math.abs(Number(tickerData?.__mfe_pct) || Number(tickerData?.max_favorable_excursion) || 0);
           if (_agDays >= _stalePosDays && _mfeAbs < 2.0 && pnlPct < 1.0) {
             tickerData.__exit_reason = "STALE_POSITION_TIMEOUT";
