@@ -164,6 +164,7 @@ import {
   getManagedRun,
   listManagedRuns,
   orchestratorTick,
+  setDirectCandleReplayStep,
 } from "./backtest-orchestrator.js";
 import {
   resolveStaticBehaviorProfile,
@@ -368,6 +369,11 @@ export function getReplayExecutorRuntime() {
     runCandleReplayStepImpl,
     runIntervalReplayStepImpl,
   });
+  // Wire orchestrator's direct candle-replay hook to bypass Cloudflare's
+  // self-HTTP block (error 1042). See worker/backtest-orchestrator.js.
+  try {
+    setDirectCandleReplayStep(_replayExecutorRuntime.executeCandleReplayStep);
+  } catch {}
   return _replayExecutorRuntime;
 }
 
@@ -796,6 +802,13 @@ const ROUTES = [
   ["GET", "/timed/admin/ai-cio/accuracy", "GET /timed/admin/ai-cio/accuracy"],
   ["POST", "/timed/admin/backfill-market-events", "POST /timed/admin/backfill-market-events"],
   ["GET", "/timed/admin/market-events/coverage", "GET /timed/admin/market-events/coverage"],
+  // Phase-I backtest orchestrator (worker-cron-driven, no VM needed).
+  // See: worker/backtest-orchestrator.js + tasks/worker-cron-orchestrator-2026-04-22.md
+  ["POST", "/timed/admin/backtest/enqueue", "POST /timed/admin/backtest/enqueue"],
+  ["POST", "/timed/admin/backtest/cancel", "POST /timed/admin/backtest/cancel"],
+  ["GET", "/timed/admin/backtest/status", "GET /timed/admin/backtest/status"],
+  ["POST", "/timed/admin/backtest/tick", "POST /timed/admin/backtest/tick"],
+  ["POST", "/timed/admin/purge-trail-payload", "POST /timed/admin/purge-trail-payload"],
   ["GET", "/timed/admin/validate-10m", "GET /timed/admin/validate-10m"],
   ["GET", "/timed/model/health", "GET /timed/model/health"],
   ["GET", "/timed/model/predictions", "GET /timed/model/predictions"],
@@ -43268,9 +43281,96 @@ export default {
         if (authFail) return authFail;
         const baseUrl = `${url.protocol}//${url.host}`;
         const apiKey = url.searchParams.get("key") || env?.API_KEY || env?.ADMIN_KEY || "";
+        // Eagerly init the replay executor runtime so the direct hook is
+        // wired before orchestratorTick calls into it.
+        try { getReplayExecutorRuntime(); } catch {}
         try {
           const result = await orchestratorTick(env, { baseUrl, apiKey, logger: console });
           return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (err) {
+          return sendJSON({ ok: false, error: String(err?.message || err).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/purge-trail-payload?key=...&cutoffDays=0&maxBatches=100&dryRun=0
+      //
+      // Phase-I (2026-04-22): reclaim D1 space used by timed_trail.payload_json
+      // forensic snapshots from historical backtest runs. The slim trail fields
+      // (price/htf/ltf/state/rank/flags_json) are preserved — only payload_json
+      // is nulled out. One run's worth of payload_json = ~1.5-2 GB.
+      //
+      // Query params:
+      //   cutoffDays   default 0 = purge all. If >0, only purge rows
+      //                older than N days (keep recent forensic payloads).
+      //   maxBatches   default 100 (safety). 5000 rows/batch.
+      //   dryRun=1     report row counts without writing.
+      if (routeKey === "POST /timed/admin/purge-trail-payload") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+
+        const cutoffDays = Math.max(0, Number(url.searchParams.get("cutoffDays")) || 0);
+        const maxBatches = Math.max(1, Math.min(10000, Number(url.searchParams.get("maxBatches")) || 100));
+        const dryRun = url.searchParams.get("dryRun") === "1";
+        const nowMs = Date.now();
+        const cutoffTs = cutoffDays > 0 ? nowMs - cutoffDays * 86400000 : nowMs;
+
+        try {
+          // Count rows with non-null payload_json that fall under the cutoff.
+          const countRow = await db.prepare(
+            `SELECT COUNT(*) AS n FROM timed_trail
+             WHERE payload_json IS NOT NULL AND ts < ?1`
+          ).bind(cutoffTs).first();
+          const candidateCount = Number(countRow?.n || 0);
+
+          if (dryRun) {
+            return sendJSON({
+              ok: true,
+              dryRun: true,
+              cutoffDays,
+              cutoffTs,
+              candidateRows: candidateCount,
+              estimatedBytesFreed: candidateCount * 2500, // ~2.5 KB avg per payload
+              note: "Run without dryRun=1 to purge.",
+            }, 200, corsHeaders(env, req));
+          }
+
+          // Batch-UPDATE 5000 rows at a time. SQLite ROWID LIMIT is supported in D1.
+          let updated = 0;
+          let batches = 0;
+          const startTs = Date.now();
+          while (batches < maxBatches) {
+            const res = await db.prepare(
+              `UPDATE timed_trail
+               SET payload_json = NULL
+               WHERE rowid IN (
+                 SELECT rowid FROM timed_trail
+                 WHERE payload_json IS NOT NULL AND ts < ?1
+                 LIMIT 5000
+               )`
+            ).bind(cutoffTs).run();
+            const changed = Number(res?.meta?.changes || 0);
+            if (changed === 0) break;
+            updated += changed;
+            batches += 1;
+            // Safety: if we've been at it >45s, stop to stay under CF limit.
+            if (Date.now() - startTs > 45000) break;
+          }
+
+          return sendJSON({
+            ok: true,
+            cutoffDays,
+            cutoffTs,
+            candidateRows: candidateCount,
+            rowsUpdated: updated,
+            batchesRun: batches,
+            elapsedMs: Date.now() - startTs,
+            complete: updated >= candidateCount,
+            note: updated < candidateCount
+              ? `More rows remain (${candidateCount - updated}). Run again to continue.`
+              : "All candidate rows cleared. Run 'PRAGMA vacuum' via a separate tool to reclaim space on disk.",
+          }, 200, corsHeaders(env, req));
         } catch (err) {
           return sendJSON({ ok: false, error: String(err?.message || err).slice(0, 300) }, 500, corsHeaders(env, req));
         }
@@ -59477,6 +59577,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         return "https://timed-trading-ingest.shashant.workers.dev";
       })();
       const _orchKey = env?.API_KEY || env?.ADMIN_KEY || env?.TIMED_API_KEY || "";
+      // Eagerly init replay executor so direct candle-replay hook is ready
+      try { getReplayExecutorRuntime(); } catch {}
       ctx.waitUntil((async () => {
         if (!_orchKey) {
           console.warn("[ORCH] no API key available in env; orchestrator tick skipped");

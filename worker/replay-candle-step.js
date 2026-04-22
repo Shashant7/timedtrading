@@ -62,6 +62,7 @@ export function createCandleReplayStep(deps = {}) {
       debugTimeline,
       blockChainTrace,
       allTickers,
+      trailForensics,
     } = replayRequest.request;
     let { tickerOffset, tickerBatch, batchTickers, hasMore } = replayRequest.request;
 
@@ -205,6 +206,7 @@ export function createCandleReplayStep(deps = {}) {
       skipInvestor,
       debugTimeline,
       blockChainTrace,
+      trailForensics,
       marketOpenMs,
       REPLAY_TFS,
       candleCache,

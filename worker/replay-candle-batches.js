@@ -20,6 +20,7 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
     skipInvestor,
     debugTimeline,
     blockChainTrace,
+    trailForensics,
     marketOpenMs,
     REPLAY_TFS,
     candleCache,
@@ -794,8 +795,16 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
           const ts = Number(r?.ts);
           if (!Number.isFinite(ts)) continue;
           const flagsJson = r?.flags ? JSON.stringify(r.flags) : null;
-          const payloadObj = buildForensicsPayload(r);
-          const payloadJson = payloadObj ? JSON.stringify(payloadObj) : null;
+          // Phase-I (2026-04-22): only build + persist the ~2-3 KB forensics
+          // payload when explicitly requested (trailForensics=1). Drops D1
+          // growth per backtest from ~1.5-2 GB to ~50 MB. Slim fields below
+          // still flow. See tasks/d1-storage-reduction-plan-2026-04-22.md
+          const payloadJson = trailForensics
+            ? (() => {
+                const obj = buildForensicsPayload(r);
+                return obj ? JSON.stringify(obj) : null;
+              })()
+            : null;
           trailStmts.push(
             db.prepare(
               `INSERT OR REPLACE INTO timed_trail
