@@ -20809,6 +20809,8 @@ function shouldTraceRankBreakdown(d) {
   if (!d || typeof d !== "object") return false;
   const ticker = String(d?.ticker || d?.sym || "").toUpperCase();
   const ts = Number(d?.ts ?? d?.ingest_ts ?? 0);
+  // Phase-I diagnostic: trace INTU on Aug 4 2025 to validate computeRankV2 math
+  if (ticker === "INTU" && ts >= 1754313600000 && ts <= 1754337600000) return true;
   return (ticker === "RIOT" && ts === 1759345200000)
     || (ticker === "FIX" && ts === 1759501800000)
     || (ticker === "AGQ" && ts === 1760449500000)
@@ -20916,7 +20918,14 @@ function computeRankV2(d) {
 
   const rankTrace = shouldTraceRankBreakdown(d);
   const rankTraceParts = [];
-  let score = 50; // centered
+  // V2 base starts at 30 (same as V1) so the baseline trend-following bonuses
+  // below can lift scores into the 60-90 range for proper setups. The v10b
+  // calibration sample was already a PRE-FILTERED set (all trades passed V1),
+  // so "everyone has aligned_state" was only true inside that sample.
+  // At true scoring time (all 215 tickers across all bars), most tickers
+  // have NO state at all. We need to properly reward the basic building blocks
+  // that distinguish "this ticker is in a trend" from "nothing is happening".
+  let score = 30;
 
   const addTrace = (label, delta, extra = null) => {
     if (rankTrace) {
@@ -20927,20 +20936,91 @@ function computeRankV2(d) {
       });
     }
   };
-  addTrace("v2_base", 50);
+  addTrace("v2_base", 30);
 
-  // ── POSITIVE signals ────────────────────────────────
-  // setup_grade=Confirmed: +10
+  // ── BASELINE TREND-FOLLOWING SIGNALS (kept from V1) ─────
+  // These separate "ticker is in a setup" from "nothing happening".
+  // Without these, V2 can't distinguish good tickers from noise.
+  const state = String(d.state || "");
+  const aligned = state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
+  const setup = state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_PULLBACK";
+  if (aligned) {
+    score += 12;
+    addTrace("v2_aligned_state", 12);
+  } else if (setup) {
+    score += 6;
+    addTrace("v2_setup_state", 6);
+  }
+
+  // HTF strength
+  const htf = Number(d.htf_score);
+  if (Number.isFinite(htf)) {
+    const htfAbs = Math.abs(htf);
+    if (htfAbs >= 25) {
+      score += 10;
+      addTrace("v2_htf_strong", 10, { htf });
+    } else if (htfAbs >= 15) {
+      score += 6;
+      addTrace("v2_htf_med", 6, { htf });
+    } else if (htfAbs >= 5) {
+      score += 3;
+      addTrace("v2_htf_weak", 3, { htf });
+    }
+  }
+
+  // LTF strength
+  const ltf = Number(d.ltf_score);
+  if (Number.isFinite(ltf)) {
+    const ltfAbs = Math.abs(ltf);
+    if (ltfAbs >= 20) {
+      score += 8;
+      addTrace("v2_ltf_strong", 8, { ltf });
+    } else if (ltfAbs >= 10) {
+      score += 5;
+      addTrace("v2_ltf_med", 5, { ltf });
+    }
+  }
+
+  // Data completeness penalty — essential (bad data → bad signals)
+  const completeness = d?.data_completeness || computeDataCompleteness(d);
+  if (completeness && typeof completeness === "object") {
+    if (completeness.score < 70) {
+      score -= 10;
+      addTrace("v2_data_incomplete", -10, { completenessScore: completeness.score });
+    } else if (completeness.score < 85) {
+      score -= 5;
+      addTrace("v2_data_incomplete", -5, { completenessScore: completeness.score });
+    }
+  }
+
+  // Move status
+  const ms = d?.move_status || computeMoveStatus(d);
+  if (ms && typeof ms === "object") {
+    if (ms.status === "INVALIDATED") {
+      score -= 25;
+      addTrace("v2_move_invalidated", -25);
+    } else if (ms.status === "COMPLETED") {
+      score -= 15;
+      addTrace("v2_move_completed", -15);
+    }
+  }
+
+  // ── EMPIRICALLY-DERIVED DISCRIMINATORS (from v10b calibration) ─────
+
+  // setup_grade (NOTE: this field is typically set AFTER rank computation in
+  // the current pipeline, so it will usually be null at scoring time. Keeping
+  // the check for forward compatibility — once setup_grade is exposed pre-rank
+  // this will activate. Currently contributes 0 for most ticks.)
   const setupGrade = String(d?.setup_grade || d?.__setup_grade || "").toLowerCase();
   if (setupGrade === "confirmed") {
-    score += 10;
-    addTrace("v2_grade_confirmed", 10);
+    score += 8;
+    addTrace("v2_grade_confirmed", 8);
   } else if (setupGrade === "prime") {
-    score += 2; // modest boost — Prime was slightly below base
+    score += 2;
     addTrace("v2_grade_prime", 2);
   }
 
-  // RSI bull/bear divergence aligned with direction: +8
+  // RSI bull/bear divergence aligned with direction
   const rsiDiv = d?.rsi_divergence || d?.rsi?.divergence || null;
   if (rsiDiv && typeof rsiDiv === "object") {
     // Support two shapes: single-TF ({type, strength}) OR multi-TF ({M:{bull,bear}, ...})
@@ -20966,7 +21046,12 @@ function computeRankV2(d) {
     }
   }
 
-  // regime_class=TRENDING: +6
+  // regime_class=TRENDING: +6, TRANSITIONAL: -4, CHOPPY: -8
+  // Softer penalties than the initial calibration suggested — TRANSITIONAL
+  // is common during live scoring (many bars during the trading day land here
+  // even on ultimately-successful trades), so we only apply a mild penalty.
+  // The -10 from the v10b calibration reflected a POST-ENTRY snapshot which
+  // isn't quite the same thing as the live scoring moment.
   const regimeClass = String(
     d?.execution_profile_json?.regime_class
     || d?.regime?.class
@@ -20977,8 +21062,11 @@ function computeRankV2(d) {
     score += 6;
     addTrace("v2_trending_regime", 6);
   } else if (regimeClass === "TRANSITIONAL") {
-    score -= 10;
-    addTrace("v2_transitional_regime", -10);
+    score -= 4;
+    addTrace("v2_transitional_regime", -4);
+  } else if (regimeClass === "CHOPPY") {
+    score -= 8;
+    addTrace("v2_choppy_regime", -8);
   }
 
   // Supertrend_30 aligned with direction: +4
@@ -20992,44 +21080,40 @@ function computeRankV2(d) {
   }
 
   // RR contribution — graduated based on v7 empirical data (229 trades):
-  //   rr >= 7: 77.8% WR  -> +12
-  //   rr >= 5: 65%  WR   -> +8
-  //   rr >= 3: 57% WR    -> +5
-  //   rr >= 2: 47% WR    -> 0 (base)
-  //   rr <  2: 13% WR   -> -8
+  //   rr >= 7:   77.8% WR  -> +12 (strong edge signal)
+  //   rr >= 5:   ~65% WR   -> +8
+  //   rr >= 3:   57.0% WR  -> +5
+  //   rr >= 2:   47.1% WR  -> +0 (neutral — slight underperform of base)
+  //   rr >= 1.5: 60.0% WR  -> +0 (tiny sample, hold neutral)
+  //   rr <  1.5:  0% WR    -> -10 (clear danger)
   const rr = d.rr != null ? Number(d.rr) : computeRR(d);
   if (Number.isFinite(rr)) {
     let rrDelta = 0;
     if (rr >= 7) rrDelta = 12;
     else if (rr >= 5) rrDelta = 8;
     else if (rr >= 3) rrDelta = 5;
-    else if (rr >= 2) rrDelta = 0;
-    else if (rr >= 1.5) rrDelta = -4;
-    else rrDelta = -8;
+    else if (rr >= 1.5) rrDelta = 0;
+    else rrDelta = -10;
     score += rrDelta;
     addTrace("v2_rr", rrDelta, { rr });
   }
 
   // ── NEGATIVE signals ────────────────────────────────
   // ATR displacement "already moved in our direction" = mean-reversion risk
+  // Calibration (v10b 101 closed): ATR_week aligned displacement = 16.7% WR,
+  // ATR_day aligned = 30.8% WR. Signals a late-stage move likely to fade.
   const atrDisp = d?.atr_disp || {};
   const atrDay = atrDisp?.day || {};
   const atrWeek = atrDisp?.week || {};
-  if (atrWeek?.ge === true) {
-    // Golden Gate expanded — the move is extended
-    const sign = side === "LONG" ? 1 : -1;
-    const atrD = Number(atrWeek?.d ?? 0);
-    if (atrD * sign >= 0.3) {
-      score -= 20;
-      addTrace("v2_atr_week_extended", -20, { atrD });
-    }
-  } else if (atrDay?.ge === true) {
-    const sign = side === "LONG" ? 1 : -1;
-    const atrD = Number(atrDay?.d ?? 0);
-    if (atrD * sign >= 0.3) {
-      score -= 10;
-      addTrace("v2_atr_day_extended", -10, { atrD });
-    }
+  const signDir = side === "LONG" ? 1 : -1;
+  const atrWeekAlignedD = Number(atrWeek?.d ?? 0) * signDir;
+  const atrDayAlignedD = Number(atrDay?.d ?? 0) * signDir;
+  if (atrWeekAlignedD >= 0.3) {
+    score -= 20;
+    addTrace("v2_atr_week_extended", -20, { atrD: atrWeek?.d });
+  } else if (atrDayAlignedD >= 0.3) {
+    score -= 10;
+    addTrace("v2_atr_day_extended", -10, { atrD: atrDay?.d });
   }
 
   // Phase 1H / D over-extended
@@ -21081,30 +21165,6 @@ function computeRankV2(d) {
     }
   }
 
-  // Data completeness penalty (keep existing — helps exclude broken ticker states)
-  const completeness = d?.data_completeness || computeDataCompleteness(d);
-  if (completeness && typeof completeness === "object") {
-    if (completeness.score < 70) {
-      score -= 10;
-      addTrace("v2_data_completeness", -10, { completenessScore: completeness.score });
-    } else if (completeness.score < 85) {
-      score -= 5;
-      addTrace("v2_data_completeness", -5, { completenessScore: completeness.score });
-    }
-  }
-
-  // Move status (keep existing — invalidated/completed moves are broken by construction)
-  const ms = d?.move_status || computeMoveStatus(d);
-  if (ms && typeof ms === "object") {
-    if (ms.status === "INVALIDATED") {
-      score -= 25;
-      addTrace("v2_move_invalidated", -25);
-    } else if (ms.status === "COMPLETED") {
-      score -= 15;
-      addTrace("v2_move_completed", -15);
-    }
-  }
-
   score = Math.max(0, Math.min(100, score));
   const finalScore = Math.round(score);
 
@@ -21121,6 +21181,9 @@ function computeRankV2(d) {
       st30, tf30Bias,
       parts: rankTraceParts,
     };
+    try {
+      console.log(`[V2-TRACE] ${ticker} ts=${Number(d?.ts ?? d?.ingest_ts ?? 0)} final=${finalScore} parts=${JSON.stringify(rankTraceParts)}`);
+    } catch {}
   }
 
   return finalScore;

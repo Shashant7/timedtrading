@@ -1,0 +1,100 @@
+==============================================================================
+V10B JULY 2025 EVALUATION — 215-ticker, H.3 + H.4.0 + H.4.2 active
+==============================================================================
+
+V10b total trades so far (Jul 1 - Aug 7): 49
+  July: 44
+  Aug 1-7: 5
+
+------------------------------------------------------------------------------
+JULY 2025 HEAD-TO-HEAD
+------------------------------------------------------------------------------
+
+Run                               N    WR%   SumPnL%  AvgWin%  AvgLoss%  BigLoss BigLossers
+V10B (215T)                      44  52.3%    14.06    1.83    -1.34  -10.45          1
+v6b (40T, Phase-F peak)          31  64.5%    12.48    1.96    -2.42   -5.17          1
+v7  (40T, Phase-G)               28  57.1%    19.66    2.23    -1.34   -3.90          0
+v9  (40T, Phase-H.3)             12  66.7%     4.49    2.02    -2.92   -5.17          1
+
+------------------------------------------------------------------------------
+V10B JULY — DETAILED TRADE LIST
+------------------------------------------------------------------------------
+Ticker Dir    Entry            Exit                PnL% SetupGrade   Exit Reason         
+DCI    LONG   2025-07-01 14:00 2025-07-11 14:00   1.90% Confirmed    mfe_proportional_trail
+KWEB   LONG   2025-07-01 14:00 2025-07-02 16:00  -1.87% Prime        atr_day_adverse_382_cut
+CDNS   LONG   2025-07-01 16:00 2025-07-10 15:00   2.37% Prime        hard_max_hold_168h  
+FIX    LONG   2025-07-01 16:30 2025-07-08 14:30   2.37% Prime        PROFIT_GIVEBACK_STAGE_HOLD
+ETN    LONG   2025-07-01 17:30 2025-07-10 14:30  -0.21% Prime        max_loss_time_scaled
+AMZN   LONG   2025-07-01 17:30 2025-07-08 19:30   0.28% Prime        eod_trimmed_underwater_flatten
+GRNY   LONG   2025-07-02 14:00 2025-07-30 13:30   2.69% Confirmed    RUNNER_STALE_FORCE_CLOSE
+RTX    LONG   2025-07-02 16:00 2025-07-21 15:00   3.35% Confirmed    SOFT_FUSE_RSI_CONFIRMED
+TPL    SHORT  2025-07-07 13:30 2025-07-08 17:30   1.28% Prime        PROFIT_GIVEBACK_STAGE_HOLD
+JD     SHORT  2025-07-07 16:00 2025-07-08 14:00  -0.51% Prime        SMART_RUNNER_RESISTANCE_BREAK_CLOUD
+UNP    LONG   2025-07-08 18:30 2025-07-14 14:00  -0.26% Prime        atr_week_618_full_exit
+BABA   SHORT  2025-07-08 19:30 2025-07-11 13:30   1.96% Prime        mfe_proportional_trail
+USO    LONG   2025-07-09 14:30 2025-07-14 16:00  -0.15% Confirmed    SMART_RUNNER_SUPPORT_BREAK_CLOUD
+DIA    LONG   2025-07-09 18:00 2025-07-15 14:30   0.15% Prime        SMART_RUNNER_SUPPORT_BREAK_CLOUD
+LRCX   LONG   2025-07-09 18:00 2025-07-14 19:30   0.21% Prime        eod_trimmed_underwater_flatten
+APD    LONG   2025-07-09 18:00 2025-07-11 14:00  -0.29% Prime        atr_day_adverse_382_cut
+ALLY   LONG   2025-07-10 13:30 2025-07-15 17:00  -2.19% Prime        max_loss_time_scaled
+VMI    LONG   2025-07-10 15:00 2025-07-14 14:00  -2.13% Prime        max_loss_time_scaled
+STX    LONG   2025-07-10 16:30 2025-07-14 13:30   1.21% Prime        ST_FLIP_4H_CLOSE    
+XYZ    LONG   2025-07-10 17:30 2025-07-11 17:00  -1.95% Prime        early_dead_money_flatten
+AU     LONG   2025-07-14 13:30 2025-07-15 16:00  -0.45% Prime        runner_drawdown_cap 
+LITE   LONG   2025-07-14 15:30 2025-07-22 14:00   4.87% Prime        mfe_proportional_trail
+CVNA   LONG   2025-07-14 19:00 2025-07-15 13:30  -2.89% Prime        atr_day_adverse_382_cut
+GE     LONG   2025-07-16 17:00 2025-07-21 19:30   0.28% Prime        eod_trimmed_underwater_flatten
+JCI    LONG   2025-07-16 18:00 2025-07-29 13:30   2.92% Prime        SMART_RUNNER_SUPPORT_BREAK_CLOUD
+MTZ    LONG   2025-07-16 18:00 2025-07-22 14:00  -0.62% Prime        atr_day_adverse_382_cut
+GOOGL  LONG   2025-07-17 15:30 2025-07-31 15:30   3.55% Prime        sl_breached         
+AMZN   LONG   2025-07-18 16:30 2025-07-29 14:00   1.90% Prime        atr_week_618_full_exit
+PNC    LONG   2025-07-18 17:30 2025-07-25 19:30   0.12% Prime        eod_trimmed_underwater_flatten
+TPL    SHORT  2025-07-18 17:30 2025-07-25 15:00   1.73% Prime        mfe_proportional_trail
+DKNG   LONG   2025-07-21 14:00 2025-07-30 14:00  -0.16% Confirmed    PROFIT_GIVEBACK_STAGE_HOLD
+AGYS   LONG   2025-07-21 16:30 2025-07-22 13:30 -10.45% Prime        HARD_LOSS_CAP       
+COST   SHORT  2025-07-22 14:30 2025-08-01 15:30   0.28% Prime        SMART_RUNNER_RESISTANCE_BREAK_CLOUD
+NXT    LONG   2025-07-22 18:00 2025-07-30 13:30  -0.31% Prime        PROFIT_GIVEBACK_STAGE_HOLD
+NVDA   LONG   2025-07-23 18:00 2025-08-01 13:30   1.71% Prime        mfe_proportional_trail
+AVGO   LONG   2025-07-23 18:30 2025-07-31 17:30   3.89% Prime        mfe_proportional_trail
+ARM    LONG   2025-07-24 17:00 2025-07-29 13:30   1.96% Prime        TP_FULL             
+AWI    LONG   2025-07-24 18:30 2025-07-28 13:30  -0.09% Confirmed    PRE_EARNINGS_FORCE_EXIT
+FN     LONG   2025-07-24 19:00 2025-08-01 13:30   1.12% Prime        PROFIT_GIVEBACK_STAGE_HOLD
+UHS    SHORT  2025-07-28 16:30 2025-07-29 14:30  -1.22% Prime        max_loss            
+BWXT   LONG   2025-07-28 19:00 2025-08-01 13:30  -0.39% Prime        max_loss_time_scaled
+B      LONG   2025-07-29 18:30 2025-07-30 18:30  -1.37% Confirmed    early_dead_money_flatten
+PSTG   LONG   2025-07-29 19:00 2025-07-30 19:30  -0.05% Prime        eod_trimmed_underwater_flatten
+CAT    LONG   2025-07-30 14:00 2025-08-01 14:00  -0.50% Confirmed    atr_day_adverse_382_cut
+
+------------------------------------------------------------------------------
+V10B JULY — EXIT REASON BREAKDOWN
+------------------------------------------------------------------------------
+  mfe_proportional_trail    n= 6  avg_pnl=  2.68%
+  atr_day_adverse_382_cut   n= 5  avg_pnl= -1.23%
+  eod_trimmed_underwater_flatten n= 5  avg_pnl=  0.17%
+  PROFIT_GIVEBACK_STAGE_HOLD n= 5  avg_pnl=  0.86%
+  max_loss_time_scaled      n= 4  avg_pnl= -1.23%
+  SMART_RUNNER_SUPPORT_BREAK_CLOUD n= 3  avg_pnl=  0.97%
+  early_dead_money_flatten  n= 2  avg_pnl= -1.66%
+  SMART_RUNNER_RESISTANCE_BREAK_CLOUD n= 2  avg_pnl= -0.12%
+  atr_week_618_full_exit    n= 2  avg_pnl=  0.82%
+  max_loss                  n= 1  avg_pnl= -1.22%
+  PRE_EARNINGS_FORCE_EXIT   n= 1  avg_pnl= -0.09%
+  TP_FULL                   n= 1  avg_pnl=  1.96%
+  HARD_LOSS_CAP             n= 1  avg_pnl=-10.45%
+  sl_breached               n= 1  avg_pnl=  3.55%
+  runner_drawdown_cap       n= 1  avg_pnl= -0.45%
+  ST_FLIP_4H_CLOSE          n= 1  avg_pnl=  1.21%
+  SOFT_FUSE_RSI_CONFIRMED   n= 1  avg_pnl=  3.35%
+  RUNNER_STALE_FORCE_CLOSE  n= 1  avg_pnl=  2.69%
+  hard_max_hold_168h        n= 1  avg_pnl=  2.37%
+
+------------------------------------------------------------------------------
+V10B JULY — DIRECTION BREAKDOWN
+------------------------------------------------------------------------------
+  LONG   n=38  wr= 50.0% avg_pnl=  0.28%
+  SHORT  n= 6  wr= 66.7% avg_pnl=  0.59%
+
+------------------------------------------------------------------------------
+V10B JULY — BIG LOSERS (≤ -5%)
+------------------------------------------------------------------------------
+  AGYS   LONG   2025-07-21 16:30  -10.45%  exit=HARD_LOSS_CAP  setup=TT Tt Pullback
