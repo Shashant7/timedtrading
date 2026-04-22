@@ -339,10 +339,171 @@ export function evaluateEntry(ctx) {
       }
     }
 
-    // Layer 1 — Rank floor (default 0 = disabled; activate via DA key)
+    // ─────────────────────────────────────────────────────────────────
+    // PHASE-I.1 — POSITION-LIFECYCLE GUARDS
+    // v10b audit: 15 orphaned open positions, 9 with a prior closed trade
+    // on the same ticker within 1-18 days. TPL SHORT re-entered twice at
+    // identical $288.33 price, 48h apart, both still open 85+ days.
+    //
+    // Two gates:
+    //   1. Duplicate-open: hard block any same-direction entry while an
+    //      existing OPEN trade exists for this ticker.
+    //   2. Re-entry throttle: cooldown period after a recent EXIT on the
+    //      same ticker+direction to prevent over-trading churn.
+    //
+    // See: tasks/phase-i-implementation-2026-04-22.md Workstream 1
+    // ─────────────────────────────────────────────────────────────────
+    {
+      const _recentTrades = Array.isArray(ctx?.recentTrades) ? ctx.recentTrades : [];
+      const _nowTs = Number(ctx?.nowTs) || Date.now();
+      const _tickerUpper = String(d?.ticker || "").toUpperCase();
+      const _sideUpper = String(side || "").toUpperCase();
+
+      if (_recentTrades.length > 0 && _tickerUpper && _sideUpper) {
+        // Gate 1: hard-block duplicate open in same direction
+        const _duplicateOpenEnabled = String(daCfg.deep_audit_duplicate_open_block_enabled ?? "true") === "true";
+        if (_duplicateOpenEnabled) {
+          const _stillOpen = _recentTrades.find(t => {
+            if (String(t?.ticker || "").toUpperCase() !== _tickerUpper) return false;
+            if (String(t?.direction || "").toUpperCase() !== _sideUpper) return false;
+            return !t?.exit_ts;
+          });
+          if (_stillOpen) {
+            return rejectEntry("phase_i_duplicate_open", {
+              existing_entry_ts: _stillOpen.entry_ts,
+              existing_entry_price: _stillOpen.entry_price,
+              existing_status: _stillOpen.status,
+            });
+          }
+        }
+
+        // Gate 2: re-entry throttle (same direction, within N hours of last exit)
+        const _reentryThrottleHrs = Number(daCfg.deep_audit_reentry_throttle_hours ?? 24);
+        if (_reentryThrottleHrs > 0) {
+          const _cutoffMs = _nowTs - (_reentryThrottleHrs * 3600 * 1000);
+          const _recentSameDir = _recentTrades.find(t => {
+            if (String(t?.ticker || "").toUpperCase() !== _tickerUpper) return false;
+            if (String(t?.direction || "").toUpperCase() !== _sideUpper) return false;
+            const exitTs = Number(t?.exit_ts) || 0;
+            return exitTs > 0 && exitTs >= _cutoffMs;
+          });
+          if (_recentSameDir) {
+            return rejectEntry("phase_i_reentry_throttle", {
+              last_exit_ts: _recentSameDir.exit_ts,
+              last_pnl_pct: _recentSameDir.pnl_pct,
+              hours_since_exit: (_nowTs - Number(_recentSameDir.exit_ts)) / 3600000,
+              throttle_hours: _reentryThrottleHrs,
+            });
+          }
+        }
+      }
+    }
+
+    // Layer 1 — Rank floor (Phase-I.4: universe-size adaptive)
+    //
+    // Phase-I.4.2 (2026-04-22): removed the `rankScore > 0` bypass. In v10b
+    // the rank field was often 0 for 215-ticker universe entries, silently
+    // no-op'ing the floor. Now strict by default — if rank can't be computed,
+    // we reject. Disable with deep_audit_strict_rank_required="false" for
+    // legacy behavior.
+    //
+    // Phase-I.4.1 (2026-04-22): universe-size-adaptive rank floor. On the
+    // 40-ticker curated universe v9 hit 70.8% WR with floor=90. On 215-
+    // ticker v10b the SAME floor=90 let through 79 marginal trades from
+    // single-trade-per-ticker names (31% WR, -33% PnL). Adapts the effective
+    // floor upward when the universe is large, so the top-decile selectivity
+    // that worked on 40 tickers translates to ~top-5% on 215 tickers.
+    //
+    //   effective_floor = base_floor + ceil((universeSize / reference) - 1) * bump
+    //   reference = 40 (v9), default bump = 3 per 40-ticker increment
+    //
+    //   40 tickers:  effective = base_floor    (e.g. 90)
+    //   80 tickers:  effective = base_floor + 3
+    //   120 tickers: effective = base_floor + 6
+    //   160 tickers: effective = base_floor + 9
+    //   215 tickers: effective = base_floor + 15 (e.g. 90 -> 105, clamped to 100)
+    //
+    // For 215T a base_floor of 90 becomes an effective 100 (max). That's
+    // effectively "only perfect scores" — probably too strict. Set base
+    // floor to 85 for 215T and it becomes effective ~97.
     const _h3RankFloor = Number(daCfg.deep_audit_min_rank_floor) || 0;
-    if (_h3RankFloor > 0 && rankScore > 0 && rankScore < _h3RankFloor) {
-      return rejectEntry("h3_rank_below_floor", { rank: rankScore, floor: _h3RankFloor });
+    const _strictRank = String(daCfg.deep_audit_strict_rank_required ?? "true") === "true";
+    const _universeAdaptive = String(daCfg.deep_audit_universe_adaptive_rank ?? "true") === "true";
+    let _effectiveRankFloor = _h3RankFloor;
+    if (_h3RankFloor > 0 && _universeAdaptive) {
+      const _universeSize = Number(d?._env?._universeSize) || 40;
+      const _refUniverse = Number(daCfg.deep_audit_universe_rank_reference ?? 40);
+      const _rankBumpPerUniv = Number(daCfg.deep_audit_universe_rank_bump_per_ref ?? 3);
+      const _extraUniv = Math.max(0, _universeSize - _refUniverse);
+      const _bump = Math.ceil(_extraUniv / _refUniverse) * _rankBumpPerUniv;
+      _effectiveRankFloor = Math.min(100, _h3RankFloor + _bump);
+    }
+    if (_effectiveRankFloor > 0) {
+      if (_strictRank) {
+        if (rankScore < _effectiveRankFloor) {
+          return rejectEntry("h3_rank_below_floor", {
+            rank: rankScore, floor: _effectiveRankFloor, baseFloor: _h3RankFloor,
+            universeSize: Number(d?._env?._universeSize) || 0, strict: true,
+          });
+        }
+      } else if (rankScore > 0 && rankScore < _effectiveRankFloor) {
+        return rejectEntry("h3_rank_below_floor", {
+          rank: rankScore, floor: _effectiveRankFloor, baseFloor: _h3RankFloor,
+          universeSize: Number(d?._env?._universeSize) || 0, strict: false,
+        });
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // PHASE-I.2 — SHORT-SIDE SELECTIVITY GATES (SPY downtrend + sector RS)
+    // v10b had 4 of 5 big losers from SHORTs against a clear SPY/healthcare
+    // uptrend (ISRG x2, ~-6% each). The existing H.3 gate allowed "neutral"
+    // cycle shorts. I.2 adds hard-block: no SHORT unless SPY is confirmed
+    // in downtrend, AND the ticker's sector isn't outperforming SPY.
+    // High-rank speculative cohort carve-out for meme/crypto shorts.
+    //
+    // See: tasks/phase-i-implementation-2026-04-22.md Workstream 2
+    // ─────────────────────────────────────────────────────────────────
+    if (side === "SHORT") {
+      const _shortSpyGate = String(daCfg.deep_audit_short_requires_spy_downtrend ?? "true") === "true";
+      if (_shortSpyGate) {
+        const spyDaily = ctx?.market?.spyDailyStructure || {};
+        const spyBelowE21 = spyDaily?.close_below_e21 === true;
+        const spyE21SlopeNeg = Number(spyDaily?.e21_slope_5bar_pct ?? 0) < 0;
+        const spyBearRegime = Number(spyDaily?.ema_regime_daily ?? 0) <= -1;
+        // Require 2 of 3 bearish SPY signals
+        const bearSignals = [spyBelowE21, spyE21SlopeNeg, spyBearRegime].filter(Boolean).length;
+        const spyDowntrend = bearSignals >= 2;
+        if (!spyDowntrend) {
+          // Carve-out: exceptional rank + speculative cohort (meme/crypto)
+          const _shortCarveRankMin = Number(daCfg.deep_audit_short_spy_carveout_rank_min ?? 95);
+          const _shortCarveCohorts = String(daCfg.deep_audit_short_spy_carveout_cohorts ?? "speculative")
+            .toLowerCase().split(",").map(s => s.trim()).filter(Boolean);
+          const rankHighEnough = rankScore >= _shortCarveRankMin;
+          const cohortAllowed = _shortCarveCohorts.includes(String(d?._cohort || "").toLowerCase());
+          if (!(rankHighEnough && cohortAllowed)) {
+            return rejectEntry("phase_i_short_no_spy_downtrend", {
+              bearSignals, spyBelowE21, spyE21SlopeNeg, spyBearRegime,
+              rank: rankScore, cohort: d?._cohort,
+            });
+          }
+        }
+      }
+
+      const _sectorStrengthGate = String(daCfg.deep_audit_short_sector_strength_gate ?? "true") === "true";
+      if (_sectorStrengthGate) {
+        // Use sectorRegime (from replay-candle-batches) as proxy for sector-vs-SPY
+        // relative strength. If the ticker's sector is in a bullish regime class
+        // (STRONG_BULL / LATE_BULL), shorting is low-probability.
+        const sectorRegime = String(ctx?.regime?.sector || "").toUpperCase();
+        const sectorBullish = sectorRegime === "STRONG_BULL" || sectorRegime === "LATE_BULL";
+        const _sectorStrengthRankMin = Number(daCfg.deep_audit_short_sector_strength_rank_min ?? 98);
+        if (sectorBullish && rankScore < _sectorStrengthRankMin) {
+          return rejectEntry("phase_i_short_sector_outperforming", {
+            sectorRegime, rank: rankScore, rankMin: _sectorStrengthRankMin,
+          });
+        }
+      }
     }
 
     // Layer 2 — Regime-adaptive strategy

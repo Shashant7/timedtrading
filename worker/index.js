@@ -6604,6 +6604,79 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       }
 
       // ──────────────────────────────────────────────────────────────────
+      // PHASE-I.3 (2026-04-22) — MLTS V2: MFE-AWARE EARLY CUT
+      // v10b audit: max_loss_time_scaled fired 11x, all at -0% to -3%,
+      // scattered across hold times from 4h to 221h. The fixed-time-bucket
+      // approach above misses two patterns:
+      //   (1) Short disasters (AA, ANET) — 4h hold, -2.5/-3%, never had
+      //       any MFE. Needs EARLIER cut than the -2.5% floor at 4h.
+      //   (2) Stagnant long holders (BWXT, J, CCJ, IBP) — 90-221h with
+      //       zero MFE, hovering at -0% to -0.4%. Not catastrophic but
+      //       capital-locked noise. Should close.
+      //
+      // Both patterns look alike to the engine in one respect: MFE never
+      // meaningfully exceeded 0. The v2 rule uses MFE to distinguish
+      // "was this ever going our way?" from "has this been dead since
+      // entry?" Trades with MFE < threshold are cut earlier/harder.
+      //
+      // See: tasks/phase-i-implementation-2026-04-22.md Workstream 3
+      // ──────────────────────────────────────────────────────────────────
+      {
+        const _mltsV2Enabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_max_loss_time_scaled_v2 ?? "true") === "true";
+        if (_mltsV2Enabled && !_earlyPdzToleranceActive) {
+          const _agH = positionAgeMarketMin / 60;
+          const _mfeAbs = Math.abs(Number(tickerData?.__mfe_pct) || Number(tickerData?.max_favorable_excursion) || 0);
+          // Tier 1: fast disaster — < 8h, PnL < -1.5%, MFE never exceeded 0.5%
+          if (_agH < 8 && pnlPct <= -1.5 && _mfeAbs < 0.5) {
+            tickerData.__exit_reason = "max_loss_time_scaled_v2_fast";
+            tickerData.__exit_family = "safety";
+            return "exit";
+          }
+          // Tier 2: mid-term, still deep in red, no sustained rally
+          if (_agH >= 8 && _agH < 48 && pnlPct <= -2.0 && _mfeAbs < 1.0) {
+            tickerData.__exit_reason = "max_loss_time_scaled_v2_mid";
+            tickerData.__exit_family = "safety";
+            return "exit";
+          }
+          // Tier 3: long holder, still red, weak MFE
+          if (_agH >= 48 && _agH < 168 && pnlPct < 0 && _mfeAbs < 1.5) {
+            tickerData.__exit_reason = "max_loss_time_scaled_v2_stall";
+            tickerData.__exit_family = "safety";
+            return "exit";
+          }
+          // Tier 4: very long sideways — capital locked, MFE never took off
+          if (_agH >= 168 && _mfeAbs < 1.0) {
+            tickerData.__exit_reason = "max_loss_time_scaled_v2_stale";
+            tickerData.__exit_family = "safety";
+            return "exit";
+          }
+        }
+      }
+
+      // ──────────────────────────────────────────────────────────────────
+      // PHASE-I.1.3 (2026-04-22) — STALE POSITION FORCE-CLOSE
+      // v10b audit: 15 open positions at stop, 9 had been open for 60+
+      // replay days without meaningful MFE. RTX/WM/ELF/TPL×2 sat open
+      // from early August (92+ days) with no exit rule firing.
+      //
+      // Hard timeout for positions that have been open too long without
+      // either reaching meaningful MFE (≥ 2%) OR being currently profitable
+      // (≥ 1%). Prevents orphaned trades from locking capital indefinitely.
+      // ──────────────────────────────────────────────────────────────────
+      {
+        const _stalePosDays = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stale_position_force_close_days ?? 45);
+        if (_stalePosDays > 0) {
+          const _agDays = positionAgeMarketMin / (60 * 6.5);  // market days (6.5h/day)
+          const _mfeAbs = Math.abs(Number(tickerData?.__mfe_pct) || Number(tickerData?.max_favorable_excursion) || 0);
+          if (_agDays >= _stalePosDays && _mfeAbs < 2.0 && pnlPct < 1.0) {
+            tickerData.__exit_reason = "STALE_POSITION_TIMEOUT";
+            tickerData.__exit_family = "safety";
+            return "exit";
+          }
+        }
+      }
+
+      // ──────────────────────────────────────────────────────────────────
       // PHASE-E.2 (2026-04-19) F3 — RUNNER DRAWDOWN CAP
       // Aug 2025: QQQ runner +trimmed went to -10.37 %, XLY -7.08 %, Oct
       // QQQ -8.56 %. After a trim (currentTrimPct > 0) the remainder

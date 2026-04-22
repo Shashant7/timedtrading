@@ -290,6 +290,24 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
               return sector?.toLowerCase() || "unknown";
             })();
 
+            // Phase-I.1 — recent trades for this ticker (for re-entry throttle
+            // + duplicate-open guard). Include the last 10 trades (open + closed)
+            // on this ticker so the entry pipeline can reject same-direction
+            // duplicates and enforce a cooldown after recent exits.
+            const _recentTickerTrades = replayCtx.allTrades
+              .filter(t => String(t?.ticker || "").toUpperCase() === ticker)
+              .sort((a, b) => (Number(b?.entry_ts) || 0) - (Number(a?.entry_ts) || 0))
+              .slice(0, 10)
+              .map(t => ({
+                ticker: t?.ticker || null,
+                direction: t?.direction || null,
+                entry_ts: Number(t?.entry_ts) || null,
+                exit_ts: Number(t?.exit_ts) || null,
+                entry_price: Number(t?.entry_price) || null,
+                status: t?.status || null,
+                pnl_pct: Number(t?.pnl_pct) || null,
+              }));
+
             result._env = {
               _isReplay: true,
               _goldenProfiles: replayGoldenProfiles,
@@ -312,6 +330,7 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
               _ripsterTuneV2: replayEnv.RIPSTER_TUNE_V2 || "true",
               _ripsterExitDebounceBars: replayEnv.TT_EXIT_DEBOUNCE_BARS || "3",
               _monthlyCycle,
+              _recentTickerTrades,
             };
           }
 
