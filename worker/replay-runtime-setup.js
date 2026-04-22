@@ -159,6 +159,8 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_universe_rank_reference",
   "deep_audit_universe_rank_bump_per_ref",
   "deep_audit_rank_formula",
+  // V11 rank integrity audit (2026-04-22)
+  "deep_audit_rank_trace_force_enabled",
   "golden_julaug_reference_run_id", "live_config_run_id", "member_ticker_list", "consensus_signal_weights", "consensus_tf_weights", "scoring_weight_adj",
 ];
 

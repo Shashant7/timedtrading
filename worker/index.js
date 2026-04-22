@@ -17775,6 +17775,12 @@ async function processTradeSimulation(
                 const sa = getSectorAlignmentCached(sym);
                 return sa ? { sector: sa.sector, aligned: sa.aligned, direction: sa.direction, strength: sa.strength } : null;
               })(),
+              // V11 rank integrity audit (2026-04-22): attach the full rank
+              // component breakdown if replay-candle-batches.js captured it
+              // via __rank_trace_force. Persisted to D1 via d1UpsertTrade
+              // for Stage-0 weight-correction analysis.
+              rankTraceJson: tickerData?.__rank_trace_json
+                ?? (tickerData?.__rank_trace ? JSON.stringify(tickerData.__rank_trace) : null),
               aiCIO: _cioDecision && !_cioDecision.fallback ? {
                 decision: _cioDecision.decision,
                 confidence: _cioDecision.confidence,
@@ -20838,6 +20844,22 @@ let _activeAdaptiveRankWeights = null;
 
 function shouldTraceRankBreakdown(d) {
   if (!d || typeof d !== "object") return false;
+  // V11 rank integrity audit (2026-04-22): per-trade forced trace.
+  // When the entry pipeline decides to take a trade it can set
+  // d.__rank_trace_force = true so we capture the full component
+  // breakdown for later Stage-0 analysis. The flag is additionally
+  // gated by the DA key `deep_audit_rank_trace_force_enabled` so we
+  // can kill-switch it at runtime without a redeploy. Trace payload
+  // is ~1-2 KB, written to trades.rank_trace_json and
+  // backtest_run_trades.rank_trace_json for audit.
+  // See: tasks/v11-rank-integrity-audit-2026-04-22.md
+  if (d.__rank_trace_force === true) {
+    const daCfg = d?._env?._deepAuditConfig || null;
+    const flagRaw = daCfg?.deep_audit_rank_trace_force_enabled;
+    // Enabled when the DA key is explicitly "true". Default: disabled
+    // so legacy runs are unchanged.
+    if (String(flagRaw ?? "false") === "true") return true;
+  }
   const ticker = String(d?.ticker || d?.sym || "").toUpperCase();
   const ts = Number(d?.ts ?? d?.ingest_ts ?? 0);
   // Phase-I diagnostic: trace INTU on Aug 4 2025 to validate computeRankV2 math
@@ -23965,6 +23987,10 @@ async function d1EnsureBacktestRunsSchema(env) {
       `ALTER TABLE backtest_run_trades ADD COLUMN entry_path TEXT`,
       `ALTER TABLE backtest_run_trades ADD COLUMN max_favorable_excursion REAL`,
       `ALTER TABLE backtest_run_trades ADD COLUMN max_adverse_excursion REAL`,
+      // V11 rank integrity audit: per-trade rank component breakdown.
+      // Populated when deep_audit_rank_trace_force_enabled=true on
+      // enter-stage bars. See tasks/v11-rank-integrity-audit-2026-04-22.md
+      `ALTER TABLE backtest_run_trades ADD COLUMN rank_trace_json TEXT`,
     ];
     for (const stmt of brtExtraCols) {
       try { await db.prepare(stmt).run(); } catch {}
@@ -23973,6 +23999,7 @@ async function d1EnsureBacktestRunsSchema(env) {
       `ALTER TABLE trades ADD COLUMN entry_path TEXT`,
       `ALTER TABLE trades ADD COLUMN max_favorable_excursion REAL`,
       `ALTER TABLE trades ADD COLUMN max_adverse_excursion REAL`,
+      `ALTER TABLE trades ADD COLUMN rank_trace_json TEXT`,
     ];
     for (const stmt of tradesExtraCols) {
       try { await db.prepare(stmt).run(); } catch {}
@@ -28306,17 +28333,17 @@ async function d1UpsertTrade(env, trade) {
            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
            created_at, updated_at, trim_ts, trim_price, run_id,
            setup_name, setup_grade, risk_budget, shares, notional,
-           entry_path, max_favorable_excursion, max_adverse_excursion)
+           entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)`;
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29)`;
   const insertWithoutTrimPrice = `INSERT OR IGNORE INTO trades
           (trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
            created_at, updated_at, trim_ts, run_id,
            setup_name, setup_grade, risk_budget, shares, notional,
-           entry_path, max_favorable_excursion, max_adverse_excursion)
+           entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)`;
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)`;
 
   const resolvedEntryPrice = trade.entryPrice != null ? Number(trade.entryPrice)
     : trade.entry_price != null ? Number(trade.entry_price) : null;
@@ -28363,6 +28390,7 @@ async function d1UpsertTrade(env, trade) {
         resolvedEntryPath != null ? String(resolvedEntryPath) : null,
         resolvedMfe,
         resolvedMae,
+        trade.rankTraceJson ?? trade.rank_trace_json ?? null,
       )
       .run();
 
@@ -28377,7 +28405,8 @@ async function d1UpsertTrade(env, trade) {
           shares=COALESCE(?23, shares), notional=COALESCE(?24, notional),
           entry_path=COALESCE(?25, entry_path),
           max_favorable_excursion=COALESCE(?26, max_favorable_excursion),
-          max_adverse_excursion=COALESCE(?27, max_adverse_excursion)
+          max_adverse_excursion=COALESCE(?27, max_adverse_excursion),
+          rank_trace_json=COALESCE(?28, rank_trace_json)
          WHERE trade_id=?1`,
       )
       .bind(
@@ -28412,6 +28441,7 @@ async function d1UpsertTrade(env, trade) {
         resolvedEntryPath != null ? String(resolvedEntryPath) : null,
         resolvedMfe,
         resolvedMae,
+        trade.rankTraceJson ?? trade.rank_trace_json ?? null,
       )
       .run();
 
@@ -28471,8 +28501,8 @@ async function d1ArchiveRunTrade(env, runId, trade) {
          exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
          created_at, updated_at, trim_ts, trim_price,
          setup_name, setup_grade, risk_budget, shares, notional,
-         entry_path, max_favorable_excursion, max_adverse_excursion)
-       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28)`
+         entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json)
+       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29)`
     ).bind(
       String(runId),
       tradeId,
@@ -28502,6 +28532,7 @@ async function d1ArchiveRunTrade(env, runId, trade) {
       archEntryPath != null ? String(archEntryPath) : null,
       archMfe,
       archMae,
+      trade.rankTraceJson ?? trade.rank_trace_json ?? null,
     ).run();
   } catch (e) {
     console.warn("[ARCHIVE] d1ArchiveRunTrade failed:", String(e).slice(0, 150));
@@ -44097,7 +44128,8 @@ export default {
                 const { results: archiveRows } = await db.prepare(
                   `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
                           exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
-                          trim_ts, trim_price, setup_name, setup_grade, risk_budget, shares, notional
+                          trim_ts, trim_price, setup_name, setup_grade, risk_budget, shares, notional,
+                          entry_path, max_favorable_excursion, max_adverse_excursion
                    FROM backtest_run_trades
                    WHERE run_id = ?1`
                 ).bind(liveRunId).all();
@@ -44132,6 +44164,13 @@ export default {
                   risk_budget: r.risk_budget,
                   shares: r.shares,
                   notional: r.notional,
+                  // Phase-I V11 (2026-04-22): new fields for post-run analysis
+                  entryPath: r.entry_path,
+                  entry_path: r.entry_path,
+                  maxFavorableExcursion: r.max_favorable_excursion,
+                  max_favorable_excursion: r.max_favorable_excursion,
+                  maxAdverseExcursion: r.max_adverse_excursion,
+                  max_adverse_excursion: r.max_adverse_excursion,
                   run_id: liveRunId,
                 }));
               } catch (e) {
@@ -44646,13 +44685,21 @@ export default {
 
           // If we have an archive run_id, read from the immutable backtest_run_trades archive
           if (archiveRunId) {
+            // V11 (2026-04-22): added brt.rank, brt.rr, brt.entry_path, brt.max_*
+            // and brt.rank_trace_json. Prefer brt over da for these fields (brt
+            // is the immutable per-run archive; da is the signal shadow).
             const { results: rows } = await db.prepare(
               `SELECT brt.trade_id, brt.ticker, brt.direction, brt.status, brt.entry_ts, brt.exit_ts, brt.trim_ts,
                       brt.entry_price, brt.exit_price, brt.pnl, brt.pnl_pct, brt.exit_reason, brt.run_id,
                       brt.trimmed_pct, brt.trim_price, brt.setup_name, brt.setup_grade, brt.risk_budget,
                       brt.shares, brt.notional,
-                      da.signal_snapshot_json, da.exit_snapshot_json, da.entry_path, da.consensus_direction,
-                      da.max_favorable_excursion, da.max_adverse_excursion, da.tf_stack_json,
+                      brt.rank AS brt_rank, brt.rr AS brt_rr,
+                      brt.entry_path AS brt_entry_path,
+                      brt.max_favorable_excursion AS brt_mfe,
+                      brt.max_adverse_excursion AS brt_mae,
+                      brt.rank_trace_json AS brt_rank_trace_json,
+                      da.signal_snapshot_json, da.exit_snapshot_json, da.entry_path AS da_entry_path, da.consensus_direction,
+                      da.max_favorable_excursion AS da_mfe, da.max_adverse_excursion AS da_mae, da.tf_stack_json,
                       da.execution_profile_name, da.execution_profile_confidence, da.market_state, da.execution_profile_json,
                       da.rvol_best, da.entry_quality_score, da.exit_reason AS da_exit_reason
                  FROM backtest_run_trades brt
@@ -44671,9 +44718,14 @@ export default {
               trimmed_pct: r.trimmed_pct, trim_price: r.trim_price,
               setup_name: r.setup_name, setup_grade: r.setup_grade, risk_budget: r.risk_budget,
               shares: r.shares ?? null, notional: r.notional ?? null,
+              rank: r.brt_rank ?? null,
+              rr: r.brt_rr ?? null,
               signal_snapshot_json: r.signal_snapshot_json, exit_snapshot_json: r.exit_snapshot_json,
-              entry_path: r.entry_path, consensus_direction: r.consensus_direction,
-              max_favorable_excursion: r.max_favorable_excursion, max_adverse_excursion: r.max_adverse_excursion,
+              entry_path: r.brt_entry_path ?? r.da_entry_path ?? null,
+              consensus_direction: r.consensus_direction,
+              max_favorable_excursion: r.brt_mfe ?? r.da_mfe ?? null,
+              max_adverse_excursion: r.brt_mae ?? r.da_mae ?? null,
+              rank_trace_json: r.brt_rank_trace_json ?? null,
               tf_stack_json: r.tf_stack_json,
               execution_profile_name: r.execution_profile_name, execution_profile_confidence: r.execution_profile_confidence,
               market_state: r.market_state, execution_profile_json: r.execution_profile_json,

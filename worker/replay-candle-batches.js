@@ -570,6 +570,37 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
           if (!trailOnly) {
             const simReplayEnv = { ...env, DISCORD_ENABLE: "false", DISCORD_WEBHOOK_URL: null, EMAIL_ENABLED: "false", SENDGRID_API_KEY: null };
             const countBefore = replayCtx.allTrades.filter((x) => String(x?.ticker).toUpperCase() === ticker).length;
+
+            // V11 rank integrity audit (2026-04-22): when the bar is in an
+            // enter-now / enter stage and rank-trace-force is enabled via
+            // DA key, recompute rank with the trace flag set so the trade
+            // record carries the full component breakdown. No-op unless
+            // `deep_audit_rank_trace_force_enabled=true`. See
+            // tasks/v11-rank-integrity-audit-2026-04-22.md
+            const _rtfEnabled = String(
+              result?._env?._deepAuditConfig?.deep_audit_rank_trace_force_enabled ?? "false",
+            ) === "true";
+            const _stageReady = ["enter_now", "enter", "setup", "in_review"]
+              .includes(String(finalStage || "").toLowerCase());
+            if (_rtfEnabled && _stageReady) {
+              try {
+                result.__rank_trace_force = true;
+                delete result.__rank_trace;
+                const _newRank = computeRank(result);
+                result.rank = _newRank;
+                result.score = _newRank;
+                // Make the trace discoverable to processTradeSimulation so
+                // it flows onto the trade record.
+                if (result.__rank_trace) {
+                  result.__rank_trace_json = JSON.stringify(result.__rank_trace);
+                }
+              } catch (e) {
+                console.warn(`[RANK-TRACE-FORCE] ${ticker} ${intervalTs}: ${String(e?.message || e).slice(0, 120)}`);
+              } finally {
+                delete result.__rank_trace_force;
+              }
+            }
+
             await processTradeSimulation(KV, ticker, result, existing, simReplayEnv, {
               forceUseIngestTs: true,
               replayBatchContext: replayCtx,
