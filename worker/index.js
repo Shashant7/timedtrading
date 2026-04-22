@@ -6649,13 +6649,23 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           const _agH = positionAgeMarketMin / 60;
           const _mfeAbs = Math.abs(Number(tickerData?.__mfe_pct) || Number(tickerData?.max_favorable_excursion) || 0);
 
-          // Tier 1: fastest — no commitment within 2h, already in red
+          // Tier 0 (NEW in V11): immediate disaster — any age < 8h with zero
+          // MFE and PnL already below -1% is a broken entry that should be
+          // cut NOW, not waited on. Catches cases like PATH 09-23 (0.00% MFE,
+          // -3.89% in 4h) that fell through the previous age-windowed tiers.
+          if (_agH < 8 && pnlPct <= -1.0 && _mfeAbs < 0.3) {
+            tickerData.__exit_reason = "phase_i_mfe_fast_cut_zero_mfe";
+            tickerData.__exit_family = "safety";
+            return "exit";
+          }
+          // Tier 1: fastest — no commitment within 2-4h, already in red
           if (_agH >= 2 && _agH < 4 && pnlPct <= -0.8 && _mfeAbs < 0.3) {
             tickerData.__exit_reason = "phase_i_mfe_fast_cut_2h";
             tickerData.__exit_family = "safety";
             return "exit";
           }
-          // Tier 2: 4h checkpoint
+          // Tier 2: 4h checkpoint (now overlaps with Tier 0 at >=4 <8, either
+          // wins on pnl/MFE criteria; no boundary gap)
           if (_agH >= 4 && _agH < 8 && pnlPct <= -1.5 && _mfeAbs < 0.5) {
             tickerData.__exit_reason = "phase_i_mfe_cut_4h";
             tickerData.__exit_family = "safety";
@@ -23936,8 +23946,22 @@ async function d1EnsureBacktestRunsSchema(env) {
       `ALTER TABLE backtest_run_trades ADD COLUMN risk_budget REAL`,
       `ALTER TABLE backtest_run_trades ADD COLUMN shares REAL`,
       `ALTER TABLE backtest_run_trades ADD COLUMN notional REAL`,
+      // Phase-I V11 (2026-04-22): persist entry_path + MFE/MAE so every trade
+      // is self-describing. Answers "which trigger generated this alpha?"
+      // without requiring a re-run. See tasks/v11-pre-flight-plan-2026-04-22.md
+      `ALTER TABLE backtest_run_trades ADD COLUMN entry_path TEXT`,
+      `ALTER TABLE backtest_run_trades ADD COLUMN max_favorable_excursion REAL`,
+      `ALTER TABLE backtest_run_trades ADD COLUMN max_adverse_excursion REAL`,
     ];
     for (const stmt of brtExtraCols) {
+      try { await db.prepare(stmt).run(); } catch {}
+    }
+    const tradesExtraCols = [
+      `ALTER TABLE trades ADD COLUMN entry_path TEXT`,
+      `ALTER TABLE trades ADD COLUMN max_favorable_excursion REAL`,
+      `ALTER TABLE trades ADD COLUMN max_adverse_excursion REAL`,
+    ];
+    for (const stmt of tradesExtraCols) {
       try { await db.prepare(stmt).run(); } catch {}
     }
     try { await db.prepare(`ALTER TABLE backtest_runs ADD COLUMN manifest_json TEXT`).run(); } catch {}
@@ -28236,20 +28260,50 @@ async function d1UpsertTrade(env, trade) {
   }
 
   const resolvedRunId = trade.run_id ?? trade.runId ?? null;
+  // Phase-I V11 (2026-04-22): derive entry_path / MFE / MAE from any available
+  // field (both camelCase + snake_case are used throughout the codebase).
+  const resolvedEntryPath = trade.entryPath ?? trade.entry_path ?? null;
+  const resolvedMfe = Number.isFinite(Number(trade.maxFavorableExcursion))
+    ? Number(trade.maxFavorableExcursion)
+    : Number.isFinite(Number(trade.max_favorable_excursion))
+      ? Number(trade.max_favorable_excursion)
+      : Number.isFinite(Number(trade.mfePct))
+        ? Number(trade.mfePct)
+        : null;
+  const resolvedMae = Number.isFinite(Number(trade.maxAdverseExcursion))
+    ? Number(trade.maxAdverseExcursion)
+    : Number.isFinite(Number(trade.max_adverse_excursion))
+      ? Number(trade.max_adverse_excursion)
+      : Number.isFinite(Number(trade.maePct))
+        ? Number(trade.maePct)
+        : null;
+  // If setupName is missing but entryPath is known, derive a display name
+  // so trade-autopsy / reporting is complete. Mirrors formatSetupName() logic.
+  const derivedSetupName = trade.setupName ?? trade.setup_name ?? (
+    resolvedEntryPath ? (
+      SETUP_NAME_MAP[resolvedEntryPath] ?? "TT " + String(resolvedEntryPath)
+        .replace(/^ripster_?/i, "")
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, c => c.toUpperCase())
+    ) : null
+  );
+
   const insertWithTrimPrice = `INSERT OR IGNORE INTO trades
           (trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
            created_at, updated_at, trim_ts, trim_price, run_id,
-           setup_name, setup_grade, risk_budget, shares, notional)
+           setup_name, setup_grade, risk_budget, shares, notional,
+           entry_path, max_favorable_excursion, max_adverse_excursion)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)`;
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)`;
   const insertWithoutTrimPrice = `INSERT OR IGNORE INTO trades
           (trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
            created_at, updated_at, trim_ts, run_id,
-           setup_name, setup_grade, risk_budget, shares, notional)
+           setup_name, setup_grade, risk_budget, shares, notional,
+           entry_path, max_favorable_excursion, max_adverse_excursion)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)`;
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)`;
 
   const resolvedEntryPrice = trade.entryPrice != null ? Number(trade.entryPrice)
     : trade.entry_price != null ? Number(trade.entry_price) : null;
@@ -28288,11 +28342,14 @@ async function d1UpsertTrade(env, trade) {
         Number.isFinite(trimTs) ? trimTs : null,
         Number.isFinite(trimPrice) ? trimPrice : null,
         resolvedRunId != null ? String(resolvedRunId) : null,
-        trade.setupName ?? trade.setup_name ?? null,
+        derivedSetupName,
         trade.setupGrade ?? trade.setup_grade ?? null,
         Number(trade.riskBudget ?? trade.risk_budget) || null,
         Number(trade.shares) || null,
         Number(trade.notional ?? (Number(trade.shares) * resolvedEntryPrice)) || null,
+        resolvedEntryPath != null ? String(resolvedEntryPath) : null,
+        resolvedMfe,
+        resolvedMae,
       )
       .run();
 
@@ -28304,7 +28361,10 @@ async function d1UpsertTrade(env, trade) {
           trimmed_pct=?12, pnl=?13, pnl_pct=?14, script_version=?15,
           updated_at=?16, trim_ts=?17, trim_price=?18, run_id=COALESCE(?19, run_id),
           setup_name=COALESCE(?20, setup_name), setup_grade=COALESCE(?21, setup_grade), risk_budget=COALESCE(?22, risk_budget),
-          shares=COALESCE(?23, shares), notional=COALESCE(?24, notional)
+          shares=COALESCE(?23, shares), notional=COALESCE(?24, notional),
+          entry_path=COALESCE(?25, entry_path),
+          max_favorable_excursion=COALESCE(?26, max_favorable_excursion),
+          max_adverse_excursion=COALESCE(?27, max_adverse_excursion)
          WHERE trade_id=?1`,
       )
       .bind(
@@ -28331,11 +28391,14 @@ async function d1UpsertTrade(env, trade) {
         Number.isFinite(trimTs) ? trimTs : null,
         Number.isFinite(trimPrice) ? trimPrice : null,
         resolvedRunId != null ? String(resolvedRunId) : null,
-        trade.setupName ?? trade.setup_name ?? null,
+        derivedSetupName,
         trade.setupGrade ?? trade.setup_grade ?? null,
         Number(trade.riskBudget ?? trade.risk_budget) || null,
         Number(trade.shares) || null,
         Number(trade.notional ?? (Number(trade.shares) * resolvedEntryPrice)) || null,
+        resolvedEntryPath != null ? String(resolvedEntryPath) : null,
+        resolvedMfe,
+        resolvedMae,
       )
       .run();
 
@@ -28371,13 +28434,32 @@ async function d1ArchiveRunTrade(env, runId, trade) {
     const exitReason = trade.exitReason || trade.exit_reason || null;
     const pnlPct = trade.pnlPct != null ? Number(trade.pnlPct) : trade.pnl_pct != null ? Number(trade.pnl_pct) : null;
     const trimPrice = Number(trade.trim_price ?? trade.trimPrice) || null;
+    // Phase-I V11: persist entry_path + MFE/MAE on archive writes too
+    const archEntryPath = trade.entryPath ?? trade.entry_path ?? null;
+    const archMfe = Number.isFinite(Number(trade.maxFavorableExcursion))
+      ? Number(trade.maxFavorableExcursion)
+      : Number.isFinite(Number(trade.max_favorable_excursion))
+        ? Number(trade.max_favorable_excursion) : null;
+    const archMae = Number.isFinite(Number(trade.maxAdverseExcursion))
+      ? Number(trade.maxAdverseExcursion)
+      : Number.isFinite(Number(trade.max_adverse_excursion))
+        ? Number(trade.max_adverse_excursion) : null;
+    const archSetupName = trade.setupName ?? trade.setup_name ?? (
+      archEntryPath ? (
+        SETUP_NAME_MAP[archEntryPath] ?? "TT " + String(archEntryPath)
+          .replace(/^ripster_?/i, "")
+          .replace(/_/g, " ")
+          .replace(/\b\w/g, c => c.toUpperCase())
+      ) : null
+    );
     await db.prepare(
       `INSERT OR REPLACE INTO backtest_run_trades
         (run_id, trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
          exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
          created_at, updated_at, trim_ts, trim_price,
-         setup_name, setup_grade, risk_budget, shares, notional)
-       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25)`
+         setup_name, setup_grade, risk_budget, shares, notional,
+         entry_path, max_favorable_excursion, max_adverse_excursion)
+       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28)`
     ).bind(
       String(runId),
       tradeId,
@@ -28399,11 +28481,14 @@ async function d1ArchiveRunTrade(env, runId, trade) {
       Date.now(),
       trimTs,
       Number.isFinite(trimPrice) ? trimPrice : null,
-      trade.setupName ?? trade.setup_name ?? null,
+      archSetupName,
       trade.setupGrade ?? trade.setup_grade ?? null,
       Number(trade.riskBudget ?? trade.risk_budget) || null,
       Number(trade.shares) || null,
       Number(trade.notional ?? (Number(trade.shares) * Number(entryPrice))) || null,
+      archEntryPath != null ? String(archEntryPath) : null,
+      archMfe,
+      archMae,
     ).run();
   } catch (e) {
     console.warn("[ARCHIVE] d1ArchiveRunTrade failed:", String(e).slice(0, 150));
