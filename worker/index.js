@@ -6604,49 +6604,70 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       }
 
       // ──────────────────────────────────────────────────────────────────
-      // PHASE-I.3 (2026-04-22) — MLTS V2: MFE-AWARE EARLY CUT
-      // v10b audit: max_loss_time_scaled fired 11x, all at -0% to -3%,
-      // scattered across hold times from 4h to 221h. The fixed-time-bucket
-      // approach above misses two patterns:
-      //   (1) Short disasters (AA, ANET) — 4h hold, -2.5/-3%, never had
-      //       any MFE. Needs EARLIER cut than the -2.5% floor at 4h.
-      //   (2) Stagnant long holders (BWXT, J, CCJ, IBP) — 90-221h with
-      //       zero MFE, hovering at -0% to -0.4%. Not catastrophic but
-      //       capital-locked noise. Should close.
+      // PHASE-I.3 (2026-04-22) — MFE-VALIDATED EXITS
       //
-      // Both patterns look alike to the engine in one respect: MFE never
-      // meaningfully exceeded 0. The v2 rule uses MFE to distinguish
-      // "was this ever going our way?" from "has this been dead since
-      // entry?" Trades with MFE < threshold are cut earlier/harder.
+      // EMPIRICAL FOUNDATION (v10b audit, 101 closed trades):
+      //   MFE at peak    N     WR      Sum PnL
+      //   -----------   ---   -----   -------
+      //   3%+            30   93.3%   +87.79%  <- the edge
+      //   1.5-3%         17   76.5%    +9.65%  <- good
+      //   0.5-1.5%       27   33.3%   -32.60%  <- bleeding
+      //   0-0.5%         13    7.7%   -29.24%  <- disaster
+      //   no MFE         14    0.0%   -15.74%  <- disaster
+      //
+      // INSIGHT: the rank formula has near-zero correlation with
+      // outcomes (Pearson -0.185 on v9, +0.099 on v7, -0.105 on v6b).
+      // But MFE at peak is STRONGLY predictive. If a trade reaches
+      // 1.5%+ MFE, it's 76%+ WR. If it never does, it's losing.
+      //
+      // Rule: cut trades that have NOT shown meaningful early MFE.
+      // The earlier we can prove this, the less damage. Losers like
+      // AGYS (-10.45%, 21h, MFE 0.62%), ORCL (-5.17%, 20.5h, MFE
+      // 0.01%), ANET (-3.16%, 4h, MFE 0.15%) all signal "this entry
+      // isn't working" within the first few hours.
+      //
+      // Tiered cuts (most aggressive first):
+      //   Tier 1 (2h): MFE < 0.3% AND pnl <= -0.8%   -> fast cut
+      //   Tier 2 (4h): MFE < 0.5% AND pnl <= -1.5%   -> confirm cut
+      //   Tier 3 (8h): MFE < 0.8% AND pnl <= -2.0%   -> stall cut
+      //   Tier 4 (24h): MFE < 1.5% AND pnl < 0       -> dead money
+      //   Tier 5 (72h): MFE < 1.5%                   -> stale (any pnl)
       //
       // See: tasks/phase-i-implementation-2026-04-22.md Workstream 3
       // ──────────────────────────────────────────────────────────────────
       {
-        const _mltsV2Enabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_max_loss_time_scaled_v2 ?? "true") === "true";
-        if (_mltsV2Enabled && !_earlyPdzToleranceActive) {
+        const _mfeExitsEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_max_loss_time_scaled_v2 ?? "true") === "true";
+        if (_mfeExitsEnabled && !_earlyPdzToleranceActive) {
           const _agH = positionAgeMarketMin / 60;
           const _mfeAbs = Math.abs(Number(tickerData?.__mfe_pct) || Number(tickerData?.max_favorable_excursion) || 0);
-          // Tier 1: fast disaster — < 8h, PnL < -1.5%, MFE never exceeded 0.5%
-          if (_agH < 8 && pnlPct <= -1.5 && _mfeAbs < 0.5) {
-            tickerData.__exit_reason = "max_loss_time_scaled_v2_fast";
+
+          // Tier 1: fastest — no commitment within 2h, already in red
+          if (_agH >= 2 && _agH < 4 && pnlPct <= -0.8 && _mfeAbs < 0.3) {
+            tickerData.__exit_reason = "phase_i_mfe_fast_cut_2h";
             tickerData.__exit_family = "safety";
             return "exit";
           }
-          // Tier 2: mid-term, still deep in red, no sustained rally
-          if (_agH >= 8 && _agH < 48 && pnlPct <= -2.0 && _mfeAbs < 1.0) {
-            tickerData.__exit_reason = "max_loss_time_scaled_v2_mid";
+          // Tier 2: 4h checkpoint
+          if (_agH >= 4 && _agH < 8 && pnlPct <= -1.5 && _mfeAbs < 0.5) {
+            tickerData.__exit_reason = "phase_i_mfe_cut_4h";
             tickerData.__exit_family = "safety";
             return "exit";
           }
-          // Tier 3: long holder, still red, weak MFE
-          if (_agH >= 48 && _agH < 168 && pnlPct < 0 && _mfeAbs < 1.5) {
-            tickerData.__exit_reason = "max_loss_time_scaled_v2_stall";
+          // Tier 3: 8h — sustained underwater, no rally
+          if (_agH >= 8 && _agH < 24 && pnlPct <= -2.0 && _mfeAbs < 0.8) {
+            tickerData.__exit_reason = "phase_i_mfe_cut_8h";
             tickerData.__exit_family = "safety";
             return "exit";
           }
-          // Tier 4: very long sideways — capital locked, MFE never took off
-          if (_agH >= 168 && _mfeAbs < 1.0) {
-            tickerData.__exit_reason = "max_loss_time_scaled_v2_stale";
+          // Tier 4: 24h — dead money
+          if (_agH >= 24 && _agH < 72 && pnlPct < 0 && _mfeAbs < 1.5) {
+            tickerData.__exit_reason = "phase_i_mfe_dead_money_24h";
+            tickerData.__exit_family = "safety";
+            return "exit";
+          }
+          // Tier 5: 72h — capital locked, any pnl
+          if (_agH >= 72 && _mfeAbs < 1.5) {
+            tickerData.__exit_reason = "phase_i_mfe_stale_72h";
             tickerData.__exit_family = "safety";
             return "exit";
           }
@@ -20847,7 +20868,271 @@ function buildReplayTargetSnapshot(result, extra = {}) {
   };
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// PHASE-I (2026-04-22) — computeRankV2
+//
+// EMPIRICAL CALIBRATION FROM v10b + v7 (see tasks/rank-calibration-findings-2026-04-22.md)
+//
+// PROBLEM: The original computeRank formula has near-zero correlation with
+// trade outcomes across v6b/v7/v9:
+//   Pearson(rank, pnl_pct) = -0.185 (v9) | +0.099 (v7) | -0.105 (v6b)
+// And on v7's 229 trades, rank 70-79 had 60.7% WR vs rank 95-100's 56.6% WR —
+// stricter rank filtering does NOT improve quality.
+//
+// DATA SHOWS the real discriminators are:
+//   POSITIVE lift (keep/boost):
+//     +10  setup_grade=Confirmed           (60.9% vs 48.1% Prime WR)
+//     +8   RSI bull divergence             (+9.5% WR lift)
+//     +6   regime_class=TRENDING           (+6.4% WR lift)
+//     +4   supertrend_30 aligned           (+3.6% WR lift)
+//
+//   NEGATIVE lift (penalize):
+//     -20  ATR_week displacement aligned   (16.7% WR — "late-move" signal)
+//     -10  ATR_day displacement aligned    (30.8% WR)
+//     -10  regime_class=TRANSITIONAL       (40% WR)
+//     -8   phase_1H > 70 (over-extended)   (16.7% WR)
+//     -8   phase_1H_zone HIGH              (37.5% WR)
+//     -6   LTF_30m bias aligned (inverted!) (44.1% WR — over-alignment = late)
+//
+//   DROPPED (no discrimination or always true):
+//     state alignment bonuses (+12/+4 — 100% of trades have them)
+//     momentum_elite (+15 — sample too small)
+//     generic squeeze bonuses
+//     sector bias (too broad)
+//     Ripster cloud alignment bonuses (embedded in state upstream)
+//
+// RR IS PREDICTIVE:
+//   Pearson(rr, pnl_pct) = +0.195 on v7 (229 trades)
+//   RR >= 7 gives 77.8% WR. RR 3-5 is the sweet spot.
+//   RR < 2 is catastrophic.
+//
+// Toggled via deep_audit_rank_formula="v2" (default "v1" = original).
+// Both formulas output 0-100 so downstream gates (min_rank_floor) work
+// with either.
+// ═══════════════════════════════════════════════════════════════════════
+function computeRankV2(d) {
+  const ticker = String(d?.ticker || d?.sym || "").toUpperCase();
+  const side = sideFromStateOrScores(d);
+
+  const rankTrace = shouldTraceRankBreakdown(d);
+  const rankTraceParts = [];
+  let score = 50; // centered
+
+  const addTrace = (label, delta, extra = null) => {
+    if (rankTrace) {
+      rankTraceParts.push({
+        label, delta,
+        score_after: score,
+        ...(extra && typeof extra === "object" ? extra : {}),
+      });
+    }
+  };
+  addTrace("v2_base", 50);
+
+  // ── POSITIVE signals ────────────────────────────────
+  // setup_grade=Confirmed: +10
+  const setupGrade = String(d?.setup_grade || d?.__setup_grade || "").toLowerCase();
+  if (setupGrade === "confirmed") {
+    score += 10;
+    addTrace("v2_grade_confirmed", 10);
+  } else if (setupGrade === "prime") {
+    score += 2; // modest boost — Prime was slightly below base
+    addTrace("v2_grade_prime", 2);
+  }
+
+  // RSI bull/bear divergence aligned with direction: +8
+  const rsiDiv = d?.rsi_divergence || d?.rsi?.divergence || null;
+  if (rsiDiv && typeof rsiDiv === "object") {
+    // Support two shapes: single-TF ({type, strength}) OR multi-TF ({M:{bull,bear}, ...})
+    let bullActive = false, bearActive = false;
+    if (rsiDiv.type) {
+      if (rsiDiv.type === "bullish") bullActive = true;
+      if (rsiDiv.type === "bearish") bearActive = true;
+    } else {
+      for (const tf of Object.keys(rsiDiv)) {
+        const v = rsiDiv[tf];
+        if (v && typeof v === "object") {
+          if (v.bull && v.bull.active) bullActive = true;
+          if (v.bear && v.bear.active) bearActive = true;
+        }
+      }
+    }
+    if (side === "LONG" && bullActive) {
+      score += 8;
+      addTrace("v2_rsi_bull_div", 8);
+    } else if (side === "SHORT" && bearActive) {
+      score += 5; // smaller boost (bear div only +2.1% lift vs bull's +9.5%)
+      addTrace("v2_rsi_bear_div", 5);
+    }
+  }
+
+  // regime_class=TRENDING: +6
+  const regimeClass = String(
+    d?.execution_profile_json?.regime_class
+    || d?.regime?.class
+    || d?.regime_class
+    || ""
+  ).toUpperCase();
+  if (regimeClass === "TRENDING") {
+    score += 6;
+    addTrace("v2_trending_regime", 6);
+  } else if (regimeClass === "TRANSITIONAL") {
+    score -= 10;
+    addTrace("v2_transitional_regime", -10);
+  }
+
+  // Supertrend_30 aligned with direction: +4
+  const st30 = Number(d?.supertrend?.[30]?.d ?? d?.tf_tech?.["30"]?.supertrend ?? d?.tf_tech?.m30?.supertrend);
+  if (Number.isFinite(st30)) {
+    const aligned = (side === "LONG" && st30 > 0) || (side === "SHORT" && st30 < 0);
+    if (aligned) {
+      score += 4;
+      addTrace("v2_st30_aligned", 4);
+    }
+  }
+
+  // RR contribution — graduated based on v7 empirical data (229 trades):
+  //   rr >= 7: 77.8% WR  -> +12
+  //   rr >= 5: 65%  WR   -> +8
+  //   rr >= 3: 57% WR    -> +5
+  //   rr >= 2: 47% WR    -> 0 (base)
+  //   rr <  2: 13% WR   -> -8
+  const rr = d.rr != null ? Number(d.rr) : computeRR(d);
+  if (Number.isFinite(rr)) {
+    let rrDelta = 0;
+    if (rr >= 7) rrDelta = 12;
+    else if (rr >= 5) rrDelta = 8;
+    else if (rr >= 3) rrDelta = 5;
+    else if (rr >= 2) rrDelta = 0;
+    else if (rr >= 1.5) rrDelta = -4;
+    else rrDelta = -8;
+    score += rrDelta;
+    addTrace("v2_rr", rrDelta, { rr });
+  }
+
+  // ── NEGATIVE signals ────────────────────────────────
+  // ATR displacement "already moved in our direction" = mean-reversion risk
+  const atrDisp = d?.atr_disp || {};
+  const atrDay = atrDisp?.day || {};
+  const atrWeek = atrDisp?.week || {};
+  if (atrWeek?.ge === true) {
+    // Golden Gate expanded — the move is extended
+    const sign = side === "LONG" ? 1 : -1;
+    const atrD = Number(atrWeek?.d ?? 0);
+    if (atrD * sign >= 0.3) {
+      score -= 20;
+      addTrace("v2_atr_week_extended", -20, { atrD });
+    }
+  } else if (atrDay?.ge === true) {
+    const sign = side === "LONG" ? 1 : -1;
+    const atrD = Number(atrDay?.d ?? 0);
+    if (atrD * sign >= 0.3) {
+      score -= 10;
+      addTrace("v2_atr_day_extended", -10, { atrD });
+    }
+  }
+
+  // Phase 1H / D over-extended
+  const satyPhase = d?.saty_phase || {};
+  const phase1H = Number(satyPhase?.["1H"]?.v);
+  const phaseD = Number(satyPhase?.D?.v);
+  if (Number.isFinite(phase1H) && phase1H > 70) {
+    score -= 8;
+    addTrace("v2_phase_1H_high", -8, { phase1H });
+  }
+  if (Number.isFinite(phaseD) && phaseD > 70) {
+    score -= 8;
+    addTrace("v2_phase_D_high", -8, { phaseD });
+  }
+
+  // Phase zone HIGH on 1H
+  const phase1HZ = String(satyPhase?.["1H"]?.z || "").toUpperCase();
+  if (phase1HZ === "HIGH") {
+    score -= 6;
+    addTrace("v2_phase_1H_zone_HIGH", -6);
+  }
+
+  // LTF over-alignment (paradoxical — v10b showed aligned LTF_30m underperformed)
+  // Use 30m bias from tf_summary if present
+  const tf30Bias = Number(
+    d?.signal_snapshot_json?.tf?.["30m"]?.bias
+    || d?.tf?.m30?.bias
+    || d?.tf_tech?.m30?.bias
+    || 0
+  );
+  if (Number.isFinite(tf30Bias)) {
+    const sign = side === "LONG" ? 1 : -1;
+    if (tf30Bias * sign > 0.5) {
+      score -= 4;
+      addTrace("v2_ltf_overaligned", -4, { tf30Bias });
+    }
+  }
+
+  // SHORT penalty when SPY is not clearly in downtrend
+  if (side === "SHORT") {
+    const spyDaily = d?._env?._marketRegime?.spy_daily_structure || d?._spyData?.daily_structure || {};
+    const spyBelowE21 = spyDaily?.close_below_e21 === true;
+    const spyE21SlopeNeg = Number(spyDaily?.e21_slope_5bar_pct ?? 0) < 0;
+    const spyBearRegime = Number(spyDaily?.ema_regime_daily ?? 0) <= -1;
+    const bearSignals = [spyBelowE21, spyE21SlopeNeg, spyBearRegime].filter(Boolean).length;
+    if (bearSignals < 2) {
+      score -= 8;
+      addTrace("v2_short_no_spy_downtrend", -8, { bearSignals });
+    }
+  }
+
+  // Data completeness penalty (keep existing — helps exclude broken ticker states)
+  const completeness = d?.data_completeness || computeDataCompleteness(d);
+  if (completeness && typeof completeness === "object") {
+    if (completeness.score < 70) {
+      score -= 10;
+      addTrace("v2_data_completeness", -10, { completenessScore: completeness.score });
+    } else if (completeness.score < 85) {
+      score -= 5;
+      addTrace("v2_data_completeness", -5, { completenessScore: completeness.score });
+    }
+  }
+
+  // Move status (keep existing — invalidated/completed moves are broken by construction)
+  const ms = d?.move_status || computeMoveStatus(d);
+  if (ms && typeof ms === "object") {
+    if (ms.status === "INVALIDATED") {
+      score -= 25;
+      addTrace("v2_move_invalidated", -25);
+    } else if (ms.status === "COMPLETED") {
+      score -= 15;
+      addTrace("v2_move_completed", -15);
+    }
+  }
+
+  score = Math.max(0, Math.min(100, score));
+  const finalScore = Math.round(score);
+
+  if (rankTrace && d && typeof d === "object") {
+    d.__rank_trace = {
+      ticker, ts: Number(d?.ts ?? d?.ingest_ts ?? 0),
+      formula: "v2",
+      finalScore,
+      rawScore: score,
+      rr, side,
+      setupGrade,
+      regimeClass,
+      phase1H, phaseD, phase1HZ,
+      st30, tf30Bias,
+      parts: rankTraceParts,
+    };
+  }
+
+  return finalScore;
+}
+
 function computeRank(d) {
+  // PHASE-I 2026-04-22: route to v2 when configured via DA key.
+  // Default remains v1 so we don't break existing pinned-config backtests.
+  const daCfg = d?._env?._deepAuditConfig || null;
+  const formula = String(daCfg?.deep_audit_rank_formula || "v1").toLowerCase();
+  if (formula === "v2") return computeRankV2(d);
+
   const aw = _activeAdaptiveRankWeights;
   const htf = Number(d.htf_score);
   const ltf = Number(d.ltf_score);

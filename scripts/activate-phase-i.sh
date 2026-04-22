@@ -24,7 +24,8 @@
 #   - deep_audit_universe_adaptive_rank=true
 #   - deep_audit_universe_rank_reference=40
 #   - deep_audit_universe_rank_bump_per_ref=3
-#   - deep_audit_min_rank_floor=85           (effective=100 on 215T, =88 on 80T, =85 on 40T)
+#   - deep_audit_min_rank_floor=80           (effective=90 on 215T, =82 on 80T, =80 on 40T)
+#     Matches v9's 40T floor=90 equivalent selectivity at any universe size.
 #
 # Plus preserves Phase-H.3 + H.4 active gates.
 #
@@ -56,11 +57,12 @@ if [[ "$MODE" == "activate" ]]; then
 
     {"key": "deep_audit_max_loss_time_scaled_v2", "value": "true"},
 
+    {"key": "deep_audit_rank_formula", "value": "v2"},
     {"key": "deep_audit_strict_rank_required", "value": "true"},
     {"key": "deep_audit_universe_adaptive_rank", "value": "true"},
     {"key": "deep_audit_universe_rank_reference", "value": "40"},
-    {"key": "deep_audit_universe_rank_bump_per_ref", "value": "3"},
-    {"key": "deep_audit_min_rank_floor", "value": "85"},
+    {"key": "deep_audit_universe_rank_bump_per_ref", "value": "2"},
+    {"key": "deep_audit_min_rank_floor", "value": "50"},
 
     {"key": "deep_audit_regime_adaptive_enabled", "value": "true"},
     {"key": "deep_audit_regime_uptrend_short_rank_min", "value": "98"},
