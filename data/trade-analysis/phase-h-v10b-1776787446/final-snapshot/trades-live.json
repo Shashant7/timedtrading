@@ -1,0 +1,26 @@
+{
+  "ok": true,
+  "count": 0,
+  "trades": [],
+  "source": "replay_kv",
+  "live_run_id": null,
+  "read_model": {
+    "surface": "trade_autopsy",
+    "mode": "live",
+    "trade_count": 0,
+    "source_meta": {
+      "source": "replay_kv",
+      "archive_run_id": null,
+      "live_run_id": null,
+      "active_source": null,
+      "is_clean_lane": false
+    },
+    "live_run": null,
+    "archive_run": null,
+    "replay": {
+      "locked": false,
+      "lock": null,
+      "running": null
+    }
+  }
+}
