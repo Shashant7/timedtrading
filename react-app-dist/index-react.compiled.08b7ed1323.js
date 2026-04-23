@@ -9496,6 +9496,449 @@ function renderCompactCardFn(t, {
     addingTicker: addingTicker
   });
 }
+function StatusStrip({
+  tickers = [],
+  data = {},
+  trades = [],
+  allTickersWithRanks = [],
+  onSelectTicker,
+  dashboardMode = "analysis"
+}) {
+  const mktOpen = (typeof window !== "undefined" && window.TimedPriceUtils?.isNyRegularMarketOpen?.()) ?? false;
+  const breadth = React.useMemo(() => {
+    if (!Array.isArray(tickers) || tickers.length === 0) return null;
+    let green = 0,
+      red = 0,
+      counted = 0;
+    const get = typeof window !== "undefined" ? window.getDailyChange || null : null;
+    for (const t of tickers) {
+      if (!t || !t.ticker) continue;
+      if (t.ticker === "BTCUSD" || t.ticker === "ETHUSD") continue;
+      let pct = null;
+      if (get) {
+        try {
+          pct = get(t)?.dayPct;
+        } catch {
+          pct = null;
+        }
+      }
+      if (!Number.isFinite(pct)) pct = Number(t?.day_change_pct ?? t?.dailyChgPct);
+      if (!Number.isFinite(pct)) continue;
+      counted++;
+      if (pct > 0) green++;else if (pct < 0) red++;
+    }
+    if (counted === 0) return null;
+    return {
+      green,
+      red,
+      total: counted,
+      pct: counted > 0 ? green / counted * 100 : 50
+    };
+  }, [tickers]);
+  const regime = React.useMemo(() => {
+    if (!breadth) return {
+      label: "LOADING",
+      tone: "neutral"
+    };
+    const p = breadth.pct;
+    const spy = data && typeof data === "object" ? data["SPY"] : null;
+    const spyPct = (() => {
+      if (!spy) return null;
+      const get = typeof window !== "undefined" ? window.getDailyChange : null;
+      let v = null;
+      if (get) {
+        try {
+          v = get(spy)?.dayPct;
+        } catch {
+          v = null;
+        }
+      }
+      if (!Number.isFinite(v)) v = Number(spy?.day_change_pct ?? spy?.dailyChgPct);
+      return Number.isFinite(v) ? v : null;
+    })();
+    if (p >= 62 && (spyPct == null || spyPct > -0.2)) return {
+      label: "RISK-ON",
+      tone: "success",
+      spyPct
+    };
+    if (p <= 38 && (spyPct == null || spyPct < 0.2)) return {
+      label: "RISK-OFF",
+      tone: "danger",
+      spyPct
+    };
+    if (p >= 55) return {
+      label: "TILTED UP",
+      tone: "success-soft",
+      spyPct
+    };
+    if (p <= 45) return {
+      label: "TILTED DOWN",
+      tone: "danger-soft",
+      spyPct
+    };
+    return {
+      label: "MIXED",
+      tone: "neutral",
+      spyPct
+    };
+  }, [breadth, data]);
+  const vix = React.useMemo(() => {
+    const vixTkr = data && typeof data === "object" ? data["VIX"] || data["$VIX"] || data["^VIX"] : null;
+    const vixy = data && typeof data === "object" ? data["VIXY"] : null;
+    let level = null;
+    if (vixTkr) {
+      level = Number(vixTkr?._live_price ?? vixTkr?.price ?? vixTkr?.close);
+    }
+    if (!Number.isFinite(level) || level <= 0) {
+      if (vixy) {
+        const pct = Number(vixy?.day_change_pct);
+        if (Number.isFinite(pct)) {
+          return {
+            level: null,
+            vixyPct: pct,
+            bucket: pct > 5 ? "spike" : pct > 2 ? "rising" : pct < -2 ? "easing" : "stable"
+          };
+        }
+      }
+      return null;
+    }
+    const bucket = level < 15 ? "calm" : level < 20 ? "normal" : level < 25 ? "elevated" : level < 35 ? "high" : "panic";
+    return {
+      level,
+      bucket
+    };
+  }, [data]);
+  const exposure = React.useMemo(() => {
+    if (!Array.isArray(trades)) return null;
+    let openCount = 0,
+      openUnrealized = 0,
+      todayClosedRealized = 0,
+      todayWins = 0,
+      todayLosses = 0;
+    const todayNy = (() => {
+      try {
+        return new Date().toLocaleDateString("en-CA", {
+          timeZone: "America/New_York"
+        });
+      } catch {
+        return null;
+      }
+    })();
+    for (const tr of trades) {
+      if (!tr) continue;
+      const isOpen = !tr.exit_ts && !tr.exit_timestamp && (tr.status === "OPEN" || !tr.status);
+      if (isOpen) {
+        openCount++;
+        const pnl = Number(tr.lifecycle_realized_pnl ?? tr.pnl ?? 0);
+        if (Number.isFinite(pnl)) openUnrealized += pnl;
+      } else if (todayNy) {
+        const ets = tr.exit_ts || tr.exit_timestamp;
+        if (!ets) continue;
+        try {
+          const d = new Date(ets > 1e12 ? ets : ets * 1000).toLocaleDateString("en-CA", {
+            timeZone: "America/New_York"
+          });
+          if (d === todayNy) {
+            const pnl = Number(tr.pnl ?? tr.lifecycle_realized_pnl ?? 0);
+            if (Number.isFinite(pnl)) {
+              todayClosedRealized += pnl;
+              if (pnl > 0) todayWins++;else if (pnl < 0) todayLosses++;
+            }
+          }
+        } catch {}
+      }
+    }
+    return {
+      openCount,
+      openUnrealized,
+      todayClosedRealized,
+      todayWins,
+      todayLosses,
+      dayNet: openUnrealized + todayClosedRealized
+    };
+  }, [trades]);
+  const topOpp = React.useMemo(() => {
+    if (!Array.isArray(allTickersWithRanks) || allTickersWithRanks.length === 0) return null;
+    const openSet = new Set((Array.isArray(trades) ? trades : []).filter(tr => !tr?.exit_ts && !tr?.exit_timestamp).map(tr => String(tr?.ticker || "").toUpperCase()));
+    for (const t of allTickersWithRanks) {
+      const sym = String(t?.ticker || "").toUpperCase();
+      if (!sym) continue;
+      if (openSet.has(sym)) continue;
+      const rank = Number(t?.rank);
+      if (!Number.isFinite(rank) || rank <= 0) continue;
+      return {
+        ticker: sym,
+        rank,
+        dir: t?.direction || t?.consensus_direction || "—",
+        setup: t?.setup_name || t?.entry_path || "—"
+      };
+    }
+    return null;
+  }, [allTickersWithRanks, trades]);
+  const toneCls = tone => {
+    switch (tone) {
+      case "success":
+        return {
+          bg: "var(--tt-success-dim)",
+          bd: "rgba(52,211,153,0.28)",
+          fg: "var(--tt-success)"
+        };
+      case "success-soft":
+        return {
+          bg: "rgba(52,211,153,0.07)",
+          bd: "rgba(52,211,153,0.18)",
+          fg: "var(--tt-success)"
+        };
+      case "danger":
+        return {
+          bg: "var(--tt-danger-dim)",
+          bd: "rgba(239,68,68,0.30)",
+          fg: "var(--tt-danger)"
+        };
+      case "danger-soft":
+        return {
+          bg: "rgba(239,68,68,0.07)",
+          bd: "rgba(239,68,68,0.18)",
+          fg: "var(--tt-danger)"
+        };
+      case "warning":
+        return {
+          bg: "var(--tt-warning-dim)",
+          bd: "rgba(245,158,11,0.28)",
+          fg: "var(--tt-warning)"
+        };
+      default:
+        return {
+          bg: "var(--tt-bg-2)",
+          bd: "var(--tt-border-weak)",
+          fg: "var(--tt-text-2)"
+        };
+    }
+  };
+  const Cell = ({
+    label,
+    children,
+    title
+  }) => React.createElement("div", {
+    className: "flex flex-col justify-center min-w-0",
+    style: {
+      padding: "6px 14px",
+      borderRight: "1px solid var(--tt-border-weak)"
+    },
+    title: title
+  }, React.createElement("div", {
+    className: "tt-label",
+    style: {
+      fontSize: 9,
+      marginBottom: 2
+    }
+  }, label), React.createElement("div", {
+    style: {
+      fontSize: 12,
+      lineHeight: 1.2
+    },
+    className: "truncate"
+  }, children));
+  const regimeTone = toneCls(regime.tone);
+  const vixTone = vix ? toneCls(vix.bucket === "calm" ? "success" : vix.bucket === "normal" ? "neutral" : vix.bucket === "elevated" ? "warning" : vix.bucket === "high" || vix.bucket === "rising" ? "warning" : vix.bucket === "panic" || vix.bucket === "spike" ? "danger" : "neutral") : toneCls("neutral");
+  const breadthTone = breadth ? toneCls(breadth.pct >= 60 ? "success" : breadth.pct >= 50 ? "success-soft" : breadth.pct >= 40 ? "neutral" : breadth.pct >= 30 ? "danger-soft" : "danger") : toneCls("neutral");
+  const expTone = exposure ? toneCls(exposure.dayNet > 0 ? "success" : exposure.dayNet < 0 ? "danger" : "neutral") : toneCls("neutral");
+  return React.createElement("div", {
+    className: "mb-3 flex flex-wrap items-stretch overflow-hidden",
+    style: {
+      background: "var(--tt-bg-1)",
+      border: "1px solid var(--tt-border-weak)",
+      borderRadius: "var(--tt-radius)",
+      boxShadow: "var(--tt-shadow-sm)"
+    },
+    "data-coachmark": "status-strip",
+    "aria-label": "Market status strip"
+  }, React.createElement(Cell, {
+    label: "Regime",
+    title: `Breadth ${breadth ? breadth.green + '/' + breadth.total + ' green' : '—'}`
+  }, React.createElement("span", {
+    className: "font-bold",
+    style: {
+      color: regimeTone.fg,
+      letterSpacing: "0.02em"
+    }
+  }, regime.label), regime.spyPct != null && React.createElement("span", {
+    className: "tt-num ml-1.5",
+    style: {
+      fontSize: 10.5,
+      color: regime.spyPct > 0 ? "var(--tt-success)" : regime.spyPct < 0 ? "var(--tt-danger)" : "var(--tt-text-3)"
+    }
+  }, "SPY ", regime.spyPct > 0 ? "+" : "", regime.spyPct.toFixed(2), "%")), React.createElement(Cell, {
+    label: "Vol",
+    title: vix?.level ? `VIX ${vix.level.toFixed(2)} · ${vix.bucket}` : vix ? `VIXY ${vix.vixyPct > 0 ? '+' : ''}${vix.vixyPct.toFixed(2)}% · ${vix.bucket}` : "No VIX data"
+  }, vix?.level != null ? React.createElement("span", null, React.createElement("span", {
+    className: "tt-num font-bold",
+    style: {
+      color: vixTone.fg
+    }
+  }, vix.level.toFixed(1)), React.createElement("span", {
+    className: "ml-1.5 uppercase",
+    style: {
+      fontSize: 9.5,
+      letterSpacing: "0.08em",
+      color: "var(--tt-text-3)"
+    }
+  }, vix.bucket)) : vix ? React.createElement("span", null, React.createElement("span", {
+    className: "tt-num font-bold",
+    style: {
+      color: vixTone.fg
+    }
+  }, vix.vixyPct > 0 ? "+" : "", vix.vixyPct.toFixed(1), "%"), React.createElement("span", {
+    className: "ml-1.5 uppercase",
+    style: {
+      fontSize: 9.5,
+      letterSpacing: "0.08em",
+      color: "var(--tt-text-3)"
+    }
+  }, vix.bucket)) : React.createElement("span", {
+    className: "text-[#4b5563]"
+  }, "\u2014")), React.createElement(Cell, {
+    label: "Breadth",
+    title: breadth ? `${breadth.green} green / ${breadth.red} red / ${breadth.total} total` : ""
+  }, breadth ? React.createElement("span", null, React.createElement("span", {
+    className: "tt-num font-bold",
+    style: {
+      color: breadthTone.fg
+    }
+  }, breadth.pct.toFixed(0), "%"), React.createElement("span", {
+    className: "tt-num ml-1.5",
+    style: {
+      fontSize: 10.5,
+      color: "var(--tt-text-3)"
+    }
+  }, React.createElement("span", {
+    style: {
+      color: "var(--tt-success)"
+    }
+  }, breadth.green), React.createElement("span", {
+    style: {
+      color: "var(--tt-text-4)"
+    }
+  }, "/"), React.createElement("span", {
+    style: {
+      color: "var(--tt-danger)"
+    }
+  }, breadth.red))) : React.createElement("span", {
+    className: "text-[#4b5563]"
+  }, "\u2014")), (dashboardMode === "trader" || dashboardMode === "investor") && exposure && exposure.openCount > 0 && React.createElement(Cell, {
+    label: "Open",
+    title: `${exposure.openCount} open · unrealized ${exposure.openUnrealized >= 0 ? '+$' : '-$'}${Math.abs(exposure.openUnrealized).toFixed(0)}`
+  }, React.createElement("span", null, React.createElement("span", {
+    className: "tt-num font-bold text-white"
+  }, exposure.openCount), exposure.openUnrealized !== 0 && React.createElement("span", {
+    className: "tt-num ml-1.5",
+    style: {
+      fontSize: 10.5,
+      color: exposure.openUnrealized > 0 ? "var(--tt-success)" : "var(--tt-danger)"
+    }
+  }, exposure.openUnrealized > 0 ? "+" : "", "$", exposure.openUnrealized.toFixed(0)))), (dashboardMode === "trader" || dashboardMode === "investor") && exposure && (exposure.todayWins + exposure.todayLosses > 0 || exposure.todayClosedRealized !== 0) && React.createElement(Cell, {
+    label: "Today",
+    title: `${exposure.todayWins}W / ${exposure.todayLosses}L closed today`
+  }, React.createElement("span", null, React.createElement("span", {
+    className: "tt-num font-bold",
+    style: {
+      color: expTone.fg
+    }
+  }, exposure.todayClosedRealized >= 0 ? "+" : "-", "$", Math.abs(exposure.todayClosedRealized).toFixed(0)), React.createElement("span", {
+    className: "tt-num ml-1.5",
+    style: {
+      fontSize: 10.5,
+      color: "var(--tt-text-3)"
+    }
+  }, React.createElement("span", {
+    style: {
+      color: "var(--tt-success)"
+    }
+  }, exposure.todayWins), React.createElement("span", {
+    style: {
+      color: "var(--tt-text-4)"
+    }
+  }, "W/"), React.createElement("span", {
+    style: {
+      color: "var(--tt-danger)"
+    }
+  }, exposure.todayLosses), React.createElement("span", {
+    style: {
+      color: "var(--tt-text-4)"
+    }
+  }, "L")))), topOpp && React.createElement("button", {
+    onClick: () => onSelectTicker && onSelectTicker(topOpp.ticker),
+    className: "flex flex-col justify-center min-w-0 hover:bg-white/[0.04] transition-colors group text-left",
+    style: {
+      padding: "6px 14px",
+      borderRight: "1px solid var(--tt-border-weak)"
+    },
+    title: `Best current opportunity — click to open ${topOpp.ticker}`
+  }, React.createElement("div", {
+    className: "tt-label",
+    style: {
+      fontSize: 9,
+      marginBottom: 2
+    }
+  }, "Top Signal"), React.createElement("div", {
+    style: {
+      fontSize: 12,
+      lineHeight: 1.2
+    },
+    className: "truncate"
+  }, React.createElement("span", {
+    className: "tt-num font-bold text-white group-hover:text-cyan-300 transition-colors"
+  }, topOpp.ticker), React.createElement("span", {
+    className: "tt-num ml-1.5",
+    style: {
+      fontSize: 10.5,
+      color: "var(--tt-text-3)"
+    }
+  }, "rank ", React.createElement("span", {
+    className: "font-semibold",
+    style: {
+      color: "var(--tt-info)"
+    }
+  }, topOpp.rank)), topOpp.dir && topOpp.dir !== "—" && React.createElement("span", {
+    className: "ml-1.5",
+    style: {
+      fontSize: 9.5,
+      textTransform: "uppercase",
+      letterSpacing: "0.08em",
+      color: String(topOpp.dir).toUpperCase().includes("SHORT") ? "var(--tt-danger)" : "var(--tt-success)"
+    }
+  }, String(topOpp.dir).toUpperCase().includes("SHORT") ? "short" : "long"))), React.createElement("div", {
+    className: "flex items-center ml-auto",
+    style: {
+      padding: "6px 14px"
+    }
+  }, mktOpen ? React.createElement(React.Fragment, null, React.createElement("span", {
+    className: "tt-heartbeat tt-heartbeat-green",
+    style: {
+      marginRight: 8
+    }
+  }), React.createElement("span", {
+    className: "tt-label",
+    style: {
+      color: "var(--tt-success)",
+      fontSize: 9.5
+    }
+  }, "Market Open")) : React.createElement(React.Fragment, null, React.createElement("span", {
+    style: {
+      width: 6,
+      height: 6,
+      borderRadius: "50%",
+      background: "var(--tt-text-4)",
+      display: "inline-block",
+      marginRight: 8
+    }
+  }), React.createElement("span", {
+    className: "tt-label",
+    style: {
+      fontSize: 9.5
+    }
+  }, "Market Closed"))));
+}
 function ActionCenterPanel({
   tickers = [],
   allTickersWithRanks = [],
@@ -14499,7 +14942,14 @@ function App() {
     className: "mx-auto w-full px-2 sm:px-4 lg:px-5"
   }, React.createElement("header", {
     className: "mb-4 pt-3"
-  }, _dataIsStale && React.createElement("div", {
+  }, !loading && data && React.createElement(StatusStrip, {
+    tickers: tickers,
+    data: data,
+    trades: trades,
+    allTickersWithRanks: allTickersWithRanks,
+    onSelectTicker: handleTickerSelect,
+    dashboardMode: dashboardMode
+  }), _dataIsStale && React.createElement("div", {
     className: "mb-2 px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 flex items-center gap-2 text-[11px] text-amber-300"
   }, React.createElement("span", null, "\u26A0"), React.createElement("span", null, "Data may be stale (", _dataStaleMinutes, "m old) \u2014"), React.createElement("button", {
     onClick: () => refetch && refetch(),
@@ -14807,10 +15257,16 @@ function App() {
     return React.createElement("div", {
       className: "mb-3"
     }, React.createElement("div", {
-      className: "flex items-center gap-2 mb-1.5"
+      className: "flex items-center gap-2 mb-2"
     }, React.createElement("span", {
-      className: "text-[10px] text-[#6b7280] font-semibold tracking-wide uppercase"
-    }, "Top Movers")), React.createElement("div", {
+      className: "tt-label"
+    }, "Top Movers"), React.createElement("span", {
+      style: {
+        flex: 1,
+        height: 1,
+        background: "var(--tt-border-weak)"
+      }
+    })), React.createElement("div", {
       className: "space-y-1.5"
     }, React.createElement("div", {
       className: "flex items-center gap-1.5 flex-wrap"
@@ -14839,16 +15295,15 @@ function App() {
     savedTickers: savedTickers,
     toggleSavedTicker: toggleSavedTicker
   })), React.createElement("div", {
-    className: "mb-4 flex flex-col items-center gap-2",
+    className: "mb-4 flex items-center justify-center gap-2",
     "data-coachmark": "nav-modes"
-  }, React.createElement("div", {
-    className: "text-center"
-  }, React.createElement("div", {
-    className: "text-[10px] uppercase tracking-[0.22em] text-[#4b5563]"
-  }, "Choose The View Below"), React.createElement("div", {
-    className: "text-[12px] text-[#94a3b8] mt-1"
-  }, "This controller changes the dashboard section underneath.")), React.createElement("div", {
-    className: "flex justify-center w-full"
+  }, React.createElement("span", {
+    className: "tt-label hidden sm:inline",
+    style: {
+      fontSize: 9
+    }
+  }, "View"), React.createElement("div", {
+    className: "flex justify-center"
   }, React.createElement("div", {
     className: "flex w-full sm:w-auto items-stretch bg-white/[0.04] border border-white/[0.10] rounded-xl overflow-hidden shadow-sm"
   }, React.createElement("button", {
