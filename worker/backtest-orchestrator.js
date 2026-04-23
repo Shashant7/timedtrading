@@ -35,6 +35,19 @@ export const ORCHESTRATOR_INTERVAL_MIN_DEFAULT = 30;
 export const ORCHESTRATOR_MAX_BATCHES_PER_TICK = 5;       // Per-tick budget (each batch ~15-20s)
 export const ORCHESTRATOR_PER_BATCH_TIMEOUT_MS = 45000;   // curl-style timeout for one batch
 
+// Direct in-process hook for self-invoking candle-replay from the cron
+// tick. Landed earlier as a way to bypass Cloudflare's self-HTTP fetch
+// block, but the executor wiring wasn't finished before V11 shipped. A
+// no-op stub keeps the worker/index.js import path valid; we'll wire it
+// live when we revisit the orchestrator for V13+. Safe to leave.
+let _directCandleReplayStep = null;
+export function setDirectCandleReplayStep(fn) {
+  _directCandleReplayStep = typeof fn === "function" ? fn : null;
+}
+export function getDirectCandleReplayStep() {
+  return _directCandleReplayStep;
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // D1 schema
 // ─────────────────────────────────────────────────────────────────────

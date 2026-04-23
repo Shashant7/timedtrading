@@ -743,6 +743,40 @@ export function evaluateEntry(ctx) {
     ? !!(c10_5?.crossUp || (c10_5?.bull && c10_5?.above && c10_5?.fastSlope >= 0))
     : !!(c10_5?.crossDn || (c10_5?.bear && c10_5?.below && c10_5?.fastSlope <= 0));
 
+  // V12 P5 (2026-04-23) — tt_momentum retune (stricter entry)
+  //
+  // V11: 71.4 % WR but total PnL -2.0 %. Wins mean +0.78 %, losses
+  // mean -2.46 % — R:R is upside-down. The trigger is firing on too
+  // many "okay" cross-ups that stall out. Tighten entry criteria so
+  // only high-conviction momentum survives:
+  //   - RVol floor (default 2.0x, was ~1.5x)
+  //   - Bar close in upper N % of bar (default 60 %) — rejects wicks
+  // Both DA-gated so we can tune or disable.
+  if (momentumTrigger) {
+    const _minRvol = Number(daCfg.deep_audit_tt_momentum_min_rvol);
+    const _minBarPos = Number(daCfg.deep_audit_tt_momentum_bar_position_min);
+    if (Number.isFinite(_minRvol) && _minRvol > 0) {
+      const _rvol = Number(ctx?.rvol?.best) || Number(d?.rvol_map?.["30"]?.vr) || Number(d?.rvol_best) || 0;
+      if (_rvol > 0 && _rvol < _minRvol) {
+        momentumTrigger = false;
+      }
+    }
+    if (momentumTrigger && Number.isFinite(_minBarPos) && _minBarPos > 0) {
+      // Bar position: where did the close land in the bar's range?
+      // LONG entries: want close in upper (60%+) of bar (strong buying)
+      // SHORT entries: want close in lower (40%- for LONG side) of bar
+      const bar = m10?.latest || m10?.currentBar || null;
+      const high = Number(bar?.h ?? bar?.high);
+      const low = Number(bar?.l ?? bar?.low);
+      const close = Number(bar?.c ?? bar?.close ?? d?.price);
+      if (Number.isFinite(high) && Number.isFinite(low) && Number.isFinite(close) && high > low) {
+        const pos = (close - low) / (high - low);
+        if (side === "LONG" && pos < _minBarPos) momentumTrigger = false;
+        if (side === "SHORT" && pos > (1 - _minBarPos)) momentumTrigger = false;
+      }
+    }
+  }
+
   pullbackTrigger = side === "LONG"
     ? !!((c10_8?.inCloud || c10_8?.above) && c10_8?.fastSlope >= 0 && ltfConfirm)
     : !!((c10_8?.inCloud || c10_8?.below) && c10_8?.fastSlope <= 0 && ltfConfirm);
