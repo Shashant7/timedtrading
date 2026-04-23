@@ -20949,6 +20949,20 @@ let _activeAdaptiveRankWeights = null;
 
 function shouldTraceRankBreakdown(d) {
   if (!d || typeof d !== "object") return false;
+  const daCfg = d?._env?._deepAuditConfig || null;
+
+  // V12 P2 (2026-04-23): when `deep_audit_rank_trace_on_entry_always`
+  // is true, capture the trace on EVERY bar that might become an entry.
+  // V11 only captured 32 % of entered trades because
+  // `deep_audit_rank_trace_force_enabled` required the batch layer to
+  // additionally set `__rank_trace_force = true`, and that plumbing
+  // only fires on a sample of bars. The V12 key short-circuits both
+  // conditions so we end up with 100 % coverage for the final run's
+  // rank-formula recalibration.
+  if (String(daCfg?.deep_audit_rank_trace_on_entry_always ?? "false") === "true") {
+    return true;
+  }
+
   // V11 rank integrity audit (2026-04-22): per-trade forced trace.
   // When the entry pipeline decides to take a trade it can set
   // d.__rank_trace_force = true so we capture the full component
@@ -20959,7 +20973,6 @@ function shouldTraceRankBreakdown(d) {
   // backtest_run_trades.rank_trace_json for audit.
   // See: tasks/v11-rank-integrity-audit-2026-04-22.md
   if (d.__rank_trace_force === true) {
-    const daCfg = d?._env?._deepAuditConfig || null;
     const flagRaw = daCfg?.deep_audit_rank_trace_force_enabled;
     // Enabled when the DA key is explicitly "true". Default: disabled
     // so legacy runs are unchanged.
