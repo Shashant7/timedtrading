@@ -15,7 +15,20 @@ const BRAND = {
   textPrimary: "#e5e7eb",
   textSecondary: "#9ca3af",
   textMuted: "#6b7280",
+  // Editorial accent — matches web --tt-editorial (purple)
+  editorial: "#a78bfa",
+  warning: "#f59e0b",
 };
+
+// Email-safe font stacks (webfonts are unreliable in Gmail/Outlook/Apple Mail,
+// so we fall back to universally-available families that match the web look).
+// - UI: same Helvetica Neue / Arial already used
+// - Editorial: Georgia is available on ~100% of mail clients and matches
+//   Instrument Serif closely enough in tone.
+// - Mono/num: Menlo / Consolas / Courier New for data.
+const EMAIL_FONT_UI = "'Helvetica Neue',Arial,sans-serif";
+const EMAIL_FONT_EDITORIAL = "Georgia,'Iowan Old Style','Palatino Linotype',Palatino,serif";
+const EMAIL_FONT_MONO = "'SF Mono',Menlo,Consolas,'Courier New',monospace";
 
 // ═══════════════════════════════════════════════════════════════════════
 // Brief Infographic → Email HTML
@@ -567,19 +580,26 @@ export async function sendDiscordWelcomeEmail(env, email, discordUsername) {
 
 function markdownToEmailHtml(md) {
   if (!md) return "";
-  let html = md
-    .replace(/^### (.+)$/gm, `<h3 style="margin:18px 0 8px;font-size:15px;font-weight:600;color:white">$1</h3>`)
-    .replace(/^## (.+)$/gm, `<h2 style="margin:24px 0 10px;font-size:17px;font-weight:700;color:white;border-bottom:1px solid ${BRAND.border};padding-bottom:6px">$1</h2>`)
+  // Extract blockquotes first (pull-quote editorial treatment).
+  let html = md.replace(/(^|\n)>\s?(.+?)(\n\n|\n>|$)/gs, (_m, pre, body, tail) => {
+    const esc = body.replace(/\n>\s?/g, " ");
+    return `${pre}<blockquote style="margin:18px 0;padding:4px 0 4px 16px;border-left:3px solid ${BRAND.warning};font-family:${EMAIL_FONT_EDITORIAL};font-size:17px;line-height:1.45;font-style:italic;color:${BRAND.textPrimary}">${esc}</blockquote>${tail === "\n>" ? "\n>" : tail}`;
+  });
+  html = html
+    // H3 becomes a tight uppercase tracking label
+    .replace(/^### (.+)$/gm, `<div style="margin:22px 0 8px;font-size:11px;font-weight:700;color:${BRAND.textMuted};text-transform:uppercase;letter-spacing:0.16em;font-family:${EMAIL_FONT_UI}">$1</div>`)
+    // H2 is the editorial section head: Georgia serif, larger, hairline divider
+    .replace(/^## (.+)$/gm, `<h2 style="margin:28px 0 10px;font-size:24px;font-weight:400;color:white;font-family:${EMAIL_FONT_EDITORIAL};letter-spacing:-0.01em;line-height:1.2;border-bottom:1px solid ${BRAND.border};padding-bottom:8px">$1</h2>`)
     .replace(/\*\*(.+?)\*\*/g, `<strong style="color:white">$1</strong>`)
     .replace(/\*(.+?)\*/g, `<em>$1</em>`)
     .replace(/^- (.+)$/gm, `<li style="margin:3px 0;color:${BRAND.textSecondary}">$1</li>`)
-    .replace(/\n\n/g, `</p><p style="margin:0 0 12px;font-size:14px;color:${BRAND.textSecondary};line-height:1.6">`)
+    .replace(/\n\n/g, `</p><p style="margin:0 0 12px;font-size:14px;color:${BRAND.textSecondary};line-height:1.6;font-family:${EMAIL_FONT_UI}">`)
     .replace(/\n/g, "<br>");
   // Wrap list items in <ul>
   html = html.replace(/(<li[^>]*>.*?<\/li>\s*)+/g, (match) =>
     `<ul style="margin:8px 0;padding:0 0 0 20px">${match}</ul>`
   );
-  return `<p style="margin:0 0 12px;font-size:14px;color:${BRAND.textSecondary};line-height:1.6">${html}</p>`;
+  return `<p style="margin:0 0 12px;font-size:14px;color:${BRAND.textSecondary};line-height:1.6;font-family:${EMAIL_FONT_UI}">${html}</p>`;
 }
 
 export async function sendDailyBriefEmail(env, userEmail, brief) {
@@ -617,10 +637,18 @@ export async function sendDailyBriefEmail(env, userEmail, brief) {
     }
   }
 
+  // Editorial masthead: small label + long-form serif date.
+  const accentColor = type === "morning" ? BRAND.warning : BRAND.editorial;
+  const longDate = (() => {
+    try {
+      return new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+    } catch { return date; }
+  })();
+
   const html = emailLayout(`
-    <h1 style="margin:0 0 4px;font-size:20px;font-weight:700;color:white">${label}</h1>
-    <p style="margin:0 0 20px;font-size:13px;color:${BRAND.textMuted}">${date}</p>
-    ${esPrediction ? `<div style="padding:10px 14px;background:rgba(245,158,11,0.08);border-left:3px solid #f59e0b;border-radius:6px;margin:0 0 20px"><p style="margin:0;font-size:13px;color:#fcd34d;font-weight:600">ES Prediction</p><p style="margin:4px 0 0;font-size:13px;color:${BRAND.textSecondary}">${esPrediction}</p></div>` : ""}
+    <div style="font-size:10px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:${accentColor};font-family:${EMAIL_FONT_UI};margin:0 0 6px">${label}</div>
+    <h1 style="margin:0 0 18px;font-size:32px;font-weight:400;color:white;font-family:${EMAIL_FONT_EDITORIAL};letter-spacing:-0.015em;line-height:1.1">${longDate}</h1>
+    ${esPrediction ? `<div style="padding:12px 16px;background:rgba(245,158,11,0.08);border-left:3px solid ${BRAND.warning};border-radius:6px;margin:0 0 20px"><div style="font-size:10px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:${BRAND.warning};font-family:${EMAIL_FONT_UI};margin-bottom:6px">ES Prediction</div><p style="margin:0;font-family:${EMAIL_FONT_EDITORIAL};font-size:16px;font-style:italic;line-height:1.45;color:${BRAND.textPrimary}">&ldquo;${_esc(esPrediction)}&rdquo;</p></div>` : ""}
     ${infographicHtml}
     ${eveningSummaryHtml}
     ${briefHtml}
