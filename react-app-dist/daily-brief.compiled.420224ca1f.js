@@ -203,9 +203,8 @@ function BriefCard({
 }) {
   if (!brief) return null;
   const isMorning = type === "morning";
-  const accentColor = isMorning ? "var(--tt-amber)" : "var(--tt-indigo)";
-  const bgDim = isMorning ? "var(--tt-amber-dim)" : "var(--tt-indigo-dim)";
-  const icon = isMorning ? "\u2600\uFE0F" : "\uD83C\uDF19";
+  const accentColor = isMorning ? "var(--tt-warning)" : "var(--tt-editorial)";
+  const bgDim = isMorning ? "var(--tt-warning-dim)" : "var(--tt-editorial-dim)";
   const label = isMorning ? "Morning Brief" : "Evening Brief";
   const time = brief.publishedAt ? new Date(brief.publishedAt).toLocaleString("en-US", {
     timeZone: "America/New_York",
@@ -213,33 +212,54 @@ function BriefCard({
     minute: "2-digit",
     hour12: true
   }) : "";
+  const dateStr = brief.date ? new Date(brief.date + "T12:00:00").toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric"
+  }) : "";
   return React.createElement("div", {
     className: "tt-card p-6 mb-4"
   }, React.createElement("div", {
-    className: "flex items-center gap-3 mb-4"
-  }, React.createElement("div", {
+    className: "flex items-baseline gap-3 mb-1"
+  }, React.createElement("span", {
+    className: "tt-label-editorial",
     style: {
-      background: bgDim,
-      color: accentColor
-    },
-    className: "w-8 h-8 rounded-lg flex items-center justify-center text-sm font-semibold"
-  }, icon), React.createElement("div", null, React.createElement("div", {
-    className: "text-[14px] font-semibold text-white"
-  }, label), React.createElement("div", {
-    className: "text-[11px] text-[#6b7280]"
-  }, brief.date && React.createElement("span", null, new Date(brief.date + "T12:00:00").toLocaleDateString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric"
-  })), brief.date && time && React.createElement("span", {
-    className: "mx-1"
-  }, "\xB7"), time && React.createElement("span", null, "Published at ", time, " ET"))), brief.esPrediction && React.createElement("div", {
-    className: "ml-auto px-3 py-1 rounded-full text-[11px] font-medium",
-    style: {
-      background: bgDim,
       color: accentColor
     }
-  }, brief.esPrediction.slice(0, 80), brief.esPrediction.length > 80 ? "..." : "")), brief.infographic && React.createElement(BriefInfographic, {
+  }, label), time && React.createElement("span", {
+    className: "tt-label",
+    style: {
+      fontSize: 9
+    }
+  }, "Published ", time, " ET")), React.createElement("div", {
+    className: "flex items-center gap-3 mb-4"
+  }, React.createElement("h2", {
+    className: "tt-editorial m-0",
+    style: {
+      fontSize: 22,
+      lineHeight: 1.15,
+      color: "var(--tt-text-0)",
+      letterSpacing: "-0.01em"
+    }
+  }, dateStr), brief.esPrediction && React.createElement("div", {
+    className: "ml-auto tt-pill",
+    style: {
+      background: bgDim,
+      borderColor: bgDim,
+      color: accentColor,
+      fontSize: 10.5,
+      maxWidth: 420
+    },
+    title: brief.esPrediction
+  }, React.createElement("span", {
+    className: "tt-editorial-italic"
+  }, "\u201C", brief.esPrediction.slice(0, 80), brief.esPrediction.length > 80 ? "&hellip;" : "", "\u201D"))), React.createElement("hr", {
+    className: "tt-divider",
+    style: {
+      margin: "0 0 18px",
+      borderColor: bgDim
+    }
+  }), brief.infographic && React.createElement(BriefInfographic, {
     data: brief.infographic
   }), React.createElement("div", {
     className: "brief-content",
@@ -1370,45 +1390,75 @@ function IntradayFlash({
   return React.createElement("div", {
     className: "mb-8"
   }, React.createElement("div", {
-    className: "flex items-center gap-2.5 mb-4 cursor-pointer select-none",
-    onClick: () => setExpanded(v => !v)
-  }, React.createElement("h2", {
-    className: "text-[11px] font-bold text-[#e5e7eb] uppercase tracking-widest"
-  }, "Intraday Flash"), React.createElement("span", {
-    className: "text-[10px] text-[#4b5563] font-medium tabular-nums"
-  }, sorted.length), React.createElement("svg", {
+    className: "flex items-baseline gap-3 mb-4 cursor-pointer select-none",
+    onClick: () => setExpanded(v => !v),
+    title: expanded ? "Collapse intraday flashes" : "Expand intraday flashes"
+  }, React.createElement("span", {
+    className: "tt-label-editorial"
+  }, "Intraday Flash"), React.createElement("h2", {
+    className: "tt-editorial m-0",
+    style: {
+      fontSize: 20,
+      lineHeight: 1.15,
+      color: "var(--tt-text-1)",
+      letterSpacing: "-0.01em"
+    }
+  }, "Live market pulse"), React.createElement("span", {
+    className: "tt-num",
+    style: {
+      fontSize: 10.5,
+      color: "var(--tt-text-4)"
+    }
+  }, sorted.length), React.createElement("span", {
+    style: {
+      flex: 1,
+      height: 1,
+      background: "var(--tt-border-weak)"
+    }
+  }), React.createElement("svg", {
     width: "12",
     height: "12",
     viewBox: "0 0 24 24",
     fill: "none",
-    stroke: "#4b5563",
+    stroke: "currentColor",
     strokeWidth: "2.5",
     strokeLinecap: "round",
     strokeLinejoin: "round",
     style: {
+      color: "var(--tt-text-3)",
       transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
-      transition: "transform 0.15s"
+      transition: "transform var(--tt-dur-fast) var(--tt-ease-out)"
     }
   }, React.createElement("polyline", {
     points: "6 9 12 15 18 9"
   }))), expanded && sorted.map((entry, i) => React.createElement("div", {
     key: entry.id || i,
-    className: "mb-5 pb-5",
+    className: "mb-6 pb-5",
     style: {
-      borderBottom: "1px solid rgba(255,255,255,0.04)"
+      borderBottom: "1px solid var(--tt-border-weak)"
     }
   }, React.createElement("div", {
-    className: "flex items-center gap-2 mb-2.5"
+    className: "flex items-baseline gap-2 mb-3"
   }, React.createElement("span", {
-    className: "text-[10px] font-bold text-[#6b7280] uppercase tracking-widest"
+    className: "tt-heartbeat",
+    "aria-hidden": "true"
+  }), React.createElement("span", {
+    className: "tt-label-editorial",
+    style: {
+      fontSize: 10
+    }
   }, entry.timeET || "Update"), entry.publishedAt && React.createElement("span", {
-    className: "text-[10px] text-[#374151] tabular-nums"
+    className: "tt-num",
+    style: {
+      fontSize: 10,
+      color: "var(--tt-text-4)"
+    }
   }, new Date(entry.publishedAt).toLocaleTimeString("en-US", {
     timeZone: "America/New_York",
     hour: "numeric",
     minute: "2-digit",
     hour12: true
-  }))), entry.infographic && React.createElement(IntradayPulse, {
+  }), " ET")), entry.infographic && React.createElement(IntradayPulse, {
     infographic: entry.infographic
   }), React.createElement("div", {
     className: "brief-content",
@@ -1885,32 +1935,67 @@ function App({
     className: "loading-spinner mr-3"
   }), React.createElement("span", {
     className: "text-[13px] text-[#6b7280]"
-  }, "Loading...")) : selectedArchiveData ? React.createElement("div", {
-    className: "tt-card p-6"
-  }, React.createElement("div", {
-    className: "flex items-center gap-2 mb-4"
-  }, React.createElement("span", {
-    className: "text-sm"
-  }, selectedArchiveData.type === "morning" ? "\u2600\uFE0F" : "\uD83C\uDF19"), React.createElement("span", {
-    className: "text-[14px] font-semibold text-white"
-  }, selectedArchiveData.type === "morning" ? "Morning Brief" : "Evening Brief"), React.createElement("span", {
-    className: "text-[11px] text-[#6b7280]"
-  }, selectedArchiveData.date), selectedArchiveData.es_prediction_correct != null && React.createElement(PredictionBadge, {
-    value: selectedArchiveData.es_prediction_correct
-  })), React.createElement("div", {
-    className: "brief-content",
-    dangerouslySetInnerHTML: {
-      __html: renderMarkdown(selectedArchiveData.content)
-    }
-  })) : React.createElement("div", {
+  }, "Loading...")) : selectedArchiveData ? (() => {
+    const _isM = selectedArchiveData.type === "morning";
+    const _acc = _isM ? "var(--tt-warning)" : "var(--tt-editorial)";
+    const _dateStr = selectedArchiveData.date ? new Date(selectedArchiveData.date + "T12:00:00").toLocaleDateString("en-US", {
+      weekday: "long",
+      month: "long",
+      day: "numeric"
+    }) : selectedArchiveData.date;
+    return React.createElement("div", {
+      className: "tt-card p-6"
+    }, React.createElement("div", {
+      className: "flex items-baseline gap-3 mb-1"
+    }, React.createElement("span", {
+      className: "tt-label-editorial",
+      style: {
+        color: _acc
+      }
+    }, _isM ? "Morning Brief" : "Evening Brief"), selectedArchiveData.es_prediction_correct != null && React.createElement(PredictionBadge, {
+      value: selectedArchiveData.es_prediction_correct
+    })), React.createElement("h2", {
+      className: "tt-editorial mb-4",
+      style: {
+        fontSize: 22,
+        lineHeight: 1.15,
+        color: "var(--tt-text-0)",
+        letterSpacing: "-0.01em"
+      }
+    }, _dateStr), React.createElement("hr", {
+      className: "tt-divider",
+      style: {
+        margin: "0 0 18px"
+      }
+    }), React.createElement("div", {
+      className: "brief-content",
+      dangerouslySetInnerHTML: {
+        __html: renderMarkdown(selectedArchiveData.content)
+      }
+    }));
+  })() : React.createElement("div", {
     className: "text-[13px] text-[#4b5563]"
   }, "Brief not found.")), React.createElement("div", {
     className: "mt-10"
   }, React.createElement("div", {
-    className: "flex items-center gap-3 mb-4"
-  }, React.createElement("h2", {
-    className: "text-[14px] font-semibold text-[#9ca3af]"
-  }, "Archive"), archiveLoading && React.createElement("div", {
+    className: "flex items-baseline gap-3 mb-4"
+  }, React.createElement("span", {
+    className: "tt-label-editorial"
+  }, "Archive"), React.createElement("h2", {
+    className: "tt-editorial m-0",
+    style: {
+      fontSize: 20,
+      lineHeight: 1.15,
+      color: "var(--tt-text-1)",
+      letterSpacing: "-0.01em"
+    }
+  }, "Past briefs"), React.createElement("span", {
+    style: {
+      flex: 1,
+      height: 1,
+      background: "var(--tt-border-weak)"
+    }
+  }), archiveLoading && React.createElement("div", {
     className: "loading-spinner",
     style: {
       width: 14,
