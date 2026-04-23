@@ -2843,16 +2843,29 @@ function App({
     className: "max-w-[1200px] mx-auto px-4 md:px-6 py-6"
   }, React.createElement("div", {
     className: "flex flex-wrap items-start justify-between gap-3 mb-4"
-  }, React.createElement("div", null, React.createElement("h1", {
-    className: "text-xl font-semibold text-white mb-1"
-  }, "Trade Autopsy"), React.createElement("p", {
-    className: "text-[13px] text-[#6b7280]"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "tt-label-editorial mb-1"
+  }, "Trade Autopsy"), React.createElement("h1", {
+    className: "tt-editorial m-0 mb-2",
+    style: {
+      fontSize: 30,
+      lineHeight: 1.1,
+      color: "var(--tt-text-0)",
+      letterSpacing: "-0.015em"
+    }
+  }, "Every trade, dissected."), React.createElement("p", {
+    className: "text-[13px]",
+    style: {
+      color: "var(--tt-text-3)"
+    }
   }, React.createElement("span", {
     className: "sm:hidden"
   }, "Tap a trade to review and classify."), React.createElement("span", {
     className: "hidden sm:inline"
   }, "Review and annotate trades. Click a row to open the chart and add classification. This list is a snapshot \u2014 use ", React.createElement("strong", {
-    className: "text-[#9ca3af]"
+    style: {
+      color: "var(--tt-text-2)"
+    }
   }, "Refresh"), " to load new trades."))), React.createElement("div", {
     className: "flex items-center gap-2 shrink-0"
   }, React.createElement("button", {

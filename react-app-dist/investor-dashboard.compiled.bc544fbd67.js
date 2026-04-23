@@ -193,16 +193,25 @@ function MarketHealthBar({
   }, React.createElement("div", {
     className: "flex items-center justify-between mb-1"
   }, React.createElement("div", {
-    className: "flex items-center gap-3"
-  }, React.createElement("h2", {
-    className: "text-sm font-semibold text-white"
-  }, "Market Health"), React.createElement(RegimeBadge, {
+    className: "flex items-baseline gap-3"
+  }, React.createElement("span", {
+    className: "tt-label-editorial"
+  }, "Market Health"), React.createElement("h2", {
+    className: "tt-editorial m-0",
+    style: {
+      fontSize: 18,
+      lineHeight: 1.15,
+      color: "var(--tt-text-1)",
+      letterSpacing: "-0.01em"
+    }
+  }, "Is the tide in or out?"), React.createElement(RegimeBadge, {
     regime
   })), React.createElement("div", {
-    className: "flex items-center gap-2"
+    className: "flex items-baseline gap-2"
   }, React.createElement("span", {
-    className: "text-2xl font-bold",
+    className: "tt-num font-bold",
     style: {
+      fontSize: 28,
       color
     }
   }, score), React.createElement("span", {

@@ -4806,10 +4806,11 @@ function PortfolioColumn({
 
 
           <div className="tt-card p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-xs font-medium text-[var(--tt-text-faint)] uppercase tracking-wider">
-                ${isTrader ? `Trade History (${tradeHistory.length})` : `Lot History (${closedTrades.length} exits / ${tradeHistory.length} lots)`}
-              </h3>
+            <div className="flex items-baseline justify-between mb-3 gap-3">
+              <div className="flex items-baseline gap-2.5 min-w-0">
+                <span className="tt-label-editorial">${isTrader ? "Trade History" : "Lot History"}</span>
+                <span className="tt-num" style="font-size:11px;color:var(--tt-text-3)">${isTrader ? tradeHistory.length : `${closedTrades.length} exits · ${tradeHistory.length} lots`}</span>
+              </div>
               ${window._ttIsPro && tradeHistory.length > 0 && html`<button
                 onClick=${() => setExpanded(!expanded)}
                 className="text-[11px] px-2 py-1 rounded border border-[var(--tt-border)] text-[var(--tt-text-muted)] hover:text-[var(--tt-text)] hover:bg-[var(--tt-bg-hover)] transition-colors"
@@ -6586,10 +6587,18 @@ function App() {
   }, React.createElement("header", {
     className: "flex items-center justify-between gap-4 flex-wrap mb-6"
   }, React.createElement("div", {
-    className: "flex items-center gap-4"
-  }, React.createElement("h1", {
-    className: "text-lg font-semibold tracking-tight text-[var(--tt-text)]"
-  }, "Portfolio Overview")), React.createElement("div", {
+    className: "flex items-baseline gap-3"
+  }, React.createElement("span", {
+    className: "tt-label-editorial"
+  }, "Trade Ledger"), React.createElement("h1", {
+    className: "tt-editorial m-0",
+    style: {
+      fontSize: 26,
+      lineHeight: 1.1,
+      color: "var(--tt-text-0)",
+      letterSpacing: "-0.015em"
+    }
+  }, "Portfolio overview")), React.createElement("div", {
     className: "flex items-center gap-4 flex-wrap"
   }, React.createElement("div", {
     className: "flex flex-col gap-1"
