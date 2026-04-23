@@ -1280,6 +1280,117 @@
       }
 
       // ── Main App ───────────────────────────────────────────────────────────
+      // ── Intraday Pulse Strip (compact infographic for intraday flash) ─────
+      // Same data as Daily Brief infographic but rendered as a single-row
+      // strip: VIX badge, breadth pill, SPY/QQQ/IWM mini-tiles, open-trades
+      // counter. Optimized for quick-glance mid-session updates, not full
+      // morning/evening study.
+      function IntradayPulse({ infographic }) {
+        if (!infographic) return null;
+        const hl = infographic.headline || {};
+        const indices = Array.isArray(infographic.indices) ? infographic.indices : [];
+        const vixBucket = hl.vix?.bucket;
+        const vixColor = vixBucket === "calm" ? "#34d399"
+          : vixBucket === "normal" ? "#86efac"
+            : vixBucket === "elevated" ? "#fbbf24"
+              : vixBucket === "high" ? "#fb923c"
+                : vixBucket === "panic" ? "#ef4444" : "#9ca3af";
+        const pctColor = (p) => p == null ? "#9ca3af" : p > 0 ? "#34d399" : p < 0 ? "#ef4444" : "#9ca3af";
+        const ggColor = (gg) => gg === "OPEN_UP" ? "#34d399" : gg === "OPEN_DOWN" ? "#ef4444" : "#6b7280";
+        const closing = infographic.closingLine || null;
+
+        return (
+          <div className="mb-3">
+            <div
+              className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2"
+              style={{
+                background: "linear-gradient(135deg, rgba(99,102,241,0.04), rgba(139,92,246,0.02))",
+                borderColor: "rgba(139,92,246,0.18)",
+              }}
+            >
+              {/* Live pulse dot */}
+              <span className="flex items-center gap-1.5 pr-2 border-r border-white/[0.08]">
+                <span
+                  className="w-1.5 h-1.5 rounded-full"
+                  style={{ background: "#a78bfa", boxShadow: "0 0 8px rgba(167,139,250,0.7)" }}
+                />
+                <span className="text-[9px] uppercase tracking-[0.14em] font-bold text-[#a78bfa]">LIVE PULSE</span>
+              </span>
+
+              {/* VIX */}
+              {hl.vix && (
+                <span className="flex items-baseline gap-1">
+                  <span className="text-[9px] uppercase tracking-wider text-[#6b7280]">VIX</span>
+                  <span className="text-[12px] font-semibold tabular-nums" style={{ color: vixColor }}>
+                    {hl.vix.level.toFixed(1)}
+                  </span>
+                  {vixBucket && <span className="text-[9px] lowercase text-[#6b7280]">{vixBucket}</span>}
+                </span>
+              )}
+
+              {/* Breadth */}
+              {hl.breadth && (
+                <span className="flex items-baseline gap-1">
+                  <span className="text-[9px] uppercase tracking-wider text-[#6b7280]">Breadth</span>
+                  <span
+                    className="text-[12px] font-semibold tabular-nums"
+                    style={{ color: hl.breadth.green >= hl.breadth.total * 0.6 ? "#34d399"
+                      : hl.breadth.green <= hl.breadth.total * 0.4 ? "#ef4444" : "#fbbf24" }}
+                  >
+                    {hl.breadth.green}/{hl.breadth.total}
+                  </span>
+                </span>
+              )}
+
+              {/* Index mini-tiles */}
+              {indices.map((idx) => {
+                const gg = idx.levels?.goldenGate || "NEUTRAL";
+                return (
+                  <span
+                    key={idx.sym}
+                    className="flex items-baseline gap-1.5 px-2 py-0.5 rounded-md"
+                    style={{ background: "rgba(255,255,255,0.03)" }}
+                  >
+                    <span className="text-[10px] font-bold text-white">{idx.sym}</span>
+                    {idx.chgPct != null && (
+                      <span className="text-[11px] font-semibold tabular-nums" style={{ color: pctColor(idx.chgPct) }}>
+                        {idx.chgPct >= 0 ? "+" : ""}{idx.chgPct.toFixed(2)}%
+                      </span>
+                    )}
+                    <span className="text-[9px]" style={{ color: ggColor(gg) }}>
+                      {gg === "OPEN_UP" ? "▲" : gg === "OPEN_DOWN" ? "▼" : "◆"}
+                    </span>
+                  </span>
+                );
+              })}
+
+              {/* Open trades counter */}
+              {hl.openTrades != null && hl.openTrades > 0 && (
+                <span className="ml-auto flex items-center gap-1.5 pl-2 border-l border-white/[0.08]">
+                  <span className="text-[9px] uppercase tracking-wider text-[#6b7280]">Open</span>
+                  <span className="text-[12px] font-semibold tabular-nums text-[#a78bfa]">{hl.openTrades}</span>
+                </span>
+              )}
+            </div>
+
+            {/* Bottom line (if extracted from content) */}
+            {closing && (
+              <div
+                className="mt-2 px-3 py-1.5 rounded-md text-[11.5px] leading-snug"
+                style={{
+                  background: "rgba(139,92,246,0.04)",
+                  borderLeft: "2px solid rgba(139,92,246,0.4)",
+                  color: "#d1d5db",
+                }}
+              >
+                <span className="text-[9px] uppercase tracking-widest font-bold text-[#a78bfa] mr-1.5">Take:</span>
+                {closing}
+              </div>
+            )}
+          </div>
+        );
+      }
+
       // ── Intraday Flash Insight Component ──────────────────────────────────
       function IntradayFlash({ entries }) {
         const [expanded, setExpanded] = useState(true);
@@ -1310,6 +1421,7 @@
                     </span>
                   )}
                 </div>
+                {entry.infographic && <IntradayPulse infographic={entry.infographic} />}
                 <div className="brief-content" dangerouslySetInnerHTML={{ __html: renderMarkdown(entry.content) }} />
               </div>
             ))}

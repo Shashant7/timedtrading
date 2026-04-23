@@ -3058,7 +3058,10 @@ export async function generateDailyBrief(env, type, opts = {}) {
     try {
       const optedInUsers = await getEmailOptedInUsers(env, prefKey);
       if (optedInUsers.length) {
-        const briefPayload = { type, content, date: data.today, esPrediction };
+        // 2026-04-23: pass the structured infographic snapshot so the email
+        // renders the same Today's-Three / headline badges / index cards /
+        // events / risks / closing-line treatment as the web Daily Brief.
+        const briefPayload = { type, content, date: data.today, esPrediction, infographic };
         const results = await Promise.allSettled(
           optedInUsers.map(u => sendDailyBriefEmail(env, u.email, briefPayload))
         );
@@ -3361,6 +3364,22 @@ export async function generateIntradayBrief(env, opts = {}) {
       return { ok: false, error: "ai_response_too_short" };
     }
 
+    // 2026-04-23: attach a compact "pulse" infographic to the intraday
+    // entry — same data shape as the full daily infographic but the
+    // frontend renders it as a single strip (VIX / breadth / SPY / QQQ
+    // / IWM / open trades) since intraday is a quick-hit update.
+    let intradayInfographic = null;
+    try {
+      intradayInfographic = buildBriefInfographic(data, "intraday");
+      if (intradayInfographic) {
+        intradayInfographic.topThree = extractTopThree(content);
+        intradayInfographic.closingLine = extractClosingLine(content);
+        intradayInfographic.compact = true; // signals UI to render strip, not full block
+      }
+    } catch (e) {
+      console.warn("[INTRADAY BRIEF] infographic build error:", String(e).slice(0, 120));
+    }
+
     const now = Date.now();
     const entry = {
       id: `intraday-${data.today}-${now}`,
@@ -3368,6 +3387,7 @@ export async function generateIntradayBrief(env, opts = {}) {
       timeET: data.currentTimeET,
       content,
       publishedAt: now,
+      infographic: intradayInfographic,
     };
 
     const currentIntraday = (await kvGetJSON(KV, "timed:daily-brief:intraday")) || [];
