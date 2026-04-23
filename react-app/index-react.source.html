@@ -12151,6 +12151,299 @@
       }
 
       // ─────────────────────────────────────────────────────────────
+      // Status Strip (Zone A): regime/VIX/breadth · exposure · top opportunity
+      //
+      // A single compact row anchored directly under the nav that answers
+      // three glance-questions for the user:
+      //   1. "What's the market mood right now?"    (regime, VIX, breadth)
+      //   2. "Am I exposed and how is it going?"    (open trades, today P&L)
+      //   3. "Where's the best action if I want to act?"  (top-rank ticker)
+      //
+      // Purely derived from data already in scope (tickers, trades, data).
+      // No new network calls.
+      // ─────────────────────────────────────────────────────────────
+      function StatusStrip({ tickers = [], data = {}, trades = [], allTickersWithRanks = [], onSelectTicker, dashboardMode = "analysis" }) {
+        const mktOpen = (typeof window !== "undefined" && window.TimedPriceUtils?.isNyRegularMarketOpen?.()) ?? false;
+
+        // ── breadth: % of non-crypto tickers currently green on the day
+        const breadth = React.useMemo(() => {
+          if (!Array.isArray(tickers) || tickers.length === 0) return null;
+          let green = 0, red = 0, counted = 0;
+          const get = typeof window !== "undefined" ? (window.getDailyChange || null) : null;
+          for (const t of tickers) {
+            if (!t || !t.ticker) continue;
+            if (t.ticker === "BTCUSD" || t.ticker === "ETHUSD") continue;
+            let pct = null;
+            if (get) {
+              try { pct = get(t)?.dayPct; } catch { pct = null; }
+            }
+            if (!Number.isFinite(pct)) pct = Number(t?.day_change_pct ?? t?.dailyChgPct);
+            if (!Number.isFinite(pct)) continue;
+            counted++;
+            if (pct > 0) green++;
+            else if (pct < 0) red++;
+          }
+          if (counted === 0) return null;
+          return { green, red, total: counted, pct: counted > 0 ? (green / counted) * 100 : 50 };
+        }, [tickers]);
+
+        // ── regime classification from breadth + SPY trend
+        const regime = React.useMemo(() => {
+          if (!breadth) return { label: "LOADING", tone: "neutral" };
+          const p = breadth.pct;
+          // Check SPY trend from data if available
+          const spy = (data && typeof data === "object") ? data["SPY"] : null;
+          const spyPct = (() => {
+            if (!spy) return null;
+            const get = typeof window !== "undefined" ? window.getDailyChange : null;
+            let v = null;
+            if (get) { try { v = get(spy)?.dayPct; } catch { v = null; } }
+            if (!Number.isFinite(v)) v = Number(spy?.day_change_pct ?? spy?.dailyChgPct);
+            return Number.isFinite(v) ? v : null;
+          })();
+          // Risk-on: breadth >62% and SPY not negative
+          if (p >= 62 && (spyPct == null || spyPct > -0.2)) return { label: "RISK-ON", tone: "success", spyPct };
+          // Risk-off: breadth <38% and SPY not positive
+          if (p <= 38 && (spyPct == null || spyPct < 0.2)) return { label: "RISK-OFF", tone: "danger", spyPct };
+          // Mixed: everything else
+          if (p >= 55) return { label: "TILTED UP", tone: "success-soft", spyPct };
+          if (p <= 45) return { label: "TILTED DOWN", tone: "danger-soft", spyPct };
+          return { label: "MIXED", tone: "neutral", spyPct };
+        }, [breadth, data]);
+
+        // ── VIX level + bucket (from VIXY proxy × 0.55 heuristic, or a VIX ticker if available)
+        const vix = React.useMemo(() => {
+          const vixTkr = (data && typeof data === "object") ? (data["VIX"] || data["$VIX"] || data["^VIX"]) : null;
+          const vixy = (data && typeof data === "object") ? data["VIXY"] : null;
+          let level = null;
+          if (vixTkr) {
+            level = Number(vixTkr?._live_price ?? vixTkr?.price ?? vixTkr?.close);
+          }
+          if (!Number.isFinite(level) || level <= 0) {
+            // Fallback: derive a volatility signal from VIXY's day change (crude proxy)
+            if (vixy) {
+              const pct = Number(vixy?.day_change_pct);
+              if (Number.isFinite(pct)) {
+                // VIXY daily ~ 0.9x VIX daily; use pct move as a mood indicator only
+                return { level: null, vixyPct: pct, bucket: pct > 5 ? "spike" : pct > 2 ? "rising" : pct < -2 ? "easing" : "stable" };
+              }
+            }
+            return null;
+          }
+          const bucket = level < 15 ? "calm" : level < 20 ? "normal" : level < 25 ? "elevated" : level < 35 ? "high" : "panic";
+          return { level, bucket };
+        }, [data]);
+
+        // ── exposure: open trades + today's realized + unrealized pnl
+        const exposure = React.useMemo(() => {
+          if (!Array.isArray(trades)) return null;
+          let openCount = 0, openUnrealized = 0, todayClosedRealized = 0, todayWins = 0, todayLosses = 0;
+          const todayNy = (() => {
+            try { return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }); }
+            catch { return null; }
+          })();
+          for (const tr of trades) {
+            if (!tr) continue;
+            const isOpen = !tr.exit_ts && !tr.exit_timestamp && (tr.status === "OPEN" || !tr.status);
+            if (isOpen) {
+              openCount++;
+              const pnl = Number(tr.lifecycle_realized_pnl ?? tr.pnl ?? 0);
+              if (Number.isFinite(pnl)) openUnrealized += pnl;
+            } else if (todayNy) {
+              const ets = tr.exit_ts || tr.exit_timestamp;
+              if (!ets) continue;
+              try {
+                const d = new Date(ets > 1e12 ? ets : ets * 1000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+                if (d === todayNy) {
+                  const pnl = Number(tr.pnl ?? tr.lifecycle_realized_pnl ?? 0);
+                  if (Number.isFinite(pnl)) {
+                    todayClosedRealized += pnl;
+                    if (pnl > 0) todayWins++;
+                    else if (pnl < 0) todayLosses++;
+                  }
+                }
+              } catch {}
+            }
+          }
+          return { openCount, openUnrealized, todayClosedRealized, todayWins, todayLosses, dayNet: openUnrealized + todayClosedRealized };
+        }, [trades]);
+
+        // ── top opportunity: highest-rank ticker that isn't already in a trade
+        const topOpp = React.useMemo(() => {
+          if (!Array.isArray(allTickersWithRanks) || allTickersWithRanks.length === 0) return null;
+          const openSet = new Set(
+            (Array.isArray(trades) ? trades : [])
+              .filter(tr => !tr?.exit_ts && !tr?.exit_timestamp)
+              .map(tr => String(tr?.ticker || "").toUpperCase())
+          );
+          for (const t of allTickersWithRanks) {
+            const sym = String(t?.ticker || "").toUpperCase();
+            if (!sym) continue;
+            if (openSet.has(sym)) continue;
+            const rank = Number(t?.rank);
+            if (!Number.isFinite(rank) || rank <= 0) continue;
+            return { ticker: sym, rank, dir: t?.direction || t?.consensus_direction || "—", setup: t?.setup_name || t?.entry_path || "—" };
+          }
+          return null;
+        }, [allTickersWithRanks, trades]);
+
+        const toneCls = (tone) => {
+          switch (tone) {
+            case "success": return { bg: "var(--tt-success-dim)", bd: "rgba(52,211,153,0.28)", fg: "var(--tt-success)" };
+            case "success-soft": return { bg: "rgba(52,211,153,0.07)", bd: "rgba(52,211,153,0.18)", fg: "var(--tt-success)" };
+            case "danger": return { bg: "var(--tt-danger-dim)", bd: "rgba(239,68,68,0.30)", fg: "var(--tt-danger)" };
+            case "danger-soft": return { bg: "rgba(239,68,68,0.07)", bd: "rgba(239,68,68,0.18)", fg: "var(--tt-danger)" };
+            case "warning": return { bg: "var(--tt-warning-dim)", bd: "rgba(245,158,11,0.28)", fg: "var(--tt-warning)" };
+            default: return { bg: "var(--tt-bg-2)", bd: "var(--tt-border-weak)", fg: "var(--tt-text-2)" };
+          }
+        };
+
+        const Cell = ({ label, children, title }) => (
+          <div className="flex flex-col justify-center min-w-0" style={{ padding: "6px 14px", borderRight: "1px solid var(--tt-border-weak)" }} title={title}>
+            <div className="tt-label" style={{ fontSize: 9, marginBottom: 2 }}>{label}</div>
+            <div style={{ fontSize: 12, lineHeight: 1.2 }} className="truncate">{children}</div>
+          </div>
+        );
+
+        const regimeTone = toneCls(regime.tone);
+        const vixTone = vix ? toneCls(
+          vix.bucket === "calm" ? "success" :
+          vix.bucket === "normal" ? "neutral" :
+          vix.bucket === "elevated" ? "warning" :
+          vix.bucket === "high" || vix.bucket === "rising" ? "warning" :
+          vix.bucket === "panic" || vix.bucket === "spike" ? "danger" : "neutral"
+        ) : toneCls("neutral");
+        const breadthTone = breadth ? toneCls(
+          breadth.pct >= 60 ? "success" : breadth.pct >= 50 ? "success-soft" : breadth.pct >= 40 ? "neutral" : breadth.pct >= 30 ? "danger-soft" : "danger"
+        ) : toneCls("neutral");
+        const expTone = exposure ? toneCls(exposure.dayNet > 0 ? "success" : exposure.dayNet < 0 ? "danger" : "neutral") : toneCls("neutral");
+
+        return (
+          <div
+            className="mb-3 flex flex-wrap items-stretch overflow-hidden"
+            style={{
+              background: "var(--tt-bg-1)",
+              border: "1px solid var(--tt-border-weak)",
+              borderRadius: "var(--tt-radius)",
+              boxShadow: "var(--tt-shadow-sm)",
+            }}
+            data-coachmark="status-strip"
+            aria-label="Market status strip"
+          >
+            {/* Regime */}
+            <Cell label="Regime" title={`Breadth ${breadth ? breadth.green + '/' + breadth.total + ' green' : '—'}`}>
+              <span className="font-bold" style={{ color: regimeTone.fg, letterSpacing: "0.02em" }}>{regime.label}</span>
+              {regime.spyPct != null && (
+                <span className="tt-num ml-1.5" style={{ fontSize: 10.5, color: regime.spyPct > 0 ? "var(--tt-success)" : regime.spyPct < 0 ? "var(--tt-danger)" : "var(--tt-text-3)" }}>
+                  SPY {regime.spyPct > 0 ? "+" : ""}{regime.spyPct.toFixed(2)}%
+                </span>
+              )}
+            </Cell>
+
+            {/* VIX */}
+            <Cell label="Vol" title={vix?.level ? `VIX ${vix.level.toFixed(2)} · ${vix.bucket}` : vix ? `VIXY ${vix.vixyPct > 0 ? '+' : ''}${vix.vixyPct.toFixed(2)}% · ${vix.bucket}` : "No VIX data"}>
+              {vix?.level != null ? (
+                <span>
+                  <span className="tt-num font-bold" style={{ color: vixTone.fg }}>{vix.level.toFixed(1)}</span>
+                  <span className="ml-1.5 uppercase" style={{ fontSize: 9.5, letterSpacing: "0.08em", color: "var(--tt-text-3)" }}>{vix.bucket}</span>
+                </span>
+              ) : vix ? (
+                <span>
+                  <span className="tt-num font-bold" style={{ color: vixTone.fg }}>{vix.vixyPct > 0 ? "+" : ""}{vix.vixyPct.toFixed(1)}%</span>
+                  <span className="ml-1.5 uppercase" style={{ fontSize: 9.5, letterSpacing: "0.08em", color: "var(--tt-text-3)" }}>{vix.bucket}</span>
+                </span>
+              ) : (
+                <span className="text-[#4b5563]">—</span>
+              )}
+            </Cell>
+
+            {/* Breadth */}
+            <Cell label="Breadth" title={breadth ? `${breadth.green} green / ${breadth.red} red / ${breadth.total} total` : ""}>
+              {breadth ? (
+                <span>
+                  <span className="tt-num font-bold" style={{ color: breadthTone.fg }}>{breadth.pct.toFixed(0)}%</span>
+                  <span className="tt-num ml-1.5" style={{ fontSize: 10.5, color: "var(--tt-text-3)" }}>
+                    <span style={{ color: "var(--tt-success)" }}>{breadth.green}</span>
+                    <span style={{ color: "var(--tt-text-4)" }}>/</span>
+                    <span style={{ color: "var(--tt-danger)" }}>{breadth.red}</span>
+                  </span>
+                </span>
+              ) : <span className="text-[#4b5563]">—</span>}
+            </Cell>
+
+            {/* Open Trades / Exposure */}
+            {(dashboardMode === "trader" || dashboardMode === "investor") && exposure && exposure.openCount > 0 && (
+              <Cell label="Open" title={`${exposure.openCount} open · unrealized ${exposure.openUnrealized >= 0 ? '+$' : '-$'}${Math.abs(exposure.openUnrealized).toFixed(0)}`}>
+                <span>
+                  <span className="tt-num font-bold text-white">{exposure.openCount}</span>
+                  {exposure.openUnrealized !== 0 && (
+                    <span className="tt-num ml-1.5" style={{ fontSize: 10.5, color: exposure.openUnrealized > 0 ? "var(--tt-success)" : "var(--tt-danger)" }}>
+                      {exposure.openUnrealized > 0 ? "+" : ""}${exposure.openUnrealized.toFixed(0)}
+                    </span>
+                  )}
+                </span>
+              </Cell>
+            )}
+
+            {/* Today P&L */}
+            {(dashboardMode === "trader" || dashboardMode === "investor") && exposure && (exposure.todayWins + exposure.todayLosses > 0 || exposure.todayClosedRealized !== 0) && (
+              <Cell label="Today" title={`${exposure.todayWins}W / ${exposure.todayLosses}L closed today`}>
+                <span>
+                  <span className="tt-num font-bold" style={{ color: expTone.fg }}>
+                    {exposure.todayClosedRealized >= 0 ? "+" : "-"}${Math.abs(exposure.todayClosedRealized).toFixed(0)}
+                  </span>
+                  <span className="tt-num ml-1.5" style={{ fontSize: 10.5, color: "var(--tt-text-3)" }}>
+                    <span style={{ color: "var(--tt-success)" }}>{exposure.todayWins}</span>
+                    <span style={{ color: "var(--tt-text-4)" }}>W/</span>
+                    <span style={{ color: "var(--tt-danger)" }}>{exposure.todayLosses}</span>
+                    <span style={{ color: "var(--tt-text-4)" }}>L</span>
+                  </span>
+                </span>
+              </Cell>
+            )}
+
+            {/* Top opportunity */}
+            {topOpp && (
+              <button
+                onClick={() => onSelectTicker && onSelectTicker(topOpp.ticker)}
+                className="flex flex-col justify-center min-w-0 hover:bg-white/[0.04] transition-colors group text-left"
+                style={{ padding: "6px 14px", borderRight: "1px solid var(--tt-border-weak)" }}
+                title={`Best current opportunity — click to open ${topOpp.ticker}`}
+              >
+                <div className="tt-label" style={{ fontSize: 9, marginBottom: 2 }}>Top Signal</div>
+                <div style={{ fontSize: 12, lineHeight: 1.2 }} className="truncate">
+                  <span className="tt-num font-bold text-white group-hover:text-cyan-300 transition-colors">{topOpp.ticker}</span>
+                  <span className="tt-num ml-1.5" style={{ fontSize: 10.5, color: "var(--tt-text-3)" }}>
+                    rank <span className="font-semibold" style={{ color: "var(--tt-info)" }}>{topOpp.rank}</span>
+                  </span>
+                  {topOpp.dir && topOpp.dir !== "—" && (
+                    <span className="ml-1.5" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.08em", color: String(topOpp.dir).toUpperCase().includes("SHORT") ? "var(--tt-danger)" : "var(--tt-success)" }}>
+                      {String(topOpp.dir).toUpperCase().includes("SHORT") ? "short" : "long"}
+                    </span>
+                  )}
+                </div>
+              </button>
+            )}
+
+            {/* Market status (right-aligned) */}
+            <div className="flex items-center ml-auto" style={{ padding: "6px 14px" }}>
+              {mktOpen ? (
+                <>
+                  <span className="tt-heartbeat tt-heartbeat-green" style={{ marginRight: 8 }} />
+                  <span className="tt-label" style={{ color: "var(--tt-success)", fontSize: 9.5 }}>Market Open</span>
+                </>
+              ) : (
+                <>
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--tt-text-4)", display: "inline-block", marginRight: 8 }} />
+                  <span className="tt-label" style={{ fontSize: 9.5 }}>Market Closed</span>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      // ─────────────────────────────────────────────────────────────
       // Action Center: Unified panel for Early Movers + Active Positions
       // ─────────────────────────────────────────────────────────────
       function ActionCenterPanel({
@@ -17787,6 +18080,21 @@
               <div className="mx-auto w-full px-2 sm:px-4 lg:px-5">
                 <header className="mb-4 pt-3">
 
+                  {/* ═══ ZONE A — Status Strip ═══
+                      Sticky glance-answer: market mood · exposure · top signal.
+                      Rendered as the very first content row so it's always the
+                      first thing a returning user sees when the page loads. */}
+                  {!loading && data && (
+                    <StatusStrip
+                      tickers={tickers}
+                      data={data}
+                      trades={trades}
+                      allTickersWithRanks={allTickersWithRanks}
+                      onSelectTicker={handleTickerSelect}
+                      dashboardMode={dashboardMode}
+                    />
+                  )}
+
                   {/* ═══ STALE DATA WARNING ═══ */}
                   {_dataIsStale && (
                     <div className="mb-2 px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 flex items-center gap-2 text-[11px] text-amber-300">
@@ -18066,8 +18374,9 @@
                     if (rthGainers.length === 0 && rthLosers.length === 0 && !hasEth) return null;
                     return (
                       <div className="mb-3">
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <span className="text-[10px] text-[#6b7280] font-semibold tracking-wide uppercase">Top Movers</span>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="tt-label">Top Movers</span>
+                          <span style={{ flex: 1, height: 1, background: "var(--tt-border-weak)" }} />
                         </div>
                         <div className="space-y-1.5">
                           <div className="flex items-center gap-1.5 flex-wrap">
@@ -18107,12 +18416,9 @@
                   </div>}
 
                   {/* ═══ 4b. MODE SELECTOR — Analysis / Active Trader / Investor ═══ */}
-                  <div className="mb-4 flex flex-col items-center gap-2" data-coachmark="nav-modes">
-                    <div className="text-center">
-                      <div className="text-[10px] uppercase tracking-[0.22em] text-[#4b5563]">Choose The View Below</div>
-                      <div className="text-[12px] text-[#94a3b8] mt-1">This controller changes the dashboard section underneath.</div>
-                    </div>
-                    <div className="flex justify-center w-full">
+                  <div className="mb-4 flex items-center justify-center gap-2" data-coachmark="nav-modes">
+                    <span className="tt-label hidden sm:inline" style={{ fontSize: 9 }}>View</span>
+                    <div className="flex justify-center">
                     <div className="flex w-full sm:w-auto items-stretch bg-white/[0.04] border border-white/[0.10] rounded-xl overflow-hidden shadow-sm">
                       <button
                         onClick={() => handleDashboardModeChange("analysis")}
