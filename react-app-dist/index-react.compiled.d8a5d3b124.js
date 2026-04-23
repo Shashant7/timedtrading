@@ -12861,14 +12861,85 @@ const TickerDetailsLoader = ({
   if (loading) {
     const isAdding = addingTicker && String(addingTicker).toUpperCase() === String(tickerSymbol).toUpperCase();
     return React.createElement("div", {
-      className: "w-[450px] bg-white/[0.03] border border-white/[0.06] rounded-xl p-6"
+      className: "w-[450px] p-5",
+      style: {
+        background: "var(--tt-bg-1)",
+        border: "1px solid var(--tt-border-weak)",
+        borderRadius: "var(--tt-radius-lg)"
+      }
     }, React.createElement("div", {
-      className: "text-center"
+      className: "flex items-center gap-3 mb-4"
     }, React.createElement("div", {
-      className: "loading-spinner mx-auto mb-4"
+      className: "tt-skeleton",
+      style: {
+        width: 56,
+        height: 22
+      }
     }), React.createElement("div", {
-      className: "text-[#6b7280]"
-    }, isAdding ? "Adding ticker… Scoring " : "Loading ", tickerSymbol, "...")));
+      className: "tt-skeleton",
+      style: {
+        width: 84,
+        height: 16
+      }
+    }), React.createElement("div", {
+      className: "flex-1"
+    }), React.createElement("div", {
+      className: "tt-skeleton",
+      style: {
+        width: 44,
+        height: 16
+      }
+    })), React.createElement("div", {
+      className: "tt-skeleton mb-3",
+      style: {
+        width: "55%",
+        height: 32
+      }
+    }), React.createElement("div", {
+      className: "grid grid-cols-3 gap-2 mb-4"
+    }, React.createElement("div", {
+      className: "tt-skeleton",
+      style: {
+        height: 52
+      }
+    }), React.createElement("div", {
+      className: "tt-skeleton",
+      style: {
+        height: 52
+      }
+    }), React.createElement("div", {
+      className: "tt-skeleton",
+      style: {
+        height: 52
+      }
+    })), React.createElement("div", {
+      className: "tt-skeleton mb-2",
+      style: {
+        height: 160
+      }
+    }), React.createElement("div", {
+      className: "space-y-2"
+    }, React.createElement("div", {
+      className: "tt-skeleton",
+      style: {
+        height: 14,
+        width: "90%"
+      }
+    }), React.createElement("div", {
+      className: "tt-skeleton",
+      style: {
+        height: 14,
+        width: "70%"
+      }
+    }), React.createElement("div", {
+      className: "tt-skeleton",
+      style: {
+        height: 14,
+        width: "80%"
+      }
+    })), React.createElement("div", {
+      className: "tt-label mt-4 text-center"
+    }, isAdding ? "Scoring " : "Loading ", tickerSymbol));
   }
   if (error || !tickerData) {
     return React.createElement("div", {
@@ -14224,12 +14295,20 @@ function App() {
       letterSpacing: "-0.03em"
     }
   }, "Timed Trading")), wsConnected ? React.createElement("span", {
-    className: "flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-500/10 border border-sky-500/25 shrink-0",
+    className: "flex items-center gap-1.5 px-1.5 py-0.5 rounded border shrink-0",
+    style: {
+      background: "var(--tt-editorial-dim)",
+      borderColor: "rgba(167,139,250,0.28)"
+    },
     title: "WebSocket connected \u2014 real-time push active"
   }, React.createElement("span", {
-    className: "w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse"
+    className: "tt-heartbeat"
   }), React.createElement("span", {
-    className: "text-[9px] text-sky-400 font-medium"
+    className: "text-[9px] font-semibold",
+    style: {
+      color: "var(--tt-editorial)",
+      letterSpacing: "0.08em"
+    }
   }, "LIVE")) : React.createElement("span", {
     className: "flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-900/30 border border-red-800/40 shrink-0",
     title: "WebSocket disconnected \u2014 using polling fallback (30s)"

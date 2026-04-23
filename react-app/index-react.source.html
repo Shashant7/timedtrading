@@ -11,6 +11,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260423a" />
 
     <!-- React & ReactDOM via CDN -->
     <script
@@ -480,9 +481,19 @@
   </head>
   <body>
     <div id="root">
-      <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; gap:16px; background:#0d1117">
-        <div class="loading-spinner loading-spinner-lg"></div>
-        <p style="font-family:Inter,sans-serif; font-size:13px; color:#6b7280; letter-spacing:0.02em">Loading dashboard...</p>
+      <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; gap:14px; background:var(--tt-bg-0)">
+        <svg width="44" height="44" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+          <defs><linearGradient id="tt-splash-ring" x1="6" y1="42" x2="42" y2="6"><stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#67e8f9"/></linearGradient></defs>
+          <rect width="48" height="48" rx="11" fill="#000"/>
+          <circle cx="24" cy="24" r="17" stroke="url(#tt-splash-ring)" stroke-width="2.5" fill="none"/>
+          <line x1="24" y1="24" x2="19" y2="18.5" stroke="#636366" stroke-width="3.5" stroke-linecap="round"/>
+          <line x1="24" y1="24" x2="29.5" y2="16.5" stroke="#30d158" stroke-width="4" stroke-linecap="round"/>
+          <circle cx="24" cy="24" r="3.2" fill="#30d158"/>
+        </svg>
+        <div style="display:flex; align-items:center; gap:8px">
+          <span class="tt-heartbeat"></span>
+          <p class="tt-label" style="margin:0">Loading dashboard</p>
+        </div>
       </div>
     </div>
 
@@ -16255,11 +16266,26 @@
         if (loading) {
           const isAdding = addingTicker && String(addingTicker).toUpperCase() === String(tickerSymbol).toUpperCase();
           return (
-            <div className="w-[450px] bg-white/[0.03] border border-white/[0.06] rounded-xl p-6">
-              <div className="text-center">
-                <div className="loading-spinner mx-auto mb-4"></div>
-                <div className="text-[#6b7280]">{isAdding ? "Adding ticker… Scoring " : "Loading "}{tickerSymbol}...</div>
+            <div className="w-[450px] p-5" style={{ background: "var(--tt-bg-1)", border: "1px solid var(--tt-border-weak)", borderRadius: "var(--tt-radius-lg)" }}>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="tt-skeleton" style={{ width: 56, height: 22 }} />
+                <div className="tt-skeleton" style={{ width: 84, height: 16 }} />
+                <div className="flex-1" />
+                <div className="tt-skeleton" style={{ width: 44, height: 16 }} />
               </div>
+              <div className="tt-skeleton mb-3" style={{ width: "55%", height: 32 }} />
+              <div className="grid grid-cols-3 gap-2 mb-4">
+                <div className="tt-skeleton" style={{ height: 52 }} />
+                <div className="tt-skeleton" style={{ height: 52 }} />
+                <div className="tt-skeleton" style={{ height: 52 }} />
+              </div>
+              <div className="tt-skeleton mb-2" style={{ height: 160 }} />
+              <div className="space-y-2">
+                <div className="tt-skeleton" style={{ height: 14, width: "90%" }} />
+                <div className="tt-skeleton" style={{ height: 14, width: "70%" }} />
+                <div className="tt-skeleton" style={{ height: 14, width: "80%" }} />
+              </div>
+              <div className="tt-label mt-4 text-center">{isAdding ? "Scoring " : "Loading "}{tickerSymbol}</div>
             </div>
           );
         }
@@ -17686,9 +17712,9 @@
                       <span className="text-[14px] md:text-[15px] font-bold text-white hidden sm:inline" style={{letterSpacing:"-0.03em"}}>Timed Trading</span>
                     </a>
                     {wsConnected ? (
-                      <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-500/10 border border-sky-500/25 shrink-0" title="WebSocket connected — real-time push active">
-                        <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
-                        <span className="text-[9px] text-sky-400 font-medium">LIVE</span>
+                      <span className="flex items-center gap-1.5 px-1.5 py-0.5 rounded border shrink-0" style={{ background: "var(--tt-editorial-dim)", borderColor: "rgba(167,139,250,0.28)" }} title="WebSocket connected — real-time push active">
+                        <span className="tt-heartbeat" />
+                        <span className="text-[9px] font-semibold" style={{ color: "var(--tt-editorial)", letterSpacing: "0.08em" }}>LIVE</span>
                       </span>
                     ) : (
                       <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-900/30 border border-red-800/40 shrink-0" title="WebSocket disconnected — using polling fallback (30s)">

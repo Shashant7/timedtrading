@@ -9,6 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260423a" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -92,22 +93,25 @@
          prominent editorialized H2 headlines, tighter paragraph rhythm,
          one-sentence paragraphs carry weight. */
       .brief-content h2 {
-        font-size: 20px;
-        font-weight: 700;
-        color: #ffffff;
-        letter-spacing: -0.01em;
-        line-height: 1.2;
-        margin: 28px 0 10px 0;
+        font-family: var(--tt-font-editorial), Georgia, serif;
+        font-size: 28px;
+        font-weight: 400;
+        color: var(--tt-text-0);
+        letter-spacing: -0.015em;
+        line-height: 1.15;
+        margin: 32px 0 12px 0;
         padding-bottom: 10px;
-        border-bottom: 1px solid rgba(255,255,255,0.08);
+        border-bottom: 1px solid var(--tt-border-strong);
       }
       .brief-content h2:first-child { margin-top: 0; }
       .brief-content h3 {
-        font-size: 14.5px;
-        font-weight: 600;
-        color: #e5e7eb;
-        letter-spacing: -0.005em;
-        margin: 20px 0 8px 0;
+        font-family: var(--tt-font-ui);
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--tt-text-3);
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        margin: 24px 0 10px 0;
       }
       .brief-content h4 {
         font-size: 13px;
@@ -125,10 +129,17 @@
          when a paragraph is a single short sentence wrapped in <strong>,
          render it as a callout-style pull line. */
       .brief-content p > strong:only-child {
-        display: inline-block;
-        font-size: 15px;
-        color: #f9fafb;
-        font-weight: 700;
+        display: block;
+        font-family: var(--tt-font-editorial), Georgia, serif;
+        font-size: 19px;
+        font-weight: 400;
+        font-style: italic;
+        color: var(--tt-text-0);
+        line-height: 1.35;
+        letter-spacing: -0.005em;
+        border-left: 2px solid var(--tt-editorial);
+        padding-left: 14px;
+        margin: 18px 0;
       }
       .brief-content ul, .brief-content ol {
         font-size: 13px;
@@ -152,12 +163,16 @@
         color: #f59e0b;
       }
       .brief-content blockquote {
-        border-left: 3px solid rgba(245, 158, 11, 0.4);
-        padding-left: 12px;
-        margin: 14px 0;
-        color: #9ca3af;
+        font-family: var(--tt-font-editorial), Georgia, serif;
+        font-size: 17px;
+        line-height: 1.45;
+        border-left: 3px solid var(--tt-warning);
+        padding: 4px 0 4px 16px;
+        margin: 18px 0;
+        color: var(--tt-text-1);
         font-style: italic;
       }
+      .brief-content blockquote p { font-family: inherit; font-size: inherit; line-height: inherit; color: inherit; margin: 0; }
       .brief-content hr {
         border: none;
         border-top: 1px solid rgba(255,255,255,0.06);
@@ -1605,11 +1620,11 @@
               {/* Header */}
               <div className="flex items-center justify-between mb-6">
                 <div>
-                  <h1 className="text-lg font-semibold tracking-tight text-white flex items-center gap-2">
+                  <h1 className="tt-editorial flex items-baseline gap-3" style={{ fontSize: "34px", lineHeight: 1.1, color: "var(--tt-text-0)", letterSpacing: "-0.02em" }}>
                     Daily Brief
-                    <span className="text-[11px] font-normal text-[#f59e0b] bg-[#f59e0b]/10 px-2 py-0.5 rounded-full">AI-Powered</span>
+                    <span className="tt-label-editorial" style={{ fontFamily: "var(--tt-font-ui)", fontSize: "9.5px" }}>AI-Powered</span>
                   </h1>
-                  <p className="text-[13px] text-[#6b7280] mt-0.5">{today}</p>
+                  <p className="text-[12px] mt-1" style={{ color: "var(--tt-text-3)", letterSpacing: "0.12em", textTransform: "uppercase" }}>{today}</p>
                 </div>
                 {loading && <div className="loading-spinner" />}
               </div>

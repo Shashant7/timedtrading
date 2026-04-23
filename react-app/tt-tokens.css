@@ -1,0 +1,384 @@
+/*
+ * tt-tokens.css — Timed Trading Design System
+ * Version 2026-04-23
+ *
+ * Shared across all surfaces: index-react, daily-brief, investor-dashboard,
+ * splash, trade-autopsy, screener, etc. Replaces ad-hoc color/type/spacing
+ * usage with a 12-token color scale, 8-step type scale, 8-step spacing scale,
+ * and semantic component classes.
+ *
+ * Pre-existing tokens on index-react.source.html's <style> block are kept as
+ * aliases at the bottom of this file so no existing CSS breaks.
+ *
+ * Design rationale: tasks/ui-ux-pass-proposal-2026-04-23.md
+ */
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * FONT LOADING
+ * Inter — UI chrome (labels, buttons, nav)
+ * JetBrains Mono — numeric data (prices, %, scores, ticker symbols)
+ * Instrument Serif — editorial (brief headlines, callouts, quotes)
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap');
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * ROOT TOKENS
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ─── Color scale ─────────────────────────────────────────────────── */
+
+  /* Backgrounds: 3 surface levels stack cleanly */
+  --tt-bg-0: #0b0e11;                         /* page background */
+  --tt-bg-1: rgba(255,255,255,0.022);         /* panel / card */
+  --tt-bg-2: rgba(255,255,255,0.04);          /* elevated */
+  --tt-bg-3: rgba(255,255,255,0.06);          /* hover / focused */
+
+  /* Text: 4 levels of emphasis */
+  --tt-text-0: #f4f5f7;                       /* display / headlines */
+  --tt-text-1: #e5e7eb;                       /* body */
+  --tt-text-2: #9ca3af;                       /* secondary */
+  --tt-text-3: #6b7280;                       /* muted / labels */
+  --tt-text-4: #4b5563;                       /* faint / dividers-as-type */
+
+  /* Border: 2 strengths */
+  --tt-border-weak: rgba(255,255,255,0.04);
+  --tt-border-strong: rgba(255,255,255,0.08);
+
+  /* Semantic: success / warning / danger / info / brand */
+  --tt-success:      #34d399;
+  --tt-success-dim:  rgba(52,211,153,0.14);
+  --tt-warning:      #f59e0b;
+  --tt-warning-dim:  rgba(245,158,11,0.14);
+  --tt-danger:       #ef4444;
+  --tt-danger-dim:   rgba(239,68,68,0.14);
+  --tt-info:         #67e8f9;
+  --tt-info-dim:     rgba(103,232,249,0.14);
+  --tt-brand:        #14b8a6;                 /* teal accent */
+  --tt-brand-dim:    rgba(20,184,166,0.14);
+  --tt-editorial:    #a78bfa;                 /* purple for narrative / live */
+  --tt-editorial-dim:rgba(167,139,250,0.14);
+
+  /* ─── Type scale ─────────────────────────────────────────────────── */
+
+  /* 8-step scale, 12px base, 1.25 ratio rounded to whole px */
+  --tt-fs-caption:  10px;   /* all-caps labels, badges */
+  --tt-fs-small:    11px;   /* secondary metadata */
+  --tt-fs-xs:       12px;   /* dense UI chrome */
+  --tt-fs-body:     13px;   /* standard body */
+  --tt-fs-lead:     14px;   /* emphasized body */
+  --tt-fs-h3:       16px;   /* subsection heads */
+  --tt-fs-h2:       20px;   /* section heads */
+  --tt-fs-h1:       24px;   /* page headlines */
+  --tt-fs-display:  32px;   /* hero numbers */
+
+  /* Line heights (unit-less so they scale with font size) */
+  --tt-lh-tight:    1.2;
+  --tt-lh-snug:     1.35;
+  --tt-lh-normal:   1.5;
+  --tt-lh-relaxed:  1.65;   /* editorial body */
+
+  /* Font families */
+  --tt-font-ui:        "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --tt-font-mono:      "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --tt-font-editorial: "Instrument Serif", Georgia, "Iowan Old Style", serif;
+
+  /* ─── Spacing scale ──────────────────────────────────────────────── */
+
+  --tt-space-1:  4px;
+  --tt-space-2:  8px;
+  --tt-space-3:  12px;
+  --tt-space-4:  16px;
+  --tt-space-5:  24px;
+  --tt-space-6:  32px;
+  --tt-space-7:  48px;
+  --tt-space-8:  64px;
+
+  /* ─── Radius ─────────────────────────────────────────────────────── */
+
+  --tt-radius-xs: 4px;
+  --tt-radius-sm: 6px;
+  --tt-radius:    10px;
+  --tt-radius-lg: 14px;
+  --tt-radius-xl: 20px;
+
+  /* ─── Shadow ─────────────────────────────────────────────────────── */
+
+  --tt-shadow-sm: 0 1px 2px rgba(0,0,0,0.18);
+  --tt-shadow-md: 0 2px 8px rgba(0,0,0,0.22);
+  --tt-shadow-lg: 0 8px 24px rgba(0,0,0,0.28);
+
+  /* ─── Motion tokens ─────────────────────────────────────────────── */
+
+  /* Keep all animations short except the intentional price-pulse */
+  --tt-dur-instant: 80ms;
+  --tt-dur-fast:    160ms;
+  --tt-dur-base:    240ms;
+  --tt-dur-pulse:   600ms;   /* price pulse is intentionally slower */
+  --tt-ease-out:    cubic-bezier(0.2, 0, 0, 1);
+  --tt-ease-std:    cubic-bezier(0.2, 0, 0.2, 1);
+
+  /* ─── Legacy aliases (DO NOT add new usages of these) ────────────── */
+  /* Kept so existing inline styles referencing these don't break.     */
+  --tt-bg-base: var(--tt-bg-0);
+  --tt-bg-surface: var(--tt-bg-1);
+  --tt-bg-elevated: var(--tt-bg-2);
+  --tt-bg-hover: var(--tt-bg-3);
+  --tt-border: var(--tt-border-weak);
+  --tt-text: var(--tt-text-1);
+  --tt-text-muted: var(--tt-text-3);
+  --tt-text-faint: var(--tt-text-4);
+  --tt-accent: var(--tt-brand);
+  --tt-accent-dim: var(--tt-brand-dim);
+  --tt-negative: var(--tt-danger);
+  --tt-negative-dim: var(--tt-danger-dim);
+  --tt-font: var(--tt-font-ui);
+  --bg: var(--tt-bg-0);
+  --card: var(--tt-bg-1);
+  --text: var(--tt-text-1);
+  --muted: var(--tt-text-3);
+  --line: var(--tt-border-weak);
+  --good: var(--tt-success);
+  --bad: var(--tt-danger);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * GLOBAL BASE
+ * Applies to every page that includes tt-tokens.css.
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+html {
+  /* Prevent iOS zoom on form focus */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--tt-font-ui);
+  font-size: var(--tt-fs-body);
+  line-height: var(--tt-lh-normal);
+  color: var(--tt-text-1);
+  background: var(--tt-bg-0);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.005em;
+  /* Global tabular numerals: every digit now aligns in columns without
+     forcing the mono family. Huge readability win on dense data UI. */
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* Inputs / buttons inherit the global numeric tabular treatment. */
+input, button, select, textarea {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * NUMERIC DATA TYPOGRAPHY
+ * Every price / percentage / score / ticker-rank value should either:
+ *   - carry the .tt-num utility class, or
+ *   - inherit from a parent that does
+ * This gives us tabular-nums + the mono family for Bloomberg-style
+ * data-legibility.
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+.tt-num,
+.font-mono {
+  font-family: var(--tt-font-mono) !important;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "zero" 0;
+  letter-spacing: -0.015em;
+}
+
+/* Tailwind's .tabular-nums utility — keep stock family but add tnum. */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+.tt-num-inline {
+  /* for inline numbers that should stay in the parent font-family
+     (e.g. a body paragraph containing a percentage) but still be tabular */
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * EDITORIAL TYPOGRAPHY
+ * Used sparingly — brief headlines, hero quotes, Galloway-style callouts.
+ * Signals "this is written, not generated."
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+.tt-editorial {
+  font-family: var(--tt-font-editorial);
+  letter-spacing: -0.01em;
+  font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+}
+
+.tt-editorial-italic {
+  font-family: var(--tt-font-editorial);
+  font-style: italic;
+  letter-spacing: 0;
+}
+
+/* Optional drop-cap treatment for the first letter of a brief paragraph.
+   Apply with .tt-dropcap on the paragraph. */
+.tt-dropcap::first-letter {
+  font-family: var(--tt-font-editorial);
+  font-size: 3em;
+  line-height: 0.9;
+  float: left;
+  padding: 4px 8px 0 0;
+  color: var(--tt-text-0);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * SEMANTIC LABEL / CAPTION
+ * Replace the repeated pattern:
+ *   text-[10px] uppercase tracking-widest text-[#6b7280] font-bold
+ * With the single class:
+ *   .tt-label
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+.tt-label {
+  font-family: var(--tt-font-ui);
+  font-size: var(--tt-fs-caption);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--tt-text-3);
+}
+
+.tt-label-editorial {
+  font-family: var(--tt-font-ui);
+  font-size: var(--tt-fs-caption);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--tt-editorial);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * COMPONENT CLASSES
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+.tt-panel {
+  background: var(--tt-bg-1);
+  border: 1px solid var(--tt-border-weak);
+  border-radius: var(--tt-radius);
+}
+
+.tt-card {
+  background: var(--tt-bg-1);
+  border: 1px solid var(--tt-border-weak);
+  border-radius: var(--tt-radius);
+  padding: var(--tt-space-5);
+  transition: border-color var(--tt-dur-fast) var(--tt-ease-out),
+              background var(--tt-dur-fast) var(--tt-ease-out);
+}
+
+.tt-card:hover {
+  border-color: var(--tt-border-strong);
+  background: var(--tt-bg-2);
+}
+
+.tt-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tt-space-1);
+  padding: 2px var(--tt-space-2);
+  background: var(--tt-bg-2);
+  border: 1px solid var(--tt-border-weak);
+  border-radius: 999px;
+  font-size: var(--tt-fs-small);
+  color: var(--tt-text-1);
+}
+
+.tt-divider {
+  border: 0;
+  border-top: 1px solid var(--tt-border-weak);
+  margin: var(--tt-space-5) 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * MOTION — micro-interactions
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+/* Live heartbeat dot — for "market open" / "live data" indicators.
+   Slow, obviously alive, not distracting. */
+@keyframes tt-heartbeat {
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50%      { transform: scale(1.15); opacity: 1; }
+}
+
+.tt-heartbeat {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tt-editorial);
+  box-shadow: 0 0 8px var(--tt-editorial-dim);
+  animation: tt-heartbeat 2.2s ease-in-out infinite;
+}
+
+.tt-heartbeat.tt-heartbeat-green { background: var(--tt-success); box-shadow: 0 0 8px var(--tt-success-dim); }
+.tt-heartbeat.tt-heartbeat-red   { background: var(--tt-danger);  box-shadow: 0 0 8px var(--tt-danger-dim);  }
+
+/* Price pulse — green tint fades over 600ms on uptick, red on downtick.
+   Apply by toggling these classes on a numeric element when value changes. */
+@keyframes tt-pulse-up {
+  0%   { background: var(--tt-success-dim); }
+  100% { background: transparent; }
+}
+@keyframes tt-pulse-down {
+  0%   { background: var(--tt-danger-dim); }
+  100% { background: transparent; }
+}
+
+.tt-pulse-up   { animation: tt-pulse-up   var(--tt-dur-pulse) var(--tt-ease-out); border-radius: 4px; padding: 0 2px; }
+.tt-pulse-down { animation: tt-pulse-down var(--tt-dur-pulse) var(--tt-ease-out); border-radius: 4px; padding: 0 2px; }
+
+/* Skeleton loader — quiet shimmer while data is fetching.
+   Replace spinners with these. */
+@keyframes tt-skeleton-shimmer {
+  0%   { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+}
+
+.tt-skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(255,255,255,0.03) 0%,
+    rgba(255,255,255,0.06) 50%,
+    rgba(255,255,255,0.03) 100%
+  );
+  background-size: 200px 100%;
+  background-repeat: no-repeat;
+  animation: tt-skeleton-shimmer 1.6s ease-in-out infinite;
+  border-radius: var(--tt-radius-sm);
+}
+
+/* Respect reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .tt-heartbeat,
+  .tt-pulse-up,
+  .tt-pulse-down,
+  .tt-skeleton {
+    animation: none !important;
+  }
+  .tt-heartbeat { opacity: 0.9; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * UTILITY — semantic color text classes
+ * Used in place of inline style={{color:"#34d399"}}
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+.tt-text-success   { color: var(--tt-success); }
+.tt-text-warning   { color: var(--tt-warning); }
+.tt-text-danger    { color: var(--tt-danger); }
+.tt-text-info      { color: var(--tt-info); }
+.tt-text-brand     { color: var(--tt-brand); }
+.tt-text-editorial { color: var(--tt-editorial); }
+.tt-text-muted     { color: var(--tt-text-3); }
+.tt-text-faint     { color: var(--tt-text-4); }

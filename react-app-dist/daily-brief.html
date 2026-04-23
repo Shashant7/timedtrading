@@ -9,6 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260423a" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <link rel="stylesheet" href="tailwind.generated.css" />
@@ -91,22 +92,25 @@
          prominent editorialized H2 headlines, tighter paragraph rhythm,
          one-sentence paragraphs carry weight. */
       .brief-content h2 {
-        font-size: 20px;
-        font-weight: 700;
-        color: #ffffff;
-        letter-spacing: -0.01em;
-        line-height: 1.2;
-        margin: 28px 0 10px 0;
+        font-family: var(--tt-font-editorial), Georgia, serif;
+        font-size: 28px;
+        font-weight: 400;
+        color: var(--tt-text-0);
+        letter-spacing: -0.015em;
+        line-height: 1.15;
+        margin: 32px 0 12px 0;
         padding-bottom: 10px;
-        border-bottom: 1px solid rgba(255,255,255,0.08);
+        border-bottom: 1px solid var(--tt-border-strong);
       }
       .brief-content h2:first-child { margin-top: 0; }
       .brief-content h3 {
-        font-size: 14.5px;
-        font-weight: 600;
-        color: #e5e7eb;
-        letter-spacing: -0.005em;
-        margin: 20px 0 8px 0;
+        font-family: var(--tt-font-ui);
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--tt-text-3);
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        margin: 24px 0 10px 0;
       }
       .brief-content h4 {
         font-size: 13px;
@@ -124,10 +128,17 @@
          when a paragraph is a single short sentence wrapped in <strong>,
          render it as a callout-style pull line. */
       .brief-content p > strong:only-child {
-        display: inline-block;
-        font-size: 15px;
-        color: #f9fafb;
-        font-weight: 700;
+        display: block;
+        font-family: var(--tt-font-editorial), Georgia, serif;
+        font-size: 19px;
+        font-weight: 400;
+        font-style: italic;
+        color: var(--tt-text-0);
+        line-height: 1.35;
+        letter-spacing: -0.005em;
+        border-left: 2px solid var(--tt-editorial);
+        padding-left: 14px;
+        margin: 18px 0;
       }
       .brief-content ul, .brief-content ol {
         font-size: 13px;
@@ -151,12 +162,16 @@
         color: #f59e0b;
       }
       .brief-content blockquote {
-        border-left: 3px solid rgba(245, 158, 11, 0.4);
-        padding-left: 12px;
-        margin: 14px 0;
-        color: #9ca3af;
+        font-family: var(--tt-font-editorial), Georgia, serif;
+        font-size: 17px;
+        line-height: 1.45;
+        border-left: 3px solid var(--tt-warning);
+        padding: 4px 0 4px 16px;
+        margin: 18px 0;
+        color: var(--tt-text-1);
         font-style: italic;
       }
+      .brief-content blockquote p { font-family: inherit; font-size: inherit; line-height: inherit; color: inherit; margin: 0; }
       .brief-content hr {
         border: none;
         border-top: 1px solid rgba(255,255,255,0.06);
@@ -166,7 +181,7 @@
   </head>
   <body>
     <div id="root"></div>
-    <script src="daily-brief.compiled.eee26b97fc.js"></script>
+    <script src="daily-brief.compiled.4141f58903.js"></script>
     <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> · Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
     </footer>
