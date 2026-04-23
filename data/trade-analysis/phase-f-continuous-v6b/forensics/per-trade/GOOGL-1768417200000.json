@@ -1,0 +1,285 @@
+{
+  "trade_id": "GOOGL-1768417200000",
+  "ticker": "GOOGL",
+  "cohort": "MegaCap",
+  "direction": "LONG",
+  "entry_ts": 1768417200000,
+  "exit_ts": 1768919400000,
+  "entry_price": 334.88,
+  "exit_price": 321.78,
+  "pnl_pct": -3.91184902054468,
+  "status": "LOSS",
+  "exit_reason": "max_loss",
+  "rank": 94,
+  "rr": 2.776595744680856,
+  "entry_path": null,
+  "hold_hours": 139.5,
+  "forensics_available": true,
+  "trail_rows": 511,
+  "entry_context": {
+    "score": 94,
+    "rank": 94,
+    "state": "HTF_BULL_LTF_BULL",
+    "kanban_stage": "in_review",
+    "entry_path": "tt_pullback",
+    "regime_class": "TRENDING",
+    "regime_score": 6,
+    "ema_regime_daily": 2,
+    "ema_regime_4h": 2,
+    "ema_regime_1h": 1,
+    "pdz_zone_D": "premium_approach",
+    "pdz_pct_D": 89.5,
+    "st_bars_since_flip_D": 8,
+    "daily": {
+      "px": 335.84,
+      "e21": 325.74,
+      "e48": 318.07,
+      "e200": 278.81,
+      "pct_above_e21": 3.1,
+      "pct_above_e48": 5.59,
+      "pct_above_e200": 20.46,
+      "e21_slope_5d_pct": 1.81,
+      "e48_slope_10d_pct": 2.32,
+      "bull_stack": true,
+      "bear_stack": false,
+      "above_e200": true
+    },
+    "mtf": {
+      "10": {
+        "stDir": -1,
+        "rsi": 57.6,
+        "ema_depth": 15,
+        "ema_structure": 1,
+        "phase_zone": "LOW",
+        "saty_zone": "MEDIUM",
+        "c8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "c5_12": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        }
+      },
+      "15": {
+        "stDir": 1,
+        "rsi": 54.9,
+        "ema_depth": 15,
+        "ema_structure": 1,
+        "phase_zone": "LOW",
+        "saty_zone": "MEDIUM",
+        "c8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "c5_12": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        }
+      },
+      "30": {
+        "stDir": 1,
+        "rsi": 50.4,
+        "ema_depth": 15,
+        "ema_structure": 1,
+        "phase_zone": "LOW",
+        "saty_zone": "LOW",
+        "c8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "c5_12": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        }
+      },
+      "1H": {
+        "stDir": -1,
+        "rsi": 52.3,
+        "ema_depth": 15,
+        "ema_structure": 1,
+        "phase_zone": "LOW",
+        "saty_zone": "LOW",
+        "c8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "c5_12": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        }
+      },
+      "4H": {
+        "stDir": -1,
+        "rsi": 61.4,
+        "ema_depth": 15,
+        "ema_structure": 1,
+        "phase_zone": "LOW",
+        "saty_zone": "LOW",
+        "c8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "c5_12": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        }
+      },
+      "D": {
+        "stDir": -1,
+        "rsi": 84.9,
+        "ema_depth": 15,
+        "ema_structure": 1,
+        "phase_zone": "MEDIUM",
+        "saty_zone": "MEDIUM",
+        "c8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "c5_12": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        }
+      }
+    },
+    "atr_levels": {
+      "day": {
+        "prevClose": 335.84,
+        "atr": 7.24,
+        "disp": -0.119,
+        "band": "NEUTRAL",
+        "rangeOfATR": 83.4,
+        "gate": null
+      },
+      "week": {
+        "prevClose": 330,
+        "atr": 16.07,
+        "disp": 0.31,
+        "band": "TRIGGER",
+        "rangeOfATR": 96.4,
+        "gate": null
+      },
+      "month": {
+        "prevClose": 338,
+        "atr": 33.89,
+        "disp": -0.089,
+        "band": "NEUTRAL",
+        "rangeOfATR": 94.3,
+        "gate": null
+      },
+      "quarter": {
+        "prevClose": 330,
+        "atr": 57.95,
+        "disp": 0.086,
+        "band": "NEUTRAL",
+        "rangeOfATR": 0,
+        "gate": null
+      },
+      "longterm": {
+        "prevClose": 330,
+        "atr": 115.89,
+        "disp": 0.043,
+        "band": "NEUTRAL",
+        "rangeOfATR": 0,
+        "gate": null
+      }
+    }
+  },
+  "mfe_pct": 0.36,
+  "mae_pct": -3.92,
+  "mfe_ts": 1768423200000,
+  "mae_ts": 1768919400000,
+  "mfe_exit_gap_pct": 4.27,
+  "atr_reach": {
+    "day": {
+      "up": [],
+      "dn": [
+        {
+          "ratio": 0.236,
+          "price": 334.13
+        },
+        {
+          "ratio": 0.382,
+          "price": 333.07
+        },
+        {
+          "ratio": 0.5,
+          "price": 332.22
+        },
+        {
+          "ratio": 0.618,
+          "price": 331.36
+        },
+        {
+          "ratio": 0.786,
+          "price": 330.15
+        },
+        {
+          "ratio": 1,
+          "price": 328.6
+        },
+        {
+          "ratio": 1.236,
+          "price": 326.89
+        },
+        {
+          "ratio": 1.618,
+          "price": 324.12
+        }
+      ]
+    },
+    "week": {
+      "up": [
+        {
+          "ratio": 0.236,
+          "price": 333.79
+        }
+      ],
+      "dn": [
+        {
+          "ratio": 0.236,
+          "price": 326.21
+        },
+        {
+          "ratio": 0.382,
+          "price": 323.86
+        },
+        {
+          "ratio": 0.5,
+          "price": 321.96
+        }
+      ]
+    },
+    "month": {
+      "up": [],
+      "dn": [
+        {
+          "ratio": 0.236,
+          "price": 330
+        },
+        {
+          "ratio": 0.382,
+          "price": 325.05
+        }
+      ]
+    }
+  },
+  "tags": [
+    "clear_loser",
+    "never_worked",
+    "stopped_out"
+  ],
+  "post_exit_3d_continuation_pct": 3.24
+}

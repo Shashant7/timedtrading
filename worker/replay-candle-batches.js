@@ -20,6 +20,7 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
     skipInvestor,
     debugTimeline,
     blockChainTrace,
+    trailForensics,
     marketOpenMs,
     REPLAY_TFS,
     candleCache,
@@ -290,6 +291,24 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
               return sector?.toLowerCase() || "unknown";
             })();
 
+            // Phase-I.1 — recent trades for this ticker (for re-entry throttle
+            // + duplicate-open guard). Include the last 10 trades (open + closed)
+            // on this ticker so the entry pipeline can reject same-direction
+            // duplicates and enforce a cooldown after recent exits.
+            const _recentTickerTrades = replayCtx.allTrades
+              .filter(t => String(t?.ticker || "").toUpperCase() === ticker)
+              .sort((a, b) => (Number(b?.entry_ts) || 0) - (Number(a?.entry_ts) || 0))
+              .slice(0, 10)
+              .map(t => ({
+                ticker: t?.ticker || null,
+                direction: t?.direction || null,
+                entry_ts: Number(t?.entry_ts) || null,
+                exit_ts: Number(t?.exit_ts) || null,
+                entry_price: Number(t?.entry_price) || null,
+                status: t?.status || null,
+                pnl_pct: Number(t?.pnl_pct) || null,
+              }));
+
             result._env = {
               _isReplay: true,
               _goldenProfiles: replayGoldenProfiles,
@@ -312,6 +331,7 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
               _ripsterTuneV2: replayEnv.RIPSTER_TUNE_V2 || "true",
               _ripsterExitDebounceBars: replayEnv.TT_EXIT_DEBOUNCE_BARS || "3",
               _monthlyCycle,
+              _recentTickerTrades,
             };
           }
 
@@ -550,6 +570,37 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
           if (!trailOnly) {
             const simReplayEnv = { ...env, DISCORD_ENABLE: "false", DISCORD_WEBHOOK_URL: null, EMAIL_ENABLED: "false", SENDGRID_API_KEY: null };
             const countBefore = replayCtx.allTrades.filter((x) => String(x?.ticker).toUpperCase() === ticker).length;
+
+            // V11 rank integrity audit (2026-04-22): when the bar is in an
+            // enter-now / enter stage and rank-trace-force is enabled via
+            // DA key, recompute rank with the trace flag set so the trade
+            // record carries the full component breakdown. No-op unless
+            // `deep_audit_rank_trace_force_enabled=true`. See
+            // tasks/v11-rank-integrity-audit-2026-04-22.md
+            const _rtfEnabled = String(
+              result?._env?._deepAuditConfig?.deep_audit_rank_trace_force_enabled ?? "false",
+            ) === "true";
+            const _stageReady = ["enter_now", "enter", "setup", "in_review"]
+              .includes(String(finalStage || "").toLowerCase());
+            if (_rtfEnabled && _stageReady) {
+              try {
+                result.__rank_trace_force = true;
+                delete result.__rank_trace;
+                const _newRank = computeRank(result);
+                result.rank = _newRank;
+                result.score = _newRank;
+                // Make the trace discoverable to processTradeSimulation so
+                // it flows onto the trade record.
+                if (result.__rank_trace) {
+                  result.__rank_trace_json = JSON.stringify(result.__rank_trace);
+                }
+              } catch (e) {
+                console.warn(`[RANK-TRACE-FORCE] ${ticker} ${intervalTs}: ${String(e?.message || e).slice(0, 120)}`);
+              } finally {
+                delete result.__rank_trace_force;
+              }
+            }
+
             await processTradeSimulation(KV, ticker, result, existing, simReplayEnv, {
               forceUseIngestTs: true,
               replayBatchContext: replayCtx,
@@ -775,8 +826,16 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
           const ts = Number(r?.ts);
           if (!Number.isFinite(ts)) continue;
           const flagsJson = r?.flags ? JSON.stringify(r.flags) : null;
-          const payloadObj = buildForensicsPayload(r);
-          const payloadJson = payloadObj ? JSON.stringify(payloadObj) : null;
+          // Phase-I (2026-04-22): only build + persist the ~2-3 KB forensics
+          // payload when explicitly requested (trailForensics=1). Drops D1
+          // growth per backtest from ~1.5-2 GB to ~50 MB. Slim fields below
+          // still flow. See tasks/d1-storage-reduction-plan-2026-04-22.md
+          const payloadJson = trailForensics
+            ? (() => {
+                const obj = buildForensicsPayload(r);
+                return obj ? JSON.stringify(obj) : null;
+              })()
+            : null;
           trailStmts.push(
             db.prepare(
               `INSERT OR REPLACE INTO timed_trail

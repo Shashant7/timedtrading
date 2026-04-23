@@ -159,6 +159,15 @@ import {
 } from "./daily-brief.js";
 import { seedHistoricalMarketEvents, checkMarketEventsCoverage } from "./market-events-seed.js";
 import {
+  ensureOrchestratorSchema,
+  enqueueManagedRun,
+  cancelManagedRun,
+  getManagedRun,
+  listManagedRuns,
+  orchestratorTick,
+  setDirectCandleReplayStep,
+} from "./backtest-orchestrator.js";
+import {
   resolveStaticBehaviorProfile,
   normalizeLearnedTickerProfile,
   resolveTickerProfileContext,
@@ -361,6 +370,11 @@ export function getReplayExecutorRuntime() {
     runCandleReplayStepImpl,
     runIntervalReplayStepImpl,
   });
+  // Wire orchestrator's direct candle-replay hook to bypass Cloudflare's
+  // self-HTTP block (error 1042). See worker/backtest-orchestrator.js.
+  try {
+    setDirectCandleReplayStep(_replayExecutorRuntime.executeCandleReplayStep);
+  } catch {}
   return _replayExecutorRuntime;
 }
 
@@ -790,6 +804,13 @@ const ROUTES = [
   ["POST", "/timed/admin/backfill-market-events", "POST /timed/admin/backfill-market-events"],
   ["POST", "/timed/admin/market-events/bulk-seed", "POST /timed/admin/market-events/bulk-seed"],
   ["GET", "/timed/admin/market-events/coverage", "GET /timed/admin/market-events/coverage"],
+  // Phase-I backtest orchestrator (worker-cron-driven, no VM needed).
+  // See: worker/backtest-orchestrator.js + tasks/worker-cron-orchestrator-2026-04-22.md
+  ["POST", "/timed/admin/backtest/enqueue", "POST /timed/admin/backtest/enqueue"],
+  ["POST", "/timed/admin/backtest/cancel", "POST /timed/admin/backtest/cancel"],
+  ["GET", "/timed/admin/backtest/status", "GET /timed/admin/backtest/status"],
+  ["POST", "/timed/admin/backtest/tick", "POST /timed/admin/backtest/tick"],
+  ["POST", "/timed/admin/purge-trail-payload", "POST /timed/admin/purge-trail-payload"],
   ["GET", "/timed/admin/validate-10m", "GET /timed/admin/validate-10m"],
   ["GET", "/timed/model/health", "GET /timed/model/health"],
   ["GET", "/timed/model/predictions", "GET /timed/model/predictions"],
@@ -6599,6 +6620,122 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           else if (_agMin >= 1440) _tsCurrentFloor = _tsFloor24h;
           if (_tsCurrentFloor != null && pnlPct <= _tsCurrentFloor) {
             tickerData.__exit_reason = "max_loss_time_scaled";
+            tickerData.__exit_family = "safety";
+            return "exit";
+          }
+        }
+      }
+
+      // ──────────────────────────────────────────────────────────────────
+      // PHASE-I.3 (2026-04-22) — MFE-VALIDATED EXITS
+      //
+      // EMPIRICAL FOUNDATION (v10b audit, 101 closed trades):
+      //   MFE at peak    N     WR      Sum PnL
+      //   -----------   ---   -----   -------
+      //   3%+            30   93.3%   +87.79%  <- the edge
+      //   1.5-3%         17   76.5%    +9.65%  <- good
+      //   0.5-1.5%       27   33.3%   -32.60%  <- bleeding
+      //   0-0.5%         13    7.7%   -29.24%  <- disaster
+      //   no MFE         14    0.0%   -15.74%  <- disaster
+      //
+      // INSIGHT: the rank formula has near-zero correlation with
+      // outcomes (Pearson -0.185 on v9, +0.099 on v7, -0.105 on v6b).
+      // But MFE at peak is STRONGLY predictive. If a trade reaches
+      // 1.5%+ MFE, it's 76%+ WR. If it never does, it's losing.
+      //
+      // Rule: cut trades that have NOT shown meaningful early MFE.
+      // The earlier we can prove this, the less damage. Losers like
+      // AGYS (-10.45%, 21h, MFE 0.62%), ORCL (-5.17%, 20.5h, MFE
+      // 0.01%), ANET (-3.16%, 4h, MFE 0.15%) all signal "this entry
+      // isn't working" within the first few hours.
+      //
+      // Tiered cuts (most aggressive first):
+      //   Tier 1 (2h): MFE < 0.3% AND pnl <= -0.8%   -> fast cut
+      //   Tier 2 (4h): MFE < 0.5% AND pnl <= -1.5%   -> confirm cut
+      //   Tier 3 (8h): MFE < 0.8% AND pnl <= -2.0%   -> stall cut
+      //   Tier 4 (24h): MFE < 1.5% AND pnl < 0       -> dead money
+      //   Tier 5 (72h): MFE < 1.5%                   -> stale (any pnl)
+      //
+      // See: tasks/phase-i-implementation-2026-04-22.md Workstream 3
+      // ──────────────────────────────────────────────────────────────────
+      {
+        const _mfeExitsEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_max_loss_time_scaled_v2 ?? "true") === "true";
+        if (_mfeExitsEnabled && !_earlyPdzToleranceActive) {
+          const _agH = positionAgeMarketMin / 60;
+          const _mfeAbs = Math.abs(Number(tickerData?.__mfe_pct) || Number(tickerData?.max_favorable_excursion) || 0);
+
+          // Tier 0 (NEW in V11): immediate disaster — any age < 8h with zero
+          // MFE and PnL already below -1% is a broken entry that should be
+          // cut NOW, not waited on. Catches cases like PATH 09-23 (0.00% MFE,
+          // -3.89% in 4h) that fell through the previous age-windowed tiers.
+          if (_agH < 8 && pnlPct <= -1.0 && _mfeAbs < 0.3) {
+            tickerData.__exit_reason = "phase_i_mfe_fast_cut_zero_mfe";
+            tickerData.__exit_family = "safety";
+            return "exit";
+          }
+          // Tier 1: fastest — no commitment within 2-4h, already in red
+          if (_agH >= 2 && _agH < 4 && pnlPct <= -0.8 && _mfeAbs < 0.3) {
+            tickerData.__exit_reason = "phase_i_mfe_fast_cut_2h";
+            tickerData.__exit_family = "safety";
+            return "exit";
+          }
+          // Tier 2: 4h checkpoint (now overlaps with Tier 0 at >=4 <8, either
+          // wins on pnl/MFE criteria; no boundary gap)
+          if (_agH >= 4 && _agH < 8 && pnlPct <= -1.5 && _mfeAbs < 0.5) {
+            tickerData.__exit_reason = "phase_i_mfe_cut_4h";
+            tickerData.__exit_family = "safety";
+            return "exit";
+          }
+          // Tier 3: 8h — sustained underwater, no rally
+          if (_agH >= 8 && _agH < 24 && pnlPct <= -2.0 && _mfeAbs < 0.8) {
+            tickerData.__exit_reason = "phase_i_mfe_cut_8h";
+            tickerData.__exit_family = "safety";
+            return "exit";
+          }
+          // Tier 4: 24h — dead money
+          if (_agH >= 24 && _agH < 72 && pnlPct < 0 && _mfeAbs < 1.5) {
+            tickerData.__exit_reason = "phase_i_mfe_dead_money_24h";
+            tickerData.__exit_family = "safety";
+            return "exit";
+          }
+          // Tier 5: 72h — capital locked, any pnl
+          if (_agH >= 72 && _mfeAbs < 1.5) {
+            tickerData.__exit_reason = "phase_i_mfe_stale_72h";
+            tickerData.__exit_family = "safety";
+            return "exit";
+          }
+        }
+      }
+
+      // ──────────────────────────────────────────────────────────────────
+      // PHASE-I.1.3 (2026-04-22) — STALE POSITION FORCE-CLOSE
+      // v10b audit: 15 open positions at stop, 9 had been open for 60+
+      // replay days without meaningful MFE. RTX/WM/ELF/TPL×2 sat open
+      // from early August (92+ days) with no exit rule firing.
+      //
+      // V11 fix (2026-04-22): age is measured in CALENDAR days (matches
+      // the DA-key semantics — "deep_audit_stale_position_force_close_days"
+      // reads naturally as calendar days). Prior version converted
+      // positionAgeMarketMin -> market days (= /6.5h), which required
+      // ~64 calendar days to hit a 45-day threshold. That's why ALLY (61d),
+      // WAL (57d), ARM/PH/AWI (47d) all stayed open in early V11.
+      //
+      // Hard timeout for positions that have been open too long without
+      // either reaching meaningful MFE (≥ 2%) OR being currently profitable
+      // (≥ 1%). Prevents orphaned trades from locking capital indefinitely.
+      // ──────────────────────────────────────────────────────────────────
+      {
+        const _stalePosDays = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stale_position_force_close_days ?? 45);
+        if (_stalePosDays > 0) {
+          // Calendar days since entry. now and entryTsMs are both ms UTC.
+          const _entryTsMs = Number(entryTsMs);
+          const _nowMs = Number(now) > 1e12 ? Number(now) : Number(now) * 1000;
+          const _agDays = Number.isFinite(_entryTsMs) && _entryTsMs > 0
+            ? (_nowMs - _entryTsMs) / (24 * 60 * 60 * 1000)
+            : (positionAgeMarketMin / (60 * 6.5));
+          const _mfeAbs = Math.abs(Number(tickerData?.__mfe_pct) || Number(tickerData?.max_favorable_excursion) || 0);
+          if (_agDays >= _stalePosDays && _mfeAbs < 2.0 && pnlPct < 1.0) {
+            tickerData.__exit_reason = "STALE_POSITION_TIMEOUT";
             tickerData.__exit_family = "safety";
             return "exit";
           }
@@ -17652,6 +17789,12 @@ async function processTradeSimulation(
                 const sa = getSectorAlignmentCached(sym);
                 return sa ? { sector: sa.sector, aligned: sa.aligned, direction: sa.direction, strength: sa.strength } : null;
               })(),
+              // V11 rank integrity audit (2026-04-22): attach the full rank
+              // component breakdown if replay-candle-batches.js captured it
+              // via __rank_trace_force. Persisted to D1 via d1UpsertTrade
+              // for Stage-0 weight-correction analysis.
+              rankTraceJson: tickerData?.__rank_trace_json
+                ?? (tickerData?.__rank_trace ? JSON.stringify(tickerData.__rank_trace) : null),
               aiCIO: _cioDecision && !_cioDecision.fallback ? {
                 decision: _cioDecision.decision,
                 confidence: _cioDecision.confidence,
@@ -20715,8 +20858,26 @@ let _activeAdaptiveRankWeights = null;
 
 function shouldTraceRankBreakdown(d) {
   if (!d || typeof d !== "object") return false;
+  // V11 rank integrity audit (2026-04-22): per-trade forced trace.
+  // When the entry pipeline decides to take a trade it can set
+  // d.__rank_trace_force = true so we capture the full component
+  // breakdown for later Stage-0 analysis. The flag is additionally
+  // gated by the DA key `deep_audit_rank_trace_force_enabled` so we
+  // can kill-switch it at runtime without a redeploy. Trace payload
+  // is ~1-2 KB, written to trades.rank_trace_json and
+  // backtest_run_trades.rank_trace_json for audit.
+  // See: tasks/v11-rank-integrity-audit-2026-04-22.md
+  if (d.__rank_trace_force === true) {
+    const daCfg = d?._env?._deepAuditConfig || null;
+    const flagRaw = daCfg?.deep_audit_rank_trace_force_enabled;
+    // Enabled when the DA key is explicitly "true". Default: disabled
+    // so legacy runs are unchanged.
+    if (String(flagRaw ?? "false") === "true") return true;
+  }
   const ticker = String(d?.ticker || d?.sym || "").toUpperCase();
   const ts = Number(d?.ts ?? d?.ingest_ts ?? 0);
+  // Phase-I diagnostic: trace INTU on Aug 4 2025 to validate computeRankV2 math
+  if (ticker === "INTU" && ts >= 1754313600000 && ts <= 1754337600000) return true;
   return (ticker === "RIOT" && ts === 1759345200000)
     || (ticker === "FIX" && ts === 1759501800000)
     || (ticker === "AGQ" && ts === 1760449500000)
@@ -20776,7 +20937,332 @@ function buildReplayTargetSnapshot(result, extra = {}) {
   };
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// PHASE-I (2026-04-22) — computeRankV2
+//
+// EMPIRICAL CALIBRATION FROM v10b + v7 (see tasks/rank-calibration-findings-2026-04-22.md)
+//
+// PROBLEM: The original computeRank formula has near-zero correlation with
+// trade outcomes across v6b/v7/v9:
+//   Pearson(rank, pnl_pct) = -0.185 (v9) | +0.099 (v7) | -0.105 (v6b)
+// And on v7's 229 trades, rank 70-79 had 60.7% WR vs rank 95-100's 56.6% WR —
+// stricter rank filtering does NOT improve quality.
+//
+// DATA SHOWS the real discriminators are:
+//   POSITIVE lift (keep/boost):
+//     +10  setup_grade=Confirmed           (60.9% vs 48.1% Prime WR)
+//     +8   RSI bull divergence             (+9.5% WR lift)
+//     +6   regime_class=TRENDING           (+6.4% WR lift)
+//     +4   supertrend_30 aligned           (+3.6% WR lift)
+//
+//   NEGATIVE lift (penalize):
+//     -20  ATR_week displacement aligned   (16.7% WR — "late-move" signal)
+//     -10  ATR_day displacement aligned    (30.8% WR)
+//     -10  regime_class=TRANSITIONAL       (40% WR)
+//     -8   phase_1H > 70 (over-extended)   (16.7% WR)
+//     -8   phase_1H_zone HIGH              (37.5% WR)
+//     -6   LTF_30m bias aligned (inverted!) (44.1% WR — over-alignment = late)
+//
+//   DROPPED (no discrimination or always true):
+//     state alignment bonuses (+12/+4 — 100% of trades have them)
+//     momentum_elite (+15 — sample too small)
+//     generic squeeze bonuses
+//     sector bias (too broad)
+//     Ripster cloud alignment bonuses (embedded in state upstream)
+//
+// RR IS PREDICTIVE:
+//   Pearson(rr, pnl_pct) = +0.195 on v7 (229 trades)
+//   RR >= 7 gives 77.8% WR. RR 3-5 is the sweet spot.
+//   RR < 2 is catastrophic.
+//
+// Toggled via deep_audit_rank_formula="v2" (default "v1" = original).
+// Both formulas output 0-100 so downstream gates (min_rank_floor) work
+// with either.
+// ═══════════════════════════════════════════════════════════════════════
+function computeRankV2(d) {
+  const ticker = String(d?.ticker || d?.sym || "").toUpperCase();
+  const side = sideFromStateOrScores(d);
+
+  const rankTrace = shouldTraceRankBreakdown(d);
+  const rankTraceParts = [];
+  // V2 base starts at 30 (same as V1) so the baseline trend-following bonuses
+  // below can lift scores into the 60-90 range for proper setups. The v10b
+  // calibration sample was already a PRE-FILTERED set (all trades passed V1),
+  // so "everyone has aligned_state" was only true inside that sample.
+  // At true scoring time (all 215 tickers across all bars), most tickers
+  // have NO state at all. We need to properly reward the basic building blocks
+  // that distinguish "this ticker is in a trend" from "nothing is happening".
+  let score = 30;
+
+  const addTrace = (label, delta, extra = null) => {
+    if (rankTrace) {
+      rankTraceParts.push({
+        label, delta,
+        score_after: score,
+        ...(extra && typeof extra === "object" ? extra : {}),
+      });
+    }
+  };
+  addTrace("v2_base", 30);
+
+  // ── BASELINE TREND-FOLLOWING SIGNALS (kept from V1) ─────
+  // These separate "ticker is in a setup" from "nothing happening".
+  // Without these, V2 can't distinguish good tickers from noise.
+  const state = String(d.state || "");
+  const aligned = state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
+  const setup = state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_PULLBACK";
+  if (aligned) {
+    score += 12;
+    addTrace("v2_aligned_state", 12);
+  } else if (setup) {
+    score += 6;
+    addTrace("v2_setup_state", 6);
+  }
+
+  // HTF strength
+  const htf = Number(d.htf_score);
+  if (Number.isFinite(htf)) {
+    const htfAbs = Math.abs(htf);
+    if (htfAbs >= 25) {
+      score += 10;
+      addTrace("v2_htf_strong", 10, { htf });
+    } else if (htfAbs >= 15) {
+      score += 6;
+      addTrace("v2_htf_med", 6, { htf });
+    } else if (htfAbs >= 5) {
+      score += 3;
+      addTrace("v2_htf_weak", 3, { htf });
+    }
+  }
+
+  // LTF strength
+  const ltf = Number(d.ltf_score);
+  if (Number.isFinite(ltf)) {
+    const ltfAbs = Math.abs(ltf);
+    if (ltfAbs >= 20) {
+      score += 8;
+      addTrace("v2_ltf_strong", 8, { ltf });
+    } else if (ltfAbs >= 10) {
+      score += 5;
+      addTrace("v2_ltf_med", 5, { ltf });
+    }
+  }
+
+  // Data completeness penalty — essential (bad data → bad signals)
+  const completeness = d?.data_completeness || computeDataCompleteness(d);
+  if (completeness && typeof completeness === "object") {
+    if (completeness.score < 70) {
+      score -= 10;
+      addTrace("v2_data_incomplete", -10, { completenessScore: completeness.score });
+    } else if (completeness.score < 85) {
+      score -= 5;
+      addTrace("v2_data_incomplete", -5, { completenessScore: completeness.score });
+    }
+  }
+
+  // Move status
+  const ms = d?.move_status || computeMoveStatus(d);
+  if (ms && typeof ms === "object") {
+    if (ms.status === "INVALIDATED") {
+      score -= 25;
+      addTrace("v2_move_invalidated", -25);
+    } else if (ms.status === "COMPLETED") {
+      score -= 15;
+      addTrace("v2_move_completed", -15);
+    }
+  }
+
+  // ── EMPIRICALLY-DERIVED DISCRIMINATORS (from v10b calibration) ─────
+
+  // setup_grade (NOTE: this field is typically set AFTER rank computation in
+  // the current pipeline, so it will usually be null at scoring time. Keeping
+  // the check for forward compatibility — once setup_grade is exposed pre-rank
+  // this will activate. Currently contributes 0 for most ticks.)
+  const setupGrade = String(d?.setup_grade || d?.__setup_grade || "").toLowerCase();
+  if (setupGrade === "confirmed") {
+    score += 8;
+    addTrace("v2_grade_confirmed", 8);
+  } else if (setupGrade === "prime") {
+    score += 2;
+    addTrace("v2_grade_prime", 2);
+  }
+
+  // RSI bull/bear divergence aligned with direction
+  const rsiDiv = d?.rsi_divergence || d?.rsi?.divergence || null;
+  if (rsiDiv && typeof rsiDiv === "object") {
+    // Support two shapes: single-TF ({type, strength}) OR multi-TF ({M:{bull,bear}, ...})
+    let bullActive = false, bearActive = false;
+    if (rsiDiv.type) {
+      if (rsiDiv.type === "bullish") bullActive = true;
+      if (rsiDiv.type === "bearish") bearActive = true;
+    } else {
+      for (const tf of Object.keys(rsiDiv)) {
+        const v = rsiDiv[tf];
+        if (v && typeof v === "object") {
+          if (v.bull && v.bull.active) bullActive = true;
+          if (v.bear && v.bear.active) bearActive = true;
+        }
+      }
+    }
+    if (side === "LONG" && bullActive) {
+      score += 8;
+      addTrace("v2_rsi_bull_div", 8);
+    } else if (side === "SHORT" && bearActive) {
+      score += 5; // smaller boost (bear div only +2.1% lift vs bull's +9.5%)
+      addTrace("v2_rsi_bear_div", 5);
+    }
+  }
+
+  // regime_class=TRENDING: +6, TRANSITIONAL: -4, CHOPPY: -8
+  // Softer penalties than the initial calibration suggested — TRANSITIONAL
+  // is common during live scoring (many bars during the trading day land here
+  // even on ultimately-successful trades), so we only apply a mild penalty.
+  // The -10 from the v10b calibration reflected a POST-ENTRY snapshot which
+  // isn't quite the same thing as the live scoring moment.
+  const regimeClass = String(
+    d?.execution_profile_json?.regime_class
+    || d?.regime?.class
+    || d?.regime_class
+    || ""
+  ).toUpperCase();
+  if (regimeClass === "TRENDING") {
+    score += 6;
+    addTrace("v2_trending_regime", 6);
+  } else if (regimeClass === "TRANSITIONAL") {
+    score -= 4;
+    addTrace("v2_transitional_regime", -4);
+  } else if (regimeClass === "CHOPPY") {
+    score -= 8;
+    addTrace("v2_choppy_regime", -8);
+  }
+
+  // Supertrend_30 aligned with direction: +4
+  const st30 = Number(d?.supertrend?.[30]?.d ?? d?.tf_tech?.["30"]?.supertrend ?? d?.tf_tech?.m30?.supertrend);
+  if (Number.isFinite(st30)) {
+    const aligned = (side === "LONG" && st30 > 0) || (side === "SHORT" && st30 < 0);
+    if (aligned) {
+      score += 4;
+      addTrace("v2_st30_aligned", 4);
+    }
+  }
+
+  // RR contribution — graduated based on v7 empirical data (229 trades):
+  //   rr >= 7:   77.8% WR  -> +12 (strong edge signal)
+  //   rr >= 5:   ~65% WR   -> +8
+  //   rr >= 3:   57.0% WR  -> +5
+  //   rr >= 2:   47.1% WR  -> +0 (neutral — slight underperform of base)
+  //   rr >= 1.5: 60.0% WR  -> +0 (tiny sample, hold neutral)
+  //   rr <  1.5:  0% WR    -> -10 (clear danger)
+  const rr = d.rr != null ? Number(d.rr) : computeRR(d);
+  if (Number.isFinite(rr)) {
+    let rrDelta = 0;
+    if (rr >= 7) rrDelta = 12;
+    else if (rr >= 5) rrDelta = 8;
+    else if (rr >= 3) rrDelta = 5;
+    else if (rr >= 1.5) rrDelta = 0;
+    else rrDelta = -10;
+    score += rrDelta;
+    addTrace("v2_rr", rrDelta, { rr });
+  }
+
+  // ── NEGATIVE signals ────────────────────────────────
+  // ATR displacement "already moved in our direction" = mean-reversion risk
+  // Calibration (v10b 101 closed): ATR_week aligned displacement = 16.7% WR,
+  // ATR_day aligned = 30.8% WR. Signals a late-stage move likely to fade.
+  const atrDisp = d?.atr_disp || {};
+  const atrDay = atrDisp?.day || {};
+  const atrWeek = atrDisp?.week || {};
+  const signDir = side === "LONG" ? 1 : -1;
+  const atrWeekAlignedD = Number(atrWeek?.d ?? 0) * signDir;
+  const atrDayAlignedD = Number(atrDay?.d ?? 0) * signDir;
+  if (atrWeekAlignedD >= 0.3) {
+    score -= 20;
+    addTrace("v2_atr_week_extended", -20, { atrD: atrWeek?.d });
+  } else if (atrDayAlignedD >= 0.3) {
+    score -= 10;
+    addTrace("v2_atr_day_extended", -10, { atrD: atrDay?.d });
+  }
+
+  // Phase 1H / D over-extended
+  const satyPhase = d?.saty_phase || {};
+  const phase1H = Number(satyPhase?.["1H"]?.v);
+  const phaseD = Number(satyPhase?.D?.v);
+  if (Number.isFinite(phase1H) && phase1H > 70) {
+    score -= 8;
+    addTrace("v2_phase_1H_high", -8, { phase1H });
+  }
+  if (Number.isFinite(phaseD) && phaseD > 70) {
+    score -= 8;
+    addTrace("v2_phase_D_high", -8, { phaseD });
+  }
+
+  // Phase zone HIGH on 1H
+  const phase1HZ = String(satyPhase?.["1H"]?.z || "").toUpperCase();
+  if (phase1HZ === "HIGH") {
+    score -= 6;
+    addTrace("v2_phase_1H_zone_HIGH", -6);
+  }
+
+  // LTF over-alignment (paradoxical — v10b showed aligned LTF_30m underperformed)
+  // Use 30m bias from tf_summary if present
+  const tf30Bias = Number(
+    d?.signal_snapshot_json?.tf?.["30m"]?.bias
+    || d?.tf?.m30?.bias
+    || d?.tf_tech?.m30?.bias
+    || 0
+  );
+  if (Number.isFinite(tf30Bias)) {
+    const sign = side === "LONG" ? 1 : -1;
+    if (tf30Bias * sign > 0.5) {
+      score -= 4;
+      addTrace("v2_ltf_overaligned", -4, { tf30Bias });
+    }
+  }
+
+  // SHORT penalty when SPY is not clearly in downtrend
+  if (side === "SHORT") {
+    const spyDaily = d?._env?._marketRegime?.spy_daily_structure || d?._spyData?.daily_structure || {};
+    const spyBelowE21 = spyDaily?.close_below_e21 === true;
+    const spyE21SlopeNeg = Number(spyDaily?.e21_slope_5bar_pct ?? 0) < 0;
+    const spyBearRegime = Number(spyDaily?.ema_regime_daily ?? 0) <= -1;
+    const bearSignals = [spyBelowE21, spyE21SlopeNeg, spyBearRegime].filter(Boolean).length;
+    if (bearSignals < 2) {
+      score -= 8;
+      addTrace("v2_short_no_spy_downtrend", -8, { bearSignals });
+    }
+  }
+
+  score = Math.max(0, Math.min(100, score));
+  const finalScore = Math.round(score);
+
+  if (rankTrace && d && typeof d === "object") {
+    d.__rank_trace = {
+      ticker, ts: Number(d?.ts ?? d?.ingest_ts ?? 0),
+      formula: "v2",
+      finalScore,
+      rawScore: score,
+      rr, side,
+      setupGrade,
+      regimeClass,
+      phase1H, phaseD, phase1HZ,
+      st30, tf30Bias,
+      parts: rankTraceParts,
+    };
+    try {
+      console.log(`[V2-TRACE] ${ticker} ts=${Number(d?.ts ?? d?.ingest_ts ?? 0)} final=${finalScore} parts=${JSON.stringify(rankTraceParts)}`);
+    } catch {}
+  }
+
+  return finalScore;
+}
+
 function computeRank(d) {
+  // PHASE-I 2026-04-22: route to v2 when configured via DA key.
+  // Default remains v1 so we don't break existing pinned-config backtests.
+  const daCfg = d?._env?._deepAuditConfig || null;
+  const formula = String(daCfg?.deep_audit_rank_formula || "v1").toLowerCase();
+  if (formula === "v2") return computeRankV2(d);
+
   const aw = _activeAdaptiveRankWeights;
   const htf = Number(d.htf_score);
   const ltf = Number(d.ltf_score);
@@ -23509,8 +23995,27 @@ async function d1EnsureBacktestRunsSchema(env) {
       `ALTER TABLE backtest_run_trades ADD COLUMN risk_budget REAL`,
       `ALTER TABLE backtest_run_trades ADD COLUMN shares REAL`,
       `ALTER TABLE backtest_run_trades ADD COLUMN notional REAL`,
+      // Phase-I V11 (2026-04-22): persist entry_path + MFE/MAE so every trade
+      // is self-describing. Answers "which trigger generated this alpha?"
+      // without requiring a re-run. See tasks/v11-pre-flight-plan-2026-04-22.md
+      `ALTER TABLE backtest_run_trades ADD COLUMN entry_path TEXT`,
+      `ALTER TABLE backtest_run_trades ADD COLUMN max_favorable_excursion REAL`,
+      `ALTER TABLE backtest_run_trades ADD COLUMN max_adverse_excursion REAL`,
+      // V11 rank integrity audit: per-trade rank component breakdown.
+      // Populated when deep_audit_rank_trace_force_enabled=true on
+      // enter-stage bars. See tasks/v11-rank-integrity-audit-2026-04-22.md
+      `ALTER TABLE backtest_run_trades ADD COLUMN rank_trace_json TEXT`,
     ];
     for (const stmt of brtExtraCols) {
+      try { await db.prepare(stmt).run(); } catch {}
+    }
+    const tradesExtraCols = [
+      `ALTER TABLE trades ADD COLUMN entry_path TEXT`,
+      `ALTER TABLE trades ADD COLUMN max_favorable_excursion REAL`,
+      `ALTER TABLE trades ADD COLUMN max_adverse_excursion REAL`,
+      `ALTER TABLE trades ADD COLUMN rank_trace_json TEXT`,
+    ];
+    for (const stmt of tradesExtraCols) {
       try { await db.prepare(stmt).run(); } catch {}
     }
     try { await db.prepare(`ALTER TABLE backtest_runs ADD COLUMN manifest_json TEXT`).run(); } catch {}
@@ -27809,20 +28314,50 @@ async function d1UpsertTrade(env, trade) {
   }
 
   const resolvedRunId = trade.run_id ?? trade.runId ?? null;
+  // Phase-I V11 (2026-04-22): derive entry_path / MFE / MAE from any available
+  // field (both camelCase + snake_case are used throughout the codebase).
+  const resolvedEntryPath = trade.entryPath ?? trade.entry_path ?? null;
+  const resolvedMfe = Number.isFinite(Number(trade.maxFavorableExcursion))
+    ? Number(trade.maxFavorableExcursion)
+    : Number.isFinite(Number(trade.max_favorable_excursion))
+      ? Number(trade.max_favorable_excursion)
+      : Number.isFinite(Number(trade.mfePct))
+        ? Number(trade.mfePct)
+        : null;
+  const resolvedMae = Number.isFinite(Number(trade.maxAdverseExcursion))
+    ? Number(trade.maxAdverseExcursion)
+    : Number.isFinite(Number(trade.max_adverse_excursion))
+      ? Number(trade.max_adverse_excursion)
+      : Number.isFinite(Number(trade.maePct))
+        ? Number(trade.maePct)
+        : null;
+  // If setupName is missing but entryPath is known, derive a display name
+  // so trade-autopsy / reporting is complete. Mirrors formatSetupName() logic.
+  const derivedSetupName = trade.setupName ?? trade.setup_name ?? (
+    resolvedEntryPath ? (
+      SETUP_NAME_MAP[resolvedEntryPath] ?? "TT " + String(resolvedEntryPath)
+        .replace(/^ripster_?/i, "")
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, c => c.toUpperCase())
+    ) : null
+  );
+
   const insertWithTrimPrice = `INSERT OR IGNORE INTO trades
           (trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
            created_at, updated_at, trim_ts, trim_price, run_id,
-           setup_name, setup_grade, risk_budget, shares, notional)
+           setup_name, setup_grade, risk_budget, shares, notional,
+           entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)`;
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29)`;
   const insertWithoutTrimPrice = `INSERT OR IGNORE INTO trades
           (trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
            created_at, updated_at, trim_ts, run_id,
-           setup_name, setup_grade, risk_budget, shares, notional)
+           setup_name, setup_grade, risk_budget, shares, notional,
+           entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)`;
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)`;
 
   const resolvedEntryPrice = trade.entryPrice != null ? Number(trade.entryPrice)
     : trade.entry_price != null ? Number(trade.entry_price) : null;
@@ -27861,11 +28396,15 @@ async function d1UpsertTrade(env, trade) {
         Number.isFinite(trimTs) ? trimTs : null,
         Number.isFinite(trimPrice) ? trimPrice : null,
         resolvedRunId != null ? String(resolvedRunId) : null,
-        trade.setupName ?? trade.setup_name ?? null,
+        derivedSetupName,
         trade.setupGrade ?? trade.setup_grade ?? null,
         Number(trade.riskBudget ?? trade.risk_budget) || null,
         Number(trade.shares) || null,
         Number(trade.notional ?? (Number(trade.shares) * resolvedEntryPrice)) || null,
+        resolvedEntryPath != null ? String(resolvedEntryPath) : null,
+        resolvedMfe,
+        resolvedMae,
+        trade.rankTraceJson ?? trade.rank_trace_json ?? null,
       )
       .run();
 
@@ -27877,7 +28416,11 @@ async function d1UpsertTrade(env, trade) {
           trimmed_pct=?12, pnl=?13, pnl_pct=?14, script_version=?15,
           updated_at=?16, trim_ts=?17, trim_price=?18, run_id=COALESCE(?19, run_id),
           setup_name=COALESCE(?20, setup_name), setup_grade=COALESCE(?21, setup_grade), risk_budget=COALESCE(?22, risk_budget),
-          shares=COALESCE(?23, shares), notional=COALESCE(?24, notional)
+          shares=COALESCE(?23, shares), notional=COALESCE(?24, notional),
+          entry_path=COALESCE(?25, entry_path),
+          max_favorable_excursion=COALESCE(?26, max_favorable_excursion),
+          max_adverse_excursion=COALESCE(?27, max_adverse_excursion),
+          rank_trace_json=COALESCE(?28, rank_trace_json)
          WHERE trade_id=?1`,
       )
       .bind(
@@ -27904,11 +28447,15 @@ async function d1UpsertTrade(env, trade) {
         Number.isFinite(trimTs) ? trimTs : null,
         Number.isFinite(trimPrice) ? trimPrice : null,
         resolvedRunId != null ? String(resolvedRunId) : null,
-        trade.setupName ?? trade.setup_name ?? null,
+        derivedSetupName,
         trade.setupGrade ?? trade.setup_grade ?? null,
         Number(trade.riskBudget ?? trade.risk_budget) || null,
         Number(trade.shares) || null,
         Number(trade.notional ?? (Number(trade.shares) * resolvedEntryPrice)) || null,
+        resolvedEntryPath != null ? String(resolvedEntryPath) : null,
+        resolvedMfe,
+        resolvedMae,
+        trade.rankTraceJson ?? trade.rank_trace_json ?? null,
       )
       .run();
 
@@ -27944,13 +28491,32 @@ async function d1ArchiveRunTrade(env, runId, trade) {
     const exitReason = trade.exitReason || trade.exit_reason || null;
     const pnlPct = trade.pnlPct != null ? Number(trade.pnlPct) : trade.pnl_pct != null ? Number(trade.pnl_pct) : null;
     const trimPrice = Number(trade.trim_price ?? trade.trimPrice) || null;
+    // Phase-I V11: persist entry_path + MFE/MAE on archive writes too
+    const archEntryPath = trade.entryPath ?? trade.entry_path ?? null;
+    const archMfe = Number.isFinite(Number(trade.maxFavorableExcursion))
+      ? Number(trade.maxFavorableExcursion)
+      : Number.isFinite(Number(trade.max_favorable_excursion))
+        ? Number(trade.max_favorable_excursion) : null;
+    const archMae = Number.isFinite(Number(trade.maxAdverseExcursion))
+      ? Number(trade.maxAdverseExcursion)
+      : Number.isFinite(Number(trade.max_adverse_excursion))
+        ? Number(trade.max_adverse_excursion) : null;
+    const archSetupName = trade.setupName ?? trade.setup_name ?? (
+      archEntryPath ? (
+        SETUP_NAME_MAP[archEntryPath] ?? "TT " + String(archEntryPath)
+          .replace(/^ripster_?/i, "")
+          .replace(/_/g, " ")
+          .replace(/\b\w/g, c => c.toUpperCase())
+      ) : null
+    );
     await db.prepare(
       `INSERT OR REPLACE INTO backtest_run_trades
         (run_id, trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
          exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
          created_at, updated_at, trim_ts, trim_price,
-         setup_name, setup_grade, risk_budget, shares, notional)
-       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25)`
+         setup_name, setup_grade, risk_budget, shares, notional,
+         entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json)
+       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29)`
     ).bind(
       String(runId),
       tradeId,
@@ -27972,11 +28538,15 @@ async function d1ArchiveRunTrade(env, runId, trade) {
       Date.now(),
       trimTs,
       Number.isFinite(trimPrice) ? trimPrice : null,
-      trade.setupName ?? trade.setup_name ?? null,
+      archSetupName,
       trade.setupGrade ?? trade.setup_grade ?? null,
       Number(trade.riskBudget ?? trade.risk_budget) || null,
       Number(trade.shares) || null,
       Number(trade.notional ?? (Number(trade.shares) * Number(entryPrice))) || null,
+      archEntryPath != null ? String(archEntryPath) : null,
+      archMfe,
+      archMae,
+      trade.rankTraceJson ?? trade.rank_trace_json ?? null,
     ).run();
   } catch (e) {
     console.warn("[ARCHIVE] d1ArchiveRunTrade failed:", String(e).slice(0, 150));
@@ -42841,6 +43411,174 @@ export default {
       }
 
       // ═══════════════════════════════════════════════════════════════════════
+      // BACKTEST ORCHESTRATOR ENDPOINTS
+      //
+      // Cron-driven backtest management. Enqueue a run, let the Worker's
+      // scheduled handler advance it. No cloud-agent VM required; no more
+      // "VM paused mid-backtest" incidents.
+      //
+      // Normal flow:
+      //   1. (optional) Configure DA keys via POST /timed/admin/model-config
+      //   2. POST /timed/admin/backtest/enqueue → start a run
+      //   3. Worker cron advances it every few minutes
+      //   4. GET /timed/admin/backtest/status to monitor
+      //   5. When done, trades available via /timed/admin/trade-autopsy/trades
+      //
+      // See: worker/backtest-orchestrator.js + tasks/worker-cron-orchestrator-*.md
+      // ═══════════════════════════════════════════════════════════════════════
+
+      if (routeKey === "POST /timed/admin/backtest/enqueue") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        let body;
+        try { body = await req.json(); }
+        catch (err) {
+          return sendJSON({ ok: false, error: "invalid_json", detail: String(err?.message || err).slice(0, 200) }, 400, corsHeaders(env, req));
+        }
+        try {
+          const result = await enqueueManagedRun(env, body || {});
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (err) {
+          return sendJSON({ ok: false, error: String(err?.message || err).slice(0, 300) }, 400, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "POST /timed/admin/backtest/cancel") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        let body;
+        try { body = await req.json(); } catch { body = {}; }
+        const runId = String(body?.run_id || url.searchParams.get("run_id") || "").trim();
+        if (!runId) return sendJSON({ ok: false, error: "run_id required" }, 400, corsHeaders(env, req));
+        try {
+          const result = await cancelManagedRun(env, runId);
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (err) {
+          return sendJSON({ ok: false, error: String(err?.message || err).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "GET /timed/admin/backtest/status") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          await ensureOrchestratorSchema(env);
+        } catch {}
+        const runId = String(url.searchParams.get("run_id") || "").trim();
+        if (runId) {
+          const row = await getManagedRun(env, runId);
+          if (!row) return sendJSON({ ok: false, error: "not_found", run_id: runId }, 404, corsHeaders(env, req));
+          return sendJSON({ ok: true, run: row }, 200, corsHeaders(env, req));
+        }
+        const statusFilter = url.searchParams.get("status");
+        const limit = Number(url.searchParams.get("limit")) || 50;
+        const runs = await listManagedRuns(env, { status: statusFilter, limit });
+        return sendJSON({ ok: true, runs, count: runs.length }, 200, corsHeaders(env, req));
+      }
+
+      // Manual tick for dev / smoke testing. Cron triggers the same function
+      // automatically — this endpoint is just for faster feedback loops.
+      if (routeKey === "POST /timed/admin/backtest/tick") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const baseUrl = `${url.protocol}//${url.host}`;
+        const apiKey = url.searchParams.get("key") || env?.API_KEY || env?.ADMIN_KEY || "";
+        // Eagerly init the replay executor runtime so the direct hook is
+        // wired before orchestratorTick calls into it.
+        try { getReplayExecutorRuntime(); } catch {}
+        try {
+          const result = await orchestratorTick(env, { baseUrl, apiKey, logger: console });
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (err) {
+          return sendJSON({ ok: false, error: String(err?.message || err).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/purge-trail-payload?key=...&cutoffDays=0&maxBatches=100&dryRun=0
+      //
+      // Phase-I (2026-04-22): reclaim D1 space used by timed_trail.payload_json
+      // forensic snapshots from historical backtest runs. The slim trail fields
+      // (price/htf/ltf/state/rank/flags_json) are preserved — only payload_json
+      // is nulled out. One run's worth of payload_json = ~1.5-2 GB.
+      //
+      // Query params:
+      //   cutoffDays   default 0 = purge all. If >0, only purge rows
+      //                older than N days (keep recent forensic payloads).
+      //   maxBatches   default 100 (safety). 5000 rows/batch.
+      //   dryRun=1     report row counts without writing.
+      if (routeKey === "POST /timed/admin/purge-trail-payload") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+
+        const cutoffDays = Math.max(0, Number(url.searchParams.get("cutoffDays")) || 0);
+        const maxBatches = Math.max(1, Math.min(10000, Number(url.searchParams.get("maxBatches")) || 100));
+        const dryRun = url.searchParams.get("dryRun") === "1";
+        const nowMs = Date.now();
+        const cutoffTs = cutoffDays > 0 ? nowMs - cutoffDays * 86400000 : nowMs;
+
+        try {
+          // Count rows with non-null payload_json that fall under the cutoff.
+          const countRow = await db.prepare(
+            `SELECT COUNT(*) AS n FROM timed_trail
+             WHERE payload_json IS NOT NULL AND ts < ?1`
+          ).bind(cutoffTs).first();
+          const candidateCount = Number(countRow?.n || 0);
+
+          if (dryRun) {
+            return sendJSON({
+              ok: true,
+              dryRun: true,
+              cutoffDays,
+              cutoffTs,
+              candidateRows: candidateCount,
+              estimatedBytesFreed: candidateCount * 2500, // ~2.5 KB avg per payload
+              note: "Run without dryRun=1 to purge.",
+            }, 200, corsHeaders(env, req));
+          }
+
+          // Batch-UPDATE 5000 rows at a time. SQLite ROWID LIMIT is supported in D1.
+          let updated = 0;
+          let batches = 0;
+          const startTs = Date.now();
+          while (batches < maxBatches) {
+            const res = await db.prepare(
+              `UPDATE timed_trail
+               SET payload_json = NULL
+               WHERE rowid IN (
+                 SELECT rowid FROM timed_trail
+                 WHERE payload_json IS NOT NULL AND ts < ?1
+                 LIMIT 5000
+               )`
+            ).bind(cutoffTs).run();
+            const changed = Number(res?.meta?.changes || 0);
+            if (changed === 0) break;
+            updated += changed;
+            batches += 1;
+            // Safety: if we've been at it >45s, stop to stay under CF limit.
+            if (Date.now() - startTs > 45000) break;
+          }
+
+          return sendJSON({
+            ok: true,
+            cutoffDays,
+            cutoffTs,
+            candidateRows: candidateCount,
+            rowsUpdated: updated,
+            batchesRun: batches,
+            elapsedMs: Date.now() - startTs,
+            complete: updated >= candidateCount,
+            note: updated < candidateCount
+              ? `More rows remain (${candidateCount - updated}). Run again to continue.`
+              : "All candidate rows cleared. Run 'PRAGMA vacuum' via a separate tool to reclaim space on disk.",
+          }, 200, corsHeaders(env, req));
+        } catch (err) {
+          return sendJSON({ ok: false, error: String(err?.message || err).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
       // ALPACA INTEGRATION ENDPOINTS
       // ═══════════════════════════════════════════════════════════════════════
 
@@ -43561,7 +44299,8 @@ export default {
                 const { results: archiveRows } = await db.prepare(
                   `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
                           exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
-                          trim_ts, trim_price, setup_name, setup_grade, risk_budget, shares, notional
+                          trim_ts, trim_price, setup_name, setup_grade, risk_budget, shares, notional,
+                          entry_path, max_favorable_excursion, max_adverse_excursion
                    FROM backtest_run_trades
                    WHERE run_id = ?1`
                 ).bind(liveRunId).all();
@@ -43596,6 +44335,13 @@ export default {
                   risk_budget: r.risk_budget,
                   shares: r.shares,
                   notional: r.notional,
+                  // Phase-I V11 (2026-04-22): new fields for post-run analysis
+                  entryPath: r.entry_path,
+                  entry_path: r.entry_path,
+                  maxFavorableExcursion: r.max_favorable_excursion,
+                  max_favorable_excursion: r.max_favorable_excursion,
+                  maxAdverseExcursion: r.max_adverse_excursion,
+                  max_adverse_excursion: r.max_adverse_excursion,
                   run_id: liveRunId,
                 }));
               } catch (e) {
@@ -44110,13 +44856,21 @@ export default {
 
           // If we have an archive run_id, read from the immutable backtest_run_trades archive
           if (archiveRunId) {
+            // V11 (2026-04-22): added brt.rank, brt.rr, brt.entry_path, brt.max_*
+            // and brt.rank_trace_json. Prefer brt over da for these fields (brt
+            // is the immutable per-run archive; da is the signal shadow).
             const { results: rows } = await db.prepare(
               `SELECT brt.trade_id, brt.ticker, brt.direction, brt.status, brt.entry_ts, brt.exit_ts, brt.trim_ts,
                       brt.entry_price, brt.exit_price, brt.pnl, brt.pnl_pct, brt.exit_reason, brt.run_id,
                       brt.trimmed_pct, brt.trim_price, brt.setup_name, brt.setup_grade, brt.risk_budget,
                       brt.shares, brt.notional,
-                      da.signal_snapshot_json, da.exit_snapshot_json, da.entry_path, da.consensus_direction,
-                      da.max_favorable_excursion, da.max_adverse_excursion, da.tf_stack_json,
+                      brt.rank AS brt_rank, brt.rr AS brt_rr,
+                      brt.entry_path AS brt_entry_path,
+                      brt.max_favorable_excursion AS brt_mfe,
+                      brt.max_adverse_excursion AS brt_mae,
+                      brt.rank_trace_json AS brt_rank_trace_json,
+                      da.signal_snapshot_json, da.exit_snapshot_json, da.entry_path AS da_entry_path, da.consensus_direction,
+                      da.max_favorable_excursion AS da_mfe, da.max_adverse_excursion AS da_mae, da.tf_stack_json,
                       da.execution_profile_name, da.execution_profile_confidence, da.market_state, da.execution_profile_json,
                       da.rvol_best, da.entry_quality_score, da.exit_reason AS da_exit_reason
                  FROM backtest_run_trades brt
@@ -44135,9 +44889,14 @@ export default {
               trimmed_pct: r.trimmed_pct, trim_price: r.trim_price,
               setup_name: r.setup_name, setup_grade: r.setup_grade, risk_budget: r.risk_budget,
               shares: r.shares ?? null, notional: r.notional ?? null,
+              rank: r.brt_rank ?? null,
+              rr: r.brt_rr ?? null,
               signal_snapshot_json: r.signal_snapshot_json, exit_snapshot_json: r.exit_snapshot_json,
-              entry_path: r.entry_path, consensus_direction: r.consensus_direction,
-              max_favorable_excursion: r.max_favorable_excursion, max_adverse_excursion: r.max_adverse_excursion,
+              entry_path: r.brt_entry_path ?? r.da_entry_path ?? null,
+              consensus_direction: r.consensus_direction,
+              max_favorable_excursion: r.brt_mfe ?? r.da_mfe ?? null,
+              max_adverse_excursion: r.brt_mae ?? r.da_mae ?? null,
+              rank_trace_json: r.brt_rank_trace_json ?? null,
               tf_stack_json: r.tf_stack_json,
               execution_profile_name: r.execution_profile_name, execution_profile_confidence: r.execution_profile_confidence,
               market_state: r.market_state, execution_profile_json: r.execution_profile_json,
@@ -59015,6 +59774,55 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     }
 
     console.log(`[CRON] ${event.cron} → [${[...vc].join(", ")}] at ${_utcH}:${String(_utcM).padStart(2,"0")} day=${_utcDay}`);
+
+    // ───────────────────────────────────────────────────────────────
+    // Backtest orchestrator tick (Phase-I, 2026-04-22)
+    //
+    // Every 2 minutes (even minutes only, gated inside the */1 cron),
+    // advance any queued/running managed backtest. Each tick processes up
+    // to ORCHESTRATOR_MAX_BATCHES_PER_TICK batches before yielding.
+    //
+    // Running inside ctx.waitUntil so the main cron work can't be delayed
+    // by orchestrator latency; the orchestrator has its own per-batch
+    // timeout + TTL-protected lock.
+    //
+    // See: worker/backtest-orchestrator.js
+    // ───────────────────────────────────────────────────────────────
+    if (_isEveryMin && _utcM % 2 === 0) {
+      const _orchBaseUrl = (() => {
+        try {
+          const h = event?.request?.url || event?.request?.host;
+          if (h) {
+            const u = new URL(h);
+            return `${u.protocol}//${u.host}`;
+          }
+        } catch {}
+        return "https://timed-trading-ingest.shashant.workers.dev";
+      })();
+      const _orchKey = env?.API_KEY || env?.ADMIN_KEY || env?.TIMED_API_KEY || "";
+      // Eagerly init replay executor so direct candle-replay hook is ready
+      try { getReplayExecutorRuntime(); } catch {}
+      ctx.waitUntil((async () => {
+        if (!_orchKey) {
+          console.warn("[ORCH] no API key available in env; orchestrator tick skipped");
+          return;
+        }
+        try {
+          const out = await orchestratorTick(env, {
+            baseUrl: _orchBaseUrl,
+            apiKey: _orchKey,
+            logger: console,
+          });
+          if (out?.claimed) {
+            console.log(`[ORCH] cron tick processed ${out.claimed}: advanced=${out.advanced || 0} day=${out.day || "-"} scored=${out.scored || 0} trades=${out.trades || 0} finalized=${!!out.finalized}`);
+          } else if (out?.reason && out.reason !== "no_runs_due") {
+            console.log(`[ORCH] tick skipped: ${out.reason}`);
+          }
+        } catch (err) {
+          console.error(`[ORCH] cron tick failed: ${String(err?.message || err).slice(0, 300)}`);
+        }
+      })());
+    }
 
     // Load dynamic market calendar (Alpaca API + KV cache, static fallback)
     try {

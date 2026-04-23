@@ -187,6 +187,16 @@ export function buildTradeContext(tickerData, asOfTs = null) {
     // without another lookup. Populated by replay-candle-batches.js.
     sectorRating: String(d?._sector_rating || env?._sectorRatings?.[d?.ticker] || "").toLowerCase() || null,
 
+    // Phase-I.1 2026-04-22: recent trades for this ticker (up to 10 most
+    // recent, open + closed). Used by the re-entry throttle + duplicate-open
+    // guard in tt-core-entry.js. Populated by replay-candle-batches.js from
+    // replayCtx.allTrades so the entry pipeline can detect back-to-back
+    // entries on the same ticker+direction.
+    recentTrades: Array.isArray(env?._recentTickerTrades) ? env._recentTickerTrades : [],
+
+    // Replay "now" timestamp for time-delta calculations against recentTrades.
+    nowTs: now,
+
     // Phase-E 2026-04-19: per-ticker daily structural profile. Raw D21/D48/
     // D200 levels + derived position/slope metrics surfaced by
     // assembleTickerData.daily_structure. Null on fresh tickers with

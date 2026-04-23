@@ -104,6 +104,15 @@ export function parseCandleReplayRequest({ url, tickerUniverse = [] } = {}) {
   const skipTrail = url.searchParams.get("skipTrail") === "1"
     || url.searchParams.get("skipTrailWrite") === "1"
     || url.searchParams.get("lowWrite") === "1";
+  // Phase-I (2026-04-22): skip the per-bar forensics payload_json by
+  // default. The field adds ~2-3 KB per row × ~630k rows per full run
+  // = 1.5-2 GB per backtest, driving D1 past its 10 GB cap. Slim trail
+  // fields (price/htf/ltf/state/rank/flags/trigger_reason/kanban_stage)
+  // still flow so downstream analysis is unchanged. Forensics work can
+  // opt in with trailForensics=1 (or the legacy skipPayloadJson=0).
+  // See tasks/d1-storage-reduction-plan-2026-04-22.md
+  const trailForensics = url.searchParams.get("trailForensics") === "1"
+    || url.searchParams.get("skipPayloadJson") === "0";
   const skipInvestor = url.searchParams.get("skipInvestor") === "1" || url.searchParams.get("traderOnly") === "1";
   const skipPayload = url.searchParams.get("skipPayload") !== "0";
   const debugTimeline = url.searchParams.get("debugTimeline") === "1";
@@ -146,6 +155,7 @@ export function parseCandleReplayRequest({ url, tickerUniverse = [] } = {}) {
       allTickers,
       batchTickers,
       hasMore,
+      trailForensics,
     },
   };
 }

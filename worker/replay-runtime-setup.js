@@ -143,6 +143,24 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_earnings_proximity_block_hours",
   "deep_audit_mid_trade_regime_flip_exit_enabled",
   "deep_audit_mid_trade_regime_flip_min_age_hours",
+  // Phase-I 2026-04-22: Position-lifecycle + universe-scaling + SHORT selectivity
+  // See tasks/phase-i-implementation-2026-04-22.md
+  "deep_audit_duplicate_open_block_enabled",
+  "deep_audit_reentry_throttle_hours",
+  "deep_audit_stale_position_force_close_days",
+  "deep_audit_strict_rank_required",
+  "deep_audit_short_requires_spy_downtrend",
+  "deep_audit_short_spy_carveout_rank_min",
+  "deep_audit_short_spy_carveout_cohorts",
+  "deep_audit_short_sector_strength_gate",
+  "deep_audit_short_sector_strength_rank_min",
+  "deep_audit_max_loss_time_scaled_v2",
+  "deep_audit_universe_adaptive_rank",
+  "deep_audit_universe_rank_reference",
+  "deep_audit_universe_rank_bump_per_ref",
+  "deep_audit_rank_formula",
+  // V11 rank integrity audit (2026-04-22)
+  "deep_audit_rank_trace_force_enabled",
   "golden_julaug_reference_run_id", "live_config_run_id", "member_ticker_list", "consensus_signal_weights", "consensus_tf_weights", "scoring_weight_adj",
 ];
 

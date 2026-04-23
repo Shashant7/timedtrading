@@ -18,6 +18,209 @@ const BRAND = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════
+// Brief Infographic → Email HTML
+// Renders the same structured data the web BriefInfographic consumes,
+// using tables + inline styles for cross-client compatibility
+// (Gmail, Outlook, Apple Mail).
+// ═══════════════════════════════════════════════════════════════════════
+
+function _esc(v) {
+  if (v == null) return "";
+  return String(v)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function _vixColor(bucket) {
+  return bucket === "calm" ? "#34d399"
+    : bucket === "normal" ? "#86efac"
+      : bucket === "elevated" ? "#fbbf24"
+        : bucket === "high" ? "#fb923c"
+          : bucket === "panic" ? "#ef4444" : "#9ca3af";
+}
+
+function _ggColor(gg) {
+  return gg === "OPEN_UP" ? "#34d399" : gg === "OPEN_DOWN" ? "#ef4444" : "#9ca3af";
+}
+
+function _pctColor(p) {
+  if (p == null) return "#9ca3af";
+  return p > 0 ? "#34d399" : p < 0 ? "#ef4444" : "#9ca3af";
+}
+
+function _ggLabel(gg) {
+  return gg === "OPEN_UP" ? "▲ GG Up" : gg === "OPEN_DOWN" ? "▼ GG Down" : "◆ Neutral";
+}
+
+/**
+ * Builds the email-safe infographic HTML. Returns empty string if data is
+ * insufficient (caller can safely interpolate either way).
+ */
+export function buildEmailInfographic(infographic) {
+  if (!infographic || typeof infographic !== "object") return "";
+  const hl = infographic.headline || {};
+  const indices = Array.isArray(infographic.indices) ? infographic.indices : [];
+  const macro = Array.isArray(infographic.macro) ? infographic.macro : [];
+  const events = Array.isArray(infographic.events) ? infographic.events : [];
+  const risks = Array.isArray(infographic.risks) ? infographic.risks : [];
+  const opps = Array.isArray(infographic.opportunities) ? infographic.opportunities : [];
+  const topThree = Array.isArray(infographic.topThree) ? infographic.topThree : null;
+  const closingLine = infographic.closingLine || null;
+
+  // ── Today's Three (Galloway-style TOC) ──
+  let topThreeHtml = "";
+  if (topThree && topThree.length === 3) {
+    const items = topThree.map(t => `
+      <tr>
+        <td valign="top" style="padding:6px 0 0;width:24px;color:#fcd34d;font-weight:700;font-size:13px;line-height:1.5;font-variant-numeric:tabular-nums">${_esc(t.n)}.</td>
+        <td style="padding:6px 0 0;font-size:13px;line-height:1.5;color:${BRAND.textPrimary}">
+          ${t.label ? `<span style="color:${BRAND.textSecondary};font-weight:500">${_esc(t.label)}:</span> ` : ""}${_esc(t.body)}
+        </td>
+      </tr>`).join("");
+    topThreeHtml = `
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px;background:rgba(245,158,11,0.05);border:1px solid rgba(245,158,11,0.22);border-radius:8px">
+        <tr><td style="padding:12px 14px">
+          <div style="font-size:10px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:#fcd34d;margin:0 0 6px">Today's Three</div>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${items}</table>
+        </td></tr>
+      </table>`;
+  }
+
+  // ── Headline badges (Regime / VIX / Breadth / Open) ──
+  const badges = [];
+  if (hl.regime) {
+    badges.push({ label: "Regime", value: String(hl.regime).replace(/_/g, " "), color: "#67e8f9" });
+  }
+  if (hl.vix) {
+    const bucket = hl.vix.bucket;
+    badges.push({
+      label: "VIX",
+      value: `${Number(hl.vix.level || 0).toFixed(2)} · ${bucket || "?"}`,
+      color: _vixColor(bucket),
+    });
+  }
+  if (hl.breadth) {
+    const g = Number(hl.breadth.green || 0);
+    const t = Number(hl.breadth.total || 0);
+    const color = t === 0 ? "#9ca3af" : g >= t * 0.6 ? "#34d399" : g <= t * 0.4 ? "#ef4444" : "#fbbf24";
+    badges.push({ label: "Breadth", value: `${g}/${t}`, color });
+  }
+  if (hl.openTrades != null) {
+    badges.push({ label: "Open", value: String(hl.openTrades), color: "#a78bfa" });
+  }
+  const headlineHtml = badges.length
+    ? `<table role="presentation" cellpadding="0" cellspacing="4" style="margin:0 0 14px">
+         <tr>
+           ${badges.map(b => `
+             <td style="padding:6px 10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:6px;min-width:72px">
+               <div style="font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:${BRAND.textMuted}">${_esc(b.label)}</div>
+               <div style="font-size:13px;font-weight:600;color:${b.color};font-variant-numeric:tabular-nums;margin-top:2px">${_esc(b.value)}</div>
+             </td>`).join("")}
+         </tr>
+       </table>`
+    : "";
+
+  // ── Index rows (SPY/QQQ/IWM with price + GG) ──
+  let indicesHtml = "";
+  if (indices.length > 0) {
+    const rows = indices.map(idx => {
+      const lvls = idx.levels || {};
+      const gg = lvls.goldenGate || "NEUTRAL";
+      const price = idx.price ?? lvls.currentPrice;
+      const chgPct = idx.chgPct;
+      return `<tr>
+        <td style="padding:10px 12px;border:1px solid rgba(255,255,255,0.06);background:rgba(255,255,255,0.02);border-radius:6px" valign="top">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+            <tr>
+              <td style="font-size:13px;font-weight:700;color:white">${_esc(idx.sym)}</td>
+              <td align="right" style="font-size:11px;font-weight:600;color:${_ggColor(gg)}">${_ggLabel(gg)}</td>
+            </tr>
+            <tr>
+              <td colspan="2" style="padding-top:4px">
+                <span style="font-size:16px;font-weight:700;color:white;font-variant-numeric:tabular-nums">${price != null ? `$${Number(price).toFixed(2)}` : "—"}</span>
+                ${chgPct != null ? `<span style="margin-left:8px;font-size:12px;font-weight:600;color:${_pctColor(chgPct)};font-variant-numeric:tabular-nums">${chgPct >= 0 ? "+" : ""}${Number(chgPct).toFixed(2)}%</span>` : ""}
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+      <tr><td style="height:6px;line-height:6px">&nbsp;</td></tr>`;
+    }).join("");
+    indicesHtml = `
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 14px">
+        ${rows}
+      </table>`;
+  }
+
+  // ── Macro strip ──
+  let macroHtml = "";
+  if (macro.length > 0) {
+    const cells = macro.slice(0, 5).map(m => {
+      const color = m.bucket ? _vixColor(m.bucket) : _pctColor(m.chgPct);
+      return `<td style="padding:6px 10px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:6px;min-width:80px">
+        <div style="font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:${BRAND.textMuted}">${_esc(m.label || m.sym)}</div>
+        <div style="font-size:13px;font-weight:600;color:${color};font-variant-numeric:tabular-nums;margin-top:2px">${_esc(Number(m.value).toFixed(2))}${m.chgPct != null ? ` · ${m.chgPct >= 0 ? "+" : ""}${Number(m.chgPct).toFixed(1)}%` : ""}</div>
+      </td>`;
+    }).join("");
+    macroHtml = `<table role="presentation" cellpadding="0" cellspacing="4" style="margin:0 0 14px"><tr>${cells}</tr></table>`;
+  }
+
+  // ── Events (today's macro + earnings) ──
+  let eventsHtml = "";
+  if (events.length > 0) {
+    const rows = events.slice(0, 6).map(e => {
+      const severityColor = e.severity === "high" ? "#ef4444" : e.severity === "medium" ? "#fbbf24" : "#9ca3af";
+      return `<tr>
+        <td style="padding:4px 0;vertical-align:top">
+          <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${severityColor};margin-right:6px;vertical-align:middle"></span>
+          <span style="font-size:12px;color:${BRAND.textPrimary}">${_esc(e.title)}</span>
+          ${e.when ? `<span style="font-size:11px;color:${BRAND.textMuted};margin-left:6px">· ${_esc(e.when)}</span>` : ""}
+        </td>
+      </tr>`;
+    }).join("");
+    eventsHtml = `
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 14px">
+        <tr><td style="padding-bottom:4px;font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.textMuted}">Today's events</td></tr>
+        ${rows}
+      </table>`;
+  }
+
+  // ── Risks / Opportunities (compact pill list) ──
+  const listBlock = (items, label, color) => {
+    if (!items || items.length === 0) return "";
+    const lis = items.slice(0, 4).map(r => `
+      <tr><td style="padding:3px 0;font-size:12px;color:${BRAND.textSecondary};line-height:1.4">
+        <span style="color:${color};margin-right:6px">${label === "Risks" ? "⚠" : "↑"}</span>${_esc(r)}
+      </td></tr>`).join("");
+    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 8px">
+      <tr><td style="padding:4px 0 2px;font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${color}">${_esc(label)}</td></tr>
+      ${lis}
+    </table>`;
+  };
+  const risksOppsHtml = listBlock(risks, "Risks", "#f59e0b") + listBlock(opps, "Opportunities", "#34d399");
+
+  // ── Closing line (if present) ──
+  const closingHtml = closingLine
+    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0 0">
+        <tr><td style="padding:12px 14px;background:rgba(139,92,246,0.06);border-left:3px solid rgba(139,92,246,0.5);border-radius:6px">
+          <div style="font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#a78bfa;margin:0 0 4px">The bottom line</div>
+          <p style="margin:0;font-size:13px;color:${BRAND.textPrimary};line-height:1.55">${_esc(closingLine)}</p>
+        </td></tr>
+      </table>`
+    : "";
+
+  const body = topThreeHtml + headlineHtml + indicesHtml + macroHtml + eventsHtml + risksOppsHtml + closingHtml;
+  if (!body.trim()) return "";
+
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px;background:rgba(255,255,255,0.015);border:1px solid ${BRAND.border};border-radius:10px">
+    <tr><td style="padding:16px">
+      ${body}
+    </td></tr>
+  </table>`;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
 // HMAC Unsubscribe Tokens
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -380,7 +583,7 @@ function markdownToEmailHtml(md) {
 }
 
 export async function sendDailyBriefEmail(env, userEmail, brief) {
-  const { type, content, date, esPrediction, stats } = brief;
+  const { type, content, date, esPrediction, stats, infographic } = brief;
   const label = type === "morning" ? "Morning Brief" : "Evening Brief";
   const baseUrl = env?.WORKER_URL || "https://timed-trading.com";
   const unsubscribeUrl = env?.EMAIL_HMAC_SECRET
@@ -388,6 +591,10 @@ export async function sendDailyBriefEmail(env, userEmail, brief) {
     : null;
 
   const briefHtml = markdownToEmailHtml(content);
+  // Cross-client-safe infographic — matches the web BriefInfographic treatment.
+  // Renders "Today's Three" TOC, headline badges, index cards, macro strip,
+  // events, risks/opportunities, closing line. Empty string if no data.
+  const infographicHtml = buildEmailInfographic(infographic);
 
   // Evening brief: render a "What Happened Today" summary card if stats are provided
   let eveningSummaryHtml = "";
@@ -414,6 +621,7 @@ export async function sendDailyBriefEmail(env, userEmail, brief) {
     <h1 style="margin:0 0 4px;font-size:20px;font-weight:700;color:white">${label}</h1>
     <p style="margin:0 0 20px;font-size:13px;color:${BRAND.textMuted}">${date}</p>
     ${esPrediction ? `<div style="padding:10px 14px;background:rgba(245,158,11,0.08);border-left:3px solid #f59e0b;border-radius:6px;margin:0 0 20px"><p style="margin:0;font-size:13px;color:#fcd34d;font-weight:600">ES Prediction</p><p style="margin:4px 0 0;font-size:13px;color:${BRAND.textSecondary}">${esPrediction}</p></div>` : ""}
+    ${infographicHtml}
     ${eveningSummaryHtml}
     ${briefHtml}
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 0">

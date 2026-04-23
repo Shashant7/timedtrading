@@ -1,0 +1,268 @@
+{
+  "trade_id": "SGI-1757599200000",
+  "ticker": "SGI",
+  "cohort": "Speculative",
+  "direction": "LONG",
+  "entry_ts": 1757599200000,
+  "exit_ts": 1757705400000,
+  "entry_price": 85.865,
+  "exit_price": 83.97,
+  "pnl_pct": -2.2069527747044733,
+  "status": "LOSS",
+  "exit_reason": "max_loss_time_scaled",
+  "rank": 100,
+  "rr": 7.5756097560976245,
+  "entry_path": null,
+  "hold_hours": 29.5,
+  "forensics_available": true,
+  "trail_rows": 389,
+  "entry_context": {
+    "score": 100,
+    "rank": 100,
+    "state": "HTF_BULL_LTF_BULL",
+    "kanban_stage": "in_review",
+    "entry_path": "tt_pullback",
+    "regime_class": "TRENDING",
+    "regime_score": 9,
+    "ema_regime_daily": 2,
+    "ema_regime_4h": 1,
+    "ema_regime_1h": -2,
+    "pdz_zone_D": "premium_approach",
+    "pdz_pct_D": 87.9,
+    "st_bars_since_flip_D": 170,
+    "daily": {
+      "px": 86.09,
+      "e21": 84.96,
+      "e48": 82.48,
+      "e200": 72.9,
+      "pct_above_e21": 1.33,
+      "pct_above_e48": 4.37,
+      "pct_above_e200": 18.1,
+      "e21_slope_5d_pct": 0.33,
+      "e48_slope_10d_pct": 2.1,
+      "bull_stack": true,
+      "bear_stack": false,
+      "above_e200": true
+    },
+    "mtf": {
+      "10": {
+        "stDir": -1,
+        "rsi": 59.7,
+        "ema_depth": 15,
+        "ema_structure": 1,
+        "phase_zone": "HIGH",
+        "saty_zone": "MEDIUM",
+        "c8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "c5_12": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        }
+      },
+      "15": {
+        "stDir": -1,
+        "rsi": 58.3,
+        "ema_depth": 15,
+        "ema_structure": 1,
+        "phase_zone": "HIGH",
+        "saty_zone": "MEDIUM",
+        "c8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "c5_12": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        }
+      },
+      "30": {
+        "stDir": 1,
+        "rsi": 56.1,
+        "ema_depth": 15,
+        "ema_structure": 1,
+        "phase_zone": "LOW",
+        "saty_zone": "MEDIUM",
+        "c8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "c5_12": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        }
+      },
+      "1H": {
+        "stDir": 1,
+        "rsi": 53.6,
+        "ema_depth": 15,
+        "ema_structure": 1,
+        "phase_zone": "LOW",
+        "saty_zone": "LOW",
+        "c8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "c5_12": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        }
+      },
+      "4H": {
+        "stDir": 1,
+        "rsi": 56.2,
+        "ema_depth": 15,
+        "ema_structure": 1,
+        "phase_zone": "LOW",
+        "saty_zone": "LOW",
+        "c8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "c5_12": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        }
+      },
+      "D": {
+        "stDir": -1,
+        "rsi": 63.3,
+        "ema_depth": 15,
+        "ema_structure": 1,
+        "phase_zone": "LOW",
+        "saty_zone": "LOW",
+        "c8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "c5_12": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        }
+      }
+    },
+    "atr_levels": {
+      "day": {
+        "prevClose": 86.09,
+        "atr": 1.73,
+        "disp": -0.133,
+        "band": "NEUTRAL",
+        "rangeOfATR": 88,
+        "gate": null
+      },
+      "week": {
+        "prevClose": 84.08,
+        "atr": 4.37,
+        "disp": 0.408,
+        "band": "GATE_382",
+        "rangeOfATR": 84.5,
+        "gate": {
+          "side": "bull",
+          "entered": true,
+          "completed": false,
+          "entry_level": 85.75,
+          "target_level": 86.78,
+          "progress_pct": 0.109,
+          "horizon": "week"
+        }
+      },
+      "month": {
+        "prevClose": 84.33,
+        "atr": 8.91,
+        "disp": 0.172,
+        "band": "NEUTRAL",
+        "rangeOfATR": 77.1,
+        "gate": null
+      },
+      "quarter": {
+        "prevClose": 84.08,
+        "atr": 15.74,
+        "disp": 0.113,
+        "band": "NEUTRAL",
+        "rangeOfATR": 0,
+        "gate": null
+      },
+      "longterm": {
+        "prevClose": 84.08,
+        "atr": 31.48,
+        "disp": 0.057,
+        "band": "NEUTRAL",
+        "rangeOfATR": 0,
+        "gate": null
+      }
+    }
+  },
+  "mfe_pct": 0.48,
+  "mae_pct": -2.17,
+  "mfe_ts": 1757611800000,
+  "mae_ts": 1757705400000,
+  "mfe_exit_gap_pct": 2.68,
+  "atr_reach": {
+    "day": {
+      "up": [],
+      "dn": [
+        {
+          "ratio": 0.236,
+          "price": 85.68
+        },
+        {
+          "ratio": 0.382,
+          "price": 85.43
+        },
+        {
+          "ratio": 0.5,
+          "price": 85.23
+        },
+        {
+          "ratio": 0.618,
+          "price": 85.02
+        },
+        {
+          "ratio": 0.786,
+          "price": 84.73
+        },
+        {
+          "ratio": 1,
+          "price": 84.36
+        }
+      ]
+    },
+    "week": {
+      "up": [
+        {
+          "ratio": 0.236,
+          "price": 85.11
+        },
+        {
+          "ratio": 0.382,
+          "price": 85.75
+        },
+        {
+          "ratio": 0.5,
+          "price": 86.26
+        }
+      ],
+      "dn": []
+    }
+  },
+  "tags": [
+    "clear_loser",
+    "never_worked",
+    "stopped_out",
+    "time_scaled_stop"
+  ],
+  "post_exit_3d_continuation_pct": 1.3
+}

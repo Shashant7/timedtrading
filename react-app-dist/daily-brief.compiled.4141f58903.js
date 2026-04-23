@@ -1274,6 +1274,93 @@ function MarketCharts() {
     limit: tfConfig.limit
   }))));
 }
+function IntradayPulse({
+  infographic
+}) {
+  if (!infographic) return null;
+  const hl = infographic.headline || {};
+  const indices = Array.isArray(infographic.indices) ? infographic.indices : [];
+  const vixBucket = hl.vix?.bucket;
+  const vixColor = vixBucket === "calm" ? "#34d399" : vixBucket === "normal" ? "#86efac" : vixBucket === "elevated" ? "#fbbf24" : vixBucket === "high" ? "#fb923c" : vixBucket === "panic" ? "#ef4444" : "#9ca3af";
+  const pctColor = p => p == null ? "#9ca3af" : p > 0 ? "#34d399" : p < 0 ? "#ef4444" : "#9ca3af";
+  const ggColor = gg => gg === "OPEN_UP" ? "#34d399" : gg === "OPEN_DOWN" ? "#ef4444" : "#6b7280";
+  const closing = infographic.closingLine || null;
+  return React.createElement("div", {
+    className: "mb-3"
+  }, React.createElement("div", {
+    className: "flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2",
+    style: {
+      background: "linear-gradient(135deg, rgba(99,102,241,0.04), rgba(139,92,246,0.02))",
+      borderColor: "rgba(139,92,246,0.18)"
+    }
+  }, React.createElement("span", {
+    className: "flex items-center gap-1.5 pr-2 border-r border-white/[0.08]"
+  }, React.createElement("span", {
+    className: "w-1.5 h-1.5 rounded-full",
+    style: {
+      background: "#a78bfa",
+      boxShadow: "0 0 8px rgba(167,139,250,0.7)"
+    }
+  }), React.createElement("span", {
+    className: "text-[9px] uppercase tracking-[0.14em] font-bold text-[#a78bfa]"
+  }, "LIVE PULSE")), hl.vix && React.createElement("span", {
+    className: "flex items-baseline gap-1"
+  }, React.createElement("span", {
+    className: "text-[9px] uppercase tracking-wider text-[#6b7280]"
+  }, "VIX"), React.createElement("span", {
+    className: "text-[12px] font-semibold tabular-nums",
+    style: {
+      color: vixColor
+    }
+  }, hl.vix.level.toFixed(1)), vixBucket && React.createElement("span", {
+    className: "text-[9px] lowercase text-[#6b7280]"
+  }, vixBucket)), hl.breadth && React.createElement("span", {
+    className: "flex items-baseline gap-1"
+  }, React.createElement("span", {
+    className: "text-[9px] uppercase tracking-wider text-[#6b7280]"
+  }, "Breadth"), React.createElement("span", {
+    className: "text-[12px] font-semibold tabular-nums",
+    style: {
+      color: hl.breadth.green >= hl.breadth.total * 0.6 ? "#34d399" : hl.breadth.green <= hl.breadth.total * 0.4 ? "#ef4444" : "#fbbf24"
+    }
+  }, hl.breadth.green, "/", hl.breadth.total)), indices.map(idx => {
+    const gg = idx.levels?.goldenGate || "NEUTRAL";
+    return React.createElement("span", {
+      key: idx.sym,
+      className: "flex items-baseline gap-1.5 px-2 py-0.5 rounded-md",
+      style: {
+        background: "rgba(255,255,255,0.03)"
+      }
+    }, React.createElement("span", {
+      className: "text-[10px] font-bold text-white"
+    }, idx.sym), idx.chgPct != null && React.createElement("span", {
+      className: "text-[11px] font-semibold tabular-nums",
+      style: {
+        color: pctColor(idx.chgPct)
+      }
+    }, idx.chgPct >= 0 ? "+" : "", idx.chgPct.toFixed(2), "%"), React.createElement("span", {
+      className: "text-[9px]",
+      style: {
+        color: ggColor(gg)
+      }
+    }, gg === "OPEN_UP" ? "▲" : gg === "OPEN_DOWN" ? "▼" : "◆"));
+  }), hl.openTrades != null && hl.openTrades > 0 && React.createElement("span", {
+    className: "ml-auto flex items-center gap-1.5 pl-2 border-l border-white/[0.08]"
+  }, React.createElement("span", {
+    className: "text-[9px] uppercase tracking-wider text-[#6b7280]"
+  }, "Open"), React.createElement("span", {
+    className: "text-[12px] font-semibold tabular-nums text-[#a78bfa]"
+  }, hl.openTrades))), closing && React.createElement("div", {
+    className: "mt-2 px-3 py-1.5 rounded-md text-[11.5px] leading-snug",
+    style: {
+      background: "rgba(139,92,246,0.04)",
+      borderLeft: "2px solid rgba(139,92,246,0.4)",
+      color: "#d1d5db"
+    }
+  }, React.createElement("span", {
+    className: "text-[9px] uppercase tracking-widest font-bold text-[#a78bfa] mr-1.5"
+  }, "Take:"), closing));
+}
 function IntradayFlash({
   entries
 }) {
@@ -1321,7 +1408,9 @@ function IntradayFlash({
     hour: "numeric",
     minute: "2-digit",
     hour12: true
-  }))), React.createElement("div", {
+  }))), entry.infographic && React.createElement(IntradayPulse, {
+    infographic: entry.infographic
+  }), React.createElement("div", {
     className: "brief-content",
     dangerouslySetInnerHTML: {
       __html: renderMarkdown(entry.content)
@@ -1728,11 +1817,26 @@ function App({
   }, React.createElement("div", {
     className: "flex items-center justify-between mb-6"
   }, React.createElement("div", null, React.createElement("h1", {
-    className: "text-lg font-semibold tracking-tight text-white flex items-center gap-2"
+    className: "tt-editorial flex items-baseline gap-3",
+    style: {
+      fontSize: "34px",
+      lineHeight: 1.1,
+      color: "var(--tt-text-0)",
+      letterSpacing: "-0.02em"
+    }
   }, "Daily Brief", React.createElement("span", {
-    className: "text-[11px] font-normal text-[#f59e0b] bg-[#f59e0b]/10 px-2 py-0.5 rounded-full"
+    className: "tt-label-editorial",
+    style: {
+      fontFamily: "var(--tt-font-ui)",
+      fontSize: "9.5px"
+    }
   }, "AI-Powered")), React.createElement("p", {
-    className: "text-[13px] text-[#6b7280] mt-0.5"
+    className: "text-[12px] mt-1",
+    style: {
+      color: "var(--tt-text-3)",
+      letterSpacing: "0.12em",
+      textTransform: "uppercase"
+    }
   }, today)), loading && React.createElement("div", {
     className: "loading-spinner"
   })), React.createElement(MarketCharts, null), loading ? React.createElement("div", {
