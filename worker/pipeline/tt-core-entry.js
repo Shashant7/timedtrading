@@ -471,10 +471,33 @@ export function evaluateEntry(ctx) {
         const spyBelowE21 = spyDaily?.close_below_e21 === true;
         const spyE21SlopeNeg = Number(spyDaily?.e21_slope_5bar_pct ?? 0) < 0;
         const spyBearRegime = Number(spyDaily?.ema_regime_daily ?? 0) <= -1;
-        // Require 2 of 3 bearish SPY signals
         const bearSignals = [spyBelowE21, spyE21SlopeNeg, spyBearRegime].filter(Boolean).length;
-        const spyDowntrend = bearSignals >= 2;
-        if (!spyDowntrend) {
+
+        // V12 P4 (2026-04-23) — relax 2-of-3 to configurable floor.
+        // V11 shipped 1 SHORT in 10 months. Target 5-15. `bearish_mixed`
+        // (1 of 3 signals) is the practical minimum that still avoids
+        // raw bull tape. See tasks/v12-killer-strategy-2026-04-23.md P4.
+        const _spyFloorName = String(daCfg.deep_audit_short_spy_regime_floor ?? "bearish_mixed").toLowerCase();
+        const _minBearSignals = _spyFloorName === "bearish_stacked" ? 2
+          : _spyFloorName === "sideways_below_21ema" ? 1
+          : /* bearish_mixed */ 1;
+        const spyDowntrend = bearSignals >= _minBearSignals;
+
+        // V12 P4: require ticker's own daily EMA structure to be
+        // stacked-bearish (E21 < E48 < E200) when SPY isn't in full
+        // downtrend. This replaces the sector-strength hard block.
+        const _requireTickerBearish = String(
+          daCfg.deep_audit_short_requires_ticker_bearish_daily ?? "true"
+        ) === "true";
+        const tickerDaily = d?.daily_structure || {};
+        const tickerBearishDaily =
+          Number(tickerDaily?.e21) > 0 &&
+          Number(tickerDaily?.e48) > 0 &&
+          Number(tickerDaily?.e200) > 0 &&
+          Number(tickerDaily?.e21) < Number(tickerDaily?.e48) &&
+          Number(tickerDaily?.e48) < Number(tickerDaily?.e200);
+
+        if (!spyDowntrend && _requireTickerBearish && !tickerBearishDaily) {
           // Carve-out: exceptional rank + speculative cohort (meme/crypto)
           const _shortCarveRankMin = Number(daCfg.deep_audit_short_spy_carveout_rank_min ?? 95);
           const _shortCarveCohorts = String(daCfg.deep_audit_short_spy_carveout_cohorts ?? "speculative")
@@ -484,17 +507,17 @@ export function evaluateEntry(ctx) {
           if (!(rankHighEnough && cohortAllowed)) {
             return rejectEntry("phase_i_short_no_spy_downtrend", {
               bearSignals, spyBelowE21, spyE21SlopeNeg, spyBearRegime,
+              tickerBearishDaily, minBearSignals: _minBearSignals,
               rank: rankScore, cohort: d?._cohort,
             });
           }
         }
       }
 
-      const _sectorStrengthGate = String(daCfg.deep_audit_short_sector_strength_gate ?? "true") === "true";
+      // V12 P4: sector-strength gate now defaults OFF (rank penalty instead
+      // of hard block). If still enabled, keep the original behavior.
+      const _sectorStrengthGate = String(daCfg.deep_audit_short_sector_strength_gate ?? "false") === "true";
       if (_sectorStrengthGate) {
-        // Use sectorRegime (from replay-candle-batches) as proxy for sector-vs-SPY
-        // relative strength. If the ticker's sector is in a bullish regime class
-        // (STRONG_BULL / LATE_BULL), shorting is low-probability.
         const sectorRegime = String(ctx?.regime?.sector || "").toUpperCase();
         const sectorBullish = sectorRegime === "STRONG_BULL" || sectorRegime === "LATE_BULL";
         const _sectorStrengthRankMin = Number(daCfg.deep_audit_short_sector_strength_rank_min ?? 98);
@@ -735,6 +758,133 @@ export function evaluateEntry(ctx) {
   // QUALITY REJECTION GATES block also declares it but the trigger needs it
   // first. Use a local identifier here.
   const _tickerUpperEarly = String(d?.ticker || d?.sym || ctx.ticker || "").trim().toUpperCase();
+
+  // ──────────────────────────────────────────────────────────────────────
+  // V12 P6 (2026-04-23) — ETF PRECISION GATE
+  //
+  // Goal: 90%+ WR on SPY/QQQ/IWM/DIA. V11 delivered 4 trades, 25% WR.
+  // The strategy's normal entry pipeline isn't calibrated for broad-index
+  // ETFs — they barely pull back, use different volatility ranges, and
+  // respond to different technical cues than single stocks.
+  //
+  // 10-filter conjunction MUST all pass for a SHORT/LONG entry on
+  // precision-gated tickers. If any fails, immediate reject regardless
+  // of what the regular triggers would say.
+  //
+  // Filters:
+  //   1. Daily EMA21 > EMA48 > EMA200 (stacked same direction as trade)
+  //   2. Pullback within N% of daily EMA21 (not deeper)
+  //   3. Daily RSI in 40-65 healthy pullback zone
+  //   4. 1H close above 21EMA (LONG) / below 21EMA (SHORT)
+  //   5. Current price above 30m ATR Saty-0 line (anchor)
+  //   6. Weekly not overextended (within 2 weekly ATRs of weekly EMA21)
+  //   7. VIX ≤ N (suppress panic-tape entries on broad ETFs)
+  //   8. Breadth ≥ N% green (regime alignment)
+  //   9. No FOMC/CPI/NFP event within M hours
+  //  10. Run-rank ≥ N (baseline quality)
+  //
+  // See: tasks/v12-killer-strategy-2026-04-23.md
+  // ──────────────────────────────────────────────────────────────────────
+  const _etfPgEnabled = String(daCfg.deep_audit_etf_precision_gate_enabled ?? "false") === "true";
+  const _etfPgTickerList = String(daCfg.deep_audit_etf_precision_tickers ?? "SPY,QQQ,IWM,DIA")
+    .split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
+  const _isEtfPgTicker = _etfPgEnabled && _etfPgTickerList.includes(_tickerUpperEarly);
+  if (_isEtfPgTicker) {
+    const fails = [];
+    const daily = ctx?.daily || d?.daily_structure || {};
+    const isLong = side === "LONG";
+
+    // F1 — Daily EMA stack aligned with direction
+    const e21 = Number(daily?.e21);
+    const e48 = Number(daily?.e48);
+    const e200 = Number(daily?.e200);
+    const stackBull = e21 > 0 && e48 > 0 && e200 > 0 && e21 > e48 && e48 > e200;
+    const stackBear = e21 > 0 && e48 > 0 && e200 > 0 && e21 < e48 && e48 < e200;
+    if (isLong && !stackBull) fails.push("f1_daily_stack_not_bull");
+    if (!isLong && !stackBear) fails.push("f1_daily_stack_not_bear");
+
+    // F2 — Pullback depth (within _maxPullback of daily EMA21)
+    const _maxPullback = Number(daCfg.deep_audit_etf_precision_daily_ema_pullback_pct ?? 1.5);
+    const currentPrice = Number(d?.price ?? d?.close ?? d?._live_price);
+    if (e21 > 0 && Number.isFinite(currentPrice)) {
+      const distPct = Math.abs((currentPrice - e21) / e21) * 100;
+      if (distPct > _maxPullback) fails.push(`f2_pullback_too_deep_${distPct.toFixed(2)}%`);
+    } else {
+      fails.push("f2_missing_price_or_e21");
+    }
+
+    // F3 — Daily RSI in healthy pullback zone
+    const _rsiMin = Number(daCfg.deep_audit_etf_precision_daily_rsi_min ?? 40);
+    const _rsiMax = Number(daCfg.deep_audit_etf_precision_daily_rsi_max ?? 65);
+    const rsiDailyLocal = Number(daily?.rsi ?? D?.rsi);
+    if (!Number.isFinite(rsiDailyLocal)) {
+      fails.push("f3_rsi_daily_missing");
+    } else if (rsiDailyLocal < _rsiMin || rsiDailyLocal > _rsiMax) {
+      fails.push(`f3_rsi_daily_out_of_band_${rsiDailyLocal.toFixed(1)}`);
+    }
+
+    // F4 — 1H structure aligned
+    const h1Above = h1?.ripster?.c34_50?.above || h1?.close_above_e21;
+    const h1Below = h1?.ripster?.c34_50?.below || h1?.close_below_e21;
+    if (isLong && !h1Above) fails.push("f4_1h_not_aligned_long");
+    if (!isLong && !h1Below) fails.push("f4_1h_not_aligned_short");
+
+    // F5 — 30m price above ATR Saty-0 (the current-day anchor)
+    const saty0Level = Number(m30?.saty_atr_levels?.anchor ?? m30?.atr_levels?.["0"]);
+    if (Number.isFinite(saty0Level) && Number.isFinite(currentPrice)) {
+      if (isLong && currentPrice < saty0Level) fails.push("f5_below_30m_saty_anchor");
+      if (!isLong && currentPrice > saty0Level) fails.push("f5_above_30m_saty_anchor");
+    }
+    // if Saty level unavailable, skip F5 rather than hard-reject
+
+    // F6 — Weekly not overextended (within 2 weekly ATRs of weekly EMA21)
+    const wE21 = Number(W?.ema21 ?? W?.e21);
+    const wAtr = Number(W?.atr);
+    if (Number.isFinite(wE21) && Number.isFinite(wAtr) && wAtr > 0 && Number.isFinite(currentPrice)) {
+      const wDistAtrs = Math.abs(currentPrice - wE21) / wAtr;
+      if (wDistAtrs > 2.0) fails.push(`f6_weekly_overextended_${wDistAtrs.toFixed(2)}atr`);
+    }
+
+    // F7 — VIX cap
+    const _vixMax = Number(daCfg.deep_audit_etf_precision_vix_max ?? 25);
+    const vixNow = Number(ctx?.market?.vix ?? d?._env?.vix);
+    if (Number.isFinite(vixNow) && vixNow > _vixMax) {
+      fails.push(`f7_vix_too_high_${vixNow.toFixed(1)}`);
+    }
+
+    // F8 — Breadth regime aligned
+    const _breadthMin = Number(daCfg.deep_audit_etf_precision_breadth_min ?? 50);
+    const breadthPct = Number(ctx?.market?.breadth_pct ?? d?._env?.breadth_pct);
+    if (Number.isFinite(breadthPct)) {
+      if (isLong && breadthPct < _breadthMin) fails.push(`f8_breadth_weak_${breadthPct.toFixed(0)}%`);
+      if (!isLong && breadthPct > (100 - _breadthMin)) fails.push(`f8_breadth_strong_${breadthPct.toFixed(0)}%`);
+    }
+
+    // F9 — Macro event proximity
+    const _macroHours = Number(daCfg.deep_audit_etf_precision_macro_event_hours ?? 48);
+    const hoursToMacro = Number(ctx?.eventProximity?.hours_to_macro ?? d?._env?.hours_to_macro);
+    if (Number.isFinite(hoursToMacro) && hoursToMacro >= 0 && hoursToMacro < _macroHours) {
+      fails.push(`f9_macro_event_in_${hoursToMacro.toFixed(0)}h`);
+    }
+
+    // F10 — Rank floor
+    const _minRank = Number(daCfg.deep_audit_etf_precision_min_rank ?? 90);
+    const rankLocal = Number(scores?.rank ?? d?.rank ?? d?.score ?? 0);
+    if (rankLocal < _minRank) fails.push(`f10_rank_below_${_minRank}_got_${rankLocal}`);
+
+    if (fails.length > 0) {
+      return reject("etf_precision_gate_fail", {
+        ticker: _tickerUpperEarly,
+        side,
+        fails,
+        filtersRequired: 10,
+        filtersFailed: fails.length,
+      });
+    }
+    // If we reach here, ALL 10 filters passed. Let the normal trigger
+    // pipeline decide which trigger label to attach (most likely the
+    // existing index_etf_swing trigger).
+  }
 
   // ──────────────────────────────────────────────────────────────────────
   // PHASE-E (2026-04-19) INDEX-ETF SWING TRIGGER (Daily-Brief aligned)
