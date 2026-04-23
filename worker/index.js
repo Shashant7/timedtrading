@@ -6627,6 +6627,37 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       }
 
       // ──────────────────────────────────────────────────────────────────
+      // V12 P3 (2026-04-23) — LET-WINNERS-RUN GUARD
+      //
+      // V11 pattern: several big winners were clipped around +1-3% while
+      // MFE was 6-12%. ALB +4.96% exited while MFE was 6.07%. 20% of the
+      // move given back to premature soft-exits.
+      //
+      // Rule: when MFE ≥ 3.0% AND current pnl is within 0.5% of MFE
+      // (price is still at/near the high), BLOCK all soft exits for one
+      // bar. Only hard exits (SL breach, HARD_LOSS_CAP, PRE_EARNINGS,
+      // STALE_POSITION_TIMEOUT) still fire. Re-evaluate next bar.
+      //
+      // Soft exits this protects against:
+      //   - phase_i_mfe_fast_cut_*
+      //   - max_loss_time_scaled
+      //   - SMART_RUNNER_SUPPORT_BREAK_CLOUD
+      //   - mfe_proportional_trail (premature)
+      //   - atr_day_adverse_382_cut
+      //   - early_dead_money_flatten
+      // ──────────────────────────────────────────────────────────────────
+      const _p3WinnerProtectEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_winner_protect_enabled ?? "true") === "true";
+      if (_p3WinnerProtectEnabled) {
+        const _p3MinMfe = Number(tickerData?._env?._deepAuditConfig?.deep_audit_winner_protect_min_mfe_pct ?? 3.0);
+        const _p3Gap = Number(tickerData?._env?._deepAuditConfig?.deep_audit_winner_protect_near_mfe_gap_pct ?? 0.5);
+        const _p3MfeAbs = Math.abs(Number(tickerData?.__mfe_pct) || Number(tickerData?.max_favorable_excursion) || 0);
+        if (_p3MfeAbs >= _p3MinMfe && pnlPct > 0 && (_p3MfeAbs - pnlPct) < _p3Gap) {
+          // Stamp a marker so downstream soft-exit blocks can short-circuit.
+          tickerData.__v12_winner_protect_active = true;
+        }
+      }
+
+      // ──────────────────────────────────────────────────────────────────
       // PHASE-I.3 (2026-04-22) — MFE-VALIDATED EXITS
       //
       // EMPIRICAL FOUNDATION (v10b audit, 101 closed trades):
@@ -6663,12 +6694,42 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         if (_mfeExitsEnabled && !_earlyPdzToleranceActive) {
           const _agH = positionAgeMarketMin / 60;
           const _mfeAbs = Math.abs(Number(tickerData?.__mfe_pct) || Number(tickerData?.max_favorable_excursion) || 0);
+          const _maeAbs = Math.abs(Number(tickerData?.__mae_pct) || Number(tickerData?.max_adverse_excursion) || 0);
 
-          // Tier 0 (NEW in V11): immediate disaster — any age < 8h with zero
-          // MFE and PnL already below -1% is a broken entry that should be
-          // cut NOW, not waited on. Catches cases like PATH 09-23 (0.00% MFE,
-          // -3.89% in 4h) that fell through the previous age-windowed tiers.
-          if (_agH < 8 && pnlPct <= -1.0 && _mfeAbs < 0.3) {
+          // ──────────────────────────────────────────────────────────────
+          // V12 P1 (2026-04-23) — FAST-CUT RELAXATION
+          //
+          // V11 autopsy (tasks/v12-killer-strategy-2026-04-23.md):
+          //   phase_i_mfe_fast_cut_zero_mfe fired 42x, all losses, -1.21%
+          //   avg. 97% of the 42 trades never reached 1% MFE — meaning
+          //   the premise "zero MFE" was correct, but the guard fired
+          //   too early, killing trades that hadn't yet had time to set
+          //   up their move. Hold-duration buckets:
+          //     <1d:   16% WR  -1.05% avg
+          //     1-2d:  44% WR  -0.07% avg
+          //     2-5d:  58% WR  +0.67% avg
+          //     5-10d: 83% WR  +1.39% avg
+          //   The strategy works when given time. The fix is to require:
+          //   (a) age >= min_hours (was 0, too aggressive)
+          //   (b) MAE >= max_drawdown_pct (only kill if thesis invalidated,
+          //       not just dormant — a trade sitting flat isn't a loser)
+          //   (c) ETF carveout: broad-index ETFs bypass this entirely,
+          //       they get the ETF Precision track (P6).
+          // ──────────────────────────────────────────────────────────────
+          const _p1MinAgeHours = Number(tickerData?._env?._deepAuditConfig?.deep_audit_mfe_fast_cut_min_age_hours ?? 2);
+          const _p1MaxMaePct = Number(tickerData?._env?._deepAuditConfig?.deep_audit_mfe_fast_cut_max_mae_pct ?? 0.5);
+          const _etfPrecisionTickers = String(tickerData?._env?._deepAuditConfig?.deep_audit_etf_precision_tickers ?? "SPY,QQQ,IWM,DIA").split(",").map(s => s.trim().toUpperCase());
+          const _etfPrecisionEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_etf_precision_gate_enabled ?? "false") === "true";
+          const _tickerSymUpper = String(tickerData?.ticker || "").toUpperCase();
+          const _isPrecisionETF = _etfPrecisionEnabled && _etfPrecisionTickers.includes(_tickerSymUpper);
+
+          // Tier 0 (V12): immediate disaster — older than min_age_hours,
+          // pnl already red past _p1MaxMaePct, zero MFE. Precision ETFs
+          // skip this entirely (they get their own min_hold guard).
+          // P3: if winner-protect is active this block never triggers
+          // (pnl would be positive anyway in that state, but guarding).
+          if (!_isPrecisionETF && !tickerData?.__v12_winner_protect_active &&
+              _agH >= _p1MinAgeHours && _agH < 8 && pnlPct <= -1.0 && _mfeAbs < 0.3 && _maeAbs >= _p1MaxMaePct) {
             tickerData.__exit_reason = "phase_i_mfe_fast_cut_zero_mfe";
             tickerData.__exit_family = "safety";
             return "exit";
@@ -6720,22 +6781,52 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       // ~64 calendar days to hit a 45-day threshold. That's why ALLY (61d),
       // WAL (57d), ARM/PH/AWI (47d) all stayed open in early V11.
       //
-      // Hard timeout for positions that have been open too long without
-      // either reaching meaningful MFE (≥ 2%) OR being currently profitable
-      // (≥ 1%). Prevents orphaned trades from locking capital indefinitely.
+      // V12 fix (2026-04-23): the `pnlPct < 1.0` shield was too lenient.
+      // V11 autopsy found BABA +1.26% and ITT +4.71% drifting open for 160
+      // CALENDAR days because they were "currently green". Any position
+      // drifting for 45+ days has an invalidated thesis; instantaneous pnl
+      // is noise. Replace the `pnlPct < 1.0` shield with a "currently
+      // breaking out" predicate: pnl > 2% (clear green) OR pnl > 0.5% AND
+      // near historical MFE (likely riding a wave). All else: close.
       // ──────────────────────────────────────────────────────────────────
       {
         const _stalePosDays = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stale_position_force_close_days ?? 45);
         if (_stalePosDays > 0) {
-          // Calendar days since entry. now and entryTsMs are both ms UTC.
           const _entryTsMs = Number(entryTsMs);
           const _nowMs = Number(now) > 1e12 ? Number(now) : Number(now) * 1000;
           const _agDays = Number.isFinite(_entryTsMs) && _entryTsMs > 0
             ? (_nowMs - _entryTsMs) / (24 * 60 * 60 * 1000)
             : (positionAgeMarketMin / (60 * 6.5));
-          const _mfeAbs = Math.abs(Number(tickerData?.__mfe_pct) || Number(tickerData?.max_favorable_excursion) || 0);
-          if (_agDays >= _stalePosDays && _mfeAbs < 2.0 && pnlPct < 1.0) {
-            tickerData.__exit_reason = "STALE_POSITION_TIMEOUT";
+          const _mfeAbsStale = Math.abs(Number(tickerData?.__mfe_pct) || Number(tickerData?.max_favorable_excursion) || 0);
+          if (_agDays >= _stalePosDays) {
+            const _stalePnlBreakout = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stale_pnl_breakout_pct ?? 2.0);
+            const _staleNearMfe = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stale_near_mfe_gap_pct ?? 0.5);
+            const _currentlyBreakingOut =
+              pnlPct > _stalePnlBreakout ||
+              (pnlPct > 0.5 && _mfeAbsStale >= 3.0 && (_mfeAbsStale - pnlPct) < _staleNearMfe);
+            if (!_currentlyBreakingOut) {
+              tickerData.__exit_reason = "STALE_POSITION_TIMEOUT";
+              tickerData.__exit_family = "safety";
+              return "exit";
+            }
+          }
+        }
+      }
+
+      // V12 (2026-04-23) — TP_HIT_TRIM runner time cap.
+      // V11 autopsy: trimmed runners (SGI Aug 18 161d, LITE Aug 21 158d)
+      // drifted for months with neither drawdown cap nor trend-break firing.
+      // After TP1, if 30+ calendar days pass without resolution, flatten.
+      {
+        const _trimTimeCapDays = Number(tickerData?._env?._deepAuditConfig?.deep_audit_trim_runner_time_cap_days ?? 30);
+        if (_trimTimeCapDays > 0 && currentTrimPct > 0) {
+          const _entryTsMs2 = Number(entryTsMs);
+          const _nowMs2 = Number(now) > 1e12 ? Number(now) : Number(now) * 1000;
+          const _agDays2 = Number.isFinite(_entryTsMs2) && _entryTsMs2 > 0
+            ? (_nowMs2 - _entryTsMs2) / (24 * 60 * 60 * 1000)
+            : (positionAgeMarketMin / (60 * 6.5));
+          if (_agDays2 >= _trimTimeCapDays) {
+            tickerData.__exit_reason = "runner_time_cap";
             tickerData.__exit_family = "safety";
             return "exit";
           }

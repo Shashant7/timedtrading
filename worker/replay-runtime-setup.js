@@ -161,6 +161,43 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_rank_formula",
   // V11 rank integrity audit (2026-04-22)
   "deep_audit_rank_trace_force_enabled",
+  // V12 killer strategy (2026-04-23): see tasks/v12-killer-strategy-2026-04-23.md
+  // P1: fast-cut relaxation
+  "deep_audit_mfe_fast_cut_min_age_hours",
+  "deep_audit_mfe_fast_cut_max_mae_pct",
+  "deep_audit_mfe_fast_cut_honor_retrigger",
+  // P2: full rank-trace coverage
+  "deep_audit_rank_trace_on_entry_always",
+  // P3: let-winners-run guard
+  "deep_audit_winner_protect_enabled",
+  "deep_audit_winner_protect_min_mfe_pct",
+  "deep_audit_winner_protect_near_mfe_gap_pct",
+  // P4: SHORT gate relaxation
+  "deep_audit_short_spy_regime_floor",
+  "deep_audit_short_requires_ticker_bearish_daily",
+  // P5: tt_momentum retune
+  "deep_audit_tt_momentum_tp1_pct",
+  "deep_audit_tt_momentum_tp2_pct",
+  "deep_audit_tt_momentum_min_rvol",
+  "deep_audit_tt_momentum_bar_position_min",
+  // P6: ETF precision gate (SPY/QQQ/IWM 90% WR target)
+  "deep_audit_etf_precision_gate_enabled",
+  "deep_audit_etf_precision_tickers",
+  "deep_audit_etf_precision_min_rank",
+  "deep_audit_etf_precision_daily_ema_pullback_pct",
+  "deep_audit_etf_precision_daily_rsi_min",
+  "deep_audit_etf_precision_daily_rsi_max",
+  "deep_audit_etf_precision_vix_max",
+  "deep_audit_etf_precision_breadth_min",
+  "deep_audit_etf_precision_macro_event_hours",
+  "deep_audit_etf_precision_stop_atr_mult",
+  "deep_audit_etf_precision_min_hold_hours",
+  "deep_audit_etf_precision_max_hold_days",
+  // V12 stale-OPEN hardening (from PR #33)
+  "deep_audit_stale_pnl_breakout_pct",
+  "deep_audit_stale_near_mfe_gap_pct",
+  "deep_audit_trim_runner_time_cap_days",
+  "deep_audit_mfe_persist_on_open",
   "golden_julaug_reference_run_id", "live_config_run_id", "member_ticker_list", "consensus_signal_weights", "consensus_tf_weights", "scoring_weight_adj",
 ];
 
