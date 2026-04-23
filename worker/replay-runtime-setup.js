@@ -148,6 +148,12 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_duplicate_open_block_enabled",
   "deep_audit_reentry_throttle_hours",
   "deep_audit_stale_position_force_close_days",
+  // V12 2026-04-23: Stale-position guard hardening + trimmed-runner time cap
+  // See tasks/v11-stale-open-positions-2026-04-23.md
+  "deep_audit_stale_pnl_breakout_pct",
+  "deep_audit_stale_near_mfe_gap_pct",
+  "deep_audit_trim_runner_time_cap_days",
+  "deep_audit_mfe_persist_on_open",
   "deep_audit_strict_rank_required",
   "deep_audit_short_requires_spy_downtrend",
   "deep_audit_short_spy_carveout_rank_min",

@@ -6718,9 +6718,14 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       // ~64 calendar days to hit a 45-day threshold. That's why ALLY (61d),
       // WAL (57d), ARM/PH/AWI (47d) all stayed open in early V11.
       //
-      // Hard timeout for positions that have been open too long without
-      // either reaching meaningful MFE (≥ 2%) OR being currently profitable
-      // (≥ 1%). Prevents orphaned trades from locking capital indefinitely.
+      // V12 fix (2026-04-23): the `pnlPct < 1.0` shield was too lenient.
+      // V11 mid-run autopsy (tasks/v11-stale-open-positions-2026-04-23.md)
+      // found BABA +1.26% and ITT +4.71% drifting open for 160 CALENDAR
+      // days because they were "currently green". Any position drifting
+      // for 45+ days has an invalidated thesis; instantaneous pnl is
+      // noise. Replace the `pnlPct < 1.0` shield with a "currently
+      // breaking out" predicate: pnl > 2% (clear green) OR pnl > 0.5%
+      // AND near historical MFE (likely riding a wave). All else: close.
       // ──────────────────────────────────────────────────────────────────
       {
         const _stalePosDays = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stale_position_force_close_days ?? 45);
@@ -6732,8 +6737,42 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
             ? (_nowMs - _entryTsMs) / (24 * 60 * 60 * 1000)
             : (positionAgeMarketMin / (60 * 6.5));
           const _mfeAbs = Math.abs(Number(tickerData?.__mfe_pct) || Number(tickerData?.max_favorable_excursion) || 0);
-          if (_agDays >= _stalePosDays && _mfeAbs < 2.0 && pnlPct < 1.0) {
-            tickerData.__exit_reason = "STALE_POSITION_TIMEOUT";
+          if (_agDays >= _stalePosDays) {
+            // V12: "currently breaking out" predicate replaces the old
+            // `pnlPct < 1.0` shield. Tunable via DA keys.
+            const _stalePnlBreakout = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stale_pnl_breakout_pct ?? 2.0);
+            const _staleNearMfe = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stale_near_mfe_gap_pct ?? 0.5);
+            const _currentlyBreakingOut =
+              pnlPct > _stalePnlBreakout ||
+              (pnlPct > 0.5 && _mfeAbs >= 3.0 && (_mfeAbs - pnlPct) < _staleNearMfe);
+            if (!_currentlyBreakingOut) {
+              tickerData.__exit_reason = "STALE_POSITION_TIMEOUT";
+              tickerData.__exit_family = "safety";
+              return "exit";
+            }
+          }
+        }
+      }
+
+      // ──────────────────────────────────────────────────────────────────
+      // V12 (2026-04-23) — TP_HIT_TRIM RUNNER TIME CAP
+      // V11 autopsy: SGI (Aug 18, 161d), LITE (Aug 21, 158d), AAPL-Dec
+      // (56d) all trimmed at TP1 and runner leg has drifted ever since.
+      // Runner-drawdown cap only fires on drawdown, not on time. Add a
+      // simple calendar-day cap on trimmed runners: if you took TP1 but
+      // the runner hasn't done anything useful in 30 days, the thesis
+      // has expired — take it off.
+      // ──────────────────────────────────────────────────────────────────
+      {
+        const _trimTimeCapDays = Number(tickerData?._env?._deepAuditConfig?.deep_audit_trim_runner_time_cap_days ?? 30);
+        if (_trimTimeCapDays > 0 && currentTrimPct > 0) {
+          const _entryTsMs2 = Number(entryTsMs);
+          const _nowMs2 = Number(now) > 1e12 ? Number(now) : Number(now) * 1000;
+          const _agDays2 = Number.isFinite(_entryTsMs2) && _entryTsMs2 > 0
+            ? (_nowMs2 - _entryTsMs2) / (24 * 60 * 60 * 1000)
+            : (positionAgeMarketMin / (60 * 6.5));
+          if (_agDays2 >= _trimTimeCapDays) {
+            tickerData.__exit_reason = "runner_time_cap";
             tickerData.__exit_family = "safety";
             return "exit";
           }
@@ -14731,7 +14770,19 @@ async function processTradeSimulation(
 
     // ═══════════════════════════════════════════════════════════════════════════
     // MFE/MAE TRACKING: Update high-water (MFE) and low-water (MAE) marks
-    // on every bar for open positions. Persisted on close via d1UpdateDirectionOutcome.
+    // on every bar for open positions.
+    //
+    // V11: persisted on close via d1UpdateDirectionOutcome. That meant OPEN
+    // trades carried max_favorable_excursion=null in D1, which silently
+    // defeated every MFE-aware exit tier (phase_i_mfe_fast_cut_zero_mfe,
+    // mfe_cut_2h/4h, 72h stale, 24h dead-money). See
+    // tasks/v11-stale-open-positions-2026-04-23.md root cause #2.
+    //
+    // V12 fix: when the in-memory MFE or MAE changes, also flush to D1 via
+    // d1UpsertTrade. Gated by `deep_audit_mfe_persist_on_open=true` so we
+    // can toggle off if D1 write pressure becomes an issue. Non-replay
+    // only — replay keeps the openTrade object in memory across ticks, so
+    // the in-memory update is already sufficient there.
     // ═══════════════════════════════════════════════════════════════════════════
     if (openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow) && pxNow > 0) {
       const _entryPxMfe = Number(openTrade.entryPrice);
@@ -14742,8 +14793,24 @@ async function processTradeSimulation(
           : ((_entryPxMfe - pxNow) / _entryPxMfe) * 100;
         const prevMfe = Number(openTrade.maxFavorableExcursion) || 0;
         const prevMae = Number(openTrade.maxAdverseExcursion) || 0;
-        if (_curPnlPct > prevMfe) openTrade.maxFavorableExcursion = Math.round(_curPnlPct * 10000) / 10000;
-        if (_curPnlPct < prevMae) openTrade.maxAdverseExcursion = Math.round(_curPnlPct * 10000) / 10000;
+        let _mfeChanged = false;
+        if (_curPnlPct > prevMfe) { openTrade.maxFavorableExcursion = Math.round(_curPnlPct * 10000) / 10000; _mfeChanged = true; }
+        if (_curPnlPct < prevMae) { openTrade.maxAdverseExcursion = Math.round(_curPnlPct * 10000) / 10000; _mfeChanged = true; }
+        // V12 flush: only when a high-water mark actually changed, and only
+        // outside replay (replay is in-memory). Fire-and-forget; never
+        // blocks the evaluator.
+        const _mfePersistOnOpen = String(
+          tickerData?._env?._deepAuditConfig?.deep_audit_mfe_persist_on_open ?? "true"
+        ) === "true";
+        if (_mfeChanged && _mfePersistOnOpen && env && !isReplay && typeof d1UpsertTrade === "function") {
+          try {
+            d1UpsertTrade(env, openTrade).catch((e) => {
+              console.warn(`[V12 MFE PERSIST] upsert failed for ${sym}:`, e?.message || e);
+            });
+          } catch (_err) {
+            /* best-effort */
+          }
+        }
       }
     }
 
