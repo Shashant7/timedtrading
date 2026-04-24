@@ -17963,8 +17963,24 @@ async function processTradeSimulation(
               // component breakdown if replay-candle-batches.js captured it
               // via __rank_trace_force. Persisted to D1 via d1UpsertTrade
               // for Stage-0 weight-correction analysis.
-              rankTraceJson: tickerData?.__rank_trace_json
-                ?? (tickerData?.__rank_trace ? JSON.stringify(tickerData.__rank_trace) : null),
+              // V13 (2026-04-24): also embed the Focus Tier conviction
+              // breakdown so every trade's tier decision is auditable.
+              rankTraceJson: (() => {
+                try {
+                  const base = tickerData?.__rank_trace_json
+                    ? JSON.parse(tickerData.__rank_trace_json)
+                    : (tickerData?.__rank_trace || {});
+                  if (tickerData?.__focus_tier || tickerData?.__focus_conviction_breakdown) {
+                    base.focus_tier = tickerData?.__focus_tier;
+                    base.focus_conviction_score = tickerData?.__focus_conviction_score;
+                    base.focus_conviction_breakdown = tickerData?.__focus_conviction_breakdown;
+                  }
+                  return Object.keys(base).length ? JSON.stringify(base) : null;
+                } catch {
+                  return tickerData?.__rank_trace_json
+                    ?? (tickerData?.__rank_trace ? JSON.stringify(tickerData.__rank_trace) : null);
+                }
+              })(),
               aiCIO: _cioDecision && !_cioDecision.fallback ? {
                 decision: _cioDecision.decision,
                 confidence: _cioDecision.confidence,

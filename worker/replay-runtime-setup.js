@@ -178,6 +178,16 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_runner_mfe_trail_enabled",
   "deep_audit_runner_mfe_trail_activation_pct",
   "deep_audit_runner_mfe_trail_giveback_pct",
+  // V13 Focus Tier (2026-04-24): intrinsic conviction score — see
+  // tasks/v13-focus-tier-strategy-2026-04-24.md
+  "deep_audit_focus_tier_enabled",
+  "deep_audit_focus_tier_a_floor",
+  "deep_audit_focus_tier_b_floor",
+  "deep_audit_focus_tier_c_floor",
+  "deep_audit_focus_min_entry_conviction",
+  "deep_audit_etf_precision_min_conviction",
+  "deep_audit_focus_tier_a_winner_protect_mfe",
+  "deep_audit_focus_tier_a_risk_budget_mult",
   // P4: SHORT gate relaxation
   "deep_audit_short_spy_regime_floor",
   "deep_audit_short_requires_ticker_bearish_daily",

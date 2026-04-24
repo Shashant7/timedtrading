@@ -6,6 +6,7 @@
 import { signalFreshness } from "../indicators.js";
 import { getEasternParts } from "../market-calendar.js";
 import { computePdzSizeMult } from "./sizing.js";
+import { computeConvictionScore, TT_SELECTED_DEFAULT } from "../focus-tier.js";
 
 const FRESHNESS_MIN = 0.3;
 const TT_CORE_TRACE_CASES = new Map([
@@ -426,31 +427,109 @@ export function evaluateEntry(ctx) {
     // For 215T a base_floor of 90 becomes an effective 100 (max). That's
     // effectively "only perfect scores" — probably too strict. Set base
     // floor to 85 for 215T and it becomes effective ~97.
-    const _h3RankFloor = Number(daCfg.deep_audit_min_rank_floor) || 0;
-    const _strictRank = String(daCfg.deep_audit_strict_rank_required ?? "true") === "true";
-    const _universeAdaptive = String(daCfg.deep_audit_universe_adaptive_rank ?? "true") === "true";
-    let _effectiveRankFloor = _h3RankFloor;
-    if (_h3RankFloor > 0 && _universeAdaptive) {
-      const _universeSize = Number(d?._env?._universeSize) || 40;
-      const _refUniverse = Number(daCfg.deep_audit_universe_rank_reference ?? 40);
-      const _rankBumpPerUniv = Number(daCfg.deep_audit_universe_rank_bump_per_ref ?? 3);
-      const _extraUniv = Math.max(0, _universeSize - _refUniverse);
-      const _bump = Math.ceil(_extraUniv / _refUniverse) * _rankBumpPerUniv;
-      _effectiveRankFloor = Math.min(100, _h3RankFloor + _bump);
-    }
-    if (_effectiveRankFloor > 0) {
-      if (_strictRank) {
-        if (rankScore < _effectiveRankFloor) {
+    // ─────────────────────────────────────────────────────────────────
+    // V13 — FOCUS TIER CONVICTION GATE (replaces rank-floor)
+    //
+    // V11 forensic: Pearson(rank, pnl_pct) = +0.002. Composite rank has
+    // zero predictive power. The tier system bypasses it entirely — each
+    // ticker gets a conviction score from 6 transparent signals plus
+    // additive bonuses, then rides the tier-specific entry floor.
+    //
+    // Kill switch: deep_audit_focus_tier_enabled = "false" to fall back
+    // to legacy rank-floor gates (preserved below for safety).
+    // ─────────────────────────────────────────────────────────────────
+    const _focusTierEnabled = String(daCfg.deep_audit_focus_tier_enabled ?? "false") === "true";
+    let _focusTier = null;
+    let _focusConviction = null;
+    if (_focusTierEnabled) {
+      const historyStats = d?._env?._focusHistoryStats || null;
+      // Live-only bonuses (empty in backtest, populated from KV in live)
+      const currentGranny = d?._env?._currentGrannyHoldings || null;
+      const currentUpticks = d?._env?._currentUpticks || null;
+
+      try {
+        const conv = computeConvictionScore({
+          tickerData: d,
+          ctx,
+          historyStats,
+          ttSelected: TT_SELECTED_DEFAULT,
+          currentGrannyEtfHoldings: currentGranny,
+          currentUpticks,
+        });
+        _focusConviction = conv;
+        _focusTier = conv.tier;
+        // Stamp for downstream (risk sizing, exit thresholds, rank_trace)
+        if (d) {
+          d.__focus_tier = _focusTier;
+          d.__focus_conviction_score = conv.score;
+          d.__focus_conviction_breakdown = conv.breakdown;
+        }
+      } catch (err) {
+        // Defensive — if conviction compute fails, treat as tier B with
+        // middling score so the entry still flows through normal gates.
+        _focusTier = "B";
+        _focusConviction = { score: 60, tier: "B", breakdown: { error: String(err?.message || err) } };
+      }
+
+      // Tier-specific conviction floors (DA-keyed for tuning)
+      const _tierAFloor = Number(daCfg.deep_audit_focus_tier_a_floor ?? 75);
+      const _tierBFloor = Number(daCfg.deep_audit_focus_tier_b_floor ?? 50);
+      const _tierCFloor = Number(daCfg.deep_audit_focus_tier_c_floor ?? 45);
+      // Minimum conviction required to enter at all (defaults to Tier C floor)
+      const _entryMinConviction = Number(daCfg.deep_audit_focus_min_entry_conviction ?? _tierCFloor);
+
+      if (_focusConviction.score < _entryMinConviction) {
+        return rejectEntry("focus_conviction_below_floor", {
+          ticker: _focusConviction.ticker,
+          score: _focusConviction.score,
+          tier: _focusTier,
+          floor: _entryMinConviction,
+          breakdown: _focusConviction.breakdown,
+        });
+      }
+      // Tier-specific extra floors for mixed-quality side (e.g. Tier C
+      // needs stricter entry because we're casting a wider exploratory
+      // net). If conviction < tier_c_floor AND tier is C, the entry is
+      // rejected. Tier A/B pass if above _entryMinConviction.
+      if (_focusTier === "C" && _focusConviction.score < _tierCFloor) {
+        return rejectEntry("focus_tier_c_below_c_floor", {
+          score: _focusConviction.score, tierFloor: _tierCFloor,
+        });
+      }
+      // NOTE: we intentionally do NOT re-check Tier A/B floors here —
+      // those thresholds are used for RISK / EXIT differentiation, not
+      // for entry rejection. A ticker can "be Tier B" but still enter
+      // so long as conviction >= _entryMinConviction.
+    } else {
+      // ───── Legacy rank-floor gate (preserved as fallback) ─────
+      // When deep_audit_focus_tier_enabled is false, falls back to the
+      // Phase-I.4 universe-adaptive rank floor.
+      const _h3RankFloor = Number(daCfg.deep_audit_min_rank_floor) || 0;
+      const _strictRank = String(daCfg.deep_audit_strict_rank_required ?? "true") === "true";
+      const _universeAdaptive = String(daCfg.deep_audit_universe_adaptive_rank ?? "true") === "true";
+      let _effectiveRankFloor = _h3RankFloor;
+      if (_h3RankFloor > 0 && _universeAdaptive) {
+        const _universeSize = Number(d?._env?._universeSize) || 40;
+        const _refUniverse = Number(daCfg.deep_audit_universe_rank_reference ?? 40);
+        const _rankBumpPerUniv = Number(daCfg.deep_audit_universe_rank_bump_per_ref ?? 3);
+        const _extraUniv = Math.max(0, _universeSize - _refUniverse);
+        const _bump = Math.ceil(_extraUniv / _refUniverse) * _rankBumpPerUniv;
+        _effectiveRankFloor = Math.min(100, _h3RankFloor + _bump);
+      }
+      if (_effectiveRankFloor > 0) {
+        if (_strictRank) {
+          if (rankScore < _effectiveRankFloor) {
+            return rejectEntry("h3_rank_below_floor", {
+              rank: rankScore, floor: _effectiveRankFloor, baseFloor: _h3RankFloor,
+              universeSize: Number(d?._env?._universeSize) || 0, strict: true,
+            });
+          }
+        } else if (rankScore > 0 && rankScore < _effectiveRankFloor) {
           return rejectEntry("h3_rank_below_floor", {
             rank: rankScore, floor: _effectiveRankFloor, baseFloor: _h3RankFloor,
-            universeSize: Number(d?._env?._universeSize) || 0, strict: true,
+            universeSize: Number(d?._env?._universeSize) || 0, strict: false,
           });
         }
-      } else if (rankScore > 0 && rankScore < _effectiveRankFloor) {
-        return rejectEntry("h3_rank_below_floor", {
-          rank: rankScore, floor: _effectiveRankFloor, baseFloor: _h3RankFloor,
-          universeSize: Number(d?._env?._universeSize) || 0, strict: false,
-        });
       }
     }
 
@@ -901,10 +980,22 @@ export function evaluateEntry(ctx) {
       fails.push(`f9_macro_event_in_${hoursToMacro.toFixed(0)}h`);
     }
 
-    // F10 — Rank floor
-    const _minRank = Number(daCfg.deep_audit_etf_precision_min_rank ?? 90);
-    const rankLocal = Number(scores?.rank ?? d?.rank ?? d?.score ?? 0);
-    if (rankLocal < _minRank) fails.push(`f10_rank_below_${_minRank}_got_${rankLocal}`);
+    // F10 — Conviction floor (V13 replaces rank-based gate).
+    // V11 forensic: composite rank Pearson(pnl) = +0.002. Use conviction
+    // score (6 transparent signals) instead. Gate preserved by DA key for
+    // ETF Precision Gate specifically; defaults 70 (above tier B's 50
+    // because precision ETFs demand higher conviction).
+    const _minConv = Number(daCfg.deep_audit_etf_precision_min_conviction ?? 70);
+    const convLocal = Number(d?.__focus_conviction_score ?? 0);
+    // Fallback: if conviction isn't populated (focus_tier disabled),
+    // preserve legacy rank check so the gate still functions.
+    if (_focusTierEnabled ?? false) {
+      if (convLocal < _minConv) fails.push(`f10_conviction_below_${_minConv}_got_${convLocal}`);
+    } else {
+      const _legacyMinRank = Number(daCfg.deep_audit_etf_precision_min_rank ?? 90);
+      const rankLocal = Number(scores?.rank ?? d?.rank ?? d?.score ?? 0);
+      if (rankLocal < _legacyMinRank) fails.push(`f10_rank_below_${_legacyMinRank}_got_${rankLocal}`);
+    }
 
     if (fails.length > 0) {
       return reject("etf_precision_gate_fail", {

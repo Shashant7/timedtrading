@@ -1,3 +1,44 @@
+// ─────────────────────────────────────────────────────────────────────────
+// V13 Focus Tier — helpers
+// Build per-ticker history stats from closed trades with exit_ts < asOfTs.
+// Shape matches what computeConvictionScore expects.
+// ─────────────────────────────────────────────────────────────────────────
+function _dayBucketTs(ts) {
+  const d = new Date(Number(ts) || 0);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+}
+function _buildFocusHistoryStats(trades, asOfMs) {
+  const out = new Map();
+  if (!Array.isArray(trades)) return out;
+  const recent30dMs = 30 * 24 * 60 * 60 * 1000;
+  for (const t of trades) {
+    if (!t) continue;
+    const exitTs = Number(t.exit_ts || 0);
+    if (!exitTs || exitTs >= asOfMs) continue;  // no lookahead
+    const status = String(t.status || "").toUpperCase();
+    if (status !== "WIN" && status !== "LOSS" && status !== "FLAT") continue;
+    const tk = String(t.ticker || "").toUpperCase();
+    if (!tk) continue;
+    const pnl = Number(t.pnl_pct) || 0;
+    let slot = out.get(tk);
+    if (!slot) {
+      slot = { n: 0, wins: 0, losses: 0, totalPnl: 0, recent30d: { n: 0, wins: 0, losses: 0, totalPnl: 0 } };
+      out.set(tk, slot);
+    }
+    slot.n++;
+    slot.totalPnl += pnl;
+    if (status === "WIN") slot.wins++;
+    else if (status === "LOSS") slot.losses++;
+    if (asOfMs - exitTs <= recent30dMs) {
+      slot.recent30d.n++;
+      slot.recent30d.totalPnl += pnl;
+      if (status === "WIN") slot.recent30d.wins++;
+      else if (status === "LOSS") slot.recent30d.losses++;
+    }
+  }
+  return out;
+}
+
 export async function executeCandleReplayBatches(args = {}, deps = {}) {
   const {
     env,
@@ -309,6 +350,18 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
                 pnl_pct: Number(t?.pnl_pct) || null,
               }));
 
+            // V13 Focus Tier — per-day history stats on replayCtx (rebuilt
+            // at each day's first bar; reused across all bars of that day
+            // for ALL tickers). Only includes trades with exit_ts <
+            // asOfTs — backtest-safe, no lookahead.
+            if (!replayCtx._focusHistoryStatsTs || replayCtx._focusHistoryStatsTs !== _dayBucketTs(intervalTs)) {
+              replayCtx._focusHistoryStats = _buildFocusHistoryStats(
+                replayCtx.allTrades,
+                intervalTs,
+              );
+              replayCtx._focusHistoryStatsTs = _dayBucketTs(intervalTs);
+            }
+
             result._env = {
               _isReplay: true,
               _goldenProfiles: replayGoldenProfiles,
@@ -332,6 +385,7 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
               _ripsterExitDebounceBars: replayEnv.TT_EXIT_DEBOUNCE_BARS || "3",
               _monthlyCycle,
               _recentTickerTrades,
+              _focusHistoryStats: replayCtx._focusHistoryStats,
             };
           }
 
