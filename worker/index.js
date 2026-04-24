@@ -6996,6 +6996,70 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         }
       }
 
+      // V13 (2026-04-24) — STAGNANT POSITION NO-COMMITMENT CUT
+      //
+      // V13d smoke audit found 19 open / trimmed positions with ages of
+      // 10-25 sim-days drifting flat (LRCX -0.36%, AU +0.47%, FIX -0.29%,
+      // TPL runner at +2.18%). Our existing MFE-aware rules have an
+      // escape clause: once MFE briefly touched 1.5%+, every later
+      // `phase_i_mfe_*` rule becomes inert, even if the trade then sits
+      // flat for weeks.
+      //
+      // Rule: if age >= _stagMinDays AND |pnl| < _stagMaxAbsPnl AND
+      // MFE < _stagMaxMfe AND NOT winner-protect active AND NOT a
+      // precision-gated ETF, flatten as `stagnant_no_commitment`.
+      //
+      // This closes the loophole for purely-flat trades without
+      // interfering with legitimate big winners (which have MFE >> 3%)
+      // or truly invalidated trades (which the earlier tiers catch).
+      //
+      // DA-keyed so we can tune thresholds or disable.
+      {
+        const _stagEnabled = String(
+          tickerData?._env?._deepAuditConfig?.deep_audit_stagnant_cut_enabled ?? "true"
+        ) === "true";
+        const _stagMinDays = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stagnant_cut_min_age_days ?? 7);
+        const _stagMaxAbsPnl = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stagnant_cut_max_abs_pnl_pct ?? 1.5);
+        const _stagMaxMfe = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stagnant_cut_max_mfe_pct ?? 3.0);
+        // Re-derive ETF Precision membership (scoped block above ended)
+        const _stagEtfTickers = String(
+          tickerData?._env?._deepAuditConfig?.deep_audit_etf_precision_tickers ?? "SPY,QQQ,IWM,DIA"
+        ).split(",").map(s => s.trim().toUpperCase());
+        const _stagEtfEnabled = String(
+          tickerData?._env?._deepAuditConfig?.deep_audit_etf_precision_gate_enabled ?? "false"
+        ) === "true";
+        const _stagTickerUpper = String(tickerData?.ticker || "").toUpperCase();
+        const _stagIsPrecisionETF = _stagEtfEnabled && _stagEtfTickers.includes(_stagTickerUpper);
+
+        if (_stagEnabled && !_stagIsPrecisionETF && !tickerData?.__v12_winner_protect_active) {
+          const _entryTsStag = Number(entryTsMs);
+          const _nowStag = Number(now) > 1e12 ? Number(now) : Number(now) * 1000;
+          const _agDaysStag = Number.isFinite(_entryTsStag) && _entryTsStag > 0
+            ? (_nowStag - _entryTsStag) / (24 * 60 * 60 * 1000)
+            : (positionAgeMarketMin / (60 * 6.5));
+          const _mfeAbsStag = Math.abs(
+            Number(tickerData?.__mfe_pct) ||
+            Number(tickerData?.max_favorable_excursion) ||
+            0
+          );
+          if (
+            _agDaysStag >= _stagMinDays &&
+            Math.abs(pnlPct) < _stagMaxAbsPnl &&
+            _mfeAbsStag < _stagMaxMfe
+          ) {
+            tickerData.__exit_reason = "stagnant_no_commitment";
+            tickerData.__exit_family = "safety";
+            tickerData.__exit_meta = {
+              age_days: Math.round(_agDaysStag * 10) / 10,
+              pnl_pct: Math.round(pnlPct * 100) / 100,
+              mfe_peak_pct: _mfeAbsStag,
+              trim_pct: Math.round((currentTrimPct || 0) * 100),
+            };
+            return "exit";
+          }
+        }
+      }
+
       // ──────────────────────────────────────────────────────────────────
       // PHASE-E.2 (2026-04-19) F3 — RUNNER DRAWDOWN CAP
       // Aug 2025: QQQ runner +trimmed went to -10.37 %, XLY -7.08 %, Oct
@@ -18075,26 +18139,67 @@ async function processTradeSimulation(
                 const sa = getSectorAlignmentCached(sym);
                 return sa ? { sector: sa.sector, aligned: sa.aligned, direction: sa.direction, strength: sa.strength } : null;
               })(),
-              // V11 rank integrity audit (2026-04-22): attach the full rank
-              // component breakdown if replay-candle-batches.js captured it
-              // via __rank_trace_force. Persisted to D1 via d1UpsertTrade
-              // for Stage-0 weight-correction analysis.
-              // V13 (2026-04-24): also embed the Focus Tier conviction
-              // breakdown so every trade's tier decision is auditable.
+              // V13 data capture (2026-04-24): force-compute rank trace +
+              // conviction HERE, at the moment of entry creation. Every
+              // prior approach relied on upstream code paths reliably
+              // stamping __rank_trace / __focus_* on tickerData before
+              // this point — some did, some didn't, depending on which
+              // engine, scoring path, or stage triggered the entry.
+              //
+              // Instead: compute them synchronously here with the force
+              // flag set, so capture is guaranteed on every created trade.
               rankTraceJson: (() => {
                 try {
-                  const base = tickerData?.__rank_trace_json
-                    ? JSON.parse(tickerData.__rank_trace_json)
-                    : (tickerData?.__rank_trace || {});
+                  const base = {};
+                  // Rank trace — if not already captured, force it now
+                  if (!tickerData?.__rank_trace) {
+                    try {
+                      const _prevForce = tickerData?.__rank_trace_force;
+                      tickerData.__rank_trace_force = true;
+                      computeRank(tickerData);
+                      tickerData.__rank_trace_force = _prevForce;
+                    } catch (_) { /* swallow */ }
+                  }
+                  if (tickerData?.__rank_trace) {
+                    Object.assign(base, tickerData.__rank_trace);
+                  }
+                  // Focus tier — if not already captured, force it now
+                  if (!tickerData?.__focus_conviction_breakdown) {
+                    try {
+                      if (!tickerData._ticker_type) {
+                        tickerData._ticker_type = getTickerTypeForFocus(tickerData.ticker || "");
+                      }
+                      const ctx = {
+                        market: {
+                          monthlySectorTop: tickerData?._env?._monthlyCycle?.sectorTop || null,
+                          monthlySectorBottom: tickerData?._env?._monthlyCycle?.sectorBottom || null,
+                          spy_daily_structure: tickerData?._env?._marketRegime?.spy_daily_structure || null,
+                        },
+                        sector: tickerData?._sector || null,
+                        monthlyBackdrop: tickerData?._env?._monthlyCycle || null,
+                        spyDailyStructure: tickerData?._env?._marketRegime?.spy_daily_structure || null,
+                      };
+                      const conv = computeConvictionScore({
+                        tickerData,
+                        ctx,
+                        historyStats: tickerData?._env?._focusHistoryStats || null,
+                        ttSelected: TT_SELECTED_DEFAULT,
+                        currentGrannyEtfHoldings: tickerData?._env?._currentGrannyHoldings || null,
+                        currentUpticks: tickerData?._env?._currentUpticks || null,
+                      });
+                      tickerData.__focus_tier = conv?.tier;
+                      tickerData.__focus_conviction_score = conv?.score;
+                      tickerData.__focus_conviction_breakdown = conv?.breakdown;
+                    } catch (_) { /* swallow */ }
+                  }
                   if (tickerData?.__focus_tier || tickerData?.__focus_conviction_breakdown) {
                     base.focus_tier = tickerData?.__focus_tier;
                     base.focus_conviction_score = tickerData?.__focus_conviction_score;
                     base.focus_conviction_breakdown = tickerData?.__focus_conviction_breakdown;
                   }
                   return Object.keys(base).length ? JSON.stringify(base) : null;
-                } catch {
-                  return tickerData?.__rank_trace_json
-                    ?? (tickerData?.__rank_trace ? JSON.stringify(tickerData.__rank_trace) : null);
+                } catch (_err) {
+                  return null;
                 }
               })(),
               aiCIO: _cioDecision && !_cioDecision.fallback ? {

@@ -446,8 +446,25 @@ export async function finalizeBacktestRun(db, body = {}) {
 
   let archived = { trades: 0, da: 0, annotations: 0, config: 0 };
   try {
+    // V13 data-capture fix (2026-04-24): archive SELECT was dropping
+    // rank_trace_json, entry_path, MFE/MAE, and setup fields. V11/V12/V13
+    // runs showed NULL rank_trace_json in backtest_run_trades even when
+    // the live `trades` table had the data. Include every column the
+    // target table has so nothing gets silently dropped.
     const archRes = await db.prepare(
-      `INSERT OR REPLACE INTO backtest_run_trades (run_id, trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status, exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version, created_at, updated_at, trim_ts, trim_price) SELECT COALESCE(run_id, ?1), trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status, exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version, created_at, updated_at, trim_ts, trim_price FROM trades WHERE run_id = ?1 ${cleanReplayLane ? "" : "OR run_id IS NULL"}`
+      `INSERT OR REPLACE INTO backtest_run_trades
+        (run_id, trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+         exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
+         created_at, updated_at, trim_ts, trim_price,
+         setup_name, setup_grade, risk_budget, shares, notional,
+         entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json)
+       SELECT COALESCE(run_id, ?1), trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+              exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
+              created_at, updated_at, trim_ts, trim_price,
+              setup_name, setup_grade, risk_budget, shares, notional,
+              entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json
+       FROM trades
+       WHERE run_id = ?1 ${cleanReplayLane ? "" : "OR run_id IS NULL"}`
     ).bind(runId).run();
     archived.trades = archRes?.meta?.changes ?? 0;
   } catch (error) { console.error("[ARCHIVE] trades:", String(error).slice(0, 200)); }
