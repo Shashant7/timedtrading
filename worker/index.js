@@ -13897,16 +13897,42 @@ async function processTradeSimulation(
       lastEnterSide === direction;
 
     let pxNow = Number(tickerData?.price);
-    // REPLAY price fix: Prefer leading LTF candle close (matches scoring TF).
-    // tickerData.price comes from assembleTickerData which picks the freshest bundle,
-    // but when bundles are sparse, fall back to the leading LTF candleCache directly.
+    // REPLAY price selection: pick the freshest bar between the leading LTF
+    // cache and tickerData.price. This was previously an unconditional LTF
+    // override, which silently corrupted entry/exit prices when the LTF
+    // cache had a gap and grabbed an older bar than the assembled bundle.
+    //
+    // V13e bug (2026-04-24): TPL Aug 13 + Aug 15 SHORT entries both got
+    // entry_price = 288.33333 (TPL's price at Aug 12 18:30) even though
+    // tickerData.price = 286.24 / 301.15 at the actual entry intervals.
+    // Same trades got exit_price = 288.33333 even though the trail bar
+    // at exit was 297.70 / 297.99. Result: real -4% LOSS and +1% WIN
+    // both recorded as FLAT $0.
+    //
+    // Fix: prefer whichever source has the bar closest to asOfMs by ts.
+    // If the LTF candle's ts is older than the bundle bar that produced
+    // tickerData.price, keep tickerData.price.
     const _replayLtf = replayCtx?._leadingLtf || tickerData?._env?._leadingLtf || "10";
     if (isReplay && Number.isFinite(asOfMs) && replayCtx?.candleCache?.[sym]?.[_replayLtf]?.length > 0) {
       const ltfCandles = replayCtx.candleCache[sym][_replayLtf];
       const lastLtf = ltfCandles.filter((c) => c.ts <= asOfMs).pop();
       const exitLtf = lastLtf ? Number(lastLtf.c) : null;
+      const exitLtfTs = lastLtf ? Number(lastLtf.ts) : 0;
       if (Number.isFinite(exitLtf) && exitLtf > 0) {
-        pxNow = exitLtf;
+        // Use bundle ts (tickerData.ts) as the basis for tickerData.price freshness.
+        // Tolerate a small drift: only override pxNow with LTF if LTF's bar is at
+        // least as fresh AND tickerData.price is missing, OR if pxNow doesn't look
+        // valid. Otherwise both are valid and we keep the bundle-derived value.
+        const bundleTs = Number(tickerData?.ts) || 0;
+        const ltfIsFresher = exitLtfTs >= bundleTs;
+        if (!Number.isFinite(pxNow) || pxNow <= 0) {
+          pxNow = exitLtf;
+        } else if (ltfIsFresher) {
+          // LTF is at-least-as-fresh; small divergence is fine, big divergence
+          // means one source is stale — prefer the fresher one (LTF).
+          pxNow = exitLtf;
+        }
+        // else: LTF is older than bundle; keep bundle pxNow.
       }
     }
 
@@ -13939,11 +13965,13 @@ async function processTradeSimulation(
       }
       if (Number.isFinite(freshestClose) && freshestClose > 0 && Number.isFinite(pxNow) && pxNow > 0) {
         const divergePct = Math.abs(pxNow - freshestClose) / freshestClose * 100;
-        // 5% divergence with a fresher bar available = bundle is almost
-        // certainly stale. Prefer the freshest bar; log so it shows up in
-        // tails and the forensics later can correlate with the coverage
-        // audit.
-        if (divergePct > 5) {
+        // V13e bug (2026-04-24): TPL Aug 14 14:00 had pxNow=288.33 (stale
+        // bar from Aug 12 18:30) while every TF bar at the actual exit
+        // interval was 297.70+. Divergence was 3.15% — below the old 5%
+        // threshold — so the guard didn't fire and the trade closed at
+        // the wrong price. Tightening to 1.5% catches quieter stale-bar
+        // bugs while still tolerating normal intra-bar variance.
+        if (divergePct > 1.5) {
           console.warn(`[CANDLE_STALE_GUARD] ${sym} at ${asOfMs}: pxNow=$${pxNow.toFixed(4)} diverges ${divergePct.toFixed(1)}% from freshest TF close=$${freshestClose.toFixed(4)} (ts=${freshestTs}); using freshest`);
           pxNow = freshestClose;
         }
