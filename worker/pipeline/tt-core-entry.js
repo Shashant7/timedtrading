@@ -7,6 +7,7 @@ import { signalFreshness } from "../indicators.js";
 import { getEasternParts } from "../market-calendar.js";
 import { computePdzSizeMult } from "./sizing.js";
 import { computeConvictionScore, TT_SELECTED_DEFAULT } from "../focus-tier.js";
+import { getTickerType as getTickerTypeForFocus } from "../sector-mapping.js";
 
 const FRESHNESS_MIN = 0.3;
 const TT_CORE_TRACE_CASES = new Map([
@@ -446,6 +447,14 @@ export function evaluateEntry(ctx) {
       // Live-only bonuses (empty in backtest, populated from KV in live)
       const currentGranny = d?._env?._currentGrannyHoldings || null;
       const currentUpticks = d?._env?._currentUpticks || null;
+
+      // V13: stamp _ticker_type so liquidity scoring has a stable
+      // classification. Cheap lookup, cached on d.
+      if (!d._ticker_type) {
+        try {
+          d._ticker_type = getTickerTypeForFocus(d.ticker || d.sym || "");
+        } catch { /* ignore */ }
+      }
 
       try {
         const conv = computeConvictionScore({

@@ -1,6 +1,7 @@
 // Timed Trading Worker — KV latest + trail + rank + top lists + Discord alerts (CORRIDOR-ONLY)
 import { DASHBOARD_HTML } from "./dashboard-html.js";
 import { computeConvictionScore, TT_SELECTED_DEFAULT } from "./focus-tier.js";
+import { getTickerType as getTickerTypeForFocus } from "./sector-mapping.js";
 export { PriceHub } from "./price-hub.js";
 export { AlpacaStream } from "./alpaca-stream.js";
 export { PriceStream } from "./price-stream.js";
@@ -3889,6 +3890,15 @@ function computeConvictionScoreForD(d) {
   const currentGranny = env?._currentGrannyHoldings || null;
   const currentUpticks = env?._currentUpticks || null;
 
+  // V13: stamp _ticker_type from sector-mapping so liquidity scoring has
+  // a stable classification (raw avg volume isn't persisted on the
+  // ticker payload). Cached on d so we don't re-lookup per signal call.
+  if (!d._ticker_type) {
+    try {
+      d._ticker_type = getTickerTypeForFocus(d.ticker || d.sym || "");
+    } catch { /* ignore */ }
+  }
+
   // Shape a minimal ctx from d. The scorer reads ctx.market.* and
   // ctx.monthlyBackdrop.sector_leadership with graceful null-fallbacks,
   // so missing fields become 0-pt contributions (fair).
@@ -3896,11 +3906,14 @@ function computeConvictionScoreForD(d) {
     market: {
       monthlySectorTop: env?._monthlyCycle?.sectorTop || null,
       monthlySectorBottom: env?._monthlyCycle?.sectorBottom || null,
-      spy_change_20d_pct: env?._marketInternals?.spy_change_20d_pct || 0,
+      // V13: SPY daily structure is threaded through _marketRegime (see
+      // replay-candle-batches.js line 291). Expose it directly so the
+      // relative-strength signal can compare slopes vs SPY.
+      spy_daily_structure: env?._marketRegime?.spy_daily_structure || null,
     },
     sector: d?._sector || null,
     monthlyBackdrop: env?._monthlyCycle || null,
-    spyDailyStructure: env?._marketInternals || null,
+    spyDailyStructure: env?._marketRegime?.spy_daily_structure || env?._marketInternals || null,
   };
   return computeConvictionScore({
     tickerData: d,

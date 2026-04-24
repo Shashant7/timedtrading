@@ -44,31 +44,58 @@ function _f(v, d = 0) {
 // V11 losers skewed toward thin names. Every golden winner was on a
 // ticker with consistent >$100M/day volume.
 // ─────────────────────────────────────────────────────────────────────────
+// V13: liquidity scoring uses TICKER_TYPE_MAP assignment as the primary
+// proxy (emitted as `_ticker_type` on ticker data, populated by the
+// scoring pipeline). The worker doesn't expose raw avg daily volume as
+// a stable field, so we use the curated classification which correlates
+// strongly with deep liquidity in practice.
+//
+// Price floor is a secondary signal: extremely low-priced names
+// (< $5) tend to be penny-stock risk regardless of sector assignment.
 function scoreLiquidity(tickerData) {
-  const price = _f(tickerData?.price ?? tickerData?.close ?? tickerData?._live_price);
-  // 20-day average volume → dollar volume proxy.
-  // Fall back to single-day volume if 20d avg not available.
-  const avgVol = _f(
-    tickerData?.avg_volume_20d ??
-    tickerData?.avg_volume ??
-    tickerData?.volume ??
-    tickerData?._live_daily_volume
-  );
-  if (price <= 0 || avgVol <= 0) return { pts: 0, reason: "no_price_or_vol" };
+  const tickerType = String(tickerData?._ticker_type || tickerData?.ticker_type || "").toLowerCase();
+  const price = _f(tickerData?.price ?? tickerData?.close);
 
-  const dollarVol = price * avgVol;
-  // Boundaries (empirical from V11 performers):
-  //   > $500M/day → 20 pts (deep liquidity, every winner had this)
-  //   $250-500M  → 15 pts
-  //   $100-250M  → 10 pts
-  //   $50-100M   →  5 pts
-  //   < $50M     →  0 pts (thin — V11 losers concentrated here)
   let pts = 0;
-  if (dollarVol > 500e6) pts = 20;
-  else if (dollarVol > 250e6) pts = 15;
-  else if (dollarVol > 100e6) pts = 10;
-  else if (dollarVol > 50e6) pts = 5;
-  return { pts, dollarVol: Math.round(dollarVol), reason: `$${(dollarVol/1e6).toFixed(0)}M/day` };
+  let reason = "";
+
+  // Broad + sector ETFs = deepest liquidity
+  if (tickerType === "broad_etf" || tickerType === "sector_etf") {
+    pts = 20;
+    reason = `etf_${tickerType}`;
+  } else if (tickerType === "large_cap" || tickerType === "growth" || tickerType === "mega_cap") {
+    pts = 18;
+    reason = `liquid_${tickerType}`;
+  } else if (tickerType === "mid_cap") {
+    pts = 13;
+    reason = "mid_cap";
+  } else if (tickerType === "thematic_etf" || tickerType === "commodity_etf" || tickerType === "precious_metal") {
+    pts = 15;
+    reason = `specialty_${tickerType}`;
+  } else if (tickerType === "small_cap") {
+    pts = 8;
+    reason = "small_cap";
+  } else if (tickerType === "crypto" || tickerType === "crypto_adj") {
+    pts = 12;
+    reason = `crypto_${tickerType}`;
+  } else if (tickerType) {
+    pts = 10;
+    reason = `other_${tickerType}`;
+  } else {
+    // Unclassified ticker — fall back to price-based heuristic
+    if (price <= 0) return { pts: 0, reason: "no_classification_no_price" };
+    if (price < 5) { pts = 0; reason = `unclassified_penny_${price.toFixed(2)}`; }
+    else if (price < 10) { pts = 5; reason = `unclassified_low_${price.toFixed(2)}`; }
+    else { pts = 8; reason = `unclassified_${price.toFixed(2)}`; }
+  }
+
+  // Penny-stock override even for classified names
+  if (price > 0 && price < 3) {
+    pts = Math.min(pts, 3);
+    reason += "_pennystock_cap";
+  }
+
+  return { pts, tickerType, reason };
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -77,17 +104,14 @@ function scoreLiquidity(tickerData) {
 // tight to produce meaningful moves; above 5% = whipsaws stop us out.
 // ─────────────────────────────────────────────────────────────────────────
 function scoreVolatility(tickerData) {
-  const atrPct = _f(
-    tickerData?.daily?.atr_pct ??
-    tickerData?.atr_pct ??
-    tickerData?.daily_atr_pct
-  );
-  // If ATR% not directly available, derive from daily ATR + price
-  let effectiveAtrPct = atrPct;
+  // Worker emits `volatility_atr_pct` directly (daily ATR / price * 100).
+  // Fall back to deriving from atr_d / price if the convenience field
+  // isn't set.
+  let effectiveAtrPct = _f(tickerData?.volatility_atr_pct);
   if (effectiveAtrPct <= 0) {
-    const atr = _f(tickerData?.daily?.atr ?? tickerData?.atr);
+    const atrD = _f(tickerData?.atr_d ?? tickerData?.daily?.atr ?? tickerData?.atr);
     const price = _f(tickerData?.price ?? tickerData?.close);
-    if (atr > 0 && price > 0) effectiveAtrPct = (atr / price) * 100;
+    if (atrD > 0 && price > 0) effectiveAtrPct = (atrD / price) * 100;
   }
   if (effectiveAtrPct <= 0) return { pts: 0, reason: "no_atr" };
 
@@ -112,14 +136,24 @@ function scoreTrend(tickerData) {
   const e21 = _f(daily?.e21 ?? daily?.ema21);
   const e48 = _f(daily?.e48 ?? daily?.ema48);
   const e200 = _f(daily?.e200 ?? daily?.ema200);
-  const price = _f(tickerData?.price ?? tickerData?.close);
-  const atr = _f(daily?.atr ?? tickerData?.atr);
+  const price = _f(tickerData?.price ?? tickerData?.close ?? daily?.px);
+  // daily_structure doesn't carry atr — use top-level atr_d
+  const atr = _f(tickerData?.atr_d ?? daily?.atr ?? tickerData?.atr);
 
-  if (!e21 || !e48 || !e200 || !price) return { pts: 0, reason: "missing_emas" };
-
-  // Stacking direction
-  const bullStack = e21 > e48 && e48 > e200;
-  const bearStack = e21 < e48 && e48 < e200;
+  // If e200 missing but bull_stack flag is set, use it (daily_structure
+  // sometimes emits just e21/e48 + bull_stack/bear_stack booleans).
+  let bullStack, bearStack;
+  if (e21 > 0 && e48 > 0 && e200 > 0) {
+    bullStack = e21 > e48 && e48 > e200;
+    bearStack = e21 < e48 && e48 < e200;
+  } else if (daily?.bull_stack === true || daily?.bear_stack === true) {
+    bullStack = daily.bull_stack === true;
+    bearStack = daily.bear_stack === true;
+  } else {
+    return { pts: 0, reason: "missing_emas" };
+  }
+  if (!price) return { pts: 0, reason: "missing_price" };
+  if (!e21) return { pts: bullStack || bearStack ? 10 : 0, reason: `${bullStack ? 'bull' : 'bear'}_stack_only` };
 
   let pts = 0;
   let reason = "";
@@ -161,24 +195,28 @@ function scoreTrend(tickerData) {
 // If ticker's sector is in the backdrop's `sector_leadership` list = boost.
 // ─────────────────────────────────────────────────────────────────────────
 function scoreSector(tickerData, ctx) {
+  // V13: worker emits `_sector_rating` (overweight / neutral / underweight)
+  // based on Fundstrat's sector guidance. Use this as the primary signal
+  // since it's always populated and already reflects the analyst view.
+  const rating = String(tickerData?._sector_rating || "").toLowerCase();
+  if (rating === "overweight") return { pts: 10, reason: "sector_overweight" };
+  if (rating === "underweight") return { pts: 0, reason: "sector_underweight" };
+  if (rating === "neutral") return { pts: 5, reason: "sector_neutral" };
+
+  // Fallback to monthly backdrop sector leadership if rating missing
   const sector = String(tickerData?._sector || ctx?.sector || "").toLowerCase();
+  if (!sector) return { pts: 5, reason: "no_sector_data" };
   const leadership = ctx?.market?.monthlySectorTop || ctx?.monthlyBackdrop?.sector_leadership || [];
   const bottom = ctx?.market?.monthlySectorBottom || ctx?.monthlyBackdrop?.sector_bottom || [];
-
-  if (!sector) return { pts: 5, reason: "no_sector" };  // mid-point default
-
-  const leadNorm = (Array.isArray(leadership) ? leadership : [])
-    .map(s => String(s).toLowerCase());
-  const bottomNorm = (Array.isArray(bottom) ? bottom : [])
-    .map(s => String(s).toLowerCase());
-
+  const leadNorm = (Array.isArray(leadership) ? leadership : []).map(s => String(s).toLowerCase());
+  const bottomNorm = (Array.isArray(bottom) ? bottom : []).map(s => String(s).toLowerCase());
   if (leadNorm.some(s => s.includes(sector) || sector.includes(s))) {
-    return { pts: 10, reason: "sector_leadership" };
+    return { pts: 10, reason: "sector_leadership_backdrop" };
   }
   if (bottomNorm.some(s => s.includes(sector) || sector.includes(s))) {
-    return { pts: 0, reason: "sector_bottom" };
+    return { pts: 0, reason: "sector_bottom_backdrop" };
   }
-  return { pts: 5, reason: "sector_neutral" };
+  return { pts: 5, reason: "sector_neutral_fallback" };
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -186,28 +224,42 @@ function scoreSector(tickerData, ctx) {
 // Trailing 20-day price change vs SPY's. Outperforming = bullish bias.
 // ─────────────────────────────────────────────────────────────────────────
 function scoreRelativeStrength(tickerData, ctx) {
-  const tickerChg20d = _f(
-    tickerData?.change_20d_pct ??
-    tickerData?.chg_20d ??
-    tickerData?.daily?.chg_20d_pct
-  );
-  const spyChg20d = _f(
-    ctx?.market?.spy_change_20d_pct ??
-    ctx?.spyDailyStructure?.chg_20d_pct
-  );
+  // V13 pragmatic: we don't persist a 20-day change per ticker, but the
+  // daily EMA slopes are a solid proxy. e21_slope_5d_pct measures the
+  // recent trend velocity on the daily. Combine with pct_above_e48
+  // (how extended above the 48-day mean) for a RS view vs its own trend.
+  // SPY's slope serves as the market baseline.
+  const daily = tickerData?.daily_structure || {};
+  const tickerSlope = _f(daily?.e21_slope_5d_pct);
+  const tickerPctAboveE48 = _f(daily?.pct_above_e48);
+  const spyDaily = ctx?.market?.spy_daily_structure || ctx?.spyDailyStructure || {};
+  const spySlope = _f(spyDaily?.e21_slope_5d_pct);
 
-  if (tickerChg20d === 0 && spyChg20d === 0) return { pts: 5, reason: "no_rs_data" };
-  const diff = tickerChg20d - spyChg20d;
+  // No data path
+  if (tickerSlope === 0 && tickerPctAboveE48 === 0) {
+    return { pts: 5, reason: "no_rs_data" };
+  }
 
+  // Relative slope: ticker vs SPY daily velocity (percentage points)
+  const slopeDiff = tickerSlope - spySlope;
+  // Extension: how much above E48 (conviction ETF-style check)
+  // Combined score: weighted sum
   let pts = 5;  // neutral
-  if (diff > 10) pts = 10;      // strong outperformance
-  else if (diff > 5) pts = 8;
-  else if (diff > 0) pts = 6;
-  else if (diff < -10) pts = 0;  // strong underperformance
-  else if (diff < -5) pts = 2;
-  else pts = 4;
+  if (slopeDiff > 0.5 && tickerPctAboveE48 > 1.0) pts = 10;       // strong RS + above mean
+  else if (slopeDiff > 0.25 && tickerPctAboveE48 > 0) pts = 8;    // moderate RS
+  else if (slopeDiff > 0) pts = 6;                                 // mild RS
+  else if (slopeDiff < -0.5 && tickerPctAboveE48 < -2.0) pts = 0;  // strong underperform
+  else if (slopeDiff < -0.25) pts = 2;                             // mild underperform
+  else pts = 4;                                                     // neutral/weak
 
-  return { pts, diff: Math.round(diff * 10) / 10, reason: `${diff >= 0 ? '+' : ''}${diff.toFixed(1)}% vs SPY` };
+  return {
+    pts,
+    slopeDiff: Math.round(slopeDiff * 100) / 100,
+    tickerSlope: Math.round(tickerSlope * 100) / 100,
+    spySlope: Math.round(spySlope * 100) / 100,
+    pctAboveE48: Math.round(tickerPctAboveE48 * 10) / 10,
+    reason: `slope ${slopeDiff >= 0 ? '+' : ''}${slopeDiff.toFixed(2)}% vs SPY, ${tickerPctAboveE48.toFixed(1)}% above E48`,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────
