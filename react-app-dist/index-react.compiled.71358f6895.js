@@ -8835,11 +8835,11 @@ const CompactCard = React.memo(function CompactCard({
   })();
   const biasLabelDisplay = biasLabel === "LONG" ? "Bull" : biasLabel === "SHORT" ? "Bear" : biasLabel;
   const biasPillCls = (() => {
-    if (biasLabel === "LONG") return "bg-cyan-400/20 text-cyan-200 border-cyan-400/50";
-    if (biasLabel === "SHORT") return "bg-rose-500/20 text-rose-200 border-rose-400/50";
-    if (biasLabel === "PULLBACK" || biasLabel === "BOUNCE") return "bg-amber-500/20 text-amber-200 border-amber-400/50";
-    if (biasLabel === "CAUTION") return "bg-orange-500/20 text-orange-200 border-orange-400/50";
-    return "bg-slate-500/20 text-slate-200 border-slate-400/50";
+    if (biasLabel === "LONG") return "bg-cyan-500/10 text-cyan-300 border-cyan-500/25";
+    if (biasLabel === "SHORT") return "bg-rose-500/10 text-rose-300 border-rose-500/25";
+    if (biasLabel === "PULLBACK" || biasLabel === "BOUNCE") return "bg-amber-500/10 text-amber-300 border-amber-500/25";
+    if (biasLabel === "CAUTION") return "bg-orange-500/10 text-orange-300 border-orange-500/25";
+    return "bg-white/[0.04] text-slate-300 border-white/[0.08]";
   })();
   const effectiveStage = getTradeLifecycleState(t, openTrade).effectiveStage;
   const stage = String(effectiveStage || t?.kanban_stage || "");

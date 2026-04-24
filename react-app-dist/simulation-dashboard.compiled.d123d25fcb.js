@@ -4809,7 +4809,10 @@ function PortfolioColumn({
             <div className="flex items-baseline justify-between mb-3 gap-3">
               <div className="flex items-baseline gap-2.5 min-w-0">
                 <span className="tt-label-editorial">${isTrader ? "Trade History" : "Lot History"}</span>
-                <span className="tt-num" style="font-size:11px;color:var(--tt-text-3)">${isTrader ? tradeHistory.length : `${closedTrades.length} exits · ${tradeHistory.length} lots`}</span>
+                <span className="tt-num" style=${{
+    fontSize: "11px",
+    color: "var(--tt-text-3)"
+  }}>${isTrader ? tradeHistory.length : `${closedTrades.length} exits · ${tradeHistory.length} lots`}</span>
               </div>
               ${window._ttIsPro && tradeHistory.length > 0 && html`<button
                 onClick=${() => setExpanded(!expanded)}

@@ -258,6 +258,24 @@ input, button, select, textarea {
   color: var(--tt-editorial);
 }
 
+/* Consistent data pill: small, uppercase, tracking-wide tag used on ticker
+ * cards, movers lists, and the StatusStrip. Replaces ad-hoc
+ * `text-[10px] uppercase tracking-wide font-bold` clones across the app. */
+.tt-pill-data {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--tt-font-ui);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 6px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════
  * COMPONENT CLASSES
  * ═══════════════════════════════════════════════════════════════════════ */
@@ -382,3 +400,8 @@ input, button, select, textarea {
 .tt-text-editorial { color: var(--tt-editorial); }
 .tt-text-muted     { color: var(--tt-text-3); }
 .tt-text-faint     { color: var(--tt-text-4); }
+
+/* Card-density cleanup (TODO in a later pass — the ticker-card pills
+ * have too many saturated bg tints competing with the sparkline and
+ * price color. Rather than risk a fragile selector now, flagged for a
+ * dedicated CompactCard refactor. */

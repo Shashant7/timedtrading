@@ -428,16 +428,17 @@
               <span className="tt-label-editorial" style={{ color: accentColor }}>{label}</span>
               {time && <span className="tt-label" style={{ fontSize: 9 }}>Published {time} ET</span>}
             </div>
-            <div className="flex items-center gap-3 mb-4">
+            <div className="flex items-baseline gap-3 mb-3 flex-wrap">
               <h2 className="tt-editorial m-0" style={{ fontSize: 22, lineHeight: 1.15, color: "var(--tt-text-0)", letterSpacing: "-0.01em" }}>
                 {dateStr}
               </h2>
-              {brief.esPrediction && (
-                <div className="ml-auto tt-pill" style={{ background: bgDim, borderColor: bgDim, color: accentColor, fontSize: 10.5, maxWidth: 420 }} title={brief.esPrediction}>
-                  <span className="tt-editorial-italic">&ldquo;{brief.esPrediction.slice(0, 80)}{brief.esPrediction.length > 80 ? "&hellip;" : ""}&rdquo;</span>
-                </div>
-              )}
             </div>
+            {brief.esPrediction && (
+              <div className="mb-4 p-3 rounded-lg" style={{ background: bgDim, borderLeft: `3px solid ${accentColor}` }}>
+                <div className="text-[9px] font-bold uppercase tracking-widest mb-1" style={{ color: accentColor }}>ES Prediction</div>
+                <div className="text-[13px] leading-relaxed" style={{ color: "var(--tt-text-1)" }}>{brief.esPrediction}</div>
+              </div>
+            )}
             <hr className="tt-divider" style={{ margin: "0 0 18px", borderColor: bgDim }} />
             {brief.infographic && <BriefInfographic data={brief.infographic} />}
             <div className="brief-content" dangerouslySetInnerHTML={{ __html: renderMarkdown(brief.content) }} />
@@ -1477,14 +1478,36 @@
           }
         }, []);
 
-        // Fetch intraday flash insights
+        // Fetch intraday flash insights — dedupe on id and only keep
+        // entries that actually contain notable content. The server
+        // occasionally re-emits the same ID and also produces no-op
+        // entries with content-less infographic updates; filter both.
         const fetchIntraday = useCallback(async () => {
           try {
             const res = await fetch(`${API_BASE}/timed/daily-brief/intraday`, { cache: "no-store" });
-            if (res.ok) {
-              const data = await res.json();
-              setIntradayEntries(data.entries || []);
+            if (!res.ok) return;
+            const data = await res.json();
+            const raw = Array.isArray(data.entries) ? data.entries : [];
+            const todayNy = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+            const seen = new Set();
+            const kept = [];
+            for (const e of raw) {
+              // Only today's flashes (anything older is stale noise)
+              const pubDate = e.publishedAt
+                ? new Date(e.publishedAt).toLocaleDateString("en-CA", { timeZone: "America/New_York" })
+                : null;
+              if (pubDate && pubDate !== todayNy) continue;
+              // Dedupe on id (fallback: publishedAt+timeET)
+              const key = e.id || `${e.publishedAt || ""}:${e.timeET || ""}`;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              // Skip empty entries — no content AND no notable flag
+              const hasBody = typeof e.content === "string" && e.content.trim().length > 40;
+              const notable = e.notable === true || e.severity === "high" || e.flash_kind === "event";
+              if (!hasBody && !notable) continue;
+              kept.push(e);
             }
+            setIntradayEntries(kept);
           } catch (e) {
             console.error("Failed to fetch intraday briefs:", e);
           }
