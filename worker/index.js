@@ -6627,6 +6627,53 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       }
 
       // ──────────────────────────────────────────────────────────────────
+      // V12 ACTION 2 (2026-04-24) — RUNNER MFE TRAIL
+      //
+      // V11 exit-policy simulation (tasks/v11-exit-policy-findings-
+      // 2026-04-24.md) showed that a tight runner trail could capture
+      // +100 %+ of additional PnL vs V11 baseline. Too many V11 runners
+      // hit meaningful MFE (5-12 %) and then drifted sideways or gave
+      // most of it back before the next exit rule fired (ALB +4.96 %
+      // exit with +6.07 % MFE; IAU Jan 8 trimmed at TP1 then runner
+      // gave back; MSFT Oct 2 runner held 3 extra days and gained zero).
+      //
+      // Rule: only the *runner* leg (currentTrimPct > 0). Activates once
+      // peak MFE seen ≥ activation_pct. When active, if the position's
+      // pnl retraces more than giveback_pct from the peak MFE, flatten
+      // with reason `runner_mfe_trail`.
+      //
+      // This runs BEFORE the let-winners-run marker so we still let the
+      // position breathe near the peak, but clamp down the moment the
+      // retrace exceeds the giveback allowance.
+      // ──────────────────────────────────────────────────────────────────
+      {
+        const _runnerTrailEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_runner_mfe_trail_enabled ?? "false") === "true";
+        if (_runnerTrailEnabled && currentTrimPct > 0) {
+          const _activate = Number(tickerData?._env?._deepAuditConfig?.deep_audit_runner_mfe_trail_activation_pct ?? 3.0);
+          const _giveback = Number(tickerData?._env?._deepAuditConfig?.deep_audit_runner_mfe_trail_giveback_pct ?? 0.75);
+          const _mfeAbsTrail = Math.abs(
+            Number(tickerData?.__mfe_pct) ||
+            Number(tickerData?.max_favorable_excursion) ||
+            0
+          );
+          if (_mfeAbsTrail >= _activate && pnlPct > 0) {
+            const retrace = _mfeAbsTrail - pnlPct;
+            if (retrace >= _giveback) {
+              tickerData.__exit_reason = "runner_mfe_trail";
+              tickerData.__exit_family = "profit_management";
+              tickerData.__exit_meta = {
+                mfe_peak_pct: _mfeAbsTrail,
+                current_pnl_pct: pnlPct,
+                retrace_pct: retrace,
+                giveback_allowance_pct: _giveback,
+              };
+              return "exit";
+            }
+          }
+        }
+      }
+
+      // ──────────────────────────────────────────────────────────────────
       // V12 P3 (2026-04-23) — LET-WINNERS-RUN GUARD
       //
       // V11 pattern: several big winners were clipped around +1-3% while
@@ -11235,6 +11282,25 @@ const THREE_TIER_DEFAULTS = {
   RUNNER: { minMult: 4.0, maxMult: 7.0, trimPct: 1.0,  label: "RUNNER TP" },
 };
 
+// V12 (2026-04-24) — per-request trim-ratio override.
+// V11 exit-policy sim (tasks/v11-exit-policy-findings-2026-04-24.md)
+// showed trim-75 beat trim-50 by +51 % PnL / +10 pp WR / PF 1.58 → 2.20.
+// The DA key `deep_audit_default_trim_ratio` overrides the TRIM tier's
+// `trimPct` at TP array construction time. Range [0.25, 0.95]. When
+// unset or 0 the hardcoded 0.50 is used (backwards-compatible).
+// The EXIT tier's trimPct shifts up proportionally so the cumulative
+// exit stays consistent (if TRIM=0.75 and EXIT was 0.90, EXIT becomes
+// max(TRIM+0.10, 0.90) to preserve ordering).
+function resolveTrimRatioOverride(tickerData) {
+  const daCfg = tickerData?._env?._deepAuditConfig;
+  const raw = daCfg?.deep_audit_default_trim_ratio;
+  if (raw == null || raw === "") return null;
+  const v = Number(raw);
+  if (!Number.isFinite(v) || v <= 0) return null;
+  // Clamp to safe range — don't let DA-key typos flatten 99 % at TP1.
+  return Math.max(0.25, Math.min(0.95, v));
+}
+
 // Module-level cache for calibrated TP tiers (set during scoring cycle startup)
 let _calibratedTPTiers = null;
 
@@ -11738,21 +11804,27 @@ function build3TierTPArray(tickerData, entryPrice, direction) {
     const runnerValid = isLong ? pRunner > entryPrice : pRunner < entryPrice;
 
     if (trimValid && exitValid && runnerValid) {
+      // V12 trim-ratio override (per-trade, DA-keyed).
+      const trimOverride = resolveTrimRatioOverride(tickerData);
+      const trimPct = trimOverride != null ? trimOverride : THREE_TIER_CONFIG.TRIM.trimPct;
+      // Preserve ordering: EXIT must leave at least 10 pp more than TRIM
+      // so the three tiers stay monotonic. RUNNER always flattens.
+      const exitPct = Math.max(THREE_TIER_CONFIG.EXIT.trimPct, Math.min(0.95, trimPct + 0.10));
       const result = [
         {
           price: pTrim,
-          trimPct: THREE_TIER_CONFIG.TRIM.trimPct,
+          trimPct,
           tier: "TRIM",
-          label: `TRIM TP (${Math.round(THREE_TIER_CONFIG.TRIM.trimPct * 100)}%) @ 1.5x ATR`,
+          label: `TRIM TP (${Math.round(trimPct * 100)}%) @ 1.5x ATR`,
           source: "ATR Fibonacci (Daily 1.5x)",
           timeframe: "D",
           multiplier: 1.5,
         },
         {
           price: pExit,
-          trimPct: THREE_TIER_CONFIG.EXIT.trimPct,
+          trimPct: exitPct,
           tier: "EXIT",
-          label: `EXIT TP (${Math.round(THREE_TIER_CONFIG.EXIT.trimPct * 100)}%) @ 2.5x ATR`,
+          label: `EXIT TP (${Math.round(exitPct * 100)}%) @ 2.5x ATR`,
           source: "ATR Fibonacci (Daily 2.5x)",
           timeframe: "D",
           multiplier: 2.5,
@@ -11911,16 +11983,20 @@ function build3TierTPArray(tickerData, entryPrice, direction) {
     ? { trim: Number(_daTpOverride.trim) || gsConfig.tpMultipliers.trim, exit: Number(_daTpOverride.exit) || gsConfig.tpMultipliers.exit, runner: Number(_daTpOverride.runner) || gsConfig.tpMultipliers.runner }
     : gsConfig.tpMultipliers;
   
-  // Build the 3-tier array, interpolating missing tiers
+  // Build the 3-tier array, interpolating missing tiers.
+  // V12: honor trim-ratio override in legacy path too.
+  const legacyTrimOverride = resolveTrimRatioOverride(tickerData);
+  const legacyTrimPct = legacyTrimOverride != null ? legacyTrimOverride : THREE_TIER_CONFIG.TRIM.trimPct;
+  const legacyExitPct = Math.max(THREE_TIER_CONFIG.EXIT.trimPct, Math.min(0.95, legacyTrimPct + 0.10));
   const result = [];
 
-  // TRIM TP (0.618x - 1.0x ATR) - 60% off
+  // TRIM TP (0.618x - 1.0x ATR) - default 50 %, V12 default 75 % via DA key
   if (trimTp) {
     result.push({
       price: trimTp.price,
-      trimPct: THREE_TIER_CONFIG.TRIM.trimPct,
+      trimPct: legacyTrimPct,
       tier: "TRIM",
-      label: `TRIM TP (${Math.round(THREE_TIER_CONFIG.TRIM.trimPct * 100)}%)`,
+      label: `TRIM TP (${Math.round(legacyTrimPct * 100)}%)`,
       source: trimTp.source,
       timeframe: trimTp.timeframe,
       multiplier: trimTp.multiplier,
@@ -11933,9 +12009,9 @@ function build3TierTPArray(tickerData, entryPrice, direction) {
       : entryPrice - atr * trimMult;
     result.push({
       price: interpPrice,
-      trimPct: THREE_TIER_CONFIG.TRIM.trimPct,
+      trimPct: legacyTrimPct,
       tier: "TRIM",
-      label: `TRIM TP (${Math.round(THREE_TIER_CONFIG.TRIM.trimPct * 100)}%)`,
+      label: `TRIM TP (${Math.round(legacyTrimPct * 100)}%)`,
       source: `ATR Interpolated (GS ${direction})`,
       timeframe: "D",
       multiplier: trimMult,
@@ -11946,9 +12022,9 @@ function build3TierTPArray(tickerData, entryPrice, direction) {
   if (exitTp) {
     result.push({
       price: exitTp.price,
-      trimPct: THREE_TIER_CONFIG.EXIT.trimPct,
+      trimPct: legacyExitPct,
       tier: "EXIT",
-      label: `EXIT TP (${Math.round(THREE_TIER_CONFIG.EXIT.trimPct * 100)}%)`,
+      label: `EXIT TP (${Math.round(legacyExitPct * 100)}%)`,
       source: exitTp.source,
       timeframe: exitTp.timeframe,
       multiplier: exitTp.multiplier,
@@ -11961,9 +12037,9 @@ function build3TierTPArray(tickerData, entryPrice, direction) {
       : entryPrice - atr * exitMult;
     result.push({
       price: interpPrice,
-      trimPct: THREE_TIER_CONFIG.EXIT.trimPct,
+      trimPct: legacyExitPct,
       tier: "EXIT",
-      label: `EXIT TP (${Math.round(THREE_TIER_CONFIG.EXIT.trimPct * 100)}%)`,
+      label: `EXIT TP (${Math.round(legacyExitPct * 100)}%)`,
       source: `ATR Interpolated (GS ${direction})`,
       timeframe: "D",
       multiplier: exitMult,
@@ -12667,11 +12743,14 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
     tpArray = sanitizedTpArray;
   }
 
-  // Fallback to single TP if array is empty
+  // Fallback to single TP if array is empty. V12: honor trim-ratio
+  // override so the single-tier fallback also picks up the new default.
   const fallbackTP =
     existingTrade?.tp || getIntelligentTP(tickerData, entryPrice, direction);
   if (tpArray.length === 0 && Number.isFinite(fallbackTP)) {
-    tpArray = [{ price: fallbackTP, trimPct: 0.5, label: "TP (50%)" }];
+    const singleTrimOverride = resolveTrimRatioOverride(tickerData);
+    const singleTrimPct = singleTrimOverride != null ? singleTrimOverride : 0.5;
+    tpArray = [{ price: fallbackTP, trimPct: singleTrimPct, label: `TP (${Math.round(singleTrimPct * 100)}%)` }];
   }
 
   const trimmedPct = existingTrade ? existingTrade.trimmedPct || 0 : 0;

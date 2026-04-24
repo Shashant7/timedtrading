@@ -172,6 +172,12 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_winner_protect_enabled",
   "deep_audit_winner_protect_min_mfe_pct",
   "deep_audit_winner_protect_near_mfe_gap_pct",
+  // V12 Exit V2 (2026-04-24): trim-75 + runner MFE trail
+  // see tasks/v11-exit-policy-findings-2026-04-24.md
+  "deep_audit_default_trim_ratio",
+  "deep_audit_runner_mfe_trail_enabled",
+  "deep_audit_runner_mfe_trail_activation_pct",
+  "deep_audit_runner_mfe_trail_giveback_pct",
   // P4: SHORT gate relaxation
   "deep_audit_short_spy_regime_floor",
   "deep_audit_short_requires_ticker_bearish_daily",
