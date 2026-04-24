@@ -60,7 +60,12 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_stale_pnl_breakout_pct", "value": "2.0" },
     { "key": "deep_audit_stale_near_mfe_gap_pct", "value": "0.5" },
     { "key": "deep_audit_trim_runner_time_cap_days", "value": "30" },
-    { "key": "deep_audit_mfe_persist_on_open", "value": "true" }
+    { "key": "deep_audit_mfe_persist_on_open", "value": "true" },
+
+    { "key": "deep_audit_default_trim_ratio", "value": "0.75" },
+    { "key": "deep_audit_runner_mfe_trail_enabled", "value": "true" },
+    { "key": "deep_audit_runner_mfe_trail_activation_pct", "value": "3.0" },
+    { "key": "deep_audit_runner_mfe_trail_giveback_pct", "value": "0.75" }
   ]
 }
 JSON
