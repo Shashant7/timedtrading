@@ -1,5 +1,6 @@
 // Timed Trading Worker — KV latest + trail + rank + top lists + Discord alerts (CORRIDOR-ONLY)
 import { DASHBOARD_HTML } from "./dashboard-html.js";
+import { computeConvictionScore, TT_SELECTED_DEFAULT } from "./focus-tier.js";
 export { PriceHub } from "./price-hub.js";
 export { AlpacaStream } from "./alpaca-stream.js";
 export { PriceStream } from "./price-stream.js";
@@ -3877,7 +3878,109 @@ function _applyContextGates(d, inferredSide, asOfTs, leadingLtfLabel) {
  * @param {object} d - Ticker data
  * @returns {object} - { qualifies, path, confidence, reason }
  */
+// V13 Focus Tier adapter — build the ctx/historyStats inputs expected by
+// focus-tier.js::computeConvictionScore from a `tickerData` (d) object.
+// This is the legacy-entry counterpart to the TradeContext-based call in
+// tt-core-entry.js. Both end up at the same scoring function.
+function computeConvictionScoreForD(d) {
+  if (!d) return null;
+  const env = d?._env || {};
+  const historyStats = env?._focusHistoryStats || null;
+  const currentGranny = env?._currentGrannyHoldings || null;
+  const currentUpticks = env?._currentUpticks || null;
+
+  // Shape a minimal ctx from d. The scorer reads ctx.market.* and
+  // ctx.monthlyBackdrop.sector_leadership with graceful null-fallbacks,
+  // so missing fields become 0-pt contributions (fair).
+  const ctx = {
+    market: {
+      monthlySectorTop: env?._monthlyCycle?.sectorTop || null,
+      monthlySectorBottom: env?._monthlyCycle?.sectorBottom || null,
+      spy_change_20d_pct: env?._marketInternals?.spy_change_20d_pct || 0,
+    },
+    sector: d?._sector || null,
+    monthlyBackdrop: env?._monthlyCycle || null,
+    spyDailyStructure: env?._marketInternals || null,
+  };
+  return computeConvictionScore({
+    tickerData: d,
+    ctx,
+    historyStats,
+    ttSelected: TT_SELECTED_DEFAULT,
+    currentGrannyEtfHoldings: currentGranny,
+    currentUpticks,
+  });
+}
+
 function qualifiesForEnter(d, asOfTs = null) {
+  // ─────────────────────────────────────────────────────────────────
+  // V13 FOCUS TIER CONVICTION GATE (shared with tt-core-entry.js)
+  //
+  // Runs at the top of the legacy qualifier too because multiple entry
+  // paths (momentum_score, ema_regime_*, tt_pullback legacy) resolve
+  // here, not in tt-core-entry. Without this, the tier gate only
+  // filtered tt_core engine entries — which let ORCL/CDNS (should be
+  // dropped) through via momentum_score in the V13 smoke.
+  //
+  // Kill switch: deep_audit_focus_tier_enabled = "false" reverts.
+  // ─────────────────────────────────────────────────────────────────
+  const _focusDaCfg = d?._env?._deepAuditConfig || {};
+  const _focusTierEnabledLegacy = String(_focusDaCfg.deep_audit_focus_tier_enabled ?? "false") === "true";
+
+  // V13 data-capture: force rank trace on EVERY qualifying entry. Previously
+  // the trace path had a brittle stage-gated trigger in replay-candle-batches
+  // that missed most trades. Here we compute once with the force flag so
+  // every trade that reaches the qualifier has its full rank breakdown.
+  const _rankTraceWanted = _focusTierEnabledLegacy
+    || String(_focusDaCfg.deep_audit_rank_trace_on_entry_always ?? "false") === "true"
+    || String(_focusDaCfg.deep_audit_rank_trace_force_enabled ?? "false") === "true";
+  if (_rankTraceWanted && !d?.__rank_trace) {
+    try {
+      d.__rank_trace_force = true;
+      computeRank(d);
+      if (d.__rank_trace) {
+        d.__rank_trace_json = JSON.stringify(d.__rank_trace);
+      }
+    } catch (_e) { /* swallow */ }
+    finally { delete d.__rank_trace_force; }
+  }
+
+  if (_focusTierEnabledLegacy) {
+    try {
+      const _focusConv = computeConvictionScoreForD(d);
+      if (_focusConv) {
+        d.__focus_tier = _focusConv.tier;
+        d.__focus_conviction_score = _focusConv.score;
+        d.__focus_conviction_breakdown = _focusConv.breakdown;
+
+        const _entryMinConv = Number(_focusDaCfg.deep_audit_focus_min_entry_conviction ?? 45);
+        if (_focusConv.score < _entryMinConv) {
+          return {
+            qualifies: false,
+            reason: "focus_conviction_below_floor",
+            path: null,
+            confidence: 0,
+            meta: {
+              score: _focusConv.score,
+              tier: _focusConv.tier,
+              floor: _entryMinConv,
+            },
+          };
+        }
+        const _tierCFloor = Number(_focusDaCfg.deep_audit_focus_tier_c_floor ?? 45);
+        if (_focusConv.tier === "C" && _focusConv.score < _tierCFloor) {
+          return {
+            qualifies: false,
+            reason: "focus_tier_c_below_c_floor",
+            path: null,
+            confidence: 0,
+            meta: { score: _focusConv.score, tierFloor: _tierCFloor },
+          };
+        }
+      }
+    } catch { /* defensive — fall through to legacy flow */ }
+  }
+
   const state = String(d?.state || "");
   const inCorridor = corridorSide(d) != null;
   let score = Number(d?.score ?? d?.rank) || 0;
@@ -44499,7 +44602,7 @@ export default {
                   `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
                           exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
                           trim_ts, trim_price, setup_name, setup_grade, risk_budget, shares, notional,
-                          entry_path, max_favorable_excursion, max_adverse_excursion
+                          entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json
                    FROM backtest_run_trades
                    WHERE run_id = ?1`
                 ).bind(liveRunId).all();
@@ -44541,6 +44644,9 @@ export default {
                   max_favorable_excursion: r.max_favorable_excursion,
                   maxAdverseExcursion: r.max_adverse_excursion,
                   max_adverse_excursion: r.max_adverse_excursion,
+                  // V13 (2026-04-24): carry rank + focus-tier trace into API response
+                  rankTraceJson: r.rank_trace_json,
+                  rank_trace_json: r.rank_trace_json,
                   run_id: liveRunId,
                 }));
               } catch (e) {

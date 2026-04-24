@@ -483,8 +483,23 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
           replayScoreSeed.session_seed_ts = replaySessionSeed?.ts ?? null;
           replayScoreSeed.session_seed_state = replaySessionSeed?.state ?? null;
           delete result.__rank_trace;
+          // V13 data capture: always force trace during scoring when
+          // deep_audit_rank_trace_on_entry_always is true, so every
+          // potential-entry bar carries its rank breakdown into
+          // processTradeSimulation / entry creation. No-op when the DA
+          // key is false.
+          const _traceAlwaysScoring = String(
+            result?._env?._deepAuditConfig?.deep_audit_rank_trace_on_entry_always ?? "false",
+          ) === "true";
+          if (_traceAlwaysScoring) result.__rank_trace_force = true;
           result.rank = computeRank(result);
           result.score = result.rank;
+          if (_traceAlwaysScoring) delete result.__rank_trace_force;
+          if (result.__rank_trace) {
+            // Serialize proactively so downstream (processTradeSimulation
+            // + d1UpsertTrade) sees the JSON without re-running JSON.stringify.
+            result.__rank_trace_json = JSON.stringify(result.__rank_trace);
+          }
           replayScoreSeed.after_guard_rank = result?.rank ?? null;
           replayScoreSeed.after_guard_score = result?.score ?? null;
           if (result.rr_warning == null && Number.isFinite(result.rr)) {
@@ -628,15 +643,26 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
             // V11 rank integrity audit (2026-04-22): when the bar is in an
             // enter-now / enter stage and rank-trace-force is enabled via
             // DA key, recompute rank with the trace flag set so the trade
-            // record carries the full component breakdown. No-op unless
-            // `deep_audit_rank_trace_force_enabled=true`. See
-            // tasks/v11-rank-integrity-audit-2026-04-22.md
+            // record carries the full component breakdown.
+            //
+            // V12 P2 extension: the `deep_audit_rank_trace_on_entry_always`
+            // DA key forces trace on EVERY bar that could become an entry,
+            // removing the gate on `stageReady`. Needed because trades
+            // sometimes transition through stages that aren't in our
+            // enter-now list but still fire entries downstream.
+            //
+            // V13: also triggered for ALL stages when on_entry_always is
+            // set, ensuring every entry ends up with a rank breakdown in
+            // D1 for calibration.
             const _rtfEnabled = String(
               result?._env?._deepAuditConfig?.deep_audit_rank_trace_force_enabled ?? "false",
             ) === "true";
-            const _stageReady = ["enter_now", "enter", "setup", "in_review"]
+            const _traceAlways = String(
+              result?._env?._deepAuditConfig?.deep_audit_rank_trace_on_entry_always ?? "false",
+            ) === "true";
+            const _stageReady = ["enter_now", "enter", "setup", "in_review", "hold", "defend"]
               .includes(String(finalStage || "").toLowerCase());
-            if (_rtfEnabled && _stageReady) {
+            if ((_rtfEnabled && _stageReady) || _traceAlways) {
               try {
                 result.__rank_trace_force = true;
                 delete result.__rank_trace;
