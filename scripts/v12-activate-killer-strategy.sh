@@ -40,8 +40,8 @@ read -r -d '' PAYLOAD <<'JSON' || true
 
     { "key": "deep_audit_tt_momentum_tp1_pct", "value": "2.0" },
     { "key": "deep_audit_tt_momentum_tp2_pct", "value": "4.0" },
-    { "key": "deep_audit_tt_momentum_min_rvol", "value": "2.0" },
-    { "key": "deep_audit_tt_momentum_bar_position_min", "value": "0.60" },
+    { "key": "deep_audit_tt_momentum_min_rvol", "value": "1.75" },
+    { "key": "deep_audit_tt_momentum_bar_position_min", "value": "0.55" },
 
     { "key": "deep_audit_etf_precision_gate_enabled", "value": "true" },
     { "key": "deep_audit_etf_precision_tickers", "value": "SPY,QQQ,IWM,DIA" },
