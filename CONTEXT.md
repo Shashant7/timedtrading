@@ -10,6 +10,23 @@ Single reference for agents. Read this first to avoid context overload.
 - **Lessons**: After user corrections → add to "Lessons" below; review at session start
 - **Simplicity**: Minimal impact, no temporary fixes
 
+## Design System — canonical source
+
+**`DESIGN.md` at the repo root is the normative UI spec.** Read it before
+any UX change — tokens (color / typography / spacing / rounded), component
+definitions, and do/don't rules all live there. Runtime CSS is at
+`react-app/tt-tokens.css`; both must stay in sync.
+
+Before shipping UX changes:
+1. Update `DESIGN.md` if the change introduces or alters a token
+2. `npx @google/design.md lint DESIGN.md` — zero errors required, warnings OK
+3. Mirror in `tt-tokens.css`, build, verify
+
+Three rules enforced by the spec:
+- Never mix Instrument Serif and Inter on the same element
+- All numbers a user compares use `num-*` tokens (JetBrains Mono, tabular)
+- No ad-hoc hex in JSX or page-specific stylesheets — go through tokens
+
 ## Deploy
 
 ```bash
