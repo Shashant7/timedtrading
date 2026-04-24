@@ -188,6 +188,18 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_etf_precision_min_conviction",
   "deep_audit_focus_tier_a_winner_protect_mfe",
   "deep_audit_focus_tier_a_risk_budget_mult",
+  // V13 (2026-04-24): stagnant-position no-commitment cut — closes the
+  // MFE-escape loophole where trades drift flat for 10-30+ days.
+  "deep_audit_stagnant_cut_enabled",
+  "deep_audit_stagnant_cut_min_age_days",
+  "deep_audit_stagnant_cut_max_abs_pnl_pct",
+  "deep_audit_stagnant_cut_max_mfe_pct",
+  // V13 safety nets (2026-04-24): non-bypassable pnl floor + age cap.
+  // Fixes NXT/TPL class of bugs where trades sat open 40+ days or
+  // dropped to -10% without closing.
+  "deep_audit_v13_safety_nets_enabled",
+  "deep_audit_v13_max_pnl_floor_pct",
+  "deep_audit_v13_hard_age_days",
   // P4: SHORT gate relaxation
   "deep_audit_short_spy_regime_floor",
   "deep_audit_short_requires_ticker_bearish_daily",

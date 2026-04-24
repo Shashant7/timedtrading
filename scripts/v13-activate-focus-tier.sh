@@ -25,7 +25,15 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_focus_min_entry_conviction", "value": "45" },
     { "key": "deep_audit_etf_precision_min_conviction", "value": "70" },
     { "key": "deep_audit_focus_tier_a_winner_protect_mfe", "value": "2.5" },
-    { "key": "deep_audit_focus_tier_a_risk_budget_mult", "value": "1.25" }
+    { "key": "deep_audit_focus_tier_a_risk_budget_mult", "value": "1.25" },
+    { "key": "deep_audit_stagnant_cut_enabled", "value": "true" },
+    { "key": "deep_audit_stagnant_cut_min_age_days", "value": "7" },
+    { "key": "deep_audit_stagnant_cut_max_abs_pnl_pct", "value": "1.5" },
+    { "key": "deep_audit_stagnant_cut_max_mfe_pct", "value": "3.0" },
+
+    { "key": "deep_audit_v13_safety_nets_enabled", "value": "true" },
+    { "key": "deep_audit_v13_max_pnl_floor_pct", "value": "-4.5" },
+    { "key": "deep_audit_v13_hard_age_days", "value": "30" }
   ]
 }
 JSON

@@ -6631,6 +6631,57 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     }
 
     // ═════════════════════════════════════════════════════════════════════════
+    // V13 NON-BYPASSABLE SAFETY NETS (2026-04-24)
+    //
+    // V13e found two failure modes where trades got stuck OPEN:
+    //
+    //   Bug 1 — HARD_LOSS_CAP didn't fire on NXT Jul 22 (dropped to
+    //     -8% to -10%, never closed). Existing hard-loss rules live
+    //     behind carve-outs and stored-field reads that can be
+    //     suppressed. Fix: add a simple non-bypassable rule — if LIVE
+    //     pnl <= _v13MaxPnlFloor, close. Period.
+    //
+    //   Bug 2 — Stale 45-day force-close had exceptions (currently
+    //     breaking out) that kept TPL/NXT open indefinitely. Fix: add
+    //     a simple non-bypassable hard-age rule — if age >= _v13HardAgeDays,
+    //     close. Period.
+    //
+    // Both run at the TOP of classifyKanbanStage's open-position branch
+    // so nothing downstream can mask them. DA-keyed so we can tune.
+    // ═════════════════════════════════════════════════════════════════════════
+    {
+      const _v13SafetyEnabled = String(
+        tickerData?._env?._deepAuditConfig?.deep_audit_v13_safety_nets_enabled ?? "true"
+      ) === "true";
+      if (_v13SafetyEnabled) {
+        // Safety 1: absolute pnl floor (V11 NXT went to -10%; should never happen)
+        const _v13MaxPnlFloor = Number(
+          tickerData?._env?._deepAuditConfig?.deep_audit_v13_max_pnl_floor_pct ?? -4.5
+        );
+        if (Number.isFinite(pnlPct) && pnlPct <= _v13MaxPnlFloor) {
+          tickerData.__exit_reason = "v13_hard_pnl_floor";
+          tickerData.__exit_family = "safety";
+          tickerData.__exit_meta = { live_pnl_pct: pnlPct, floor: _v13MaxPnlFloor };
+          return "exit";
+        }
+        // Safety 2: absolute age cap (V13e TPL Jul 18 / NXT Jul 22 sat 43+ days)
+        const _v13HardAgeDays = Number(
+          tickerData?._env?._deepAuditConfig?.deep_audit_v13_hard_age_days ?? 30
+        );
+        if (Number.isFinite(entryTsMs) && entryTsMs > 0 && _v13HardAgeDays > 0) {
+          const _nowMs = Number(now) > 1e12 ? Number(now) : Number(now) * 1000;
+          const _ageDays = (_nowMs - entryTsMs) / (24 * 60 * 60 * 1000);
+          if (_ageDays >= _v13HardAgeDays) {
+            tickerData.__exit_reason = "v13_hard_age_cap";
+            tickerData.__exit_family = "safety";
+            tickerData.__exit_meta = { age_days: Math.round(_ageDays * 10) / 10, cap: _v13HardAgeDays, live_pnl_pct: pnlPct };
+            return "exit";
+          }
+        }
+      }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
     // EARLY HARD-EXIT GUARDS (R1 + R2 — 2026-04-17)
     // These run BEFORE any pipeline lifecycle dispatch or inline fallback so
     // that no downstream DEFEND / TRIM path can mask them. Placement matters:
@@ -16441,7 +16492,12 @@ async function processTradeSimulation(
     const flatPriceExit = openTrade && Number.isFinite(pxNow) && Number.isFinite(Number(openTrade.entryPrice))
       && Math.abs(pxNow - Number(openTrade.entryPrice)) / Number(openTrade.entryPrice) < 0.001; // < 0.1% movement
     const exitReasonRaw = tickerData?.__exit_reason || reason || `KANBAN_EXIT`;
-    const isSLExit = /\bSL\b|stop.?loss|max.?loss/i.test(String(exitReasonRaw));
+    // V13 safety-nets (v13_hard_pnl_floor, v13_hard_age_cap) MUST be treated as hard
+    // exits — same class as max_loss / SL — so they bypass RTH gating, CIO blocking,
+    // and pullback shields. Without this, the non-bypassable guards in
+    // classifyKanbanStage silently drop back into regular-exit gating and get
+    // blocked outside RTH or by shields (exactly how TPL stayed open in V13e).
+    const isSLExit = /\bSL\b|stop.?loss|max.?loss|v13_hard_/i.test(String(exitReasonRaw));
     const _exitPath = String(openTrade?.entryPath || openTrade?.entry_path || "").toLowerCase();
     const _paritySkipSlRaw = tickerData?._env?._deepAuditConfig?.deep_audit_parity_skip_sl_breach;
     const _paritySkipSlEnabled = _paritySkipSlRaw === true || _paritySkipSlRaw === 1 || String(_paritySkipSlRaw || "").toLowerCase() === "true";
@@ -16534,7 +16590,7 @@ async function processTradeSimulation(
       } else {
         // ── AI CIO Lifecycle: evaluate EXIT decision ──
         // Hard protective exits (SL, max loss) bypass CIO entirely — they are non-negotiable
-        const _exitIsHard = /\bSL\b|stop.?loss|max.?loss|HARD_LOSS_CAP/i.test(String(exitReasonRaw));
+        const _exitIsHard = /\bSL\b|stop.?loss|max.?loss|HARD_LOSS_CAP|v13_hard_/i.test(String(exitReasonRaw));
         // Cooldown: if CIO already said HOLD within last 30 min for this ticker, skip re-eval
         const _exitCioCooldownMs = 30 * 60000;
         const _exitLastCioMs = Number(execState._cioExitHoldMs || 0);
