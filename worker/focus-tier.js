@@ -232,12 +232,34 @@ function scoreRelativeStrength(tickerData, ctx) {
   const daily = tickerData?.daily_structure || {};
   const tickerSlope = _f(daily?.e21_slope_5d_pct);
   const tickerPctAboveE48 = _f(daily?.pct_above_e48);
-  const spyDaily = ctx?.market?.spy_daily_structure || ctx?.spyDailyStructure || {};
-  const spySlope = _f(spyDaily?.e21_slope_5d_pct);
+  // V14 (2026-04-24): replay-interval-step was previously not propagating
+  // spy_daily_structure into _marketRegime, so spySlope was always 0 in
+  // backtests and "RS vs SPY" degenerated into absolute ticker slope.
+  // Fall back through every shape we've ever emitted, and mark a
+  // diagnostic note so we can detect regressions in the trace.
+  const spyDaily = ctx?.market?.spy_daily_structure
+    || ctx?.spyDailyStructure
+    || ctx?._marketRegime?.spy_daily_structure
+    || ctx?.market?.spy?.daily_structure
+    || {};
+  let spySlope = _f(spyDaily?.e21_slope_5d_pct);
+  let spySlopeMissing = !Number.isFinite(Number(spyDaily?.e21_slope_5d_pct));
+  // V14 (2026-04-24): when spy_daily_structure isn't threaded through (shape
+  // varies across replay code paths), fall back to htf_score as a proxy.
+  // htf_score is roughly bounded -50..+50 representing market regime
+  // strength; convert to a slope-equivalent (~0.02 = +1pp) to keep the
+  // signal rounded. This is approximate but correctly directional.
+  if (spySlopeMissing) {
+    const htfScore = _f(ctx?.market?.htf_score ?? ctx?._marketRegime?.htf_score);
+    if (htfScore !== 0) {
+      spySlope = htfScore * 0.02;  // map ±50 → ±1.0 slope-equiv
+      spySlopeMissing = false;
+    }
+  }
 
   // No data path
   if (tickerSlope === 0 && tickerPctAboveE48 === 0) {
-    return { pts: 5, reason: "no_rs_data" };
+    return { pts: 5, reason: spySlopeMissing ? "no_rs_data_spy_missing" : "no_rs_data" };
   }
 
   // Relative slope: ticker vs SPY daily velocity (percentage points)
@@ -258,7 +280,8 @@ function scoreRelativeStrength(tickerData, ctx) {
     tickerSlope: Math.round(tickerSlope * 100) / 100,
     spySlope: Math.round(spySlope * 100) / 100,
     pctAboveE48: Math.round(tickerPctAboveE48 * 10) / 10,
-    reason: `slope ${slopeDiff >= 0 ? '+' : ''}${slopeDiff.toFixed(2)}% vs SPY, ${tickerPctAboveE48.toFixed(1)}% above E48`,
+    spy_baseline_missing: spySlopeMissing,
+    reason: `slope ${slopeDiff >= 0 ? '+' : ''}${slopeDiff.toFixed(2)}% vs SPY${spySlopeMissing ? '(missing)' : ''}, ${tickerPctAboveE48.toFixed(1)}% above E48`,
   };
 }
 

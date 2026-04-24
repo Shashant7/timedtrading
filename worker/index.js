@@ -3910,10 +3910,15 @@ function computeConvictionScoreForD(d) {
       // replay-candle-batches.js line 291). Expose it directly so the
       // relative-strength signal can compare slopes vs SPY.
       spy_daily_structure: env?._marketRegime?.spy_daily_structure || null,
+      // V14: SPY-baseline fallback when spy_daily_structure isn't fully
+      // populated. htf_score is reliably set by the regime aggregator and
+      // serves as a directional proxy for SPY's trend velocity.
+      htf_score: env?._marketRegime?.htf_score ?? null,
     },
     sector: d?._sector || null,
     monthlyBackdrop: env?._monthlyCycle || null,
     spyDailyStructure: env?._marketRegime?.spy_daily_structure || env?._marketInternals || null,
+    _marketRegime: env?._marketRegime || null,
   };
   return computeConvictionScore({
     tickerData: d,
