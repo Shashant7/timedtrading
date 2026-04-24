@@ -2753,7 +2753,12 @@ function buildBriefInfographic(data, type) {
             : "panic";
   const sectors = Array.isArray(data.sectors) ? data.sectors : [];
   const sectorMini = sectors.map(s => {
-    const chg = Number(s.changePct ?? s.chgPct ?? s.pct);
+    // Upstream builder (line ~1029) emits `dayChangePct`. Older schemas
+    // used `changePct` / `chgPct` / `pct`. Accept all of them so the
+    // infographic doesn't render 0/11 when upstream field name changes.
+    const chg = Number(
+      s.dayChangePct ?? s.day_change_pct ?? s.changePct ?? s.chgPct ?? s.pct
+    );
     return {
       sym: s.symbol || s.sym,
       chgPct: Number.isFinite(chg) ? Math.round(chg * 100) / 100 : null,

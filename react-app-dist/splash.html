@@ -260,18 +260,12 @@
       background-clip: text;
     }
     .hero-oneliner {
-      font-size: clamp(1.05rem, 2vw, 1.25rem);
-      color: var(--text-secondary);
-      margin-bottom: 12px;
-      line-height: 1.6;
-    }
-    .hero-editorial {
-      font-family: var(--tt-font-editorial, Georgia, serif);
-      font-style: italic;
       font-size: clamp(1.15rem, 2.2vw, 1.5rem);
-      color: var(--tt-text-0, #f4f5f7);
-      letter-spacing: -0.005em;
+      font-weight: 500;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
       margin-bottom: 14px;
+      line-height: 1.35;
     }
     .hero-subline {
       font-size: clamp(0.95rem, 1.6vw, 1.05rem);
@@ -288,149 +282,11 @@
       align-items: center;
       margin-bottom: 14px;
     }
-    .hero-cta-secondary {
-      background: var(--tt-bg-2, rgba(255,255,255,0.04));
-      color: var(--tt-text-1, #e5e7eb);
-      border: 1px solid var(--tt-border-strong, rgba(255,255,255,0.08));
-      box-shadow: none;
-    }
-    .hero-cta-secondary:hover {
-      background: var(--tt-bg-3, rgba(255,255,255,0.06));
-      border-color: #5865f2;
-      color: #a5b4fc;
-      transform: translateY(-1px);
-    }
-    .hero-cta-secondary svg { color: #5865f2; }
     .hero-footnote {
       font-size: 11.5px;
       letter-spacing: 0.05em;
       color: var(--text-muted);
       margin-top: 6px;
-    }
-
-    /* ── Discord / Waitlist modal ─────────────────────────────── */
-    .tt-modal-backdrop {
-      position: fixed; inset: 0;
-      background: rgba(0, 0, 0, 0.65);
-      backdrop-filter: blur(4px);
-      -webkit-backdrop-filter: blur(4px);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-      z-index: 10000;
-      animation: tt-modal-fade 160ms ease-out;
-    }
-    @keyframes tt-modal-fade { from { opacity: 0; } to { opacity: 1; } }
-    .tt-modal {
-      width: 100%;
-      max-width: 460px;
-      background: #0f1419;
-      border: 1px solid var(--tt-border-strong, rgba(255,255,255,0.10));
-      border-radius: 14px;
-      padding: 28px;
-      box-shadow: 0 24px 64px rgba(0,0,0,0.55);
-      position: relative;
-      animation: tt-modal-rise 240ms cubic-bezier(0.2, 0, 0, 1);
-    }
-    @keyframes tt-modal-rise {
-      from { opacity: 0; transform: translateY(12px) scale(0.98); }
-      to   { opacity: 1; transform: translateY(0) scale(1); }
-    }
-    .tt-modal-close {
-      position: absolute;
-      top: 12px; right: 12px;
-      width: 30px; height: 30px;
-      border-radius: 8px;
-      background: transparent;
-      border: 0;
-      color: var(--text-muted);
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      transition: background 140ms ease, color 140ms ease;
-    }
-    .tt-modal-close:hover { background: rgba(255,255,255,0.05); color: #fff; }
-    .tt-modal-label {
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: #a78bfa;
-      margin-bottom: 8px;
-    }
-    .tt-modal-title {
-      font-family: var(--tt-font-editorial, Georgia, serif);
-      font-size: 26px;
-      line-height: 1.15;
-      letter-spacing: -0.01em;
-      color: #fff;
-      margin-bottom: 10px;
-    }
-    .tt-modal-body {
-      font-size: 13.5px;
-      color: var(--text-secondary);
-      line-height: 1.6;
-      margin-bottom: 18px;
-    }
-    .tt-modal-form {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    .tt-modal-input {
-      width: 100%;
-      padding: 11px 14px;
-      background: rgba(255,255,255,0.03);
-      border: 1px solid var(--tt-border-strong, rgba(255,255,255,0.10));
-      border-radius: 8px;
-      color: #fff;
-      font-family: inherit;
-      font-size: 14px;
-      transition: border-color 140ms ease, background 140ms ease;
-    }
-    .tt-modal-input:focus {
-      outline: none;
-      border-color: #5865f2;
-      background: rgba(88,101,242,0.06);
-    }
-    .tt-modal-submit {
-      width: 100%;
-      padding: 11px 18px;
-      background: #5865f2;
-      border: 0;
-      border-radius: 8px;
-      color: #fff;
-      font-family: inherit;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      transition: background 140ms ease, transform 120ms ease;
-    }
-    .tt-modal-submit:hover { background: #4752d1; transform: translateY(-1px); }
-    .tt-modal-submit:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
-    .tt-modal-success {
-      font-family: var(--tt-font-editorial, Georgia, serif);
-      font-size: 17px;
-      font-style: italic;
-      color: #34d399;
-      padding: 14px 0 4px;
-    }
-    .tt-modal-error {
-      font-size: 12px;
-      color: #ef4444;
-      min-height: 16px;
-    }
-    .tt-modal-fine {
-      font-size: 11px;
-      color: var(--text-muted);
-      margin-top: 10px;
-      text-align: center;
     }
     .hero-cta {
       display: inline-flex;
@@ -1075,7 +931,6 @@
         <a href="#how-it-works">How It Works</a>
         <a href="#pricing">Pricing</a>
         <a href="/faq.html">FAQ</a>
-        <a href="#" data-open-discord="nav" class="btn-signin" style="border-color:rgba(88,101,242,0.35);color:#a5b4fc">Join Discord</a>
         <a href="/index-react.html" class="btn-signin">Sign In</a>
       </div>
     </div>
@@ -1093,8 +948,8 @@
     <div class="hero-content">
       <div class="hero-badge">Your Trading Co-Pilot</div>
       <h1>Stop Guessing.<br />Start Timing.</h1>
-      <p class="hero-oneliner hero-editorial">
-        Live signals, clear levels, the moment to act.
+      <p class="hero-oneliner">
+        Live signals. Clear levels. The moment to act.
       </p>
       <p class="hero-subline">
         Timed Trading scores every major ticker in real time and tells you when conditions actually line up &mdash; so you stop chasing and start acting with a system.
@@ -1106,10 +961,6 @@
             <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
           </svg>
         </a>
-        <button type="button" class="hero-cta hero-cta-secondary" data-open-discord="hero">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.317 4.369A19.79 19.79 0 0 0 15.885 3a13.74 13.74 0 0 0-.617 1.271 18.33 18.33 0 0 0-5.538 0A13.64 13.64 0 0 0 9.113 3a19.72 19.72 0 0 0-4.432 1.369C1.884 8.543 1.125 12.614 1.504 16.625a19.9 19.9 0 0 0 6.073 3.072 14.6 14.6 0 0 0 1.299-2.112 12.9 12.9 0 0 1-2.044-.977c.171-.125.339-.256.501-.39a14.1 14.1 0 0 0 12.334 0c.164.135.331.266.502.391a12.94 12.94 0 0 1-2.049.979c.377.769.81 1.501 1.299 2.11a19.86 19.86 0 0 0 6.074-3.071c.444-4.67-.76-8.704-3.176-12.258ZM8.52 14.34c-1.183 0-2.156-1.085-2.156-2.42 0-1.333.953-2.418 2.156-2.418 1.21 0 2.182 1.093 2.163 2.418 0 1.335-.96 2.42-2.163 2.42Zm7.972 0c-1.182 0-2.155-1.085-2.155-2.42 0-1.333.953-2.418 2.155-2.418 1.21 0 2.182 1.093 2.163 2.418 0 1.335-.953 2.42-2.163 2.42Z"/></svg>
-          Join Discord
-        </button>
       </div>
       <p class="hero-footnote">
         14-day free trial &middot; No credit card &middot; Cancel anytime
@@ -1625,10 +1476,6 @@
             <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
           </svg>
         </a>
-        <button type="button" class="hero-cta hero-cta-secondary" data-open-discord="closing">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.317 4.369A19.79 19.79 0 0 0 15.885 3a13.74 13.74 0 0 0-.617 1.271 18.33 18.33 0 0 0-5.538 0A13.64 13.64 0 0 0 9.113 3a19.72 19.72 0 0 0-4.432 1.369C1.884 8.543 1.125 12.614 1.504 16.625a19.9 19.9 0 0 0 6.073 3.072 14.6 14.6 0 0 0 1.299-2.112 12.9 12.9 0 0 1-2.044-.977c.171-.125.339-.256.501-.39a14.1 14.1 0 0 0 12.334 0c.164.135.331.266.502.391a12.94 12.94 0 0 1-2.049.979c.377.769.81 1.501 1.299 2.11a19.86 19.86 0 0 0 6.074-3.071c.444-4.67-.76-8.704-3.176-12.258ZM8.52 14.34c-1.183 0-2.156-1.085-2.156-2.42 0-1.333.953-2.418 2.156-2.418 1.21 0 2.182 1.093 2.163 2.418 0 1.335-.96 2.42-2.163 2.42Zm7.972 0c-1.182 0-2.155-1.085-2.155-2.42 0-1.333.953-2.418 2.155-2.418 1.21 0 2.182 1.093 2.163 2.418 0 1.335-.953 2.42-2.163 2.42Z"/></svg>
-          Join Discord
-        </button>
       </div>
     </div>
   </section>
@@ -1697,118 +1544,6 @@
     })();
   </script>
 
-  <!-- Discord waitlist modal: email capture before invite. Opens from any
-       [data-open-discord] trigger. POSTs to /timed/waitlist/join with
-       source='splash_discord' so we can track this channel separately. -->
-  <script>
-    (function () {
-      var API_BASE = (window.TT_API_BASE || "https://timed-trading-ingest.shashant.workers.dev");
-      var modal = null;
-      var lastTrigger = null;
-
-      function openModal(source) {
-        if (modal) return;
-        lastTrigger = document.activeElement;
-        modal = document.createElement('div');
-        modal.className = 'tt-modal-backdrop';
-        modal.innerHTML = [
-          '<div class="tt-modal" role="dialog" aria-modal="true" aria-labelledby="tt-discord-title">',
-          '  <button type="button" class="tt-modal-close" aria-label="Close">',
-          '    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
-          '  </button>',
-          '  <div class="tt-modal-label">Discord Community</div>',
-          '  <h2 id="tt-discord-title" class="tt-modal-title">Join the early crew.</h2>',
-          '  <p class="tt-modal-body">We\u2019re opening Discord in small batches as we grow. Drop your email and we\u2019ll send your invite the moment spots open &mdash; you\u2019ll get market calls, setups, and a direct line to the people building this.</p>',
-          '  <form class="tt-modal-form" novalidate>',
-          '    <input type="email" class="tt-modal-input" name="email" placeholder="you@example.com" autocomplete="email" required />',
-          '    <div class="tt-modal-error" role="alert" aria-live="polite"></div>',
-          '    <button type="submit" class="tt-modal-submit">',
-          '      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.317 4.369A19.79 19.79 0 0 0 15.885 3a13.74 13.74 0 0 0-.617 1.271 18.33 18.33 0 0 0-5.538 0A13.64 13.64 0 0 0 9.113 3a19.72 19.72 0 0 0-4.432 1.369C1.884 8.543 1.125 12.614 1.504 16.625a19.9 19.9 0 0 0 6.073 3.072 14.6 14.6 0 0 0 1.299-2.112 12.9 12.9 0 0 1-2.044-.977c.171-.125.339-.256.501-.39a14.1 14.1 0 0 0 12.334 0c.164.135.331.266.502.391a12.94 12.94 0 0 1-2.049.979c.377.769.81 1.501 1.299 2.11a19.86 19.86 0 0 0 6.074-3.071c.444-4.67-.76-8.704-3.176-12.258ZM8.52 14.34c-1.183 0-2.156-1.085-2.156-2.42 0-1.333.953-2.418 2.156-2.418 1.21 0 2.182 1.093 2.163 2.418 0 1.335-.96 2.42-2.163 2.42Zm7.972 0c-1.182 0-2.155-1.085-2.155-2.42 0-1.333.953-2.418 2.155-2.418 1.21 0 2.182 1.093 2.163 2.418 0 1.335-.953 2.42-2.163 2.42Z"/></svg>',
-          '      Reserve my spot',
-          '    </button>',
-          '    <div class="tt-modal-fine">No spam. One email when your invite is ready.</div>',
-          '  </form>',
-          '</div>'
-        ].join('');
-
-        document.body.appendChild(modal);
-        document.body.style.overflow = 'hidden';
-
-        var form = modal.querySelector('form');
-        var emailIn = modal.querySelector('input[name="email"]');
-        var err = modal.querySelector('.tt-modal-error');
-        var btn = modal.querySelector('.tt-modal-submit');
-        setTimeout(function () { emailIn && emailIn.focus(); }, 40);
-
-        function escListener(e) { if (e.key === 'Escape') closeModal(); }
-        function backdropClick(e) { if (e.target === modal) closeModal(); }
-        modal.querySelector('.tt-modal-close').addEventListener('click', closeModal);
-        modal.addEventListener('click', backdropClick);
-        document.addEventListener('keydown', escListener);
-        modal._cleanup = function () { document.removeEventListener('keydown', escListener); };
-
-        form.addEventListener('submit', function (ev) {
-          ev.preventDefault();
-          err.textContent = '';
-          var email = String(emailIn.value || '').trim();
-          if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-            err.textContent = 'Please enter a valid email address.';
-            emailIn.focus();
-            return;
-          }
-          btn.disabled = true;
-          btn.textContent = 'Reserving...';
-          fetch(API_BASE + '/timed/waitlist/join', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              email: email,
-              source: 'splash_discord_' + (source || 'hero'),
-              referrer: (document.referrer || '').slice(0, 200),
-              page: 'splash'
-            })
-          }).then(function (res) { return res.json().catch(function () { return {}; }); })
-            .then(function (data) {
-              if (data && data.ok === false) {
-                err.textContent = data.error === 'invalid_email'
-                  ? 'That email doesn\u2019t look right. Try again?'
-                  : 'Something went wrong. Please try again in a moment.';
-                btn.disabled = false;
-                btn.textContent = 'Reserve my spot';
-                return;
-              }
-              form.innerHTML =
-                '<div class="tt-modal-success">You\u2019re on the list.</div>' +
-                '<p class="tt-modal-body" style="margin:6px 0 0">We\u2019ll email your Discord invite the moment the next batch opens. In the meantime, start your free trial and see the system live.</p>' +
-                '<a href="/index-react.html" class="tt-modal-submit" style="text-decoration:none;margin-top:14px">Start Free Trial</a>';
-            })
-            .catch(function () {
-              err.textContent = 'Connection failed. Check your network and try again.';
-              btn.disabled = false;
-              btn.textContent = 'Reserve my spot';
-            });
-        });
-      }
-
-      function closeModal() {
-        if (!modal) return;
-        modal._cleanup && modal._cleanup();
-        modal.remove();
-        modal = null;
-        document.body.style.overflow = '';
-        if (lastTrigger && typeof lastTrigger.focus === 'function') {
-          try { lastTrigger.focus(); } catch (_) {}
-        }
-      }
-
-      document.addEventListener('click', function (e) {
-        var trigger = e.target.closest && e.target.closest('[data-open-discord]');
-        if (!trigger) return;
-        e.preventDefault();
-        openModal(trigger.getAttribute('data-open-discord'));
-      });
-    })();
-  </script>
 
 </body>
 </html>
