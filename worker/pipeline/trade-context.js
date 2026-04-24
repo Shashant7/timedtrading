@@ -170,6 +170,14 @@ export function buildTradeContext(tickerData, asOfTs = null) {
       spyDailyStructure: env?._marketRegime?.spy_daily_structure
         || d?._spyData?.daily_structure
         || null,
+      // V14 (2026-04-24): expose spy_daily_structure under both names + htf_score
+      // so the focus-tier RS signal has a SPY baseline regardless of which
+      // ctx-builder path the call took. Without these, spySlope was 0 in
+      // 100% of 38 trades — RS signal degenerated into absolute slope.
+      spy_daily_structure: env?._marketRegime?.spy_daily_structure
+        || d?._spyData?.daily_structure
+        || null,
+      htf_score: env?._marketRegime?.htf_score ?? d?.htf_score ?? null,
       cryptoLead: d._cryptoLead || null,
       // Phase-H.3 2026-04-20: monthly backdrop cycle label.
       // Populated by replay-candle-batches.js (backdrop pre-loaded per

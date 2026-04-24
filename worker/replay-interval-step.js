@@ -280,6 +280,7 @@ export function createIntervalReplayStep(deps = {}) {
                   ema_regime_daily: rSpyData.ema_regime_daily ?? 0,
                   swing_dir: rSpyData.swing_consensus?.direction || null,
                   combined: rSpyData.regime?.combined || null,
+                  spy_daily_structure: rSpyData.daily_structure || null,
                 }
               : null;
             const rSectorETF = SECTOR_ETF_MAP[tickerSector];
