@@ -1,5 +1,7 @@
 // Timed Trading Worker — KV latest + trail + rank + top lists + Discord alerts (CORRIDOR-ONLY)
 import { DASHBOARD_HTML } from "./dashboard-html.js";
+import { computeConvictionScore, TT_SELECTED_DEFAULT } from "./focus-tier.js";
+import { getTickerType as getTickerTypeForFocus } from "./sector-mapping.js";
 export { PriceHub } from "./price-hub.js";
 export { AlpacaStream } from "./alpaca-stream.js";
 export { PriceStream } from "./price-stream.js";
@@ -3877,7 +3879,121 @@ function _applyContextGates(d, inferredSide, asOfTs, leadingLtfLabel) {
  * @param {object} d - Ticker data
  * @returns {object} - { qualifies, path, confidence, reason }
  */
+// V13 Focus Tier adapter — build the ctx/historyStats inputs expected by
+// focus-tier.js::computeConvictionScore from a `tickerData` (d) object.
+// This is the legacy-entry counterpart to the TradeContext-based call in
+// tt-core-entry.js. Both end up at the same scoring function.
+function computeConvictionScoreForD(d) {
+  if (!d) return null;
+  const env = d?._env || {};
+  const historyStats = env?._focusHistoryStats || null;
+  const currentGranny = env?._currentGrannyHoldings || null;
+  const currentUpticks = env?._currentUpticks || null;
+
+  // V13: stamp _ticker_type from sector-mapping so liquidity scoring has
+  // a stable classification (raw avg volume isn't persisted on the
+  // ticker payload). Cached on d so we don't re-lookup per signal call.
+  if (!d._ticker_type) {
+    try {
+      d._ticker_type = getTickerTypeForFocus(d.ticker || d.sym || "");
+    } catch { /* ignore */ }
+  }
+
+  // Shape a minimal ctx from d. The scorer reads ctx.market.* and
+  // ctx.monthlyBackdrop.sector_leadership with graceful null-fallbacks,
+  // so missing fields become 0-pt contributions (fair).
+  const ctx = {
+    market: {
+      monthlySectorTop: env?._monthlyCycle?.sectorTop || null,
+      monthlySectorBottom: env?._monthlyCycle?.sectorBottom || null,
+      // V13: SPY daily structure is threaded through _marketRegime (see
+      // replay-candle-batches.js line 291). Expose it directly so the
+      // relative-strength signal can compare slopes vs SPY.
+      spy_daily_structure: env?._marketRegime?.spy_daily_structure || null,
+    },
+    sector: d?._sector || null,
+    monthlyBackdrop: env?._monthlyCycle || null,
+    spyDailyStructure: env?._marketRegime?.spy_daily_structure || env?._marketInternals || null,
+  };
+  return computeConvictionScore({
+    tickerData: d,
+    ctx,
+    historyStats,
+    ttSelected: TT_SELECTED_DEFAULT,
+    currentGrannyEtfHoldings: currentGranny,
+    currentUpticks,
+  });
+}
+
 function qualifiesForEnter(d, asOfTs = null) {
+  // ─────────────────────────────────────────────────────────────────
+  // V13 FOCUS TIER CONVICTION GATE (shared with tt-core-entry.js)
+  //
+  // Runs at the top of the legacy qualifier too because multiple entry
+  // paths (momentum_score, ema_regime_*, tt_pullback legacy) resolve
+  // here, not in tt-core-entry. Without this, the tier gate only
+  // filtered tt_core engine entries — which let ORCL/CDNS (should be
+  // dropped) through via momentum_score in the V13 smoke.
+  //
+  // Kill switch: deep_audit_focus_tier_enabled = "false" reverts.
+  // ─────────────────────────────────────────────────────────────────
+  const _focusDaCfg = d?._env?._deepAuditConfig || {};
+  const _focusTierEnabledLegacy = String(_focusDaCfg.deep_audit_focus_tier_enabled ?? "false") === "true";
+
+  // V13 data-capture: force rank trace on EVERY qualifying entry. Previously
+  // the trace path had a brittle stage-gated trigger in replay-candle-batches
+  // that missed most trades. Here we compute once with the force flag so
+  // every trade that reaches the qualifier has its full rank breakdown.
+  const _rankTraceWanted = _focusTierEnabledLegacy
+    || String(_focusDaCfg.deep_audit_rank_trace_on_entry_always ?? "false") === "true"
+    || String(_focusDaCfg.deep_audit_rank_trace_force_enabled ?? "false") === "true";
+  if (_rankTraceWanted && !d?.__rank_trace) {
+    try {
+      d.__rank_trace_force = true;
+      computeRank(d);
+      if (d.__rank_trace) {
+        d.__rank_trace_json = JSON.stringify(d.__rank_trace);
+      }
+    } catch (_e) { /* swallow */ }
+    finally { delete d.__rank_trace_force; }
+  }
+
+  if (_focusTierEnabledLegacy) {
+    try {
+      const _focusConv = computeConvictionScoreForD(d);
+      if (_focusConv) {
+        d.__focus_tier = _focusConv.tier;
+        d.__focus_conviction_score = _focusConv.score;
+        d.__focus_conviction_breakdown = _focusConv.breakdown;
+
+        const _entryMinConv = Number(_focusDaCfg.deep_audit_focus_min_entry_conviction ?? 45);
+        if (_focusConv.score < _entryMinConv) {
+          return {
+            qualifies: false,
+            reason: "focus_conviction_below_floor",
+            path: null,
+            confidence: 0,
+            meta: {
+              score: _focusConv.score,
+              tier: _focusConv.tier,
+              floor: _entryMinConv,
+            },
+          };
+        }
+        const _tierCFloor = Number(_focusDaCfg.deep_audit_focus_tier_c_floor ?? 45);
+        if (_focusConv.tier === "C" && _focusConv.score < _tierCFloor) {
+          return {
+            qualifies: false,
+            reason: "focus_tier_c_below_c_floor",
+            path: null,
+            confidence: 0,
+            meta: { score: _focusConv.score, tierFloor: _tierCFloor },
+          };
+        }
+      }
+    } catch { /* defensive — fall through to legacy flow */ }
+  }
+
   const state = String(d?.state || "");
   const inCorridor = corridorSide(d) != null;
   let score = Number(d?.score ?? d?.rank) || 0;
@@ -6515,6 +6631,57 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     }
 
     // ═════════════════════════════════════════════════════════════════════════
+    // V13 NON-BYPASSABLE SAFETY NETS (2026-04-24)
+    //
+    // V13e found two failure modes where trades got stuck OPEN:
+    //
+    //   Bug 1 — HARD_LOSS_CAP didn't fire on NXT Jul 22 (dropped to
+    //     -8% to -10%, never closed). Existing hard-loss rules live
+    //     behind carve-outs and stored-field reads that can be
+    //     suppressed. Fix: add a simple non-bypassable rule — if LIVE
+    //     pnl <= _v13MaxPnlFloor, close. Period.
+    //
+    //   Bug 2 — Stale 45-day force-close had exceptions (currently
+    //     breaking out) that kept TPL/NXT open indefinitely. Fix: add
+    //     a simple non-bypassable hard-age rule — if age >= _v13HardAgeDays,
+    //     close. Period.
+    //
+    // Both run at the TOP of classifyKanbanStage's open-position branch
+    // so nothing downstream can mask them. DA-keyed so we can tune.
+    // ═════════════════════════════════════════════════════════════════════════
+    {
+      const _v13SafetyEnabled = String(
+        tickerData?._env?._deepAuditConfig?.deep_audit_v13_safety_nets_enabled ?? "true"
+      ) === "true";
+      if (_v13SafetyEnabled) {
+        // Safety 1: absolute pnl floor (V11 NXT went to -10%; should never happen)
+        const _v13MaxPnlFloor = Number(
+          tickerData?._env?._deepAuditConfig?.deep_audit_v13_max_pnl_floor_pct ?? -4.5
+        );
+        if (Number.isFinite(pnlPct) && pnlPct <= _v13MaxPnlFloor) {
+          tickerData.__exit_reason = "v13_hard_pnl_floor";
+          tickerData.__exit_family = "safety";
+          tickerData.__exit_meta = { live_pnl_pct: pnlPct, floor: _v13MaxPnlFloor };
+          return "exit";
+        }
+        // Safety 2: absolute age cap (V13e TPL Jul 18 / NXT Jul 22 sat 43+ days)
+        const _v13HardAgeDays = Number(
+          tickerData?._env?._deepAuditConfig?.deep_audit_v13_hard_age_days ?? 30
+        );
+        if (Number.isFinite(entryTsMs) && entryTsMs > 0 && _v13HardAgeDays > 0) {
+          const _nowMs = Number(now) > 1e12 ? Number(now) : Number(now) * 1000;
+          const _ageDays = (_nowMs - entryTsMs) / (24 * 60 * 60 * 1000);
+          if (_ageDays >= _v13HardAgeDays) {
+            tickerData.__exit_reason = "v13_hard_age_cap";
+            tickerData.__exit_family = "safety";
+            tickerData.__exit_meta = { age_days: Math.round(_ageDays * 10) / 10, cap: _v13HardAgeDays, live_pnl_pct: pnlPct };
+            return "exit";
+          }
+        }
+      }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
     // EARLY HARD-EXIT GUARDS (R1 + R2 — 2026-04-17)
     // These run BEFORE any pipeline lifecycle dispatch or inline fallback so
     // that no downstream DEFEND / TRIM path can mask them. Placement matters:
@@ -6875,6 +7042,70 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           if (_agDays2 >= _trimTimeCapDays) {
             tickerData.__exit_reason = "runner_time_cap";
             tickerData.__exit_family = "safety";
+            return "exit";
+          }
+        }
+      }
+
+      // V13 (2026-04-24) — STAGNANT POSITION NO-COMMITMENT CUT
+      //
+      // V13d smoke audit found 19 open / trimmed positions with ages of
+      // 10-25 sim-days drifting flat (LRCX -0.36%, AU +0.47%, FIX -0.29%,
+      // TPL runner at +2.18%). Our existing MFE-aware rules have an
+      // escape clause: once MFE briefly touched 1.5%+, every later
+      // `phase_i_mfe_*` rule becomes inert, even if the trade then sits
+      // flat for weeks.
+      //
+      // Rule: if age >= _stagMinDays AND |pnl| < _stagMaxAbsPnl AND
+      // MFE < _stagMaxMfe AND NOT winner-protect active AND NOT a
+      // precision-gated ETF, flatten as `stagnant_no_commitment`.
+      //
+      // This closes the loophole for purely-flat trades without
+      // interfering with legitimate big winners (which have MFE >> 3%)
+      // or truly invalidated trades (which the earlier tiers catch).
+      //
+      // DA-keyed so we can tune thresholds or disable.
+      {
+        const _stagEnabled = String(
+          tickerData?._env?._deepAuditConfig?.deep_audit_stagnant_cut_enabled ?? "true"
+        ) === "true";
+        const _stagMinDays = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stagnant_cut_min_age_days ?? 7);
+        const _stagMaxAbsPnl = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stagnant_cut_max_abs_pnl_pct ?? 1.5);
+        const _stagMaxMfe = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stagnant_cut_max_mfe_pct ?? 3.0);
+        // Re-derive ETF Precision membership (scoped block above ended)
+        const _stagEtfTickers = String(
+          tickerData?._env?._deepAuditConfig?.deep_audit_etf_precision_tickers ?? "SPY,QQQ,IWM,DIA"
+        ).split(",").map(s => s.trim().toUpperCase());
+        const _stagEtfEnabled = String(
+          tickerData?._env?._deepAuditConfig?.deep_audit_etf_precision_gate_enabled ?? "false"
+        ) === "true";
+        const _stagTickerUpper = String(tickerData?.ticker || "").toUpperCase();
+        const _stagIsPrecisionETF = _stagEtfEnabled && _stagEtfTickers.includes(_stagTickerUpper);
+
+        if (_stagEnabled && !_stagIsPrecisionETF && !tickerData?.__v12_winner_protect_active) {
+          const _entryTsStag = Number(entryTsMs);
+          const _nowStag = Number(now) > 1e12 ? Number(now) : Number(now) * 1000;
+          const _agDaysStag = Number.isFinite(_entryTsStag) && _entryTsStag > 0
+            ? (_nowStag - _entryTsStag) / (24 * 60 * 60 * 1000)
+            : (positionAgeMarketMin / (60 * 6.5));
+          const _mfeAbsStag = Math.abs(
+            Number(tickerData?.__mfe_pct) ||
+            Number(tickerData?.max_favorable_excursion) ||
+            0
+          );
+          if (
+            _agDaysStag >= _stagMinDays &&
+            Math.abs(pnlPct) < _stagMaxAbsPnl &&
+            _mfeAbsStag < _stagMaxMfe
+          ) {
+            tickerData.__exit_reason = "stagnant_no_commitment";
+            tickerData.__exit_family = "safety";
+            tickerData.__exit_meta = {
+              age_days: Math.round(_agDaysStag * 10) / 10,
+              pnl_pct: Math.round(pnlPct * 100) / 100,
+              mfe_peak_pct: _mfeAbsStag,
+              trim_pct: Math.round((currentTrimPct || 0) * 100),
+            };
             return "exit";
           }
         }
@@ -13666,16 +13897,42 @@ async function processTradeSimulation(
       lastEnterSide === direction;
 
     let pxNow = Number(tickerData?.price);
-    // REPLAY price fix: Prefer leading LTF candle close (matches scoring TF).
-    // tickerData.price comes from assembleTickerData which picks the freshest bundle,
-    // but when bundles are sparse, fall back to the leading LTF candleCache directly.
+    // REPLAY price selection: pick the freshest bar between the leading LTF
+    // cache and tickerData.price. This was previously an unconditional LTF
+    // override, which silently corrupted entry/exit prices when the LTF
+    // cache had a gap and grabbed an older bar than the assembled bundle.
+    //
+    // V13e bug (2026-04-24): TPL Aug 13 + Aug 15 SHORT entries both got
+    // entry_price = 288.33333 (TPL's price at Aug 12 18:30) even though
+    // tickerData.price = 286.24 / 301.15 at the actual entry intervals.
+    // Same trades got exit_price = 288.33333 even though the trail bar
+    // at exit was 297.70 / 297.99. Result: real -4% LOSS and +1% WIN
+    // both recorded as FLAT $0.
+    //
+    // Fix: prefer whichever source has the bar closest to asOfMs by ts.
+    // If the LTF candle's ts is older than the bundle bar that produced
+    // tickerData.price, keep tickerData.price.
     const _replayLtf = replayCtx?._leadingLtf || tickerData?._env?._leadingLtf || "10";
     if (isReplay && Number.isFinite(asOfMs) && replayCtx?.candleCache?.[sym]?.[_replayLtf]?.length > 0) {
       const ltfCandles = replayCtx.candleCache[sym][_replayLtf];
       const lastLtf = ltfCandles.filter((c) => c.ts <= asOfMs).pop();
       const exitLtf = lastLtf ? Number(lastLtf.c) : null;
+      const exitLtfTs = lastLtf ? Number(lastLtf.ts) : 0;
       if (Number.isFinite(exitLtf) && exitLtf > 0) {
-        pxNow = exitLtf;
+        // Use bundle ts (tickerData.ts) as the basis for tickerData.price freshness.
+        // Tolerate a small drift: only override pxNow with LTF if LTF's bar is at
+        // least as fresh AND tickerData.price is missing, OR if pxNow doesn't look
+        // valid. Otherwise both are valid and we keep the bundle-derived value.
+        const bundleTs = Number(tickerData?.ts) || 0;
+        const ltfIsFresher = exitLtfTs >= bundleTs;
+        if (!Number.isFinite(pxNow) || pxNow <= 0) {
+          pxNow = exitLtf;
+        } else if (ltfIsFresher) {
+          // LTF is at-least-as-fresh; small divergence is fine, big divergence
+          // means one source is stale — prefer the fresher one (LTF).
+          pxNow = exitLtf;
+        }
+        // else: LTF is older than bundle; keep bundle pxNow.
       }
     }
 
@@ -13708,11 +13965,13 @@ async function processTradeSimulation(
       }
       if (Number.isFinite(freshestClose) && freshestClose > 0 && Number.isFinite(pxNow) && pxNow > 0) {
         const divergePct = Math.abs(pxNow - freshestClose) / freshestClose * 100;
-        // 5% divergence with a fresher bar available = bundle is almost
-        // certainly stale. Prefer the freshest bar; log so it shows up in
-        // tails and the forensics later can correlate with the coverage
-        // audit.
-        if (divergePct > 5) {
+        // V13e bug (2026-04-24): TPL Aug 14 14:00 had pxNow=288.33 (stale
+        // bar from Aug 12 18:30) while every TF bar at the actual exit
+        // interval was 297.70+. Divergence was 3.15% — below the old 5%
+        // threshold — so the guard didn't fire and the trade closed at
+        // the wrong price. Tightening to 1.5% catches quieter stale-bar
+        // bugs while still tolerating normal intra-bar variance.
+        if (divergePct > 1.5) {
           console.warn(`[CANDLE_STALE_GUARD] ${sym} at ${asOfMs}: pxNow=$${pxNow.toFixed(4)} diverges ${divergePct.toFixed(1)}% from freshest TF close=$${freshestClose.toFixed(4)} (ts=${freshestTs}); using freshest`);
           pxNow = freshestClose;
         }
@@ -16261,7 +16520,12 @@ async function processTradeSimulation(
     const flatPriceExit = openTrade && Number.isFinite(pxNow) && Number.isFinite(Number(openTrade.entryPrice))
       && Math.abs(pxNow - Number(openTrade.entryPrice)) / Number(openTrade.entryPrice) < 0.001; // < 0.1% movement
     const exitReasonRaw = tickerData?.__exit_reason || reason || `KANBAN_EXIT`;
-    const isSLExit = /\bSL\b|stop.?loss|max.?loss/i.test(String(exitReasonRaw));
+    // V13 safety-nets (v13_hard_pnl_floor, v13_hard_age_cap) MUST be treated as hard
+    // exits — same class as max_loss / SL — so they bypass RTH gating, CIO blocking,
+    // and pullback shields. Without this, the non-bypassable guards in
+    // classifyKanbanStage silently drop back into regular-exit gating and get
+    // blocked outside RTH or by shields (exactly how TPL stayed open in V13e).
+    const isSLExit = /\bSL\b|stop.?loss|max.?loss|v13_hard_/i.test(String(exitReasonRaw));
     const _exitPath = String(openTrade?.entryPath || openTrade?.entry_path || "").toLowerCase();
     const _paritySkipSlRaw = tickerData?._env?._deepAuditConfig?.deep_audit_parity_skip_sl_breach;
     const _paritySkipSlEnabled = _paritySkipSlRaw === true || _paritySkipSlRaw === 1 || String(_paritySkipSlRaw || "").toLowerCase() === "true";
@@ -16354,7 +16618,7 @@ async function processTradeSimulation(
       } else {
         // ── AI CIO Lifecycle: evaluate EXIT decision ──
         // Hard protective exits (SL, max loss) bypass CIO entirely — they are non-negotiable
-        const _exitIsHard = /\bSL\b|stop.?loss|max.?loss|HARD_LOSS_CAP/i.test(String(exitReasonRaw));
+        const _exitIsHard = /\bSL\b|stop.?loss|max.?loss|HARD_LOSS_CAP|v13_hard_/i.test(String(exitReasonRaw));
         // Cooldown: if CIO already said HOLD within last 30 min for this ticker, skip re-eval
         const _exitCioCooldownMs = 30 * 60000;
         const _exitLastCioMs = Number(execState._cioExitHoldMs || 0);
@@ -17959,12 +18223,69 @@ async function processTradeSimulation(
                 const sa = getSectorAlignmentCached(sym);
                 return sa ? { sector: sa.sector, aligned: sa.aligned, direction: sa.direction, strength: sa.strength } : null;
               })(),
-              // V11 rank integrity audit (2026-04-22): attach the full rank
-              // component breakdown if replay-candle-batches.js captured it
-              // via __rank_trace_force. Persisted to D1 via d1UpsertTrade
-              // for Stage-0 weight-correction analysis.
-              rankTraceJson: tickerData?.__rank_trace_json
-                ?? (tickerData?.__rank_trace ? JSON.stringify(tickerData.__rank_trace) : null),
+              // V13 data capture (2026-04-24): force-compute rank trace +
+              // conviction HERE, at the moment of entry creation. Every
+              // prior approach relied on upstream code paths reliably
+              // stamping __rank_trace / __focus_* on tickerData before
+              // this point — some did, some didn't, depending on which
+              // engine, scoring path, or stage triggered the entry.
+              //
+              // Instead: compute them synchronously here with the force
+              // flag set, so capture is guaranteed on every created trade.
+              rankTraceJson: (() => {
+                try {
+                  const base = {};
+                  // Rank trace — if not already captured, force it now
+                  if (!tickerData?.__rank_trace) {
+                    try {
+                      const _prevForce = tickerData?.__rank_trace_force;
+                      tickerData.__rank_trace_force = true;
+                      computeRank(tickerData);
+                      tickerData.__rank_trace_force = _prevForce;
+                    } catch (_) { /* swallow */ }
+                  }
+                  if (tickerData?.__rank_trace) {
+                    Object.assign(base, tickerData.__rank_trace);
+                  }
+                  // Focus tier — if not already captured, force it now
+                  if (!tickerData?.__focus_conviction_breakdown) {
+                    try {
+                      if (!tickerData._ticker_type) {
+                        tickerData._ticker_type = getTickerTypeForFocus(tickerData.ticker || "");
+                      }
+                      const ctx = {
+                        market: {
+                          monthlySectorTop: tickerData?._env?._monthlyCycle?.sectorTop || null,
+                          monthlySectorBottom: tickerData?._env?._monthlyCycle?.sectorBottom || null,
+                          spy_daily_structure: tickerData?._env?._marketRegime?.spy_daily_structure || null,
+                        },
+                        sector: tickerData?._sector || null,
+                        monthlyBackdrop: tickerData?._env?._monthlyCycle || null,
+                        spyDailyStructure: tickerData?._env?._marketRegime?.spy_daily_structure || null,
+                      };
+                      const conv = computeConvictionScore({
+                        tickerData,
+                        ctx,
+                        historyStats: tickerData?._env?._focusHistoryStats || null,
+                        ttSelected: TT_SELECTED_DEFAULT,
+                        currentGrannyEtfHoldings: tickerData?._env?._currentGrannyHoldings || null,
+                        currentUpticks: tickerData?._env?._currentUpticks || null,
+                      });
+                      tickerData.__focus_tier = conv?.tier;
+                      tickerData.__focus_conviction_score = conv?.score;
+                      tickerData.__focus_conviction_breakdown = conv?.breakdown;
+                    } catch (_) { /* swallow */ }
+                  }
+                  if (tickerData?.__focus_tier || tickerData?.__focus_conviction_breakdown) {
+                    base.focus_tier = tickerData?.__focus_tier;
+                    base.focus_conviction_score = tickerData?.__focus_conviction_score;
+                    base.focus_conviction_breakdown = tickerData?.__focus_conviction_breakdown;
+                  }
+                  return Object.keys(base).length ? JSON.stringify(base) : null;
+                } catch (_err) {
+                  return null;
+                }
+              })(),
               aiCIO: _cioDecision && !_cioDecision.fallback ? {
                 decision: _cioDecision.decision,
                 confidence: _cioDecision.confidence,
@@ -44483,7 +44804,7 @@ export default {
                   `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
                           exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
                           trim_ts, trim_price, setup_name, setup_grade, risk_budget, shares, notional,
-                          entry_path, max_favorable_excursion, max_adverse_excursion
+                          entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json
                    FROM backtest_run_trades
                    WHERE run_id = ?1`
                 ).bind(liveRunId).all();
@@ -44525,6 +44846,9 @@ export default {
                   max_favorable_excursion: r.max_favorable_excursion,
                   maxAdverseExcursion: r.max_adverse_excursion,
                   max_adverse_excursion: r.max_adverse_excursion,
+                  // V13 (2026-04-24): carry rank + focus-tier trace into API response
+                  rankTraceJson: r.rank_trace_json,
+                  rank_trace_json: r.rank_trace_json,
                   run_id: liveRunId,
                 }));
               } catch (e) {

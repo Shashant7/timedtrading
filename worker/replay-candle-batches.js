@@ -1,3 +1,44 @@
+// ─────────────────────────────────────────────────────────────────────────
+// V13 Focus Tier — helpers
+// Build per-ticker history stats from closed trades with exit_ts < asOfTs.
+// Shape matches what computeConvictionScore expects.
+// ─────────────────────────────────────────────────────────────────────────
+function _dayBucketTs(ts) {
+  const d = new Date(Number(ts) || 0);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+}
+function _buildFocusHistoryStats(trades, asOfMs) {
+  const out = new Map();
+  if (!Array.isArray(trades)) return out;
+  const recent30dMs = 30 * 24 * 60 * 60 * 1000;
+  for (const t of trades) {
+    if (!t) continue;
+    const exitTs = Number(t.exit_ts || 0);
+    if (!exitTs || exitTs >= asOfMs) continue;  // no lookahead
+    const status = String(t.status || "").toUpperCase();
+    if (status !== "WIN" && status !== "LOSS" && status !== "FLAT") continue;
+    const tk = String(t.ticker || "").toUpperCase();
+    if (!tk) continue;
+    const pnl = Number(t.pnl_pct) || 0;
+    let slot = out.get(tk);
+    if (!slot) {
+      slot = { n: 0, wins: 0, losses: 0, totalPnl: 0, recent30d: { n: 0, wins: 0, losses: 0, totalPnl: 0 } };
+      out.set(tk, slot);
+    }
+    slot.n++;
+    slot.totalPnl += pnl;
+    if (status === "WIN") slot.wins++;
+    else if (status === "LOSS") slot.losses++;
+    if (asOfMs - exitTs <= recent30dMs) {
+      slot.recent30d.n++;
+      slot.recent30d.totalPnl += pnl;
+      if (status === "WIN") slot.recent30d.wins++;
+      else if (status === "LOSS") slot.recent30d.losses++;
+    }
+  }
+  return out;
+}
+
 export async function executeCandleReplayBatches(args = {}, deps = {}) {
   const {
     env,
@@ -309,6 +350,18 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
                 pnl_pct: Number(t?.pnl_pct) || null,
               }));
 
+            // V13 Focus Tier — per-day history stats on replayCtx (rebuilt
+            // at each day's first bar; reused across all bars of that day
+            // for ALL tickers). Only includes trades with exit_ts <
+            // asOfTs — backtest-safe, no lookahead.
+            if (!replayCtx._focusHistoryStatsTs || replayCtx._focusHistoryStatsTs !== _dayBucketTs(intervalTs)) {
+              replayCtx._focusHistoryStats = _buildFocusHistoryStats(
+                replayCtx.allTrades,
+                intervalTs,
+              );
+              replayCtx._focusHistoryStatsTs = _dayBucketTs(intervalTs);
+            }
+
             result._env = {
               _isReplay: true,
               _goldenProfiles: replayGoldenProfiles,
@@ -332,6 +385,7 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
               _ripsterExitDebounceBars: replayEnv.TT_EXIT_DEBOUNCE_BARS || "3",
               _monthlyCycle,
               _recentTickerTrades,
+              _focusHistoryStats: replayCtx._focusHistoryStats,
             };
           }
 
@@ -429,8 +483,23 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
           replayScoreSeed.session_seed_ts = replaySessionSeed?.ts ?? null;
           replayScoreSeed.session_seed_state = replaySessionSeed?.state ?? null;
           delete result.__rank_trace;
+          // V13 data capture: always force trace during scoring when
+          // deep_audit_rank_trace_on_entry_always is true, so every
+          // potential-entry bar carries its rank breakdown into
+          // processTradeSimulation / entry creation. No-op when the DA
+          // key is false.
+          const _traceAlwaysScoring = String(
+            result?._env?._deepAuditConfig?.deep_audit_rank_trace_on_entry_always ?? "false",
+          ) === "true";
+          if (_traceAlwaysScoring) result.__rank_trace_force = true;
           result.rank = computeRank(result);
           result.score = result.rank;
+          if (_traceAlwaysScoring) delete result.__rank_trace_force;
+          if (result.__rank_trace) {
+            // Serialize proactively so downstream (processTradeSimulation
+            // + d1UpsertTrade) sees the JSON without re-running JSON.stringify.
+            result.__rank_trace_json = JSON.stringify(result.__rank_trace);
+          }
           replayScoreSeed.after_guard_rank = result?.rank ?? null;
           replayScoreSeed.after_guard_score = result?.score ?? null;
           if (result.rr_warning == null && Number.isFinite(result.rr)) {
@@ -574,15 +643,26 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
             // V11 rank integrity audit (2026-04-22): when the bar is in an
             // enter-now / enter stage and rank-trace-force is enabled via
             // DA key, recompute rank with the trace flag set so the trade
-            // record carries the full component breakdown. No-op unless
-            // `deep_audit_rank_trace_force_enabled=true`. See
-            // tasks/v11-rank-integrity-audit-2026-04-22.md
+            // record carries the full component breakdown.
+            //
+            // V12 P2 extension: the `deep_audit_rank_trace_on_entry_always`
+            // DA key forces trace on EVERY bar that could become an entry,
+            // removing the gate on `stageReady`. Needed because trades
+            // sometimes transition through stages that aren't in our
+            // enter-now list but still fire entries downstream.
+            //
+            // V13: also triggered for ALL stages when on_entry_always is
+            // set, ensuring every entry ends up with a rank breakdown in
+            // D1 for calibration.
             const _rtfEnabled = String(
               result?._env?._deepAuditConfig?.deep_audit_rank_trace_force_enabled ?? "false",
             ) === "true";
-            const _stageReady = ["enter_now", "enter", "setup", "in_review"]
+            const _traceAlways = String(
+              result?._env?._deepAuditConfig?.deep_audit_rank_trace_on_entry_always ?? "false",
+            ) === "true";
+            const _stageReady = ["enter_now", "enter", "setup", "in_review", "hold", "defend"]
               .includes(String(finalStage || "").toLowerCase());
-            if (_rtfEnabled && _stageReady) {
+            if ((_rtfEnabled && _stageReady) || _traceAlways) {
               try {
                 result.__rank_trace_force = true;
                 delete result.__rank_trace;
