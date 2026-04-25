@@ -3883,7 +3883,7 @@ function _applyContextGates(d, inferredSide, asOfTs, leadingLtfLabel) {
 // focus-tier.js::computeConvictionScore from a `tickerData` (d) object.
 // This is the legacy-entry counterpart to the TradeContext-based call in
 // tt-core-entry.js. Both end up at the same scoring function.
-function computeConvictionScoreForD(d) {
+function computeConvictionScoreForD(d, sideOverride = null) {
   if (!d) return null;
   const env = d?._env || {};
   const historyStats = env?._focusHistoryStats || null;
@@ -3899,10 +3899,24 @@ function computeConvictionScoreForD(d) {
     } catch { /* ignore */ }
   }
 
+  // V15 P0.1 — derive entry side for the Saty ATR proximity signal.
+  // Caller can override (when known); otherwise derive from state /
+  // bias (HTF_BULL_LTF_PULLBACK → LONG, HTF_BEAR_LTF_BOUNCE → SHORT,
+  // alignedLong/alignedShort flags as fallback).
+  let _sideForCtx = sideOverride;
+  if (!_sideForCtx) {
+    const _state = String(d?.state || "").toUpperCase();
+    if (_state.includes("BULL")) _sideForCtx = "LONG";
+    else if (_state.includes("BEAR")) _sideForCtx = "SHORT";
+    else if (d?.alignedLong) _sideForCtx = "LONG";
+    else if (d?.alignedShort) _sideForCtx = "SHORT";
+  }
+
   // Shape a minimal ctx from d. The scorer reads ctx.market.* and
   // ctx.monthlyBackdrop.sector_leadership with graceful null-fallbacks,
   // so missing fields become 0-pt contributions (fair).
   const ctx = {
+    side: _sideForCtx || null,
     market: {
       monthlySectorTop: env?._monthlyCycle?.sectorTop || null,
       monthlySectorBottom: env?._monthlyCycle?.sectorBottom || null,
@@ -18259,6 +18273,9 @@ async function processTradeSimulation(
                         tickerData._ticker_type = getTickerTypeForFocus(tickerData.ticker || "");
                       }
                       const ctx = {
+                        // V15 P0.1: pass entry side so Saty ATR proximity
+                        // signal can detect fade-into-level entries.
+                        side: direction || null,
                         market: {
                           monthlySectorTop: tickerData?._env?._monthlyCycle?.sectorTop || null,
                           monthlySectorBottom: tickerData?._env?._monthlyCycle?.sectorBottom || null,

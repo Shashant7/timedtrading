@@ -316,6 +316,143 @@ function scoreHistory(tickerUpper, historyStats) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Signal 7 — SATY ATR PROXIMITY (V15 P0.1, 2026-04-25)
+//
+// V14 forensic surfaced the H SHORT 2026-04-07 catastrophe: -11.39% via
+// HARD_LOSS_CAP. The trade entered SHORT into a Saty ATR support level
+// on the daily timeframe — price was approaching prev_close ATR support
+// and our system shorted it. A trader looking at the chart would say
+// "you don't fade into key support."
+//
+// This signal codifies that intuition. For each entry we measure the
+// nearest Saty ATR level on the daily timeframe (using prev_close as
+// anchor + Fib ratios × atr_d). Three categories:
+//
+//   1. FADE-INTO-LEVEL (the trap): shorting INTO a level above (level
+//      acts as resistance for the short → risk of reversal off level)
+//      OR longing INTO a level below (level acts as support → risk of
+//      bounce off level). Within 0.25 ATR. → -15 pts
+//
+//   2. RIDING-THROUGH-LEVEL (the alpha): entry beyond a level in the
+//      same direction (e.g. SHORT below a recently-broken support, LONG
+//      above a recently-broken resistance). Level becomes new floor /
+//      ceiling. Within 0.5 ATR of a level on the FAR side. → +10 pts
+//
+//   3. CLEAN RUNWAY: between levels, no level within 0.5 ATR in entry
+//      direction. → +5 pts (default)
+//
+//   4. NO DATA: atr_levels.day missing or invalid. → 0 pts (neutral)
+//
+// Range: -15 to +10 pts (asymmetric — penalty stronger than reward
+// because fade-trap losses are the catastrophic class).
+//
+// Required inputs: ctx.side ("LONG" | "SHORT"), tickerData.atr_levels.day
+// ─────────────────────────────────────────────────────────────────────────
+function scoreSatyAtrProximity(tickerData, ctx) {
+  const side = String(ctx?.side || ctx?.direction || "").toUpperCase();
+  if (!side || (side !== "LONG" && side !== "SHORT")) {
+    return { pts: 0, reason: "no_side" };
+  }
+  const day = tickerData?.atr_levels?.day || null;
+  if (!day || !Number.isFinite(day.atr) || day.atr <= 0) {
+    return { pts: 0, reason: "no_atr_levels" };
+  }
+  const price = _f(tickerData?.price ?? tickerData?.close);
+  if (!Number.isFinite(price) || price <= 0) {
+    return { pts: 0, reason: "no_price" };
+  }
+  const prevClose = Number(day.prevClose) || 0;
+  const atr = Number(day.atr);
+  if (atr <= 0) return { pts: 0, reason: "no_atr" };
+
+  // Build the full level set: prev_close + ±{0.236, 0.382, 0.618, 1.0, 1.272, 1.618} × atr
+  const ratios = [0.236, 0.382, 0.618, 1.0, 1.272, 1.618];
+  const levels = [{ price: prevClose, ratio: 0, label: "prev_close" }];
+  for (const r of ratios) {
+    levels.push({ price: prevClose + r * atr, ratio: +r, label: `+${(r*100).toFixed(1)}%` });
+    levels.push({ price: prevClose - r * atr, ratio: -r, label: `-${(r*100).toFixed(1)}%` });
+  }
+
+  // Find nearest level (by absolute price distance)
+  let nearest = null;
+  let nearestDistAtr = Infinity;
+  for (const lv of levels) {
+    const distPrice = Math.abs(price - lv.price);
+    const distAtr = distPrice / atr;
+    if (distAtr < nearestDistAtr) {
+      nearestDistAtr = distAtr;
+      nearest = lv;
+    }
+  }
+  if (!nearest) return { pts: 0, reason: "no_nearest_level" };
+
+  const levelAbove = nearest.price > price;
+  const levelBelow = nearest.price < price;
+
+  // FADE-INTO-LEVEL detection — within 0.25 ATR
+  // SHORT: dangerous if level is above (acts as resistance ABOVE which a
+  //        short already entered, and price could reverse OFF the level
+  //        upward). Wait — a SHORT entered AT/NEAR a support level is
+  //        the classic "shorting into support" mistake. So:
+  //        SHORT + level BELOW + close = fade trap (level is support)
+  //        LONG  + level ABOVE + close = fade trap (level is resistance)
+  if (nearestDistAtr <= 0.25) {
+    if (side === "LONG" && levelAbove) {
+      return {
+        pts: -15,
+        reason: `fade_into_resistance_${nearest.label}_${nearestDistAtr.toFixed(2)}atr`,
+        nearest_level: nearest.price,
+        nearest_label: nearest.label,
+        distance_atr: Math.round(nearestDistAtr * 100) / 100,
+      };
+    }
+    if (side === "SHORT" && levelBelow) {
+      return {
+        pts: -15,
+        reason: `fade_into_support_${nearest.label}_${nearestDistAtr.toFixed(2)}atr`,
+        nearest_level: nearest.price,
+        nearest_label: nearest.label,
+        distance_atr: Math.round(nearestDistAtr * 100) / 100,
+      };
+    }
+  }
+
+  // RIDING-THROUGH-LEVEL detection — within 0.5 ATR, level is on the
+  // SAME side as direction (LONG above level = riding through resistance,
+  // SHORT below level = riding through support).
+  if (nearestDistAtr <= 0.5) {
+    if (side === "LONG" && levelBelow) {
+      return {
+        pts: 10,
+        reason: `riding_through_${nearest.label}_${nearestDistAtr.toFixed(2)}atr`,
+        nearest_level: nearest.price,
+        nearest_label: nearest.label,
+        distance_atr: Math.round(nearestDistAtr * 100) / 100,
+      };
+    }
+    if (side === "SHORT" && levelAbove) {
+      return {
+        pts: 10,
+        reason: `riding_through_${nearest.label}_${nearestDistAtr.toFixed(2)}atr`,
+        nearest_level: nearest.price,
+        nearest_label: nearest.label,
+        distance_atr: Math.round(nearestDistAtr * 100) / 100,
+      };
+    }
+  }
+
+  // CLEAN RUNWAY default (no level within 0.5 ATR in danger direction
+  // OR level present but on the safe side)
+  return {
+    pts: 5,
+    reason: `clean_runway_nearest_${nearest.label}_${nearestDistAtr.toFixed(2)}atr`,
+    nearest_level: nearest.price,
+    nearest_label: nearest.label,
+    distance_atr: Math.round(nearestDistAtr * 100) / 100,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Recent-winner bonus (+5 pts)
 // ≥2 wins on this ticker in last 30 trading days, net +3% PnL.
 // ─────────────────────────────────────────────────────────────────────────
@@ -347,8 +484,10 @@ export function computeConvictionScore({
   const s4 = scoreSector(tickerData, ctx);
   const s5 = scoreRelativeStrength(tickerData, ctx);
   const s6 = scoreHistory(tickerUpper, historyStats);
+  // V15 P0.1 — Saty ATR proximity (range -15 to +10)
+  const s7 = scoreSatyAtrProximity(tickerData, ctx);
 
-  let base = s1.pts + s2.pts + s3.pts + s4.pts + s5.pts + s6.pts;
+  let base = s1.pts + s2.pts + s3.pts + s4.pts + s5.pts + s6.pts + s7.pts;
 
   // Bonuses (capped so total ≤ 100)
   const ttSelBonus = (ttSelected || TT_SELECTED_DEFAULT).has(tickerUpper) ? 15 : 0;
@@ -356,7 +495,10 @@ export function computeConvictionScore({
   const upticksBonus = (currentUpticks && currentUpticks.has(tickerUpper)) ? 10 : 0;
   const recentBonus = scoreRecentWinner(tickerUpper, historyStats);
 
-  const total = Math.min(100, base + ttSelBonus + grannyBonus + upticksBonus + recentBonus);
+  // V15 P0.1: range expanded by ±15 from Saty ATR signal.
+  // Floor at 0 (negative scores have no meaning) and ceil at 110
+  // (10 extra room for the +10 bonus on top of base 100).
+  const total = Math.max(0, Math.min(110, base + ttSelBonus + grannyBonus + upticksBonus + recentBonus));
 
   const tier = total >= 75 ? "A" : total >= 50 ? "B" : "C";
 
@@ -371,6 +513,7 @@ export function computeConvictionScore({
       sector: s4,
       relative_strength: s5,
       history: s6,
+      saty_atr_proximity: s7,
       bonuses: {
         tt_selected: ttSelBonus,
         granny_etf: grannyBonus,

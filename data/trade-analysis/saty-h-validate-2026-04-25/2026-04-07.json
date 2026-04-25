@@ -1,0 +1,164 @@
+{
+  "ok": true,
+  "date": "2026-04-07",
+  "tickerOffset": 0,
+  "tickerBatch": 4,
+  "tickersProcessed": 1,
+  "intervals": 14,
+  "intervalMinutes": 30,
+  "scored": 14,
+  "skipped": 0,
+  "tradesCreated": 1,
+  "totalTrades": 1,
+  "hasMore": false,
+  "nextTickerOffset": null,
+  "errorsCount": 0,
+  "errors": [],
+  "stageCounts": {
+    "watch": 1,
+    "in_review": 1,
+    "trim": 6,
+    "exit": 3,
+    "hold": 1,
+    "defend": 2
+  },
+  "blockReasons": {
+    "h3_rank_below_transitional_floor": 1
+  },
+  "d1StateWritten": 1,
+  "trailWritten": 14,
+  "lastSnapshot": {
+    "H": {
+      "state": "HTF_BEAR_LTF_PULLBACK",
+      "htf_score": -23.4,
+      "ltf_score": 17,
+      "ema_regime_daily": -2,
+      "ema_regime_4h": -2,
+      "fuel_D": 88,
+      "fuel_10": 60,
+      "fuel_30": 86,
+      "st_support_D": {
+        "dir": "bear",
+        "slope": "flat",
+        "aligned": true
+      },
+      "kanban_stage": "exit",
+      "score": 51,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": 86
+    }
+  },
+  "targetSnapshots": {},
+  "targetTimeline": [],
+  "processDebug": [
+    {
+      "sym": "H",
+      "at": "entry",
+      "stage": "in_review",
+      "hasEntryPath": true
+    },
+    {
+      "sym": "H",
+      "at": "isEnter",
+      "stage": "in_review",
+      "storedStage": "in_review"
+    },
+    {
+      "sym": "H",
+      "at": "pre_gate",
+      "weekendNow": false,
+      "outsideRTH": false,
+      "enterCooldownOk": true,
+      "sameEnterCycle": false,
+      "openTrade": false,
+      "smartGateBlocked": false,
+      "parityOpeningConfirmedDeferred": false
+    },
+    {
+      "sym": "H",
+      "at": "before_smart",
+      "weekendNow": false,
+      "outsideRTH": false,
+      "canRun": true
+    },
+    {
+      "ts": 1775570400000,
+      "sym": "H",
+      "storedStage": "in_review",
+      "stage": "in_review",
+      "isEnter": true,
+      "weekendNow": false,
+      "enterCooldownOk": true,
+      "sameEnterCycle": false,
+      "openTrade": false,
+      "openTradeStatus": null,
+      "openTradeTrimmedPct": 0,
+      "openTradeEntryTs": null,
+      "openTradeExitReason": null,
+      "smartGateBlocked": false,
+      "direction": "SHORT",
+      "entryPath": "tt_pullback"
+    },
+    {
+      "sym": "H",
+      "gate": "passed",
+      "dir": "SHORT",
+      "entryPath": "tt_pullback",
+      "entryPx": 142.27
+    },
+    {
+      "sym": "H",
+      "gate": "trade_validation",
+      "dir": "SHORT",
+      "entryPx": 142.27,
+      "pxNow": 142.27,
+      "slCandidate": 146.29,
+      "tpCandidate": 134.26,
+      "allValid": true,
+      "hasSl": true,
+      "hasTp": true
+    },
+    {
+      "sym": "H",
+      "gate": "sizing",
+      "shares": 84.34666479229635,
+      "notional": 12000.000000000002,
+      "cash": 100000,
+      "method": "risk_based"
+    }
+  ],
+  "blockedEntryGates": {
+    "h3_rank_below_transitional_floor": 2,
+    "_total": 2
+  },
+  "blockChainBars": [
+    {
+      "ticker": "H",
+      "ts": 1775568600000,
+      "reason": "h3_rank_below_transitional_floor",
+      "kanban_stage": "watch",
+      "state": "HTF_BEAR_LTF_BEAR",
+      "score": 85,
+      "rank": 85,
+      "htf_score": -23.9,
+      "ltf_score": -11,
+      "daily_structure": {
+        "px": 144.9,
+        "e21": 147.14,
+        "e48": 152.83,
+        "e200": 156.01,
+        "pct_above_e48": -5.19,
+        "pct_above_e21": -1.52,
+        "e21_slope_5d_pct": -1.09,
+        "e48_slope_10d_pct": -2.8,
+        "bull_stack": false,
+        "bear_stack": true,
+        "above_e200": false
+      },
+      "index_etf_swing_diag": null
+    }
+  ],
+  "blockChainCap": 100000,
+  "fullDay": true
+}
