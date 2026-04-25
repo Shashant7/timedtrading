@@ -6953,33 +6953,60 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
             tickerData.__exit_family = "safety";
             return "exit";
           }
+          // ──────────────────────────────────────────────────────────────
+          // V12 P1b (2026-04-24) — Fast-cut protection extended to Tiers 1-5
+          //
+          // V12 live-run audit (Jul 2025) showed that Tier 1 (`phase_i_mfe_
+          // fast_cut_2h`) was still killing trades the smoke would have
+          // ridden to wins (FIX Jul 1: cut at 2h for -1.45% pnl with
+          // MFE=0; the same setup in the smoke ran to +1.28%).
+          // The Tier 0 guards (min_age + MAE floor + ETF carveout +
+          // winner-protect) weren't applied to Tiers 1-5. Apply them.
+          //
+          // Guards applied uniformly:
+          //   - NOT a precision-gated ETF (they have their own path)
+          //   - NOT in winner-protect state (MFE>=3% near peak)
+          //   - MAE >= _p1MaxMaePct (thesis actually invalidated, not
+          //     just dormant — a trade sitting flat isn't a loser)
+          // ──────────────────────────────────────────────────────────────
+          const _fastCutGuardsPass = (
+            !_isPrecisionETF &&
+            !tickerData?.__v12_winner_protect_active &&
+            _maeAbs >= _p1MaxMaePct
+          );
+
           // Tier 1: fastest — no commitment within 2-4h, already in red
-          if (_agH >= 2 && _agH < 4 && pnlPct <= -0.8 && _mfeAbs < 0.3) {
+          if (_fastCutGuardsPass && _agH >= 2 && _agH < 4 && pnlPct <= -0.8 && _mfeAbs < 0.3) {
             tickerData.__exit_reason = "phase_i_mfe_fast_cut_2h";
             tickerData.__exit_family = "safety";
             return "exit";
           }
           // Tier 2: 4h checkpoint (now overlaps with Tier 0 at >=4 <8, either
           // wins on pnl/MFE criteria; no boundary gap)
-          if (_agH >= 4 && _agH < 8 && pnlPct <= -1.5 && _mfeAbs < 0.5) {
+          if (_fastCutGuardsPass && _agH >= 4 && _agH < 8 && pnlPct <= -1.5 && _mfeAbs < 0.5) {
             tickerData.__exit_reason = "phase_i_mfe_cut_4h";
             tickerData.__exit_family = "safety";
             return "exit";
           }
           // Tier 3: 8h — sustained underwater, no rally
-          if (_agH >= 8 && _agH < 24 && pnlPct <= -2.0 && _mfeAbs < 0.8) {
+          if (_fastCutGuardsPass && _agH >= 8 && _agH < 24 && pnlPct <= -2.0 && _mfeAbs < 0.8) {
             tickerData.__exit_reason = "phase_i_mfe_cut_8h";
             tickerData.__exit_family = "safety";
             return "exit";
           }
-          // Tier 4: 24h — dead money
-          if (_agH >= 24 && _agH < 72 && pnlPct < 0 && _mfeAbs < 1.5) {
+          // Tier 4: 24h — dead money. Looser MAE floor since at this age we
+          // accept flat-and-going-nowhere as a signal (just no ETF / no
+          // winner-protect).
+          if (!_isPrecisionETF && !tickerData?.__v12_winner_protect_active &&
+              _agH >= 24 && _agH < 72 && pnlPct < 0 && _mfeAbs < 1.5) {
             tickerData.__exit_reason = "phase_i_mfe_dead_money_24h";
             tickerData.__exit_family = "safety";
             return "exit";
           }
-          // Tier 5: 72h — capital locked, any pnl
-          if (_agH >= 72 && _mfeAbs < 1.5) {
+          // Tier 5: 72h — capital locked, any pnl. Same loose criteria as
+          // Tier 4 — 72h is a legitimate stale threshold.
+          if (!_isPrecisionETF && !tickerData?.__v12_winner_protect_active &&
+              _agH >= 72 && _mfeAbs < 1.5) {
             tickerData.__exit_reason = "phase_i_mfe_stale_72h";
             tickerData.__exit_family = "safety";
             return "exit";
