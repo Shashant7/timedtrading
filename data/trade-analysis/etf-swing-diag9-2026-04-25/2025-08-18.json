@@ -1,0 +1,3594 @@
+{
+  "ok": true,
+  "date": "2025-08-18",
+  "tickerOffset": 0,
+  "tickerBatch": 4,
+  "tickersProcessed": 4,
+  "intervals": 14,
+  "intervalMinutes": 30,
+  "scored": 56,
+  "skipped": 0,
+  "tradesCreated": 1,
+  "totalTrades": 1,
+  "hasMore": false,
+  "nextTickerOffset": null,
+  "errorsCount": 0,
+  "errors": [],
+  "stageCounts": {
+    "setup": 22,
+    "watch": 25,
+    "in_review": 1,
+    "hold": 7,
+    "defend": 1
+  },
+  "blockReasons": {
+    "tt_cohort_slope_too_flat": 19,
+    "tt_no_trigger": 21,
+    "tt_pullback_non_prime_rank_selective": 3,
+    "tt_momentum_30m_5_12_unconfirmed": 2,
+    "tt_pullback_5_12_not_reclaimed": 1,
+    "tt_pullback_late_session_unreclaimed": 1
+  },
+  "d1StateWritten": 4,
+  "trailWritten": 56,
+  "lastSnapshot": {
+    "SPY": {
+      "state": "HTF_BULL_LTF_BULL",
+      "htf_score": 42,
+      "ltf_score": 5.4,
+      "ema_regime_daily": 2,
+      "ema_regime_4h": 2,
+      "fuel_D": 70,
+      "fuel_10": 84,
+      "fuel_30": 97,
+      "st_support_D": {
+        "dir": "bull",
+        "slope": "rising",
+        "aligned": true
+      },
+      "kanban_stage": "watch",
+      "score": 94,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": 97
+    },
+    "QQQ": {
+      "state": "HTF_BULL_LTF_BULL",
+      "htf_score": 39.8,
+      "ltf_score": 0.1,
+      "ema_regime_daily": 2,
+      "ema_regime_4h": 1,
+      "fuel_D": 78,
+      "fuel_10": 75,
+      "fuel_30": 90,
+      "st_support_D": {
+        "dir": "bull",
+        "slope": "flat",
+        "aligned": true
+      },
+      "kanban_stage": "watch",
+      "score": 95,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": 90
+    },
+    "IWM": {
+      "state": "HTF_BULL_LTF_BULL",
+      "htf_score": 42.1,
+      "ltf_score": 11.1,
+      "ema_regime_daily": 2,
+      "ema_regime_4h": 2,
+      "fuel_D": 73,
+      "fuel_10": 92,
+      "fuel_30": 81,
+      "st_support_D": {
+        "dir": "bull",
+        "slope": "flat",
+        "aligned": true
+      },
+      "kanban_stage": "hold",
+      "score": 82,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": 92
+    },
+    "DIA": {
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "htf_score": 43.1,
+      "ltf_score": -5.8,
+      "ema_regime_daily": 2,
+      "ema_regime_4h": 2,
+      "fuel_D": 71,
+      "fuel_10": 96,
+      "fuel_30": 90,
+      "st_support_D": {
+        "dir": "bull",
+        "slope": "rising",
+        "aligned": true
+      },
+      "kanban_stage": "setup",
+      "score": 54,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": 96
+    }
+  },
+  "targetSnapshots": {},
+  "targetTimeline": [],
+  "processDebug": [
+    {
+      "sym": "IWM",
+      "at": "entry",
+      "stage": "in_review",
+      "hasEntryPath": true
+    },
+    {
+      "sym": "IWM",
+      "at": "isEnter",
+      "stage": "in_review",
+      "storedStage": "in_review"
+    },
+    {
+      "sym": "IWM",
+      "at": "pre_gate",
+      "weekendNow": false,
+      "outsideRTH": false,
+      "enterCooldownOk": true,
+      "sameEnterCycle": false,
+      "openTrade": false,
+      "smartGateBlocked": false,
+      "parityOpeningConfirmedDeferred": false
+    },
+    {
+      "sym": "IWM",
+      "at": "before_smart",
+      "weekendNow": false,
+      "outsideRTH": false,
+      "canRun": true
+    },
+    {
+      "ts": 1755532800000,
+      "sym": "IWM",
+      "storedStage": "in_review",
+      "stage": "in_review",
+      "isEnter": true,
+      "weekendNow": false,
+      "enterCooldownOk": true,
+      "sameEnterCycle": false,
+      "openTrade": false,
+      "openTradeStatus": null,
+      "openTradeTrimmedPct": 0,
+      "openTradeEntryTs": null,
+      "openTradeExitReason": null,
+      "smartGateBlocked": false,
+      "direction": "LONG",
+      "entryPath": "tt_pullback"
+    },
+    {
+      "sym": "IWM",
+      "gate": "passed",
+      "dir": "LONG",
+      "entryPath": "tt_pullback",
+      "entryPx": 228.04
+    },
+    {
+      "sym": "IWM",
+      "gate": "trade_validation",
+      "dir": "LONG",
+      "entryPx": 228.04,
+      "pxNow": 228.04,
+      "slCandidate": 226.94,
+      "tpCandidate": 233.98,
+      "allValid": true,
+      "hasSl": true,
+      "hasTp": true
+    },
+    {
+      "sym": "IWM",
+      "gate": "sizing",
+      "shares": 39.4667602175057,
+      "notional": 9000,
+      "cash": 100000,
+      "method": "risk_based"
+    }
+  ],
+  "blockedEntryGates": {
+    "tt_cohort_slope_too_flat": 38,
+    "_total": 94,
+    "tt_no_trigger": 42,
+    "tt_pullback_non_prime_rank_selective": 6,
+    "tt_momentum_30m_5_12_unconfirmed": 4,
+    "tt_pullback_5_12_not_reclaimed": 2,
+    "tt_pullback_late_session_unreclaimed": 2
+  },
+  "blockChainBars": [
+    {
+      "ticker": "SPY",
+      "ts": 1755523800000,
+      "reason": "tt_cohort_slope_too_flat",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 73,
+      "rank": 73,
+      "htf_score": 43.5,
+      "ltf_score": -2,
+      "daily_structure": {
+        "px": 643.3,
+        "e21": 639.5,
+        "e48": 633.54,
+        "e200": 606.41,
+        "pct_above_e48": 1.54,
+        "pct_above_e21": 0.59,
+        "e21_slope_5d_pct": 0.4,
+        "e48_slope_10d_pct": 0.85,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 73,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 17.46,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.54,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.4,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_PULLBACK",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": false,
+          "below": true,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1755523800000,
+      "reason": "tt_cohort_slope_too_flat",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 72,
+      "rank": 72,
+      "htf_score": 43,
+      "ltf_score": -7.3,
+      "daily_structure": {
+        "px": 577.11,
+        "e21": 574.21,
+        "e48": 567.4,
+        "e200": 535.58,
+        "pct_above_e48": 1.71,
+        "pct_above_e21": 0.51,
+        "e21_slope_5d_pct": 0.37,
+        "e48_slope_10d_pct": 1.05,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 72,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 18.38,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.71,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.37,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_PULLBACK",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": false,
+          "below": true,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "IWM",
+      "ts": 1755523800000,
+      "reason": "tt_no_trigger",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 68,
+      "rank": 68,
+      "htf_score": 43.4,
+      "ltf_score": 3.9,
+      "daily_structure": {
+        "px": 227.96,
+        "e21": 225.22,
+        "e48": 222.92,
+        "e200": 215.33,
+        "pct_above_e48": 2.26,
+        "pct_above_e21": 1.22,
+        "e21_slope_5d_pct": 0.67,
+        "e48_slope_10d_pct": 1.25,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 68,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 17.58,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 2.26,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.67,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_BULL",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": false,
+          "below": true,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1755523800000,
+      "reason": "tt_no_trigger",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 76,
+      "rank": 76,
+      "htf_score": 43.6,
+      "ltf_score": 0.1,
+      "daily_structure": {
+        "px": 449.05,
+        "e21": 446,
+        "e48": 443.9,
+        "e200": 432.42,
+        "pct_above_e48": 1.16,
+        "pct_above_e21": 0.68,
+        "e21_slope_5d_pct": 0.45,
+        "e48_slope_10d_pct": 0.54,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": null
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1755525600000,
+      "reason": "tt_cohort_slope_too_flat",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 68,
+      "rank": 68,
+      "htf_score": 43.5,
+      "ltf_score": -2,
+      "daily_structure": {
+        "px": 643.3,
+        "e21": 639.5,
+        "e48": 633.54,
+        "e200": 606.41,
+        "pct_above_e48": 1.54,
+        "pct_above_e21": 0.59,
+        "e21_slope_5d_pct": 0.4,
+        "e48_slope_10d_pct": 0.85,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 68,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 7.15,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.54,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.4,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_PULLBACK",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1755525600000,
+      "reason": "tt_no_trigger",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 81,
+      "rank": 81,
+      "htf_score": 43,
+      "ltf_score": -12.5,
+      "daily_structure": {
+        "px": 577.11,
+        "e21": 574.21,
+        "e48": 567.4,
+        "e200": 535.58,
+        "pct_above_e48": 1.71,
+        "pct_above_e21": 0.51,
+        "e21_slope_5d_pct": 0.37,
+        "e48_slope_10d_pct": 1.05,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 81,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 7.35,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.71,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.37,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_PULLBACK",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": false,
+          "below": true,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "IWM",
+      "ts": 1755525600000,
+      "reason": "tt_pullback_non_prime_rank_selective",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 64,
+      "rank": 64,
+      "htf_score": 43.4,
+      "ltf_score": 15.4,
+      "daily_structure": {
+        "px": 227.96,
+        "e21": 225.22,
+        "e48": 222.92,
+        "e200": 215.33,
+        "pct_above_e48": 2.26,
+        "pct_above_e21": 1.22,
+        "e21_slope_5d_pct": 0.67,
+        "e48_slope_10d_pct": 1.25,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 64,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 6.13,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 2.26,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.67,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_BULL",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1755525600000,
+      "reason": "tt_no_trigger",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 60,
+      "rank": 60,
+      "htf_score": 43.6,
+      "ltf_score": -2.6,
+      "daily_structure": {
+        "px": 449.05,
+        "e21": 446,
+        "e48": 443.9,
+        "e200": 432.42,
+        "pct_above_e48": 1.16,
+        "pct_above_e21": 0.68,
+        "e21_slope_5d_pct": 0.45,
+        "e48_slope_10d_pct": 0.54,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": null
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1755527400000,
+      "reason": "tt_cohort_slope_too_flat",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 76,
+      "rank": 76,
+      "htf_score": 43.5,
+      "ltf_score": 1.6,
+      "daily_structure": {
+        "px": 643.3,
+        "e21": 639.5,
+        "e48": 633.54,
+        "e200": 606.41,
+        "pct_above_e48": 1.54,
+        "pct_above_e21": 0.59,
+        "e21_slope_5d_pct": 0.4,
+        "e48_slope_10d_pct": 0.85,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 76,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 4.91,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.54,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.4,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_BULL",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1755527400000,
+      "reason": "tt_no_trigger",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 86,
+      "rank": 86,
+      "htf_score": 43,
+      "ltf_score": -12.5,
+      "daily_structure": {
+        "px": 577.11,
+        "e21": 574.21,
+        "e48": 567.4,
+        "e200": 535.58,
+        "pct_above_e48": 1.71,
+        "pct_above_e21": 0.51,
+        "e21_slope_5d_pct": 0.37,
+        "e48_slope_10d_pct": 1.05,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 86,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 4.95,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.71,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.37,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_PULLBACK",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": false,
+          "below": true,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "IWM",
+      "ts": 1755527400000,
+      "reason": "tt_pullback_non_prime_rank_selective",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 69,
+      "rank": 69,
+      "htf_score": 43.4,
+      "ltf_score": 13.9,
+      "daily_structure": {
+        "px": 227.96,
+        "e21": 225.22,
+        "e48": 222.92,
+        "e200": 215.33,
+        "pct_above_e48": 2.26,
+        "pct_above_e21": 1.22,
+        "e21_slope_5d_pct": 0.67,
+        "e48_slope_10d_pct": 1.25,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 69,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 5.12,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 2.26,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.67,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_BULL",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1755527400000,
+      "reason": "tt_momentum_30m_5_12_unconfirmed",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 70,
+      "rank": 70,
+      "htf_score": 43.6,
+      "ltf_score": 8.7,
+      "daily_structure": {
+        "px": 449.05,
+        "e21": 446,
+        "e48": 443.9,
+        "e200": 432.42,
+        "pct_above_e48": 1.16,
+        "pct_above_e21": 0.68,
+        "e21_slope_5d_pct": 0.45,
+        "e48_slope_10d_pct": 0.54,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": null
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1755529200000,
+      "reason": "tt_cohort_slope_too_flat",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 68,
+      "rank": 68,
+      "htf_score": 43.5,
+      "ltf_score": -2,
+      "daily_structure": {
+        "px": 643.3,
+        "e21": 639.5,
+        "e48": 633.54,
+        "e200": 606.41,
+        "pct_above_e48": 1.54,
+        "pct_above_e21": 0.59,
+        "e21_slope_5d_pct": 0.4,
+        "e48_slope_10d_pct": 0.85,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 68,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 3.37,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.54,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.4,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_PULLBACK",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": false,
+          "below": true,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1755529200000,
+      "reason": "tt_cohort_slope_too_flat",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 70,
+      "rank": 70,
+      "htf_score": 43,
+      "ltf_score": -9.2,
+      "daily_structure": {
+        "px": 577.11,
+        "e21": 574.21,
+        "e48": 567.4,
+        "e200": 535.58,
+        "pct_above_e48": 1.71,
+        "pct_above_e21": 0.51,
+        "e21_slope_5d_pct": 0.37,
+        "e48_slope_10d_pct": 1.05,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 70,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 3.06,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.71,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.37,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_PULLBACK",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": false,
+          "below": true,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "IWM",
+      "ts": 1755529200000,
+      "reason": "tt_no_trigger",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 69,
+      "rank": 69,
+      "htf_score": 43.4,
+      "ltf_score": 13.3,
+      "daily_structure": {
+        "px": 227.96,
+        "e21": 225.22,
+        "e48": 222.92,
+        "e200": 215.33,
+        "pct_above_e48": 2.26,
+        "pct_above_e21": 1.22,
+        "e21_slope_5d_pct": 0.67,
+        "e48_slope_10d_pct": 1.25,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 69,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 2.95,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 2.26,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.67,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_BULL",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": false,
+          "below": true,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1755529200000,
+      "reason": "tt_pullback_5_12_not_reclaimed",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 68,
+      "rank": 68,
+      "htf_score": 43.6,
+      "ltf_score": 0.4,
+      "daily_structure": {
+        "px": 449.05,
+        "e21": 446,
+        "e48": 443.9,
+        "e200": 432.42,
+        "pct_above_e48": 1.16,
+        "pct_above_e21": 0.68,
+        "e21_slope_5d_pct": 0.45,
+        "e48_slope_10d_pct": 0.54,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": null
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1755531000000,
+      "reason": "tt_no_trigger",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 62,
+      "rank": 62,
+      "htf_score": 43.5,
+      "ltf_score": -7.4,
+      "daily_structure": {
+        "px": 643.3,
+        "e21": 639.5,
+        "e48": 633.54,
+        "e200": 606.41,
+        "pct_above_e48": 1.54,
+        "pct_above_e21": 0.59,
+        "e21_slope_5d_pct": 0.4,
+        "e48_slope_10d_pct": 0.85,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 62,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 1.99,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.54,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.4,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_PULLBACK",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": false,
+          "below": true,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": false,
+          "below": true,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1755531000000,
+      "reason": "tt_no_trigger",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 85,
+      "rank": 85,
+      "htf_score": 43,
+      "ltf_score": -14.1,
+      "daily_structure": {
+        "px": 577.11,
+        "e21": 574.21,
+        "e48": 567.4,
+        "e200": 535.58,
+        "pct_above_e48": 1.71,
+        "pct_above_e21": 0.51,
+        "e21_slope_5d_pct": 0.37,
+        "e48_slope_10d_pct": 1.05,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 85,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 2.33,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.71,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.37,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_PULLBACK",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": false,
+          "below": true,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": false,
+          "below": true,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "IWM",
+      "ts": 1755531000000,
+      "reason": "tt_pullback_non_prime_rank_selective",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 70,
+      "rank": 70,
+      "htf_score": 43.4,
+      "ltf_score": 14.2,
+      "daily_structure": {
+        "px": 227.96,
+        "e21": 225.22,
+        "e48": 222.92,
+        "e200": 215.33,
+        "pct_above_e48": 2.26,
+        "pct_above_e21": 1.22,
+        "e21_slope_5d_pct": 0.67,
+        "e48_slope_10d_pct": 1.25,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 70,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 2.53,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 2.26,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.67,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_BULL",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1755531000000,
+      "reason": "tt_momentum_30m_5_12_unconfirmed",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 66,
+      "rank": 66,
+      "htf_score": 43.6,
+      "ltf_score": 2.3,
+      "daily_structure": {
+        "px": 449.05,
+        "e21": 446,
+        "e48": 443.9,
+        "e200": 432.42,
+        "pct_above_e48": 1.16,
+        "pct_above_e21": 0.68,
+        "e21_slope_5d_pct": 0.45,
+        "e48_slope_10d_pct": 0.54,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": null
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1755532800000,
+      "reason": "tt_cohort_slope_too_flat",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 62,
+      "rank": 62,
+      "htf_score": 43.7,
+      "ltf_score": -5.5,
+      "daily_structure": {
+        "px": 643.3,
+        "e21": 639.5,
+        "e48": 633.54,
+        "e200": 606.41,
+        "pct_above_e48": 1.54,
+        "pct_above_e21": 0.59,
+        "e21_slope_5d_pct": 0.4,
+        "e48_slope_10d_pct": 0.85,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 62,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 1.78,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.54,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.4,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_PULLBACK",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": false,
+          "below": false,
+          "inCloud": true
+        },
+        "m30_8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1755532800000,
+      "reason": "tt_no_trigger",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 85,
+      "rank": 85,
+      "htf_score": 41.4,
+      "ltf_score": -14.1,
+      "daily_structure": {
+        "px": 577.11,
+        "e21": 574.21,
+        "e48": 567.4,
+        "e200": 535.58,
+        "pct_above_e48": 1.71,
+        "pct_above_e21": 0.51,
+        "e21_slope_5d_pct": 0.37,
+        "e48_slope_10d_pct": 1.05,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 85,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 1.67,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.71,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.37,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_PULLBACK",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1755532800000,
+      "reason": "tt_no_trigger",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 67,
+      "rank": 67,
+      "htf_score": 43.5,
+      "ltf_score": 2.6,
+      "daily_structure": {
+        "px": 449.05,
+        "e21": 446,
+        "e48": 443.9,
+        "e200": 432.42,
+        "pct_above_e48": 1.16,
+        "pct_above_e21": 0.68,
+        "e21_slope_5d_pct": 0.45,
+        "e48_slope_10d_pct": 0.54,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": null
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1755534600000,
+      "reason": "tt_no_trigger",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 66,
+      "rank": 66,
+      "htf_score": 43.7,
+      "ltf_score": -9.2,
+      "daily_structure": {
+        "px": 643.3,
+        "e21": 639.5,
+        "e48": 633.54,
+        "e200": 606.41,
+        "pct_above_e48": 1.54,
+        "pct_above_e21": 0.59,
+        "e21_slope_5d_pct": 0.4,
+        "e48_slope_10d_pct": 0.85,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 66,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 1.78,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.54,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.4,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_PULLBACK",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": false,
+          "below": true,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": false,
+          "below": true,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1755534600000,
+      "reason": "tt_no_trigger",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 85,
+      "rank": 85,
+      "htf_score": 41.4,
+      "ltf_score": -15.3,
+      "daily_structure": {
+        "px": 577.11,
+        "e21": 574.21,
+        "e48": 567.4,
+        "e200": 535.58,
+        "pct_above_e48": 1.71,
+        "pct_above_e21": 0.51,
+        "e21_slope_5d_pct": 0.37,
+        "e48_slope_10d_pct": 1.05,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 85,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 1.65,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.71,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.37,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_PULLBACK",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": false,
+          "below": true,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": false,
+          "below": true,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1755534600000,
+      "reason": "tt_no_trigger",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 59,
+      "rank": 59,
+      "htf_score": 43.5,
+      "ltf_score": -3.4,
+      "daily_structure": {
+        "px": 449.05,
+        "e21": 446,
+        "e48": 443.9,
+        "e200": 432.42,
+        "pct_above_e48": 1.16,
+        "pct_above_e21": 0.68,
+        "e21_slope_5d_pct": 0.45,
+        "e48_slope_10d_pct": 0.54,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": null
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1755536400000,
+      "reason": "tt_cohort_slope_too_flat",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 62,
+      "rank": 62,
+      "htf_score": 43.7,
+      "ltf_score": -5.6,
+      "daily_structure": {
+        "px": 643.3,
+        "e21": 639.5,
+        "e48": 633.54,
+        "e200": 606.41,
+        "pct_above_e48": 1.54,
+        "pct_above_e21": 0.59,
+        "e21_slope_5d_pct": 0.4,
+        "e48_slope_10d_pct": 0.85,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 62,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 1.36,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.54,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.4,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_PULLBACK",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1755536400000,
+      "reason": "tt_no_trigger",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 85,
+      "rank": 85,
+      "htf_score": 41.4,
+      "ltf_score": -14.8,
+      "daily_structure": {
+        "px": 577.11,
+        "e21": 574.21,
+        "e48": 567.4,
+        "e200": 535.58,
+        "pct_above_e48": 1.71,
+        "pct_above_e21": 0.51,
+        "e21_slope_5d_pct": 0.37,
+        "e48_slope_10d_pct": 1.05,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 85,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 1.44,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.71,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.37,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_PULLBACK",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": false,
+          "below": true,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1755536400000,
+      "reason": "tt_no_trigger",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 58,
+      "rank": 58,
+      "htf_score": 43.5,
+      "ltf_score": -1.7,
+      "daily_structure": {
+        "px": 449.05,
+        "e21": 446,
+        "e48": 443.9,
+        "e200": 432.42,
+        "pct_above_e48": 1.16,
+        "pct_above_e21": 0.68,
+        "e21_slope_5d_pct": 0.45,
+        "e48_slope_10d_pct": 0.54,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": null
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1755538200000,
+      "reason": "tt_no_trigger",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 63,
+      "rank": 63,
+      "htf_score": 43.8,
+      "ltf_score": -7.5,
+      "daily_structure": {
+        "px": 643.3,
+        "e21": 639.5,
+        "e48": 633.54,
+        "e200": 606.41,
+        "pct_above_e48": 1.54,
+        "pct_above_e21": 0.59,
+        "e21_slope_5d_pct": 0.4,
+        "e48_slope_10d_pct": 0.85,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 63,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 1.98,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.54,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.4,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_PULLBACK",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": false,
+          "below": true,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": false,
+          "below": true,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1755538200000,
+      "reason": "tt_cohort_slope_too_flat",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 70,
+      "rank": 70,
+      "htf_score": 39.8,
+      "ltf_score": -10.4,
+      "daily_structure": {
+        "px": 577.11,
+        "e21": 574.21,
+        "e48": 567.4,
+        "e200": 535.58,
+        "pct_above_e48": 1.71,
+        "pct_above_e21": 0.51,
+        "e21_slope_5d_pct": 0.37,
+        "e48_slope_10d_pct": 1.05,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 70,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 1.78,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.71,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.37,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_PULLBACK",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1755538200000,
+      "reason": "tt_no_trigger",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 57,
+      "rank": 57,
+      "htf_score": 43.6,
+      "ltf_score": -2.5,
+      "daily_structure": {
+        "px": 449.05,
+        "e21": 446,
+        "e48": 443.9,
+        "e200": 432.42,
+        "pct_above_e48": 1.16,
+        "pct_above_e21": 0.68,
+        "e21_slope_5d_pct": 0.45,
+        "e48_slope_10d_pct": 0.54,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": null
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1755540000000,
+      "reason": "tt_cohort_slope_too_flat",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 66,
+      "rank": 66,
+      "htf_score": 43.8,
+      "ltf_score": -8,
+      "daily_structure": {
+        "px": 643.3,
+        "e21": 639.5,
+        "e48": 633.54,
+        "e200": 606.41,
+        "pct_above_e48": 1.54,
+        "pct_above_e21": 0.59,
+        "e21_slope_5d_pct": 0.4,
+        "e48_slope_10d_pct": 0.85,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 66,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 1.5,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.54,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.4,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_PULLBACK",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": false,
+          "below": true,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1755540000000,
+      "reason": "tt_cohort_slope_too_flat",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 72,
+      "rank": 72,
+      "htf_score": 39.8,
+      "ltf_score": -8.5,
+      "daily_structure": {
+        "px": 577.11,
+        "e21": 574.21,
+        "e48": 567.4,
+        "e200": 535.58,
+        "pct_above_e48": 1.71,
+        "pct_above_e21": 0.51,
+        "e21_slope_5d_pct": 0.37,
+        "e48_slope_10d_pct": 1.05,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 72,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 1.23,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.71,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.37,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_PULLBACK",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1755540000000,
+      "reason": "tt_no_trigger",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 40,
+      "rank": 40,
+      "htf_score": 43.6,
+      "ltf_score": -7.1,
+      "daily_structure": {
+        "px": 449.05,
+        "e21": 446,
+        "e48": 443.9,
+        "e200": 432.42,
+        "pct_above_e48": 1.16,
+        "pct_above_e21": 0.68,
+        "e21_slope_5d_pct": 0.45,
+        "e48_slope_10d_pct": 0.54,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": null
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1755541800000,
+      "reason": "tt_cohort_slope_too_flat",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 75,
+      "rank": 75,
+      "htf_score": 43.8,
+      "ltf_score": 5,
+      "daily_structure": {
+        "px": 643.3,
+        "e21": 639.5,
+        "e48": 633.54,
+        "e200": 606.41,
+        "pct_above_e48": 1.54,
+        "pct_above_e21": 0.59,
+        "e21_slope_5d_pct": 0.4,
+        "e48_slope_10d_pct": 0.85,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 75,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 1.76,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.54,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.4,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_BULL",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1755541800000,
+      "reason": "tt_cohort_slope_too_flat",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 71,
+      "rank": 71,
+      "htf_score": 39.8,
+      "ltf_score": -3.3,
+      "daily_structure": {
+        "px": 577.11,
+        "e21": 574.21,
+        "e48": 567.4,
+        "e200": 535.58,
+        "pct_above_e48": 1.71,
+        "pct_above_e21": 0.51,
+        "e21_slope_5d_pct": 0.37,
+        "e48_slope_10d_pct": 1.05,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 71,
+          "min": 92,
+          "pass": false
+        },
+        "rvol": {
+          "value": 1.29,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.71,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.37,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_PULLBACK",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "fired": false
+      }
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1755541800000,
+      "reason": "tt_no_trigger",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 57,
+      "rank": 57,
+      "htf_score": 43.6,
+      "ltf_score": -4.4,
+      "daily_structure": {
+        "px": 449.05,
+        "e21": 446,
+        "e48": 443.9,
+        "e200": 432.42,
+        "pct_above_e48": 1.16,
+        "pct_above_e21": 0.68,
+        "e21_slope_5d_pct": 0.45,
+        "e48_slope_10d_pct": 0.54,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": null
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1755543600000,
+      "reason": "tt_cohort_slope_too_flat",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 92,
+      "rank": 92,
+      "htf_score": 43.8,
+      "ltf_score": 5.1,
+      "daily_structure": {
+        "px": 643.3,
+        "e21": 639.5,
+        "e48": 633.54,
+        "e200": 606.41,
+        "pct_above_e48": 1.54,
+        "pct_above_e21": 0.59,
+        "e21_slope_5d_pct": 0.4,
+        "e48_slope_10d_pct": 0.85,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 92,
+          "min": 92,
+          "pass": true
+        },
+        "rvol": {
+          "value": 1.83,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.54,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.4,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_BULL",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "fired": true
+      }
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1755543600000,
+      "reason": "tt_cohort_slope_too_flat",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 95,
+      "rank": 95,
+      "htf_score": 39.8,
+      "ltf_score": 0.5,
+      "daily_structure": {
+        "px": 577.11,
+        "e21": 574.21,
+        "e48": 567.4,
+        "e200": 535.58,
+        "pct_above_e48": 1.71,
+        "pct_above_e21": 0.51,
+        "e21_slope_5d_pct": 0.37,
+        "e48_slope_10d_pct": 1.05,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 95,
+          "min": 92,
+          "pass": true
+        },
+        "rvol": {
+          "value": 1.36,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.71,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.37,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_BULL",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "fired": true
+      }
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1755543600000,
+      "reason": "tt_no_trigger",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 45,
+      "rank": 45,
+      "htf_score": 43.6,
+      "ltf_score": -7.2,
+      "daily_structure": {
+        "px": 449.05,
+        "e21": 446,
+        "e48": 443.9,
+        "e200": 432.42,
+        "pct_above_e48": 1.16,
+        "pct_above_e21": 0.68,
+        "e21_slope_5d_pct": 0.45,
+        "e48_slope_10d_pct": 0.54,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": null
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1755545400000,
+      "reason": "tt_cohort_slope_too_flat",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 94,
+      "rank": 94,
+      "htf_score": 43.8,
+      "ltf_score": 5.7,
+      "daily_structure": {
+        "px": 643.3,
+        "e21": 639.5,
+        "e48": 633.54,
+        "e200": 606.41,
+        "pct_above_e48": 1.54,
+        "pct_above_e21": 0.59,
+        "e21_slope_5d_pct": 0.4,
+        "e48_slope_10d_pct": 0.85,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 94,
+          "min": 92,
+          "pass": true
+        },
+        "rvol": {
+          "value": 3.89,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.54,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.4,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_BULL",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "fired": true
+      }
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1755545400000,
+      "reason": "tt_cohort_slope_too_flat",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 95,
+      "rank": 95,
+      "htf_score": 39.8,
+      "ltf_score": 1.8,
+      "daily_structure": {
+        "px": 577.11,
+        "e21": 574.21,
+        "e48": 567.4,
+        "e200": 535.58,
+        "pct_above_e48": 1.71,
+        "pct_above_e21": 0.51,
+        "e21_slope_5d_pct": 0.37,
+        "e48_slope_10d_pct": 1.05,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 95,
+          "min": 92,
+          "pass": true
+        },
+        "rvol": {
+          "value": 1.93,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.71,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.37,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_BULL",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "fired": true
+      }
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1755545400000,
+      "reason": "tt_pullback_late_session_unreclaimed",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 57,
+      "rank": 57,
+      "htf_score": 43.6,
+      "ltf_score": -4.9,
+      "daily_structure": {
+        "px": 449.05,
+        "e21": 446,
+        "e48": 443.9,
+        "e200": 432.42,
+        "pct_above_e48": 1.16,
+        "pct_above_e21": 0.68,
+        "e21_slope_5d_pct": 0.45,
+        "e48_slope_10d_pct": 0.54,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": null
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1755547200000,
+      "reason": "tt_cohort_slope_too_flat",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 94,
+      "rank": 94,
+      "htf_score": 42,
+      "ltf_score": 5.4,
+      "daily_structure": {
+        "px": 643.3,
+        "e21": 639.5,
+        "e48": 633.54,
+        "e200": 606.41,
+        "pct_above_e48": 1.54,
+        "pct_above_e21": 0.59,
+        "e21_slope_5d_pct": 0.4,
+        "e48_slope_10d_pct": 0.85,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 94,
+          "min": 92,
+          "pass": true
+        },
+        "rvol": {
+          "value": 1.13,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.54,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.4,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_BULL",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "fired": true
+      }
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1755547200000,
+      "reason": "tt_cohort_slope_too_flat",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 95,
+      "rank": 95,
+      "htf_score": 39.8,
+      "ltf_score": 0.1,
+      "daily_structure": {
+        "px": 577.11,
+        "e21": 574.21,
+        "e48": 567.4,
+        "e200": 535.58,
+        "pct_above_e48": 1.71,
+        "pct_above_e21": 0.51,
+        "e21_slope_5d_pct": 0.37,
+        "e48_slope_10d_pct": 1.05,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": {
+        "side": "LONG",
+        "rank": {
+          "value": 95,
+          "min": 92,
+          "pass": true
+        },
+        "rvol": {
+          "value": 0.52,
+          "min": 0.5,
+          "pass": true
+        },
+        "bull_stack": {
+          "value": true,
+          "pass": true
+        },
+        "bear_stack": {
+          "value": false,
+          "pass": false
+        },
+        "above_e200": {
+          "value": true
+        },
+        "pct_above_e48": {
+          "value": 1.71,
+          "longBand": [
+            0.5,
+            7
+          ],
+          "shortBand": [
+            -7,
+            -0.5
+          ]
+        },
+        "e21_slope": {
+          "value": 0.37,
+          "longBand": [
+            0.2,
+            3
+          ],
+          "shortBand": [
+            -3,
+            -0.2
+          ]
+        },
+        "state": {
+          "value": "HTF_BULL_LTF_BULL",
+          "longOk": [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL"
+          ],
+          "shortOk": [
+            "HTF_BEAR_LTF_BOUNCE",
+            "HTF_BEAR_LTF_BEAR"
+          ]
+        },
+        "c10_8": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "m30_8_9": {
+          "above": true,
+          "below": false,
+          "inCloud": false
+        },
+        "fired": true
+      }
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1755547200000,
+      "reason": "tt_no_trigger",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 54,
+      "rank": 54,
+      "htf_score": 43.1,
+      "ltf_score": -5.8,
+      "daily_structure": {
+        "px": 449.05,
+        "e21": 446,
+        "e48": 443.9,
+        "e200": 432.42,
+        "pct_above_e48": 1.16,
+        "pct_above_e21": 0.68,
+        "e21_slope_5d_pct": 0.45,
+        "e48_slope_10d_pct": 0.54,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": null
+    }
+  ],
+  "blockChainCap": 100000,
+  "fullDay": true
+}

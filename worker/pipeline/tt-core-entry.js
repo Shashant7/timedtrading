@@ -117,6 +117,11 @@ export function evaluateEntry(ctx) {
   const cvgContext = cvg || d?.intraday_cvg || null;
   const entrySupportProfile = entrySupport || d?.entry_support_profile || null;
 
+  // V15 (2026-04-25): _tickerUpperEarly is needed by ETF carve-outs in the
+  // h3 layer. Hoisted to the top of evaluateEntry so it's available everywhere
+  // (was previously declared at line 910, after several gates that now need it).
+  const _tickerUpperEarly = String(d?.ticker || d?.sym || ctx.ticker || "").trim().toUpperCase();
+
   let momentumTrigger = false;
   let pullbackTrigger = false;
   let reclaimTrigger = false;
@@ -622,7 +627,20 @@ export function evaluateEntry(ctx) {
     // unless ticker rank is exceptional AND cohort is permitted.
     // Cycle label comes from ctx.market.monthlyCycle (populated by
     // trade-context from the backdrop file for the replay date).
-    const _h3AdaptiveEnabled = String(daCfg.deep_audit_regime_adaptive_enabled ?? "false") === "true";
+    //
+    // V15 (2026-04-25): same ETF carve-out as the h3 consensus gate
+    // (Layer 3 below). Indices have their own dedicated qualification
+    // path via tt_index_etf_swing trigger which imposes stricter daily-
+    // structure quality than these regime rank floors. Without this
+    // exemption, transitional-month ETF entries are killed by
+    // h3_rank_below_transitional_floor (observed on 2025-07-01,
+    // 2025-08-08, 2026-01-07 winning Phase E2 bars).
+    // Always exempt the four major index ETFs regardless of DA key value
+    // (the swing-trigger DA key may be set to "SPY,QQQ,IWM" without DIA;
+    // we still want DIA to bypass these stock-centric gates).
+    const _h3LayerIsIndexEtf = ["SPY","QQQ","IWM","DIA"].includes(_tickerUpperEarly);
+    const _h3AdaptiveEnabled = String(daCfg.deep_audit_regime_adaptive_enabled ?? "false") === "true"
+      && !_h3LayerIsIndexEtf;
     if (_h3AdaptiveEnabled) {
       const cycle = String(ctx?.market?.monthlyCycle || "").toLowerCase();
       const tickerCohort = String(d?._cohort || d?.cohort || "").toLowerCase();
@@ -673,10 +691,9 @@ export function evaluateEntry(ctx) {
     // ZERO. Indices have their own dedicated qualification path
     // (tt_index_etf_swing trigger at line ~1023) which is a stronger
     // baseline-quality filter than the per-stock h3 consensus.
-    const _h3IndexEtfTickers = String(
-      daCfg.deep_audit_index_etf_swing_tickers || "SPY,QQQ,IWM,DIA"
-    ).split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
-    const _h3IsIndexEtf = _h3IndexEtfTickers.includes(_tickerUpperEarly);
+    // Hard-coded major index ETF exemption (ignores DA key which may
+    // omit DIA). These four are structurally distinct from stocks.
+    const _h3IsIndexEtf = ["SPY","QQQ","IWM","DIA"].includes(_tickerUpperEarly);
     const _h3ConsensusEnabled = String(daCfg.deep_audit_consensus_gate_enabled ?? "false") === "true"
       && !_h3IsIndexEtf;
     if (_h3ConsensusEnabled) {
@@ -891,10 +908,8 @@ export function evaluateEntry(ctx) {
     reclaimTrigger = true;
   }
 
-  // tickerUpper is needed by the Phase-E ETF swing trigger below; the main
-  // QUALITY REJECTION GATES block also declares it but the trigger needs it
-  // first. Use a local identifier here.
-  const _tickerUpperEarly = String(d?.ticker || d?.sym || ctx.ticker || "").trim().toUpperCase();
+  // _tickerUpperEarly is hoisted to the top of evaluateEntry (see above)
+  // so it's available to all gates including the h3 layer ETF carve-outs.
 
   // ──────────────────────────────────────────────────────────────────────
   // V12 P6 (2026-04-23) — ETF PRECISION GATE
@@ -922,10 +937,26 @@ export function evaluateEntry(ctx) {
   //
   // See: tasks/v12-killer-strategy-2026-04-23.md
   // ──────────────────────────────────────────────────────────────────────
+  // V15 (2026-04-25): the ETF Precision Gate is positioned BEFORE the
+  // tt_index_etf_swing trigger and uses a 10-of-10 conjunction that no
+  // realistic ETF setup passes. Phase E2 v4 produced 47 SPY/QQQ/IWM
+  // trades at 71.7% WR using ONLY the swing trigger as the quality
+  // filter (no precision gate). The swing trigger IS the canonical
+  // ETF entry filter. Force-disable this gate for the four major
+  // index ETFs regardless of DA config, because pinned-config snapshots
+  // from V12 activation re-enable it without our consent.
+  //
+  // To re-enable for experiments, use a different ticker outside
+  // SPY/QQQ/IWM/DIA via deep_audit_etf_precision_tickers.
   const _etfPgEnabled = String(daCfg.deep_audit_etf_precision_gate_enabled ?? "false") === "true";
-  const _etfPgTickerList = String(daCfg.deep_audit_etf_precision_tickers ?? "SPY,QQQ,IWM,DIA")
+  const _etfPgTickerList = String(daCfg.deep_audit_etf_precision_tickers ?? "")
     .split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
-  const _isEtfPgTicker = _etfPgEnabled && _etfPgTickerList.includes(_tickerUpperEarly);
+  const _hardCodedIndexEtfs = ["SPY","QQQ","IWM","DIA"];
+  const _isHardCodedIndexEtf = _hardCodedIndexEtfs.includes(_tickerUpperEarly);
+  const _isEtfPgTicker = _etfPgEnabled
+    && _etfPgTickerList.length > 0
+    && _etfPgTickerList.includes(_tickerUpperEarly)
+    && !_isHardCodedIndexEtf;  // V15: never apply this gate to major index ETFs
   if (_isEtfPgTicker) {
     const fails = [];
     const daily = ctx?.daily || d?.daily_structure || {};
@@ -1013,7 +1044,13 @@ export function evaluateEntry(ctx) {
     const convLocal = Number(d?.__focus_conviction_score ?? 0);
     // Fallback: if conviction isn't populated (focus_tier disabled),
     // preserve legacy rank check so the gate still functions.
-    if (_focusTierEnabled ?? false) {
+    //
+    // V15 (2026-04-25) FIX: re-read _focusTierEnabled locally because the
+    // version declared at line ~447 is out of scope here (it was inside
+    // the H3-entry-discipline block 323-751). Previous code referenced it
+    // and threw ReferenceError when ETFs reached this gate.
+    const _focusTierEnabledLocal = String(daCfg.deep_audit_focus_tier_enabled ?? "false") === "true";
+    if (_focusTierEnabledLocal) {
       if (convLocal < _minConv) fails.push(`f10_conviction_below_${_minConv}_got_${convLocal}`);
     } else {
       const _legacyMinRank = Number(daCfg.deep_audit_etf_precision_min_rank ?? 90);
@@ -1069,6 +1106,24 @@ export function evaluateEntry(ctx) {
       const e21Slope = Number(daily.e21_slope_5d_pct);
       const state = String(ctx.state || "");
       const m30Cloud89 = tf?.m30?.ripster?.c8_9 || null;
+
+      // V15 (2026-04-25) — per-bar trigger diagnostic. Stamps every condition
+      // with its actual value + pass/fail so we can see precisely which gate
+      // is killing each ETF bar in the Phase E2 baseline comparison.
+      const _swingDiag = {
+        side,
+        rank: { value: rankScore, min: minScore, pass: rankScore >= minScore },
+        rvol: { value: rvolSignal, min: rvolMin, pass: rvolSignal >= rvolMin },
+        bull_stack: { value: daily.bull_stack, pass: daily.bull_stack === true },
+        bear_stack: { value: daily.bear_stack, pass: daily.bear_stack === true },
+        above_e200: { value: daily.above_e200 },
+        pct_above_e48: { value: pctAbove48, longBand: [pctAboveE48Min, pctAboveE48Max], shortBand: [-pctBelowE48Max, -pctBelowE48Min] },
+        e21_slope: { value: e21Slope, longBand: [e21SlopeMin, e21SlopeMax], shortBand: [-e21SlopeMax, -e21SlopeMin] },
+        state: { value: state, longOk: ["HTF_BULL_LTF_PULLBACK","HTF_BULL_LTF_BULL"], shortOk: ["HTF_BEAR_LTF_BOUNCE","HTF_BEAR_LTF_BEAR"] },
+        c10_8: { above: !!c10_8?.above, below: !!c10_8?.below, inCloud: !!c10_8?.inCloud },
+        m30_8_9: { above: !!m30Cloud89?.above, below: !!m30Cloud89?.below, inCloud: !!m30Cloud89?.inCloud },
+      };
+
       if (side === "LONG"
         && rankScore >= minScore
         && rvolSignal >= rvolMin
@@ -1098,6 +1153,11 @@ export function evaluateEntry(ctx) {
         && (c10_8?.below || c10_8?.inCloud || m30Cloud89?.below || m30Cloud89?.inCloud)) {
         indexEtfSwingTrigger = true;
       }
+
+      _swingDiag.fired = indexEtfSwingTrigger;
+      // Stamp trace for both pass and fail so the diagnostic is complete.
+      d.__index_etf_swing_diag = _swingDiag;
+
       if (indexEtfSwingTrigger) {
         // Promote to reclaimTrigger semantically so downstream quality gates
         // that test `reclaimTrigger` relax correctly (this trigger is more

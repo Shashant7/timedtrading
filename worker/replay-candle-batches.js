@@ -570,6 +570,10 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
                     bear_stack: ds.bear_stack,
                     above_e200: ds.above_e200,
                   } : null,
+                  // V15 (2026-04-25) — index-ETF swing trigger trace if computed.
+                  // Captures every condition's actual value vs band so we can
+                  // see which threshold(s) need calibration.
+                  index_etf_swing_diag: result?.__index_etf_swing_diag || null,
                 });
               }
             } else {

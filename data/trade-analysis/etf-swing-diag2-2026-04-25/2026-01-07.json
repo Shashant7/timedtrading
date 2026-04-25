@@ -1,0 +1,233 @@
+{
+  "ok": true,
+  "date": "2026-01-07",
+  "tickerOffset": 0,
+  "tickerBatch": 4,
+  "tickersProcessed": 4,
+  "intervals": 14,
+  "intervalMinutes": 30,
+  "scored": 3,
+  "skipped": 0,
+  "tradesCreated": 0,
+  "totalTrades": 0,
+  "hasMore": false,
+  "nextTickerOffset": null,
+  "errorsCount": 53,
+  "errors": [
+    {
+      "ticker": "SPY",
+      "ts": 1767796200000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1767796200000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "IWM",
+      "ts": 1767796200000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1767796200000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1767798000000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1767798000000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "IWM",
+      "ts": 1767798000000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1767798000000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1767799800000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1767799800000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    }
+  ],
+  "stageCounts": {
+    "watch": 3
+  },
+  "blockReasons": {
+    "rvol_dead_zone": 3
+  },
+  "d1StateWritten": 4,
+  "trailWritten": 3,
+  "lastSnapshot": {
+    "SPY": {
+      "fuel_D": null,
+      "fuel_10": null,
+      "fuel_30": null,
+      "st_support_D": null,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": null
+    },
+    "QQQ": {
+      "state": "HTF_BULL_LTF_BULL",
+      "htf_score": 39.9,
+      "ltf_score": 1.1,
+      "ema_regime_daily": 2,
+      "ema_regime_4h": 2,
+      "fuel_D": 79,
+      "fuel_10": 45,
+      "fuel_30": 90,
+      "st_support_D": {
+        "dir": "bear",
+        "slope": "flat",
+        "aligned": true
+      },
+      "kanban_stage": "watch",
+      "score": 71,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": 90
+    },
+    "IWM": {
+      "state": "HTF_BULL_LTF_BULL",
+      "htf_score": 41.4,
+      "ltf_score": 3.7,
+      "ema_regime_daily": 2,
+      "ema_regime_4h": 2,
+      "fuel_D": 66,
+      "fuel_10": 99,
+      "fuel_30": 97,
+      "st_support_D": {
+        "dir": "bull",
+        "slope": "rising",
+        "aligned": true
+      },
+      "kanban_stage": "watch",
+      "score": 90,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": 99
+    },
+    "DIA": {
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "htf_score": 40.7,
+      "ltf_score": -21.7,
+      "ema_regime_daily": 2,
+      "ema_regime_4h": 2,
+      "fuel_D": 74,
+      "fuel_10": 22,
+      "fuel_30": 21,
+      "st_support_D": {
+        "dir": "bull",
+        "slope": "flat",
+        "aligned": true
+      },
+      "kanban_stage": "watch",
+      "score": 77,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": 22
+    }
+  },
+  "targetSnapshots": {},
+  "targetTimeline": [],
+  "processDebug": [],
+  "blockedEntryGates": {
+    "rvol_dead_zone": 6,
+    "_total": 6
+  },
+  "blockChainBars": [
+    {
+      "ticker": "QQQ",
+      "ts": 1767819600000,
+      "reason": "rvol_dead_zone",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 71,
+      "rank": 71,
+      "htf_score": 39.9,
+      "ltf_score": 1.1,
+      "daily_structure": {
+        "px": 624.02,
+        "e21": 619.48,
+        "e48": 617.88,
+        "e200": 600.71,
+        "pct_above_e48": 0.99,
+        "pct_above_e21": 0.73,
+        "e21_slope_5d_pct": 0.33,
+        "e48_slope_10d_pct": 0.1,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": null
+    },
+    {
+      "ticker": "IWM",
+      "ts": 1767819600000,
+      "reason": "rvol_dead_zone",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 90,
+      "rank": 90,
+      "htf_score": 41.4,
+      "ltf_score": 3.7,
+      "daily_structure": {
+        "px": 255.48,
+        "e21": 251.93,
+        "e48": 250.29,
+        "e200": 241.86,
+        "pct_above_e48": 2.07,
+        "pct_above_e21": 1.41,
+        "e21_slope_5d_pct": 0.81,
+        "e48_slope_10d_pct": 0.41,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": null
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1767819600000,
+      "reason": "rvol_dead_zone",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 77,
+      "rank": 77,
+      "htf_score": 40.7,
+      "ltf_score": -21.7,
+      "daily_structure": {
+        "px": 489.96,
+        "e21": 486.78,
+        "e48": 483.15,
+        "e200": 468.57,
+        "pct_above_e48": 1.41,
+        "pct_above_e21": 0.65,
+        "e21_slope_5d_pct": 0.62,
+        "e48_slope_10d_pct": 0.54,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": null
+    }
+  ],
+  "blockChainCap": 100000,
+  "fullDay": true
+}
