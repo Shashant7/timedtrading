@@ -234,7 +234,11 @@ replay_day() {
   local day="$1" clean_slate="$2"
   local total_scored=0 total_trades=0 total_blocked=0
   local offset=0
-  local batch=24
+  # V14 (2026-04-25): batch=24 hit Cloudflare per-request CPU/wall-time
+  # limits on 200+ ticker universes (60+ min curl hangs every ~20 days).
+  # Smaller batches mean more HTTP roundtrips but each fits well within
+  # the worker's per-request budget. Override via BATCH_SIZE env.
+  local batch="${BATCH_SIZE:-12}"
   local cs="$clean_slate"  # only apply cleanSlate on the FIRST batch of the day
   local day_t0=$(date -u +%s)
 
