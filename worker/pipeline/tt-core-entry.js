@@ -663,7 +663,22 @@ export function evaluateEntry(ctx) {
     // Scoring across 5 dimensions. Requires at least N of 5 to corroborate
     // the direction before the setup is eligible. This kicks in before the
     // setup-specific evaluation below, so it acts as a baseline quality check.
-    const _h3ConsensusEnabled = String(daCfg.deep_audit_consensus_gate_enabled ?? "false") === "true";
+    //
+    // V15 (2026-04-25): EXEMPT INDEX ETFs (SPY/QQQ/IWM/DIA) from the h3
+    // consensus gate. The consensus gate requires 3-of-5 signals including
+    // sector alignment (indices have no parent sector → auto-fail) and
+    // volume rvol >= 1.2 (indices have steady volume profiles → rarely fire).
+    // This locks indices out structurally — phase-e2 v4 slices produced
+    // 47 ETF trades at 71.7% WR before this gate was added; v14 produced
+    // ZERO. Indices have their own dedicated qualification path
+    // (tt_index_etf_swing trigger at line ~1023) which is a stronger
+    // baseline-quality filter than the per-stock h3 consensus.
+    const _h3IndexEtfTickers = String(
+      daCfg.deep_audit_index_etf_swing_tickers || "SPY,QQQ,IWM,DIA"
+    ).split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
+    const _h3IsIndexEtf = _h3IndexEtfTickers.includes(_tickerUpperEarly);
+    const _h3ConsensusEnabled = String(daCfg.deep_audit_consensus_gate_enabled ?? "false") === "true"
+      && !_h3IsIndexEtf;
     if (_h3ConsensusEnabled) {
       const isLong = side === "LONG";
       let signals = 0;
