@@ -52,6 +52,10 @@ function _f(v, d = 0) {
 //
 // Price floor is a secondary signal: extremely low-priced names
 // (< $5) tend to be penny-stock risk regardless of sector assignment.
+// V15 P0.3 (2026-04-25): liquidity range halved 0-20 → 0-10 because V14
+// forensic showed Pearson(liquidity_pts, pnl) = -0.055 (anti-predictive
+// at high pts — mega-caps are too obvious and don't outperform). Mid-caps
+// and ETFs that sit at pts 10-15 actually had the highest WR. Recalibrating:
 function scoreLiquidity(tickerData) {
   const tickerType = String(tickerData?._ticker_type || tickerData?.ticker_type || "").toLowerCase();
   const price = _f(tickerData?.price ?? tickerData?.close);
@@ -59,39 +63,39 @@ function scoreLiquidity(tickerData) {
   let pts = 0;
   let reason = "";
 
-  // Broad + sector ETFs = deepest liquidity
+  // Broad + sector ETFs = deepest liquidity (was 20)
   if (tickerType === "broad_etf" || tickerType === "sector_etf") {
-    pts = 20;
+    pts = 10;
     reason = `etf_${tickerType}`;
   } else if (tickerType === "large_cap" || tickerType === "growth" || tickerType === "mega_cap") {
-    pts = 18;
+    pts = 9;  // was 18 — flagship reduction; mega-caps are too obvious
     reason = `liquid_${tickerType}`;
   } else if (tickerType === "mid_cap") {
-    pts = 13;
+    pts = 8;  // was 13 — V14 showed mid-caps had highest WR
     reason = "mid_cap";
   } else if (tickerType === "thematic_etf" || tickerType === "commodity_etf" || tickerType === "precious_metal") {
-    pts = 15;
+    pts = 8;  // was 15
     reason = `specialty_${tickerType}`;
   } else if (tickerType === "small_cap") {
-    pts = 8;
+    pts = 4;  // was 8
     reason = "small_cap";
   } else if (tickerType === "crypto" || tickerType === "crypto_adj") {
-    pts = 12;
+    pts = 6;  // was 12
     reason = `crypto_${tickerType}`;
   } else if (tickerType) {
-    pts = 10;
+    pts = 5;  // was 10
     reason = `other_${tickerType}`;
   } else {
-    // Unclassified ticker — fall back to price-based heuristic
+    // Unclassified ticker — fall back to price-based heuristic (halved)
     if (price <= 0) return { pts: 0, reason: "no_classification_no_price" };
     if (price < 5) { pts = 0; reason = `unclassified_penny_${price.toFixed(2)}`; }
-    else if (price < 10) { pts = 5; reason = `unclassified_low_${price.toFixed(2)}`; }
-    else { pts = 8; reason = `unclassified_${price.toFixed(2)}`; }
+    else if (price < 10) { pts = 2; reason = `unclassified_low_${price.toFixed(2)}`; }
+    else { pts = 4; reason = `unclassified_${price.toFixed(2)}`; }
   }
 
   // Penny-stock override even for classified names
   if (price > 0 && price < 3) {
-    pts = Math.min(pts, 3);
+    pts = Math.min(pts, 1);
     reason += "_pennystock_cap";
   }
 
@@ -131,6 +135,12 @@ function scoreVolatility(tickerData) {
 // V11 golden winner fingerprint: daily E21 > E48 > E200 stacked, price
 // within 2 ATR of E21 (not overextended, not deeply broken).
 // ─────────────────────────────────────────────────────────────────────────
+// V15 P0.3 (2026-04-25): trend range halved 0-20 → 0-10 because V14
+// forensic showed Pearson(trend_pts, pnl) = -0.056 with 214 of 227
+// closed trades getting the max 20 pts. Saturated signal — almost
+// every trade is bull-stacked, so the field doesn't differentiate.
+// Halved to leave room for the new Saty/phase/RSI signals which DO
+// differentiate.
 function scoreTrend(tickerData) {
   const daily = tickerData?.daily_structure || tickerData?.daily || {};
   const e21 = _f(daily?.e21 ?? daily?.ema21);
@@ -153,36 +163,32 @@ function scoreTrend(tickerData) {
     return { pts: 0, reason: "missing_emas" };
   }
   if (!price) return { pts: 0, reason: "missing_price" };
-  if (!e21) return { pts: bullStack || bearStack ? 10 : 0, reason: `${bullStack ? 'bull' : 'bear'}_stack_only` };
+  if (!e21) return { pts: bullStack || bearStack ? 5 : 0, reason: `${bullStack ? 'bull' : 'bear'}_stack_only` };
 
   let pts = 0;
   let reason = "";
 
   if (bullStack) {
-    pts += 10;  // stacked bull
+    pts += 5;  // was 10 — stacked bull
     reason = "bull_stacked";
   } else if (bearStack) {
-    pts += 10;  // stacked bear (valid for SHORT setups)
+    pts += 5;  // was 10 — stacked bear (valid for SHORT setups)
     reason = "bear_stacked";
   } else {
     pts += 0;
     reason = "chop";
   }
 
-  // Price distance from E21 (in ATR units if available)
+  // Price distance from E21 (in ATR units if available) — was 10/5 → 5/3
   if (atr > 0) {
     const distAtrs = Math.abs(price - e21) / atr;
-    // Sweet spot: 0.3-2.0 ATRs from E21 (close enough to be tradeable,
-    // far enough not to be extended)
-    if (distAtrs <= 2.0 && distAtrs >= 0.0) pts += 10;
-    else if (distAtrs <= 3.0) pts += 5;
-    // > 3 ATRs from E21 = too extended, 0 extra pts
+    if (distAtrs <= 2.0 && distAtrs >= 0.0) pts += 5;
+    else if (distAtrs <= 3.0) pts += 3;
     reason += `, ${distAtrs.toFixed(1)}atr_from_e21`;
   } else {
-    // Fallback: pct distance from E21
     const distPct = Math.abs((price - e21) / e21) * 100;
-    if (distPct <= 4.0) pts += 10;
-    else if (distPct <= 7.0) pts += 5;
+    if (distPct <= 4.0) pts += 5;
+    else if (distPct <= 7.0) pts += 3;
     reason += `, ${distPct.toFixed(1)}%_from_e21`;
   }
 
@@ -194,29 +200,35 @@ function scoreTrend(tickerData) {
 // Read from the monthly backdrop (already computed for each month).
 // If ticker's sector is in the backdrop's `sector_leadership` list = boost.
 // ─────────────────────────────────────────────────────────────────────────
+// V15 P0.3 (2026-04-25): sector range expanded 0-10 → 0-15 because V14
+// forensic showed Pearson(sector_pts, pnl) = +0.047 (mildly predictive
+// but underweighted). Sector overweight produced WR 54.4% vs underweight
+// 55.2% in V14 — a flat outcome — but the difference between leadership
+// vs bottom backdrop trades was clearer. Boost weight to leverage what's
+// reliably populated.
 function scoreSector(tickerData, ctx) {
   // V13: worker emits `_sector_rating` (overweight / neutral / underweight)
   // based on Fundstrat's sector guidance. Use this as the primary signal
   // since it's always populated and already reflects the analyst view.
   const rating = String(tickerData?._sector_rating || "").toLowerCase();
-  if (rating === "overweight") return { pts: 10, reason: "sector_overweight" };
+  if (rating === "overweight") return { pts: 15, reason: "sector_overweight" };
   if (rating === "underweight") return { pts: 0, reason: "sector_underweight" };
-  if (rating === "neutral") return { pts: 5, reason: "sector_neutral" };
+  if (rating === "neutral") return { pts: 7, reason: "sector_neutral" };
 
   // Fallback to monthly backdrop sector leadership if rating missing
   const sector = String(tickerData?._sector || ctx?.sector || "").toLowerCase();
-  if (!sector) return { pts: 5, reason: "no_sector_data" };
+  if (!sector) return { pts: 7, reason: "no_sector_data" };
   const leadership = ctx?.market?.monthlySectorTop || ctx?.monthlyBackdrop?.sector_leadership || [];
   const bottom = ctx?.market?.monthlySectorBottom || ctx?.monthlyBackdrop?.sector_bottom || [];
   const leadNorm = (Array.isArray(leadership) ? leadership : []).map(s => String(s).toLowerCase());
   const bottomNorm = (Array.isArray(bottom) ? bottom : []).map(s => String(s).toLowerCase());
   if (leadNorm.some(s => s.includes(sector) || sector.includes(s))) {
-    return { pts: 10, reason: "sector_leadership_backdrop" };
+    return { pts: 15, reason: "sector_leadership_backdrop" };
   }
   if (bottomNorm.some(s => s.includes(sector) || sector.includes(s))) {
     return { pts: 0, reason: "sector_bottom_backdrop" };
   }
-  return { pts: 5, reason: "sector_neutral_fallback" };
+  return { pts: 7, reason: "sector_neutral_fallback" };
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -257,22 +269,26 @@ function scoreRelativeStrength(tickerData, ctx) {
     }
   }
 
+  // V15 P0.3 (2026-04-25): RS range expanded 0-10 → 0-25. V14 forensic
+  // confirmed RS as the strongest predictor (Pearson +0.097, highest of
+  // all signals). pts=8 bucket had 69.6% WR / +1.65% avg — best cluster
+  // in the entire run. Doubling weight to leverage what works.
+
   // No data path
   if (tickerSlope === 0 && tickerPctAboveE48 === 0) {
-    return { pts: 5, reason: spySlopeMissing ? "no_rs_data_spy_missing" : "no_rs_data" };
+    return { pts: 12, reason: spySlopeMissing ? "no_rs_data_spy_missing" : "no_rs_data" };
   }
 
   // Relative slope: ticker vs SPY daily velocity (percentage points)
   const slopeDiff = tickerSlope - spySlope;
-  // Extension: how much above E48 (conviction ETF-style check)
-  // Combined score: weighted sum
-  let pts = 5;  // neutral
-  if (slopeDiff > 0.5 && tickerPctAboveE48 > 1.0) pts = 10;       // strong RS + above mean
-  else if (slopeDiff > 0.25 && tickerPctAboveE48 > 0) pts = 8;    // moderate RS
-  else if (slopeDiff > 0) pts = 6;                                 // mild RS
+  // Combined score: weighted sum (was 0-10 → now 0-25)
+  let pts = 12;  // neutral default
+  if (slopeDiff > 0.5 && tickerPctAboveE48 > 1.0) pts = 25;       // strong RS + above mean
+  else if (slopeDiff > 0.25 && tickerPctAboveE48 > 0) pts = 20;   // moderate RS
+  else if (slopeDiff > 0) pts = 15;                                // mild RS
   else if (slopeDiff < -0.5 && tickerPctAboveE48 < -2.0) pts = 0;  // strong underperform
-  else if (slopeDiff < -0.25) pts = 2;                             // mild underperform
-  else pts = 4;                                                     // neutral/weak
+  else if (slopeDiff < -0.25) pts = 5;                             // mild underperform
+  else pts = 10;                                                    // neutral/weak
 
   return {
     pts,
@@ -599,15 +615,27 @@ export function computeConvictionScore({
   const upticksBonus = (currentUpticks && currentUpticks.has(tickerUpper)) ? 10 : 0;
   const recentBonus = scoreRecentWinner(tickerUpper, historyStats);
 
-  // V15 P0.1+P0.2: range expanded by Saty ATR + slope signals.
-  //   Saty ATR: -15 to +10
-  //   Phase alignment: -10 to +10
-  //   RSI alignment: -5 to +5
-  // Floor at 0 (negative scores have no meaning) and ceil at 125
-  // (25 extra room for max bonuses + max alignment).
-  const total = Math.max(0, Math.min(125, base + ttSelBonus + grannyBonus + upticksBonus + recentBonus));
+  // V15 P0.3 (2026-04-25): rebalanced base signal weights based on V14
+  // forensic per-signal Pearson(pnl):
+  //   liquidity 20 → 10 (was anti-predictive, mega-caps too obvious)
+  //   volatility 0-15 unchanged (sweet spot 1.5-4% had 69% WR)
+  //   trend 20 → 10 (saturated — almost everyone got 20 pts)
+  //   sector 10 → 15 (mildly predictive, underweighted)
+  //   relative_strength 10 → 25 (strongest predictor at +0.097, doubled)
+  //   history 0-20 unchanged (will activate as data accrues)
+  //   saty_atr_proximity (NEW): -15 to +10
+  //   phase_alignment (NEW): -10 to +10
+  //   rsi_alignment (NEW): -5 to +5
+  // Max base = 120, max bonuses = 40 → theoretical max 160
+  // Floor at 0 and ceil at 160.
+  const total = Math.max(0, Math.min(160, base + ttSelBonus + grannyBonus + upticksBonus + recentBonus));
 
-  const tier = total >= 75 ? "A" : total >= 50 ? "B" : "C";
+  // V15 P0.3 tier thresholds — recalibrated for the new 0-160 range.
+  // Old (0-100 scale): A≥75, B≥50, C<50
+  // New (0-160 scale): A≥110, B≥80, C<80
+  // (proportional to old; 75/100 = 110/147 ≈ 0.75, 50/100 = 80/107 ≈ 0.75)
+  // Adjustable via DA keys without code change.
+  const tier = total >= 110 ? "A" : total >= 80 ? "B" : "C";
 
   return {
     ticker: tickerUpper,

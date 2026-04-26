@@ -3985,7 +3985,9 @@ function qualifiesForEnter(d, asOfTs = null) {
         d.__focus_conviction_score = _focusConv.score;
         d.__focus_conviction_breakdown = _focusConv.breakdown;
 
-        const _entryMinConv = Number(_focusDaCfg.deep_audit_focus_min_entry_conviction ?? 45);
+        // V15 P0.3 (2026-04-25): floor recalibrated for new 0-160 range.
+        // Hard minimum of 72 even if DA pinned-config retains legacy 45.
+        const _entryMinConv = Math.max(72, Number(_focusDaCfg.deep_audit_focus_min_entry_conviction ?? 72));
         if (_focusConv.score < _entryMinConv) {
           return {
             qualifies: false,
@@ -3999,7 +4001,8 @@ function qualifiesForEnter(d, asOfTs = null) {
             },
           };
         }
-        const _tierCFloor = Number(_focusDaCfg.deep_audit_focus_tier_c_floor ?? 45);
+        // V15 P0.3 floor recalibration; hard minimum 72
+        const _tierCFloor = Math.max(72, Number(_focusDaCfg.deep_audit_focus_tier_c_floor ?? 72));
         if (_focusConv.tier === "C" && _focusConv.score < _tierCFloor) {
           return {
             qualifies: false,

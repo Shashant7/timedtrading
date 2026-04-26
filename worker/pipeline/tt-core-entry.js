@@ -486,11 +486,19 @@ export function evaluateEntry(ctx) {
       }
 
       // Tier-specific conviction floors (DA-keyed for tuning)
-      const _tierAFloor = Number(daCfg.deep_audit_focus_tier_a_floor ?? 75);
-      const _tierBFloor = Number(daCfg.deep_audit_focus_tier_b_floor ?? 50);
-      const _tierCFloor = Number(daCfg.deep_audit_focus_tier_c_floor ?? 45);
+      // V15 P0.3 (2026-04-25): tier floors recalibrated for new 0-160
+      // conviction range. Old 75/50/45 → New 110/80/72.
+      //
+      // V15 enforces a HARD MINIMUM of 72 even if DA pinned-config still
+      // has the legacy 45 value. The legacy 45 made sense on the old
+      // 0-100 scale but is far too lenient on 0-160 — all H LOSER trades
+      // would slip through at conv 51-58. Math.max guarantees the floor
+      // never drops below 72 regardless of DA snapshots.
+      const _tierAFloor = Math.max(110, Number(daCfg.deep_audit_focus_tier_a_floor ?? 110));
+      const _tierBFloor = Math.max(80, Number(daCfg.deep_audit_focus_tier_b_floor ?? 80));
+      const _tierCFloor = Math.max(72, Number(daCfg.deep_audit_focus_tier_c_floor ?? 72));
       // Minimum conviction required to enter at all (defaults to Tier C floor)
-      const _entryMinConviction = Number(daCfg.deep_audit_focus_min_entry_conviction ?? _tierCFloor);
+      const _entryMinConviction = Math.max(72, Number(daCfg.deep_audit_focus_min_entry_conviction ?? _tierCFloor));
 
       if (_focusConviction.score < _entryMinConviction) {
         return rejectEntry("focus_conviction_below_floor", {
