@@ -6910,70 +6910,115 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
               // Direction-adjusted distances
               const _distE5 = _isLong ? _pctAboveE5 : -_pctAboveE5;
               const _distE12 = _isLong ? _pctAboveE12 : -_pctAboveE12;
-              const _e12BreakThreshold = Number(
-                tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_e12_break_pct ?? 0
-              );
+              _peakLockDiag.dist_e5 = _distE5;
+              _peakLockDiag.dist_e12 = _distE12;
 
-              // Rule 1: TREND BREAK — broke below daily EMA12 (long)
-              // or above EMA12 (short). The healthy pullback became a
-              // trend reversal. Exit.
+              // ──────────────────────────────────────────────────────
+              // V15 P0.6.3 (2026-04-26) — REDESIGN: EMA-cloud hold-the-runner
               //
-              // V15 P0.6.1 (2026-04-26): threshold raised from -0.5 → 0.
-              // LITE Jul 22 had distE12=-0.46 which fell BETWEEN the
-              // -0.5 trigger and the +0 boundary, so neither Rule 1
-              // (broken EMA12) nor Rule 2 (testing EMA5 above EMA12)
-              // fired. Setting threshold to 0 means: any close below
-              // EMA12 = trend break = exit. Cleaner than the -0.5 dead
-              // zone.
-              if (_distE12 < _e12BreakThreshold) {
-                _peakLockDiag.rule_fired = "ema12_break";
-                tickerData.__exit_reason = "peak_lock_ema12_break";
+              // User intent (verbatim): "LITE holds the 5/12 daily EMA
+              // cloud, it may have wicked past it but recovered. I would
+              // rather exit at the peak around 103 when it was above the
+              // 5 EMA but the better play is being able to hold even
+              // longer since the 12 EMA held."
+              //
+              // Translation:
+              //   • EMA12 cloud-hold = highest priority. As long as the
+              //     daily EMA12 holds, RUN the trade.
+              //   • Don't exit on single-bar wicks below EMA12 — they're
+              //     fakeouts (LITE Jul 22 closed -0.5% below EMA12 then
+              //     immediately recovered to $107 by Jul 28, $120 by
+              //     Aug 13).
+              //   • Only exit on CONFIRMED EMA12 break (deep break OR
+              //     persistent break across multiple bars).
+              //
+              // Rules (in priority order):
+              //   Rule 1: CONFIRMED EMA12 break (deep OR persistent) →
+              //           EXIT.
+              //   Rule 2: EMA12 holds (distE12 > -e12_wick_tolerance) →
+              //           SUPPRESS all MFE-based exits this bar. Stamp
+              //           __peak_lock_healthy_pullback so
+              //           mfe_proportional_trail / runner_mfe_trail do
+              //           not pre-emptively cut the runner.
+              // ──────────────────────────────────────────────────────
+              const _e12DeepBreakPct = Number(
+                tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_e12_deep_break_pct ?? -1.0
+              );
+              const _e12WickTolerancePct = Number(
+                tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_e12_wick_tolerance_pct ?? -0.75
+              );
+              const _e12PersistDays = Number(
+                tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_e12_persist_days ?? 2
+              );
+
+              // Track distinct trading days with sub-EMA12 closes.
+              // distE12 is computed against daily EMA12, so dipping below
+              // it at any intraday bar = price has wicked below the daily
+              // structure. We bucket by calendar UTC date so multiple
+              // intraday bars on the same day = 1 "below day".
+              const _barTs = Number(asOfTs) || Number(tickerData?.ts) || 0;
+              const _utcDay = _barTs ? Math.floor(_barTs / 86400000) : 0;
+              const _e12LastBelowDay = Number(openPosition?.__e12LastBelowDay) || 0;
+              const _e12BelowDayCountPrev = Number(openPosition?.__e12BelowDayCount) || 0;
+              let _e12BelowDayCount = _e12BelowDayCountPrev;
+              if (openPosition && _utcDay) {
+                if (_distE12 < 0) {
+                  if (_utcDay !== _e12LastBelowDay) {
+                    _e12BelowDayCount = _e12BelowDayCountPrev + 1;
+                    openPosition.__e12BelowDayCount = _e12BelowDayCount;
+                    openPosition.__e12LastBelowDay = _utcDay;
+                  }
+                } else {
+                  // Recovered above EMA12 — reset the counter so we only
+                  // count CONSECUTIVE below-days as structural breaks.
+                  if (_e12BelowDayCountPrev > 0) {
+                    _e12BelowDayCount = 0;
+                    openPosition.__e12BelowDayCount = 0;
+                    openPosition.__e12LastBelowDay = 0;
+                  }
+                }
+              }
+              _peakLockDiag.e12_below_day_count = _e12BelowDayCount;
+              _peakLockDiag.e12_deep_break_pct = _e12DeepBreakPct;
+              _peakLockDiag.e12_persist_days = _e12PersistDays;
+              _peakLockDiag.e12_wick_tolerance_pct = _e12WickTolerancePct;
+
+              // Rule 1: CONFIRMED EMA12 BREAK
+              //   (a) Deep break — distE12 <= -1.0% on this bar (clear
+              //       structural break, not a wick), OR
+              //   (b) Persistent break — distE12 < 0 across ≥N distinct
+              //       trading days (default 2). Single-day wicks don't
+              //       qualify; LITE Jul 22 closed -0.46% then recovered
+              //       Jul 23 — 1 day, not 2.
+              const _isDeepBreak = _distE12 <= _e12DeepBreakPct;
+              const _isPersistentBreak = _e12BelowDayCount >= _e12PersistDays && _distE12 < 0;
+              if (_isDeepBreak || _isPersistentBreak) {
+                _peakLockDiag.rule_fired = _isDeepBreak ? "ema12_deep_break" : "ema12_persistent_break";
+                tickerData.__exit_reason = _isDeepBreak
+                  ? "peak_lock_ema12_deep_break"
+                  : "peak_lock_ema12_persistent_break";
                 tickerData.__exit_family = "profit_management";
                 tickerData.__exit_meta = {
                   mfe_peak_pct: _peakMfeAbs,
                   current_pnl_pct: pnlPct,
                   pct_above_e5: _pctAboveE5,
                   pct_above_e12: _pctAboveE12,
-                  rule: "ema12_break",
+                  e12_below_day_count: _e12BelowDayCount,
+                  rule: _isDeepBreak ? "ema12_deep_break" : "ema12_persistent_break",
                 };
                 return "exit";
               }
 
-              // Rule 2: PEAK CONFIRMED — significant prior stretch + retrace
-              // back to/below EMA5 but still above EMA12. Lock profit.
-              const _stretchedThreshold = Number(
-                tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_e5_stretch_threshold_pct ?? 4.0
-              );
-              const _testingE5Threshold = Number(
-                tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_e5_test_threshold_pct ?? 0.5
-              );
-              const _minPnlForLock = Number(
-                tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_min_pnl_pct ?? 1.5
-              );
-
-              if (_peakMfeAbs >= _stretchedThreshold
-                  && _distE5 < _testingE5Threshold
-                  && _distE12 > 0
-                  && pnlPct >= _minPnlForLock) {
-                _peakLockDiag.rule_fired = "e5_test_post_stretch";
-                tickerData.__exit_reason = "peak_lock_e5_test_post_stretch";
-                tickerData.__exit_family = "profit_management";
-                tickerData.__exit_meta = {
-                  mfe_peak_pct: _peakMfeAbs,
-                  current_pnl_pct: pnlPct,
-                  pct_above_e5: _pctAboveE5,
-                  pct_above_e12: _pctAboveE12,
-                  rule: "e5_test_post_stretch",
-                };
-                return "exit";
-              }
-
-              // Rule 3: HEALTHY PULLBACK — testing EMA5, holding EMA12.
-              // Stamp a flag so runner_mfe_trail (runs next) does NOT
-              // exit. Pull back through EMA5 below the structure floor
-              // is OK as long as EMA12 holds.
-              if (_distE12 > 0 && _distE5 < _testingE5Threshold) {
+              // Rule 2: EMA12 CLOUD-HOLD — let the runner run.
+              // Tolerate wicks down to _e12WickTolerancePct (default
+              // -0.75%). LITE Jul 22 had distE12=-0.46 — a wick — it
+              // recovered next bar. Suppress all MFE-based exits so
+              // mfe_proportional_trail / runner_mfe_trail don't cut the
+              // runner on the wick.
+              if (_distE12 > _e12WickTolerancePct) {
                 tickerData.__peak_lock_healthy_pullback = true;
+                tickerData.__peak_lock_cloud_hold = true;
+                _peakLockDiag.rule_fired = "cloud_hold_suppress";
               }
             } else {
               // No daily EMA data — use 40% retrace fallback
@@ -7028,15 +7073,25 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           // intelligently using EMA structure; this trail is the fallback
           // for trades without daily EMA data or extreme retraces.
           const _giveback = Number(tickerData?._env?._deepAuditConfig?.deep_audit_runner_mfe_trail_giveback_pct ?? 1.50);
+          // V15 P0.6.3 (2026-04-26): plumbing fix — read MFE from
+          // openPosition (live-tracked, line ~15408) instead of
+          // tickerData.__mfe_pct / tickerData.max_favorable_excursion
+          // (never assigned anywhere, always 0).
           const _mfeAbsTrail = Math.abs(
+            Number(openPosition?.maxFavorableExcursion) ||
+            Number(openPosition?.max_favorable_excursion) ||
+            Number(openPosition?.mfePct) ||
+            Number(openPosition?.__tradeRef?.maxFavorableExcursion) ||
+            Number(openPosition?.__tradeRef?.max_favorable_excursion) ||
             Number(tickerData?.__mfe_pct) ||
             Number(tickerData?.max_favorable_excursion) ||
             0
           );
-          // Honor the peak_lock "healthy pullback" flag — when set, we're
-          // testing EMA5 but holding EMA12 (the LITE Jul 22 pattern).
-          // Don't exit here; let the trade ride.
-          if (tickerData?.__peak_lock_healthy_pullback) {
+          // Honor the peak_lock "healthy pullback" / "cloud_hold" flag
+          // — when set, the daily EMA12 is still holding (possibly with
+          // a wick) so the trend is intact. Don't exit; let the runner
+          // run. peak_lock_exit owns exit decisions for these bars.
+          if (tickerData?.__peak_lock_healthy_pullback || tickerData?.__peak_lock_cloud_hold) {
             // Skip — falling through to other rules.
           } else if (_mfeAbsTrail >= _activate && pnlPct > 0) {
             const retrace = _mfeAbsTrail - pnlPct;
@@ -7080,7 +7135,17 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       if (_p3WinnerProtectEnabled) {
         const _p3MinMfe = Number(tickerData?._env?._deepAuditConfig?.deep_audit_winner_protect_min_mfe_pct ?? 3.0);
         const _p3Gap = Number(tickerData?._env?._deepAuditConfig?.deep_audit_winner_protect_near_mfe_gap_pct ?? 0.5);
-        const _p3MfeAbs = Math.abs(Number(tickerData?.__mfe_pct) || Number(tickerData?.max_favorable_excursion) || 0);
+        // V15 P0.6.3 (2026-04-26): plumbing fix — read MFE from
+        // openPosition (live-tracked) instead of tickerData fields that
+        // are never assigned.
+        const _p3MfeAbs = Math.abs(
+          Number(openPosition?.maxFavorableExcursion) ||
+          Number(openPosition?.max_favorable_excursion) ||
+          Number(openPosition?.mfePct) ||
+          Number(tickerData?.__mfe_pct) ||
+          Number(tickerData?.max_favorable_excursion) ||
+          0
+        );
         if (_p3MfeAbs >= _p3MinMfe && pnlPct > 0 && (_p3MfeAbs - pnlPct) < _p3Gap) {
           // Stamp a marker so downstream soft-exit blocks can short-circuit.
           tickerData.__v12_winner_protect_active = true;
@@ -7123,8 +7188,34 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         const _mfeExitsEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_max_loss_time_scaled_v2 ?? "true") === "true";
         if (_mfeExitsEnabled && !_earlyPdzToleranceActive) {
           const _agH = positionAgeMarketMin / 60;
-          const _mfeAbs = Math.abs(Number(tickerData?.__mfe_pct) || Number(tickerData?.max_favorable_excursion) || 0);
-          const _maeAbs = Math.abs(Number(tickerData?.__mae_pct) || Number(tickerData?.max_adverse_excursion) || 0);
+          // V15 P0.6.3 (2026-04-26): plumbing fix — read MFE/MAE from
+          // openPosition (live-tracked, line ~15408) instead of
+          // tickerData.__mfe_pct / tickerData.max_favorable_excursion
+          // which are NEVER assigned anywhere. With the broken read, all
+          // MFE-gated tiers (especially Tier 5 "72h stale" with
+          // _mfeAbs < 1.5) trivially passed even on huge runners and
+          // killed them. LITE Jul 14 had MFE 22.30% but Tier 5 saw 0,
+          // so cut it at hour 72.
+          const _mfeAbs = Math.abs(
+            Number(openPosition?.maxFavorableExcursion) ||
+            Number(openPosition?.max_favorable_excursion) ||
+            Number(openPosition?.mfePct) ||
+            Number(openPosition?.__tradeRef?.maxFavorableExcursion) ||
+            Number(openPosition?.__tradeRef?.max_favorable_excursion) ||
+            Number(tickerData?.__mfe_pct) ||
+            Number(tickerData?.max_favorable_excursion) ||
+            0
+          );
+          const _maeAbs = Math.abs(
+            Number(openPosition?.maxAdverseExcursion) ||
+            Number(openPosition?.max_adverse_excursion) ||
+            Number(openPosition?.maePct) ||
+            Number(openPosition?.__tradeRef?.maxAdverseExcursion) ||
+            Number(openPosition?.__tradeRef?.max_adverse_excursion) ||
+            Number(tickerData?.__mae_pct) ||
+            Number(tickerData?.max_adverse_excursion) ||
+            0
+          );
 
           // ──────────────────────────────────────────────────────────────
           // V12 P1 (2026-04-23) — FAST-CUT RELAXATION
@@ -7248,7 +7339,15 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           const _agDays = Number.isFinite(_entryTsMs) && _entryTsMs > 0
             ? (_nowMs - _entryTsMs) / (24 * 60 * 60 * 1000)
             : (positionAgeMarketMin / (60 * 6.5));
-          const _mfeAbsStale = Math.abs(Number(tickerData?.__mfe_pct) || Number(tickerData?.max_favorable_excursion) || 0);
+          // V15 P0.6.3 (2026-04-26): plumbing fix — read from openPosition.
+          const _mfeAbsStale = Math.abs(
+            Number(openPosition?.maxFavorableExcursion) ||
+            Number(openPosition?.max_favorable_excursion) ||
+            Number(openPosition?.mfePct) ||
+            Number(tickerData?.__mfe_pct) ||
+            Number(tickerData?.max_favorable_excursion) ||
+            0
+          );
           if (_agDays >= _stalePosDays) {
             const _stalePnlBreakout = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stale_pnl_breakout_pct ?? 2.0);
             const _staleNearMfe = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stale_near_mfe_gap_pct ?? 0.5);
@@ -7325,7 +7424,11 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           const _agDaysStag = Number.isFinite(_entryTsStag) && _entryTsStag > 0
             ? (_nowStag - _entryTsStag) / (24 * 60 * 60 * 1000)
             : (positionAgeMarketMin / (60 * 6.5));
+          // V15 P0.6.3 (2026-04-26): plumbing fix — read from openPosition.
           const _mfeAbsStag = Math.abs(
+            Number(openPosition?.maxFavorableExcursion) ||
+            Number(openPosition?.max_favorable_excursion) ||
+            Number(openPosition?.mfePct) ||
             Number(tickerData?.__mfe_pct) ||
             Number(tickerData?.max_favorable_excursion) ||
             0
@@ -7456,11 +7559,19 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
             const _isLong = direction === "LONG";
             const _pctE12 = Number(_ds?.pct_above_e12);
             const _distE12 = (_isLong ? _pctE12 : -_pctE12);
-            const _healthyPullback = !!tickerData?.__peak_lock_healthy_pullback
+            // V15 P0.6.3 (2026-04-26): expand suppression. Any of these
+            // signals means daily EMA12 is structurally intact and we
+            // should let peak_lock_exit own exit timing:
+            //   • __peak_lock_cloud_hold — explicit cloud-hold flag
+            //   • __peak_lock_healthy_pullback — wick/pullback flag
+            //   • distE12 > 0.5% — clearly above EMA12
+            // Single-bar wicks below EMA12 down to -0.75% are absorbed
+            // by peak_lock_exit's wick tolerance.
+            const _healthyPullback = !!tickerData?.__peak_lock_cloud_hold
+              || !!tickerData?.__peak_lock_healthy_pullback
               || (Number.isFinite(_distE12) && _distE12 > 0.5);
             if (_healthyPullback) {
-              // Skip — healthy pullback in trend; let the daily structure
-              // determine exit timing via peak_lock.
+              // Skip — daily EMA12 holding; let peak_lock own exit timing.
             } else {
             const _r6Ratio = _r6MfePct >= 10.0
               ? (Number(tickerData?._env?._deepAuditConfig?.deep_audit_mfe_trail_ratio_high) || 0.75)
@@ -8136,11 +8247,52 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     }
 
     // Hard max hold: 3 weeks (504h calendar) or ticker-profile max — catastrophic hold prevention
+    //
+    // V15 P0.6.3 (2026-04-26): EMA-CLOUD-HOLD OVERRIDE.
+    //   When the daily EMA12 cloud is still holding AND the trade is in
+    //   profit AND there's meaningful MFE captured, do NOT time-cap the
+    //   runner. This is the LITE Jul 14 → Aug 13 ($93→$120, +29%)
+    //   pattern: time-capping at 168h would have killed it on day 7
+    //   right at the wick, missing the next $14 of upside.
+    //
+    //   Cap is still enforced when:
+    //     - daily EMA12 has structurally broken (cloud_hold flag false)
+    //     - trade is in loss (negative PnL → time cap applies)
+    //     - no meaningful MFE captured (< 3% means it's been dead money)
+    //     - extreme age (>= 504h / 3 weeks) regardless — circuit breaker
     const _profileMaxHoldH = _staticBehaviorProfileMgmt.maxHoldHours || 504;
     const _positionAgeCalendarH = positionAgeMin / 60;
     if (_positionAgeCalendarH >= _profileMaxHoldH) {
-      tickerData.__exit_reason = `hard_max_hold_${_profileMaxHoldH}h`;
-      return "exit";
+      const _cloudHolding = !!tickerData?.__peak_lock_cloud_hold;
+      const _runnerMfe = Math.abs(
+        Number(openPosition?.maxFavorableExcursion) ||
+        Number(openPosition?.max_favorable_excursion) ||
+        0
+      );
+      const _absoluteMaxH = Number(
+        tickerData?._env?._deepAuditConfig?.deep_audit_cloud_hold_absolute_max_hold_h ?? 504
+      );
+      const _runnerMinMfeForOverride = Number(
+        tickerData?._env?._deepAuditConfig?.deep_audit_cloud_hold_min_mfe_pct ?? 3.0
+      );
+      const _runnerOverrideEligible = _cloudHolding
+        && pnlPct > 0
+        && _runnerMfe >= _runnerMinMfeForOverride
+        && _positionAgeCalendarH < _absoluteMaxH;
+      if (_runnerOverrideEligible) {
+        // Skip the time cap this bar. peak_lock_exit will own the exit
+        // when EMA12 actually breaks. Stamp diag for observability.
+        tickerData.__time_cap_overridden = {
+          reason: "cloud_hold_runner",
+          age_h: Math.round(_positionAgeCalendarH * 10) / 10,
+          profile_max_h: _profileMaxHoldH,
+          mfe_pct: _runnerMfe,
+          pnl_pct: pnlPct,
+        };
+      } else {
+        tickerData.__exit_reason = `hard_max_hold_${_profileMaxHoldH}h`;
+        return "exit";
+      }
     }
 
     // 4H regime-reversal timeout: if 4H has been misaligned for 2+ weeks in a trend, tighten exits
@@ -16683,7 +16835,13 @@ async function processTradeSimulation(
             && _sreTrimmedPct >= 0.5
             && _sreMfePct >= 4.0
             && _sreC512ImmediateExit;
-          const _sreCancelDeferral = !!_sreResult.cancelDeferral || _sreC512CancelDeferral;
+          // V15 P0.6.3 (2026-04-26): When the DAILY 5/12 cloud is holding
+          // (per peak_lock_exit), the 15m c512 cancel-deferral signal is
+          // wick-level noise relative to the daily structure. Honor the
+          // daily structure as the source of truth.
+          const _peakLockCloudHoldingForCancel = !!tickerData?.__peak_lock_cloud_hold;
+          const _sreCancelDeferral = !_peakLockCloudHoldingForCancel
+            && (!!_sreResult.cancelDeferral || _sreC512CancelDeferral);
           const _sreTH = assessTrendHealth(tickerData, isLong ? "LONG" : "SHORT");
           const _sreCloudExp = _sreTH.cloudExpansion || {};
           const _sreCloudAligned = _sreCloudExp.allAligned && !_sreCloudExp.isCompressing;
@@ -16698,7 +16856,15 @@ async function processTradeSimulation(
             && _sreTrimmedPct >= 0.5
             && _sreMfePct >= 5.0
             && (_srePnlPct <= 1.0 || _sreRetained <= 0.25);
+          // V15 P0.6.3 (2026-04-26): EMA-CLOUD-HOLD DEFERRAL
+          //   When the daily EMA12 cloud is holding (peak_lock_exit
+          //   stamped __peak_lock_cloud_hold), ANY smart-runner reason
+          //   should defer. The 15m cloud break is a wick-level signal
+          //   below the daily cloud which we explicitly want to absorb.
+          //   peak_lock_exit owns the structural exit decision.
+          const _peakLockCloudHolding = !!tickerData?.__peak_lock_cloud_hold;
           const _sreCanDeferSafetyNet = !_sreCancelDeferral && !_sreTrimThenReassessCloudBreak && _srePnlPct > 0 && (
+            _peakLockCloudHolding ||
             (_sreCloudAligned && _sreTH.htfIntact) ||
             _sreTH.htfIntact ||
             _sreLtfSupportive
