@@ -6897,6 +6897,35 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           _peakLockDiag.mfe_threshold_met = _peakMfeAbs >= _peakMinMfe;
           _peakLockDiag.pnl_positive = pnlPct > 0;
 
+          // V15 P0.7 (2026-04-26): structural cloud-hold detection runs
+          // INDEPENDENT of MFE/PnL gates. Whether a trade is up 0.5% or
+          // up 15%, if the daily EMA12 cloud is structurally holding,
+          // it should defer all stagnant/MFE-trail/SUPPORT_BREAK_CLOUD
+          // exits. AMZN Jul (+1.60% MFE) and GOOGL Jul (+2.07% MFE) both
+          // had structurally-fine cloud-hold patterns but the previous
+          // _peakMfeAbs >= 2.0 gate excluded them, so stagnant cut them
+          // before the breakout.
+          //
+          // Structure: ALWAYS evaluate cloud_hold_suppress. ONLY evaluate
+          // exit rules when MFE/PnL thresholds met.
+          const _ds_cloud = tickerData?.daily_structure || {};
+          const _e5_cloud = Number(_ds_cloud?.e5);
+          const _e12_cloud = Number(_ds_cloud?.e12);
+          const _pctAboveE5_cloud = Number(_ds_cloud?.pct_above_e5);
+          const _pctAboveE12_cloud = Number(_ds_cloud?.pct_above_e12);
+          const _hasEmaData_cloud = Number.isFinite(_e5_cloud) && Number.isFinite(_e12_cloud);
+          if (_hasEmaData_cloud && Number.isFinite(_pctAboveE12_cloud)) {
+            const _distE12_cloud = _isLong ? _pctAboveE12_cloud : -_pctAboveE12_cloud;
+            const _e12WickTol_cloud = Number(
+              tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_e12_wick_tolerance_pct ?? -0.75
+            );
+            if (_distE12_cloud > _e12WickTol_cloud) {
+              tickerData.__peak_lock_cloud_hold = true;
+              _peakLockDiag.cloud_hold_set = true;
+              _peakLockDiag.dist_e12_cloud = _distE12_cloud;
+            }
+          }
+
           if (_peakMfeAbs >= _peakMinMfe && pnlPct > 0) {
             const _ds = tickerData?.daily_structure || {};
             const _e5 = Number(_ds?.e5);
@@ -7438,15 +7467,73 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
             Math.abs(pnlPct) < _stagMaxAbsPnl &&
             _mfeAbsStag < _stagMaxMfe
           ) {
-            tickerData.__exit_reason = "stagnant_no_commitment";
-            tickerData.__exit_family = "safety";
-            tickerData.__exit_meta = {
-              age_days: Math.round(_agDaysStag * 10) / 10,
-              pnl_pct: Math.round(pnlPct * 100) / 100,
-              mfe_peak_pct: _mfeAbsStag,
-              trim_pct: Math.round((currentTrimPct || 0) * 100),
-            };
-            return "exit";
+            // V15 P0.7 (2026-04-26): STAGNANT DEFERRAL.
+            //
+            // User-observed pattern (PKG Jul 10): trade enters, sits in
+            // a tight range with MAE -0.29% (zero adverse damage), a
+            // squeeze is forming/firing, then breaks out — but stagnant
+            // exits BEFORE the breakout. Three signals say "still
+            // engaged, not stagnant":
+            //   1. __peak_lock_cloud_hold — daily 5/12 cloud is intact
+            //   2. MAE small (< _stagMaxAdverseMaePct, default 0.75%) —
+            //      no real damage taken
+            //   3. squeeze on or just released on 30m/1h — energy
+            //      building or just fired
+            //
+            // When ANY of those are true AND age < a hard ceiling
+            // (_stagDeferralMaxDays, default 7), defer this exit and
+            // let the trade work. Beyond that ceiling, exit anyway —
+            // even setups deserve a calendar limit.
+            const _maeAbsStag = Math.abs(
+              Number(openPosition?.maxAdverseExcursion) ||
+              Number(openPosition?.max_adverse_excursion) ||
+              Number(openPosition?.maePct) ||
+              0
+            );
+            const _stagDeferralMaxDays = Number(
+              tickerData?._env?._deepAuditConfig?.deep_audit_stagnant_deferral_max_days ?? 7
+            );
+            const _stagMaxAdverseMaePct = Number(
+              tickerData?._env?._deepAuditConfig?.deep_audit_stagnant_low_mae_threshold_pct ?? 0.75
+            );
+            const _stagSqueezeDeferralEnabled = String(
+              tickerData?._env?._deepAuditConfig?.deep_audit_stagnant_squeeze_deferral_enabled ?? "true"
+            ) === "true";
+            const _sqStag = tickerData?.squeeze || {};
+            const _hasSqueezeEnergy = !!(
+              _sqStag.on_30m || _sqStag.on_1h ||
+              _sqStag.release_30m || _sqStag.release_1h
+            );
+            const _structureIntact = !!tickerData?.__peak_lock_cloud_hold;
+            const _lowMae = _maeAbsStag < _stagMaxAdverseMaePct;
+            const _squeezeBuilding = _stagSqueezeDeferralEnabled && _hasSqueezeEnergy;
+            const _withinDeferralWindow = _agDaysStag < _stagDeferralMaxDays;
+            const _shouldDefer = _withinDeferralWindow && (
+              _structureIntact || _squeezeBuilding || _lowMae
+            );
+            if (_shouldDefer) {
+              tickerData.__stagnant_deferred = {
+                reason: _structureIntact ? "cloud_hold"
+                  : (_squeezeBuilding ? "squeeze_building" : "low_mae"),
+                age_days: Math.round(_agDaysStag * 10) / 10,
+                pnl_pct: Math.round(pnlPct * 100) / 100,
+                mae_pct: Math.round(_maeAbsStag * 100) / 100,
+                cloud_hold: _structureIntact,
+                squeeze_building: _squeezeBuilding,
+                low_mae: _lowMae,
+              };
+            } else {
+              tickerData.__exit_reason = "stagnant_no_commitment";
+              tickerData.__exit_family = "safety";
+              tickerData.__exit_meta = {
+                age_days: Math.round(_agDaysStag * 10) / 10,
+                pnl_pct: Math.round(pnlPct * 100) / 100,
+                mfe_peak_pct: _mfeAbsStag,
+                mae_peak_pct: _maeAbsStag,
+                trim_pct: Math.round((currentTrimPct || 0) * 100),
+              };
+              return "exit";
+            }
           }
         }
       }
@@ -7519,9 +7606,37 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
             && pnlPct < 0
             && positionAgeMarketMin >= _eodMinAgeMin
           ) {
-            tickerData.__exit_reason = "eod_trimmed_underwater_flatten";
-            tickerData.__exit_family = "safety";
-            return "exit";
+            // V15 P0.7 (2026-04-26): defer when the daily 5/12 EMA cloud
+            // is structurally holding AND adverse damage has been small.
+            // The original motivation (RIOT 09-24 gap-risk) holds when
+            // there's no structural support; with cloud-hold + low MAE,
+            // the next morning is far more likely to recover than gap
+            // catastrophically (AMZN/GOOGL Jul 8 examples).
+            const _eodCloudHold = !!tickerData?.__peak_lock_cloud_hold;
+            const _eodMae = Math.abs(
+              Number(openPosition?.maxAdverseExcursion) ||
+              Number(openPosition?.max_adverse_excursion) ||
+              Number(openPosition?.maePct) ||
+              0
+            );
+            const _eodLowMaeThreshold = Number(
+              tickerData?._env?._deepAuditConfig?.deep_audit_eod_low_mae_defer_pct ?? 1.0
+            );
+            const _eodDeferCloudHold = String(
+              tickerData?._env?._deepAuditConfig?.deep_audit_eod_defer_on_cloud_hold ?? "true"
+            ) === "true";
+            if (_eodDeferCloudHold && _eodCloudHold && _eodMae < _eodLowMaeThreshold) {
+              tickerData.__eod_flatten_deferred = {
+                reason: "cloud_hold_low_mae",
+                pnl_pct: Math.round(pnlPct * 100) / 100,
+                mae_pct: Math.round(_eodMae * 100) / 100,
+                trim_pct: Math.round(currentTrimPct * 100),
+              };
+            } else {
+              tickerData.__exit_reason = "eod_trimmed_underwater_flatten";
+              tickerData.__exit_family = "safety";
+              return "exit";
+            }
           }
         }
       }

@@ -49,8 +49,15 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_cloud_hold_absolute_max_hold_h", "value": "504" },
     { "key": "deep_audit_cloud_hold_min_mfe_pct", "value": "3.0" },
 
-    { "key": "deep_audit_default_trim_ratio", "value": "0.30" },
-    { "key": "deep_audit_runner_mfe_trail_giveback_pct", "value": "1.50" }
+    { "key": "deep_audit_default_trim_ratio", "value": "0.50" },
+    { "key": "deep_audit_runner_mfe_trail_giveback_pct", "value": "1.50" },
+
+    { "key": "deep_audit_stagnant_deferral_max_days", "value": "14" },
+    { "key": "deep_audit_stagnant_low_mae_threshold_pct", "value": "0.75" },
+    { "key": "deep_audit_stagnant_squeeze_deferral_enabled", "value": "true" },
+
+    { "key": "deep_audit_eod_defer_on_cloud_hold", "value": "true" },
+    { "key": "deep_audit_eod_low_mae_defer_pct", "value": "1.5" }
   ]
 }
 JSON

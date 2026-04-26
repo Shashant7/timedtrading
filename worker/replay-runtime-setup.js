@@ -223,6 +223,11 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_peak_lock_min_pnl_pct",
   "deep_audit_cloud_hold_absolute_max_hold_h",
   "deep_audit_cloud_hold_min_mfe_pct",
+  "deep_audit_stagnant_deferral_max_days",
+  "deep_audit_stagnant_low_mae_threshold_pct",
+  "deep_audit_stagnant_squeeze_deferral_enabled",
+  "deep_audit_eod_defer_on_cloud_hold",
+  "deep_audit_eod_low_mae_defer_pct",
   // P4: SHORT gate relaxation
   "deep_audit_short_spy_regime_floor",
   "deep_audit_short_requires_ticker_bearish_daily",
