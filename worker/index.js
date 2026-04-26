@@ -6859,6 +6859,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         // V15 P0.6 OBSERVABILITY: stamp diagnostic on every evaluation
         const _peakLockDiag = {
           enabled: _peakLockEnabled,
+          mfe_pct_open: Number(openPosition?.maxFavorableExcursion) || null,
           mfe_pct_raw: Number(tickerData?.__mfe_pct) || null,
           mfe_pct_persisted: Number(tickerData?.max_favorable_excursion) || null,
           pnl_pct: pnlPct,
@@ -6874,7 +6875,18 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           const _peakMinMfe = Number(
             tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_min_mfe_pct ?? 2.0
           );
+          // V15 P0.6.2 (2026-04-26): MFE source priority. Previously this
+          // only read tickerData.__mfe_pct / tickerData.max_favorable_excursion,
+          // both of which are NEVER populated. As a result _peakMfeAbs was
+          // always 0 and peak_lock NEVER fired. Switch to openPosition's
+          // live-tracked maxFavorableExcursion (updated each replay bar at
+          // line ~15408) which IS the canonical MFE for the open trade.
           const _peakMfeAbs = Math.abs(
+            Number(openPosition?.maxFavorableExcursion) ||
+            Number(openPosition?.max_favorable_excursion) ||
+            Number(openPosition?.mfePct) ||
+            Number(openPosition?.__tradeRef?.maxFavorableExcursion) ||
+            Number(openPosition?.__tradeRef?.max_favorable_excursion) ||
             Number(tickerData?.__mfe_pct) ||
             Number(tickerData?.max_favorable_excursion) ||
             0
@@ -6899,12 +6911,20 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
               const _distE5 = _isLong ? _pctAboveE5 : -_pctAboveE5;
               const _distE12 = _isLong ? _pctAboveE12 : -_pctAboveE12;
               const _e12BreakThreshold = Number(
-                tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_e12_break_pct ?? -0.5
+                tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_e12_break_pct ?? 0
               );
 
               // Rule 1: TREND BREAK — broke below daily EMA12 (long)
               // or above EMA12 (short). The healthy pullback became a
               // trend reversal. Exit.
+              //
+              // V15 P0.6.1 (2026-04-26): threshold raised from -0.5 → 0.
+              // LITE Jul 22 had distE12=-0.46 which fell BETWEEN the
+              // -0.5 trigger and the +0 boundary, so neither Rule 1
+              // (broken EMA12) nor Rule 2 (testing EMA5 above EMA12)
+              // fired. Setting threshold to 0 means: any close below
+              // EMA12 = trend break = exit. Cleaner than the -0.5 dead
+              // zone.
               if (_distE12 < _e12BreakThreshold) {
                 _peakLockDiag.rule_fired = "ema12_break";
                 tickerData.__exit_reason = "peak_lock_ema12_break";
