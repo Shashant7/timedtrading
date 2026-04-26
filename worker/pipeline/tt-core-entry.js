@@ -485,20 +485,16 @@ export function evaluateEntry(ctx) {
         _focusConviction = { score: 60, tier: "B", breakdown: { error: String(err?.message || err) } };
       }
 
-      // Tier-specific conviction floors (DA-keyed for tuning)
-      // V15 P0.3 (2026-04-25): tier floors recalibrated for new 0-160
-      // conviction range. Old 75/50/45 → New 110/80/72.
-      //
-      // V15 enforces a HARD MINIMUM of 72 even if DA pinned-config still
-      // has the legacy 45 value. The legacy 45 made sense on the old
-      // 0-100 scale but is far too lenient on 0-160 — all H LOSER trades
-      // would slip through at conv 51-58. Math.max guarantees the floor
-      // never drops below 72 regardless of DA snapshots.
-      const _tierAFloor = Math.max(110, Number(daCfg.deep_audit_focus_tier_a_floor ?? 110));
-      const _tierBFloor = Math.max(80, Number(daCfg.deep_audit_focus_tier_b_floor ?? 80));
-      const _tierCFloor = Math.max(72, Number(daCfg.deep_audit_focus_tier_c_floor ?? 72));
-      // Minimum conviction required to enter at all (defaults to Tier C floor)
-      const _entryMinConviction = Math.max(72, Number(daCfg.deep_audit_focus_min_entry_conviction ?? _tierCFloor));
+      // V15 P0.3.4 (2026-04-26): reverted to balanced floors after
+      // P0.3.1/2/3 calibration probes. With the eased weights
+      // (liq 0-12, trend 0-15) and new signals, floor of 65 is the
+      // sweet spot — keeps H/PLTR class blocked (their conv was
+      // 51-58 even after generous weights) while letting LITE-class
+      // setups through.
+      const _tierAFloor = Math.max(95, Number(daCfg.deep_audit_focus_tier_a_floor ?? 95));
+      const _tierBFloor = Math.max(65, Number(daCfg.deep_audit_focus_tier_b_floor ?? 65));
+      const _tierCFloor = Math.max(65, Number(daCfg.deep_audit_focus_tier_c_floor ?? 65));
+      const _entryMinConviction = Math.max(65, Number(daCfg.deep_audit_focus_min_entry_conviction ?? _tierCFloor));
 
       if (_focusConviction.score < _entryMinConviction) {
         return rejectEntry("focus_conviction_below_floor", {
