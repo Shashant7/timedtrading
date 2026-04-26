@@ -1181,6 +1181,18 @@ export function computeTfBundle(bars, anchors = null) {
   const rsiArr = rsiSeries(closes, 14);
   const rsi = rsiArr[last];
 
+  // V15 P0.2 — RSI 5-bar slope (in RSI points per bar). Used by the
+  // focus-tier slope alignment signal: a SHORT entered when RSI is
+  // sloping up against direction is a fade trap.
+  let rsi_slope_5bar = null;
+  if (rsiArr.length >= 6) {
+    const _rsiNow = rsiArr[rsiArr.length - 1];
+    const _rsiThen = rsiArr[rsiArr.length - 6];
+    if (Number.isFinite(_rsiNow) && Number.isFinite(_rsiThen)) {
+      rsi_slope_5bar = Math.round(((_rsiNow - _rsiThen) / 5) * 100) / 100;
+    }
+  }
+
   // RSI Divergence
   const rsiDiv = detectRsiDivergence(bars, rsiArr, 5, 10);
 
@@ -1207,6 +1219,21 @@ export function computeTfBundle(bars, anchors = null) {
 
   // Phase velocity (approximate)
   const phaseVelocity = 0; // Would need previous rawPhase; set to 0
+
+  // V15 P0.2 — Phase slope (5-bar). Derived from the momentum series
+  // since phase is mostly driven by mom/momStd. Sign tells us direction:
+  //   positive → phase trending up (bullish-aligned)
+  //   negative → phase trending down (bearish-aligned)
+  // Used by focus-tier slope alignment signal.
+  let phase_slope_5bar = null;
+  if (momArr.length >= 6 && Number.isFinite(momStd) && momStd > 0) {
+    const _momNow = momArr[momArr.length - 1];
+    const _momThen = momArr[momArr.length - 6];
+    if (Number.isFinite(_momNow) && Number.isFinite(_momThen)) {
+      // Normalize by momStd so cross-ticker comparable; scale to phase units
+      phase_slope_5bar = Math.round((((_momNow - _momThen) / 5) / momStd) * 20 * 100) / 100;
+    }
+  }
 
   // TT Phase Oscillator — pure price-displacement with EMA(3) smoothing
   // Computes full series for proper zone-exit detection (prev bar vs current bar)
@@ -1421,7 +1448,8 @@ export function computeTfBundle(bars, anchors = null) {
     compressed,
     atr14, atrRatio,
     volRatio, rvol5, rvolSpike,
-    rsi, rsiDiv, phaseDiv,
+    rsi, rsi_slope_5bar, rsiDiv, phaseDiv,
+    phase_slope_5bar,
     ggUpCross, ggDnCross, ggDist,
     ggUpCross_ts, ggDnCross_ts,
     emaStack,
@@ -4205,7 +4233,11 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
       stSlope: b.stSlopeUp ? 1 : b.stSlopeDn ? -1 : 0,
       atr: atrBand ? { ...atrBand, ...(atrCross || {}) } : (atrCross || undefined),
       sq: { s: b.sqOn ? 1 : 0, r: b.sqRelease ? 1 : 0, c: b.compressed ? 1 : 0 },
-      rsi: { r5: Number.isFinite(b.rsi) ? Math.round(b.rsi * 10) / 10 : undefined },
+      rsi: {
+        r5: Number.isFinite(b.rsi) ? Math.round(b.rsi * 10) / 10 : undefined,
+        // V15 P0.2 — 5-bar slope (RSI points / bar)
+        slope5: Number.isFinite(b.rsi_slope_5bar) ? b.rsi_slope_5bar : undefined,
+      },
       rsiDiv: b.rsiDiv && (b.rsiDiv.bear || b.rsiDiv.bull) ? {
         bear: b.rsiDiv.bear ? { s: b.rsiDiv.bear.strength, bs: b.rsiDiv.bear.barsSince, a: b.rsiDiv.bear.active } : undefined,
         bull: b.rsiDiv.bull ? { s: b.rsiDiv.bull.strength, bs: b.rsiDiv.bull.barsSince, a: b.rsiDiv.bull.active } : undefined,
@@ -4391,6 +4423,9 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
     saty_phase_pct: satyPhasePct,
     phase_dir: phaseDir,
     phase_zone: phaseZone,
+    // V15 P0.2 — phase 5-bar slope (used by focus-tier slope alignment).
+    // Read from daily bundle since phase is daily-derived.
+    phase_slope_5bar: bD?.phase_slope_5bar ?? null,
     saty_phase_exit: satyPhaseExitSignal,
     rsi_divergence: (() => {
       const out = {};

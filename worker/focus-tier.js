@@ -453,6 +453,107 @@ function scoreSatyAtrProximity(tickerData, ctx) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Signal 8 — PHASE SLOPE ALIGNMENT (V15 P0.2, 2026-04-25)
+//
+// V14 forensic on the H trade: the catastrophe entry had phase trending
+// against direction. The user explicitly called out: "Another signal
+// that was saying no to Short is the sloping Phase Line."
+//
+// Implementation: phase_slope_5bar is computed from the daily momentum
+// series (positive = bullish trending, negative = bearish trending).
+//
+//   LONG  + slope >= +0.5  → +10 pts (phase confirms long)
+//   LONG  + slope ∈ [-0.5, +0.5]  → 0 pts (neutral)
+//   LONG  + slope < -0.5  → -10 pts (phase opposes — the H pattern)
+//
+//   SHORT + slope <= -0.5  → +10 pts (phase confirms short)
+//   SHORT + slope ∈ [-0.5, +0.5]  → 0 pts (neutral)
+//   SHORT + slope > +0.5  → -10 pts (phase opposes — the H pattern)
+//
+// Range -10 to +10.
+// ─────────────────────────────────────────────────────────────────────────
+function scorePhaseAlignment(tickerData, ctx) {
+  const side = String(ctx?.side || ctx?.direction || "").toUpperCase();
+  if (!side || (side !== "LONG" && side !== "SHORT")) {
+    return { pts: 0, reason: "no_side" };
+  }
+  const slope = _f(tickerData?.phase_slope_5bar);
+  if (!Number.isFinite(Number(tickerData?.phase_slope_5bar))) {
+    return { pts: 0, reason: "no_phase_slope" };
+  }
+
+  const NEUTRAL_BAND = 0.5;
+  let pts = 0;
+  let reason = "";
+  if (side === "LONG") {
+    if (slope >= NEUTRAL_BAND) { pts = 10; reason = `phase_confirms_long_${slope.toFixed(2)}`; }
+    else if (slope <= -NEUTRAL_BAND) { pts = -10; reason = `phase_opposes_long_${slope.toFixed(2)}`; }
+    else { pts = 0; reason = `phase_neutral_${slope.toFixed(2)}`; }
+  } else {
+    if (slope <= -NEUTRAL_BAND) { pts = 10; reason = `phase_confirms_short_${slope.toFixed(2)}`; }
+    else if (slope >= NEUTRAL_BAND) { pts = -10; reason = `phase_opposes_short_${slope.toFixed(2)}`; }
+    else { pts = 0; reason = `phase_neutral_${slope.toFixed(2)}`; }
+  }
+  return { pts, reason, slope: Math.round(slope * 100) / 100 };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Signal 9 — RSI SLOPE ALIGNMENT (V15 P0.2, 2026-04-25)
+//
+// Same logic as phase_alignment but with RSI on the daily timeframe.
+// RSI slope tells us momentum direction independent of phase
+// composition — a SHORT entered when RSI is rising signals momentum
+// against the trade.
+//
+// Reads tickerData.tf_tech.D.rsi.slope5 (5-bar RSI change in pts/bar).
+// LONG/SHORT + slope agreement → ±5 pts (lower weight than phase
+// because RSI is noisier on shorter timeframes).
+//
+//   LONG  + slope >= +0.3  → +5
+//   LONG  + slope ∈ [-0.3, +0.3]  → 0
+//   LONG  + slope < -0.3  → -5
+//   SHORT (mirrored)
+//
+// Range -5 to +5.
+// ─────────────────────────────────────────────────────────────────────────
+function scoreRsiAlignment(tickerData, ctx) {
+  const side = String(ctx?.side || ctx?.direction || "").toUpperCase();
+  if (!side || (side !== "LONG" && side !== "SHORT")) {
+    return { pts: 0, reason: "no_side" };
+  }
+  // Prefer Daily RSI slope, fall back to 1H, then 30m
+  const tfTech = tickerData?.tf_tech || {};
+  const candidates = [tfTech.D, tfTech["1H"], tfTech["60"], tfTech["30"]];
+  let slope = null;
+  let usedTf = null;
+  for (const tf of candidates) {
+    const v = tf?.rsi?.slope5;
+    if (Number.isFinite(Number(v))) {
+      slope = Number(v);
+      usedTf = tf === tfTech.D ? "D" : tf === tfTech["1H"] || tf === tfTech["60"] ? "1H" : "30";
+      break;
+    }
+  }
+  if (!Number.isFinite(slope)) {
+    return { pts: 0, reason: "no_rsi_slope" };
+  }
+
+  const NEUTRAL_BAND = 0.3;
+  let pts = 0;
+  let reason = "";
+  if (side === "LONG") {
+    if (slope >= NEUTRAL_BAND) { pts = 5; reason = `rsi_confirms_long_${slope.toFixed(2)}_${usedTf}`; }
+    else if (slope <= -NEUTRAL_BAND) { pts = -5; reason = `rsi_opposes_long_${slope.toFixed(2)}_${usedTf}`; }
+    else { pts = 0; reason = `rsi_neutral_${slope.toFixed(2)}_${usedTf}`; }
+  } else {
+    if (slope <= -NEUTRAL_BAND) { pts = 5; reason = `rsi_confirms_short_${slope.toFixed(2)}_${usedTf}`; }
+    else if (slope >= NEUTRAL_BAND) { pts = -5; reason = `rsi_opposes_short_${slope.toFixed(2)}_${usedTf}`; }
+    else { pts = 0; reason = `rsi_neutral_${slope.toFixed(2)}_${usedTf}`; }
+  }
+  return { pts, reason, slope: Math.round(slope * 100) / 100, tf: usedTf };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Recent-winner bonus (+5 pts)
 // ≥2 wins on this ticker in last 30 trading days, net +3% PnL.
 // ─────────────────────────────────────────────────────────────────────────
@@ -486,8 +587,11 @@ export function computeConvictionScore({
   const s6 = scoreHistory(tickerUpper, historyStats);
   // V15 P0.1 — Saty ATR proximity (range -15 to +10)
   const s7 = scoreSatyAtrProximity(tickerData, ctx);
+  // V15 P0.2 — Phase + RSI slope alignment
+  const s8 = scorePhaseAlignment(tickerData, ctx);
+  const s9 = scoreRsiAlignment(tickerData, ctx);
 
-  let base = s1.pts + s2.pts + s3.pts + s4.pts + s5.pts + s6.pts + s7.pts;
+  let base = s1.pts + s2.pts + s3.pts + s4.pts + s5.pts + s6.pts + s7.pts + s8.pts + s9.pts;
 
   // Bonuses (capped so total ≤ 100)
   const ttSelBonus = (ttSelected || TT_SELECTED_DEFAULT).has(tickerUpper) ? 15 : 0;
@@ -495,10 +599,13 @@ export function computeConvictionScore({
   const upticksBonus = (currentUpticks && currentUpticks.has(tickerUpper)) ? 10 : 0;
   const recentBonus = scoreRecentWinner(tickerUpper, historyStats);
 
-  // V15 P0.1: range expanded by ±15 from Saty ATR signal.
-  // Floor at 0 (negative scores have no meaning) and ceil at 110
-  // (10 extra room for the +10 bonus on top of base 100).
-  const total = Math.max(0, Math.min(110, base + ttSelBonus + grannyBonus + upticksBonus + recentBonus));
+  // V15 P0.1+P0.2: range expanded by Saty ATR + slope signals.
+  //   Saty ATR: -15 to +10
+  //   Phase alignment: -10 to +10
+  //   RSI alignment: -5 to +5
+  // Floor at 0 (negative scores have no meaning) and ceil at 125
+  // (25 extra room for max bonuses + max alignment).
+  const total = Math.max(0, Math.min(125, base + ttSelBonus + grannyBonus + upticksBonus + recentBonus));
 
   const tier = total >= 75 ? "A" : total >= 50 ? "B" : "C";
 
@@ -514,6 +621,8 @@ export function computeConvictionScore({
       relative_strength: s5,
       history: s6,
       saty_atr_proximity: s7,
+      phase_alignment: s8,
+      rsi_alignment: s9,
       bonuses: {
         tt_selected: ttSelBonus,
         granny_etf: grannyBonus,
