@@ -6856,6 +6856,20 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         const _peakLockEnabled = String(
           tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_enabled ?? "true"
         ) === "true";
+        // V15 P0.6 OBSERVABILITY: stamp diagnostic on every evaluation
+        const _peakLockDiag = {
+          enabled: _peakLockEnabled,
+          mfe_pct_raw: Number(tickerData?.__mfe_pct) || null,
+          mfe_pct_persisted: Number(tickerData?.max_favorable_excursion) || null,
+          pnl_pct: pnlPct,
+          has_daily_structure: !!(tickerData?.daily_structure),
+          ds_e5: Number(tickerData?.daily_structure?.e5) || null,
+          ds_e12: Number(tickerData?.daily_structure?.e12) || null,
+          ds_pct_above_e5: Number(tickerData?.daily_structure?.pct_above_e5) || null,
+          ds_pct_above_e12: Number(tickerData?.daily_structure?.pct_above_e12) || null,
+          rule_fired: null,
+        };
+        tickerData.__peak_lock_diag = _peakLockDiag;
         if (_peakLockEnabled) {
           const _peakMinMfe = Number(
             tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_min_mfe_pct ?? 2.0
@@ -6866,6 +6880,10 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
             0
           );
           const _isLong = direction === "LONG";
+          _peakLockDiag.peak_mfe_abs = _peakMfeAbs;
+          _peakLockDiag.peak_min_mfe = _peakMinMfe;
+          _peakLockDiag.mfe_threshold_met = _peakMfeAbs >= _peakMinMfe;
+          _peakLockDiag.pnl_positive = pnlPct > 0;
 
           if (_peakMfeAbs >= _peakMinMfe && pnlPct > 0) {
             const _ds = tickerData?.daily_structure || {};
@@ -6874,6 +6892,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
             const _pctAboveE5 = Number(_ds?.pct_above_e5);
             const _pctAboveE12 = Number(_ds?.pct_above_e12);
             const _hasEmaData = Number.isFinite(_e5) && Number.isFinite(_e12);
+            _peakLockDiag.has_ema_data = _hasEmaData;
 
             if (_hasEmaData && Number.isFinite(_pctAboveE5) && Number.isFinite(_pctAboveE12)) {
               // Direction-adjusted distances
@@ -6887,6 +6906,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
               // or above EMA12 (short). The healthy pullback became a
               // trend reversal. Exit.
               if (_distE12 < _e12BreakThreshold) {
+                _peakLockDiag.rule_fired = "ema12_break";
                 tickerData.__exit_reason = "peak_lock_ema12_break";
                 tickerData.__exit_family = "profit_management";
                 tickerData.__exit_meta = {
@@ -6915,6 +6935,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
                   && _distE5 < _testingE5Threshold
                   && _distE12 > 0
                   && pnlPct >= _minPnlForLock) {
+                _peakLockDiag.rule_fired = "e5_test_post_stretch";
                 tickerData.__exit_reason = "peak_lock_e5_test_post_stretch";
                 tickerData.__exit_family = "profit_management";
                 tickerData.__exit_meta = {
