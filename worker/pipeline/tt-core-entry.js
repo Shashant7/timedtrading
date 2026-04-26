@@ -485,16 +485,55 @@ export function evaluateEntry(ctx) {
         _focusConviction = { score: 60, tier: "B", breakdown: { error: String(err?.message || err) } };
       }
 
-      // V15 P0.3.4 (2026-04-26): reverted to balanced floors after
-      // P0.3.1/2/3 calibration probes. With the eased weights
-      // (liq 0-12, trend 0-15) and new signals, floor of 65 is the
-      // sweet spot — keeps H/PLTR class blocked (their conv was
-      // 51-58 even after generous weights) while letting LITE-class
-      // setups through.
-      const _tierAFloor = Math.max(95, Number(daCfg.deep_audit_focus_tier_a_floor ?? 95));
-      const _tierBFloor = Math.max(65, Number(daCfg.deep_audit_focus_tier_b_floor ?? 65));
-      const _tierCFloor = Math.max(65, Number(daCfg.deep_audit_focus_tier_c_floor ?? 65));
-      const _entryMinConviction = Math.max(65, Number(daCfg.deep_audit_focus_min_entry_conviction ?? _tierCFloor));
+      // V15 P0.5 (2026-04-26): tier floors reverted to P0.3 baseline.
+      // A=110, B=80, C<80 entry blocked. Hard min 80.
+      const _tierAFloor = Math.max(110, Number(daCfg.deep_audit_focus_tier_a_floor ?? 110));
+      const _tierBFloor = Math.max(80, Number(daCfg.deep_audit_focus_tier_b_floor ?? 80));
+      const _tierCFloor = Math.max(80, Number(daCfg.deep_audit_focus_tier_c_floor ?? 80));
+      const _entryMinConviction = Math.max(80, Number(daCfg.deep_audit_focus_min_entry_conviction ?? _tierCFloor));
+
+      // ─────────────────────────────────────────────────────────────────
+      // V15 P0.5 — HARD VETOES (2026-04-26)
+      //
+      // Single veto rule: fade-into-level (-15 Saty) AND phase opposing
+      // (-10) AND RSI opposing (-5) — all three negative signals firing
+      // simultaneously is the unambiguous catastrophe pattern.
+      //
+      // The H Apr 7 -11.39% trade: saty=+10 (riding through), phase=-10,
+      // rsi=-5 — would NOT trigger this veto. But conviction would be
+      // around 78 (below 80 floor) so it gets blocked by floor.
+      //
+      // The ORCL Jul 31 -5.17% trade: saty=-15, phase=+10, rsi=+5 —
+      // would NOT trigger this veto either. But conviction with reverted
+      // P0.5 weights drops below 80 floor.
+      //
+      // The CDNS Jul 31 -3.23% trade: saty=-15, phase=+10, rsi=-5 —
+      // similarly relies on conviction floor.
+      //
+      // So the conviction floor at 80 (with reverted weights) catches
+      // these. The veto is reserved for the WORST-of-the-worst:
+      // explicit fade-into-level + ALL momentum signals opposing.
+      // ─────────────────────────────────────────────────────────────────
+      const _vetoEnabled = String(daCfg.deep_audit_v15_negative_veto_enabled ?? "true") === "true";
+      if (_vetoEnabled && _focusConviction?.breakdown) {
+        const _bd = _focusConviction.breakdown;
+        const _satyPts = Number(_bd?.saty_atr_proximity?.pts ?? 0);
+        const _phasePts = Number(_bd?.phase_alignment?.pts ?? 0);
+        const _rsiPts = Number(_bd?.rsi_alignment?.pts ?? 0);
+
+        // Hard veto: fade-into-level + phase opposing + RSI opposing.
+        // All three signals must be at their max-negative for this
+        // to fire. This is the unambiguous "do not enter" pattern.
+        if (_satyPts <= -15 && _phasePts <= -10 && _rsiPts <= -5) {
+          return rejectEntry("v15_veto_all_signals_oppose", {
+            saty_pts: _satyPts,
+            phase_pts: _phasePts,
+            rsi_pts: _rsiPts,
+            saty_reason: _bd?.saty_atr_proximity?.reason,
+            phase_reason: _bd?.phase_alignment?.reason,
+          });
+        }
+      }
 
       if (_focusConviction.score < _entryMinConviction) {
         return rejectEntry("focus_conviction_below_floor", {

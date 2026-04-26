@@ -3985,8 +3985,28 @@ function qualifiesForEnter(d, asOfTs = null) {
         d.__focus_conviction_score = _focusConv.score;
         d.__focus_conviction_breakdown = _focusConv.breakdown;
 
-        // V15 P0.3.4 (2026-04-26): floor 65 (matches eased weights).
-        const _entryMinConv = Math.max(65, Number(_focusDaCfg.deep_audit_focus_min_entry_conviction ?? 65));
+        // V15 P0.5 hard veto: all 3 negative signals at max-negative.
+        // See worker/pipeline/tt-core-entry.js around line 497 for the
+        // detailed rationale.
+        const _vetoEnabled = String(_focusDaCfg.deep_audit_v15_negative_veto_enabled ?? "true") === "true";
+        if (_vetoEnabled && _focusConv.breakdown) {
+          const _bd = _focusConv.breakdown;
+          const _satyPts = Number(_bd?.saty_atr_proximity?.pts ?? 0);
+          const _phasePts = Number(_bd?.phase_alignment?.pts ?? 0);
+          const _rsiPts = Number(_bd?.rsi_alignment?.pts ?? 0);
+          if (_satyPts <= -15 && _phasePts <= -10 && _rsiPts <= -5) {
+            return {
+              qualifies: false,
+              reason: "v15_veto_all_signals_oppose",
+              path: null,
+              confidence: 0,
+              meta: { saty_pts: _satyPts, phase_pts: _phasePts, rsi_pts: _rsiPts },
+            };
+          }
+        }
+
+        // V15 P0.5: floor reverted to 80 (matches reverted weights).
+        const _entryMinConv = Math.max(80, Number(_focusDaCfg.deep_audit_focus_min_entry_conviction ?? 80));
         if (_focusConv.score < _entryMinConv) {
           return {
             qualifies: false,
@@ -4000,8 +4020,7 @@ function qualifiesForEnter(d, asOfTs = null) {
             },
           };
         }
-        // V15 P0.3.4 floor 65
-        const _tierCFloor = Math.max(65, Number(_focusDaCfg.deep_audit_focus_tier_c_floor ?? 65));
+        const _tierCFloor = Math.max(80, Number(_focusDaCfg.deep_audit_focus_tier_c_floor ?? 80));
         if (_focusConv.tier === "C" && _focusConv.score < _tierCFloor) {
           return {
             qualifies: false,

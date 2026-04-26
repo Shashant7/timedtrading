@@ -200,6 +200,11 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_v13_safety_nets_enabled",
   "deep_audit_v13_max_pnl_floor_pct",
   "deep_audit_v13_hard_age_days",
+
+  // V15 P0.5 (2026-04-26): hard vetoes on negative signal combinations.
+  // Catches the H/ORCL/CDNS class of fade-into-level catastrophes
+  // that the conviction-floor logic alone couldn't block.
+  "deep_audit_v15_negative_veto_enabled",
   // P4: SHORT gate relaxation
   "deep_audit_short_spy_regime_floor",
   "deep_audit_short_requires_ticker_bearish_daily",

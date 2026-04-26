@@ -52,13 +52,12 @@ function _f(v, d = 0) {
 //
 // Price floor is a secondary signal: extremely low-priced names
 // (< $5) tend to be penny-stock risk regardless of sector assignment.
-// V15 P0.3 (2026-04-25): liquidity range halved 0-20 → 0-10.
-// V15 P0.3.1 (2026-04-26): tuned UP slightly to 0-12 after Jul+Aug
-// validation showed P0.3 over-penalized large-cap winners. The LITE
-// Aug 21 +7.02% winner had V14 conv=72 (right at floor); under P0.3
-// would have dropped to ~64 and been blocked. Liquidity is still
-// reduced from V14 (was 18 for large-cap, now 11) but enough to
-// preserve quality setups.
+// V15 P0.5 (2026-04-26): reverted liquidity to the P0.3 0-10 range
+// after P0.3.4 weight relaxation backfired. The P0.3 calibration
+// produced +29.38% / 66.7% WR on July; loosening weights leaked
+// in losers (ORCL -5.17%, CDNS -3.23%, both with saty=-15 fade-
+// into-level signals). The fix is the saty/phase VETO (below),
+// not weight relaxation.
 function scoreLiquidity(tickerData) {
   const tickerType = String(tickerData?._ticker_type || tickerData?.ticker_type || "").toLowerCase();
   const price = _f(tickerData?.price ?? tickerData?.close);
@@ -66,36 +65,34 @@ function scoreLiquidity(tickerData) {
   let pts = 0;
   let reason = "";
 
-  // Broad + sector ETFs = deepest liquidity (was 20 V14, 10 P0.3)
   if (tickerType === "broad_etf" || tickerType === "sector_etf") {
-    pts = 12;
+    pts = 10;
     reason = `etf_${tickerType}`;
   } else if (tickerType === "large_cap" || tickerType === "growth" || tickerType === "mega_cap") {
-    pts = 11;  // was 18 V14, 9 P0.3
+    pts = 9;
     reason = `liquid_${tickerType}`;
   } else if (tickerType === "mid_cap") {
-    pts = 10;  // was 13 V14, 8 P0.3
+    pts = 8;
     reason = "mid_cap";
   } else if (tickerType === "thematic_etf" || tickerType === "commodity_etf" || tickerType === "precious_metal") {
-    pts = 10;  // was 15 V14, 8 P0.3
+    pts = 8;
     reason = `specialty_${tickerType}`;
   } else if (tickerType === "small_cap") {
-    pts = 5;  // was 8 V14, 4 P0.3
+    pts = 4;
     reason = "small_cap";
   } else if (tickerType === "crypto" || tickerType === "crypto_adj") {
-    pts = 7;  // was 12 V14, 6 P0.3
+    pts = 6;
     reason = `crypto_${tickerType}`;
   } else if (tickerType) {
-    pts = 6;  // was 10 V14, 5 P0.3
+    pts = 5;
     reason = `other_${tickerType}`;
   } else {
     if (price <= 0) return { pts: 0, reason: "no_classification_no_price" };
     if (price < 5) { pts = 0; reason = `unclassified_penny_${price.toFixed(2)}`; }
-    else if (price < 10) { pts = 3; reason = `unclassified_low_${price.toFixed(2)}`; }
-    else { pts = 5; reason = `unclassified_${price.toFixed(2)}`; }
+    else if (price < 10) { pts = 2; reason = `unclassified_low_${price.toFixed(2)}`; }
+    else { pts = 4; reason = `unclassified_${price.toFixed(2)}`; }
   }
 
-  // Penny-stock override
   if (price > 0 && price < 3) {
     pts = Math.min(pts, 1);
     reason += "_pennystock_cap";
@@ -137,16 +134,11 @@ function scoreVolatility(tickerData) {
 // V11 golden winner fingerprint: daily E21 > E48 > E200 stacked, price
 // within 2 ATR of E21 (not overextended, not deeply broken).
 // ─────────────────────────────────────────────────────────────────────────
-// V15 P0.3 (2026-04-25): trend range halved 0-20 → 0-10 (saturated
-// signal at the time).
-// V15 P0.3.1 (2026-04-26): tuned UP to 0-15 after Jul+Aug validation
-// showed P0.3 was blocking real winners. The "bull_stacked + within
-// 0.2 ATR of E21" fingerprint is genuinely high-quality — the LITE
-// Aug 21 +7.02% winner had this exact setup. Even though many trades
-// score full points on trend, the few that DON'T (chop, deep
-// pullbacks) are real noise differentiation. Now bull/bear stack
-// gives 8 pts (was 5 P0.3, 10 V14), and ATR distance gives 0-7
-// extra (was 0-5 P0.3, 0-10 V14).
+// V15 P0.5 (2026-04-26): reverted to P0.3 0-10 range. The P0.3.1
+// boost to 0-15 leaked losers in (ORCL/CDNS Jul 31). Trend is still
+// useful but the V14 forensic showed it was saturated, so 0-10 is
+// the right scale. The saty/phase VETO will catch the losers that
+// the conviction floor alone couldn't.
 function scoreTrend(tickerData) {
   const daily = tickerData?.daily_structure || tickerData?.daily || {};
   const e21 = _f(daily?.e21 ?? daily?.ema21);
@@ -169,32 +161,31 @@ function scoreTrend(tickerData) {
     return { pts: 0, reason: "missing_emas" };
   }
   if (!price) return { pts: 0, reason: "missing_price" };
-  if (!e21) return { pts: bullStack || bearStack ? 8 : 0, reason: `${bullStack ? 'bull' : 'bear'}_stack_only` };
+  if (!e21) return { pts: bullStack || bearStack ? 5 : 0, reason: `${bullStack ? 'bull' : 'bear'}_stack_only` };
 
   let pts = 0;
   let reason = "";
 
   if (bullStack) {
-    pts += 8;  // was 10 V14, 5 P0.3, now 8
+    pts += 5;  // V14 was 10, P0.3 set to 5
     reason = "bull_stacked";
   } else if (bearStack) {
-    pts += 8;  // was 10 V14, 5 P0.3, now 8
+    pts += 5;
     reason = "bear_stacked";
   } else {
     pts += 0;
     reason = "chop";
   }
 
-  // Price distance from E21 — was 10/5 V14, 5/3 P0.3, now 7/4
   if (atr > 0) {
     const distAtrs = Math.abs(price - e21) / atr;
-    if (distAtrs <= 2.0 && distAtrs >= 0.0) pts += 7;
-    else if (distAtrs <= 3.0) pts += 4;
+    if (distAtrs <= 2.0 && distAtrs >= 0.0) pts += 5;
+    else if (distAtrs <= 3.0) pts += 3;
     reason += `, ${distAtrs.toFixed(1)}atr_from_e21`;
   } else {
     const distPct = Math.abs((price - e21) / e21) * 100;
-    if (distPct <= 4.0) pts += 7;
-    else if (distPct <= 7.0) pts += 4;
+    if (distPct <= 4.0) pts += 5;
+    else if (distPct <= 7.0) pts += 3;
     reason += `, ${distPct.toFixed(1)}%_from_e21`;
   }
 
@@ -621,28 +612,24 @@ export function computeConvictionScore({
   const upticksBonus = (currentUpticks && currentUpticks.has(tickerUpper)) ? 10 : 0;
   const recentBonus = scoreRecentWinner(tickerUpper, historyStats);
 
-  // V15 P0.3.1 (2026-04-26): tuned base signal weights after Jul+Aug
-  // validation showed P0.3 over-cut large-cap winners.
-  //   liquidity 20 → 12 (was 10 in P0.3, restored some)
-  //   volatility 0-15 unchanged
-  //   trend 20 → 15 (was 10 in P0.3, restored quality fingerprint)
-  //   sector 10 → 15 (unchanged from P0.3)
-  //   relative_strength 10 → 25 (unchanged from P0.3)
-  //   history 0-20 unchanged
-  //   saty_atr_proximity: -15 to +10
-  //   phase_alignment: -10 to +10
-  //   rsi_alignment: -5 to +5
-  // Max base = 12+15+15+15+25+20+10+10+5 = 127
-  // Max bonuses = 40 → theoretical max ~167
-  // Floor at 0, ceil at 167.
-  const total = Math.max(0, Math.min(167, base + ttSelBonus + grannyBonus + upticksBonus + recentBonus));
+  // V15 P0.5 (2026-04-26): reverted weights to P0.3 baseline.
+  //   liquidity 0-10  (was 0-20 V14)
+  //   volatility 0-15
+  //   trend 0-10  (was 0-20 V14)
+  //   sector 0-15  (was 0-10 V14)
+  //   relative_strength 0-25  (was 0-10 V14, the strongest predictor)
+  //   history 0-20
+  //   saty_atr_proximity -15 to +10
+  //   phase_alignment -10 to +10
+  //   rsi_alignment -5 to +5
+  // Max base = 10+15+10+15+25+20+10+10+5 = 120
+  // Max bonuses = 40 → theoretical max 160
+  const total = Math.max(0, Math.min(160, base + ttSelBonus + grannyBonus + upticksBonus + recentBonus));
 
-  // V15 P0.3.1 tier thresholds — recalibrated for new 0-167 range.
-  // A typical "all-in-favor" setup scores ~88 base. Thresholds:
-  //   A ≥ 95 (high-conviction Tier A — the 4-of-9 alignment trades)
-  //   B ≥ 75 (workable Tier B — most clean entries)
-  //   C < 75 (block by entry floor)
-  const tier = total >= 95 ? "A" : total >= 75 ? "B" : "C";
+  // V15 P0.5 tier thresholds (back to P0.3 calibration):
+  //   A ≥ 110, B ≥ 80, C < 80
+  // Entry floor 80 (handled by Math.max() in tt-core-entry.js).
+  const tier = total >= 110 ? "A" : total >= 80 ? "B" : "C";
 
   return {
     ticker: tickerUpper,
