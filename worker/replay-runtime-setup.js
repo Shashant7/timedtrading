@@ -205,6 +205,19 @@ export const REPLAY_DA_KEYS = [
   // Catches the H/ORCL/CDNS class of fade-into-level catastrophes
   // that the conviction-floor logic alone couldn't block.
   "deep_audit_v15_negative_veto_enabled",
+
+  // V15 P0.6 (2026-04-26): peak-lock exit using daily EMA5/EMA12 cloud.
+  // The 5/12 cloud distinguishes "peak risk after stretch" from
+  // "healthy pullback in trend". See worker/index.js classifyKanbanStage
+  // for the 3-rule logic: ema12 break exit, e5 test post stretch exit,
+  // and a 40% retrace fallback when daily EMA data missing.
+  "deep_audit_peak_lock_enabled",
+  "deep_audit_peak_lock_min_mfe_pct",
+  "deep_audit_peak_lock_giveback_ratio",
+  "deep_audit_peak_lock_e12_break_pct",
+  "deep_audit_peak_lock_e5_stretch_threshold_pct",
+  "deep_audit_peak_lock_e5_test_threshold_pct",
+  "deep_audit_peak_lock_min_pnl_pct",
   // P4: SHORT gate relaxation
   "deep_audit_short_spy_regime_floor",
   "deep_audit_short_requires_ticker_bearish_daily",

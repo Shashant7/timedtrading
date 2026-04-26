@@ -6834,6 +6834,129 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       }
 
       // ──────────────────────────────────────────────────────────────────
+      // V15 P0.6 — DAILY 5/12 EMA PEAK-LOCK EXIT (2026-04-26)
+      //
+      // V15 P0.5 forensic showed avg capture of only 33% of peak MFE.
+      // LITE Jul 14: peak +13.15%, exit +4.87% via runner_mfe_trail at
+      // tiny 0.75% retrace.
+      //
+      // User insight: the daily 5/12 EMA cloud distinguishes "peak risk"
+      // from "healthy pullback in trend".
+      //   - Price stretched > +X% above daily EMA5 = peak risk
+      //   - Price testing EMA5 but holding EMA12 = healthy pullback (HOLD)
+      //   - Price closes below daily EMA12 = trend changing (EXIT)
+      //
+      // LITE Jul 22: closed -0.83% vs EMA5 (testing) but +2.03% above
+      // EMA12 (held) — should HOLD. Then continued to +17.5% by Jul 29.
+      //
+      // Runs BEFORE runner_mfe_trail so it can override the 0.75%
+      // retrace exit when the structure says "healthy pullback".
+      // ──────────────────────────────────────────────────────────────────
+      {
+        const _peakLockEnabled = String(
+          tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_enabled ?? "true"
+        ) === "true";
+        if (_peakLockEnabled) {
+          const _peakMinMfe = Number(
+            tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_min_mfe_pct ?? 2.0
+          );
+          const _peakMfeAbs = Math.abs(
+            Number(tickerData?.__mfe_pct) ||
+            Number(tickerData?.max_favorable_excursion) ||
+            0
+          );
+          const _isLong = direction === "LONG";
+
+          if (_peakMfeAbs >= _peakMinMfe && pnlPct > 0) {
+            const _ds = tickerData?.daily_structure || {};
+            const _e5 = Number(_ds?.e5);
+            const _e12 = Number(_ds?.e12);
+            const _pctAboveE5 = Number(_ds?.pct_above_e5);
+            const _pctAboveE12 = Number(_ds?.pct_above_e12);
+            const _hasEmaData = Number.isFinite(_e5) && Number.isFinite(_e12);
+
+            if (_hasEmaData && Number.isFinite(_pctAboveE5) && Number.isFinite(_pctAboveE12)) {
+              // Direction-adjusted distances
+              const _distE5 = _isLong ? _pctAboveE5 : -_pctAboveE5;
+              const _distE12 = _isLong ? _pctAboveE12 : -_pctAboveE12;
+              const _e12BreakThreshold = Number(
+                tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_e12_break_pct ?? -0.5
+              );
+
+              // Rule 1: TREND BREAK — broke below daily EMA12 (long)
+              // or above EMA12 (short). The healthy pullback became a
+              // trend reversal. Exit.
+              if (_distE12 < _e12BreakThreshold) {
+                tickerData.__exit_reason = "peak_lock_ema12_break";
+                tickerData.__exit_family = "profit_management";
+                tickerData.__exit_meta = {
+                  mfe_peak_pct: _peakMfeAbs,
+                  current_pnl_pct: pnlPct,
+                  pct_above_e5: _pctAboveE5,
+                  pct_above_e12: _pctAboveE12,
+                  rule: "ema12_break",
+                };
+                return "exit";
+              }
+
+              // Rule 2: PEAK CONFIRMED — significant prior stretch + retrace
+              // back to/below EMA5 but still above EMA12. Lock profit.
+              const _stretchedThreshold = Number(
+                tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_e5_stretch_threshold_pct ?? 4.0
+              );
+              const _testingE5Threshold = Number(
+                tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_e5_test_threshold_pct ?? 0.5
+              );
+              const _minPnlForLock = Number(
+                tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_min_pnl_pct ?? 1.5
+              );
+
+              if (_peakMfeAbs >= _stretchedThreshold
+                  && _distE5 < _testingE5Threshold
+                  && _distE12 > 0
+                  && pnlPct >= _minPnlForLock) {
+                tickerData.__exit_reason = "peak_lock_e5_test_post_stretch";
+                tickerData.__exit_family = "profit_management";
+                tickerData.__exit_meta = {
+                  mfe_peak_pct: _peakMfeAbs,
+                  current_pnl_pct: pnlPct,
+                  pct_above_e5: _pctAboveE5,
+                  pct_above_e12: _pctAboveE12,
+                  rule: "e5_test_post_stretch",
+                };
+                return "exit";
+              }
+
+              // Rule 3: HEALTHY PULLBACK — testing EMA5, holding EMA12.
+              // Stamp a flag so runner_mfe_trail (runs next) does NOT
+              // exit. Pull back through EMA5 below the structure floor
+              // is OK as long as EMA12 holds.
+              if (_distE12 > 0 && _distE5 < _testingE5Threshold) {
+                tickerData.__peak_lock_healthy_pullback = true;
+              }
+            } else {
+              // No daily EMA data — use 40% retrace fallback
+              const _peakGivebackRatio = Number(
+                tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_giveback_ratio ?? 0.40
+              );
+              const _retracePct = _peakMfeAbs - pnlPct;
+              const _retraceFromPeakRatio = _retracePct / _peakMfeAbs;
+              if (_retraceFromPeakRatio >= _peakGivebackRatio) {
+                tickerData.__exit_reason = "peak_lock_exit_fallback";
+                tickerData.__exit_family = "profit_management";
+                tickerData.__exit_meta = {
+                  mfe_peak_pct: _peakMfeAbs,
+                  current_pnl_pct: pnlPct,
+                  retrace_pct: _retracePct,
+                };
+                return "exit";
+              }
+            }
+          }
+        }
+      }
+
+      // ──────────────────────────────────────────────────────────────────
       // V12 ACTION 2 (2026-04-24) — RUNNER MFE TRAIL
       //
       // V11 exit-policy simulation (tasks/v11-exit-policy-findings-
@@ -6857,13 +6980,24 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         const _runnerTrailEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_runner_mfe_trail_enabled ?? "false") === "true";
         if (_runnerTrailEnabled && currentTrimPct > 0) {
           const _activate = Number(tickerData?._env?._deepAuditConfig?.deep_audit_runner_mfe_trail_activation_pct ?? 3.0);
-          const _giveback = Number(tickerData?._env?._deepAuditConfig?.deep_audit_runner_mfe_trail_giveback_pct ?? 0.75);
+          // V15 P0.6 (2026-04-26): default giveback raised 0.75 → 1.50 to
+          // give trades more breathing room. Forensic showed the previous
+          // 0.75% retrace rule was firing on tiny noise blips and missing
+          // bigger runs. The peak-lock rule above handles peak detection
+          // intelligently using EMA structure; this trail is the fallback
+          // for trades without daily EMA data or extreme retraces.
+          const _giveback = Number(tickerData?._env?._deepAuditConfig?.deep_audit_runner_mfe_trail_giveback_pct ?? 1.50);
           const _mfeAbsTrail = Math.abs(
             Number(tickerData?.__mfe_pct) ||
             Number(tickerData?.max_favorable_excursion) ||
             0
           );
-          if (_mfeAbsTrail >= _activate && pnlPct > 0) {
+          // Honor the peak_lock "healthy pullback" flag — when set, we're
+          // testing EMA5 but holding EMA12 (the LITE Jul 22 pattern).
+          // Don't exit here; let the trade ride.
+          if (tickerData?.__peak_lock_healthy_pullback) {
+            // Skip — falling through to other rules.
+          } else if (_mfeAbsTrail >= _activate && pnlPct > 0) {
             const retrace = _mfeAbsTrail - pnlPct;
             if (retrace >= _giveback) {
               tickerData.__exit_reason = "runner_mfe_trail";
@@ -6879,6 +7013,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           }
         }
       }
+
 
       // ──────────────────────────────────────────────────────────────────
       // V12 P3 (2026-04-23) — LET-WINNERS-RUN GUARD
@@ -7008,10 +7143,31 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
             return "exit";
           }
           // Tier 4: 24h — dead money
-          if (_agH >= 24 && _agH < 72 && pnlPct < 0 && _mfeAbs < 1.5) {
-            tickerData.__exit_reason = "phase_i_mfe_dead_money_24h";
-            tickerData.__exit_family = "safety";
-            return "exit";
+          //
+          // V15 P0.6 (2026-04-26): forensic showed MTZ Jul 16 was cut
+          // here at hour 24+ then peaked +5.07% 30h later. Add a
+          // "structure intact" grace: if daily is still bull-stacked
+          // AND price is above e21, extend grace to 48h. This lets
+          // healthy setups breathe before we yank capital.
+          {
+            const _structIntactGracePassed = (() => {
+              const _ds = tickerData?.daily_structure || {};
+              const _bullStack = _ds?.bull_stack === true;
+              const _bearStack = _ds?.bear_stack === true;
+              const _e21 = Number(_ds?.e21);
+              const _px = Number(tickerData?.price);
+              const _isLong = direction === "LONG";
+              const _structAligned = _isLong ? _bullStack : _bearStack;
+              const _aboveE21 = (_isLong && _px > _e21) || (!_isLong && _px < _e21);
+              return _structAligned && _aboveE21;
+            })();
+            const _deadMoneyGraceH = _structIntactGracePassed ? 48 : 24;
+            if (_agH >= _deadMoneyGraceH && _agH < 72 && pnlPct < 0 && _mfeAbs < 1.5) {
+              tickerData.__exit_reason = "phase_i_mfe_dead_money_24h";
+              tickerData.__exit_family = "safety";
+              tickerData.__exit_meta = { age_h: _agH, struct_intact: _structIntactGracePassed };
+              return "exit";
+            }
           }
           // Tier 5: 72h — capital locked, any pnl
           if (_agH >= 72 && _mfeAbs < 1.5) {
@@ -7251,6 +7407,20 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
             Number(openPosition?.__tradeRef?.maxFavorableExcursion ?? openPosition?.__tradeRef?.max_favorable_excursion ?? openPosition?.__tradeRef?.mfePct) || 0,
           );
           if (_r6MfePct >= _r6MinActivate) {
+            // V15 P0.6 (2026-04-26): suppress mfe_proportional_trail when
+            // daily structure says we're in a healthy pullback (price
+            // testing EMA5 but holding EMA12). The peak_lock rule above
+            // owns the exit decision in that case.
+            const _ds = tickerData?.daily_structure || {};
+            const _isLong = direction === "LONG";
+            const _pctE12 = Number(_ds?.pct_above_e12);
+            const _distE12 = (_isLong ? _pctE12 : -_pctE12);
+            const _healthyPullback = !!tickerData?.__peak_lock_healthy_pullback
+              || (Number.isFinite(_distE12) && _distE12 > 0.5);
+            if (_healthyPullback) {
+              // Skip — healthy pullback in trend; let the daily structure
+              // determine exit timing via peak_lock.
+            } else {
             const _r6Ratio = _r6MfePct >= 10.0
               ? (Number(tickerData?._env?._deepAuditConfig?.deep_audit_mfe_trail_ratio_high) || 0.75)
               : _r6MfePct >= 6.0
@@ -7268,6 +7438,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
               };
               return "exit";
             }
+            }  // end else (V15 P0.6 healthy-pullback suppression)
           }
         }
       }

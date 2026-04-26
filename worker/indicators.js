@@ -4616,6 +4616,8 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
     // `ema_regime_daily` and `ema_map.D` so it stays consistent.
     daily_structure: bD ? (() => {
       const dpx = Number.isFinite(bD.px) ? bD.px : null;
+      const de5 = Number.isFinite(bD.e5) ? bD.e5 : null;
+      const de12 = Number.isFinite(bD.e12) ? bD.e12 : null;
       const de21 = Number.isFinite(bD.e21) ? bD.e21 : null;
       const de48 = Number.isFinite(bD.e48) ? bD.e48 : null;
       const de200 = Number.isFinite(bD.e200) ? bD.e200 : null;
@@ -4628,9 +4630,17 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
         ? (de21 < de48 && de48 < de200) : null;
       return {
         px: dpx != null ? Math.round(dpx * 100) / 100 : undefined,
+        // V15 P0.6 (2026-04-26): expose daily EMA5 and EMA12 for the
+        // peak-detection exit logic. The 5/12 cloud distinguishes
+        // "stretched away from EMA5 = peak risk" from
+        // "testing/holding EMA12 = healthy pullback in trend".
+        e5: de5 != null ? Math.round(de5 * 100) / 100 : undefined,
+        e12: de12 != null ? Math.round(de12 * 100) / 100 : undefined,
         e21: de21 != null ? Math.round(de21 * 100) / 100 : undefined,
         e48: de48 != null ? Math.round(de48 * 100) / 100 : undefined,
         e200: de200 != null ? Math.round(de200 * 100) / 100 : undefined,
+        pct_above_e5: pct(de5),
+        pct_above_e12: pct(de12),
         pct_above_e21: pct(de21),
         pct_above_e48: pct(de48),
         pct_above_e200: pct(de200),

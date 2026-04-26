@@ -34,7 +34,18 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_etf_precision_gate_enabled", "value": "false" },
 
     { "key": "deep_audit_consensus_gate_enabled", "value": "true" },
-    { "key": "deep_audit_consensus_min_signals", "value": "3" }
+    { "key": "deep_audit_consensus_min_signals", "value": "3" },
+
+    { "key": "deep_audit_peak_lock_enabled", "value": "true" },
+    { "key": "deep_audit_peak_lock_min_mfe_pct", "value": "2.0" },
+    { "key": "deep_audit_peak_lock_giveback_ratio", "value": "0.40" },
+    { "key": "deep_audit_peak_lock_e12_break_pct", "value": "-0.5" },
+    { "key": "deep_audit_peak_lock_e5_stretch_threshold_pct", "value": "4.0" },
+    { "key": "deep_audit_peak_lock_e5_test_threshold_pct", "value": "0.5" },
+    { "key": "deep_audit_peak_lock_min_pnl_pct", "value": "1.5" },
+
+    { "key": "deep_audit_default_trim_ratio", "value": "0.30" },
+    { "key": "deep_audit_runner_mfe_trail_giveback_pct", "value": "1.50" }
   ]
 }
 JSON
