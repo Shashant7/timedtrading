@@ -1,0 +1,246 @@
+{
+  "ok": true,
+  "date": "2025-08-04",
+  "tickerOffset": 0,
+  "tickerBatch": 4,
+  "tickersProcessed": 4,
+  "intervals": 14,
+  "intervalMinutes": 30,
+  "scored": 4,
+  "skipped": 0,
+  "tradesCreated": 0,
+  "totalTrades": 0,
+  "hasMore": false,
+  "nextTickerOffset": null,
+  "errorsCount": 52,
+  "errors": [
+    {
+      "ticker": "QQQ",
+      "ts": 1754314200000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1754314200000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1754316000000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1754316000000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1754316000000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1754317800000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1754317800000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1754317800000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1754319600000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1754319600000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    }
+  ],
+  "stageCounts": {
+    "watch": 2,
+    "setup": 2
+  },
+  "blockReasons": {
+    "h3_rank_below_transitional_floor": 1,
+    "da_short_rank_too_low": 3
+  },
+  "d1StateWritten": 4,
+  "trailWritten": 4,
+  "lastSnapshot": {
+    "SPY": {
+      "state": "HTF_BULL_LTF_BULL",
+      "htf_score": 20.2,
+      "ltf_score": 0.6,
+      "ema_regime_daily": 2,
+      "ema_regime_4h": -2,
+      "fuel_D": 94,
+      "fuel_10": 34,
+      "fuel_30": 58,
+      "st_support_D": {
+        "dir": "bear",
+        "slope": "flat",
+        "aligned": true
+      },
+      "kanban_stage": "watch",
+      "score": 58,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": 58
+    },
+    "QQQ": {
+      "fuel_D": null,
+      "fuel_10": null,
+      "fuel_30": null,
+      "st_support_D": null,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": null
+    },
+    "IWM": {
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "htf_score": 8.7,
+      "ltf_score": -1.1,
+      "ema_regime_daily": -2,
+      "ema_regime_4h": -2,
+      "fuel_D": 85,
+      "fuel_10": 38,
+      "fuel_30": 63,
+      "st_support_D": {
+        "dir": "bear",
+        "slope": "flat",
+        "aligned": true
+      },
+      "kanban_stage": "setup",
+      "score": 22,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": 63
+    },
+    "DIA": {
+      "fuel_D": null,
+      "fuel_10": null,
+      "fuel_30": null,
+      "st_support_D": null,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": null
+    }
+  },
+  "targetSnapshots": {},
+  "targetTimeline": [],
+  "processDebug": [],
+  "blockedEntryGates": {
+    "h3_rank_below_transitional_floor": 2,
+    "_total": 8,
+    "da_short_rank_too_low": 6
+  },
+  "blockChainBars": [
+    {
+      "ticker": "SPY",
+      "ts": 1754314200000,
+      "reason": "h3_rank_below_transitional_floor",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 58,
+      "rank": 58,
+      "htf_score": 20.2,
+      "ltf_score": 0.6,
+      "daily_structure": {
+        "px": 631.17,
+        "e21": 630.46,
+        "e48": 625.46,
+        "e200": 599.23,
+        "pct_above_e48": 0.91,
+        "pct_above_e21": 0.11,
+        "e21_slope_5d_pct": -0.26,
+        "e48_slope_10d_pct": 0.43,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      }
+    },
+    {
+      "ticker": "IWM",
+      "ts": 1754314200000,
+      "reason": "da_short_rank_too_low",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 27,
+      "rank": 27,
+      "htf_score": 8.7,
+      "ltf_score": -4.5,
+      "daily_structure": {
+        "px": 219.73,
+        "e21": 220.75,
+        "e48": 220.07,
+        "e200": 213.3,
+        "pct_above_e48": -0.16,
+        "pct_above_e21": -0.46,
+        "e21_slope_5d_pct": -0.8,
+        "e48_slope_10d_pct": -0.14,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      }
+    },
+    {
+      "ticker": "IWM",
+      "ts": 1754316000000,
+      "reason": "da_short_rank_too_low",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 32,
+      "rank": 32,
+      "htf_score": 8.7,
+      "ltf_score": 2.2,
+      "daily_structure": {
+        "px": 219.73,
+        "e21": 220.75,
+        "e48": 220.07,
+        "e200": 213.3,
+        "pct_above_e48": -0.16,
+        "pct_above_e21": -0.46,
+        "e21_slope_5d_pct": -0.8,
+        "e48_slope_10d_pct": -0.14,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      }
+    },
+    {
+      "ticker": "IWM",
+      "ts": 1754317800000,
+      "reason": "da_short_rank_too_low",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 22,
+      "rank": 22,
+      "htf_score": 8.7,
+      "ltf_score": -1.1,
+      "daily_structure": {
+        "px": 219.73,
+        "e21": 220.75,
+        "e48": 220.07,
+        "e200": 213.3,
+        "pct_above_e48": -0.16,
+        "pct_above_e21": -0.46,
+        "e21_slope_5d_pct": -0.8,
+        "e48_slope_10d_pct": -0.14,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      }
+    }
+  ],
+  "blockChainCap": 100000,
+  "fullDay": true
+}

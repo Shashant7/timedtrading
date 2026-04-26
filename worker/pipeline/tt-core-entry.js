@@ -117,6 +117,11 @@ export function evaluateEntry(ctx) {
   const cvgContext = cvg || d?.intraday_cvg || null;
   const entrySupportProfile = entrySupport || d?.entry_support_profile || null;
 
+  // V15 (2026-04-25): _tickerUpperEarly is needed by ETF carve-outs in the
+  // h3 layer. Hoisted to the top of evaluateEntry so it's available everywhere
+  // (was previously declared at line 910, after several gates that now need it).
+  const _tickerUpperEarly = String(d?.ticker || d?.sym || ctx.ticker || "").trim().toUpperCase();
+
   let momentumTrigger = false;
   let pullbackTrigger = false;
   let reclaimTrigger = false;
@@ -480,12 +485,55 @@ export function evaluateEntry(ctx) {
         _focusConviction = { score: 60, tier: "B", breakdown: { error: String(err?.message || err) } };
       }
 
-      // Tier-specific conviction floors (DA-keyed for tuning)
-      const _tierAFloor = Number(daCfg.deep_audit_focus_tier_a_floor ?? 75);
-      const _tierBFloor = Number(daCfg.deep_audit_focus_tier_b_floor ?? 50);
-      const _tierCFloor = Number(daCfg.deep_audit_focus_tier_c_floor ?? 45);
-      // Minimum conviction required to enter at all (defaults to Tier C floor)
-      const _entryMinConviction = Number(daCfg.deep_audit_focus_min_entry_conviction ?? _tierCFloor);
+      // V15 P0.5 (2026-04-26): tier floors reverted to P0.3 baseline.
+      // A=110, B=80, C<80 entry blocked. Hard min 80.
+      const _tierAFloor = Math.max(110, Number(daCfg.deep_audit_focus_tier_a_floor ?? 110));
+      const _tierBFloor = Math.max(80, Number(daCfg.deep_audit_focus_tier_b_floor ?? 80));
+      const _tierCFloor = Math.max(80, Number(daCfg.deep_audit_focus_tier_c_floor ?? 80));
+      const _entryMinConviction = Math.max(80, Number(daCfg.deep_audit_focus_min_entry_conviction ?? _tierCFloor));
+
+      // ─────────────────────────────────────────────────────────────────
+      // V15 P0.5 — HARD VETOES (2026-04-26)
+      //
+      // Single veto rule: fade-into-level (-15 Saty) AND phase opposing
+      // (-10) AND RSI opposing (-5) — all three negative signals firing
+      // simultaneously is the unambiguous catastrophe pattern.
+      //
+      // The H Apr 7 -11.39% trade: saty=+10 (riding through), phase=-10,
+      // rsi=-5 — would NOT trigger this veto. But conviction would be
+      // around 78 (below 80 floor) so it gets blocked by floor.
+      //
+      // The ORCL Jul 31 -5.17% trade: saty=-15, phase=+10, rsi=+5 —
+      // would NOT trigger this veto either. But conviction with reverted
+      // P0.5 weights drops below 80 floor.
+      //
+      // The CDNS Jul 31 -3.23% trade: saty=-15, phase=+10, rsi=-5 —
+      // similarly relies on conviction floor.
+      //
+      // So the conviction floor at 80 (with reverted weights) catches
+      // these. The veto is reserved for the WORST-of-the-worst:
+      // explicit fade-into-level + ALL momentum signals opposing.
+      // ─────────────────────────────────────────────────────────────────
+      const _vetoEnabled = String(daCfg.deep_audit_v15_negative_veto_enabled ?? "true") === "true";
+      if (_vetoEnabled && _focusConviction?.breakdown) {
+        const _bd = _focusConviction.breakdown;
+        const _satyPts = Number(_bd?.saty_atr_proximity?.pts ?? 0);
+        const _phasePts = Number(_bd?.phase_alignment?.pts ?? 0);
+        const _rsiPts = Number(_bd?.rsi_alignment?.pts ?? 0);
+
+        // Hard veto: fade-into-level + phase opposing + RSI opposing.
+        // All three signals must be at their max-negative for this
+        // to fire. This is the unambiguous "do not enter" pattern.
+        if (_satyPts <= -15 && _phasePts <= -10 && _rsiPts <= -5) {
+          return rejectEntry("v15_veto_all_signals_oppose", {
+            saty_pts: _satyPts,
+            phase_pts: _phasePts,
+            rsi_pts: _rsiPts,
+            saty_reason: _bd?.saty_atr_proximity?.reason,
+            phase_reason: _bd?.phase_alignment?.reason,
+          });
+        }
+      }
 
       if (_focusConviction.score < _entryMinConviction) {
         return rejectEntry("focus_conviction_below_floor", {
@@ -622,7 +670,20 @@ export function evaluateEntry(ctx) {
     // unless ticker rank is exceptional AND cohort is permitted.
     // Cycle label comes from ctx.market.monthlyCycle (populated by
     // trade-context from the backdrop file for the replay date).
-    const _h3AdaptiveEnabled = String(daCfg.deep_audit_regime_adaptive_enabled ?? "false") === "true";
+    //
+    // V15 (2026-04-25): same ETF carve-out as the h3 consensus gate
+    // (Layer 3 below). Indices have their own dedicated qualification
+    // path via tt_index_etf_swing trigger which imposes stricter daily-
+    // structure quality than these regime rank floors. Without this
+    // exemption, transitional-month ETF entries are killed by
+    // h3_rank_below_transitional_floor (observed on 2025-07-01,
+    // 2025-08-08, 2026-01-07 winning Phase E2 bars).
+    // Always exempt the four major index ETFs regardless of DA key value
+    // (the swing-trigger DA key may be set to "SPY,QQQ,IWM" without DIA;
+    // we still want DIA to bypass these stock-centric gates).
+    const _h3LayerIsIndexEtf = ["SPY","QQQ","IWM","DIA"].includes(_tickerUpperEarly);
+    const _h3AdaptiveEnabled = String(daCfg.deep_audit_regime_adaptive_enabled ?? "false") === "true"
+      && !_h3LayerIsIndexEtf;
     if (_h3AdaptiveEnabled) {
       const cycle = String(ctx?.market?.monthlyCycle || "").toLowerCase();
       const tickerCohort = String(d?._cohort || d?.cohort || "").toLowerCase();
@@ -663,7 +724,21 @@ export function evaluateEntry(ctx) {
     // Scoring across 5 dimensions. Requires at least N of 5 to corroborate
     // the direction before the setup is eligible. This kicks in before the
     // setup-specific evaluation below, so it acts as a baseline quality check.
-    const _h3ConsensusEnabled = String(daCfg.deep_audit_consensus_gate_enabled ?? "false") === "true";
+    //
+    // V15 (2026-04-25): EXEMPT INDEX ETFs (SPY/QQQ/IWM/DIA) from the h3
+    // consensus gate. The consensus gate requires 3-of-5 signals including
+    // sector alignment (indices have no parent sector → auto-fail) and
+    // volume rvol >= 1.2 (indices have steady volume profiles → rarely fire).
+    // This locks indices out structurally — phase-e2 v4 slices produced
+    // 47 ETF trades at 71.7% WR before this gate was added; v14 produced
+    // ZERO. Indices have their own dedicated qualification path
+    // (tt_index_etf_swing trigger at line ~1023) which is a stronger
+    // baseline-quality filter than the per-stock h3 consensus.
+    // Hard-coded major index ETF exemption (ignores DA key which may
+    // omit DIA). These four are structurally distinct from stocks.
+    const _h3IsIndexEtf = ["SPY","QQQ","IWM","DIA"].includes(_tickerUpperEarly);
+    const _h3ConsensusEnabled = String(daCfg.deep_audit_consensus_gate_enabled ?? "false") === "true"
+      && !_h3IsIndexEtf;
     if (_h3ConsensusEnabled) {
       const isLong = side === "LONG";
       let signals = 0;
@@ -876,10 +951,8 @@ export function evaluateEntry(ctx) {
     reclaimTrigger = true;
   }
 
-  // tickerUpper is needed by the Phase-E ETF swing trigger below; the main
-  // QUALITY REJECTION GATES block also declares it but the trigger needs it
-  // first. Use a local identifier here.
-  const _tickerUpperEarly = String(d?.ticker || d?.sym || ctx.ticker || "").trim().toUpperCase();
+  // _tickerUpperEarly is hoisted to the top of evaluateEntry (see above)
+  // so it's available to all gates including the h3 layer ETF carve-outs.
 
   // ──────────────────────────────────────────────────────────────────────
   // V12 P6 (2026-04-23) — ETF PRECISION GATE
@@ -907,10 +980,26 @@ export function evaluateEntry(ctx) {
   //
   // See: tasks/v12-killer-strategy-2026-04-23.md
   // ──────────────────────────────────────────────────────────────────────
+  // V15 (2026-04-25): the ETF Precision Gate is positioned BEFORE the
+  // tt_index_etf_swing trigger and uses a 10-of-10 conjunction that no
+  // realistic ETF setup passes. Phase E2 v4 produced 47 SPY/QQQ/IWM
+  // trades at 71.7% WR using ONLY the swing trigger as the quality
+  // filter (no precision gate). The swing trigger IS the canonical
+  // ETF entry filter. Force-disable this gate for the four major
+  // index ETFs regardless of DA config, because pinned-config snapshots
+  // from V12 activation re-enable it without our consent.
+  //
+  // To re-enable for experiments, use a different ticker outside
+  // SPY/QQQ/IWM/DIA via deep_audit_etf_precision_tickers.
   const _etfPgEnabled = String(daCfg.deep_audit_etf_precision_gate_enabled ?? "false") === "true";
-  const _etfPgTickerList = String(daCfg.deep_audit_etf_precision_tickers ?? "SPY,QQQ,IWM,DIA")
+  const _etfPgTickerList = String(daCfg.deep_audit_etf_precision_tickers ?? "")
     .split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
-  const _isEtfPgTicker = _etfPgEnabled && _etfPgTickerList.includes(_tickerUpperEarly);
+  const _hardCodedIndexEtfs = ["SPY","QQQ","IWM","DIA"];
+  const _isHardCodedIndexEtf = _hardCodedIndexEtfs.includes(_tickerUpperEarly);
+  const _isEtfPgTicker = _etfPgEnabled
+    && _etfPgTickerList.length > 0
+    && _etfPgTickerList.includes(_tickerUpperEarly)
+    && !_isHardCodedIndexEtf;  // V15: never apply this gate to major index ETFs
   if (_isEtfPgTicker) {
     const fails = [];
     const daily = ctx?.daily || d?.daily_structure || {};
@@ -998,7 +1087,13 @@ export function evaluateEntry(ctx) {
     const convLocal = Number(d?.__focus_conviction_score ?? 0);
     // Fallback: if conviction isn't populated (focus_tier disabled),
     // preserve legacy rank check so the gate still functions.
-    if (_focusTierEnabled ?? false) {
+    //
+    // V15 (2026-04-25) FIX: re-read _focusTierEnabled locally because the
+    // version declared at line ~447 is out of scope here (it was inside
+    // the H3-entry-discipline block 323-751). Previous code referenced it
+    // and threw ReferenceError when ETFs reached this gate.
+    const _focusTierEnabledLocal = String(daCfg.deep_audit_focus_tier_enabled ?? "false") === "true";
+    if (_focusTierEnabledLocal) {
       if (convLocal < _minConv) fails.push(`f10_conviction_below_${_minConv}_got_${convLocal}`);
     } else {
       const _legacyMinRank = Number(daCfg.deep_audit_etf_precision_min_rank ?? 90);
@@ -1054,6 +1149,24 @@ export function evaluateEntry(ctx) {
       const e21Slope = Number(daily.e21_slope_5d_pct);
       const state = String(ctx.state || "");
       const m30Cloud89 = tf?.m30?.ripster?.c8_9 || null;
+
+      // V15 (2026-04-25) — per-bar trigger diagnostic. Stamps every condition
+      // with its actual value + pass/fail so we can see precisely which gate
+      // is killing each ETF bar in the Phase E2 baseline comparison.
+      const _swingDiag = {
+        side,
+        rank: { value: rankScore, min: minScore, pass: rankScore >= minScore },
+        rvol: { value: rvolSignal, min: rvolMin, pass: rvolSignal >= rvolMin },
+        bull_stack: { value: daily.bull_stack, pass: daily.bull_stack === true },
+        bear_stack: { value: daily.bear_stack, pass: daily.bear_stack === true },
+        above_e200: { value: daily.above_e200 },
+        pct_above_e48: { value: pctAbove48, longBand: [pctAboveE48Min, pctAboveE48Max], shortBand: [-pctBelowE48Max, -pctBelowE48Min] },
+        e21_slope: { value: e21Slope, longBand: [e21SlopeMin, e21SlopeMax], shortBand: [-e21SlopeMax, -e21SlopeMin] },
+        state: { value: state, longOk: ["HTF_BULL_LTF_PULLBACK","HTF_BULL_LTF_BULL"], shortOk: ["HTF_BEAR_LTF_BOUNCE","HTF_BEAR_LTF_BEAR"] },
+        c10_8: { above: !!c10_8?.above, below: !!c10_8?.below, inCloud: !!c10_8?.inCloud },
+        m30_8_9: { above: !!m30Cloud89?.above, below: !!m30Cloud89?.below, inCloud: !!m30Cloud89?.inCloud },
+      };
+
       if (side === "LONG"
         && rankScore >= minScore
         && rvolSignal >= rvolMin
@@ -1083,6 +1196,11 @@ export function evaluateEntry(ctx) {
         && (c10_8?.below || c10_8?.inCloud || m30Cloud89?.below || m30Cloud89?.inCloud)) {
         indexEtfSwingTrigger = true;
       }
+
+      _swingDiag.fired = indexEtfSwingTrigger;
+      // Stamp trace for both pass and fail so the diagnostic is complete.
+      d.__index_etf_swing_diag = _swingDiag;
+
       if (indexEtfSwingTrigger) {
         // Promote to reclaimTrigger semantically so downstream quality gates
         // that test `reclaimTrigger` relax correctly (this trigger is more

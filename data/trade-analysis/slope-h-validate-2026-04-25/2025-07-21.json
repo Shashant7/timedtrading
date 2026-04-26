@@ -1,0 +1,130 @@
+{
+  "ok": true,
+  "date": "2025-07-21",
+  "tickerOffset": 0,
+  "tickerBatch": 4,
+  "tickersProcessed": 1,
+  "intervals": 14,
+  "intervalMinutes": 30,
+  "scored": 14,
+  "skipped": 0,
+  "tradesCreated": 1,
+  "totalTrades": 1,
+  "hasMore": false,
+  "nextTickerOffset": null,
+  "errorsCount": 0,
+  "errors": [],
+  "stageCounts": {
+    "in_review": 1,
+    "defend": 5,
+    "trim": 8
+  },
+  "blockReasons": {},
+  "d1StateWritten": 1,
+  "trailWritten": 14,
+  "lastSnapshot": {
+    "H": {
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "htf_score": 31.5,
+      "ltf_score": -23.1,
+      "ema_regime_daily": 2,
+      "ema_regime_4h": 1,
+      "fuel_D": 94,
+      "fuel_10": 18,
+      "fuel_30": 69,
+      "st_support_D": {
+        "dir": "bull",
+        "slope": "flat",
+        "aligned": true
+      },
+      "kanban_stage": "defend",
+      "score": 96,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": 69
+    }
+  },
+  "targetSnapshots": {},
+  "targetTimeline": [],
+  "processDebug": [
+    {
+      "sym": "H",
+      "at": "entry",
+      "stage": "in_review",
+      "hasEntryPath": true
+    },
+    {
+      "sym": "H",
+      "at": "isEnter",
+      "stage": "in_review",
+      "storedStage": "in_review"
+    },
+    {
+      "sym": "H",
+      "at": "pre_gate",
+      "weekendNow": false,
+      "outsideRTH": false,
+      "enterCooldownOk": true,
+      "sameEnterCycle": false,
+      "openTrade": false,
+      "smartGateBlocked": false,
+      "parityOpeningConfirmedDeferred": false
+    },
+    {
+      "sym": "H",
+      "at": "before_smart",
+      "weekendNow": false,
+      "outsideRTH": false,
+      "canRun": true
+    },
+    {
+      "ts": 1753104600000,
+      "sym": "H",
+      "storedStage": "in_review",
+      "stage": "in_review",
+      "isEnter": true,
+      "weekendNow": false,
+      "enterCooldownOk": true,
+      "sameEnterCycle": false,
+      "openTrade": false,
+      "openTradeStatus": null,
+      "openTradeTrimmedPct": 0,
+      "openTradeEntryTs": null,
+      "openTradeExitReason": null,
+      "smartGateBlocked": false,
+      "direction": "LONG",
+      "entryPath": "tt_pullback"
+    },
+    {
+      "sym": "H",
+      "gate": "passed",
+      "dir": "LONG",
+      "entryPath": "tt_pullback",
+      "entryPx": 148.795
+    },
+    {
+      "sym": "H",
+      "gate": "trade_validation",
+      "dir": "LONG",
+      "entryPx": 148.795,
+      "pxNow": 148.795,
+      "slCandidate": 143.74,
+      "tpCandidate": 153.38,
+      "allValid": true,
+      "hasSl": true,
+      "hasTp": true
+    },
+    {
+      "sym": "H",
+      "gate": "sizing",
+      "shares": 80.64787123223229,
+      "notional": 12000.000000000002,
+      "cash": 100000,
+      "method": "risk_based"
+    }
+  ],
+  "blockedEntryGates": {},
+  "blockChainBars": [],
+  "blockChainCap": 100000,
+  "fullDay": true
+}

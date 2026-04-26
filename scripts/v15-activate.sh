@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# V15 activation — quality-over-quantity tier floors + new signals.
+#
+# Layers on top of V12 killer-strategy + V13 focus-tier base. Sets:
+#   - V15 P0.3 tier floors recalibrated for 0-160 conviction range
+#   - ETF gate carve-outs (delivered via code, but DA-tunable)
+#   - Disable rank>=95 gating (anti-predictive per V14 forensic)
+#
+# Run AFTER:
+#   bash scripts/v12-activate-killer-strategy.sh
+#   bash scripts/v13-activate-focus-tier.sh
+#
+# Usage:
+#   TIMED_API_KEY=... bash scripts/v15-activate.sh
+#
+# See: tasks/v15-quality-over-quantity-plan-2026-04-25.md
+
+set -euo pipefail
+API_BASE="${API_BASE:-https://timed-trading-ingest.shashant.workers.dev}"
+API_KEY="${TIMED_API_KEY:?TIMED_API_KEY required}"
+
+read -r -d '' PAYLOAD <<'JSON' || true
+{
+  "updates": [
+    { "key": "deep_audit_focus_tier_enabled", "value": "true" },
+
+    { "key": "deep_audit_focus_tier_a_floor", "value": "110" },
+    { "key": "deep_audit_focus_tier_b_floor", "value": "80" },
+    { "key": "deep_audit_focus_tier_c_floor", "value": "80" },
+    { "key": "deep_audit_focus_min_entry_conviction", "value": "80" },
+
+    { "key": "deep_audit_v15_negative_veto_enabled", "value": "true" },
+
+    { "key": "deep_audit_etf_precision_gate_enabled", "value": "false" },
+
+    { "key": "deep_audit_consensus_gate_enabled", "value": "true" },
+    { "key": "deep_audit_consensus_min_signals", "value": "3" },
+
+    { "key": "deep_audit_peak_lock_enabled", "value": "true" },
+    { "key": "deep_audit_peak_lock_min_mfe_pct", "value": "2.0" },
+    { "key": "deep_audit_peak_lock_giveback_ratio", "value": "0.40" },
+    { "key": "deep_audit_peak_lock_e12_break_pct", "value": "-0.5" },
+    { "key": "deep_audit_peak_lock_e5_stretch_threshold_pct", "value": "4.0" },
+    { "key": "deep_audit_peak_lock_e5_test_threshold_pct", "value": "0.5" },
+    { "key": "deep_audit_peak_lock_min_pnl_pct", "value": "1.5" },
+
+    { "key": "deep_audit_default_trim_ratio", "value": "0.30" },
+    { "key": "deep_audit_runner_mfe_trail_giveback_pct", "value": "1.50" }
+  ]
+}
+JSON
+
+echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] V15 quality-over-quantity activation"
+curl -sS -m 30 -X POST "$API_BASE/timed/admin/model-config?key=$API_KEY" \
+  -H "Content-Type: application/json" -d "$PAYLOAD" | python3 -m json.tool
