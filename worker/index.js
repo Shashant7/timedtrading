@@ -17653,21 +17653,43 @@ async function processTradeSimulation(
     const MAX_PER_SECTOR = 4;           // max open positions in one sector (was 3; Industrials/sector_etf over-blocked at 3)
     const MAX_SAME_DIRECTION = 12;      // max positions in same direction (was 8; trend-following is overwhelmingly LONG)
     const CORRELATION_SECTOR_THRESHOLD = 3; // if 3+ positions already in same sector, require higher quality
-    // v3: Regime-adaptive daily entry cap
+    // v3 → V15 P0.7.6 (2026-04-27): regime-adaptive daily entry cap
+    // *deprecated* — the cap was an artificial time-of-day filter that
+    // imposed scarcity on a system that already filters quality via
+    // multiple gates (focus_conviction, h3_consensus, sector
+    // concentration, correlation, MAX_OPEN_POSITIONS).
     //
-    // V15 P0.7.5 (2026-04-27): caps raised after lower conviction floor
-    // (70) qualified more candidates per day. Original caps 2/4/6 ran
-    // out mid-day before high-quality late-day entries (LITE Jul 14
-    // 15:30, NEU/GOOGL Jul 1 etc.) could be evaluated. New caps 4/8/12
-    // give the pipeline room to process more candidates without
-    // arbitrary cutoff. The other gates (focus_conviction, h3_consensus,
-    // sector concentration) continue to do quality filtering.
+    // Why the cap was wrong:
+    //   1. It capped by COUNT not CAPITAL — wrong model. A real trader
+    //      sizes positions by risk, not "I already took 4, no more."
+    //   2. It created chronological bias — morning entries beat
+    //      afternoon entries regardless of conviction. LITE Jul 14
+    //      15:30 was missed in the first P0.7.5 attempt because morning
+    //      borderlines filled the cap.
+    //   3. NVDA and META can run for completely different reasons on
+    //      the same day; the cap conflated them.
+    //
+    // What replaces it:
+    //   - MAX_OPEN_POSITIONS = 20 (hard ceiling for cron-runaway safety)
+    //   - MAX_PER_SECTOR = 4
+    //   - MAX_SAME_DIRECTION = 12
+    //   - All quality gates (conviction, h3, RVol, etc.) unchanged.
+    //
+    // Live-system future work (Phase B): replace count-cap with capital-
+    // aware allocation — when allocated risk > 80% of account, reject
+    // new entries. Captured in tasks/ for V16+.
+    //
+    // The cap is now configurable and DEFAULTS TO UNCAPPED (effectively
+    // 999). If a future need arises (regime flip, fat-finger guardrail),
+    // set deep_audit_max_daily_entries via DA config to a positive
+    // number to re-enable.
     const tickerRegimeClass = String(tickerData?.regime_class || "TRANSITIONAL");
-    const regimeDailyMax = tickerRegimeClass === "CHOPPY" ? 4
-      : tickerRegimeClass === "TRANSITIONAL" ? 8 : 12;
-    const MAX_DAILY_ENTRIES = Number(
+    const _daCapRaw = Number(
       tickerData?._env?._deepAuditConfig?.deep_audit_max_daily_entries
-    ) || regimeDailyMax;
+    );
+    const MAX_DAILY_ENTRIES = (Number.isFinite(_daCapRaw) && _daCapRaw > 0)
+      ? _daCapRaw
+      : 999;
     
     const db = env?.DB;
     const canRunSmartGates = isEnter && !weekendNow && !outsideRTH && enterCooldownOk && !sameEnterCycle && !openTrade && (db || isReplay);

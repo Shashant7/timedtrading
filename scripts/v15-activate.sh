@@ -63,7 +63,9 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_eod_low_mae_defer_pct", "value": "1.5" },
 
     { "key": "deep_audit_atr_week_618_defer_on_cloud_hold", "value": "true" },
-    { "key": "deep_audit_atr_week_618_partial_trim_pct", "value": "0.30" }
+    { "key": "deep_audit_atr_week_618_partial_trim_pct", "value": "0.30" },
+
+    { "key": "deep_audit_max_daily_entries", "value": "999" }
   ]
 }
 JSON
