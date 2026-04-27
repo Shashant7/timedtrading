@@ -17649,10 +17649,38 @@ async function processTradeSimulation(
     //   Gate 2: Directional concentration — max 5 same-direction positions
     //   Gate 3: Correlation guard — block if highly correlated with existing
     //   Safety net: MAX_DAILY_ENTRIES to prevent runaway crons
-    const MAX_OPEN_POSITIONS = 20;      // hard cap on total open positions (was 15; simulation shows 15 blocks 12-13 trades incl winners)
-    const MAX_PER_SECTOR = 4;           // max open positions in one sector (was 3; Industrials/sector_etf over-blocked at 3)
-    const MAX_SAME_DIRECTION = 12;      // max positions in same direction (was 8; trend-following is overwhelmingly LONG)
-    const CORRELATION_SECTOR_THRESHOLD = 3; // if 3+ positions already in same sector, require higher quality
+    // V15 P0.7.7 (2026-04-27): caps re-tuned after universe-coverage audit.
+    //
+    // Universe sector saturation (203 tickers):
+    //   Industrials             44   → fixed cap 4 = 9.1% utilization (too tight)
+    //   Information Technology  43   → 9.3% (too tight)
+    //   Consumer Discretionary  20   → 20%
+    //   Index ETF                4   → 100% (was 22% under bundled ETF bucket)
+    //   Financials              13   → 31%
+    //   Energy                  12   → 33%
+    //   Basic Materials         11   → 36%
+    //   Health Care             16   → 25% (after Healthcare/Health Care
+    //                                       dedupe)
+    //   Communication Services   8   → 50%
+    //   Consumer Staples         7   → 57%
+    //
+    // Fixed cap 4 was the wrong shape. New cap is proportional:
+    //   MAX_PER_SECTOR_PCT × sector_universe_size, floored at 4.
+    //
+    // MAX_OPEN_POSITIONS raised to 35 to support strong-trend days where
+    // 30+ quality setups across multiple sectors fire simultaneously.
+    // The 50 ceiling stays as a runaway-cron safety. Capital cap (V16)
+    // will be the true governor.
+    //
+    // MAX_SAME_DIRECTION raised to 25 — given universe LONG-bias, the
+    // 12 cap was hitting on every strong-trend day. Real correlation
+    // risk is via sector concentration, not total direction count.
+    const MAX_OPEN_POSITIONS = 35;      // raised from 20; runaway-safety only
+    const MAX_OPEN_POSITIONS_HARD_LIMIT = 50;  // absolute backstop
+    const MAX_PER_SECTOR_PCT = 0.20;    // 20% of sector universe size
+    const MAX_PER_SECTOR_FLOOR = 4;     // never less than 4
+    const MAX_SAME_DIRECTION = 25;      // raised from 12 (LONG-bias of universe)
+    const CORRELATION_SECTOR_THRESHOLD = Math.max(3, MAX_PER_SECTOR_FLOOR - 1);
     // v3 → V15 P0.7.6 (2026-04-27): regime-adaptive daily entry cap
     // *deprecated* — the cap was an artificial time-of-day filter that
     // imposed scarcity on a system that already filters quality via
@@ -17723,16 +17751,33 @@ async function processTradeSimulation(
           console.log(`[SMART_GATE] Blocked ${sym}: ${smartGateReason}`);
         }
 
-        // Gate 1: Sector concentration
+        // Gate 1: Sector concentration — proportional to sector universe size.
+        // V15 P0.7.7: replaces fixed MAX_PER_SECTOR=4 which over-blocked
+        // large sectors (Industrials 44 tickers → only 9% could trade).
         let sectorCount = 0;
+        let sectorCapForCandidate = MAX_PER_SECTOR_FLOOR;
         if (!smartGateBlocked) {
           for (const pos of openPositions) {
             const posSector = getSector(String(pos.ticker).toUpperCase()) || "UNKNOWN";
             if (posSector === candidateSector && candidateSector !== "UNKNOWN") sectorCount++;
           }
-          if (sectorCount >= MAX_PER_SECTOR) {
+          // Compute proportional cap based on candidate's sector size.
+          // getTickersInSector enumerates the SECTOR_MAP for that sector.
+          let sectorUniverseSize = 0;
+          try {
+            sectorUniverseSize = (typeof getTickersInSector === "function")
+              ? getTickersInSector(candidateSector).length
+              : 0;
+          } catch (e) {
+            sectorUniverseSize = 0;
+          }
+          sectorCapForCandidate = Math.max(
+            MAX_PER_SECTOR_FLOOR,
+            Math.ceil(sectorUniverseSize * MAX_PER_SECTOR_PCT)
+          );
+          if (sectorCount >= sectorCapForCandidate) {
             smartGateBlocked = true;
-            smartGateReason = `sector_full:${sectorCount}/${MAX_PER_SECTOR} ${candidateSector}`;
+            smartGateReason = `sector_full:${sectorCount}/${sectorCapForCandidate} ${candidateSector} (univ=${sectorUniverseSize})`;
             console.log(`[SMART_GATE] Blocked ${sym}: ${smartGateReason}`);
           }
         }
@@ -17751,13 +17796,18 @@ async function processTradeSimulation(
         }
         
         // Gate 3: Correlation guard (sector proxy)
-        // If 2+ positions already in same sector, require higher entry quality
-        if (!smartGateBlocked && sectorCount >= CORRELATION_SECTOR_THRESHOLD) {
+        // If positions are >=75% of sector cap, require higher entry quality.
+        // V15 P0.7.7: scales with proportional sector cap.
+        const correlationThreshold = Math.max(
+          MAX_PER_SECTOR_FLOOR - 1,
+          Math.ceil(sectorCapForCandidate * 0.75)
+        );
+        if (!smartGateBlocked && sectorCount >= correlationThreshold) {
           const eqScore = Number(tickerData?.entry_quality?.score || tickerData?.__entry_quality) || 0;
-          const requiredQuality = 80; // higher bar when sector is already represented (was 75)
+          const requiredQuality = 80;
           if (eqScore > 0 && eqScore < requiredQuality) {
             smartGateBlocked = true;
-            smartGateReason = `correlated:${sectorCount} in ${candidateSector}, need quality>=${requiredQuality} (got ${eqScore})`;
+            smartGateReason = `correlated:${sectorCount}/${sectorCapForCandidate} in ${candidateSector}, need quality>=${requiredQuality} (got ${eqScore})`;
             console.log(`[SMART_GATE] Blocked ${sym}: ${smartGateReason}`);
           }
         }
@@ -32270,14 +32320,14 @@ const SECTOR_MAP = {
   UHS: "Health Care",
   VRTX: "Health Care",
   ISRG: "Health Care",
-  UNH: "Healthcare",
-  LLY: "Healthcare",
-  MRK: "Healthcare",
-  ABT: "Healthcare",
-  HIMS: "Healthcare",
-  TEM: "Healthcare",
-  BMNR: "Healthcare",
-  CRWV: "Healthcare",
+  UNH: "Health Care",
+  LLY: "Health Care",
+  MRK: "Health Care",
+  ABT: "Health Care",
+  HIMS: "Health Care",
+  TEM: "Health Care",
+  BMNR: "Health Care",
+  CRWV: "Health Care",
   // ── Aerospace & Defense ──
   RKLB: "Aerospace & Defense",
   NOC: "Aerospace & Defense",
@@ -32293,14 +32343,14 @@ const SECTOR_MAP = {
   AGQ: "Precious Metals",
   HL: "Precious Metals",
   // ── Leveraged / Thematic ETFs ──
-  SOXL: "ETF",
-  TNA: "ETF",
+  SOXL: "Index ETF",                   // 3x semis — leveraged, behaves like index ETF
+  TNA: "Index ETF",                    // 3x small caps — leveraged, behaves like index ETF
   XHB: "Sector ETF",                   // SPDR Homebuilders ETF
   IBB:  "Thematic ETF",                // iShares Biotech ETF
   INFL: "Thematic ETF",                // Horizon Kinetics Inflation Beneficiaries
   LIT:  "Thematic ETF",                // Global X Lithium & Battery Tech
-  RPG:  "Thematic ETF",                // Invesco S&P 500 Pure Growth
-  SPHB: "Thematic ETF",                // Invesco S&P 500 High Beta
+  RPG:  "Index ETF",                   // Invesco S&P 500 Pure Growth (broad equity)
+  SPHB: "Index ETF",                   // Invesco S&P 500 High Beta (broad equity)
   GRNJ: "Thematic ETF",                // Fundstrat Granny Shots Small-Mid Cap
   GRNI: "Thematic ETF",                // Fundstrat Granny Shots Large Cap & Income
   DBA:  "Commodity ETF",               // Invesco Agriculture Fund
@@ -32321,12 +32371,17 @@ const SECTOR_MAP = {
   SLV: "Commodity ETF",
   USO: "Commodity ETF",
   VIXY: "Commodity ETF",
+  // ── Index ETFs (broad-market, tradeable as of Phase-E) ──
+  // Each is its OWN risk vehicle — SPY ≠ QQQ ≠ IWM ≠ DIA from a
+  // concentration standpoint. They are NOT the same "sector" as the
+  // sector-decomposition ETFs (XL*) which DO overlap with their
+  // underlying single-name sector positions.
   DIA: "Index ETF",
+  SPY: "Index ETF",
+  QQQ: "Index ETF",
+  IWM: "Index ETF",
   // ── Indices (watch-only — scored but not traded) ──
   SPX: "Index",
-  SPY: "Index",
-  QQQ: "Index",
-  IWM: "Index",
   US500: "Index",                       // S&P 500 (TradingView alias)
   // ── Futures (watch-only — scored but not traded) ──
   "ES1!": "Futures",
@@ -32385,9 +32440,15 @@ const SECTOR_RATINGS = {
   "Real Estate":             { rating: "neutral",     boost: 0,  delta: 0.0  },
   Utilities:                 { rating: "neutral",     boost: 0,  delta: 0.0  },
   Energy:                    { rating: "underweight", boost: -3, delta: -1.6 },
-  Healthcare:                { rating: "underweight", boost: -4, delta: -2.0 },
   "Health Care":             { rating: "underweight", boost: -4, delta: -2.0 },
   "Consumer Staples":        { rating: "underweight", boost: -5, delta: -4.0 },
+  // ETF sub-categories (V15 P0.7.7 — decomposed from single 'ETF' bucket)
+  "Index ETF":               { rating: "neutral",     boost: 0,  delta: 0.0  },
+  "Sector ETF":              { rating: "neutral",     boost: 0,  delta: 0.0  },
+  "Thematic ETF":            { rating: "neutral",     boost: 0,  delta: 0.0  },
+  "Commodity ETF":           { rating: "neutral",     boost: 0,  delta: 0.0  },
+  // Legacy single-bucket key (kept for back-compat with stored configs).
+  ETF:                       { rating: "neutral",     boost: 0,  delta: 0.0  },
 };
 
 function getSector(ticker) {
