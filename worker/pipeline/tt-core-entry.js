@@ -497,10 +497,22 @@ export function evaluateEntry(ctx) {
       // veto + Tier C-specific floor still catch the dangerous
       // setups; the 80 floor was over-filtering quality bull-stack
       // pullbacks.
-      const _tierAFloor = Math.max(90, Number(daCfg.deep_audit_focus_tier_a_floor ?? 90));
-      const _tierBFloor = Math.max(70, Number(daCfg.deep_audit_focus_tier_b_floor ?? 70));
-      const _tierCFloor = Math.max(65, Number(daCfg.deep_audit_focus_tier_c_floor ?? 65));
-      const _entryMinConviction = Math.max(65, Number(daCfg.deep_audit_focus_min_entry_conviction ?? 70));
+      // V15 P0.7.9 (2026-04-27): floor restored to 80 after no-cap mode
+      // exposed quality dilution. With the count cap removed, conviction
+      // floor IS the primary quality filter — needs to be tighter.
+      //
+      // CRITICAL: This is safe because P0.7.2 fixed the two signal bugs
+      // that originally caused the post-FOMC drought at floor 80:
+      //   1. Saty ATR returned -15 on every bullish ticker approaching
+      //      next resistance (now -5 when structure intact)
+      //   2. Phase weighted ±10 in trending markets where 5-bar slope is
+      //      noisy (now ±5 when structure agrees)
+      // Conviction scores in calm grinds are now higher; floor 80 is
+      // reachable without 11-day entry droughts.
+      const _tierAFloor = Math.max(110, Number(daCfg.deep_audit_focus_tier_a_floor ?? 110));
+      const _tierBFloor = Math.max(80, Number(daCfg.deep_audit_focus_tier_b_floor ?? 80));
+      const _tierCFloor = Math.max(75, Number(daCfg.deep_audit_focus_tier_c_floor ?? 75));
+      const _entryMinConviction = Math.max(75, Number(daCfg.deep_audit_focus_min_entry_conviction ?? 80));
 
       // ─────────────────────────────────────────────────────────────────
       // V15 P0.5 — HARD VETOES (2026-04-26)

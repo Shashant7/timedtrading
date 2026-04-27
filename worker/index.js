@@ -4005,12 +4005,11 @@ function qualifiesForEnter(d, asOfTs = null) {
           }
         }
 
-        // V15 P0.7.4 (2026-04-27): floor raised 65 -> 70 after P0.7.3
-        // smoke showed 65 admitted ~3 borderline entries that fast-cut
-        // for -1.2% each (PF 6.1 vs baseline 7.2 in clean numbers).
-        // 70 should preserve bull-grind entries while keeping PF closer
-        // to baseline.
-        const _entryMinConv = Math.max(65, Number(_focusDaCfg.deep_audit_focus_min_entry_conviction ?? 70));
+        // V15 P0.7.9 (2026-04-27): floor restored to 80 after no-cap mode
+        // exposed quality dilution. P0.7.2's saty/phase fixes mean
+        // conviction scores in calm grinds are now higher, so 80 is
+        // reachable without zero-entry days.
+        const _entryMinConv = Math.max(75, Number(_focusDaCfg.deep_audit_focus_min_entry_conviction ?? 80));
         if (_focusConv.score < _entryMinConv) {
           return {
             qualifies: false,
