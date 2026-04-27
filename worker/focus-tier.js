@@ -402,15 +402,43 @@ function scoreSatyAtrProximity(tickerData, ctx) {
   const levelAbove = nearest.price > price;
   const levelBelow = nearest.price < price;
 
-  // FADE-INTO-LEVEL detection — within 0.25 ATR
-  // SHORT: dangerous if level is above (acts as resistance ABOVE which a
-  //        short already entered, and price could reverse OFF the level
-  //        upward). Wait — a SHORT entered AT/NEAR a support level is
-  //        the classic "shorting into support" mistake. So:
-  //        SHORT + level BELOW + close = fade trap (level is support)
-  //        LONG  + level ABOVE + close = fade trap (level is resistance)
+  // FADE-INTO-LEVEL detection — within 0.25 ATR.
+  //
+  // V15 P0.7.2 (2026-04-27): the original logic punished LONG entries
+  // when price was within 0.25 ATR of the next resistance, and SHORT
+  // entries within 0.25 ATR of the next support. In trending markets
+  // this fires CONSTANTLY because price is always approaching the
+  // next level — Oct 9 SPY/QQQ/IWM/NVDA/META/GOOGL/LITE all scored
+  // saty=-15 simultaneously even though SPY was making fresh highs.
+  // That zeroed our entire entry pipeline for 11+ trading days.
+  //
+  // Fix: only penalize fade-into-level when we are ALSO showing
+  // momentum exhaustion. Two confirming inputs:
+  //   1. Daily structure NOT bull-stacked (for LONGs) / bear-stacked
+  //      (for SHORTs) — so we're not in a clean trend
+  //   2. Trend already extended (pct_above_e21 > +5% on long, indicating
+  //      we've run a lot and are likely overextended).
+  // If structure is intact AND not overextended, an approach to the
+  // next level is a BREAKOUT setup, not a fade — return mild penalty
+  // (-5) instead of -15, or 0 if also riding-through behavior.
   if (nearestDistAtr <= 0.25) {
     if (side === "LONG" && levelAbove) {
+      const ds = tickerData?.daily_structure || {};
+      const bullStack = ds?.bull_stack === true;
+      const pctAboveE21 = Number(ds?.pct_above_e21);
+      const isOverextended = Number.isFinite(pctAboveE21) && pctAboveE21 > 5;
+      if (bullStack && !isOverextended) {
+        // Trending bull setup approaching next resistance = breakout
+        // candidate, not a fade. Mild penalty, not catastrophe.
+        return {
+          pts: -5,
+          reason: `near_resistance_in_trend_${nearest.label}_${nearestDistAtr.toFixed(2)}atr`,
+          nearest_level: nearest.price,
+          nearest_label: nearest.label,
+          distance_atr: Math.round(nearestDistAtr * 100) / 100,
+          structurally_supported: true,
+        };
+      }
       return {
         pts: -15,
         reason: `fade_into_resistance_${nearest.label}_${nearestDistAtr.toFixed(2)}atr`,
@@ -420,6 +448,20 @@ function scoreSatyAtrProximity(tickerData, ctx) {
       };
     }
     if (side === "SHORT" && levelBelow) {
+      const ds = tickerData?.daily_structure || {};
+      const bearStack = ds?.bear_stack === true;
+      const pctAboveE21 = Number(ds?.pct_above_e21);
+      const isOverextended = Number.isFinite(pctAboveE21) && pctAboveE21 < -5;
+      if (bearStack && !isOverextended) {
+        return {
+          pts: -5,
+          reason: `near_support_in_downtrend_${nearest.label}_${nearestDistAtr.toFixed(2)}atr`,
+          nearest_level: nearest.price,
+          nearest_label: nearest.label,
+          distance_atr: Math.round(nearestDistAtr * 100) / 100,
+          structurally_supported: true,
+        };
+      }
       return {
         pts: -15,
         reason: `fade_into_support_${nearest.label}_${nearestDistAtr.toFixed(2)}atr`,
@@ -496,18 +538,32 @@ function scorePhaseAlignment(tickerData, ctx) {
   }
 
   const NEUTRAL_BAND = 0.5;
+  // V15 P0.7.2 (2026-04-27): when daily structure clearly supports the
+  // trade direction (bull_stack for LONG, bear_stack for SHORT), reduce
+  // the magnitude of the phase signal. The structure already tells us
+  // the trend; the phase oscillator's short-term slope is a tie-breaker
+  // here, not a primary signal. Otherwise phase=-10 readings on every
+  // bull-stacked LONG eat ~10 pts off conviction in calm grind regimes
+  // (SPY/NVDA Oct 9 saw conviction = 32-74 because of this).
+  const ds = tickerData?.daily_structure || {};
+  const bullStack = ds?.bull_stack === true;
+  const bearStack = ds?.bear_stack === true;
+  const structureSupports = (side === "LONG" && bullStack) || (side === "SHORT" && bearStack);
+  const POS_PTS = structureSupports ? 5 : 10;
+  const NEG_PTS = structureSupports ? -5 : -10;
+
   let pts = 0;
   let reason = "";
   if (side === "LONG") {
-    if (slope >= NEUTRAL_BAND) { pts = 10; reason = `phase_confirms_long_${slope.toFixed(2)}`; }
-    else if (slope <= -NEUTRAL_BAND) { pts = -10; reason = `phase_opposes_long_${slope.toFixed(2)}`; }
+    if (slope >= NEUTRAL_BAND) { pts = POS_PTS; reason = `phase_confirms_long_${slope.toFixed(2)}`; }
+    else if (slope <= -NEUTRAL_BAND) { pts = NEG_PTS; reason = `phase_opposes_long_${slope.toFixed(2)}`; }
     else { pts = 0; reason = `phase_neutral_${slope.toFixed(2)}`; }
   } else {
-    if (slope <= -NEUTRAL_BAND) { pts = 10; reason = `phase_confirms_short_${slope.toFixed(2)}`; }
-    else if (slope >= NEUTRAL_BAND) { pts = -10; reason = `phase_opposes_short_${slope.toFixed(2)}`; }
+    if (slope <= -NEUTRAL_BAND) { pts = POS_PTS; reason = `phase_confirms_short_${slope.toFixed(2)}`; }
+    else if (slope >= NEUTRAL_BAND) { pts = NEG_PTS; reason = `phase_opposes_short_${slope.toFixed(2)}`; }
     else { pts = 0; reason = `phase_neutral_${slope.toFixed(2)}`; }
   }
-  return { pts, reason, slope: Math.round(slope * 100) / 100 };
+  return { pts, reason, slope: Math.round(slope * 100) / 100, structure_supports: structureSupports };
 }
 
 // ─────────────────────────────────────────────────────────────────────────

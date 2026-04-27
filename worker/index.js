@@ -4005,8 +4005,11 @@ function qualifiesForEnter(d, asOfTs = null) {
           }
         }
 
-        // V15 P0.5: floor reverted to 80 (matches reverted weights).
-        const _entryMinConv = Math.max(80, Number(_focusDaCfg.deep_audit_focus_min_entry_conviction ?? 80));
+        // V15 P0.7.1 (2026-04-27): floor relaxed 80 -> 45 hard min,
+        // 50 default. See worker/pipeline/tt-core-entry.js line ~503
+        // for the parallel change. Both gates run on different entry
+        // paths; both must read consistent values.
+        const _entryMinConv = Math.max(45, Number(_focusDaCfg.deep_audit_focus_min_entry_conviction ?? 50));
         if (_focusConv.score < _entryMinConv) {
           return {
             qualifies: false,
@@ -4020,7 +4023,7 @@ function qualifiesForEnter(d, asOfTs = null) {
             },
           };
         }
-        const _tierCFloor = Math.max(80, Number(_focusDaCfg.deep_audit_focus_tier_c_floor ?? 80));
+        const _tierCFloor = Math.max(45, Number(_focusDaCfg.deep_audit_focus_tier_c_floor ?? 45));
         if (_focusConv.tier === "C" && _focusConv.score < _tierCFloor) {
           return {
             qualifies: false,
