@@ -739,10 +739,22 @@ export async function loadReplayScopedTrades(args = {}) {
           const tid = String(t?.trade_id || t?.id || "").trim();
           if (tid) kvByTradeId.set(tid, t);
         }
-        // For every D1 row, prefer KV's version if it exists (KV may
-        // have richer in-flight state e.g. updated MFE/MAE). Otherwise
-        // pull the D1 row in. This guarantees every persisted trade
-        // appears in allTrades.
+        // V15 P0.7.10 (2026-04-27): merge logic redesigned.
+        //
+        // Previous version preferred KV unconditionally when both KV and
+        // D1 had a row. That was wrong — KV is eventually consistent, so
+        // its values may be STALE relative to D1 (e.g. MTZ MFE updated
+        // by batch 9 to D1 +8.88% but KV still shows the +0.79%
+        // from when MTZ trimmed Jul 16). Selecting KV would discard
+        // every cross-batch MFE update that batch 9 made to D1.
+        //
+        // New rule: D1 is the source-of-truth for record state (status,
+        // exits, trims, entry/trim ts/price). KV's role is to carry
+        // in-flight trade objects that may have richer in-memory state
+        // (rank_trace_json sometimes lives on KV trade objects). For
+        // MFE/MAE specifically: take the MAX(KV, D1) so we never lose a
+        // high-water mark — even if one side is stale, we keep the
+        // best value seen.
         const merged = [];
         const seen = new Set();
         for (const row of liveRows) {
@@ -750,11 +762,35 @@ export async function loadReplayScopedTrades(args = {}) {
           if (!tid || seen.has(tid)) continue;
           seen.add(tid);
           const fromKv = kvByTradeId.get(tid);
-          if (fromKv) {
-            merged.push(fromKv);
-          } else {
-            merged.push(mapArchivedReplayTrade(row, replayLockVal));
+          // Build the D1-based base record.
+          const d1Trade = mapArchivedReplayTrade(row, replayLockVal);
+          if (!fromKv) {
+            merged.push(d1Trade);
+            continue;
           }
+          // Both KV and D1 have this trade. Take MAX of MFE / MAE
+          // magnitudes to never lose a high-water mark. D1 wins on
+          // status/exit/trim. KV preserves rank_trace_json + other
+          // in-memory fields D1 doesn't store.
+          const kvMfe = Number(fromKv.maxFavorableExcursion ?? fromKv.max_favorable_excursion ?? 0);
+          const d1Mfe = Number(d1Trade.max_favorable_excursion ?? 0);
+          const kvMae = Number(fromKv.maxAdverseExcursion ?? fromKv.max_adverse_excursion ?? 0);
+          const d1Mae = Number(d1Trade.max_adverse_excursion ?? 0);
+          const bestMfe = Math.max(kvMfe || 0, d1Mfe || 0);
+          // MAE is negative — "best" (most adverse) is the lowest.
+          const bestMae = Math.min(kvMae || 0, d1Mae || 0);
+          const reconciled = {
+            ...fromKv,                // KV base for in-memory richness
+            ...d1Trade,               // D1 wins on persisted state
+            maxFavorableExcursion: bestMfe,
+            max_favorable_excursion: bestMfe,
+            maxAdverseExcursion: bestMae,
+            max_adverse_excursion: bestMae,
+            // Preserve KV-only fields explicitly when D1 had nulls
+            rank_trace_json: d1Trade.rank_trace_json ?? fromKv.rank_trace_json ?? null,
+            entry_path: d1Trade.entry_path ?? fromKv.entry_path ?? null,
+          };
+          merged.push(reconciled);
         }
         // Also include any KV-only trades the D1 query missed (e.g.
         // freshly created trades that haven't been D1-upserted yet).
