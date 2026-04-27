@@ -52,6 +52,12 @@ function _f(v, d = 0) {
 //
 // Price floor is a secondary signal: extremely low-priced names
 // (< $5) tend to be penny-stock risk regardless of sector assignment.
+// V15 P0.5 (2026-04-26): reverted liquidity to the P0.3 0-10 range
+// after P0.3.4 weight relaxation backfired. The P0.3 calibration
+// produced +29.38% / 66.7% WR on July; loosening weights leaked
+// in losers (ORCL -5.17%, CDNS -3.23%, both with saty=-15 fade-
+// into-level signals). The fix is the saty/phase VETO (below),
+// not weight relaxation.
 function scoreLiquidity(tickerData) {
   const tickerType = String(tickerData?._ticker_type || tickerData?.ticker_type || "").toLowerCase();
   const price = _f(tickerData?.price ?? tickerData?.close);
@@ -59,39 +65,36 @@ function scoreLiquidity(tickerData) {
   let pts = 0;
   let reason = "";
 
-  // Broad + sector ETFs = deepest liquidity
   if (tickerType === "broad_etf" || tickerType === "sector_etf") {
-    pts = 20;
+    pts = 10;
     reason = `etf_${tickerType}`;
   } else if (tickerType === "large_cap" || tickerType === "growth" || tickerType === "mega_cap") {
-    pts = 18;
+    pts = 9;
     reason = `liquid_${tickerType}`;
   } else if (tickerType === "mid_cap") {
-    pts = 13;
+    pts = 8;
     reason = "mid_cap";
   } else if (tickerType === "thematic_etf" || tickerType === "commodity_etf" || tickerType === "precious_metal") {
-    pts = 15;
+    pts = 8;
     reason = `specialty_${tickerType}`;
   } else if (tickerType === "small_cap") {
-    pts = 8;
+    pts = 4;
     reason = "small_cap";
   } else if (tickerType === "crypto" || tickerType === "crypto_adj") {
-    pts = 12;
+    pts = 6;
     reason = `crypto_${tickerType}`;
   } else if (tickerType) {
-    pts = 10;
+    pts = 5;
     reason = `other_${tickerType}`;
   } else {
-    // Unclassified ticker — fall back to price-based heuristic
     if (price <= 0) return { pts: 0, reason: "no_classification_no_price" };
     if (price < 5) { pts = 0; reason = `unclassified_penny_${price.toFixed(2)}`; }
-    else if (price < 10) { pts = 5; reason = `unclassified_low_${price.toFixed(2)}`; }
-    else { pts = 8; reason = `unclassified_${price.toFixed(2)}`; }
+    else if (price < 10) { pts = 2; reason = `unclassified_low_${price.toFixed(2)}`; }
+    else { pts = 4; reason = `unclassified_${price.toFixed(2)}`; }
   }
 
-  // Penny-stock override even for classified names
   if (price > 0 && price < 3) {
-    pts = Math.min(pts, 3);
+    pts = Math.min(pts, 1);
     reason += "_pennystock_cap";
   }
 
@@ -131,6 +134,11 @@ function scoreVolatility(tickerData) {
 // V11 golden winner fingerprint: daily E21 > E48 > E200 stacked, price
 // within 2 ATR of E21 (not overextended, not deeply broken).
 // ─────────────────────────────────────────────────────────────────────────
+// V15 P0.5 (2026-04-26): reverted to P0.3 0-10 range. The P0.3.1
+// boost to 0-15 leaked losers in (ORCL/CDNS Jul 31). Trend is still
+// useful but the V14 forensic showed it was saturated, so 0-10 is
+// the right scale. The saty/phase VETO will catch the losers that
+// the conviction floor alone couldn't.
 function scoreTrend(tickerData) {
   const daily = tickerData?.daily_structure || tickerData?.daily || {};
   const e21 = _f(daily?.e21 ?? daily?.ema21);
@@ -153,36 +161,31 @@ function scoreTrend(tickerData) {
     return { pts: 0, reason: "missing_emas" };
   }
   if (!price) return { pts: 0, reason: "missing_price" };
-  if (!e21) return { pts: bullStack || bearStack ? 10 : 0, reason: `${bullStack ? 'bull' : 'bear'}_stack_only` };
+  if (!e21) return { pts: bullStack || bearStack ? 5 : 0, reason: `${bullStack ? 'bull' : 'bear'}_stack_only` };
 
   let pts = 0;
   let reason = "";
 
   if (bullStack) {
-    pts += 10;  // stacked bull
+    pts += 5;  // V14 was 10, P0.3 set to 5
     reason = "bull_stacked";
   } else if (bearStack) {
-    pts += 10;  // stacked bear (valid for SHORT setups)
+    pts += 5;
     reason = "bear_stacked";
   } else {
     pts += 0;
     reason = "chop";
   }
 
-  // Price distance from E21 (in ATR units if available)
   if (atr > 0) {
     const distAtrs = Math.abs(price - e21) / atr;
-    // Sweet spot: 0.3-2.0 ATRs from E21 (close enough to be tradeable,
-    // far enough not to be extended)
-    if (distAtrs <= 2.0 && distAtrs >= 0.0) pts += 10;
-    else if (distAtrs <= 3.0) pts += 5;
-    // > 3 ATRs from E21 = too extended, 0 extra pts
+    if (distAtrs <= 2.0 && distAtrs >= 0.0) pts += 5;
+    else if (distAtrs <= 3.0) pts += 3;
     reason += `, ${distAtrs.toFixed(1)}atr_from_e21`;
   } else {
-    // Fallback: pct distance from E21
     const distPct = Math.abs((price - e21) / e21) * 100;
-    if (distPct <= 4.0) pts += 10;
-    else if (distPct <= 7.0) pts += 5;
+    if (distPct <= 4.0) pts += 5;
+    else if (distPct <= 7.0) pts += 3;
     reason += `, ${distPct.toFixed(1)}%_from_e21`;
   }
 
@@ -194,29 +197,35 @@ function scoreTrend(tickerData) {
 // Read from the monthly backdrop (already computed for each month).
 // If ticker's sector is in the backdrop's `sector_leadership` list = boost.
 // ─────────────────────────────────────────────────────────────────────────
+// V15 P0.3 (2026-04-25): sector range expanded 0-10 → 0-15 because V14
+// forensic showed Pearson(sector_pts, pnl) = +0.047 (mildly predictive
+// but underweighted). Sector overweight produced WR 54.4% vs underweight
+// 55.2% in V14 — a flat outcome — but the difference between leadership
+// vs bottom backdrop trades was clearer. Boost weight to leverage what's
+// reliably populated.
 function scoreSector(tickerData, ctx) {
   // V13: worker emits `_sector_rating` (overweight / neutral / underweight)
   // based on Fundstrat's sector guidance. Use this as the primary signal
   // since it's always populated and already reflects the analyst view.
   const rating = String(tickerData?._sector_rating || "").toLowerCase();
-  if (rating === "overweight") return { pts: 10, reason: "sector_overweight" };
+  if (rating === "overweight") return { pts: 15, reason: "sector_overweight" };
   if (rating === "underweight") return { pts: 0, reason: "sector_underweight" };
-  if (rating === "neutral") return { pts: 5, reason: "sector_neutral" };
+  if (rating === "neutral") return { pts: 7, reason: "sector_neutral" };
 
   // Fallback to monthly backdrop sector leadership if rating missing
   const sector = String(tickerData?._sector || ctx?.sector || "").toLowerCase();
-  if (!sector) return { pts: 5, reason: "no_sector_data" };
+  if (!sector) return { pts: 7, reason: "no_sector_data" };
   const leadership = ctx?.market?.monthlySectorTop || ctx?.monthlyBackdrop?.sector_leadership || [];
   const bottom = ctx?.market?.monthlySectorBottom || ctx?.monthlyBackdrop?.sector_bottom || [];
   const leadNorm = (Array.isArray(leadership) ? leadership : []).map(s => String(s).toLowerCase());
   const bottomNorm = (Array.isArray(bottom) ? bottom : []).map(s => String(s).toLowerCase());
   if (leadNorm.some(s => s.includes(sector) || sector.includes(s))) {
-    return { pts: 10, reason: "sector_leadership_backdrop" };
+    return { pts: 15, reason: "sector_leadership_backdrop" };
   }
   if (bottomNorm.some(s => s.includes(sector) || sector.includes(s))) {
     return { pts: 0, reason: "sector_bottom_backdrop" };
   }
-  return { pts: 5, reason: "sector_neutral_fallback" };
+  return { pts: 7, reason: "sector_neutral_fallback" };
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -257,22 +266,26 @@ function scoreRelativeStrength(tickerData, ctx) {
     }
   }
 
+  // V15 P0.3 (2026-04-25): RS range expanded 0-10 → 0-25. V14 forensic
+  // confirmed RS as the strongest predictor (Pearson +0.097, highest of
+  // all signals). pts=8 bucket had 69.6% WR / +1.65% avg — best cluster
+  // in the entire run. Doubling weight to leverage what works.
+
   // No data path
   if (tickerSlope === 0 && tickerPctAboveE48 === 0) {
-    return { pts: 5, reason: spySlopeMissing ? "no_rs_data_spy_missing" : "no_rs_data" };
+    return { pts: 12, reason: spySlopeMissing ? "no_rs_data_spy_missing" : "no_rs_data" };
   }
 
   // Relative slope: ticker vs SPY daily velocity (percentage points)
   const slopeDiff = tickerSlope - spySlope;
-  // Extension: how much above E48 (conviction ETF-style check)
-  // Combined score: weighted sum
-  let pts = 5;  // neutral
-  if (slopeDiff > 0.5 && tickerPctAboveE48 > 1.0) pts = 10;       // strong RS + above mean
-  else if (slopeDiff > 0.25 && tickerPctAboveE48 > 0) pts = 8;    // moderate RS
-  else if (slopeDiff > 0) pts = 6;                                 // mild RS
+  // Combined score: weighted sum (was 0-10 → now 0-25)
+  let pts = 12;  // neutral default
+  if (slopeDiff > 0.5 && tickerPctAboveE48 > 1.0) pts = 25;       // strong RS + above mean
+  else if (slopeDiff > 0.25 && tickerPctAboveE48 > 0) pts = 20;   // moderate RS
+  else if (slopeDiff > 0) pts = 15;                                // mild RS
   else if (slopeDiff < -0.5 && tickerPctAboveE48 < -2.0) pts = 0;  // strong underperform
-  else if (slopeDiff < -0.25) pts = 2;                             // mild underperform
-  else pts = 4;                                                     // neutral/weak
+  else if (slopeDiff < -0.25) pts = 5;                             // mild underperform
+  else pts = 10;                                                    // neutral/weak
 
   return {
     pts,
@@ -316,6 +329,300 @@ function scoreHistory(tickerUpper, historyStats) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Signal 7 — SATY ATR PROXIMITY (V15 P0.1, 2026-04-25)
+//
+// V14 forensic surfaced the H SHORT 2026-04-07 catastrophe: -11.39% via
+// HARD_LOSS_CAP. The trade entered SHORT into a Saty ATR support level
+// on the daily timeframe — price was approaching prev_close ATR support
+// and our system shorted it. A trader looking at the chart would say
+// "you don't fade into key support."
+//
+// This signal codifies that intuition. For each entry we measure the
+// nearest Saty ATR level on the daily timeframe (using prev_close as
+// anchor + Fib ratios × atr_d). Three categories:
+//
+//   1. FADE-INTO-LEVEL (the trap): shorting INTO a level above (level
+//      acts as resistance for the short → risk of reversal off level)
+//      OR longing INTO a level below (level acts as support → risk of
+//      bounce off level). Within 0.25 ATR. → -15 pts
+//
+//   2. RIDING-THROUGH-LEVEL (the alpha): entry beyond a level in the
+//      same direction (e.g. SHORT below a recently-broken support, LONG
+//      above a recently-broken resistance). Level becomes new floor /
+//      ceiling. Within 0.5 ATR of a level on the FAR side. → +10 pts
+//
+//   3. CLEAN RUNWAY: between levels, no level within 0.5 ATR in entry
+//      direction. → +5 pts (default)
+//
+//   4. NO DATA: atr_levels.day missing or invalid. → 0 pts (neutral)
+//
+// Range: -15 to +10 pts (asymmetric — penalty stronger than reward
+// because fade-trap losses are the catastrophic class).
+//
+// Required inputs: ctx.side ("LONG" | "SHORT"), tickerData.atr_levels.day
+// ─────────────────────────────────────────────────────────────────────────
+function scoreSatyAtrProximity(tickerData, ctx) {
+  const side = String(ctx?.side || ctx?.direction || "").toUpperCase();
+  if (!side || (side !== "LONG" && side !== "SHORT")) {
+    return { pts: 0, reason: "no_side" };
+  }
+  const day = tickerData?.atr_levels?.day || null;
+  if (!day || !Number.isFinite(day.atr) || day.atr <= 0) {
+    return { pts: 0, reason: "no_atr_levels" };
+  }
+  const price = _f(tickerData?.price ?? tickerData?.close);
+  if (!Number.isFinite(price) || price <= 0) {
+    return { pts: 0, reason: "no_price" };
+  }
+  const prevClose = Number(day.prevClose) || 0;
+  const atr = Number(day.atr);
+  if (atr <= 0) return { pts: 0, reason: "no_atr" };
+
+  // Build the full level set: prev_close + ±{0.236, 0.382, 0.618, 1.0, 1.272, 1.618} × atr
+  const ratios = [0.236, 0.382, 0.618, 1.0, 1.272, 1.618];
+  const levels = [{ price: prevClose, ratio: 0, label: "prev_close" }];
+  for (const r of ratios) {
+    levels.push({ price: prevClose + r * atr, ratio: +r, label: `+${(r*100).toFixed(1)}%` });
+    levels.push({ price: prevClose - r * atr, ratio: -r, label: `-${(r*100).toFixed(1)}%` });
+  }
+
+  // Find nearest level (by absolute price distance)
+  let nearest = null;
+  let nearestDistAtr = Infinity;
+  for (const lv of levels) {
+    const distPrice = Math.abs(price - lv.price);
+    const distAtr = distPrice / atr;
+    if (distAtr < nearestDistAtr) {
+      nearestDistAtr = distAtr;
+      nearest = lv;
+    }
+  }
+  if (!nearest) return { pts: 0, reason: "no_nearest_level" };
+
+  const levelAbove = nearest.price > price;
+  const levelBelow = nearest.price < price;
+
+  // FADE-INTO-LEVEL detection — within 0.25 ATR.
+  //
+  // V15 P0.7.2 (2026-04-27): the original logic punished LONG entries
+  // when price was within 0.25 ATR of the next resistance, and SHORT
+  // entries within 0.25 ATR of the next support. In trending markets
+  // this fires CONSTANTLY because price is always approaching the
+  // next level — Oct 9 SPY/QQQ/IWM/NVDA/META/GOOGL/LITE all scored
+  // saty=-15 simultaneously even though SPY was making fresh highs.
+  // That zeroed our entire entry pipeline for 11+ trading days.
+  //
+  // Fix: only penalize fade-into-level when we are ALSO showing
+  // momentum exhaustion. Two confirming inputs:
+  //   1. Daily structure NOT bull-stacked (for LONGs) / bear-stacked
+  //      (for SHORTs) — so we're not in a clean trend
+  //   2. Trend already extended (pct_above_e21 > +5% on long, indicating
+  //      we've run a lot and are likely overextended).
+  // If structure is intact AND not overextended, an approach to the
+  // next level is a BREAKOUT setup, not a fade — return mild penalty
+  // (-5) instead of -15, or 0 if also riding-through behavior.
+  if (nearestDistAtr <= 0.25) {
+    if (side === "LONG" && levelAbove) {
+      const ds = tickerData?.daily_structure || {};
+      const bullStack = ds?.bull_stack === true;
+      const pctAboveE21 = Number(ds?.pct_above_e21);
+      const isOverextended = Number.isFinite(pctAboveE21) && pctAboveE21 > 5;
+      if (bullStack && !isOverextended) {
+        // Trending bull setup approaching next resistance = breakout
+        // candidate, not a fade. Mild penalty, not catastrophe.
+        return {
+          pts: -5,
+          reason: `near_resistance_in_trend_${nearest.label}_${nearestDistAtr.toFixed(2)}atr`,
+          nearest_level: nearest.price,
+          nearest_label: nearest.label,
+          distance_atr: Math.round(nearestDistAtr * 100) / 100,
+          structurally_supported: true,
+        };
+      }
+      return {
+        pts: -15,
+        reason: `fade_into_resistance_${nearest.label}_${nearestDistAtr.toFixed(2)}atr`,
+        nearest_level: nearest.price,
+        nearest_label: nearest.label,
+        distance_atr: Math.round(nearestDistAtr * 100) / 100,
+      };
+    }
+    if (side === "SHORT" && levelBelow) {
+      const ds = tickerData?.daily_structure || {};
+      const bearStack = ds?.bear_stack === true;
+      const pctAboveE21 = Number(ds?.pct_above_e21);
+      const isOverextended = Number.isFinite(pctAboveE21) && pctAboveE21 < -5;
+      if (bearStack && !isOverextended) {
+        return {
+          pts: -5,
+          reason: `near_support_in_downtrend_${nearest.label}_${nearestDistAtr.toFixed(2)}atr`,
+          nearest_level: nearest.price,
+          nearest_label: nearest.label,
+          distance_atr: Math.round(nearestDistAtr * 100) / 100,
+          structurally_supported: true,
+        };
+      }
+      return {
+        pts: -15,
+        reason: `fade_into_support_${nearest.label}_${nearestDistAtr.toFixed(2)}atr`,
+        nearest_level: nearest.price,
+        nearest_label: nearest.label,
+        distance_atr: Math.round(nearestDistAtr * 100) / 100,
+      };
+    }
+  }
+
+  // RIDING-THROUGH-LEVEL detection — within 0.5 ATR, level is on the
+  // SAME side as direction (LONG above level = riding through resistance,
+  // SHORT below level = riding through support).
+  if (nearestDistAtr <= 0.5) {
+    if (side === "LONG" && levelBelow) {
+      return {
+        pts: 10,
+        reason: `riding_through_${nearest.label}_${nearestDistAtr.toFixed(2)}atr`,
+        nearest_level: nearest.price,
+        nearest_label: nearest.label,
+        distance_atr: Math.round(nearestDistAtr * 100) / 100,
+      };
+    }
+    if (side === "SHORT" && levelAbove) {
+      return {
+        pts: 10,
+        reason: `riding_through_${nearest.label}_${nearestDistAtr.toFixed(2)}atr`,
+        nearest_level: nearest.price,
+        nearest_label: nearest.label,
+        distance_atr: Math.round(nearestDistAtr * 100) / 100,
+      };
+    }
+  }
+
+  // CLEAN RUNWAY default (no level within 0.5 ATR in danger direction
+  // OR level present but on the safe side)
+  return {
+    pts: 5,
+    reason: `clean_runway_nearest_${nearest.label}_${nearestDistAtr.toFixed(2)}atr`,
+    nearest_level: nearest.price,
+    nearest_label: nearest.label,
+    distance_atr: Math.round(nearestDistAtr * 100) / 100,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Signal 8 — PHASE SLOPE ALIGNMENT (V15 P0.2, 2026-04-25)
+//
+// V14 forensic on the H trade: the catastrophe entry had phase trending
+// against direction. The user explicitly called out: "Another signal
+// that was saying no to Short is the sloping Phase Line."
+//
+// Implementation: phase_slope_5bar is computed from the daily momentum
+// series (positive = bullish trending, negative = bearish trending).
+//
+//   LONG  + slope >= +0.5  → +10 pts (phase confirms long)
+//   LONG  + slope ∈ [-0.5, +0.5]  → 0 pts (neutral)
+//   LONG  + slope < -0.5  → -10 pts (phase opposes — the H pattern)
+//
+//   SHORT + slope <= -0.5  → +10 pts (phase confirms short)
+//   SHORT + slope ∈ [-0.5, +0.5]  → 0 pts (neutral)
+//   SHORT + slope > +0.5  → -10 pts (phase opposes — the H pattern)
+//
+// Range -10 to +10.
+// ─────────────────────────────────────────────────────────────────────────
+function scorePhaseAlignment(tickerData, ctx) {
+  const side = String(ctx?.side || ctx?.direction || "").toUpperCase();
+  if (!side || (side !== "LONG" && side !== "SHORT")) {
+    return { pts: 0, reason: "no_side" };
+  }
+  const slope = _f(tickerData?.phase_slope_5bar);
+  if (!Number.isFinite(Number(tickerData?.phase_slope_5bar))) {
+    return { pts: 0, reason: "no_phase_slope" };
+  }
+
+  const NEUTRAL_BAND = 0.5;
+  // V15 P0.7.2 (2026-04-27): when daily structure clearly supports the
+  // trade direction (bull_stack for LONG, bear_stack for SHORT), reduce
+  // the magnitude of the phase signal. The structure already tells us
+  // the trend; the phase oscillator's short-term slope is a tie-breaker
+  // here, not a primary signal. Otherwise phase=-10 readings on every
+  // bull-stacked LONG eat ~10 pts off conviction in calm grind regimes
+  // (SPY/NVDA Oct 9 saw conviction = 32-74 because of this).
+  const ds = tickerData?.daily_structure || {};
+  const bullStack = ds?.bull_stack === true;
+  const bearStack = ds?.bear_stack === true;
+  const structureSupports = (side === "LONG" && bullStack) || (side === "SHORT" && bearStack);
+  const POS_PTS = structureSupports ? 5 : 10;
+  const NEG_PTS = structureSupports ? -5 : -10;
+
+  let pts = 0;
+  let reason = "";
+  if (side === "LONG") {
+    if (slope >= NEUTRAL_BAND) { pts = POS_PTS; reason = `phase_confirms_long_${slope.toFixed(2)}`; }
+    else if (slope <= -NEUTRAL_BAND) { pts = NEG_PTS; reason = `phase_opposes_long_${slope.toFixed(2)}`; }
+    else { pts = 0; reason = `phase_neutral_${slope.toFixed(2)}`; }
+  } else {
+    if (slope <= -NEUTRAL_BAND) { pts = POS_PTS; reason = `phase_confirms_short_${slope.toFixed(2)}`; }
+    else if (slope >= NEUTRAL_BAND) { pts = NEG_PTS; reason = `phase_opposes_short_${slope.toFixed(2)}`; }
+    else { pts = 0; reason = `phase_neutral_${slope.toFixed(2)}`; }
+  }
+  return { pts, reason, slope: Math.round(slope * 100) / 100, structure_supports: structureSupports };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Signal 9 — RSI SLOPE ALIGNMENT (V15 P0.2, 2026-04-25)
+//
+// Same logic as phase_alignment but with RSI on the daily timeframe.
+// RSI slope tells us momentum direction independent of phase
+// composition — a SHORT entered when RSI is rising signals momentum
+// against the trade.
+//
+// Reads tickerData.tf_tech.D.rsi.slope5 (5-bar RSI change in pts/bar).
+// LONG/SHORT + slope agreement → ±5 pts (lower weight than phase
+// because RSI is noisier on shorter timeframes).
+//
+//   LONG  + slope >= +0.3  → +5
+//   LONG  + slope ∈ [-0.3, +0.3]  → 0
+//   LONG  + slope < -0.3  → -5
+//   SHORT (mirrored)
+//
+// Range -5 to +5.
+// ─────────────────────────────────────────────────────────────────────────
+function scoreRsiAlignment(tickerData, ctx) {
+  const side = String(ctx?.side || ctx?.direction || "").toUpperCase();
+  if (!side || (side !== "LONG" && side !== "SHORT")) {
+    return { pts: 0, reason: "no_side" };
+  }
+  // Prefer Daily RSI slope, fall back to 1H, then 30m
+  const tfTech = tickerData?.tf_tech || {};
+  const candidates = [tfTech.D, tfTech["1H"], tfTech["60"], tfTech["30"]];
+  let slope = null;
+  let usedTf = null;
+  for (const tf of candidates) {
+    const v = tf?.rsi?.slope5;
+    if (Number.isFinite(Number(v))) {
+      slope = Number(v);
+      usedTf = tf === tfTech.D ? "D" : tf === tfTech["1H"] || tf === tfTech["60"] ? "1H" : "30";
+      break;
+    }
+  }
+  if (!Number.isFinite(slope)) {
+    return { pts: 0, reason: "no_rsi_slope" };
+  }
+
+  const NEUTRAL_BAND = 0.3;
+  let pts = 0;
+  let reason = "";
+  if (side === "LONG") {
+    if (slope >= NEUTRAL_BAND) { pts = 5; reason = `rsi_confirms_long_${slope.toFixed(2)}_${usedTf}`; }
+    else if (slope <= -NEUTRAL_BAND) { pts = -5; reason = `rsi_opposes_long_${slope.toFixed(2)}_${usedTf}`; }
+    else { pts = 0; reason = `rsi_neutral_${slope.toFixed(2)}_${usedTf}`; }
+  } else {
+    if (slope <= -NEUTRAL_BAND) { pts = 5; reason = `rsi_confirms_short_${slope.toFixed(2)}_${usedTf}`; }
+    else if (slope >= NEUTRAL_BAND) { pts = -5; reason = `rsi_opposes_short_${slope.toFixed(2)}_${usedTf}`; }
+    else { pts = 0; reason = `rsi_neutral_${slope.toFixed(2)}_${usedTf}`; }
+  }
+  return { pts, reason, slope: Math.round(slope * 100) / 100, tf: usedTf };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Recent-winner bonus (+5 pts)
 // ≥2 wins on this ticker in last 30 trading days, net +3% PnL.
 // ─────────────────────────────────────────────────────────────────────────
@@ -347,8 +654,13 @@ export function computeConvictionScore({
   const s4 = scoreSector(tickerData, ctx);
   const s5 = scoreRelativeStrength(tickerData, ctx);
   const s6 = scoreHistory(tickerUpper, historyStats);
+  // V15 P0.1 — Saty ATR proximity (range -15 to +10)
+  const s7 = scoreSatyAtrProximity(tickerData, ctx);
+  // V15 P0.2 — Phase + RSI slope alignment
+  const s8 = scorePhaseAlignment(tickerData, ctx);
+  const s9 = scoreRsiAlignment(tickerData, ctx);
 
-  let base = s1.pts + s2.pts + s3.pts + s4.pts + s5.pts + s6.pts;
+  let base = s1.pts + s2.pts + s3.pts + s4.pts + s5.pts + s6.pts + s7.pts + s8.pts + s9.pts;
 
   // Bonuses (capped so total ≤ 100)
   const ttSelBonus = (ttSelected || TT_SELECTED_DEFAULT).has(tickerUpper) ? 15 : 0;
@@ -356,9 +668,24 @@ export function computeConvictionScore({
   const upticksBonus = (currentUpticks && currentUpticks.has(tickerUpper)) ? 10 : 0;
   const recentBonus = scoreRecentWinner(tickerUpper, historyStats);
 
-  const total = Math.min(100, base + ttSelBonus + grannyBonus + upticksBonus + recentBonus);
+  // V15 P0.5 (2026-04-26): reverted weights to P0.3 baseline.
+  //   liquidity 0-10  (was 0-20 V14)
+  //   volatility 0-15
+  //   trend 0-10  (was 0-20 V14)
+  //   sector 0-15  (was 0-10 V14)
+  //   relative_strength 0-25  (was 0-10 V14, the strongest predictor)
+  //   history 0-20
+  //   saty_atr_proximity -15 to +10
+  //   phase_alignment -10 to +10
+  //   rsi_alignment -5 to +5
+  // Max base = 10+15+10+15+25+20+10+10+5 = 120
+  // Max bonuses = 40 → theoretical max 160
+  const total = Math.max(0, Math.min(160, base + ttSelBonus + grannyBonus + upticksBonus + recentBonus));
 
-  const tier = total >= 75 ? "A" : total >= 50 ? "B" : "C";
+  // V15 P0.5 tier thresholds (back to P0.3 calibration):
+  //   A ≥ 110, B ≥ 80, C < 80
+  // Entry floor 80 (handled by Math.max() in tt-core-entry.js).
+  const tier = total >= 110 ? "A" : total >= 80 ? "B" : "C";
 
   return {
     ticker: tickerUpper,
@@ -371,6 +698,9 @@ export function computeConvictionScore({
       sector: s4,
       relative_strength: s5,
       history: s6,
+      saty_atr_proximity: s7,
+      phase_alignment: s8,
+      rsi_alignment: s9,
       bonuses: {
         tt_selected: ttSelBonus,
         granny_etf: grannyBonus,

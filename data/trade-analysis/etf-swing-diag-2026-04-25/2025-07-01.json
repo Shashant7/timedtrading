@@ -1,0 +1,259 @@
+{
+  "ok": true,
+  "date": "2025-07-01",
+  "tickerOffset": 0,
+  "tickerBatch": 4,
+  "tickersProcessed": 4,
+  "intervals": 14,
+  "intervalMinutes": 30,
+  "scored": 4,
+  "skipped": 0,
+  "tradesCreated": 0,
+  "totalTrades": 0,
+  "hasMore": false,
+  "nextTickerOffset": null,
+  "errorsCount": 52,
+  "errors": [
+    {
+      "ticker": "SPY",
+      "ts": 1751376600000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1751376600000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "IWM",
+      "ts": 1751376600000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1751378400000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1751378400000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "IWM",
+      "ts": 1751378400000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1751378400000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1751380200000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "IWM",
+      "ts": 1751380200000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1751380200000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    }
+  ],
+  "stageCounts": {
+    "watch": 2,
+    "setup": 2
+  },
+  "blockReasons": {
+    "h3_rank_below_transitional_floor": 4
+  },
+  "d1StateWritten": 4,
+  "trailWritten": 4,
+  "lastSnapshot": {
+    "SPY": {
+      "state": "HTF_BULL_LTF_BULL",
+      "htf_score": 42.9,
+      "ltf_score": 11,
+      "ema_regime_daily": 2,
+      "ema_regime_4h": 2,
+      "fuel_D": 44,
+      "fuel_10": 98,
+      "fuel_30": 97,
+      "st_support_D": {
+        "dir": "bull",
+        "slope": "rising",
+        "aligned": true
+      },
+      "kanban_stage": "watch",
+      "score": 87,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": 98
+    },
+    "QQQ": {
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "htf_score": 43.9,
+      "ltf_score": -4.6,
+      "ema_regime_daily": 2,
+      "ema_regime_4h": 2,
+      "fuel_D": 63,
+      "fuel_10": 37,
+      "fuel_30": 72,
+      "st_support_D": {
+        "dir": "bull",
+        "slope": "flat",
+        "aligned": true
+      },
+      "kanban_stage": "setup",
+      "score": 82,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": 72
+    },
+    "IWM": {
+      "fuel_D": null,
+      "fuel_10": null,
+      "fuel_30": null,
+      "st_support_D": null,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": null
+    },
+    "DIA": {
+      "state": "HTF_BULL_LTF_BULL",
+      "htf_score": 39.7,
+      "ltf_score": 18.9,
+      "ema_regime_daily": 2,
+      "ema_regime_4h": 2,
+      "fuel_D": 27,
+      "fuel_10": 58,
+      "fuel_30": 55,
+      "st_support_D": {
+        "dir": "bull",
+        "slope": "flat",
+        "aligned": true
+      },
+      "kanban_stage": "watch",
+      "score": 82,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": 58
+    }
+  },
+  "targetSnapshots": {},
+  "targetTimeline": [],
+  "processDebug": [],
+  "blockedEntryGates": {
+    "h3_rank_below_transitional_floor": 8,
+    "_total": 8
+  },
+  "blockChainBars": [
+    {
+      "ticker": "DIA",
+      "ts": 1751376600000,
+      "reason": "h3_rank_below_transitional_floor",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 82,
+      "rank": 82,
+      "htf_score": 39.7,
+      "ltf_score": 18.9,
+      "daily_structure": {
+        "px": 444.89,
+        "e21": 433.83,
+        "e48": 428.69,
+        "e200": 421.07,
+        "pct_above_e48": 3.78,
+        "pct_above_e21": 2.55,
+        "e21_slope_5d_pct": 1.19,
+        "e48_slope_10d_pct": 1.15,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": null
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1751380200000,
+      "reason": "h3_rank_below_transitional_floor",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 84,
+      "rank": 84,
+      "htf_score": 43.9,
+      "ltf_score": -3.9,
+      "daily_structure": {
+        "px": 546.99,
+        "e21": 541.08,
+        "e48": 531.7,
+        "e200": 507.44,
+        "pct_above_e48": 2.88,
+        "pct_above_e21": 1.09,
+        "e21_slope_5d_pct": 0.89,
+        "e48_slope_10d_pct": 1.52,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": null
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1751382000000,
+      "reason": "h3_rank_below_transitional_floor",
+      "kanban_stage": "setup",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 82,
+      "rank": 82,
+      "htf_score": 43.9,
+      "ltf_score": -4.6,
+      "daily_structure": {
+        "px": 546.99,
+        "e21": 541.08,
+        "e48": 531.7,
+        "e200": 507.44,
+        "pct_above_e48": 2.88,
+        "pct_above_e21": 1.09,
+        "e21_slope_5d_pct": 0.89,
+        "e48_slope_10d_pct": 1.52,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": null
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1751383800000,
+      "reason": "h3_rank_below_transitional_floor",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 87,
+      "rank": 87,
+      "htf_score": 42.9,
+      "ltf_score": 11,
+      "daily_structure": {
+        "px": 617.65,
+        "e21": 608.9,
+        "e48": 600.6,
+        "e200": 582.16,
+        "pct_above_e48": 2.84,
+        "pct_above_e21": 1.44,
+        "e21_slope_5d_pct": 0.85,
+        "e48_slope_10d_pct": 1.2,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      },
+      "index_etf_swing_diag": null
+    }
+  ],
+  "blockChainCap": 100000,
+  "fullDay": true
+}

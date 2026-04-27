@@ -1,0 +1,117 @@
+{
+  "ok": true,
+  "date": "2025-08-08",
+  "tickerOffset": 0,
+  "tickerBatch": 4,
+  "tickersProcessed": 4,
+  "intervals": 14,
+  "intervalMinutes": 30,
+  "scored": 0,
+  "skipped": 0,
+  "tradesCreated": 0,
+  "totalTrades": 0,
+  "hasMore": false,
+  "nextTickerOffset": null,
+  "errorsCount": 56,
+  "errors": [
+    {
+      "ticker": "SPY",
+      "ts": 1754659800000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1754659800000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "IWM",
+      "ts": 1754659800000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1754659800000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1754661600000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1754661600000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "IWM",
+      "ts": 1754661600000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1754661600000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1754663400000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1754663400000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    }
+  ],
+  "stageCounts": {},
+  "blockReasons": {},
+  "d1StateWritten": 4,
+  "trailWritten": 0,
+  "lastSnapshot": {
+    "SPY": {
+      "fuel_D": null,
+      "fuel_10": null,
+      "fuel_30": null,
+      "st_support_D": null,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": null
+    },
+    "QQQ": {
+      "fuel_D": null,
+      "fuel_10": null,
+      "fuel_30": null,
+      "st_support_D": null,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": null
+    },
+    "IWM": {
+      "fuel_D": null,
+      "fuel_10": null,
+      "fuel_30": null,
+      "st_support_D": null,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": null
+    },
+    "DIA": {
+      "fuel_D": null,
+      "fuel_10": null,
+      "fuel_30": null,
+      "st_support_D": null,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": null
+    }
+  },
+  "targetSnapshots": {},
+  "targetTimeline": [],
+  "processDebug": [],
+  "blockedEntryGates": {},
+  "blockChainBars": [],
+  "blockChainCap": 100000,
+  "fullDay": true
+}

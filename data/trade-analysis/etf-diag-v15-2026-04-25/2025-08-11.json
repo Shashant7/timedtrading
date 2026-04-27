@@ -1,0 +1,197 @@
+{
+  "ok": true,
+  "date": "2025-08-11",
+  "tickerOffset": 0,
+  "tickerBatch": 4,
+  "tickersProcessed": 4,
+  "intervals": 14,
+  "intervalMinutes": 30,
+  "scored": 2,
+  "skipped": 0,
+  "tradesCreated": 0,
+  "totalTrades": 0,
+  "hasMore": false,
+  "nextTickerOffset": null,
+  "errorsCount": 54,
+  "errors": [
+    {
+      "ticker": "QQQ",
+      "ts": 1754919000000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "IWM",
+      "ts": 1754919000000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1754919000000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1754920800000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1754920800000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "IWM",
+      "ts": 1754920800000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1754920800000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1754922600000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1754922600000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "IWM",
+      "ts": 1754922600000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    }
+  ],
+  "stageCounts": {
+    "watch": 2
+  },
+  "blockReasons": {
+    "h3_rank_below_transitional_floor": 1,
+    "phase_i_short_no_spy_downtrend": 1
+  },
+  "d1StateWritten": 4,
+  "trailWritten": 2,
+  "lastSnapshot": {
+    "SPY": {
+      "state": "HTF_BULL_LTF_BULL",
+      "htf_score": 40.3,
+      "ltf_score": 11.9,
+      "ema_regime_daily": 2,
+      "ema_regime_4h": 2,
+      "fuel_D": 81,
+      "fuel_10": 76,
+      "fuel_30": 87,
+      "st_support_D": {
+        "dir": "bear",
+        "slope": "flat",
+        "aligned": true
+      },
+      "kanban_stage": "watch",
+      "score": 84,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": 87
+    },
+    "QQQ": {
+      "fuel_D": null,
+      "fuel_10": null,
+      "fuel_30": null,
+      "st_support_D": null,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": null
+    },
+    "IWM": {
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "htf_score": 25.9,
+      "ltf_score": -16,
+      "ema_regime_daily": 1,
+      "ema_regime_4h": 2,
+      "fuel_D": 97,
+      "fuel_10": 90,
+      "fuel_30": 80,
+      "st_support_D": {
+        "dir": "bear",
+        "slope": "flat",
+        "aligned": true
+      },
+      "kanban_stage": "watch",
+      "score": 50,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": 90
+    },
+    "DIA": {
+      "fuel_D": null,
+      "fuel_10": null,
+      "fuel_30": null,
+      "st_support_D": null,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": null
+    }
+  },
+  "targetSnapshots": {},
+  "targetTimeline": [],
+  "processDebug": [],
+  "blockedEntryGates": {
+    "h3_rank_below_transitional_floor": 2,
+    "_total": 4,
+    "phase_i_short_no_spy_downtrend": 2
+  },
+  "blockChainBars": [
+    {
+      "ticker": "SPY",
+      "ts": 1754919000000,
+      "reason": "h3_rank_below_transitional_floor",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 84,
+      "rank": 84,
+      "htf_score": 40.3,
+      "ltf_score": 11.9,
+      "daily_structure": {
+        "px": 635.92,
+        "e21": 632.61,
+        "e48": 628.22,
+        "e200": 602.47,
+        "pct_above_e48": 1.23,
+        "pct_above_e21": 0.52,
+        "e21_slope_5d_pct": 0.31,
+        "e48_slope_10d_pct": 0.44,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      }
+    },
+    {
+      "ticker": "IWM",
+      "ts": 1754937000000,
+      "reason": "phase_i_short_no_spy_downtrend",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_PULLBACK",
+      "score": 50,
+      "rank": 50,
+      "htf_score": 25.9,
+      "ltf_score": -16,
+      "daily_structure": {
+        "px": 220.27,
+        "e21": 220.49,
+        "e48": 220.17,
+        "e200": 213.97,
+        "pct_above_e48": 0.05,
+        "pct_above_e21": -0.1,
+        "e21_slope_5d_pct": -0.07,
+        "e48_slope_10d_pct": 0.04,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      }
+    }
+  ],
+  "blockChainCap": 100000,
+  "fullDay": true
+}

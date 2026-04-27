@@ -1,0 +1,160 @@
+{
+  "ok": true,
+  "date": "2025-09-12",
+  "tickerOffset": 0,
+  "tickerBatch": 4,
+  "tickersProcessed": 4,
+  "intervals": 14,
+  "intervalMinutes": 30,
+  "scored": 1,
+  "skipped": 0,
+  "tradesCreated": 0,
+  "totalTrades": 0,
+  "hasMore": false,
+  "nextTickerOffset": null,
+  "errorsCount": 55,
+  "errors": [
+    {
+      "ticker": "QQQ",
+      "ts": 1757683800000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "IWM",
+      "ts": 1757683800000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1757683800000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1757685600000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1757685600000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "IWM",
+      "ts": 1757685600000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "DIA",
+      "ts": 1757685600000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "SPY",
+      "ts": 1757687400000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "QQQ",
+      "ts": 1757687400000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    },
+    {
+      "ticker": "IWM",
+      "ts": 1757687400000,
+      "error": "Cannot access '_tickerUpperEarly' before initialization"
+    }
+  ],
+  "stageCounts": {
+    "watch": 1
+  },
+  "blockReasons": {
+    "h3_rank_below_transitional_floor": 1
+  },
+  "d1StateWritten": 4,
+  "trailWritten": 1,
+  "lastSnapshot": {
+    "SPY": {
+      "state": "HTF_BULL_LTF_BULL",
+      "htf_score": 45.7,
+      "ltf_score": 13.9,
+      "ema_regime_daily": 2,
+      "ema_regime_4h": 2,
+      "fuel_D": 48,
+      "fuel_10": 83,
+      "fuel_30": 74,
+      "st_support_D": {
+        "dir": "bull",
+        "slope": "rising",
+        "aligned": true
+      },
+      "kanban_stage": "watch",
+      "score": 82,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": 83
+    },
+    "QQQ": {
+      "fuel_D": null,
+      "fuel_10": null,
+      "fuel_30": null,
+      "st_support_D": null,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": null
+    },
+    "IWM": {
+      "fuel_D": null,
+      "fuel_10": null,
+      "fuel_30": null,
+      "st_support_D": null,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": null
+    },
+    "DIA": {
+      "fuel_D": null,
+      "fuel_10": null,
+      "fuel_30": null,
+      "st_support_D": null,
+      "block_reason": null,
+      "block_fuel_pct": null,
+      "primary_fuel": null
+    }
+  },
+  "targetSnapshots": {},
+  "targetTimeline": [],
+  "processDebug": [],
+  "blockedEntryGates": {
+    "h3_rank_below_transitional_floor": 2,
+    "_total": 2
+  },
+  "blockChainBars": [
+    {
+      "ticker": "SPY",
+      "ts": 1757683800000,
+      "reason": "h3_rank_below_transitional_floor",
+      "kanban_stage": "watch",
+      "state": "HTF_BULL_LTF_BULL",
+      "score": 82,
+      "rank": 82,
+      "htf_score": 45.7,
+      "ltf_score": 13.9,
+      "daily_structure": {
+        "px": 657.41,
+        "e21": 650.54,
+        "e48": 645.14,
+        "e200": 618.6,
+        "pct_above_e48": 1.9,
+        "pct_above_e21": 1.06,
+        "e21_slope_5d_pct": 0.58,
+        "e48_slope_10d_pct": 0.69,
+        "bull_stack": true,
+        "bear_stack": false,
+        "above_e200": true
+      }
+    }
+  ],
+  "blockChainCap": 100000,
+  "fullDay": true
+}
