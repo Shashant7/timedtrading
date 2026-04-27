@@ -17654,10 +17654,20 @@ async function processTradeSimulation(
     const MAX_SAME_DIRECTION = 12;      // max positions in same direction (was 8; trend-following is overwhelmingly LONG)
     const CORRELATION_SECTOR_THRESHOLD = 3; // if 3+ positions already in same sector, require higher quality
     // v3: Regime-adaptive daily entry cap
+    //
+    // V15 P0.7.5 (2026-04-27): caps raised after lower conviction floor
+    // (70) qualified more candidates per day. Original caps 2/4/6 ran
+    // out mid-day before high-quality late-day entries (LITE Jul 14
+    // 15:30, NEU/GOOGL Jul 1 etc.) could be evaluated. New caps 4/8/12
+    // give the pipeline room to process more candidates without
+    // arbitrary cutoff. The other gates (focus_conviction, h3_consensus,
+    // sector concentration) continue to do quality filtering.
     const tickerRegimeClass = String(tickerData?.regime_class || "TRANSITIONAL");
-    const regimeDailyMax = tickerRegimeClass === "CHOPPY" ? 2
-      : tickerRegimeClass === "TRANSITIONAL" ? 4 : 6;
-    const MAX_DAILY_ENTRIES = regimeDailyMax;
+    const regimeDailyMax = tickerRegimeClass === "CHOPPY" ? 4
+      : tickerRegimeClass === "TRANSITIONAL" ? 8 : 12;
+    const MAX_DAILY_ENTRIES = Number(
+      tickerData?._env?._deepAuditConfig?.deep_audit_max_daily_entries
+    ) || regimeDailyMax;
     
     const db = env?.DB;
     const canRunSmartGates = isEnter && !weekendNow && !outsideRTH && enterCooldownOk && !sameEnterCycle && !openTrade && (db || isReplay);
