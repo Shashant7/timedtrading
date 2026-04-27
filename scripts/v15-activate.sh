@@ -28,6 +28,8 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_focus_tier_b_floor", "value": "80" },
     { "key": "deep_audit_focus_tier_c_floor", "value": "75" },
     { "key": "deep_audit_focus_min_entry_conviction", "value": "80" },
+    { "key": "deep_audit_focus_stack_carveout_enabled", "value": "true" },
+    { "key": "deep_audit_focus_stack_carveout_pct", "value": "5" },
 
     { "key": "deep_audit_v15_negative_veto_enabled", "value": "true" },
     { "key": "deep_audit_v15_veto_require_struct_break", "value": "true" },

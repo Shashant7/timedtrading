@@ -4006,10 +4006,36 @@ function qualifiesForEnter(d, asOfTs = null) {
         }
 
         // V15 P0.7.9 (2026-04-27): floor restored to 80 after no-cap mode
-        // exposed quality dilution. P0.7.2's saty/phase fixes mean
-        // conviction scores in calm grinds are now higher, so 80 is
-        // reachable without zero-entry days.
-        const _entryMinConv = Math.max(75, Number(_focusDaCfg.deep_audit_focus_min_entry_conviction ?? 80));
+        // exposed quality dilution.
+        // V15 P0.7.11 (2026-04-27): stacked-bull carve-out — see
+        // worker/pipeline/tt-core-entry.js for the rationale. Lowers
+        // the floor to 75 for HTF_BULL_LTF_BULL/PULLBACK with
+        // bull_stack=true (or HTF_BEAR_LTF_BEAR/BOUNCE with bear_stack)
+        // to catch LITE-class continuations the strict 80 missed.
+        let _entryMinConv = Math.max(75, Number(_focusDaCfg.deep_audit_focus_min_entry_conviction ?? 80));
+        const _stackCarveOutEnabled = String(
+          _focusDaCfg.deep_audit_focus_stack_carveout_enabled ?? "true"
+        ) === "true";
+        if (_stackCarveOutEnabled && _focusConv?.breakdown) {
+          const _carveState = String(tickerData?.state || "").toUpperCase();
+          const _carveDs = tickerData?.daily_structure || {};
+          const _carveBullStack = _carveDs?.bull_stack === true;
+          const _carveBearStack = _carveDs?.bear_stack === true;
+          const _carveLongStacked =
+            (_carveState.includes("HTF_BULL_LTF_BULL")
+              || _carveState === "HTF_BULL_LTF_PULLBACK")
+            && _carveBullStack;
+          const _carveShortStacked =
+            (_carveState.includes("HTF_BEAR_LTF_BEAR")
+              || _carveState === "HTF_BEAR_LTF_BOUNCE")
+            && _carveBearStack;
+          if (_carveLongStacked || _carveShortStacked) {
+            const _carveDelta = Number(
+              _focusDaCfg.deep_audit_focus_stack_carveout_pct ?? 5
+            );
+            _entryMinConv = Math.max(70, _entryMinConv - _carveDelta);
+          }
+        }
         if (_focusConv.score < _entryMinConv) {
           return {
             qualifies: false,

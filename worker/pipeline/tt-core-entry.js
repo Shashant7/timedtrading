@@ -512,7 +512,58 @@ export function evaluateEntry(ctx) {
       const _tierAFloor = Math.max(110, Number(daCfg.deep_audit_focus_tier_a_floor ?? 110));
       const _tierBFloor = Math.max(80, Number(daCfg.deep_audit_focus_tier_b_floor ?? 80));
       const _tierCFloor = Math.max(75, Number(daCfg.deep_audit_focus_tier_c_floor ?? 75));
-      const _entryMinConviction = Math.max(75, Number(daCfg.deep_audit_focus_min_entry_conviction ?? 80));
+      let _entryMinConviction = Math.max(75, Number(daCfg.deep_audit_focus_min_entry_conviction ?? 80));
+
+      // V15 P0.7.11 (2026-04-27): STACKED-BULL CARVE-OUT.
+      //
+      // Floor 80 was missing high-quality bull-stack continuations like
+      // LITE Jul 14 (+8.70% winner). LITE's conviction was 84 in some
+      // bars but blocked by other gates (h3_consensus, prime_rank). By
+      // the time those gates cleared, the saty signal had dropped to
+      // -5 (price extended above EMA5) and conviction fell to 69 —
+      // below the 80 floor.
+      //
+      // The pattern: HTF_BULL_LTF_BULL with daily bull_stack=true is
+      // the cleanest swing setup in our universe. A small drop in saty
+      // due to extension above EMA5 is a SIDE-EFFECT of the move
+      // working, not a quality signal. We can lower the floor for these
+      // structurally-confirmed setups without compromising the floor
+      // for less aligned states.
+      //
+      // Carve-out: when state contains BULL (LONG) or BEAR (SHORT)
+      // AND daily structure is appropriately stacked, lower the floor
+      // by `deep_audit_focus_stack_carveout_pct` points (default 5).
+      // 80 -> 75 for LONG bull-stack continuations.
+      // 80 -> 75 for SHORT bear-stack continuations.
+      // Other states (PULLBACK, etc.) keep the original floor.
+      //
+      // Validation: comparable to v15p0710 (floor 80) for July to
+      // measure whether this captures real winners (LITE) without
+      // re-introducing dilution from low-conviction borderlines.
+      const _stackCarveoutEnabled = String(
+        daCfg.deep_audit_focus_stack_carveout_enabled ?? "true"
+      ) === "true";
+      if (_stackCarveoutEnabled && _focusConviction?.breakdown) {
+        const _carveStateUpper = String(d?.state || "").toUpperCase();
+        const _carveDs = d?.daily_structure || {};
+        const _carveBullStack = _carveDs?.bull_stack === true;
+        const _carveBearStack = _carveDs?.bear_stack === true;
+        const _carveLongStacked =
+          (_carveStateUpper.includes("HTF_BULL_LTF_BULL")
+            || _carveStateUpper === "HTF_BULL_LTF_PULLBACK")
+          && _carveBullStack;
+        const _carveShortStacked =
+          (_carveStateUpper.includes("HTF_BEAR_LTF_BEAR")
+            || _carveStateUpper === "HTF_BEAR_LTF_BOUNCE")
+          && _carveBearStack;
+        if (_carveLongStacked || _carveShortStacked) {
+          const _carveDelta = Number(
+            daCfg.deep_audit_focus_stack_carveout_pct ?? 5
+          );
+          const _carveFloor = Math.max(70, _entryMinConviction - _carveDelta);
+          _entryMinConviction = _carveFloor;
+        }
+      }
 
       // ─────────────────────────────────────────────────────────────────
       // V15 P0.5 — HARD VETOES (2026-04-26)
