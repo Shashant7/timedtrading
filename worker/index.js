@@ -4005,11 +4005,11 @@ function qualifiesForEnter(d, asOfTs = null) {
           }
         }
 
-        // V15 P0.7.1 (2026-04-27): floor relaxed 80 -> 45 hard min,
-        // 50 default. See worker/pipeline/tt-core-entry.js line ~503
-        // for the parallel change. Both gates run on different entry
-        // paths; both must read consistent values.
-        const _entryMinConv = Math.max(45, Number(_focusDaCfg.deep_audit_focus_min_entry_conviction ?? 50));
+        // V15 P0.7.3 (2026-04-27): floor settled at 60/65 after P0.7.2
+        // smoke showed 45/50 was too permissive (WR dropped 67% -> 51%,
+        // PnL -42% vs P0.7 baseline). The 65 floor admits clean
+        // bull-stack pullbacks while filtering low-conviction entries.
+        const _entryMinConv = Math.max(60, Number(_focusDaCfg.deep_audit_focus_min_entry_conviction ?? 65));
         if (_focusConv.score < _entryMinConv) {
           return {
             qualifies: false,
@@ -4023,7 +4023,7 @@ function qualifiesForEnter(d, asOfTs = null) {
             },
           };
         }
-        const _tierCFloor = Math.max(45, Number(_focusDaCfg.deep_audit_focus_tier_c_floor ?? 45));
+        const _tierCFloor = Math.max(60, Number(_focusDaCfg.deep_audit_focus_tier_c_floor ?? 60));
         if (_focusConv.tier === "C" && _focusConv.score < _tierCFloor) {
           return {
             qualifies: false,
@@ -7828,6 +7828,39 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           const weekFullExit = Number.isFinite(dirAdjWeekDisp)
             && dirAdjWeekDisp >= weekExitThreshold;
           if (weekFullExit) {
+            // V15 P0.7.3 (2026-04-27): defer when daily 5/12 EMA cloud
+            // is structurally holding. Hitting weekly +0.618 ATR is a
+            // target-reached signal but in trending markets price often
+            // continues through it (LITE Aug runner, GOOGL Jul). Trim
+            // instead of full exit when cloud holds AND there's MFE
+            // capacity left.
+            const _atrWkCloudHold = !!tickerData?.__peak_lock_cloud_hold;
+            const _atrWkDeferEnabled = String(
+              tickerData?._env?._deepAuditConfig?.deep_audit_atr_week_618_defer_on_cloud_hold ?? "true"
+            ) === "true";
+            if (_atrWkDeferEnabled && _atrWkCloudHold && currentTrimPct < 0.5) {
+              // Hand off to the trim ladder logic instead — partial trim
+              // here lets the runner keep going as long as cloud holds.
+              const _atrWkTrimPct = Number(
+                tickerData?._env?._deepAuditConfig?.deep_audit_atr_week_618_partial_trim_pct ?? 0.30
+              );
+              if (currentTrimPct + _atrWkTrimPct < 0.98) {
+                tickerData.__scheduled_trim = {
+                  pct: _atrWkTrimPct,
+                  reason: "atr_week_618_partial_cloud_hold",
+                  cohort: ladderCohort,
+                };
+                tickerData.__exit_reason = "atr_week_618_partial_cloud_hold";
+                tickerData.__exit_family = "target";
+                tickerData.__exit_detail = {
+                  cohort: ladderCohort,
+                  week_disp: dirAdjWeekDisp,
+                  horizon: "week",
+                  cloud_holding: true,
+                };
+                return "trim";
+              }
+            }
             tickerData.__exit_reason = "atr_week_618_full_exit";
             tickerData.__exit_family = "target";
             tickerData.__exit_detail = {

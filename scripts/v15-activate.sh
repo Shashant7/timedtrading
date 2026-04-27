@@ -24,10 +24,10 @@ read -r -d '' PAYLOAD <<'JSON' || true
   "updates": [
     { "key": "deep_audit_focus_tier_enabled", "value": "true" },
 
-    { "key": "deep_audit_focus_tier_a_floor", "value": "80" },
-    { "key": "deep_audit_focus_tier_b_floor", "value": "55" },
-    { "key": "deep_audit_focus_tier_c_floor", "value": "45" },
-    { "key": "deep_audit_focus_min_entry_conviction", "value": "50" },
+    { "key": "deep_audit_focus_tier_a_floor", "value": "85" },
+    { "key": "deep_audit_focus_tier_b_floor", "value": "65" },
+    { "key": "deep_audit_focus_tier_c_floor", "value": "60" },
+    { "key": "deep_audit_focus_min_entry_conviction", "value": "65" },
 
     { "key": "deep_audit_v15_negative_veto_enabled", "value": "true" },
     { "key": "deep_audit_v15_veto_require_struct_break", "value": "true" },
@@ -60,7 +60,10 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_stagnant_squeeze_deferral_enabled", "value": "true" },
 
     { "key": "deep_audit_eod_defer_on_cloud_hold", "value": "true" },
-    { "key": "deep_audit_eod_low_mae_defer_pct", "value": "1.5" }
+    { "key": "deep_audit_eod_low_mae_defer_pct", "value": "1.5" },
+
+    { "key": "deep_audit_atr_week_618_defer_on_cloud_hold", "value": "true" },
+    { "key": "deep_audit_atr_week_618_partial_trim_pct", "value": "0.30" }
   ]
 }
 JSON

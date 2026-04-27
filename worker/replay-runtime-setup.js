@@ -229,6 +229,8 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_eod_defer_on_cloud_hold",
   "deep_audit_eod_low_mae_defer_pct",
   "deep_audit_v15_veto_require_struct_break",
+  "deep_audit_atr_week_618_defer_on_cloud_hold",
+  "deep_audit_atr_week_618_partial_trim_pct",
   // P4: SHORT gate relaxation
   "deep_audit_short_spy_regime_floor",
   "deep_audit_short_requires_ticker_bearish_daily",
