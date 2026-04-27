@@ -485,12 +485,22 @@ export function evaluateEntry(ctx) {
         _focusConviction = { score: 60, tier: "B", breakdown: { error: String(err?.message || err) } };
       }
 
-      // V15 P0.5 (2026-04-26): tier floors reverted to P0.3 baseline.
-      // A=110, B=80, C<80 entry blocked. Hard min 80.
-      const _tierAFloor = Math.max(110, Number(daCfg.deep_audit_focus_tier_a_floor ?? 110));
-      const _tierBFloor = Math.max(80, Number(daCfg.deep_audit_focus_tier_b_floor ?? 80));
-      const _tierCFloor = Math.max(80, Number(daCfg.deep_audit_focus_tier_c_floor ?? 80));
-      const _entryMinConviction = Math.max(80, Number(daCfg.deep_audit_focus_min_entry_conviction ?? _tierCFloor));
+      // V15 P0.7.1 (2026-04-27): floor lowered from 80 -> 70 + hard min
+      // relaxed 80 -> 65. The 80 floor was identified as the cause of an
+      // 11+ trading-day entry drought (Sept 26 - Oct 16+) during the
+      // V15 P0.7 full run. In low-volatility bullish-grind regimes
+      // (SPY $658->$673 in 11 days, no real pullbacks), the conviction
+      // signals — Saty ATR proximity, phase slope, RSI alignment —
+      // score lower because their magnitudes are scaled to bigger
+      // moves. SPY rank 82, fully bull-stacked, HTF_BULL_LTF_BULL was
+      // being blocked because conviction couldn't clear 80. The hard
+      // veto + Tier C-specific floor still catch the dangerous
+      // setups; the 80 floor was over-filtering quality bull-stack
+      // pullbacks.
+      const _tierAFloor = Math.max(95, Number(daCfg.deep_audit_focus_tier_a_floor ?? 95));
+      const _tierBFloor = Math.max(70, Number(daCfg.deep_audit_focus_tier_b_floor ?? 70));
+      const _tierCFloor = Math.max(65, Number(daCfg.deep_audit_focus_tier_c_floor ?? 65));
+      const _entryMinConviction = Math.max(65, Number(daCfg.deep_audit_focus_min_entry_conviction ?? 70));
 
       // ─────────────────────────────────────────────────────────────────
       // V15 P0.5 — HARD VETOES (2026-04-26)
@@ -524,14 +534,40 @@ export function evaluateEntry(ctx) {
         // Hard veto: fade-into-level + phase opposing + RSI opposing.
         // All three signals must be at their max-negative for this
         // to fire. This is the unambiguous "do not enter" pattern.
+        //
+        // V15 P0.7.1 (2026-04-27): added structural confirmation. The
+        // veto was firing 40+ times/day on AAPL/MSFT/JPM during the
+        // post-FOMC grind (HTF_BULL_LTF_PULLBACK with bull_stack=True),
+        // catching healthy pullbacks-into-support that just happened
+        // to have momentary bearish momentum signals. Require ALSO
+        // that the daily structure is NOT bull-stacked (or for shorts,
+        // not bear-stacked) before vetoing. If structure is intact,
+        // a temporary 3-signal-negative reading is a wick, not a
+        // catastrophe.
         if (_satyPts <= -15 && _phasePts <= -10 && _rsiPts <= -5) {
-          return rejectEntry("v15_veto_all_signals_oppose", {
-            saty_pts: _satyPts,
-            phase_pts: _phasePts,
-            rsi_pts: _rsiPts,
-            saty_reason: _bd?.saty_atr_proximity?.reason,
-            phase_reason: _bd?.phase_alignment?.reason,
-          });
+          const _vetoStructGate = String(
+            daCfg.deep_audit_v15_veto_require_struct_break ?? "true"
+          ) === "true";
+          const _vetoIsLong = String(d?.state || "").includes("BULL");
+          const _vetoIsShort = String(d?.state || "").includes("BEAR");
+          const _ds = d?.daily_structure || {};
+          const _bullStack = _ds?.bull_stack === true;
+          const _bearStack = _ds?.bear_stack === true;
+          const _structIntactForLong = _vetoIsLong && _bullStack;
+          const _structIntactForShort = _vetoIsShort && _bearStack;
+          const _structIntact = _structIntactForLong || _structIntactForShort;
+
+          if (!_vetoStructGate || !_structIntact) {
+            return rejectEntry("v15_veto_all_signals_oppose", {
+              saty_pts: _satyPts,
+              phase_pts: _phasePts,
+              rsi_pts: _rsiPts,
+              saty_reason: _bd?.saty_atr_proximity?.reason,
+              phase_reason: _bd?.phase_alignment?.reason,
+              bull_stack: _bullStack,
+              bear_stack: _bearStack,
+            });
+          }
         }
       }
 

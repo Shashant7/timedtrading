@@ -24,12 +24,15 @@ read -r -d '' PAYLOAD <<'JSON' || true
   "updates": [
     { "key": "deep_audit_focus_tier_enabled", "value": "true" },
 
-    { "key": "deep_audit_focus_tier_a_floor", "value": "110" },
-    { "key": "deep_audit_focus_tier_b_floor", "value": "80" },
-    { "key": "deep_audit_focus_tier_c_floor", "value": "80" },
-    { "key": "deep_audit_focus_min_entry_conviction", "value": "80" },
+    { "key": "deep_audit_focus_tier_a_floor", "value": "95" },
+    { "key": "deep_audit_focus_tier_b_floor", "value": "70" },
+    { "key": "deep_audit_focus_tier_c_floor", "value": "65" },
+    { "key": "deep_audit_focus_min_entry_conviction", "value": "70" },
 
     { "key": "deep_audit_v15_negative_veto_enabled", "value": "true" },
+    { "key": "deep_audit_v15_veto_require_struct_break", "value": "true" },
+
+    { "key": "deep_audit_index_etf_swing_min_score", "value": "65" },
 
     { "key": "deep_audit_etf_precision_gate_enabled", "value": "false" },
 
