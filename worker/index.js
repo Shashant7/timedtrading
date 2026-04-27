@@ -4005,11 +4005,12 @@ function qualifiesForEnter(d, asOfTs = null) {
           }
         }
 
-        // V15 P0.7.3 (2026-04-27): floor settled at 60/65 after P0.7.2
-        // smoke showed 45/50 was too permissive (WR dropped 67% -> 51%,
-        // PnL -42% vs P0.7 baseline). The 65 floor admits clean
-        // bull-stack pullbacks while filtering low-conviction entries.
-        const _entryMinConv = Math.max(60, Number(_focusDaCfg.deep_audit_focus_min_entry_conviction ?? 65));
+        // V15 P0.7.4 (2026-04-27): floor raised 65 -> 70 after P0.7.3
+        // smoke showed 65 admitted ~3 borderline entries that fast-cut
+        // for -1.2% each (PF 6.1 vs baseline 7.2 in clean numbers).
+        // 70 should preserve bull-grind entries while keeping PF closer
+        // to baseline.
+        const _entryMinConv = Math.max(65, Number(_focusDaCfg.deep_audit_focus_min_entry_conviction ?? 70));
         if (_focusConv.score < _entryMinConv) {
           return {
             qualifies: false,
@@ -4023,7 +4024,7 @@ function qualifiesForEnter(d, asOfTs = null) {
             },
           };
         }
-        const _tierCFloor = Math.max(60, Number(_focusDaCfg.deep_audit_focus_tier_c_floor ?? 60));
+        const _tierCFloor = Math.max(65, Number(_focusDaCfg.deep_audit_focus_tier_c_floor ?? 65));
         if (_focusConv.tier === "C" && _focusConv.score < _tierCFloor) {
           return {
             qualifies: false,

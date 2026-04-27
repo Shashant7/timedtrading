@@ -24,10 +24,10 @@ read -r -d '' PAYLOAD <<'JSON' || true
   "updates": [
     { "key": "deep_audit_focus_tier_enabled", "value": "true" },
 
-    { "key": "deep_audit_focus_tier_a_floor", "value": "85" },
-    { "key": "deep_audit_focus_tier_b_floor", "value": "65" },
-    { "key": "deep_audit_focus_tier_c_floor", "value": "60" },
-    { "key": "deep_audit_focus_min_entry_conviction", "value": "65" },
+    { "key": "deep_audit_focus_tier_a_floor", "value": "90" },
+    { "key": "deep_audit_focus_tier_b_floor", "value": "70" },
+    { "key": "deep_audit_focus_tier_c_floor", "value": "65" },
+    { "key": "deep_audit_focus_min_entry_conviction", "value": "70" },
 
     { "key": "deep_audit_v15_negative_veto_enabled", "value": "true" },
     { "key": "deep_audit_v15_veto_require_struct_break", "value": "true" },

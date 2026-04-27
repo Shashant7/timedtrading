@@ -497,10 +497,10 @@ export function evaluateEntry(ctx) {
       // veto + Tier C-specific floor still catch the dangerous
       // setups; the 80 floor was over-filtering quality bull-stack
       // pullbacks.
-      const _tierAFloor = Math.max(85, Number(daCfg.deep_audit_focus_tier_a_floor ?? 85));
-      const _tierBFloor = Math.max(65, Number(daCfg.deep_audit_focus_tier_b_floor ?? 65));
-      const _tierCFloor = Math.max(60, Number(daCfg.deep_audit_focus_tier_c_floor ?? 60));
-      const _entryMinConviction = Math.max(60, Number(daCfg.deep_audit_focus_min_entry_conviction ?? 65));
+      const _tierAFloor = Math.max(90, Number(daCfg.deep_audit_focus_tier_a_floor ?? 90));
+      const _tierBFloor = Math.max(70, Number(daCfg.deep_audit_focus_tier_b_floor ?? 70));
+      const _tierCFloor = Math.max(65, Number(daCfg.deep_audit_focus_tier_c_floor ?? 65));
+      const _entryMinConviction = Math.max(65, Number(daCfg.deep_audit_focus_min_entry_conviction ?? 70));
 
       // ─────────────────────────────────────────────────────────────────
       // V15 P0.5 — HARD VETOES (2026-04-26)
