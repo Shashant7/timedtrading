@@ -670,6 +670,15 @@ function mapArchivedReplayTrade(row, replayLockVal) {
     risk_budget: row.risk_budget,
     shares: row.shares,
     notional: row.notional,
+    // V15 P0.7.7: include MFE/MAE/entry_path so reconciled trades have
+    // the full state. Prior versions dropped these on reconcile, breaking
+    // peak_lock and other MFE-aware exit rules.
+    entry_path: row.entry_path ?? null,
+    entryPath: row.entry_path ?? null,
+    max_favorable_excursion: row.max_favorable_excursion ?? null,
+    maxFavorableExcursion: row.max_favorable_excursion ?? null,
+    max_adverse_excursion: row.max_adverse_excursion ?? null,
+    maxAdverseExcursion: row.max_adverse_excursion ?? null,
     run_id: replayLockVal,
   };
 }
@@ -701,22 +710,84 @@ export async function loadReplayScopedTrades(args = {}) {
   }
 
   let allTrades = resetTrades ? [] : ((await kvGetJSON(KV, replayTradesKey)) || []);
-  if (!cleanReplayLane && (!allTrades || allTrades.length === 0) && replayLockVal && db) {
+
+  // V15 P0.7.7 (2026-04-27): RECONCILE WITH D1 (strongly consistent).
+  //
+  // Cloudflare KV is eventually consistent — cross-region propagation
+  // can take 60s+. Sequential candle-replay batches (one per day in
+  // continuous-slice) can therefore load STALE state where the most
+  // recent batch's KV write hasn't propagated yet. Symptom: positions
+  // entered on day N are invisible to day N+1's gate check, leading
+  // to dual-position bugs (AMZN Jul 1 OPEN + AMZN Jul 2 OPEN simultaneously).
+  //
+  // Fix: always merge with D1's `trades` table (strongly consistent)
+  // for the active run_id. KV is treated as a fast cache; D1 as the
+  // source of truth.
+  if (!cleanReplayLane && replayLockVal && db && !resetTrades) {
     try {
       await d1EnsureBacktestRunsSchema(env);
-      const { results: archiveRows } = await db.prepare(
+      const { results: liveRows } = await db.prepare(
         `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
                 exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
-                trim_ts, trim_price, setup_name, setup_grade, risk_budget, shares, notional
-         FROM backtest_run_trades WHERE run_id = ?1`
+                trim_ts, trim_price, setup_name, setup_grade, risk_budget, shares, notional,
+                entry_path, max_favorable_excursion, max_adverse_excursion
+         FROM trades WHERE run_id = ?1`
       ).bind(replayLockVal).all();
-      if (archiveRows && archiveRows.length > 0) {
-        allTrades = archiveRows.map((row) => mapArchivedReplayTrade(row, replayLockVal));
+      if (liveRows && liveRows.length > 0) {
+        const kvByTradeId = new Map();
+        for (const t of allTrades) {
+          const tid = String(t?.trade_id || t?.id || "").trim();
+          if (tid) kvByTradeId.set(tid, t);
+        }
+        // For every D1 row, prefer KV's version if it exists (KV may
+        // have richer in-flight state e.g. updated MFE/MAE). Otherwise
+        // pull the D1 row in. This guarantees every persisted trade
+        // appears in allTrades.
+        const merged = [];
+        const seen = new Set();
+        for (const row of liveRows) {
+          const tid = String(row?.trade_id || "").trim();
+          if (!tid || seen.has(tid)) continue;
+          seen.add(tid);
+          const fromKv = kvByTradeId.get(tid);
+          if (fromKv) {
+            merged.push(fromKv);
+          } else {
+            merged.push(mapArchivedReplayTrade(row, replayLockVal));
+          }
+        }
+        // Also include any KV-only trades the D1 query missed (e.g.
+        // freshly created trades that haven't been D1-upserted yet).
+        for (const t of allTrades) {
+          const tid = String(t?.trade_id || t?.id || "").trim();
+          if (tid && !seen.has(tid)) {
+            merged.push(t);
+            seen.add(tid);
+          }
+        }
+        if (merged.length !== allTrades.length) {
+          console.log(`${logPrefix} Reconciled ${allTrades.length} KV trades with ${liveRows.length} D1 trades -> ${merged.length} merged`);
+        }
+        allTrades = merged;
+      } else if (!allTrades || allTrades.length === 0) {
+        // Last-resort fallback: try the archive table for legacy runs.
+        const { results: archiveRows } = await db.prepare(
+          `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+                  exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
+                  trim_ts, trim_price, setup_name, setup_grade, risk_budget, shares, notional
+           FROM backtest_run_trades WHERE run_id = ?1`
+        ).bind(replayLockVal).all();
+        if (archiveRows && archiveRows.length > 0) {
+          allTrades = archiveRows.map((row) => mapArchivedReplayTrade(row, replayLockVal));
+          console.log(`${logPrefix} Restored ${allTrades.length} trades from archive for run ${replayLockVal}`);
+        }
+      }
+      // Persist reconciled state back to KV so downstream reads see fresh data.
+      if (allTrades && allTrades.length > 0) {
         await kvPutJSON(KV, replayTradesKey, allTrades);
-        console.log(`${logPrefix} Restored ${allTrades.length} trades from archive for run ${replayLockVal}`);
       }
     } catch (e) {
-      console.warn(`${logPrefix} Archive load failed:`, String(e).slice(0, 150));
+      console.warn(`${logPrefix} D1 reconcile failed:`, String(e).slice(0, 200));
     }
   }
 
