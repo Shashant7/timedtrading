@@ -182,6 +182,7 @@ export function createIntervalReplayStep(deps = {}) {
         KV,
         db,
         replayLockVal,
+        replayRunId,
         replayTradeScope,
         cleanReplayLane,
         resetTrades: intervalCleanSlate,

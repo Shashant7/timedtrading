@@ -706,6 +706,7 @@ export async function loadReplayScopedTrades(args = {}) {
     KV,
     db,
     replayLockVal,
+    replayRunId,
     replayTradeScope,
     cleanReplayLane = false,
     resetTrades = false,
@@ -750,7 +751,15 @@ export async function loadReplayScopedTrades(args = {}) {
   // Gate is now `!resetTrades`: only the first batch of a fresh
   // cleanSlate run skips reconciliation (because trades were just
   // cleared). All subsequent batches reconcile with D1 unconditionally.
-  if (!resetTrades && replayLockVal && db) {
+  // V15 P0.7.14 (2026-04-28): Use replayRunId (the actual run identifier
+  // stored in trades.run_id), NOT replayLockVal. The lock value is the
+  // string written to KV "timed:replay:lock" — it has the form
+  // "continuous_<run_id>@<iso_ts>" — and does NOT match what
+  // d1UpsertTrade persists in trades.run_id (which is just the
+  // run_id without the lock prefix). Querying with replayLockVal
+  // returned 0 rows on every batch, silently disabling reconciliation.
+  const reconcileRunId = replayRunId || replayLockVal;
+  if (!resetTrades && reconcileRunId && db) {
     try {
       await d1EnsureBacktestRunsSchema(env);
       const { results: liveRows } = await db.prepare(
@@ -759,7 +768,8 @@ export async function loadReplayScopedTrades(args = {}) {
                 trim_ts, trim_price, setup_name, setup_grade, risk_budget, shares, notional,
                 entry_path, max_favorable_excursion, max_adverse_excursion
          FROM trades WHERE run_id = ?1`
-      ).bind(replayLockVal).all();
+      ).bind(reconcileRunId).all();
+      console.log(`${logPrefix} D1 query returned: rows=${(liveRows||[]).length} run_id=${reconcileRunId}`);
       if (liveRows && liveRows.length > 0) {
         const kvByTradeId = new Map();
         for (const t of allTrades) {
@@ -789,8 +799,9 @@ export async function loadReplayScopedTrades(args = {}) {
           if (!tid || seen.has(tid)) continue;
           seen.add(tid);
           const fromKv = kvByTradeId.get(tid);
-          // Build the D1-based base record.
-          const d1Trade = mapArchivedReplayTrade(row, replayLockVal);
+          // Build the D1-based base record. Use the actual run_id
+          // (which is what trades.run_id contains), not the lock value.
+          const d1Trade = mapArchivedReplayTrade(row, reconcileRunId);
           if (!fromKv) {
             merged.push(d1Trade);
             continue;
@@ -843,10 +854,10 @@ export async function loadReplayScopedTrades(args = {}) {
                   exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
                   trim_ts, trim_price, setup_name, setup_grade, risk_budget, shares, notional
            FROM backtest_run_trades WHERE run_id = ?1`
-        ).bind(replayLockVal).all();
+        ).bind(reconcileRunId).all();
         if (archiveRows && archiveRows.length > 0) {
-          allTrades = archiveRows.map((row) => mapArchivedReplayTrade(row, replayLockVal));
-          console.log(`${logPrefix} Restored ${allTrades.length} trades from archive for run ${replayLockVal}`);
+          allTrades = archiveRows.map((row) => mapArchivedReplayTrade(row, reconcileRunId));
+          console.log(`${logPrefix} Restored ${allTrades.length} trades from archive for run ${reconcileRunId}`);
         }
       }
       // Persist reconciled state back to KV so downstream reads see fresh data.
@@ -1004,6 +1015,7 @@ export async function prepareCandleReplayBatch(args = {}) {
     KV,
     db,
     replayLockVal,
+    replayRunId,
     replayTradeScope,
     cleanReplayLane,
     resetTrades: cleanSlate && tickerOffset === 0,
