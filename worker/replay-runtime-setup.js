@@ -828,9 +828,13 @@ export async function loadReplayScopedTrades(args = {}) {
             seen.add(tid);
           }
         }
-        if (merged.length !== allTrades.length) {
-          console.log(`${logPrefix} Reconciled ${allTrades.length} KV trades with ${liveRows.length} D1 trades -> ${merged.length} merged`);
-        }
+        // Always log reconciliation activity so we can verify the fix
+        // is firing. Counts of OPEN/TP_HIT_TRIM are the most actionable.
+        const openCount = merged.filter(t => {
+          const s = String(t?.status || "").toUpperCase();
+          return s === "OPEN" || s === "TP_HIT_TRIM" || !s;
+        }).length;
+        console.log(`${logPrefix} Reconciled KV(${allTrades.length})/D1(${liveRows.length})->${merged.length} (open=${openCount})`);
         allTrades = merged;
       } else if (!allTrades || allTrades.length === 0) {
         // Last-resort fallback: try the archive table for legacy runs.
