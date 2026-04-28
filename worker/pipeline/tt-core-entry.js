@@ -126,6 +126,7 @@ export function evaluateEntry(ctx) {
   let pullbackTrigger = false;
   let reclaimTrigger = false;
   let athBreakoutTrigger = false;  // V16 Setup #4 — ATH/52w breakout (LONG) / ATL breakdown (SHORT)
+  let rangeReversalTrigger = false; // V16 Setup #1 — Range bottom bounce (LONG) / Range top bounce (SHORT)
   let c10FiveTwelveConfirmed = false;
   let c30FiveTwelveConfirmed = false;
   let c30FiveTwelveOpposed = false;
@@ -1176,6 +1177,71 @@ export function evaluateEntry(ctx) {
         is_etf_cohort: _isEtfCohort,
         rvol_min: _athMinRvol,
         follow_through: _hasFollowThrough,
+      };
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // V16 SETUP #1 (2026-04-28) — RANGE REVERSAL TRIGGER (Ripster Setup #1)
+  //
+  // Catches the V14 winners we systematically miss with current gates:
+  // CCJ Sep 3/17, KWEB Sep 3, IESC Sep 9, PWR Sep 25, STRL Oct 14,
+  // GDX Oct 14. All shared the pattern: 10-15 day horizontal range,
+  // dipped to range low, bounced.
+  //
+  // LONG: range valid (3-15% range_pct), price near low (<40% of range),
+  //       low touched ≥2 times within last 12 bars, low touched recently
+  //       (≤3 bars ago), bullish reversal candle today.
+  // SHORT: mirror at range top.
+  //
+  // RVol confirmation: institutional accumulation at range low needs
+  // moderate rvol (default 1.0).
+  //
+  // DA-keyed:
+  //   deep_audit_range_reversal_enabled = true
+  //   deep_audit_range_reversal_min_rvol = 1.0
+  //   deep_audit_range_reversal_min_touches = 2
+  const _rangeRevEnabled = String(daCfg.deep_audit_range_reversal_enabled ?? "true") === "true";
+  if (_rangeRevEnabled && !athBreakoutTrigger) {
+    const _rrDs = d?.daily_structure || {};
+    const _rb = _rrDs?.range_box;
+    if (_rb && _rb.is_valid_range) {
+      const _rrMinRvol = Number(daCfg.deep_audit_range_reversal_min_rvol ?? 1.0);
+      const _rrMinTouches = Number(daCfg.deep_audit_range_reversal_min_touches ?? 2);
+      const _rrRvol = Number(ctx?.rvol?.best) || Number(d?.rvol_map?.["30"]?.vr) || Number(d?.rvol_best) || 0;
+
+      if (side === "LONG") {
+        const _rrConditionsLong =
+          _rb.long_setup_active === true
+          && _rb.low_touches >= _rrMinTouches
+          && (_rrRvol === 0 || _rrRvol >= _rrMinRvol);
+        if (_rrConditionsLong) {
+          rangeReversalTrigger = true;
+        }
+      } else if (side === "SHORT") {
+        const _rrConditionsShort =
+          _rb.short_setup_active === true
+          && _rb.high_touches >= _rrMinTouches
+          && (_rrRvol === 0 || _rrRvol >= _rrMinRvol);
+        if (_rrConditionsShort) {
+          rangeReversalTrigger = true;
+        }
+      }
+
+      d.__range_reversal_diag = {
+        side,
+        fired: rangeReversalTrigger,
+        range_pct: _rb.range_pct,
+        position_in_range: _rb.position_in_range,
+        low_touches: _rb.low_touches,
+        high_touches: _rb.high_touches,
+        bars_since_low_touch: _rb.bars_since_low_touch,
+        bars_since_high_touch: _rb.bars_since_high_touch,
+        bullish_reversal: _rb.bullish_reversal,
+        bearish_reversal: _rb.bearish_reversal,
+        long_setup_active: _rb.long_setup_active,
+        short_setup_active: _rb.short_setup_active,
+        rvol: _rrRvol,
       };
     }
   }
@@ -3118,6 +3184,37 @@ export function evaluateEntry(ctx) {
   // breakout-bar IS the entry signal; we don't want to fall through to
   // pullback/momentum logic which may have additional gates that
   // disqualify breakout setups.
+  // V16 Setup #1 — Range reversal also takes priority — the reversal
+  // candle off the range edge IS the signal; pullback/momentum gates
+  // can disqualify range-bottom bounces because they look like
+  // counter-trend.
+  if (rangeReversalTrigger) {
+    return qualifyEntry(
+      side === "LONG" ? "tt_range_reversal_long" : "tt_range_reversal_short",
+      "medium",
+      side === "LONG" ? "range_low_bounce" : "range_high_bounce",
+      {
+        ...baseSizing,
+      },
+      {
+        cloudAlignment: cloudMeta,
+        triggerType: side === "LONG" ? "range_reversal_long" : "range_reversal_short",
+        pdzZone: { D: pdzZoneD, h4: pdzZone4h },
+        gapContext: summarizeGapContext(gapContext),
+        cvgContext: summarizeCvgContext(cvgContext),
+        entrySupport: summarizeEntrySupport(entrySupportProfile),
+        rsiHeat: { m10: rsi10m, m30: rsi30m, h1: rsi1h },
+        movePhase: movePhaseSummary,
+        range_reversal_diag: d?.__range_reversal_diag || null,
+        executionProfile: {
+          name: executionProfileName || null,
+          personality: tickerPersonality || null,
+          profileRegimeMult,
+          volatileMomentumMult,
+        },
+      },
+    );
+  }
   if (athBreakoutTrigger) {
     return qualifyEntry(
       side === "LONG" ? "tt_ath_breakout" : "tt_atl_breakdown",

@@ -589,11 +589,15 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
                     above_e200: ds.above_e200,
                     // V16 Setup #4: 52w high/low + breakout proximity
                     ath52w: ds.ath52w || null,
+                    // V16 Setup #1: range box + reversal flags
+                    range_box: ds.range_box || null,
                   } : null,
                   // V15 (2026-04-25) — index-ETF swing trigger trace if computed.
                   index_etf_swing_diag: result?.__index_etf_swing_diag || null,
                   // V16 Setup #4 — ATH breakout trigger trace if computed.
                   ath_breakout_diag: result?.__ath_breakout_diag || null,
+                  // V16 Setup #1 — Range reversal trigger trace if computed.
+                  range_reversal_diag: result?.__range_reversal_diag || null,
                 });
               }
             } else {

@@ -1502,6 +1502,116 @@ export function computeTfBundle(bars, anchors = null) {
     sample_size: lookback252,
   };
 
+  // ── V16 Setup #1: RANGE BOX detection (Ripster Setup #1: Range Reversal) ──
+  //
+  // Detect a horizontal range over the last N bars (default 12). The
+  // pattern: ticker oscillates between a high and low for 10-15 bars,
+  // then dips to the bottom of the range and reverses. The Setup #1
+  // entry is the bounce off the range low.
+  //
+  // Range-box is "valid" when:
+  //   - range_pct (high-low / mid_price) is moderate: 3-15%
+  //     (too tight = Setup #4 base; too wide = trending, not ranging)
+  //   - the high and low were touched at LEAST `min_touches` times
+  //     (i.e. the range is real, not a single spike)
+  //
+  // SHORT mirror: same range, price near top, bearish reversal.
+  let rangeBox = null;
+  const rangeWindow = Math.min(12, n);
+  if (n >= rangeWindow + 2) {
+    let rangeHigh = -Infinity, rangeLow = Infinity;
+    for (let i = last - rangeWindow + 1; i <= last; i++) {
+      const bh = bars[i]?.h ?? closes[i];
+      const bl = bars[i]?.l ?? closes[i];
+      if (Number.isFinite(bh) && bh > rangeHigh) rangeHigh = bh;
+      if (Number.isFinite(bl) && bl < rangeLow) rangeLow = bl;
+    }
+    if (Number.isFinite(rangeHigh) && Number.isFinite(rangeLow) && rangeHigh > rangeLow) {
+      const rangeMid = (rangeHigh + rangeLow) / 2;
+      const rangePct = ((rangeHigh - rangeLow) / rangeMid) * 100;
+      // Position in range: 0 = at low, 1 = at high
+      const positionInRange = (px - rangeLow) / (rangeHigh - rangeLow);
+      // Touch counts: how many bars came within 0.5% of high/low
+      const touchTol = (rangeHigh - rangeLow) * 0.05; // 5% of range = touch
+      let highTouches = 0, lowTouches = 0;
+      let lastLowTouchIdx = -1, lastHighTouchIdx = -1;
+      for (let i = last - rangeWindow + 1; i <= last; i++) {
+        const bh = bars[i]?.h ?? closes[i];
+        const bl = bars[i]?.l ?? closes[i];
+        if (Number.isFinite(bh) && Math.abs(bh - rangeHigh) <= touchTol) {
+          highTouches++;
+          lastHighTouchIdx = i;
+        }
+        if (Number.isFinite(bl) && Math.abs(bl - rangeLow) <= touchTol) {
+          lowTouches++;
+          lastLowTouchIdx = i;
+        }
+      }
+      const barsSinceLowTouch = lastLowTouchIdx >= 0 ? (last - lastLowTouchIdx) : null;
+      const barsSinceHighTouch = lastHighTouchIdx >= 0 ? (last - lastHighTouchIdx) : null;
+
+      // Bullish reversal candle: today's close > open AND close in upper
+      // 50% of bar.
+      const todayBar = bars[last];
+      const bullishReversal = todayBar
+        && Number.isFinite(todayBar.c) && Number.isFinite(todayBar.o)
+        && Number.isFinite(todayBar.h) && Number.isFinite(todayBar.l)
+        && todayBar.c > todayBar.o
+        && (todayBar.h - todayBar.l > 0)
+        && ((todayBar.c - todayBar.l) / (todayBar.h - todayBar.l) >= 0.55);
+      const bearishReversal = todayBar
+        && Number.isFinite(todayBar.c) && Number.isFinite(todayBar.o)
+        && Number.isFinite(todayBar.h) && Number.isFinite(todayBar.l)
+        && todayBar.c < todayBar.o
+        && (todayBar.h - todayBar.l > 0)
+        && ((todayBar.h - todayBar.c) / (todayBar.h - todayBar.l) >= 0.55);
+
+      // V16 Setup #1 — define "in lower zone" as:
+      //   - position < 0.50 (lower half of range), OR
+      //   - close > prev close (today's daily bar is a green candle —
+      //     valid bounce signal even if pos has already moved up)
+      //
+      // The reversal candle definition is too strict for daily bars
+      // (intraday wicks distort close-vs-range ratio). Use a softer
+      // signal: today's close > prior close = bullish day-frame.
+      const todayClose = Number.isFinite(todayBar?.c) ? todayBar.c : null;
+      const prevClose = last >= 1 ? closes[last - 1] : null;
+      const todayBullishDay = todayClose != null && prevClose != null && todayClose > prevClose;
+      const todayBearishDay = todayClose != null && prevClose != null && todayClose < prevClose;
+
+      rangeBox = {
+        high: Math.round(rangeHigh * 10000) / 10000,
+        low: Math.round(rangeLow * 10000) / 10000,
+        mid: Math.round(rangeMid * 10000) / 10000,
+        range_pct: Math.round(rangePct * 100) / 100,
+        position_in_range: Math.round(positionInRange * 1000) / 1000,
+        bars_in_range: rangeWindow,
+        high_touches: highTouches,
+        low_touches: lowTouches,
+        bars_since_low_touch: barsSinceLowTouch,
+        bars_since_high_touch: barsSinceHighTouch,
+        is_valid_range: rangePct >= 3 && rangePct <= 15
+          && (lowTouches >= 2 || highTouches >= 2),
+        // Setup #1 LONG conditions: in lower half of range, recently
+        // touched low, bullish reversal — using softer/relaxed criteria.
+        long_setup_active: rangePct >= 3 && rangePct <= 15
+          && positionInRange < 0.55
+          && lowTouches >= 2
+          && barsSinceLowTouch != null && barsSinceLowTouch <= 6
+          && (bullishReversal || todayBullishDay),
+        short_setup_active: rangePct >= 3 && rangePct <= 15
+          && positionInRange > 0.45
+          && highTouches >= 2
+          && barsSinceHighTouch != null && barsSinceHighTouch <= 6
+          && (bearishReversal || todayBearishDay),
+        bullish_reversal: bullishReversal,
+        bearish_reversal: bearishReversal,
+        today_bullish_day: todayBullishDay,
+        today_bearish_day: todayBearishDay,
+      };
+    }
+  }
+
   return {
     px, pxPrev, barHigh, barLow, lastTs,
     e3, e5, e8, e9, e12, e13, e21, e34, e48, e50, e72, e89, e180, e200, e233,
@@ -1530,6 +1640,7 @@ export function computeTfBundle(bars, anchors = null) {
     ichimoku,
     lookback: lookbackFeatures,
     ath52w,
+    rangeBox,
   };
 }
 
@@ -4723,6 +4834,8 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
         ema_regime_daily: Number.isFinite(bD.emaRegime) ? bD.emaRegime : null,
         // V16 Setup #4: 52w high/low proximity for ATH-breakout / ATL-breakdown
         ath52w: bD.ath52w || null,
+        // V16 Setup #1: range box for range-reversal LONG/SHORT entries
+        range_box: bD.rangeBox || null,
       };
     })() : undefined,
   };

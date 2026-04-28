@@ -692,6 +692,66 @@ function scoreAthBreakout(tickerData, ctx) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// V16 Setup #1 — Range Reversal signal (Ripster Setup #1)
+//
+// Captures the "buy bounce off range low / sell bounce at range high"
+// pattern that V14 caught as tt_pullback but our current gates miss.
+//
+// LONG setup: ticker in horizontal range (3-15%), near range low (<40%
+//   into range), recently touched low (≤3 bars ago), bullish reversal
+//   candle today.
+// SHORT setup: mirror at range high.
+//
+// Range: 0 to +12 pts. Additive (no negative; absence of range-setup
+// just contributes 0).
+//   +6 valid range setup active
+//   +3 multiple touches of the range edge (≥3)
+//   +3 fresh reversal (≤2 bars from edge touch)
+// ─────────────────────────────────────────────────────────────────────────
+function scoreRangeReversal(tickerData, ctx) {
+  const side = String(ctx?.side || ctx?.direction || "").toUpperCase();
+  if (!side || (side !== "LONG" && side !== "SHORT")) {
+    return { pts: 0, reason: "no_side" };
+  }
+  const ds = tickerData?.daily_structure || {};
+  const rb = ds?.range_box;
+  if (!rb || !rb.is_valid_range) {
+    return { pts: 0, reason: "no_valid_range" };
+  }
+
+  let pts = 0;
+  const reasons = [];
+  const setupActive = side === "LONG" ? rb.long_setup_active : rb.short_setup_active;
+  if (!setupActive) {
+    return { pts: 0, reason: "setup_not_active", range_pct: rb.range_pct, pos: rb.position_in_range };
+  }
+
+  pts += 6;
+  reasons.push(`range_${rb.range_pct}pct_pos${rb.position_in_range}`);
+
+  const touches = side === "LONG" ? rb.low_touches : rb.high_touches;
+  if (touches >= 3) {
+    pts += 3;
+    reasons.push(`${touches}_touches`);
+  }
+
+  const freshness = side === "LONG" ? rb.bars_since_low_touch : rb.bars_since_high_touch;
+  if (freshness != null && freshness <= 2) {
+    pts += 3;
+    reasons.push(`fresh_${freshness}bar`);
+  }
+
+  return {
+    pts,
+    reason: reasons.join(","),
+    range_pct: rb.range_pct,
+    position_in_range: rb.position_in_range,
+    touches,
+    bars_since_touch: freshness,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Recent-winner bonus (+5 pts)
 // ≥2 wins on this ticker in last 30 trading days, net +3% PnL.
 // ─────────────────────────────────────────────────────────────────────────
@@ -730,8 +790,10 @@ export function computeConvictionScore({
   const s9 = scoreRsiAlignment(tickerData, ctx);
   // V16 Setup #4 — ATH/52w Breakout (0 to +12)
   const s10 = scoreAthBreakout(tickerData, ctx);
+  // V16 Setup #1 — Range Reversal (0 to +12)
+  const s11 = scoreRangeReversal(tickerData, ctx);
 
-  let base = s1.pts + s2.pts + s3.pts + s4.pts + s5.pts + s6.pts + s7.pts + s8.pts + s9.pts + s10.pts;
+  let base = s1.pts + s2.pts + s3.pts + s4.pts + s5.pts + s6.pts + s7.pts + s8.pts + s9.pts + s10.pts + s11.pts;
 
   // Bonuses (capped so total ≤ 100)
   const ttSelBonus = (ttSelected || TT_SELECTED_DEFAULT).has(tickerUpper) ? 15 : 0;
@@ -751,9 +813,11 @@ export function computeConvictionScore({
   //   rsi_alignment -5 to +5
   // V16 Setup #4 (2026-04-28):
   //   ath_breakout 0 to +12 (additive — captures bull-grind ATH setups)
-  // Max base = 10+15+10+15+25+20+10+10+5+12 = 132
-  // Max bonuses = 40 → theoretical max 172
-  const total = Math.max(0, Math.min(172, base + ttSelBonus + grannyBonus + upticksBonus + recentBonus));
+  // V16 Setup #1 (2026-04-28):
+  //   range_reversal 0 to +12 (additive — captures range-bound reversals)
+  // Max base = 10+15+10+15+25+20+10+10+5+12+12 = 144
+  // Max bonuses = 40 → theoretical max 184
+  const total = Math.max(0, Math.min(184, base + ttSelBonus + grannyBonus + upticksBonus + recentBonus));
 
   // V15 P0.5 tier thresholds (back to P0.3 calibration):
   //   A ≥ 110, B ≥ 80, C < 80
@@ -775,6 +839,7 @@ export function computeConvictionScore({
       phase_alignment: s8,
       rsi_alignment: s9,
       ath_breakout: s10,
+      range_reversal: s11,
       bonuses: {
         tt_selected: ttSelBonus,
         granny_etf: grannyBonus,
