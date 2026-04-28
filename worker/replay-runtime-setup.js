@@ -740,7 +740,17 @@ export async function loadReplayScopedTrades(args = {}) {
   // Fix: always merge with D1's `trades` table (strongly consistent)
   // for the active run_id. KV is treated as a fast cache; D1 as the
   // source of truth.
-  if (!cleanReplayLane && replayLockVal && db && !resetTrades) {
+  //
+  // V15 P0.7.13 (2026-04-28): The original gate `!cleanReplayLane`
+  // accidentally DISABLED reconciliation for our clean-lane runs
+  // (manifest.replayMode.cleanLane=true, set by continuous-slice).
+  // For these runs, EVERY batch was loading from KV only, so KV
+  // eventual consistency reproduced the orphan-trade bug
+  // (Jul 1 QQQ OPEN never managed, Jul 10 QQQ entered again).
+  // Gate is now `!resetTrades`: only the first batch of a fresh
+  // cleanSlate run skips reconciliation (because trades were just
+  // cleared). All subsequent batches reconcile with D1 unconditionally.
+  if (!resetTrades && replayLockVal && db) {
     try {
       await d1EnsureBacktestRunsSchema(env);
       const { results: liveRows } = await db.prepare(
