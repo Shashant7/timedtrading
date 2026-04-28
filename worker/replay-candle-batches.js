@@ -587,11 +587,13 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
                     bull_stack: ds.bull_stack,
                     bear_stack: ds.bear_stack,
                     above_e200: ds.above_e200,
+                    // V16 Setup #4: 52w high/low + breakout proximity
+                    ath52w: ds.ath52w || null,
                   } : null,
                   // V15 (2026-04-25) — index-ETF swing trigger trace if computed.
-                  // Captures every condition's actual value vs band so we can
-                  // see which threshold(s) need calibration.
                   index_etf_swing_diag: result?.__index_etf_swing_diag || null,
+                  // V16 Setup #4 — ATH breakout trigger trace if computed.
+                  ath_breakout_diag: result?.__ath_breakout_diag || null,
                 });
               }
             } else {

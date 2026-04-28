@@ -623,6 +623,75 @@ function scoreRsiAlignment(tickerData, ctx) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// V16 Setup #4 — ATH/52w Breakout signal (Ripster Setup #4)
+//
+// Captures the "tight base near 52w high → breakout" pattern that
+// dominates bull-grind regimes (post-FOMC October, etc.) where
+// tt_pullback can't fire because there are no real pullbacks.
+//
+// LONG: within 1.5% of 52w high AND breaking above prior-day high
+//       AND tight base (<3% over last 5 bars).
+// SHORT: mirror — within 1.5% of 52w low AND breaking below prior-day
+//        low AND tight base.
+//
+// Range: 0 to +12 pts. Scaled additive (no negative).
+//   +5  near ATH (1.5% threshold)
+//   +5  prior-day breakout
+//   +2  tight base confirmation
+// ─────────────────────────────────────────────────────────────────────────
+function scoreAthBreakout(tickerData, ctx) {
+  const side = String(ctx?.side || ctx?.direction || "").toUpperCase();
+  if (!side || (side !== "LONG" && side !== "SHORT")) {
+    return { pts: 0, reason: "no_side" };
+  }
+  const ds = tickerData?.daily_structure || {};
+  const ath = ds?.ath52w;
+  if (!ath || ath.sample_size == null || ath.sample_size < 60) {
+    return { pts: 0, reason: "insufficient_history" };
+  }
+
+  let pts = 0;
+  const reasons = [];
+
+  if (side === "LONG") {
+    if (ath.is_near_ath === true) {
+      pts += 5;
+      reasons.push(`near_ath_${ath.pct_below_high_252?.toFixed(2)}%`);
+    }
+    if (ath.breakout_above_prev_high === true) {
+      pts += 5;
+      reasons.push("breakout_above_prev_high");
+    }
+    if (ath.has_tight_base === true) {
+      pts += 2;
+      reasons.push(`tight_base_${ath.tight_base_5d_pct?.toFixed(2)}%`);
+    }
+  } else {
+    if (ath.is_near_atl === true) {
+      pts += 5;
+      reasons.push(`near_atl_${ath.pct_above_low_252?.toFixed(2)}%`);
+    }
+    if (ath.breakdown_below_prev_low === true) {
+      pts += 5;
+      reasons.push("breakdown_below_prev_low");
+    }
+    if (ath.has_tight_base === true) {
+      pts += 2;
+      reasons.push(`tight_base_${ath.tight_base_5d_pct?.toFixed(2)}%`);
+    }
+  }
+
+  return {
+    pts,
+    reason: reasons.length ? reasons.join(",") : "neutral",
+    near_extreme: side === "LONG" ? ath.is_near_ath : ath.is_near_atl,
+    breakout: side === "LONG" ? ath.breakout_above_prev_high : ath.breakdown_below_prev_low,
+    tight_base: ath.has_tight_base,
+    pct_to_extreme: side === "LONG" ? ath.pct_below_high_252 : ath.pct_above_low_252,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Recent-winner bonus (+5 pts)
 // ≥2 wins on this ticker in last 30 trading days, net +3% PnL.
 // ─────────────────────────────────────────────────────────────────────────
@@ -659,8 +728,10 @@ export function computeConvictionScore({
   // V15 P0.2 — Phase + RSI slope alignment
   const s8 = scorePhaseAlignment(tickerData, ctx);
   const s9 = scoreRsiAlignment(tickerData, ctx);
+  // V16 Setup #4 — ATH/52w Breakout (0 to +12)
+  const s10 = scoreAthBreakout(tickerData, ctx);
 
-  let base = s1.pts + s2.pts + s3.pts + s4.pts + s5.pts + s6.pts + s7.pts + s8.pts + s9.pts;
+  let base = s1.pts + s2.pts + s3.pts + s4.pts + s5.pts + s6.pts + s7.pts + s8.pts + s9.pts + s10.pts;
 
   // Bonuses (capped so total ≤ 100)
   const ttSelBonus = (ttSelected || TT_SELECTED_DEFAULT).has(tickerUpper) ? 15 : 0;
@@ -669,18 +740,20 @@ export function computeConvictionScore({
   const recentBonus = scoreRecentWinner(tickerUpper, historyStats);
 
   // V15 P0.5 (2026-04-26): reverted weights to P0.3 baseline.
-  //   liquidity 0-10  (was 0-20 V14)
+  //   liquidity 0-10
   //   volatility 0-15
-  //   trend 0-10  (was 0-20 V14)
-  //   sector 0-15  (was 0-10 V14)
-  //   relative_strength 0-25  (was 0-10 V14, the strongest predictor)
+  //   trend 0-10
+  //   sector 0-15
+  //   relative_strength 0-25
   //   history 0-20
   //   saty_atr_proximity -15 to +10
   //   phase_alignment -10 to +10
   //   rsi_alignment -5 to +5
-  // Max base = 10+15+10+15+25+20+10+10+5 = 120
-  // Max bonuses = 40 → theoretical max 160
-  const total = Math.max(0, Math.min(160, base + ttSelBonus + grannyBonus + upticksBonus + recentBonus));
+  // V16 Setup #4 (2026-04-28):
+  //   ath_breakout 0 to +12 (additive — captures bull-grind ATH setups)
+  // Max base = 10+15+10+15+25+20+10+10+5+12 = 132
+  // Max bonuses = 40 → theoretical max 172
+  const total = Math.max(0, Math.min(172, base + ttSelBonus + grannyBonus + upticksBonus + recentBonus));
 
   // V15 P0.5 tier thresholds (back to P0.3 calibration):
   //   A ≥ 110, B ≥ 80, C < 80
@@ -701,6 +774,7 @@ export function computeConvictionScore({
       saty_atr_proximity: s7,
       phase_alignment: s8,
       rsi_alignment: s9,
+      ath_breakout: s10,
       bonuses: {
         tt_selected: ttSelBonus,
         granny_etf: grannyBonus,

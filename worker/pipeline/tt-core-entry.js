@@ -125,6 +125,7 @@ export function evaluateEntry(ctx) {
   let momentumTrigger = false;
   let pullbackTrigger = false;
   let reclaimTrigger = false;
+  let athBreakoutTrigger = false;  // V16 Setup #4 — ATH/52w breakout (LONG) / ATL breakdown (SHORT)
   let c10FiveTwelveConfirmed = false;
   let c30FiveTwelveConfirmed = false;
   let c30FiveTwelveOpposed = false;
@@ -1048,6 +1049,95 @@ export function evaluateEntry(ctx) {
     : !!((c10_8?.crossDn || (c10_8?.bear && c10_8?.below)) && hasStFlipBear && ltfConfirm && c10_8?.fastSlope <= 0));
   if (laggingH1BreakoutLong && !momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
     reclaimTrigger = true;
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // V16 SETUP #4 (2026-04-28) — ATH/52w BREAKOUT TRIGGER (Ripster Setup #4)
+  //
+  // Captures the "tight base near 52w high → breakout" pattern that
+  // dominates bull-grind regimes (post-FOMC October, etc.) where
+  // tt_pullback can't fire because there are no real pullbacks.
+  //
+  // LONG: within 1.5% of 52w high AND breaking above prior-day high
+  //       AND tight base (<3% over last 5 bars) AND state allows
+  //       (not bearish-aligned).
+  // SHORT: mirror — within 1.5% of 52w low AND breaking below prior-day
+  //        low AND tight base AND not bullish-aligned.
+  //
+  // Why this is its own trigger (not just a tt_momentum boost):
+  //   1. It needs to fire WHEN tt_pullback / tt_momentum don't. The
+  //      ATH breakout is the catalyst itself — there's no pullback
+  //      to wait for.
+  //   2. RVol requirement is lighter (1.0 vs 1.5) — the breakout is
+  //      its own confirmation.
+  //   3. State doesn't need HTF_BULL_LTF_PULLBACK — any state where
+  //      side is bullish-aligned is acceptable for a LONG breakout.
+  //
+  // DA-keyed so we can disable via deep_audit_ath_breakout_enabled=false.
+  const _athBreakoutEnabled = String(daCfg.deep_audit_ath_breakout_enabled ?? "true") === "true";
+  if (_athBreakoutEnabled) {
+    const _athDs = d?.daily_structure || {};
+    const _ath = _athDs?.ath52w;
+    if (_ath && _ath.sample_size >= 60) {
+      const _athNearMax = Number(daCfg.deep_audit_ath_breakout_max_pct_below_high ?? 1.5);
+      const _athTightBaseMax = Number(daCfg.deep_audit_ath_breakout_tight_base_max_pct ?? 3.0);
+      const _athMinRvol = Number(daCfg.deep_audit_ath_breakout_min_rvol ?? 1.0);
+      const _rvol = Number(ctx?.rvol?.best) || Number(d?.rvol_map?.["30"]?.vr) || Number(d?.rvol_best) || 0;
+      const _stateUpper = String(d?.state || "").toUpperCase();
+
+      if (side === "LONG") {
+        const _stateAllowsLong =
+          _stateUpper.startsWith("HTF_BULL")
+          || _stateUpper === "HTF_NEUTRAL_LTF_BULL"
+          || _stateUpper === "HTF_BULL_LTF_PULLBACK"
+          || _stateUpper === "HTF_BULL_LTF_BULL"
+          || _stateUpper === "TRANSITIONAL_BULL"
+          || _stateUpper === "EARLY_BULL";
+        const _conditionsLong =
+          _ath.pct_below_high_252 != null
+          && _ath.pct_below_high_252 < _athNearMax
+          && _ath.breakout_above_prev_high === true
+          && _ath.tight_base_5d_pct != null
+          && _ath.tight_base_5d_pct < _athTightBaseMax
+          && _stateAllowsLong
+          && (_rvol === 0 || _rvol >= _athMinRvol);
+        if (_conditionsLong) {
+          athBreakoutTrigger = true;
+        }
+      } else if (side === "SHORT") {
+        const _stateAllowsShort =
+          _stateUpper.startsWith("HTF_BEAR")
+          || _stateUpper === "HTF_NEUTRAL_LTF_BEAR"
+          || _stateUpper === "HTF_BEAR_LTF_BOUNCE"
+          || _stateUpper === "HTF_BEAR_LTF_BEAR"
+          || _stateUpper === "TRANSITIONAL_BEAR"
+          || _stateUpper === "EARLY_BEAR";
+        const _conditionsShort =
+          _ath.pct_above_low_252 != null
+          && _ath.pct_above_low_252 < _athNearMax
+          && _ath.breakdown_below_prev_low === true
+          && _ath.tight_base_5d_pct != null
+          && _ath.tight_base_5d_pct < _athTightBaseMax
+          && _stateAllowsShort
+          && (_rvol === 0 || _rvol >= _athMinRvol);
+        if (_conditionsShort) {
+          athBreakoutTrigger = true;
+        }
+      }
+
+      // Diagnostic stamp — useful for validation against blocked-bar data.
+      d.__ath_breakout_diag = {
+        side,
+        fired: athBreakoutTrigger,
+        pct_below_high_252: _ath.pct_below_high_252,
+        pct_above_low_252: _ath.pct_above_low_252,
+        breakout_above_prev_high: _ath.breakout_above_prev_high,
+        breakdown_below_prev_low: _ath.breakdown_below_prev_low,
+        tight_base_5d_pct: _ath.tight_base_5d_pct,
+        state: _stateUpper,
+        rvol: _rvol,
+      };
+    }
   }
 
   // _tickerUpperEarly is hoisted to the top of evaluateEntry (see above)
@@ -2984,6 +3074,37 @@ export function evaluateEntry(ctx) {
   // When R5 would reject tt_momentum AND pullbackTrigger is ALSO active on this
   // bar, we fall through to the pullback path rather than reject outright — this
   // is the "favor tt_pullback" policy. If pullbackTrigger is NOT active, we reject.
+  // V16 Setup #4 — ATH/52w breakout takes priority when fired. The
+  // breakout-bar IS the entry signal; we don't want to fall through to
+  // pullback/momentum logic which may have additional gates that
+  // disqualify breakout setups.
+  if (athBreakoutTrigger) {
+    return qualifyEntry(
+      side === "LONG" ? "tt_ath_breakout" : "tt_atl_breakdown",
+      "medium",
+      side === "LONG" ? "ath_52w_breakout" : "atl_52w_breakdown",
+      {
+        ...baseSizing,
+      },
+      {
+        cloudAlignment: cloudMeta,
+        triggerType: side === "LONG" ? "ath_breakout" : "atl_breakdown",
+        pdzZone: { D: pdzZoneD, h4: pdzZone4h },
+        gapContext: summarizeGapContext(gapContext),
+        cvgContext: summarizeCvgContext(cvgContext),
+        entrySupport: summarizeEntrySupport(entrySupportProfile),
+        rsiHeat: { m10: rsi10m, m30: rsi30m, h1: rsi1h },
+        movePhase: movePhaseSummary,
+        ath_breakout_diag: d?.__ath_breakout_diag || null,
+        executionProfile: {
+          name: executionProfileName || null,
+          personality: tickerPersonality || null,
+          profileRegimeMult,
+          volatileMomentumMult,
+        },
+      },
+    );
+  }
   if (momentumTrigger) {
     const r5RejectSpeculative = String(
       daCfg.deep_audit_tt_momentum_reject_speculative_grade ?? "true"

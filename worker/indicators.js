@@ -1434,6 +1434,74 @@ export function computeTfBundle(bars, anchors = null) {
     lookbackFeatures.stBarsSinceFlip = stBarsSinceFlip;
   }
 
+  // ── V16 Setup #4: 52w / ATH proximity (daily TF only) ──
+  //
+  // Track 52w high/low + 5-day base tightness for the ATH-breakout
+  // setup (Ripster Setup #4). The TF needs at least 252 bars of
+  // history; on lower TFs it's just rolling N-bar hi/lo. On daily,
+  // 252 bars = ~1 year. SHORT mirror tracks 52w low for breakdowns.
+  const lookback252 = Math.min(252, n);
+  let high252 = -Infinity, low252 = Infinity;
+  let high252Idx = -1, low252Idx = -1;
+  for (let i = Math.max(0, last - lookback252 + 1); i <= last; i++) {
+    const bh = bars[i]?.h ?? closes[i];
+    const bl = bars[i]?.l ?? closes[i];
+    if (Number.isFinite(bh) && bh > high252) { high252 = bh; high252Idx = i; }
+    if (Number.isFinite(bl) && bl < low252) { low252 = bl; low252Idx = i; }
+  }
+  const pctBelowHigh252 = Number.isFinite(high252) && high252 > 0
+    ? ((high252 - px) / high252) * 100
+    : null;
+  const pctAboveLow252 = Number.isFinite(low252) && low252 > 0
+    ? ((px - low252) / low252) * 100
+    : null;
+  const daysFromHigh252 = high252Idx >= 0 ? (last - high252Idx) : null;
+  const daysFromLow252 = low252Idx >= 0 ? (last - low252Idx) : null;
+
+  // Tight base: 5-bar high/low range as % of price. <3% = tight.
+  let tightBase5d = null;
+  if (n >= 5) {
+    let hi5 = -Infinity, lo5 = Infinity;
+    for (let i = last - 4; i <= last; i++) {
+      const bh = bars[i]?.h ?? closes[i];
+      const bl = bars[i]?.l ?? closes[i];
+      if (Number.isFinite(bh) && bh > hi5) hi5 = bh;
+      if (Number.isFinite(bl) && bl < lo5) lo5 = bl;
+    }
+    if (Number.isFinite(hi5) && Number.isFinite(lo5) && px > 0) {
+      tightBase5d = ((hi5 - lo5) / px) * 100;
+    }
+  }
+
+  // Breakout detection: today's bar exceeds yesterday's high (LONG)
+  // or breaks below yesterday's low (SHORT).
+  const prevHigh = last >= 1 ? (bars[last - 1]?.h ?? closes[last - 1]) : null;
+  const prevLow = last >= 1 ? (bars[last - 1]?.l ?? closes[last - 1]) : null;
+  const breakoutAbovePrevHigh = Number.isFinite(prevHigh) && barHigh > prevHigh;
+  const breakdownBelowPrevLow = Number.isFinite(prevLow) && barLow < prevLow;
+
+  const ath52w = {
+    high_252: Number.isFinite(high252) ? Math.round(high252 * 10000) / 10000 : null,
+    low_252: Number.isFinite(low252) ? Math.round(low252 * 10000) / 10000 : null,
+    pct_below_high_252: pctBelowHigh252 != null ? Math.round(pctBelowHigh252 * 100) / 100 : null,
+    pct_above_low_252: pctAboveLow252 != null ? Math.round(pctAboveLow252 * 100) / 100 : null,
+    days_from_high_252: daysFromHigh252,
+    days_from_low_252: daysFromLow252,
+    tight_base_5d_pct: tightBase5d != null ? Math.round(tightBase5d * 100) / 100 : null,
+    breakout_above_prev_high: breakoutAbovePrevHigh,
+    breakdown_below_prev_low: breakdownBelowPrevLow,
+    // V16 Setup #4: 3% threshold for our universe (heavily growth-stock
+    // loaded; tickers rarely sit within 1.5% of ATH but often within 3%
+    // before breakout). 5% threshold for tight_base (loosened from 3%
+    // to admit consolidation patterns common to high-momentum names).
+    // Trigger logic in tt-core-entry.js uses the DA-keyed thresholds
+    // for the actual gate; these flags are convenience for callers.
+    is_near_ath: pctBelowHigh252 != null && pctBelowHigh252 < 3.0,
+    is_near_atl: pctAboveLow252 != null && pctAboveLow252 < 3.0,
+    has_tight_base: tightBase5d != null && tightBase5d < 5.0,
+    sample_size: lookback252,
+  };
+
   return {
     px, pxPrev, barHigh, barLow, lastTs,
     e3, e5, e8, e9, e12, e13, e21, e34, e48, e50, e72, e89, e180, e200, e233,
@@ -1461,6 +1529,7 @@ export function computeTfBundle(bars, anchors = null) {
     pdz, fvg, liq,
     ichimoku,
     lookback: lookbackFeatures,
+    ath52w,
   };
 }
 
@@ -4652,6 +4721,8 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
         bear_stack: bearStack,
         above_e200: (dpx != null && de200 != null) ? dpx > de200 : null,
         ema_regime_daily: Number.isFinite(bD.emaRegime) ? bD.emaRegime : null,
+        // V16 Setup #4: 52w high/low proximity for ATH-breakout / ATL-breakdown
+        ath52w: bD.ath52w || null,
       };
     })() : undefined,
   };
