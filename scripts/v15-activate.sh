@@ -35,6 +35,8 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_ath_breakout_max_pct_below_high", "value": "3.0" },
     { "key": "deep_audit_ath_breakout_tight_base_max_pct", "value": "5.0" },
     { "key": "deep_audit_ath_breakout_min_rvol", "value": "1.0" },
+    { "key": "deep_audit_ath_breakout_min_rvol_etf", "value": "1.5" },
+    { "key": "deep_audit_ath_breakout_require_follow_through", "value": "true" },
 
     { "key": "deep_audit_v15_negative_veto_enabled", "value": "true" },
     { "key": "deep_audit_v15_veto_require_struct_break", "value": "true" },

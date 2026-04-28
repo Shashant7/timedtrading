@@ -235,6 +235,8 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_ath_breakout_max_pct_below_high",
   "deep_audit_ath_breakout_tight_base_max_pct",
   "deep_audit_ath_breakout_min_rvol",
+  "deep_audit_ath_breakout_min_rvol_etf",
+  "deep_audit_ath_breakout_require_follow_through",
   "deep_audit_atr_week_618_defer_on_cloud_hold",
   "deep_audit_atr_week_618_partial_trim_pct",
   "deep_audit_max_daily_entries",

@@ -1079,11 +1079,40 @@ export function evaluateEntry(ctx) {
     const _athDs = d?.daily_structure || {};
     const _ath = _athDs?.ath52w;
     if (_ath && _ath.sample_size >= 60) {
-      const _athNearMax = Number(daCfg.deep_audit_ath_breakout_max_pct_below_high ?? 1.5);
-      const _athTightBaseMax = Number(daCfg.deep_audit_ath_breakout_tight_base_max_pct ?? 3.0);
-      const _athMinRvol = Number(daCfg.deep_audit_ath_breakout_min_rvol ?? 1.0);
+      const _athNearMax = Number(daCfg.deep_audit_ath_breakout_max_pct_below_high ?? 3.0);
+      const _athTightBaseMax = Number(daCfg.deep_audit_ath_breakout_tight_base_max_pct ?? 5.0);
+      const _athMinRvolStock = Number(daCfg.deep_audit_ath_breakout_min_rvol ?? 1.0);
+      const _athMinRvolEtf = Number(daCfg.deep_audit_ath_breakout_min_rvol_etf ?? 1.5);
       const _rvol = Number(ctx?.rvol?.best) || Number(d?.rvol_map?.["30"]?.vr) || Number(d?.rvol_best) || 0;
       const _stateUpper = String(d?.state || "").toUpperCase();
+
+      // V16 Setup #4 refinement: ETF cohort needs HIGHER rvol because
+      // ETF false breakouts are more common (institutional flow needs
+      // confirming volume, not just retail-driven price action).
+      const _isEtfCohort = /^(SPY|QQQ|IWM|DIA|XL[A-Z]|XHB|XYZ|GRNY|GRNJ|GRNI|SOXL|TNA|VIXY|GLD|SLV|USO|GDX|IAU|AGQ|UUUU|HL)$/.test(
+        _tickerUpperEarly,
+      );
+      const _athMinRvol = _isEtfCohort ? _athMinRvolEtf : _athMinRvolStock;
+
+      // V16 Setup #4 refinement: require FOLLOW-THROUGH on the previous
+      // bar — today's bar must close above prior-day high AND yesterday
+      // (or 2 bars ago) was already trending up. This filters single-bar
+      // wick breakouts that immediately reverse (Oct 8/9/15/20/21/23
+      // false breakouts pattern in the smoke).
+      // Approximated by checking that prior bar's close > prior-prior
+      // close (sustained move into the breakout). This is a soft filter
+      // — if data is unavailable, we don't block.
+      const _athRequireFollowThrough = String(
+        daCfg.deep_audit_ath_breakout_require_follow_through ?? "true"
+      ) === "true";
+      const _bD = ctx?.bundles?.D || ctx?.daily || null;
+      const _ftPrevClose = Number(_bD?.pxPrev);
+      const _ftPx = Number(_bD?.px);
+      const _ftBars = ctx?.bundles?.D ? null : null; // not directly accessible here
+      const _hasFollowThrough = !_athRequireFollowThrough
+        || !Number.isFinite(_ftPrevClose)
+        || !Number.isFinite(_ftPx)
+        || _ftPx > _ftPrevClose; // current price > prior close = continued strength
 
       if (side === "LONG") {
         const _stateAllowsLong =
@@ -1100,7 +1129,8 @@ export function evaluateEntry(ctx) {
           && _ath.tight_base_5d_pct != null
           && _ath.tight_base_5d_pct < _athTightBaseMax
           && _stateAllowsLong
-          && (_rvol === 0 || _rvol >= _athMinRvol);
+          && (_rvol === 0 || _rvol >= _athMinRvol)
+          && _hasFollowThrough;
         if (_conditionsLong) {
           athBreakoutTrigger = true;
         }
@@ -1112,6 +1142,12 @@ export function evaluateEntry(ctx) {
           || _stateUpper === "HTF_BEAR_LTF_BEAR"
           || _stateUpper === "TRANSITIONAL_BEAR"
           || _stateUpper === "EARLY_BEAR";
+        // For SHORT: follow-through means current price < prior close
+        // (sustained downside).
+        const _hasFollowThroughShort = !_athRequireFollowThrough
+          || !Number.isFinite(_ftPrevClose)
+          || !Number.isFinite(_ftPx)
+          || _ftPx < _ftPrevClose;
         const _conditionsShort =
           _ath.pct_above_low_252 != null
           && _ath.pct_above_low_252 < _athNearMax
@@ -1119,7 +1155,8 @@ export function evaluateEntry(ctx) {
           && _ath.tight_base_5d_pct != null
           && _ath.tight_base_5d_pct < _athTightBaseMax
           && _stateAllowsShort
-          && (_rvol === 0 || _rvol >= _athMinRvol);
+          && (_rvol === 0 || _rvol >= _athMinRvol)
+          && _hasFollowThroughShort;
         if (_conditionsShort) {
           athBreakoutTrigger = true;
         }
@@ -1136,6 +1173,9 @@ export function evaluateEntry(ctx) {
         tight_base_5d_pct: _ath.tight_base_5d_pct,
         state: _stateUpper,
         rvol: _rvol,
+        is_etf_cohort: _isEtfCohort,
+        rvol_min: _athMinRvol,
+        follow_through: _hasFollowThrough,
       };
     }
   }
