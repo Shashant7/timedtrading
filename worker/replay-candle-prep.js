@@ -89,7 +89,19 @@ export async function prepareCandleReplayRuntime(args = {}) {
   } catch {}
 
   try {
-    const sectorSyms = [...new Set([...CARTER_OFFENSE_SECTORS, ...CARTER_DEFENSE_SECTORS])];
+    // V16 (2026-04-28): Extended sector universe to include
+    // cross-asset reference symbols so we can capture their daily
+    // pct change in market_internals.cross_asset:
+    //   GLD (Gold), SLV (Silver), USO (Oil), UUP (Dollar),
+    //   XLE (Energy), BTCUSD (Bitcoin)
+    // These are then exposed on every trade snapshot for
+    // context-aware setup selection.
+    const CROSS_ASSET_SYMS = ["GLD", "SLV", "USO", "UUP", "XLE", "BTCUSD"];
+    const sectorSyms = [...new Set([
+      ...CARTER_OFFENSE_SECTORS,
+      ...CARTER_DEFENSE_SECTORS,
+      ...CROSS_ASSET_SYMS,
+    ])];
     await Promise.all(sectorSyms.map(async (sym) => {
       try {
         const res = await d1GetCandlesAllTfs(replayEnv, sym, [{ tf: "D", limit: 600 }], {});
@@ -183,6 +195,18 @@ export async function prepareCandleReplayRuntime(args = {}) {
       if (vc?.c) miVixPrice = Number(vc.c);
     }
 
+    // V16 (2026-04-28): Capture cross-asset daily % changes for
+    // context-aware setup selection. User explicitly listed these:
+    // Oil, Gold, Silver, Crypto, Dollar, Commodities.
+    const crossAsset = {
+      gold_pct: getSectorPctChange("GLD"),
+      silver_pct: getSectorPctChange("SLV"),
+      oil_pct: getSectorPctChange("USO"),
+      dollar_pct: getSectorPctChange("UUP"),
+      energy_pct: getSectorPctChange("XLE"),
+      btc_pct: getSectorPctChange("BTCUSD"),
+    };
+
     replayMarketInternals = {
       overall: miOverall,
       score: miScore,
@@ -196,6 +220,7 @@ export async function prepareCandleReplayRuntime(args = {}) {
         offense_symbols: CARTER_OFFENSE_SECTORS,
         defense_symbols: CARTER_DEFENSE_SECTORS,
       },
+      cross_asset: crossAsset,
       squeeze: {},
       evidence: miEvidence,
     };

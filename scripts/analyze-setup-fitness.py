@@ -203,6 +203,176 @@ def main(run_id):
                 cells.append(f"{'--':>20}")
         print(f"{path:<30} | " + " | ".join(cells))
 
+    # ── 6. VIX regime ──
+    print()
+    print("=" * 70)
+    print("6. VIX REGIME — does volatility regime matter per setup?")
+    print("=" * 70)
+    by_vix_path = defaultdict(list)
+    for t in trades:
+        snap = load_snapshot(t)
+        if not snap: continue
+        vix_state = (snap.get('market_internals') or {}).get('vix_state') or 'unknown'
+        path = t.get('entry_path', '?')
+        by_vix_path[(vix_state, path)].append(t)
+    vix_states = ['low_fear', 'normal', 'elevated', 'fear', 'unknown']
+    print(f"{'Path':<30} | " + " | ".join(f"{v:>16}" for v in vix_states))
+    print("-" * (30 + 19 * len(vix_states)))
+    paths_in_v = sorted(set(k[1] for k in by_vix_path.keys()))
+    for path in paths_in_v:
+        cells = []
+        for vs in vix_states:
+            ts = by_vix_path.get((vs, path), [])
+            s = stats_for(ts, '') if ts else None
+            cells.append(f"WR{s['wr']:>3.0f}% N{s['n_clean']}" if s else f"{'--':>16}")
+        print(f"{path[:29]:<30} | " + " | ".join(cells))
+
+    # ── 7. Sector rotation ──
+    print()
+    print("=" * 70)
+    print("7. SECTOR ROTATION — risk_on / risk_off / balanced")
+    print("=" * 70)
+    by_rot_path = defaultdict(list)
+    for t in trades:
+        snap = load_snapshot(t)
+        if not snap: continue
+        rot = (snap.get('market_internals') or {}).get('sector_rotation') or 'unknown'
+        path = t.get('entry_path', '?')
+        by_rot_path[(rot, path)].append(t)
+    rots = ['risk_on', 'balanced', 'risk_off', 'unknown']
+    print(f"{'Path':<30} | " + " | ".join(f"{r:>16}" for r in rots))
+    print("-" * (30 + 19 * len(rots)))
+    paths_in_r = sorted(set(k[1] for k in by_rot_path.keys()))
+    for path in paths_in_r:
+        cells = []
+        for r in rots:
+            ts = by_rot_path.get((r, path), [])
+            s = stats_for(ts, '') if ts else None
+            cells.append(f"WR{s['wr']:>3.0f}% N{s['n_clean']}" if s else f"{'--':>16}")
+        print(f"{path[:29]:<30} | " + " | ".join(cells))
+
+    # ── 8. Cross-asset correlation ──
+    print()
+    print("=" * 70)
+    print("8. CROSS-ASSET BACKDROP — are winners clustered around USD/Gold/Oil?")
+    print("=" * 70)
+    closed_with_snap = [(t, load_snapshot(t)) for t in trades if load_snapshot(t)]
+    closed_with_snap = [(t, s) for t, s in closed_with_snap if t.get('status') in ('WIN','LOSS')]
+    if closed_with_snap:
+        def avg(lst): return round(sum(lst)/len(lst), 3) if lst else None
+        def by_outcome(field):
+            wins = []
+            losses = []
+            for t, s in closed_with_snap:
+                ca = s.get('cross_asset') or {}
+                v = ca.get(field)
+                if v is None: continue
+                if (t.get('pnl_pct') or 0) > 0: wins.append(v)
+                else: losses.append(v)
+            return avg(wins), avg(losses), len(wins), len(losses)
+        print(f"{'Asset':<14} {'Wins avg %':>12} {'Losses avg %':>14} {'Spread':>10}")
+        print("-" * 55)
+        for field in ('gold_pct','silver_pct','oil_pct','dollar_pct','energy_pct','btc_pct'):
+            w, l, nw, nl = by_outcome(field)
+            spread = (w - l) if (w is not None and l is not None) else None
+            w_s = f"{w:>+8.2f}% (N{nw})" if w is not None else f"{'--':>12}"
+            l_s = f"{l:>+8.2f}% (N{nl})" if l is not None else f"{'--':>14}"
+            sp_s = f"{spread:>+8.2f}%" if spread is not None else f"{'--':>10}"
+            print(f"{field:<14} {w_s} {l_s} {sp_s}")
+    else:
+        print("(no cross-asset data on closed trades)")
+
+    # ── 9. Event proximity ──
+    print()
+    print("=" * 70)
+    print("9. EVENT PROXIMITY — entries near earnings/macro")
+    print("=" * 70)
+    near_buckets = defaultdict(list)  # (bucket_label) -> list of trades
+    for t in trades:
+        snap = load_snapshot(t)
+        if not snap: continue
+        e = snap.get('upcoming_risk_event')
+        if not e:
+            bucket = 'no_event'
+        else:
+            h = e.get('hours_to_event')
+            etype = e.get('event_type', '?')
+            if h is None: bucket = f'{etype}_unknown_h'
+            elif h < 24: bucket = f'{etype}_<24h'
+            elif h < 72: bucket = f'{etype}_24-72h'
+            elif h < 168: bucket = f'{etype}_3-7d'
+            else: bucket = f'{etype}_>7d'
+        near_buckets[bucket].append(t)
+    rows = []
+    for bucket, ts in near_buckets.items():
+        s = stats_for(ts, bucket)
+        if s: rows.append(s)
+    rows.sort(key=lambda x: x['label'])
+    print(f"{'Event proximity':<25} {'N':>4} {'WR%':>6} {'PnL%':>9} {'PF':>6}")
+    print("-" * 55)
+    for r in rows:
+        print(f"{r['label']:<25} {r['n_clean']:>4} {r['wr']:>5.1f}% {r['pnl']:>+8.2f}% {r['pf']:>5.2f}")
+
+    # ── 10. R:R distribution ──
+    print()
+    print("=" * 70)
+    print("10. R:R AT ENTRY — is higher R:R correlated with better outcomes?")
+    print("=" * 70)
+    rr_buckets = defaultdict(list)
+    for t in trades:
+        snap = load_snapshot(t)
+        if not snap: continue
+        rr = snap.get('rr')
+        if rr is None: bucket = 'unknown'
+        elif rr < 1.5: bucket = '<1.5'
+        elif rr < 2.0: bucket = '1.5-2.0'
+        elif rr < 3.0: bucket = '2.0-3.0'
+        elif rr < 5.0: bucket = '3.0-5.0'
+        else: bucket = '>=5.0'
+        rr_buckets[bucket].append(t)
+    print(f"{'R:R bucket':<14} {'N':>4} {'WR%':>6} {'PnL%':>9} {'PF':>6} {'AvgW':>7} {'AvgL':>7}")
+    print("-" * 60)
+    rows = [stats_for(ts, b) for b, ts in rr_buckets.items()]
+    rows = [r for r in rows if r]
+    order = ['<1.5','1.5-2.0','2.0-3.0','3.0-5.0','>=5.0','unknown']
+    rows.sort(key=lambda x: order.index(x['label']) if x['label'] in order else 99)
+    for r in rows:
+        print(f"{r['label']:<14} {r['n_clean']:>4} {r['wr']:>5.1f}% {r['pnl']:>+8.2f}% {r['pf']:>5.2f} {r['avg_w']:>+6.2f}% {r['avg_l']:>+6.2f}%")
+
+    # ── 11. MTF concordance ──
+    print()
+    print("=" * 70)
+    print("11. MTF CONCORDANCE — do aligned multi-TF stDir improve outcomes?")
+    print("=" * 70)
+    by_concord = defaultdict(list)
+    for t in trades:
+        snap = load_snapshot(t)
+        if not snap: continue
+        sd = snap.get('st_dir') or {}
+        direction = (t.get('direction') or 'LONG').upper()
+        wanted = 1 if direction == 'LONG' else -1
+        sigs = [sd.get('m30'), sd.get('h1'), sd.get('h4'), sd.get('D')]
+        sigs = [s for s in sigs if s is not None]
+        aligned = sum(1 for s in sigs if s == wanted)
+        total = len(sigs)
+        if total == 0:
+            bucket = 'unknown'
+        else:
+            ratio = aligned / total
+            if ratio == 1.0: bucket = 'all_aligned'
+            elif ratio >= 0.75: bucket = 'mostly_aligned'
+            elif ratio >= 0.5: bucket = 'half_aligned'
+            else: bucket = 'misaligned'
+        by_concord[bucket].append(t)
+    rows = [stats_for(ts, b) for b, ts in by_concord.items()]
+    rows = [r for r in rows if r]
+    order = ['all_aligned','mostly_aligned','half_aligned','misaligned','unknown']
+    rows.sort(key=lambda x: order.index(x['label']) if x['label'] in order else 99)
+    print(f"{'MTF concordance':<20} {'N':>4} {'WR%':>6} {'PnL%':>9} {'PF':>6}")
+    print("-" * 50)
+    for r in rows:
+        print(f"{r['label']:<20} {r['n_clean']:>4} {r['wr']:>5.1f}% {r['pnl']:>+8.2f}% {r['pf']:>5.2f}")
+
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:

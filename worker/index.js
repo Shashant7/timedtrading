@@ -18066,7 +18066,29 @@ async function processTradeSimulation(
       !parityOpeningConfirmedDeferred
     ) {
       try {
-        const _entryRiskEvent = await findUpcomingEntryRiskEvent(env, replayCtx, sym, now, tickerData);
+        // V16 (2026-04-28): ALWAYS load all upcoming candidates (not
+        // only the one that triggers a block). Stamp the nearest
+        // earnings/macro event on tickerData.__upcomingEntryEvent so
+        // the setup_snapshot can record event proximity for ALL
+        // entries — critical for context-aware analysis.
+        const _allUpcoming = await loadUpcomingRiskEventCandidates(env, replayCtx, sym, now);
+        if (Array.isArray(_allUpcoming) && _allUpcoming.length > 0) {
+          const _nearest = _allUpcoming[0];
+          const _hoursAway = Number.isFinite(_nearest?.scheduledTs)
+            ? Math.max(0, (_nearest.scheduledTs - now) / 3600000)
+            : null;
+          tickerData.__upcomingEntryEvent = {
+            event_type: _nearest.eventType,
+            event_key: _nearest.eventKey || null,
+            date_key: _nearest.dateKey || null,
+            session: _nearest.session || null,
+            hours_to_event: _hoursAway,
+            ticker: _nearest.ticker || null,
+          };
+        }
+        const _entryRiskEvent = (Array.isArray(_allUpcoming) && _allUpcoming.length > 0)
+          ? _allUpcoming.find((event) => eventIsDueForEntryBlock(event, now, tickerData))
+          : null;
         if (_entryRiskEvent?.eventType === "earnings") {
           const _entryHoursToEvent = Number.isFinite(_entryRiskEvent.scheduledTs)
             ? Math.max(0, (_entryRiskEvent.scheduledTs - now) / 3600000)
@@ -19021,24 +19043,100 @@ async function processTradeSimulation(
                   }
                   // V16 (2026-04-28): SETUP-FITNESS SNAPSHOT merged into
                   // rank_trace_json. Captures which Ripster setup
-                  // families were eligible at entry. This is the data
-                  // foundation for context-aware setup selection.
-                  // Stamped under 'setup_snapshot' key to keep the
-                  // base flat structure clean.
+                  // families were eligible at entry + full context.
+                  // Data foundation for context-aware setup selection
+                  // and the 6 dimensions the user wants:
+                  //   1. Ticker
+                  //   2. MTF Narrative (state + per-TF stDir + RSI)
+                  //   3. R:R (calculated rr value)
+                  //   4. Market Regime (regime_class + market internals
+                  //      vix/sector_rotation)
+                  //   5. Event Proximity (upcoming risk event)
+                  //   6. Cross-Asset (sector ETF performance, BTC, gold,
+                  //      oil, dollar via market_internals + sector_rotation)
+                  const _mi = tickerData?._env?._marketInternals
+                    || tickerData?._env?._marketRegime?.market_internals
+                    || null;
                   base.setup_snapshot = {
+                    // 1. Selection + setup eligibility
                     selected_path: entryPath,
                     ath_breakout: tickerData?.__ath_breakout_diag || null,
                     range_reversal: tickerData?.__range_reversal_diag || null,
                     gap_reversal: tickerData?.__gap_reversal_diag || null,
                     n_test_support: tickerData?.__n_test_support_diag || null,
                     index_etf_swing: tickerData?.__index_etf_swing_diag || null,
-                    regime_class: tickerData?.regime_class || null,
+                    // 2. MTF narrative
                     state: tickerData?.state || null,
+                    htf_score: Number(tickerData?.htf_score) || null,
+                    ltf_score: Number(tickerData?.ltf_score) || null,
+                    st_dir: {
+                      m10: Number(tickerData?.tf_tech?.["10"]?.stDir) || null,
+                      m30: Number(tickerData?.tf_tech?.["30"]?.stDir) || null,
+                      h1: Number(tickerData?.tf_tech?.["1H"]?.stDir ?? tickerData?.tf_tech?.["60"]?.stDir) || null,
+                      h4: Number(tickerData?.tf_tech?.["4H"]?.stDir) || null,
+                      D: Number(tickerData?.tf_tech?.["D"]?.stDir) || null,
+                    },
+                    rsi: {
+                      m30: Number(tickerData?.tf_tech?.["30"]?.rsi?.r5) || null,
+                      h1: Number(tickerData?.tf_tech?.["1H"]?.rsi?.r5 ?? tickerData?.tf_tech?.["60"]?.rsi?.r5) || null,
+                      D: Number(tickerData?.tf_tech?.["D"]?.rsi?.r5) || null,
+                    },
+                    // 3. Risk:Reward at entry
+                    rr: Number(tickerData?.rr) || null,
+                    // Daily structure (compact)
                     bull_stack: tickerData?.daily_structure?.bull_stack || null,
                     bear_stack: tickerData?.daily_structure?.bear_stack || null,
+                    above_e200: tickerData?.daily_structure?.above_e200 || null,
                     pct_above_e21: tickerData?.daily_structure?.pct_above_e21 || null,
                     pct_above_e48: tickerData?.daily_structure?.pct_above_e48 || null,
+                    e21_slope_5d: tickerData?.daily_structure?.e21_slope_5d_pct || null,
                     rvol_best: Number(tickerData?.rvol?.best) || null,
+                    rvol_30m: Number(tickerData?.rvol_map?.["30"]?.vr) || null,
+                    // 4. Market regime + internals
+                    regime_class: tickerData?.regime_class || null,
+                    regime_combined: tickerData?.swing_consensus?.regime_combined || null,
+                    execution_profile: tickerData?.execution_profile?.name || null,
+                    ticker_personality: tickerData?.execution_profile?.personality
+                      || tickerData?.ticker_character?.learned_profile?.personality
+                      || null,
+                    market_internals: _mi ? {
+                      overall: _mi.overall || null,
+                      vix_state: _mi.vix?.state || null,
+                      vix_price: _mi.vix?.price || null,
+                      sector_rotation: _mi.sector_rotation?.state || null,
+                      offense_avg_pct: _mi.sector_rotation?.offense_avg_pct || null,
+                      defense_avg_pct: _mi.sector_rotation?.defense_avg_pct || null,
+                    } : null,
+                    cross_asset: _mi?.cross_asset ? {
+                      gold_pct: _mi.cross_asset.gold_pct,
+                      silver_pct: _mi.cross_asset.silver_pct,
+                      oil_pct: _mi.cross_asset.oil_pct,
+                      dollar_pct: _mi.cross_asset.dollar_pct,
+                      energy_pct: _mi.cross_asset.energy_pct,
+                      btc_pct: _mi.cross_asset.btc_pct,
+                    } : null,
+                    // 5. Event proximity (always stamped now,
+                    //    not only when blocking entry)
+                    upcoming_risk_event: tickerData?.__upcomingEntryEvent
+                      || (tickerData?.__upcomingRiskEvent ? {
+                        event_type: tickerData.__upcomingRiskEvent.eventType,
+                        event_key: tickerData.__upcomingRiskEvent.eventKey || null,
+                        date_key: tickerData.__upcomingRiskEvent.dateKey || null,
+                        session: tickerData.__upcomingRiskEvent.session || null,
+                        hours_to_event: tickerData.__upcomingRiskEvent.hoursToEvent,
+                        ticker: tickerData.__upcomingRiskEvent.ticker || null,
+                      } : null),
+                    // 6. Cross-asset / sector context
+                    sector: tickerData?._sector || null,
+                    sector_alignment: tickerData?.sector_alignment || null,
+                    spy_struct: tickerData?._env?._marketRegime?.spy_daily_structure
+                      ? {
+                          bull_stack: tickerData._env._marketRegime.spy_daily_structure.bull_stack,
+                          bear_stack: tickerData._env._marketRegime.spy_daily_structure.bear_stack,
+                          pct_above_e21: tickerData._env._marketRegime.spy_daily_structure.pct_above_e21,
+                          e21_slope_5d: tickerData._env._marketRegime.spy_daily_structure.e21_slope_5d_pct,
+                        }
+                      : null,
                   };
                   return Object.keys(base).length ? JSON.stringify(base) : null;
                 } catch (_err) {
