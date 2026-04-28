@@ -33,12 +33,16 @@ WORKER_BASE = os.environ.get(
 )
 
 
+UA = "Mozilla/5.0 (compatible; TimedTrading-PFVG/1.0)"
+
+
 def fetch_trades(api_key: str, run_id: str) -> list:
     url = (
         f"{WORKER_BASE}/timed/admin/runs/trades?"
         f"run_id={run_id}&limit=5000&key={api_key}"
     )
-    with urllib.request.urlopen(url, timeout=60) as r:
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    with urllib.request.urlopen(req, timeout=60) as r:
         data = json.loads(r.read())
     return data.get("trades") or []
 

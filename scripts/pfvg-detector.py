@@ -54,7 +54,16 @@ def detect_pfvg(bars: list) -> dict | None:
     if atr <= 0:
         return None
 
-    avg_range_recent = []
+    # Compute reference price for relative-gap floor
+    ref_price = sum(b["c"] for b in bars) / len(bars)
+    # Hard floors to filter noise:
+    #   - gap must be >= 0.05% of price (5 bps)  AND
+    #   - gap must be >= 0.20 ATR  (cuts pure tick-level noise)
+    MIN_GAP_BPS = 0.0005
+    MIN_GAP_ATR = 0.20
+    # Structure break only meaningful with sufficient prior history
+    MIN_STRUCT_PRIOR_BARS = 10
+
     for i in range(2, len(bars)):
         c1, c2, c3 = bars[i - 2], bars[i - 1], bars[i]
         # bar c2 is the middle bar; bar c3 is the displacement bar
@@ -62,17 +71,21 @@ def detect_pfvg(bars: list) -> dict | None:
         bull_gap = c3["l"] - c1["h"]
         bear_gap = c1["l"] - c3["h"]
 
-        # Average range of prior 6 bars (or whatever is available)
+        # Average range of prior 6 bars
         prior = bars[max(0, i - 6) : i]
         if prior:
             avg_range = sum(b["h"] - b["l"] for b in prior) / len(prior)
         else:
             avg_range = 0.0
 
-        # Structure break check: prior 30 bars (everything before middle)
-        prior_struct = bars[: i - 1]  # exclude c2/c3
-        prior_high = max((b["h"] for b in prior_struct), default=0.0)
-        prior_low = min((b["l"] for b in prior_struct), default=float("inf"))
+        # Structure break check: only valid when we have >= MIN_STRUCT_PRIOR_BARS
+        prior_struct = bars[: i - 1]
+        if len(prior_struct) >= MIN_STRUCT_PRIOR_BARS:
+            prior_high = max(b["h"] for b in prior_struct)
+            prior_low = min(b["l"] for b in prior_struct)
+        else:
+            prior_high = None
+            prior_low = None
 
         for direction, gap, top, bottom in (
             ("bull", bull_gap, c3["l"], c1["h"]),
@@ -80,15 +93,23 @@ def detect_pfvg(bars: list) -> dict | None:
         ):
             if gap <= 0:
                 continue
+            # Hard noise floor: must be a meaningful gap on BOTH ATR and bps
             displacement_atr = gap / atr if atr > 0 else 0.0
+            gap_bps = gap / ref_price if ref_price > 0 else 0.0
+            if displacement_atr < MIN_GAP_ATR:
+                continue
+            if gap_bps < MIN_GAP_BPS:
+                continue
+
             mid_range = c2["h"] - c2["l"]
             range_expansion = mid_range / avg_range if avg_range > 0 else 0.0
             if direction == "bull":
-                struct_break = c2["h"] > prior_high if prior_struct else False
+                struct_break = (prior_high is not None) and c2["h"] > prior_high
             else:
-                struct_break = c2["l"] < prior_low if prior_struct else False
+                struct_break = (prior_low is not None) and c2["l"] < prior_low
 
-            sig_disp = displacement_atr >= 0.30
+            # Signal strength tiers (need at least one strong signal)
+            sig_disp = displacement_atr >= 0.50  # raised from 0.30
             sig_range = range_expansion >= 1.5
             sig_struct = bool(struct_break)
             if not (sig_disp or sig_range or sig_struct):
@@ -111,6 +132,8 @@ def detect_pfvg(bars: list) -> dict | None:
                 "detection_ts": c3["t"],
                 "formation_indices": [i - 2, i - 1, i],
                 "atr_window": round(atr, 6),
+                "ref_price": round(ref_price, 4),
+                "gap_bps": round(gap_bps * 10000, 2),
                 "significance": {
                     "displacement_atr": round(displacement_atr, 3),
                     "range_expansion": round(range_expansion, 3),

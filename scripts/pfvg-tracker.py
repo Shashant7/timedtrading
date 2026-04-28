@@ -32,12 +32,16 @@ WORKER_BASE = os.environ.get(
 )
 
 
+UA = "Mozilla/5.0 (compatible; TimedTrading-PFVG/1.0)"
+
+
 def fetch_daily_candles(api_key: str, ticker: str, limit: int = 30) -> list:
     """Fetch up to `limit` daily candles for ticker (ascending by ts)."""
     params = {"ticker": ticker, "tf": "D", "limit": str(limit), "key": api_key}
     url = f"{WORKER_BASE}/timed/candles?{urllib.parse.urlencode(params)}"
     try:
-        with urllib.request.urlopen(url, timeout=30) as r:
+        req = urllib.request.Request(url, headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=30) as r:
             data = json.loads(r.read())
     except Exception as e:
         print(f"[ERROR] fetch failed for {ticker}: {e}", file=sys.stderr)
