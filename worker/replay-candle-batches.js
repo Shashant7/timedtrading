@@ -591,6 +591,10 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
                     ath52w: ds.ath52w || null,
                     // V16 Setup #1: range box + reversal flags
                     range_box: ds.range_box || null,
+                    // V16 Setup #5: gap reversal flags
+                    gap_reversal: ds.gap_reversal || null,
+                    // V16 Setup #2: n-test support/resistance
+                    n_test_support: ds.n_test_support || null,
                   } : null,
                   // V15 (2026-04-25) — index-ETF swing trigger trace if computed.
                   index_etf_swing_diag: result?.__index_etf_swing_diag || null,
@@ -598,6 +602,10 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
                   ath_breakout_diag: result?.__ath_breakout_diag || null,
                   // V16 Setup #1 — Range reversal trigger trace if computed.
                   range_reversal_diag: result?.__range_reversal_diag || null,
+                  // V16 Setup #5 — Gap reversal trigger trace if computed.
+                  gap_reversal_diag: result?.__gap_reversal_diag || null,
+                  // V16 Setup #2 — N-test support/resistance trigger trace if computed.
+                  n_test_support_diag: result?.__n_test_support_diag || null,
                 });
               }
             } else {

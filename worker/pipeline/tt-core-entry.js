@@ -127,6 +127,8 @@ export function evaluateEntry(ctx) {
   let reclaimTrigger = false;
   let athBreakoutTrigger = false;  // V16 Setup #4 — ATH/52w breakout (LONG) / ATL breakdown (SHORT)
   let rangeReversalTrigger = false; // V16 Setup #1 — Range bottom bounce (LONG) / Range top bounce (SHORT)
+  let gapReversalTrigger = false;   // V16 Setup #5 — Gap-down reclaim (LONG) / Gap-up fade (SHORT)
+  let nTestSupportTrigger = false;  // V16 Setup #2 — Nth test of support (LONG) / resistance (SHORT)
   let c10FiveTwelveConfirmed = false;
   let c30FiveTwelveConfirmed = false;
   let c30FiveTwelveOpposed = false;
@@ -1242,6 +1244,92 @@ export function evaluateEntry(ctx) {
         long_setup_active: _rb.long_setup_active,
         short_setup_active: _rb.short_setup_active,
         rvol: _rrRvol,
+      };
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // V16 SETUP #5 (2026-04-28) — GAP REVERSAL TRIGGER (Ripster Setup #5)
+  //
+  // LONG: gap-down on today's open, then reclaim above prior close
+  //       (or strong partial reclaim above today's open by >0.5%).
+  // SHORT: gap-up on today's open, then fade below prior close.
+  //
+  // Volume confirms (rvol >= 1.2 default — institutional flow).
+  // ──────────────────────────────────────────────────────────────────────
+  const _gapRevEnabled = String(daCfg.deep_audit_gap_reversal_enabled ?? "true") === "true";
+  if (_gapRevEnabled && !athBreakoutTrigger && !rangeReversalTrigger) {
+    const _grDs = d?.daily_structure || {};
+    const _gr = _grDs?.gap_reversal;
+    if (_gr) {
+      const _grMinRvol = Number(daCfg.deep_audit_gap_reversal_min_rvol ?? 1.2);
+      const _grRvol = Number(ctx?.rvol?.best) || Number(d?.rvol_map?.["30"]?.vr) || Number(d?.rvol_best) || 0;
+      const _grMinGap = Number(daCfg.deep_audit_gap_reversal_min_gap_pct ?? 1.5);
+
+      if (side === "LONG" && _gr.long_setup_active
+          && Math.abs(_gr.gap_pct) >= _grMinGap
+          && (_grRvol === 0 || _grRvol >= _grMinRvol)) {
+        gapReversalTrigger = true;
+      } else if (side === "SHORT" && _gr.short_setup_active
+          && Math.abs(_gr.gap_pct) >= _grMinGap
+          && (_grRvol === 0 || _grRvol >= _grMinRvol)) {
+        gapReversalTrigger = true;
+      }
+
+      d.__gap_reversal_diag = {
+        side,
+        fired: gapReversalTrigger,
+        gap_pct: _gr.gap_pct,
+        is_gap_down: _gr.is_gap_down,
+        is_gap_up: _gr.is_gap_up,
+        reclaimed: _gr.reclaimed_from_down,
+        partial_reclaim: _gr.partial_reclaim_down,
+        faded: _gr.faded_from_up,
+        partial_fade: _gr.partial_fade_up,
+        rvol: _grRvol,
+      };
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // V16 SETUP #2 (2026-04-28) — N-TEST SUPPORT/RESISTANCE TRIGGER (Ripster Setup #2)
+  //
+  // LONG: ≥3 touches of horizontal support across last 30 bars, latest
+  //       test held above support, today's price within 1.5% above
+  //       the support cluster.
+  // SHORT: mirror at horizontal resistance.
+  //
+  // The Nth test bouncing IS the entry signal — pullback gates would
+  // reject this as too-shallow because price didn't pull back much
+  // before the bounce.
+  // ──────────────────────────────────────────────────────────────────────
+  const _nTestEnabled = String(daCfg.deep_audit_n_test_support_enabled ?? "true") === "true";
+  if (_nTestEnabled && !athBreakoutTrigger && !rangeReversalTrigger && !gapReversalTrigger) {
+    const _ntDs = d?.daily_structure || {};
+    const _nts = _ntDs?.n_test_support;
+    if (_nts) {
+      const _ntMinTouches = Number(daCfg.deep_audit_n_test_min_touches ?? 3);
+      const _ntMinRvol = Number(daCfg.deep_audit_n_test_min_rvol ?? 1.0);
+      const _ntRvol = Number(ctx?.rvol?.best) || Number(d?.rvol_map?.["30"]?.vr) || Number(d?.rvol_best) || 0;
+
+      if (side === "LONG" && _nts.support
+          && _nts.support.long_setup_active
+          && _nts.support.n_touches >= _ntMinTouches
+          && (_ntRvol === 0 || _ntRvol >= _ntMinRvol)) {
+        nTestSupportTrigger = true;
+      } else if (side === "SHORT" && _nts.resistance
+          && _nts.resistance.short_setup_active
+          && _nts.resistance.n_touches >= _ntMinTouches
+          && (_ntRvol === 0 || _ntRvol >= _ntMinRvol)) {
+        nTestSupportTrigger = true;
+      }
+
+      d.__n_test_support_diag = {
+        side,
+        fired: nTestSupportTrigger,
+        support: _nts.support,
+        resistance: _nts.resistance,
+        rvol: _ntRvol,
       };
     }
   }
@@ -3188,6 +3276,62 @@ export function evaluateEntry(ctx) {
   // candle off the range edge IS the signal; pullback/momentum gates
   // can disqualify range-bottom bounces because they look like
   // counter-trend.
+  // V16 Setup #5 — Gap reversal takes priority — gap-down-and-reclaim
+  // is the trigger, would normally be rejected as
+  // tt_pullback_late_session_unreclaimed.
+  // V16 Setup #2 — N-test support/resistance takes priority — bouncing
+  // off the Nth test of a horizontal level is the entry, normally
+  // rejected as tt_pullback_not_deep_enough.
+  if (gapReversalTrigger) {
+    return qualifyEntry(
+      side === "LONG" ? "tt_gap_reversal_long" : "tt_gap_reversal_short",
+      "medium",
+      side === "LONG" ? "gap_down_reclaim" : "gap_up_fade",
+      { ...baseSizing },
+      {
+        cloudAlignment: cloudMeta,
+        triggerType: side === "LONG" ? "gap_reversal_long" : "gap_reversal_short",
+        pdzZone: { D: pdzZoneD, h4: pdzZone4h },
+        gapContext: summarizeGapContext(gapContext),
+        cvgContext: summarizeCvgContext(cvgContext),
+        entrySupport: summarizeEntrySupport(entrySupportProfile),
+        rsiHeat: { m10: rsi10m, m30: rsi30m, h1: rsi1h },
+        movePhase: movePhaseSummary,
+        gap_reversal_diag: d?.__gap_reversal_diag || null,
+        executionProfile: {
+          name: executionProfileName || null,
+          personality: tickerPersonality || null,
+          profileRegimeMult,
+          volatileMomentumMult,
+        },
+      },
+    );
+  }
+  if (nTestSupportTrigger) {
+    return qualifyEntry(
+      side === "LONG" ? "tt_n_test_support" : "tt_n_test_resistance",
+      "medium",
+      side === "LONG" ? "support_n_test" : "resistance_n_test",
+      { ...baseSizing },
+      {
+        cloudAlignment: cloudMeta,
+        triggerType: side === "LONG" ? "n_test_support_long" : "n_test_resistance_short",
+        pdzZone: { D: pdzZoneD, h4: pdzZone4h },
+        gapContext: summarizeGapContext(gapContext),
+        cvgContext: summarizeCvgContext(cvgContext),
+        entrySupport: summarizeEntrySupport(entrySupportProfile),
+        rsiHeat: { m10: rsi10m, m30: rsi30m, h1: rsi1h },
+        movePhase: movePhaseSummary,
+        n_test_support_diag: d?.__n_test_support_diag || null,
+        executionProfile: {
+          name: executionProfileName || null,
+          personality: tickerPersonality || null,
+          profileRegimeMult,
+          volatileMomentumMult,
+        },
+      },
+    );
+  }
   if (rangeReversalTrigger) {
     return qualifyEntry(
       side === "LONG" ? "tt_range_reversal_long" : "tt_range_reversal_short",

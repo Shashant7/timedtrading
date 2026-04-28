@@ -42,6 +42,14 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_range_reversal_min_rvol", "value": "1.0" },
     { "key": "deep_audit_range_reversal_min_touches", "value": "2" },
 
+    { "key": "deep_audit_gap_reversal_enabled", "value": "true" },
+    { "key": "deep_audit_gap_reversal_min_rvol", "value": "1.2" },
+    { "key": "deep_audit_gap_reversal_min_gap_pct", "value": "1.5" },
+
+    { "key": "deep_audit_n_test_support_enabled", "value": "true" },
+    { "key": "deep_audit_n_test_min_touches", "value": "3" },
+    { "key": "deep_audit_n_test_min_rvol", "value": "1.0" },
+
     { "key": "deep_audit_v15_negative_veto_enabled", "value": "true" },
     { "key": "deep_audit_v15_veto_require_struct_break", "value": "true" },
 

@@ -752,6 +752,87 @@ function scoreRangeReversal(tickerData, ctx) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// V16 Setup #5 — Gap Reversal signal (Ripster Setup #5)
+//
+// LONG: gap-down + reclaim (full or strong partial)
+// SHORT: gap-up + fade (full or strong partial)
+//
+// Range: 0 to +10 pts.
+//   +6 setup active
+//   +4 full reclaim/fade (vs partial)
+// ─────────────────────────────────────────────────────────────────────────
+function scoreGapReversal(tickerData, ctx) {
+  const side = String(ctx?.side || ctx?.direction || "").toUpperCase();
+  if (!side || (side !== "LONG" && side !== "SHORT")) {
+    return { pts: 0, reason: "no_side" };
+  }
+  const ds = tickerData?.daily_structure || {};
+  const gr = ds?.gap_reversal;
+  if (!gr) return { pts: 0, reason: "no_gap_data" };
+
+  let pts = 0;
+  const reasons = [];
+  if (side === "LONG") {
+    if (!gr.long_setup_active) return { pts: 0, reason: "no_gap_reversal_long" };
+    pts += 6;
+    reasons.push(`gap_down_${gr.gap_pct}%_reclaim`);
+    if (gr.reclaimed_from_down) {
+      pts += 4;
+      reasons.push("full_reclaim");
+    }
+  } else {
+    if (!gr.short_setup_active) return { pts: 0, reason: "no_gap_reversal_short" };
+    pts += 6;
+    reasons.push(`gap_up_${gr.gap_pct}%_fade`);
+    if (gr.faded_from_up) {
+      pts += 4;
+      reasons.push("full_fade");
+    }
+  }
+  return { pts, reason: reasons.join(","), gap_pct: gr.gap_pct };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// V16 Setup #2 — N-Test Support/Resistance signal (Ripster Setup #2)
+//
+// LONG: Nth test of horizontal support holding.
+// SHORT: Nth test of horizontal resistance holding.
+//
+// Range: 0 to +12 pts.
+//   +6 valid setup active
+//   +N where N = min(touches, 6) bonus
+// ─────────────────────────────────────────────────────────────────────────
+function scoreNTestSupport(tickerData, ctx) {
+  const side = String(ctx?.side || ctx?.direction || "").toUpperCase();
+  if (!side || (side !== "LONG" && side !== "SHORT")) {
+    return { pts: 0, reason: "no_side" };
+  }
+  const ds = tickerData?.daily_structure || {};
+  const nts = ds?.n_test_support;
+  if (!nts) return { pts: 0, reason: "no_data" };
+
+  const info = side === "LONG" ? nts.support : nts.resistance;
+  if (!info || !info.long_setup_active && !info.short_setup_active) {
+    return { pts: 0, reason: "no_setup" };
+  }
+  const setupActive = side === "LONG" ? info.long_setup_active : info.short_setup_active;
+  if (!setupActive) return { pts: 0, reason: "setup_inactive" };
+
+  let pts = 6;
+  const reasons = [`${info.n_touches}_touches`];
+  // Bonus per touch above the minimum 3, capped at +6
+  const bonus = Math.min(6, Math.max(0, info.n_touches - 3) * 2);
+  pts += bonus;
+  if (bonus > 0) reasons.push(`+${bonus}_bonus`);
+  return {
+    pts,
+    reason: reasons.join(","),
+    n_touches: info.n_touches,
+    bars_since_touch: info.bars_since_last_touch,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Recent-winner bonus (+5 pts)
 // ≥2 wins on this ticker in last 30 trading days, net +3% PnL.
 // ─────────────────────────────────────────────────────────────────────────
@@ -792,8 +873,12 @@ export function computeConvictionScore({
   const s10 = scoreAthBreakout(tickerData, ctx);
   // V16 Setup #1 — Range Reversal (0 to +12)
   const s11 = scoreRangeReversal(tickerData, ctx);
+  // V16 Setup #5 — Gap Reversal (0 to +10)
+  const s12 = scoreGapReversal(tickerData, ctx);
+  // V16 Setup #2 — N-Test Support/Resistance (0 to +12)
+  const s13 = scoreNTestSupport(tickerData, ctx);
 
-  let base = s1.pts + s2.pts + s3.pts + s4.pts + s5.pts + s6.pts + s7.pts + s8.pts + s9.pts + s10.pts + s11.pts;
+  let base = s1.pts + s2.pts + s3.pts + s4.pts + s5.pts + s6.pts + s7.pts + s8.pts + s9.pts + s10.pts + s11.pts + s12.pts + s13.pts;
 
   // Bonuses (capped so total ≤ 100)
   const ttSelBonus = (ttSelected || TT_SELECTED_DEFAULT).has(tickerUpper) ? 15 : 0;
@@ -815,9 +900,13 @@ export function computeConvictionScore({
   //   ath_breakout 0 to +12 (additive — captures bull-grind ATH setups)
   // V16 Setup #1 (2026-04-28):
   //   range_reversal 0 to +12 (additive — captures range-bound reversals)
-  // Max base = 10+15+10+15+25+20+10+10+5+12+12 = 144
-  // Max bonuses = 40 → theoretical max 184
-  const total = Math.max(0, Math.min(184, base + ttSelBonus + grannyBonus + upticksBonus + recentBonus));
+  // V16 Setup #5 (2026-04-28):
+  //   gap_reversal 0 to +10 (additive — captures gap-down-reclaim/gap-up-fade)
+  // V16 Setup #2 (2026-04-28):
+  //   n_test_support 0 to +12 (additive — captures N-test support/resistance)
+  // Max base = 10+15+10+15+25+20+10+10+5+12+12+10+12 = 166
+  // Max bonuses = 40 → theoretical max 206
+  const total = Math.max(0, Math.min(206, base + ttSelBonus + grannyBonus + upticksBonus + recentBonus));
 
   // V15 P0.5 tier thresholds (back to P0.3 calibration):
   //   A ≥ 110, B ≥ 80, C < 80
@@ -840,6 +929,8 @@ export function computeConvictionScore({
       rsi_alignment: s9,
       ath_breakout: s10,
       range_reversal: s11,
+      gap_reversal: s12,
+      n_test_support: s13,
       bonuses: {
         tt_selected: ttSelBonus,
         granny_etf: grannyBonus,

@@ -1502,6 +1502,175 @@ export function computeTfBundle(bars, anchors = null) {
     sample_size: lookback252,
   };
 
+  // ── V16 Setup #2: N-TEST SUPPORT/RESISTANCE detection (Ripster Setup #2) ──
+  //
+  // Cluster lows (or highs) within tight bands (default 0.75% of price)
+  // across last 30 bars. A cluster with N≥3 touches that has held (most
+  // recent test held above the cluster level) IS a valid Nth-test setup.
+  //
+  // LONG: Nth test of horizontal SUPPORT (price came near level N times,
+  //       latest test held — the bounce off the Nth touch is the entry).
+  // SHORT: mirror at horizontal RESISTANCE.
+  let nTestSupport = null;
+  const lookbackN = Math.min(30, n);
+  if (n >= 5 && lookbackN >= 5) {
+    const supportTol = px * 0.0075; // 0.75% of price = same level
+    const recentLows = [];
+    const recentHighs = [];
+    for (let i = last - lookbackN + 1; i <= last; i++) {
+      if (i < 0) continue;
+      const bl = bars[i]?.l;
+      const bh = bars[i]?.h;
+      const bc = bars[i]?.c;
+      if (Number.isFinite(bl)) recentLows.push({ price: bl, idx: i, close: bc });
+      if (Number.isFinite(bh)) recentHighs.push({ price: bh, idx: i, close: bc });
+    }
+    // Find largest cluster of lows (most touches near same price).
+    // Greedy clustering: sort by price, group adjacent within tolerance.
+    function clusterByPrice(points, tol) {
+      if (!points.length) return [];
+      const sorted = [...points].sort((a, b) => a.price - b.price);
+      const clusters = [];
+      let current = [sorted[0]];
+      for (let i = 1; i < sorted.length; i++) {
+        if (sorted[i].price - current[0].price <= tol) {
+          current.push(sorted[i]);
+        } else {
+          clusters.push(current);
+          current = [sorted[i]];
+        }
+      }
+      clusters.push(current);
+      return clusters;
+    }
+    const lowClusters = clusterByPrice(recentLows, supportTol);
+    const highClusters = clusterByPrice(recentHighs, supportTol);
+    // Pick the cluster with the most touches (n-test)
+    const bestSupport = lowClusters.reduce((best, c) =>
+      c.length > (best?.length || 0) ? c : best, null);
+    const bestResistance = highClusters.reduce((best, c) =>
+      c.length > (best?.length || 0) ? c : best, null);
+
+    // Support stats
+    let supportInfo = null;
+    if (bestSupport && bestSupport.length >= 3) {
+      const supportPrice = bestSupport.reduce((s, p) => s + p.price, 0) / bestSupport.length;
+      const lastTouchIdx = Math.max(...bestSupport.map(p => p.idx));
+      const barsSinceLastTouch = last - lastTouchIdx;
+      // Held: today's close > support cluster price (we're above the level)
+      const heldAboveSupport = px > supportPrice;
+      // Recent test: latest support touch in last 5 bars
+      const recentTest = barsSinceLastTouch <= 5;
+      supportInfo = {
+        price: Math.round(supportPrice * 10000) / 10000,
+        n_touches: bestSupport.length,
+        last_touch_idx: lastTouchIdx,
+        bars_since_last_touch: barsSinceLastTouch,
+        held: heldAboveSupport,
+        recent_test: recentTest,
+        // LONG setup: ≥3 touches, recent test, held, today's price within
+        // 1.5% above support (close to bouncing).
+        long_setup_active: bestSupport.length >= 3
+          && recentTest
+          && heldAboveSupport
+          && supportPrice > 0
+          && (px - supportPrice) / supportPrice < 0.015,
+      };
+    }
+    // Resistance stats
+    let resistanceInfo = null;
+    if (bestResistance && bestResistance.length >= 3) {
+      const resistancePrice = bestResistance.reduce((s, p) => s + p.price, 0) / bestResistance.length;
+      const lastTouchIdx = Math.max(...bestResistance.map(p => p.idx));
+      const barsSinceLastTouch = last - lastTouchIdx;
+      const heldBelowResistance = px < resistancePrice;
+      const recentTest = barsSinceLastTouch <= 5;
+      resistanceInfo = {
+        price: Math.round(resistancePrice * 10000) / 10000,
+        n_touches: bestResistance.length,
+        last_touch_idx: lastTouchIdx,
+        bars_since_last_touch: barsSinceLastTouch,
+        held: heldBelowResistance,
+        recent_test: recentTest,
+        short_setup_active: bestResistance.length >= 3
+          && recentTest
+          && heldBelowResistance
+          && resistancePrice > 0
+          && (resistancePrice - px) / resistancePrice < 0.015,
+      };
+    }
+    nTestSupport = {
+      support: supportInfo,
+      resistance: resistanceInfo,
+      sample_size: lookbackN,
+    };
+  }
+
+  // ── V16 Setup #5: GAP REVERSAL detection (Ripster Setup #5) ──
+  //
+  // Detects a gap-down on today's open that reverses higher (LONG)
+  // OR a gap-up that fades lower (SHORT).
+  //
+  // Computed from the daily TF only (caller checks tf=='D'). Captures:
+  //   - gap_pct: today's open vs prior close
+  //   - is_gap_down / is_gap_up (configurable thresholds)
+  //   - reclaimed_open_to_prev_close: today's price > today's open
+  //     AND > prior close (for LONG reclaim signal)
+  //   - faded_open_to_prev_close: mirror for SHORT
+  //   - reclaim_strength: how far above (or below) the prior close
+  let gapReversal = null;
+  if (n >= 2) {
+    const todayBarG = bars[last];
+    const prevBarG = bars[last - 1];
+    const todayOpen = Number(todayBarG?.o);
+    const todayClose = Number(todayBarG?.c);
+    const todayHigh = Number(todayBarG?.h);
+    const todayLow = Number(todayBarG?.l);
+    const prevCloseG = Number(prevBarG?.c);
+    if (Number.isFinite(todayOpen) && Number.isFinite(prevCloseG) && prevCloseG > 0) {
+      const gapPct = ((todayOpen - prevCloseG) / prevCloseG) * 100;
+      const isGapDown = gapPct <= -1.5;
+      const isGapUp = gapPct >= 1.5;
+      // Reclaim: gap-down then today closes above prior close
+      const reclaimedFromDown = isGapDown
+        && Number.isFinite(todayClose)
+        && todayClose > prevCloseG;
+      // Partial reclaim: gap-down, current price above today's open
+      // (recovering from the gap even if not fully)
+      const partialReclaimDown = isGapDown
+        && Number.isFinite(todayClose)
+        && todayClose > todayOpen
+        && (todayClose - todayOpen) / todayOpen > 0.005; // >0.5% above open
+      // Fade: gap-up then today closes below prior close
+      const fadedFromUp = isGapUp
+        && Number.isFinite(todayClose)
+        && todayClose < prevCloseG;
+      const partialFadeUp = isGapUp
+        && Number.isFinite(todayClose)
+        && todayClose < todayOpen
+        && (todayOpen - todayClose) / todayOpen > 0.005;
+
+      gapReversal = {
+        gap_pct: Math.round(gapPct * 100) / 100,
+        is_gap_down: isGapDown,
+        is_gap_up: isGapUp,
+        prev_close: prevCloseG,
+        today_open: todayOpen,
+        today_close: todayClose,
+        today_low: todayLow,
+        today_high: todayHigh,
+        reclaimed_from_down: reclaimedFromDown,
+        partial_reclaim_down: partialReclaimDown,
+        faded_from_up: fadedFromUp,
+        partial_fade_up: partialFadeUp,
+        // Setup #5 LONG: gap-down + (full reclaim OR strong partial)
+        long_setup_active: reclaimedFromDown || partialReclaimDown,
+        // Setup #5 SHORT: gap-up + (full fade OR strong partial)
+        short_setup_active: fadedFromUp || partialFadeUp,
+      };
+    }
+  }
+
   // ── V16 Setup #1: RANGE BOX detection (Ripster Setup #1: Range Reversal) ──
   //
   // Detect a horizontal range over the last N bars (default 12). The
@@ -1641,6 +1810,8 @@ export function computeTfBundle(bars, anchors = null) {
     lookback: lookbackFeatures,
     ath52w,
     rangeBox,
+    gapReversal,
+    nTestSupport,
   };
 }
 
@@ -4836,6 +5007,10 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
         ath52w: bD.ath52w || null,
         // V16 Setup #1: range box for range-reversal LONG/SHORT entries
         range_box: bD.rangeBox || null,
+        // V16 Setup #5: gap-down-reclaim / gap-up-fade detection
+        gap_reversal: bD.gapReversal || null,
+        // V16 Setup #2: N-test support/resistance for n-touch bounces
+        n_test_support: bD.nTestSupport || null,
       };
     })() : undefined,
   };

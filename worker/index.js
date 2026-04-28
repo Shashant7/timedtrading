@@ -8803,6 +8803,64 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     if (entry.selectedEngine) tickerData.__selected_engine = entry.selectedEngine;
     if (entry.selectedManagementEngine) tickerData.__selected_management_engine = entry.selectedManagementEngine;
     if (entry.referenceExecution) tickerData.__reference_execution = entry.referenceExecution;
+
+    // V16 (2026-04-28): SETUP-FITNESS SNAPSHOT — captures which of the
+    // 5 Ripster setup families were eligible at this entry. This is
+    // the data foundation for context-aware setup selection.
+    //
+    // Each diag is stamped by the trigger evaluation block in
+    // tt-core-entry.js even when its trigger doesn't fire — so we
+    // know not just which path was selected but ALSO which alternatives
+    // were available. Combined with regime/state/structure data on
+    // tickerData, this lets us post-hoc analyze: "in regime X with
+    // structure Y, when setups A and B were both eligible, did we
+    // pick the better one?"
+    const _setupSnapshot = {
+      // Selected path
+      selected_path: entry.path,
+      selected_reason: entry.reason,
+      selected_confidence: entry.confidence,
+      // Per-setup eligibility diagnostics (from tt-core-entry triggers)
+      ath_breakout: tickerData?.__ath_breakout_diag || null,
+      range_reversal: tickerData?.__range_reversal_diag || null,
+      gap_reversal: tickerData?.__gap_reversal_diag || null,
+      n_test_support: tickerData?.__n_test_support_diag || null,
+      index_etf_swing: tickerData?.__index_etf_swing_diag || null,
+      // Conviction breakdown
+      focus_conviction_score: tickerData?.__focus_conviction_score || null,
+      focus_conviction_breakdown: tickerData?.__focus_conviction_breakdown || null,
+      // Regime/structure context — for post-hoc analysis
+      regime_class: tickerData?.regime_class || null,
+      regime_combined: tickerData?.swing_consensus?.regime_combined || null,
+      execution_profile_name: tickerData?.execution_profile?.name || null,
+      ticker_personality: tickerData?.execution_profile?.personality
+        || tickerData?.ticker_character?.learned_profile?.personality
+        || null,
+      state: tickerData?.state || null,
+      // Daily structure snapshot
+      daily_structure: tickerData?.daily_structure ? {
+        bull_stack: tickerData.daily_structure.bull_stack,
+        bear_stack: tickerData.daily_structure.bear_stack,
+        above_e200: tickerData.daily_structure.above_e200,
+        pct_above_e21: tickerData.daily_structure.pct_above_e21,
+        pct_above_e48: tickerData.daily_structure.pct_above_e48,
+        e21_slope_5d_pct: tickerData.daily_structure.e21_slope_5d_pct,
+        // Setup-specific structural data (kept compact)
+        ath52w_pct_below: tickerData.daily_structure.ath52w?.pct_below_high_252,
+        ath52w_pct_above_low: tickerData.daily_structure.ath52w?.pct_above_low_252,
+        range_pct: tickerData.daily_structure.range_box?.range_pct,
+        range_pos: tickerData.daily_structure.range_box?.position_in_range,
+        gap_pct: tickerData.daily_structure.gap_reversal?.gap_pct,
+        n_test_support_touches: tickerData.daily_structure.n_test_support?.support?.n_touches,
+        n_test_resistance_touches: tickerData.daily_structure.n_test_support?.resistance?.n_touches,
+      } : null,
+      // RVol at entry
+      rvol_best: Number(tickerData?.rvol?.best) || null,
+      rvol_30m: Number(tickerData?.rvol_map?.["30"]?.vr) || null,
+      // Captured at: bar timestamp
+      captured_at_ts: asOfTs || null,
+    };
+    tickerData.__entry_setup_snapshot = _setupSnapshot;
     const _scenarioPolicy = _resolveScenarioExecutionPolicy(tickerData, entry.path, tickerData?._env?._scenarioExecutionPolicy || null);
     if (_scenarioPolicy) {
       tickerData.__scenario_policy = _scenarioPolicy;
@@ -18961,6 +19019,27 @@ async function processTradeSimulation(
                     base.focus_conviction_score = tickerData?.__focus_conviction_score;
                     base.focus_conviction_breakdown = tickerData?.__focus_conviction_breakdown;
                   }
+                  // V16 (2026-04-28): SETUP-FITNESS SNAPSHOT merged into
+                  // rank_trace_json. Captures which Ripster setup
+                  // families were eligible at entry. This is the data
+                  // foundation for context-aware setup selection.
+                  // Stamped under 'setup_snapshot' key to keep the
+                  // base flat structure clean.
+                  base.setup_snapshot = {
+                    selected_path: entryPath,
+                    ath_breakout: tickerData?.__ath_breakout_diag || null,
+                    range_reversal: tickerData?.__range_reversal_diag || null,
+                    gap_reversal: tickerData?.__gap_reversal_diag || null,
+                    n_test_support: tickerData?.__n_test_support_diag || null,
+                    index_etf_swing: tickerData?.__index_etf_swing_diag || null,
+                    regime_class: tickerData?.regime_class || null,
+                    state: tickerData?.state || null,
+                    bull_stack: tickerData?.daily_structure?.bull_stack || null,
+                    bear_stack: tickerData?.daily_structure?.bear_stack || null,
+                    pct_above_e21: tickerData?.daily_structure?.pct_above_e21 || null,
+                    pct_above_e48: tickerData?.daily_structure?.pct_above_e48 || null,
+                    rvol_best: Number(tickerData?.rvol?.best) || null,
+                  };
                   return Object.keys(base).length ? JSON.stringify(base) : null;
                 } catch (_err) {
                   return null;
