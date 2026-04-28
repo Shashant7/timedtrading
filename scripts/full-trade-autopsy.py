@@ -333,7 +333,11 @@ def section_loser_forensics(trades: list, top_n: int = 25) -> dict:
 
 
 def section_regime_analysis(trades: list) -> dict:
-    """Performance by regime + VIX state + sector rotation."""
+    """Performance by regime + VIX state + sector rotation.
+
+    VIX state and sector rotation prefer joined trade.context (100%
+    coverage from autopsy-join-context.py) over setup_snapshot.
+    """
     closed = [t for t in trades if t.get("status") in ("WIN", "LOSS")]
     by_regime = defaultdict(list)
     by_vix = defaultdict(list)
@@ -346,10 +350,31 @@ def section_regime_analysis(trades: list) -> dict:
         by_regime[r].append(t)
         st = snap.get("state") or "?"
         by_state[st].append(t)
-        mi = snap.get("market_internals") or {}
-        vix = mi.get("vix_state") or "?"
+
+        # VIX state: prefer joined context, fall back to snapshot
+        ctx = t.get("context") or {}
+        vix = ctx.get("vix_state")
+        if vix is None:
+            mi = snap.get("market_internals") or {}
+            vix = mi.get("vix_state")
+        # When using VIXY proxy, derive bucket from pct_change instead
+        if vix is None and ctx.get("vix_proxy_source") == "VIXY":
+            pct = ctx.get("vix_pct_change")
+            if pct is not None:
+                if pct < -3: vix = "vol_drop"
+                elif pct < 1: vix = "vol_calm"
+                elif pct < 3: vix = "vol_up"
+                else: vix = "vol_spike"
+        vix = vix or "?"
         by_vix[vix].append(t)
-        rot = mi.get("sector_rotation") or "?"
+
+        # Sector rotation: prefer joined
+        ca_ctx = ctx.get("cross_asset") or {}
+        rot = ca_ctx.get("sector_rotation")
+        if rot is None or rot == "unknown":
+            mi = snap.get("market_internals") or {}
+            rot = mi.get("sector_rotation")
+        rot = rot or "?"
         by_rot[rot].append(t)
 
     return {
@@ -361,18 +386,27 @@ def section_regime_analysis(trades: list) -> dict:
 
 
 def section_cross_asset(trades: list) -> dict:
-    """Winner vs loser averages on cross-asset fields."""
-    closed = [(t, load_snapshot(t)) for t in trades if t.get("status") in ("WIN", "LOSS")]
-    closed = [(t, s) for t, s in closed if s]
+    """Winner vs loser averages on cross-asset fields.
+
+    Prefers trade.context.cross_asset (joined post-flight from D1 +
+    backfill — 100% coverage). Falls back to setup_snapshot.cross_asset
+    if context not joined.
+    """
+    closed = [t for t in trades if t.get("status") in ("WIN", "LOSS")]
 
     fields = ("gold_pct", "silver_pct", "oil_pct", "dollar_pct", "energy_pct", "btc_pct")
     out = {}
     for field in fields:
         wins = []
         losses = []
-        for t, s in closed:
-            ca = s.get("cross_asset") or {}
-            v = ca.get(field)
+        for t in closed:
+            # Prefer joined context, fall back to snapshot
+            ctx_ca = (t.get("context") or {}).get("cross_asset") or {}
+            snap = load_snapshot(t) or {}
+            snap_ca = snap.get("cross_asset") or {}
+            v = ctx_ca.get(field)
+            if v is None:
+                v = snap_ca.get(field)
             if v is None:
                 continue
             if (t.get("pnl_pct") or 0) > 0:
@@ -827,16 +861,30 @@ def main():
     ap.add_argument("--top-n", type=int, default=25, help="Top-N for winner/loser sections")
     ap.add_argument("--out-dir", default="/workspace/data/trade-analysis",
                     help="Output directory for artifacts")
+    ap.add_argument("--trades-file",
+                    help="Path to enriched trades JSON (output of "
+                         "autopsy-join-context.py). If omitted, fetches from "
+                         "API and uses raw trades (no joined cross-asset).")
     args = ap.parse_args()
 
     api_key = os.environ.get("TIMED_API_KEY")
-    if not api_key:
-        print("TIMED_API_KEY not set", file=sys.stderr)
-        sys.exit(1)
 
-    print(f"Fetching trades for {args.run_id} ...", file=sys.stderr)
-    trades = fetch_trades(api_key, args.run_id)
-    print(f"  {len(trades)} trades", file=sys.stderr)
+    # Prefer enriched trades file; fall back to API fetch
+    enriched_path = args.trades_file or f"{args.out_dir}/{args.run_id}/trades-enriched.json"
+    if Path(enriched_path).exists():
+        print(f"Loading enriched trades from {enriched_path} ...", file=sys.stderr)
+        with open(enriched_path) as f:
+            data = json.load(f)
+        trades = data.get("trades") or []
+        print(f"  {len(trades)} trades (with joined context)", file=sys.stderr)
+    else:
+        if not api_key:
+            print("TIMED_API_KEY not set and no enriched file provided", file=sys.stderr)
+            sys.exit(1)
+        print(f"Fetching trades for {args.run_id} from API (no joined context)...",
+              file=sys.stderr)
+        trades = fetch_trades(api_key, args.run_id)
+        print(f"  {len(trades)} trades", file=sys.stderr)
 
     overview = section_overview(trades)
     setup_fitness = section_setup_fitness(trades)
