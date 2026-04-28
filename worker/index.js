@@ -17097,8 +17097,37 @@ async function processTradeSimulation(
           //   should defer. The 15m cloud break is a wick-level signal
           //   below the daily cloud which we explicitly want to absorb.
           //   peak_lock_exit owns the structural exit decision.
+          //
+          // V15 P0.7.15 (2026-04-28): TOTAL-TRADE-PNL DEFERRAL FIX.
+          //   Forensic analysis of v16-ctx4 (Jul-Oct 2025) showed
+          //   SMART_RUNNER_SUPPORT_BREAK_CLOUD as the single worst exit
+          //   rule (n=26, WR=27%, PnL=-7.53%). Of those 26 trades,
+          //   19 (73%) had TOTAL trade PnL > 0 when the close fired
+          //   (realized trim profit + small runner red = net positive).
+          //   But _srePnlPct (runner-only) was negative, blocking the
+          //   deferral. Worst givebacks: ALB MFE+12.1%/kept+0.83%,
+          //   KTOS MFE+11.5%/kept+1.00%, AEHR MFE+5.8%/kept-0.77%.
+          //
+          //   Fix: compute total-trade PnL (realized_trim_pct * trim_frac
+          //   + runner_pnl * (1 - trim_frac)) and gate deferral on that
+          //   instead. Trimmed runners with positive TOTAL PnL deserve
+          //   the same daily-cloud-hold protection as un-trimmed winners.
           const _peakLockCloudHolding = !!tickerData?.__peak_lock_cloud_hold;
-          const _sreCanDeferSafetyNet = !_sreCancelDeferral && !_sreTrimThenReassessCloudBreak && _srePnlPct > 0 && (
+          // Compute total trade PnL including realized trim profit
+          const _sreTrimPctNum = clamp(Number(openTrade?.trimmedPct ?? openTrade?.trimmed_pct ?? 0), 0, 1);
+          const _sreTrimPriceNum = Number(openTrade?.trim_price ?? openTrade?.trimPrice) || 0;
+          const _sreEntryPxNum = Number(openTrade?.entryPrice) || entryPx;
+          const _sreRealizedTrimPnlPct = (_sreTrimPctNum > 0 && _sreTrimPriceNum > 0 && _sreEntryPxNum > 0)
+            ? (isLong
+                ? ((_sreTrimPriceNum - _sreEntryPxNum) / _sreEntryPxNum) * 100
+                : ((_sreEntryPxNum - _sreTrimPriceNum) / _sreEntryPxNum) * 100)
+            : 0;
+          const _sreTotalTradePnlPct = _sreTrimPctNum > 0
+            ? (_sreRealizedTrimPnlPct * _sreTrimPctNum) + (_srePnlPct * (1 - _sreTrimPctNum))
+            : _srePnlPct;
+          const _sreDeferPnlGate = _sreTotalTradePnlPct > 0;
+
+          const _sreCanDeferSafetyNet = !_sreCancelDeferral && !_sreTrimThenReassessCloudBreak && _sreDeferPnlGate && (
             _peakLockCloudHolding ||
             (_sreCloudAligned && _sreTH.htfIntact) ||
             _sreTH.htfIntact ||
@@ -17106,7 +17135,7 @@ async function processTradeSimulation(
           );
 
           if (_sreCanDeferSafetyNet) {
-            console.log(`[SMART_RUNNER CLOUD HOLD] ${sym} ${_sreReason} deferred by safety net: htfIntact=${_sreTH.htfIntact ? 1 : 0} st15=${_sreSt15Dir} st30=${_sreSt30Dir} exp=${_sreCloudExp.expandingCount || 0}/3 (pnl=${_srePnlPct.toFixed(1)}%)`);
+            console.log(`[SMART_RUNNER CLOUD HOLD] ${sym} ${_sreReason} deferred by safety net: htfIntact=${_sreTH.htfIntact ? 1 : 0} st15=${_sreSt15Dir} st30=${_sreSt30Dir} exp=${_sreCloudExp.expandingCount || 0}/3 (runner_pnl=${_srePnlPct.toFixed(1)}% trim=${(_sreTrimPctNum*100).toFixed(0)}% total=${_sreTotalTradePnlPct.toFixed(2)}%)`);
             tickerData.__force_defend_stage = true;
             tickerData.__defend_reason = "smart_runner_deferred_structure_support";
             tickerData.__exit_family = "tt_context";
