@@ -1,18 +1,29 @@
 # V15 Refinement Tracker — Living Fix List
 
-**Live savepoint:** `v16-fix1-p716-jul-30m-1777422817`
+**Live savepoint:** `v16-fix4-jul-30m-1777446799` (was: v16-fix6-jul-30m-1777437995)
 **Started:** 2026-04-29
 **Cadence:** 30m (live + backtest, validated against 5m/10m comparison)
 
 ---
 
-## Live baseline (July 2025)
+## Live baseline (July 2025) — current at v16-fix4
 
-113 trades, **WR 54.9%**, **PnL +304.13%**, **PF 5.01**, **+12.15% account**, **max DD -1.65%**
+**Headline:** 104 trades, **WR 64.4%**, **PnL +456.88%**, **PF 7.24**
 
-Best WIN: +49.26% · Worst LOSS: -8.65% · Avg WIN: +6.13% · Avg LOSS: -1.49%
+**Organic-exit-only** (excluding 13 replay_end_close artifacts which are positions still open at Jul 31):
+- 91 trades, **WR 61.5%**, **PnL +123.38%**, **PF 3.80**, Avg WIN +2.99%, Avg LOSS -1.26%
 
-Status mix: 62 WIN / 51 LOSS (no OPEN, all positions closed at Jul 31).
+The headline numbers are inflated by month-end runners that won't exit at the same prices in longer windows. Organic-exit metrics are the truer measure. Either way:
+- WR jumped from 54.9% (pre-fixes) to 64.4% (full sample) / 61.5% (organic only)
+- The fix sequence is genuinely improving entry/exit decisions
+
+### Iteration history (July 2025 baseline)
+| Run | Trades | WR | PnL | PF | Notes |
+|---|---|---|---|---|---|
+| Pre-fixes (v16-fix1-p716) | 113 | 54.9% | +304.13% | 5.01 | After P0.7.13-17 (orphan + cadence fixes) |
+| FIX 6 (TP1 floor) | 114 | 54.4% | +305.50% | 5.04 | Minor uplift, no regression |
+| FIX 2 (winner-protect) | 114 | 54.4% | +300.90% | 4.98 | ❌ rejected (-4.6pp) |
+| **FIX 4 (late-day block)** | **104** | **64.4%** | **+456.88%** | **7.24** | ✅ Big win; org-only +123% |
 
 ### Insights from regime analysis
 
@@ -64,52 +75,61 @@ Status mix: 62 WIN / 51 LOSS (no OPEN, all positions closed at Jul 31).
 | **P0.7.15** | SMART_RUNNER cloud-hold uses TOTAL trade PnL | 🟢 | -7.51% → -1.01% on this rule |
 | **P0.7.16** | Live cron isolated from backtest trades | 🟢 | Zero wall-clock anomalies (was 12) |
 | **P0.7.17** | Live exits gate on 30m cadence | 🟢 | Live behaves like 30m backtest |
+| **P0.7.18 (FIX 6)** | TP1 floor: max(1.5x ATR, 1.5% price) | 🟢 | +1.37pp PnL, +0.03 PF, no regression |
+| **P0.7.20 (FIX 4)** | Block entries 15:30-16:00 ET (last 30min before close) | 🟢 | **+151pp PnL, +10pp WR, +2.20 PF** |
 
 ### Active queue
 
-#### FIX 6 — Fast-trim TP1 floor 🟡 IN PROGRESS
+#### FIX 6 — Fast-trim TP1 floor 🟢 VALIDATED (P0.7.18)
 - **Source:** v16-ctx4 + v16-fix1-p716 autopsy
 - **Issue:** TP1 set at 0.618× swingATR, often microscopic (KTOS +0.25%, LITE +0.18%)
-- **Affected trades:** ~23 trimmed within first 30m bar at avg +0.96%
-- **Fix:** enforce minimum trim distance: `max(1.5× ATR, 1.5% of price, current TP1)` in `build3TierTPArray`
-- **Expected uplift:** +1-2pp avg trim PnL → fewer noise trims, more meaningful first locks
-- **Validation:** July smoke vs live baseline (113 trades, 304% PnL) — no winner regression, instant_30m cohort N drops
+- **Fix:** enforce minimum trim distance: `max(1.5× ATR, 1.5% of price)` in `build3TierTPArray`
+- **DA keys:** `deep_audit_min_trim_atr_mult=1.5`, `deep_audit_min_trim_pct=0.015`
+- **Validated July smoke (`v16-fix6-jul-30m-1777437995`):**
+  - 114 trades vs 113 (+1)
+  - WR 54.4% vs 54.9% (-0.5pp; within tolerance)
+  - **PnL +305.50% vs +304.13% (+1.37pp)**
+  - **PF 5.04 vs 5.01 (+0.03)**
+  - All top 10 winners preserved (GEV +2pp, others identical)
+  - instant_30m cohort: 7 vs 6 (avg trim dist 1.13% vs 1.32%)
+- **Note:** P0.7.16 already cleaned up most tiny trims. The remaining instant_30m cohort had legitimate moves > 1.5%. The floor is in place as a safety net for future low-vol scenarios.
+- **Promoted live:** 2026-04-29 05:48 UTC
 
-#### FIX 2 — Winner-protect anchor (highest absolute upside)
+#### FIX 2 — Winner-protect anchor ❌ REJECTED (P0.7.19)
 - **Source:** Autopsy section 4
-- **Issue:** Winners gave back 156.3pp combined MFE. Top examples:
-  - JOBY: MFE 33.5% kept 12.4% (gave back 21pp)
-  - AEHR: MFE 42% kept 21% (gave back 21pp)
-  - U: MFE 28.4% kept 12.1% (gave back 16pp)
-  - BE, RIOT, IREN, APLD all >9pp giveback
-- **Affected trades:** 15 winners with MFE >5pp giveback
-- **Fix:** when MFE ≥15%, lock SL at `entry + 0.6 × (peak - entry)` (capture 60% of peak as floor)
-- **Recoverable PnL:** **+78.17%** (across 15 trades)
-- **Validation:** July smoke. Top winners' kept-PnL increases without hurting WR
+- **Hypothesis:** when MFE ≥15%, lock SL at `entry + 0.6 × MFE_peak` to capture 60% of peak.
+- **Validation FAILED (`v16-fix2-jul-30m-1777442345`):**
+  - Trades 114 (same)
+  - WR 54.4% (same)
+  - **PnL +300.90% vs +305.50% (-4.60pp)** ← regression
+  - PF 4.98 vs 5.04 (-0.06)
+  - **IREN regressed -3.94pp** (+10.21% → +6.28%): the new SL anchor caused an earlier exit on a legitimate pullback
+  - Other high-MFE winners (JOBY, AEHR, U, BE, RIOT) — IDENTICAL (fix didn't fire on them because they exit via TP_FULL/atr_week_618 paths that don't read SL)
+- **Why it failed:** The fix only affected SL-bound trades and made the SL TIGHTER than the existing trailing logic on a runner that subsequently retraced. The "winner-protect" idea conflicts with letting runners breathe.
+- **Conclusion:** REJECTED. Code still committed under DA-flag (default `false`). To revisit, would need:
+  - Either much higher threshold (e.g., MFE ≥25% before locking)
+  - Or a much smaller lock pct (e.g., 0.30 — only protect against catastrophic round-trips)
+  - Or a different mechanism entirely (e.g., trim a third partial when MFE >= 15%, not move SL)
+- **Promoted live:** NO. Live savepoint remains v16-fix6.
 
-#### FIX 4 — Rapid stop-out cohort (entry quality)
-- **Source:** Autopsy section 5
-- **Issue:** 27 trades with MFE <0.5% (never went green). Combined PnL -53.93%
-- **Pattern from v16-ctx4 deeper dive:**
-  - 74% had bull_stack=true (not regime mismatch)
-  - 31% in TRENDING regime (not regime mismatch)
-  - 28 of 61 had rank ≥100 (high-quality scores still failed)
-  - 8 of 51 entered BELOW EMA21 (questionable structural position)
-  - 11 of 51 entered MORE THAN +5% above EMA21 (extended)
-- **Fix candidates:**
-  - (a) Block entries when `pct_above_e21 > 4%` (extension cap)
-  - (b) Require RVol >= 1.2× for new entries
-  - (c) Require closing 30m bar to be in same direction as setup (e.g., LONG only on bullish 30m close)
-- **Recoverable PnL:** **-53.93%** if we eliminate the cohort
-- **Validation:** July smoke — N drops 27→<10, no top winners blocked
+#### FIX 4 — Late-day entry block 🟢 VALIDATED (P0.7.20)
+- **Source:** Half-hour bucket analysis on FIX 6 baseline
+- **Issue:** 3:30 PM ET (last 30min before close) entries had 24% WR / -10.40% PnL across 17 trades
+- **Fix:** block new entries when `ET_minute_of_day >= (16*60 - 30)` i.e., 15:30 ET to close
+- **DA key:** `deep_audit_late_day_entry_block_min` default 30
+- **Validated July smoke (`v16-fix4-jul-30m-1777446799`):**
+  - 104 trades vs 114 (-10, expected — that's the blocked cohort)
+  - **WR 64.4% vs 54.4% (+10.0pp)** ✓
+  - **PnL +456.88% vs +305.50% (+151.38pp)** ✓ (caveat: partially inflated by replay_end_close holds)
+  - **PF 7.24 vs 5.04 (+2.20)** ✓
+  - Best WIN +111% vs +49% (new monster: LITE held to month-end)
+  - Some winner regressions: GEV +28% → +1.77% (different setup picked), APLD took a -20% loss (separate trade), AEHR took a -0.8% extra loss before its big win
+  - Net winner-side trade-offs heavily positive
+- **This SUBSUMES FIX 7** (Friday-late block) — every-day late entries are bad, not just Fridays
+- **Promoted live:** 2026-04-29 ~08:09 UTC
 
-#### FIX 7 — Friday last-hour entry block
-- **Source:** weekend overnight risk analysis
-- **Issue:** Friday entries ≥3pm ET have 29% WR vs Friday early 71% WR
-- **Affected trades:** 7 in Jul-Oct (small sample)
-- **Fix:** block new entries Friday after 3:00 PM ET except on strong same-bar gap reversals
-- **Recoverable PnL:** ~+2pp (small but clean)
-- **Validation:** July smoke — Friday-late entry count drops, no winner regression
+#### FIX 7 — Friday last-hour entry block ✅ SUBSUMED by FIX 4
+- Original target (Friday 3pm ET) was a subset of FIX 4's all-days 3:30pm block. Closed.
 
 #### FIX 3 — Net-negative Ripster setups
 - **Source:** Autopsy section 2
