@@ -7208,6 +7208,60 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           // Stamp a marker so downstream soft-exit blocks can short-circuit.
           tickerData.__v12_winner_protect_active = true;
         }
+
+        // ──────────────────────────────────────────────────────────────────
+        // V15 P0.7.19 (2026-04-29) — FIX 2: BIG-MFE WINNER-PROTECT ANCHOR
+        //
+        // EVIDENCE (autopsy v16-fix1-p716-jul):
+        //   15 winners gave back >5pp from MFE peak. Top examples:
+        //     JOBY: MFE 33.5% kept 12.4% (gave back 21.1pp)
+        //     AEHR: MFE 42.0% kept 21.2% (gave back 20.8pp)
+        //     U:    MFE 28.4% kept 12.1% (gave back 16.3pp)
+        //   Total left on table: +156.3pp across 15 trades.
+        //   Recoverable: ~+78pp if we lock 60% of peak as floor.
+        //
+        // RULE: when MFE >= big_mfe_threshold (default 15%), enforce that
+        //   the SL is at least at `entry + lock_pct * MFE_max` (LONG) or
+        //   `entry - lock_pct * MFE_max` (SHORT). Default lock_pct = 0.60
+        //   means we capture at least 60% of the peak as worst-case exit.
+        //   Only TIGHTENS the SL — never widens. Doesn't conflict with
+        //   trailing logic — both can fire; the higher SL wins.
+        //
+        // TF-aware: this is a daily-MFE protection, not an intra-bar
+        // signal. Fires regardless of cadence (gates already on 30m
+        // for live exits anyway). Hard exits still bypass.
+        const _bigMfeEnabled = String(
+          tickerData?._env?._deepAuditConfig?.deep_audit_winner_protect_big_mfe_enabled ?? "true"
+        ) === "true";
+        if (_bigMfeEnabled && openPosition && isOpenTradeStatus(openPosition?.status)) {
+          const _bigMfeThreshold = Number(
+            tickerData?._env?._deepAuditConfig?.deep_audit_winner_protect_big_mfe_threshold_pct ?? 15.0
+          );
+          const _bigMfeLockPct = Math.max(0, Math.min(0.95, Number(
+            tickerData?._env?._deepAuditConfig?.deep_audit_winner_protect_big_mfe_lock_pct ?? 0.60
+          )));
+          if (_p3MfeAbs >= _bigMfeThreshold) {
+            const _bigMfeEntryPx = Number(openPosition?.entryPrice || openPosition?.avgEntry);
+            if (Number.isFinite(_bigMfeEntryPx) && _bigMfeEntryPx > 0) {
+              const _bigMfeIsLong = String(openPosition?.direction || "LONG").toUpperCase() === "LONG";
+              const _bigMfePctOfPeak = _bigMfeLockPct * _p3MfeAbs;
+              const _bigMfeAnchorPx = _bigMfeIsLong
+                ? Math.round(_bigMfeEntryPx * (1 + _bigMfePctOfPeak / 100) * 100) / 100
+                : Math.round(_bigMfeEntryPx * (1 - _bigMfePctOfPeak / 100) * 100) / 100;
+              const _bigMfeCurSL = Number(openPosition?.sl);
+              const _shouldRaise = _bigMfeIsLong
+                ? (!Number.isFinite(_bigMfeCurSL) || _bigMfeAnchorPx > _bigMfeCurSL)
+                : (!Number.isFinite(_bigMfeCurSL) || _bigMfeAnchorPx < _bigMfeCurSL);
+              if (_shouldRaise && openPosition?.__tradeRef) {
+                openPosition.__tradeRef.sl = _bigMfeAnchorPx;
+                openPosition.sl = _bigMfeAnchorPx;
+                tickerData.__v12_big_mfe_protect_active = true;
+                tickerData.__v12_big_mfe_anchor_px = _bigMfeAnchorPx;
+                console.log(`[BIG_MFE_PROTECT] ${tickerData?.ticker || "?"} MFE=${_p3MfeAbs.toFixed(2)}% lock=${(_bigMfeLockPct*100).toFixed(0)}% -> SL anchor at ${_bigMfeAnchorPx.toFixed(2)} (entry=${_bigMfeEntryPx.toFixed(2)}, was=${(_bigMfeCurSL || 0).toFixed(2)})`);
+              }
+            }
+          }
+        }
       }
 
       // ──────────────────────────────────────────────────────────────────

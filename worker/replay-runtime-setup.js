@@ -181,6 +181,10 @@ export const REPLAY_DA_KEYS = [
   // V15 P0.7.18 (2026-04-29): TP1 floor enforcement (FIX 6)
   "deep_audit_min_trim_atr_mult",
   "deep_audit_min_trim_pct",
+  // V15 P0.7.19 (2026-04-29): big-MFE winner-protect anchor (FIX 2)
+  "deep_audit_winner_protect_big_mfe_enabled",
+  "deep_audit_winner_protect_big_mfe_threshold_pct",
+  "deep_audit_winner_protect_big_mfe_lock_pct",
   // V13 Focus Tier (2026-04-24): intrinsic conviction score — see
   // tasks/v13-focus-tier-strategy-2026-04-24.md
   "deep_audit_focus_tier_enabled",
