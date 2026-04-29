@@ -117,9 +117,18 @@ export function evaluateEntry(ctx) {
   const cvgContext = cvg || d?.intraday_cvg || null;
   const entrySupportProfile = entrySupport || d?.entry_support_profile || null;
 
+  // V15 (2026-04-25): _tickerUpperEarly is needed by ETF carve-outs in the
+  // h3 layer. Hoisted to the top of evaluateEntry so it's available everywhere
+  // (was previously declared at line 910, after several gates that now need it).
+  const _tickerUpperEarly = String(d?.ticker || d?.sym || ctx.ticker || "").trim().toUpperCase();
+
   let momentumTrigger = false;
   let pullbackTrigger = false;
   let reclaimTrigger = false;
+  let athBreakoutTrigger = false;  // V16 Setup #4 — ATH/52w breakout (LONG) / ATL breakdown (SHORT)
+  let rangeReversalTrigger = false; // V16 Setup #1 — Range bottom bounce (LONG) / Range top bounce (SHORT)
+  let gapReversalTrigger = false;   // V16 Setup #5 — Gap-down reclaim (LONG) / Gap-up fade (SHORT)
+  let nTestSupportTrigger = false;  // V16 Setup #2 — Nth test of support (LONG) / resistance (SHORT)
   let c10FiveTwelveConfirmed = false;
   let c30FiveTwelveConfirmed = false;
   let c30FiveTwelveOpposed = false;
@@ -480,12 +489,154 @@ export function evaluateEntry(ctx) {
         _focusConviction = { score: 60, tier: "B", breakdown: { error: String(err?.message || err) } };
       }
 
-      // Tier-specific conviction floors (DA-keyed for tuning)
-      const _tierAFloor = Number(daCfg.deep_audit_focus_tier_a_floor ?? 75);
-      const _tierBFloor = Number(daCfg.deep_audit_focus_tier_b_floor ?? 50);
-      const _tierCFloor = Number(daCfg.deep_audit_focus_tier_c_floor ?? 45);
-      // Minimum conviction required to enter at all (defaults to Tier C floor)
-      const _entryMinConviction = Number(daCfg.deep_audit_focus_min_entry_conviction ?? _tierCFloor);
+      // V15 P0.7.1 (2026-04-27): floor lowered from 80 -> 70 + hard min
+      // relaxed 80 -> 65. The 80 floor was identified as the cause of an
+      // 11+ trading-day entry drought (Sept 26 - Oct 16+) during the
+      // V15 P0.7 full run. In low-volatility bullish-grind regimes
+      // (SPY $658->$673 in 11 days, no real pullbacks), the conviction
+      // signals — Saty ATR proximity, phase slope, RSI alignment —
+      // score lower because their magnitudes are scaled to bigger
+      // moves. SPY rank 82, fully bull-stacked, HTF_BULL_LTF_BULL was
+      // being blocked because conviction couldn't clear 80. The hard
+      // veto + Tier C-specific floor still catch the dangerous
+      // setups; the 80 floor was over-filtering quality bull-stack
+      // pullbacks.
+      // V15 P0.7.9 (2026-04-27): floor restored to 80 after no-cap mode
+      // exposed quality dilution. With the count cap removed, conviction
+      // floor IS the primary quality filter — needs to be tighter.
+      //
+      // CRITICAL: This is safe because P0.7.2 fixed the two signal bugs
+      // that originally caused the post-FOMC drought at floor 80:
+      //   1. Saty ATR returned -15 on every bullish ticker approaching
+      //      next resistance (now -5 when structure intact)
+      //   2. Phase weighted ±10 in trending markets where 5-bar slope is
+      //      noisy (now ±5 when structure agrees)
+      // Conviction scores in calm grinds are now higher; floor 80 is
+      // reachable without 11-day entry droughts.
+      const _tierAFloor = Math.max(110, Number(daCfg.deep_audit_focus_tier_a_floor ?? 110));
+      const _tierBFloor = Math.max(80, Number(daCfg.deep_audit_focus_tier_b_floor ?? 80));
+      const _tierCFloor = Math.max(75, Number(daCfg.deep_audit_focus_tier_c_floor ?? 75));
+      let _entryMinConviction = Math.max(75, Number(daCfg.deep_audit_focus_min_entry_conviction ?? 80));
+
+      // V15 P0.7.11 (2026-04-27): STACKED-BULL CARVE-OUT.
+      //
+      // Floor 80 was missing high-quality bull-stack continuations like
+      // LITE Jul 14 (+8.70% winner). LITE's conviction was 84 in some
+      // bars but blocked by other gates (h3_consensus, prime_rank). By
+      // the time those gates cleared, the saty signal had dropped to
+      // -5 (price extended above EMA5) and conviction fell to 69 —
+      // below the 80 floor.
+      //
+      // The pattern: HTF_BULL_LTF_BULL with daily bull_stack=true is
+      // the cleanest swing setup in our universe. A small drop in saty
+      // due to extension above EMA5 is a SIDE-EFFECT of the move
+      // working, not a quality signal. We can lower the floor for these
+      // structurally-confirmed setups without compromising the floor
+      // for less aligned states.
+      //
+      // Carve-out: when state contains BULL (LONG) or BEAR (SHORT)
+      // AND daily structure is appropriately stacked, lower the floor
+      // by `deep_audit_focus_stack_carveout_pct` points (default 5).
+      // 80 -> 75 for LONG bull-stack continuations.
+      // 80 -> 75 for SHORT bear-stack continuations.
+      // Other states (PULLBACK, etc.) keep the original floor.
+      //
+      // Validation: comparable to v15p0710 (floor 80) for July to
+      // measure whether this captures real winners (LITE) without
+      // re-introducing dilution from low-conviction borderlines.
+      const _stackCarveoutEnabled = String(
+        daCfg.deep_audit_focus_stack_carveout_enabled ?? "true"
+      ) === "true";
+      if (_stackCarveoutEnabled && _focusConviction?.breakdown) {
+        const _carveStateUpper = String(d?.state || "").toUpperCase();
+        const _carveDs = d?.daily_structure || {};
+        const _carveBullStack = _carveDs?.bull_stack === true;
+        const _carveBearStack = _carveDs?.bear_stack === true;
+        const _carveLongStacked =
+          (_carveStateUpper.includes("HTF_BULL_LTF_BULL")
+            || _carveStateUpper === "HTF_BULL_LTF_PULLBACK")
+          && _carveBullStack;
+        const _carveShortStacked =
+          (_carveStateUpper.includes("HTF_BEAR_LTF_BEAR")
+            || _carveStateUpper === "HTF_BEAR_LTF_BOUNCE")
+          && _carveBearStack;
+        if (_carveLongStacked || _carveShortStacked) {
+          const _carveDelta = Number(
+            daCfg.deep_audit_focus_stack_carveout_pct ?? 5
+          );
+          const _carveFloor = Math.max(70, _entryMinConviction - _carveDelta);
+          _entryMinConviction = _carveFloor;
+        }
+      }
+
+      // ─────────────────────────────────────────────────────────────────
+      // V15 P0.5 — HARD VETOES (2026-04-26)
+      //
+      // Single veto rule: fade-into-level (-15 Saty) AND phase opposing
+      // (-10) AND RSI opposing (-5) — all three negative signals firing
+      // simultaneously is the unambiguous catastrophe pattern.
+      //
+      // The H Apr 7 -11.39% trade: saty=+10 (riding through), phase=-10,
+      // rsi=-5 — would NOT trigger this veto. But conviction would be
+      // around 78 (below 80 floor) so it gets blocked by floor.
+      //
+      // The ORCL Jul 31 -5.17% trade: saty=-15, phase=+10, rsi=+5 —
+      // would NOT trigger this veto either. But conviction with reverted
+      // P0.5 weights drops below 80 floor.
+      //
+      // The CDNS Jul 31 -3.23% trade: saty=-15, phase=+10, rsi=-5 —
+      // similarly relies on conviction floor.
+      //
+      // So the conviction floor at 80 (with reverted weights) catches
+      // these. The veto is reserved for the WORST-of-the-worst:
+      // explicit fade-into-level + ALL momentum signals opposing.
+      // ─────────────────────────────────────────────────────────────────
+      const _vetoEnabled = String(daCfg.deep_audit_v15_negative_veto_enabled ?? "true") === "true";
+      if (_vetoEnabled && _focusConviction?.breakdown) {
+        const _bd = _focusConviction.breakdown;
+        const _satyPts = Number(_bd?.saty_atr_proximity?.pts ?? 0);
+        const _phasePts = Number(_bd?.phase_alignment?.pts ?? 0);
+        const _rsiPts = Number(_bd?.rsi_alignment?.pts ?? 0);
+
+        // Hard veto: fade-into-level + phase opposing + RSI opposing.
+        // All three signals must be at their max-negative for this
+        // to fire. This is the unambiguous "do not enter" pattern.
+        //
+        // V15 P0.7.1 (2026-04-27): added structural confirmation. The
+        // veto was firing 40+ times/day on AAPL/MSFT/JPM during the
+        // post-FOMC grind (HTF_BULL_LTF_PULLBACK with bull_stack=True),
+        // catching healthy pullbacks-into-support that just happened
+        // to have momentary bearish momentum signals. Require ALSO
+        // that the daily structure is NOT bull-stacked (or for shorts,
+        // not bear-stacked) before vetoing. If structure is intact,
+        // a temporary 3-signal-negative reading is a wick, not a
+        // catastrophe.
+        if (_satyPts <= -15 && _phasePts <= -10 && _rsiPts <= -5) {
+          const _vetoStructGate = String(
+            daCfg.deep_audit_v15_veto_require_struct_break ?? "true"
+          ) === "true";
+          const _vetoIsLong = String(d?.state || "").includes("BULL");
+          const _vetoIsShort = String(d?.state || "").includes("BEAR");
+          const _ds = d?.daily_structure || {};
+          const _bullStack = _ds?.bull_stack === true;
+          const _bearStack = _ds?.bear_stack === true;
+          const _structIntactForLong = _vetoIsLong && _bullStack;
+          const _structIntactForShort = _vetoIsShort && _bearStack;
+          const _structIntact = _structIntactForLong || _structIntactForShort;
+
+          if (!_vetoStructGate || !_structIntact) {
+            return rejectEntry("v15_veto_all_signals_oppose", {
+              saty_pts: _satyPts,
+              phase_pts: _phasePts,
+              rsi_pts: _rsiPts,
+              saty_reason: _bd?.saty_atr_proximity?.reason,
+              phase_reason: _bd?.phase_alignment?.reason,
+              bull_stack: _bullStack,
+              bear_stack: _bearStack,
+            });
+          }
+        }
+      }
 
       if (_focusConviction.score < _entryMinConviction) {
         return rejectEntry("focus_conviction_below_floor", {
@@ -622,7 +773,20 @@ export function evaluateEntry(ctx) {
     // unless ticker rank is exceptional AND cohort is permitted.
     // Cycle label comes from ctx.market.monthlyCycle (populated by
     // trade-context from the backdrop file for the replay date).
-    const _h3AdaptiveEnabled = String(daCfg.deep_audit_regime_adaptive_enabled ?? "false") === "true";
+    //
+    // V15 (2026-04-25): same ETF carve-out as the h3 consensus gate
+    // (Layer 3 below). Indices have their own dedicated qualification
+    // path via tt_index_etf_swing trigger which imposes stricter daily-
+    // structure quality than these regime rank floors. Without this
+    // exemption, transitional-month ETF entries are killed by
+    // h3_rank_below_transitional_floor (observed on 2025-07-01,
+    // 2025-08-08, 2026-01-07 winning Phase E2 bars).
+    // Always exempt the four major index ETFs regardless of DA key value
+    // (the swing-trigger DA key may be set to "SPY,QQQ,IWM" without DIA;
+    // we still want DIA to bypass these stock-centric gates).
+    const _h3LayerIsIndexEtf = ["SPY","QQQ","IWM","DIA"].includes(_tickerUpperEarly);
+    const _h3AdaptiveEnabled = String(daCfg.deep_audit_regime_adaptive_enabled ?? "false") === "true"
+      && !_h3LayerIsIndexEtf;
     if (_h3AdaptiveEnabled) {
       const cycle = String(ctx?.market?.monthlyCycle || "").toLowerCase();
       const tickerCohort = String(d?._cohort || d?.cohort || "").toLowerCase();
@@ -663,7 +827,21 @@ export function evaluateEntry(ctx) {
     // Scoring across 5 dimensions. Requires at least N of 5 to corroborate
     // the direction before the setup is eligible. This kicks in before the
     // setup-specific evaluation below, so it acts as a baseline quality check.
-    const _h3ConsensusEnabled = String(daCfg.deep_audit_consensus_gate_enabled ?? "false") === "true";
+    //
+    // V15 (2026-04-25): EXEMPT INDEX ETFs (SPY/QQQ/IWM/DIA) from the h3
+    // consensus gate. The consensus gate requires 3-of-5 signals including
+    // sector alignment (indices have no parent sector → auto-fail) and
+    // volume rvol >= 1.2 (indices have steady volume profiles → rarely fire).
+    // This locks indices out structurally — phase-e2 v4 slices produced
+    // 47 ETF trades at 71.7% WR before this gate was added; v14 produced
+    // ZERO. Indices have their own dedicated qualification path
+    // (tt_index_etf_swing trigger at line ~1023) which is a stronger
+    // baseline-quality filter than the per-stock h3 consensus.
+    // Hard-coded major index ETF exemption (ignores DA key which may
+    // omit DIA). These four are structurally distinct from stocks.
+    const _h3IsIndexEtf = ["SPY","QQQ","IWM","DIA"].includes(_tickerUpperEarly);
+    const _h3ConsensusEnabled = String(daCfg.deep_audit_consensus_gate_enabled ?? "false") === "true"
+      && !_h3IsIndexEtf;
     if (_h3ConsensusEnabled) {
       const isLong = side === "LONG";
       let signals = 0;
@@ -822,6 +1000,17 @@ export function evaluateEntry(ctx) {
     ? collectActivePhaseDivergence([m10, m15, m30, h1, h4, D, W], "bear")
     : collectActivePhaseDivergence([m10, m15, m30, h1, h4, D, W], "bull");
   adversePhaseDivSummary = summarizeDivergence(adversePhaseDiv);
+  // V15 P0.7.22 — stamp divergence summary on tickerData so the
+  // setup_snapshot can capture it for retrospective analysis. The
+  // existing summarizeDivergence returns {anyActive, tfs:[...]}.
+  if (d) {
+    d.__entry_divergence_summary = {
+      adverse_rsi: adverseRsiDivSummary,
+      adverse_phase: adversePhaseDivSummary,
+      bull_rsi: hasRsiDivBull,
+      bear_rsi: hasRsiDivBear,
+    };
+  }
   ltfConfirm = side === "LONG"
     ? (ltfRecovering || hasRsiDivBull)
     : (scores.ltf < 10 || hasStFlipBear || hasEmaCrossBear || hasSqRelease || hasRsiDivBear);
@@ -876,10 +1065,288 @@ export function evaluateEntry(ctx) {
     reclaimTrigger = true;
   }
 
-  // tickerUpper is needed by the Phase-E ETF swing trigger below; the main
-  // QUALITY REJECTION GATES block also declares it but the trigger needs it
-  // first. Use a local identifier here.
-  const _tickerUpperEarly = String(d?.ticker || d?.sym || ctx.ticker || "").trim().toUpperCase();
+  // ──────────────────────────────────────────────────────────────────────
+  // V16 SETUP #4 (2026-04-28) — ATH/52w BREAKOUT TRIGGER (Ripster Setup #4)
+  //
+  // Captures the "tight base near 52w high → breakout" pattern that
+  // dominates bull-grind regimes (post-FOMC October, etc.) where
+  // tt_pullback can't fire because there are no real pullbacks.
+  //
+  // LONG: within 1.5% of 52w high AND breaking above prior-day high
+  //       AND tight base (<3% over last 5 bars) AND state allows
+  //       (not bearish-aligned).
+  // SHORT: mirror — within 1.5% of 52w low AND breaking below prior-day
+  //        low AND tight base AND not bullish-aligned.
+  //
+  // Why this is its own trigger (not just a tt_momentum boost):
+  //   1. It needs to fire WHEN tt_pullback / tt_momentum don't. The
+  //      ATH breakout is the catalyst itself — there's no pullback
+  //      to wait for.
+  //   2. RVol requirement is lighter (1.0 vs 1.5) — the breakout is
+  //      its own confirmation.
+  //   3. State doesn't need HTF_BULL_LTF_PULLBACK — any state where
+  //      side is bullish-aligned is acceptable for a LONG breakout.
+  //
+  // DA-keyed so we can disable via deep_audit_ath_breakout_enabled=false.
+  const _athBreakoutEnabled = String(daCfg.deep_audit_ath_breakout_enabled ?? "true") === "true";
+  if (_athBreakoutEnabled) {
+    const _athDs = d?.daily_structure || {};
+    const _ath = _athDs?.ath52w;
+    if (_ath && _ath.sample_size >= 60) {
+      const _athNearMax = Number(daCfg.deep_audit_ath_breakout_max_pct_below_high ?? 3.0);
+      const _athTightBaseMax = Number(daCfg.deep_audit_ath_breakout_tight_base_max_pct ?? 5.0);
+      const _athMinRvolStock = Number(daCfg.deep_audit_ath_breakout_min_rvol ?? 1.0);
+      const _athMinRvolEtf = Number(daCfg.deep_audit_ath_breakout_min_rvol_etf ?? 1.5);
+      const _rvol = Number(ctx?.rvol?.best) || Number(d?.rvol_map?.["30"]?.vr) || Number(d?.rvol_best) || 0;
+      const _stateUpper = String(d?.state || "").toUpperCase();
+
+      // V16 Setup #4 refinement: ETF cohort needs HIGHER rvol because
+      // ETF false breakouts are more common (institutional flow needs
+      // confirming volume, not just retail-driven price action).
+      const _isEtfCohort = /^(SPY|QQQ|IWM|DIA|XL[A-Z]|XHB|XYZ|GRNY|GRNJ|GRNI|SOXL|TNA|VIXY|GLD|SLV|USO|GDX|IAU|AGQ|UUUU|HL)$/.test(
+        _tickerUpperEarly,
+      );
+      const _athMinRvol = _isEtfCohort ? _athMinRvolEtf : _athMinRvolStock;
+
+      // V16 Setup #4 refinement: require FOLLOW-THROUGH on the previous
+      // bar — today's bar must close above prior-day high AND yesterday
+      // (or 2 bars ago) was already trending up. This filters single-bar
+      // wick breakouts that immediately reverse (Oct 8/9/15/20/21/23
+      // false breakouts pattern in the smoke).
+      // Approximated by checking that prior bar's close > prior-prior
+      // close (sustained move into the breakout). This is a soft filter
+      // — if data is unavailable, we don't block.
+      const _athRequireFollowThrough = String(
+        daCfg.deep_audit_ath_breakout_require_follow_through ?? "true"
+      ) === "true";
+      const _bD = ctx?.bundles?.D || ctx?.daily || null;
+      const _ftPrevClose = Number(_bD?.pxPrev);
+      const _ftPx = Number(_bD?.px);
+      const _ftBars = ctx?.bundles?.D ? null : null; // not directly accessible here
+      const _hasFollowThrough = !_athRequireFollowThrough
+        || !Number.isFinite(_ftPrevClose)
+        || !Number.isFinite(_ftPx)
+        || _ftPx > _ftPrevClose; // current price > prior close = continued strength
+
+      if (side === "LONG") {
+        const _stateAllowsLong =
+          _stateUpper.startsWith("HTF_BULL")
+          || _stateUpper === "HTF_NEUTRAL_LTF_BULL"
+          || _stateUpper === "HTF_BULL_LTF_PULLBACK"
+          || _stateUpper === "HTF_BULL_LTF_BULL"
+          || _stateUpper === "TRANSITIONAL_BULL"
+          || _stateUpper === "EARLY_BULL";
+        const _conditionsLong =
+          _ath.pct_below_high_252 != null
+          && _ath.pct_below_high_252 < _athNearMax
+          && _ath.breakout_above_prev_high === true
+          && _ath.tight_base_5d_pct != null
+          && _ath.tight_base_5d_pct < _athTightBaseMax
+          && _stateAllowsLong
+          && (_rvol === 0 || _rvol >= _athMinRvol)
+          && _hasFollowThrough;
+        if (_conditionsLong) {
+          athBreakoutTrigger = true;
+        }
+      } else if (side === "SHORT") {
+        const _stateAllowsShort =
+          _stateUpper.startsWith("HTF_BEAR")
+          || _stateUpper === "HTF_NEUTRAL_LTF_BEAR"
+          || _stateUpper === "HTF_BEAR_LTF_BOUNCE"
+          || _stateUpper === "HTF_BEAR_LTF_BEAR"
+          || _stateUpper === "TRANSITIONAL_BEAR"
+          || _stateUpper === "EARLY_BEAR";
+        // For SHORT: follow-through means current price < prior close
+        // (sustained downside).
+        const _hasFollowThroughShort = !_athRequireFollowThrough
+          || !Number.isFinite(_ftPrevClose)
+          || !Number.isFinite(_ftPx)
+          || _ftPx < _ftPrevClose;
+        const _conditionsShort =
+          _ath.pct_above_low_252 != null
+          && _ath.pct_above_low_252 < _athNearMax
+          && _ath.breakdown_below_prev_low === true
+          && _ath.tight_base_5d_pct != null
+          && _ath.tight_base_5d_pct < _athTightBaseMax
+          && _stateAllowsShort
+          && (_rvol === 0 || _rvol >= _athMinRvol)
+          && _hasFollowThroughShort;
+        if (_conditionsShort) {
+          athBreakoutTrigger = true;
+        }
+      }
+
+      // Diagnostic stamp — useful for validation against blocked-bar data.
+      d.__ath_breakout_diag = {
+        side,
+        fired: athBreakoutTrigger,
+        pct_below_high_252: _ath.pct_below_high_252,
+        pct_above_low_252: _ath.pct_above_low_252,
+        breakout_above_prev_high: _ath.breakout_above_prev_high,
+        breakdown_below_prev_low: _ath.breakdown_below_prev_low,
+        tight_base_5d_pct: _ath.tight_base_5d_pct,
+        state: _stateUpper,
+        rvol: _rvol,
+        is_etf_cohort: _isEtfCohort,
+        rvol_min: _athMinRvol,
+        follow_through: _hasFollowThrough,
+      };
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // V16 SETUP #1 (2026-04-28) — RANGE REVERSAL TRIGGER (Ripster Setup #1)
+  //
+  // Catches the V14 winners we systematically miss with current gates:
+  // CCJ Sep 3/17, KWEB Sep 3, IESC Sep 9, PWR Sep 25, STRL Oct 14,
+  // GDX Oct 14. All shared the pattern: 10-15 day horizontal range,
+  // dipped to range low, bounced.
+  //
+  // LONG: range valid (3-15% range_pct), price near low (<40% of range),
+  //       low touched ≥2 times within last 12 bars, low touched recently
+  //       (≤3 bars ago), bullish reversal candle today.
+  // SHORT: mirror at range top.
+  //
+  // RVol confirmation: institutional accumulation at range low needs
+  // moderate rvol (default 1.0).
+  //
+  // DA-keyed:
+  //   deep_audit_range_reversal_enabled = true
+  //   deep_audit_range_reversal_min_rvol = 1.0
+  //   deep_audit_range_reversal_min_touches = 2
+  const _rangeRevEnabled = String(daCfg.deep_audit_range_reversal_enabled ?? "true") === "true";
+  if (_rangeRevEnabled && !athBreakoutTrigger) {
+    const _rrDs = d?.daily_structure || {};
+    const _rb = _rrDs?.range_box;
+    if (_rb && _rb.is_valid_range) {
+      const _rrMinRvol = Number(daCfg.deep_audit_range_reversal_min_rvol ?? 1.0);
+      const _rrMinTouches = Number(daCfg.deep_audit_range_reversal_min_touches ?? 2);
+      const _rrRvol = Number(ctx?.rvol?.best) || Number(d?.rvol_map?.["30"]?.vr) || Number(d?.rvol_best) || 0;
+
+      if (side === "LONG") {
+        const _rrConditionsLong =
+          _rb.long_setup_active === true
+          && _rb.low_touches >= _rrMinTouches
+          && (_rrRvol === 0 || _rrRvol >= _rrMinRvol);
+        if (_rrConditionsLong) {
+          rangeReversalTrigger = true;
+        }
+      } else if (side === "SHORT") {
+        const _rrConditionsShort =
+          _rb.short_setup_active === true
+          && _rb.high_touches >= _rrMinTouches
+          && (_rrRvol === 0 || _rrRvol >= _rrMinRvol);
+        if (_rrConditionsShort) {
+          rangeReversalTrigger = true;
+        }
+      }
+
+      d.__range_reversal_diag = {
+        side,
+        fired: rangeReversalTrigger,
+        range_pct: _rb.range_pct,
+        position_in_range: _rb.position_in_range,
+        low_touches: _rb.low_touches,
+        high_touches: _rb.high_touches,
+        bars_since_low_touch: _rb.bars_since_low_touch,
+        bars_since_high_touch: _rb.bars_since_high_touch,
+        bullish_reversal: _rb.bullish_reversal,
+        bearish_reversal: _rb.bearish_reversal,
+        long_setup_active: _rb.long_setup_active,
+        short_setup_active: _rb.short_setup_active,
+        rvol: _rrRvol,
+      };
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // V16 SETUP #5 (2026-04-28) — GAP REVERSAL TRIGGER (Ripster Setup #5)
+  //
+  // LONG: gap-down on today's open, then reclaim above prior close
+  //       (or strong partial reclaim above today's open by >0.5%).
+  // SHORT: gap-up on today's open, then fade below prior close.
+  //
+  // Volume confirms (rvol >= 1.2 default — institutional flow).
+  // ──────────────────────────────────────────────────────────────────────
+  const _gapRevEnabled = String(daCfg.deep_audit_gap_reversal_enabled ?? "true") === "true";
+  if (_gapRevEnabled && !athBreakoutTrigger && !rangeReversalTrigger) {
+    const _grDs = d?.daily_structure || {};
+    const _gr = _grDs?.gap_reversal;
+    if (_gr) {
+      const _grMinRvol = Number(daCfg.deep_audit_gap_reversal_min_rvol ?? 1.2);
+      const _grRvol = Number(ctx?.rvol?.best) || Number(d?.rvol_map?.["30"]?.vr) || Number(d?.rvol_best) || 0;
+      const _grMinGap = Number(daCfg.deep_audit_gap_reversal_min_gap_pct ?? 1.5);
+
+      if (side === "LONG" && _gr.long_setup_active
+          && Math.abs(_gr.gap_pct) >= _grMinGap
+          && (_grRvol === 0 || _grRvol >= _grMinRvol)) {
+        gapReversalTrigger = true;
+      } else if (side === "SHORT" && _gr.short_setup_active
+          && Math.abs(_gr.gap_pct) >= _grMinGap
+          && (_grRvol === 0 || _grRvol >= _grMinRvol)) {
+        gapReversalTrigger = true;
+      }
+
+      d.__gap_reversal_diag = {
+        side,
+        fired: gapReversalTrigger,
+        gap_pct: _gr.gap_pct,
+        is_gap_down: _gr.is_gap_down,
+        is_gap_up: _gr.is_gap_up,
+        reclaimed: _gr.reclaimed_from_down,
+        partial_reclaim: _gr.partial_reclaim_down,
+        faded: _gr.faded_from_up,
+        partial_fade: _gr.partial_fade_up,
+        rvol: _grRvol,
+      };
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // V16 SETUP #2 (2026-04-28) — N-TEST SUPPORT/RESISTANCE TRIGGER (Ripster Setup #2)
+  //
+  // LONG: ≥3 touches of horizontal support across last 30 bars, latest
+  //       test held above support, today's price within 1.5% above
+  //       the support cluster.
+  // SHORT: mirror at horizontal resistance.
+  //
+  // The Nth test bouncing IS the entry signal — pullback gates would
+  // reject this as too-shallow because price didn't pull back much
+  // before the bounce.
+  // ──────────────────────────────────────────────────────────────────────
+  const _nTestEnabled = String(daCfg.deep_audit_n_test_support_enabled ?? "true") === "true";
+  if (_nTestEnabled && !athBreakoutTrigger && !rangeReversalTrigger && !gapReversalTrigger) {
+    const _ntDs = d?.daily_structure || {};
+    const _nts = _ntDs?.n_test_support;
+    if (_nts) {
+      const _ntMinTouches = Number(daCfg.deep_audit_n_test_min_touches ?? 3);
+      const _ntMinRvol = Number(daCfg.deep_audit_n_test_min_rvol ?? 1.0);
+      const _ntRvol = Number(ctx?.rvol?.best) || Number(d?.rvol_map?.["30"]?.vr) || Number(d?.rvol_best) || 0;
+
+      if (side === "LONG" && _nts.support
+          && _nts.support.long_setup_active
+          && _nts.support.n_touches >= _ntMinTouches
+          && (_ntRvol === 0 || _ntRvol >= _ntMinRvol)) {
+        nTestSupportTrigger = true;
+      } else if (side === "SHORT" && _nts.resistance
+          && _nts.resistance.short_setup_active
+          && _nts.resistance.n_touches >= _ntMinTouches
+          && (_ntRvol === 0 || _ntRvol >= _ntMinRvol)) {
+        nTestSupportTrigger = true;
+      }
+
+      d.__n_test_support_diag = {
+        side,
+        fired: nTestSupportTrigger,
+        support: _nts.support,
+        resistance: _nts.resistance,
+        rvol: _ntRvol,
+      };
+    }
+  }
+
+  // _tickerUpperEarly is hoisted to the top of evaluateEntry (see above)
+  // so it's available to all gates including the h3 layer ETF carve-outs.
 
   // ──────────────────────────────────────────────────────────────────────
   // V12 P6 (2026-04-23) — ETF PRECISION GATE
@@ -907,10 +1374,26 @@ export function evaluateEntry(ctx) {
   //
   // See: tasks/v12-killer-strategy-2026-04-23.md
   // ──────────────────────────────────────────────────────────────────────
+  // V15 (2026-04-25): the ETF Precision Gate is positioned BEFORE the
+  // tt_index_etf_swing trigger and uses a 10-of-10 conjunction that no
+  // realistic ETF setup passes. Phase E2 v4 produced 47 SPY/QQQ/IWM
+  // trades at 71.7% WR using ONLY the swing trigger as the quality
+  // filter (no precision gate). The swing trigger IS the canonical
+  // ETF entry filter. Force-disable this gate for the four major
+  // index ETFs regardless of DA config, because pinned-config snapshots
+  // from V12 activation re-enable it without our consent.
+  //
+  // To re-enable for experiments, use a different ticker outside
+  // SPY/QQQ/IWM/DIA via deep_audit_etf_precision_tickers.
   const _etfPgEnabled = String(daCfg.deep_audit_etf_precision_gate_enabled ?? "false") === "true";
-  const _etfPgTickerList = String(daCfg.deep_audit_etf_precision_tickers ?? "SPY,QQQ,IWM,DIA")
+  const _etfPgTickerList = String(daCfg.deep_audit_etf_precision_tickers ?? "")
     .split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
-  const _isEtfPgTicker = _etfPgEnabled && _etfPgTickerList.includes(_tickerUpperEarly);
+  const _hardCodedIndexEtfs = ["SPY","QQQ","IWM","DIA"];
+  const _isHardCodedIndexEtf = _hardCodedIndexEtfs.includes(_tickerUpperEarly);
+  const _isEtfPgTicker = _etfPgEnabled
+    && _etfPgTickerList.length > 0
+    && _etfPgTickerList.includes(_tickerUpperEarly)
+    && !_isHardCodedIndexEtf;  // V15: never apply this gate to major index ETFs
   if (_isEtfPgTicker) {
     const fails = [];
     const daily = ctx?.daily || d?.daily_structure || {};
@@ -998,7 +1481,13 @@ export function evaluateEntry(ctx) {
     const convLocal = Number(d?.__focus_conviction_score ?? 0);
     // Fallback: if conviction isn't populated (focus_tier disabled),
     // preserve legacy rank check so the gate still functions.
-    if (_focusTierEnabled ?? false) {
+    //
+    // V15 (2026-04-25) FIX: re-read _focusTierEnabled locally because the
+    // version declared at line ~447 is out of scope here (it was inside
+    // the H3-entry-discipline block 323-751). Previous code referenced it
+    // and threw ReferenceError when ETFs reached this gate.
+    const _focusTierEnabledLocal = String(daCfg.deep_audit_focus_tier_enabled ?? "false") === "true";
+    if (_focusTierEnabledLocal) {
       if (convLocal < _minConv) fails.push(`f10_conviction_below_${_minConv}_got_${convLocal}`);
     } else {
       const _legacyMinRank = Number(daCfg.deep_audit_etf_precision_min_rank ?? 90);
@@ -1054,6 +1543,24 @@ export function evaluateEntry(ctx) {
       const e21Slope = Number(daily.e21_slope_5d_pct);
       const state = String(ctx.state || "");
       const m30Cloud89 = tf?.m30?.ripster?.c8_9 || null;
+
+      // V15 (2026-04-25) — per-bar trigger diagnostic. Stamps every condition
+      // with its actual value + pass/fail so we can see precisely which gate
+      // is killing each ETF bar in the Phase E2 baseline comparison.
+      const _swingDiag = {
+        side,
+        rank: { value: rankScore, min: minScore, pass: rankScore >= minScore },
+        rvol: { value: rvolSignal, min: rvolMin, pass: rvolSignal >= rvolMin },
+        bull_stack: { value: daily.bull_stack, pass: daily.bull_stack === true },
+        bear_stack: { value: daily.bear_stack, pass: daily.bear_stack === true },
+        above_e200: { value: daily.above_e200 },
+        pct_above_e48: { value: pctAbove48, longBand: [pctAboveE48Min, pctAboveE48Max], shortBand: [-pctBelowE48Max, -pctBelowE48Min] },
+        e21_slope: { value: e21Slope, longBand: [e21SlopeMin, e21SlopeMax], shortBand: [-e21SlopeMax, -e21SlopeMin] },
+        state: { value: state, longOk: ["HTF_BULL_LTF_PULLBACK","HTF_BULL_LTF_BULL"], shortOk: ["HTF_BEAR_LTF_BOUNCE","HTF_BEAR_LTF_BEAR"] },
+        c10_8: { above: !!c10_8?.above, below: !!c10_8?.below, inCloud: !!c10_8?.inCloud },
+        m30_8_9: { above: !!m30Cloud89?.above, below: !!m30Cloud89?.below, inCloud: !!m30Cloud89?.inCloud },
+      };
+
       if (side === "LONG"
         && rankScore >= minScore
         && rvolSignal >= rvolMin
@@ -1083,6 +1590,11 @@ export function evaluateEntry(ctx) {
         && (c10_8?.below || c10_8?.inCloud || m30Cloud89?.below || m30Cloud89?.inCloud)) {
         indexEtfSwingTrigger = true;
       }
+
+      _swingDiag.fired = indexEtfSwingTrigger;
+      // Stamp trace for both pass and fail so the diagnostic is complete.
+      d.__index_etf_swing_diag = _swingDiag;
+
       if (indexEtfSwingTrigger) {
         // Promote to reclaimTrigger semantically so downstream quality gates
         // that test `reclaimTrigger` relax correctly (this trigger is more
@@ -2767,6 +3279,124 @@ export function evaluateEntry(ctx) {
   // When R5 would reject tt_momentum AND pullbackTrigger is ALSO active on this
   // bar, we fall through to the pullback path rather than reject outright — this
   // is the "favor tt_pullback" policy. If pullbackTrigger is NOT active, we reject.
+  // V16 Setup #4 — ATH/52w breakout takes priority when fired. The
+  // breakout-bar IS the entry signal; we don't want to fall through to
+  // pullback/momentum logic which may have additional gates that
+  // disqualify breakout setups.
+  // V16 Setup #1 — Range reversal also takes priority — the reversal
+  // candle off the range edge IS the signal; pullback/momentum gates
+  // can disqualify range-bottom bounces because they look like
+  // counter-trend.
+  // V16 Setup #5 — Gap reversal takes priority — gap-down-and-reclaim
+  // is the trigger, would normally be rejected as
+  // tt_pullback_late_session_unreclaimed.
+  // V16 Setup #2 — N-test support/resistance takes priority — bouncing
+  // off the Nth test of a horizontal level is the entry, normally
+  // rejected as tt_pullback_not_deep_enough.
+  if (gapReversalTrigger) {
+    return qualifyEntry(
+      side === "LONG" ? "tt_gap_reversal_long" : "tt_gap_reversal_short",
+      "medium",
+      side === "LONG" ? "gap_down_reclaim" : "gap_up_fade",
+      { ...baseSizing },
+      {
+        cloudAlignment: cloudMeta,
+        triggerType: side === "LONG" ? "gap_reversal_long" : "gap_reversal_short",
+        pdzZone: { D: pdzZoneD, h4: pdzZone4h },
+        gapContext: summarizeGapContext(gapContext),
+        cvgContext: summarizeCvgContext(cvgContext),
+        entrySupport: summarizeEntrySupport(entrySupportProfile),
+        rsiHeat: { m10: rsi10m, m30: rsi30m, h1: rsi1h },
+        movePhase: movePhaseSummary,
+        gap_reversal_diag: d?.__gap_reversal_diag || null,
+        executionProfile: {
+          name: executionProfileName || null,
+          personality: tickerPersonality || null,
+          profileRegimeMult,
+          volatileMomentumMult,
+        },
+      },
+    );
+  }
+  if (nTestSupportTrigger) {
+    return qualifyEntry(
+      side === "LONG" ? "tt_n_test_support" : "tt_n_test_resistance",
+      "medium",
+      side === "LONG" ? "support_n_test" : "resistance_n_test",
+      { ...baseSizing },
+      {
+        cloudAlignment: cloudMeta,
+        triggerType: side === "LONG" ? "n_test_support_long" : "n_test_resistance_short",
+        pdzZone: { D: pdzZoneD, h4: pdzZone4h },
+        gapContext: summarizeGapContext(gapContext),
+        cvgContext: summarizeCvgContext(cvgContext),
+        entrySupport: summarizeEntrySupport(entrySupportProfile),
+        rsiHeat: { m10: rsi10m, m30: rsi30m, h1: rsi1h },
+        movePhase: movePhaseSummary,
+        n_test_support_diag: d?.__n_test_support_diag || null,
+        executionProfile: {
+          name: executionProfileName || null,
+          personality: tickerPersonality || null,
+          profileRegimeMult,
+          volatileMomentumMult,
+        },
+      },
+    );
+  }
+  if (rangeReversalTrigger) {
+    return qualifyEntry(
+      side === "LONG" ? "tt_range_reversal_long" : "tt_range_reversal_short",
+      "medium",
+      side === "LONG" ? "range_low_bounce" : "range_high_bounce",
+      {
+        ...baseSizing,
+      },
+      {
+        cloudAlignment: cloudMeta,
+        triggerType: side === "LONG" ? "range_reversal_long" : "range_reversal_short",
+        pdzZone: { D: pdzZoneD, h4: pdzZone4h },
+        gapContext: summarizeGapContext(gapContext),
+        cvgContext: summarizeCvgContext(cvgContext),
+        entrySupport: summarizeEntrySupport(entrySupportProfile),
+        rsiHeat: { m10: rsi10m, m30: rsi30m, h1: rsi1h },
+        movePhase: movePhaseSummary,
+        range_reversal_diag: d?.__range_reversal_diag || null,
+        executionProfile: {
+          name: executionProfileName || null,
+          personality: tickerPersonality || null,
+          profileRegimeMult,
+          volatileMomentumMult,
+        },
+      },
+    );
+  }
+  if (athBreakoutTrigger) {
+    return qualifyEntry(
+      side === "LONG" ? "tt_ath_breakout" : "tt_atl_breakdown",
+      "medium",
+      side === "LONG" ? "ath_52w_breakout" : "atl_52w_breakdown",
+      {
+        ...baseSizing,
+      },
+      {
+        cloudAlignment: cloudMeta,
+        triggerType: side === "LONG" ? "ath_breakout" : "atl_breakdown",
+        pdzZone: { D: pdzZoneD, h4: pdzZone4h },
+        gapContext: summarizeGapContext(gapContext),
+        cvgContext: summarizeCvgContext(cvgContext),
+        entrySupport: summarizeEntrySupport(entrySupportProfile),
+        rsiHeat: { m10: rsi10m, m30: rsi30m, h1: rsi1h },
+        movePhase: movePhaseSummary,
+        ath_breakout_diag: d?.__ath_breakout_diag || null,
+        executionProfile: {
+          name: executionProfileName || null,
+          personality: tickerPersonality || null,
+          profileRegimeMult,
+          volatileMomentumMult,
+        },
+      },
+    );
+  }
   if (momentumTrigger) {
     const r5RejectSpeculative = String(
       daCfg.deep_audit_tt_momentum_reject_speculative_grade ?? "true"

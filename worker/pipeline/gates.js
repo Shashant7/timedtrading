@@ -8,8 +8,16 @@ export function runUniversalGates(ctx) {
   const daCfg = config.deepAudit || {};
 
   // Gate 1: RVOL Dead Zone — volume too thin for any reliable signal
+  //
+  // V15 (2026-04-25): EXEMPT INDEX ETFs. SPY/QQQ/IWM/DIA have steady,
+  // predictable volume profiles and routinely sit below 0.4 rvol on
+  // quiet sessions even during clean trends. Indices have their own
+  // dedicated qualification (tt_index_etf_swing) which imposes its own
+  // rvol floor (deep_audit_index_etf_swing_rvol_min, default 0.7).
+  // Hard-coded major index ETF list (ignores DA key which may omit DIA).
+  const _rvolIsIndexEtf = ticker && ["SPY","QQQ","IWM","DIA"].includes(String(ticker).toUpperCase());
   const rvolDeadZone = rParams.rvolDeadZone ?? 0.4;
-  if (rvol.best < rvolDeadZone) {
+  if (!_rvolIsIndexEtf && rvol.best < rvolDeadZone) {
     return {
       pass: false,
       reason: "rvol_dead_zone",

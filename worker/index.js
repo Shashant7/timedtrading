@@ -777,6 +777,7 @@ const ROUTES = [
   ["POST", "/timed/admin/replay-lock", "POST /timed/admin/replay-lock"],
   ["GET", "/timed/admin/replay-lock", "GET /timed/admin/replay-lock"],
   ["DELETE", "/timed/admin/replay-lock", "DELETE /timed/admin/replay-lock"],
+  ["POST", "/timed/admin/cleanup-orphan-trades", "POST /timed/admin/cleanup-orphan-trades"],
   ["POST", "/timed/admin/backtests/start", "POST /timed/admin/backtests/start"],
   ["POST", "/timed/admin/backtests/cancel", "POST /timed/admin/backtests/cancel"],
   ["GET", "/timed/admin/backtests/status", "GET /timed/admin/backtests/status"],
@@ -3883,7 +3884,7 @@ function _applyContextGates(d, inferredSide, asOfTs, leadingLtfLabel) {
 // focus-tier.js::computeConvictionScore from a `tickerData` (d) object.
 // This is the legacy-entry counterpart to the TradeContext-based call in
 // tt-core-entry.js. Both end up at the same scoring function.
-function computeConvictionScoreForD(d) {
+function computeConvictionScoreForD(d, sideOverride = null) {
   if (!d) return null;
   const env = d?._env || {};
   const historyStats = env?._focusHistoryStats || null;
@@ -3899,10 +3900,24 @@ function computeConvictionScoreForD(d) {
     } catch { /* ignore */ }
   }
 
+  // V15 P0.1 — derive entry side for the Saty ATR proximity signal.
+  // Caller can override (when known); otherwise derive from state /
+  // bias (HTF_BULL_LTF_PULLBACK → LONG, HTF_BEAR_LTF_BOUNCE → SHORT,
+  // alignedLong/alignedShort flags as fallback).
+  let _sideForCtx = sideOverride;
+  if (!_sideForCtx) {
+    const _state = String(d?.state || "").toUpperCase();
+    if (_state.includes("BULL")) _sideForCtx = "LONG";
+    else if (_state.includes("BEAR")) _sideForCtx = "SHORT";
+    else if (d?.alignedLong) _sideForCtx = "LONG";
+    else if (d?.alignedShort) _sideForCtx = "SHORT";
+  }
+
   // Shape a minimal ctx from d. The scorer reads ctx.market.* and
   // ctx.monthlyBackdrop.sector_leadership with graceful null-fallbacks,
   // so missing fields become 0-pt contributions (fair).
   const ctx = {
+    side: _sideForCtx || null,
     market: {
       monthlySectorTop: env?._monthlyCycle?.sectorTop || null,
       monthlySectorBottom: env?._monthlyCycle?.sectorBottom || null,
@@ -3971,7 +3986,57 @@ function qualifiesForEnter(d, asOfTs = null) {
         d.__focus_conviction_score = _focusConv.score;
         d.__focus_conviction_breakdown = _focusConv.breakdown;
 
-        const _entryMinConv = Number(_focusDaCfg.deep_audit_focus_min_entry_conviction ?? 45);
+        // V15 P0.5 hard veto: all 3 negative signals at max-negative.
+        // See worker/pipeline/tt-core-entry.js around line 497 for the
+        // detailed rationale.
+        const _vetoEnabled = String(_focusDaCfg.deep_audit_v15_negative_veto_enabled ?? "true") === "true";
+        if (_vetoEnabled && _focusConv.breakdown) {
+          const _bd = _focusConv.breakdown;
+          const _satyPts = Number(_bd?.saty_atr_proximity?.pts ?? 0);
+          const _phasePts = Number(_bd?.phase_alignment?.pts ?? 0);
+          const _rsiPts = Number(_bd?.rsi_alignment?.pts ?? 0);
+          if (_satyPts <= -15 && _phasePts <= -10 && _rsiPts <= -5) {
+            return {
+              qualifies: false,
+              reason: "v15_veto_all_signals_oppose",
+              path: null,
+              confidence: 0,
+              meta: { saty_pts: _satyPts, phase_pts: _phasePts, rsi_pts: _rsiPts },
+            };
+          }
+        }
+
+        // V15 P0.7.9 (2026-04-27): floor restored to 80 after no-cap mode
+        // exposed quality dilution.
+        // V15 P0.7.11 (2026-04-27): stacked-bull carve-out — see
+        // worker/pipeline/tt-core-entry.js for the rationale. Lowers
+        // the floor to 75 for HTF_BULL_LTF_BULL/PULLBACK with
+        // bull_stack=true (or HTF_BEAR_LTF_BEAR/BOUNCE with bear_stack)
+        // to catch LITE-class continuations the strict 80 missed.
+        let _entryMinConv = Math.max(75, Number(_focusDaCfg.deep_audit_focus_min_entry_conviction ?? 80));
+        const _stackCarveOutEnabled = String(
+          _focusDaCfg.deep_audit_focus_stack_carveout_enabled ?? "true"
+        ) === "true";
+        if (_stackCarveOutEnabled && _focusConv?.breakdown) {
+          const _carveState = String(tickerData?.state || "").toUpperCase();
+          const _carveDs = tickerData?.daily_structure || {};
+          const _carveBullStack = _carveDs?.bull_stack === true;
+          const _carveBearStack = _carveDs?.bear_stack === true;
+          const _carveLongStacked =
+            (_carveState.includes("HTF_BULL_LTF_BULL")
+              || _carveState === "HTF_BULL_LTF_PULLBACK")
+            && _carveBullStack;
+          const _carveShortStacked =
+            (_carveState.includes("HTF_BEAR_LTF_BEAR")
+              || _carveState === "HTF_BEAR_LTF_BOUNCE")
+            && _carveBearStack;
+          if (_carveLongStacked || _carveShortStacked) {
+            const _carveDelta = Number(
+              _focusDaCfg.deep_audit_focus_stack_carveout_pct ?? 5
+            );
+            _entryMinConv = Math.max(70, _entryMinConv - _carveDelta);
+          }
+        }
         if (_focusConv.score < _entryMinConv) {
           return {
             qualifies: false,
@@ -3985,7 +4050,7 @@ function qualifiesForEnter(d, asOfTs = null) {
             },
           };
         }
-        const _tierCFloor = Number(_focusDaCfg.deep_audit_focus_tier_c_floor ?? 45);
+        const _tierCFloor = Math.max(65, Number(_focusDaCfg.deep_audit_focus_tier_c_floor ?? 65));
         if (_focusConv.tier === "C" && _focusConv.score < _tierCFloor) {
           return {
             qualifies: false,
@@ -6799,6 +6864,244 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       }
 
       // ──────────────────────────────────────────────────────────────────
+      // V15 P0.6 — DAILY 5/12 EMA PEAK-LOCK EXIT (2026-04-26)
+      //
+      // V15 P0.5 forensic showed avg capture of only 33% of peak MFE.
+      // LITE Jul 14: peak +13.15%, exit +4.87% via runner_mfe_trail at
+      // tiny 0.75% retrace.
+      //
+      // User insight: the daily 5/12 EMA cloud distinguishes "peak risk"
+      // from "healthy pullback in trend".
+      //   - Price stretched > +X% above daily EMA5 = peak risk
+      //   - Price testing EMA5 but holding EMA12 = healthy pullback (HOLD)
+      //   - Price closes below daily EMA12 = trend changing (EXIT)
+      //
+      // LITE Jul 22: closed -0.83% vs EMA5 (testing) but +2.03% above
+      // EMA12 (held) — should HOLD. Then continued to +17.5% by Jul 29.
+      //
+      // Runs BEFORE runner_mfe_trail so it can override the 0.75%
+      // retrace exit when the structure says "healthy pullback".
+      // ──────────────────────────────────────────────────────────────────
+      {
+        const _peakLockEnabled = String(
+          tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_enabled ?? "true"
+        ) === "true";
+        // V15 P0.6 OBSERVABILITY: stamp diagnostic on every evaluation
+        const _peakLockDiag = {
+          enabled: _peakLockEnabled,
+          mfe_pct_open: Number(openPosition?.maxFavorableExcursion) || null,
+          mfe_pct_raw: Number(tickerData?.__mfe_pct) || null,
+          mfe_pct_persisted: Number(tickerData?.max_favorable_excursion) || null,
+          pnl_pct: pnlPct,
+          has_daily_structure: !!(tickerData?.daily_structure),
+          ds_e5: Number(tickerData?.daily_structure?.e5) || null,
+          ds_e12: Number(tickerData?.daily_structure?.e12) || null,
+          ds_pct_above_e5: Number(tickerData?.daily_structure?.pct_above_e5) || null,
+          ds_pct_above_e12: Number(tickerData?.daily_structure?.pct_above_e12) || null,
+          rule_fired: null,
+        };
+        tickerData.__peak_lock_diag = _peakLockDiag;
+        if (_peakLockEnabled) {
+          const _peakMinMfe = Number(
+            tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_min_mfe_pct ?? 2.0
+          );
+          // V15 P0.6.2 (2026-04-26): MFE source priority. Previously this
+          // only read tickerData.__mfe_pct / tickerData.max_favorable_excursion,
+          // both of which are NEVER populated. As a result _peakMfeAbs was
+          // always 0 and peak_lock NEVER fired. Switch to openPosition's
+          // live-tracked maxFavorableExcursion (updated each replay bar at
+          // line ~15408) which IS the canonical MFE for the open trade.
+          const _peakMfeAbs = Math.abs(
+            Number(openPosition?.maxFavorableExcursion) ||
+            Number(openPosition?.max_favorable_excursion) ||
+            Number(openPosition?.mfePct) ||
+            Number(openPosition?.__tradeRef?.maxFavorableExcursion) ||
+            Number(openPosition?.__tradeRef?.max_favorable_excursion) ||
+            Number(tickerData?.__mfe_pct) ||
+            Number(tickerData?.max_favorable_excursion) ||
+            0
+          );
+          const _isLong = direction === "LONG";
+          _peakLockDiag.peak_mfe_abs = _peakMfeAbs;
+          _peakLockDiag.peak_min_mfe = _peakMinMfe;
+          _peakLockDiag.mfe_threshold_met = _peakMfeAbs >= _peakMinMfe;
+          _peakLockDiag.pnl_positive = pnlPct > 0;
+
+          // V15 P0.7 (2026-04-26): structural cloud-hold detection runs
+          // INDEPENDENT of MFE/PnL gates. Whether a trade is up 0.5% or
+          // up 15%, if the daily EMA12 cloud is structurally holding,
+          // it should defer all stagnant/MFE-trail/SUPPORT_BREAK_CLOUD
+          // exits. AMZN Jul (+1.60% MFE) and GOOGL Jul (+2.07% MFE) both
+          // had structurally-fine cloud-hold patterns but the previous
+          // _peakMfeAbs >= 2.0 gate excluded them, so stagnant cut them
+          // before the breakout.
+          //
+          // Structure: ALWAYS evaluate cloud_hold_suppress. ONLY evaluate
+          // exit rules when MFE/PnL thresholds met.
+          const _ds_cloud = tickerData?.daily_structure || {};
+          const _e5_cloud = Number(_ds_cloud?.e5);
+          const _e12_cloud = Number(_ds_cloud?.e12);
+          const _pctAboveE5_cloud = Number(_ds_cloud?.pct_above_e5);
+          const _pctAboveE12_cloud = Number(_ds_cloud?.pct_above_e12);
+          const _hasEmaData_cloud = Number.isFinite(_e5_cloud) && Number.isFinite(_e12_cloud);
+          if (_hasEmaData_cloud && Number.isFinite(_pctAboveE12_cloud)) {
+            const _distE12_cloud = _isLong ? _pctAboveE12_cloud : -_pctAboveE12_cloud;
+            const _e12WickTol_cloud = Number(
+              tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_e12_wick_tolerance_pct ?? -0.75
+            );
+            if (_distE12_cloud > _e12WickTol_cloud) {
+              tickerData.__peak_lock_cloud_hold = true;
+              _peakLockDiag.cloud_hold_set = true;
+              _peakLockDiag.dist_e12_cloud = _distE12_cloud;
+            }
+          }
+
+          if (_peakMfeAbs >= _peakMinMfe && pnlPct > 0) {
+            const _ds = tickerData?.daily_structure || {};
+            const _e5 = Number(_ds?.e5);
+            const _e12 = Number(_ds?.e12);
+            const _pctAboveE5 = Number(_ds?.pct_above_e5);
+            const _pctAboveE12 = Number(_ds?.pct_above_e12);
+            const _hasEmaData = Number.isFinite(_e5) && Number.isFinite(_e12);
+            _peakLockDiag.has_ema_data = _hasEmaData;
+
+            if (_hasEmaData && Number.isFinite(_pctAboveE5) && Number.isFinite(_pctAboveE12)) {
+              // Direction-adjusted distances
+              const _distE5 = _isLong ? _pctAboveE5 : -_pctAboveE5;
+              const _distE12 = _isLong ? _pctAboveE12 : -_pctAboveE12;
+              _peakLockDiag.dist_e5 = _distE5;
+              _peakLockDiag.dist_e12 = _distE12;
+
+              // ──────────────────────────────────────────────────────
+              // V15 P0.6.3 (2026-04-26) — REDESIGN: EMA-cloud hold-the-runner
+              //
+              // User intent (verbatim): "LITE holds the 5/12 daily EMA
+              // cloud, it may have wicked past it but recovered. I would
+              // rather exit at the peak around 103 when it was above the
+              // 5 EMA but the better play is being able to hold even
+              // longer since the 12 EMA held."
+              //
+              // Translation:
+              //   • EMA12 cloud-hold = highest priority. As long as the
+              //     daily EMA12 holds, RUN the trade.
+              //   • Don't exit on single-bar wicks below EMA12 — they're
+              //     fakeouts (LITE Jul 22 closed -0.5% below EMA12 then
+              //     immediately recovered to $107 by Jul 28, $120 by
+              //     Aug 13).
+              //   • Only exit on CONFIRMED EMA12 break (deep break OR
+              //     persistent break across multiple bars).
+              //
+              // Rules (in priority order):
+              //   Rule 1: CONFIRMED EMA12 break (deep OR persistent) →
+              //           EXIT.
+              //   Rule 2: EMA12 holds (distE12 > -e12_wick_tolerance) →
+              //           SUPPRESS all MFE-based exits this bar. Stamp
+              //           __peak_lock_healthy_pullback so
+              //           mfe_proportional_trail / runner_mfe_trail do
+              //           not pre-emptively cut the runner.
+              // ──────────────────────────────────────────────────────
+              const _e12DeepBreakPct = Number(
+                tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_e12_deep_break_pct ?? -1.0
+              );
+              const _e12WickTolerancePct = Number(
+                tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_e12_wick_tolerance_pct ?? -0.75
+              );
+              const _e12PersistDays = Number(
+                tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_e12_persist_days ?? 2
+              );
+
+              // Track distinct trading days with sub-EMA12 closes.
+              // distE12 is computed against daily EMA12, so dipping below
+              // it at any intraday bar = price has wicked below the daily
+              // structure. We bucket by calendar UTC date so multiple
+              // intraday bars on the same day = 1 "below day".
+              const _barTs = Number(asOfTs) || Number(tickerData?.ts) || 0;
+              const _utcDay = _barTs ? Math.floor(_barTs / 86400000) : 0;
+              const _e12LastBelowDay = Number(openPosition?.__e12LastBelowDay) || 0;
+              const _e12BelowDayCountPrev = Number(openPosition?.__e12BelowDayCount) || 0;
+              let _e12BelowDayCount = _e12BelowDayCountPrev;
+              if (openPosition && _utcDay) {
+                if (_distE12 < 0) {
+                  if (_utcDay !== _e12LastBelowDay) {
+                    _e12BelowDayCount = _e12BelowDayCountPrev + 1;
+                    openPosition.__e12BelowDayCount = _e12BelowDayCount;
+                    openPosition.__e12LastBelowDay = _utcDay;
+                  }
+                } else {
+                  // Recovered above EMA12 — reset the counter so we only
+                  // count CONSECUTIVE below-days as structural breaks.
+                  if (_e12BelowDayCountPrev > 0) {
+                    _e12BelowDayCount = 0;
+                    openPosition.__e12BelowDayCount = 0;
+                    openPosition.__e12LastBelowDay = 0;
+                  }
+                }
+              }
+              _peakLockDiag.e12_below_day_count = _e12BelowDayCount;
+              _peakLockDiag.e12_deep_break_pct = _e12DeepBreakPct;
+              _peakLockDiag.e12_persist_days = _e12PersistDays;
+              _peakLockDiag.e12_wick_tolerance_pct = _e12WickTolerancePct;
+
+              // Rule 1: CONFIRMED EMA12 BREAK
+              //   (a) Deep break — distE12 <= -1.0% on this bar (clear
+              //       structural break, not a wick), OR
+              //   (b) Persistent break — distE12 < 0 across ≥N distinct
+              //       trading days (default 2). Single-day wicks don't
+              //       qualify; LITE Jul 22 closed -0.46% then recovered
+              //       Jul 23 — 1 day, not 2.
+              const _isDeepBreak = _distE12 <= _e12DeepBreakPct;
+              const _isPersistentBreak = _e12BelowDayCount >= _e12PersistDays && _distE12 < 0;
+              if (_isDeepBreak || _isPersistentBreak) {
+                _peakLockDiag.rule_fired = _isDeepBreak ? "ema12_deep_break" : "ema12_persistent_break";
+                tickerData.__exit_reason = _isDeepBreak
+                  ? "peak_lock_ema12_deep_break"
+                  : "peak_lock_ema12_persistent_break";
+                tickerData.__exit_family = "profit_management";
+                tickerData.__exit_meta = {
+                  mfe_peak_pct: _peakMfeAbs,
+                  current_pnl_pct: pnlPct,
+                  pct_above_e5: _pctAboveE5,
+                  pct_above_e12: _pctAboveE12,
+                  e12_below_day_count: _e12BelowDayCount,
+                  rule: _isDeepBreak ? "ema12_deep_break" : "ema12_persistent_break",
+                };
+                return "exit";
+              }
+
+              // Rule 2: EMA12 CLOUD-HOLD — let the runner run.
+              // Tolerate wicks down to _e12WickTolerancePct (default
+              // -0.75%). LITE Jul 22 had distE12=-0.46 — a wick — it
+              // recovered next bar. Suppress all MFE-based exits so
+              // mfe_proportional_trail / runner_mfe_trail don't cut the
+              // runner on the wick.
+              if (_distE12 > _e12WickTolerancePct) {
+                tickerData.__peak_lock_healthy_pullback = true;
+                tickerData.__peak_lock_cloud_hold = true;
+                _peakLockDiag.rule_fired = "cloud_hold_suppress";
+              }
+            } else {
+              // No daily EMA data — use 40% retrace fallback
+              const _peakGivebackRatio = Number(
+                tickerData?._env?._deepAuditConfig?.deep_audit_peak_lock_giveback_ratio ?? 0.40
+              );
+              const _retracePct = _peakMfeAbs - pnlPct;
+              const _retraceFromPeakRatio = _retracePct / _peakMfeAbs;
+              if (_retraceFromPeakRatio >= _peakGivebackRatio) {
+                tickerData.__exit_reason = "peak_lock_exit_fallback";
+                tickerData.__exit_family = "profit_management";
+                tickerData.__exit_meta = {
+                  mfe_peak_pct: _peakMfeAbs,
+                  current_pnl_pct: pnlPct,
+                  retrace_pct: _retracePct,
+                };
+                return "exit";
+              }
+            }
+          }
+        }
+      }
+
+      // ──────────────────────────────────────────────────────────────────
       // V12 ACTION 2 (2026-04-24) — RUNNER MFE TRAIL
       //
       // V11 exit-policy simulation (tasks/v11-exit-policy-findings-
@@ -6822,13 +7125,34 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         const _runnerTrailEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_runner_mfe_trail_enabled ?? "false") === "true";
         if (_runnerTrailEnabled && currentTrimPct > 0) {
           const _activate = Number(tickerData?._env?._deepAuditConfig?.deep_audit_runner_mfe_trail_activation_pct ?? 3.0);
-          const _giveback = Number(tickerData?._env?._deepAuditConfig?.deep_audit_runner_mfe_trail_giveback_pct ?? 0.75);
+          // V15 P0.6 (2026-04-26): default giveback raised 0.75 → 1.50 to
+          // give trades more breathing room. Forensic showed the previous
+          // 0.75% retrace rule was firing on tiny noise blips and missing
+          // bigger runs. The peak-lock rule above handles peak detection
+          // intelligently using EMA structure; this trail is the fallback
+          // for trades without daily EMA data or extreme retraces.
+          const _giveback = Number(tickerData?._env?._deepAuditConfig?.deep_audit_runner_mfe_trail_giveback_pct ?? 1.50);
+          // V15 P0.6.3 (2026-04-26): plumbing fix — read MFE from
+          // openPosition (live-tracked, line ~15408) instead of
+          // tickerData.__mfe_pct / tickerData.max_favorable_excursion
+          // (never assigned anywhere, always 0).
           const _mfeAbsTrail = Math.abs(
+            Number(openPosition?.maxFavorableExcursion) ||
+            Number(openPosition?.max_favorable_excursion) ||
+            Number(openPosition?.mfePct) ||
+            Number(openPosition?.__tradeRef?.maxFavorableExcursion) ||
+            Number(openPosition?.__tradeRef?.max_favorable_excursion) ||
             Number(tickerData?.__mfe_pct) ||
             Number(tickerData?.max_favorable_excursion) ||
             0
           );
-          if (_mfeAbsTrail >= _activate && pnlPct > 0) {
+          // Honor the peak_lock "healthy pullback" / "cloud_hold" flag
+          // — when set, the daily EMA12 is still holding (possibly with
+          // a wick) so the trend is intact. Don't exit; let the runner
+          // run. peak_lock_exit owns exit decisions for these bars.
+          if (tickerData?.__peak_lock_healthy_pullback || tickerData?.__peak_lock_cloud_hold) {
+            // Skip — falling through to other rules.
+          } else if (_mfeAbsTrail >= _activate && pnlPct > 0) {
             const retrace = _mfeAbsTrail - pnlPct;
             if (retrace >= _giveback) {
               tickerData.__exit_reason = "runner_mfe_trail";
@@ -6844,6 +7168,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           }
         }
       }
+
 
       // ──────────────────────────────────────────────────────────────────
       // V12 P3 (2026-04-23) — LET-WINNERS-RUN GUARD
@@ -6869,10 +7194,74 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       if (_p3WinnerProtectEnabled) {
         const _p3MinMfe = Number(tickerData?._env?._deepAuditConfig?.deep_audit_winner_protect_min_mfe_pct ?? 3.0);
         const _p3Gap = Number(tickerData?._env?._deepAuditConfig?.deep_audit_winner_protect_near_mfe_gap_pct ?? 0.5);
-        const _p3MfeAbs = Math.abs(Number(tickerData?.__mfe_pct) || Number(tickerData?.max_favorable_excursion) || 0);
+        // V15 P0.6.3 (2026-04-26): plumbing fix — read MFE from
+        // openPosition (live-tracked) instead of tickerData fields that
+        // are never assigned.
+        const _p3MfeAbs = Math.abs(
+          Number(openPosition?.maxFavorableExcursion) ||
+          Number(openPosition?.max_favorable_excursion) ||
+          Number(openPosition?.mfePct) ||
+          Number(tickerData?.__mfe_pct) ||
+          Number(tickerData?.max_favorable_excursion) ||
+          0
+        );
         if (_p3MfeAbs >= _p3MinMfe && pnlPct > 0 && (_p3MfeAbs - pnlPct) < _p3Gap) {
           // Stamp a marker so downstream soft-exit blocks can short-circuit.
           tickerData.__v12_winner_protect_active = true;
+        }
+
+        // ──────────────────────────────────────────────────────────────────
+        // V15 P0.7.19 (2026-04-29) — FIX 2: BIG-MFE WINNER-PROTECT ANCHOR
+        //
+        // EVIDENCE (autopsy v16-fix1-p716-jul):
+        //   15 winners gave back >5pp from MFE peak. Top examples:
+        //     JOBY: MFE 33.5% kept 12.4% (gave back 21.1pp)
+        //     AEHR: MFE 42.0% kept 21.2% (gave back 20.8pp)
+        //     U:    MFE 28.4% kept 12.1% (gave back 16.3pp)
+        //   Total left on table: +156.3pp across 15 trades.
+        //   Recoverable: ~+78pp if we lock 60% of peak as floor.
+        //
+        // RULE: when MFE >= big_mfe_threshold (default 15%), enforce that
+        //   the SL is at least at `entry + lock_pct * MFE_max` (LONG) or
+        //   `entry - lock_pct * MFE_max` (SHORT). Default lock_pct = 0.60
+        //   means we capture at least 60% of the peak as worst-case exit.
+        //   Only TIGHTENS the SL — never widens. Doesn't conflict with
+        //   trailing logic — both can fire; the higher SL wins.
+        //
+        // TF-aware: this is a daily-MFE protection, not an intra-bar
+        // signal. Fires regardless of cadence (gates already on 30m
+        // for live exits anyway). Hard exits still bypass.
+        const _bigMfeEnabled = String(
+          tickerData?._env?._deepAuditConfig?.deep_audit_winner_protect_big_mfe_enabled ?? "true"
+        ) === "true";
+        if (_bigMfeEnabled && openPosition && isOpenTradeStatus(openPosition?.status)) {
+          const _bigMfeThreshold = Number(
+            tickerData?._env?._deepAuditConfig?.deep_audit_winner_protect_big_mfe_threshold_pct ?? 15.0
+          );
+          const _bigMfeLockPct = Math.max(0, Math.min(0.95, Number(
+            tickerData?._env?._deepAuditConfig?.deep_audit_winner_protect_big_mfe_lock_pct ?? 0.60
+          )));
+          if (_p3MfeAbs >= _bigMfeThreshold) {
+            const _bigMfeEntryPx = Number(openPosition?.entryPrice || openPosition?.avgEntry);
+            if (Number.isFinite(_bigMfeEntryPx) && _bigMfeEntryPx > 0) {
+              const _bigMfeIsLong = String(openPosition?.direction || "LONG").toUpperCase() === "LONG";
+              const _bigMfePctOfPeak = _bigMfeLockPct * _p3MfeAbs;
+              const _bigMfeAnchorPx = _bigMfeIsLong
+                ? Math.round(_bigMfeEntryPx * (1 + _bigMfePctOfPeak / 100) * 100) / 100
+                : Math.round(_bigMfeEntryPx * (1 - _bigMfePctOfPeak / 100) * 100) / 100;
+              const _bigMfeCurSL = Number(openPosition?.sl);
+              const _shouldRaise = _bigMfeIsLong
+                ? (!Number.isFinite(_bigMfeCurSL) || _bigMfeAnchorPx > _bigMfeCurSL)
+                : (!Number.isFinite(_bigMfeCurSL) || _bigMfeAnchorPx < _bigMfeCurSL);
+              if (_shouldRaise && openPosition?.__tradeRef) {
+                openPosition.__tradeRef.sl = _bigMfeAnchorPx;
+                openPosition.sl = _bigMfeAnchorPx;
+                tickerData.__v12_big_mfe_protect_active = true;
+                tickerData.__v12_big_mfe_anchor_px = _bigMfeAnchorPx;
+                console.log(`[BIG_MFE_PROTECT] ${tickerData?.ticker || "?"} MFE=${_p3MfeAbs.toFixed(2)}% lock=${(_bigMfeLockPct*100).toFixed(0)}% -> SL anchor at ${_bigMfeAnchorPx.toFixed(2)} (entry=${_bigMfeEntryPx.toFixed(2)}, was=${(_bigMfeCurSL || 0).toFixed(2)})`);
+              }
+            }
+          }
         }
       }
 
@@ -6912,8 +7301,34 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         const _mfeExitsEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_max_loss_time_scaled_v2 ?? "true") === "true";
         if (_mfeExitsEnabled && !_earlyPdzToleranceActive) {
           const _agH = positionAgeMarketMin / 60;
-          const _mfeAbs = Math.abs(Number(tickerData?.__mfe_pct) || Number(tickerData?.max_favorable_excursion) || 0);
-          const _maeAbs = Math.abs(Number(tickerData?.__mae_pct) || Number(tickerData?.max_adverse_excursion) || 0);
+          // V15 P0.6.3 (2026-04-26): plumbing fix — read MFE/MAE from
+          // openPosition (live-tracked, line ~15408) instead of
+          // tickerData.__mfe_pct / tickerData.max_favorable_excursion
+          // which are NEVER assigned anywhere. With the broken read, all
+          // MFE-gated tiers (especially Tier 5 "72h stale" with
+          // _mfeAbs < 1.5) trivially passed even on huge runners and
+          // killed them. LITE Jul 14 had MFE 22.30% but Tier 5 saw 0,
+          // so cut it at hour 72.
+          const _mfeAbs = Math.abs(
+            Number(openPosition?.maxFavorableExcursion) ||
+            Number(openPosition?.max_favorable_excursion) ||
+            Number(openPosition?.mfePct) ||
+            Number(openPosition?.__tradeRef?.maxFavorableExcursion) ||
+            Number(openPosition?.__tradeRef?.max_favorable_excursion) ||
+            Number(tickerData?.__mfe_pct) ||
+            Number(tickerData?.max_favorable_excursion) ||
+            0
+          );
+          const _maeAbs = Math.abs(
+            Number(openPosition?.maxAdverseExcursion) ||
+            Number(openPosition?.max_adverse_excursion) ||
+            Number(openPosition?.maePct) ||
+            Number(openPosition?.__tradeRef?.maxAdverseExcursion) ||
+            Number(openPosition?.__tradeRef?.max_adverse_excursion) ||
+            Number(tickerData?.__mae_pct) ||
+            Number(tickerData?.max_adverse_excursion) ||
+            0
+          );
 
           // ──────────────────────────────────────────────────────────────
           // V12 P1 (2026-04-23) — FAST-CUT RELAXATION
@@ -6973,10 +7388,31 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
             return "exit";
           }
           // Tier 4: 24h — dead money
-          if (_agH >= 24 && _agH < 72 && pnlPct < 0 && _mfeAbs < 1.5) {
-            tickerData.__exit_reason = "phase_i_mfe_dead_money_24h";
-            tickerData.__exit_family = "safety";
-            return "exit";
+          //
+          // V15 P0.6 (2026-04-26): forensic showed MTZ Jul 16 was cut
+          // here at hour 24+ then peaked +5.07% 30h later. Add a
+          // "structure intact" grace: if daily is still bull-stacked
+          // AND price is above e21, extend grace to 48h. This lets
+          // healthy setups breathe before we yank capital.
+          {
+            const _structIntactGracePassed = (() => {
+              const _ds = tickerData?.daily_structure || {};
+              const _bullStack = _ds?.bull_stack === true;
+              const _bearStack = _ds?.bear_stack === true;
+              const _e21 = Number(_ds?.e21);
+              const _px = Number(tickerData?.price);
+              const _isLong = direction === "LONG";
+              const _structAligned = _isLong ? _bullStack : _bearStack;
+              const _aboveE21 = (_isLong && _px > _e21) || (!_isLong && _px < _e21);
+              return _structAligned && _aboveE21;
+            })();
+            const _deadMoneyGraceH = _structIntactGracePassed ? 48 : 24;
+            if (_agH >= _deadMoneyGraceH && _agH < 72 && pnlPct < 0 && _mfeAbs < 1.5) {
+              tickerData.__exit_reason = "phase_i_mfe_dead_money_24h";
+              tickerData.__exit_family = "safety";
+              tickerData.__exit_meta = { age_h: _agH, struct_intact: _structIntactGracePassed };
+              return "exit";
+            }
           }
           // Tier 5: 72h — capital locked, any pnl
           if (_agH >= 72 && _mfeAbs < 1.5) {
@@ -7016,7 +7452,15 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           const _agDays = Number.isFinite(_entryTsMs) && _entryTsMs > 0
             ? (_nowMs - _entryTsMs) / (24 * 60 * 60 * 1000)
             : (positionAgeMarketMin / (60 * 6.5));
-          const _mfeAbsStale = Math.abs(Number(tickerData?.__mfe_pct) || Number(tickerData?.max_favorable_excursion) || 0);
+          // V15 P0.6.3 (2026-04-26): plumbing fix — read from openPosition.
+          const _mfeAbsStale = Math.abs(
+            Number(openPosition?.maxFavorableExcursion) ||
+            Number(openPosition?.max_favorable_excursion) ||
+            Number(openPosition?.mfePct) ||
+            Number(tickerData?.__mfe_pct) ||
+            Number(tickerData?.max_favorable_excursion) ||
+            0
+          );
           if (_agDays >= _stalePosDays) {
             const _stalePnlBreakout = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stale_pnl_breakout_pct ?? 2.0);
             const _staleNearMfe = Number(tickerData?._env?._deepAuditConfig?.deep_audit_stale_near_mfe_gap_pct ?? 0.5);
@@ -7093,7 +7537,11 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           const _agDaysStag = Number.isFinite(_entryTsStag) && _entryTsStag > 0
             ? (_nowStag - _entryTsStag) / (24 * 60 * 60 * 1000)
             : (positionAgeMarketMin / (60 * 6.5));
+          // V15 P0.6.3 (2026-04-26): plumbing fix — read from openPosition.
           const _mfeAbsStag = Math.abs(
+            Number(openPosition?.maxFavorableExcursion) ||
+            Number(openPosition?.max_favorable_excursion) ||
+            Number(openPosition?.mfePct) ||
             Number(tickerData?.__mfe_pct) ||
             Number(tickerData?.max_favorable_excursion) ||
             0
@@ -7103,15 +7551,73 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
             Math.abs(pnlPct) < _stagMaxAbsPnl &&
             _mfeAbsStag < _stagMaxMfe
           ) {
-            tickerData.__exit_reason = "stagnant_no_commitment";
-            tickerData.__exit_family = "safety";
-            tickerData.__exit_meta = {
-              age_days: Math.round(_agDaysStag * 10) / 10,
-              pnl_pct: Math.round(pnlPct * 100) / 100,
-              mfe_peak_pct: _mfeAbsStag,
-              trim_pct: Math.round((currentTrimPct || 0) * 100),
-            };
-            return "exit";
+            // V15 P0.7 (2026-04-26): STAGNANT DEFERRAL.
+            //
+            // User-observed pattern (PKG Jul 10): trade enters, sits in
+            // a tight range with MAE -0.29% (zero adverse damage), a
+            // squeeze is forming/firing, then breaks out — but stagnant
+            // exits BEFORE the breakout. Three signals say "still
+            // engaged, not stagnant":
+            //   1. __peak_lock_cloud_hold — daily 5/12 cloud is intact
+            //   2. MAE small (< _stagMaxAdverseMaePct, default 0.75%) —
+            //      no real damage taken
+            //   3. squeeze on or just released on 30m/1h — energy
+            //      building or just fired
+            //
+            // When ANY of those are true AND age < a hard ceiling
+            // (_stagDeferralMaxDays, default 7), defer this exit and
+            // let the trade work. Beyond that ceiling, exit anyway —
+            // even setups deserve a calendar limit.
+            const _maeAbsStag = Math.abs(
+              Number(openPosition?.maxAdverseExcursion) ||
+              Number(openPosition?.max_adverse_excursion) ||
+              Number(openPosition?.maePct) ||
+              0
+            );
+            const _stagDeferralMaxDays = Number(
+              tickerData?._env?._deepAuditConfig?.deep_audit_stagnant_deferral_max_days ?? 7
+            );
+            const _stagMaxAdverseMaePct = Number(
+              tickerData?._env?._deepAuditConfig?.deep_audit_stagnant_low_mae_threshold_pct ?? 0.75
+            );
+            const _stagSqueezeDeferralEnabled = String(
+              tickerData?._env?._deepAuditConfig?.deep_audit_stagnant_squeeze_deferral_enabled ?? "true"
+            ) === "true";
+            const _sqStag = tickerData?.squeeze || {};
+            const _hasSqueezeEnergy = !!(
+              _sqStag.on_30m || _sqStag.on_1h ||
+              _sqStag.release_30m || _sqStag.release_1h
+            );
+            const _structureIntact = !!tickerData?.__peak_lock_cloud_hold;
+            const _lowMae = _maeAbsStag < _stagMaxAdverseMaePct;
+            const _squeezeBuilding = _stagSqueezeDeferralEnabled && _hasSqueezeEnergy;
+            const _withinDeferralWindow = _agDaysStag < _stagDeferralMaxDays;
+            const _shouldDefer = _withinDeferralWindow && (
+              _structureIntact || _squeezeBuilding || _lowMae
+            );
+            if (_shouldDefer) {
+              tickerData.__stagnant_deferred = {
+                reason: _structureIntact ? "cloud_hold"
+                  : (_squeezeBuilding ? "squeeze_building" : "low_mae"),
+                age_days: Math.round(_agDaysStag * 10) / 10,
+                pnl_pct: Math.round(pnlPct * 100) / 100,
+                mae_pct: Math.round(_maeAbsStag * 100) / 100,
+                cloud_hold: _structureIntact,
+                squeeze_building: _squeezeBuilding,
+                low_mae: _lowMae,
+              };
+            } else {
+              tickerData.__exit_reason = "stagnant_no_commitment";
+              tickerData.__exit_family = "safety";
+              tickerData.__exit_meta = {
+                age_days: Math.round(_agDaysStag * 10) / 10,
+                pnl_pct: Math.round(pnlPct * 100) / 100,
+                mfe_peak_pct: _mfeAbsStag,
+                mae_peak_pct: _maeAbsStag,
+                trim_pct: Math.round((currentTrimPct || 0) * 100),
+              };
+              return "exit";
+            }
           }
         }
       }
@@ -7184,9 +7690,37 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
             && pnlPct < 0
             && positionAgeMarketMin >= _eodMinAgeMin
           ) {
-            tickerData.__exit_reason = "eod_trimmed_underwater_flatten";
-            tickerData.__exit_family = "safety";
-            return "exit";
+            // V15 P0.7 (2026-04-26): defer when the daily 5/12 EMA cloud
+            // is structurally holding AND adverse damage has been small.
+            // The original motivation (RIOT 09-24 gap-risk) holds when
+            // there's no structural support; with cloud-hold + low MAE,
+            // the next morning is far more likely to recover than gap
+            // catastrophically (AMZN/GOOGL Jul 8 examples).
+            const _eodCloudHold = !!tickerData?.__peak_lock_cloud_hold;
+            const _eodMae = Math.abs(
+              Number(openPosition?.maxAdverseExcursion) ||
+              Number(openPosition?.max_adverse_excursion) ||
+              Number(openPosition?.maePct) ||
+              0
+            );
+            const _eodLowMaeThreshold = Number(
+              tickerData?._env?._deepAuditConfig?.deep_audit_eod_low_mae_defer_pct ?? 1.0
+            );
+            const _eodDeferCloudHold = String(
+              tickerData?._env?._deepAuditConfig?.deep_audit_eod_defer_on_cloud_hold ?? "true"
+            ) === "true";
+            if (_eodDeferCloudHold && _eodCloudHold && _eodMae < _eodLowMaeThreshold) {
+              tickerData.__eod_flatten_deferred = {
+                reason: "cloud_hold_low_mae",
+                pnl_pct: Math.round(pnlPct * 100) / 100,
+                mae_pct: Math.round(_eodMae * 100) / 100,
+                trim_pct: Math.round(currentTrimPct * 100),
+              };
+            } else {
+              tickerData.__exit_reason = "eod_trimmed_underwater_flatten";
+              tickerData.__exit_family = "safety";
+              return "exit";
+            }
           }
         }
       }
@@ -7216,6 +7750,28 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
             Number(openPosition?.__tradeRef?.maxFavorableExcursion ?? openPosition?.__tradeRef?.max_favorable_excursion ?? openPosition?.__tradeRef?.mfePct) || 0,
           );
           if (_r6MfePct >= _r6MinActivate) {
+            // V15 P0.6 (2026-04-26): suppress mfe_proportional_trail when
+            // daily structure says we're in a healthy pullback (price
+            // testing EMA5 but holding EMA12). The peak_lock rule above
+            // owns the exit decision in that case.
+            const _ds = tickerData?.daily_structure || {};
+            const _isLong = direction === "LONG";
+            const _pctE12 = Number(_ds?.pct_above_e12);
+            const _distE12 = (_isLong ? _pctE12 : -_pctE12);
+            // V15 P0.6.3 (2026-04-26): expand suppression. Any of these
+            // signals means daily EMA12 is structurally intact and we
+            // should let peak_lock_exit own exit timing:
+            //   • __peak_lock_cloud_hold — explicit cloud-hold flag
+            //   • __peak_lock_healthy_pullback — wick/pullback flag
+            //   • distE12 > 0.5% — clearly above EMA12
+            // Single-bar wicks below EMA12 down to -0.75% are absorbed
+            // by peak_lock_exit's wick tolerance.
+            const _healthyPullback = !!tickerData?.__peak_lock_cloud_hold
+              || !!tickerData?.__peak_lock_healthy_pullback
+              || (Number.isFinite(_distE12) && _distE12 > 0.5);
+            if (_healthyPullback) {
+              // Skip — daily EMA12 holding; let peak_lock own exit timing.
+            } else {
             const _r6Ratio = _r6MfePct >= 10.0
               ? (Number(tickerData?._env?._deepAuditConfig?.deep_audit_mfe_trail_ratio_high) || 0.75)
               : _r6MfePct >= 6.0
@@ -7233,6 +7789,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
               };
               return "exit";
             }
+            }  // end else (V15 P0.6 healthy-pullback suppression)
           }
         }
       }
@@ -7352,6 +7909,39 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           const weekFullExit = Number.isFinite(dirAdjWeekDisp)
             && dirAdjWeekDisp >= weekExitThreshold;
           if (weekFullExit) {
+            // V15 P0.7.3 (2026-04-27): defer when daily 5/12 EMA cloud
+            // is structurally holding. Hitting weekly +0.618 ATR is a
+            // target-reached signal but in trending markets price often
+            // continues through it (LITE Aug runner, GOOGL Jul). Trim
+            // instead of full exit when cloud holds AND there's MFE
+            // capacity left.
+            const _atrWkCloudHold = !!tickerData?.__peak_lock_cloud_hold;
+            const _atrWkDeferEnabled = String(
+              tickerData?._env?._deepAuditConfig?.deep_audit_atr_week_618_defer_on_cloud_hold ?? "true"
+            ) === "true";
+            if (_atrWkDeferEnabled && _atrWkCloudHold && currentTrimPct < 0.5) {
+              // Hand off to the trim ladder logic instead — partial trim
+              // here lets the runner keep going as long as cloud holds.
+              const _atrWkTrimPct = Number(
+                tickerData?._env?._deepAuditConfig?.deep_audit_atr_week_618_partial_trim_pct ?? 0.30
+              );
+              if (currentTrimPct + _atrWkTrimPct < 0.98) {
+                tickerData.__scheduled_trim = {
+                  pct: _atrWkTrimPct,
+                  reason: "atr_week_618_partial_cloud_hold",
+                  cohort: ladderCohort,
+                };
+                tickerData.__exit_reason = "atr_week_618_partial_cloud_hold";
+                tickerData.__exit_family = "target";
+                tickerData.__exit_detail = {
+                  cohort: ladderCohort,
+                  week_disp: dirAdjWeekDisp,
+                  horizon: "week",
+                  cloud_holding: true,
+                };
+                return "trim";
+              }
+            }
             tickerData.__exit_reason = "atr_week_618_full_exit";
             tickerData.__exit_family = "target";
             tickerData.__exit_detail = {
@@ -7889,11 +8479,52 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     }
 
     // Hard max hold: 3 weeks (504h calendar) or ticker-profile max — catastrophic hold prevention
+    //
+    // V15 P0.6.3 (2026-04-26): EMA-CLOUD-HOLD OVERRIDE.
+    //   When the daily EMA12 cloud is still holding AND the trade is in
+    //   profit AND there's meaningful MFE captured, do NOT time-cap the
+    //   runner. This is the LITE Jul 14 → Aug 13 ($93→$120, +29%)
+    //   pattern: time-capping at 168h would have killed it on day 7
+    //   right at the wick, missing the next $14 of upside.
+    //
+    //   Cap is still enforced when:
+    //     - daily EMA12 has structurally broken (cloud_hold flag false)
+    //     - trade is in loss (negative PnL → time cap applies)
+    //     - no meaningful MFE captured (< 3% means it's been dead money)
+    //     - extreme age (>= 504h / 3 weeks) regardless — circuit breaker
     const _profileMaxHoldH = _staticBehaviorProfileMgmt.maxHoldHours || 504;
     const _positionAgeCalendarH = positionAgeMin / 60;
     if (_positionAgeCalendarH >= _profileMaxHoldH) {
-      tickerData.__exit_reason = `hard_max_hold_${_profileMaxHoldH}h`;
-      return "exit";
+      const _cloudHolding = !!tickerData?.__peak_lock_cloud_hold;
+      const _runnerMfe = Math.abs(
+        Number(openPosition?.maxFavorableExcursion) ||
+        Number(openPosition?.max_favorable_excursion) ||
+        0
+      );
+      const _absoluteMaxH = Number(
+        tickerData?._env?._deepAuditConfig?.deep_audit_cloud_hold_absolute_max_hold_h ?? 504
+      );
+      const _runnerMinMfeForOverride = Number(
+        tickerData?._env?._deepAuditConfig?.deep_audit_cloud_hold_min_mfe_pct ?? 3.0
+      );
+      const _runnerOverrideEligible = _cloudHolding
+        && pnlPct > 0
+        && _runnerMfe >= _runnerMinMfeForOverride
+        && _positionAgeCalendarH < _absoluteMaxH;
+      if (_runnerOverrideEligible) {
+        // Skip the time cap this bar. peak_lock_exit will own the exit
+        // when EMA12 actually breaks. Stamp diag for observability.
+        tickerData.__time_cap_overridden = {
+          reason: "cloud_hold_runner",
+          age_h: Math.round(_positionAgeCalendarH * 10) / 10,
+          profile_max_h: _profileMaxHoldH,
+          mfe_pct: _runnerMfe,
+          pnl_pct: pnlPct,
+        };
+      } else {
+        tickerData.__exit_reason = `hard_max_hold_${_profileMaxHoldH}h`;
+        return "exit";
+      }
     }
 
     // 4H regime-reversal timeout: if 4H has been misaligned for 2+ weeks in a trend, tighten exits
@@ -8227,6 +8858,64 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     if (entry.selectedEngine) tickerData.__selected_engine = entry.selectedEngine;
     if (entry.selectedManagementEngine) tickerData.__selected_management_engine = entry.selectedManagementEngine;
     if (entry.referenceExecution) tickerData.__reference_execution = entry.referenceExecution;
+
+    // V16 (2026-04-28): SETUP-FITNESS SNAPSHOT — captures which of the
+    // 5 Ripster setup families were eligible at this entry. This is
+    // the data foundation for context-aware setup selection.
+    //
+    // Each diag is stamped by the trigger evaluation block in
+    // tt-core-entry.js even when its trigger doesn't fire — so we
+    // know not just which path was selected but ALSO which alternatives
+    // were available. Combined with regime/state/structure data on
+    // tickerData, this lets us post-hoc analyze: "in regime X with
+    // structure Y, when setups A and B were both eligible, did we
+    // pick the better one?"
+    const _setupSnapshot = {
+      // Selected path
+      selected_path: entry.path,
+      selected_reason: entry.reason,
+      selected_confidence: entry.confidence,
+      // Per-setup eligibility diagnostics (from tt-core-entry triggers)
+      ath_breakout: tickerData?.__ath_breakout_diag || null,
+      range_reversal: tickerData?.__range_reversal_diag || null,
+      gap_reversal: tickerData?.__gap_reversal_diag || null,
+      n_test_support: tickerData?.__n_test_support_diag || null,
+      index_etf_swing: tickerData?.__index_etf_swing_diag || null,
+      // Conviction breakdown
+      focus_conviction_score: tickerData?.__focus_conviction_score || null,
+      focus_conviction_breakdown: tickerData?.__focus_conviction_breakdown || null,
+      // Regime/structure context — for post-hoc analysis
+      regime_class: tickerData?.regime_class || null,
+      regime_combined: tickerData?.swing_consensus?.regime_combined || null,
+      execution_profile_name: tickerData?.execution_profile?.name || null,
+      ticker_personality: tickerData?.execution_profile?.personality
+        || tickerData?.ticker_character?.learned_profile?.personality
+        || null,
+      state: tickerData?.state || null,
+      // Daily structure snapshot
+      daily_structure: tickerData?.daily_structure ? {
+        bull_stack: tickerData.daily_structure.bull_stack,
+        bear_stack: tickerData.daily_structure.bear_stack,
+        above_e200: tickerData.daily_structure.above_e200,
+        pct_above_e21: tickerData.daily_structure.pct_above_e21,
+        pct_above_e48: tickerData.daily_structure.pct_above_e48,
+        e21_slope_5d_pct: tickerData.daily_structure.e21_slope_5d_pct,
+        // Setup-specific structural data (kept compact)
+        ath52w_pct_below: tickerData.daily_structure.ath52w?.pct_below_high_252,
+        ath52w_pct_above_low: tickerData.daily_structure.ath52w?.pct_above_low_252,
+        range_pct: tickerData.daily_structure.range_box?.range_pct,
+        range_pos: tickerData.daily_structure.range_box?.position_in_range,
+        gap_pct: tickerData.daily_structure.gap_reversal?.gap_pct,
+        n_test_support_touches: tickerData.daily_structure.n_test_support?.support?.n_touches,
+        n_test_resistance_touches: tickerData.daily_structure.n_test_support?.resistance?.n_touches,
+      } : null,
+      // RVol at entry
+      rvol_best: Number(tickerData?.rvol?.best) || null,
+      rvol_30m: Number(tickerData?.rvol_map?.["30"]?.vr) || null,
+      // Captured at: bar timestamp
+      captured_at_ts: asOfTs || null,
+    };
+    tickerData.__entry_setup_snapshot = _setupSnapshot;
     const _scenarioPolicy = _resolveScenarioExecutionPolicy(tickerData, entry.path, tickerData?._env?._scenarioExecutionPolicy || null);
     if (_scenarioPolicy) {
       tickerData.__scenario_policy = _scenarioPolicy;
@@ -12046,33 +12735,75 @@ function build3TierTPArray(tickerData, entryPrice, direction) {
       // Preserve ordering: EXIT must leave at least 10 pp more than TRIM
       // so the three tiers stay monotonic. RUNNER always flattens.
       const exitPct = Math.max(THREE_TIER_CONFIG.EXIT.trimPct, Math.min(0.95, trimPct + 0.10));
+
+      // V15 P0.7.18 (2026-04-29): FAST-TRIM TP1 FLOOR.
+      //   Forensic data from v16-ctx4 + v16-fix1-p716 showed TP1 was
+      //   often microscopic on calm tickers — KTOS trim at +0.25%,
+      //   LITE +0.18%, PLTR +0.24%. 23 trades trimmed within the first
+      //   30m bar at avg +0.96%, capturing 18% of typical avg MFE
+      //   (~5%). The "instant_30m" cohort yielded +0.44%/trade vs
+      //   "slow_>24h" +2.67%/trade — 6× worse outcome for early trims.
+      //
+      //   indicators.js sets tp_trim = price + 0.618 × swingATR.
+      //   On low-vol days that produces tiny absolute distances. The
+      //   THREE_TIER_DEFAULTS.TRIM.minMult is 1.5 but it was never
+      //   enforced in build3TierTPArray — the precision-engine values
+      //   were used as-is.
+      //
+      //   Fix: enforce a minimum trim distance of:
+      //     max(MIN_TP_TRIM_ATR × atr, MIN_TRIM_PCT × entryPrice)
+      //   where MIN_TRIM_PCT = 1.5% (DA-key configurable). This prevents
+      //   sub-1% trims that just register noise as "profit" while
+      //   killing the runner's ability to develop. We don't change
+      //   indicators.js (other code may depend on the 0.618 value);
+      //   we only change what build3TierTPArray uses.
+      const _atrForFloor = Number(tickerData?.atr) || (Math.abs(pTrim - entryPrice) / 0.618);
+      const _daMinTrimAtrMult = Number(
+        tickerData?._env?._deepAuditConfig?.deep_audit_min_trim_atr_mult ?? 1.5
+      );
+      const _daMinTrimPct = Number(
+        tickerData?._env?._deepAuditConfig?.deep_audit_min_trim_pct ?? 0.015
+      );
+      const _minDistAtr = (Number.isFinite(_atrForFloor) && _atrForFloor > 0)
+        ? _daMinTrimAtrMult * _atrForFloor
+        : 0;
+      const _minDistPct = entryPrice * _daMinTrimPct;
+      const _minDist = Math.max(_minDistAtr, _minDistPct);
+      let pTrimEnforced = pTrim;
+      const _curDist = Math.abs(pTrim - entryPrice);
+      if (_curDist < _minDist) {
+        pTrimEnforced = isLong ? entryPrice + _minDist : entryPrice - _minDist;
+      }
+
       const result = [
         {
-          price: pTrim,
+          price: pTrimEnforced,
           trimPct,
           tier: "TRIM",
-          label: `TRIM TP (${Math.round(trimPct * 100)}%) @ 1.5x ATR`,
-          source: "ATR Fibonacci (Daily 1.5x)",
+          label: pTrimEnforced !== pTrim
+            ? `TRIM TP (${Math.round(trimPct * 100)}%) @ floor ${_daMinTrimAtrMult}x ATR / ${(_daMinTrimPct*100).toFixed(1)}% (was ${pTrim.toFixed(2)})`
+            : `TRIM TP (${Math.round(trimPct * 100)}%) @ 0.618x swingATR`,
+          source: pTrimEnforced !== pTrim ? "ATR floor enforced" : "ATR Fibonacci (Daily 0.618x)",
           timeframe: "D",
-          multiplier: 1.5,
+          multiplier: pTrimEnforced !== pTrim ? _daMinTrimAtrMult : 0.618,
         },
         {
           price: pExit,
           trimPct: exitPct,
           tier: "EXIT",
-          label: `EXIT TP (${Math.round(exitPct * 100)}%) @ 2.5x ATR`,
-          source: "ATR Fibonacci (Daily 2.5x)",
+          label: `EXIT TP (${Math.round(exitPct * 100)}%) @ 1.0x swingATR`,
+          source: "ATR Fibonacci (Daily 1.0x)",
           timeframe: "D",
-          multiplier: 2.5,
+          multiplier: 1.0,
         },
         {
           price: pRunner,
           trimPct: THREE_TIER_CONFIG.RUNNER.trimPct,
           tier: "RUNNER",
-          label: `RUNNER TP (${Math.round(THREE_TIER_CONFIG.RUNNER.trimPct * 100)}%) @ 4.0x ATR`,
-          source: "ATR Fibonacci (Daily 4.0x)",
+          label: `RUNNER TP (${Math.round(THREE_TIER_CONFIG.RUNNER.trimPct * 100)}%) @ 1.618x swingATR`,
+          source: "ATR Fibonacci (Daily 1.618x)",
           timeframe: "D",
-          multiplier: 4.0,
+          multiplier: 1.618,
         },
       ];
       // Sort by distance from entry (closest first)
@@ -14898,9 +15629,177 @@ async function processTradeSimulation(
         parityOpeningConfirmedDeferred = _nyMins >= _rthOpenMins && _nyMins < (_rthOpenMins + _parityDeferConfirmedOpenMins);
       } catch {}
     }
+    // V15 P0.7.20 (2026-04-29) — FIX 4: LATE-DAY ENTRY BLOCK
+    //
+    // EVIDENCE (autopsy v16-fix6-jul half-hour buckets):
+    //   Time ET   WIN  LOSS   WR    PnL
+    //   15:00       5    7   42%   +6.59%   ← still profitable
+    //   15:30       4   13   24%  -10.40%   ← THE problem
+    //
+    // 3:30 PM ET (last 30 min before close) entries have only 30 min
+    // of management time before the close, then forced overnight risk.
+    // Across 17 trades: 24% WR, -10.40% PnL. Compare to 10:00 AM
+    // entries (85% WR, +23%) or 13:00 (86% WR, +26%).
+    //
+    // Block new entries from 15:30 ET to 16:00 ET. Net: avoid -10pp
+    // PnL, give up +6pp from rare late-day winners. WR effect:
+    // 54.4% -> ~58% on the broader cohort.
+    //
+    // Configurable: deep_audit_late_day_entry_block_min (default 30).
+    // Set to 0 to disable, 60 to block from 3pm.
+    let lateDayEntryBlocked = false;
+    if (isEnter) {
+      const _lateBlockMin = Number(
+        tickerData?._env?._deepAuditConfig?.deep_audit_late_day_entry_block_min ?? 30
+      );
+      if (_lateBlockMin > 0 && _lateBlockMin <= 120) {
+        try {
+          const _ldNyParts = new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/New_York",
+            hour12: false,
+            hour: "2-digit",
+            minute: "2-digit",
+          }).formatToParts(entryTimeRef);
+          const _ldNyMap = {};
+          for (const _p of _ldNyParts) _ldNyMap[_p.type] = Number(_p.value);
+          const _ldNyMins = (_ldNyMap.hour || 0) * 60 + (_ldNyMap.minute || 0);
+          const _rthCloseMins = 16 * 60; // 4:00 PM ET
+          const _blockStart = _rthCloseMins - _lateBlockMin;
+          // Block entries from blockStart to RTH close (e.g., 15:30 - 16:00 ET)
+          if (_ldNyMins >= _blockStart && _ldNyMins < _rthCloseMins) {
+            lateDayEntryBlocked = true;
+            console.log(`[LATE_DAY_BLOCK] ${sym} ${tickerData?.__entry_path || "entry"} blocked: ET ${_ldNyMap.hour}:${String(_ldNyMap.minute).padStart(2,"0")} within ${_lateBlockMin}min of close`);
+          }
+        } catch {}
+      }
+    }
+
+    // V15 P0.7.23 (2026-04-29) — FIX 12: QUALITY COMPOSITE BLOCK
+    //
+    // Forensic on FIX 4 baseline (107 trades, 62.6% WR) found three
+    // statistically clean cohorts that lose money:
+    //   F1: 0<=pct_above_e21<3 AND e21_slope>=1.5 AND path in
+    //       {tt_pullback, tt_ath_breakout} — late-stage extension
+    //   F2: 63<rsi_D<69 AND 62<rsi_h1<68 — narrow middling RSI MTF
+    //       (HTF cooling, LTF cooling — "nothing happening")
+    //   F3: 2<=e21_slope<3 — dead-zone slope (steep but not parabolic)
+    //
+    // tt_gap_reversal_long/short are EXEMPT (75% WR across all
+    // extension levels — our workhorse path).
+    //
+    // Counterfactual on FIX 4 baseline:
+    //   Block 8 trades (12% WR cohort, -7.41% PnL → we save money)
+    //   Remaining: 99 trades, 66.7% WR (+4.1pp), +438.04% PnL
+    //   (+7.41pp), PF 5.80 (+0.47). Top-15 winners blocked: 0.
+    //
+    // DA-keyed:
+    //   deep_audit_quality_block_enabled (default false until validated)
+    //   deep_audit_quality_block_exempt_paths (csv, default
+    //     "tt_gap_reversal_long,tt_gap_reversal_short")
+    //   deep_audit_quality_block_f1_ext_max (default 3.0)
+    //   deep_audit_quality_block_f1_slope_min (default 1.5)
+    //   deep_audit_quality_block_f1_paths (csv, default
+    //     "tt_pullback,tt_ath_breakout")
+    //   deep_audit_quality_block_f2_rsi_d_min (default 63)
+    //   deep_audit_quality_block_f2_rsi_d_max (default 69)
+    //   deep_audit_quality_block_f2_rsi_h1_min (default 62)
+    //   deep_audit_quality_block_f2_rsi_h1_max (default 68)
+    //   deep_audit_quality_block_f3_slope_min (default 2.0)
+    //   deep_audit_quality_block_f3_slope_max (default 3.0)
+    let qualityBlockBlocked = false;
+    let qualityBlockReason = null;
+    if (isEnter && !lateDayEntryBlocked) {
+      const _qbCfg = tickerData?._env?._deepAuditConfig || {};
+      const _qbEnabled = String(_qbCfg.deep_audit_quality_block_enabled ?? "false") === "true";
+      if (_qbEnabled) {
+        const _entryPath = String(tickerData?.__entry_path || "").toLowerCase();
+        const _exemptPaths = String(_qbCfg.deep_audit_quality_block_exempt_paths
+          ?? "tt_gap_reversal_long,tt_gap_reversal_short")
+          .split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+        const _isExemptPath = !!_entryPath && _exemptPaths.includes(_entryPath);
+
+        // V15 P0.7.24 — FIX 12 V4 toggles:
+        //   F2 = RSI MTF middling. Caused 47-trade cascade in V3 smoke
+        //        (-37pp PnL, lost LITE +111). DISABLED by default.
+        //   F4 = severe adverse divergence (RSI div + phase div both
+        //        active). Strong WR signal (40% WR cohort on FIX 12
+        //        smoke). NEW filter; applies to ALL paths including
+        //        exempt gap_reversal because divergence is a quality
+        //        signal independent of setup type.
+        const _f2Enabled = String(_qbCfg.deep_audit_quality_block_f2_enabled ?? "false") === "true";
+        const _f4Enabled = String(_qbCfg.deep_audit_quality_block_f4_enabled ?? "true") === "true";
+
+        if (_entryPath) {
+          // Pull setup metrics
+          const _ds = tickerData?.daily_structure || {};
+          const _pctE21 = Number(_ds.pct_above_e21);
+          const _slope5d = Number(_ds.e21_slope_5d_pct);
+          const _rsiD = Number(tickerData?.tf_tech?.["D"]?.rsi?.r5);
+          const _rsiH1 = Number(
+            tickerData?.tf_tech?.["1H"]?.rsi?.r5
+            ?? tickerData?.tf_tech?.["60"]?.rsi?.r5
+          );
+
+          // F1: late-stage extension (path-specific). Skipped for exempt paths.
+          const _f1ExtMax = Number(_qbCfg.deep_audit_quality_block_f1_ext_max ?? 3.0);
+          const _f1SlopeMin = Number(_qbCfg.deep_audit_quality_block_f1_slope_min ?? 1.5);
+          const _f1Paths = String(_qbCfg.deep_audit_quality_block_f1_paths
+            ?? "tt_pullback,tt_ath_breakout")
+            .split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+          const _f1 = !_isExemptPath
+            && Number.isFinite(_pctE21) && Number.isFinite(_slope5d)
+            && _pctE21 >= 0 && _pctE21 < _f1ExtMax
+            && _slope5d >= _f1SlopeMin
+            && _f1Paths.includes(_entryPath);
+
+          // F2: narrow middling RSI MTF. Skipped for exempt paths and disabled by default.
+          const _f2DMin = Number(_qbCfg.deep_audit_quality_block_f2_rsi_d_min ?? 63);
+          const _f2DMax = Number(_qbCfg.deep_audit_quality_block_f2_rsi_d_max ?? 69);
+          const _f2H1Min = Number(_qbCfg.deep_audit_quality_block_f2_rsi_h1_min ?? 62);
+          const _f2H1Max = Number(_qbCfg.deep_audit_quality_block_f2_rsi_h1_max ?? 68);
+          const _f2 = _f2Enabled && !_isExemptPath
+            && Number.isFinite(_rsiD) && Number.isFinite(_rsiH1)
+            && _rsiD > _f2DMin && _rsiD < _f2DMax
+            && _rsiH1 > _f2H1Min && _rsiH1 < _f2H1Max;
+
+          // F3: dead-zone slope. Skipped for exempt paths.
+          const _f3SlopeMin = Number(_qbCfg.deep_audit_quality_block_f3_slope_min ?? 2.0);
+          const _f3SlopeMax = Number(_qbCfg.deep_audit_quality_block_f3_slope_max ?? 3.0);
+          const _f3 = !_isExemptPath
+            && Number.isFinite(_slope5d)
+            && _slope5d >= _f3SlopeMin && _slope5d < _f3SlopeMax;
+
+          // F4: severe divergence (BOTH RSI div AND phase div active).
+          // Applies to all paths including exempt — divergence is path-agnostic.
+          const _div = tickerData?.__entry_divergence_summary || {};
+          const _advRsiCount = (_div.adverse_rsi && Number(_div.adverse_rsi.count)) || 0;
+          const _advPhaseCount = (_div.adverse_phase && Number(_div.adverse_phase.count)) || 0;
+          const _f4 = _f4Enabled && _advRsiCount >= 1 && _advPhaseCount >= 1;
+
+          if (_f1 || _f2 || _f3 || _f4) {
+            qualityBlockBlocked = true;
+            const _reasons = [];
+            if (_f1) _reasons.push(`F1(ext=${_pctE21?.toFixed(2)},slope=${_slope5d?.toFixed(2)})`);
+            if (_f2) _reasons.push(`F2(rsiD=${_rsiD?.toFixed(0)},rsiH1=${_rsiH1?.toFixed(0)})`);
+            if (_f3) _reasons.push(`F3(slope=${_slope5d?.toFixed(2)})`);
+            if (_f4) _reasons.push(`F4(advRsi=${_advRsiCount},advPhase=${_advPhaseCount})`);
+            qualityBlockReason = _reasons.join("|");
+            console.log(`[QUALITY_BLOCK] ${sym} ${_entryPath} blocked: ${qualityBlockReason}`);
+          }
+        }
+      }
+    }
+
     // Declare early so pre_gate diagnostic can reference; smart gates populate below
     let smartGateBlocked = false;
     let smartGateReason = null;
+    if (lateDayEntryBlocked) {
+      smartGateBlocked = true;
+      smartGateReason = "late_day_entry_block";
+    } else if (qualityBlockBlocked) {
+      smartGateBlocked = true;
+      smartGateReason = `quality_block:${qualityBlockReason}`;
+    }
     if (isReplay && isEnter && replayCtx?.processDebug && replayCtx.processDebug.length < 2) {
       replayCtx.processDebug.push({ sym, at: "after_rth", outsideRTH });
     }
@@ -15184,6 +16083,42 @@ async function processTradeSimulation(
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
+    // V15 P0.7.17 (2026-04-29): LIVE 30m MANAGEMENT-CADENCE GATE
+    //
+    // Empirical comparison (v16-fix1-p716-jul July smoke at 30m vs 10m vs 5m)
+    // showed 30m REPLAY produced 4-6× more PnL on matching trades because
+    // exit rules (SOFT_FUSE_RSI_CONFIRMED, peak_lock_ema12_break, etc.)
+    // tripped on intra-bar wicks at 5m/10m. Examples:
+    //   IWM Jul 1: 30m WIN +2.85% (243h) vs 5m/10m WIN +1.02% (2h)
+    //   U   Jul 7: 30m WIN +12.14% (220h) vs 5m LOSS -0.03% (1h)
+    //   Days 1-6 sum MFE: 30m +66.97% vs 10m +24.12% vs 5m +26.41%
+    //
+    // To make LIVE behave like the proven 30m backtest cadence, gate the
+    // exit/management section so it only fires on 30m bar boundaries
+    // (asOfMs % 1800000 < threshold). Entry detection is still allowed
+    // every tick (we want to catch fresh entries quickly). Replay is not
+    // affected — replay's intervalMs is already the cadence.
+    //
+    // Configurable via env LIVE_MANAGE_INTERVAL_MIN (default 30).
+    // Set to 5 to revert to old behavior.
+    let _liveManageGateOk = true;
+    if (!isReplay) {
+      const _liveMgmtMin = Number(env?.LIVE_MANAGE_INTERVAL_MIN ?? 30);
+      if (_liveMgmtMin > 0 && _liveMgmtMin <= 120) {
+        const _nowMsLive = Number(asOfMs) > 1e12 ? Number(asOfMs) : Date.now();
+        const _bucketMs = _liveMgmtMin * 60 * 1000;
+        const _msIntoBucket = _nowMsLive % _bucketMs;
+        // Allow management within 90s of a 30m close (~3% of the bucket).
+        // This handles the typical price-feed latency between bar close
+        // and ingest while keeping the rule equivalent to "evaluate at 30m close".
+        const _toleranceMs = 90 * 1000;
+        if (_msIntoBucket > _toleranceMs && _msIntoBucket < (_bucketMs - _toleranceMs)) {
+          _liveManageGateOk = false;
+        }
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // Phase 4a/4b/4c: FUSE EXIT ENGINE — Swing-adapted exit system
     // Fires independently of kanban stage, based on structural signals.
     // Hard fuse: extreme RSI on 1H+4H → close immediately
@@ -15202,8 +16137,9 @@ async function processTradeSimulation(
     if (_sameIntervalAsTrade) {
       console.log(`[SAME_INTERVAL_GUARD] ${sym}: skipping all exits — trade entered at ${_tradeEntryTs}, current interval ${asOfMs}`);
     }
-    // FUSE EXITS are signal-based (RSI extremes), NOT price-driven — block outside RTH
-    if (!_sameIntervalAsTrade && openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow) && !weekendNow && !outsideRTH) {
+    // FUSE EXITS are signal-based (RSI extremes), NOT price-driven — block outside RTH.
+    // V15 P0.7.17: also gate on 30m management cadence in live mode.
+    if (_liveManageGateOk && !_sameIntervalAsTrade && openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow) && !weekendNow && !outsideRTH) {
       // Extract RSI values from tf_tech
       const rsi1H = tickerData?.tf_tech?.["1H"]?.rsi?.r5 ?? 50;
       const rsi4H = tickerData?.tf_tech?.["4H"]?.rsi?.r5 ?? 50;
@@ -15852,7 +16788,8 @@ async function processTradeSimulation(
       // before evaluateRunnerExit because the SL-tightening path can't move SL
       // downward, so catastrophic crashes (RKLB -31%) slip through.
       const _sreTrimmedPct = clamp(Number(openTrade?.trimmedPct || 0), 0, 1);
-      if (!_sameIntervalAsTrade && !fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status) && _sreTrimmedPct >= THREE_TIER_CONFIG.EXIT.trimPct) {
+      // V15 P0.7.17: gate smart-runner cloud-break exits on 30m cadence in live mode.
+      if (_liveManageGateOk && !_sameIntervalAsTrade && !fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status) && _sreTrimmedPct >= THREE_TIER_CONFIG.EXIT.trimPct) {
         // Track running peak price for drawdown calculation
         const _prevPeak = Number(execState.runnerPeakPrice) || Number(openTrade.runnerPeakPrice) || 0;
         if (Number.isFinite(pxNow) && pxNow > 0) {
@@ -16436,7 +17373,13 @@ async function processTradeSimulation(
             && _sreTrimmedPct >= 0.5
             && _sreMfePct >= 4.0
             && _sreC512ImmediateExit;
-          const _sreCancelDeferral = !!_sreResult.cancelDeferral || _sreC512CancelDeferral;
+          // V15 P0.6.3 (2026-04-26): When the DAILY 5/12 cloud is holding
+          // (per peak_lock_exit), the 15m c512 cancel-deferral signal is
+          // wick-level noise relative to the daily structure. Honor the
+          // daily structure as the source of truth.
+          const _peakLockCloudHoldingForCancel = !!tickerData?.__peak_lock_cloud_hold;
+          const _sreCancelDeferral = !_peakLockCloudHoldingForCancel
+            && (!!_sreResult.cancelDeferral || _sreC512CancelDeferral);
           const _sreTH = assessTrendHealth(tickerData, isLong ? "LONG" : "SHORT");
           const _sreCloudExp = _sreTH.cloudExpansion || {};
           const _sreCloudAligned = _sreCloudExp.allAligned && !_sreCloudExp.isCompressing;
@@ -16451,14 +17394,51 @@ async function processTradeSimulation(
             && _sreTrimmedPct >= 0.5
             && _sreMfePct >= 5.0
             && (_srePnlPct <= 1.0 || _sreRetained <= 0.25);
-          const _sreCanDeferSafetyNet = !_sreCancelDeferral && !_sreTrimThenReassessCloudBreak && _srePnlPct > 0 && (
+          // V15 P0.6.3 (2026-04-26): EMA-CLOUD-HOLD DEFERRAL
+          //   When the daily EMA12 cloud is holding (peak_lock_exit
+          //   stamped __peak_lock_cloud_hold), ANY smart-runner reason
+          //   should defer. The 15m cloud break is a wick-level signal
+          //   below the daily cloud which we explicitly want to absorb.
+          //   peak_lock_exit owns the structural exit decision.
+          //
+          // V15 P0.7.15 (2026-04-28): TOTAL-TRADE-PNL DEFERRAL FIX.
+          //   Forensic analysis of v16-ctx4 (Jul-Oct 2025) showed
+          //   SMART_RUNNER_SUPPORT_BREAK_CLOUD as the single worst exit
+          //   rule (n=26, WR=27%, PnL=-7.53%). Of those 26 trades,
+          //   19 (73%) had TOTAL trade PnL > 0 when the close fired
+          //   (realized trim profit + small runner red = net positive).
+          //   But _srePnlPct (runner-only) was negative, blocking the
+          //   deferral. Worst givebacks: ALB MFE+12.1%/kept+0.83%,
+          //   KTOS MFE+11.5%/kept+1.00%, AEHR MFE+5.8%/kept-0.77%.
+          //
+          //   Fix: compute total-trade PnL (realized_trim_pct * trim_frac
+          //   + runner_pnl * (1 - trim_frac)) and gate deferral on that
+          //   instead. Trimmed runners with positive TOTAL PnL deserve
+          //   the same daily-cloud-hold protection as un-trimmed winners.
+          const _peakLockCloudHolding = !!tickerData?.__peak_lock_cloud_hold;
+          // Compute total trade PnL including realized trim profit
+          const _sreTrimPctNum = clamp(Number(openTrade?.trimmedPct ?? openTrade?.trimmed_pct ?? 0), 0, 1);
+          const _sreTrimPriceNum = Number(openTrade?.trim_price ?? openTrade?.trimPrice) || 0;
+          const _sreEntryPxNum = Number(openTrade?.entryPrice) || entryPx;
+          const _sreRealizedTrimPnlPct = (_sreTrimPctNum > 0 && _sreTrimPriceNum > 0 && _sreEntryPxNum > 0)
+            ? (isLong
+                ? ((_sreTrimPriceNum - _sreEntryPxNum) / _sreEntryPxNum) * 100
+                : ((_sreEntryPxNum - _sreTrimPriceNum) / _sreEntryPxNum) * 100)
+            : 0;
+          const _sreTotalTradePnlPct = _sreTrimPctNum > 0
+            ? (_sreRealizedTrimPnlPct * _sreTrimPctNum) + (_srePnlPct * (1 - _sreTrimPctNum))
+            : _srePnlPct;
+          const _sreDeferPnlGate = _sreTotalTradePnlPct > 0;
+
+          const _sreCanDeferSafetyNet = !_sreCancelDeferral && !_sreTrimThenReassessCloudBreak && _sreDeferPnlGate && (
+            _peakLockCloudHolding ||
             (_sreCloudAligned && _sreTH.htfIntact) ||
             _sreTH.htfIntact ||
             _sreLtfSupportive
           );
 
           if (_sreCanDeferSafetyNet) {
-            console.log(`[SMART_RUNNER CLOUD HOLD] ${sym} ${_sreReason} deferred by safety net: htfIntact=${_sreTH.htfIntact ? 1 : 0} st15=${_sreSt15Dir} st30=${_sreSt30Dir} exp=${_sreCloudExp.expandingCount || 0}/3 (pnl=${_srePnlPct.toFixed(1)}%)`);
+            console.log(`[SMART_RUNNER CLOUD HOLD] ${sym} ${_sreReason} deferred by safety net: htfIntact=${_sreTH.htfIntact ? 1 : 0} st15=${_sreSt15Dir} st30=${_sreSt30Dir} exp=${_sreCloudExp.expandingCount || 0}/3 (runner_pnl=${_srePnlPct.toFixed(1)}% trim=${(_sreTrimPctNum*100).toFixed(0)}% total=${_sreTotalTradePnlPct.toFixed(2)}%)`);
             tickerData.__force_defend_stage = true;
             tickerData.__defend_reason = "smart_runner_deferred_structure_support";
             tickerData.__exit_family = "tt_context";
@@ -16616,7 +17596,10 @@ async function processTradeSimulation(
       }
     }
 
-    if (isExit && !_sameIntervalAsTrade && !weekendNow && (!outsideRTH || exitAllowedOutsideRTH) && exitCooldownOk && exitMinAgeOk && !fuseExitFired && !_exitPullbackShield && !_paritySkipSl && openTrade && isOpenTradeStatus(openTrade.status) && clamp(Number(openTrade.trimmedPct || 0), 0, 1) < 0.9999) {
+    // V15 P0.7.17: gate signal-based exits on 30m cadence in live mode.
+    // Hard exits (SL, max-loss, V13 nets) bypass the cadence gate.
+    const _exitGateAllowsLive = _liveManageGateOk || isSLExit;
+    if (_exitGateAllowsLive && isExit && !_sameIntervalAsTrade && !weekendNow && (!outsideRTH || exitAllowedOutsideRTH) && exitCooldownOk && exitMinAgeOk && !fuseExitFired && !_exitPullbackShield && !_paritySkipSl && openTrade && isOpenTradeStatus(openTrade.status) && clamp(Number(openTrade.trimmedPct || 0), 0, 1) < 0.9999) {
       if (flatPriceExit && !isSLExit) {
         // Price hasn't moved — keep holding instead of closing at $0 P&L
         console.log(`[TRADE SIM] ${sym} exit skipped: flat price (entry=$${Number(openTrade.entryPrice).toFixed(2)} exit=$${pxNow.toFixed(2)}), holding`);
@@ -17002,6 +17985,61 @@ async function processTradeSimulation(
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // V15 P0.7.21 (2026-04-29) — FIX 9: PROGRESSIVE BIG-MFE PARTIAL TRIM
+    //
+    // EVIDENCE (autopsy v16-fix4-jul-30m):
+    //   15 winners gave back >5pp combined +149.7pp from MFE peaks
+    //   Top: JOBY 33.5%->12.4%, AEHR 42%->21%, U 28.4%->12.1%
+    //
+    // FIX 2 (P0.7.19) tried to LOCK SL at entry+0.6*MFE, which closed
+    // legitimate runners on noise wicks (IREN regressed -3.94pp).
+    // FIX 9 takes a different approach: when MFE >= big_mfe_threshold
+    // AND already TP1-trimmed (>=50%), trim ANOTHER chunk (default 25%
+    // of remaining position) to LOCK PROFIT IMMEDIATELY without
+    // touching the SL. The runner half can still breathe through
+    // pullbacks; we just have less of it exposed.
+    //
+    // Mechanism:
+    //   - Triggers once per trade (tracked via execState.bigMfeTrimDone)
+    //   - Requires trimmedPct >= 0.50 (TP1 already hit, runner phase)
+    //   - Requires MFE >= 15% (DA-keyed)
+    //   - Trims an additional 25% of original position (DA-keyed)
+    //   - SL untouched (fixes FIX 2's failure mode)
+    //   - Hard exits still bypass via existing logic
+    const _f9Enabled = String(
+      tickerData?._env?._deepAuditConfig?.deep_audit_big_mfe_trim_enabled ?? "true"
+    ) === "true";
+    if (_f9Enabled && openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow) && pxNow > 0) {
+      const _f9Threshold = Number(
+        tickerData?._env?._deepAuditConfig?.deep_audit_big_mfe_trim_threshold_pct ?? 15.0
+      );
+      const _f9AddTrim = Math.max(0, Math.min(0.40, Number(
+        tickerData?._env?._deepAuditConfig?.deep_audit_big_mfe_trim_add_pct ?? 0.25
+      )));
+      const _f9MinTrimmed = Math.max(0.30, Math.min(0.95, Number(
+        tickerData?._env?._deepAuditConfig?.deep_audit_big_mfe_trim_min_trimmed_pct ?? 0.50
+      )));
+      const _f9CurMfe = Math.abs(Number(openTrade?.maxFavorableExcursion ?? openTrade?.max_favorable_excursion ?? 0));
+      const _f9CurTrim = clamp(Number(openTrade?.trimmedPct ?? openTrade?.trimmed_pct ?? 0), 0, 1);
+      const _f9AlreadyDone = !!execState?.bigMfeTrimDone || !!openTrade?.__big_mfe_trim_done;
+      if (
+        !_f9AlreadyDone
+        && _f9CurMfe >= _f9Threshold
+        && _f9CurTrim >= _f9MinTrimmed
+        && _f9CurTrim < 0.95
+        && !_sameIntervalAsTrade
+      ) {
+        const _f9NewTarget = Math.min(0.95, _f9CurTrim + _f9AddTrim);
+        console.log(`[BIG_MFE_TRIM] ${sym} MFE=${_f9CurMfe.toFixed(2)}% trimmed=${(_f9CurTrim*100).toFixed(0)}% -> +${(_f9AddTrim*100).toFixed(0)}% (new target ${(_f9NewTarget*100).toFixed(0)}%) at $${pxNow.toFixed(2)}`);
+        await trimTradeToPct(openTrade, _f9NewTarget, pxNow, "BIG_MFE_PROGRESSIVE_TRIM");
+        if (openTrade) openTrade.__big_mfe_trim_done = true;
+        const _f9Exec = { ...execState, bigMfeTrimDone: true, lastTrimMs: now };
+        if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _f9Exec);
+        else if (!isReplay) await kvPutJSON(KV, execKey, _f9Exec);
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // MFE SAFETY TRIM: Force global trim size when unrealized P&L >= threshold and
     // position is still untrimmed. Catches trades that reach 1%+ MFE but
     // never hit TP (set at 1.5x ATR ≈ 3%), preventing reversals into losses.
@@ -17084,15 +18122,75 @@ async function processTradeSimulation(
     //   Gate 2: Directional concentration — max 5 same-direction positions
     //   Gate 3: Correlation guard — block if highly correlated with existing
     //   Safety net: MAX_DAILY_ENTRIES to prevent runaway crons
-    const MAX_OPEN_POSITIONS = 20;      // hard cap on total open positions (was 15; simulation shows 15 blocks 12-13 trades incl winners)
-    const MAX_PER_SECTOR = 4;           // max open positions in one sector (was 3; Industrials/sector_etf over-blocked at 3)
-    const MAX_SAME_DIRECTION = 12;      // max positions in same direction (was 8; trend-following is overwhelmingly LONG)
-    const CORRELATION_SECTOR_THRESHOLD = 3; // if 3+ positions already in same sector, require higher quality
-    // v3: Regime-adaptive daily entry cap
+    // V15 P0.7.7 (2026-04-27): caps re-tuned after universe-coverage audit.
+    //
+    // Universe sector saturation (203 tickers):
+    //   Industrials             44   → fixed cap 4 = 9.1% utilization (too tight)
+    //   Information Technology  43   → 9.3% (too tight)
+    //   Consumer Discretionary  20   → 20%
+    //   Index ETF                4   → 100% (was 22% under bundled ETF bucket)
+    //   Financials              13   → 31%
+    //   Energy                  12   → 33%
+    //   Basic Materials         11   → 36%
+    //   Health Care             16   → 25% (after Healthcare/Health Care
+    //                                       dedupe)
+    //   Communication Services   8   → 50%
+    //   Consumer Staples         7   → 57%
+    //
+    // Fixed cap 4 was the wrong shape. New cap is proportional:
+    //   MAX_PER_SECTOR_PCT × sector_universe_size, floored at 4.
+    //
+    // MAX_OPEN_POSITIONS raised to 35 to support strong-trend days where
+    // 30+ quality setups across multiple sectors fire simultaneously.
+    // The 50 ceiling stays as a runaway-cron safety. Capital cap (V16)
+    // will be the true governor.
+    //
+    // MAX_SAME_DIRECTION raised to 25 — given universe LONG-bias, the
+    // 12 cap was hitting on every strong-trend day. Real correlation
+    // risk is via sector concentration, not total direction count.
+    const MAX_OPEN_POSITIONS = 35;      // raised from 20; runaway-safety only
+    const MAX_OPEN_POSITIONS_HARD_LIMIT = 50;  // absolute backstop
+    const MAX_PER_SECTOR_PCT = 0.20;    // 20% of sector universe size
+    const MAX_PER_SECTOR_FLOOR = 4;     // never less than 4
+    const MAX_SAME_DIRECTION = 25;      // raised from 12 (LONG-bias of universe)
+    const CORRELATION_SECTOR_THRESHOLD = Math.max(3, MAX_PER_SECTOR_FLOOR - 1);
+    // v3 → V15 P0.7.6 (2026-04-27): regime-adaptive daily entry cap
+    // *deprecated* — the cap was an artificial time-of-day filter that
+    // imposed scarcity on a system that already filters quality via
+    // multiple gates (focus_conviction, h3_consensus, sector
+    // concentration, correlation, MAX_OPEN_POSITIONS).
+    //
+    // Why the cap was wrong:
+    //   1. It capped by COUNT not CAPITAL — wrong model. A real trader
+    //      sizes positions by risk, not "I already took 4, no more."
+    //   2. It created chronological bias — morning entries beat
+    //      afternoon entries regardless of conviction. LITE Jul 14
+    //      15:30 was missed in the first P0.7.5 attempt because morning
+    //      borderlines filled the cap.
+    //   3. NVDA and META can run for completely different reasons on
+    //      the same day; the cap conflated them.
+    //
+    // What replaces it:
+    //   - MAX_OPEN_POSITIONS = 20 (hard ceiling for cron-runaway safety)
+    //   - MAX_PER_SECTOR = 4
+    //   - MAX_SAME_DIRECTION = 12
+    //   - All quality gates (conviction, h3, RVol, etc.) unchanged.
+    //
+    // Live-system future work (Phase B): replace count-cap with capital-
+    // aware allocation — when allocated risk > 80% of account, reject
+    // new entries. Captured in tasks/ for V16+.
+    //
+    // The cap is now configurable and DEFAULTS TO UNCAPPED (effectively
+    // 999). If a future need arises (regime flip, fat-finger guardrail),
+    // set deep_audit_max_daily_entries via DA config to a positive
+    // number to re-enable.
     const tickerRegimeClass = String(tickerData?.regime_class || "TRANSITIONAL");
-    const regimeDailyMax = tickerRegimeClass === "CHOPPY" ? 2
-      : tickerRegimeClass === "TRANSITIONAL" ? 4 : 6;
-    const MAX_DAILY_ENTRIES = regimeDailyMax;
+    const _daCapRaw = Number(
+      tickerData?._env?._deepAuditConfig?.deep_audit_max_daily_entries
+    );
+    const MAX_DAILY_ENTRIES = (Number.isFinite(_daCapRaw) && _daCapRaw > 0)
+      ? _daCapRaw
+      : 999;
     
     const db = env?.DB;
     const canRunSmartGates = isEnter && !weekendNow && !outsideRTH && enterCooldownOk && !sameEnterCycle && !openTrade && (db || isReplay);
@@ -17126,16 +18224,33 @@ async function processTradeSimulation(
           console.log(`[SMART_GATE] Blocked ${sym}: ${smartGateReason}`);
         }
 
-        // Gate 1: Sector concentration
+        // Gate 1: Sector concentration — proportional to sector universe size.
+        // V15 P0.7.7: replaces fixed MAX_PER_SECTOR=4 which over-blocked
+        // large sectors (Industrials 44 tickers → only 9% could trade).
         let sectorCount = 0;
+        let sectorCapForCandidate = MAX_PER_SECTOR_FLOOR;
         if (!smartGateBlocked) {
           for (const pos of openPositions) {
             const posSector = getSector(String(pos.ticker).toUpperCase()) || "UNKNOWN";
             if (posSector === candidateSector && candidateSector !== "UNKNOWN") sectorCount++;
           }
-          if (sectorCount >= MAX_PER_SECTOR) {
+          // Compute proportional cap based on candidate's sector size.
+          // getTickersInSector enumerates the SECTOR_MAP for that sector.
+          let sectorUniverseSize = 0;
+          try {
+            sectorUniverseSize = (typeof getTickersInSector === "function")
+              ? getTickersInSector(candidateSector).length
+              : 0;
+          } catch (e) {
+            sectorUniverseSize = 0;
+          }
+          sectorCapForCandidate = Math.max(
+            MAX_PER_SECTOR_FLOOR,
+            Math.ceil(sectorUniverseSize * MAX_PER_SECTOR_PCT)
+          );
+          if (sectorCount >= sectorCapForCandidate) {
             smartGateBlocked = true;
-            smartGateReason = `sector_full:${sectorCount}/${MAX_PER_SECTOR} ${candidateSector}`;
+            smartGateReason = `sector_full:${sectorCount}/${sectorCapForCandidate} ${candidateSector} (univ=${sectorUniverseSize})`;
             console.log(`[SMART_GATE] Blocked ${sym}: ${smartGateReason}`);
           }
         }
@@ -17154,13 +18269,18 @@ async function processTradeSimulation(
         }
         
         // Gate 3: Correlation guard (sector proxy)
-        // If 2+ positions already in same sector, require higher entry quality
-        if (!smartGateBlocked && sectorCount >= CORRELATION_SECTOR_THRESHOLD) {
+        // If positions are >=75% of sector cap, require higher entry quality.
+        // V15 P0.7.7: scales with proportional sector cap.
+        const correlationThreshold = Math.max(
+          MAX_PER_SECTOR_FLOOR - 1,
+          Math.ceil(sectorCapForCandidate * 0.75)
+        );
+        if (!smartGateBlocked && sectorCount >= correlationThreshold) {
           const eqScore = Number(tickerData?.entry_quality?.score || tickerData?.__entry_quality) || 0;
-          const requiredQuality = 80; // higher bar when sector is already represented (was 75)
+          const requiredQuality = 80;
           if (eqScore > 0 && eqScore < requiredQuality) {
             smartGateBlocked = true;
-            smartGateReason = `correlated:${sectorCount} in ${candidateSector}, need quality>=${requiredQuality} (got ${eqScore})`;
+            smartGateReason = `correlated:${sectorCount}/${sectorCapForCandidate} in ${candidateSector}, need quality>=${requiredQuality} (got ${eqScore})`;
             console.log(`[SMART_GATE] Blocked ${sym}: ${smartGateReason}`);
           }
         }
@@ -17336,7 +18456,29 @@ async function processTradeSimulation(
       !parityOpeningConfirmedDeferred
     ) {
       try {
-        const _entryRiskEvent = await findUpcomingEntryRiskEvent(env, replayCtx, sym, now, tickerData);
+        // V16 (2026-04-28): ALWAYS load all upcoming candidates (not
+        // only the one that triggers a block). Stamp the nearest
+        // earnings/macro event on tickerData.__upcomingEntryEvent so
+        // the setup_snapshot can record event proximity for ALL
+        // entries — critical for context-aware analysis.
+        const _allUpcoming = await loadUpcomingRiskEventCandidates(env, replayCtx, sym, now);
+        if (Array.isArray(_allUpcoming) && _allUpcoming.length > 0) {
+          const _nearest = _allUpcoming[0];
+          const _hoursAway = Number.isFinite(_nearest?.scheduledTs)
+            ? Math.max(0, (_nearest.scheduledTs - now) / 3600000)
+            : null;
+          tickerData.__upcomingEntryEvent = {
+            event_type: _nearest.eventType,
+            event_key: _nearest.eventKey || null,
+            date_key: _nearest.dateKey || null,
+            session: _nearest.session || null,
+            hours_to_event: _hoursAway,
+            ticker: _nearest.ticker || null,
+          };
+        }
+        const _entryRiskEvent = (Array.isArray(_allUpcoming) && _allUpcoming.length > 0)
+          ? _allUpcoming.find((event) => eventIsDueForEntryBlock(event, now, tickerData))
+          : null;
         if (_entryRiskEvent?.eventType === "earnings") {
           const _entryHoursToEvent = Number.isFinite(_entryRiskEvent.scheduledTs)
             ? Math.max(0, (_entryRiskEvent.scheduledTs - now) / 3600000)
@@ -18259,6 +19401,9 @@ async function processTradeSimulation(
                         tickerData._ticker_type = getTickerTypeForFocus(tickerData.ticker || "");
                       }
                       const ctx = {
+                        // V15 P0.1: pass entry side so Saty ATR proximity
+                        // signal can detect fade-into-level entries.
+                        side: direction || null,
                         market: {
                           monthlySectorTop: tickerData?._env?._monthlyCycle?.sectorTop || null,
                           monthlySectorBottom: tickerData?._env?._monthlyCycle?.sectorBottom || null,
@@ -18286,6 +19431,142 @@ async function processTradeSimulation(
                     base.focus_conviction_score = tickerData?.__focus_conviction_score;
                     base.focus_conviction_breakdown = tickerData?.__focus_conviction_breakdown;
                   }
+                  // V16 (2026-04-28): SETUP-FITNESS SNAPSHOT merged into
+                  // rank_trace_json. Captures which Ripster setup
+                  // families were eligible at entry + full context.
+                  // Data foundation for context-aware setup selection
+                  // and the 6 dimensions the user wants:
+                  //   1. Ticker
+                  //   2. MTF Narrative (state + per-TF stDir + RSI)
+                  //   3. R:R (calculated rr value)
+                  //   4. Market Regime (regime_class + market internals
+                  //      vix/sector_rotation)
+                  //   5. Event Proximity (upcoming risk event)
+                  //   6. Cross-Asset (sector ETF performance, BTC, gold,
+                  //      oil, dollar via market_internals + sector_rotation)
+                  const _mi = tickerData?._env?._marketInternals
+                    || tickerData?._env?._marketRegime?.market_internals
+                    || null;
+                  base.setup_snapshot = {
+                    // 1. Selection + setup eligibility
+                    selected_path: entryPath,
+                    ath_breakout: tickerData?.__ath_breakout_diag || null,
+                    range_reversal: tickerData?.__range_reversal_diag || null,
+                    gap_reversal: tickerData?.__gap_reversal_diag || null,
+                    n_test_support: tickerData?.__n_test_support_diag || null,
+                    index_etf_swing: tickerData?.__index_etf_swing_diag || null,
+                    // 2. MTF narrative
+                    state: tickerData?.state || null,
+                    htf_score: Number(tickerData?.htf_score) || null,
+                    ltf_score: Number(tickerData?.ltf_score) || null,
+                    st_dir: {
+                      m10: Number(tickerData?.tf_tech?.["10"]?.stDir) || null,
+                      m30: Number(tickerData?.tf_tech?.["30"]?.stDir) || null,
+                      h1: Number(tickerData?.tf_tech?.["1H"]?.stDir ?? tickerData?.tf_tech?.["60"]?.stDir) || null,
+                      h4: Number(tickerData?.tf_tech?.["4H"]?.stDir) || null,
+                      D: Number(tickerData?.tf_tech?.["D"]?.stDir) || null,
+                    },
+                    rsi: {
+                      m30: Number(tickerData?.tf_tech?.["30"]?.rsi?.r5) || null,
+                      h1: Number(tickerData?.tf_tech?.["1H"]?.rsi?.r5 ?? tickerData?.tf_tech?.["60"]?.rsi?.r5) || null,
+                      D: Number(tickerData?.tf_tech?.["D"]?.rsi?.r5) || null,
+                    },
+                    // 3. Risk:Reward at entry
+                    rr: Number(tickerData?.rr) || null,
+                    // Daily structure (compact)
+                    bull_stack: tickerData?.daily_structure?.bull_stack || null,
+                    bear_stack: tickerData?.daily_structure?.bear_stack || null,
+                    above_e200: tickerData?.daily_structure?.above_e200 || null,
+                    pct_above_e21: tickerData?.daily_structure?.pct_above_e21 || null,
+                    pct_above_e48: tickerData?.daily_structure?.pct_above_e48 || null,
+                    e21_slope_5d: tickerData?.daily_structure?.e21_slope_5d_pct || null,
+                    rvol_best: Number(tickerData?.rvol?.best) || null,
+                    rvol_30m: Number(tickerData?.rvol_map?.["30"]?.vr) || null,
+                    // 4. Market regime + internals
+                    regime_class: tickerData?.regime_class || null,
+                    regime_combined: tickerData?.swing_consensus?.regime_combined || null,
+                    execution_profile: tickerData?.execution_profile?.name || null,
+                    ticker_personality: tickerData?.execution_profile?.personality
+                      || tickerData?.ticker_character?.learned_profile?.personality
+                      || null,
+                    market_internals: _mi ? {
+                      overall: _mi.overall || null,
+                      vix_state: _mi.vix?.state || null,
+                      vix_price: _mi.vix?.price || null,
+                      sector_rotation: _mi.sector_rotation?.state || null,
+                      offense_avg_pct: _mi.sector_rotation?.offense_avg_pct || null,
+                      defense_avg_pct: _mi.sector_rotation?.defense_avg_pct || null,
+                    } : null,
+                    cross_asset: _mi?.cross_asset ? {
+                      gold_pct: _mi.cross_asset.gold_pct,
+                      silver_pct: _mi.cross_asset.silver_pct,
+                      oil_pct: _mi.cross_asset.oil_pct,
+                      dollar_pct: _mi.cross_asset.dollar_pct,
+                      energy_pct: _mi.cross_asset.energy_pct,
+                      btc_pct: _mi.cross_asset.btc_pct,
+                    } : null,
+                    // V15 P0.7.22 (2026-04-29) — capture TD Sequential per TF
+                    // for retrospective WR/PnL analysis. The system already
+                    // computes td9/td13/prep counts internally; we now stamp
+                    // them on the snapshot so the autopsy can correlate them
+                    // with trade outcomes (per user request: "where the price
+                    // is in relation to TD Count and how to exhaustion across
+                    // TFs").
+                    td_seq: (() => {
+                      const _td = tickerData?.td_sequential?.per_tf;
+                      if (!_td || typeof _td !== "object") return null;
+                      const out = {};
+                      for (const tf of ["10","30","60","240","D","W"]) {
+                        const r = _td[tf];
+                        if (!r) continue;
+                        out[tf] = {
+                          bull_prep: Number(r.bullish_prep_count) || 0,
+                          bear_prep: Number(r.bearish_prep_count) || 0,
+                          bull_leadup: Number(r.bullish_leadup_count) || 0,
+                          bear_leadup: Number(r.bearish_leadup_count) || 0,
+                          td9_bull: !!r.td9_bullish,
+                          td9_bear: !!r.td9_bearish,
+                          td13_bull: !!r.td13_bullish,
+                          td13_bear: !!r.td13_bearish,
+                        };
+                      }
+                      return Object.keys(out).length ? out : null;
+                    })(),
+                    // V15 P0.7.22 — capture PDZ (Premium/Equilibrium/Discount)
+                    // zone state per TF. Per user request: "Premium,
+                    // Equilibrium, Discount Zone in proximity across TFs".
+                    pdz: {
+                      D: tickerData?.pdz_zone_D || null,
+                      h4: tickerData?.pdz_zone_4h || null,
+                      h1: tickerData?.pdz_zone_1h || tickerData?.pdz_zone_h1 || null,
+                    },
+                    // V15 P0.7.22 — capture divergence flags. Per user
+                    // request: "Divergence recently or forming across TFs".
+                    // adverse = divergence going against trade direction.
+                    divergence: tickerData?.__entry_divergence_summary || null,
+                    // 5. Event proximity (always stamped now,
+                    //    not only when blocking entry)
+                    upcoming_risk_event: tickerData?.__upcomingEntryEvent
+                      || (tickerData?.__upcomingRiskEvent ? {
+                        event_type: tickerData.__upcomingRiskEvent.eventType,
+                        event_key: tickerData.__upcomingRiskEvent.eventKey || null,
+                        date_key: tickerData.__upcomingRiskEvent.dateKey || null,
+                        session: tickerData.__upcomingRiskEvent.session || null,
+                        hours_to_event: tickerData.__upcomingRiskEvent.hoursToEvent,
+                        ticker: tickerData.__upcomingRiskEvent.ticker || null,
+                      } : null),
+                    // 6. Cross-asset / sector context
+                    sector: tickerData?._sector || null,
+                    sector_alignment: tickerData?.sector_alignment || null,
+                    spy_struct: tickerData?._env?._marketRegime?.spy_daily_structure
+                      ? {
+                          bull_stack: tickerData._env._marketRegime.spy_daily_structure.bull_stack,
+                          bear_stack: tickerData._env._marketRegime.spy_daily_structure.bear_stack,
+                          pct_above_e21: tickerData._env._marketRegime.spy_daily_structure.pct_above_e21,
+                          e21_slope_5d: tickerData._env._marketRegime.spy_daily_structure.e21_slope_5d_pct,
+                        }
+                      : null,
+                  };
                   return Object.keys(base).length ? JSON.stringify(base) : null;
                 } catch (_err) {
                   return null;
@@ -30279,7 +31560,18 @@ async function getPriceFromTrailAtTimestamp(db, ticker, tsMs) {
   }
 }
 
-/** Load all trades from D1 for simulation (same shape as KV). Includes shares from positions. */
+/** Load all trades from D1 for simulation (same shape as KV). Includes shares from positions.
+ *
+ * V15 P0.7.16 (2026-04-29): EXCLUDE BACKTEST TRADES.
+ *   This function is called by the LIVE CRON's processTradeSimulation
+ *   to fetch all trades for management. Backtest replays write trades
+ *   with a non-null run_id but skip the live execution adapter (no
+ *   `positions` row). Without filtering here, the live cron loads
+ *   backtest OPEN trades, classifies them via classifyKanbanStage, and
+ *   force-closes them at WALL-CLOCK time (e.g. v13_hard_age_cap fires
+ *   because age=300d). Filter at the source: only return live trades
+ *   (run_id IS NULL or run_id matches the active live config slot).
+ */
 async function d1LoadTradesForSimulation(env) {
   const db = env?.DB;
   if (!db) return null;
@@ -30289,11 +31581,13 @@ async function d1LoadTradesForSimulation(env) {
       const tradesRes = await db.prepare(
         `SELECT t.trade_id, t.ticker, t.direction, t.entry_ts, t.entry_price, t.rank, t.rr, t.status,
           t.exit_ts, t.exit_price, t.exit_reason, t.trimmed_pct, t.pnl, t.pnl_pct,
-          t.script_version, t.created_at, t.updated_at, t.trim_ts, t.trim_price,
+          t.script_version, t.created_at, t.updated_at, t.trim_ts, t.trim_price, t.run_id,
           t.shares AS t_shares, t.notional AS t_notional, t.setup_grade, t.setup_name, t.risk_budget,
           COALESCE(p.total_qty, 0) AS pos_qty
          FROM trades t
          LEFT JOIN positions p ON p.position_id = t.trade_id
+         WHERE t.run_id IS NULL
+            OR t.run_id IN (SELECT run_id FROM backtest_runs WHERE live_config_slot = 1)
          ORDER BY t.entry_ts DESC`
       ).all();
       rows = Array.isArray(tradesRes?.results) ? tradesRes.results : [];
@@ -30302,8 +31596,11 @@ async function d1LoadTradesForSimulation(env) {
         const tradesRes = await db.prepare(
           `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
             exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
-            script_version, created_at, updated_at, trim_ts, trim_price
-           FROM trades ORDER BY entry_ts DESC`
+            script_version, created_at, updated_at, trim_ts, trim_price, run_id
+           FROM trades
+           WHERE run_id IS NULL
+              OR run_id IN (SELECT run_id FROM backtest_runs WHERE live_config_slot = 1)
+           ORDER BY entry_ts DESC`
         ).all();
         rows = (Array.isArray(tradesRes?.results) ? tradesRes.results : []).map((r) => ({ ...r, pos_qty: 0 }));
       } else throw joinErr;
@@ -30367,6 +31664,7 @@ async function d1LoadTradesForSimulation(env) {
         script_version: r.script_version,
         created_at: r.created_at,
         updated_at: r.updated_at,
+        run_id: r.run_id || null,
         shares: Number.isFinite(shares) && shares > 0 ? shares : undefined,
         notional: notionalVal > 0 ? notionalVal : undefined,
         setup_grade: r.setup_grade || undefined,
@@ -30379,6 +31677,21 @@ async function d1LoadTradesForSimulation(env) {
     // ── Reconcile: close OPEN trades that have no matching OPEN position in D1 ──
     // This prevents phantom trades (e.g. entry failed but trade row persists)
     // from being treated as active positions throughout the system.
+    //
+    // V15 P0.7.16 (2026-04-29): EXCLUDE BACKTEST TRADES.
+    //   Trades created by replay/backtest write to `trades` (with run_id)
+    //   but DO NOT write to the `positions` table (replay skips the
+    //   execution adapter — see processTradeSimulation line 14039-14048).
+    //   Without this gate, the live cron's "reconciled_no_position" path
+    //   force-closes every OPEN backtest trade at WALL-CLOCK time using
+    //   live prices — corrupting the backtest mid-run.
+    //   Symptoms observed in v16-fix1-jul: 12 Jul-1 trades exit-stamped
+    //   at Apr 28 23:57 with v13_hard_age_cap (age=301d via Date.now())
+    //   and live-prices (AMZN +17.7%, CSX +35.0%) — the trades got
+    //   classified by the live cron's classifyKanbanStage which
+    //   computed age from wall-clock since asOfTs was null in live mode.
+    //   Fix: skip ANY trade with non-null run_id from this reconcile path.
+    //   Live trades have run_id == NULL (live cron never sets it).
     try {
       const posRes = await db.prepare(
         `SELECT DISTINCT ticker FROM positions WHERE status = 'OPEN'`
@@ -30389,6 +31702,10 @@ async function d1LoadTradesForSimulation(env) {
         const sym = String(t.ticker || "").toUpperCase();
         const isOpen = t.status === "OPEN" || t.status === "TP_HIT_TRIM";
         if (!isOpen) continue;
+        // Belt-and-suspenders: SQL already excludes backtest trades.
+        // Keep this guard for the legacy fallback path that doesn't
+        // include run_id in its SELECT.
+        if (t.run_id || t.runId) continue;
 
         if (!posOpen.has(sym)) {
           const pnlVal = Number(t.pnl || t.realizedPnl || 0);
@@ -31670,14 +32987,14 @@ const SECTOR_MAP = {
   UHS: "Health Care",
   VRTX: "Health Care",
   ISRG: "Health Care",
-  UNH: "Healthcare",
-  LLY: "Healthcare",
-  MRK: "Healthcare",
-  ABT: "Healthcare",
-  HIMS: "Healthcare",
-  TEM: "Healthcare",
-  BMNR: "Healthcare",
-  CRWV: "Healthcare",
+  UNH: "Health Care",
+  LLY: "Health Care",
+  MRK: "Health Care",
+  ABT: "Health Care",
+  HIMS: "Health Care",
+  TEM: "Health Care",
+  BMNR: "Health Care",
+  CRWV: "Health Care",
   // ── Aerospace & Defense ──
   RKLB: "Aerospace & Defense",
   NOC: "Aerospace & Defense",
@@ -31693,14 +33010,14 @@ const SECTOR_MAP = {
   AGQ: "Precious Metals",
   HL: "Precious Metals",
   // ── Leveraged / Thematic ETFs ──
-  SOXL: "ETF",
-  TNA: "ETF",
+  SOXL: "Index ETF",                   // 3x semis — leveraged, behaves like index ETF
+  TNA: "Index ETF",                    // 3x small caps — leveraged, behaves like index ETF
   XHB: "Sector ETF",                   // SPDR Homebuilders ETF
   IBB:  "Thematic ETF",                // iShares Biotech ETF
   INFL: "Thematic ETF",                // Horizon Kinetics Inflation Beneficiaries
   LIT:  "Thematic ETF",                // Global X Lithium & Battery Tech
-  RPG:  "Thematic ETF",                // Invesco S&P 500 Pure Growth
-  SPHB: "Thematic ETF",                // Invesco S&P 500 High Beta
+  RPG:  "Index ETF",                   // Invesco S&P 500 Pure Growth (broad equity)
+  SPHB: "Index ETF",                   // Invesco S&P 500 High Beta (broad equity)
   GRNJ: "Thematic ETF",                // Fundstrat Granny Shots Small-Mid Cap
   GRNI: "Thematic ETF",                // Fundstrat Granny Shots Large Cap & Income
   DBA:  "Commodity ETF",               // Invesco Agriculture Fund
@@ -31721,12 +33038,17 @@ const SECTOR_MAP = {
   SLV: "Commodity ETF",
   USO: "Commodity ETF",
   VIXY: "Commodity ETF",
+  // ── Index ETFs (broad-market, tradeable as of Phase-E) ──
+  // Each is its OWN risk vehicle — SPY ≠ QQQ ≠ IWM ≠ DIA from a
+  // concentration standpoint. They are NOT the same "sector" as the
+  // sector-decomposition ETFs (XL*) which DO overlap with their
+  // underlying single-name sector positions.
   DIA: "Index ETF",
+  SPY: "Index ETF",
+  QQQ: "Index ETF",
+  IWM: "Index ETF",
   // ── Indices (watch-only — scored but not traded) ──
   SPX: "Index",
-  SPY: "Index",
-  QQQ: "Index",
-  IWM: "Index",
   US500: "Index",                       // S&P 500 (TradingView alias)
   // ── Futures (watch-only — scored but not traded) ──
   "ES1!": "Futures",
@@ -31785,9 +33107,15 @@ const SECTOR_RATINGS = {
   "Real Estate":             { rating: "neutral",     boost: 0,  delta: 0.0  },
   Utilities:                 { rating: "neutral",     boost: 0,  delta: 0.0  },
   Energy:                    { rating: "underweight", boost: -3, delta: -1.6 },
-  Healthcare:                { rating: "underweight", boost: -4, delta: -2.0 },
   "Health Care":             { rating: "underweight", boost: -4, delta: -2.0 },
   "Consumer Staples":        { rating: "underweight", boost: -5, delta: -4.0 },
+  // ETF sub-categories (V15 P0.7.7 — decomposed from single 'ETF' bucket)
+  "Index ETF":               { rating: "neutral",     boost: 0,  delta: 0.0  },
+  "Sector ETF":              { rating: "neutral",     boost: 0,  delta: 0.0  },
+  "Thematic ETF":            { rating: "neutral",     boost: 0,  delta: 0.0  },
+  "Commodity ETF":           { rating: "neutral",     boost: 0,  delta: 0.0  },
+  // Legacy single-bucket key (kept for back-compat with stored configs).
+  ETF:                       { rating: "neutral",     boost: 0,  delta: 0.0  },
 };
 
 function getSector(ticker) {
@@ -46818,6 +48146,98 @@ export default {
         return sendJSON({ ok: true, released: true }, 200, corsHeaders(env, req));
       }
 
+      // POST /timed/admin/cleanup-orphan-trades?key=...
+      // Force-close all trades with status=OPEN and run_id IS NULL that
+      // are older than the threshold (default 7 days). These are leftover
+      // trades from prior backtests/migrations that never got run_id stamped
+      // and the live cron force-closes them at wall-clock time using
+      // v13_hard_age_cap, polluting subsequent backtest runs.
+      // Sets status=CANCELED with a synthetic exit_ts = entry_ts + 1ms so
+      // they're considered closed but don't get treated as wall-clock exits.
+      if (routeKey === "POST /timed/admin/cleanup-orphan-trades") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        const KV = env?.KV_TIMED;
+        try {
+          const minAgeDays = Number(url.searchParams.get("min_age_days") || "7");
+          const now = Date.now();
+          const cutoff = now - (minAgeDays * 86400 * 1000);
+          let d1Closed = 0; let d1Found = [];
+          let posClosed = 0; let posFound = [];
+          if (db) {
+            // Trades table — orphans (run_id NULL, OPEN, old)
+            const { results: orphans } = await db.prepare(
+              `SELECT trade_id, ticker, entry_ts FROM trades
+               WHERE status = 'OPEN' AND run_id IS NULL AND entry_ts < ?1`
+            ).bind(cutoff).all();
+            d1Found = orphans || [];
+            for (const r of d1Found) {
+              await db.prepare(
+                `UPDATE trades SET status='CANCELED', exit_ts=entry_ts+1, exit_reason='admin_orphan_cleanup',
+                                   pnl=0, pnl_pct=0, updated_at=?1 WHERE trade_id=?2`
+              ).bind(now, r.trade_id).run();
+              d1Closed++;
+              try { await KV?.delete?.(`timed:trade:${r.trade_id}`); } catch {}
+            }
+            // Positions table — close ALL OPEN positions older than cutoff.
+            // The positions table doesn't have run_id, and any position
+            // older than `min_age_days` is by definition orphaned (live
+            // trading shouldn't have positions older than a few days).
+            const { results: posOrphans } = await db.prepare(
+              `SELECT position_id, ticker, created_at
+               FROM positions
+               WHERE status = 'OPEN' AND created_at < ?1`
+            ).bind(cutoff).all();
+            posFound = posOrphans || [];
+            for (const r of posFound) {
+              await db.prepare(
+                `UPDATE positions SET status='CLOSED', closed_at=?1, updated_at=?1 WHERE position_id=?2`
+              ).bind(now, r.position_id).run();
+              posClosed++;
+            }
+          }
+          // Also purge KV-only orphan trades (legacy live trades that
+          // never made it to D1). Read timed:trades:all, drop OPEN
+          // trades older than cutoff with run_id NULL.
+          let kvFound = 0; let kvKept = 0;
+          if (KV) {
+            try {
+              const raw = await KV.get("timed:trades:all");
+              const list = raw ? JSON.parse(raw) : [];
+              if (Array.isArray(list)) {
+                const remaining = [];
+                for (const t of list) {
+                  const isOpen = String(t?.status || "").toUpperCase() === "OPEN";
+                  const noRunId = !t?.run_id;
+                  const oldEnough = Number(t?.entry_ts) < cutoff;
+                  if (isOpen && noRunId && oldEnough) {
+                    kvFound++;
+                    try { await KV.delete(`timed:trade:${t.trade_id || t.id}`); } catch {}
+                  } else {
+                    remaining.push(t);
+                    kvKept++;
+                  }
+                }
+                await KV.put("timed:trades:all", JSON.stringify(remaining));
+              }
+            } catch (kvErr) {
+              console.warn("[cleanup-orphan-trades] KV cleanup failed:", String(kvErr?.message || kvErr));
+            }
+          }
+          return sendJSON({
+            ok: true,
+            d1_trades: { found: d1Found.length, closed: d1Closed },
+            d1_positions: { found: posFound.length, closed: posClosed },
+            kv: { found: kvFound, kept: kvKept },
+            trade_orphans: d1Found.map(r => ({ trade_id: r.trade_id, ticker: r.ticker, entry_ts: r.entry_ts })),
+            position_orphans: posFound.map(r => ({ position_id: r.position_id, ticker: r.ticker, created_at: r.created_at })),
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // ═══════════════════════════════════════════════════════════════════════
       // BACKTEST RUN REGISTRY — CRUD for tracking backtest runs
       // ═══════════════════════════════════════════════════════════════════════
@@ -46921,30 +48341,43 @@ export default {
         try {
           const body = await req.json().catch(() => ({}));
           if (!body?.run_id) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
-          const validationRow = await db.prepare(
-            `SELECT gate_status, reference_run_id, updated_at
-               FROM backtest_run_validation_artifacts
-              WHERE run_id = ?1
-                AND artifact_type = 'sentinel_basket_v1'
-              LIMIT 1`
-          ).bind(body.run_id).first();
-          if (!validationRow) {
-            return sendJSON({
-              ok: false,
-              error: "sentinel_validation_required",
-              detail: "Generate a sentinel validation artifact before promoting this run.",
-            }, 409, corsHeaders(env, req));
+          // V15 P0.7.17 (2026-04-29): support force=true to bypass sentinel
+          // gate when promoting an iterative-fix smoke run as the live
+          // savepoint. Used during the V15 fix-and-validate sequence
+          // where sentinel artifacts haven't been regenerated yet.
+          const force = body?.force === true || String(body?.force || "").toLowerCase() === "true";
+          if (!force) {
+            const validationRow = await db.prepare(
+              `SELECT gate_status, reference_run_id, updated_at
+                 FROM backtest_run_validation_artifacts
+                WHERE run_id = ?1
+                  AND artifact_type = 'sentinel_basket_v1'
+                LIMIT 1`
+            ).bind(body.run_id).first();
+            if (!validationRow) {
+              return sendJSON({
+                ok: false,
+                error: "sentinel_validation_required",
+                detail: "Generate a sentinel validation artifact before promoting this run, OR pass force=true.",
+              }, 409, corsHeaders(env, req));
+            }
+            if (String(validationRow?.gate_status || "").toLowerCase() === "error") {
+              return sendJSON({
+                ok: false,
+                error: "sentinel_validation_failed",
+                detail: "The latest sentinel validation artifact is in an error state.",
+              }, 409, corsHeaders(env, req));
+            }
           }
-          if (String(validationRow?.gate_status || "").toLowerCase() === "error") {
-            return sendJSON({
-              ok: false,
-              error: "sentinel_validation_failed",
-              detail: "The latest sentinel validation artifact is in an error state.",
-            }, 409, corsHeaders(env, req));
+          // Verify the run exists
+          const runRow = await db.prepare(`SELECT run_id, status FROM backtest_runs WHERE run_id = ?1`).bind(body.run_id).first();
+          if (!runRow) {
+            return sendJSON({ ok: false, error: "run_not_found" }, 404, corsHeaders(env, req));
           }
           await db.prepare(`UPDATE backtest_runs SET live_config_slot = 0 WHERE live_config_slot = 1`).run();
           await db.prepare(`UPDATE backtest_runs SET live_config_slot = 1, updated_at = ?2 WHERE run_id = ?1`).bind(body.run_id, Date.now()).run();
-          return sendJSON({ ok: true, run_id: body.run_id }, 200, corsHeaders(env, req));
+          console.log(`[MARK_LIVE] ${body.run_id} promoted to live_config_slot=1${force ? " (force=true)" : ""}`);
+          return sendJSON({ ok: true, run_id: body.run_id, forced: force }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }

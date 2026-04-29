@@ -1181,6 +1181,18 @@ export function computeTfBundle(bars, anchors = null) {
   const rsiArr = rsiSeries(closes, 14);
   const rsi = rsiArr[last];
 
+  // V15 P0.2 — RSI 5-bar slope (in RSI points per bar). Used by the
+  // focus-tier slope alignment signal: a SHORT entered when RSI is
+  // sloping up against direction is a fade trap.
+  let rsi_slope_5bar = null;
+  if (rsiArr.length >= 6) {
+    const _rsiNow = rsiArr[rsiArr.length - 1];
+    const _rsiThen = rsiArr[rsiArr.length - 6];
+    if (Number.isFinite(_rsiNow) && Number.isFinite(_rsiThen)) {
+      rsi_slope_5bar = Math.round(((_rsiNow - _rsiThen) / 5) * 100) / 100;
+    }
+  }
+
   // RSI Divergence
   const rsiDiv = detectRsiDivergence(bars, rsiArr, 5, 10);
 
@@ -1207,6 +1219,21 @@ export function computeTfBundle(bars, anchors = null) {
 
   // Phase velocity (approximate)
   const phaseVelocity = 0; // Would need previous rawPhase; set to 0
+
+  // V15 P0.2 — Phase slope (5-bar). Derived from the momentum series
+  // since phase is mostly driven by mom/momStd. Sign tells us direction:
+  //   positive → phase trending up (bullish-aligned)
+  //   negative → phase trending down (bearish-aligned)
+  // Used by focus-tier slope alignment signal.
+  let phase_slope_5bar = null;
+  if (momArr.length >= 6 && Number.isFinite(momStd) && momStd > 0) {
+    const _momNow = momArr[momArr.length - 1];
+    const _momThen = momArr[momArr.length - 6];
+    if (Number.isFinite(_momNow) && Number.isFinite(_momThen)) {
+      // Normalize by momStd so cross-ticker comparable; scale to phase units
+      phase_slope_5bar = Math.round((((_momNow - _momThen) / 5) / momStd) * 20 * 100) / 100;
+    }
+  }
 
   // TT Phase Oscillator — pure price-displacement with EMA(3) smoothing
   // Computes full series for proper zone-exit detection (prev bar vs current bar)
@@ -1407,6 +1434,353 @@ export function computeTfBundle(bars, anchors = null) {
     lookbackFeatures.stBarsSinceFlip = stBarsSinceFlip;
   }
 
+  // ── V16 Setup #4: 52w / ATH proximity (daily TF only) ──
+  //
+  // Track 52w high/low + 5-day base tightness for the ATH-breakout
+  // setup (Ripster Setup #4). The TF needs at least 252 bars of
+  // history; on lower TFs it's just rolling N-bar hi/lo. On daily,
+  // 252 bars = ~1 year. SHORT mirror tracks 52w low for breakdowns.
+  const lookback252 = Math.min(252, n);
+  let high252 = -Infinity, low252 = Infinity;
+  let high252Idx = -1, low252Idx = -1;
+  for (let i = Math.max(0, last - lookback252 + 1); i <= last; i++) {
+    const bh = bars[i]?.h ?? closes[i];
+    const bl = bars[i]?.l ?? closes[i];
+    if (Number.isFinite(bh) && bh > high252) { high252 = bh; high252Idx = i; }
+    if (Number.isFinite(bl) && bl < low252) { low252 = bl; low252Idx = i; }
+  }
+  const pctBelowHigh252 = Number.isFinite(high252) && high252 > 0
+    ? ((high252 - px) / high252) * 100
+    : null;
+  const pctAboveLow252 = Number.isFinite(low252) && low252 > 0
+    ? ((px - low252) / low252) * 100
+    : null;
+  const daysFromHigh252 = high252Idx >= 0 ? (last - high252Idx) : null;
+  const daysFromLow252 = low252Idx >= 0 ? (last - low252Idx) : null;
+
+  // Tight base: 5-bar high/low range as % of price. <3% = tight.
+  let tightBase5d = null;
+  if (n >= 5) {
+    let hi5 = -Infinity, lo5 = Infinity;
+    for (let i = last - 4; i <= last; i++) {
+      const bh = bars[i]?.h ?? closes[i];
+      const bl = bars[i]?.l ?? closes[i];
+      if (Number.isFinite(bh) && bh > hi5) hi5 = bh;
+      if (Number.isFinite(bl) && bl < lo5) lo5 = bl;
+    }
+    if (Number.isFinite(hi5) && Number.isFinite(lo5) && px > 0) {
+      tightBase5d = ((hi5 - lo5) / px) * 100;
+    }
+  }
+
+  // Breakout detection: today's bar exceeds yesterday's high (LONG)
+  // or breaks below yesterday's low (SHORT).
+  const prevHigh = last >= 1 ? (bars[last - 1]?.h ?? closes[last - 1]) : null;
+  const prevLow = last >= 1 ? (bars[last - 1]?.l ?? closes[last - 1]) : null;
+  const breakoutAbovePrevHigh = Number.isFinite(prevHigh) && barHigh > prevHigh;
+  const breakdownBelowPrevLow = Number.isFinite(prevLow) && barLow < prevLow;
+
+  const ath52w = {
+    high_252: Number.isFinite(high252) ? Math.round(high252 * 10000) / 10000 : null,
+    low_252: Number.isFinite(low252) ? Math.round(low252 * 10000) / 10000 : null,
+    pct_below_high_252: pctBelowHigh252 != null ? Math.round(pctBelowHigh252 * 100) / 100 : null,
+    pct_above_low_252: pctAboveLow252 != null ? Math.round(pctAboveLow252 * 100) / 100 : null,
+    days_from_high_252: daysFromHigh252,
+    days_from_low_252: daysFromLow252,
+    tight_base_5d_pct: tightBase5d != null ? Math.round(tightBase5d * 100) / 100 : null,
+    breakout_above_prev_high: breakoutAbovePrevHigh,
+    breakdown_below_prev_low: breakdownBelowPrevLow,
+    // V16 Setup #4: 3% threshold for our universe (heavily growth-stock
+    // loaded; tickers rarely sit within 1.5% of ATH but often within 3%
+    // before breakout). 5% threshold for tight_base (loosened from 3%
+    // to admit consolidation patterns common to high-momentum names).
+    // Trigger logic in tt-core-entry.js uses the DA-keyed thresholds
+    // for the actual gate; these flags are convenience for callers.
+    is_near_ath: pctBelowHigh252 != null && pctBelowHigh252 < 3.0,
+    is_near_atl: pctAboveLow252 != null && pctAboveLow252 < 3.0,
+    has_tight_base: tightBase5d != null && tightBase5d < 5.0,
+    sample_size: lookback252,
+  };
+
+  // ── V16 Setup #2: N-TEST SUPPORT/RESISTANCE detection (Ripster Setup #2) ──
+  //
+  // Cluster lows (or highs) within tight bands (default 0.75% of price)
+  // across last 30 bars. A cluster with N≥3 touches that has held (most
+  // recent test held above the cluster level) IS a valid Nth-test setup.
+  //
+  // LONG: Nth test of horizontal SUPPORT (price came near level N times,
+  //       latest test held — the bounce off the Nth touch is the entry).
+  // SHORT: mirror at horizontal RESISTANCE.
+  let nTestSupport = null;
+  const lookbackN = Math.min(30, n);
+  if (n >= 5 && lookbackN >= 5) {
+    const supportTol = px * 0.0075; // 0.75% of price = same level
+    const recentLows = [];
+    const recentHighs = [];
+    for (let i = last - lookbackN + 1; i <= last; i++) {
+      if (i < 0) continue;
+      const bl = bars[i]?.l;
+      const bh = bars[i]?.h;
+      const bc = bars[i]?.c;
+      if (Number.isFinite(bl)) recentLows.push({ price: bl, idx: i, close: bc });
+      if (Number.isFinite(bh)) recentHighs.push({ price: bh, idx: i, close: bc });
+    }
+    // Find largest cluster of lows (most touches near same price).
+    // Greedy clustering: sort by price, group adjacent within tolerance.
+    function clusterByPrice(points, tol) {
+      if (!points.length) return [];
+      const sorted = [...points].sort((a, b) => a.price - b.price);
+      const clusters = [];
+      let current = [sorted[0]];
+      for (let i = 1; i < sorted.length; i++) {
+        if (sorted[i].price - current[0].price <= tol) {
+          current.push(sorted[i]);
+        } else {
+          clusters.push(current);
+          current = [sorted[i]];
+        }
+      }
+      clusters.push(current);
+      return clusters;
+    }
+    const lowClusters = clusterByPrice(recentLows, supportTol);
+    const highClusters = clusterByPrice(recentHighs, supportTol);
+    // Pick the cluster with the most touches (n-test)
+    const bestSupport = lowClusters.reduce((best, c) =>
+      c.length > (best?.length || 0) ? c : best, null);
+    const bestResistance = highClusters.reduce((best, c) =>
+      c.length > (best?.length || 0) ? c : best, null);
+
+    // Support stats
+    let supportInfo = null;
+    if (bestSupport && bestSupport.length >= 3) {
+      const supportPrice = bestSupport.reduce((s, p) => s + p.price, 0) / bestSupport.length;
+      const lastTouchIdx = Math.max(...bestSupport.map(p => p.idx));
+      const barsSinceLastTouch = last - lastTouchIdx;
+      // Held: today's close > support cluster price (we're above the level)
+      const heldAboveSupport = px > supportPrice;
+      // Recent test: latest support touch in last 5 bars
+      const recentTest = barsSinceLastTouch <= 5;
+      supportInfo = {
+        price: Math.round(supportPrice * 10000) / 10000,
+        n_touches: bestSupport.length,
+        last_touch_idx: lastTouchIdx,
+        bars_since_last_touch: barsSinceLastTouch,
+        held: heldAboveSupport,
+        recent_test: recentTest,
+        // LONG setup: ≥3 touches, recent test, held, today's price within
+        // 1.5% above support (close to bouncing).
+        long_setup_active: bestSupport.length >= 3
+          && recentTest
+          && heldAboveSupport
+          && supportPrice > 0
+          && (px - supportPrice) / supportPrice < 0.015,
+      };
+    }
+    // Resistance stats
+    let resistanceInfo = null;
+    if (bestResistance && bestResistance.length >= 3) {
+      const resistancePrice = bestResistance.reduce((s, p) => s + p.price, 0) / bestResistance.length;
+      const lastTouchIdx = Math.max(...bestResistance.map(p => p.idx));
+      const barsSinceLastTouch = last - lastTouchIdx;
+      const heldBelowResistance = px < resistancePrice;
+      const recentTest = barsSinceLastTouch <= 5;
+      resistanceInfo = {
+        price: Math.round(resistancePrice * 10000) / 10000,
+        n_touches: bestResistance.length,
+        last_touch_idx: lastTouchIdx,
+        bars_since_last_touch: barsSinceLastTouch,
+        held: heldBelowResistance,
+        recent_test: recentTest,
+        short_setup_active: bestResistance.length >= 3
+          && recentTest
+          && heldBelowResistance
+          && resistancePrice > 0
+          && (resistancePrice - px) / resistancePrice < 0.015,
+      };
+    }
+    nTestSupport = {
+      support: supportInfo,
+      resistance: resistanceInfo,
+      sample_size: lookbackN,
+    };
+  }
+
+  // ── V16 Setup #5: GAP REVERSAL detection (Ripster Setup #5) ──
+  //
+  // Detects a gap-down on today's open that reverses higher (LONG)
+  // OR a gap-up that fades lower (SHORT).
+  //
+  // Computed from the daily TF only (caller checks tf=='D'). Captures:
+  //   - gap_pct: today's open vs prior close
+  //   - is_gap_down / is_gap_up (configurable thresholds)
+  //   - reclaimed_open_to_prev_close: today's price > today's open
+  //     AND > prior close (for LONG reclaim signal)
+  //   - faded_open_to_prev_close: mirror for SHORT
+  //   - reclaim_strength: how far above (or below) the prior close
+  let gapReversal = null;
+  if (n >= 2) {
+    const todayBarG = bars[last];
+    const prevBarG = bars[last - 1];
+    const todayOpen = Number(todayBarG?.o);
+    const todayClose = Number(todayBarG?.c);
+    const todayHigh = Number(todayBarG?.h);
+    const todayLow = Number(todayBarG?.l);
+    const prevCloseG = Number(prevBarG?.c);
+    if (Number.isFinite(todayOpen) && Number.isFinite(prevCloseG) && prevCloseG > 0) {
+      const gapPct = ((todayOpen - prevCloseG) / prevCloseG) * 100;
+      const isGapDown = gapPct <= -1.5;
+      const isGapUp = gapPct >= 1.5;
+      // Reclaim: gap-down then today closes above prior close
+      const reclaimedFromDown = isGapDown
+        && Number.isFinite(todayClose)
+        && todayClose > prevCloseG;
+      // Partial reclaim: gap-down, current price above today's open
+      // (recovering from the gap even if not fully)
+      const partialReclaimDown = isGapDown
+        && Number.isFinite(todayClose)
+        && todayClose > todayOpen
+        && (todayClose - todayOpen) / todayOpen > 0.005; // >0.5% above open
+      // Fade: gap-up then today closes below prior close
+      const fadedFromUp = isGapUp
+        && Number.isFinite(todayClose)
+        && todayClose < prevCloseG;
+      const partialFadeUp = isGapUp
+        && Number.isFinite(todayClose)
+        && todayClose < todayOpen
+        && (todayOpen - todayClose) / todayOpen > 0.005;
+
+      gapReversal = {
+        gap_pct: Math.round(gapPct * 100) / 100,
+        is_gap_down: isGapDown,
+        is_gap_up: isGapUp,
+        prev_close: prevCloseG,
+        today_open: todayOpen,
+        today_close: todayClose,
+        today_low: todayLow,
+        today_high: todayHigh,
+        reclaimed_from_down: reclaimedFromDown,
+        partial_reclaim_down: partialReclaimDown,
+        faded_from_up: fadedFromUp,
+        partial_fade_up: partialFadeUp,
+        // Setup #5 LONG: gap-down + (full reclaim OR strong partial)
+        long_setup_active: reclaimedFromDown || partialReclaimDown,
+        // Setup #5 SHORT: gap-up + (full fade OR strong partial)
+        short_setup_active: fadedFromUp || partialFadeUp,
+      };
+    }
+  }
+
+  // ── V16 Setup #1: RANGE BOX detection (Ripster Setup #1: Range Reversal) ──
+  //
+  // Detect a horizontal range over the last N bars (default 12). The
+  // pattern: ticker oscillates between a high and low for 10-15 bars,
+  // then dips to the bottom of the range and reverses. The Setup #1
+  // entry is the bounce off the range low.
+  //
+  // Range-box is "valid" when:
+  //   - range_pct (high-low / mid_price) is moderate: 3-15%
+  //     (too tight = Setup #4 base; too wide = trending, not ranging)
+  //   - the high and low were touched at LEAST `min_touches` times
+  //     (i.e. the range is real, not a single spike)
+  //
+  // SHORT mirror: same range, price near top, bearish reversal.
+  let rangeBox = null;
+  const rangeWindow = Math.min(12, n);
+  if (n >= rangeWindow + 2) {
+    let rangeHigh = -Infinity, rangeLow = Infinity;
+    for (let i = last - rangeWindow + 1; i <= last; i++) {
+      const bh = bars[i]?.h ?? closes[i];
+      const bl = bars[i]?.l ?? closes[i];
+      if (Number.isFinite(bh) && bh > rangeHigh) rangeHigh = bh;
+      if (Number.isFinite(bl) && bl < rangeLow) rangeLow = bl;
+    }
+    if (Number.isFinite(rangeHigh) && Number.isFinite(rangeLow) && rangeHigh > rangeLow) {
+      const rangeMid = (rangeHigh + rangeLow) / 2;
+      const rangePct = ((rangeHigh - rangeLow) / rangeMid) * 100;
+      // Position in range: 0 = at low, 1 = at high
+      const positionInRange = (px - rangeLow) / (rangeHigh - rangeLow);
+      // Touch counts: how many bars came within 0.5% of high/low
+      const touchTol = (rangeHigh - rangeLow) * 0.05; // 5% of range = touch
+      let highTouches = 0, lowTouches = 0;
+      let lastLowTouchIdx = -1, lastHighTouchIdx = -1;
+      for (let i = last - rangeWindow + 1; i <= last; i++) {
+        const bh = bars[i]?.h ?? closes[i];
+        const bl = bars[i]?.l ?? closes[i];
+        if (Number.isFinite(bh) && Math.abs(bh - rangeHigh) <= touchTol) {
+          highTouches++;
+          lastHighTouchIdx = i;
+        }
+        if (Number.isFinite(bl) && Math.abs(bl - rangeLow) <= touchTol) {
+          lowTouches++;
+          lastLowTouchIdx = i;
+        }
+      }
+      const barsSinceLowTouch = lastLowTouchIdx >= 0 ? (last - lastLowTouchIdx) : null;
+      const barsSinceHighTouch = lastHighTouchIdx >= 0 ? (last - lastHighTouchIdx) : null;
+
+      // Bullish reversal candle: today's close > open AND close in upper
+      // 50% of bar.
+      const todayBar = bars[last];
+      const bullishReversal = todayBar
+        && Number.isFinite(todayBar.c) && Number.isFinite(todayBar.o)
+        && Number.isFinite(todayBar.h) && Number.isFinite(todayBar.l)
+        && todayBar.c > todayBar.o
+        && (todayBar.h - todayBar.l > 0)
+        && ((todayBar.c - todayBar.l) / (todayBar.h - todayBar.l) >= 0.55);
+      const bearishReversal = todayBar
+        && Number.isFinite(todayBar.c) && Number.isFinite(todayBar.o)
+        && Number.isFinite(todayBar.h) && Number.isFinite(todayBar.l)
+        && todayBar.c < todayBar.o
+        && (todayBar.h - todayBar.l > 0)
+        && ((todayBar.h - todayBar.c) / (todayBar.h - todayBar.l) >= 0.55);
+
+      // V16 Setup #1 — define "in lower zone" as:
+      //   - position < 0.50 (lower half of range), OR
+      //   - close > prev close (today's daily bar is a green candle —
+      //     valid bounce signal even if pos has already moved up)
+      //
+      // The reversal candle definition is too strict for daily bars
+      // (intraday wicks distort close-vs-range ratio). Use a softer
+      // signal: today's close > prior close = bullish day-frame.
+      const todayClose = Number.isFinite(todayBar?.c) ? todayBar.c : null;
+      const prevClose = last >= 1 ? closes[last - 1] : null;
+      const todayBullishDay = todayClose != null && prevClose != null && todayClose > prevClose;
+      const todayBearishDay = todayClose != null && prevClose != null && todayClose < prevClose;
+
+      rangeBox = {
+        high: Math.round(rangeHigh * 10000) / 10000,
+        low: Math.round(rangeLow * 10000) / 10000,
+        mid: Math.round(rangeMid * 10000) / 10000,
+        range_pct: Math.round(rangePct * 100) / 100,
+        position_in_range: Math.round(positionInRange * 1000) / 1000,
+        bars_in_range: rangeWindow,
+        high_touches: highTouches,
+        low_touches: lowTouches,
+        bars_since_low_touch: barsSinceLowTouch,
+        bars_since_high_touch: barsSinceHighTouch,
+        is_valid_range: rangePct >= 3 && rangePct <= 15
+          && (lowTouches >= 2 || highTouches >= 2),
+        // Setup #1 LONG conditions: in lower half of range, recently
+        // touched low, bullish reversal — using softer/relaxed criteria.
+        long_setup_active: rangePct >= 3 && rangePct <= 15
+          && positionInRange < 0.55
+          && lowTouches >= 2
+          && barsSinceLowTouch != null && barsSinceLowTouch <= 6
+          && (bullishReversal || todayBullishDay),
+        short_setup_active: rangePct >= 3 && rangePct <= 15
+          && positionInRange > 0.45
+          && highTouches >= 2
+          && barsSinceHighTouch != null && barsSinceHighTouch <= 6
+          && (bearishReversal || todayBearishDay),
+        bullish_reversal: bullishReversal,
+        bearish_reversal: bearishReversal,
+        today_bullish_day: todayBullishDay,
+        today_bearish_day: todayBearishDay,
+      };
+    }
+  }
+
   return {
     px, pxPrev, barHigh, barLow, lastTs,
     e3, e5, e8, e9, e12, e13, e21, e34, e48, e50, e72, e89, e180, e200, e233,
@@ -1421,7 +1795,8 @@ export function computeTfBundle(bars, anchors = null) {
     compressed,
     atr14, atrRatio,
     volRatio, rvol5, rvolSpike,
-    rsi, rsiDiv, phaseDiv,
+    rsi, rsi_slope_5bar, rsiDiv, phaseDiv,
+    phase_slope_5bar,
     ggUpCross, ggDnCross, ggDist,
     ggUpCross_ts, ggDnCross_ts,
     emaStack,
@@ -1433,6 +1808,10 @@ export function computeTfBundle(bars, anchors = null) {
     pdz, fvg, liq,
     ichimoku,
     lookback: lookbackFeatures,
+    ath52w,
+    rangeBox,
+    gapReversal,
+    nTestSupport,
   };
 }
 
@@ -4205,7 +4584,11 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
       stSlope: b.stSlopeUp ? 1 : b.stSlopeDn ? -1 : 0,
       atr: atrBand ? { ...atrBand, ...(atrCross || {}) } : (atrCross || undefined),
       sq: { s: b.sqOn ? 1 : 0, r: b.sqRelease ? 1 : 0, c: b.compressed ? 1 : 0 },
-      rsi: { r5: Number.isFinite(b.rsi) ? Math.round(b.rsi * 10) / 10 : undefined },
+      rsi: {
+        r5: Number.isFinite(b.rsi) ? Math.round(b.rsi * 10) / 10 : undefined,
+        // V15 P0.2 — 5-bar slope (RSI points / bar)
+        slope5: Number.isFinite(b.rsi_slope_5bar) ? b.rsi_slope_5bar : undefined,
+      },
       rsiDiv: b.rsiDiv && (b.rsiDiv.bear || b.rsiDiv.bull) ? {
         bear: b.rsiDiv.bear ? { s: b.rsiDiv.bear.strength, bs: b.rsiDiv.bear.barsSince, a: b.rsiDiv.bear.active } : undefined,
         bull: b.rsiDiv.bull ? { s: b.rsiDiv.bull.strength, bs: b.rsiDiv.bull.barsSince, a: b.rsiDiv.bull.active } : undefined,
@@ -4391,6 +4774,9 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
     saty_phase_pct: satyPhasePct,
     phase_dir: phaseDir,
     phase_zone: phaseZone,
+    // V15 P0.2 — phase 5-bar slope (used by focus-tier slope alignment).
+    // Read from daily bundle since phase is daily-derived.
+    phase_slope_5bar: bD?.phase_slope_5bar ?? null,
     saty_phase_exit: satyPhaseExitSignal,
     rsi_divergence: (() => {
       const out = {};
@@ -4581,6 +4967,8 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
     // `ema_regime_daily` and `ema_map.D` so it stays consistent.
     daily_structure: bD ? (() => {
       const dpx = Number.isFinite(bD.px) ? bD.px : null;
+      const de5 = Number.isFinite(bD.e5) ? bD.e5 : null;
+      const de12 = Number.isFinite(bD.e12) ? bD.e12 : null;
       const de21 = Number.isFinite(bD.e21) ? bD.e21 : null;
       const de48 = Number.isFinite(bD.e48) ? bD.e48 : null;
       const de200 = Number.isFinite(bD.e200) ? bD.e200 : null;
@@ -4593,9 +4981,17 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
         ? (de21 < de48 && de48 < de200) : null;
       return {
         px: dpx != null ? Math.round(dpx * 100) / 100 : undefined,
+        // V15 P0.6 (2026-04-26): expose daily EMA5 and EMA12 for the
+        // peak-detection exit logic. The 5/12 cloud distinguishes
+        // "stretched away from EMA5 = peak risk" from
+        // "testing/holding EMA12 = healthy pullback in trend".
+        e5: de5 != null ? Math.round(de5 * 100) / 100 : undefined,
+        e12: de12 != null ? Math.round(de12 * 100) / 100 : undefined,
         e21: de21 != null ? Math.round(de21 * 100) / 100 : undefined,
         e48: de48 != null ? Math.round(de48 * 100) / 100 : undefined,
         e200: de200 != null ? Math.round(de200 * 100) / 100 : undefined,
+        pct_above_e5: pct(de5),
+        pct_above_e12: pct(de12),
         pct_above_e21: pct(de21),
         pct_above_e48: pct(de48),
         pct_above_e200: pct(de200),
@@ -4607,6 +5003,14 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
         bear_stack: bearStack,
         above_e200: (dpx != null && de200 != null) ? dpx > de200 : null,
         ema_regime_daily: Number.isFinite(bD.emaRegime) ? bD.emaRegime : null,
+        // V16 Setup #4: 52w high/low proximity for ATH-breakout / ATL-breakdown
+        ath52w: bD.ath52w || null,
+        // V16 Setup #1: range box for range-reversal LONG/SHORT entries
+        range_box: bD.rangeBox || null,
+        // V16 Setup #5: gap-down-reclaim / gap-up-fade detection
+        gap_reversal: bD.gapReversal || null,
+        // V16 Setup #2: N-test support/resistance for n-touch bounces
+        n_test_support: bD.nTestSupport || null,
       };
     })() : undefined,
   };

@@ -71,6 +71,14 @@ MANAGEMENT_ENGINE = "tt_core"
 LEADING_LTF = "10"
 RIPSTER_TUNE_V2 = "true"
 TT_EXIT_DEBOUNCE_BARS = "3"
+# V15 P0.7.17 (2026-04-29): gate signal-based exits/management to fire
+# only on 30m bar closes in live mode. Empirical 30m vs 10m vs 5m smoke
+# comparison (v16-fix1-p716-jul) showed 30m REPLAY produced 4-6x more
+# PnL on matching trades because intra-bar 5m/10m wicks tripped exit
+# rules prematurely. This makes LIVE behave like the proven 30m
+# backtest cadence. Hard exits (SL, max-loss, V13 safety nets) bypass.
+# Set to "5" or "10" to revert/test other cadences.
+LIVE_MANAGE_INTERVAL_MIN = "30"
 CF_ACCESS_TEAM_DOMAIN = "timedtrading"
 ADMIN_EMAIL = "shashant@gmail.com"
 EMAIL_ENABLED = "true"

@@ -544,6 +544,11 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
               intervalBlockReasons[diagEntry.reason] = (intervalBlockReasons[diagEntry.reason] || 0) + 1;
               if (blockChainBars && blockChainBars.length < BLOCK_CHAIN_CAP) {
                 const ds = result?.daily_structure || null;
+                // V15 P0.7.1 (2026-04-27): include focus_conviction
+                // breakdown so we can diagnose conviction-floor blocks.
+                const _fcScore = result?.__focus_conviction_score;
+                const _fcBd = result?.__focus_conviction_breakdown;
+                const _fc = (_fcScore != null) ? { score: _fcScore, breakdown: _fcBd } : null;
                 blockChainBars.push({
                   ticker,
                   ts: intervalTs,
@@ -554,6 +559,19 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
                   rank: Number.isFinite(Number(result?.rank)) ? Number(result.rank) : null,
                   htf_score: Number.isFinite(Number(result?.htf_score)) ? Number(result.htf_score) : null,
                   ltf_score: Number.isFinite(Number(result?.ltf_score)) ? Number(result.ltf_score) : null,
+                  focus_conviction_score: _fc?.score != null ? Number(_fc.score) : null,
+                  focus_conviction_tier: _fc?.tier || null,
+                  focus_conviction_breakdown_pts: _fc?.breakdown ? {
+                    liquidity: _fc.breakdown.liquidity?.pts ?? null,
+                    volatility: _fc.breakdown.volatility?.pts ?? null,
+                    trend: _fc.breakdown.trend?.pts ?? null,
+                    sector: _fc.breakdown.sector?.pts ?? null,
+                    rs: _fc.breakdown.relative_strength?.pts ?? _fc.breakdown.rs?.pts ?? null,
+                    history: _fc.breakdown.history?.pts ?? null,
+                    saty: _fc.breakdown.saty_atr_proximity?.pts ?? null,
+                    phase: _fc.breakdown.phase_alignment?.pts ?? null,
+                    rsi: _fc.breakdown.rsi_alignment?.pts ?? null,
+                  } : null,
                   // Phase-E: daily structure snapshot for diagnosing why
                   // the index-ETF swing trigger and D-EMA gates fire or
                   // don't fire on specific bars.
@@ -569,7 +587,25 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
                     bull_stack: ds.bull_stack,
                     bear_stack: ds.bear_stack,
                     above_e200: ds.above_e200,
+                    // V16 Setup #4: 52w high/low + breakout proximity
+                    ath52w: ds.ath52w || null,
+                    // V16 Setup #1: range box + reversal flags
+                    range_box: ds.range_box || null,
+                    // V16 Setup #5: gap reversal flags
+                    gap_reversal: ds.gap_reversal || null,
+                    // V16 Setup #2: n-test support/resistance
+                    n_test_support: ds.n_test_support || null,
                   } : null,
+                  // V15 (2026-04-25) — index-ETF swing trigger trace if computed.
+                  index_etf_swing_diag: result?.__index_etf_swing_diag || null,
+                  // V16 Setup #4 — ATH breakout trigger trace if computed.
+                  ath_breakout_diag: result?.__ath_breakout_diag || null,
+                  // V16 Setup #1 — Range reversal trigger trace if computed.
+                  range_reversal_diag: result?.__range_reversal_diag || null,
+                  // V16 Setup #5 — Gap reversal trigger trace if computed.
+                  gap_reversal_diag: result?.__gap_reversal_diag || null,
+                  // V16 Setup #2 — N-test support/resistance trigger trace if computed.
+                  n_test_support_diag: result?.__n_test_support_diag || null,
                 });
               }
             } else {

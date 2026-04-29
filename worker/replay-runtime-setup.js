@@ -178,6 +178,38 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_runner_mfe_trail_enabled",
   "deep_audit_runner_mfe_trail_activation_pct",
   "deep_audit_runner_mfe_trail_giveback_pct",
+  // V15 P0.7.18 (2026-04-29): TP1 floor enforcement (FIX 6)
+  "deep_audit_min_trim_atr_mult",
+  "deep_audit_min_trim_pct",
+  // V15 P0.7.19 (2026-04-29): big-MFE winner-protect anchor (FIX 2 — REJECTED)
+  "deep_audit_winner_protect_big_mfe_enabled",
+  "deep_audit_winner_protect_big_mfe_threshold_pct",
+  "deep_audit_winner_protect_big_mfe_lock_pct",
+  // V15 P0.7.20 (2026-04-29): late-day entry block (FIX 4)
+  "deep_audit_late_day_entry_block_min",
+  // V15 P0.7.21 (2026-04-29): progressive big-MFE partial trim (FIX 9)
+  "deep_audit_big_mfe_trim_enabled",
+  "deep_audit_big_mfe_trim_threshold_pct",
+  "deep_audit_big_mfe_trim_add_pct",
+  "deep_audit_big_mfe_trim_min_trimmed_pct",
+  // V15 P0.7.23 (2026-04-29): quality composite block (FIX 12)
+  // Forensic on FIX 4 baseline: blocks 8 trades (12% WR cohort, -7.41%
+  // PnL → saves money) lifting WR 62.6 → 66.7%, PnL +430.63 → +438.04%,
+  // PF 5.33 → 5.80. tt_gap_reversal_long/short EXEMPT (75% WR workhorse).
+  "deep_audit_quality_block_enabled",
+  "deep_audit_quality_block_exempt_paths",
+  "deep_audit_quality_block_f1_ext_max",
+  "deep_audit_quality_block_f1_slope_min",
+  "deep_audit_quality_block_f1_paths",
+  "deep_audit_quality_block_f2_rsi_d_min",
+  "deep_audit_quality_block_f2_rsi_d_max",
+  "deep_audit_quality_block_f2_rsi_h1_min",
+  "deep_audit_quality_block_f2_rsi_h1_max",
+  "deep_audit_quality_block_f3_slope_min",
+  "deep_audit_quality_block_f3_slope_max",
+  // V15 P0.7.24 (2026-04-29): FIX 12 V4 — F2 disable + F4 severe divergence
+  "deep_audit_quality_block_f2_enabled",
+  "deep_audit_quality_block_f4_enabled",
   // V13 Focus Tier (2026-04-24): intrinsic conviction score — see
   // tasks/v13-focus-tier-strategy-2026-04-24.md
   "deep_audit_focus_tier_enabled",
@@ -200,6 +232,55 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_v13_safety_nets_enabled",
   "deep_audit_v13_max_pnl_floor_pct",
   "deep_audit_v13_hard_age_days",
+
+  // V15 P0.5 (2026-04-26): hard vetoes on negative signal combinations.
+  // Catches the H/ORCL/CDNS class of fade-into-level catastrophes
+  // that the conviction-floor logic alone couldn't block.
+  "deep_audit_v15_negative_veto_enabled",
+
+  // V15 P0.6 (2026-04-26): peak-lock exit using daily EMA5/EMA12 cloud.
+  // The 5/12 cloud distinguishes "peak risk after stretch" from
+  // "healthy pullback in trend". See worker/index.js classifyKanbanStage
+  // for the 3-rule logic: ema12 break exit, e5 test post stretch exit,
+  // and a 40% retrace fallback when daily EMA data missing.
+  "deep_audit_peak_lock_enabled",
+  "deep_audit_peak_lock_min_mfe_pct",
+  "deep_audit_peak_lock_giveback_ratio",
+  "deep_audit_peak_lock_e12_break_pct",
+  "deep_audit_peak_lock_e12_deep_break_pct",
+  "deep_audit_peak_lock_e12_wick_tolerance_pct",
+  "deep_audit_peak_lock_e12_persist_days",
+  "deep_audit_peak_lock_e5_stretch_threshold_pct",
+  "deep_audit_peak_lock_e5_test_threshold_pct",
+  "deep_audit_peak_lock_min_pnl_pct",
+  "deep_audit_cloud_hold_absolute_max_hold_h",
+  "deep_audit_cloud_hold_min_mfe_pct",
+  "deep_audit_stagnant_deferral_max_days",
+  "deep_audit_stagnant_low_mae_threshold_pct",
+  "deep_audit_stagnant_squeeze_deferral_enabled",
+  "deep_audit_eod_defer_on_cloud_hold",
+  "deep_audit_eod_low_mae_defer_pct",
+  "deep_audit_v15_veto_require_struct_break",
+  "deep_audit_focus_stack_carveout_enabled",
+  "deep_audit_focus_stack_carveout_pct",
+  "deep_audit_ath_breakout_enabled",
+  "deep_audit_ath_breakout_max_pct_below_high",
+  "deep_audit_ath_breakout_tight_base_max_pct",
+  "deep_audit_ath_breakout_min_rvol",
+  "deep_audit_ath_breakout_min_rvol_etf",
+  "deep_audit_ath_breakout_require_follow_through",
+  "deep_audit_range_reversal_enabled",
+  "deep_audit_range_reversal_min_rvol",
+  "deep_audit_range_reversal_min_touches",
+  "deep_audit_gap_reversal_enabled",
+  "deep_audit_gap_reversal_min_rvol",
+  "deep_audit_gap_reversal_min_gap_pct",
+  "deep_audit_n_test_support_enabled",
+  "deep_audit_n_test_min_touches",
+  "deep_audit_n_test_min_rvol",
+  "deep_audit_atr_week_618_defer_on_cloud_hold",
+  "deep_audit_atr_week_618_partial_trim_pct",
+  "deep_audit_max_daily_entries",
   // P4: SHORT gate relaxation
   "deep_audit_short_spy_regime_floor",
   "deep_audit_short_requires_ticker_bearish_daily",
@@ -638,6 +719,15 @@ function mapArchivedReplayTrade(row, replayLockVal) {
     risk_budget: row.risk_budget,
     shares: row.shares,
     notional: row.notional,
+    // V15 P0.7.7: include MFE/MAE/entry_path so reconciled trades have
+    // the full state. Prior versions dropped these on reconcile, breaking
+    // peak_lock and other MFE-aware exit rules.
+    entry_path: row.entry_path ?? null,
+    entryPath: row.entry_path ?? null,
+    max_favorable_excursion: row.max_favorable_excursion ?? null,
+    maxFavorableExcursion: row.max_favorable_excursion ?? null,
+    max_adverse_excursion: row.max_adverse_excursion ?? null,
+    maxAdverseExcursion: row.max_adverse_excursion ?? null,
     run_id: replayLockVal,
   };
 }
@@ -648,6 +738,7 @@ export async function loadReplayScopedTrades(args = {}) {
     KV,
     db,
     replayLockVal,
+    replayRunId,
     replayTradeScope,
     cleanReplayLane = false,
     resetTrades = false,
@@ -669,22 +760,144 @@ export async function loadReplayScopedTrades(args = {}) {
   }
 
   let allTrades = resetTrades ? [] : ((await kvGetJSON(KV, replayTradesKey)) || []);
-  if (!cleanReplayLane && (!allTrades || allTrades.length === 0) && replayLockVal && db) {
+
+  // V15 P0.7.7 (2026-04-27): RECONCILE WITH D1 (strongly consistent).
+  //
+  // Cloudflare KV is eventually consistent — cross-region propagation
+  // can take 60s+. Sequential candle-replay batches (one per day in
+  // continuous-slice) can therefore load STALE state where the most
+  // recent batch's KV write hasn't propagated yet. Symptom: positions
+  // entered on day N are invisible to day N+1's gate check, leading
+  // to dual-position bugs (AMZN Jul 1 OPEN + AMZN Jul 2 OPEN simultaneously).
+  //
+  // Fix: always merge with D1's `trades` table (strongly consistent)
+  // for the active run_id. KV is treated as a fast cache; D1 as the
+  // source of truth.
+  //
+  // V15 P0.7.13 (2026-04-28): The original gate `!cleanReplayLane`
+  // accidentally DISABLED reconciliation for our clean-lane runs
+  // (manifest.replayMode.cleanLane=true, set by continuous-slice).
+  // For these runs, EVERY batch was loading from KV only, so KV
+  // eventual consistency reproduced the orphan-trade bug
+  // (Jul 1 QQQ OPEN never managed, Jul 10 QQQ entered again).
+  // Gate is now `!resetTrades`: only the first batch of a fresh
+  // cleanSlate run skips reconciliation (because trades were just
+  // cleared). All subsequent batches reconcile with D1 unconditionally.
+  // V15 P0.7.14 (2026-04-28): Use replayRunId (the actual run identifier
+  // stored in trades.run_id), NOT replayLockVal. The lock value is the
+  // string written to KV "timed:replay:lock" — it has the form
+  // "continuous_<run_id>@<iso_ts>" — and does NOT match what
+  // d1UpsertTrade persists in trades.run_id (which is just the
+  // run_id without the lock prefix). Querying with replayLockVal
+  // returned 0 rows on every batch, silently disabling reconciliation.
+  const reconcileRunId = replayRunId || replayLockVal;
+  if (!resetTrades && reconcileRunId && db) {
     try {
       await d1EnsureBacktestRunsSchema(env);
-      const { results: archiveRows } = await db.prepare(
+      const { results: liveRows } = await db.prepare(
         `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
                 exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
-                trim_ts, trim_price, setup_name, setup_grade, risk_budget, shares, notional
-         FROM backtest_run_trades WHERE run_id = ?1`
-      ).bind(replayLockVal).all();
-      if (archiveRows && archiveRows.length > 0) {
-        allTrades = archiveRows.map((row) => mapArchivedReplayTrade(row, replayLockVal));
+                trim_ts, trim_price, setup_name, setup_grade, risk_budget, shares, notional,
+                entry_path, max_favorable_excursion, max_adverse_excursion
+         FROM trades WHERE run_id = ?1`
+      ).bind(reconcileRunId).all();
+      console.log(`${logPrefix} D1 query returned: rows=${(liveRows||[]).length} run_id=${reconcileRunId}`);
+      if (liveRows && liveRows.length > 0) {
+        const kvByTradeId = new Map();
+        for (const t of allTrades) {
+          const tid = String(t?.trade_id || t?.id || "").trim();
+          if (tid) kvByTradeId.set(tid, t);
+        }
+        // V15 P0.7.10 (2026-04-27): merge logic redesigned.
+        //
+        // Previous version preferred KV unconditionally when both KV and
+        // D1 had a row. That was wrong — KV is eventually consistent, so
+        // its values may be STALE relative to D1 (e.g. MTZ MFE updated
+        // by batch 9 to D1 +8.88% but KV still shows the +0.79%
+        // from when MTZ trimmed Jul 16). Selecting KV would discard
+        // every cross-batch MFE update that batch 9 made to D1.
+        //
+        // New rule: D1 is the source-of-truth for record state (status,
+        // exits, trims, entry/trim ts/price). KV's role is to carry
+        // in-flight trade objects that may have richer in-memory state
+        // (rank_trace_json sometimes lives on KV trade objects). For
+        // MFE/MAE specifically: take the MAX(KV, D1) so we never lose a
+        // high-water mark — even if one side is stale, we keep the
+        // best value seen.
+        const merged = [];
+        const seen = new Set();
+        for (const row of liveRows) {
+          const tid = String(row?.trade_id || "").trim();
+          if (!tid || seen.has(tid)) continue;
+          seen.add(tid);
+          const fromKv = kvByTradeId.get(tid);
+          // Build the D1-based base record. Use the actual run_id
+          // (which is what trades.run_id contains), not the lock value.
+          const d1Trade = mapArchivedReplayTrade(row, reconcileRunId);
+          if (!fromKv) {
+            merged.push(d1Trade);
+            continue;
+          }
+          // Both KV and D1 have this trade. Take MAX of MFE / MAE
+          // magnitudes to never lose a high-water mark. D1 wins on
+          // status/exit/trim. KV preserves rank_trace_json + other
+          // in-memory fields D1 doesn't store.
+          const kvMfe = Number(fromKv.maxFavorableExcursion ?? fromKv.max_favorable_excursion ?? 0);
+          const d1Mfe = Number(d1Trade.max_favorable_excursion ?? 0);
+          const kvMae = Number(fromKv.maxAdverseExcursion ?? fromKv.max_adverse_excursion ?? 0);
+          const d1Mae = Number(d1Trade.max_adverse_excursion ?? 0);
+          const bestMfe = Math.max(kvMfe || 0, d1Mfe || 0);
+          // MAE is negative — "best" (most adverse) is the lowest.
+          const bestMae = Math.min(kvMae || 0, d1Mae || 0);
+          const reconciled = {
+            ...fromKv,                // KV base for in-memory richness
+            ...d1Trade,               // D1 wins on persisted state
+            maxFavorableExcursion: bestMfe,
+            max_favorable_excursion: bestMfe,
+            maxAdverseExcursion: bestMae,
+            max_adverse_excursion: bestMae,
+            // Preserve KV-only fields explicitly when D1 had nulls
+            rank_trace_json: d1Trade.rank_trace_json ?? fromKv.rank_trace_json ?? null,
+            entry_path: d1Trade.entry_path ?? fromKv.entry_path ?? null,
+          };
+          merged.push(reconciled);
+        }
+        // Also include any KV-only trades the D1 query missed (e.g.
+        // freshly created trades that haven't been D1-upserted yet).
+        for (const t of allTrades) {
+          const tid = String(t?.trade_id || t?.id || "").trim();
+          if (tid && !seen.has(tid)) {
+            merged.push(t);
+            seen.add(tid);
+          }
+        }
+        // Always log reconciliation activity so we can verify the fix
+        // is firing. Counts of OPEN/TP_HIT_TRIM are the most actionable.
+        const openCount = merged.filter(t => {
+          const s = String(t?.status || "").toUpperCase();
+          return s === "OPEN" || s === "TP_HIT_TRIM" || !s;
+        }).length;
+        console.log(`${logPrefix} Reconciled KV(${allTrades.length})/D1(${liveRows.length})->${merged.length} (open=${openCount})`);
+        allTrades = merged;
+      } else if (!allTrades || allTrades.length === 0) {
+        // Last-resort fallback: try the archive table for legacy runs.
+        const { results: archiveRows } = await db.prepare(
+          `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+                  exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
+                  trim_ts, trim_price, setup_name, setup_grade, risk_budget, shares, notional
+           FROM backtest_run_trades WHERE run_id = ?1`
+        ).bind(reconcileRunId).all();
+        if (archiveRows && archiveRows.length > 0) {
+          allTrades = archiveRows.map((row) => mapArchivedReplayTrade(row, reconcileRunId));
+          console.log(`${logPrefix} Restored ${allTrades.length} trades from archive for run ${reconcileRunId}`);
+        }
+      }
+      // Persist reconciled state back to KV so downstream reads see fresh data.
+      if (allTrades && allTrades.length > 0) {
         await kvPutJSON(KV, replayTradesKey, allTrades);
-        console.log(`${logPrefix} Restored ${allTrades.length} trades from archive for run ${replayLockVal}`);
       }
     } catch (e) {
-      console.warn(`${logPrefix} Archive load failed:`, String(e).slice(0, 150));
+      console.warn(`${logPrefix} D1 reconcile failed:`, String(e).slice(0, 200));
     }
   }
 
@@ -834,6 +1047,7 @@ export async function prepareCandleReplayBatch(args = {}) {
     KV,
     db,
     replayLockVal,
+    replayRunId,
     replayTradeScope,
     cleanReplayLane,
     resetTrades: cleanSlate && tickerOffset === 0,

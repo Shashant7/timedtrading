@@ -1,0 +1,1688 @@
+[
+  {
+    "trade_id": "IWM-1751376600000",
+    "ticker": "IWM",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 214.96,
+    "entry_date": "2025-07-01",
+    "status": "WIN",
+    "exit_reason": "peak_lock_ema12_deep_break",
+    "pnl_pct": 2.345785262374397,
+    "pfvg_context": {
+      "position": "far",
+      "alignment": "unaligned",
+      "distance_atr": 2.613,
+      "pfvg_age_days": 0,
+      "pfvg_direction": "bull",
+      "pfvg_strength": 0.704
+    }
+  },
+  {
+    "trade_id": "QQQ-1751376600000",
+    "ticker": "QQQ",
+    "direction": "LONG",
+    "entry_path": "tt_pullback",
+    "entry_price": 549.87,
+    "entry_date": "2025-07-01",
+    "status": "OPEN",
+    "exit_reason": null,
+    "pnl_pct": -0.5983232400385479,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "SPY-1751378400000",
+    "ticker": "SPY",
+    "direction": "LONG",
+    "entry_path": "tt_pullback",
+    "entry_price": 617.12,
+    "entry_date": "2025-07-01",
+    "status": "WIN",
+    "exit_reason": "stagnant_no_commitment",
+    "pnl_pct": 0.9252657505833607,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "NEU-1751378400000",
+    "ticker": "NEU",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 693.06,
+    "entry_date": "2025-07-01",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": 1.5157417828182342,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "KWEB-1751378400000",
+    "ticker": "KWEB",
+    "direction": "LONG",
+    "entry_path": "tt_n_test_support",
+    "entry_price": 34.31,
+    "entry_date": "2025-07-01",
+    "status": "OPEN",
+    "exit_reason": null,
+    "pnl_pct": -0.029146021568070866,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "DCI-1751378400000",
+    "ticker": "DCI",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 69.48,
+    "entry_date": "2025-07-01",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": 2.0041717040875,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "IREN-1751383800000",
+    "ticker": "IREN",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 15.09,
+    "entry_date": "2025-07-01",
+    "status": "WIN",
+    "exit_reason": "sl_breached",
+    "pnl_pct": 10.214380384360503,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "XLV-1751387400000",
+    "ticker": "XLV",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 136.89999,
+    "entry_date": "2025-07-01",
+    "status": "LOSS",
+    "exit_reason": "phase_i_mfe_fast_cut_2h",
+    "pnl_pct": -0.6135807606706145,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "FIX-1751387400000",
+    "ticker": "FIX",
+    "direction": "LONG",
+    "entry_path": "tt_pullback",
+    "entry_price": 520.71,
+    "entry_date": "2025-07-01",
+    "status": "OPEN",
+    "exit_reason": null,
+    "pnl_pct": 0.18244320255035082,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "CARR-1751389200000",
+    "ticker": "CARR",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 74.375,
+    "entry_date": "2025-07-01",
+    "status": "WIN",
+    "exit_reason": "hard_max_hold_504h",
+    "pnl_pct": 1.3848759663865606,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "AWI-1751389200000",
+    "ticker": "AWI",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 165.65,
+    "entry_date": "2025-07-01",
+    "status": "WIN",
+    "exit_reason": "peak_lock_ema12_deep_break",
+    "pnl_pct": 0.9935707817687871,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "APD-1751389200000",
+    "ticker": "APD",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 283.3476,
+    "entry_date": "2025-07-01",
+    "status": "WIN",
+    "exit_reason": "PROFIT_GIVEBACK_STAGE_HOLD",
+    "pnl_pct": 1.4743022351345154,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "XLB-1751389200000",
+    "ticker": "XLB",
+    "direction": "LONG",
+    "entry_path": "tt_ath_breakout",
+    "entry_price": 44.805,
+    "entry_date": "2025-07-01",
+    "status": "WIN",
+    "exit_reason": "peak_lock_ema12_deep_break",
+    "pnl_pct": 0.9848220064724951,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "XHB-1751389200000",
+    "ticker": "XHB",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 102.66,
+    "entry_date": "2025-07-01",
+    "status": "LOSS",
+    "exit_reason": "phase_i_mfe_dead_money_24h",
+    "pnl_pct": -1.071498149230464,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "WAL-1751389200000",
+    "ticker": "WAL",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 81.745,
+    "entry_date": "2025-07-01",
+    "status": "WIN",
+    "exit_reason": "ST_FLIP_4H_CLOSE",
+    "pnl_pct": 3.9941280812282014,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "UPS-1751389200000",
+    "ticker": "UPS",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 103.795,
+    "entry_date": "2025-07-01",
+    "status": "LOSS",
+    "exit_reason": "SMART_RUNNER_SUPPORT_BREAK_CLOUD",
+    "pnl_pct": -0.21436485379835607,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "INTC-1751389200000",
+    "ticker": "INTC",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 22.89,
+    "entry_date": "2025-07-01",
+    "status": "LOSS",
+    "exit_reason": "max_loss",
+    "pnl_pct": -3.232852774137186,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "IBP-1751389200000",
+    "ticker": "IBP",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 192.5,
+    "entry_date": "2025-07-01",
+    "status": "WIN",
+    "exit_reason": "atr_week_618_full_exit",
+    "pnl_pct": 1.9818181818181804,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "PNC-1751389200000",
+    "ticker": "PNC",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 191.88,
+    "entry_date": "2025-07-01",
+    "status": "OPEN",
+    "exit_reason": null,
+    "pnl_pct": 0.33354179695643876,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "PKG-1751389200000",
+    "ticker": "PKG",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 201.25999,
+    "entry_date": "2025-07-01",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": 0.6863063045963641,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "H-1751389200000",
+    "ticker": "H",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 145.01,
+    "entry_date": "2025-07-01",
+    "status": "OPEN",
+    "exit_reason": null,
+    "pnl_pct": -0.5034135576856699,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "AMZN-1751391000000",
+    "ticker": "AMZN",
+    "direction": "LONG",
+    "entry_path": "tt_pullback",
+    "entry_price": 220.645,
+    "entry_date": "2025-07-01",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": 2.110131659452962,
+    "pfvg_context": {
+      "position": "far",
+      "alignment": "aligned",
+      "distance_atr": 5.815,
+      "pfvg_age_days": 0,
+      "pfvg_direction": "bull",
+      "pfvg_strength": 0.655
+    }
+  },
+  {
+    "trade_id": "TT-1751391000000",
+    "ticker": "TT",
+    "direction": "LONG",
+    "entry_path": "tt_pullback",
+    "entry_price": 435.60999,
+    "entry_date": "2025-07-01",
+    "status": "LOSS",
+    "exit_reason": "phase_i_mfe_fast_cut_zero_mfe",
+    "pnl_pct": -0.9458001640412343,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "ETN-1751391000000",
+    "ticker": "ETN",
+    "direction": "LONG",
+    "entry_path": "tt_pullback",
+    "entry_price": 355.88,
+    "entry_date": "2025-07-01",
+    "status": "OPEN",
+    "exit_reason": null,
+    "pnl_pct": -0.1685961560076494,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "AYI-1751396400000",
+    "ticker": "AYI",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 306,
+    "entry_date": "2025-07-01",
+    "status": "LOSS",
+    "exit_reason": "dead_money_flatten",
+    "pnl_pct": -0.8431372549019555,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "AXP-1751396400000",
+    "ticker": "AXP",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 322.62,
+    "entry_date": "2025-07-01",
+    "status": "LOSS",
+    "exit_reason": "SMART_RUNNER_SUPPORT_BREAK_CLOUD",
+    "pnl_pct": -0.2611431405368637,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "MLI-1751396400000",
+    "ticker": "MLI",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 81.8,
+    "entry_date": "2025-07-01",
+    "status": "WIN",
+    "exit_reason": "TP_FULL",
+    "pnl_pct": 1.5831295843520805,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "GOOGL-1751396400000",
+    "ticker": "GOOGL",
+    "direction": "LONG",
+    "entry_path": "tt_n_test_support",
+    "entry_price": 175.16,
+    "entry_date": "2025-07-01",
+    "status": "OPEN",
+    "exit_reason": null,
+    "pnl_pct": 0.29687143183375786,
+    "pfvg_context": {
+      "position": "at_zone",
+      "alignment": "opposed",
+      "distance_atr": 0.0,
+      "pfvg_age_days": 0,
+      "pfvg_direction": "bear",
+      "pfvg_strength": 0.549
+    }
+  },
+  {
+    "trade_id": "EMR-1751396400000",
+    "ticker": "EMR",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 135.39,
+    "entry_date": "2025-07-01",
+    "status": "OPEN",
+    "exit_reason": null,
+    "pnl_pct": 0.12556318782776862,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "EXPE-1751398200000",
+    "ticker": "EXPE",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 173.81,
+    "entry_date": "2025-07-01",
+    "status": "OPEN",
+    "exit_reason": null,
+    "pnl_pct": 0.178355675737876,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "CSX-1751398200000",
+    "ticker": "CSX",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 33.495,
+    "entry_date": "2025-07-01",
+    "status": "OPEN",
+    "exit_reason": null,
+    "pnl_pct": -0.0746380056724842,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "ALB-1751464800000",
+    "ticker": "ALB",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 64.82,
+    "entry_date": "2025-07-02",
+    "status": "WIN",
+    "exit_reason": "PROFIT_GIVEBACK_STAGE_HOLD",
+    "pnl_pct": 2.2523912372724593,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "AAPL-1751470200000",
+    "ticker": "AAPL",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 211.4001,
+    "entry_date": "2025-07-02",
+    "status": "WIN",
+    "exit_reason": "sl_breached",
+    "pnl_pct": 0.0850992974932317,
+    "pfvg_context": {
+      "position": "far",
+      "alignment": "aligned",
+      "distance_atr": 2.867,
+      "pfvg_age_days": 0,
+      "pfvg_direction": "bull",
+      "pfvg_strength": 0.459
+    }
+  },
+  {
+    "trade_id": "AEHR-1751475600000",
+    "ticker": "AEHR",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 14.7946,
+    "entry_date": "2025-07-02",
+    "status": "WIN",
+    "exit_reason": "TP_FULL",
+    "pnl_pct": 3.4837035134440857,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "AVGO-1751477400000",
+    "ticker": "AVGO",
+    "direction": "LONG",
+    "entry_path": "tt_range_reversal_long",
+    "entry_price": 270.58499,
+    "entry_date": "2025-07-02",
+    "status": "WIN",
+    "exit_reason": "peak_lock_ema12_deep_break",
+    "pnl_pct": 3.2684795265250983,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "AMD-1751477400000",
+    "ticker": "AMD",
+    "direction": "LONG",
+    "entry_path": "tt_range_reversal_long",
+    "entry_price": 138.67,
+    "entry_date": "2025-07-02",
+    "status": "LOSS",
+    "exit_reason": "early_dead_money_flatten",
+    "pnl_pct": -2.1272878055815885,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "COIN-1751477400000",
+    "ticker": "COIN",
+    "direction": "LONG",
+    "entry_path": "tt_range_reversal_long",
+    "entry_price": 351.11499,
+    "entry_date": "2025-07-02",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": 9.537620139772454,
+    "pfvg_context": {
+      "position": "far",
+      "alignment": "aligned",
+      "distance_atr": 6.235,
+      "pfvg_age_days": 0,
+      "pfvg_direction": "bull",
+      "pfvg_strength": 0.308
+    }
+  },
+  {
+    "trade_id": "CLS-1751477400000",
+    "ticker": "CLS",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 151.545,
+    "entry_date": "2025-07-02",
+    "status": "WIN",
+    "exit_reason": "SMART_RUNNER_SUPPORT_BREAK_CLOUD",
+    "pnl_pct": 1.3923257118347778,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "IESC-1751482800000",
+    "ticker": "IESC",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 293.81,
+    "entry_date": "2025-07-02",
+    "status": "WIN",
+    "exit_reason": "SMART_RUNNER_SUPPORT_BREAK_CLOUD",
+    "pnl_pct": 0.9581021748749183,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "WDC-1751484600000",
+    "ticker": "WDC",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 65.47,
+    "entry_date": "2025-07-02",
+    "status": "OPEN",
+    "exit_reason": null,
+    "pnl_pct": 0.4734993126622915,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "TPL-1751895000000",
+    "ticker": "TPL",
+    "direction": "SHORT",
+    "entry_path": "tt_gap_reversal_short",
+    "entry_price": 353.55667,
+    "entry_date": "2025-07-07",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": 4.474534450163255,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "U-1751898600000",
+    "ticker": "U",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 26.91,
+    "entry_date": "2025-07-07",
+    "status": "WIN",
+    "exit_reason": "SMART_RUNNER_TD_EXHAUSTION_RUNNER",
+    "pnl_pct": 0.0557413600891883,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "MTZ-1751898600000",
+    "ticker": "MTZ",
+    "direction": "LONG",
+    "entry_path": "tt_ath_breakout",
+    "entry_price": 171.07,
+    "entry_date": "2025-07-07",
+    "status": "LOSS",
+    "exit_reason": "max_loss_time_scaled",
+    "pnl_pct": -2.1479511311159145,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "PEGA-1751902200000",
+    "ticker": "PEGA",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 54.47,
+    "entry_date": "2025-07-07",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": -0.12392142463741333,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "META-1751904000000",
+    "ticker": "META",
+    "direction": "LONG",
+    "entry_path": "tt_range_reversal_long",
+    "entry_price": 723,
+    "entry_date": "2025-07-07",
+    "status": "OPEN",
+    "exit_reason": null,
+    "pnl_pct": -0.71784232365146,
+    "pfvg_context": {
+      "position": "far",
+      "alignment": "aligned",
+      "distance_atr": 7.068,
+      "pfvg_age_days": 0,
+      "pfvg_direction": "bull",
+      "pfvg_strength": 0.639
+    }
+  },
+  {
+    "trade_id": "JD-1751904000000",
+    "ticker": "JD",
+    "direction": "SHORT",
+    "entry_path": "tt_pullback",
+    "entry_price": 32.195,
+    "entry_date": "2025-07-07",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": 0.5202640161515746,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "CVNA-1751909400000",
+    "ticker": "CVNA",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 355.5,
+    "entry_date": "2025-07-07",
+    "status": "LOSS",
+    "exit_reason": "max_loss_time_scaled",
+    "pnl_pct": -1.0562559774964817,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "RBLX-1751913000000",
+    "ticker": "RBLX",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 107.1705,
+    "entry_date": "2025-07-07",
+    "status": "LOSS",
+    "exit_reason": "max_loss_time_scaled",
+    "pnl_pct": -2.109255812000511,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "JOBY-1751913000000",
+    "ticker": "JOBY",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 10.315,
+    "entry_date": "2025-07-07",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": 1.8419777023751855,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "BE-1751916600000",
+    "ticker": "BE",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 24.335,
+    "entry_date": "2025-07-07",
+    "status": "WIN",
+    "exit_reason": "mfe_decay_structural_flatten",
+    "pnl_pct": 7.951510170536266,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "AMD-1751992200000",
+    "ticker": "AMD",
+    "direction": "LONG",
+    "entry_path": "tt_range_reversal_long",
+    "entry_price": 137.8029,
+    "entry_date": "2025-07-08",
+    "status": "WIN",
+    "exit_reason": "sl_breached",
+    "pnl_pct": 12.958435562676843,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "QQQ-1752157800000",
+    "ticker": "QQQ",
+    "direction": "LONG",
+    "entry_path": "tt_ath_breakout",
+    "entry_price": 554.21,
+    "entry_date": "2025-07-10",
+    "status": "WIN",
+    "exit_reason": "SOFT_FUSE_RSI_CONFIRMED",
+    "pnl_pct": 1.31231843525017,
+    "pfvg_context": {
+      "position": "far",
+      "alignment": "opposed",
+      "distance_atr": 5.485,
+      "pfvg_age_days": 0,
+      "pfvg_direction": "bear",
+      "pfvg_strength": 0.462
+    }
+  },
+  {
+    "trade_id": "AGQ-1752157800000",
+    "ticker": "AGQ",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 49.2,
+    "entry_date": "2025-07-10",
+    "status": "WIN",
+    "exit_reason": "HARD_FUSE_RSI_EXTREME",
+    "pnl_pct": 5.467886178861782,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "PWR-1752161400000",
+    "ticker": "PWR",
+    "direction": "LONG",
+    "entry_path": "tt_pullback",
+    "entry_price": 377.88,
+    "entry_date": "2025-07-10",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": 4.083042235630358,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "ALB-1752161400000",
+    "ticker": "ALB",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 75.43,
+    "entry_date": "2025-07-10",
+    "status": "LOSS",
+    "exit_reason": "phase_i_mfe_fast_cut_zero_mfe",
+    "pnl_pct": -1.809624817711798,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "H-1752163200000",
+    "ticker": "H",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 151.11,
+    "entry_date": "2025-07-10",
+    "status": "LOSS",
+    "exit_reason": "max_loss_time_scaled",
+    "pnl_pct": -1.7139831910528776,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "AEHR-1752163200000",
+    "ticker": "AEHR",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 14.61,
+    "entry_date": "2025-07-10",
+    "status": "LOSS",
+    "exit_reason": "max_loss",
+    "pnl_pct": -0.8018480492813056,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "SN-1752166800000",
+    "ticker": "SN",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 111.32,
+    "entry_date": "2025-07-10",
+    "status": "LOSS",
+    "exit_reason": "atr_day_adverse_382_cut",
+    "pnl_pct": -1.6034854473589624,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "PNC-1752168600000",
+    "ticker": "PNC",
+    "direction": "LONG",
+    "entry_path": "tt_n_test_support",
+    "entry_price": 198.14,
+    "entry_date": "2025-07-10",
+    "status": "LOSS",
+    "exit_reason": "PRE_EARNINGS_FORCE_EXIT",
+    "pnl_pct": -1.3349147067729799,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "RIOT-1752170400000",
+    "ticker": "RIOT",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 12.64,
+    "entry_date": "2025-07-10",
+    "status": "LOSS",
+    "exit_reason": "runner_drawdown_cap",
+    "pnl_pct": -0.4869462025316491,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "RTX-1752172200000",
+    "ticker": "RTX",
+    "direction": "LONG",
+    "entry_path": "tt_ath_breakout",
+    "entry_price": 146.070007,
+    "entry_date": "2025-07-10",
+    "status": "WIN",
+    "exit_reason": "TP_FULL",
+    "pnl_pct": 2.7965994415266904,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "SHOP-1752174000000",
+    "ticker": "SHOP",
+    "direction": "LONG",
+    "entry_path": "tt_range_reversal_long",
+    "entry_price": 115.64,
+    "entry_date": "2025-07-10",
+    "status": "LOSS",
+    "exit_reason": "phase_i_mfe_fast_cut_zero_mfe",
+    "pnl_pct": -0.9593566240055291,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "AGYS-1752174000000",
+    "ticker": "AGYS",
+    "direction": "LONG",
+    "entry_path": "tt_n_test_support",
+    "entry_price": 115.6,
+    "entry_date": "2025-07-10",
+    "status": "LOSS",
+    "exit_reason": "phase_i_mfe_fast_cut_2h",
+    "pnl_pct": -1.0726643598615873,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "LSCC-1752175800000",
+    "ticker": "LSCC",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 54.98,
+    "entry_date": "2025-07-10",
+    "status": "LOSS",
+    "exit_reason": "max_loss",
+    "pnl_pct": -3.4194288832302613,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "CAT-1752258600000",
+    "ticker": "CAT",
+    "direction": "LONG",
+    "entry_path": "tt_pullback",
+    "entry_price": 406.18,
+    "entry_date": "2025-07-11",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": 2.860800630262439,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "AU-1752499800000",
+    "ticker": "AU",
+    "direction": "LONG",
+    "entry_path": "tt_pullback",
+    "entry_price": 47.745,
+    "entry_date": "2025-07-14",
+    "status": "LOSS",
+    "exit_reason": "runner_drawdown_cap",
+    "pnl_pct": -0.4482144727196537,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "GEV-1752503400000",
+    "ticker": "GEV",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 544.31,
+    "entry_date": "2025-07-14",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": 2.6166136944020932,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "LITE-1752507000000",
+    "ticker": "LITE",
+    "direction": "LONG",
+    "entry_path": "tt_pullback",
+    "entry_price": 93.18,
+    "entry_date": "2025-07-14",
+    "status": "OPEN",
+    "exit_reason": null,
+    "pnl_pct": -2.0068684267010135,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "CCJ-1752507000000",
+    "ticker": "CCJ",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 73.89,
+    "entry_date": "2025-07-14",
+    "status": "OPEN",
+    "exit_reason": null,
+    "pnl_pct": 1.6375693598592418,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "AVAV-1752508800000",
+    "ticker": "AVAV",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 262.9392,
+    "entry_date": "2025-07-14",
+    "status": "WIN",
+    "exit_reason": "PROFIT_GIVEBACK_STAGE_HOLD",
+    "pnl_pct": 1.5405842871659885,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "BG-1752508800000",
+    "ticker": "BG",
+    "direction": "SHORT",
+    "entry_path": "tt_gap_reversal_short",
+    "entry_price": 75.09,
+    "entry_date": "2025-07-14",
+    "status": "OPEN",
+    "exit_reason": null,
+    "pnl_pct": 0.13317352510322084,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "CRS-1752519600000",
+    "ticker": "CRS",
+    "direction": "LONG",
+    "entry_path": "tt_n_test_support",
+    "entry_price": 279.44,
+    "entry_date": "2025-07-14",
+    "status": "OPEN",
+    "exit_reason": null,
+    "pnl_pct": 0.3077583738906433,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "BG-1752681600000",
+    "ticker": "BG",
+    "direction": "SHORT",
+    "entry_path": "tt_gap_reversal_short",
+    "entry_price": 73.44,
+    "entry_date": "2025-07-16",
+    "status": "OPEN",
+    "exit_reason": null,
+    "pnl_pct": -2.124183006535951,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "JCI-1752688800000",
+    "ticker": "JCI",
+    "direction": "LONG",
+    "entry_path": "tt_pullback",
+    "entry_price": 106.69,
+    "entry_date": "2025-07-16",
+    "status": "OPEN",
+    "exit_reason": null,
+    "pnl_pct": 0.5530040303683601,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "ASTS-1752690600000",
+    "ticker": "ASTS",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 51.81,
+    "entry_date": "2025-07-16",
+    "status": "WIN",
+    "exit_reason": "HARD_FUSE_RSI_EXTREME",
+    "pnl_pct": 5.269253039953677,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "AGYS-1752692400000",
+    "ticker": "AGYS",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 118.3,
+    "entry_date": "2025-07-16",
+    "status": "LOSS",
+    "exit_reason": "runner_drawdown_cap",
+    "pnl_pct": -0.6720202874048983,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "SLV-1752760800000",
+    "ticker": "SLV",
+    "direction": "LONG",
+    "entry_path": "tt_pullback",
+    "entry_price": 34.3,
+    "entry_date": "2025-07-17",
+    "status": "OPEN",
+    "exit_reason": null,
+    "pnl_pct": 1.0204081632653104,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "PLTR-1752762600000",
+    "ticker": "PLTR",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 151.9845,
+    "entry_date": "2025-07-17",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": 1.0029016116775042,
+    "pfvg_context": {
+      "position": "near_2atr",
+      "alignment": "aligned",
+      "distance_atr": 1.453,
+      "pfvg_age_days": 0,
+      "pfvg_direction": "bull",
+      "pfvg_strength": 0.434
+    }
+  },
+  {
+    "trade_id": "NEU-1752762600000",
+    "ticker": "NEU",
+    "direction": "LONG",
+    "entry_path": "tt_n_test_support",
+    "entry_price": 734.703,
+    "entry_date": "2025-07-17",
+    "status": "LOSS",
+    "exit_reason": "atr_week_618_full_exit",
+    "pnl_pct": -0.1991287635956234,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "BK-1752762600000",
+    "ticker": "BK",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 96.23,
+    "entry_date": "2025-07-17",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": -0.4661228307180758,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "KTOS-1752764400000",
+    "ticker": "KTOS",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 56.45,
+    "entry_date": "2025-07-17",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": 2.9317980513728923,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "U-1752766200000",
+    "ticker": "U",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 37.41,
+    "entry_date": "2025-07-17",
+    "status": "LOSS",
+    "exit_reason": "sl_breached",
+    "pnl_pct": -1.5904838278535123,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "HOOD-1752766200000",
+    "ticker": "HOOD",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 105.3103,
+    "entry_date": "2025-07-17",
+    "status": "WIN",
+    "exit_reason": "PROFIT_GIVEBACK",
+    "pnl_pct": 0.5151442926285501,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "GOOGL-1752766200000",
+    "ticker": "GOOGL",
+    "direction": "LONG",
+    "entry_path": "tt_pullback",
+    "entry_price": 182.37,
+    "entry_date": "2025-07-17",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": 2.475736140812626,
+    "pfvg_context": {
+      "position": "near_2atr",
+      "alignment": "opposed",
+      "distance_atr": 1.975,
+      "pfvg_age_days": 0,
+      "pfvg_direction": "bear",
+      "pfvg_strength": 0.598
+    }
+  },
+  {
+    "trade_id": "APLD-1752768000000",
+    "ticker": "APLD",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 10.995,
+    "entry_date": "2025-07-17",
+    "status": "WIN",
+    "exit_reason": "PROFIT_GIVEBACK_STAGE_HOLD",
+    "pnl_pct": 1.909959072305601,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "NKE-1752768000000",
+    "ticker": "NKE",
+    "direction": "LONG",
+    "entry_path": "tt_range_reversal_long",
+    "entry_price": 72.9,
+    "entry_date": "2025-07-17",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": 1.5843621399176968,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "APD-1752769800000",
+    "ticker": "APD",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 289.985,
+    "entry_date": "2025-07-17",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": 2.427711778195421,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "PH-1752769800000",
+    "ticker": "PH",
+    "direction": "LONG",
+    "entry_path": "tt_ath_breakout",
+    "entry_price": 717.72,
+    "entry_date": "2025-07-17",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": -0.044613498300172805,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "RBLX-1752769800000",
+    "ticker": "RBLX",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 120.91,
+    "entry_date": "2025-07-17",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": 1.0067405508229261,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "TWLO-1752771600000",
+    "ticker": "TWLO",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 124.985,
+    "entry_date": "2025-07-17",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": 3.532423890866903,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "LITE-1752771600000",
+    "ticker": "LITE",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 101.56,
+    "entry_date": "2025-07-17",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": 0.59570697124852,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "ALB-1752777000000",
+    "ticker": "ALB",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 76.17,
+    "entry_date": "2025-07-17",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": 4.9363266377839015,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "AWI-1752778800000",
+    "ticker": "AWI",
+    "direction": "LONG",
+    "entry_path": "tt_range_reversal_long",
+    "entry_price": 167.24,
+    "entry_date": "2025-07-17",
+    "status": "LOSS",
+    "exit_reason": "phase_i_mfe_fast_cut_2h",
+    "pnl_pct": -0.8012437215977058,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "LITE-1753104600000",
+    "ticker": "LITE",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 102.31,
+    "entry_date": "2025-07-21",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": 1.0104100283452218,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "BA-1753113600000",
+    "ticker": "BA",
+    "direction": "LONG",
+    "entry_path": "tt_n_test_support",
+    "entry_price": 231.12,
+    "entry_date": "2025-07-21",
+    "status": "LOSS",
+    "exit_reason": "phase_i_mfe_fast_cut_zero_mfe",
+    "pnl_pct": -1.4213352371062624,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "AEHR-1753113600000",
+    "ticker": "AEHR",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 16.02,
+    "entry_date": "2025-07-21",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": 14.079275905118612,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "ARM-1753113600000",
+    "ticker": "ARM",
+    "direction": "LONG",
+    "entry_path": "tt_gap_reversal_long",
+    "entry_price": 162.71761,
+    "entry_date": "2025-07-21",
+    "status": "TP_HIT_TRIM",
+    "exit_reason": null,
+    "pnl_pct": 0.08136181449567807,
+    "pfvg_context": {
+      "position": "none",
+      "alignment": "unaligned",
+      "distance_atr": null,
+      "pfvg_age_days": null
+    }
+  },
+  {
+    "trade_id": "SPY-1753122600000",
+    "ticker": "SPY",
+    "direction": "LONG",
+    "entry_path": "tt_ath_breakout",
+    "entry_price": 631.015,
+    "entry_date": "2025-07-21",
+    "status": "OPEN",
+    "exit_reason": null,
+    "pnl_pct": -0.36060949422754857,
+    "pfvg_context": {
+      "position": "far",
+      "alignment": "aligned",
+      "distance_atr": 6.951,
+      "pfvg_age_days": 0,
+      "pfvg_direction": "bull",
+      "pfvg_strength": 0.934
+    }
+  }
+]

@@ -72,3 +72,6 @@ data/trade-analysis/**/block_chain_summary.md
 .wrangler/
 wrangler.toml.local
 
+
+# PFVG raw bars (regenerable)
+data/pfvg/*-bars-*.json
