@@ -17865,6 +17865,61 @@ async function processTradeSimulation(
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // V15 P0.7.21 (2026-04-29) — FIX 9: PROGRESSIVE BIG-MFE PARTIAL TRIM
+    //
+    // EVIDENCE (autopsy v16-fix4-jul-30m):
+    //   15 winners gave back >5pp combined +149.7pp from MFE peaks
+    //   Top: JOBY 33.5%->12.4%, AEHR 42%->21%, U 28.4%->12.1%
+    //
+    // FIX 2 (P0.7.19) tried to LOCK SL at entry+0.6*MFE, which closed
+    // legitimate runners on noise wicks (IREN regressed -3.94pp).
+    // FIX 9 takes a different approach: when MFE >= big_mfe_threshold
+    // AND already TP1-trimmed (>=50%), trim ANOTHER chunk (default 25%
+    // of remaining position) to LOCK PROFIT IMMEDIATELY without
+    // touching the SL. The runner half can still breathe through
+    // pullbacks; we just have less of it exposed.
+    //
+    // Mechanism:
+    //   - Triggers once per trade (tracked via execState.bigMfeTrimDone)
+    //   - Requires trimmedPct >= 0.50 (TP1 already hit, runner phase)
+    //   - Requires MFE >= 15% (DA-keyed)
+    //   - Trims an additional 25% of original position (DA-keyed)
+    //   - SL untouched (fixes FIX 2's failure mode)
+    //   - Hard exits still bypass via existing logic
+    const _f9Enabled = String(
+      tickerData?._env?._deepAuditConfig?.deep_audit_big_mfe_trim_enabled ?? "true"
+    ) === "true";
+    if (_f9Enabled && openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow) && pxNow > 0) {
+      const _f9Threshold = Number(
+        tickerData?._env?._deepAuditConfig?.deep_audit_big_mfe_trim_threshold_pct ?? 15.0
+      );
+      const _f9AddTrim = Math.max(0, Math.min(0.40, Number(
+        tickerData?._env?._deepAuditConfig?.deep_audit_big_mfe_trim_add_pct ?? 0.25
+      )));
+      const _f9MinTrimmed = Math.max(0.30, Math.min(0.95, Number(
+        tickerData?._env?._deepAuditConfig?.deep_audit_big_mfe_trim_min_trimmed_pct ?? 0.50
+      )));
+      const _f9CurMfe = Math.abs(Number(openTrade?.maxFavorableExcursion ?? openTrade?.max_favorable_excursion ?? 0));
+      const _f9CurTrim = clamp(Number(openTrade?.trimmedPct ?? openTrade?.trimmed_pct ?? 0), 0, 1);
+      const _f9AlreadyDone = !!execState?.bigMfeTrimDone || !!openTrade?.__big_mfe_trim_done;
+      if (
+        !_f9AlreadyDone
+        && _f9CurMfe >= _f9Threshold
+        && _f9CurTrim >= _f9MinTrimmed
+        && _f9CurTrim < 0.95
+        && !_sameIntervalAsTrade
+      ) {
+        const _f9NewTarget = Math.min(0.95, _f9CurTrim + _f9AddTrim);
+        console.log(`[BIG_MFE_TRIM] ${sym} MFE=${_f9CurMfe.toFixed(2)}% trimmed=${(_f9CurTrim*100).toFixed(0)}% -> +${(_f9AddTrim*100).toFixed(0)}% (new target ${(_f9NewTarget*100).toFixed(0)}%) at $${pxNow.toFixed(2)}`);
+        await trimTradeToPct(openTrade, _f9NewTarget, pxNow, "BIG_MFE_PROGRESSIVE_TRIM");
+        if (openTrade) openTrade.__big_mfe_trim_done = true;
+        const _f9Exec = { ...execState, bigMfeTrimDone: true, lastTrimMs: now };
+        if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _f9Exec);
+        else if (!isReplay) await kvPutJSON(KV, execKey, _f9Exec);
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // MFE SAFETY TRIM: Force global trim size when unrealized P&L >= threshold and
     // position is still untrimmed. Catches trades that reach 1%+ MFE but
     // never hit TP (set at 1.5x ATR ≈ 3%), preventing reversals into losses.

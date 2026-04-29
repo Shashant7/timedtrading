@@ -187,6 +187,11 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_winner_protect_big_mfe_lock_pct",
   // V15 P0.7.20 (2026-04-29): late-day entry block (FIX 4)
   "deep_audit_late_day_entry_block_min",
+  // V15 P0.7.21 (2026-04-29): progressive big-MFE partial trim (FIX 9)
+  "deep_audit_big_mfe_trim_enabled",
+  "deep_audit_big_mfe_trim_threshold_pct",
+  "deep_audit_big_mfe_trim_add_pct",
+  "deep_audit_big_mfe_trim_min_trimmed_pct",
   // V13 Focus Tier (2026-04-24): intrinsic conviction score — see
   // tasks/v13-focus-tier-strategy-2026-04-24.md
   "deep_audit_focus_tier_enabled",
