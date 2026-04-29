@@ -178,6 +178,9 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_runner_mfe_trail_enabled",
   "deep_audit_runner_mfe_trail_activation_pct",
   "deep_audit_runner_mfe_trail_giveback_pct",
+  // V15 P0.7.18 (2026-04-29): TP1 floor enforcement (FIX 6)
+  "deep_audit_min_trim_atr_mult",
+  "deep_audit_min_trim_pct",
   // V13 Focus Tier (2026-04-24): intrinsic conviction score — see
   // tasks/v13-focus-tier-strategy-2026-04-24.md
   "deep_audit_focus_tier_enabled",

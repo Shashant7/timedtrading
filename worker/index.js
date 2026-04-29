@@ -12680,33 +12680,75 @@ function build3TierTPArray(tickerData, entryPrice, direction) {
       // Preserve ordering: EXIT must leave at least 10 pp more than TRIM
       // so the three tiers stay monotonic. RUNNER always flattens.
       const exitPct = Math.max(THREE_TIER_CONFIG.EXIT.trimPct, Math.min(0.95, trimPct + 0.10));
+
+      // V15 P0.7.18 (2026-04-29): FAST-TRIM TP1 FLOOR.
+      //   Forensic data from v16-ctx4 + v16-fix1-p716 showed TP1 was
+      //   often microscopic on calm tickers — KTOS trim at +0.25%,
+      //   LITE +0.18%, PLTR +0.24%. 23 trades trimmed within the first
+      //   30m bar at avg +0.96%, capturing 18% of typical avg MFE
+      //   (~5%). The "instant_30m" cohort yielded +0.44%/trade vs
+      //   "slow_>24h" +2.67%/trade — 6× worse outcome for early trims.
+      //
+      //   indicators.js sets tp_trim = price + 0.618 × swingATR.
+      //   On low-vol days that produces tiny absolute distances. The
+      //   THREE_TIER_DEFAULTS.TRIM.minMult is 1.5 but it was never
+      //   enforced in build3TierTPArray — the precision-engine values
+      //   were used as-is.
+      //
+      //   Fix: enforce a minimum trim distance of:
+      //     max(MIN_TP_TRIM_ATR × atr, MIN_TRIM_PCT × entryPrice)
+      //   where MIN_TRIM_PCT = 1.5% (DA-key configurable). This prevents
+      //   sub-1% trims that just register noise as "profit" while
+      //   killing the runner's ability to develop. We don't change
+      //   indicators.js (other code may depend on the 0.618 value);
+      //   we only change what build3TierTPArray uses.
+      const _atrForFloor = Number(tickerData?.atr) || (Math.abs(pTrim - entryPrice) / 0.618);
+      const _daMinTrimAtrMult = Number(
+        tickerData?._env?._deepAuditConfig?.deep_audit_min_trim_atr_mult ?? 1.5
+      );
+      const _daMinTrimPct = Number(
+        tickerData?._env?._deepAuditConfig?.deep_audit_min_trim_pct ?? 0.015
+      );
+      const _minDistAtr = (Number.isFinite(_atrForFloor) && _atrForFloor > 0)
+        ? _daMinTrimAtrMult * _atrForFloor
+        : 0;
+      const _minDistPct = entryPrice * _daMinTrimPct;
+      const _minDist = Math.max(_minDistAtr, _minDistPct);
+      let pTrimEnforced = pTrim;
+      const _curDist = Math.abs(pTrim - entryPrice);
+      if (_curDist < _minDist) {
+        pTrimEnforced = isLong ? entryPrice + _minDist : entryPrice - _minDist;
+      }
+
       const result = [
         {
-          price: pTrim,
+          price: pTrimEnforced,
           trimPct,
           tier: "TRIM",
-          label: `TRIM TP (${Math.round(trimPct * 100)}%) @ 1.5x ATR`,
-          source: "ATR Fibonacci (Daily 1.5x)",
+          label: pTrimEnforced !== pTrim
+            ? `TRIM TP (${Math.round(trimPct * 100)}%) @ floor ${_daMinTrimAtrMult}x ATR / ${(_daMinTrimPct*100).toFixed(1)}% (was ${pTrim.toFixed(2)})`
+            : `TRIM TP (${Math.round(trimPct * 100)}%) @ 0.618x swingATR`,
+          source: pTrimEnforced !== pTrim ? "ATR floor enforced" : "ATR Fibonacci (Daily 0.618x)",
           timeframe: "D",
-          multiplier: 1.5,
+          multiplier: pTrimEnforced !== pTrim ? _daMinTrimAtrMult : 0.618,
         },
         {
           price: pExit,
           trimPct: exitPct,
           tier: "EXIT",
-          label: `EXIT TP (${Math.round(exitPct * 100)}%) @ 2.5x ATR`,
-          source: "ATR Fibonacci (Daily 2.5x)",
+          label: `EXIT TP (${Math.round(exitPct * 100)}%) @ 1.0x swingATR`,
+          source: "ATR Fibonacci (Daily 1.0x)",
           timeframe: "D",
-          multiplier: 2.5,
+          multiplier: 1.0,
         },
         {
           price: pRunner,
           trimPct: THREE_TIER_CONFIG.RUNNER.trimPct,
           tier: "RUNNER",
-          label: `RUNNER TP (${Math.round(THREE_TIER_CONFIG.RUNNER.trimPct * 100)}%) @ 4.0x ATR`,
-          source: "ATR Fibonacci (Daily 4.0x)",
+          label: `RUNNER TP (${Math.round(THREE_TIER_CONFIG.RUNNER.trimPct * 100)}%) @ 1.618x swingATR`,
+          source: "ATR Fibonacci (Daily 1.618x)",
           timeframe: "D",
-          multiplier: 4.0,
+          multiplier: 1.618,
         },
       ];
       // Sort by distance from entry (closest first)

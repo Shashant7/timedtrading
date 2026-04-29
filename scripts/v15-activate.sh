@@ -76,6 +76,9 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_default_trim_ratio", "value": "0.50" },
     { "key": "deep_audit_runner_mfe_trail_giveback_pct", "value": "1.50" },
 
+    { "key": "deep_audit_min_trim_atr_mult", "value": "1.5" },
+    { "key": "deep_audit_min_trim_pct", "value": "0.015" },
+
     { "key": "deep_audit_stagnant_deferral_max_days", "value": "14" },
     { "key": "deep_audit_stagnant_low_mae_threshold_pct", "value": "0.75" },
     { "key": "deep_audit_stagnant_squeeze_deferral_enabled", "value": "true" },
