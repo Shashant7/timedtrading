@@ -777,6 +777,7 @@ const ROUTES = [
   ["POST", "/timed/admin/replay-lock", "POST /timed/admin/replay-lock"],
   ["GET", "/timed/admin/replay-lock", "GET /timed/admin/replay-lock"],
   ["DELETE", "/timed/admin/replay-lock", "DELETE /timed/admin/replay-lock"],
+  ["POST", "/timed/admin/cleanup-orphan-trades", "POST /timed/admin/cleanup-orphan-trades"],
   ["POST", "/timed/admin/backtests/start", "POST /timed/admin/backtests/start"],
   ["POST", "/timed/admin/backtests/cancel", "POST /timed/admin/backtests/cancel"],
   ["GET", "/timed/admin/backtests/status", "GET /timed/admin/backtests/status"],
@@ -48143,6 +48144,98 @@ export default {
         if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
         await KV.delete("timed:replay:lock");
         return sendJSON({ ok: true, released: true }, 200, corsHeaders(env, req));
+      }
+
+      // POST /timed/admin/cleanup-orphan-trades?key=...
+      // Force-close all trades with status=OPEN and run_id IS NULL that
+      // are older than the threshold (default 7 days). These are leftover
+      // trades from prior backtests/migrations that never got run_id stamped
+      // and the live cron force-closes them at wall-clock time using
+      // v13_hard_age_cap, polluting subsequent backtest runs.
+      // Sets status=CANCELED with a synthetic exit_ts = entry_ts + 1ms so
+      // they're considered closed but don't get treated as wall-clock exits.
+      if (routeKey === "POST /timed/admin/cleanup-orphan-trades") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        const KV = env?.KV_TIMED;
+        try {
+          const minAgeDays = Number(url.searchParams.get("min_age_days") || "7");
+          const now = Date.now();
+          const cutoff = now - (minAgeDays * 86400 * 1000);
+          let d1Closed = 0; let d1Found = [];
+          let posClosed = 0; let posFound = [];
+          if (db) {
+            // Trades table — orphans (run_id NULL, OPEN, old)
+            const { results: orphans } = await db.prepare(
+              `SELECT trade_id, ticker, entry_ts FROM trades
+               WHERE status = 'OPEN' AND run_id IS NULL AND entry_ts < ?1`
+            ).bind(cutoff).all();
+            d1Found = orphans || [];
+            for (const r of d1Found) {
+              await db.prepare(
+                `UPDATE trades SET status='CANCELED', exit_ts=entry_ts+1, exit_reason='admin_orphan_cleanup',
+                                   pnl=0, pnl_pct=0, updated_at=?1 WHERE trade_id=?2`
+              ).bind(now, r.trade_id).run();
+              d1Closed++;
+              try { await KV?.delete?.(`timed:trade:${r.trade_id}`); } catch {}
+            }
+            // Positions table — close ALL OPEN positions older than cutoff.
+            // The positions table doesn't have run_id, and any position
+            // older than `min_age_days` is by definition orphaned (live
+            // trading shouldn't have positions older than a few days).
+            const { results: posOrphans } = await db.prepare(
+              `SELECT position_id, ticker, created_at
+               FROM positions
+               WHERE status = 'OPEN' AND created_at < ?1`
+            ).bind(cutoff).all();
+            posFound = posOrphans || [];
+            for (const r of posFound) {
+              await db.prepare(
+                `UPDATE positions SET status='CLOSED', closed_at=?1, updated_at=?1 WHERE position_id=?2`
+              ).bind(now, r.position_id).run();
+              posClosed++;
+            }
+          }
+          // Also purge KV-only orphan trades (legacy live trades that
+          // never made it to D1). Read timed:trades:all, drop OPEN
+          // trades older than cutoff with run_id NULL.
+          let kvFound = 0; let kvKept = 0;
+          if (KV) {
+            try {
+              const raw = await KV.get("timed:trades:all");
+              const list = raw ? JSON.parse(raw) : [];
+              if (Array.isArray(list)) {
+                const remaining = [];
+                for (const t of list) {
+                  const isOpen = String(t?.status || "").toUpperCase() === "OPEN";
+                  const noRunId = !t?.run_id;
+                  const oldEnough = Number(t?.entry_ts) < cutoff;
+                  if (isOpen && noRunId && oldEnough) {
+                    kvFound++;
+                    try { await KV.delete(`timed:trade:${t.trade_id || t.id}`); } catch {}
+                  } else {
+                    remaining.push(t);
+                    kvKept++;
+                  }
+                }
+                await KV.put("timed:trades:all", JSON.stringify(remaining));
+              }
+            } catch (kvErr) {
+              console.warn("[cleanup-orphan-trades] KV cleanup failed:", String(kvErr?.message || kvErr));
+            }
+          }
+          return sendJSON({
+            ok: true,
+            d1_trades: { found: d1Found.length, closed: d1Closed },
+            d1_positions: { found: posFound.length, closed: posClosed },
+            kv: { found: kvFound, kept: kvKept },
+            trade_orphans: d1Found.map(r => ({ trade_id: r.trade_id, ticker: r.ticker, entry_ts: r.entry_ts })),
+            position_orphans: posFound.map(r => ({ position_id: r.position_id, ticker: r.ticker, created_at: r.created_at })),
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
       }
 
       // ═══════════════════════════════════════════════════════════════════════
