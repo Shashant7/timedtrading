@@ -90,7 +90,7 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_big_mfe_trim_add_pct", "value": "0.25" },
     { "key": "deep_audit_big_mfe_trim_min_trimmed_pct", "value": "0.50" },
 
-    { "key": "deep_audit_quality_block_enabled", "value": "true" },
+    { "key": "deep_audit_quality_block_enabled", "value": "false" },
     { "key": "deep_audit_quality_block_exempt_paths", "value": "tt_gap_reversal_long,tt_gap_reversal_short" },
     { "key": "deep_audit_quality_block_f1_ext_max", "value": "3.0" },
     { "key": "deep_audit_quality_block_f1_slope_min", "value": "1.5" },

@@ -250,6 +250,23 @@ If validation FAILS:
 | 2026-04-28 | Defer 5m/Apr-2026 comparison until all fixes stable | Per user direction: validate fix-by-fix at 30m first |
 | 2026-04-29 | Sequence: FIX 6 → FIX 7 → FIX 2 → FIX 4 → re-eval rest | Order by clarity-of-fix and cumulative compound benefit |
 
+#### FIX 12 V4 — Quality Composite Block w/ F4 (P0.7.24) — REJECTED
+- **Promise (counterfactual on baseline-ctx, 101 trades):**
+  - V4 (F1+F3+F4): N=91, WR 71% (+4.1pp), PnL +446% (+19pp), PF 13.63
+  - 0 top-15 winners blocked
+- **Live July canon result (96 trades):**
+  - WR 64.2% vs baseline 67.3% (-3.1pp) ← LOWER, not higher
+  - PnL +127.74% vs baseline +427.12% (-300pp) ← CRASH
+  - PF 3.56 vs baseline 8.14
+  - Best WIN +32% vs baseline +49.63%
+- **Diagnosis:**
+  - V4 reshuffled 29 ticker entries (17 down, 12 up) — same cascade pattern as V3
+  - Top winners that WERE in baseline got replaced by lower-quality alternatives
+  - Counterfactual analysis assumed "remove these trades, keep all others identical" — but in slot-constrained replay, removed trades free up slots that get filled by different (often worse) tickers
+- **Structural conclusion:** Entry-time post-hoc filters DO NOT work on this system. The slot-fill cascade always reshuffles winners.
+- **Forward path:** Look at EXIT-side improvements instead. The system already enters good trades — managing them better (preserving runners, not killing them on noise) is the real lever. Already validated: FIX 4 (late-day block) and FIX 6 (TP1 floor) — both exit-side. The captured TD/PDZ/Div data could power an EXIT-side rule (e.g., if entry has F4 severe divergence, manage with tighter SL or fast-exit on first adverse move) without cascading.
+- **Live state:** v16-fix4 remains the live savepoint. V4 disabled (`deep_audit_quality_block_enabled=false`). Code retained under DA flag for future experiments.
+
 #### FIX 12 V3 — Quality Composite Block (P0.7.23) — VALIDATION RESULTS
 - **Smoke:** `v16-fix12-jul-30m-1777477370` (92 trades vs 107 baseline)
 - **Direct blocks (8 trades, -7.41% PnL):** Exactly as predicted (FIX, ETN, EME, PLTR, IWM, PH, CAT, SGI)
