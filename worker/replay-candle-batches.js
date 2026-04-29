@@ -1,4 +1,14 @@
 // ─────────────────────────────────────────────────────────────────────────
+// Phase C — entry-selector imports for rank-all-take-top-N selection
+// ─────────────────────────────────────────────────────────────────────────
+import {
+  computeQualityScore,
+  computeCapacityForBar,
+  selectTopN,
+  loadPhaseCConfig,
+} from "./pipeline/entry-selector.js";
+
+// ─────────────────────────────────────────────────────────────────────────
 // V13 Focus Tier — helpers
 // Build per-ticker history stats from closed trades with exit_ts < asOfTs.
 // Shape matches what computeConvictionScore expects.
@@ -159,12 +169,22 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
     const bundleCache = {};
     const tdSeqCache = {};
 
+    // Phase C — read config once per batch (DA-keyed weights + capacity).
+    // When disabled (default), the inner loop runs as today (greedy commits).
+    // When enabled, entry-eligible tickers are buffered per bar and only the
+    // top-N by composite quality score commit at end of bar.
+    // See worker/pipeline/entry-selector.js + tasks/phase-c-rank-all-take-top-n-design.md.
+    const phaseCCfg = loadPhaseCConfig(env?._deepAuditConfig || replayEnv?._deepAuditConfig || {});
+
     for (let intervalIdx = 0; intervalIdx < intervals.length; intervalIdx++) {
       const intervalTs = intervals[intervalIdx];
       const intervalTradesBefore = replayCtx.allTrades.length;
       const intervalStageCounts = {};
       const intervalBlockReasons = {};
       const intervalDeepAuditDebug = {};
+      // Phase C: per-bar candidate buffer (only used when phaseCCfg.enabled)
+      const phaseCBuffer = [];
+      const phaseCDecisions = [];  // for diagnostic persistence
 
       for (const ticker of batchTickers) {
         try {
@@ -717,16 +737,55 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
               }
             }
 
-            await processTradeSimulation(KV, ticker, result, existing, simReplayEnv, {
-              forceUseIngestTs: true,
-              replayBatchContext: replayCtx,
-              asOfTs: intervalTs,
-            });
-            replayScoreSeed.after_sim_rank = result?.rank ?? null;
-            replayScoreSeed.after_sim_score = result?.score ?? null;
-            const countAfter = replayCtx.allTrades.filter((x) => String(x?.ticker).toUpperCase() === ticker).length;
-            intervalTradeDelta = Math.max(0, countAfter - countBefore);
-            if (intervalTradeDelta > 0) tradesCreated += intervalTradeDelta;
+            // Phase C — defer entry decision to end-of-bar batch commit.
+            //
+            // Buffer this candidate ONLY if:
+            //   1. Phase C is enabled (DA key)
+            //   2. Ticker has NO open position (otherwise this is a manage call)
+            //   3. Stage is entry-eligible (in_review / enter / enter_now)
+            //
+            // Otherwise call processTradeSimulation immediately (today's behavior).
+            // Management of existing positions ALWAYS runs immediately — only
+            // new entries are deferred.
+            const _phaseCEntryEligible = phaseCCfg.enabled
+              && !openTrade
+              && (finalStage === "in_review" || finalStage === "enter_now" || finalStage === "enter");
+
+            if (_phaseCEntryEligible) {
+              // Compute composite quality score from the current tickerData
+              const qScore = computeQualityScore(result, phaseCCfg.weights);
+              phaseCBuffer.push({
+                ticker,
+                tickerData: result,
+                existing,
+                score: qScore,
+                insertionIdx: phaseCBuffer.length,
+                // Capture closure context needed to resume processing later
+                ctx: {
+                  simReplayEnv,
+                  intervalTs,
+                  countBefore,
+                  openTrade,
+                  marketOpenMs,
+                  // Will be filled in commit pass:
+                  // intervalTradeDelta, openTradeAfter, replayScoreSeed
+                },
+                replayScoreSeed,  // shared mutable reference; updated post-commit
+                staleCarryState,
+              });
+              // No commit yet — top-N will be selected after ticker loop ends
+            } else {
+              await processTradeSimulation(KV, ticker, result, existing, simReplayEnv, {
+                forceUseIngestTs: true,
+                replayBatchContext: replayCtx,
+                asOfTs: intervalTs,
+              });
+              replayScoreSeed.after_sim_rank = result?.rank ?? null;
+              replayScoreSeed.after_sim_score = result?.score ?? null;
+              const countAfter = replayCtx.allTrades.filter((x) => String(x?.ticker).toUpperCase() === ticker).length;
+              intervalTradeDelta = Math.max(0, countAfter - countBefore);
+              if (intervalTradeDelta > 0) tradesCreated += intervalTradeDelta;
+            }
 
             const openTradeAfter = replayCtx.allTrades.find(
               (t) => String(t?.ticker || "").toUpperCase() === ticker && isOpenTradeStatus(t?.status)
@@ -810,6 +869,109 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
           processed++;
         } catch (e) {
           errors.push({ ticker, ts: intervalTs, error: String(e?.message || e) });
+        }
+      }
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Phase C — End-of-bar batch commit
+      //
+      // After the ticker loop finishes, we have:
+      //   - All open positions managed (their processTradeSimulation ran inline)
+      //   - All entry-eligible candidates buffered in phaseCBuffer
+      //
+      // Now: rank the buffer by composite quality score, take top-N up to
+      // remaining capacity, and call processTradeSimulation for the winners.
+      // Rejected candidates get a diagnostic record but no commit.
+      // ─────────────────────────────────────────────────────────────────────
+      if (phaseCCfg.enabled && phaseCBuffer.length > 0 && !trailOnly) {
+        const MAX_OPEN = 35;  // matches the cap inside processTradeSimulation
+        const currentOpenCount = replayCtx.allTrades.filter(t => isOpenTradeStatus(t?.status)).length;
+        const capacity = computeCapacityForBar(MAX_OPEN, currentOpenCount, phaseCCfg.capacity);
+        const sel = selectTopN(phaseCBuffer, capacity, {
+          quality_score_min: phaseCCfg.capacity.quality_score_min,
+        });
+
+        // Commit winners — call processTradeSimulation for each in score order
+        for (const winner of sel.winners) {
+          try {
+            const tk = winner.ticker;
+            const td = winner.tickerData;
+            const cx = winner.ctx;
+            // Stamp Phase C marker so processTradeSimulation can log/skip
+            // re-evaluation if needed in Step 3 (currently informational only)
+            td.__phase_c_winner = true;
+            td.__phase_c_score = winner.score.composite;
+            const countBefore = cx.countBefore;
+            await processTradeSimulation(KV, tk, td, winner.existing, cx.simReplayEnv, {
+              forceUseIngestTs: true,
+              replayBatchContext: replayCtx,
+              asOfTs: cx.intervalTs,
+            });
+            winner.replayScoreSeed.after_sim_rank = td?.rank ?? null;
+            winner.replayScoreSeed.after_sim_score = td?.score ?? null;
+            const countAfter = replayCtx.allTrades.filter(x => String(x?.ticker).toUpperCase() === tk).length;
+            const delta = Math.max(0, countAfter - countBefore);
+            if (delta > 0) tradesCreated += delta;
+
+            phaseCDecisions.push({
+              ticker: tk,
+              outcome: "WINNER",
+              composite: winner.score.composite,
+              breakdown: winner.score,
+              capacity_used: sel.winners.length,
+              capacity_available: capacity,
+              topn_threshold: sel.winners[sel.winners.length - 1]?.score?.composite ?? null,
+            });
+            // Refresh stateMap with post-commit tickerData
+            stateMap[tk] = sanitizeReplayTickerState(td);
+          } catch (e) {
+            errors.push({ ticker: winner.ticker, ts: intervalTs, error: `phase_c_commit: ${String(e?.message || e)}` });
+          }
+        }
+
+        // Record losers as rejected (no commit)
+        for (const loser of sel.losers) {
+          phaseCDecisions.push({
+            ticker: loser.ticker,
+            outcome: loser.reject_reason === "below_quality_floor" ? "REJECTED_FLOOR" : "REJECTED_BELOW_TOPN",
+            composite: loser.score?.composite ?? 0,
+            breakdown: loser.score,
+            capacity_used: sel.winners.length,
+            capacity_available: capacity,
+            topn_threshold: sel.winners[sel.winners.length - 1]?.score?.composite ?? null,
+          });
+          // Loser's tickerData should NOT show as if it entered.
+          // Downgrade kanban_stage from in_review/enter back to setup so it's
+          // re-evaluated next bar without carrying entry-cycle state.
+          const td = loser.tickerData;
+          if (td) {
+            td.__phase_c_rejected = true;
+            td.__phase_c_score = loser.score?.composite ?? 0;
+            td.__phase_c_reject_reason = loser.reject_reason || "below_topn";
+            // Downgrade so next bar starts fresh (no entry-cycle stamping)
+            td.kanban_cycle_enter_now_ts = null;
+            td.kanban_cycle_trigger_ts = null;
+            td.kanban_cycle_side = null;
+            // Refresh stateMap to reflect downgrade
+            stateMap[loser.ticker] = sanitizeReplayTickerState(td);
+          }
+        }
+
+        // Stash decisions on replayCtx for forensics + (Step 4) D1 persistence
+        if (!replayCtx._phaseCDecisions) replayCtx._phaseCDecisions = [];
+        for (const d of phaseCDecisions) {
+          replayCtx._phaseCDecisions.push({ ...d, bar_ts: intervalTs });
+        }
+
+        if (phaseCDecisions.length > 0) {
+          const winnerTickers = sel.winners.map(w => w.ticker).join(",");
+          const losersBelowTopN = sel.losers.filter(l => l.reject_reason === "below_topn").length;
+          const losersBelowFloor = sel.losers.filter(l => l.reject_reason === "below_quality_floor").length;
+          console.log(
+            `[PHASE_C] bar=${new Date(intervalTs).toISOString()} cap=${capacity} `
+            + `cands=${phaseCBuffer.length} winners=${sel.winners.length}[${winnerTickers}] `
+            + `topn_rej=${losersBelowTopN} floor_rej=${losersBelowFloor}`
+          );
         }
       }
 

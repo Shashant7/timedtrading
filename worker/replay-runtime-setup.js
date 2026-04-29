@@ -210,6 +210,22 @@ export const REPLAY_DA_KEYS = [
   // V15 P0.7.24 (2026-04-29): FIX 12 V4 — F2 disable + F4 severe divergence
   "deep_audit_quality_block_f2_enabled",
   "deep_audit_quality_block_f4_enabled",
+  // ─────────────────────────────────────────────────────────────────────
+  // Phase C (2026-04-29): rank-all-take-top-N entry selection
+  // See: tasks/phase-c-rank-all-take-top-n-design.md
+  // ─────────────────────────────────────────────────────────────────────
+  "deep_audit_phase_c_enabled",
+  "deep_audit_phase_c_w_rank",
+  "deep_audit_phase_c_w_conviction",
+  "deep_audit_phase_c_w_divergence",
+  "deep_audit_phase_c_w_pdz",
+  "deep_audit_phase_c_w_td",
+  "deep_audit_phase_c_w_personality",
+  "deep_audit_phase_c_w_rr",
+  "deep_audit_phase_c_fill_factor",
+  "deep_audit_phase_c_hard_cap_per_bar",
+  "deep_audit_phase_c_hard_cap_per_cycle",
+  "deep_audit_phase_c_quality_score_min",
   // V13 Focus Tier (2026-04-24): intrinsic conviction score — see
   // tasks/v13-focus-tier-strategy-2026-04-24.md
   "deep_audit_focus_tier_enabled",
