@@ -79,9 +79,11 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_min_trim_atr_mult", "value": "1.5" },
     { "key": "deep_audit_min_trim_pct", "value": "0.015" },
 
-    { "key": "deep_audit_winner_protect_big_mfe_enabled", "value": "true" },
+    { "key": "deep_audit_winner_protect_big_mfe_enabled", "value": "false" },
     { "key": "deep_audit_winner_protect_big_mfe_threshold_pct", "value": "15.0" },
     { "key": "deep_audit_winner_protect_big_mfe_lock_pct", "value": "0.60" },
+
+    { "key": "deep_audit_late_day_entry_block_min", "value": "30" },
 
     { "key": "deep_audit_stagnant_deferral_max_days", "value": "14" },
     { "key": "deep_audit_stagnant_low_mae_threshold_pct", "value": "0.75" },

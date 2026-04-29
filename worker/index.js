@@ -15628,9 +15628,58 @@ async function processTradeSimulation(
         parityOpeningConfirmedDeferred = _nyMins >= _rthOpenMins && _nyMins < (_rthOpenMins + _parityDeferConfirmedOpenMins);
       } catch {}
     }
+    // V15 P0.7.20 (2026-04-29) — FIX 4: LATE-DAY ENTRY BLOCK
+    //
+    // EVIDENCE (autopsy v16-fix6-jul half-hour buckets):
+    //   Time ET   WIN  LOSS   WR    PnL
+    //   15:00       5    7   42%   +6.59%   ← still profitable
+    //   15:30       4   13   24%  -10.40%   ← THE problem
+    //
+    // 3:30 PM ET (last 30 min before close) entries have only 30 min
+    // of management time before the close, then forced overnight risk.
+    // Across 17 trades: 24% WR, -10.40% PnL. Compare to 10:00 AM
+    // entries (85% WR, +23%) or 13:00 (86% WR, +26%).
+    //
+    // Block new entries from 15:30 ET to 16:00 ET. Net: avoid -10pp
+    // PnL, give up +6pp from rare late-day winners. WR effect:
+    // 54.4% -> ~58% on the broader cohort.
+    //
+    // Configurable: deep_audit_late_day_entry_block_min (default 30).
+    // Set to 0 to disable, 60 to block from 3pm.
+    let lateDayEntryBlocked = false;
+    if (isEnter) {
+      const _lateBlockMin = Number(
+        tickerData?._env?._deepAuditConfig?.deep_audit_late_day_entry_block_min ?? 30
+      );
+      if (_lateBlockMin > 0 && _lateBlockMin <= 120) {
+        try {
+          const _ldNyParts = new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/New_York",
+            hour12: false,
+            hour: "2-digit",
+            minute: "2-digit",
+          }).formatToParts(entryTimeRef);
+          const _ldNyMap = {};
+          for (const _p of _ldNyParts) _ldNyMap[_p.type] = Number(_p.value);
+          const _ldNyMins = (_ldNyMap.hour || 0) * 60 + (_ldNyMap.minute || 0);
+          const _rthCloseMins = 16 * 60; // 4:00 PM ET
+          const _blockStart = _rthCloseMins - _lateBlockMin;
+          // Block entries from blockStart to RTH close (e.g., 15:30 - 16:00 ET)
+          if (_ldNyMins >= _blockStart && _ldNyMins < _rthCloseMins) {
+            lateDayEntryBlocked = true;
+            console.log(`[LATE_DAY_BLOCK] ${sym} ${tickerData?.__entry_path || "entry"} blocked: ET ${_ldNyMap.hour}:${String(_ldNyMap.minute).padStart(2,"0")} within ${_lateBlockMin}min of close`);
+          }
+        } catch {}
+      }
+    }
+
     // Declare early so pre_gate diagnostic can reference; smart gates populate below
     let smartGateBlocked = false;
     let smartGateReason = null;
+    if (lateDayEntryBlocked) {
+      smartGateBlocked = true;
+      smartGateReason = "late_day_entry_block";
+    }
     if (isReplay && isEnter && replayCtx?.processDebug && replayCtx.processDebug.length < 2) {
       replayCtx.processDebug.push({ sym, at: "after_rth", outsideRTH });
     }
