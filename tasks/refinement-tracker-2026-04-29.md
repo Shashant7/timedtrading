@@ -249,3 +249,16 @@ If validation FAILS:
 | 2026-04-28 | Mark v16-fix1-p716 as live savepoint | First validated config with all 4 critical fixes (P0.7.15-17) |
 | 2026-04-28 | Defer 5m/Apr-2026 comparison until all fixes stable | Per user direction: validate fix-by-fix at 30m first |
 | 2026-04-29 | Sequence: FIX 6 → FIX 7 → FIX 2 → FIX 4 → re-eval rest | Order by clarity-of-fix and cumulative compound benefit |
+
+#### FIX 12 V3 — Quality Composite Block (P0.7.23) — VALIDATION RESULTS
+- **Smoke:** `v16-fix12-jul-30m-1777477370` (92 trades vs 107 baseline)
+- **Direct blocks (8 trades, -7.41% PnL):** Exactly as predicted (FIX, ETN, EME, PLTR, IWM, PH, CAT, SGI)
+- **Net result:**
+  - WR 67.4% vs 62.6% baseline (+4.8pp) ✓
+  - PF 9.85 vs 5.33 (+4.52) ✓✓
+  - Avg loss -1.48% vs -2.49% (-1.01pp) ✓
+  - PnL +393.10% vs +430.63% (-37.53pp) ✗
+- **Cascade effect (47 trades reshuffled, butterfly):**
+  - Cascade-lost wins: LITE +111→+42, PLTR +38, PSTG +25, UTHR +14, NVDA +12, U +12 (~+233pp)
+  - Cascade-dodged losses: APLD -20, CSX -18, SPY -9, ORCL -5 (~-66pp)
+- **Decision pending:** trade-off between consistency (PF doubled) vs upside capture (LITE-class jackpots reshuffled)
