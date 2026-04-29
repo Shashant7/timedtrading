@@ -239,11 +239,15 @@ replay_day() {
   # Smaller batches mean more HTTP roundtrips but each fits well within
   # the worker's per-request budget. Override via BATCH_SIZE env.
   local batch="${BATCH_SIZE:-12}"
+  # INTERVAL_MINUTES env override (default 30 for historical compatibility).
+  # Use INTERVAL_MINUTES=5 for finer-grained replay (more CPU per day; ~6x
+  # wall-time per day; require BATCH_SIZE<=6 to fit Worker CPU budget).
+  local interval_minutes="${INTERVAL_MINUTES:-30}"
   local cs="$clean_slate"  # only apply cleanSlate on the FIRST batch of the day
   local day_t0=$(date -u +%s)
 
   while :; do
-    local url="$API_BASE/timed/admin/candle-replay?date=$day&runId=$RUN_ID&tickerOffset=${offset}&tickerBatch=${batch}&intervalMinutes=30&tickers=$TICKERS&fullDay=0&key=$API_KEY"
+    local url="$API_BASE/timed/admin/candle-replay?date=$day&runId=$RUN_ID&tickerOffset=${offset}&tickerBatch=${batch}&intervalMinutes=${interval_minutes}&tickers=$TICKERS&fullDay=0&key=$API_KEY"
     if [[ "$cs" == "1" ]]; then url="${url}&cleanSlate=1"; cs=0; fi
     if $BLOCK_CHAIN; then url="${url}&blockChainTrace=1"; fi
 
