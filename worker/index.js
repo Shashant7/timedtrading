@@ -47890,30 +47890,43 @@ export default {
         try {
           const body = await req.json().catch(() => ({}));
           if (!body?.run_id) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
-          const validationRow = await db.prepare(
-            `SELECT gate_status, reference_run_id, updated_at
-               FROM backtest_run_validation_artifacts
-              WHERE run_id = ?1
-                AND artifact_type = 'sentinel_basket_v1'
-              LIMIT 1`
-          ).bind(body.run_id).first();
-          if (!validationRow) {
-            return sendJSON({
-              ok: false,
-              error: "sentinel_validation_required",
-              detail: "Generate a sentinel validation artifact before promoting this run.",
-            }, 409, corsHeaders(env, req));
+          // V15 P0.7.17 (2026-04-29): support force=true to bypass sentinel
+          // gate when promoting an iterative-fix smoke run as the live
+          // savepoint. Used during the V15 fix-and-validate sequence
+          // where sentinel artifacts haven't been regenerated yet.
+          const force = body?.force === true || String(body?.force || "").toLowerCase() === "true";
+          if (!force) {
+            const validationRow = await db.prepare(
+              `SELECT gate_status, reference_run_id, updated_at
+                 FROM backtest_run_validation_artifacts
+                WHERE run_id = ?1
+                  AND artifact_type = 'sentinel_basket_v1'
+                LIMIT 1`
+            ).bind(body.run_id).first();
+            if (!validationRow) {
+              return sendJSON({
+                ok: false,
+                error: "sentinel_validation_required",
+                detail: "Generate a sentinel validation artifact before promoting this run, OR pass force=true.",
+              }, 409, corsHeaders(env, req));
+            }
+            if (String(validationRow?.gate_status || "").toLowerCase() === "error") {
+              return sendJSON({
+                ok: false,
+                error: "sentinel_validation_failed",
+                detail: "The latest sentinel validation artifact is in an error state.",
+              }, 409, corsHeaders(env, req));
+            }
           }
-          if (String(validationRow?.gate_status || "").toLowerCase() === "error") {
-            return sendJSON({
-              ok: false,
-              error: "sentinel_validation_failed",
-              detail: "The latest sentinel validation artifact is in an error state.",
-            }, 409, corsHeaders(env, req));
+          // Verify the run exists
+          const runRow = await db.prepare(`SELECT run_id, status FROM backtest_runs WHERE run_id = ?1`).bind(body.run_id).first();
+          if (!runRow) {
+            return sendJSON({ ok: false, error: "run_not_found" }, 404, corsHeaders(env, req));
           }
           await db.prepare(`UPDATE backtest_runs SET live_config_slot = 0 WHERE live_config_slot = 1`).run();
           await db.prepare(`UPDATE backtest_runs SET live_config_slot = 1, updated_at = ?2 WHERE run_id = ?1`).bind(body.run_id, Date.now()).run();
-          return sendJSON({ ok: true, run_id: body.run_id }, 200, corsHeaders(env, req));
+          console.log(`[MARK_LIVE] ${body.run_id} promoted to live_config_slot=1${force ? " (force=true)" : ""}`);
+          return sendJSON({ ok: true, run_id: body.run_id, forced: force }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }
