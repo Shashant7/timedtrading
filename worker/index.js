@@ -19385,6 +19385,45 @@ async function processTradeSimulation(
                       energy_pct: _mi.cross_asset.energy_pct,
                       btc_pct: _mi.cross_asset.btc_pct,
                     } : null,
+                    // V15 P0.7.22 (2026-04-29) — capture TD Sequential per TF
+                    // for retrospective WR/PnL analysis. The system already
+                    // computes td9/td13/prep counts internally; we now stamp
+                    // them on the snapshot so the autopsy can correlate them
+                    // with trade outcomes (per user request: "where the price
+                    // is in relation to TD Count and how to exhaustion across
+                    // TFs").
+                    td_seq: (() => {
+                      const _td = tickerData?.td_sequential?.per_tf;
+                      if (!_td || typeof _td !== "object") return null;
+                      const out = {};
+                      for (const tf of ["10","30","60","240","D","W"]) {
+                        const r = _td[tf];
+                        if (!r) continue;
+                        out[tf] = {
+                          bull_prep: Number(r.bullish_prep_count) || 0,
+                          bear_prep: Number(r.bearish_prep_count) || 0,
+                          bull_leadup: Number(r.bullish_leadup_count) || 0,
+                          bear_leadup: Number(r.bearish_leadup_count) || 0,
+                          td9_bull: !!r.td9_bullish,
+                          td9_bear: !!r.td9_bearish,
+                          td13_bull: !!r.td13_bullish,
+                          td13_bear: !!r.td13_bearish,
+                        };
+                      }
+                      return Object.keys(out).length ? out : null;
+                    })(),
+                    // V15 P0.7.22 — capture PDZ (Premium/Equilibrium/Discount)
+                    // zone state per TF. Per user request: "Premium,
+                    // Equilibrium, Discount Zone in proximity across TFs".
+                    pdz: {
+                      D: tickerData?.pdz_zone_D || null,
+                      h4: tickerData?.pdz_zone_4h || null,
+                      h1: tickerData?.pdz_zone_1h || tickerData?.pdz_zone_h1 || null,
+                    },
+                    // V15 P0.7.22 — capture divergence flags. Per user
+                    // request: "Divergence recently or forming across TFs".
+                    // adverse = divergence going against trade direction.
+                    divergence: tickerData?.__entry_divergence_summary || null,
                     // 5. Event proximity (always stamped now,
                     //    not only when blocking entry)
                     upcoming_risk_event: tickerData?.__upcomingEntryEvent

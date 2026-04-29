@@ -1000,6 +1000,17 @@ export function evaluateEntry(ctx) {
     ? collectActivePhaseDivergence([m10, m15, m30, h1, h4, D, W], "bear")
     : collectActivePhaseDivergence([m10, m15, m30, h1, h4, D, W], "bull");
   adversePhaseDivSummary = summarizeDivergence(adversePhaseDiv);
+  // V15 P0.7.22 — stamp divergence summary on tickerData so the
+  // setup_snapshot can capture it for retrospective analysis. The
+  // existing summarizeDivergence returns {anyActive, tfs:[...]}.
+  if (d) {
+    d.__entry_divergence_summary = {
+      adverse_rsi: adverseRsiDivSummary,
+      adverse_phase: adversePhaseDivSummary,
+      bull_rsi: hasRsiDivBull,
+      bear_rsi: hasRsiDivBear,
+    };
+  }
   ltfConfirm = side === "LONG"
     ? (ltfRecovering || hasRsiDivBull)
     : (scores.ltf < 10 || hasStFlipBear || hasEmaCrossBear || hasSqRelease || hasRsiDivBear);
