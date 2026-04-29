@@ -15715,8 +15715,21 @@ async function processTradeSimulation(
         const _exemptPaths = String(_qbCfg.deep_audit_quality_block_exempt_paths
           ?? "tt_gap_reversal_long,tt_gap_reversal_short")
           .split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
-        if (_entryPath && !_exemptPaths.includes(_entryPath)) {
-          // Pull setup metrics (same fields used in setup_snapshot)
+        const _isExemptPath = !!_entryPath && _exemptPaths.includes(_entryPath);
+
+        // V15 P0.7.24 — FIX 12 V4 toggles:
+        //   F2 = RSI MTF middling. Caused 47-trade cascade in V3 smoke
+        //        (-37pp PnL, lost LITE +111). DISABLED by default.
+        //   F4 = severe adverse divergence (RSI div + phase div both
+        //        active). Strong WR signal (40% WR cohort on FIX 12
+        //        smoke). NEW filter; applies to ALL paths including
+        //        exempt gap_reversal because divergence is a quality
+        //        signal independent of setup type.
+        const _f2Enabled = String(_qbCfg.deep_audit_quality_block_f2_enabled ?? "false") === "true";
+        const _f4Enabled = String(_qbCfg.deep_audit_quality_block_f4_enabled ?? "true") === "true";
+
+        if (_entryPath) {
+          // Pull setup metrics
           const _ds = tickerData?.daily_structure || {};
           const _pctE21 = Number(_ds.pct_above_e21);
           const _slope5d = Number(_ds.e21_slope_5d_pct);
@@ -15726,38 +15739,49 @@ async function processTradeSimulation(
             ?? tickerData?.tf_tech?.["60"]?.rsi?.r5
           );
 
-          // F1: late-stage extension (path-specific)
+          // F1: late-stage extension (path-specific). Skipped for exempt paths.
           const _f1ExtMax = Number(_qbCfg.deep_audit_quality_block_f1_ext_max ?? 3.0);
           const _f1SlopeMin = Number(_qbCfg.deep_audit_quality_block_f1_slope_min ?? 1.5);
           const _f1Paths = String(_qbCfg.deep_audit_quality_block_f1_paths
             ?? "tt_pullback,tt_ath_breakout")
             .split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
-          const _f1 = Number.isFinite(_pctE21) && Number.isFinite(_slope5d)
+          const _f1 = !_isExemptPath
+            && Number.isFinite(_pctE21) && Number.isFinite(_slope5d)
             && _pctE21 >= 0 && _pctE21 < _f1ExtMax
             && _slope5d >= _f1SlopeMin
             && _f1Paths.includes(_entryPath);
 
-          // F2: narrow middling RSI MTF
+          // F2: narrow middling RSI MTF. Skipped for exempt paths and disabled by default.
           const _f2DMin = Number(_qbCfg.deep_audit_quality_block_f2_rsi_d_min ?? 63);
           const _f2DMax = Number(_qbCfg.deep_audit_quality_block_f2_rsi_d_max ?? 69);
           const _f2H1Min = Number(_qbCfg.deep_audit_quality_block_f2_rsi_h1_min ?? 62);
           const _f2H1Max = Number(_qbCfg.deep_audit_quality_block_f2_rsi_h1_max ?? 68);
-          const _f2 = Number.isFinite(_rsiD) && Number.isFinite(_rsiH1)
+          const _f2 = _f2Enabled && !_isExemptPath
+            && Number.isFinite(_rsiD) && Number.isFinite(_rsiH1)
             && _rsiD > _f2DMin && _rsiD < _f2DMax
             && _rsiH1 > _f2H1Min && _rsiH1 < _f2H1Max;
 
-          // F3: dead-zone slope
+          // F3: dead-zone slope. Skipped for exempt paths.
           const _f3SlopeMin = Number(_qbCfg.deep_audit_quality_block_f3_slope_min ?? 2.0);
           const _f3SlopeMax = Number(_qbCfg.deep_audit_quality_block_f3_slope_max ?? 3.0);
-          const _f3 = Number.isFinite(_slope5d)
+          const _f3 = !_isExemptPath
+            && Number.isFinite(_slope5d)
             && _slope5d >= _f3SlopeMin && _slope5d < _f3SlopeMax;
 
-          if (_f1 || _f2 || _f3) {
+          // F4: severe divergence (BOTH RSI div AND phase div active).
+          // Applies to all paths including exempt — divergence is path-agnostic.
+          const _div = tickerData?.__entry_divergence_summary || {};
+          const _advRsiCount = (_div.adverse_rsi && Number(_div.adverse_rsi.count)) || 0;
+          const _advPhaseCount = (_div.adverse_phase && Number(_div.adverse_phase.count)) || 0;
+          const _f4 = _f4Enabled && _advRsiCount >= 1 && _advPhaseCount >= 1;
+
+          if (_f1 || _f2 || _f3 || _f4) {
             qualityBlockBlocked = true;
             const _reasons = [];
             if (_f1) _reasons.push(`F1(ext=${_pctE21?.toFixed(2)},slope=${_slope5d?.toFixed(2)})`);
             if (_f2) _reasons.push(`F2(rsiD=${_rsiD?.toFixed(0)},rsiH1=${_rsiH1?.toFixed(0)})`);
             if (_f3) _reasons.push(`F3(slope=${_slope5d?.toFixed(2)})`);
+            if (_f4) _reasons.push(`F4(advRsi=${_advRsiCount},advPhase=${_advPhaseCount})`);
             qualityBlockReason = _reasons.join("|");
             console.log(`[QUALITY_BLOCK] ${sym} ${_entryPath} blocked: ${qualityBlockReason}`);
           }

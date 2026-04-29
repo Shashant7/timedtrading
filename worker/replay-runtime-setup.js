@@ -207,6 +207,9 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_quality_block_f2_rsi_h1_max",
   "deep_audit_quality_block_f3_slope_min",
   "deep_audit_quality_block_f3_slope_max",
+  // V15 P0.7.24 (2026-04-29): FIX 12 V4 — F2 disable + F4 severe divergence
+  "deep_audit_quality_block_f2_enabled",
+  "deep_audit_quality_block_f4_enabled",
   // V13 Focus Tier (2026-04-24): intrinsic conviction score — see
   // tasks/v13-focus-tier-strategy-2026-04-24.md
   "deep_audit_focus_tier_enabled",
