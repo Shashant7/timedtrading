@@ -165,18 +165,34 @@ All weights DA-keyed for tunability. Defaults from this session's empirical find
 
 ### Capacity controls (DA-keyed)
 
-- `deep_audit_max_entries_per_bar` (default 3) — top-N cap per bar
-- `deep_audit_max_entries_per_cycle` (default 5) — live cron cycle cap
-- `deep_audit_quality_score_min` (default -20) — absolute floor; below = reject even if in top N
+**Decision (2026-04-29):** Capacity scales with currently-open capacity, not fixed.
+
+```
+remaining_open = MAX_OPEN_POSITIONS - currentOpenCount    # e.g. 35 - 12 = 23
+fill_factor = clamp(deep_audit_phase_c_fill_factor, 0.05, 1.0)  # default 0.20
+max_entries_this_bar = max(1, ceil(remaining_open * fill_factor))
+```
+
+So if 23 slots are open, default config allows up to ~5 entries per bar. If only
+3 are open, allow 1. Prevents both "miss the wave" and "pile in everything at once".
+
+Plus an absolute ceiling so a near-empty book doesn't go wild on a single bar:
+
+- `deep_audit_phase_c_fill_factor` (default 0.20) — fraction of remaining capacity per bar
+- `deep_audit_phase_c_hard_cap_per_bar` (default 8) — never enter more than this in one bar
+- `deep_audit_phase_c_hard_cap_per_cycle` (default 8) — same for live cycle
+- `deep_audit_phase_c_quality_score_min` (default -20) — absolute floor; below = reject even if in top N
 - `deep_audit_phase_c_enabled` (default false initially) — kill switch
 
 ### Implementation plan
 
 **Step 1: Helper module** — `worker/pipeline/entry-selector.js`
-- `computeQualityScore(tickerData)` returns a number
-- `bufferCandidate(buffer, ticker, tickerData, score)` 
-- `selectTopN(buffer, capacity, opts)` returns winners + losers
+- `computeQualityScore(tickerData)` returns `{composite, rank, conviction, div_modifier, pdz_modifier, td_modifier, personality_mod, rr}`
+- `bufferCandidate(buffer, ticker, tickerData, score)`
+- `selectTopN(buffer, capacity, opts)` returns `{winners, losers}` with tiebreakers applied (R:R desc → ticker historical WR desc → insertion order)
+- `computeCapacityForBar(currentOpenCount, fillFactor, hardCap)` returns max entries
 - Pure functions, easy to unit test
+- DA-keyed weight loading: read all weights from `_deepAuditConfig` with fallback defaults
 
 **Step 2: Replay integration** — `worker/replay-candle-batches.js`
 - Add candidate buffer in inner loop
@@ -199,9 +215,39 @@ All weights DA-keyed for tunability. Defaults from this session's empirical find
 - Two-pass: manage existing → buffer + select entries
 - Replay logic identical to replay path
 
-**Step 6: Diagnostics**
-- New replayCtx field: `_phaseCRejected[]` for forensics
-- KV/D1 logging of "near-miss" candidates so we can see what was scored second-place
+**Step 6: Diagnostics — D1 persistence**
+
+**Decision (2026-04-29):** Persist all decisions to D1 so we can analyze and calibrate.
+
+New table `phase_c_decisions`:
+```
+phase_c_decisions(
+  decision_id     TEXT PRIMARY KEY,    -- ${run_id}-${bar_ts}-${ticker}
+  run_id          TEXT,                -- replay run or 'live'
+  bar_ts          INTEGER,             -- simulated/wall-clock bar timestamp
+  ticker          TEXT,
+  outcome         TEXT,                -- 'WINNER' | 'REJECTED_BELOW_TOPN' | 'REJECTED_FLOOR' | 'REJECTED_HARD_GATE'
+  rank_score      REAL,
+  conviction      INTEGER,
+  rr              REAL,
+  div_modifier    REAL,
+  pdz_modifier    REAL,
+  td_modifier     REAL,
+  personality_mod REAL,
+  composite_score REAL,
+  hard_gate       TEXT,                -- e.g. 'lateDayBlock', null if soft
+  topn_threshold  REAL,                -- the score that just made it in
+  capacity_used   INTEGER,             -- N / max this bar
+  created_at      INTEGER NOT NULL
+)
+INDEX idx_phase_c_run_ts ON phase_c_decisions(run_id, bar_ts);
+INDEX idx_phase_c_ticker ON phase_c_decisions(ticker);
+```
+
+Plus replayCtx field `_phaseCRejected[]` for in-memory forensics during replay.
+
+This enables **offline sensitivity analysis**: replay the decisions table against
+historical outcomes in `trades` to retune weights without re-running backtests.
 
 ### Side-effects to manage
 
@@ -210,6 +256,36 @@ The audit identified that `qualifiesForEnter` and `classifyKanbanStage` mutate `
 - The MUTATIONS are fine — they describe the candidate's would-be entry, but we never commit unless selected
 - KV downgrades (`in_review` → `setup`) for rejected candidates need consideration: should rejected candidates stay in `in_review` so they're considered next bar, or get downgraded to `setup`? Lean toward: keep in `in_review` so they're re-eligible (likely with similar score) on the next bar
 - Replay state (`stateMap[ticker]`) gets the candidate's tickerData regardless — that's fine, no commit happened
+
+### Tiebreakers (when two candidates tie on composite_score)
+
+**Decision (2026-04-29):** R:R first, then ticker history.
+
+```
+1. Higher R:R wins                                      (better risk-adjusted)
+2. If R:R tie, higher historical WR for ticker wins     (ticker_personality stat)
+3. If still tied, ticker insertion order (deterministic)
+```
+
+R:R is already on every trade record; historical WR per ticker is computed in
+the existing `worker/focus-tier.js` / ticker_personality machinery. Adding both
+as tiebreakers means we never get random selection.
+
+### Sensitivity sweep (mandatory before promotion)
+
+**Decision (2026-04-29):** A weight-sensitivity sweep is required.
+
+Build `scripts/phase-c-sensitivity-sweep.py`:
+1. Load the `phase_c_decisions` D1 table (after one canonical July smoke with Phase C enabled, default weights, full data captured)
+2. For each candidate weight tuple in a grid (rank weights × conviction weights × div weights × pdz weights × td weights × personality weights), recompute composite scores ON THE SAME CAPTURED DATA
+3. Re-derive top-N selections per bar
+4. Cross-reference winners to trade outcomes (from `trades` table)
+5. Report: WR, PnL, PF, top-15-winner preservation per weight combo
+6. Visualize sensitivity (heatmap) and find the robust ridge — best AND least sensitive to small perturbations
+7. Lock in the chosen weights as new defaults
+
+This makes weight tuning cheap (just SQL/Python on captured decisions) and avoids
+the "tweak weights, re-run backtest, repeat" loop.
 
 ### Validation gate
 
@@ -232,13 +308,13 @@ Phase C is the foundation. Once it's in place:
 - **GRNY/GRNJ Top-5 Core Ideas** (Phase 2) become a scoring boost
 - Future entry refinements don't need cascade-aware design
 
-## Open questions for review
+## Resolved questions (2026-04-29 review)
 
-1. **Initial quality weights**: empirically derived from this session's forensic. Worth a sensitivity sweep on July smoke before locking in?
-2. **Capacity per bar** (default 3): is this right, or should it scale with total open capacity? E.g., if 15 slots are open, allow more entries per bar than if only 3 are open?
-3. **Rejected diagnostic persistence**: KV-only, or also D1 for autopsy? D1 lets us aggregate "near-miss" stats over time.
-4. **Live cron parallelism**: today's scoring pass is parallel; the entry-selector pass MUST be sequential after scoring completes. Do we add a barrier, or piggyback on the existing sequential `[KANBAN CRON]` execution loop? Leaning toward the latter (no new infra).
-5. **Replay-mode determinism**: with sorted top-N selection, runs become more deterministic (great for reproducibility). But two trades with identical scores need a tiebreaker — alphabetical ticker? Insertion order? Random with seed?
+1. **Sensitivity sweep**: ✅ REQUIRED. Implementation builds `scripts/phase-c-sensitivity-sweep.py` after first canonical run produces `phase_c_decisions` data.
+2. **Capacity per bar**: ✅ Scales with open capacity (`fill_factor=0.20` default of remaining slots, hard-cap 8 per bar).
+3. **Diagnostic persistence**: ✅ D1 table `phase_c_decisions` for offline calibration.
+4. **Tiebreakers**: ✅ R:R first → ticker historical WR → insertion order (deterministic).
+5. **Live cron parallelism**: piggyback on existing sequential `[KANBAN CRON]` execution loop. No new infra.
 
 ## Risk assessment
 
