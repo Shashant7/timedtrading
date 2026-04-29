@@ -250,6 +250,29 @@ If validation FAILS:
 | 2026-04-28 | Defer 5m/Apr-2026 comparison until all fixes stable | Per user direction: validate fix-by-fix at 30m first |
 | 2026-04-29 | Sequence: FIX 6 → FIX 7 → FIX 2 → FIX 4 → re-eval rest | Order by clarity-of-fix and cumulative compound benefit |
 
+## ⚠️ STRUCTURAL INSIGHT (2026-04-29)
+
+After three failed entry-side filter attempts (FIX 9, FIX 12 V3, FIX 12 V4), the
+root cause is now clear: **the engine enters trades greedily by ticker iteration
+order. Removing a high-quality candidate frees a slot that fills with a
+lower-quality alternative.** Counterfactual analysis assumes "remove these
+trades, keep all others identical" — that is invalid in a slot-constrained
+system. **No more entry-side post-hoc filters.** The structural fix is Phase C
+(rank-all-take-top-N entry selection). See `tasks/2026-04-29-cascade-lessons.md`.
+
+The TD/PDZ/Divergence fields captured this session are still valuable — they
+become quality-score CONTRIBUTORS in Phase C, not binary blocks.
+
+## FINAL STATE (post-session 2026-04-29)
+
+- **Live savepoint:** v16-fix4 (slot 1 in `backtest_runs`)
+- **Real performance** (post orphan cleanup): 101 trades, 67.3% WR, +427% PnL, PF 8.14
+- **All entry-side experiments DISABLED via DA flags:**
+  - `deep_audit_winner_protect_big_mfe_enabled = false` (FIX 2)
+  - `deep_audit_big_mfe_trim_enabled = false` (FIX 9)
+  - `deep_audit_quality_block_enabled = false` (FIX 12 all variants)
+- **Code retained** under DA flags for future Phase-C-era experiments
+
 #### FIX 12 V4 — Quality Composite Block w/ F4 (P0.7.24) — REJECTED
 - **Promise (counterfactual on baseline-ctx, 101 trades):**
   - V4 (F1+F3+F4): N=91, WR 71% (+4.1pp), PnL +446% (+19pp), PF 13.63
