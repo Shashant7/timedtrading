@@ -31160,7 +31160,18 @@ async function getPriceFromTrailAtTimestamp(db, ticker, tsMs) {
   }
 }
 
-/** Load all trades from D1 for simulation (same shape as KV). Includes shares from positions. */
+/** Load all trades from D1 for simulation (same shape as KV). Includes shares from positions.
+ *
+ * V15 P0.7.16 (2026-04-29): EXCLUDE BACKTEST TRADES.
+ *   This function is called by the LIVE CRON's processTradeSimulation
+ *   to fetch all trades for management. Backtest replays write trades
+ *   with a non-null run_id but skip the live execution adapter (no
+ *   `positions` row). Without filtering here, the live cron loads
+ *   backtest OPEN trades, classifies them via classifyKanbanStage, and
+ *   force-closes them at WALL-CLOCK time (e.g. v13_hard_age_cap fires
+ *   because age=300d). Filter at the source: only return live trades
+ *   (run_id IS NULL or run_id matches the active live config slot).
+ */
 async function d1LoadTradesForSimulation(env) {
   const db = env?.DB;
   if (!db) return null;
@@ -31170,11 +31181,13 @@ async function d1LoadTradesForSimulation(env) {
       const tradesRes = await db.prepare(
         `SELECT t.trade_id, t.ticker, t.direction, t.entry_ts, t.entry_price, t.rank, t.rr, t.status,
           t.exit_ts, t.exit_price, t.exit_reason, t.trimmed_pct, t.pnl, t.pnl_pct,
-          t.script_version, t.created_at, t.updated_at, t.trim_ts, t.trim_price,
+          t.script_version, t.created_at, t.updated_at, t.trim_ts, t.trim_price, t.run_id,
           t.shares AS t_shares, t.notional AS t_notional, t.setup_grade, t.setup_name, t.risk_budget,
           COALESCE(p.total_qty, 0) AS pos_qty
          FROM trades t
          LEFT JOIN positions p ON p.position_id = t.trade_id
+         WHERE t.run_id IS NULL
+            OR t.run_id IN (SELECT run_id FROM backtest_runs WHERE live_config_slot = 1)
          ORDER BY t.entry_ts DESC`
       ).all();
       rows = Array.isArray(tradesRes?.results) ? tradesRes.results : [];
@@ -31183,8 +31196,11 @@ async function d1LoadTradesForSimulation(env) {
         const tradesRes = await db.prepare(
           `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
             exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
-            script_version, created_at, updated_at, trim_ts, trim_price
-           FROM trades ORDER BY entry_ts DESC`
+            script_version, created_at, updated_at, trim_ts, trim_price, run_id
+           FROM trades
+           WHERE run_id IS NULL
+              OR run_id IN (SELECT run_id FROM backtest_runs WHERE live_config_slot = 1)
+           ORDER BY entry_ts DESC`
         ).all();
         rows = (Array.isArray(tradesRes?.results) ? tradesRes.results : []).map((r) => ({ ...r, pos_qty: 0 }));
       } else throw joinErr;
@@ -31248,6 +31264,7 @@ async function d1LoadTradesForSimulation(env) {
         script_version: r.script_version,
         created_at: r.created_at,
         updated_at: r.updated_at,
+        run_id: r.run_id || null,
         shares: Number.isFinite(shares) && shares > 0 ? shares : undefined,
         notional: notionalVal > 0 ? notionalVal : undefined,
         setup_grade: r.setup_grade || undefined,
@@ -31260,6 +31277,21 @@ async function d1LoadTradesForSimulation(env) {
     // ── Reconcile: close OPEN trades that have no matching OPEN position in D1 ──
     // This prevents phantom trades (e.g. entry failed but trade row persists)
     // from being treated as active positions throughout the system.
+    //
+    // V15 P0.7.16 (2026-04-29): EXCLUDE BACKTEST TRADES.
+    //   Trades created by replay/backtest write to `trades` (with run_id)
+    //   but DO NOT write to the `positions` table (replay skips the
+    //   execution adapter — see processTradeSimulation line 14039-14048).
+    //   Without this gate, the live cron's "reconciled_no_position" path
+    //   force-closes every OPEN backtest trade at WALL-CLOCK time using
+    //   live prices — corrupting the backtest mid-run.
+    //   Symptoms observed in v16-fix1-jul: 12 Jul-1 trades exit-stamped
+    //   at Apr 28 23:57 with v13_hard_age_cap (age=301d via Date.now())
+    //   and live-prices (AMZN +17.7%, CSX +35.0%) — the trades got
+    //   classified by the live cron's classifyKanbanStage which
+    //   computed age from wall-clock since asOfTs was null in live mode.
+    //   Fix: skip ANY trade with non-null run_id from this reconcile path.
+    //   Live trades have run_id == NULL (live cron never sets it).
     try {
       const posRes = await db.prepare(
         `SELECT DISTINCT ticker FROM positions WHERE status = 'OPEN'`
@@ -31270,6 +31302,10 @@ async function d1LoadTradesForSimulation(env) {
         const sym = String(t.ticker || "").toUpperCase();
         const isOpen = t.status === "OPEN" || t.status === "TP_HIT_TRIM";
         if (!isOpen) continue;
+        // Belt-and-suspenders: SQL already excludes backtest trades.
+        // Keep this guard for the legacy fallback path that doesn't
+        // include run_id in its SELECT.
+        if (t.run_id || t.runId) continue;
 
         if (!posOpen.has(sym)) {
           const pnlVal = Number(t.pnl || t.realizedPnl || 0);
