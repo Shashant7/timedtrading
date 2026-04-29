@@ -90,6 +90,18 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_big_mfe_trim_add_pct", "value": "0.25" },
     { "key": "deep_audit_big_mfe_trim_min_trimmed_pct", "value": "0.50" },
 
+    { "key": "deep_audit_quality_block_enabled", "value": "true" },
+    { "key": "deep_audit_quality_block_exempt_paths", "value": "tt_gap_reversal_long,tt_gap_reversal_short" },
+    { "key": "deep_audit_quality_block_f1_ext_max", "value": "3.0" },
+    { "key": "deep_audit_quality_block_f1_slope_min", "value": "1.5" },
+    { "key": "deep_audit_quality_block_f1_paths", "value": "tt_pullback,tt_ath_breakout" },
+    { "key": "deep_audit_quality_block_f2_rsi_d_min", "value": "63" },
+    { "key": "deep_audit_quality_block_f2_rsi_d_max", "value": "69" },
+    { "key": "deep_audit_quality_block_f2_rsi_h1_min", "value": "62" },
+    { "key": "deep_audit_quality_block_f2_rsi_h1_max", "value": "68" },
+    { "key": "deep_audit_quality_block_f3_slope_min", "value": "2.0" },
+    { "key": "deep_audit_quality_block_f3_slope_max", "value": "3.0" },
+
     { "key": "deep_audit_stagnant_deferral_max_days", "value": "14" },
     { "key": "deep_audit_stagnant_low_mae_threshold_pct", "value": "0.75" },
     { "key": "deep_audit_stagnant_squeeze_deferral_enabled", "value": "true" },

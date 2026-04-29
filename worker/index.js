@@ -15673,12 +15673,107 @@ async function processTradeSimulation(
       }
     }
 
+    // V15 P0.7.23 (2026-04-29) — FIX 12: QUALITY COMPOSITE BLOCK
+    //
+    // Forensic on FIX 4 baseline (107 trades, 62.6% WR) found three
+    // statistically clean cohorts that lose money:
+    //   F1: 0<=pct_above_e21<3 AND e21_slope>=1.5 AND path in
+    //       {tt_pullback, tt_ath_breakout} — late-stage extension
+    //   F2: 63<rsi_D<69 AND 62<rsi_h1<68 — narrow middling RSI MTF
+    //       (HTF cooling, LTF cooling — "nothing happening")
+    //   F3: 2<=e21_slope<3 — dead-zone slope (steep but not parabolic)
+    //
+    // tt_gap_reversal_long/short are EXEMPT (75% WR across all
+    // extension levels — our workhorse path).
+    //
+    // Counterfactual on FIX 4 baseline:
+    //   Block 8 trades (12% WR cohort, -7.41% PnL → we save money)
+    //   Remaining: 99 trades, 66.7% WR (+4.1pp), +438.04% PnL
+    //   (+7.41pp), PF 5.80 (+0.47). Top-15 winners blocked: 0.
+    //
+    // DA-keyed:
+    //   deep_audit_quality_block_enabled (default false until validated)
+    //   deep_audit_quality_block_exempt_paths (csv, default
+    //     "tt_gap_reversal_long,tt_gap_reversal_short")
+    //   deep_audit_quality_block_f1_ext_max (default 3.0)
+    //   deep_audit_quality_block_f1_slope_min (default 1.5)
+    //   deep_audit_quality_block_f1_paths (csv, default
+    //     "tt_pullback,tt_ath_breakout")
+    //   deep_audit_quality_block_f2_rsi_d_min (default 63)
+    //   deep_audit_quality_block_f2_rsi_d_max (default 69)
+    //   deep_audit_quality_block_f2_rsi_h1_min (default 62)
+    //   deep_audit_quality_block_f2_rsi_h1_max (default 68)
+    //   deep_audit_quality_block_f3_slope_min (default 2.0)
+    //   deep_audit_quality_block_f3_slope_max (default 3.0)
+    let qualityBlockBlocked = false;
+    let qualityBlockReason = null;
+    if (isEnter && !lateDayEntryBlocked) {
+      const _qbCfg = tickerData?._env?._deepAuditConfig || {};
+      const _qbEnabled = String(_qbCfg.deep_audit_quality_block_enabled ?? "false") === "true";
+      if (_qbEnabled) {
+        const _entryPath = String(tickerData?.__entry_path || "").toLowerCase();
+        const _exemptPaths = String(_qbCfg.deep_audit_quality_block_exempt_paths
+          ?? "tt_gap_reversal_long,tt_gap_reversal_short")
+          .split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+        if (_entryPath && !_exemptPaths.includes(_entryPath)) {
+          // Pull setup metrics (same fields used in setup_snapshot)
+          const _ds = tickerData?.daily_structure || {};
+          const _pctE21 = Number(_ds.pct_above_e21);
+          const _slope5d = Number(_ds.e21_slope_5d_pct);
+          const _rsiD = Number(tickerData?.tf_tech?.["D"]?.rsi?.r5);
+          const _rsiH1 = Number(
+            tickerData?.tf_tech?.["1H"]?.rsi?.r5
+            ?? tickerData?.tf_tech?.["60"]?.rsi?.r5
+          );
+
+          // F1: late-stage extension (path-specific)
+          const _f1ExtMax = Number(_qbCfg.deep_audit_quality_block_f1_ext_max ?? 3.0);
+          const _f1SlopeMin = Number(_qbCfg.deep_audit_quality_block_f1_slope_min ?? 1.5);
+          const _f1Paths = String(_qbCfg.deep_audit_quality_block_f1_paths
+            ?? "tt_pullback,tt_ath_breakout")
+            .split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+          const _f1 = Number.isFinite(_pctE21) && Number.isFinite(_slope5d)
+            && _pctE21 >= 0 && _pctE21 < _f1ExtMax
+            && _slope5d >= _f1SlopeMin
+            && _f1Paths.includes(_entryPath);
+
+          // F2: narrow middling RSI MTF
+          const _f2DMin = Number(_qbCfg.deep_audit_quality_block_f2_rsi_d_min ?? 63);
+          const _f2DMax = Number(_qbCfg.deep_audit_quality_block_f2_rsi_d_max ?? 69);
+          const _f2H1Min = Number(_qbCfg.deep_audit_quality_block_f2_rsi_h1_min ?? 62);
+          const _f2H1Max = Number(_qbCfg.deep_audit_quality_block_f2_rsi_h1_max ?? 68);
+          const _f2 = Number.isFinite(_rsiD) && Number.isFinite(_rsiH1)
+            && _rsiD > _f2DMin && _rsiD < _f2DMax
+            && _rsiH1 > _f2H1Min && _rsiH1 < _f2H1Max;
+
+          // F3: dead-zone slope
+          const _f3SlopeMin = Number(_qbCfg.deep_audit_quality_block_f3_slope_min ?? 2.0);
+          const _f3SlopeMax = Number(_qbCfg.deep_audit_quality_block_f3_slope_max ?? 3.0);
+          const _f3 = Number.isFinite(_slope5d)
+            && _slope5d >= _f3SlopeMin && _slope5d < _f3SlopeMax;
+
+          if (_f1 || _f2 || _f3) {
+            qualityBlockBlocked = true;
+            const _reasons = [];
+            if (_f1) _reasons.push(`F1(ext=${_pctE21?.toFixed(2)},slope=${_slope5d?.toFixed(2)})`);
+            if (_f2) _reasons.push(`F2(rsiD=${_rsiD?.toFixed(0)},rsiH1=${_rsiH1?.toFixed(0)})`);
+            if (_f3) _reasons.push(`F3(slope=${_slope5d?.toFixed(2)})`);
+            qualityBlockReason = _reasons.join("|");
+            console.log(`[QUALITY_BLOCK] ${sym} ${_entryPath} blocked: ${qualityBlockReason}`);
+          }
+        }
+      }
+    }
+
     // Declare early so pre_gate diagnostic can reference; smart gates populate below
     let smartGateBlocked = false;
     let smartGateReason = null;
     if (lateDayEntryBlocked) {
       smartGateBlocked = true;
       smartGateReason = "late_day_entry_block";
+    } else if (qualityBlockBlocked) {
+      smartGateBlocked = true;
+      smartGateReason = `quality_block:${qualityBlockReason}`;
     }
     if (isReplay && isEnter && replayCtx?.processDebug && replayCtx.processDebug.length < 2) {
       replayCtx.processDebug.push({ sym, at: "after_rth", outsideRTH });

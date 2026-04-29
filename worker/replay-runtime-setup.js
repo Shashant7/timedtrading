@@ -192,6 +192,21 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_big_mfe_trim_threshold_pct",
   "deep_audit_big_mfe_trim_add_pct",
   "deep_audit_big_mfe_trim_min_trimmed_pct",
+  // V15 P0.7.23 (2026-04-29): quality composite block (FIX 12)
+  // Forensic on FIX 4 baseline: blocks 8 trades (12% WR cohort, -7.41%
+  // PnL → saves money) lifting WR 62.6 → 66.7%, PnL +430.63 → +438.04%,
+  // PF 5.33 → 5.80. tt_gap_reversal_long/short EXEMPT (75% WR workhorse).
+  "deep_audit_quality_block_enabled",
+  "deep_audit_quality_block_exempt_paths",
+  "deep_audit_quality_block_f1_ext_max",
+  "deep_audit_quality_block_f1_slope_min",
+  "deep_audit_quality_block_f1_paths",
+  "deep_audit_quality_block_f2_rsi_d_min",
+  "deep_audit_quality_block_f2_rsi_d_max",
+  "deep_audit_quality_block_f2_rsi_h1_min",
+  "deep_audit_quality_block_f2_rsi_h1_max",
+  "deep_audit_quality_block_f3_slope_min",
+  "deep_audit_quality_block_f3_slope_max",
   // V13 Focus Tier (2026-04-24): intrinsic conviction score — see
   // tasks/v13-focus-tier-strategy-2026-04-24.md
   "deep_audit_focus_tier_enabled",
