@@ -95,6 +95,47 @@ The headline numbers are inflated by month-end runners that won't exit at the sa
 - **Note:** P0.7.16 already cleaned up most tiny trims. The remaining instant_30m cohort had legitimate moves > 1.5%. The floor is in place as a safety net for future low-vol scenarios.
 - **Promoted live:** 2026-04-29 05:48 UTC
 
+#### FIX 5 — max_loss hard cap at -2.0% ❌ REJECTED (design-time, no smoke run)
+- **Hypothesis:** Tighten max_loss from -3% to -2% to save 7pp on 8 max_loss trades.
+- **Validation FAILED (counterfactual analysis on FIX 4 baseline):**
+  - 19 trades hit -2% MAE during their lifetime
+  - 3 of them were WINNERS that recovered: **LITE +111.11%, IREN +10.21%, CLS +0.14%**
+  - Cap at -2% would lose **+121.46pp** in winners to save **+44.53pp** in losers
+  - **Net: -76.93pp** ← catastrophic
+- **Conclusion:** REJECTED. The current -3% threshold protects the long-tail winners that drive the entire system. The 8 max_loss exits are a necessary price to pay.
+
+#### FIX 11 — Pullback rapid-stop entry filter ❌ REJECTED (design-time)
+- **Hypothesis:** tt_pullback path has 40% WR and 4 rapid stops in 15 trades. Find an entry-time signal to filter losers but spare the 2 huge winners (LITE +111, AVGO +50).
+- **Investigation findings:**
+  - Rank: rapid stops 98.3 vs winners 97.4 (no diff)
+  - Conviction: rapid stops 88.4 vs winners 90.6 (no diff)
+  - SuperTrend alignment: similar across cohorts
+  - bull_stack: 100% True for both wins and losses
+  - state: 100% HTF_BULL_LTF_BULL for both cohorts
+  - rsi_m30: wins 45-62 (avg 55), losses 49-65 (avg 57) — no clean separator
+  - rvol30: wins avg 5.59, losses avg 3.34 — overlap is large
+  - e21_slope: wins +0.81, losses +1.15 (counterintuitive — losers have STEEPER slope)
+- **Conclusion:** REJECTED. Pullback losers are statistically indistinguishable from winners at entry. Without a clean discriminator, any filter risks killing LITE +111% and AVGO +50% (which collectively make tt_pullback profitable). The existing `phase_i_mfe_fast_cut_*` tiers already do post-entry work. Accept the cohort variance.
+
+#### FIX 9 — Progressive partial trim ❌ REJECTED (P0.7.21)
+- **Source:** Replacement attempt for FIX 2 — trim more, don't move SL
+- **Hypothesis:** When MFE >= 15% and >= TP1 trimmed, trim ANOTHER 25% to lock profit. SL untouched.
+- **Validation FAILED (`v16-fix9-jul-30m-1777466081`):**
+  - Trades 101 vs 107 (-6)
+  - **WR 56.4% vs 62.6% (-6.2pp)** ← regression
+  - **PnL +325.06% vs +430.63% (-105.57pp)** ← big regression
+  - PF 6.90 vs 5.33 (+1.57; some confidence in remaining trades)
+  - **Catastrophic winner regressions:**
+    - PLTR +36.85% → 0.00%
+    - PSTG +25.70% → -0.53%
+    - BK +22.19% → 0.00%
+    - UTHR +14.07% → 0.00%
+    - AEHR +20.38% → +4.28% (-16pp)
+    - BE +6.10% → 0.00%
+    - FN +40.65% → +18.01% (-22pp)
+- **Why it failed:** Trimming from 50% to 75% pushed trades into "near-fully-trimmed" state (>= 0.95 in some downstream rules). SMART_RUNNER and atr_week_618 paths treat heavy-trimmed runners differently — they close the residual earlier on the next signal. The smaller runner size also gets killed by noise faster.
+- **Conclusion:** REJECTED. Code committed under DA flag (default `false`). To revisit: would need to also gate downstream "trimmed_pct >= X" threshold rules, or use a much smaller add (e.g., 10% instead of 25%), or fire only AFTER atr_week_618 has already triggered its partial.
+
 #### FIX 2 — Winner-protect anchor ❌ REJECTED (P0.7.19)
 - **Source:** Autopsy section 4
 - **Hypothesis:** when MFE ≥15%, lock SL at `entry + 0.6 × MFE_peak` to capture 60% of peak.
