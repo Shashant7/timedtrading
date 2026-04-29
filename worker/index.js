@@ -15818,6 +15818,42 @@ async function processTradeSimulation(
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
+    // V15 P0.7.17 (2026-04-29): LIVE 30m MANAGEMENT-CADENCE GATE
+    //
+    // Empirical comparison (v16-fix1-p716-jul July smoke at 30m vs 10m vs 5m)
+    // showed 30m REPLAY produced 4-6× more PnL on matching trades because
+    // exit rules (SOFT_FUSE_RSI_CONFIRMED, peak_lock_ema12_break, etc.)
+    // tripped on intra-bar wicks at 5m/10m. Examples:
+    //   IWM Jul 1: 30m WIN +2.85% (243h) vs 5m/10m WIN +1.02% (2h)
+    //   U   Jul 7: 30m WIN +12.14% (220h) vs 5m LOSS -0.03% (1h)
+    //   Days 1-6 sum MFE: 30m +66.97% vs 10m +24.12% vs 5m +26.41%
+    //
+    // To make LIVE behave like the proven 30m backtest cadence, gate the
+    // exit/management section so it only fires on 30m bar boundaries
+    // (asOfMs % 1800000 < threshold). Entry detection is still allowed
+    // every tick (we want to catch fresh entries quickly). Replay is not
+    // affected — replay's intervalMs is already the cadence.
+    //
+    // Configurable via env LIVE_MANAGE_INTERVAL_MIN (default 30).
+    // Set to 5 to revert to old behavior.
+    let _liveManageGateOk = true;
+    if (!isReplay) {
+      const _liveMgmtMin = Number(env?.LIVE_MANAGE_INTERVAL_MIN ?? 30);
+      if (_liveMgmtMin > 0 && _liveMgmtMin <= 120) {
+        const _nowMsLive = Number(asOfMs) > 1e12 ? Number(asOfMs) : Date.now();
+        const _bucketMs = _liveMgmtMin * 60 * 1000;
+        const _msIntoBucket = _nowMsLive % _bucketMs;
+        // Allow management within 90s of a 30m close (~3% of the bucket).
+        // This handles the typical price-feed latency between bar close
+        // and ingest while keeping the rule equivalent to "evaluate at 30m close".
+        const _toleranceMs = 90 * 1000;
+        if (_msIntoBucket > _toleranceMs && _msIntoBucket < (_bucketMs - _toleranceMs)) {
+          _liveManageGateOk = false;
+        }
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // Phase 4a/4b/4c: FUSE EXIT ENGINE — Swing-adapted exit system
     // Fires independently of kanban stage, based on structural signals.
     // Hard fuse: extreme RSI on 1H+4H → close immediately
@@ -15836,8 +15872,9 @@ async function processTradeSimulation(
     if (_sameIntervalAsTrade) {
       console.log(`[SAME_INTERVAL_GUARD] ${sym}: skipping all exits — trade entered at ${_tradeEntryTs}, current interval ${asOfMs}`);
     }
-    // FUSE EXITS are signal-based (RSI extremes), NOT price-driven — block outside RTH
-    if (!_sameIntervalAsTrade && openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow) && !weekendNow && !outsideRTH) {
+    // FUSE EXITS are signal-based (RSI extremes), NOT price-driven — block outside RTH.
+    // V15 P0.7.17: also gate on 30m management cadence in live mode.
+    if (_liveManageGateOk && !_sameIntervalAsTrade && openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow) && !weekendNow && !outsideRTH) {
       // Extract RSI values from tf_tech
       const rsi1H = tickerData?.tf_tech?.["1H"]?.rsi?.r5 ?? 50;
       const rsi4H = tickerData?.tf_tech?.["4H"]?.rsi?.r5 ?? 50;
@@ -16486,7 +16523,8 @@ async function processTradeSimulation(
       // before evaluateRunnerExit because the SL-tightening path can't move SL
       // downward, so catastrophic crashes (RKLB -31%) slip through.
       const _sreTrimmedPct = clamp(Number(openTrade?.trimmedPct || 0), 0, 1);
-      if (!_sameIntervalAsTrade && !fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status) && _sreTrimmedPct >= THREE_TIER_CONFIG.EXIT.trimPct) {
+      // V15 P0.7.17: gate smart-runner cloud-break exits on 30m cadence in live mode.
+      if (_liveManageGateOk && !_sameIntervalAsTrade && !fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status) && _sreTrimmedPct >= THREE_TIER_CONFIG.EXIT.trimPct) {
         // Track running peak price for drawdown calculation
         const _prevPeak = Number(execState.runnerPeakPrice) || Number(openTrade.runnerPeakPrice) || 0;
         if (Number.isFinite(pxNow) && pxNow > 0) {
@@ -17293,7 +17331,10 @@ async function processTradeSimulation(
       }
     }
 
-    if (isExit && !_sameIntervalAsTrade && !weekendNow && (!outsideRTH || exitAllowedOutsideRTH) && exitCooldownOk && exitMinAgeOk && !fuseExitFired && !_exitPullbackShield && !_paritySkipSl && openTrade && isOpenTradeStatus(openTrade.status) && clamp(Number(openTrade.trimmedPct || 0), 0, 1) < 0.9999) {
+    // V15 P0.7.17: gate signal-based exits on 30m cadence in live mode.
+    // Hard exits (SL, max-loss, V13 nets) bypass the cadence gate.
+    const _exitGateAllowsLive = _liveManageGateOk || isSLExit;
+    if (_exitGateAllowsLive && isExit && !_sameIntervalAsTrade && !weekendNow && (!outsideRTH || exitAllowedOutsideRTH) && exitCooldownOk && exitMinAgeOk && !fuseExitFired && !_exitPullbackShield && !_paritySkipSl && openTrade && isOpenTradeStatus(openTrade.status) && clamp(Number(openTrade.trimmedPct || 0), 0, 1) < 0.9999) {
       if (flatPriceExit && !isSLExit) {
         // Price hasn't moved — keep holding instead of closing at $0 P&L
         console.log(`[TRADE SIM] ${sym} exit skipped: flat price (entry=$${Number(openTrade.entryPrice).toFixed(2)} exit=$${pxNow.toFixed(2)}), holding`);
