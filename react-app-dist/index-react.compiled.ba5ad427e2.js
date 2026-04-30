@@ -15214,25 +15214,29 @@ function App() {
     })();
     const earningItems = (Array.isArray(earningsEvents) ? earningsEvents : []).slice(0, 50);
     if (macroItems.length === 0 && earningItems.length === 0) return null;
+    const Row = ({
+      label,
+      sublabel,
+      children
+    }) => React.createElement("div", {
+      className: "flex items-start gap-3 py-1"
+    }, React.createElement("div", {
+      className: "w-32 shrink-0 pt-0.5"
+    }, React.createElement("div", {
+      className: "text-[9px] font-bold uppercase tracking-[0.16em] text-[#6b7280]"
+    }, label), sublabel && React.createElement("div", {
+      className: "text-[8px] text-[#4b5563] tabular-nums"
+    }, sublabel)), React.createElement("div", {
+      className: "flex-1 min-w-0 flex flex-wrap gap-1.5"
+    }, children));
     return React.createElement("div", {
-      className: "mb-3"
-    }, React.createElement("div", {
-      className: "flex flex-wrap items-center gap-2 mb-1.5"
-    }, React.createElement("span", {
-      className: "text-[10px] text-[#6b7280] font-semibold tracking-wide uppercase"
-    }, "Upcoming Events"), React.createElement("span", {
-      className: "text-[9px] text-[#4b5563] tabular-nums"
-    }, macroItems.length, " macro \xB7 ", earningItems.length, " earnings")), React.createElement("div", {
-      className: "flex flex-wrap items-start gap-3"
-    }, React.createElement("div", {
-      className: "flex items-start gap-1.5 min-w-0"
-    }, React.createElement("span", {
-      className: "text-[8px] uppercase tracking-wide text-[#4b5563] pt-1 shrink-0"
-    }, "Macro"), macroItems.length > 0 ? React.createElement("div", {
-      className: "flex flex-wrap gap-1.5"
-    }, macroItems.map((ev, i) => React.createElement("div", {
+      className: "mb-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-1.5"
+    }, React.createElement(Row, {
+      label: "Macro",
+      sublabel: macroItems.length > 0 ? `${macroItems.length} this week` : null
+    }, macroItems.length > 0 ? macroItems.map((ev, i) => React.createElement("div", {
       key: `macro-${ev.type}-${ev.date || i}`,
-      className: `flex items-center gap-1 px-2 py-1 rounded-md border ${macroTypeCls(ev.type)}`,
+      className: `flex items-center gap-1 px-2 py-0.5 rounded-md border ${macroTypeCls(ev.type)}`,
       title: ev.label || ev.type
     }, React.createElement("span", {
       className: "text-[9px] font-bold"
@@ -15240,15 +15244,12 @@ function App() {
       className: "text-[8px] opacity-80"
     }, formatDayLabel(ev.date)), React.createElement("span", {
       className: "text-[8px] opacity-60"
-    }, formatMacroTime(ev.ts), " ET")))) : React.createElement("div", {
+    }, formatMacroTime(ev.ts), " ET"))) : React.createElement("span", {
       className: "text-[10px] text-[#6b7280]"
-    }, "None")), React.createElement("div", {
-      className: "flex items-start gap-1.5 min-w-0"
-    }, React.createElement("span", {
-      className: "text-[8px] uppercase tracking-wide text-[#4b5563] pt-1 shrink-0"
-    }, "Earnings"), earningItems.length > 0 ? React.createElement("div", {
-      className: "flex flex-wrap gap-1.5"
-    }, earningItems.map((e, i) => {
+    }, "None")), React.createElement(Row, {
+      label: "Earnings",
+      sublabel: earningItems.length > 0 ? `${earningItems.length} on deck` : null
+    }, earningItems.length > 0 ? earningItems.map((e, i) => {
       const beatMiss = e.epsActual != null && e.epsEstimate != null ? e.epsActual >= e.epsEstimate ? "Beat" : "Miss" : null;
       const chipColor = (() => {
         if (beatMiss === "Beat") return "border-green-500/30 bg-green-500/10 text-green-300";
@@ -15259,7 +15260,7 @@ function App() {
       return React.createElement("button", {
         key: `ev-${i}`,
         onClick: () => handleTickerSelect(e.symbol),
-        className: `flex items-center gap-1 px-2 py-1 rounded-md border ${chipColor} hover:brightness-125`
+        className: `flex items-center gap-1 px-2 py-0.5 rounded-md border ${chipColor} hover:brightness-125`
       }, React.createElement("span", {
         className: "text-[9px] font-bold"
       }, e.symbol), React.createElement("span", {
@@ -15269,9 +15270,9 @@ function App() {
       }, formatHour(e.hour)), beatMiss && React.createElement("span", {
         className: `text-[8px] font-semibold ${beatMiss === "Beat" ? "text-green-400" : "text-rose-400"}`
       }, beatMiss));
-    })) : React.createElement("div", {
+    }) : React.createElement("span", {
       className: "text-[10px] text-[#6b7280]"
-    }, "None"))));
+    }, "None")));
   })(), window._ttIsPro && (() => {
     const allData = data && typeof data === "object" ? data : {};
     const intensityAlpha = absPct => {
@@ -15335,25 +15336,29 @@ function App() {
       if (ago < 3600) return `${Math.floor(ago / 60)}m ago`;
       return `${Math.floor(ago / 3600)}h ago`;
     })();
-    return React.createElement("div", {
-      className: "mb-3"
+    const Row = ({
+      label,
+      sublabel,
+      children
+    }) => React.createElement("div", {
+      className: "flex items-start gap-3 py-1"
     }, React.createElement("div", {
-      className: "flex flex-wrap items-center gap-2 mb-1.5"
-    }, React.createElement("span", {
-      className: "text-[10px] text-[#6b7280] font-semibold tracking-wide uppercase"
-    }, "Market Pulse"), freshness && React.createElement("span", {
-      className: "text-[9px] text-[#4b5563] tabular-nums"
-    }, "updated ", freshness)), React.createElement("div", {
-      className: "space-y-1.5"
-    }, row1Chips.length > 0 && React.createElement("div", null, React.createElement("div", {
-      className: "text-[8px] uppercase tracking-wide text-[#4b5563] mb-1"
-    }, _isAdminPulse ? "Futures, Commodities, Crypto" : "Commodities & Crypto"), React.createElement("div", {
-      className: "flex flex-wrap gap-1.5"
-    }, row1Chips)), row2Chips.length > 0 && React.createElement("div", null, React.createElement("div", {
-      className: "text-[8px] uppercase tracking-wide text-[#4b5563] mb-1"
-    }, "Indices & Sector ETFs"), React.createElement("div", {
-      className: "flex flex-wrap gap-1.5"
-    }, row2Chips))));
+      className: "w-32 shrink-0 pt-0.5"
+    }, React.createElement("div", {
+      className: "text-[9px] font-bold uppercase tracking-[0.16em] text-[#6b7280]"
+    }, label), sublabel && React.createElement("div", {
+      className: "text-[8px] text-[#4b5563] tabular-nums"
+    }, sublabel)), React.createElement("div", {
+      className: "flex-1 min-w-0 flex flex-wrap gap-1.5"
+    }, children));
+    return React.createElement("div", {
+      className: "mb-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-1.5"
+    }, row1Chips.length > 0 && React.createElement(Row, {
+      label: _isAdminPulse ? "Futures · Commodities" : "Commodities · Crypto",
+      sublabel: freshness ? `${freshness}` : null
+    }, row1Chips), row2Chips.length > 0 && React.createElement(Row, {
+      label: "Indices \xB7 Sectors"
+    }, row2Chips));
   })(), _secondaryReady && (() => {
     const allArr = data && typeof data === 'object' ? Object.entries(data).map(([sym, row]) => ({
       ...(row || {}),
@@ -15489,9 +15494,9 @@ function App() {
       }, pct >= 0 ? "+" : "", pct.toFixed(2), "%")));
     };
     const moverTable = (label, badgeCls, gainers, losers, isGain, pctKey, priceKey) => React.createElement("div", {
-      className: "grid grid-cols-2 gap-x-3 mt-1"
+      className: "grid grid-cols-2 gap-x-3"
     }, React.createElement("div", null, React.createElement("div", {
-      className: "flex items-center gap-1.5 px-1 mb-1"
+      className: "flex items-center gap-1.5 px-1 mb-0.5"
     }, React.createElement("span", {
       className: "text-[9px] uppercase tracking-wider text-emerald-400 font-bold"
     }, "\u25B2 Gainers"), React.createElement("span", {
@@ -15499,9 +15504,9 @@ function App() {
     }, gainers.length)), React.createElement("div", {
       className: "rounded-md overflow-hidden bg-white/[0.015] border border-white/[0.04]"
     }, gainers.length > 0 ? gainers.map((t, i) => moverRow(t, true, pctKey, priceKey, i)) : React.createElement("div", {
-      className: "px-2.5 py-2 text-[10px] text-[#6b7280]"
+      className: "px-2.5 py-1.5 text-[10px] text-[#6b7280]"
     }, "No gainers in this session."))), React.createElement("div", null, React.createElement("div", {
-      className: "flex items-center gap-1.5 px-1 mb-1"
+      className: "flex items-center gap-1.5 px-1 mb-0.5"
     }, React.createElement("span", {
       className: "text-[9px] uppercase tracking-wider text-rose-400 font-bold"
     }, "\u25BC Losers"), React.createElement("span", {
@@ -15509,35 +15514,37 @@ function App() {
     }, losers.length)), React.createElement("div", {
       className: "rounded-md overflow-hidden bg-white/[0.015] border border-white/[0.04]"
     }, losers.length > 0 ? losers.map((t, i) => moverRow(t, false, pctKey, priceKey, i)) : React.createElement("div", {
-      className: "px-2.5 py-2 text-[10px] text-[#6b7280]"
+      className: "px-2.5 py-1.5 text-[10px] text-[#6b7280]"
     }, "No losers in this session."))));
-    return React.createElement("div", {
-      className: "mb-3"
+    const SessionRow = ({
+      pill,
+      pillCls,
+      sublabel,
+      children
+    }) => React.createElement("div", {
+      className: "flex items-start gap-3 py-1"
     }, React.createElement("div", {
-      className: "flex items-center gap-2 mb-2"
+      className: "w-32 shrink-0 pt-0.5"
+    }, React.createElement("div", {
+      className: "flex items-center gap-1.5"
     }, React.createElement("span", {
-      className: "tt-label"
-    }, "Top Movers"), React.createElement("span", {
-      style: {
-        flex: 1,
-        height: 1,
-        background: "var(--tt-border-weak)"
-      }
-    })), React.createElement("div", {
-      className: "space-y-3"
-    }, React.createElement("div", null, React.createElement("div", {
-      className: "flex items-center gap-2 mb-1"
-    }, React.createElement("span", {
-      className: "px-2 py-0.5 rounded text-[10px] font-bold tracking-wide border bg-cyan-500/15 text-cyan-400 border-cyan-500/30"
-    }, "RTH"), React.createElement("span", {
-      className: "text-[10px] text-[#6b7280]"
-    }, "Regular Trading Hours")), moverTable("RTH", "bg-cyan-500/15 text-cyan-400 border-cyan-500/30", rthGainers, rthLosers, null, "_pct", "_price")), hasEth && React.createElement("div", null, React.createElement("div", {
-      className: "flex items-center gap-2 mb-1"
-    }, React.createElement("span", {
-      className: "px-2 py-0.5 rounded text-[10px] font-bold tracking-wide border bg-amber-500/15 text-amber-400 border-amber-500/30"
-    }, "EXT"), React.createElement("span", {
-      className: "text-[10px] text-[#6b7280]"
-    }, "Extended Hours (Pre/Post)")), moverTable("EXT", "bg-amber-500/15 text-amber-400 border-amber-500/30", ethGainers, ethLosers, null, "_ethPct", "_ethPrice"))));
+      className: `px-1.5 py-px rounded text-[9px] font-bold tracking-wide border ${pillCls}`
+    }, pill)), sublabel && React.createElement("div", {
+      className: "text-[8px] text-[#4b5563] mt-0.5"
+    }, sublabel)), React.createElement("div", {
+      className: "flex-1 min-w-0"
+    }, children));
+    return React.createElement("div", {
+      className: "mb-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-1.5"
+    }, React.createElement(SessionRow, {
+      pill: "RTH",
+      pillCls: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30",
+      sublabel: "Regular Hours"
+    }, moverTable("RTH", "bg-cyan-500/15 text-cyan-400 border-cyan-500/30", rthGainers, rthLosers, null, "_pct", "_price")), hasEth && React.createElement(SessionRow, {
+      pill: "EXT",
+      pillCls: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+      sublabel: "Extended Hours"
+    }, moverTable("EXT", "bg-amber-500/15 text-amber-400 border-amber-500/30", ethGainers, ethLosers, null, "_ethPct", "_ethPrice")));
   })(), (dashboardMode === "trader" || dashboardMode === "investor") && React.createElement("div", {
     className: "mb-4"
   }, React.createElement(ActionCenterPanel, {

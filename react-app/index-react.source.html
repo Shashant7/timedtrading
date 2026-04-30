@@ -18273,7 +18273,9 @@
                     </div>
                   )}
 
-                  {/* ═══ 0. UPCOMING EVENTS — dedicated top row ═══ */}
+                  {/* ═══ 0. UPCOMING EVENTS — V15 P0.7.44 (2026-04-30) unified row layout
+                       Left-aligned section label (w-32 fixed-width) + scrollable chip strip on right.
+                       Pattern shared with Market Pulse, Indices, Top Movers below. ═══ */}
                   {_secondaryReady && (() => {
                     const now = Date.now();
                     const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
@@ -18325,63 +18327,53 @@
                     // earnings list gets large but readers can scan the full set.
                     const earningItems = (Array.isArray(earningsEvents) ? earningsEvents : []).slice(0, 50);
                     if (macroItems.length === 0 && earningItems.length === 0) return null;
+                    /* Unified row helper — fixed-width left label, content right */
+                    const Row = ({ label, sublabel, children }) => (
+                      <div className="flex items-start gap-3 py-1">
+                        <div className="w-32 shrink-0 pt-0.5">
+                          <div className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#6b7280]">{label}</div>
+                          {sublabel && <div className="text-[8px] text-[#4b5563] tabular-nums">{sublabel}</div>}
+                        </div>
+                        <div className="flex-1 min-w-0 flex flex-wrap gap-1.5">{children}</div>
+                      </div>
+                    );
                     return (
-                      <div className="mb-3">
-                        <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                          <span className="text-[10px] text-[#6b7280] font-semibold tracking-wide uppercase">Upcoming Events</span>
-                          <span className="text-[9px] text-[#4b5563] tabular-nums">{macroItems.length} macro · {earningItems.length} earnings</span>
-                        </div>
-                        <div className="flex flex-wrap items-start gap-3">
-                          <div className="flex items-start gap-1.5 min-w-0">
-                            <span className="text-[8px] uppercase tracking-wide text-[#4b5563] pt-1 shrink-0">Macro</span>
-                            {macroItems.length > 0 ? (
-                              <div className="flex flex-wrap gap-1.5">
-                                {macroItems.map((ev, i) => (
-                                  <div
-                                    key={`macro-${ev.type}-${ev.date || i}`}
-                                    className={`flex items-center gap-1 px-2 py-1 rounded-md border ${macroTypeCls(ev.type)}`}
-                                    title={ev.label || ev.type}
-                                  >
-                                    <span className="text-[9px] font-bold">{ev.type}</span>
-                                    <span className="text-[8px] opacity-80">{formatDayLabel(ev.date)}</span>
-                                    <span className="text-[8px] opacity-60">{formatMacroTime(ev.ts)} ET</span>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="text-[10px] text-[#6b7280]">None</div>
-                            )}
-                          </div>
-                          <div className="flex items-start gap-1.5 min-w-0">
-                            <span className="text-[8px] uppercase tracking-wide text-[#4b5563] pt-1 shrink-0">Earnings</span>
-                            {earningItems.length > 0 ? (
-                              <div className="flex flex-wrap gap-1.5">
-                                {earningItems.map((e, i) => {
-                                  const beatMiss = e.epsActual != null && e.epsEstimate != null
-                                    ? (e.epsActual >= e.epsEstimate ? "Beat" : "Miss")
-                                    : null;
-                                  const chipColor = (() => {
-                                    if (beatMiss === "Beat") return "border-green-500/30 bg-green-500/10 text-green-300";
-                                    if (beatMiss === "Miss") return "border-rose-500/30 bg-rose-500/10 text-rose-300";
-                                    if (e.date === todayStr) return "border-amber-500/30 bg-amber-500/10 text-amber-300";
-                                    return "border-white/[0.08] bg-white/[0.03] text-gray-300";
-                                  })();
-                                  return (
-                                    <button key={`ev-${i}`} onClick={() => handleTickerSelect(e.symbol)}
-                                      className={`flex items-center gap-1 px-2 py-1 rounded-md border ${chipColor} hover:brightness-125`}>
-                                      <span className="text-[9px] font-bold">{e.symbol}</span>
-                                      <span className="text-[8px] opacity-70">{formatDayLabel(e.date)}</span>
-                                      {formatHour(e.hour) && <span className="text-[8px] opacity-60">{formatHour(e.hour)}</span>}
-                                      {beatMiss && <span className={`text-[8px] font-semibold ${beatMiss === "Beat" ? "text-green-400" : "text-rose-400"}`}>{beatMiss}</span>}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            ) : (
-                              <div className="text-[10px] text-[#6b7280]">None</div>
-                            )}
-                          </div>
-                        </div>
+                      <div className="mb-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-1.5">
+                        <Row label="Macro" sublabel={macroItems.length > 0 ? `${macroItems.length} this week` : null}>
+                          {macroItems.length > 0 ? macroItems.map((ev, i) => (
+                            <div
+                              key={`macro-${ev.type}-${ev.date || i}`}
+                              className={`flex items-center gap-1 px-2 py-0.5 rounded-md border ${macroTypeCls(ev.type)}`}
+                              title={ev.label || ev.type}
+                            >
+                              <span className="text-[9px] font-bold">{ev.type}</span>
+                              <span className="text-[8px] opacity-80">{formatDayLabel(ev.date)}</span>
+                              <span className="text-[8px] opacity-60">{formatMacroTime(ev.ts)} ET</span>
+                            </div>
+                          )) : <span className="text-[10px] text-[#6b7280]">None</span>}
+                        </Row>
+                        <Row label="Earnings" sublabel={earningItems.length > 0 ? `${earningItems.length} on deck` : null}>
+                          {earningItems.length > 0 ? earningItems.map((e, i) => {
+                            const beatMiss = e.epsActual != null && e.epsEstimate != null
+                              ? (e.epsActual >= e.epsEstimate ? "Beat" : "Miss")
+                              : null;
+                            const chipColor = (() => {
+                              if (beatMiss === "Beat") return "border-green-500/30 bg-green-500/10 text-green-300";
+                              if (beatMiss === "Miss") return "border-rose-500/30 bg-rose-500/10 text-rose-300";
+                              if (e.date === todayStr) return "border-amber-500/30 bg-amber-500/10 text-amber-300";
+                              return "border-white/[0.08] bg-white/[0.03] text-gray-300";
+                            })();
+                            return (
+                              <button key={`ev-${i}`} onClick={() => handleTickerSelect(e.symbol)}
+                                className={`flex items-center gap-1 px-2 py-0.5 rounded-md border ${chipColor} hover:brightness-125`}>
+                                <span className="text-[9px] font-bold">{e.symbol}</span>
+                                <span className="text-[8px] opacity-70">{formatDayLabel(e.date)}</span>
+                                {formatHour(e.hour) && <span className="text-[8px] opacity-60">{formatHour(e.hour)}</span>}
+                                {beatMiss && <span className={`text-[8px] font-semibold ${beatMiss === "Beat" ? "text-green-400" : "text-rose-400"}`}>{beatMiss}</span>}
+                              </button>
+                            );
+                          }) : <span className="text-[10px] text-[#6b7280]">None</span>}
+                        </Row>
                       </div>
                     );
                   })()}
@@ -18445,26 +18437,31 @@
                       if (ago < 3600) return `${Math.floor(ago / 60)}m ago`;
                       return `${Math.floor(ago / 3600)}h ago`;
                     })();
+                    /* V15 P0.7.44 — unified row pattern (same as Upcoming Events above) */
+                    const Row = ({ label, sublabel, children }) => (
+                      <div className="flex items-start gap-3 py-1">
+                        <div className="w-32 shrink-0 pt-0.5">
+                          <div className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#6b7280]">{label}</div>
+                          {sublabel && <div className="text-[8px] text-[#4b5563] tabular-nums">{sublabel}</div>}
+                        </div>
+                        <div className="flex-1 min-w-0 flex flex-wrap gap-1.5">{children}</div>
+                      </div>
+                    );
                     return (
-                      <div className="mb-3">
-                        <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                          <span className="text-[10px] text-[#6b7280] font-semibold tracking-wide uppercase">Market Pulse</span>
-                          {freshness && <span className="text-[9px] text-[#4b5563] tabular-nums">updated {freshness}</span>}
-                        </div>
-                        <div className="space-y-1.5">
-                          {row1Chips.length > 0 && (
-                            <div>
-                              <div className="text-[8px] uppercase tracking-wide text-[#4b5563] mb-1">{_isAdminPulse ? "Futures, Commodities, Crypto" : "Commodities & Crypto"}</div>
-                              <div className="flex flex-wrap gap-1.5">{row1Chips}</div>
-                            </div>
-                          )}
-                          {row2Chips.length > 0 && (
-                            <div>
-                              <div className="text-[8px] uppercase tracking-wide text-[#4b5563] mb-1">Indices & Sector ETFs</div>
-                              <div className="flex flex-wrap gap-1.5">{row2Chips}</div>
-                            </div>
-                          )}
-                        </div>
+                      <div className="mb-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-1.5">
+                        {row1Chips.length > 0 && (
+                          <Row
+                            label={_isAdminPulse ? "Futures · Commodities" : "Commodities · Crypto"}
+                            sublabel={freshness ? `${freshness}` : null}
+                          >
+                            {row1Chips}
+                          </Row>
+                        )}
+                        {row2Chips.length > 0 && (
+                          <Row label="Indices · Sectors">
+                            {row2Chips}
+                          </Row>
+                        )}
                       </div>
                     );
                   })()}
@@ -18583,59 +18580,65 @@
                       );
                     };
                     const moverTable = (label, badgeCls, gainers, losers, isGain, pctKey, priceKey) => (
-                      <div className="grid grid-cols-2 gap-x-3 mt-1">
+                      <div className="grid grid-cols-2 gap-x-3">
                         {/* Gainers column */}
                         <div>
-                          <div className="flex items-center gap-1.5 px-1 mb-1">
+                          <div className="flex items-center gap-1.5 px-1 mb-0.5">
                             <span className="text-[9px] uppercase tracking-wider text-emerald-400 font-bold">▲ Gainers</span>
                             <span className="text-[9px] text-[#6b7280] tabular-nums">{gainers.length}</span>
                           </div>
                           <div className="rounded-md overflow-hidden bg-white/[0.015] border border-white/[0.04]">
                             {gainers.length > 0
                               ? gainers.map((t, i) => moverRow(t, true, pctKey, priceKey, i))
-                              : <div className="px-2.5 py-2 text-[10px] text-[#6b7280]">No gainers in this session.</div>}
+                              : <div className="px-2.5 py-1.5 text-[10px] text-[#6b7280]">No gainers in this session.</div>}
                           </div>
                         </div>
                         {/* Losers column */}
                         <div>
-                          <div className="flex items-center gap-1.5 px-1 mb-1">
+                          <div className="flex items-center gap-1.5 px-1 mb-0.5">
                             <span className="text-[9px] uppercase tracking-wider text-rose-400 font-bold">▼ Losers</span>
                             <span className="text-[9px] text-[#6b7280] tabular-nums">{losers.length}</span>
                           </div>
                           <div className="rounded-md overflow-hidden bg-white/[0.015] border border-white/[0.04]">
                             {losers.length > 0
                               ? losers.map((t, i) => moverRow(t, false, pctKey, priceKey, i))
-                              : <div className="px-2.5 py-2 text-[10px] text-[#6b7280]">No losers in this session.</div>}
+                              : <div className="px-2.5 py-1.5 text-[10px] text-[#6b7280]">No losers in this session.</div>}
                           </div>
                         </div>
                       </div>
                     );
-                    return (
-                      <div className="mb-3">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="tt-label">Top Movers</span>
-                          <span style={{ flex: 1, height: 1, background: "var(--tt-border-weak)" }} />
-                        </div>
-                        <div className="space-y-3">
-                          {/* RTH */}
-                          <div>
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold tracking-wide border bg-cyan-500/15 text-cyan-400 border-cyan-500/30">RTH</span>
-                              <span className="text-[10px] text-[#6b7280]">Regular Trading Hours</span>
-                            </div>
-                            {moverTable("RTH", "bg-cyan-500/15 text-cyan-400 border-cyan-500/30", rthGainers, rthLosers, null, "_pct", "_price")}
+                    /* V15 P0.7.44 — unified row pattern. Top Movers gets the same
+                       fixed-width left-label/content-right grid as the sections
+                       above. Session pill (RTH/EXT) sits in the label column. */
+                    const SessionRow = ({ pill, pillCls, sublabel, children }) => (
+                      <div className="flex items-start gap-3 py-1">
+                        <div className="w-32 shrink-0 pt-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`px-1.5 py-px rounded text-[9px] font-bold tracking-wide border ${pillCls}`}>{pill}</span>
                           </div>
-                          {/* EXT — only when market closed and we have ETH data */}
-                          {hasEth && (
-                            <div>
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="px-2 py-0.5 rounded text-[10px] font-bold tracking-wide border bg-amber-500/15 text-amber-400 border-amber-500/30">EXT</span>
-                                <span className="text-[10px] text-[#6b7280]">Extended Hours (Pre/Post)</span>
-                              </div>
-                              {moverTable("EXT", "bg-amber-500/15 text-amber-400 border-amber-500/30", ethGainers, ethLosers, null, "_ethPct", "_ethPrice")}
-                            </div>
-                          )}
+                          {sublabel && <div className="text-[8px] text-[#4b5563] mt-0.5">{sublabel}</div>}
                         </div>
+                        <div className="flex-1 min-w-0">{children}</div>
+                      </div>
+                    );
+                    return (
+                      <div className="mb-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-1.5">
+                        <SessionRow
+                          pill="RTH"
+                          pillCls="bg-cyan-500/15 text-cyan-400 border-cyan-500/30"
+                          sublabel="Regular Hours"
+                        >
+                          {moverTable("RTH", "bg-cyan-500/15 text-cyan-400 border-cyan-500/30", rthGainers, rthLosers, null, "_pct", "_price")}
+                        </SessionRow>
+                        {hasEth && (
+                          <SessionRow
+                            pill="EXT"
+                            pillCls="bg-amber-500/15 text-amber-400 border-amber-500/30"
+                            sublabel="Extended Hours"
+                          >
+                            {moverTable("EXT", "bg-amber-500/15 text-amber-400 border-amber-500/30", ethGainers, ethLosers, null, "_ethPct", "_ethPrice")}
+                          </SessionRow>
+                        )}
                       </div>
                     );
                   })()}
