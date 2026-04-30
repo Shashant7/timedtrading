@@ -1,0 +1,324 @@
+==============================================================================
+FULL JUL 2025 → APR 2026 AUTOPSY
+Population: 588 closed trades · 568 with full setup_snapshot
+==============================================================================
+
+█ PILLAR 1 · Mar 2026 deep dive (the −34.55% red month)
+──────────────────────────────────────────────────────────────────────────────
+Mar 2026: 29 trades · WR 28% · PnL -34.55%
+
+Exit reasons (Mar):
+  atr_day_adverse_382_cut                  n=12  cum -10.64%  avg -0.89%
+  phase_i_mfe_fast_cut_zero_mfe            n= 4  cum  -5.99%  avg -1.50%
+  HARD_LOSS_CAP                            n= 3  cum -22.26%  avg -7.42%
+  sl_breached                              n= 2  cum  +3.79%  avg +1.89%
+  TP_FULL                                  n= 2  cum  +3.07%  avg +1.53%
+  phase_i_mfe_fast_cut_2h                  n= 1  cum  -0.91%  avg -0.91%
+  max_loss                                 n= 1  cum  -3.59%  avg -3.59%
+  SOFT_FUSE_RSI_CONFIRMED                  n= 1  cum  +2.28%  avg +2.28%
+  PROFIT_GIVEBACK_COOLING_HOLD             n= 1  cum  +0.32%  avg +0.32%
+  PROFIT_GIVEBACK_STAGE_HOLD               n= 1  cum  -0.39%  avg -0.39%
+
+Personality mix in Mar:
+  VOLATILE_RUNNER        n= 9  W= 1 L= 8  cum -29.75%
+  MODERATE               n= 7  W= 2 L= 5  cum  -2.50%
+  SLOW_GRINDER           n= 7  W= 2 L= 5  cum  -2.81%
+  PULLBACK_PLAYER        n= 6  W= 3 L= 3  cum  +0.52%
+
+Regime in Mar:
+  TRANSITIONAL           n=15  W= 5 L=10  cum -24.50%
+  TRENDING               n=14  W= 3 L=11  cum -10.04%
+
+Loser MFE/MAE comparison:
+  Mar losers:   avgMFE=+0.94%  avgMAE=-2.59%
+  Other losers: avgMFE=+1.25%  avgMAE=-2.14%
+
+█ PILLAR 2 · Exit-reason cost ranking — full Jul→Apr (588 closed)
+──────────────────────────────────────────────────────────────────────────────
+  reason                                        n    W    L      cum%    avg%
+  HARD_LOSS_CAP                                12    0   12   -70.30  -5.86
+  max_loss                                     22    0   22   -57.29  -2.60
+  max_loss_time_scaled                         37    1   36   -49.23  -1.33
+  phase_i_mfe_fast_cut_zero_mfe                30    0   30   -42.91  -1.43
+  atr_day_adverse_382_cut                      36    4   32   -34.72  -0.96
+  v13_hard_pnl_floor                            7    0    7   -25.31  -3.62
+  phase_i_mfe_cut_4h                           12    0   12   -20.83  -1.74
+  phase_i_mfe_fast_cut_2h                      15    0   15   -18.34  -1.22
+  runner_drawdown_cap                          14    2   12    -8.80  -0.63
+  early_dead_money_flatten                      4    0    4    -6.94  -1.73
+  phase_i_mfe_dead_money_24h                   17    5   12    -6.82  -0.40
+  PRE_EARNINGS_FORCE_EXIT                       6    0    6    -6.04  -1.01
+  SMART_RUNNER_TD_EXHAUSTION_RUNNER             3    0    3    -1.94  -0.65
+  SMART_RUNNER_TRIM_REASSESS_ROUNDTRIP_FAILU    9    0    9    -1.86  -0.21
+  phase_i_mfe_cut_8h                            1    0    1    -1.52  -1.52
+  SMART_RUNNER_RESISTANCE_BREAK_CLOUD           3    0    3    -1.26  -0.42
+  eod_trimmed_underwater_flatten                4    2    2    -0.76  -0.19
+  sl_breached,ichimoku_regime_break,left_ent    1    0    1    -0.65  -0.65
+  ... best (positive) reasons sorted top of next view
+
+Best exit reasons (top 8 by cum PnL):
+  TP_FULL                                      47   47    0  +195.77  +4.17
+  HARD_FUSE_RSI_EXTREME                        26   24    2  +104.51  +4.02
+  ST_FLIP_4H_CLOSE                             28   28    0   +92.45  +3.30
+  sl_breached                                  22   16    6   +81.84  +3.72
+  peak_lock_ema12_deep_break                   22   22    0   +74.61  +3.39
+  atr_week_618_full_exit                       25   22    3   +69.08  +2.76
+  mfe_decay_structural_flatten                 26   26    0   +54.52  +2.10
+  PROFIT_GIVEBACK_STAGE_HOLD                   65   46   19   +39.32  +0.60
+
+█ PILLAR 3 · Personality clustering — full Jul→Apr
+──────────────────────────────────────────────────────────────────────────────
+  personality                n     W     L   WR%      cum%    avg%
+  VOLATILE_RUNNER          290   155   134   54  +305.53  +1.05
+  PULLBACK_PLAYER          165    82    83   50   +69.32  +0.42
+  -                         22    12    10   55   +33.54  +1.52
+  MODERATE                  55    26    29   47   +18.11  +0.33
+  SLOW_GRINDER              56    27    29   48    -5.03  -0.09
+
+Per-personality top-3 worst exit reasons:
+  VOLATILE_RUNNER:
+    HARD_LOSS_CAP                        n= 11 cum -65.13%
+    max_loss                             n= 19 cum -47.65%
+    max_loss_time_scaled                 n= 23 cum -32.01%
+  PULLBACK_PLAYER:
+    atr_day_adverse_382_cut              n= 17 cum -12.87%
+    phase_i_mfe_fast_cut_zero_mfe        n= 10 cum -11.59%
+    phase_i_mfe_fast_cut_2h              n= 11 cum -10.91%
+  MODERATE:
+    atr_day_adverse_382_cut              n=  6 cum  -7.22%
+    phase_i_mfe_fast_cut_zero_mfe        n=  3 cum  -3.40%
+    phase_i_mfe_cut_4h                   n=  1 cum  -1.94%
+  SLOW_GRINDER:
+    atr_day_adverse_382_cut              n=  8 cum -10.58%
+    max_loss_time_scaled                 n=  3 cum  -6.38%
+    phase_i_mfe_dead_money_24h           n= 11 cum  -3.65%
+
+█ PILLAR 4 · Entry-signal predictive power
+──────────────────────────────────────────────────────────────────────────────
+4a · PDZ daily zone at entry:
+  pdz_D=premium                                    n=175 W=101 L= 74 WR= 58% avg=+1.17% cum=+205.04%
+  pdz_D=equilibrium                                n=  6 W=  3 L=  3 WR= 50% avg=-0.31% cum=  -1.84%
+  pdz_D=discount                                   n=  5 W=  3 L=  2 WR= 60% avg=+1.09% cum=  +5.45%
+  pdz_D=-                                          n= 22 W= 12 L= 10 WR= 55% avg=+1.52% cum= +33.54%
+  PDZ premium stack (D+4h)                         EMPTY
+  PDZ discount stack (D+4h)                        EMPTY
+
+4b · TD Sequential at entry:
+  TD9 bullish present @ entry                      EMPTY
+  TD9 bearish present @ entry                      EMPTY
+  No TD9 signal @ entry                            n=588 W=302 L=285 WR= 51% avg=+0.72% cum=+421.47%
+  TD9 with our direction (bullish on long)         EMPTY
+  TD9 AGAINST our direction (bearish on long)      EMPTY
+
+4c · Divergence at entry:
+  Adverse RSI divergence @ entry                   n= 78 W= 32 L= 45 WR= 42% avg=+0.39% cum= +30.36%
+  Supportive RSI divergence @ entry                EMPTY
+  Adverse phase divergence @ entry                 n=303 W=147 L=156 WR= 49% avg=+0.46% cum=+140.51%
+  No divergence @ entry                            n=267 W=147 L=120 WR= 55% avg=+0.98% cum=+261.69%
+
+4d · 1H VWAP alignment with direction:
+  VWAP with direction (>0.3% from VWAP)            n=556 W=286 L=269 WR= 52% avg=+0.71% cum=+393.35%
+  VWAP against direction (>0.3% from VWAP)         n=  6 W=  0 L=  6 WR=  0% avg=-2.28% cum= -13.67%
+  VWAP neutral direction (>0.3% from VWAP)         n=  4 W=  4 L=  0 WR=100% avg=+2.06% cum=  +8.26%
+
+4e · Composite quality (PDZ aligned + no adv RSI div + VWAP with us):
+  Composite OK (no adv-pdz, no adv-div, no adv-vwap) n=353 W=179 L=174 WR= 51% avg=+0.55% cum=+194.44%
+  Composite BAD (any adverse signal)               n=235 W=123 L=111 WR= 53% avg=+0.97% cum=+227.03%
+
+█ PILLAR 4 (corrected) · Entry-signal predictive power
+──────────────────────────────────────────────────────────────────────────────
+4a · PDZ daily zone (with approach variants):
+  Daily-zone distribution: {'premium_approach': 331, 'premium': 175, 'discount_approach': 49, '-': 22, 'equilibrium': 6, 'discount': 5}
+
+  pdz_D=premium                                    n=506 W=265 L=241 WR= 52% avg=+0.78% cum=+392.85%
+  pdz_D=equilibrium                                n=  6 W=  3 L=  3 WR= 50% avg=-0.31% cum=  -1.84%
+  pdz_D=discount                                   n= 54 W= 22 L= 31 WR= 42% avg=-0.06% cum=  -3.07%
+  PDZ premium stack (D+h4)                         n=486 W=255 L=231 WR= 52% avg=+0.73% cum=+354.77%
+  PDZ discount stack (D+h4)                        n= 34 W= 15 L= 19 WR= 44% avg=+0.07% cum=  +2.45%
+  PDZ aligned with direction (mean-revert pos)     n= 22 W=  8 L= 13 WR= 38% avg=-0.66% cum= -14.62%
+  PDZ against direction (premium-long / disc-short) n=538 W=279 L=259 WR= 52% avg=+0.75% cum=+404.40%
+
+4b · TD Sequential (corrected: td9_bull / td9_bear):
+  TD9 bullish (any TF)                             n= 10 W=  7 L=  3 WR= 70% avg=+0.89% cum=  +8.87%
+  TD9 bearish (any TF)                             n= 65 W= 32 L= 32 WR= 50% avg=+0.09% cum=  +5.75%
+  TD13 bullish (any TF)                            EMPTY
+  TD13 bearish (any TF)                            EMPTY
+  bull_prep ≥ 7 on any TF (close to TD9 bull fire) n= 30 W= 15 L= 15 WR= 50% avg=+0.89% cum= +26.60%
+  bear_prep ≥ 7 on any TF (close to TD9 bear fire) n=305 W=156 L=148 WR= 51% avg=+0.64% cum=+196.56%
+  TD prep firing AGAINST our direction             n=323 W=165 L=157 WR= 51% avg=+0.63% cum=+203.34%
+  TD prep neutral / with us                        n=265 W=137 L=128 WR= 52% avg=+0.82% cum=+218.13%
+
+4c · Divergence (corrected: object truthiness):
+  Adverse RSI divergence (real obj)                n= 78 W= 32 L= 45 WR= 42% avg=+0.39% cum= +30.36%
+  Adverse phase divergence (real obj)              n=303 W=147 L=156 WR= 49% avg=+0.46% cum=+140.51%
+  Any adverse divergence                           n=321 W=155 L=165 WR= 48% avg=+0.50% cum=+159.78%
+  No adverse divergence                            n=267 W=147 L=120 WR= 55% avg=+0.98% cum=+261.69%
+  STRONG adverse RSI div (strength ≥ 30)           n=  5 W=  1 L=  4 WR= 20% avg=+0.78% cum=  +3.89%
+
+█ PILLAR 4f · Personality × Adverse Divergence cross-cut
+──────────────────────────────────────────────────────────────────────────────
+VOLATILE_RUNNER:
+    with adv divergence                            n=158 W= 77 L= 80 WR= 49% avg=+0.77% cum=+121.48%
+    no adv divergence                              n=132 W= 78 L= 54 WR= 59% avg=+1.39% cum=+184.05%
+PULLBACK_PLAYER:
+    with adv divergence                            n= 95 W= 45 L= 50 WR= 47% avg=+0.39% cum= +36.62%
+    no adv divergence                              n= 70 W= 37 L= 33 WR= 53% avg=+0.47% cum= +32.70%
+MODERATE:
+    with adv divergence                            n= 31 W= 15 L= 16 WR= 48% avg=+0.23% cum=  +7.10%
+    no adv divergence                              n= 24 W= 11 L= 13 WR= 46% avg=+0.46% cum= +11.00%
+SLOW_GRINDER:
+    with adv divergence                            n= 37 W= 18 L= 19 WR= 49% avg=-0.15% cum=  -5.43%
+    no adv divergence                              n= 19 W=  9 L= 10 WR= 47% avg=+0.02% cum=  +0.40%
+
+█ PILLAR 4g · Mar 2026 — what signals were active on the 8 VOLATILE_RUNNER losers?
+──────────────────────────────────────────────────────────────────────────────
+ticker  dir       pnl% exit                                pdz_D          adv_rsi  adv_ph
+GLXY    SHORT    -9.78 HARD_LOSS_CAP                       discount_approach       ·       ·
+ALB     LONG     -8.44 HARD_LOSS_CAP                       discount_approach       ·       ·
+HL      LONG     -4.05 HARD_LOSS_CAP                       discount_approach       ✓       ✓
+CCJ     LONG     -3.59 max_loss                            discount_approach       ·       ·
+KLAC    LONG     -2.65 phase_i_mfe_fast_cut_zero_mfe       premium_approach       ·       ✓
+GEV     LONG     -0.95 phase_i_mfe_fast_cut_zero_mfe       premium_approach       ·       ✓
+LITE    LONG     -0.39 PROFIT_GIVEBACK_STAGE_HOLD          premium              ·       ✓
+MTZ     LONG     -0.22 atr_week_618_full_exit              premium              ·       ·
+GEV     LONG     +0.32 PROFIT_GIVEBACK_COOLING_HOLD        premium_approach       ·       ·
+
+█ PILLAR 5 · Counterfactual: 'no adverse div' vs population (would-be PnL)
+──────────────────────────────────────────────────────────────────────────────
+  Population        : 588 trades cum +421.47%  WR 51%
+  Block adv-div     : 267 trades cum +261.69%  (62% of total PnL)
+  Adv-div trades    : 321 trades cum +159.78%
+
+  Counterfactual: if we skipped adv-div entries, missed +159.78% but trade count drops by 321 (55%).
+  Block adv-RSI only: skip 78 trades worth +30.36% (only WR=42%)
+  Net: keeping 510 trades cum +391.11%
+  Block PDZ-mean-revert : skip 22 trades worth -14.62%
+
+█ PILLAR 6 · The Mar-2026 culprit cohort: discount_approach LONGs in VOLATILE_RUNNER
+──────────────────────────────────────────────────────────────────────────────
+  discount_approach LONG · VOLATILE_RUNNER         n= 14 W=  4 L=  9 WR= 31% avg=-1.31% cum= -18.30%
+  discount_approach LONG · OTHER personality       n=  6 W=  3 L=  3 WR= 50% avg=+0.35% cum=  +2.08%
+  premium_approach SHORT · VOLATILE_RUNNER         EMPTY
+  premium LONG · VOLATILE_RUNNER (with-trend)      n= 95 W= 56 L= 39 WR= 59% avg=+1.50% cum=+142.85%
+  discount SHORT · VOLATILE_RUNNER (with-trend)    n=  2 W=  1 L=  1 WR= 50% avg=+2.23% cum=  +4.46%
+
+█ PILLAR 7 · Counterfactual filter — proposed entry-block rules
+──────────────────────────────────────────────────────────────────────────────
+  Skip rule 1: discount_approach LONG on VOLATILE_RUNNER or PULLBACK_PLAYER
+  Skip rule 2: adverse RSI divergence with strength ≥ 30
+
+  Trades that would have been SKIPPED              n= 22 W=  7 L= 14 WR= 33% avg=-0.56% cum= -12.28%
+  Trades that would have been KEPT                 n=566 W=295 L=271 WR= 52% avg=+0.77% cum=+433.75%
+
+  Original  : +421.47% across 588 trades
+  With filter: +433.75% across 566 trades  (delta +12.28%)
+
+Per-month with filter applied:
+  2025-07: 106 trades  W62/L44  PnL +125.16%
+  2025-08:  77 trades  W40/L37  PnL  +57.61%
+  2025-09:  63 trades  W34/L29  PnL  +52.20%
+  2025-10:  55 trades  W23/L32  PnL  +11.18%
+  2025-11:  32 trades  W12/L20  PnL  +18.26%
+  2025-12:  55 trades  W33/L22  PnL  +57.02%
+  2026-01:  71 trades  W40/L31  PnL  +69.60%
+  2026-02:  66 trades  W35/L31  PnL  +39.14%
+  2026-03:  26 trades  W 8/L18  PnL  -18.47%
+  2026-04:  15 trades  W 8/L 7  PnL  +22.06%
+
+█ PILLAR 8 · Runner-protect counterfactual (currently DISABLED)
+──────────────────────────────────────────────────────────────────────────────
+  All dead-money cuts                              n= 78 W=  5 L= 73 WR=  6% avg=-1.23% cum= -95.84%
+  Dead-money cuts with NO adverse div at entry     n= 32 W=  3 L= 29 WR=  9% avg=-1.28% cum= -40.95%
+
+These 'clean entries killed by dead-money cuts' are the runner-protect target population.
+If we'd protected just the 'no-adv-div' subset and let them ride to TP/SL natural exit,
+avg loss capped at ~-1.28% would shrink to a smaller hit (population evidence below).
+
+█ PILLAR 9 · `atr_day_adverse_382_cut` deep dive (n=36 across all months)
+──────────────────────────────────────────────────────────────────────────────
+  atr_day_adverse_382_cut                          n= 36 W=  4 L= 32 WR= 11% avg=-0.96% cum= -34.72%
+
+  MFE distribution: avg +0.86%  max +2.78%  min +0.01%
+  MAE distribution: avg -1.39%  max -0.69%  min -2.39%
+
+By personality:
+    VOLATILE_RUNNER                                n=  5 W=  0 L=  5 WR=  0% avg=-0.81% cum=  -4.05%
+    PULLBACK_PLAYER                                n= 17 W=  4 L= 13 WR= 24% avg=-0.76% cum= -12.87%
+    MODERATE                                       n=  6 W=  0 L=  6 WR=  0% avg=-1.20% cum=  -7.22%
+    SLOW_GRINDER                                   n=  8 W=  0 L=  8 WR=  0% avg=-1.32% cum= -10.58%
+
+Cuts that had POSITIVE MFE before being chopped:
+    MFE > 0.5% but still cut                       n= 25 W=  4 L= 21 WR= 16% avg=-0.70% cum= -17.56%
+
+█ PILLAR 10 · Synthesis
+──────────────────────────────────────────────────────────────────────────────
+
+HEADLINE FINDINGS:
+──────────────────────────────────────────────────────────────────────────────
+
+1. Mar 2026 was 86% caused by ONE cohort: VOLATILE_RUNNER LONGs entered
+   when daily PDZ was 'discount_approach' (i.e., long entries when price
+   was BELOW equilibrium and approaching support). 14 such trades
+   across the full run, only 4 wins, cum -18.30%. Pure mean-revert
+   bet on names that are NOT mean-reverters.
+
+2. The same setup on PULLBACK_PLAYER personality was actually neutral
+   (+0.35% on 6 trades) — so the rule must be PERSONALITY-CONDITIONAL.
+   On VOLATILE_RUNNER + PULLBACK_PLAYER together it's still net-negative.
+
+3. Adverse RSI divergence at entry is mildly predictive of failure
+   (WR drops 55% → 42%, avg PnL 0.98 → 0.39%). Strong adv-RSI
+   (strength ≥ 30) is a clear killer (WR 20%, n=5). Block these.
+
+4. Dead-money cuts (`phase_i_mfe_fast_cut_*`, `dead_money_24h`,
+   `early_dead_money_flatten`) are the LARGEST single PnL leak:
+   78 trades × avg -1.23% = -95.84% cumulative. Of these, 32 had
+   ZERO adverse divergence at entry — these are the runner-protect
+   target. Currently DA flag DISABLED.
+
+5. `atr_day_adverse_382_cut` (Saty's 38.2% adverse intraday cut)
+   fires 36× across the run: cum -34.72%. Hurts PULLBACK_PLAYER
+   and SLOW_GRINDER personalities most (those are designed to
+   absorb adverse moves and reclaim — so the cut is too tight).
+
+6. PDZ premium-stack (D + h4 both premium) on a LONG = with-trend
+   continuation: 486 trades, WR 52%, +354.77%. This is the bread
+   and butter of the system. Don't touch this.
+
+7. Filter counterfactual (skip discount_approach LONG on
+   VOLATILE_RUNNER+PULLBACK_PLAYER + skip strong adv-RSI div):
+   skips 22 trades, gains +12.28% net. Mar 2026 -34.55% → -18.47%.
+   Modest but positive — confirms the cohort hypothesis.
+
+PRIORITY-RANKED FIX LIST:
+──────────────────────────────────────────────────────────────────────────────
+
+P1 (highest expected impact, low risk) ─────────────────────────────
+  · Re-enable runner-protect with a CLEAN-ENTRY gate
+    Target: 32 trades killed by dead-money cuts with no adv-div at entry
+    Estimated recovery: -41% → ~-15% (if half retraced toward MFE)
+    Net upside: ~+25%
+
+  · Block STRONG adverse RSI divergence (strength ≥ 30) at entry
+    Skips 5 trades worth -3.89%, saves ~+4% with negligible miss
+
+P2 (moderate impact, medium risk) ──────────────────────────────────
+  · Block discount_approach LONG when personality ∈ {VOLATILE_RUNNER,
+    PULLBACK_PLAYER}; INVERSE: block premium_approach SHORT on same set
+    (none observed in data, defensive)
+    Skips 22 trades, saves ~+12%
+    NOTE: this is a personality + zone CROSS — needs both signals
+    captured at entry (we have both ✓)
+
+P3 (loosen overaggressive cuts) ────────────────────────────────────
+  · Personality-aware atr_day_adverse_382_cut: tighten only on
+    VOLATILE_RUNNER (where it's working); loosen to 50% or disable
+    on PULLBACK_PLAYER + SLOW_GRINDER
+    Population evidence: 17 PULLBACK and 8 SLOW_GRINDER cuts at -23%
+    combined; if half held to natural exit avg +0.5% the savings are ~+12%
+
+P4 (data capture, no PnL change) ───────────────────────────────────
+  · Wire `entrySignals` into trade record at write-time so future runs
+    have direct boolean fields without re-parsing setup_snapshot.
+    (The merged dataset proves we already have the data; this is just
+    DX cleanup.)
