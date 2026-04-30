@@ -19,6 +19,10 @@
 
 - **`--speed-time 60 --speed-limit 1` is too tight for Cloudflare-batched candle-replay**: With BATCH_SIZE=6 across 200 tickers, the worker can be silent for >60s between byte emissions while it processes a per-ticker chunk. curl rc=28 in 60-90s with `elapsed=60s` is the fingerprint. Bumped to `--speed-time 180` in `scripts/continuous-slice.sh` and the relaunch completed cleanly. Watchdog `--max-time` is the outer bound and stays at 600s. [2026-04-30]
 
+
+- **`react-app/` source edits do NOT auto-deploy — must run `npm run build:frontend` to rebuild `react-app-dist/`**: Cloudflare Pages serves from `react-app-dist/` (configured in `wrangler.toml` as `pages_build_output_dir = "react-app-dist"`). All UI source files live in `react-app/`, which `build-frontend.js` transpiles + hashes into `react-app-dist/`. PR #49 merged ALL source-file changes but NOT the `dist/` rebuild — the production site continued serving the Apr 26 bundle (`index-react.compiled.71358f6895.js`) until I ran `npm run build:frontend` and pushed `react-app-dist/` (commit `2711b07`). Rule: any PR that touches `react-app/*.html`, `*.js`, or `index-react.source.html` MUST include a `react-app-dist/` rebuild in the same commit, OR the merge MUST be followed immediately by a `build:frontend` + push commit. Verify via the rendered `<script src=…compiled…>` hash on the live page after deploy. Diagnostic: if the prod page links to a compiled bundle whose ctime in the repo is older than your last source edit, the rebuild wasn't done. [2026-04-30]
+
+
 ---
 
 ## Backtest orchestration (new 2026-04-17)
