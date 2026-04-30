@@ -1,0 +1,55 @@
+==============================================================================
+PILLAR 5 — EXIT-TIMING DIAGNOSTICS
+==============================================================================
+
+A · TP_FULL trades (n=47):
+  avg realized PnL%: +4.17
+  avg MFE%:          +8.10
+  capture %:         51%
+  avg duration:      174.2h
+  TP fired early (MFE > 1.5x final): 32 of 47 (68%)
+  Avg 'left on the table' for early-TP trades: +5.45%
+
+B · SL-class exits (n=100):
+  MFE no MFE     :   16 ( 16%)
+  MFE 0.2-0.5%   :   14 ( 14%)
+  MFE 0.5-1%     :   16 ( 16%)
+  MFE 1-2%       :   24 ( 24%)
+  MFE >2%        :   30 ( 30%)
+  → 54 (54%) of SL exits had MFE ≥ 1% — could have salvaged
+
+C · PROFIT_GIVEBACK exits (n=76):
+  W/L: 56/20  WR: 74%
+  avg PnL%:  +0.61
+  avg MFE%:  +5.10
+  avg giveback %: +4.50  (this is what we let slip from the peak)
+  Giveback > 2%: 71 of 76 (93%)
+  Approx total $ given back from peak across all PG exits: $     +34,013
+
+D · SMART_RUNNER_* exits (n=60):
+  SMART_RUNNER_SUPPORT_BREAK_CLOUD           n= 45 WR= 31%  avg PnL=+0.20  giveback=+3.87
+  SMART_RUNNER_TRIM_REASSESS_ROUNDTRIP_FAILURE n=  9 WR=  0%  avg PnL=-0.21  giveback=+1.63
+  SMART_RUNNER_TD_EXHAUSTION_RUNNER          n=  3 WR=  0%  avg PnL=-0.65  giveback=+1.36
+  SMART_RUNNER_RESISTANCE_BREAK_CLOUD        n=  3 WR=  0%  avg PnL=-0.42  giveback=+1.89
+
+E · Capture efficiency by exit reason (n>=10):
+  exit reason                                  n  capture%  avg PnL%  avg MFE%
+  SOFT_FUSE_RSI_CONFIRMED                     14       64%    +1.46    +2.29 🟢
+  HARD_FUSE_RSI_EXTREME                       26       61%    +4.02    +6.55 🟢
+  TP_FULL                                     47       51%    +4.17    +8.10 🟢
+  peak_lock_ema12_deep_break                  22       43%    +3.39    +7.88 🟡
+  ST_FLIP_4H_CLOSE                            28       43%    +3.30    +7.68 🟡
+  atr_week_618_full_exit                      25       39%    +2.76    +7.10 🟡
+  sl_breached                                 22       38%    +3.72    +9.71 🟡
+  mfe_decay_structural_flatten                26       32%    +2.10    +6.52 🟡
+  PROFIT_GIVEBACK_STAGE_HOLD                  65       12%    +0.60    +5.02 🔴
+  SMART_RUNNER_SUPPORT_BREAK_CLOUD            45        5%    +0.20    +4.06 🔴
+  runner_drawdown_cap                         14      -35%    -0.63    +1.78 🔴
+  phase_i_mfe_dead_money_24h                  17      -52%    -0.40    +0.77 🔴
+  max_loss_time_scaled                        37      -99%    -1.33    +1.35 🔴
+  atr_day_adverse_382_cut                     36     -112%    -0.96    +0.86 🔴
+  max_loss                                    22     -286%    -2.60    +0.91 🔴
+  HARD_LOSS_CAP                               12     -384%    -5.86    +1.53 🔴
+  phase_i_mfe_cut_4h                          12     -589%    -1.74    +0.29 🔴
+  phase_i_mfe_fast_cut_2h                     15    -1084%    -1.22    +0.11 🔴
+  phase_i_mfe_fast_cut_zero_mfe               30    -3142%    -1.43    +0.05 🔴

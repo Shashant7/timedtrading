@@ -1,0 +1,73 @@
+==============================================================================
+PHASE A · Pillar 2 — Setup × Personality × Direction matrix
+==============================================================================
+
+2a · Setup × Direction (full surface, n ≥ 5):
+  cohort                                              n   WR%    avg%      cum%       cum$
+  tt_n_test_resistance · SHORT                       16   31  -0.87   -13.94 $  -1,261 ❌
+  tt_ath_breakout · LONG                             70   41  -0.02    -1.38 $     -50 ⚠️
+  tt_atl_breakdown · SHORT                            7   43  +0.20    +1.40 $    +120
+  tt_n_test_support · LONG                           64   42  +0.22   +14.27 $  +1,390
+  tt_range_reversal_long · LONG                      26   46  +0.36    +9.30 $    +703
+  tt_pullback · LONG                                 54   52  +0.71   +38.53 $  +4,896
+  tt_gap_reversal_long · LONG                       332   56  +1.05  +348.70 $ +36,059
+  tt_gap_reversal_short · SHORT                      12   67  +2.37   +28.45 $  +4,006
+
+2b · Personality × Direction (n ≥ 5):
+  cohort                                              n   WR%    avg%      cum%       cum$
+  PULLBACK_PLAYER        · SHORT                     11   36  -0.15    -1.62 $    -183 ⚠️
+  SLOW_GRINDER           · LONG                      48   50  -0.10    -4.63 $    -557 ⚠️
+  SLOW_GRINDER           · SHORT                      8   38  -0.05    -0.40 $     -31 ⚠️
+  MODERATE               · LONG                      49   47  +0.32   +15.47 $  +1,546
+  MODERATE               · SHORT                      6   50  +0.44    +2.63 $    +300
+  PULLBACK_PLAYER        · LONG                     154   51  +0.46   +70.94 $  +6,061
+  VOLATILE_RUNNER        · LONG                     279   54  +1.04  +291.40 $ +32,314
+  VOLATILE_RUNNER        · SHORT                     11   55  +1.28   +14.13 $  +2,568
+  -                      · LONG                      22   55  +1.52   +33.54 $  +3,043
+
+2c · Personality × PDZ_zone × Direction (n ≥ 5):
+  cohort                                              n   WR%    avg%      cum%       cum$
+  VOLATILE_RUNNER    · discount    · LONG            14   31  -1.31   -18.30 $  -2,664 ❌
+  VOLATILE_RUNNER    · equilibrium · LONG             5   40  -0.79    -3.95 $    -233 ❌
+  SLOW_GRINDER       · discount    · SHORT            7   29  -0.45    -3.17 $    -446 ⚠️
+  SLOW_GRINDER       · premium     · LONG            48   50  -0.10    -4.63 $    -557 ⚠️
+  PULLBACK_PLAYER    · discount    · SHORT           10   40  -0.05    -0.45 $     +28 ⚠️
+  MODERATE           · premium     · LONG            46   48  +0.34   +15.52 $  +1,377
+  MODERATE           · discount    · SHORT            6   50  +0.44    +2.63 $    +300
+  PULLBACK_PLAYER    · premium     · LONG           150   50  +0.44   +66.71 $  +5,590
+  VOLATILE_RUNNER    · premium     · LONG           260   55  +1.21  +313.65 $ +35,211
+  VOLATILE_RUNNER    · discount    · SHORT           11   55  +1.28   +14.13 $  +2,568
+  -                  · -           · LONG            22   55  +1.52   +33.54 $  +3,043
+
+Top 10 cohorts by avg% PnL (Personality × PDZ × Direction, n ≥ 5):
+  cohort                                              n   WR%    avg%      cum%
+  -                  · -           · LONG            22   55  +1.52   +33.54
+  VOLATILE_RUNNER    · discount    · SHORT           11   55  +1.28   +14.13
+  VOLATILE_RUNNER    · premium     · LONG           260   55  +1.21  +313.65
+  PULLBACK_PLAYER    · premium     · LONG           150   50  +0.44   +66.71
+  MODERATE           · discount    · SHORT            6   50  +0.44    +2.63
+  MODERATE           · premium     · LONG            46   48  +0.34   +15.52
+  PULLBACK_PLAYER    · discount    · SHORT           10   40  -0.05    -0.45
+  SLOW_GRINDER       · premium     · LONG            48   50  -0.10    -4.63
+  SLOW_GRINDER       · discount    · SHORT            7   29  -0.45    -3.17
+  VOLATILE_RUNNER    · equilibrium · LONG             5   40  -0.79    -3.95
+
+2d · Setup × Personality (n ≥ 8):
+  cohort                                              n   WR%    avg%      cum%
+  tt_pullback              · MODERATE                11   36  -0.30    -3.35 ⚠️
+  tt_ath_breakout          · MODERATE                12   25  -0.28    -3.31 ⚠️
+  tt_ath_breakout          · SLOW_GRINDER            17   47  -0.27    -4.52 ⚠️
+  tt_n_test_support        · SLOW_GRINDER            25   48  -0.14    -3.59 ⚠️
+  tt_n_test_support        · MODERATE                 9   44  +0.13    +1.16
+  tt_ath_breakout          · PULLBACK_PLAYER         33   39  +0.20    +6.67
+  tt_range_reversal_long   · PULLBACK_PLAYER         13   54  +0.42    +5.42
+  tt_range_reversal_long   · VOLATILE_RUNNER          9   33  +0.51    +4.59
+  tt_gap_reversal_long     · PULLBACK_PLAYER         72   57  +0.60   +43.35
+  tt_pullback              · PULLBACK_PLAYER         21   52  +0.64   +13.35
+  tt_n_test_support        · PULLBACK_PLAYER         14   43  +0.67    +9.39
+  tt_n_test_support        · VOLATILE_RUNNER         15   33  +0.70   +10.51
+  tt_gap_reversal_long     · VOLATILE_RUNNER        228   56  +1.11  +252.68
+  tt_pullback              · VOLATILE_RUNNER         20   50  +1.21   +24.17
+  tt_gap_reversal_long     · MODERATE                14   79  +1.60   +22.45
+  tt_gap_reversal_long     · -                       15   40  +1.80   +27.05
+  tt_gap_reversal_short    · VOLATILE_RUNNER          8   75  +3.33   +26.67

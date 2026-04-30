@@ -1,0 +1,59 @@
+==============================================================================
+PHASE A · Pillar 6 — Rank distribution of winners vs losers
+==============================================================================
+
+  rank           n     W     L   WR%    avg%      cum%      cum$
+  <70           27    13    14   48  -0.02    -0.60 $    -27
+  70-79         19    10     9   53  +0.29    +5.49 $   +106
+  80-84         19    11     8   58  +1.06   +20.11 $ +1,779
+  85-89         12     8     4   67  +1.04   +12.48 $ +1,340
+  90-94        124    60    63   49  +0.65   +80.69 $ +8,383
+  95+          387   200   187   52  +0.78  +303.30 $+33,480
+
+By setup_grade:
+  grade          n     W     L   WR%    avg%      cum%      cum$
+  Prime        376   206   169   55  +0.98  +369.84 $+41,538
+  Confirmed    193    86   107   45  +0.26   +50.27 $ +3,279
+  Speculative    19    10     9   53  +0.07    +1.36 $   +243
+
+By R:R at entry:
+  R:R            n     W     L   WR%    avg%      cum%      cum$
+  <1             2     0     2    0  -0.60    -1.20 $    -25
+  1-1.5          4     0     4    0  -1.70    -6.80 $   -572
+  1.5-2         46    23    23   50  +0.21    +9.72 $ +1,284
+  2-3          236   125   110   53  +0.54  +126.89 $+11,490
+  3-5          233   116   117   50  +0.95  +221.79 $+25,083
+  5+            67    38    29   57  +1.06   +71.08 $ +7,801
+
+Concurrent-position distribution:
+  Max concurrent positions: 28
+  Concurrency distribution (sampled at every entry/exit event):
+     0 pos:    4 samples (  0.3%) 
+     1 pos:    9 samples (  0.8%) 
+     2 pos:   18 samples (  1.5%) 
+     3 pos:   37 samples (  3.1%) █
+     4 pos:   55 samples (  4.7%) ██
+     5 pos:   60 samples (  5.1%) ██
+     6 pos:   64 samples (  5.4%) ██
+     7 pos:   70 samples (  6.0%) ██
+     8 pos:   67 samples (  5.7%) ██
+     9 pos:   63 samples (  5.4%) ██
+    10 pos:   66 samples (  5.6%) ██
+    11 pos:   78 samples (  6.6%) ███
+    12 pos:   83 samples (  7.1%) ███
+    13 pos:   77 samples (  6.5%) ███
+    14 pos:   62 samples (  5.3%) ██
+    15 pos:   48 samples (  4.1%) ██
+    16 pos:   45 samples (  3.8%) █
+    17 pos:   40 samples (  3.4%) █
+    18 pos:   34 samples (  2.9%) █
+    19 pos:   33 samples (  2.8%) █
+    20 pos:   30 samples (  2.6%) █
+    21 pos:   26 samples (  2.2%) █
+    22 pos:   27 samples (  2.3%) █
+    23 pos:   26 samples (  2.2%) █
+    24 pos:   23 samples (  2.0%) 
+    25 pos:   18 samples (  1.5%) 
+    26 pos:    9 samples (  0.8%) 
+    27 pos:    3 samples (  0.3%) 
+    28 pos:    1 samples (  0.1%) 

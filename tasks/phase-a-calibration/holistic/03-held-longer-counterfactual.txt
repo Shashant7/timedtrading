@@ -1,0 +1,53 @@
+==============================================================================
+PILLAR 3 — HELD-LONGER COUNTERFACTUAL ON LOSS TRADES
+==============================================================================
+
+Wins: 302    Losses: 285
+
+LOSERS distribution by max favorable excursion (the gain that was 'available'):
+  MFE bucket        n    %  avg PnL%  avg MAE%
+  MFE 0-0.5%      116  41%    -2.00    -1.99
+  MFE 0.5-1%       59  21%    -1.10    -1.76
+  MFE 1-2%         53  19%    -0.93    -2.08
+  MFE 2-5%         47  16%    -0.96    -2.94
+  MFE 5%+          10   4%    -1.05    -3.66
+
+SL TIGHTNESS — winner MAE distribution (how much pain do winners survive?):
+  < -3%             2   1% (winners) avg final PnL=+1.76%  avg MFE reached=+6.59%
+  -2 to -3%        13   4% (winners) avg final PnL=+2.88%  avg MFE reached=+10.11%
+  -1 to -2%        44  15% (winners) avg final PnL=+2.13%  avg MFE reached=+6.27%
+  -0.5 to -1%      44  15% (winners) avg final PnL=+2.68%  avg MFE reached=+6.26%
+  0 to -0.5%      108  36% (winners) avg final PnL=+1.90%  avg MFE reached=+4.71%
+  no MAE           91  30% (winners) avg final PnL=+4.02%  avg MFE reached=+8.84%
+
+COUNTERFACTUAL: If we'd taken a 50% trim at any LOSS where MFE >= 1%:
+  (i.e., scaled out half the position at +0.5×MFE before the SL hit)
+  Baseline loss $:  $     -44,347
+  Counterfactual $: $     -31,556
+  Improvement:      $     +12,791
+  Trades helped:    110 of 285
+
+LOSSES where MFE >= 1% AND MFE > |MAE| (favorable move came first, then reversed):
+  Count: 51 (18% of all losses)
+  These are the trades where a 'lock-in 0.5%' rule would have salvaged something:
+
+  ticker  dir      pnl%  MFE%   MAE% exit                               
+  AGQ     LONG   -1.54 +13.53 -4.98 PROFIT_GIVEBACK                    
+  PSTG    LONG   -0.43 +8.26 -1.49 SMART_RUNNER_SUPPORT_BREAK_CLOUD   
+  HOOD    LONG   -0.14 +6.95 -1.08 PROFIT_GIVEBACK_STAGE_HOLD         
+  SNDK    LONG   -0.03 +6.70 -2.58 SMART_RUNNER_TRIM_REASSESS_ROUNDTRI
+  AEHR    LONG   -0.27 +6.25 -1.76 SMART_RUNNER_SUPPORT_BREAK_CLOUD   
+  LITE    LONG   -0.39 +6.03 -1.89 PROFIT_GIVEBACK_STAGE_HOLD         
+  AEHR    LONG   -2.24 +5.81 -5.19 SMART_RUNNER_SUPPORT_BREAK_CLOUD   
+  SNDK    LONG   -1.87 +5.61 -3.98 PROFIT_GIVEBACK_STAGE_HOLD         
+  EMR     LONG   -0.05 +5.49 -5.26 SMART_RUNNER_SUPPORT_BREAK_CLOUD   
+  APD     LONG   -0.20 +4.47 -0.40 PROFIT_GIVEBACK_STAGE_HOLD         
+  RIOT    LONG   -0.53 +4.25 -2.47 PROFIT_GIVEBACK_STAGE_HOLD         
+  AGQ     LONG   -0.44 +4.23 -2.14 PROFIT_GIVEBACK_STAGE_HOLD         
+  SATS    LONG   -0.99 +4.23 -1.42 PROFIT_GIVEBACK_STAGE_HOLD         
+  NVDA    LONG   -0.13 +4.13 -0.87 PROFIT_GIVEBACK_STAGE_HOLD         
+  FIX     LONG   -0.02 +3.89 -1.52 PROFIT_GIVEBACK_STAGE_HOLD         
+
+Losers' total MFE $ (theoretical max if exited at peak): $     +35,572
+Losers' total realized $:                                $     -44,347
+Net 'forfeited' opportunity:                             $     +79,919

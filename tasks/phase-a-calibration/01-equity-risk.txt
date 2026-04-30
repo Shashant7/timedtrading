@@ -1,0 +1,39 @@
+==============================================================================
+PHASE A · Pillar 1 — Equity curve & risk-adjusted returns
+==============================================================================
+
+Starting capital:     $     100,000
+Final equity:         $     145,061
+Total return $:       $      45,061
+Total return %:              45.06%
+Closed trades:                 588
+Trading days:                  166
+Calendar days:                 301
+
+Annualized return:          56.98%
+Annualized vol:              9.48%
+Sharpe (rf=4.5%):            5.54
+Sortino (rf=4.5%):          17.20
+
+Max drawdown %:              1.85%
+Max drawdown $:        $    2,704
+Max DD peak → trough:  2026-02-25 → 2026-04-21
+
+Win rate:                   51.36%
+Avg win $:             $   296.05
+Avg loss $:            $  -155.60
+Win/loss ratio:              1.90
+Profit factor:               2.02
+
+Worst single trade $:  $-1,040.54
+Best single trade $:   $ 2,465.79
+Worst single day $:    $  -954.06
+Best single day $:     $ 3,474.20
+Losing days:                   65 (39%)
+Winning days:                 101 (61%)
+
+DRAWDOWN PERIODS (≥ 1.0% depth):
+  peak_day     trough       recover         depth%    depth$  to_trough  to_recover
+  2026-02-25   2026-04-21   (not recovered)   1.85% $  2,704        55d          —
+  2025-07-02   2025-07-10   2025-07-14       1.17% $  1,166         8d         12
+  2025-10-31   2025-11-17   2025-11-28       1.05% $  1,318        17d         28

@@ -1,0 +1,38 @@
+==============================================================================
+PILLAR 1 — SETUP-LEVEL DEEP DIVE
+==============================================================================
+
+setup                          n   W   L   WR   avg%      cum$ avgRR  medH  MFE%   MAE%  cap%  avgHr
+tt_gap_reversal_long         332 187 144  56% +1.05 $+36,059  3.21 72.5h +5.27 -1.51   20% 12.64
+tt_pullback                   55  28  27  51% +0.68 $ +4,685  3.58 74.5h +3.05 -1.10   22% 12.79
+tt_gap_reversal_short         12   8   4  67% +2.37 $ +4,006  4.19 120.2h +7.09 -0.93   33% 12.25
+tt_n_test_support             64  27  37  42% +0.22 $ +1,390  3.82 102.5h +2.00 -1.08   11% 12.84
+tt_range_reversal_long        26  12  14  46% +0.36 $   +703  4.80 46.2h +2.48 -0.97   14% 12.12
+tt_atl_breakdown               7   3   4  43% +0.20 $   +120  3.09 98.0h +2.97 -0.96    7% 10.86
+tt_ath_breakout               70  29  41  41% -0.02 $    -50  3.16 99.0h +1.66 -0.96   -1% 12.22
+tt_n_test_resistance          16   5  11  31% -0.87 $ -1,261  4.72 37.0h +1.20 -1.76  -73% 12.06
+
+Top exit reasons per setup:
+  tt_gap_reversal_long         → PROFIT_GIVEBACK_STAGE_HOLD:49 | TP_FULL:32 | SMART_RUNNER_SUPPORT_BREAK_CLOUD:30
+  tt_pullback                  → phase_i_mfe_fast_cut_zero_mfe:7 | peak_lock_ema12_deep_break:4 | PROFIT_GIVEBACK_STAGE_HOLD:4
+  tt_gap_reversal_short        → max_loss_time_scaled:3 | PROFIT_GIVEBACK_STAGE_HOLD:2 | ST_FLIP_4H_CLOSE:1
+  tt_n_test_support            → phase_i_mfe_dead_money_24h:9 | phase_i_mfe_fast_cut_zero_mfe:6 | atr_day_adverse_382_cut:5
+  tt_range_reversal_long       → PROFIT_GIVEBACK_STAGE_HOLD:4 | sl_breached:3 | atr_day_adverse_382_cut:3
+  tt_atl_breakdown             → SMART_RUNNER_RESISTANCE_BREAK_CLOUD:2 | TP_FULL:2 | phase_i_mfe_dead_money_24h:1
+  tt_ath_breakout              → atr_day_adverse_382_cut:13 | TP_FULL:7 | max_loss_time_scaled:5
+  tt_n_test_resistance         → phase_i_mfe_fast_cut_zero_mfe:5 | atr_day_adverse_382_cut:2 | max_loss_time_scaled:1
+
+CAPTURE EFFICIENCY analysis (avg PnL% / avg MFE%):
+  >= 80%  : excellent — riding most of the move
+  50-80%  : healthy
+  20-50%  : leaving money on the table
+  < 20%   : exits are too early OR avg MFE is overstated
+
+  🔴 tt_n_test_resistance         capture= -73%  (avg_pnl%=-0.87  avg_mfe%=+1.20  avg_mae%=-1.76)
+  🔴 tt_ath_breakout              capture=  -1%  (avg_pnl%=-0.02  avg_mfe%=+1.66  avg_mae%=-0.96)
+  🔴 tt_atl_breakdown             capture=   7%  (avg_pnl%=+0.20  avg_mfe%=+2.97  avg_mae%=-0.96)
+  🔴 tt_n_test_support            capture=  11%  (avg_pnl%=+0.22  avg_mfe%=+2.00  avg_mae%=-1.08)
+  🔴 tt_range_reversal_long       capture=  14%  (avg_pnl%=+0.36  avg_mfe%=+2.48  avg_mae%=-0.97)
+  🔴 tt_gap_reversal_long         capture=  20%  (avg_pnl%=+1.05  avg_mfe%=+5.27  avg_mae%=-1.51)
+  🟡 tt_pullback                  capture=  22%  (avg_pnl%=+0.68  avg_mfe%=+3.05  avg_mae%=-1.10)
+  🟡 tt_gap_reversal_short        capture=  33%  (avg_pnl%=+2.37  avg_mfe%=+7.09  avg_mae%=-0.93)

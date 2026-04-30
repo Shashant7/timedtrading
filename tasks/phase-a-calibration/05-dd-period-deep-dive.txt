@@ -1,0 +1,49 @@
+==============================================================================
+PHASE A · Pillar 5 — Drawdown period characterization
+==============================================================================
+
+DD: 2026-02-25 → 2026-04-21 (1.85% / $2,704)
+  Trades closed in window: 58 (losers: 33, cum pnl%: -9.96%)
+  Top loser exits:
+    atr_day_adverse_382_cut                n=13  cum -15.69%
+    phase_i_mfe_fast_cut_zero_mfe          n= 5  cum -7.06%
+    max_loss_time_scaled                   n= 3  cum -3.98%
+    HARD_LOSS_CAP                          n= 3  cum -22.26%
+    PROFIT_GIVEBACK_STAGE_HOLD             n= 2  cum -1.38%
+  Regime mix (losers): {'TRENDING': 14, '-': 4, 'TRANSITIONAL': 14, 'CHOPPY': 1}
+  Personality mix (losers): {'VOLATILE_RUNNER': 11, '-': 4, 'MODERATE': 7, 'SLOW_GRINDER': 5, 'PULLBACK_PLAYER': 6}
+  Top losing tickers: [('APD', 3), ('ALB', 2), ('XLRE', 2), ('CSX', 2), ('CW', 2)]
+
+DD: 2025-07-02 → 2025-07-10 (1.17% / $1,166)
+  Trades closed in window: 17 (losers: 12, cum pnl%: -9.30%)
+  Top loser exits:
+    phase_i_mfe_fast_cut_zero_mfe          n= 3  cum -3.53%
+    max_loss_time_scaled                   n= 3  cum -3.61%
+    max_loss                               n= 2  cum -7.24%
+    phase_i_mfe_cut_4h                     n= 1  cum -1.59%
+    phase_i_mfe_dead_money_24h             n= 1  cum -1.07%
+  Regime mix (losers): {'TRENDING': 10, 'TRANSITIONAL': 2}
+  Personality mix (losers): {'PULLBACK_PLAYER': 6, 'VOLATILE_RUNNER': 6}
+  Top losing tickers: [('KWEB', 1), ('INTC', 1), ('FIX', 1), ('XHB', 1), ('AYI', 1)]
+
+DD: 2025-10-31 → 2025-11-17 (1.05% / $1,318)
+  Trades closed in window: 30 (losers: 20, cum pnl%: -5.72%)
+  Top loser exits:
+    SMART_RUNNER_SUPPORT_BREAK_CLOUD       n= 5  cum -0.95%
+    max_loss_time_scaled                   n= 2  cum -2.95%
+    atr_day_adverse_382_cut                n= 2  cum -2.30%
+    h4_regime_flip_exit                    n= 2  cum -0.11%
+    PROFIT_GIVEBACK_STAGE_HOLD             n= 2  cum -2.04%
+  Regime mix (losers): {'TRANSITIONAL': 8, 'TRENDING': 12}
+  Personality mix (losers): {'VOLATILE_RUNNER': 5, 'SLOW_GRINDER': 4, 'PULLBACK_PLAYER': 8, 'MODERATE': 3}
+  Top losing tickers: [('DIA', 2), ('QQQ', 2), ('MLI', 2), ('AAPL', 2), ('SATS', 1)]
+
+Mar 2026 review:
+  Mar 2026: 29 trades; loser exits:
+    atr_day_adverse_382_cut                n=10  cum -11.17%
+    phase_i_mfe_fast_cut_zero_mfe          n= 4  cum -5.99%
+    HARD_LOSS_CAP                          n= 3  cum -22.26%
+    phase_i_mfe_fast_cut_2h                n= 1  cum -0.91%
+    max_loss                               n= 1  cum -3.59%
+    PROFIT_GIVEBACK_STAGE_HOLD             n= 1  cum -0.39%
+    atr_week_618_full_exit                 n= 1  cum -0.22%

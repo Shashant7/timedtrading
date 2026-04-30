@@ -1,0 +1,48 @@
+==============================================================================
+PILLAR 2 — RE-ENTRY CHAIN ANALYSIS (same ticker / dir, < 7d gaps)
+==============================================================================
+
+Chains found: 92
+Sum realized $: $     +19,456
+Sum hold-thru $: $     +87,221
+Delta (holdthru - realized) $: $     +67,766  (+348%)
+
+Chains where HOLDING would have been BETTER: 81  (sum gain: $+70,394)
+Chains where re-entry was BETTER (avoid drawdown): 11  (sum saved: $+2,628)
+
+TOP 15 CHAINS WHERE HOLDING WOULD HAVE WON:
+ticker  dir      n  days realized% holdthru%  delta%   delta$
+SNDK    LONG     3 14.8d    +8.70   +73.58 +64.88 $+8,848
+JOBY    LONG     2 14.1d   +13.15   +68.18 +55.04 $+6,634
+APLD    LONG     2 17.0d   +14.55   +53.75 +39.21 $+5,717
+AGQ     LONG     3 14.9d   +11.34   +39.58 +28.24 $+3,679
+FN      LONG     2  7.9d    -4.10   +18.35 +22.45 $+2,673
+FIX     LONG     3 20.9d    +9.15   +19.63 +10.48 $+2,618
+SNDK    LONG     3 15.0d    +2.09   +31.00 +28.90 $+2,474
+ASTS    LONG     2 12.9d   +12.88   +25.30 +12.42 $+2,254
+AGQ     LONG     2  8.9d   +11.62   +24.75 +13.14 $+1,976
+LITE    LONG     2 28.9d   +11.77   +26.86 +15.09 $+1,905
+PLTR    LONG     3 16.1d    +0.72   +14.50 +13.78 $+1,810
+CLS     LONG     2  8.8d   +10.90   +24.82 +13.92 $+1,760
+JCI     LONG     2 28.8d    +1.73   +14.49 +12.75 $+1,633
+APLD    LONG     3 18.9d    -6.07   +16.39 +22.46 $+1,619
+AMD     LONG     2 21.0d   +12.85   +30.48 +17.63 $+1,597
+
+TOP 10 CHAINS WHERE RE-ENTRY WAS BETTER (DRAWDOWN AVOIDED):
+ALB     LONG     2  7.9d    +3.65    -5.58  -9.23 $-1,756
+AMZN    LONG     2 18.0d    +1.71    -1.67  -3.37 $  -280
+ALB     LONG     2  8.8d    +1.65    -0.74  -2.38 $  -265
+AVAV    LONG     2 10.9d    +3.44    +2.55  -0.88 $  -120
+KTOS    LONG     2 11.0d    +2.21    +2.26  +0.05 $   -93
+XLV     LONG     2 21.9d    +0.40    -0.01  -0.41 $   -47
+CVX     SHORT    2 19.9d    -1.42    -1.57  -0.15 $   -18
+AAPL    LONG     2 25.1d    +3.25    +3.78  +0.53 $   -17
+GEV     LONG     3 30.0d   +15.17   +12.23  -2.94 $   -15
+AAPL    LONG     2 11.0d    -0.11    -0.17  -0.07 $   -10
+
+Chain length distribution:
+  2 entries: 67 chains
+  3 entries: 21 chains
+  4 entries: 2 chains
+  5 entries: 1 chains
+  6 entries: 1 chains

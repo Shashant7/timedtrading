@@ -1,0 +1,42 @@
+==============================================================================
+PILLAR 4 — BEST 20 / WORST 20 TRADE PATTERN STUDY
+==============================================================================
+
+=== TOP 20 (best winners) ===
+  avg PnL%: +12.21    avg RR: 3.81    avg rank: 98.3    avg dur: 232.8h
+  avg MFE: +24.82     avg MAE: -0.47
+  Direction:    [('LONG', 19), ('SHORT', 1)]
+  Personality:  [('VOLATILE_RUNNER', 18), ('-', 2)]
+  Setup:        [('tt_gap_reversal_long', 17), ('tt_n_test_support', 1), ('tt_gap_reversal_short', 1), ('tt_pullback', 1)]
+  Grade:        [('Prime', 20)]
+  Regime:       [('TRENDING', 15), ('TRANSITIONAL', 3), ('-', 2)]
+  PDZ daily:    [('premium_approach', 12), ('premium', 5), ('-', 2), ('discount_approach', 1)]
+  PDZ h4:       [('premium_approach', 10), ('premium', 5), ('discount_approach', 2), ('-', 2), ('equilibrium', 1)]
+  Exit reason:  [('TP_FULL', 6), ('sl_breached', 4), ('HARD_FUSE_RSI_EXTREME', 4), ('atr_week_618_full_exit', 3), ('peak_lock_ema12_deep_break', 2)]
+
+=== BOT 20 (worst losers) ===
+  avg PnL%: -5.29    avg RR: 3.51    avg rank: 95.5    avg dur: 79.9h
+  avg MFE: +1.02     avg MAE: -6.19
+  Direction:    [('LONG', 19), ('SHORT', 1)]
+  Personality:  [('VOLATILE_RUNNER', 17), ('PULLBACK_PLAYER', 2), ('-', 1)]
+  Setup:        [('tt_gap_reversal_long', 16), ('tt_pullback', 2), ('momentum_score', 1), ('tt_n_test_resistance', 1)]
+  Grade:        [('Prime', 17), ('Confirmed', 2), ('Speculative', 1)]
+  Regime:       [('TRANSITIONAL', 10), ('TRENDING', 8), ('-', 1), ('CHOPPY', 1)]
+  PDZ daily:    [('premium_approach', 12), ('discount_approach', 4), ('premium', 2), ('-', 1), ('equilibrium', 1)]
+  PDZ h4:       [('premium_approach', 15), ('premium', 2), ('discount_approach', 2), ('-', 1)]
+  Exit reason:  [('HARD_LOSS_CAP', 10), ('max_loss', 6), ('v13_hard_pnl_floor', 3), ('sl_breached', 1)]
+
+==============================================================================
+DIFFERENTIATING SIGNALS (best vs worst):
+==============================================================================
+
+Personality skew:
+  VOLATILE_RUNNER        pop= 290  top20= 18  bot20= 17  skew=+1
+  SLOW_GRINDER           pop=  56  top20=  0  bot20=  0  skew=+0
+  PULLBACK_PLAYER        pop= 165  top20=  0  bot20=  2  skew=-2
+  MODERATE               pop=  55  top20=  0  bot20=  0  skew=+0
+
+Setup grade skew:
+  Prime          pop= 376  top20= 20  bot20= 17  skew=+3
+  Confirmed      pop= 193  top20=  0  bot20=  2  skew=-2
+  Speculative    pop=  19  top20=  0  bot20=  1  skew=-1

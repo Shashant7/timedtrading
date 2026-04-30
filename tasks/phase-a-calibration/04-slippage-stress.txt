@@ -1,0 +1,52 @@
+==============================================================================
+PHASE A · Pillar 4 — Slippage stress test
+==============================================================================
+
+  scenario                       n     W     L   WR%    avg%      cum%
+  Baseline (0 bp)              588   252   335   43  +0.80  +469.71
+  Adverse 2 bp/side            588   250   338   43  +0.76  +446.03
+  Adverse 5 bp/side            588   250   338   43  +0.70  +410.53
+  Adverse 10 bp/side           588   240   348   41  +0.60  +351.41
+  Adverse 15 bp/side           588   234   354   40  +0.50  +292.34
+  Adverse 20 bp/side           588   227   361   39  +0.40  +233.32
+
+Per-month PnL under slippage scenarios:
+  month         n      base      +5bp     +10bp     +15bp     +20bp
+  2025-07     107  +173.28  +162.43  +151.58  +140.74  +129.92
+  2025-08      78   +50.88   +43.01   +35.16   +27.30   +19.46
+  2025-09      65   +73.43   +66.86   +60.30   +53.74   +47.19
+  2025-10      60   -23.97   -29.95   -35.93   -41.90   -47.86
+  2025-11      34    +4.85    +1.44    -1.97    -5.37    -8.78
+  2025-12      59   +70.33   +64.39   +58.45   +52.51   +46.58
+  2026-01      71   +78.06   +70.94   +63.83   +56.73   +49.63
+  2026-02      68   +39.15   +32.31   +25.48   +18.66   +11.84
+  2026-03      29   -33.73   -36.58   -39.44   -42.29   -45.15
+  2026-04      17   +37.43   +35.69   +33.95   +32.21   +30.48
+
+Trades that flip WIN → LOSS at 10 bp/side slippage: 12
+  LULU    base +0.15% → 10bp -0.05%
+  JOBY    base +0.02% → 10bp -0.18%
+  QQQ     base +0.19% → 10bp -0.01%
+  BK      base +0.04% → 10bp -0.16%
+  FIX     base +0.15% → 10bp -0.05%
+  NOC     base +0.13% → 10bp -0.07%
+  AMZN    base +0.11% → 10bp -0.09%
+  EMR     base +0.14% → 10bp -0.06%
+  AMZN    base +0.11% → 10bp -0.09%
+  SPY     base +0.18% → 10bp -0.02%
+  JPM     base +0.11% → 10bp -0.09%
+  WAL     base +0.12% → 10bp -0.08%
+
+Marginal trades (|pnl| < 0.20%): wins=12, losses=13
+  These are the trades most vulnerable to slippage flips.
+
+Cumulative PnL by slippage (find tipping point):
+    0 bp/side: cum +469.71%   
+    5 bp/side: cum +410.53%   
+   10 bp/side: cum +351.41%   
+   15 bp/side: cum +292.34%   
+   20 bp/side: cum +233.32%   
+   25 bp/side: cum +174.35%   
+   30 bp/side: cum +115.43%   
+   35 bp/side: cum  +56.57%   
+   40 bp/side: cum   -2.24%   (tipping point reached)

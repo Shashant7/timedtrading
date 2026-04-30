@@ -1,0 +1,29 @@
+==============================================================================
+PHASE A · Pillar 3 — Sector & ticker concentration
+==============================================================================
+
+By sector (total PnL $45,061 / +421.5%):
+  sector                          n   WR%      cum%       cum$   %of$
+  -                             588   51  +421.47 $ +45,061   100% 🚨
+
+Top 15 tickers by absolute |PnL$| contribution:
+  ticker      n   WR%      cum%       cum$   %of$
+  AGQ        12   67   +29.17 $  +3,504    +8%
+  SNDK       11   36   +15.38 $  +2,917    +6%
+  ETHA        5   60   +19.90 $  +2,756    +6%
+  AEHR       11   36   +21.27 $  +2,637    +6%
+  APLD       10   70   +15.98 $  +2,447    +5%
+  ALB        19   63   +20.59 $  +2,310    +5%
+  GEV         5   80   +17.26 $  +2,252    +5%
+  ASTS        3  100   +14.52 $  +1,953    +4%
+  KLAC       10   70   +13.63 $  +1,841    +4%
+  GOOGL      12   67   +16.20 $  +1,838    +4%
+  AMD         9   78   +20.13 $  +1,706    +4%
+  U           1  100   +12.50 $  +1,504    +3%
+  CLS         6  100   +21.20 $  +1,490    +3%
+  LITE        5   60   +13.05 $  +1,426    +3%
+  AVAV        5   60   +11.77 $  +1,235    +3%
+
+Concentration: 20 tickers contribute 80% of total $ PnL (out of 153 traded).
+Top-10 ticker $ PnL share: 54.3%
+Top-20 ticker $ PnL share: 82.0%
