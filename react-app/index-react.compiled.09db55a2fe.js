@@ -46,6 +46,20 @@ const SHORT_CORRIDOR = {
 };
 const API_BASE = "";
 const ENABLE_UI_DIAGNOSTICS = false;
+function isDebugConsoleEnabled() {
+  if (ENABLE_UI_DIAGNOSTICS) return true;
+  if (typeof window === "undefined") return false;
+  try {
+    const host = String(window.location?.hostname || "").toLowerCase();
+    return host === "localhost" || host === "127.0.0.1" || window.location.search.includes("debug=1") || window.localStorage.getItem("tt_debug") === "1";
+  } catch {
+    return false;
+  }
+}
+const DEBUG_CONSOLE_ENABLED = isDebugConsoleEnabled();
+function debugLog(...args) {
+  if (DEBUG_CONSOLE_ENABLED) console.log(...args);
+}
 const TRADE_SIZE = 1000;
 const FUTURES_SPECS = {
   "ES1!": {
@@ -153,6 +167,11 @@ function isSnapshotFresh(builtAt) {
   if (!anyActive) return age < 24 * 60 * 60 * 1000;
   return age < SCORING_INTERVAL_MS + 90 * 1000;
 }
+const INVESTOR_ACTIONABLE_STAGES = new Set(["accumulate", "reduce"]);
+function isInvestorActionableTicker(ticker) {
+  const investorStage = String(ticker?.investor_action || ticker?.investor_stage || ticker?.stage || "").trim().toLowerCase();
+  return INVESTOR_ACTIONABLE_STAGES.has(investorStage);
+}
 function readAnalysisSnapshotCache() {
   try {
     const raw = sessionStorage.getItem(ANALYSIS_SNAPSHOT_CACHE_KEY);
@@ -249,6 +268,7 @@ function useTickerData() {
   const [freshnessTs, setFreshnessTs] = useState(null);
   const [versionInfo, setVersionInfo] = useState(initialSnapshot?.versionInfo && typeof initialSnapshot.versionInfo === "object" ? initialSnapshot.versionInfo : null);
   const [tickersWithoutScores, setTickersWithoutScores] = useState(Array.isArray(initialSnapshot?.tickersWithoutScores) ? initialSnapshot.tickersWithoutScores : collectTickersWithoutScores(initialData));
+  const latestSnapshotBuiltAtRef = React.useRef(Number(initialSnapshot?.builtAt || initialSnapshot?.cachedAt || 0) || 0);
   const kanbanPrevLocalRef = React.useRef({});
   const dataRef = React.useRef(initialData);
   dataRef.current = data;
@@ -319,6 +339,18 @@ function useTickerData() {
       }
       const dataJson = await dataRes.json();
       if (dataJson.ok) {
+        const incomingBuiltAt = Number(dataJson.built_at || timestamp) || timestamp;
+        const latestBuiltAt = Number(latestSnapshotBuiltAtRef.current || 0);
+        if (hasRenderableData && latestBuiltAt > 0 && incomingBuiltAt > 0 && incomingBuiltAt < latestBuiltAt) {
+          console.warn("[UI] Ignoring stale analysis snapshot", {
+            incomingBuiltAt,
+            latestBuiltAt,
+            ageMs: latestBuiltAt - incomingBuiltAt
+          });
+          refreshTickerUniverse(timestamp);
+          return;
+        }
+        latestSnapshotBuiltAtRef.current = Math.max(latestBuiltAt, incomingBuiltAt);
         const nextSocialAdditions = Array.isArray(dataJson.socialAdditions) ? dataJson.socialAdditions : [];
         setSocialAdditions(nextSocialAdditions);
         const tickerData = dataJson.data || {};
@@ -356,7 +388,7 @@ function useTickerData() {
         };
         setVersionInfo(nextVersionInfo);
         if (ENABLE_UI_DIAGNOSTICS) {
-          console.log(`[UI] Data Version Info:`, {
+          debugLog(`[UI] Data Version Info:`, {
             storedVersion: dataVersion,
             currentDataVersion: currentDataVersion,
             versionsSeen: versionsSeen,
@@ -425,8 +457,8 @@ function useTickerData() {
           }
         });
         if (ENABLE_UI_DIAGNOSTICS) {
-          console.log(`[UI] Loaded ${tickersWithData.length} tickers with scores, ${allTickers.length} total in index`);
-          console.log(`[UI] Tickers by version:`, tickersByVersion);
+          debugLog(`[UI] Loaded ${tickersWithData.length} tickers with scores, ${allTickers.length} total in index`);
+          debugLog(`[UI] Tickers by version:`, tickersByVersion);
         }
         if (nextTickersWithoutScores.length > 0) {
           if (ENABLE_UI_DIAGNOSTICS) {
@@ -441,7 +473,7 @@ function useTickerData() {
           socialAdditions: nextSocialAdditions,
           versionInfo: nextVersionInfo,
           tickersWithoutScores: nextTickersWithoutScores,
-          builtAt: dataJson.built_at || Date.now()
+          builtAt: incomingBuiltAt
         });
         if (versionFiltered > 0 && ENABLE_UI_DIAGNOSTICS) {
           console.warn(`[UI] ⚠️ ${versionFiltered} tickers filtered out due to version mismatch.`, {
@@ -454,7 +486,7 @@ function useTickerData() {
         }
         if (ENABLE_UI_DIAGNOSTICS) {
           const sampleTickers = Object.keys(tickerData).slice(0, 10);
-          console.log(`[UI] Sample tickers:`, sampleTickers.map(t => ({
+          debugLog(`[UI] Sample tickers:`, sampleTickers.map(t => ({
             ticker: t,
             version: tickerData[t]?.script_version || "unknown",
             hasScores: !!(tickerData[t]?.htf_score !== undefined && tickerData[t]?.ltf_score !== undefined),
@@ -464,9 +496,9 @@ function useTickerData() {
             rank: tickerData[t]?.rank
           })));
           const hasDynamicScore = Object.values(tickerData).some(t => t?.dynamicScore !== undefined);
-          console.log(`[UI] API provides dynamicScore: ${hasDynamicScore ? "YES ✅" : "NO ❌ (will use fallback calculation)"}`);
+          debugLog(`[UI] API provides dynamicScore: ${hasDynamicScore ? "YES ✅" : "NO ❌ (will use fallback calculation)"}`);
           const apiTickerOrder = Object.keys(tickerData).slice(0, 10);
-          console.log(`[UI] First 10 tickers from API (order):`, apiTickerOrder);
+          debugLog(`[UI] First 10 tickers from API (order):`, apiTickerOrder);
         }
         refreshTickerUniverse(timestamp);
       } else {
@@ -506,7 +538,7 @@ function useTickerData() {
     const snapshotCurrent = isSnapshotFresh(builtAt);
     let warmRefreshTimer = null;
     const sess = isScoringSessionActive();
-    console.log("[Snapshot freshness]", {
+    debugLog("[Snapshot freshness]", {
       hasCached: !!cached,
       cacheAgeS: Math.round(cacheAge / 1000),
       builtAtAgeS: builtAt ? Math.round((Date.now() - builtAt) / 1000) : "none",
@@ -731,7 +763,7 @@ function useWebSocket(tickerData, setTickerData) {
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
       ws.onopen = () => {
-        console.log("[WS] Connected");
+        debugLog("[WS] Connected");
         setWsConnected(true);
         reconnectDelay.current = 1000;
       };
@@ -876,7 +908,7 @@ function useWebSocket(tickerData, setTickerData) {
         } catch (e) {}
       };
       ws.onclose = event => {
-        console.log(`[WS] Disconnected (code=${event.code})`);
+        debugLog(`[WS] Disconnected (code=${event.code})`);
         setWsConnected(false);
         wsRef.current = null;
         const delay = reconnectDelay.current;
@@ -941,7 +973,7 @@ function useTrades(enabled = true) {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch(`${API_BASE}/timed/trades?source=d1`);
+      const res = await fetch(`${API_BASE}/timed/trades?source=promoted`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       if (json.ok && Array.isArray(json.trades)) {
@@ -1400,6 +1432,14 @@ function getTickerSector(ticker) {
     XLRE: "Real Estate",
     XLU: "Utilities",
     XLV: "Healthcare",
+    IBB: "Healthcare",
+    INFL: "Thematic ETF",
+    LIT: "Thematic ETF",
+    RPG: "Thematic ETF",
+    SPHB: "Thematic ETF",
+    GRNJ: "Thematic ETF",
+    GRNI: "Thematic ETF",
+    DBA: "Commodity ETF",
     AMZN: "Consumer Discretionary",
     TSLA: "Consumer Discretionary",
     NKE: "Consumer Discretionary",
@@ -2618,8 +2658,6 @@ function downsampleByInterval(points, intervalMs) {
   });
   return Array.from(buckets.values()).sort((a, b) => a.__ts_ms - b.__ts_ms);
 }
-console.log("🔍 [RANKING SYSTEM] computeDynamicScore function loaded (no 100 cap)");
-console.log("🔍 [RANKING SYSTEM] Function signature:", typeof computeDynamicScore);
 function parseNaturalLanguageQuery(query) {
   if (!query || typeof query !== "string") return null;
   const queryLower = query.toLowerCase().trim();
@@ -2836,7 +2874,7 @@ function applyFilters(dataObj, filters, trades = [], socialAdditions = [], saved
     const isFuture = GROUPS.Futures && GROUPS.Futures.has(normTicker(ticker));
     const inGroups = isTickerInGroups(ticker);
     if (!inGroups) {
-      console.log(`[FILTER] ${ticker} skipped: unexpected - should be in a group`);
+      debugLog(`[FILTER] ${ticker} skipped: unexpected - should be in a group`);
       continue;
     }
     const hasScores = d.htf_score !== undefined || d.ltf_score !== undefined;
@@ -2856,6 +2894,8 @@ function applyFilters(dataObj, filters, trades = [], socialAdditions = [], saved
       } else if (effectiveFilters.group === "TT_SELECTED") {
         const T = normTicker(ticker);
         if (!isTickerTTSelected(T)) continue;
+      } else if (effectiveFilters.group === "INVESTOR_ACTIONABLE") {
+        if (!isInvestorActionableTicker(d)) continue;
       } else {
         const T = normTicker(ticker);
         const gs = groupsForTicker(T);
@@ -2966,7 +3006,7 @@ function applyFilters(dataObj, filters, trades = [], socialAdditions = [], saved
       const normalizedFilterSector = normalizeSectorKey(effectiveFilters.sector);
       const matches = normalizedTickerSector && normalizedTickerSector === normalizedFilterSector;
       if (out.length < 3 && normalizedTickerSector) {
-        console.log(`[SECTOR FILTER] ${ticker}: tickerSector="${normalizedTickerSector}", filterSector="${normalizedFilterSector}", matches=${matches}, fromMap=${!!getTickerSector(ticker)}`);
+        debugLog(`[SECTOR FILTER] ${ticker}: tickerSector="${normalizedTickerSector}", filterSector="${normalizedFilterSector}", matches=${matches}, fromMap=${!!getTickerSector(ticker)}`);
       }
       if (!matches) {
         continue;
@@ -2990,7 +3030,15 @@ function applyFilters(dataObj, filters, trades = [], socialAdditions = [], saved
     allTickersWithRank.sort((a, b) => {
       const scoreA = Number(a.dynamicScore || a.rank) || 0;
       const scoreB = Number(b.dynamicScore || b.rank) || 0;
-      return scoreB - scoreA;
+      const dScore = scoreB - scoreA;
+      if (Math.abs(dScore) > 0.001) return dScore;
+      const convA = Number(a.focus_conviction_score || a.conviction || 0);
+      const convB = Number(b.focus_conviction_score || b.conviction || 0);
+      const dConv = convB - convA;
+      if (Math.abs(dConv) > 0.001) return dConv;
+      const rrA = Number(a.rr || 0);
+      const rrB = Number(b.rr || 0);
+      return rrB - rrA;
     });
     const rankedSymbols = allTickersWithRank.map(t => String(t.ticker || "").trim().toUpperCase()).filter(Boolean);
     const rankIndex = {};
@@ -3049,7 +3097,7 @@ const SVGBubble = memo(({
   }
   window._svgBubbleCallCount++;
   if (window._svgBubbleCallCount <= 10) {
-    console.log(`[SVGBUBBLE CALLED] #${window._svgBubbleCallCount} - ${ticker?.ticker || "NO TICKER"}`, {
+    debugLog(`[SVGBUBBLE CALLED] #${window._svgBubbleCallCount} - ${ticker?.ticker || "NO TICKER"}`, {
       ticker: ticker?.ticker,
       hasTicker: !!ticker,
       tickerKeys: ticker ? Object.keys(ticker).slice(0, 20) : [],
@@ -3068,7 +3116,7 @@ const SVGBubble = memo(({
     minRadius: 6,
     maxRadius: 28
   });
-  const ks = String(ticker?.kanban_stage || "").toLowerCase();
+  const ks = String(ticker?._effectiveKanbanStage || ticker?.kanban_stage || "").toLowerCase();
   const isActionable = ["in_review", "enter", "enter_now", "just_entered", "just_flipped", "flip_watch", "trim", "defend", "exit"].includes(ks);
   const finalSize = isActionable ? baseBubbleR + 2 : baseBubbleR;
   const move = getMoveStatusInfo(ticker);
@@ -3429,7 +3477,7 @@ function useAllTrails(tickers, enabled = true) {
             trailsFetchedRef.current.add(ticker);
             updated[ticker] = Array.isArray(trail) ? trail : [];
             if (Object.keys(updated).length <= 10 || ticker === "AAPL" || ticker === "MSFT") {
-              console.log(`[TRAILS] Loaded ${Array.isArray(trail) ? trail.length : 0} points for ${ticker}`);
+              debugLog(`[TRAILS] Loaded ${Array.isArray(trail) ? trail.length : 0} points for ${ticker}`);
             }
           });
           return updated;
@@ -3479,7 +3527,7 @@ function BubbleChart({
   React.useEffect(() => {
     if (!window._bubbleChartPropsLogged) {
       window._bubbleChartPropsLogged = true;
-      console.log(`[BUBBLE CHART PROPS] Received:`, {
+      debugLog(`[BUBBLE CHART PROPS] Received:`, {
         tickersCount: tickers ? tickers.length : 0,
         hasTickers: !!tickers,
         isArray: Array.isArray(tickers),
@@ -4462,7 +4510,7 @@ function BubbleChart({
       const tTicker = String(t.ticker || "").toUpperCase();
       return tTicker === String(selectedTicker).toUpperCase();
     }) : tickers;
-    console.log(`[RECHARTS DATA] selectedTicker=${selectedTicker}, insightMode=${insightMode}, using ${tickersToUse.length} of ${tickers.length} tickers`);
+    debugLog(`[RECHARTS DATA] selectedTicker=${selectedTicker}, insightMode=${insightMode}, using ${tickersToUse.length} of ${tickers.length} tickers`);
     return tickersToUse.map(t => ({
       x: Number(t.ltf_score) || 0,
       y: Number(t.htf_score) || 0,
@@ -4528,7 +4576,7 @@ function BubbleChart({
     const labelY = cy - bubbleSize - (emojiText ? isTopRanked ? 20 : 12 : 8);
     const rcGradId = `rc-bg-${ticker.ticker}`;
     const rcRenderedSize = Math.max(3, bubbleSize);
-    const ks = String(ticker.kanban_stage || "").toLowerCase();
+    const ks = String(ticker?._effectiveKanbanStage || ticker.kanban_stage || "").toLowerCase();
     const isActionable = ["in_review", "enter", "enter_now", "just_entered", "just_flipped", "flip_watch"].includes(ks);
     return React.createElement("g", {
       className: "bubble-g",
@@ -5408,8 +5456,61 @@ function SetupCard({
     title: decision.blockers?.length > 0 ? `Blocked: ${decision.blockers.join(", ")}` : decision.warnings?.length > 0 ? `Warnings: ${decision.warnings.join(", ")}` : ""
   }, decision.status)));
 }
+function getProtectionStageInfo(ticker, trade) {
+  const stage = String(trade?.protectionStage || trade?.protection_stage || ticker?.kanban_meta?.protection_stage || ticker?.__protection_stage || "").trim().toLowerCase();
+  const labelMap = {
+    original_invalidation: "Original Invalidation",
+    breakeven_eligible: "Breakeven Eligible",
+    breakeven_locked: "Breakeven Locked",
+    profit_lock: "Profit Lock",
+    runner_protect: "Runner Protect"
+  };
+  const reasons = Array.isArray(ticker?.kanban_meta?.protection_reasons) ? ticker.kanban_meta.protection_reasons : [];
+  return {
+    stage,
+    label: labelMap[stage] || "",
+    reasons
+  };
+}
+function getTradeLifecycleState(ticker, trade) {
+  const resolvedTrade = trade || ticker?._openTrade || null;
+  const rawStage = String(ticker?.kanban_stage || "").trim().toLowerCase();
+  const protection = getProtectionStageInfo(ticker, resolvedTrade);
+  if (!resolvedTrade) {
+    return {
+      trade: null,
+      rawStage,
+      effectiveStage: rawStage,
+      tradeStatus: "",
+      trimmedPct: 0,
+      tradeIsOpen: false,
+      tradeIsClosed: false,
+      protection
+    };
+  }
+  const tradeStatus = String(resolvedTrade.status || "").toUpperCase();
+  const trimmedPct = Number(resolvedTrade?.trimmed_pct ?? resolvedTrade?.trimmedPct ?? 0);
+  const tradeIsClosed = tradeStatus === "WIN" || tradeStatus === "LOSS" || !!(resolvedTrade?.exit_ts ?? resolvedTrade?.exitTs) || trimmedPct >= 0.9999;
+  const tradeIsOpen = !tradeIsClosed && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !tradeStatus);
+  let effectiveStage = rawStage;
+  if (tradeIsOpen) {
+    if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) effectiveStage = "trim";else if (!["defend", "trim", "exit", "hold", "active", "just_entered"].includes(rawStage)) effectiveStage = "hold";
+  }
+  return {
+    trade: resolvedTrade,
+    rawStage,
+    effectiveStage,
+    tradeStatus,
+    trimmedPct,
+    tradeIsOpen,
+    tradeIsClosed,
+    protection
+  };
+}
 function getActionDescription(ticker, trade) {
-  const stage = String(ticker?.kanban_stage || "").trim().toLowerCase();
+  const lifecycle = getTradeLifecycleState(ticker, trade);
+  const activeTrade = lifecycle.trade;
+  const stage = lifecycle.effectiveStage;
   const state = String(ticker.state || "");
   const phase = Number(ticker.phase_pct) || 0;
   const comp = completionForSize(ticker);
@@ -5425,17 +5526,17 @@ function getActionDescription(ticker, trade) {
   const inCorridor = ent.corridor;
   const sqRelease = !!flags.sq30_release;
   const sqOn = !!flags.sq30_on;
-  const tradeStatus = trade ? String(trade.status || "").toUpperCase() : "";
-  const tradeIsClosed = tradeStatus === "WIN" || tradeStatus === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs);
-  const tradeIsOpen = trade && !tradeIsClosed && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !tradeStatus);
+  const tradeStatus = lifecycle.tradeStatus;
+  const tradeIsClosed = lifecycle.tradeIsClosed;
+  const tradeIsOpen = lifecycle.tradeIsOpen;
   if (tradeIsOpen) {
-    const ep = Number(trade?.entryPrice ?? trade?.entry_price) || 0;
+    const ep = Number(activeTrade?.entryPrice ?? activeTrade?.entry_price) || 0;
     const cp = Number(ticker?.price ?? ticker?.close) || 0;
-    const tradeDir = String(trade?.direction || "").toUpperCase();
+    const tradeDir = String(activeTrade?.direction || "").toUpperCase();
     const isLong = tradeDir === "LONG";
-    const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
-    const sl = Number(ticker?.sl ?? ticker?.sl_price ?? trade?.sl ?? 0);
-    const tp = numFromAny(ticker?.tp ?? ticker?.tp_trim ?? trade?.tp);
+    const trimmedPct = lifecycle.trimmedPct;
+    const sl = Number(ticker?.sl ?? ticker?.sl_price ?? activeTrade?.sl ?? 0);
+    const tp = numFromAny(ticker?.tp ?? ticker?.tp_trim ?? activeTrade?.tp);
     const dirSign = isLong ? 1 : -1;
     const unrealizedPct = ep > 0 && cp > 0 ? (cp - ep) / ep * 100 * dirSign : 0;
     const isProfit = unrealizedPct > 0;
@@ -5445,11 +5546,29 @@ function getActionDescription(ticker, trade) {
     const nearTp = tp > 0 && cp > 0 && !tpReached && Math.abs(cp - tp) / cp < 0.015;
     const meta = ticker?.kanban_meta || {};
     const metaReason = meta?.reason || "";
+    const protectionStage = lifecycle.protection?.stage || "";
+    const protectionLabel = lifecycle.protection?.label || "";
+    const protectionSummary = protectionLabel ? `Protection stage: ${protectionLabel}. ` : "";
+    const trimmedProtectionText = (() => {
+      if (protectionStage === "runner_protect") {
+        return "The runner has graduated into full runner protection, so the system can trail structure and peak reactions more aggressively.";
+      }
+      if (protectionStage === "profit_lock") {
+        return "The trade has reached profit lock, so the system can tighten stops to preserve gains without treating every pullback like failure.";
+      }
+      if (protectionStage === "breakeven_locked") {
+        return "The trade has earned breakeven protection, so the system can defend entry while still giving the move room to mature.";
+      }
+      if (protectionStage === "breakeven_eligible") {
+        return "The trade is eligible for breakeven protection, but the system is still waiting for stronger confirmation before ratcheting the stop.";
+      }
+      return "The original invalidation stays in force until the system confirms a stronger protection stage.";
+    })();
     const priceSummary = `${isLong ? "Long" : "Short"} from $${ep.toFixed(2)}, current $${cp.toFixed(2)} (${unrealizedPct >= 0 ? "+" : ""}${unrealizedPct.toFixed(1)}%).`;
     if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) {
       return {
-        action: "✂️ Position Trimmed — Manage Runner",
-        description: `${(trimmedPct * 100).toFixed(0)}% of position trimmed. ${priceSummary} Trail your TSL to protect remaining gains. ${!isAligned ? "Timeframes no longer aligned — consider closing the runner." : "Trend alignment still intact — let it ride with a trailing stop."}`,
+        action: "✂️ Position Trimmed — Let Runner Work",
+        description: `${(trimmedPct * 100).toFixed(0)}% of position trimmed. ${priceSummary} ${protectionSummary}${trimmedProtectionText} ${!isAligned ? "Timeframes are weakening, so watch for a defend or exit signal instead of tightening on noise." : "Trend alignment is still intact, so let the runner work until a true defend signal appears."}`,
         color: "text-yellow-300",
         bg: "bg-yellow-500/15"
       };
@@ -5467,7 +5586,7 @@ function getActionDescription(ticker, trade) {
       const defendReason = metaReason || "Warning indicators detected";
       return {
         action: "🛡 DEFEND — Tighten Stop",
-        description: `System says DEFEND. Reason: ${defendReason}. ${priceSummary} The system is tightening TSL to ${isProfit ? "protect gains" : "limit further downside"}. Do NOT trim yet — just defending. Monitor for recovery (back to HOLD) or further deterioration (to EXIT).`,
+        description: `System says DEFEND. Reason: ${defendReason}. ${priceSummary} ${protectionSummary}The system is tightening TSL to ${isProfit ? "protect gains" : "limit further downside"}. Do NOT trim yet — just defending. Monitor for recovery (back to HOLD) or further deterioration (to EXIT).`,
         color: "text-amber-400",
         bg: "bg-amber-500/15"
       };
@@ -5493,7 +5612,7 @@ function getActionDescription(ticker, trade) {
       const holdExtra = isPullback ? `HTF still supports the ${isLong ? "bullish" : "bearish"} case but LTF pulling back — hold above TSL.` : isAligned ? "All timeframes aligned — conditions favor holding." : "Monitor alignment.";
       return {
         action: isProfit ? "🔒 HOLD — Trend Intact" : "🔄 HOLD — Position Building",
-        description: `System says HOLD. Position is healthy and working as expected. ${priceSummary} ${holdExtra} TSL at $${sl > 0 ? sl.toFixed(2) : "N/A"}, TP at $${tp > 0 ? tp.toFixed(2) : "N/A"}. ${comp > 0.5 ? `Completion at ${(comp * 100).toFixed(0)}% — watch for trim indicators.` : "Let the trade develop."}`,
+        description: `System says HOLD. Position is healthy and working as expected. ${priceSummary} ${protectionSummary}${holdExtra} TSL at $${sl > 0 ? sl.toFixed(2) : "N/A"}, TP at $${tp > 0 ? tp.toFixed(2) : "N/A"}. ${comp > 0.5 ? `Completion at ${(comp * 100).toFixed(0)}% — watch for trim indicators.` : "Let the trade develop."}`,
         color: isProfit ? "text-teal-300" : "text-sky-300",
         bg: isProfit ? "bg-teal-500/15" : "bg-sky-500/15"
       };
@@ -6845,7 +6964,7 @@ function TimeTravelSlider({
         const MAX_CONCURRENT = 10;
         for (let i = 0; i < tickerSymbolsArray.length; i += MAX_CONCURRENT) {
           if (cancelledRef.current) {
-            console.log('[Time Travel] Load cancelled by user');
+            debugLog('[Time Travel] Load cancelled by user');
             break;
           }
           const batch = tickerSymbolsArray.slice(i, i + MAX_CONCURRENT);
@@ -6895,7 +7014,7 @@ function TimeTravelSlider({
           const sampleTrail = trails[sampleKey] || [];
           const minTs = sampleTrail.length > 0 ? Math.min(...sampleTrail.map(p => p.ts)) : null;
           const maxTs = sampleTrail.length > 0 ? Math.max(...sampleTrail.map(p => p.ts)) : null;
-          console.log('[Time Travel] Trails loaded:', {
+          debugLog('[Time Travel] Trails loaded:', {
             tickers: Object.keys(trails).length,
             totalPoints,
             sample: sampleKey ? `${sampleKey}: ${sampleTrail.length} points` : 'none',
@@ -6925,7 +7044,7 @@ function TimeTravelSlider({
   useEffect(() => {
     const trailCount = Object.keys(trailData).length;
     if (trailCount > 0 && trailCount !== prevTrailCountRef.current && !loadingTrails) {
-      console.log('[Time Travel] Trails loaded, resetting to latest timestamp:', {
+      debugLog('[Time Travel] Trails loaded, resetting to latest timestamp:', {
         trailCount,
         maxTimestamp: new Date(maxTimestamp).toLocaleString()
       });
@@ -6939,7 +7058,7 @@ function TimeTravelSlider({
     const roundedTimestamp = roundToStep(selectedTimestamp);
     const snapshot = buildSnapshotTickers(tickersRef.current, trailData, roundedTimestamp);
     const withData = snapshot.filter(t => !t._timeTravelMissing);
-    console.log('[Time Travel] Snapshot update:', {
+    debugLog('[Time Travel] Snapshot update:', {
       timestamp: new Date(roundedTimestamp).toLocaleString(),
       totalTickers: snapshot.length,
       withTrailData: withData.length,
@@ -8724,13 +8843,14 @@ const CompactCard = React.memo(function CompactCard({
   })();
   const biasLabelDisplay = biasLabel === "LONG" ? "Bull" : biasLabel === "SHORT" ? "Bear" : biasLabel;
   const biasPillCls = (() => {
-    if (biasLabel === "LONG") return "bg-cyan-400/20 text-cyan-200 border-cyan-400/50";
-    if (biasLabel === "SHORT") return "bg-rose-500/20 text-rose-200 border-rose-400/50";
-    if (biasLabel === "PULLBACK" || biasLabel === "BOUNCE") return "bg-amber-500/20 text-amber-200 border-amber-400/50";
-    if (biasLabel === "CAUTION") return "bg-orange-500/20 text-orange-200 border-orange-400/50";
-    return "bg-slate-500/20 text-slate-200 border-slate-400/50";
+    if (biasLabel === "LONG") return "bg-cyan-500/10 text-cyan-300 border-cyan-500/25";
+    if (biasLabel === "SHORT") return "bg-rose-500/10 text-rose-300 border-rose-500/25";
+    if (biasLabel === "PULLBACK" || biasLabel === "BOUNCE") return "bg-amber-500/10 text-amber-300 border-amber-500/25";
+    if (biasLabel === "CAUTION") return "bg-orange-500/10 text-orange-300 border-orange-500/25";
+    return "bg-white/[0.04] text-slate-300 border-white/[0.08]";
   })();
-  const stage = String(t?.kanban_stage || "");
+  const effectiveStage = getTradeLifecycleState(t, openTrade).effectiveStage;
+  const stage = String(effectiveStage || t?.kanban_stage || "");
   const flags = t?.flags || {};
   const score = Number(rankScoreForTicker(t)) || Number(t?.score ?? t?.flip_watch_score ?? t?.weighted_score);
   const price = Number(t?.price ?? t?.close);
@@ -8877,10 +8997,11 @@ const CompactCard = React.memo(function CompactCard({
             cls: tradeStatus === "WIN" ? "text-[#00e676]" : "text-rose-400"
           };
         }
-      } else if (hasOpenTrade && trimPct > 0) {
+      } else if (hasOpenTrade && (trimPct > 0 || tradeStatus === "TP_HIT_TRIM")) {
         const pxStr = trimPx > 0 ? ` @ $${trimPx.toFixed(2)}` : "";
+        const trimLabel = trimPct > 0 ? `Trimmed ${(trimPct * 100).toFixed(0)}%` : "Trimmed position";
         return {
-          text: `Trimmed ${(trimPct * 100).toFixed(0)}%${pxStr}`,
+          text: `${trimLabel}${pxStr}`,
           cls: "text-yellow-400"
         };
       }
@@ -9382,6 +9503,449 @@ function renderCompactCardFn(t, {
     tradeByTicker: tradeByTicker,
     addingTicker: addingTicker
   });
+}
+function StatusStrip({
+  tickers = [],
+  data = {},
+  trades = [],
+  allTickersWithRanks = [],
+  onSelectTicker,
+  dashboardMode = "analysis"
+}) {
+  const mktOpen = (typeof window !== "undefined" && window.TimedPriceUtils?.isNyRegularMarketOpen?.()) ?? false;
+  const breadth = React.useMemo(() => {
+    if (!Array.isArray(tickers) || tickers.length === 0) return null;
+    let green = 0,
+      red = 0,
+      counted = 0;
+    const get = typeof window !== "undefined" ? window.getDailyChange || null : null;
+    for (const t of tickers) {
+      if (!t || !t.ticker) continue;
+      if (t.ticker === "BTCUSD" || t.ticker === "ETHUSD") continue;
+      let pct = null;
+      if (get) {
+        try {
+          pct = get(t)?.dayPct;
+        } catch {
+          pct = null;
+        }
+      }
+      if (!Number.isFinite(pct)) pct = Number(t?.day_change_pct ?? t?.dailyChgPct);
+      if (!Number.isFinite(pct)) continue;
+      counted++;
+      if (pct > 0) green++;else if (pct < 0) red++;
+    }
+    if (counted === 0) return null;
+    return {
+      green,
+      red,
+      total: counted,
+      pct: counted > 0 ? green / counted * 100 : 50
+    };
+  }, [tickers]);
+  const regime = React.useMemo(() => {
+    if (!breadth) return {
+      label: "LOADING",
+      tone: "neutral"
+    };
+    const p = breadth.pct;
+    const spy = data && typeof data === "object" ? data["SPY"] : null;
+    const spyPct = (() => {
+      if (!spy) return null;
+      const get = typeof window !== "undefined" ? window.getDailyChange : null;
+      let v = null;
+      if (get) {
+        try {
+          v = get(spy)?.dayPct;
+        } catch {
+          v = null;
+        }
+      }
+      if (!Number.isFinite(v)) v = Number(spy?.day_change_pct ?? spy?.dailyChgPct);
+      return Number.isFinite(v) ? v : null;
+    })();
+    if (p >= 62 && (spyPct == null || spyPct > -0.2)) return {
+      label: "RISK-ON",
+      tone: "success",
+      spyPct
+    };
+    if (p <= 38 && (spyPct == null || spyPct < 0.2)) return {
+      label: "RISK-OFF",
+      tone: "danger",
+      spyPct
+    };
+    if (p >= 55) return {
+      label: "TILTED UP",
+      tone: "success-soft",
+      spyPct
+    };
+    if (p <= 45) return {
+      label: "TILTED DOWN",
+      tone: "danger-soft",
+      spyPct
+    };
+    return {
+      label: "MIXED",
+      tone: "neutral",
+      spyPct
+    };
+  }, [breadth, data]);
+  const vix = React.useMemo(() => {
+    const vixTkr = data && typeof data === "object" ? data["VIX"] || data["$VIX"] || data["^VIX"] : null;
+    const vixy = data && typeof data === "object" ? data["VIXY"] : null;
+    let level = null;
+    if (vixTkr) {
+      level = Number(vixTkr?._live_price ?? vixTkr?.price ?? vixTkr?.close);
+    }
+    if (!Number.isFinite(level) || level <= 0) {
+      if (vixy) {
+        const pct = Number(vixy?.day_change_pct);
+        if (Number.isFinite(pct)) {
+          return {
+            level: null,
+            vixyPct: pct,
+            bucket: pct > 5 ? "spike" : pct > 2 ? "rising" : pct < -2 ? "easing" : "stable"
+          };
+        }
+      }
+      return null;
+    }
+    const bucket = level < 15 ? "calm" : level < 20 ? "normal" : level < 25 ? "elevated" : level < 35 ? "high" : "panic";
+    return {
+      level,
+      bucket
+    };
+  }, [data]);
+  const exposure = React.useMemo(() => {
+    if (!Array.isArray(trades)) return null;
+    let openCount = 0,
+      openUnrealized = 0,
+      todayClosedRealized = 0,
+      todayWins = 0,
+      todayLosses = 0;
+    const todayNy = (() => {
+      try {
+        return new Date().toLocaleDateString("en-CA", {
+          timeZone: "America/New_York"
+        });
+      } catch {
+        return null;
+      }
+    })();
+    for (const tr of trades) {
+      if (!tr) continue;
+      const isOpen = !tr.exit_ts && !tr.exit_timestamp && (tr.status === "OPEN" || !tr.status);
+      if (isOpen) {
+        openCount++;
+        const pnl = Number(tr.lifecycle_realized_pnl ?? tr.pnl ?? 0);
+        if (Number.isFinite(pnl)) openUnrealized += pnl;
+      } else if (todayNy) {
+        const ets = tr.exit_ts || tr.exit_timestamp;
+        if (!ets) continue;
+        try {
+          const d = new Date(ets > 1e12 ? ets : ets * 1000).toLocaleDateString("en-CA", {
+            timeZone: "America/New_York"
+          });
+          if (d === todayNy) {
+            const pnl = Number(tr.pnl ?? tr.lifecycle_realized_pnl ?? 0);
+            if (Number.isFinite(pnl)) {
+              todayClosedRealized += pnl;
+              if (pnl > 0) todayWins++;else if (pnl < 0) todayLosses++;
+            }
+          }
+        } catch {}
+      }
+    }
+    return {
+      openCount,
+      openUnrealized,
+      todayClosedRealized,
+      todayWins,
+      todayLosses,
+      dayNet: openUnrealized + todayClosedRealized
+    };
+  }, [trades]);
+  const topOpp = React.useMemo(() => {
+    if (!Array.isArray(allTickersWithRanks) || allTickersWithRanks.length === 0) return null;
+    const openSet = new Set((Array.isArray(trades) ? trades : []).filter(tr => !tr?.exit_ts && !tr?.exit_timestamp).map(tr => String(tr?.ticker || "").toUpperCase()));
+    for (const t of allTickersWithRanks) {
+      const sym = String(t?.ticker || "").toUpperCase();
+      if (!sym) continue;
+      if (openSet.has(sym)) continue;
+      const rank = Number(t?.rank);
+      if (!Number.isFinite(rank) || rank <= 0) continue;
+      return {
+        ticker: sym,
+        rank,
+        dir: t?.direction || t?.consensus_direction || "—",
+        setup: t?.setup_name || t?.entry_path || "—"
+      };
+    }
+    return null;
+  }, [allTickersWithRanks, trades]);
+  const toneCls = tone => {
+    switch (tone) {
+      case "success":
+        return {
+          bg: "var(--tt-success-dim)",
+          bd: "rgba(52,211,153,0.28)",
+          fg: "var(--tt-success)"
+        };
+      case "success-soft":
+        return {
+          bg: "rgba(52,211,153,0.07)",
+          bd: "rgba(52,211,153,0.18)",
+          fg: "var(--tt-success)"
+        };
+      case "danger":
+        return {
+          bg: "var(--tt-danger-dim)",
+          bd: "rgba(239,68,68,0.30)",
+          fg: "var(--tt-danger)"
+        };
+      case "danger-soft":
+        return {
+          bg: "rgba(239,68,68,0.07)",
+          bd: "rgba(239,68,68,0.18)",
+          fg: "var(--tt-danger)"
+        };
+      case "warning":
+        return {
+          bg: "var(--tt-warning-dim)",
+          bd: "rgba(245,158,11,0.28)",
+          fg: "var(--tt-warning)"
+        };
+      default:
+        return {
+          bg: "var(--tt-bg-2)",
+          bd: "var(--tt-border-weak)",
+          fg: "var(--tt-text-2)"
+        };
+    }
+  };
+  const Cell = ({
+    label,
+    children,
+    title
+  }) => React.createElement("div", {
+    className: "flex flex-col justify-center min-w-0",
+    style: {
+      padding: "6px 14px",
+      borderRight: "1px solid var(--tt-border-weak)"
+    },
+    title: title
+  }, React.createElement("div", {
+    className: "tt-label",
+    style: {
+      fontSize: 9,
+      marginBottom: 2
+    }
+  }, label), React.createElement("div", {
+    style: {
+      fontSize: 12,
+      lineHeight: 1.2
+    },
+    className: "truncate"
+  }, children));
+  const regimeTone = toneCls(regime.tone);
+  const vixTone = vix ? toneCls(vix.bucket === "calm" ? "success" : vix.bucket === "normal" ? "neutral" : vix.bucket === "elevated" ? "warning" : vix.bucket === "high" || vix.bucket === "rising" ? "warning" : vix.bucket === "panic" || vix.bucket === "spike" ? "danger" : "neutral") : toneCls("neutral");
+  const breadthTone = breadth ? toneCls(breadth.pct >= 60 ? "success" : breadth.pct >= 50 ? "success-soft" : breadth.pct >= 40 ? "neutral" : breadth.pct >= 30 ? "danger-soft" : "danger") : toneCls("neutral");
+  const expTone = exposure ? toneCls(exposure.dayNet > 0 ? "success" : exposure.dayNet < 0 ? "danger" : "neutral") : toneCls("neutral");
+  return React.createElement("div", {
+    className: "mb-3 flex flex-wrap items-stretch overflow-hidden",
+    style: {
+      background: "var(--tt-bg-1)",
+      border: "1px solid var(--tt-border-weak)",
+      borderRadius: "var(--tt-radius)",
+      boxShadow: "var(--tt-shadow-sm)"
+    },
+    "data-coachmark": "status-strip",
+    "aria-label": "Market status strip"
+  }, React.createElement(Cell, {
+    label: "Regime",
+    title: `Breadth ${breadth ? breadth.green + '/' + breadth.total + ' green' : '—'}`
+  }, React.createElement("span", {
+    className: "font-bold",
+    style: {
+      color: regimeTone.fg,
+      letterSpacing: "0.02em"
+    }
+  }, regime.label), regime.spyPct != null && React.createElement("span", {
+    className: "tt-num ml-1.5",
+    style: {
+      fontSize: 10.5,
+      color: regime.spyPct > 0 ? "var(--tt-success)" : regime.spyPct < 0 ? "var(--tt-danger)" : "var(--tt-text-3)"
+    }
+  }, "SPY ", regime.spyPct > 0 ? "+" : "", regime.spyPct.toFixed(2), "%")), React.createElement(Cell, {
+    label: "Vol",
+    title: vix?.level ? `VIX ${vix.level.toFixed(2)} · ${vix.bucket}` : vix ? `VIXY ${vix.vixyPct > 0 ? '+' : ''}${vix.vixyPct.toFixed(2)}% · ${vix.bucket}` : "No VIX data"
+  }, vix?.level != null ? React.createElement("span", null, React.createElement("span", {
+    className: "tt-num font-bold",
+    style: {
+      color: vixTone.fg
+    }
+  }, vix.level.toFixed(1)), React.createElement("span", {
+    className: "ml-1.5 uppercase",
+    style: {
+      fontSize: 9.5,
+      letterSpacing: "0.08em",
+      color: "var(--tt-text-3)"
+    }
+  }, vix.bucket)) : vix ? React.createElement("span", null, React.createElement("span", {
+    className: "tt-num font-bold",
+    style: {
+      color: vixTone.fg
+    }
+  }, vix.vixyPct > 0 ? "+" : "", vix.vixyPct.toFixed(1), "%"), React.createElement("span", {
+    className: "ml-1.5 uppercase",
+    style: {
+      fontSize: 9.5,
+      letterSpacing: "0.08em",
+      color: "var(--tt-text-3)"
+    }
+  }, vix.bucket)) : React.createElement("span", {
+    className: "text-[#4b5563]"
+  }, "\u2014")), React.createElement(Cell, {
+    label: "Breadth",
+    title: breadth ? `${breadth.green} green / ${breadth.red} red / ${breadth.total} total` : ""
+  }, breadth ? React.createElement("span", null, React.createElement("span", {
+    className: "tt-num font-bold",
+    style: {
+      color: breadthTone.fg
+    }
+  }, breadth.pct.toFixed(0), "%"), React.createElement("span", {
+    className: "tt-num ml-1.5",
+    style: {
+      fontSize: 10.5,
+      color: "var(--tt-text-3)"
+    }
+  }, React.createElement("span", {
+    style: {
+      color: "var(--tt-success)"
+    }
+  }, breadth.green), React.createElement("span", {
+    style: {
+      color: "var(--tt-text-4)"
+    }
+  }, "/"), React.createElement("span", {
+    style: {
+      color: "var(--tt-danger)"
+    }
+  }, breadth.red))) : React.createElement("span", {
+    className: "text-[#4b5563]"
+  }, "\u2014")), (dashboardMode === "trader" || dashboardMode === "investor") && exposure && exposure.openCount > 0 && React.createElement(Cell, {
+    label: "Open",
+    title: `${exposure.openCount} open · unrealized ${exposure.openUnrealized >= 0 ? '+$' : '-$'}${Math.abs(exposure.openUnrealized).toFixed(0)}`
+  }, React.createElement("span", null, React.createElement("span", {
+    className: "tt-num font-bold text-white"
+  }, exposure.openCount), exposure.openUnrealized !== 0 && React.createElement("span", {
+    className: "tt-num ml-1.5",
+    style: {
+      fontSize: 10.5,
+      color: exposure.openUnrealized > 0 ? "var(--tt-success)" : "var(--tt-danger)"
+    }
+  }, exposure.openUnrealized > 0 ? "+" : "", "$", exposure.openUnrealized.toFixed(0)))), (dashboardMode === "trader" || dashboardMode === "investor") && exposure && (exposure.todayWins + exposure.todayLosses > 0 || exposure.todayClosedRealized !== 0) && React.createElement(Cell, {
+    label: "Today",
+    title: `${exposure.todayWins}W / ${exposure.todayLosses}L closed today`
+  }, React.createElement("span", null, React.createElement("span", {
+    className: "tt-num font-bold",
+    style: {
+      color: expTone.fg
+    }
+  }, exposure.todayClosedRealized >= 0 ? "+" : "-", "$", Math.abs(exposure.todayClosedRealized).toFixed(0)), React.createElement("span", {
+    className: "tt-num ml-1.5",
+    style: {
+      fontSize: 10.5,
+      color: "var(--tt-text-3)"
+    }
+  }, React.createElement("span", {
+    style: {
+      color: "var(--tt-success)"
+    }
+  }, exposure.todayWins), React.createElement("span", {
+    style: {
+      color: "var(--tt-text-4)"
+    }
+  }, "W/"), React.createElement("span", {
+    style: {
+      color: "var(--tt-danger)"
+    }
+  }, exposure.todayLosses), React.createElement("span", {
+    style: {
+      color: "var(--tt-text-4)"
+    }
+  }, "L")))), topOpp && React.createElement("button", {
+    onClick: () => onSelectTicker && onSelectTicker(topOpp.ticker),
+    className: "flex flex-col justify-center min-w-0 hover:bg-white/[0.04] transition-colors group text-left",
+    style: {
+      padding: "6px 14px",
+      borderRight: "1px solid var(--tt-border-weak)"
+    },
+    title: `Best current opportunity — click to open ${topOpp.ticker}`
+  }, React.createElement("div", {
+    className: "tt-label",
+    style: {
+      fontSize: 9,
+      marginBottom: 2
+    }
+  }, "Top Signal"), React.createElement("div", {
+    style: {
+      fontSize: 12,
+      lineHeight: 1.2
+    },
+    className: "truncate"
+  }, React.createElement("span", {
+    className: "tt-num font-bold text-white group-hover:text-cyan-300 transition-colors"
+  }, topOpp.ticker), React.createElement("span", {
+    className: "tt-num ml-1.5",
+    style: {
+      fontSize: 10.5,
+      color: "var(--tt-text-3)"
+    }
+  }, "rank ", React.createElement("span", {
+    className: "font-semibold",
+    style: {
+      color: "var(--tt-info)"
+    }
+  }, topOpp.rank)), topOpp.dir && topOpp.dir !== "—" && React.createElement("span", {
+    className: "ml-1.5",
+    style: {
+      fontSize: 9.5,
+      textTransform: "uppercase",
+      letterSpacing: "0.08em",
+      color: String(topOpp.dir).toUpperCase().includes("SHORT") ? "var(--tt-danger)" : "var(--tt-success)"
+    }
+  }, String(topOpp.dir).toUpperCase().includes("SHORT") ? "short" : "long"))), React.createElement("div", {
+    className: "flex items-center ml-auto",
+    style: {
+      padding: "6px 14px"
+    }
+  }, mktOpen ? React.createElement(React.Fragment, null, React.createElement("span", {
+    className: "tt-heartbeat tt-heartbeat-green",
+    style: {
+      marginRight: 8
+    }
+  }), React.createElement("span", {
+    className: "tt-label",
+    style: {
+      color: "var(--tt-success)",
+      fontSize: 9.5
+    }
+  }, "Market Open")) : React.createElement(React.Fragment, null, React.createElement("span", {
+    style: {
+      width: 6,
+      height: 6,
+      borderRadius: "50%",
+      background: "var(--tt-text-4)",
+      display: "inline-block",
+      marginRight: 8
+    }
+  }), React.createElement("span", {
+    className: "tt-label",
+    style: {
+      fontSize: 9.5
+    }
+  }, "Market Closed"))));
 }
 function ActionCenterPanel({
   tickers = [],
@@ -11142,11 +11706,12 @@ function OpportunitiesPanel({
   }) => {
     const t = item.t;
     const c = item.c;
+    const trade = tradeByTicker.get(String(t?.ticker || "").toUpperCase()) || null;
     const winnerSig = isWinnerSignature(t);
     const flags = t?.flags || {};
     const isInSqueeze = !!flags.sq30_on && !flags.sq30_release;
     const badgeEmojis = [isPrimeBubble(t) ? "💎" : null, flags.flip_watch ? "🎯" : null, flags.momentum_elite ? "🔥" : null, flags.sq30_release ? "⚡" : null, isInSqueeze ? "🧨" : null, item?.isNew ? "🆕" : null, item?.dropped ? "⚠️" : null].filter(Boolean);
-    const actionInfo = getActionDescription(t);
+    const actionInfo = getActionDescription(t, trade);
     const price = Number(t?.price);
     const rr = Number(t?.rr);
     const eta = computeEtaDays(t);
@@ -11192,7 +11757,7 @@ function OpportunitiesPanel({
       return r ? `Move: ${moveStatus} — ${r}` : `Move: ${moveStatus}`;
     })();
     const dirOutlineCls = c.dir === "LONG" ? "border border-cyan-400/40" : c.dir === "SHORT" ? "border border-rose-500/40" : "border border-white/[0.06]";
-    const stage = String(t?.kanban_stage || "").toLowerCase();
+    const stage = getTradeLifecycleState(t, trade).effectiveStage;
     const isActionLane = ["trim", "exit"].includes(stage);
     const pulseCls = isActionLane ? c.dir === "LONG" ? "card-pulse" : c.dir === "SHORT" ? "card-pulse-short" : "" : "";
     return React.createElement("button", {
@@ -12747,14 +13312,85 @@ const TickerDetailsLoader = ({
   if (loading) {
     const isAdding = addingTicker && String(addingTicker).toUpperCase() === String(tickerSymbol).toUpperCase();
     return React.createElement("div", {
-      className: "w-[450px] bg-white/[0.03] border border-white/[0.06] rounded-xl p-6"
+      className: "w-[450px] p-5",
+      style: {
+        background: "var(--tt-bg-1)",
+        border: "1px solid var(--tt-border-weak)",
+        borderRadius: "var(--tt-radius-lg)"
+      }
     }, React.createElement("div", {
-      className: "text-center"
+      className: "flex items-center gap-3 mb-4"
     }, React.createElement("div", {
-      className: "loading-spinner mx-auto mb-4"
+      className: "tt-skeleton",
+      style: {
+        width: 56,
+        height: 22
+      }
     }), React.createElement("div", {
-      className: "text-[#6b7280]"
-    }, isAdding ? "Adding ticker… Scoring " : "Loading ", tickerSymbol, "...")));
+      className: "tt-skeleton",
+      style: {
+        width: 84,
+        height: 16
+      }
+    }), React.createElement("div", {
+      className: "flex-1"
+    }), React.createElement("div", {
+      className: "tt-skeleton",
+      style: {
+        width: 44,
+        height: 16
+      }
+    })), React.createElement("div", {
+      className: "tt-skeleton mb-3",
+      style: {
+        width: "55%",
+        height: 32
+      }
+    }), React.createElement("div", {
+      className: "grid grid-cols-3 gap-2 mb-4"
+    }, React.createElement("div", {
+      className: "tt-skeleton",
+      style: {
+        height: 52
+      }
+    }), React.createElement("div", {
+      className: "tt-skeleton",
+      style: {
+        height: 52
+      }
+    }), React.createElement("div", {
+      className: "tt-skeleton",
+      style: {
+        height: 52
+      }
+    })), React.createElement("div", {
+      className: "tt-skeleton mb-2",
+      style: {
+        height: 160
+      }
+    }), React.createElement("div", {
+      className: "space-y-2"
+    }, React.createElement("div", {
+      className: "tt-skeleton",
+      style: {
+        height: 14,
+        width: "90%"
+      }
+    }), React.createElement("div", {
+      className: "tt-skeleton",
+      style: {
+        height: 14,
+        width: "70%"
+      }
+    }), React.createElement("div", {
+      className: "tt-skeleton",
+      style: {
+        height: 14,
+        width: "80%"
+      }
+    })), React.createElement("div", {
+      className: "tt-label mt-4 text-center"
+    }, isAdding ? "Scoring " : "Loading ", tickerSymbol));
   }
   if (error || !tickerData) {
     return React.createElement("div", {
@@ -13125,6 +13761,29 @@ function App() {
   const {
     trades
   } = useTrades(tradeDataReady);
+  const tradeByTicker = React.useMemo(() => {
+    const map = new Map();
+    if (!Array.isArray(trades)) return map;
+    trades.forEach(tr => {
+      const sym = String(tr?.ticker || "").toUpperCase();
+      if (!sym) return;
+      const existing = map.get(sym);
+      const exitTs = tr.exit_ts ?? tr.exitTs ?? 0;
+      const entryTs = tr.entry_ts ?? tr.entryTime ?? tr.entryTs ?? 0;
+      if (!existing) {
+        map.set(sym, tr);
+        return;
+      }
+      const exExit = existing.exit_ts ?? existing.exitTs ?? 0;
+      const exEntry = existing.entry_ts ?? existing.entryTime ?? existing.entryTs ?? 0;
+      const trOpen = !exitTs;
+      const exOpen = !exExit;
+      if (trOpen && !exOpen || trOpen && exOpen && entryTs > exEntry || !trOpen && !exOpen && exitTs > exExit) {
+        map.set(sym, tr);
+      }
+    });
+    return map;
+  }, [trades]);
   const accountMode = dashboardMode === "investor" ? "investor" : "trader";
   const {
     summary: accountSummary
@@ -13405,7 +14064,7 @@ function App() {
               const capped = normalized.length > 250 ? normalized.slice(-250) : normalized;
               if (!window._trailSampleLogged) {
                 window._trailSampleLogged = true;
-                console.log(`[TRAIL SAMPLE] ${selectedTicker}`, {
+                debugLog(`[TRAIL SAMPLE] ${selectedTicker}`, {
                   first: capped[0],
                   rawFirst: Array.isArray(data.trail) ? data.trail[0] : null,
                   rawKeys: data.trail && data.trail[0] ? Object.keys(data.trail[0]) : []
@@ -13482,16 +14141,7 @@ function App() {
   const [activeSubInsight, setActiveSubInsight] = useState(null);
   const [bubbleSearchOpen, setBubbleSearchOpen] = useState(false);
   const [bubbleLayoutMode, setBubbleLayoutMode] = useState("score");
-  const bubbleMapUniverseFilters = useMemo(() => {
-    const group = String(effectiveFilters?.group || "ALL").toUpperCase();
-    if (group === "TT_SELECTED" || group === "SAVED" || group === "USER_ADDED") {
-      return {
-        ...effectiveFilters,
-        group: "ALL"
-      };
-    }
-    return effectiveFilters;
-  }, [effectiveFilters]);
+  const bubbleMapUniverseFilters = useMemo(() => effectiveFilters, [effectiveFilters]);
   const bubbleMapUniverseTickers = useMemo(() => {
     let filtered = timeTravelTickers !== null ? timeTravelTickers : applyFilters(data, bubbleMapUniverseFilters, trades, socialAdditions, savedTickers);
     if (!window._ttIsPro && window._ttMemberTickerSet) {
@@ -13837,8 +14487,16 @@ function App() {
     if (!window._ttIsAdmin && GROUPS.Futures) {
       filtered = filtered.filter(t => !GROUPS.Futures.has(normTicker(t?.ticker || "")));
     }
-    return filtered;
-  }, [data, bubbleMapFilters, trades, socialAdditions, timeTravelTickers, savedTickers, activeInsightTickers]);
+    return filtered.map(t => {
+      const trade = tradeByTicker.get(String(t?.ticker || "").toUpperCase()) || null;
+      if (!trade) return t;
+      return {
+        ...t,
+        _openTrade: trade,
+        _effectiveKanbanStage: getTradeLifecycleState(t, trade).effectiveStage
+      };
+    });
+  }, [data, bubbleMapFilters, trades, socialAdditions, timeTravelTickers, savedTickers, activeInsightTickers, tradeByTicker]);
   const timeTravelBaseTickers = useMemo(() => {
     return applyFilters(data, effectiveFilters, trades, socialAdditions, savedTickers);
   }, [data, effectiveFilters, trades, socialAdditions, savedTickers]);
@@ -14088,12 +14746,20 @@ function App() {
       letterSpacing: "-0.03em"
     }
   }, "Timed Trading")), wsConnected ? React.createElement("span", {
-    className: "flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-500/10 border border-sky-500/25 shrink-0",
+    className: "flex items-center gap-1.5 px-1.5 py-0.5 rounded border shrink-0",
+    style: {
+      background: "var(--tt-editorial-dim)",
+      borderColor: "rgba(167,139,250,0.28)"
+    },
     title: "WebSocket connected \u2014 real-time push active"
   }, React.createElement("span", {
-    className: "w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse"
+    className: "tt-heartbeat"
   }), React.createElement("span", {
-    className: "text-[9px] text-sky-400 font-medium"
+    className: "text-[9px] font-semibold",
+    style: {
+      color: "var(--tt-editorial)",
+      letterSpacing: "0.08em"
+    }
   }, "LIVE")) : React.createElement("span", {
     className: "flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-900/30 border border-red-800/40 shrink-0",
     title: "WebSocket disconnected \u2014 using polling fallback (30s)"
@@ -14158,13 +14824,9 @@ function App() {
     href: "/faq.html",
     className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all",
     title: "Frequently Asked Questions"
-  }, "FAQ"), React.createElement("button", {
-    onClick: () => setShowAiChat(true),
-    className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#60a5fa] hover:text-[#93bbfc] hover:bg-[#60a5fa]/[0.06] transition-all font-medium",
-    title: "Ask the AI assistant"
-  }, "Ask AI"), loading && React.createElement("div", {
+  }, "FAQ"), loading && React.createElement("div", {
     className: "loading-spinner"
-  }), window.TimedDiscordButton && React.createElement(window.TimedDiscordButton, {
+  }), window.TimedWaitlistButton && React.createElement(window.TimedWaitlistButton, {
     apiBase: API_BASE
   }), window.TimedNotificationCenter && React.createElement(window.TimedNotificationCenter, {
     apiBase: API_BASE
@@ -14281,24 +14943,21 @@ function App() {
   }, "Tour"), React.createElement("a", {
     href: "/faq.html",
     className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "FAQ"), React.createElement("button", {
-    onClick: () => {
-      setShowAiChat(true);
-      setMobileMenuOpen(false);
-    },
-    className: "px-3 py-2 rounded-md text-[12px] text-[#60a5fa] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "Ask AI"), React.createElement("a", {
+  }, "FAQ"), React.createElement("a", {
     href: "mailto:support@timed-trading.com",
     className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "Contact")))), React.createElement(AIChatInterface, {
-    isOpen: showAiChat,
-    onClose: () => setShowAiChat(false),
-    tickerData: data
-  }), React.createElement("div", {
+  }, "Contact")))), React.createElement("div", {
     className: "mx-auto w-full px-2 sm:px-4 lg:px-5"
   }, React.createElement("header", {
     className: "mb-4 pt-3"
-  }, _dataIsStale && React.createElement("div", {
+  }, !loading && data && React.createElement(StatusStrip, {
+    tickers: tickers,
+    data: data,
+    trades: trades,
+    allTickersWithRanks: allTickersWithRanks,
+    onSelectTicker: handleTickerSelect,
+    dashboardMode: dashboardMode
+  }), _dataIsStale && React.createElement("div", {
     className: "mb-2 px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 flex items-center gap-2 text-[11px] text-amber-300"
   }, React.createElement("span", null, "\u26A0"), React.createElement("span", null, "Data may be stale (", _dataStaleMinutes, "m old) \u2014"), React.createElement("button", {
     onClick: () => refetch && refetch(),
@@ -14606,10 +15265,16 @@ function App() {
     return React.createElement("div", {
       className: "mb-3"
     }, React.createElement("div", {
-      className: "flex items-center gap-2 mb-1.5"
+      className: "flex items-center gap-2 mb-2"
     }, React.createElement("span", {
-      className: "text-[10px] text-[#6b7280] font-semibold tracking-wide uppercase"
-    }, "Top Movers")), React.createElement("div", {
+      className: "tt-label"
+    }, "Top Movers"), React.createElement("span", {
+      style: {
+        flex: 1,
+        height: 1,
+        background: "var(--tt-border-weak)"
+      }
+    })), React.createElement("div", {
       className: "space-y-1.5"
     }, React.createElement("div", {
       className: "flex items-center gap-1.5 flex-wrap"
@@ -14638,16 +15303,15 @@ function App() {
     savedTickers: savedTickers,
     toggleSavedTicker: toggleSavedTicker
   })), React.createElement("div", {
-    className: "mb-4 flex flex-col items-center gap-2",
+    className: "mb-4 flex items-center justify-center gap-2",
     "data-coachmark": "nav-modes"
-  }, React.createElement("div", {
-    className: "text-center"
-  }, React.createElement("div", {
-    className: "text-[10px] uppercase tracking-[0.22em] text-[#4b5563]"
-  }, "Choose The View Below"), React.createElement("div", {
-    className: "text-[12px] text-[#94a3b8] mt-1"
-  }, "This controller changes the dashboard section underneath.")), React.createElement("div", {
-    className: "flex justify-center w-full"
+  }, React.createElement("span", {
+    className: "tt-label hidden sm:inline",
+    style: {
+      fontSize: 9
+    }
+  }, "View"), React.createElement("div", {
+    className: "flex justify-center"
   }, React.createElement("div", {
     className: "flex w-full sm:w-auto items-stretch bg-white/[0.04] border border-white/[0.10] rounded-xl overflow-hidden shadow-sm"
   }, React.createElement("button", {
@@ -14844,7 +15508,13 @@ function App() {
     }),
     className: `px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors whitespace-nowrap ${effectiveFilters.group === "TT_SELECTED" ? "bg-violet-500/20 border-violet-500/40 text-violet-300" : "bg-white/[0.02] border-white/[0.06] text-[#6b7280] hover:text-violet-300 hover:bg-violet-500/10"}`,
     title: "Show TT Selected tickers"
-  }, "TT Selected"), React.createElement("div", {
+  }, "TT Selected"), (dashboardMode === "investor" || effectiveFilters.group === "INVESTOR_ACTIONABLE") && React.createElement("button", {
+    onClick: () => handleFilterChange({
+      group: effectiveFilters.group === "INVESTOR_ACTIONABLE" ? "ALL" : "INVESTOR_ACTIONABLE"
+    }),
+    className: `px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors whitespace-nowrap ${effectiveFilters.group === "INVESTOR_ACTIONABLE" ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-300" : "bg-white/[0.02] border-white/[0.06] text-[#6b7280] hover:text-emerald-300 hover:bg-emerald-500/10"}`,
+    title: "Show investor tickers that need action now"
+  }, "Investor Actionable"), React.createElement("div", {
     className: "relative",
     ref: addTickerRef
   }, !window._ttIsPro ? React.createElement("button", {
@@ -15100,59 +15770,12 @@ function App() {
   }, "Setup Timing")), React.createElement("span", {
     className: "text-[#4b5563] shrink-0"
   }, "|"), React.createElement("span", {
-    className: "flex items-center gap-1 shrink-0",
-    title: "HTF bullish trend \u2014 system bias is long"
-  }, React.createElement("svg", {
-    width: "8",
-    height: "8",
-    viewBox: "0 0 8 8"
-  }, React.createElement("circle", {
-    cx: "4",
-    cy: "4",
-    r: "3.5",
-    fill: "rgba(34,211,238,0.45)"
-  })), " ", React.createElement("span", {
-    className: "text-cyan-400"
-  }, "Long bias")), React.createElement("span", {
-    className: "flex items-center gap-1 shrink-0",
-    title: "HTF bearish trend \u2014 system bias is short"
-  }, React.createElement("svg", {
-    width: "8",
-    height: "8",
-    viewBox: "0 0 8 8"
-  }, React.createElement("circle", {
-    cx: "4",
-    cy: "4",
-    r: "3.5",
-    fill: "rgba(225,29,72,0.45)"
-  })), " ", React.createElement("span", {
-    className: "text-rose-400"
-  }, "Short bias")), React.createElement("span", {
-    className: "flex items-center gap-1 shrink-0",
-    title: "No directional edge \u2014 mixed or transitional"
-  }, React.createElement("svg", {
-    width: "8",
-    height: "8",
-    viewBox: "0 0 8 8"
-  }, React.createElement("circle", {
-    cx: "4",
-    cy: "4",
-    r: "3.5",
-    fill: "rgba(234,179,8,0.35)"
-  })), " ", React.createElement("span", {
-    className: "text-yellow-400"
-  }, "Neutral")), React.createElement("span", {
-    className: "text-[#4b5563] shrink-0"
-  }, "|"), React.createElement("span", {
     className: "shrink-0",
     title: "X-axis: short-term momentum score. Y-axis: long-term trend strength. Setup Timing view applies a stronger center spread so similar-score names are easier to separate."
   }, bubbleLayoutMode === "timing" ? "Timing-spread momentum vs trend" : "X: momentum · Y: trend"), React.createElement("span", {
     className: "shrink-0",
     title: "Bigger bubble = higher reward-to-risk with more upside remaining. Late setups shrink as completion rises."
   }, "Size = R:R x upside left"), React.createElement("span", {
-    className: "shrink-0",
-    title: "Upper-right: strong longs. Lower-left: strong shorts."
-  }, "\u2197 longs \xB7 \u2199 shorts"), React.createElement("span", {
     className: "text-[#4b5563] shrink-0"
   }, "|"), React.createElement("span", {
     className: "flex items-center gap-1 shrink-0",
@@ -15276,8 +15899,18 @@ function App() {
       }, chip.tooltip));
     };
     return React.createElement("div", {
-      className: "space-y-1 px-1 mb-1"
+      className: "space-y-2 px-1 mb-1"
+    }, row2.length > 0 && React.createElement("div", {
+      className: "rounded-xl border border-white/[0.06] bg-white/[0.02] px-2.5 py-2"
     }, React.createElement("div", {
+      className: "mb-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#6b7280]"
+    }, "Overview"), React.createElement("div", {
+      className: "flex gap-1.5 overflow-x-auto scrollbar-hide items-center"
+    }, row2.map(c => renderChip(c, false)))), React.createElement("div", {
+      className: "rounded-xl border border-cyan-500/10 bg-cyan-500/[0.04] px-2.5 py-2"
+    }, React.createElement("div", {
+      className: "mb-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200/70"
+    }, "Something Interesting"), React.createElement("div", {
       className: "flex gap-1.5 overflow-x-auto scrollbar-hide items-center"
     }, row1.map(c => renderChip(c, false)), activeInsight && React.createElement("button", {
       onClick: () => {
@@ -15285,9 +15918,7 @@ function App() {
         setActiveSubInsight(null);
       },
       className: "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border border-white/10 bg-white/5 text-gray-400 hover:text-white transition-colors shrink-0"
-    }, "\u2715 Clear")), row2.length > 0 && React.createElement("div", {
-      className: "flex gap-1.5 overflow-x-auto scrollbar-hide items-center"
-    }, row2.map(c => renderChip(c, false))), activeInsight === "sp_sectors" && sectorSubs.length > 0 && React.createElement("div", {
+    }, "\u2715 Clear"))), activeInsight === "sp_sectors" && sectorSubs.length > 0 && React.createElement("div", {
       className: "flex gap-1.5 overflow-x-auto scrollbar-hide items-center"
     }, React.createElement("span", {
       className: "text-[9px] text-[#6b7280] shrink-0"

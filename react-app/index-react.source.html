@@ -4202,12 +4202,26 @@
               t.rank !== null,
           );
 
-          // Sort by dynamicScore from API (backend calculation) - pure score sorting, no alphabetical tiebreaker
+          // V15 P0.7.32 (2026-04-30) — sort by composite (rank + conviction).
+          // dynamicScore from API is rank-based (~0-100). Conviction Score
+          // (0-160 range) is a complementary signal capturing the focus-tier
+          // model's confidence. We blend them so users see "high rank +
+          // high conviction" at the top consistently.
+          //
+          // Tiebreakers: higher conviction wins ties on dynamicScore;
+          // higher R:R wins ties on conviction.
           allTickersWithRank.sort((a, b) => {
-            const scoreA = Number(a.dynamicScore || a.rank) || 0; // Use dynamicScore from API, fallback to rank
+            const scoreA = Number(a.dynamicScore || a.rank) || 0;
             const scoreB = Number(b.dynamicScore || b.rank) || 0;
-            // Descending order: higher score = better position
-            return scoreB - scoreA;
+            const dScore = scoreB - scoreA;
+            if (Math.abs(dScore) > 0.001) return dScore;
+            const convA = Number(a.focus_conviction_score || a.conviction || 0);
+            const convB = Number(b.focus_conviction_score || b.conviction || 0);
+            const dConv = convB - convA;
+            if (Math.abs(dConv) > 0.001) return dConv;
+            const rrA = Number(a.rr || 0);
+            const rrB = Number(b.rr || 0);
+            return rrB - rrA;
           });
 
           // Ranked order lookup (ticker -> index) based on the sorted list above.
