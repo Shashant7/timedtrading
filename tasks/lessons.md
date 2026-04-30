@@ -5,6 +5,22 @@
 
 ---
 
+## Forensic-driven model tuning (new 2026-04-30)
+
+- **`setup_snapshot` field schema must be inspected before writing cohort filters**: During the post-canon autopsy the first pass returned several EMPTY cohorts (TD9 bullish, supportive RSI, PDZ stack) because I assumed the field names. Reality: TD uses `td9_bull` not `td9_bullish`, PDZ uses `h4` not `4h`, and divergence sub-fields like `adverse_rsi` are *objects* (with `count` / `strongest`) or `null`, not booleans. The cohort SQL/Python is brittle to schema drift; always sample one trade's `setup_snapshot` first and document the actual field names before running counts. Saved one round-trip on this work; would have lost a half-day if it had landed in a paper. [2026-04-30]
+
+- **Post-hoc cohort PnL counterfactuals are hypotheses, not outcomes**: The "+12.28% net" delta from skipping discount_approach LONG-VR was computed on the *same dataset* that suggested the rule. Cohort effects can be real and still not transfer cleanly out-of-sample. Rule for any future autopsy proposal: report the delta, but commit to validating with an A/B replay (same code, both flags) before promoting; do not promise the magnitude in commentary or PR descriptions. The autopsy points at experiments to run, it does not generate PnL. [2026-04-30]
+
+- **"Mar 2026 was one cohort" pattern — single red months are usually structural, not noise**: 86% of the −34.55% Mar loss was a single personality × PDZ-zone × direction combination (VOLATILE_RUNNER LONGs entered when daily PDZ = `discount_approach`). 14 such trades, WR 31%. Same trio on PULLBACK_PLAYER personality was net positive. Rule: when one month flips negative, slice by (personality, regime, PDZ zone, divergence) before assuming it's regime volatility — and check whether the same (zone × direction) on a different personality is benign, because that distinguishes "fix the personality conditioning" from "blanket-block this setup". [2026-04-30]
+
+- **Capture full setup context at entry once, not re-parse later**: 568/590 closed trades had full `setup_snapshot` (TD/PDZ/Divergence/VWAP/personality) inside `rank_trace_json`, but the exit logic re-parses this every check. The `entrySignals` field on the trade record was empty across the population. Lesson: when forensic patterns surface a structural rule (e.g. "skip dead-money cuts if entry was clean"), the cleanest path is to lift the relevant booleans onto the trade record at write-time so exit logic doesn't re-derive them. Pulling P4 (write `entrySignals`) forward as a P1a prerequisite is the right call. [2026-04-30]
+
+- **Auto-curl-killer `target_file` MUST be updated before relaunch — stale targets kill the new run**: When the v16-canon-marapr-30m relaunch first failed with rc=137 in 6-7s, root cause was that `/workspace/.auto-killer-target` was still pointing at the *previous failed run-id* whose heartbeat was 2800s+ stale. The killer was therefore terminating EVERY curl spawned by the new run. Always: kill stale processes → release replay lock → cleanup orphans → write new run-id to `.auto-killer-target` BEFORE launching the new tmux session. [2026-04-30]
+
+- **`--speed-time 60 --speed-limit 1` is too tight for Cloudflare-batched candle-replay**: With BATCH_SIZE=6 across 200 tickers, the worker can be silent for >60s between byte emissions while it processes a per-ticker chunk. curl rc=28 in 60-90s with `elapsed=60s` is the fingerprint. Bumped to `--speed-time 180` in `scripts/continuous-slice.sh` and the relaunch completed cleanly. Watchdog `--max-time` is the outer bound and stays at 600s. [2026-04-30]
+
+---
+
 ## Backtest orchestration (new 2026-04-17)
 
 - **Cross-month synthesis — 10 months is the minimum useful signal density**: Single-month slices tell you *what happened* but not *what's systematic*. The Phase D v2 rerun (Jul 2025 – Apr 2026) surfaced three patterns that were invisible at a per-month scope: (1) `max_loss` cohort pulls −59 % PnL across 25 trades with 0 % WR — concentrated 14/25 in transitional-cycle months, (2) `replay_end_close` (runners held past month-end) delivers +99 % of sum-pnl through 11 trades, (3) `PRE_EVENT_RECOVERY_EXIT` fires 15 times with 13 % WR and 14/15 fires align to scheduled high-impact macro events — micro-flat exits that a tighter timing window could rescue. Per-month summaries compressed these into noise; the rollup made them actionable. Lesson: don't publish tuning proposals off < 6 months. [2026-04-18]
