@@ -12929,6 +12929,13 @@ function build3TierTPArray(tickerData, entryPrice, direction) {
       if (_curDist < _minDist) {
         pTrimEnforced = isLong ? entryPrice + _minDist : entryPrice - _minDist;
       }
+      // Note (V15 P0.7.28 reframed 2026-04-30): we deliberately KEEP standard
+      // TP1 distance for TD9_bear LTF trades. TP1 tightening showed -5pp PnL
+      // counterfactual cost (capped IBP/RBLX/ASTS/APLD wins). The TD9-fragile
+      // protection now ONLY fires post-trim via BE-lock-on-TRIM in the trim
+      // execution path (search "TD9_FRAGILE_TRIM_BE_LOCK" in this file).
+      // Net design: same trim distance as today, but if trim DOES hit, we
+      // immediately lock SL to entry — runner half is downside-protected.
 
       const result = [
         {
@@ -15452,8 +15459,43 @@ async function processTradeSimulation(
       // A partial trim realizes P&L but does not grant permission to ratchet the
       // stop. The remaining runner keeps the original invalidation until later
       // lifecycle logic proves fresh post-trim structure.
+      //
+      // V15 P0.7.28 (2026-04-30) — TD9 FRAGILE EXCEPTION:
+      // If trade entered with TD9_bear active on 30m/1h/4h (entrySignals.td9_bear_ltf_active),
+      // we DO move SL to break-even on TRIM TP hit. Per user direction:
+      // "treat TD9 type trades with caution and more aggressive take profits,
+      // rather than a tight SL, lets trim at the first sign of solid gains
+      // and update the stop loss to BE, that way we are protected either way."
+      // The trim already realized profit on first half; runner protected
+      // at BE = no further loss possible. If trade continues working,
+      // runner captures it. If it reverses, BE exit takes the runner.
       if (tgt >= THREE_TIER_CONFIG.TRIM.trimPct && oldTrim < THREE_TIER_CONFIG.TRIM.trimPct) {
-        console.log(`[3-TIER] ${sym} TRIM TP hit: partial trim only, original stop/invalidation unchanged`);
+        const _td9Fragile = !!(trade.entrySignals?.td9_bear_ltf_active
+                              || trade.entry_signals?.td9_bear_ltf_active);
+        const _td9FragileEnabled = String(
+          tickerData?._env?._deepAuditConfig?.deep_audit_td9_fragile_be_lock_enabled ?? "true"
+        ) === "true";
+        if (_td9Fragile && _td9FragileEnabled) {
+          const _td9Entry = Number(trade.entryPrice);
+          const _td9OldSl = Number(trade.sl);
+          if (Number.isFinite(_td9Entry) && _td9Entry > 0) {
+            // For LONG: SL moves UP to entry (only if not already tighter)
+            // For SHORT: SL moves DOWN to entry (only if not already tighter)
+            const _shouldLockBe = dir === "LONG"
+              ? _td9Entry > _td9OldSl || !Number.isFinite(_td9OldSl)
+              : _td9Entry < _td9OldSl || !Number.isFinite(_td9OldSl);
+            if (_shouldLockBe) {
+              trade.sl = _td9Entry;
+              slAdjusted = true;
+              slAdjustReason = "TD9_FRAGILE_TRIM_BE_LOCK";
+              console.log(`[3-TIER] ${sym} TRIM TP hit + TD9 fragile: SL locked to BE at $${_td9Entry.toFixed(2)} (was $${_td9OldSl.toFixed(2)})`);
+            } else {
+              console.log(`[3-TIER] ${sym} TRIM TP hit + TD9 fragile: SL already tighter than BE, keeping`);
+            }
+          }
+        } else {
+          console.log(`[3-TIER] ${sym} TRIM TP hit: partial trim only, original stop/invalidation unchanged`);
+        }
       }
 
       // Tier 2: EXIT TP hit (80%) -> Move SL to TRIM TP price
@@ -19544,6 +19586,11 @@ async function processTradeSimulation(
                 const _isLong = direction === "LONG";
                 const _adverseTd9Key = _isLong ? "td9_bear" : "td9_bull";
                 const _adversePrepKey = _isLong ? "bear_prep" : "bull_prep";
+                // V15 P0.7.28 — TD9 LTF active flag (used by Fix A:
+                // tighter TP1 + BE-lock on trim for fragile-trade mode)
+                const _td9LtfActive = !!(_td["30"] || {})[_adverseTd9Key]
+                                       || !!(_td["60"] || {})[_adverseTd9Key]
+                                       || !!(_td["240"] || {})[_adverseTd9Key];
                 return {
                   // Divergence summary at entry
                   has_adverse_rsi_div: _advRsi >= 1,
@@ -19554,6 +19601,10 @@ async function processTradeSimulation(
                   daily_td9_adverse: !!(_td.D || {})[_adverseTd9Key],
                   daily_adverse_prep: Number((_td.D || {})[_adversePrepKey]) || 0,
                   fourh_adverse_prep: Number((_td["240"] || {})[_adversePrepKey]) || 0,
+                  // V15 P0.7.28 — TD9_bear (or _bull for SHORT) fired on
+                  // any LTF (30m/1h/4h). Trade enters but is treated as
+                  // FRAGILE: tighter TP1 + auto-BE on trim hit. See Fix A.
+                  td9_bear_ltf_active: _td9LtfActive,
                   // PDZ at entry
                   pdz_d: tickerData?.pdz_zone_D || null,
                   pdz_4h: tickerData?.pdz_zone_4h || null,
