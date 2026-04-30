@@ -1161,6 +1161,95 @@ export function computeTfBundle(bars, anchors = null) {
   const volSma = volSmaArr[last];
   const volRatio = (volSma > 0 && vols[last] > 0) ? vols[last] / volSma : 1.0;
 
+  // ── VWAP (V15 P0.7.33, 2026-04-30) ─────────────────────────────────────
+  //
+  // Volume-weighted average price. Two flavors:
+  //   - Cumulative (from start of bar series): useful on Daily+ for
+  //     long-term anchored reference
+  //   - Session/rolling 20-bar: approximates intraday session VWAP on
+  //     LTF (10m/30m). On 30m TF, 20 bars ≈ 10 hours = ~1.5 sessions
+  //
+  // Per-bar typical price: (h+l+c)/3. Standard formula.
+  // Distance: (px - vwap) / vwap * 100 — % above/below.
+  // Slope: 5-bar % change of VWAP series.
+  // touchedVwapBars: bars-since the close last crossed VWAP (i.e. a
+  //   reaction to VWAP). Useful entry/exit signal.
+  //
+  // No-volume defenses: when vols are all 0 (some TFs may not carry
+  // volume), VWAP collapses to typical-price SMA — still useful as
+  // an "average price" reference.
+  let vwap = null;
+  let vwapRolling20 = null;
+  let vwapDistPct = null;
+  let vwapSlope5bar = null;
+  let vwapAbove = null;
+  let vwapTouchBars = null;
+  try {
+    const typPrice = (i) => {
+      const h = Number(bars[i]?.h);
+      const l = Number(bars[i]?.l);
+      const c = Number(bars[i]?.c);
+      const o = Number(bars[i]?.o);
+      const goodH = Number.isFinite(h) ? h : c;
+      const goodL = Number.isFinite(l) ? l : c;
+      const goodC = Number.isFinite(c) ? c : o;
+      return (goodH + goodL + goodC) / 3;
+    };
+    // Cumulative VWAP — running weighted avg over full bar series
+    let cumPv = 0; let cumV = 0;
+    const vwapSeries = [];
+    for (let i = 0; i < n; i++) {
+      const tp = typPrice(i);
+      const v = vols[i] || 1; // when vols is empty, fall back to typPrice SMA
+      cumPv += tp * v;
+      cumV += v;
+      vwapSeries.push(cumV > 0 ? cumPv / cumV : null);
+    }
+    vwap = vwapSeries[last];
+
+    // Rolling 20-bar VWAP — closer approximation to intraday session VWAP
+    if (n >= 20) {
+      let pv20 = 0; let v20 = 0;
+      for (let i = last - 19; i <= last; i++) {
+        const tp = typPrice(i);
+        const v = vols[i] || 1;
+        pv20 += tp * v;
+        v20 += v;
+      }
+      vwapRolling20 = v20 > 0 ? pv20 / v20 : null;
+    }
+
+    // Distance and slope (using cumulative VWAP as primary reference)
+    if (Number.isFinite(vwap) && vwap > 0 && Number.isFinite(px)) {
+      vwapDistPct = ((px - vwap) / vwap) * 100;
+      vwapAbove = px > vwap;
+    }
+    if (n >= 6) {
+      const vwapPrev = vwapSeries[last - 5];
+      if (Number.isFinite(vwap) && Number.isFinite(vwapPrev) && vwapPrev > 0) {
+        vwapSlope5bar = ((vwap - vwapPrev) / vwapPrev) * 100;
+      }
+    }
+
+    // Touch detection — bars-since price last crossed VWAP (close)
+    if (n >= 2 && Number.isFinite(vwap)) {
+      let bSince = 0;
+      const aboveNow = closes[last] >= (vwapSeries[last] || vwap);
+      for (let i = last - 1; i >= 0 && i >= last - 50; i--) {
+        const v = vwapSeries[i];
+        if (!Number.isFinite(v)) break;
+        const aboveThen = closes[i] >= v;
+        if (aboveThen !== aboveNow) {
+          // Found the most-recent cross
+          break;
+        }
+        bSince++;
+      }
+      vwapTouchBars = bSince;
+    }
+  } catch (_) { /* silent — vwap stays null */ }
+  // ── END VWAP ──────────────────────────────────────────────────────────
+
   // RVOL 5-bar: recent volume trend vs 20-bar average
   let rvol5 = 1.0;
   if (volSma > 0 && last >= 4) {
@@ -1795,6 +1884,8 @@ export function computeTfBundle(bars, anchors = null) {
     compressed,
     atr14, atrRatio,
     volRatio, rvol5, rvolSpike,
+    // V15 P0.7.33 — VWAP fields (cumulative + rolling 20-bar)
+    vwap, vwapRolling20, vwapDistPct, vwapSlope5bar, vwapAbove, vwapTouchBars,
     rsi, rsi_slope_5bar, rsiDiv, phaseDiv,
     phase_slope_5bar,
     ggUpCross, ggDnCross, ggDist,

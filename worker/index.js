@@ -19799,6 +19799,38 @@ async function processTradeSimulation(
                     // request: "Divergence recently or forming across TFs".
                     // adverse = divergence going against trade direction.
                     divergence: tickerData?.__entry_divergence_summary || null,
+                    // V15 P0.7.33 (2026-04-30) — capture VWAP per TF.
+                    // Per user request: distance to/from VWAP, reactions
+                    // at VWAP, anchored variants. Captured for retrospective
+                    // analysis to find VWAP-based edges in the canonical
+                    // Jul→Apr run.
+                    //   vwap        — cumulative VWAP from start of bar series
+                    //   rolling_20  — 20-bar rolling VWAP (intraday session approx)
+                    //   dist_pct    — (px - vwap) / vwap * 100, signed
+                    //   slope_5bar  — 5-bar % change of cumulative VWAP
+                    //   above       — boolean: price > VWAP
+                    //   touch_bars  — bars since price last crossed VWAP
+                    vwap: (() => {
+                      const out = {};
+                      for (const tf of ["10","30","60","240","D","W"]) {
+                        const tfData = tickerData?.tf_tech?.[tf];
+                        if (!tfData) continue;
+                        const v = Number(tfData.vwap);
+                        if (!Number.isFinite(v) || v <= 0) continue;
+                        out[tf] = {
+                          vwap: Math.round(v * 10000) / 10000,
+                          rolling_20: Number.isFinite(tfData.vwapRolling20)
+                            ? Math.round(tfData.vwapRolling20 * 10000) / 10000 : null,
+                          dist_pct: Number.isFinite(tfData.vwapDistPct)
+                            ? Math.round(tfData.vwapDistPct * 100) / 100 : null,
+                          slope_5bar: Number.isFinite(tfData.vwapSlope5bar)
+                            ? Math.round(tfData.vwapSlope5bar * 100) / 100 : null,
+                          above: tfData.vwapAbove === true ? true : (tfData.vwapAbove === false ? false : null),
+                          touch_bars: Number.isFinite(tfData.vwapTouchBars) ? tfData.vwapTouchBars : null,
+                        };
+                      }
+                      return Object.keys(out).length ? out : null;
+                    })(),
                     // 5. Event proximity (always stamped now,
                     //    not only when blocking entry)
                     upcoming_risk_event: tickerData?.__upcomingEntryEvent
