@@ -15262,6 +15262,59 @@ function App() {
     const ethLosers = ethSorted.slice(-5).reverse();
     const hasEth = ethGainers.length > 0 || ethLosers.length > 0;
     if (rthGainers.length === 0 && rthLosers.length === 0 && !hasEth) return null;
+    const moverRow = (t, isGain, pctKey, priceKey, idx) => {
+      const sym = t?.ticker || t?.symbol || "?";
+      const pct = Number(t[pctKey]) || 0;
+      const price = Number(t[priceKey]) || 0;
+      const name = t?.context?.name || t?.companyName || "";
+      const title = name ? `${sym} — ${name}` : sym;
+      const colorClass = isGain ? "text-emerald-400" : "text-rose-400";
+      const dotBg = isGain ? "rgba(34,197,94,0.7)" : "rgba(239,68,68,0.7)";
+      return React.createElement("button", {
+        key: `${sym}-${idx}`,
+        onClick: () => handleTickerSelect(sym),
+        title: title,
+        className: "w-full flex items-center justify-between px-2.5 py-1.5 rounded-md hover:bg-white/[0.04] transition-colors group"
+      }, React.createElement("div", {
+        className: "flex items-center gap-2 min-w-0"
+      }, React.createElement("span", {
+        className: "w-1 h-1 rounded-full shrink-0",
+        style: {
+          background: dotBg
+        }
+      }), React.createElement("span", {
+        className: "text-[12px] font-bold text-white tracking-tight"
+      }, sym)), React.createElement("div", {
+        className: "flex items-center gap-2.5 tabular-nums"
+      }, price > 0 && React.createElement("span", {
+        className: "text-[11px] text-[#9ca3af]"
+      }, "$", price.toFixed(2)), React.createElement("span", {
+        className: `text-[12px] font-semibold ${colorClass} min-w-[55px] text-right`
+      }, pct >= 0 ? "+" : "", pct.toFixed(2), "%")));
+    };
+    const moverTable = (label, badgeCls, gainers, losers, isGain, pctKey, priceKey) => React.createElement("div", {
+      className: "grid grid-cols-2 gap-x-3 mt-1"
+    }, React.createElement("div", null, React.createElement("div", {
+      className: "flex items-center gap-1.5 px-1 mb-1"
+    }, React.createElement("span", {
+      className: "text-[9px] uppercase tracking-wider text-emerald-400 font-bold"
+    }, "\u25B2 Gainers"), React.createElement("span", {
+      className: "text-[9px] text-[#6b7280] tabular-nums"
+    }, gainers.length)), React.createElement("div", {
+      className: "rounded-md overflow-hidden bg-white/[0.015] border border-white/[0.04]"
+    }, gainers.length > 0 ? gainers.map((t, i) => moverRow(t, true, pctKey, priceKey, i)) : React.createElement("div", {
+      className: "px-2.5 py-2 text-[10px] text-[#6b7280]"
+    }, "No gainers in this session."))), React.createElement("div", null, React.createElement("div", {
+      className: "flex items-center gap-1.5 px-1 mb-1"
+    }, React.createElement("span", {
+      className: "text-[9px] uppercase tracking-wider text-rose-400 font-bold"
+    }, "\u25BC Losers"), React.createElement("span", {
+      className: "text-[9px] text-[#6b7280] tabular-nums"
+    }, losers.length)), React.createElement("div", {
+      className: "rounded-md overflow-hidden bg-white/[0.015] border border-white/[0.04]"
+    }, losers.length > 0 ? losers.map((t, i) => moverRow(t, false, pctKey, priceKey, i)) : React.createElement("div", {
+      className: "px-2.5 py-2 text-[10px] text-[#6b7280]"
+    }, "No losers in this session."))));
     return React.createElement("div", {
       className: "mb-3"
     }, React.createElement("div", {
@@ -15275,18 +15328,20 @@ function App() {
         background: "var(--tt-border-weak)"
       }
     })), React.createElement("div", {
-      className: "space-y-1.5"
-    }, React.createElement("div", {
-      className: "flex items-center gap-1.5 flex-wrap"
+      className: "space-y-3"
+    }, React.createElement("div", null, React.createElement("div", {
+      className: "flex items-center gap-2 mb-1"
     }, React.createElement("span", {
-      className: "px-1.5 py-px rounded text-[9px] font-bold tracking-wide border shrink-0 bg-cyan-500/15 text-cyan-400 border-cyan-500/30"
-    }, "RTH"), rthGainers.map(t => chip(t, true, "_pct", "_price")), rthLosers.map(t => chip(t, false, "_pct", "_price")), rthGainers.length === 0 && rthLosers.length === 0 && React.createElement("span", {
+      className: "px-2 py-0.5 rounded text-[10px] font-bold tracking-wide border bg-cyan-500/15 text-cyan-400 border-cyan-500/30"
+    }, "RTH"), React.createElement("span", {
       className: "text-[10px] text-[#6b7280]"
-    }, "No movers")), hasEth && React.createElement("div", {
-      className: "flex items-center gap-1.5 flex-wrap"
+    }, "Regular Trading Hours")), moverTable("RTH", "bg-cyan-500/15 text-cyan-400 border-cyan-500/30", rthGainers, rthLosers, null, "_pct", "_price")), hasEth && React.createElement("div", null, React.createElement("div", {
+      className: "flex items-center gap-2 mb-1"
     }, React.createElement("span", {
-      className: "px-1.5 py-px rounded text-[9px] font-bold tracking-wide border shrink-0 bg-amber-500/15 text-amber-400 border-amber-500/30"
-    }, "EXT"), ethGainers.map(t => chip(t, true, "_ethPct", "_ethPrice")), ethLosers.map(t => chip(t, false, "_ethPct", "_ethPrice")))));
+      className: "px-2 py-0.5 rounded text-[10px] font-bold tracking-wide border bg-amber-500/15 text-amber-400 border-amber-500/30"
+    }, "EXT"), React.createElement("span", {
+      className: "text-[10px] text-[#6b7280]"
+    }, "Extended Hours (Pre/Post)")), moverTable("EXT", "bg-amber-500/15 text-amber-400 border-amber-500/30", ethGainers, ethLosers, null, "_ethPct", "_ethPrice"))));
   })(), (dashboardMode === "trader" || dashboardMode === "investor") && React.createElement("div", {
     className: "mb-4"
   }, React.createElement(ActionCenterPanel, {

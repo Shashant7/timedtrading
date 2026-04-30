@@ -383,16 +383,39 @@
             )}
 
             {/* Events ribbon */}
+            {/* V15 P0.7.38 (2026-04-30): improved catalyst chip readability —
+                user noted "the Today's catalyst ticker font is hard to read.
+                It needs better spacing." Bumped font 10px -> 12px, added more
+                horizontal padding (px-2.5 -> better breathing room), increased
+                gap between chips (1 -> 2), used semibold ticker symbol with
+                subtle separator. */}
             {events.length > 0 && (
               <div>
-                <div className="text-[9px] uppercase tracking-wider text-[#6b7280] mb-1">Today's catalysts</div>
-                <div className="flex flex-wrap gap-1">
-                  {events.map((e, i) => (
-                    <span key={i} className="px-2 py-0.5 rounded-md text-[10px] font-medium border border-white/[0.08] bg-white/[0.03] text-[#d1d5db]" title={e.kind}>
-                      {e.kind === "earnings" ? "📊 " : "📅 "}
-                      {e.title}{e.when ? ` · ${e.when}` : ""}
-                    </span>
-                  ))}
+                <div className="text-[10px] uppercase tracking-wider text-[#6b7280] mb-2 font-semibold">Today's Catalysts</div>
+                <div className="flex flex-wrap gap-2">
+                  {events.map((e, i) => {
+                    // Try to split "AAPL: Earnings" pattern so we can render ticker bold
+                    const colonIdx = String(e.title || "").indexOf(":");
+                    const lead = colonIdx > 0 && colonIdx < 8
+                      ? e.title.slice(0, colonIdx).trim()
+                      : null;
+                    const rest = colonIdx > 0 && colonIdx < 8
+                      ? e.title.slice(colonIdx + 1).trim()
+                      : e.title;
+                    return (
+                      <span key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-medium border border-white/[0.10] bg-white/[0.04] text-[#e5e7eb] hover:bg-white/[0.06] transition-colors" title={e.kind}>
+                        <span className="opacity-75">{e.kind === "earnings" ? "📊" : "📅"}</span>
+                        {lead && <span className="font-bold tracking-tight text-white">{lead}</span>}
+                        <span className={lead ? "text-[#9ca3af]" : ""}>{rest}</span>
+                        {e.when && (
+                          <>
+                            <span className="text-[#4b5563]">·</span>
+                            <span className="text-[11px] text-[#9ca3af] tabular-nums">{e.when}</span>
+                          </>
+                        )}
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -966,6 +989,44 @@
           const id = setInterval(poll, intervalMs);
           return () => clearInterval(id);
         }, [isLive, fetchCandles, mapCandles]);
+
+        // V15 P0.7.38 (2026-04-30) — Live price overlay
+        // Per user feedback: "I noticed it shows the price of SPY, IWM, and
+        // QQQ as of prev close, is it possible to show the real-time price
+        // is provided by TwelveData?"
+        //
+        // The chart candles only update on bar close (and on Daily TF, only
+        // once per day). The header price/change need to reflect the LATEST
+        // tick. We poll /timed/latest (TwelveData-fed KV cache) every 15s
+        // during market hours and 60s otherwise, overriding lastPrice/change
+        // with the live values when available. The chart candles still come
+        // from candle data — only the price/change badge updates faster.
+        useEffect(() => {
+          if (!sym) return;
+          let cancelled = false;
+          const refreshLivePrice = async () => {
+            try {
+              const res = await fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(sym)}`, { cache: "no-store" });
+              if (!res.ok) return;
+              const latest = await res.json();
+              if (cancelled) return;
+              const livePrice = Number(latest?.price);
+              if (Number.isFinite(livePrice) && livePrice > 0) {
+                setLastPrice(livePrice);
+              }
+              const daily = window.getDailyChange ? window.getDailyChange(latest) : null;
+              const livePct = daily && Number.isFinite(Number(daily.dayPct))
+                ? Number(daily.dayPct)
+                : Number(latest?.day_change_pct);
+              if (Number.isFinite(livePct)) setChange(livePct);
+            } catch (_) { /* silent — next tick retries */ }
+          };
+          // Immediate refresh on mount, then poll
+          refreshLivePrice();
+          const intervalMs = isMarketOpen() ? 15000 : 60000;
+          const id = setInterval(refreshLivePrice, intervalMs);
+          return () => { cancelled = true; clearInterval(id); };
+        }, [sym]);
 
         return (
           <div className="tt-card overflow-hidden">
