@@ -129,6 +129,10 @@
     <script src="shared-price-utils.js?v=20260211a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-right-rail.compiled.js?v=20260318e"></script>
+    <!-- V15 P0.7.36 (2026-04-30): Trades Performance overview component
+         (Monthly perf table, setup breakdown, P&L calendar heatmap).
+         Self-contained factory at react-app/trades-performance.js. -->
+    <script src="trades-performance.js?v=20260430a"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, memo, useRef, createElement } = React;
       const html = (function () {
@@ -5966,6 +5970,50 @@
       }
 
       // ─────────────────────────────────────────────────────────────
+      // PerformanceOverviewSection — V15 P0.7.36 (2026-04-30)
+      //
+      // Wraps the standalone trades-performance.js factory component with:
+      //  - Section heading
+      //  - Memoized factory call (only constructs once per mount)
+      //  - Graceful fallback if the script failed to load
+      //
+      // The component itself renders:
+      //  - Top-line summary stripe (Closed/WR/PnL%/PnL$)
+      //  - Monthly Performance Table (per month: WR, PnL, best, worst)
+      //  - Setup Breakdown (rolled-up per-setup performance)
+      //  - P&L Calendar heatmap (90-day GitHub-style grid)
+      // ─────────────────────────────────────────────────────────────
+      function PerformanceOverviewSection({ trades, loading }) {
+        const TradesPerformance = useMemo(() => {
+          const factory = (typeof window !== "undefined") && window.TradesPerformanceFactory;
+          if (!factory) return null;
+          try {
+            return factory({ React, API_BASE });
+          } catch (e) {
+            console.warn("[PerformanceOverview] factory failed:", e);
+            return null;
+          }
+        }, []);
+
+        if (!TradesPerformance) {
+          return null; // Gracefully hide if script didn't load — dashboard remains functional
+        }
+
+        return (
+          <div className="mb-6 p-5 rounded-xl"
+            style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+              <h2 className="text-[15px] font-semibold text-white">Performance Overview</h2>
+              <span className="text-[10px] uppercase tracking-wider text-[#6b7280]">
+                Closed trades · 90-day calendar
+              </span>
+            </div>
+            <TradesPerformance trades={trades} loading={loading} />
+          </div>
+        );
+      }
+
+      // ─────────────────────────────────────────────────────────────
       // PortfolioColumn — unified column for Active Trader OR Investor
       // Renders: Equity Curve -> Metrics -> Open Positions -> Trade History
       // ─────────────────────────────────────────────────────────────
@@ -7860,6 +7908,15 @@
                     </button>
                   </div>
                 )}
+
+                {/* ═══ Performance Overview — Monthly + Setup Breakdown + P&L Calendar ═══ */}
+                {/* V15 P0.7.36 (2026-04-30): self-contained component loaded via window.TradesPerformanceFactory */}
+                <div className={`${selectedTicker || selectedTrade ? "mr-[470px]" : ""}`}>
+                  <PerformanceOverviewSection
+                    trades={ledgerFilteredTrades || []}
+                    loading={(ledgerTrades ?? {}).loading}
+                  />
+                </div>
 
                 {/* ═══ Dual-Column Layout: Active Trader | Investor ═══ */}
                 <div className={`${selectedTicker || selectedTrade ? "mr-[470px]" : ""}`}>
