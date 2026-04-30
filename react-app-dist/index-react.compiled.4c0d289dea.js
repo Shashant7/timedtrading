@@ -10048,20 +10048,6 @@ function ActionCenterPanel({
   }, [tickers, localTradeByTicker]);
   const kanbanActiveCount = kanbanStageCounts.setup + kanbanStageCounts.enter + kanbanStageCounts.hold + kanbanStageCounts.defend + kanbanStageCounts.trim + kanbanStageCounts.exit;
   const hasKanbanData = kanbanActiveCount > 0;
-  const traderActionableCount = (kanbanStageCounts.enter || 0) + (kanbanStageCounts.trim || 0) + (kanbanStageCounts.defend || 0) + (kanbanStageCounts.exit || 0);
-  const traderHoldCount = kanbanStageCounts.hold || 0;
-  const investorTotalCount = (() => {
-    try {
-      const etfSet = new Set(["GRNY", "GRNJ", "GLD", "TLT", "DXY"]);
-      const ttSet = new Set(Array.isArray(tickers) ? tickers.map(t => normTicker(t?.ticker)) : []);
-      let n = 0;
-      for (const sym of etfSet) if (ttSet.has(sym)) n++;
-      n += Array.isArray(savedTickers) ? savedTickers.length : 0;
-      return n;
-    } catch (_) {
-      return 0;
-    }
-  })();
   const [snap, setSnap] = React.useState(() => {
     try {
       const raw = localStorage.getItem(storageKey);
@@ -14636,6 +14622,56 @@ function App() {
     }
     return filtered;
   }, [data, effectiveFilters, trades, socialAdditions, timeTravelTickers, savedTickers, activeInsightTickers]);
+  const _appKanbanCounts = useMemo(() => {
+    const counts = {
+      setup: 0,
+      enter: 0,
+      hold: 0,
+      defend: 0,
+      trim: 0,
+      exit: 0
+    };
+    const tradeByTicker = new Map();
+    if (Array.isArray(trades)) {
+      for (const t of trades) {
+        const sym = String(t?.ticker || "").toUpperCase();
+        if (!sym) continue;
+        if (!tradeByTicker.has(sym) || !tradeByTicker.get(sym)?.exit_ts) {
+          tradeByTicker.set(sym, t);
+        }
+      }
+    }
+    (tickers || []).forEach(t => {
+      let stage = String(t?.kanban_stage || "").toLowerCase();
+      const sym = String(t?.ticker || "").toUpperCase();
+      const trade = tradeByTicker.get(sym);
+      if (trade) {
+        const st = String(trade.status || "").toUpperCase();
+        const trimPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
+        const isClosed = st === "WIN" || st === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs) || trimPct >= 0.9999;
+        const isOpen = !isClosed && (st === "OPEN" || st === "TP_HIT_TRIM" || !st);
+        if (isOpen) {
+          if (st === "TP_HIT_TRIM" || trimPct > 0) stage = "trim";else if (!["defend", "trim", "exit", "hold", "active", "just_entered"].includes(stage)) stage = "hold";
+        }
+      }
+      if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") counts.setup++;else if (stage === "in_review" || stage === "enter" || stage === "enter_now" || stage === "just_flipped") counts.enter++;else if (stage === "active" || stage === "just_entered" || stage === "hold") counts.hold++;else if (stage === "defend") counts.defend++;else if (stage === "trim") counts.trim++;else if (stage === "exit") counts.exit++;
+    });
+    return counts;
+  }, [tickers, trades]);
+  const traderActionableCount = (_appKanbanCounts.enter || 0) + (_appKanbanCounts.trim || 0) + (_appKanbanCounts.defend || 0) + (_appKanbanCounts.exit || 0);
+  const traderHoldCount = _appKanbanCounts.hold || 0;
+  const investorTotalCount = useMemo(() => {
+    try {
+      const etfSet = new Set(["GRNY", "GRNJ", "GLD", "TLT", "DXY"]);
+      const ttSet = new Set(Array.isArray(tickers) ? tickers.map(t => normTicker(t?.ticker)) : []);
+      let n = 0;
+      for (const sym of etfSet) if (ttSet.has(sym)) n++;
+      n += Array.isArray(savedTickers) ? savedTickers.length : 0;
+      return n;
+    } catch (_) {
+      return 0;
+    }
+  }, [tickers, savedTickers]);
   const bubbleMapTickers = useMemo(() => {
     let filtered = timeTravelTickers !== null ? timeTravelTickers : applyFilters(data, bubbleMapFilters, trades, socialAdditions, savedTickers);
     if (activeInsightTickers) {
