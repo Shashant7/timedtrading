@@ -226,6 +226,18 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_phase_c_hard_cap_per_bar",
   "deep_audit_phase_c_hard_cap_per_cycle",
   "deep_audit_phase_c_quality_score_min",
+  // ─────────────────────────────────────────────────────────────────────
+  // V15 P0.7.26 (2026-04-30) — adverse-divergence dead-money cut
+  // Trades entered with adverse RSI or phase divergence + MFE never
+  // reaches threshold by max_hours → force-exit at break-even.
+  // Exit-side; no cascade risk. Counterfactual: 19 trades, all losses,
+  // saves +42pp PnL, WR 67.3% → 82.9%.
+  // ─────────────────────────────────────────────────────────────────────
+  "deep_audit_adv_div_dead_money_enabled",
+  "deep_audit_adv_div_dead_money_min_hours",
+  "deep_audit_adv_div_dead_money_max_hours",
+  "deep_audit_adv_div_dead_money_mfe_floor_pct",
+  "deep_audit_adv_div_dead_money_exempt_paths",
   // V13 Focus Tier (2026-04-24): intrinsic conviction score — see
   // tasks/v13-focus-tier-strategy-2026-04-24.md
   "deep_audit_focus_tier_enabled",

@@ -7357,6 +7357,82 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           const _tickerSymUpper = String(tickerData?.ticker || "").toUpperCase();
           const _isPrecisionETF = _etfPrecisionEnabled && _etfPrecisionTickers.includes(_tickerSymUpper);
 
+          // ──────────────────────────────────────────────────────────────
+          // V15 P0.7.26 (2026-04-30) — ADVERSE-DIV DEAD-MONEY CUT
+          //
+          // Trades that entered with adverse divergence (RSI or phase) AND
+          // failed to reach +1% MFE within first 4 hours are systematic
+          // losers. Counterfactual on v16-baseline-ctx (101 trades):
+          //   "any adverse div + MFE < 1.0% in first 4h" caught 19 trades,
+          //   ALL 19 were losses, total -42.39pp. Net Δ if exited at BE
+          //   (~0%) instead of letting them run: +42.39pp PnL (no winner
+          //   cost). WR jumps 67.3% → 82.9% on the surviving cohort.
+          //
+          // Why this is exit-side, not entry-side: removing the trade
+          // entirely would free a slot that fills with an alternative
+          // (cascade). Capping at BE preserves the slot allocation —
+          // no cascade risk. Same trade just exits earlier with smaller
+          // damage.
+          //
+          // Why MFE<1% over 4h is the cohort cutoff: F4 (BOTH RSI+phase
+          // div) trades that reached +2% MFE became wins (FIX +2.20%,
+          // LRCX +2.55%); those that didn't, all lost. Broader "any
+          // adverse div" cohort follows the same pattern at +1% MFE.
+          //
+          // Tunable via DA keys; default ON. tt_gap_reversal_long is
+          // exempt because gap-reversals can move slowly then explode.
+          //
+          // See: tasks/2026-04-29-cascade-lessons.md (Option 2 winner)
+          //      tasks/phase-c-validation-2026-04-29.md
+          // ──────────────────────────────────────────────────────────────
+          {
+            const _admEnabled = String(
+              tickerData?._env?._deepAuditConfig?.deep_audit_adv_div_dead_money_enabled ?? "true"
+            ) === "true";
+            const _admMinHrs = Number(
+              tickerData?._env?._deepAuditConfig?.deep_audit_adv_div_dead_money_min_hours ?? 4
+            );
+            const _admMaxHrs = Number(
+              tickerData?._env?._deepAuditConfig?.deep_audit_adv_div_dead_money_max_hours ?? 8
+            );
+            const _admMfeFloor = Number(
+              tickerData?._env?._deepAuditConfig?.deep_audit_adv_div_dead_money_mfe_floor_pct ?? 1.0
+            );
+            const _admExemptPaths = String(
+              tickerData?._env?._deepAuditConfig?.deep_audit_adv_div_dead_money_exempt_paths
+              ?? "tt_gap_reversal_long,tt_gap_reversal_short"
+            ).split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+            // Pull the entry-time signal flags stamped on the trade (P0.7.26)
+            const _admSignals = openPosition?.entrySignals || openPosition?.entry_signals || null;
+            const _admEntryPath = String(openPosition?.entryPath || openPosition?.entry_path || "").toLowerCase();
+            const _admEligible = _admEnabled
+              && _admSignals
+              && (_admSignals.has_adverse_rsi_div || _admSignals.has_adverse_phase_div)
+              && !_admExemptPaths.includes(_admEntryPath)
+              && !_isPrecisionETF
+              && !tickerData?.__v12_winner_protect_active
+              && _agH >= _admMinHrs && _agH < _admMaxHrs
+              && _mfeAbs < _admMfeFloor;
+            if (_admEligible) {
+              // Force-exit at break-even (or current price, whichever is closer
+              // to BE; the engine handles "exit at current price" via the exit
+              // lane — we just signal it).
+              tickerData.__exit_reason = "adv_div_dead_money_be_cut";
+              tickerData.__exit_family = "safety";
+              tickerData.__exit_meta = {
+                age_hrs: Math.round(_agH * 10) / 10,
+                mfe_pct: _mfeAbs,
+                pnl_pct: pnlPct,
+                f4: !!_admSignals.is_f4_severe,
+                adv_rsi: !!_admSignals.has_adverse_rsi_div,
+                adv_phase: !!_admSignals.has_adverse_phase_div,
+                adv_phase_tf: _admSignals.adverse_phase_strongest_tf,
+              };
+              console.log(`[ADV_DIV_BE_CUT] ${tickerData?.ticker} age=${_agH.toFixed(1)}h mfe=${_mfeAbs.toFixed(2)}% pnl=${pnlPct.toFixed(2)}% f4=${_admSignals.is_f4_severe} adv_rsi=${_admSignals.has_adverse_rsi_div} adv_phase=${_admSignals.has_adverse_phase_div}`);
+              return "exit";
+            }
+          }
+
           // Tier 0 (V12): immediate disaster — older than min_age_hours,
           // pnl already red past _p1MaxMaePct, zero MFE. Precision ETFs
           // skip this entirely (they get their own min_hold guard).
@@ -14332,6 +14408,11 @@ async function processTradeSimulation(
           maxAdverseExcursion: Number(openTrade.maxAdverseExcursion ?? openTrade.max_adverse_excursion ?? openTrade.maePct) || 0,
           trimmedPct: Number(openTrade.trimmedPct ?? openTrade.trimmed_pct) || 0,
           shares: Number(openTrade.shares ?? openTrade.qty) || 0,
+          // V15 P0.7.26 — propagate entry-time signal flags so exit-side
+          // modulators (adv-div dead-money cut etc.) can read them
+          entrySignals: openTrade.entrySignals || openTrade.entry_signals || null,
+          entryPath: openTrade.entryPath || openTrade.entry_path || null,
+          entry_path: openTrade.entry_path || openTrade.entryPath || null,
           __tradeRef: openTrade,
         };
       }
@@ -19366,6 +19447,47 @@ async function processTradeSimulation(
               gradeScore,
               estimated_peak_hours: tickerData?.__timeToTarget?.estimatedPeakHours || null,
               estimated_peak_bars: tickerData?.__timeToTarget?.estimatedPeakBars || null,
+              // V15 P0.7.26 (2026-04-30) — Capture entry-time signal state for
+              // exit-side modulation. Today's lesson: entry-side filters
+              // cascade (slot reshuffle); exit-side modulation does not
+              // because the same ticker stays in the same slot. We stamp
+              // divergence + TD + PDZ flags HERE so exit logic can read them
+              // without re-parsing rank_trace_json.
+              //
+              // Used by: dead-money fast-cut for adverse-divergence trades
+              // (see classifyKanbanStage / phase_i_adv_div_dead_money_cut).
+              entrySignals: (() => {
+                const _div = tickerData?.__entry_divergence_summary || {};
+                const _advRsi = Number((_div.adverse_rsi || {}).count) || 0;
+                const _advPhase = Number((_div.adverse_phase || {}).count) || 0;
+                const _advPhaseStrongTf = String(((_div.adverse_phase || {}).strongest || {}).tf || "").toLowerCase();
+                const _td = tickerData?.td_sequential?.per_tf || {};
+                const _isLong = direction === "LONG";
+                const _adverseTd9Key = _isLong ? "td9_bear" : "td9_bull";
+                const _adversePrepKey = _isLong ? "bear_prep" : "bull_prep";
+                return {
+                  // Divergence summary at entry
+                  has_adverse_rsi_div: _advRsi >= 1,
+                  has_adverse_phase_div: _advPhase >= 1,
+                  is_f4_severe: _advRsi >= 1 && _advPhase >= 1,
+                  adverse_phase_strongest_tf: _advPhaseStrongTf || null,
+                  // TD at entry — useful for exit-side decisions
+                  daily_td9_adverse: !!(_td.D || {})[_adverseTd9Key],
+                  daily_adverse_prep: Number((_td.D || {})[_adversePrepKey]) || 0,
+                  fourh_adverse_prep: Number((_td["240"] || {})[_adversePrepKey]) || 0,
+                  // PDZ at entry
+                  pdz_d: tickerData?.pdz_zone_D || null,
+                  pdz_4h: tickerData?.pdz_zone_4h || null,
+                  // Personality
+                  personality: String(
+                    tickerData?._ticker_profile?.learning?.personality
+                    || tickerData?.ticker_character?.learned_profile?.personality
+                    || tickerData?.ticker_character?.personality
+                    || tickerData?.execution_profile?.personality
+                    || ""
+                  ).toUpperCase() || null,
+                };
+              })(),
               sectorAtEntry: (() => {
                 const sa = getSectorAlignmentCached(sym);
                 return sa ? { sector: sa.sector, aligned: sa.aligned, direction: sa.direction, strength: sa.strength } : null;
