@@ -125,7 +125,7 @@ read -r -d '' PAYLOAD <<'JSON' || true
 
     { "key": "deep_audit_runner_protect_healthy_enabled", "value": "false" },
 
-    { "key": "deep_audit_td9_fragile_be_lock_enabled", "value": "true" },
+    { "key": "deep_audit_td9_fragile_be_lock_enabled", "value": "false" },
     { "key": "deep_audit_td9_fragile_tp1_tighten_enabled", "value": "false" },
 
     { "key": "deep_audit_stagnant_deferral_max_days", "value": "14" },
