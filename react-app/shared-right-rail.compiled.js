@@ -3721,11 +3721,16 @@
           const currentMove = dir === "LONG" ? price - slVal : slVal - price;
           return Math.max(0, Math.min(1, currentMove / totalMove));
         };
+        // V15 P0.7.37 (2026-04-30): user-friendly tier labels.
+        // Was: "Take Profit 1 (Trim 60%)", "Take Profit 2 (Exit 85%)", "Take Profit 3 (Runner)".
+        // Now: "First Target — Lock in 60% gains", "Main Target — Lock in 85%", "Stretch Target — Let runners run".
+        // Tooltip on each card explains exact mechanics for power users.
         const tierCards = [{
           tp: tpTrim,
           rr: rrTrim,
-          label: "Take Profit 1",
-          sub: "Trim 60%",
+          label: "First Target",
+          sub: "Lock in early gains",
+          tip: "Trim 60% of the position to capture initial profit and reduce risk on the rest.",
           icon: "🎯",
           bg: "bg-yellow-500/10",
           border: "border-yellow-500/30",
@@ -3733,8 +3738,9 @@
         }, {
           tp: tpExit,
           rr: rrExit,
-          label: "Take Profit 2",
-          sub: "Exit 85%",
+          label: "Main Target",
+          sub: "Lock in main profit",
+          tip: "Trim down to 15% remaining — capture the bulk of the win and let a small runner ride.",
           icon: "💰",
           bg: "bg-orange-500/10",
           border: "border-orange-500/30",
@@ -3742,8 +3748,9 @@
         }, {
           tp: tpRunner,
           rr: rrRunner,
-          label: "Take Profit 3",
-          sub: "Runner",
+          label: "Stretch Target",
+          sub: "Let runners run",
+          tip: "Final exit on remaining 15% — captures extended moves when the trade keeps working.",
           icon: "🚀",
           bg: "bg-teal-500/10",
           border: "border-teal-500/30",
@@ -3752,14 +3759,15 @@
         return /*#__PURE__*/React.createElement("div", {
           className: "mb-4 space-y-2"
         }, /*#__PURE__*/React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] font-semibold uppercase tracking-wider"
+          className: "text-[10px] text-[#6b7280] font-semibold uppercase tracking-wider",
+          title: "Where the system would exit if right (Take Profit) or wrong (Stop Loss). Distances and R:R show how much room each side has."
         }, "Risk / Reward Levels"), hasSl && /*#__PURE__*/React.createElement("div", {
           className: "space-y-1.5"
         }, (() => {
           const slFromKijun = Number.isFinite(kijunSL) && kijunSL > 0 && slRaw === kijunSL;
           return /*#__PURE__*/React.createElement("div", {
             className: `p-2.5 rounded border flex items-center justify-between ${tslActive ? "bg-white/[0.02] border-white/[0.08]" : "bg-red-500/10 border-red-500/30"}`,
-            title: slFromKijun ? "Kijun-Sen (Ichimoku Cloud) reference" : undefined
+            title: slFromKijun ? "Stop Loss anchored at Kijun-Sen — a key swing-low support level. If price breaks this, the trade thesis is invalidated." : "Stop Loss — exit price if the trade goes wrong. The distance from entry to here is your risk per share."
           }, /*#__PURE__*/React.createElement("span", {
             className: `text-xs font-semibold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`
           }, "Stop Loss", slFromKijun ? " (Kijun)" : ""), /*#__PURE__*/React.createElement("div", {
@@ -3774,11 +3782,11 @@
             className: "text-[9px] text-[#4b5563]"
           }, "original")));
         })(), tslActive && /*#__PURE__*/React.createElement("div", {
-          className: "p-2.5 rounded border bg-red-500/10 border-red-500/30 flex items-center justify-between"
+          className: "p-2.5 rounded border bg-red-500/10 border-red-500/30 flex items-center justify-between",
+          title: "Trailing Stop \u2014 moves up with price to lock in profit. Original Stop Loss is shown above (in gray) for reference."
         }, /*#__PURE__*/React.createElement("span", {
-          className: "text-xs font-semibold text-red-400",
-          title: "Trailing Stop Loss"
-        }, "TSL"), /*#__PURE__*/React.createElement("span", {
+          className: "text-xs font-semibold text-red-400"
+        }, "Trailing Stop"), /*#__PURE__*/React.createElement("span", {
           className: "text-xs font-bold text-red-400"
         }, "$", sl.toFixed(2)), Number.isFinite(slDistPct) && /*#__PURE__*/React.createElement("span", {
           className: "text-[9px] text-red-300/70"
@@ -3788,7 +3796,8 @@
           const progress = getProgressToTp(tier.tp);
           return /*#__PURE__*/React.createElement("div", {
             key: idx,
-            className: `p-2.5 rounded border ${tier.bg} ${tier.border}`
+            className: `p-2.5 rounded border ${tier.bg} ${tier.border}`,
+            title: tier.tip
           }, /*#__PURE__*/React.createElement("div", {
             className: "flex justify-between items-center mb-1.5"
           }, /*#__PURE__*/React.createElement("div", {
@@ -3799,7 +3808,7 @@
             className: `text-xs font-semibold ${tier.text}`
           }, tier.label), /*#__PURE__*/React.createElement("span", {
             className: "text-[10px] text-[#6b7280]"
-          }, "(", tier.sub, ")")), /*#__PURE__*/React.createElement("div", {
+          }, tier.sub)), /*#__PURE__*/React.createElement("div", {
             className: "flex items-center gap-2"
           }, /*#__PURE__*/React.createElement("span", {
             className: `text-xs font-bold ${tier.text}`
@@ -4450,7 +4459,8 @@
       })(), rankTotal > 0 && /*#__PURE__*/React.createElement("div", {
         className: "flex justify-between items-center py-1 border-b border-white/[0.06]/50"
       }, /*#__PURE__*/React.createElement("span", {
-        className: "text-[#6b7280]"
+        className: "text-[#6b7280]",
+        title: "Rank: where this ticker stands among all tracked names today. Lower number = stronger setup. Updates after each scoring cycle."
       }, "Rank"), /*#__PURE__*/React.createElement("span", {
         className: "font-semibold"
       }, rankPosition > 0 ? `#${rankPosition} of ${rankTotal}` : "—", rankAsOfText && /*#__PURE__*/React.createElement("span", {

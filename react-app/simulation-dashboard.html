@@ -7911,7 +7911,7 @@
 
                 {/* ═══ Performance Overview — Monthly + Setup Breakdown + P&L Calendar ═══ */}
                 {/* V15 P0.7.36 (2026-04-30): self-contained component loaded via window.TradesPerformanceFactory */}
-                <div className={`${selectedTicker || selectedTrade ? "mr-[470px]" : ""}`}>
+                <div className={`${selectedTicker || selectedTrade ? "mr-[470px] xl:mr-[580px]" : ""}`}>
                   <PerformanceOverviewSection
                     trades={ledgerFilteredTrades || []}
                     loading={(ledgerTrades ?? {}).loading}
@@ -7919,7 +7919,7 @@
                 </div>
 
                 {/* ═══ Dual-Column Layout: Active Trader | Investor ═══ */}
-                <div className={`${selectedTicker || selectedTrade ? "mr-[470px]" : ""}`}>
+                <div className={`${selectedTicker || selectedTrade ? "mr-[470px] xl:mr-[580px]" : ""}`}>
 
                   {/* Mobile: Tab toggle (hidden on lg+) */}
                   <div className="flex items-center gap-1 mb-4 border-b border-[var(--tt-border)] lg:hidden">
@@ -8002,9 +8002,12 @@
                   </div>
                 </div>
 
-                  {/* Right rail — same component and look as Dashboard */}
+                  {/* Right rail — same component and look as Dashboard
+                       V15 P0.7.37: wider on xl+ screens (560px) for better readability;
+                       desktop-only (lg:) keeps 450px; mobile is full-width via the
+                       investor-dashboard pattern. */}
                   {(selectedTicker || selectedTrade) && !modalOnly && (
-                    <div className="fixed right-0 top-[49px] w-[450px] bottom-0 z-40 slide-in-right shadow-2xl overflow-y-auto bg-[#0b0e11] border-l border-white/[0.04]">
+                    <div className="fixed right-0 top-[49px] w-[450px] xl:w-[560px] bottom-0 z-40 slide-in-right shadow-2xl overflow-y-auto bg-[#0b0e11] border-l border-white/[0.04]">
                       <TickerDetailsLoader
                         tickerSymbol={selectedTrade ? selectedTrade.ticker : selectedTicker}
                         trade={selectedTrade}

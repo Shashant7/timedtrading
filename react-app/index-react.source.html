@@ -18886,7 +18886,7 @@
                       {/* Bubble Chart - Center Hero (flexible, takes remaining space) */}
                       <div
                         className={`relative w-full lg:flex-1 lg:min-w-0 lg:h-full flex flex-col transition-[margin] duration-300 ${
-                          selectedTicker ? "lg:mr-[470px]" : ""
+                          selectedTicker ? "lg:mr-[540px] xl:mr-[620px]" : ""
                         }`}
                       >
                         {/* Bubble Chart Legend — Analysis view */}
@@ -19115,7 +19115,7 @@
                           onMouseDown={() => handleTickerSelect(null)}
                         />
                         <div
-                          className="fixed right-0 top-[60px] sm:top-[52px] w-full sm:w-[520px] bottom-[64px] sm:bottom-[56px] bg-[#0b0e11] border-l border-white/[0.04] z-40 slide-in-right shadow-xl overflow-y-auto"
+                          className="fixed right-0 top-[60px] sm:top-[52px] w-full sm:w-[520px] xl:w-[600px] bottom-[64px] sm:bottom-[56px] bg-[#0b0e11] border-l border-white/[0.04] z-40 slide-in-right shadow-xl overflow-y-auto"
                           onMouseDown={(e) => e.stopPropagation()}
                         >
                           <OverlayPortal

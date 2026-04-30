@@ -15749,7 +15749,7 @@ function App() {
     toggleSavedTicker: toggleSavedTicker,
     addingTicker: userTickers.addingTicker
   })), React.createElement("div", {
-    className: `relative w-full lg:flex-1 lg:min-w-0 lg:h-full flex flex-col transition-[margin] duration-300 ${selectedTicker ? "lg:mr-[470px]" : ""}`
+    className: `relative w-full lg:flex-1 lg:min-w-0 lg:h-full flex flex-col transition-[margin] duration-300 ${selectedTicker ? "lg:mr-[540px] xl:mr-[620px]" : ""}`
   }, React.createElement("div", {
     className: "px-3 py-2 mb-1 rounded-lg border border-white/[0.06] bg-white/[0.02]",
     "data-coachmark": "bubble-chart"
@@ -16051,7 +16051,7 @@ function App() {
     className: "fixed inset-0 z-30",
     onMouseDown: () => handleTickerSelect(null)
   }), React.createElement("div", {
-    className: "fixed right-0 top-[60px] sm:top-[52px] w-full sm:w-[520px] bottom-[64px] sm:bottom-[56px] bg-[#0b0e11] border-l border-white/[0.04] z-40 slide-in-right shadow-xl overflow-y-auto",
+    className: "fixed right-0 top-[60px] sm:top-[52px] w-full sm:w-[520px] xl:w-[600px] bottom-[64px] sm:bottom-[56px] bg-[#0b0e11] border-l border-white/[0.04] z-40 slide-in-right shadow-xl overflow-y-auto",
     onMouseDown: e => e.stopPropagation()
   }, React.createElement(OverlayPortal, {
     selectedTicker: selectedTicker,
