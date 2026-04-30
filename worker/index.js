@@ -857,6 +857,9 @@ const ROUTES = [
   ["GET", "/timed/etf/groups", "GET /timed/etf/groups"],
   ["GET", (p) => /^\/timed\/etf\/holdings\/[A-Z]+$/i.test(p), "GET /timed/etf/holdings/:symbol"],
   ["POST", "/timed/etf/sync", "POST /timed/etf/sync"],
+  ["GET", "/timed/etf/history", "GET /timed/etf/history"],
+  ["GET", "/timed/etf/core-ideas", "GET /timed/etf/core-ideas"],
+  ["POST", "/timed/etf/core-ideas", "POST /timed/etf/core-ideas"],
   // ── Email ──
   ["GET", "/timed/email/unsubscribe", "GET /timed/email/unsubscribe"],
   ["GET", "/timed/email/preferences", "GET /timed/email/preferences"],
@@ -26064,6 +26067,198 @@ async function d1EnsureBacktestRunsSchema(env) {
     _backtestRunsSchemaReady = true;
   } catch (e) {
     console.error("[BACKTEST RUNS] Schema migration failed:", String(e).slice(0, 200));
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// V15 P0.7.30 (2026-04-30) — Phase 2: ETF rebalance history + Core Ideas
+//
+// `etf_holdings.js` already auto-syncs GRNY/GRNJ/GRNI from grannyshots.com
+// and overwrites a single KV doc per ETF. That gives us "current" but no
+// historical record — backtests before today see today's holdings, not
+// the holdings that were live then.
+//
+// Two append-only D1 tables:
+//   etf_rebalance_history — one row per ETF per snapshot date
+//   etf_core_ideas — Top-5/Bottom-5 picks from monthly Fundstrat Direct
+//                    decks (different from broader ETF holdings)
+//
+// Lookup contracts (Phase 2 follow-up):
+//   getETFHoldingsAsOf(etf, date) → most recent rebalance with effective_date <= date
+//   getCoreIdeasAsOf(date) → Top/Bottom 5 active at date
+// ─────────────────────────────────────────────────────────────────────────
+let _etfHistorySchemaReady = false;
+async function d1EnsureEtfHistorySchema(env) {
+  if (_etfHistorySchemaReady) return;
+  const db = env?.DB;
+  if (!db) return;
+  try {
+    await db.batch([
+      db.prepare(`CREATE TABLE IF NOT EXISTS etf_rebalance_history (
+        etf_symbol TEXT NOT NULL,
+        snapshot_date TEXT NOT NULL,
+        captured_at INTEGER NOT NULL,
+        source_label TEXT,
+        source_url TEXT,
+        holdings_json TEXT NOT NULL,
+        ticker_count INTEGER DEFAULT 0,
+        diff_added_json TEXT,
+        diff_removed_json TEXT,
+        diff_reweighted_json TEXT,
+        is_rebalance INTEGER DEFAULT 0,
+        PRIMARY KEY (etf_symbol, snapshot_date)
+      )`),
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_etf_history_symbol_date ON etf_rebalance_history(etf_symbol, snapshot_date DESC)`),
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_etf_history_rebalance ON etf_rebalance_history(is_rebalance, snapshot_date DESC)`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS etf_core_ideas (
+        period_label TEXT NOT NULL,
+        period_date TEXT NOT NULL,
+        captured_at INTEGER NOT NULL,
+        source_label TEXT,
+        bucket TEXT NOT NULL,
+        ticker TEXT NOT NULL,
+        rank INTEGER NOT NULL,
+        notes TEXT,
+        PRIMARY KEY (period_label, bucket, ticker)
+      )`),
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_etf_core_ideas_date ON etf_core_ideas(period_date DESC)`),
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_etf_core_ideas_ticker ON etf_core_ideas(ticker, period_date DESC)`),
+    ]);
+    _etfHistorySchemaReady = true;
+  } catch (e) {
+    console.error("[ETF HISTORY] Schema migration failed:", String(e).slice(0, 200));
+  }
+}
+
+/**
+ * persistEtfHistorySnapshot(env, args)
+ * Append-only writer: one row per ETF per snapshot_date in
+ * etf_rebalance_history. INSERT OR REPLACE so multi-syncs same day
+ * just update the latest captured_at (idempotent).
+ */
+async function persistEtfHistorySnapshot(env, args = {}) {
+  const db = env?.DB;
+  if (!db) return;
+  await d1EnsureEtfHistorySchema(env);
+  const {
+    etf_symbol,
+    snapshot_date,
+    source_label,
+    source_url,
+    holdings,
+    count,
+    diff,
+  } = args || {};
+  if (!etf_symbol || !snapshot_date || !Array.isArray(holdings)) return;
+  const now = Date.now();
+  const isRebalance = !!(diff && diff.hasChanges);
+  try {
+    await db.prepare(
+      `INSERT OR REPLACE INTO etf_rebalance_history
+       (etf_symbol, snapshot_date, captured_at, source_label, source_url,
+        holdings_json, ticker_count, diff_added_json, diff_removed_json,
+        diff_reweighted_json, is_rebalance)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`
+    ).bind(
+      String(etf_symbol).toUpperCase(),
+      String(snapshot_date).slice(0, 10),
+      now,
+      source_label || null,
+      source_url || null,
+      JSON.stringify(holdings),
+      Number(count) || holdings.length,
+      diff && Array.isArray(diff.added) && diff.added.length ? JSON.stringify(diff.added) : null,
+      diff && Array.isArray(diff.removed) && diff.removed.length ? JSON.stringify(diff.removed) : null,
+      diff && Array.isArray(diff.reweighted) && diff.reweighted.length ? JSON.stringify(diff.reweighted) : null,
+      isRebalance ? 1 : 0,
+    ).run();
+  } catch (e) {
+    console.warn("[ETF HISTORY] persistEtfHistorySnapshot failed:", String(e).slice(0, 200));
+  }
+}
+
+/**
+ * getETFHoldingsAsOf(env, etfSymbol, dateStr)
+ * Returns the most recent rebalance snapshot with snapshot_date <= dateStr.
+ * @param {string} etfSymbol - 'GRNY' | 'GRNJ' | 'GRNI'
+ * @param {string} dateStr - ISO date 'YYYY-MM-DD' or epoch ms
+ * @returns {Promise<{snapshot_date, holdings: Array, ticker_count, source_label} | null>}
+ */
+async function getETFHoldingsAsOf(env, etfSymbol, dateStr) {
+  const db = env?.DB;
+  if (!db || !etfSymbol || !dateStr) return null;
+  try {
+    await d1EnsureEtfHistorySchema(env);
+    const date = typeof dateStr === "number"
+      ? new Date(dateStr).toISOString().slice(0, 10)
+      : String(dateStr).slice(0, 10);
+    const row = await db.prepare(
+      `SELECT etf_symbol, snapshot_date, captured_at, holdings_json, ticker_count, source_label, source_url, is_rebalance
+       FROM etf_rebalance_history
+       WHERE etf_symbol = ?1 AND snapshot_date <= ?2
+       ORDER BY snapshot_date DESC LIMIT 1`
+    ).bind(String(etfSymbol).toUpperCase(), date).first();
+    if (!row) return null;
+    let holdings = [];
+    try { holdings = JSON.parse(row.holdings_json || "[]"); } catch {}
+    return {
+      etf_symbol: row.etf_symbol,
+      snapshot_date: row.snapshot_date,
+      captured_at: row.captured_at,
+      holdings,
+      ticker_count: row.ticker_count,
+      source_label: row.source_label,
+      source_url: row.source_url,
+      is_rebalance: !!row.is_rebalance,
+    };
+  } catch (e) {
+    console.error("[ETF HISTORY] getETFHoldingsAsOf failed:", String(e).slice(0, 200));
+    return null;
+  }
+}
+
+/**
+ * getCoreIdeasAsOf(env, dateStr)
+ * Returns the Top/Bottom 5 Core Ideas active at the given date — most recent
+ * period_date with period_date <= dateStr.
+ * @returns {Promise<{period_label, period_date, large_cap_top: [], large_cap_bottom: [], smid_top: [], smid_bottom: []} | null>}
+ */
+async function getCoreIdeasAsOf(env, dateStr) {
+  const db = env?.DB;
+  if (!db || !dateStr) return null;
+  try {
+    await d1EnsureEtfHistorySchema(env);
+    const date = typeof dateStr === "number"
+      ? new Date(dateStr).toISOString().slice(0, 10)
+      : String(dateStr).slice(0, 10);
+    // Find latest period_date <= date
+    const periodRow = await db.prepare(
+      `SELECT period_label, period_date FROM etf_core_ideas
+       WHERE period_date <= ?1
+       ORDER BY period_date DESC LIMIT 1`
+    ).bind(date).first();
+    if (!periodRow) return null;
+    const { results: rows } = await db.prepare(
+      `SELECT bucket, ticker, rank, notes FROM etf_core_ideas
+       WHERE period_label = ?1
+       ORDER BY bucket, rank ASC`
+    ).bind(periodRow.period_label).all();
+    const out = {
+      period_label: periodRow.period_label,
+      period_date: periodRow.period_date,
+      large_cap_top: [],
+      large_cap_bottom: [],
+      smid_top: [],
+      smid_bottom: [],
+    };
+    for (const r of (rows || [])) {
+      const k = r.bucket;
+      if (out[k]) out[k].push({ ticker: r.ticker, rank: r.rank, notes: r.notes });
+    }
+    return out;
+  } catch (e) {
+    console.error("[ETF HISTORY] getCoreIdeasAsOf failed:", String(e).slice(0, 200));
+    return null;
   }
 }
 
@@ -57174,8 +57369,99 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const result = await syncAllETFHoldings(env, {
             notifyDiscord,
             addToUniverse: (env2, tickers, wMap) => etfAutoAddTickers(env2, tickers, wMap, ctx),
+            persistHistory: persistEtfHistorySnapshot,
           });
           return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/etf/history?etf=GRNY&date=2026-04-15&key=...
+      // Returns the ETF holdings snapshot active on the given date
+      // (most recent snapshot_date <= date). Used by backtests to pull
+      // historically-correct ETF membership.
+      if (routeKey === "GET /timed/etf/history") {
+        try {
+          const etf = String(url.searchParams.get("etf") || "").toUpperCase();
+          const date = url.searchParams.get("date") || new Date().toISOString().slice(0, 10);
+          const limit = Math.max(1, Math.min(50, Number(url.searchParams.get("limit") || "1")));
+          if (!etf) {
+            return sendJSON({ ok: false, error: "etf query param required (GRNY|GRNJ|GRNI)" }, 400, corsHeaders(env, req));
+          }
+          if (limit === 1) {
+            const snap = await getETFHoldingsAsOf(env, etf, date);
+            return sendJSON({ ok: true, snap }, 200, corsHeaders(env, req));
+          }
+          // Multiple history rows
+          await d1EnsureEtfHistorySchema(env);
+          const { results } = await env.DB.prepare(
+            `SELECT etf_symbol, snapshot_date, captured_at, ticker_count, source_label, source_url, is_rebalance
+             FROM etf_rebalance_history
+             WHERE etf_symbol = ?1 AND snapshot_date <= ?2
+             ORDER BY snapshot_date DESC LIMIT ?3`
+          ).bind(etf, date, limit).all();
+          return sendJSON({ ok: true, snapshots: results || [] }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/etf/core-ideas?date=2026-04-15&key=...
+      // Returns the Top/Bottom 5 Core Ideas (large_cap_top, large_cap_bottom,
+      // smid_top, smid_bottom) active on the given date.
+      if (routeKey === "GET /timed/etf/core-ideas") {
+        try {
+          const date = url.searchParams.get("date") || new Date().toISOString().slice(0, 10);
+          const ideas = await getCoreIdeasAsOf(env, date);
+          return sendJSON({ ok: true, ideas }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/etf/core-ideas (admin only)
+      // Body: { period_label: "apr-2026", period_date: "2026-04-23",
+      //   source_label: "Fundstrat Direct Apr 2026 Market Update",
+      //   large_cap_top: ["AMD","ANET","AVGO","BK","GS"],
+      //   large_cap_bottom: ["PKG","VST","GE","PPG","NOC"],
+      //   smid_top: ["IESC","STRL","FIX","CRS","LITE"],
+      //   smid_bottom: ["ARRY","ELF","GLXY","CARR","KTOS"]
+      // }
+      if (routeKey === "POST /timed/etf/core-ideas") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const body = await req.json().catch(() => ({}));
+          const periodLabel = String(body.period_label || "").trim();
+          const periodDate = String(body.period_date || "").slice(0, 10);
+          const sourceLabel = String(body.source_label || "").trim() || null;
+          if (!periodLabel || !periodDate) {
+            return sendJSON({ ok: false, error: "period_label and period_date required" }, 400, corsHeaders(env, req));
+          }
+          await d1EnsureEtfHistorySchema(env);
+          const now = Date.now();
+          const buckets = [
+            ["large_cap_top", body.large_cap_top],
+            ["large_cap_bottom", body.large_cap_bottom],
+            ["smid_top", body.smid_top],
+            ["smid_bottom", body.smid_bottom],
+          ];
+          let inserted = 0;
+          for (const [bucket, list] of buckets) {
+            if (!Array.isArray(list)) continue;
+            for (let i = 0; i < list.length; i++) {
+              const ticker = String(list[i] || "").toUpperCase().trim();
+              if (!ticker) continue;
+              await env.DB.prepare(
+                `INSERT OR REPLACE INTO etf_core_ideas
+                 (period_label, period_date, captured_at, source_label, bucket, ticker, rank, notes)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`
+              ).bind(periodLabel, periodDate, now, sourceLabel, bucket, ticker, i + 1, null).run();
+              inserted++;
+            }
+          }
+          return sendJSON({ ok: true, period_label: periodLabel, inserted }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
         }
@@ -62301,6 +62587,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             const result = await syncAllETFHoldings(env, {
               notifyDiscord,
               addToUniverse: (env2, tickers, wMap) => etfAutoAddTickers(env2, tickers, wMap, ctx),
+              persistHistory: persistEtfHistorySnapshot,
             });
             console.log(`[ETF SYNC CRON] ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)${result.autoAdded?.length ? `, auto-added: ${result.autoAdded.join(",")}` : ""}`);
           } catch (e) {
