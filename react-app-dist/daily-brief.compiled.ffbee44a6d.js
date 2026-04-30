@@ -88,12 +88,20 @@ function BriefInfographic({
     className: "grid grid-cols-1 md:grid-cols-3 gap-2"
   }, indicies.map(idx => {
     const lvls = idx.levels || {};
+    const wlvls = idx.weeklyLevels || null;
     const gg = lvls.goldenGate || "NEUTRAL";
+    const wgg = wlvls?.goldenGate || "NEUTRAL";
+    const dayProb = lvls.goldenGateProbability;
+    const weekProb = wlvls?.goldenGateProbability;
     const anchor = lvls.anchor;
     const cp = lvls.currentPrice ?? idx.price;
     const up382 = lvls.levels?.["+38.2%"];
     const dn382 = lvls.levels?.["-38.2%"];
+    const wUp382 = wlvls?.levels?.["+38.2%"];
+    const wDn382 = wlvls?.levels?.["-38.2%"];
     const barProgress = cp != null && up382 != null && dn382 != null ? Math.max(0, Math.min(100, (cp - dn382) / (up382 - dn382) * 100)) : 50;
+    const wBarProgress = cp != null && wUp382 != null && wDn382 != null ? Math.max(0, Math.min(100, (cp - wDn382) / (wUp382 - wDn382) * 100)) : 50;
+    const probColor = lbl => lbl === "HIGH" ? "#34d399" : lbl === "MODERATE" ? "#fbbf24" : "#9ca3af";
     return React.createElement("div", {
       key: idx.sym,
       className: "p-3 rounded-md bg-white/[0.02] border border-white/[0.06]"
@@ -106,7 +114,7 @@ function BriefInfographic({
       style: {
         color: ggColor(gg)
       }
-    }, gg === "OPEN_UP" ? "▲ Golden Gate Up" : gg === "OPEN_DOWN" ? "▼ Golden Gate Down" : "◆ Neutral")), React.createElement("div", {
+    }, gg === "OPEN_UP" ? "▲ GG Up" : gg === "OPEN_DOWN" ? "▼ GG Down" : "◆ Neutral")), React.createElement("div", {
       className: "flex items-baseline gap-2 mb-2"
     }, React.createElement("span", {
       className: "text-lg font-bold text-white tabular-nums"
@@ -117,7 +125,14 @@ function BriefInfographic({
       }
     }, idx.chgPct != null ? `${idx.chgPct >= 0 ? "+" : ""}${idx.chgPct.toFixed(2)}%` : ""), idx.atr != null && React.createElement("span", {
       className: "ml-auto text-[10px] text-[#6b7280]"
-    }, "ATR $", idx.atr.toFixed(2))), dn382 != null && up382 != null && React.createElement("div", {
+    }, "ATR $", idx.atr.toFixed(2))), React.createElement("div", {
+      className: "text-[9px] uppercase tracking-wider text-[#6b7280] mb-0.5 flex items-center justify-between"
+    }, React.createElement("span", null, "Day Gate"), dayProb && gg !== "NEUTRAL" && React.createElement("span", {
+      className: "tabular-nums",
+      style: {
+        color: probColor(dayProb.dayLabel)
+      }
+    }, (dayProb.day * 100).toFixed(0), "% close \xB7 ", dayProb.dayLabel)), dn382 != null && up382 != null && React.createElement("div", {
       className: "relative h-2 rounded bg-white/[0.05] overflow-hidden mb-1"
     }, React.createElement("div", {
       className: "absolute left-0 top-0 bottom-0",
@@ -134,23 +149,156 @@ function BriefInfographic({
       },
       title: `Prev close ${anchor}`
     })), dn382 != null && up382 != null && React.createElement("div", {
+      className: "flex items-center justify-between text-[9px] text-[#6b7280] tabular-nums mb-2"
+    }, React.createElement("span", null, "-38.2% $", dn382.toFixed(2)), React.createElement("span", null, "+38.2% $", up382.toFixed(2))), wlvls && React.createElement(React.Fragment, null, React.createElement("div", {
+      className: "text-[9px] uppercase tracking-wider text-[#6b7280] mb-0.5 flex items-center justify-between"
+    }, React.createElement("span", {
+      style: {
+        color: ggColor(wgg)
+      }
+    }, "Week Gate ", wgg === "OPEN_UP" ? "▲" : wgg === "OPEN_DOWN" ? "▼" : "◆"), weekProb && wgg !== "NEUTRAL" && React.createElement("span", {
+      className: "tabular-nums",
+      style: {
+        color: probColor(weekProb.weekLabel)
+      }
+    }, (weekProb.week * 100).toFixed(0), "% close \xB7 ", weekProb.weekLabel)), wDn382 != null && wUp382 != null && React.createElement(React.Fragment, null, React.createElement("div", {
+      className: "relative h-1.5 rounded bg-white/[0.05] overflow-hidden mb-1"
+    }, React.createElement("div", {
+      className: "absolute left-0 top-0 bottom-0",
+      style: {
+        width: `${wBarProgress}%`,
+        background: "linear-gradient(90deg, rgba(239,68,68,0.25), rgba(107,114,128,0.15), rgba(52,211,153,0.25))"
+      }
+    })), React.createElement("div", {
       className: "flex items-center justify-between text-[9px] text-[#6b7280] tabular-nums"
-    }, React.createElement("span", null, "-38.2% $", dn382.toFixed(2)), React.createElement("span", null, "+38.2% $", up382.toFixed(2))));
-  })), sectors.length > 0 && React.createElement("div", null, React.createElement("div", {
+    }, React.createElement("span", null, "-38.2% $", wDn382.toFixed(2)), React.createElement("span", null, "+38.2% $", wUp382.toFixed(2))))));
+  })), indicies.some(i => i.levels?.gamePlan) && React.createElement("div", null, React.createElement("div", {
     className: "text-[9px] uppercase tracking-wider text-[#6b7280] mb-1"
-  }, "Sectors today"), React.createElement("div", {
-    className: "flex flex-wrap gap-1"
-  }, sectors.map(s => React.createElement("div", {
-    key: s.sym,
-    className: "px-2 py-1 rounded text-[10px] font-semibold flex items-center gap-1 border",
-    style: {
-      borderColor: s.status === "strong" ? "rgba(52,211,153,0.35)" : s.status === "green" ? "rgba(134,239,172,0.25)" : s.status === "weak" ? "rgba(251,191,36,0.25)" : s.status === "red" ? "rgba(239,68,68,0.35)" : "rgba(156,163,175,0.2)",
-      background: s.status === "strong" ? "rgba(52,211,153,0.1)" : s.status === "green" ? "rgba(134,239,172,0.06)" : s.status === "weak" ? "rgba(251,191,36,0.08)" : s.status === "red" ? "rgba(239,68,68,0.1)" : "rgba(156,163,175,0.05)",
-      color: s.status === "strong" ? "#34d399" : s.status === "green" ? "#86efac" : s.status === "weak" ? "#fbbf24" : s.status === "red" ? "#ef4444" : "#9ca3af"
+  }, "Game Plan triggers"), React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-3 gap-2"
+  }, indicies.filter(i => i.levels?.gamePlan).map(idx => {
+    const gp = idx.levels.gamePlan;
+    const cp = idx.levels.currentPrice ?? idx.price;
+    return React.createElement("div", {
+      key: "gp-" + idx.sym,
+      className: "p-2 rounded bg-white/[0.02] border border-white/[0.06]"
+    }, React.createElement("div", {
+      className: "flex items-center justify-between mb-1.5"
+    }, React.createElement("span", {
+      className: "text-[11px] font-semibold text-white"
+    }, idx.sym, " Plan"), cp != null && React.createElement("span", {
+      className: "text-[10px] text-[#9ca3af] tabular-nums"
+    }, "$", cp.toFixed(2))), React.createElement("div", {
+      className: "space-y-1.5"
+    }, React.createElement("div", {
+      className: "flex items-center gap-2"
+    }, React.createElement("span", {
+      className: "text-[9px] font-semibold uppercase tracking-wider text-emerald-300/80 w-9"
+    }, "Bull"), React.createElement("div", {
+      className: "flex-1 flex items-center gap-1 text-[10px] tabular-nums"
+    }, React.createElement("span", {
+      className: "text-[#86efac]"
+    }, "$", gp.bullTrigger.toFixed(2)), React.createElement("span", {
+      className: "text-[#6b7280]"
+    }, "\u2192"), React.createElement("span", {
+      className: "text-emerald-300 font-semibold"
+    }, "$", gp.bullTarget.toFixed(2)), React.createElement("span", {
+      className: "ml-auto text-[9px] text-[#6b7280]"
+    }, "+", ((gp.bullTarget - gp.bullTrigger) / gp.bullTrigger * 100).toFixed(2), "%"))), React.createElement("div", {
+      className: "flex items-center gap-2"
+    }, React.createElement("span", {
+      className: "text-[9px] font-semibold uppercase tracking-wider text-red-300/80 w-9"
+    }, "Bear"), React.createElement("div", {
+      className: "flex-1 flex items-center gap-1 text-[10px] tabular-nums"
+    }, React.createElement("span", {
+      className: "text-[#fecaca]"
+    }, "$", gp.bearTrigger.toFixed(2)), React.createElement("span", {
+      className: "text-[#6b7280]"
+    }, "\u2192"), React.createElement("span", {
+      className: "text-red-300 font-semibold"
+    }, "$", gp.bearTarget.toFixed(2)), React.createElement("span", {
+      className: "ml-auto text-[9px] text-[#6b7280]"
+    }, ((gp.bearTarget - gp.bearTrigger) / gp.bearTrigger * 100).toFixed(2), "%")))));
+  }))), sectors.length > 0 && (() => {
+    const themes = {
+      "Risk-On / Cyclical": ["XLK", "XLY", "XLC", "XLI"],
+      "Defensive / Yield": ["XLP", "XLU", "XLV", "XLRE"],
+      "Energy / Materials": ["XLE", "XLB", "XLF"]
+    };
+    const symToTheme = {};
+    for (const [t, syms] of Object.entries(themes)) for (const s of syms) symToTheme[s] = t;
+    const grouped = {};
+    const ungrouped = [];
+    for (const s of sectors) {
+      const th = symToTheme[s.sym];
+      if (th) (grouped[th] = grouped[th] || []).push(s);else ungrouped.push(s);
     }
-  }, React.createElement("span", null, s.sym), React.createElement("span", {
-    className: "tabular-nums"
-  }, s.chgPct != null ? `${s.chgPct >= 0 ? "+" : ""}${s.chgPct.toFixed(2)}%` : ""))))), macro.length > 0 && React.createElement("div", null, React.createElement("div", {
+    for (const k of Object.keys(grouped)) grouped[k].sort((a, b) => (b.chgPct ?? 0) - (a.chgPct ?? 0));
+    const sectorBg = s => {
+      if (s.chgPct == null) return "rgba(156,163,175,0.05)";
+      const v = s.chgPct;
+      if (v > 1) return "rgba(52,211,153,0.18)";
+      if (v > 0.3) return "rgba(52,211,153,0.10)";
+      if (v > 0) return "rgba(134,239,172,0.06)";
+      if (v > -0.3) return "rgba(251,191,36,0.08)";
+      if (v > -1) return "rgba(239,68,68,0.10)";
+      return "rgba(239,68,68,0.18)";
+    };
+    const sectorFg = s => {
+      if (s.chgPct == null) return "#9ca3af";
+      const v = s.chgPct;
+      if (v > 0.3) return "#34d399";
+      if (v > 0) return "#86efac";
+      if (v > -0.3) return "#fbbf24";
+      return "#ef4444";
+    };
+    return React.createElement("div", null, React.createElement("div", {
+      className: "text-[9px] uppercase tracking-wider text-[#6b7280] mb-1"
+    }, "Sectors today (grouped)"), React.createElement("div", {
+      className: "space-y-1.5"
+    }, Object.entries(grouped).map(([theme, syms]) => {
+      const avg = syms.reduce((a, s) => a + (s.chgPct ?? 0), 0) / syms.length;
+      return React.createElement("div", {
+        key: theme,
+        className: "flex items-center gap-2"
+      }, React.createElement("div", {
+        className: "text-[9px] uppercase tracking-wider text-[#9ca3af] w-32 flex-shrink-0"
+      }, theme, React.createElement("span", {
+        className: "ml-1 tabular-nums",
+        style: {
+          color: sectorFg({
+            chgPct: avg
+          })
+        }
+      }, avg >= 0 ? "+" : "", avg.toFixed(2), "%")), React.createElement("div", {
+        className: "flex flex-wrap gap-1"
+      }, syms.map(s => React.createElement("div", {
+        key: s.sym,
+        className: "px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1",
+        style: {
+          background: sectorBg(s),
+          color: sectorFg(s)
+        }
+      }, React.createElement("span", null, s.sym), React.createElement("span", {
+        className: "tabular-nums"
+      }, s.chgPct != null ? `${s.chgPct >= 0 ? "+" : ""}${s.chgPct.toFixed(2)}%` : "")))));
+    }), ungrouped.length > 0 && React.createElement("div", {
+      className: "flex items-center gap-2"
+    }, React.createElement("div", {
+      className: "text-[9px] uppercase tracking-wider text-[#9ca3af] w-32 flex-shrink-0"
+    }, "Other"), React.createElement("div", {
+      className: "flex flex-wrap gap-1"
+    }, ungrouped.map(s => React.createElement("div", {
+      key: s.sym,
+      className: "px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1",
+      style: {
+        background: sectorBg(s),
+        color: sectorFg(s)
+      }
+    }, React.createElement("span", null, s.sym), React.createElement("span", {
+      className: "tabular-nums"
+    }, s.chgPct != null ? `${s.chgPct >= 0 ? "+" : ""}${s.chgPct.toFixed(2)}%` : "")))))));
+  })(), macro.length > 0 && React.createElement("div", null, React.createElement("div", {
     className: "text-[9px] uppercase tracking-wider text-[#6b7280] mb-1"
   }, "Macro cross-asset"), React.createElement("div", {
     className: "grid grid-cols-2 md:grid-cols-5 gap-1.5"
@@ -186,14 +334,29 @@ function BriefInfographic({
   }, opps.map((o, i) => React.createElement("li", {
     key: i
   }, "\u2022 ", o))))), events.length > 0 && React.createElement("div", null, React.createElement("div", {
-    className: "text-[9px] uppercase tracking-wider text-[#6b7280] mb-1"
-  }, "Today's catalysts"), React.createElement("div", {
-    className: "flex flex-wrap gap-1"
-  }, events.map((e, i) => React.createElement("span", {
-    key: i,
-    className: "px-2 py-0.5 rounded-md text-[10px] font-medium border border-white/[0.08] bg-white/[0.03] text-[#d1d5db]",
-    title: e.kind
-  }, e.kind === "earnings" ? "📊 " : "📅 ", e.title, e.when ? ` · ${e.when}` : "")))), closingLine && React.createElement("div", {
+    className: "text-[10px] uppercase tracking-wider text-[#6b7280] mb-2 font-semibold"
+  }, "Today's Catalysts"), React.createElement("div", {
+    className: "flex flex-wrap gap-2"
+  }, events.map((e, i) => {
+    const colonIdx = String(e.title || "").indexOf(":");
+    const lead = colonIdx > 0 && colonIdx < 8 ? e.title.slice(0, colonIdx).trim() : null;
+    const rest = colonIdx > 0 && colonIdx < 8 ? e.title.slice(colonIdx + 1).trim() : e.title;
+    return React.createElement("span", {
+      key: i,
+      className: "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-medium border border-white/[0.10] bg-white/[0.04] text-[#e5e7eb] hover:bg-white/[0.06] transition-colors",
+      title: e.kind
+    }, React.createElement("span", {
+      className: "opacity-75"
+    }, e.kind === "earnings" ? "📊" : "📅"), lead && React.createElement("span", {
+      className: "font-bold tracking-tight text-white"
+    }, lead), React.createElement("span", {
+      className: lead ? "text-[#9ca3af]" : ""
+    }, rest), e.when && React.createElement(React.Fragment, null, React.createElement("span", {
+      className: "text-[#4b5563]"
+    }, "\xB7"), React.createElement("span", {
+      className: "text-[11px] text-[#9ca3af] tabular-nums"
+    }, e.when)));
+  }))), closingLine && React.createElement("div", {
     className: "pt-3 border-t border-white/[0.06] italic text-[#d1d5db] text-[12px] leading-relaxed"
   }, "\u201C", closingLine, "\u201D"));
 }
@@ -880,6 +1043,34 @@ function MiniChart({
     const id = setInterval(poll, intervalMs);
     return () => clearInterval(id);
   }, [isLive, fetchCandles, mapCandles]);
+  useEffect(() => {
+    if (!sym) return;
+    let cancelled = false;
+    const refreshLivePrice = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(sym)}`, {
+          cache: "no-store"
+        });
+        if (!res.ok) return;
+        const latest = await res.json();
+        if (cancelled) return;
+        const livePrice = Number(latest?.price);
+        if (Number.isFinite(livePrice) && livePrice > 0) {
+          setLastPrice(livePrice);
+        }
+        const daily = window.getDailyChange ? window.getDailyChange(latest) : null;
+        const livePct = daily && Number.isFinite(Number(daily.dayPct)) ? Number(daily.dayPct) : Number(latest?.day_change_pct);
+        if (Number.isFinite(livePct)) setChange(livePct);
+      } catch (_) {}
+    };
+    refreshLivePrice();
+    const intervalMs = isMarketOpen() ? 15000 : 60000;
+    const id = setInterval(refreshLivePrice, intervalMs);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [sym]);
   return React.createElement("div", {
     className: "tt-card overflow-hidden"
   }, React.createElement("div", {

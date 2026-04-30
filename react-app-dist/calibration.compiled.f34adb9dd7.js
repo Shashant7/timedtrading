@@ -422,19 +422,32 @@ function EntryPathsCard({
       className: "py-1.5 text-slate-300 font-mono text-[11px]"
     }, (() => {
       const m = {
-        ema_regime_confirmed_long: "TT Confirmed Long",
-        ema_regime_confirmed_short: "TT Confirmed Short",
-        ema_regime_early_long: "TT Early Long",
-        ema_regime_early_short: "TT Early Short",
-        gold_long: "TT Breakout Long",
-        gold_short: "TT Reversal Short",
-        momentum_score: "TT Momentum",
-        ripster_momentum: "TT Momentum",
-        ripster_pullback: "TT Pullback",
-        ripster_reclaim: "TT Reclaim",
-        mean_reversion_pdz: "TT Mean Reversion"
+        tt_pullback: "Pullback Reclaim",
+        tt_gap_reversal_long: "Gap Reversal (Long)",
+        tt_gap_reversal_short: "Gap Reversal (Short)",
+        tt_ath_breakout: "ATH Breakout",
+        tt_n_test_support: "Support Bounce",
+        tt_n_test_resistance: "Resistance Fade",
+        tt_range_reversal_long: "Range Reversal (Long)",
+        tt_range_reversal_short: "Range Reversal (Short)",
+        tt_reclaim: "Reclaim Long",
+        tt_index_etf_swing: "Index Swing",
+        ema_regime_confirmed_long: "Confirmed Long",
+        ema_regime_confirmed_short: "Confirmed Short",
+        ema_regime_early_long: "Early Long",
+        ema_regime_early_short: "Early Short",
+        gold_long: "Breakout Long",
+        gold_short: "Reversal Short",
+        momentum_score: "Momentum Push",
+        squeeze_setup: "Squeeze Release",
+        elite: "Elite Setup",
+        mean_revert_td9: "TD9 Mean Reversion",
+        mean_reversion_pdz: "Discount Mean Reversion",
+        ripster_momentum: "Momentum Push",
+        ripster_pullback: "Pullback Reclaim",
+        ripster_reclaim: "Reclaim Long"
       };
-      return m[path] || "TT " + path.replace(/^ripster_?/i, "").replace(/^saty_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+      return m[path] || (path ? path.replace(/^tt_/i, "").replace(/^ripster_?/i, "").replace(/^saty_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : "Setup");
     })()), React.createElement("td", {
       className: "text-right"
     }, m.n), React.createElement("td", {

@@ -2424,7 +2424,7 @@ function InvestorDashboard() {
     savedTickers,
     toggleSavedTicker
   })), React.createElement("div", {
-    className: `flex-1 flex flex-col min-h-[200px] lg:min-h-0 min-w-0 transition-[margin] duration-300 ${selectedTicker && !isEmbedded ? "lg:mr-[470px]" : ""}`,
+    className: `flex-1 flex flex-col min-h-[200px] lg:min-h-0 min-w-0 transition-[margin] duration-300 ${selectedTicker && !isEmbedded ? "lg:mr-[470px] xl:mr-[580px]" : ""}`,
     "data-coachmark": "action-board"
   }, React.createElement("div", {
     className: "mb-2"
@@ -2449,7 +2449,7 @@ function InvestorDashboard() {
     className: "fixed inset-0 z-30",
     onMouseDown: handleCloseTicker
   }), React.createElement("div", {
-    className: "fixed right-0 top-[60px] sm:top-[52px] w-full sm:w-[450px] bottom-[64px] sm:bottom-[56px] bg-[#0b0e11] border-l border-white/[0.04] z-40 slide-in-right shadow-xl overflow-y-auto",
+    className: "fixed right-0 top-[60px] sm:top-[52px] w-full sm:w-[450px] xl:w-[560px] bottom-[64px] sm:bottom-[56px] bg-[#0b0e11] border-l border-white/[0.04] z-40 slide-in-right shadow-xl overflow-y-auto",
     onMouseDown: e => e.stopPropagation(),
     "data-coachmark": "right-rail"
   }, React.createElement("div", {

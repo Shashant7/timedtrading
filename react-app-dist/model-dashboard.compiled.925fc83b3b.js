@@ -647,18 +647,32 @@ function LearningLoopPanel({
       className: "py-1.5 pr-3 font-medium text-xs"
     }, (() => {
       const m = {
-        ema_regime_confirmed_long: "TT Confirmed Long",
-        ema_regime_confirmed_short: "TT Confirmed Short",
-        ema_regime_early_long: "TT Early Long",
-        ema_regime_early_short: "TT Early Short",
-        gold_long: "TT Breakout Long",
-        gold_short: "TT Reversal Short",
-        ripster_momentum: "TT Momentum",
-        ripster_pullback: "TT Pullback",
-        ripster_reclaim: "TT Reclaim",
-        mean_reversion_pdz: "TT Mean Reversion"
+        tt_pullback: "Pullback Reclaim",
+        tt_gap_reversal_long: "Gap Reversal (Long)",
+        tt_gap_reversal_short: "Gap Reversal (Short)",
+        tt_ath_breakout: "ATH Breakout",
+        tt_n_test_support: "Support Bounce",
+        tt_n_test_resistance: "Resistance Fade",
+        tt_range_reversal_long: "Range Reversal (Long)",
+        tt_range_reversal_short: "Range Reversal (Short)",
+        tt_reclaim: "Reclaim Long",
+        tt_index_etf_swing: "Index Swing",
+        ema_regime_confirmed_long: "Confirmed Long",
+        ema_regime_confirmed_short: "Confirmed Short",
+        ema_regime_early_long: "Early Long",
+        ema_regime_early_short: "Early Short",
+        gold_long: "Breakout Long",
+        gold_short: "Reversal Short",
+        momentum_score: "Momentum Push",
+        squeeze_setup: "Squeeze Release",
+        elite: "Elite Setup",
+        mean_revert_td9: "TD9 Mean Reversion",
+        mean_reversion_pdz: "Discount Mean Reversion",
+        ripster_momentum: "Momentum Push",
+        ripster_pullback: "Pullback Reclaim",
+        ripster_reclaim: "Reclaim Long"
       };
-      return m[p.entry_path] || "TT " + (p.entry_path || "").replace(/^ripster_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+      return m[p.entry_path] || (p.entry_path || "").replace(/^tt_/i, "").replace(/^ripster_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
     })()), React.createElement("td", {
       className: "text-right py-1.5 px-2 text-slate-400"
     }, p.total_trades || p.total || 0), React.createElement("td", {
@@ -719,18 +733,32 @@ function LearningLoopPanel({
     className: "py-1.5 px-2 text-xs text-slate-400"
   }, (() => {
     const m = {
-      ema_regime_confirmed_long: "TT Confirmed Long",
-      ema_regime_confirmed_short: "TT Confirmed Short",
-      ema_regime_early_long: "TT Early Long",
-      ema_regime_early_short: "TT Early Short",
-      gold_long: "TT Breakout Long",
-      gold_short: "TT Reversal Short",
-      ripster_momentum: "TT Momentum",
-      ripster_pullback: "TT Pullback",
-      ripster_reclaim: "TT Reclaim",
-      mean_reversion_pdz: "TT Mean Reversion"
+      tt_pullback: "Pullback Reclaim",
+      tt_gap_reversal_long: "Gap Reversal (Long)",
+      tt_gap_reversal_short: "Gap Reversal (Short)",
+      tt_ath_breakout: "ATH Breakout",
+      tt_n_test_support: "Support Bounce",
+      tt_n_test_resistance: "Resistance Fade",
+      tt_range_reversal_long: "Range Reversal (Long)",
+      tt_range_reversal_short: "Range Reversal (Short)",
+      tt_reclaim: "Reclaim Long",
+      tt_index_etf_swing: "Index Swing",
+      ema_regime_confirmed_long: "Confirmed Long",
+      ema_regime_confirmed_short: "Confirmed Short",
+      ema_regime_early_long: "Early Long",
+      ema_regime_early_short: "Early Short",
+      gold_long: "Breakout Long",
+      gold_short: "Reversal Short",
+      momentum_score: "Momentum Push",
+      squeeze_setup: "Squeeze Release",
+      elite: "Elite Setup",
+      mean_revert_td9: "TD9 Mean Reversion",
+      mean_reversion_pdz: "Discount Mean Reversion",
+      ripster_momentum: "Momentum Push",
+      ripster_pullback: "Pullback Reclaim",
+      ripster_reclaim: "Reclaim Long"
     };
-    return r.entry_path ? m[r.entry_path] || "TT " + r.entry_path.replace(/^ripster_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : "—";
+    return r.entry_path ? m[r.entry_path] || r.entry_path.replace(/^tt_/i, "").replace(/^ripster_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : "—";
   })()), React.createElement("td", {
     className: `text-right py-1.5 px-2 text-xs ${(r.htf_score || 0) >= 0 ? "text-[#00e676]" : "text-red-400"}`
   }, r.htf_score?.toFixed(1) || "—"), React.createElement("td", {

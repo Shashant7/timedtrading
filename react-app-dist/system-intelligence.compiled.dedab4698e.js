@@ -7,28 +7,38 @@ const {
 } = React;
 const API_BASE = "";
 const SETUP_NAME_MAP = {
-  ema_regime_confirmed_long: "TT Confirmed Long",
-  ema_regime_confirmed_short: "TT Confirmed Short",
-  ema_regime_early_long: "TT Early Long",
-  ema_regime_early_short: "TT Early Short",
-  gold_long: "TT Breakout Long",
-  gold_short: "TT Reversal Short",
-  gold_short_pullback: "TT Reversal Short Pullback",
-  momentum_score: "TT Momentum",
-  squeeze_setup: "TT Squeeze",
-  elite: "TT Elite",
-  breakout: "TT Breakout",
-  mean_revert_td9: "TT Mean Revert TD9",
-  ripster_momentum: "TT Momentum",
-  ripster_pullback: "TT Pullback",
-  ripster_reclaim: "TT Reclaim",
-  ripster_short_pivot_reclaimed: "TT Pivot Reclaimed",
-  mean_reversion_pdz: "TT Mean Reversion"
+  tt_pullback: "Pullback Reclaim",
+  tt_gap_reversal_long: "Gap Reversal (Long)",
+  tt_gap_reversal_short: "Gap Reversal (Short)",
+  tt_ath_breakout: "ATH Breakout",
+  tt_n_test_support: "Support Bounce",
+  tt_n_test_resistance: "Resistance Fade",
+  tt_range_reversal_long: "Range Reversal (Long)",
+  tt_range_reversal_short: "Range Reversal (Short)",
+  tt_reclaim: "Reclaim Long",
+  tt_index_etf_swing: "Index Swing",
+  ema_regime_confirmed_long: "Confirmed Long",
+  ema_regime_confirmed_short: "Confirmed Short",
+  ema_regime_early_long: "Early Long",
+  ema_regime_early_short: "Early Short",
+  gold_long: "Breakout Long",
+  gold_short: "Reversal Short",
+  gold_short_pullback: "Reversal Pullback",
+  momentum_score: "Momentum Push",
+  squeeze_setup: "Squeeze Release",
+  elite: "Elite Setup",
+  breakout: "Breakout",
+  mean_revert_td9: "TD9 Mean Reversion",
+  mean_reversion_pdz: "Discount Mean Reversion",
+  ripster_momentum: "Momentum Push",
+  ripster_pullback: "Pullback Reclaim",
+  ripster_reclaim: "Reclaim Long",
+  ripster_short_pivot_reclaimed: "Short Pivot Reclaim"
 };
 function formatPath(path) {
   if (!path || typeof path !== "string") return path;
   if (SETUP_NAME_MAP[path]) return SETUP_NAME_MAP[path];
-  return "TT " + path.replace(/^ripster_?/i, "").replace(/^saty_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  return path.replace(/^tt_/i, "").replace(/^ripster_?/i, "").replace(/^saty_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 function NavHeader() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);

@@ -60,28 +60,38 @@
       s1_slope: "Slope"
     };
     const SETUP_NAME_MAP = {
-      ema_regime_confirmed_long: "TT Confirmed Long",
-      ema_regime_confirmed_short: "TT Confirmed Short",
-      ema_regime_early_long: "TT Early Long",
-      ema_regime_early_short: "TT Early Short",
-      gold_long: "TT Breakout Long",
-      gold_short: "TT Reversal Short",
-      gold_short_pullback: "TT Reversal Short Pullback",
-      momentum_score: "TT Momentum",
-      squeeze_setup: "TT Squeeze",
-      elite: "TT Elite",
-      breakout: "TT Breakout",
-      mean_revert_td9: "TT Mean Revert TD9",
-      ripster_momentum: "TT Momentum",
-      ripster_pullback: "TT Pullback",
-      ripster_reclaim: "TT Reclaim",
-      ripster_short_pivot_reclaimed: "TT Pivot Reclaimed",
-      mean_reversion_pdz: "TT Mean Reversion"
+      tt_pullback: "Pullback Reclaim",
+      tt_gap_reversal_long: "Gap Reversal (Long)",
+      tt_gap_reversal_short: "Gap Reversal (Short)",
+      tt_ath_breakout: "ATH Breakout",
+      tt_n_test_support: "Support Bounce",
+      tt_n_test_resistance: "Resistance Fade",
+      tt_range_reversal_long: "Range Reversal (Long)",
+      tt_range_reversal_short: "Range Reversal (Short)",
+      tt_reclaim: "Reclaim Long",
+      tt_index_etf_swing: "Index Swing",
+      ema_regime_confirmed_long: "Confirmed Long",
+      ema_regime_confirmed_short: "Confirmed Short",
+      ema_regime_early_long: "Early Long",
+      ema_regime_early_short: "Early Short",
+      gold_long: "Breakout Long",
+      gold_short: "Reversal Short",
+      gold_short_pullback: "Reversal Pullback",
+      momentum_score: "Momentum Push",
+      squeeze_setup: "Squeeze Release",
+      elite: "Elite Setup",
+      breakout: "Breakout",
+      mean_revert_td9: "TD9 Mean Reversion",
+      mean_reversion_pdz: "Discount Mean Reversion",
+      ripster_momentum: "Momentum Push",
+      ripster_pullback: "Pullback Reclaim",
+      ripster_reclaim: "Reclaim Long",
+      ripster_short_pivot_reclaimed: "Short Pivot Reclaim"
     };
     function _formatPath(path) {
       if (!path || typeof path !== "string") return null;
       if (SETUP_NAME_MAP[path]) return SETUP_NAME_MAP[path];
-      return "TT " + path.replace(/^ripster_?/i, "").replace(/^saty_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+      return path.replace(/^tt_/i, "").replace(/^ripster_?/i, "").replace(/^saty_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
     }
     function _parseSnapshot(snap) {
       if (!snap) return null;
@@ -3530,8 +3540,9 @@
         const tierCards = [{
           tp: tpTrim,
           rr: rrTrim,
-          label: "Take Profit 1",
-          sub: "Trim 60%",
+          label: "First Target",
+          sub: "Lock in early gains",
+          tip: "Trim 60% of the position to capture initial profit and reduce risk on the rest.",
           icon: "🎯",
           bg: "bg-yellow-500/10",
           border: "border-yellow-500/30",
@@ -3539,8 +3550,9 @@
         }, {
           tp: tpExit,
           rr: rrExit,
-          label: "Take Profit 2",
-          sub: "Exit 85%",
+          label: "Main Target",
+          sub: "Lock in main profit",
+          tip: "Trim down to 15% remaining — capture the bulk of the win and let a small runner ride.",
           icon: "💰",
           bg: "bg-orange-500/10",
           border: "border-orange-500/30",
@@ -3548,8 +3560,9 @@
         }, {
           tp: tpRunner,
           rr: rrRunner,
-          label: "Take Profit 3",
-          sub: "Runner",
+          label: "Stretch Target",
+          sub: "Let runners run",
+          tip: "Final exit on remaining 15% — captures extended moves when the trade keeps working.",
           icon: "🚀",
           bg: "bg-teal-500/10",
           border: "border-teal-500/30",
@@ -3558,14 +3571,15 @@
         return React.createElement("div", {
           className: "mb-4 space-y-2"
         }, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] font-semibold uppercase tracking-wider"
+          className: "text-[10px] text-[#6b7280] font-semibold uppercase tracking-wider",
+          title: "Where the system would exit if right (Take Profit) or wrong (Stop Loss). Distances and R:R show how much room each side has."
         }, "Risk / Reward Levels"), hasSl && React.createElement("div", {
           className: "space-y-1.5"
         }, (() => {
           const slFromKijun = Number.isFinite(kijunSL) && kijunSL > 0 && slRaw === kijunSL;
           return React.createElement("div", {
             className: `p-2.5 rounded border flex items-center justify-between ${tslActive ? "bg-white/[0.02] border-white/[0.08]" : "bg-red-500/10 border-red-500/30"}`,
-            title: slFromKijun ? "Kijun-Sen (Ichimoku Cloud) reference" : undefined
+            title: slFromKijun ? "Stop Loss anchored at Kijun-Sen — a key swing-low support level. If price breaks this, the trade thesis is invalidated." : "Stop Loss — exit price if the trade goes wrong. The distance from entry to here is your risk per share."
           }, React.createElement("span", {
             className: `text-xs font-semibold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`
           }, "Stop Loss", slFromKijun ? " (Kijun)" : ""), React.createElement("div", {
@@ -3580,11 +3594,11 @@
             className: "text-[9px] text-[#4b5563]"
           }, "original")));
         })(), tslActive && React.createElement("div", {
-          className: "p-2.5 rounded border bg-red-500/10 border-red-500/30 flex items-center justify-between"
+          className: "p-2.5 rounded border bg-red-500/10 border-red-500/30 flex items-center justify-between",
+          title: "Trailing Stop \u2014 moves up with price to lock in profit. Original Stop Loss is shown above (in gray) for reference."
         }, React.createElement("span", {
-          className: "text-xs font-semibold text-red-400",
-          title: "Trailing Stop Loss"
-        }, "TSL"), React.createElement("span", {
+          className: "text-xs font-semibold text-red-400"
+        }, "Trailing Stop"), React.createElement("span", {
           className: "text-xs font-bold text-red-400"
         }, "$", sl.toFixed(2)), Number.isFinite(slDistPct) && React.createElement("span", {
           className: "text-[9px] text-red-300/70"
@@ -3594,7 +3608,8 @@
           const progress = getProgressToTp(tier.tp);
           return React.createElement("div", {
             key: idx,
-            className: `p-2.5 rounded border ${tier.bg} ${tier.border}`
+            className: `p-2.5 rounded border ${tier.bg} ${tier.border}`,
+            title: tier.tip
           }, React.createElement("div", {
             className: "flex justify-between items-center mb-1.5"
           }, React.createElement("div", {
@@ -3605,7 +3620,7 @@
             className: `text-xs font-semibold ${tier.text}`
           }, tier.label), React.createElement("span", {
             className: "text-[10px] text-[#6b7280]"
-          }, "(", tier.sub, ")")), React.createElement("div", {
+          }, tier.sub)), React.createElement("div", {
             className: "flex items-center gap-2"
           }, React.createElement("span", {
             className: `text-xs font-bold ${tier.text}`
@@ -4254,7 +4269,8 @@
       })(), rankTotal > 0 && React.createElement("div", {
         className: "flex justify-between items-center py-1 border-b border-white/[0.06]/50"
       }, React.createElement("span", {
-        className: "text-[#6b7280]"
+        className: "text-[#6b7280]",
+        title: "Rank: where this ticker stands among all tracked names today. Lower number = stronger setup. Updates after each scoring cycle."
       }, "Rank"), React.createElement("span", {
         className: "font-semibold"
       }, rankPosition > 0 ? `#${rankPosition} of ${rankTotal}` : "—", rankAsOfText && React.createElement("span", {
@@ -4262,10 +4278,26 @@
       }, "(as of ", rankAsOfText, ")"))), React.createElement("div", {
         className: "flex justify-between items-center py-1 border-b border-white/[0.06]/50"
       }, React.createElement("span", {
-        className: "text-[#6b7280]"
+        className: "text-[#6b7280]",
+        title: "Dynamic Score: blends rank with active flags (multi-TF alignment, regime, RVol). Range 0-100."
       }, "Score"), React.createElement("span", {
         className: "font-semibold text-blue-400 text-lg"
-      }, Number.isFinite(displayScore) ? displayScore.toFixed(1) : "—")), false && (() => {
+      }, Number.isFinite(displayScore) ? displayScore.toFixed(1) : "—")), (() => {
+        const conv = Number(ticker?.focus_conviction_score ?? ticker?.__focus_conviction_score ?? ticker?.conviction_score ?? ticker?.conviction);
+        if (!Number.isFinite(conv) || conv <= 0) return null;
+        const tier = String(ticker?.focus_tier ?? ticker?.__focus_tier ?? "").toUpperCase();
+        const color = conv >= 110 ? "text-violet-400" : conv >= 90 ? "text-emerald-400" : conv >= 60 ? "text-sky-400" : "text-amber-400";
+        return React.createElement("div", {
+          className: "flex justify-between items-center py-1 border-b border-white/[0.06]/50"
+        }, React.createElement("span", {
+          className: "text-[#6b7280]",
+          title: "Conviction Score: focus-tier composite from liquidity, volatility, trend, sector, history, and Saty ATR proximity. Higher = more reasons to act now."
+        }, "Conviction", tier && React.createElement("span", {
+          className: "ml-1.5 text-[9px] font-bold uppercase tracking-wide text-[#9ca3af]"
+        }, tier)), React.createElement("span", {
+          className: `font-semibold ${color} text-lg`
+        }, conv.toFixed(0)));
+      })(), false && (() => {
         const ml = ticker?.ml || ticker?.model || ticker?.model_v1 || ticker?.ml_v1 || null;
         if (!ml || typeof ml !== "object") return null;
         const p4h = Number(ml?.p_win_4h ?? ml?.p4h ?? ml?.pWin4h);

@@ -4556,6 +4556,43 @@ function EquityCurveChart({
           </div>
         </div>`;
 }
+function PerformanceOverviewSection({
+  trades,
+  loading
+}) {
+  const TradesPerformance = useMemo(() => {
+    const factory = typeof window !== "undefined" && window.TradesPerformanceFactory;
+    if (!factory) return null;
+    try {
+      return factory({
+        React,
+        API_BASE
+      });
+    } catch (e) {
+      console.warn("[PerformanceOverview] factory failed:", e);
+      return null;
+    }
+  }, []);
+  if (!TradesPerformance) {
+    return null;
+  }
+  return React.createElement("div", {
+    className: "mb-6 p-5 rounded-xl",
+    style: {
+      background: "rgba(255,255,255,0.02)",
+      border: "1px solid rgba(255,255,255,0.06)"
+    }
+  }, React.createElement("div", {
+    className: "flex items-center justify-between mb-4 flex-wrap gap-2"
+  }, React.createElement("h2", {
+    className: "text-[15px] font-semibold text-white"
+  }, "Performance Overview"), React.createElement("span", {
+    className: "text-[10px] uppercase tracking-wider text-[#6b7280]"
+  }, "Closed trades \xB7 90-day calendar")), React.createElement(TradesPerformance, {
+    trades: trades,
+    loading: loading
+  }));
+}
 function PortfolioColumn({
   mode,
   summary,
@@ -6661,7 +6698,12 @@ function App() {
     },
     className: "ml-3 px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/30 text-xs"
   }, "Retry")), React.createElement("div", {
-    className: `${selectedTicker || selectedTrade ? "mr-[470px]" : ""}`
+    className: `${selectedTicker || selectedTrade ? "mr-[470px] xl:mr-[580px]" : ""}`
+  }, React.createElement(PerformanceOverviewSection, {
+    trades: ledgerFilteredTrades || [],
+    loading: (ledgerTrades ?? {}).loading
+  })), React.createElement("div", {
+    className: `${selectedTicker || selectedTrade ? "mr-[470px] xl:mr-[580px]" : ""}`
   }, React.createElement("div", {
     className: "flex items-center gap-1 mb-4 border-b border-[var(--tt-border)] lg:hidden"
   }, React.createElement("button", {
@@ -6721,7 +6763,7 @@ function App() {
       setModalOnly(false);
     }
   })))), (selectedTicker || selectedTrade) && !modalOnly && React.createElement("div", {
-    className: "fixed right-0 top-[49px] w-[450px] bottom-0 z-40 slide-in-right shadow-2xl overflow-y-auto bg-[#0b0e11] border-l border-white/[0.04]"
+    className: "fixed right-0 top-[49px] w-[450px] xl:w-[560px] bottom-0 z-40 slide-in-right shadow-2xl overflow-y-auto bg-[#0b0e11] border-l border-white/[0.04]"
   }, React.createElement(TickerDetailsLoader, {
     tickerSymbol: selectedTrade ? selectedTrade.ticker : selectedTicker,
     trade: selectedTrade,
@@ -6781,25 +6823,35 @@ function App() {
       return d > 0 ? `${d}d ${h % 24}h` : h > 0 ? `${h}h ${m % 60}m` : `${m}m`;
     })();
     const SETUP_MAP = {
-      ema_regime_confirmed_long: "TT Confirmed Long",
-      ema_regime_confirmed_short: "TT Confirmed Short",
-      ema_regime_early_long: "TT Early Long",
-      ema_regime_early_short: "TT Early Short",
-      gold_long: "TT Breakout Long",
-      gold_short: "TT Reversal Short",
-      gold_short_pullback: "TT Reversal Short Pullback",
-      momentum_score: "TT Momentum",
-      squeeze_setup: "TT Squeeze",
-      elite: "TT Elite",
-      breakout: "TT Breakout",
-      mean_revert_td9: "TT Mean Revert TD9",
-      ripster_momentum: "TT Momentum",
-      ripster_pullback: "TT Pullback",
-      ripster_reclaim: "TT Reclaim",
-      ripster_short_pivot_reclaimed: "TT Pivot Reclaimed",
-      mean_reversion_pdz: "TT Mean Reversion"
+      tt_pullback: "Pullback Reclaim",
+      tt_gap_reversal_long: "Gap Reversal (Long)",
+      tt_gap_reversal_short: "Gap Reversal (Short)",
+      tt_ath_breakout: "ATH Breakout",
+      tt_n_test_support: "Support Bounce",
+      tt_n_test_resistance: "Resistance Fade",
+      tt_range_reversal_long: "Range Reversal (Long)",
+      tt_range_reversal_short: "Range Reversal (Short)",
+      tt_reclaim: "Reclaim Long",
+      tt_index_etf_swing: "Index Swing",
+      ema_regime_confirmed_long: "Confirmed Long",
+      ema_regime_confirmed_short: "Confirmed Short",
+      ema_regime_early_long: "Early Long",
+      ema_regime_early_short: "Early Short",
+      gold_long: "Breakout Long",
+      gold_short: "Reversal Short",
+      gold_short_pullback: "Reversal Pullback",
+      momentum_score: "Momentum Push",
+      squeeze_setup: "Squeeze Release",
+      elite: "Elite Setup",
+      breakout: "Breakout",
+      mean_revert_td9: "TD9 Mean Reversion",
+      mean_reversion_pdz: "Discount Mean Reversion",
+      ripster_momentum: "Momentum Push",
+      ripster_pullback: "Pullback Reclaim",
+      ripster_reclaim: "Reclaim Long",
+      ripster_short_pivot_reclaimed: "Short Pivot Reclaim"
     };
-    const fmtPath = p => SETUP_MAP[p] || "TT " + p.replace(/^ripster_?/i, "").replace(/^saty_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    const fmtPath = p => SETUP_MAP[p] || (p ? p.replace(/^tt_/i, "").replace(/^ripster_?/i, "").replace(/^saty_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : "Setup");
     const EXIT_MAP = {
       sl_breached: "Price moved against us and hit our safety exit.",
       SL: "Price moved against us and hit our safety exit.",
