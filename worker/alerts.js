@@ -18,11 +18,22 @@ export async function notifyDiscord(env, embed) {
   }
 
   console.log(`[DISCORD] Sending notification: ${embed.title || "Untitled"}`);
+  // V15 P0.7.31 (2026-04-30) — Discord webhook avatar + username
+  // Use the official Timed Trading watch-face logo (PNG hosted at our
+  // public domain) so all Discord alerts share visual identity with
+  // the web app + favicon. Falls back gracefully if either is unset.
+  const _webhookUsername = env.DISCORD_WEBHOOK_USERNAME || "Timed Trading";
+  const _webhookAvatarUrl = env.DISCORD_WEBHOOK_AVATAR_URL
+    || "https://timed-trading.com/logo-512.png";
   try {
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ embeds: [embed] }),
+      body: JSON.stringify({
+        username: _webhookUsername,
+        avatar_url: _webhookAvatarUrl,
+        embeds: [embed],
+      }),
     });
     if (!response.ok) {
       const responseText = await response
