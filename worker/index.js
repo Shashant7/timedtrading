@@ -19811,13 +19811,24 @@ async function processTradeSimulation(
                     //   above       — boolean: price > VWAP
                     //   touch_bars  — bars since price last crossed VWAP
                     vwap: (() => {
+                      // TF labels in tickerData.tf_tech: "10","15","30","1H","4H","D","W"
+                      // We expose the canonical "10/30/60/240/D/W" naming on the
+                      // snapshot for downstream consistency with td_seq + rsi.
+                      const tfPairs = [
+                        ["10", "10"],
+                        ["30", "30"],
+                        ["60", "1H"],
+                        ["240", "4H"],
+                        ["D", "D"],
+                        ["W", "W"],
+                      ];
                       const out = {};
-                      for (const tf of ["10","30","60","240","D","W"]) {
-                        const tfData = tickerData?.tf_tech?.[tf];
+                      for (const [outKey, srcKey] of tfPairs) {
+                        const tfData = tickerData?.tf_tech?.[srcKey];
                         if (!tfData) continue;
                         const v = Number(tfData.vwap);
                         if (!Number.isFinite(v) || v <= 0) continue;
-                        out[tf] = {
+                        out[outKey] = {
                           vwap: Math.round(v * 10000) / 10000,
                           rolling_20: Number.isFinite(tfData.vwapRolling20)
                             ? Math.round(tfData.vwapRolling20 * 10000) / 10000 : null,

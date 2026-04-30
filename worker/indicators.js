@@ -4689,6 +4689,14 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
         bull: b.phaseDiv.bull ? { s: b.phaseDiv.bull.strength, bs: b.phaseDiv.bull.barsSince, a: b.phaseDiv.bull.active } : undefined,
       } : undefined,
       ripster: b.ripsterClouds || undefined,
+      // V15 P0.7.33 — VWAP fields per TF (cumulative + rolling 20-bar)
+      // Used by setup_snapshot.vwap for retrospective VWAP-based analysis.
+      vwap: Number.isFinite(b.vwap) ? Math.round(b.vwap * 10000) / 10000 : undefined,
+      vwapRolling20: Number.isFinite(b.vwapRolling20) ? Math.round(b.vwapRolling20 * 10000) / 10000 : undefined,
+      vwapDistPct: Number.isFinite(b.vwapDistPct) ? Math.round(b.vwapDistPct * 100) / 100 : undefined,
+      vwapSlope5bar: Number.isFinite(b.vwapSlope5bar) ? Math.round(b.vwapSlope5bar * 100) / 100 : undefined,
+      vwapAbove: typeof b.vwapAbove === "boolean" ? b.vwapAbove : undefined,
+      vwapTouchBars: Number.isFinite(b.vwapTouchBars) ? b.vwapTouchBars : undefined,
       ich: b.ichimoku ? {
         pvc: b.ichimoku.priceVsCloud || undefined,
         cb: b.ichimoku.cloudBullish ? 1 : 0,
