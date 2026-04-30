@@ -3520,13 +3520,50 @@
 
                         {/* Score */}
                         <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
-                          <span className="text-[#6b7280]">Score</span>
+                          <span className="text-[#6b7280]" title="Dynamic Score: blends rank with active flags (multi-TF alignment, regime, RVol). Range 0-100.">Score</span>
                           <span className="font-semibold text-blue-400 text-lg">
                             {Number.isFinite(displayScore)
                               ? displayScore.toFixed(1)
                               : "—"}
                           </span>
                         </div>
+
+                        {/* Conviction — focus tier composite (0-160 typical) */}
+                        {(() => {
+                          const conv = Number(
+                            ticker?.focus_conviction_score
+                            ?? ticker?.__focus_conviction_score
+                            ?? ticker?.conviction_score
+                            ?? ticker?.conviction
+                          );
+                          if (!Number.isFinite(conv) || conv <= 0) return null;
+                          const tier = String(
+                            ticker?.focus_tier
+                            ?? ticker?.__focus_tier
+                            ?? ""
+                          ).toUpperCase();
+                          // Convert to color band: <60 amber, 60-90 sky, 90-110 emerald, 110+ violet
+                          const color =
+                            conv >= 110 ? "text-violet-400" :
+                            conv >= 90  ? "text-emerald-400" :
+                            conv >= 60  ? "text-sky-400" :
+                                          "text-amber-400";
+                          return (
+                            <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                              <span className="text-[#6b7280]" title="Conviction Score: focus-tier composite from liquidity, volatility, trend, sector, history, and Saty ATR proximity. Higher = more reasons to act now.">
+                                Conviction
+                                {tier && (
+                                  <span className="ml-1.5 text-[9px] font-bold uppercase tracking-wide text-[#9ca3af]">
+                                    {tier}
+                                  </span>
+                                )}
+                              </span>
+                              <span className={`font-semibold ${color} text-lg`}>
+                                {conv.toFixed(0)}
+                              </span>
+                            </div>
+                          );
+                        })()}
 
                         {/* Dead code — Model Score removed */}
                         {false && (() => {
