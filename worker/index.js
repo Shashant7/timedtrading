@@ -7358,6 +7358,73 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           const _isPrecisionETF = _etfPrecisionEnabled && _etfPrecisionTickers.includes(_tickerSymUpper);
 
           // ──────────────────────────────────────────────────────────────
+          // V15 P0.7.27 (2026-04-30) — RUNNER PROTECTION FOR HEALTHY TRADES
+          //
+          // Skip Tier 0 and Tier 4 dead-money cuts when:
+          //   1. No adverse divergence at entry (entrySignals)
+          //   2. No current TD9_bear active against the trade direction (live tickerData)
+          //   3. Structure intact (already-implemented _structIntactGracePassed
+          //      check below applies; we add divergence + TD checks here)
+          //
+          // Why: per user observation on XHB Jul 1 (LONG, 142h hold, MFE+1.22%,
+          // PnL -1.07%, exit via phase_i_mfe_dead_money_24h). XHB had NO
+          // adverse divergence, NO TD9_bear, structure was intact (bull_stack,
+          // above E21). The trade was simply slow. Cutting at hour 24+ killed
+          // a healthy trade that needed time to develop.
+          //
+          // Cohort analysis on v16-baseline-ctx (101 trades): of 8 dead-money
+          // cuts with NO adverse divergence at entry, 6 became wins (ALB,
+          // LITE, H, BG, DCI, CAT) — the early cut didn't actually save them
+          // from losses; the trades developed slowly into modest wins despite
+          // the cut interrupting them. Total cohort PnL: +6.44%.
+          //
+          // Implementation: compute a "fragile_at_entry" flag from entrySignals
+          // and a "currently_threatened" flag from live tickerData. Used by
+          // Tier 0 and Tier 4 below to gate their MFE-only kill conditions.
+          // The "currently red" tiers (1, 2, 3) still fire as today since they
+          // already require pnlPct <= -0.8% / -1.5% / -2.0% — real damage, not
+          // "took too long".
+          // ──────────────────────────────────────────────────────────────
+          let _runnerProtectActive = false;
+          {
+            const _rpEnabled = String(
+              tickerData?._env?._deepAuditConfig?.deep_audit_runner_protect_healthy_enabled ?? "true"
+            ) === "true";
+            if (_rpEnabled) {
+              // Step 1: was the trade fragile at entry? (any adverse divergence)
+              const _entrySignals = openPosition?.entrySignals || openPosition?.entry_signals || null;
+              const _fragileAtEntry = _entrySignals && (
+                _entrySignals.has_adverse_rsi_div || _entrySignals.has_adverse_phase_div
+              );
+              // Step 2: is the trade currently threatened? (live TD9-bear active against us)
+              const _liveTd = tickerData?.td_sequential?.per_tf || {};
+              const _isLong = direction === "LONG";
+              const _adverseTd9Key = _isLong ? "td9_bear" : "td9_bull";
+              const _adversePrepKey = _isLong ? "bear_prep" : "bull_prep";
+              const _currentlyThreatened = (
+                !!(_liveTd.D || {})[_adverseTd9Key]
+                || !!(_liveTd["240"] || {})[_adverseTd9Key]
+                || !!(_liveTd["60"] || {})[_adverseTd9Key]
+                || ((_liveTd.D || {})[_adversePrepKey] || 0) >= 9
+              );
+              // Step 3: structure intact (same as existing _structIntactGracePassed below)
+              const _ds = tickerData?.daily_structure || {};
+              const _structAligned = _isLong ? _ds.bull_stack === true : _ds.bear_stack === true;
+              const _e21 = Number(_ds?.e21);
+              const _px = Number(tickerData?.price);
+              const _aboveE21 = (_isLong && _px > _e21) || (!_isLong && _px < _e21);
+              const _structIntact = _structAligned && _aboveE21;
+
+              // Active = trade was healthy at entry, still healthy, and structure good
+              _runnerProtectActive = !_fragileAtEntry && !_currentlyThreatened && _structIntact;
+
+              if (_runnerProtectActive) {
+                tickerData.__runner_protect_active = true;
+              }
+            }
+          }
+
+          // ──────────────────────────────────────────────────────────────
           // V15 P0.7.26 (2026-04-30) — ADVERSE-DIV DEAD-MONEY CUT
           //
           // Trades that entered with adverse divergence (RSI or phase) AND
@@ -7438,7 +7505,10 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           // skip this entirely (they get their own min_hold guard).
           // P3: if winner-protect is active this block never triggers
           // (pnl would be positive anyway in that state, but guarding).
-          if (!_isPrecisionETF && !tickerData?.__v12_winner_protect_active &&
+          // V15 P0.7.27 (2026-04-30): runner-protect-active also skips
+          // (healthy trade with no adverse div / TD threat / structure
+          // intact deserves more time to develop).
+          if (!_isPrecisionETF && !tickerData?.__v12_winner_protect_active && !_runnerProtectActive &&
               _agH >= _p1MinAgeHours && _agH < 8 && pnlPct <= -1.0 && _mfeAbs < 0.3 && _maeAbs >= _p1MaxMaePct) {
             tickerData.__exit_reason = "phase_i_mfe_fast_cut_zero_mfe";
             tickerData.__exit_family = "safety";
@@ -7470,6 +7540,13 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           // "structure intact" grace: if daily is still bull-stacked
           // AND price is above e21, extend grace to 48h. This lets
           // healthy setups breathe before we yank capital.
+          //
+          // V15 P0.7.27 (2026-04-30): if _runnerProtectActive (no adverse
+          // div at entry + no live TD9-bear + structure intact), SKIP this
+          // tier entirely. Per XHB Jul 1 forensic: trade had no adverse
+          // signals, structure was intact, but slow development triggered
+          // this cut at hour 24+. Cohort analysis showed 6 of 8 such cuts
+          // became wins anyway — this rule is killing healthy slow movers.
           {
             const _structIntactGracePassed = (() => {
               const _ds = tickerData?.daily_structure || {};
@@ -7483,7 +7560,9 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
               return _structAligned && _aboveE21;
             })();
             const _deadMoneyGraceH = _structIntactGracePassed ? 48 : 24;
-            if (_agH >= _deadMoneyGraceH && _agH < 72 && pnlPct < 0 && _mfeAbs < 1.5) {
+            // V15 P0.7.27: runner-protect-active fully skips this tier.
+            if (!_runnerProtectActive
+                && _agH >= _deadMoneyGraceH && _agH < 72 && pnlPct < 0 && _mfeAbs < 1.5) {
               tickerData.__exit_reason = "phase_i_mfe_dead_money_24h";
               tickerData.__exit_family = "safety";
               tickerData.__exit_meta = { age_h: _agH, struct_intact: _structIntactGracePassed };

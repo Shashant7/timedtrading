@@ -123,6 +123,8 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_adv_div_dead_money_mfe_floor_pct", "value": "1.0" },
     { "key": "deep_audit_adv_div_dead_money_exempt_paths", "value": "tt_gap_reversal_long,tt_gap_reversal_short" },
 
+    { "key": "deep_audit_runner_protect_healthy_enabled", "value": "true" },
+
     { "key": "deep_audit_stagnant_deferral_max_days", "value": "14" },
     { "key": "deep_audit_stagnant_low_mae_threshold_pct", "value": "0.75" },
     { "key": "deep_audit_stagnant_squeeze_deferral_enabled", "value": "true" },

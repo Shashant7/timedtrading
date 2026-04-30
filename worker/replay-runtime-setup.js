@@ -238,6 +238,11 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_adv_div_dead_money_max_hours",
   "deep_audit_adv_div_dead_money_mfe_floor_pct",
   "deep_audit_adv_div_dead_money_exempt_paths",
+  // V15 P0.7.27 (2026-04-30) — runner protection for healthy trades
+  // Skip Tier 0 + Tier 4 dead-money cuts when no adverse div at entry,
+  // no live TD9-bear threat, structure intact. Per XHB observation +
+  // cohort analysis (6/8 such cuts became wins anyway).
+  "deep_audit_runner_protect_healthy_enabled",
   // V13 Focus Tier (2026-04-24): intrinsic conviction score — see
   // tasks/v13-focus-tier-strategy-2026-04-24.md
   "deep_audit_focus_tier_enabled",
