@@ -364,24 +364,132 @@
               </div>
             )}
 
-            {/* Sector heatmap */}
-            {sectors.length > 0 && (
+            {/* Game Plan triggers — V15 P0.7.42: visual bull/bear trigger ↔ target */}
+            {indicies.some((i) => i.levels?.gamePlan) && (
               <div>
-                <div className="text-[9px] uppercase tracking-wider text-[#6b7280] mb-1">Sectors today</div>
-                <div className="flex flex-wrap gap-1">
-                  {sectors.map((s) => (
-                    <div key={s.sym} className="px-2 py-1 rounded text-[10px] font-semibold flex items-center gap-1 border" style={{
-                      borderColor: s.status === "strong" ? "rgba(52,211,153,0.35)" : s.status === "green" ? "rgba(134,239,172,0.25)" : s.status === "weak" ? "rgba(251,191,36,0.25)" : s.status === "red" ? "rgba(239,68,68,0.35)" : "rgba(156,163,175,0.2)",
-                      background: s.status === "strong" ? "rgba(52,211,153,0.1)" : s.status === "green" ? "rgba(134,239,172,0.06)" : s.status === "weak" ? "rgba(251,191,36,0.08)" : s.status === "red" ? "rgba(239,68,68,0.1)" : "rgba(156,163,175,0.05)",
-                      color: s.status === "strong" ? "#34d399" : s.status === "green" ? "#86efac" : s.status === "weak" ? "#fbbf24" : s.status === "red" ? "#ef4444" : "#9ca3af",
-                    }}>
-                      <span>{s.sym}</span>
-                      <span className="tabular-nums">{s.chgPct != null ? `${s.chgPct >= 0 ? "+" : ""}${s.chgPct.toFixed(2)}%` : ""}</span>
-                    </div>
-                  ))}
+                <div className="text-[9px] uppercase tracking-wider text-[#6b7280] mb-1">Game Plan triggers</div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  {indicies.filter((i) => i.levels?.gamePlan).map((idx) => {
+                    const gp = idx.levels.gamePlan;
+                    const cp = idx.levels.currentPrice ?? idx.price;
+                    return (
+                      <div key={"gp-" + idx.sym} className="p-2 rounded bg-white/[0.02] border border-white/[0.06]">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-[11px] font-semibold text-white">{idx.sym} Plan</span>
+                          {cp != null && <span className="text-[10px] text-[#9ca3af] tabular-nums">${cp.toFixed(2)}</span>}
+                        </div>
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[9px] font-semibold uppercase tracking-wider text-emerald-300/80 w-9">Bull</span>
+                            <div className="flex-1 flex items-center gap-1 text-[10px] tabular-nums">
+                              <span className="text-[#86efac]">${gp.bullTrigger.toFixed(2)}</span>
+                              <span className="text-[#6b7280]">→</span>
+                              <span className="text-emerald-300 font-semibold">${gp.bullTarget.toFixed(2)}</span>
+                              <span className="ml-auto text-[9px] text-[#6b7280]">+{((gp.bullTarget - gp.bullTrigger) / gp.bullTrigger * 100).toFixed(2)}%</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[9px] font-semibold uppercase tracking-wider text-red-300/80 w-9">Bear</span>
+                            <div className="flex-1 flex items-center gap-1 text-[10px] tabular-nums">
+                              <span className="text-[#fecaca]">${gp.bearTrigger.toFixed(2)}</span>
+                              <span className="text-[#6b7280]">→</span>
+                              <span className="text-red-300 font-semibold">${gp.bearTarget.toFixed(2)}</span>
+                              <span className="ml-auto text-[9px] text-[#6b7280]">{((gp.bearTarget - gp.bearTrigger) / gp.bearTrigger * 100).toFixed(2)}%</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
+
+            {/* Sector heatmap — V15 P0.7.42: grouped + sorted + size-by-magnitude */}
+            {sectors.length > 0 && (() => {
+              // Group ETFs into themes for digestibility
+              const themes = {
+                "Risk-On / Cyclical": ["XLK","XLY","XLC","XLI"],
+                "Defensive / Yield": ["XLP","XLU","XLV","XLRE"],
+                "Energy / Materials": ["XLE","XLB","XLF"],
+              };
+              const symToTheme = {};
+              for (const [t, syms] of Object.entries(themes)) for (const s of syms) symToTheme[s] = t;
+              const grouped = {};
+              const ungrouped = [];
+              for (const s of sectors) {
+                const th = symToTheme[s.sym];
+                if (th) (grouped[th] = grouped[th] || []).push(s);
+                else ungrouped.push(s);
+              }
+              // Sort each group by chgPct descending so green stays at left
+              for (const k of Object.keys(grouped)) grouped[k].sort((a,b) => (b.chgPct ?? 0) - (a.chgPct ?? 0));
+              const sectorBg = (s) => {
+                if (s.chgPct == null) return "rgba(156,163,175,0.05)";
+                const v = s.chgPct;
+                if (v > 1) return "rgba(52,211,153,0.18)";
+                if (v > 0.3) return "rgba(52,211,153,0.10)";
+                if (v > 0) return "rgba(134,239,172,0.06)";
+                if (v > -0.3) return "rgba(251,191,36,0.08)";
+                if (v > -1) return "rgba(239,68,68,0.10)";
+                return "rgba(239,68,68,0.18)";
+              };
+              const sectorFg = (s) => {
+                if (s.chgPct == null) return "#9ca3af";
+                const v = s.chgPct;
+                if (v > 0.3) return "#34d399";
+                if (v > 0) return "#86efac";
+                if (v > -0.3) return "#fbbf24";
+                return "#ef4444";
+              };
+              return (
+                <div>
+                  <div className="text-[9px] uppercase tracking-wider text-[#6b7280] mb-1">Sectors today (grouped)</div>
+                  <div className="space-y-1.5">
+                    {Object.entries(grouped).map(([theme, syms]) => {
+                      const avg = syms.reduce((a, s) => a + (s.chgPct ?? 0), 0) / syms.length;
+                      return (
+                        <div key={theme} className="flex items-center gap-2">
+                          <div className="text-[9px] uppercase tracking-wider text-[#9ca3af] w-32 flex-shrink-0">
+                            {theme}
+                            <span className="ml-1 tabular-nums" style={{ color: sectorFg({ chgPct: avg }) }}>
+                              {avg >= 0 ? "+" : ""}{avg.toFixed(2)}%
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {syms.map((s) => (
+                              <div key={s.sym} className="px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1" style={{
+                                background: sectorBg(s),
+                                color: sectorFg(s),
+                              }}>
+                                <span>{s.sym}</span>
+                                <span className="tabular-nums">{s.chgPct != null ? `${s.chgPct >= 0 ? "+" : ""}${s.chgPct.toFixed(2)}%` : ""}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {ungrouped.length > 0 && (
+                      <div className="flex items-center gap-2">
+                        <div className="text-[9px] uppercase tracking-wider text-[#9ca3af] w-32 flex-shrink-0">Other</div>
+                        <div className="flex flex-wrap gap-1">
+                          {ungrouped.map((s) => (
+                            <div key={s.sym} className="px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1" style={{
+                              background: sectorBg(s),
+                              color: sectorFg(s),
+                            }}>
+                              <span>{s.sym}</span>
+                              <span className="tabular-nums">{s.chgPct != null ? `${s.chgPct >= 0 ? "+" : ""}${s.chgPct.toFixed(2)}%` : ""}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Macro rail */}
             {macro.length > 0 && (
