@@ -4,6 +4,7 @@
 import { kvGetJSON, kvPutJSON } from "./storage.js";
 import { loadCalendar, isEquityHoliday, isEquityEarlyClose } from "./market-calendar.js";
 import { sendDailyBriefEmail, getEmailOptedInUsers } from "./email.js";
+import { tdFetchQuote } from "./twelvedata.js";
 
 // ═══════════════════════════════════════════════════════════════════════
 // D1 Schema
@@ -1041,8 +1042,23 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     (e.revenueEstimate && e.revenueEstimate > 1e9) // large-cap fallback
   );
 
-  // Enrich today's earnings tickers with current price, daily change, and chart setup
-  const todayEarnings = await Promise.all(todayEarningsRaw.map(async (e) => {
+  // Enrich today's earnings tickers with current price, daily change, and chart setup.
+  //
+  // V15 P0.7.40 (2026-04-30) — TwelveData fallback for non-universe tickers
+  //
+  // Per user feedback: "Earnings Watch does not show ticker price but shows
+  // '$data unavailable', if they are missing in our universe, we can use
+  // TwelveData calls to get that info."
+  //
+  // Strategy:
+  //   1. KV first — universe tickers have full state + chart setup metadata
+  //   2. For tickers NOT in universe (no KV entry), batch-call TwelveData
+  //      /quote in one API hit and enrich with price + day_change_pct only
+  //   3. Anything that still fails returns the raw earnings entry (will show
+  //      ticker + name + estimates without a price, instead of '$ unavailable')
+  //
+  // Step 1: enrich from KV
+  const earningsKvEnriched = await Promise.all(todayEarningsRaw.map(async (e) => {
     try {
       const latestData = await kvGetJSON(KV, `timed:latest:${e.symbol}`).catch(() => null);
       if (latestData) {
@@ -1057,11 +1073,44 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
           currentPrice: price > 0 ? price.toFixed(2) : null,
           dayChangePct: dayChg !== 0 ? (dayChg >= 0 ? "+" : "") + dayChg.toFixed(2) + "%" : null,
           chartSetup: state ? `${state}, HTF: ${htfScore.toFixed(0)}, LTF: ${ltfScore.toFixed(0)}, Phase: ${phaseZone}` : null,
+          _enrichedSource: "kv",
         };
       }
     } catch (_) {}
     return e;
   }));
+
+  // Step 2: collect tickers that need TwelveData fallback (no price yet)
+  const needsTd = earningsKvEnriched
+    .filter(e => !e.currentPrice && e.symbol)
+    .map(e => e.symbol);
+
+  let tdSnapshots = {};
+  if (needsTd.length > 0) {
+    try {
+      const result = await tdFetchQuote(env, [...new Set(needsTd)]);
+      tdSnapshots = result?.snapshots || {};
+      console.log(`[BRIEF] TwelveData fallback: enriched ${Object.keys(tdSnapshots).length}/${needsTd.length} non-universe earnings tickers`);
+    } catch (err) {
+      console.warn(`[BRIEF] TwelveData earnings fallback failed:`, String(err?.message || err).slice(0, 200));
+    }
+  }
+
+  // Step 3: merge TwelveData prices into the enriched earnings list
+  const todayEarnings = earningsKvEnriched.map((e) => {
+    if (e.currentPrice || !e.symbol) return e;
+    const td = tdSnapshots[e.symbol];
+    if (!td) return e;
+    const price = Number(td.price) || 0;
+    const dayChg = Number(td.percentChange) || 0;
+    return {
+      ...e,
+      currentPrice: price > 0 ? price.toFixed(2) : null,
+      dayChangePct: dayChg !== 0 ? (dayChg >= 0 ? "+" : "") + dayChg.toFixed(2) + "%" : null,
+      chartSetup: null,  // not in our universe — no chart context
+      _enrichedSource: "twelvedata",
+    };
+  });
 
   // ── Economic Data: Finnhub (primary, structured API) + ForexFactory (supplement) ──
   // Finnhub returns structured calendar data with correct dates — reliable.
@@ -1678,6 +1727,59 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
       }
     }
 
+    // V15 P0.7.42 (2026-04-30) — Golden Gate close probability
+    //
+    // Per user request: "We should reference both the DAY ATR Levels and the
+    // MultiDay ATR Levels and the probability of closing GG for the day as
+    // well as for the week."
+    //
+    // Day-close probability heuristic: combines distance-to-target,
+    // momentum (price > anchor + bias), session timing (more time =
+    // more chance to reach), and ATR exhaustion (how much of dayAtr
+    // already used up). Returns a probability 0-1 with a label
+    // (LOW < 30%, MODERATE 30-60%, HIGH > 60%).
+    if (curPrice > 0) {
+      const _atrUsedAbs = Math.abs(curPrice - anchor);
+      const _atrUsed = dayAtr > 0 ? _atrUsedAbs / dayAtr : 0;  // fraction of day ATR consumed
+      // Time elapsed in RTH (0-1): use UTC clock since cron runs in UTC
+      const _now = new Date();
+      const _utcHour = _now.getUTCHours() + _now.getUTCMinutes() / 60;
+      // RTH 13:30 UTC (9:30 ET EDT) → 20:00 UTC (4:00 PM ET EDT). Approx.
+      let _sessionFrac = (_utcHour - 13.5) / (20 - 13.5);
+      _sessionFrac = Math.max(0, Math.min(1, _sessionFrac));
+      // Distance from the active gate target (50%/61.8% past the gate)
+      // If GG is OPEN_UP, target is +50%-+61.8%; if NEUTRAL, both gates equal
+      const _ggUpProb = (() => {
+        if (curPrice <= upGate) return 0;  // GG not open up
+        const targetPrice = anchor + dayAtr * 0.5;
+        if (curPrice >= targetPrice) return 1;  // already there
+        const distToTarget = (targetPrice - curPrice) / dayAtr;  // fraction of dayAtr
+        // Probability decays with distance, increases with time remaining + momentum
+        const timeRemaining = 1 - _sessionFrac;
+        // Heuristic: base 0.5 if just past gate, scale by (timeRemaining * (1 - distToTarget))
+        return Math.max(0, Math.min(1, 0.5 + (timeRemaining - distToTarget) * 0.5));
+      })();
+      const _ggDnProb = (() => {
+        if (curPrice >= dnGate) return 0;
+        const targetPrice = anchor - dayAtr * 0.5;
+        if (curPrice <= targetPrice) return 1;
+        const distToTarget = (curPrice - targetPrice) / dayAtr;
+        const timeRemaining = 1 - _sessionFrac;
+        return Math.max(0, Math.min(1, 0.5 + (timeRemaining - distToTarget) * 0.5));
+      })();
+      const ggCloseProb = atrFibLevels.goldenGate === "OPEN_UP"
+        ? _ggUpProb
+        : atrFibLevels.goldenGate === "OPEN_DOWN" ? _ggDnProb : 0;
+      atrFibLevels.goldenGateProbability = {
+        day: rnd(ggCloseProb * 100) / 100,  // 0-1
+        dayLabel: ggCloseProb >= 0.6 ? "HIGH"
+                : ggCloseProb >= 0.3 ? "MODERATE"
+                : "LOW",
+        atrUsedPct: rnd(_atrUsed * 100),
+        sessionElapsedPct: rnd(_sessionFrac * 100),
+      };
+    }
+
     // Pre-validated game plan targets so the AI doesn't produce impossible combos
     const oHi = overnightRange?.high || curPrice;
     const oLo = overnightRange?.low || curPrice;
@@ -1689,6 +1791,96 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
       bearTrigger: rnd(oLo),
       bearTarget: allBearTargets[0] || rnd(anchor - dayAtr * 1.0),
     };
+  }
+
+  // ── Multi-day (Weekly) ATR Levels — V15 P0.7.42 (2026-04-30) ─────────
+  //
+  // Per user request: "We should reference both the DAY ATR Levels and
+  // the MultiDay ATR Levels". The DAY ATR Levels are above (atrFibLevels);
+  // here we compute a parallel structure using a 5-day TR ATR anchored
+  // at the start-of-week price for swing/positional context.
+  //
+  // Use case: a trade may be in the middle of the day's range (NEUTRAL on
+  // day GG) but already broken above the week's +38.2% level — different
+  // narrative. Both views are surfaced for the brief.
+  let multiDayAtrLevels = null;
+  if (recent.length >= 5 && anchor > 0) {
+    // 5-day TR ATR (already approximates "week ATR" since recent has ~10 daily bars)
+    const last5 = recent.slice(-5);
+    let weekAtrSum = 0; let weekAtrCount = 0;
+    for (let i = 1; i < last5.length; i++) {
+      const h = Number(last5[i].h);
+      const l = Number(last5[i].l);
+      const pc = Number(last5[i - 1].c);
+      const tr = Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+      if (tr > 0) { weekAtrSum += tr; weekAtrCount++; }
+    }
+    const weekAtr = weekAtrCount > 0 ? weekAtrSum / weekAtrCount : 0;
+    // Anchor the week from Monday's open (or earliest available)
+    const weekAnchor = Number(last5[0]?.o ?? last5[0]?.c) || anchor;
+    if (weekAtr > 0 && weekAnchor > 0) {
+      const fibsW = [0.236, 0.382, 0.500, 0.618, 1.0];
+      multiDayAtrLevels = {
+        anchor: rnd(weekAnchor),
+        weekAtr: rnd(weekAtr),
+        dayAtrInWeekTerms: rnd(atr14 * Math.sqrt(5)),  // approx weekly = day*sqrt(5)
+        currentPrice: Number(latestData?.price) || null,
+        levels: {},
+      };
+      for (const f of fibsW) {
+        const label = (f * 100).toFixed(1).replace(/\.0$/, "");
+        multiDayAtrLevels.levels[`+${label}%`] = rnd(weekAnchor + weekAtr * f);
+        multiDayAtrLevels.levels[`-${label}%`] = rnd(weekAnchor - weekAtr * f);
+      }
+      // Multi-day Golden Gate (weekly 38.2%)
+      const wUpGate = weekAnchor + weekAtr * 0.382;
+      const wDnGate = weekAnchor - weekAtr * 0.382;
+      const curPx = Number(latestData?.price) || 0;
+      if (curPx > 0) {
+        if (curPx > wUpGate) {
+          multiDayAtrLevels.goldenGate = "OPEN_UP";
+          multiDayAtrLevels.goldenGateNote = `Week price ${rnd(curPx)} above weekly +38.2% gate at ${rnd(wUpGate)}. Weekly target +50% at ${rnd(weekAnchor + weekAtr * 0.5)}, +61.8% at ${rnd(weekAnchor + weekAtr * 0.618)}.`;
+        } else if (curPx < wDnGate) {
+          multiDayAtrLevels.goldenGate = "OPEN_DOWN";
+          multiDayAtrLevels.goldenGateNote = `Week price ${rnd(curPx)} below weekly -38.2% gate at ${rnd(wDnGate)}. Weekly target -50% at ${rnd(weekAnchor - weekAtr * 0.5)}, -61.8% at ${rnd(weekAnchor - weekAtr * 0.618)}.`;
+        } else {
+          multiDayAtrLevels.goldenGate = "NEUTRAL";
+          multiDayAtrLevels.goldenGateNote = `Week price ${rnd(curPx)} between weekly 38.2% gates (${rnd(wDnGate)} - ${rnd(wUpGate)}).`;
+        }
+
+        // Week-close GG probability — uses days remaining in the week
+        // (Mon=5 days remaining, Fri=1 day) blended with weekly ATR usage.
+        const _wAtrUsedAbs = Math.abs(curPx - weekAnchor);
+        const _wAtrUsed = weekAtr > 0 ? _wAtrUsedAbs / weekAtr : 0;
+        const _now = new Date();
+        const _dow = _now.getUTCDay();  // 1-5 trading days
+        // Friday close = end of week. Days remaining (incl today)
+        const _daysRemaining = Math.max(1, 6 - Math.max(1, Math.min(5, _dow)));
+        const _weekTimeRemaining = _daysRemaining / 5;  // 0..1
+        const wggUpProb = (() => {
+          if (curPx <= wUpGate) return 0;
+          const target = weekAnchor + weekAtr * 0.5;
+          if (curPx >= target) return 1;
+          const dist = (target - curPx) / weekAtr;
+          return Math.max(0, Math.min(1, 0.5 + (_weekTimeRemaining - dist) * 0.5));
+        })();
+        const wggDnProb = (() => {
+          if (curPx >= wDnGate) return 0;
+          const target = weekAnchor - weekAtr * 0.5;
+          if (curPx <= target) return 1;
+          const dist = (curPx - target) / weekAtr;
+          return Math.max(0, Math.min(1, 0.5 + (_weekTimeRemaining - dist) * 0.5));
+        })();
+        const wProb = multiDayAtrLevels.goldenGate === "OPEN_UP" ? wggUpProb
+                    : multiDayAtrLevels.goldenGate === "OPEN_DOWN" ? wggDnProb : 0;
+        multiDayAtrLevels.goldenGateProbability = {
+          week: rnd(wProb * 100) / 100,
+          weekLabel: wProb >= 0.6 ? "HIGH" : wProb >= 0.3 ? "MODERATE" : "LOW",
+          weekAtrUsedPct: rnd(_wAtrUsed * 100),
+          daysRemaining: _daysRemaining,
+        };
+      }
+    }
   }
 
   // ── Multi-day Structure Context ──────────────────────────────────────
@@ -1749,6 +1941,7 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
     pivots,
     overnightRange,
     atrFibLevels,
+    multiDayAtrLevels,
     structureContext,
     smcLevels,
     vixPrice: Number(latestData?.price) || null,
@@ -2197,6 +2390,41 @@ ${(() => {
   return lines.length > 0 ? lines.join("\n") : "Use SMC support/resistance levels as triggers.";
 })()}
 ABSOLUTE RULE: Bearish targets MUST be LOWER than triggers. Bullish targets MUST be HIGHER.
+
+### Golden Gate Status (V15 P0.7.42 — Day & Week probabilities):
+For each index, show BOTH the day GG state and the multi-day (weekly) GG state. The probability heuristic blends ATR usage, time-of-session, and distance to target. Use HIGH/MODERATE/LOW labels in the prose; quote the % prob if material.
+${(() => {
+  const lines = [];
+  for (const [sym, tech] of [["SPY", data.spyTechnical], ["QQQ", data.qqqTechnical], ["IWM", data.iwmTechnical]]) {
+    if (!tech) continue;
+    const day = tech.atrFibLevels;
+    const week = tech.multiDayAtrLevels;
+    const dayGg = day?.goldenGate || "?";
+    const weekGg = week?.goldenGate || "?";
+    const dayProb = day?.goldenGateProbability;
+    const weekProb = week?.goldenGateProbability;
+    const dayLine = dayProb
+      ? `Day GG ${dayGg} (${dayProb.dayLabel} ${(dayProb.day * 100).toFixed(0)}% prob to close gate; ATR used ${dayProb.atrUsedPct}%, session ${dayProb.sessionElapsedPct}% elapsed)`
+      : `Day GG ${dayGg}`;
+    const weekLine = weekProb
+      ? `Week GG ${weekGg} (${weekProb.weekLabel} ${(weekProb.week * 100).toFixed(0)}% prob to close week gate; weekly ATR used ${weekProb.weekAtrUsedPct}%, ${weekProb.daysRemaining}d remaining)`
+      : `Week GG ${weekGg}`;
+    lines.push(`${sym}: ${dayLine} | ${weekLine}`);
+  }
+  return lines.length > 0 ? lines.join("\n") : "(No GG data)";
+})()}
+
+### Multi-Day (Weekly) ATR Levels — for swing context:
+${(() => {
+  const lines = [];
+  for (const [sym, tech] of [["SPY", data.spyTechnical], ["QQQ", data.qqqTechnical], ["IWM", data.iwmTechnical]]) {
+    const w = tech?.multiDayAtrLevels;
+    if (!w) continue;
+    const lvls = w.levels || {};
+    lines.push(`${sym} weekAnchor=${w.anchor} weekATR=${w.weekAtr} | up: +38.2%=${lvls["+38.2%"]} +50%=${lvls["+50%"]} +61.8%=${lvls["+61.8%"]} | dn: -38.2%=${lvls["-38.2%"]} -50%=${lvls["-50%"]} -61.8%=${lvls["-61.8%"]}`);
+  }
+  return lines.length > 0 ? lines.join("\n") : "(N/A)";
+})()}
 
 ### SPY Key Levels:
 ${formatSMCForPrompt(data.spyTechnical?.smcLevels)}
@@ -2779,8 +3007,23 @@ function buildBriefInfographic(data, type) {
       currentPrice: l.currentPrice,
       goldenGate: l.goldenGate || "NEUTRAL",
       goldenGateNote: l.goldenGateNote || null,
+      goldenGateProbability: l.goldenGateProbability || null,
       levels: l.levels || {},
       gamePlan: l.gamePlan || null,
+    };
+  };
+  // V15 P0.7.42 — multi-day (weekly) ATR Fib levels mirror
+  const _normWeeklyLevels = (tech) => {
+    if (!tech || !tech.multiDayAtrLevels) return null;
+    const w = tech.multiDayAtrLevels;
+    return {
+      anchor: w.anchor,
+      weekAtr: w.weekAtr,
+      currentPrice: w.currentPrice,
+      goldenGate: w.goldenGate || "NEUTRAL",
+      goldenGateNote: w.goldenGateNote || null,
+      goldenGateProbability: w.goldenGateProbability || null,
+      levels: w.levels || {},
     };
   };
   const _extract = (sym, md, tech) => {
@@ -2794,6 +3037,7 @@ function buildBriefInfographic(data, type) {
       chgPct: Number.isFinite(chg) ? Math.round(chg * 100) / 100 : null,
       atr: Number.isFinite(atr) ? Math.round(atr * 100) / 100 : null,
       levels: _normLevels(tech),
+      weeklyLevels: _normWeeklyLevels(tech),
     };
   };
   const indices = [

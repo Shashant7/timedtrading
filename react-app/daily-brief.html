@@ -267,25 +267,35 @@
               {hl.openTrades != null && <Badge label="Open Trades" value={String(hl.openTrades)} color="#a78bfa" />}
             </div>
 
-            {/* Index cards */}
+            {/* Index cards (V15 P0.7.42 — Day & Week GG with close-prob) */}
             {indicies.length > 0 && (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                 {indicies.map((idx) => {
                   const lvls = idx.levels || {};
+                  const wlvls = idx.weeklyLevels || null;
                   const gg = lvls.goldenGate || "NEUTRAL";
+                  const wgg = wlvls?.goldenGate || "NEUTRAL";
+                  const dayProb = lvls.goldenGateProbability;
+                  const weekProb = wlvls?.goldenGateProbability;
                   const anchor = lvls.anchor;
                   const cp = lvls.currentPrice ?? idx.price;
                   const up382 = lvls.levels?.["+38.2%"];
                   const dn382 = lvls.levels?.["-38.2%"];
+                  const wUp382 = wlvls?.levels?.["+38.2%"];
+                  const wDn382 = wlvls?.levels?.["-38.2%"];
                   const barProgress = (cp != null && up382 != null && dn382 != null)
                     ? Math.max(0, Math.min(100, ((cp - dn382) / (up382 - dn382)) * 100))
                     : 50;
+                  const wBarProgress = (cp != null && wUp382 != null && wDn382 != null)
+                    ? Math.max(0, Math.min(100, ((cp - wDn382) / (wUp382 - wDn382)) * 100))
+                    : 50;
+                  const probColor = (lbl) => lbl === "HIGH" ? "#34d399" : lbl === "MODERATE" ? "#fbbf24" : "#9ca3af";
                   return (
                     <div key={idx.sym} className="p-3 rounded-md bg-white/[0.02] border border-white/[0.06]">
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-[12px] font-semibold text-white">{idx.sym}</span>
                         <span className="text-[10px] font-semibold" style={{ color: ggColor(gg) }}>
-                          {gg === "OPEN_UP" ? "▲ Golden Gate Up" : gg === "OPEN_DOWN" ? "▼ Golden Gate Down" : "◆ Neutral"}
+                          {gg === "OPEN_UP" ? "▲ GG Up" : gg === "OPEN_DOWN" ? "▼ GG Down" : "◆ Neutral"}
                         </span>
                       </div>
                       <div className="flex items-baseline gap-2 mb-2">
@@ -299,6 +309,15 @@
                           <span className="ml-auto text-[10px] text-[#6b7280]">ATR ${idx.atr.toFixed(2)}</span>
                         )}
                       </div>
+                      {/* Day GG bar */}
+                      <div className="text-[9px] uppercase tracking-wider text-[#6b7280] mb-0.5 flex items-center justify-between">
+                        <span>Day Gate</span>
+                        {dayProb && gg !== "NEUTRAL" && (
+                          <span className="tabular-nums" style={{ color: probColor(dayProb.dayLabel) }}>
+                            {(dayProb.day * 100).toFixed(0)}% close · {dayProb.dayLabel}
+                          </span>
+                        )}
+                      </div>
                       {dn382 != null && up382 != null && (
                         <div className="relative h-2 rounded bg-white/[0.05] overflow-hidden mb-1">
                           <div className="absolute left-0 top-0 bottom-0" style={{ width: `${barProgress}%`, background: "linear-gradient(90deg, rgba(239,68,68,0.35), rgba(107,114,128,0.25), rgba(52,211,153,0.35))" }} />
@@ -308,10 +327,36 @@
                         </div>
                       )}
                       {dn382 != null && up382 != null && (
-                        <div className="flex items-center justify-between text-[9px] text-[#6b7280] tabular-nums">
+                        <div className="flex items-center justify-between text-[9px] text-[#6b7280] tabular-nums mb-2">
                           <span>-38.2% ${dn382.toFixed(2)}</span>
                           <span>+38.2% ${up382.toFixed(2)}</span>
                         </div>
+                      )}
+                      {/* Week GG bar */}
+                      {wlvls && (
+                        <>
+                          <div className="text-[9px] uppercase tracking-wider text-[#6b7280] mb-0.5 flex items-center justify-between">
+                            <span style={{ color: ggColor(wgg) }}>
+                              Week Gate {wgg === "OPEN_UP" ? "▲" : wgg === "OPEN_DOWN" ? "▼" : "◆"}
+                            </span>
+                            {weekProb && wgg !== "NEUTRAL" && (
+                              <span className="tabular-nums" style={{ color: probColor(weekProb.weekLabel) }}>
+                                {(weekProb.week * 100).toFixed(0)}% close · {weekProb.weekLabel}
+                              </span>
+                            )}
+                          </div>
+                          {wDn382 != null && wUp382 != null && (
+                            <>
+                              <div className="relative h-1.5 rounded bg-white/[0.05] overflow-hidden mb-1">
+                                <div className="absolute left-0 top-0 bottom-0" style={{ width: `${wBarProgress}%`, background: "linear-gradient(90deg, rgba(239,68,68,0.25), rgba(107,114,128,0.15), rgba(52,211,153,0.25))" }} />
+                              </div>
+                              <div className="flex items-center justify-between text-[9px] text-[#6b7280] tabular-nums">
+                                <span>-38.2% ${wDn382.toFixed(2)}</span>
+                                <span>+38.2% ${wUp382.toFixed(2)}</span>
+                              </div>
+                            </>
+                          )}
+                        </>
                       )}
                     </div>
                   );
