@@ -117,7 +117,7 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_phase_c_hard_cap_per_cycle", "value": "8" },
     { "key": "deep_audit_phase_c_quality_score_min", "value": "-20" },
 
-    { "key": "deep_audit_adv_div_dead_money_enabled", "value": "true" },
+    { "key": "deep_audit_adv_div_dead_money_enabled", "value": "false" },
     { "key": "deep_audit_adv_div_dead_money_min_hours", "value": "4" },
     { "key": "deep_audit_adv_div_dead_money_max_hours", "value": "8" },
     { "key": "deep_audit_adv_div_dead_money_mfe_floor_pct", "value": "1.0" },

@@ -126,3 +126,17 @@ Once entry quality is selective, each trade matters more. Use captured `ticker_p
 3. **Quality at entry-time selection > quality at post-hoc filter.** If you want to filter, sort the candidates first.
 4. **Keep DA flags on rejected experiments.** Code stays for revisits; flags off prevents accidents.
 5. **Orphan cleanup is non-trivial.** Live cron + persistent positions table + KV cache → triple bookkeeping. Always check all three before running new backtests.
+
+## Lesson #5 (added 2026-04-30): Time-windowed exit rules need bar-by-bar trajectories
+
+Attempted "Phase 1 / Option 2" — exit at BE when adverse-divergence trade hasn't reached +1% MFE in first 4-8 hours. Counterfactual claimed +42pp PnL gain, 19 losses caught with zero winner cost.
+
+**User caught the fatal flaw before the smoke completed**: the counterfactual measured MFE for the **entire trade lifetime**. Trades that "never reached +1% MFE" are losses by definition — they never moved up before closing.
+
+But the rule fires at **hours 4-8** based on MFE **at that point in time**, not at trade closure. Many winners spend hours 4-8 under +1% MFE while building toward larger moves over days. Cutting them in that window kills the runners.
+
+LITE went from entry to +44% over 6+ days. AVGO took 2-3 days to gather. **Both probably had <1% MFE at hour 4-8.**
+
+**Lesson**: To validate any time-windowed exit rule, the analysis needs **bar-by-bar MFE trajectories**, not lifetime-only stats. Without that data, the counterfactual is meaningless.
+
+**Code reverted**: P0.7.26 (`adv_div_dead_money_be_cut`) disabled in KV; rule is gated behind `deep_audit_adv_div_dead_money_enabled=false`. Code remains in `worker/index.js` but inactive. Will not be re-enabled until we have real bar-by-bar MFE data per trade.
