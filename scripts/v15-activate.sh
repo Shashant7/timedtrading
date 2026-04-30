@@ -123,7 +123,16 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_adv_div_dead_money_mfe_floor_pct", "value": "1.0" },
     { "key": "deep_audit_adv_div_dead_money_exempt_paths", "value": "tt_gap_reversal_long,tt_gap_reversal_short" },
 
-    { "key": "deep_audit_runner_protect_healthy_enabled", "value": "false" },
+    { "key": "deep_audit_runner_protect_healthy_enabled", "value": "true" },
+
+    { "key": "deep_audit_mfe_peak_lock_enabled", "value": "true" },
+    { "key": "deep_audit_mfe_peak_lock_min_threshold", "value": "1.0" },
+    { "key": "deep_audit_mfe_peak_lock_retrace_pct", "value": "0.5" },
+    { "key": "deep_audit_mfe_peak_lock_min_remaining", "value": "0.2" },
+
+    { "key": "deep_audit_personality_aware_fast_cut_enabled", "value": "true" },
+    { "key": "deep_audit_personality_grace_multiplier", "value": "1.5" },
+    { "key": "deep_audit_personality_grace_pnl_floor", "value": "-1.5" },
 
     { "key": "deep_audit_td9_fragile_be_lock_enabled", "value": "false" },
     { "key": "deep_audit_td9_fragile_tp1_tighten_enabled", "value": "false" },

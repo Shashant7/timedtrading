@@ -1,0 +1,263 @@
+==============================================================================
+PILLAR 6 — VWAP analysis (566 of 588 trades have full VWAP capture)
+==============================================================================
+
+A · Direction-aligned VWAP at entry (price-side matches trade direction)
+    LONG  → above=True  is aligned (price above VWAP, trend up)
+    SHORT → above=False is aligned (price below VWAP, trend down)
+
+  TF=30:
+      aligned (dist > 0.1%)                              n=551 W=282 L=268 WR= 51% avg=+0.71% cum=+388.69% $+41,881
+      against (dist > 0.1%)                              n= 13 W=  7 L=  6 WR= 54% avg=+0.67% cum=  +8.76% $   +995
+      neutral / on-vwap (dist <= 0.1%)                   n=  2 W=  1 L=  1 WR= 50% avg=-4.76% cum=  -9.52% $   -858
+  TF=60:
+      aligned (dist > 0.1%)                              n=558 W=288 L=269 WR= 52% avg=+0.71% cum=+396.83% $+43,476
+      against (dist > 0.1%)                              n=  8 W=  2 L=  6 WR= 25% avg=-1.11% cum=  -8.90% $ -1,457
+      neutral / on-vwap (dist <= 0.1%)                   EMPTY
+  TF=240:
+      aligned (dist > 0.1%)                              n=563 W=289 L=273 WR= 51% avg=+0.70% cum=+391.30% $+42,495
+      against (dist > 0.1%)                              n=  3 W=  1 L=  2 WR= 33% avg=-1.12% cum=  -3.36% $   -477
+      neutral / on-vwap (dist <= 0.1%)                   EMPTY
+  TF=D:
+      aligned (dist > 0.1%)                              n=539 W=273 L=265 WR= 51% avg=+0.66% cum=+355.24% $+38,352
+      against (dist > 0.1%)                              n= 25 W= 16 L=  9 WR= 64% avg=+1.27% cum= +31.67% $ +3,593
+      neutral / on-vwap (dist <= 0.1%)                   n=  2 W=  1 L=  1 WR= 50% avg=+0.51% cum=  +1.02% $    +74
+  TF=W:
+      aligned (dist > 0.1%)                              n=516 W=266 L=249 WR= 52% avg=+0.71% cum=+363.90% $+39,640
+      against (dist > 0.1%)                              n= 48 W= 22 L= 26 WR= 46% avg=+0.23% cum= +10.85% $ +1,433
+      neutral / on-vwap (dist <= 0.1%)                   EMPTY
+
+B · Distance from VWAP at entry (signed by trade direction)
+    Positive distance = with-trend extension; negative = pulling back below VWAP
+
+  TF=60:
+      < -2%  (deep against)                              n=  2 W=  0 L=  2 WR=  0% avg=-2.16% cum=  -4.33% $ -1,076
+      -1 to -0.3%                                        n=  4 W=  0 L=  4 WR=  0% avg=-2.34% cum=  -9.34% $   -987
+      -0.3 to +0.3% (near VWAP)                          n=  4 W=  4 L=  0 WR=100% avg=+2.06% cum=  +8.26% $   +940
+      +0.3 to +1%                                        n= 16 W=  7 L=  9 WR= 44% avg=-0.02% cum=  -0.30% $   +244
+      +1 to +2%                                          n= 19 W=  9 L=  9 WR= 50% avg=-0.49% cum=  -9.23% $   -710
+      +2 to +5%                                          n= 89 W= 43 L= 46 WR= 48% avg=+0.40% cum= +35.35% $ +3,174
+      +5%+   (extended)                                  n=432 W=227 L=205 WR= 53% avg=+0.85% cum=+367.53% $+40,433
+  TF=240:
+      < -2%  (deep against)                              n=  1 W=  0 L=  1 WR=  0% avg=-3.14% cum=  -3.14% $   -455
+      -2 to -1%                                          n=  1 W=  0 L=  1 WR=  0% avg=-1.01% cum=  -1.01% $   -116
+      -0.3 to +0.3% (near VWAP)                          n=  3 W=  3 L=  0 WR=100% avg=+2.90% cum=  +8.71% $ +1,128
+      +1 to +2%                                          n=  4 W=  3 L=  1 WR= 75% avg=+1.03% cum=  +4.12% $   +371
+      +2 to +5%                                          n= 42 W= 18 L= 24 WR= 43% avg=-0.01% cum=  -0.26% $   -498
+      +5%+   (extended)                                  n=515 W=266 L=248 WR= 52% avg=+0.74% cum=+379.51% $+41,588
+  TF=D:
+      < -2%  (deep against)                              n= 18 W= 12 L=  6 WR= 67% avg=+1.47% cum= +26.49% $ +2,851
+      -2 to -1%                                          n=  4 W=  2 L=  2 WR= 50% avg=+0.48% cum=  +1.92% $   +215
+      -1 to -0.3%                                        n=  2 W=  1 L=  1 WR= 50% avg=+0.68% cum=  +1.36% $   +192
+      -0.3 to +0.3% (near VWAP)                          n=  3 W=  2 L=  1 WR= 67% avg=+0.97% cum=  +2.92% $   +408
+      +0.3 to +1%                                        n=  3 W=  3 L=  0 WR=100% avg=+0.66% cum=  +1.97% $   +126
+      +1 to +2%                                          n=  8 W=  4 L=  4 WR= 50% avg=+1.68% cum= +13.45% $ +1,074
+      +2 to +5%                                          n= 22 W= 10 L= 12 WR= 45% avg=+0.12% cum=  +2.53% $   +107
+      +5%+   (extended)                                  n=506 W=256 L=249 WR= 51% avg=+0.67% cum=+337.30% $+37,045
+
+C · VWAP slope at entry (signed by direction)
+    Positive = VWAP rising in our direction (trend with us)
+
+  TF=60:
+      < -0.05  (sharp against)                           n=  1 W=  0 L=  1 WR=  0% avg=-4.05% cum=  -4.05% $ -1,041
+      flat                                               n= 15 W=  8 L=  7 WR= 53% avg=+0.03% cum=  +0.40% $   +301
+      +0.01 to +0.05                                     n=138 W= 61 L= 76 WR= 45% avg=-0.03% cum=  -3.64% $   -191
+      > +0.05  (sharp with us)                           n=412 W=221 L=191 WR= 54% avg=+0.96% cum=+395.23% $+42,949
+  TF=240:
+      -0.05 to -0.01                                     n=  2 W=  0 L=  2 WR=  0% avg=-2.07% cum=  -4.15% $   -571
+      flat                                               n=  6 W=  6 L=  0 WR=100% avg=+3.70% cum= +22.23% $ +2,255
+      +0.01 to +0.05                                     n= 66 W= 25 L= 40 WR= 38% avg=-0.13% cum=  -8.34% $ -1,337
+      > +0.05  (sharp with us)                           n=492 W=259 L=233 WR= 53% avg=+0.77% cum=+378.19% $+41,671
+  TF=D:
+      < -0.05  (sharp against)                           n= 15 W= 10 L=  5 WR= 67% avg=+0.92% cum= +13.73% $ +1,463
+      -0.05 to -0.01                                     n=  9 W=  6 L=  3 WR= 67% avg=+1.55% cum= +13.91% $ +1,400
+      flat                                               n= 10 W=  6 L=  4 WR= 60% avg=+1.27% cum= +12.72% $ +1,517
+      +0.01 to +0.05                                     n= 34 W= 13 L= 21 WR= 38% avg=-0.06% cum=  -2.02% $   -670
+      > +0.05  (sharp with us)                           n=498 W=255 L=242 WR= 51% avg=+0.70% cum=+349.59% $+38,309
+
+D · Bars since last VWAP touch (1H TF only)
+    Low = freshly broken away; high = sustained extension
+
+      0-2 bars                                           n=  5 W=  4 L=  1 WR= 80% avg=+0.74% cum=  +3.68% $   +516
+      2-5                                                n=  7 W=  4 L=  3 WR= 57% avg=-0.51% cum=  -3.55% $    +33
+      5-10                                               n=  9 W=  4 L=  4 WR= 50% avg=-0.01% cum=  -0.13% $   -314
+      10-20                                              n= 17 W=  7 L= 10 WR= 41% avg=-0.05% cum=  -0.87% $    -46
+      20-50                                              n= 65 W= 29 L= 36 WR= 45% avg=+0.01% cum=  +0.34% $   -137
+      50+                                                n=463 W=242 L=221 WR= 52% avg=+0.84% cum=+388.46% $+41,966
+
+E · Cross-TF VWAP stack at entry (1H + 4H + Daily all aligned with direction)
+
+  Full stack (1H+4H+D all with direction)                n=532 W=271 L=260 WR= 51% avg=+0.68% cum=+361.00% $+39,354
+  Partial / mixed                                        n= 33 W= 19 L= 14 WR= 58% avg=+0.91% cum= +30.07% $ +3,119
+  Full stack AGAINST direction                           n=  1 W=  0 L=  1 WR=  0% avg=-3.14% cum=  -3.14% $   -455
+
+F · Top setups × VWAP-1H alignment
+
+  tt_gap_reversal_long (n=332):
+      VWAP-1H aligned (dist>0.3%)                        n=313 W=180 L=132 WR= 58% avg=+1.07% cum=+333.45% $+35,246
+      VWAP-1H against                                    n=  3 W=  0 L=  3 WR=  0% avg=-4.39% cum= -13.18% $ -1,991
+      VWAP-D aligned                                     n=301 W=171 L=129 WR= 57% avg=+1.02% cum=+305.72% $+32,016
+      VWAP-D against                                     n= 14 W=  8 L=  6 WR= 57% avg=+0.89% cum= +12.49% $   +928
+  tt_pullback (n=55):
+      VWAP-1H aligned (dist>0.3%)                        n= 52 W= 25 L= 27 WR= 48% avg=+0.65% cum= +34.00% $ +4,197
+      VWAP-D aligned                                     n= 51 W= 24 L= 27 WR= 47% avg=+0.57% cum= +29.31% $ +3,697
+      VWAP-D against                                     n=  2 W=  2 L=  0 WR=100% avg=+2.97% cum=  +5.94% $   +713
+  tt_n_test_support (n=64):
+      VWAP-1H aligned (dist>0.3%)                        n= 60 W= 26 L= 34 WR= 43% avg=+0.24% cum= +14.16% $ +1,588
+      VWAP-1H against                                    n=  2 W=  0 L=  2 WR=  0% avg=-0.11% cum=  -0.21% $    -37
+      VWAP-D aligned                                     n= 63 W= 27 L= 36 WR= 43% avg=+0.28% cum= +17.47% $ +1,943
+  tt_ath_breakout (n=70):
+      VWAP-1H aligned (dist>0.3%)                        n= 69 W= 28 L= 41 WR= 41% avg=-0.02% cum=  -1.70% $    -92
+      VWAP-D aligned                                     n= 69 W= 28 L= 41 WR= 41% avg=-0.02% cum=  -1.70% $    -92
+  tt_n_test_resistance (n=16):
+      VWAP-1H aligned (dist>0.3%)                        n= 16 W=  5 L= 11 WR= 31% avg=-0.87% cum= -13.94% $ -1,261
+      VWAP-D aligned                                     n= 13 W=  3 L= 10 WR= 23% avg=-1.51% cum= -19.59% $ -2,193
+      VWAP-D against                                     n=  3 W=  2 L=  1 WR= 67% avg=+1.89% cum=  +5.66% $   +932
+
+==============================================================================
+VWAP signature: WINNERS vs LOSERS
+==============================================================================
+
+metric                                    winners           losers
+  (signed by direction)                       (n)              (n)
+-------------------------------- ---------------- ----------------
+  vwap_dist_60_med%           +10.91 (n=290)     +9.06 (n=275)
+  vwap_dist_60_avg%           +15.77           +14.46       
+  vwap_dist_240_med%           +18.29 (n=290)    +16.11 (n=275)
+  vwap_dist_240_avg%           +25.28           +22.84       
+  vwap_dist_D_med%           +35.34 (n=290)    +27.31 (n=275)
+  vwap_dist_D_avg%           +44.88           +42.37       
+  vwap_slope_60_med           +0.0950 (n=290)   +0.0700 (n=275)
+  vwap_slope_60_avg           +0.2083          +0.2137       
+  vwap_slope_240_med           +0.1700 (n=290)   +0.1400 (n=275)
+  vwap_slope_240_avg           +0.3123          +0.3231       
+  vwap_slope_D_med           +0.2600 (n=290)   +0.2100 (n=275)
+  vwap_slope_D_avg           +0.5600          +0.5445       
+  vwap_touch_bars_60_avg          45.7 (n=290)      45.3 (n=275)
+  vwap_touch_bars_240_avg          46.4 (n=290)      48.0 (n=275)
+
+──────────────────────────────────────────────────────────────────────────────
+Counterfactual filters using VWAP only:
+──────────────────────────────────────────────────────────────────────────────
+  Skip if 1H slope in [0, 0.05) (gentle, ambiguous)      n=147 WR= 47% avg=+0.06% cum=  +8.38% $ +1,306
+  Skip if 4H slope in [0, 0.05) (gentle, ambiguous)      n= 72 WR= 44% avg=+0.19% cum= +13.89% $   +918
+  Skip if 1H VWAP-dist < -0.3% AND NOT mean-revert setup EMPTY
+  Skip if BOTH 1H + 4H slope in [0, 0.05) (no momentum)  n= 56 WR= 45% avg=+0.14% cum=  +7.65% $   +523
+  Skip if 4H slope < -0.05 (sharp against on 4H)         EMPTY
+
+──────────────────────────────────────────────────────────────────────────────
+SHORT-direction VWAP-1H above-VWAP cohort (price above 1H VWAP on a SHORT):
+──────────────────────────────────────────────────────────────────────────────
+    ALL shorts entering above 1H VWAP                    EMPTY
+
+──────────────────────────────────────────────────────────────────────────────
+Top 10 worst trades — VWAP context at entry:
+──────────────────────────────────────────────────────────────────────────────
+tk      dir       pnl%  1H_dist  1H_slp  4H_dist  4H_slp   D_dist exit                     
+GLXY    SHORT   -9.78   +6.18 +0.030  +20.75 +0.120  +22.69 HARD_LOSS_CAP            
+BE      LONG    -9.23  +92.63 +1.390 +112.60 +3.260 +233.41 HARD_LOSS_CAP            
+APLD    LONG    -8.77  +23.76 +1.220  +42.37 +1.640  +56.57 HARD_LOSS_CAP            
+ALB     LONG    -8.44   +1.97 +0.010  +28.10 +0.270  +91.25 HARD_LOSS_CAP            
+ALB     LONG    -6.46  +20.36 +0.120  +23.25 +0.230  +12.86 v13_hard_pnl_floor       
+MDB     LONG    -5.99   -0.88 -0.010  +12.83 +0.050  +55.32 HARD_LOSS_CAP            
+SNDK    LONG    -5.72   +5.05 +0.020  +38.49 +0.400  +88.83 v13_hard_pnl_floor       
+AGQ     LONG    -5.43  +42.23 +0.590 +101.80 +2.960 +195.87 HARD_LOSS_CAP            
+ORCL    LONG    -5.17  +25.48 +0.450  +32.44 +0.510  +50.58 HARD_LOSS_CAP            
+ARM     LONG    -4.23   +0.00 +0.000   +0.00 +0.000   +0.00 sl_breached              
+
+Top 10 best trades — VWAP context at entry:
+tk      dir       pnl%  1H_dist  1H_slp  4H_dist  4H_slp   D_dist exit                     
+AEHR    LONG   +21.18  +41.33 +0.680  +36.91 +0.370  +23.07 atr_week_618_full_exit   
+SNDK    LONG   +14.63  +45.06 +1.040  +60.66 +1.090  +81.10 TP_FULL                  
+AGQ     LONG   +14.19  +27.44 +0.300  +69.19 +0.720 +138.25 TP_FULL                  
+APP     LONG   +13.60  +19.16 +0.140  +29.76 +0.140  +58.79 TP_FULL                  
+HL      LONG   +13.35  +16.09 +0.140  +61.14 +0.570 +153.90 TP_FULL                  
+ETHA    SHORT  +13.30  +12.70 +0.080  +19.47 +0.130  +22.93 TP_FULL                  
+U       LONG   +12.50  +21.28 +0.250  +25.57 +0.220  +35.88 sl_breached              
+GLXY    LONG   +12.50  +33.69 +0.400  +38.93 +0.370  +38.88 peak_lock_ema12_deep_brea
+JOBY    LONG   +12.37  +20.81 +0.230  +30.17 +0.320  +48.81 TP_FULL                  
+GEV     LONG   +12.30   +0.00 +0.000   +0.00 +0.000   +0.00 peak_lock_ema12_deep_brea
+
+==============================================================================
+Rolling-20 VWAP distance (session-relevant)
+==============================================================================
+
+  TF=60 rolling-20 distance bands:
+      < -3%   (deep against rolling)                     n=  3 WR=100% avg=+7.63% cum= +22.88% $ +3,062
+      -3 to -1%                                          n= 10 WR= 60% avg=+0.28% cum=  +2.75% $   -204
+      -1 to -0.3%                                        n= 31 WR= 58% avg=+1.36% cum= +42.04% $ +5,813
+      -0.3 to +0.3% (near rolling)                       n= 95 WR= 54% avg=+0.53% cum= +50.62% $ +5,138
+      +0.3 to +1%                                        n=146 WR= 47% avg=+0.38% cum= +56.06% $ +5,635
+      +1 to +3%                                          n=179 WR= 52% avg=+0.79% cum=+141.83% $+14,630
+      +3 to +6%                                          n= 82 WR= 54% avg=+0.90% cum= +73.90% $ +8,145
+      +6%+   (strongly extended)                         n= 20 WR= 40% avg=-0.11% cum=  -2.15% $   -200
+  TF=240 rolling-20 distance bands:
+      < -3%   (deep against rolling)                     n=  4 WR= 75% avg=+3.37% cum= +13.48% $ +2,378
+      -3 to -1%                                          n=  6 WR= 83% avg=+1.82% cum= +10.92% $ +1,676
+      -1 to -0.3%                                        n= 22 WR= 59% avg=+1.45% cum= +31.95% $ +3,082
+      -0.3 to +0.3% (near rolling)                       n= 58 WR= 52% avg=+0.50% cum= +29.20% $ +3,383
+      +0.3 to +1%                                        n=109 WR= 45% avg=+0.30% cum= +32.29% $ +2,742
+      +1 to +3%                                          n=196 WR= 50% avg=+0.64% cum=+125.70% $+14,563
+      +3 to +6%                                          n=110 WR= 58% avg=+1.00% cum=+109.60% $+10,102
+      +6%+   (strongly extended)                         n= 61 WR= 46% avg=+0.57% cum= +34.80% $ +4,092
+  TF=D rolling-20 distance bands:
+      < -3%   (deep against rolling)                     n=  2 WR= 50% avg=+2.42% cum=  +4.83% $   +493
+      -3 to -1%                                          n=  9 WR= 89% avg=+4.53% cum= +40.73% $ +5,226
+      -1 to -0.3%                                        n=  9 WR= 33% avg=-0.17% cum=  -1.51% $   +144
+      -0.3 to +0.3% (near rolling)                       n= 31 WR= 42% avg=+0.14% cum=  +4.44% $   +571
+      +0.3 to +1%                                        n= 62 WR= 42% avg=+0.12% cum=  +7.57% $ +1,209
+      +1 to +3%                                          n=182 WR= 51% avg=+0.48% cum= +86.97% $ +8,493
+      +3 to +6%                                          n=138 WR= 58% avg=+0.89% cum=+122.93% $+11,906
+      +6%+   (strongly extended)                         n=133 WR= 50% avg=+0.92% cum=+121.97% $+13,977
+
+==============================================================================
+Counterfactual rolling-20 filters
+==============================================================================
+  Skip if 1H rolling-20 dist < -1% (extended away from us) n= 13 WR= 69% avg=+1.97% cum= +25.64% $ +2,858
+  Skip if 1H rolling-20 dist < -3% (sharp against)       n=  3 WR=100% avg=+7.63% cum= +22.88% $ +3,062
+
+==============================================================================
+Exit-side: do VWAP slope reversals correlate with PROFIT_GIVEBACK losses?
+==============================================================================
+
+PROFIT_GIVEBACK losses: 20
+Traceback (most recent call last):
+  File "<stdin>", line 96, in <module>
+NameError: name 'signed_slope_h' is not defined
+
+==============================================================================
+Personality × 1H VWAP slope at entry
+==============================================================================
+
+  VOLATILE_RUNNER (n=290):
+      1H slope > 0.1 (strong with us)                    n=197 WR= 56% avg=+1.31% cum=+258.03% $+28,795
+      1H slope 0 to 0.1 (mild)                           n= 85 WR= 50% avg=+0.69% cum= +58.66% $ +7,759
+      1H slope <= 0 (against / flat)                     n=  8 WR= 38% avg=-1.40% cum= -11.16% $ -1,671
+  PULLBACK_PLAYER (n=165):
+      1H slope > 0.1 (strong with us)                    n= 44 WR= 50% avg=+0.41% cum= +18.03% $ +1,157
+      1H slope 0 to 0.1 (mild)                           n=117 WR= 49% avg=+0.40% cum= +46.76% $ +4,208
+      1H slope <= 0 (against / flat)                     n=  4 WR= 75% avg=+1.13% cum=  +4.54% $   +513
+  SLOW_GRINDER (n=56):
+      1H slope > 0.1 (strong with us)                    n=  1 WR=100% avg=+1.47% cum=  +1.47% $   +169
+      1H slope 0 to 0.1 (mild)                           n= 54 WR= 48% avg=-0.12% cum=  -6.37% $   -743
+      1H slope <= 0 (against / flat)                     n=  1 WR=  0% avg=-0.12% cum=  -0.12% $    -15
+  MODERATE (n=55):
+      1H slope > 0.1 (strong with us)                    n=  4 WR= 75% avg=+1.55% cum=  +6.19% $   +568
+      1H slope 0 to 0.1 (mild)                           n= 48 WR= 44% avg=+0.18% cum=  +8.82% $   +845
+      1H slope <= 0 (against / flat)                     n=  3 WR= 67% avg=+1.03% cum=  +3.10% $   +434
+
+==============================================================================
+4H VWAP slope at entry (across all personalities)
+==============================================================================
+
+  4H slope > 0.2 (strong with us)                        n=227 WR= 55% avg=+0.96% cum=+218.02% $+23,438
+  4H slope 0.1-0.2                                       n=131 WR= 50% avg=+0.77% cum=+101.26% $+11,723
+  4H slope 0.01-0.1 (mild with)                          n=200 WR= 47% avg=+0.25% cum= +50.57% $ +5,173
+  4H slope flat / negative (<=0.01)                      n=  8 WR= 75% avg=+2.26% cum= +18.08% $ +1,684
+
+==============================================================================
+Fresh-from-VWAP cohort (1H touch_bars <= 5)
+==============================================================================
+  1H touch_bars 0-5                                      n= 12 WR= 67% avg=+0.01% cum=  +0.13% $   +549
+    fresh-VWAP × mean-revert setups                      n=  3 WR= 33% avg=-0.03% cum=  -0.08% $    -83
+    fresh-VWAP × breakout setups                         n=  9 WR= 78% avg=+0.02% cum=  +0.20% $   +632
