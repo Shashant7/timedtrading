@@ -1,0 +1,12 @@
+v15-run status (run_id=v16-fix4-jul-30m-1777446799)
+========================================
+Last check:        2026-04-29T12:20:43Z
+Current day:       96/210 (2025-11-13)
+Heartbeat age:     1s
+Stall detected:    no
+Same-day duration: 0s on 2025-11-13
+Continuous-slice:  2 processes
+Curl in flight:    2 processes
+Trades closed:     107 (W:67 L:40, WR 62.6%)
+Total PnL:         430.63%
+Last log line:     [2026-04-29T12:20:15Z] >>> day 96/210  2025-11-13

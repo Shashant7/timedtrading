@@ -32849,16 +32849,46 @@ function createTradeEntryEmbed(
   const _riskPct = Number(tickerData?.__riskBudget || tickerData?.riskBudget) || 0;
   const _shares = execution?.qty || Number(tickerData?.__shares) || 0;
   const _notional = execution?.value || (_shares > 0 && entryPrice > 0 ? _shares * entryPrice : 0);
+  // V15 P0.7.41 (2026-04-30) — User-friendly setup names per direction:
+  // "We need to clean up the Setup names, they look like TT Tt and they
+  // also mirror too much of Ripster language. ... update the UI to show
+  // names that are Timed Trading tone and style." Display-layer rename
+  // only; engine entry_path values are unchanged.
   const _SETUP_MAP = {
-    ema_regime_confirmed_long: "TT Confirmed Long", ema_regime_confirmed_short: "TT Confirmed Short",
-    ema_regime_early_long: "TT Early Long", ema_regime_early_short: "TT Early Short",
-    gold_long: "TT Breakout Long", gold_short: "TT Reversal Short", gold_short_pullback: "TT Reversal Short Pullback",
-    momentum_score: "TT Momentum", squeeze_setup: "TT Squeeze", elite: "TT Elite",
-    breakout: "TT Breakout", mean_revert_td9: "TT Mean Revert TD9",
-    ripster_momentum: "TT Momentum", ripster_pullback: "TT Pullback", ripster_reclaim: "TT Reclaim",
-    mean_reversion_pdz: "TT Mean Reversion",
+    // Setup names used in current engine (V16):
+    tt_pullback:                    "Pullback Reclaim",
+    tt_gap_reversal_long:           "Gap Reversal (Long)",
+    tt_gap_reversal_short:          "Gap Reversal (Short)",
+    tt_ath_breakout:                "ATH Breakout",
+    tt_n_test_support:              "Support Bounce",
+    tt_n_test_resistance:           "Resistance Fade",
+    tt_range_reversal_long:         "Range Reversal (Long)",
+    tt_range_reversal_short:        "Range Reversal (Short)",
+    tt_reclaim:                     "Reclaim Long",
+    tt_index_etf_swing:             "Index Swing",
+    momentum_score:                 "Momentum Push",
+    squeeze_setup:                  "Squeeze Release",
+    breakout:                       "Breakout",
+    mean_revert_td9:                "TD9 Mean Reversion",
+    mean_reversion_pdz:             "Discount Mean Reversion",
+    elite:                          "Elite Setup",
+    // Legacy V13/V14 entry paths (still surfaced in older trades):
+    ema_regime_confirmed_long:      "Confirmed Long",
+    ema_regime_confirmed_short:     "Confirmed Short",
+    ema_regime_early_long:          "Early Long",
+    ema_regime_early_short:         "Early Short",
+    gold_long:                      "Breakout Long",
+    gold_short:                     "Reversal Short",
+    gold_short_pullback:            "Reversal Short Pullback",
+    ripster_momentum:               "Momentum Push",
+    ripster_pullback:               "Pullback Reclaim",
+    ripster_reclaim:                "Reclaim Long",
+    ripster_short_pivot_reclaimed:  "Short Pivot Reclaim",
   };
-  const _fmtSetup = (n) => _SETUP_MAP[n] || (n ? "TT " + n.replace(/^ripster_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : "TT Setup");
+  const _fmtSetup = (n) => _SETUP_MAP[n]
+    || (n
+        ? n.replace(/^tt_/i, "").replace(/^ripster_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
+        : "Setup");
   if (_setupName || _setupGrade) {
     const riskLabel = _riskPct > 0 && _riskPct < 1 ? `${(_riskPct * 100).toFixed(2)}% risk` : (_riskPct >= 1 ? `$${_riskPct} risk` : "");
     summaryLines.push(`Setup:  **${_fmtSetup(_setupName)}** ${_setupGrade ? `(${_setupGrade})` : ""}${riskLabel ? `  |  **${riskLabel}**` : ""}`);
@@ -32869,19 +32899,41 @@ function createTradeEntryEmbed(
   fields.push({ name: "Trade Details", value: summaryLines.join("\n"), inline: false });
 
   // 2. Signal Quality — translated to plain English
+  // V15 P0.7.41 — also surface Conviction Score (focus-tier composite)
+  // when available, alongside the existing Rank ("Signal Strength").
   const qualParts = [];
-  if (Number.isFinite(rank) && rank > 0) qualParts.push(`Signal Strength: **${rank}**/100`);
+  if (Number.isFinite(rank) && rank > 0) qualParts.push(`Signal Strength (Rank): **${rank}**/100`);
+  const _conv = Number(tickerData?.__focus_conviction_score ?? tickerData?.focus_conviction_score) || 0;
+  const _convTier = String(tickerData?.__focus_tier || tickerData?.focus_tier || "").toUpperCase();
+  if (_conv > 0) {
+    qualParts.push(`Conviction: **${_conv.toFixed(0)}**${_convTier ? ` (${_convTier})` : ""}`);
+  }
   if (Number.isFinite(rr) && rr > 0) qualParts.push(`Risk/Reward: **${rr.toFixed(1)}:1**`);
   const sigs = [];
   if (tickerData?.flags?.momentum_elite) sigs.push("Strong Momentum");
   if (tickerData?.flags?.sq30_release) sigs.push("Squeeze Breakout");
   else if (tickerData?.flags?.sq30_on) sigs.push("Compression Building");
   if (tickerData?.td_sequential) {
-    if (tickerData.td_sequential.td9_bullish || tickerData.td_sequential.td9_bearish) sigs.push("Exhaustion Signal (TD9)");
-    if (tickerData.td_sequential.td13_bullish || tickerData.td_sequential.td13_bearish) sigs.push("Extended Exhaustion (TD13)");
+    if (tickerData.td_sequential.td9_bullish || tickerData.td_sequential.td9_bearish) sigs.push("TD9 Exhaustion Signal");
+    if (tickerData.td_sequential.td13_bullish || tickerData.td_sequential.td13_bearish) sigs.push("TD13 Extended Exhaustion");
   }
   if (tickerData?.flags?.st_flip_bull || tickerData?.flags?.st_flip_bear) sigs.push("Fresh SuperTrend Flip");
   if (tickerData?.flags?.rsi_div_bull || tickerData?.flags?.rsi_div_bear) sigs.push("RSI Divergence");
+  // V15 P0.7.41 — surface PDZ premium-stack as a positive signal (per forensic:
+  // 93% WR cohort)
+  const _pdzD = String(tickerData?.pdz_zone_D || "").toLowerCase();
+  const _pdz4h = String(tickerData?.pdz_zone_4h || "").toLowerCase();
+  if (_pdzD === "premium" && _pdz4h === "premium") sigs.push("Premium Zone Stack (HTF)");
+  // V15 P0.7.42 — VWAP context (only call out if meaningful)
+  // Discord readers are the trader; surface VWAP only when it's actively
+  // confirming or contradicting the setup direction.
+  const _v60 = tickerData?.tf_tech?.["1H"]?.vwap || tickerData?.tf_tech?.["60"]?.vwap;
+  const _v60dist = Number(tickerData?.tf_tech?.["1H"]?.vwapDistPct ?? tickerData?.tf_tech?.["60"]?.vwapDistPct);
+  const _v60above = tickerData?.tf_tech?.["1H"]?.vwapAbove ?? tickerData?.tf_tech?.["60"]?.vwapAbove;
+  if (Number.isFinite(_v60dist) && _v60) {
+    if (isLong && _v60above === true && _v60dist > 0.5) sigs.push(`Above 1H VWAP +${_v60dist.toFixed(1)}%`);
+    else if (!isLong && _v60above === false && _v60dist < -0.5) sigs.push(`Below 1H VWAP ${_v60dist.toFixed(1)}%`);
+  }
   if (sigs.length > 0) qualParts.push(`Signals: ${sigs.join(", ")}`);
   if (qualParts.length > 0) {
     fields.push({ name: "Signal Quality", value: qualParts.join("\n"), inline: false });
@@ -32970,18 +33022,27 @@ function createTradeTrimmedEmbed(
   }
   fields.push({ name: "Trim Status", value: statusLines.join("\n"), inline: false });
 
-  // 3. Setup context
+  // 3. Setup context — V15 P0.7.41 (2026-04-30) shared setup map
   const _trimSetup = trade?.setupName || trade?.setup_name || tickerData?.__setupName || null;
   const _trimGrade = trade?.setupGrade || trade?.setup_grade || tickerData?.__setupGrade || null;
   if (_trimSetup || _trimGrade) {
     const _SETUP_MAP = {
-      ema_regime_confirmed_long: "TT Confirmed Long", ema_regime_confirmed_short: "TT Confirmed Short",
-      ema_regime_early_long: "TT Early Long", ema_regime_early_short: "TT Early Short",
-      gold_long: "TT Breakout Long", gold_short: "TT Reversal Short",
-      momentum_score: "TT Momentum", ripster_momentum: "TT Momentum", ripster_pullback: "TT Pullback",
-      ripster_reclaim: "TT Reclaim", mean_reversion_pdz: "TT Mean Reversion",
+      tt_pullback: "Pullback Reclaim", tt_gap_reversal_long: "Gap Reversal (Long)",
+      tt_gap_reversal_short: "Gap Reversal (Short)", tt_ath_breakout: "ATH Breakout",
+      tt_n_test_support: "Support Bounce", tt_n_test_resistance: "Resistance Fade",
+      tt_range_reversal_long: "Range Reversal (Long)", tt_range_reversal_short: "Range Reversal (Short)",
+      tt_reclaim: "Reclaim Long", tt_index_etf_swing: "Index Swing",
+      momentum_score: "Momentum Push", squeeze_setup: "Squeeze Release", breakout: "Breakout",
+      mean_revert_td9: "TD9 Mean Reversion", mean_reversion_pdz: "Discount Mean Reversion",
+      elite: "Elite Setup",
+      ema_regime_confirmed_long: "Confirmed Long", ema_regime_confirmed_short: "Confirmed Short",
+      ema_regime_early_long: "Early Long", ema_regime_early_short: "Early Short",
+      gold_long: "Breakout Long", gold_short: "Reversal Short",
+      ripster_momentum: "Momentum Push", ripster_pullback: "Pullback Reclaim",
+      ripster_reclaim: "Reclaim Long",
     };
-    const fmtS = (n) => _SETUP_MAP[n] || (n ? "TT " + n.replace(/^ripster_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : null);
+    const fmtS = (n) => _SETUP_MAP[n]
+      || (n ? n.replace(/^tt_/i, "").replace(/^ripster_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : null);
     const parts = [];
     if (_trimSetup) parts.push(`Setup: **${fmtS(_trimSetup)}**`);
     if (_trimGrade) parts.push(`Grade: **${_trimGrade}**`);
@@ -33116,18 +33177,27 @@ function createTradeClosedEmbed(
     fields.push({ name: "Exit Reason", value: humanExitReason, inline: true });
   }
 
-  // 3. Setup context
+  // 3. Setup context — V15 P0.7.41 (2026-04-30) shared setup map
   const _exitSetup = trade?.setupName || trade?.setup_name || tickerData?.__setupName || null;
   const _exitGrade = trade?.setupGrade || trade?.setup_grade || tickerData?.__setupGrade || null;
   if (_exitSetup || _exitGrade) {
     const _SETUP_MAP = {
-      ema_regime_confirmed_long: "TT Confirmed Long", ema_regime_confirmed_short: "TT Confirmed Short",
-      ema_regime_early_long: "TT Early Long", ema_regime_early_short: "TT Early Short",
-      gold_long: "TT Breakout Long", gold_short: "TT Reversal Short",
-      momentum_score: "TT Momentum", ripster_momentum: "TT Momentum", ripster_pullback: "TT Pullback",
-      ripster_reclaim: "TT Reclaim", mean_reversion_pdz: "TT Mean Reversion",
+      tt_pullback: "Pullback Reclaim", tt_gap_reversal_long: "Gap Reversal (Long)",
+      tt_gap_reversal_short: "Gap Reversal (Short)", tt_ath_breakout: "ATH Breakout",
+      tt_n_test_support: "Support Bounce", tt_n_test_resistance: "Resistance Fade",
+      tt_range_reversal_long: "Range Reversal (Long)", tt_range_reversal_short: "Range Reversal (Short)",
+      tt_reclaim: "Reclaim Long", tt_index_etf_swing: "Index Swing",
+      momentum_score: "Momentum Push", squeeze_setup: "Squeeze Release", breakout: "Breakout",
+      mean_revert_td9: "TD9 Mean Reversion", mean_reversion_pdz: "Discount Mean Reversion",
+      elite: "Elite Setup",
+      ema_regime_confirmed_long: "Confirmed Long", ema_regime_confirmed_short: "Confirmed Short",
+      ema_regime_early_long: "Early Long", ema_regime_early_short: "Early Short",
+      gold_long: "Breakout Long", gold_short: "Reversal Short",
+      ripster_momentum: "Momentum Push", ripster_pullback: "Pullback Reclaim",
+      ripster_reclaim: "Reclaim Long",
     };
-    const fmtS = (n) => _SETUP_MAP[n] || (n ? "TT " + n.replace(/^ripster_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : null);
+    const fmtS = (n) => _SETUP_MAP[n]
+      || (n ? n.replace(/^tt_/i, "").replace(/^ripster_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : null);
     const parts = [];
     if (_exitSetup) parts.push(`Setup: **${fmtS(_exitSetup)}**`);
     if (_exitGrade) parts.push(`Grade: **${_exitGrade}**`);

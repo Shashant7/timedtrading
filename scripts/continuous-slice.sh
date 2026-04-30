@@ -266,7 +266,7 @@ replay_day() {
         setsid curl -sS \
         --max-time "$WATCHDOG_SECONDS" \
         --connect-timeout 30 \
-        --speed-time 60 --speed-limit 1 \
+        --speed-time 180 --speed-limit 1 \
         -X POST "$url" \
         -H "Content-Type: application/json" \
         -d '{}' \

@@ -1,0 +1,1584 @@
+{
+  "run_id": "v16-fix4-jul-30m-1777446799",
+  "generated_at": "2026-04-29T12:23:45.654194+00:00",
+  "total_trades": 107,
+  "overview": {
+    "total_trades": 107,
+    "status_mix": {
+      "WIN": 67,
+      "LOSS": 40
+    },
+    "stats": {
+      "n": 107,
+      "n_total": 107,
+      "wr": 62.6,
+      "pnl": 430.63,
+      "pf": 5.33,
+      "avg_w": 7.91,
+      "avg_l": -2.49,
+      "best_w": 111.11,
+      "worst_l": -20.25
+    },
+    "weekly": [
+      {
+        "week": "2025-W27",
+        "pnl": -381.80097885061934,
+        "n": 5
+      },
+      {
+        "week": "2025-W28",
+        "pnl": 377.5131965900997,
+        "n": 17
+      },
+      {
+        "week": "2025-W29",
+        "pnl": 3575.4733137088624,
+        "n": 24
+      },
+      {
+        "week": "2025-W30",
+        "pnl": 3754.1890827954903,
+        "n": 27
+      },
+      {
+        "week": "2025-W31",
+        "pnl": 7535.945816703244,
+        "n": 33
+      },
+      {
+        "week": "2025-W37",
+        "pnl": -1202.2243855932152,
+        "n": 1
+      }
+    ],
+    "equity_start": 100000,
+    "equity_end": 113659.1,
+    "equity_peak": 116030.28,
+    "equity_trough_after_peak": 113659.1,
+    "max_drawdown_pct": -2.04,
+    "account_return_pct": 13.66
+  },
+  "setup_fitness": [
+    {
+      "path": "tt_gap_reversal_long",
+      "n": 60,
+      "n_total": 60,
+      "wr": 75.0,
+      "pnl": 228.92,
+      "pf": 6.35,
+      "avg_w": 6.04,
+      "avg_l": -2.85,
+      "best_w": 39.25,
+      "worst_l": -20.25,
+      "avg_mfe": 6.46,
+      "bull_stack_pct": 83.0,
+      "regime_mix": {
+        "TRENDING": 40,
+        "TRANSITIONAL": 18,
+        "CHOPPY": 2
+      }
+    },
+    {
+      "path": "tt_pullback",
+      "n": 15,
+      "n_total": 15,
+      "wr": 40.0,
+      "pnl": 159.08,
+      "pf": 22.8,
+      "avg_w": 27.73,
+      "avg_l": -0.81,
+      "best_w": 111.11,
+      "worst_l": -1.45,
+      "avg_mfe": 3.09,
+      "bull_stack_pct": 100.0,
+      "regime_mix": {
+        "TRENDING": 15
+      }
+    },
+    {
+      "path": "tt_ath_breakout",
+      "n": 13,
+      "n_total": 13,
+      "wr": 46.2,
+      "pnl": 30.87,
+      "pf": 2.84,
+      "avg_w": 7.94,
+      "avg_l": -2.4,
+      "best_w": 40.65,
+      "worst_l": -8.86,
+      "avg_mfe": 1.3,
+      "bull_stack_pct": 100.0,
+      "regime_mix": {
+        "TRENDING": 12,
+        "TRANSITIONAL": 1
+      }
+    },
+    {
+      "path": "tt_gap_reversal_short",
+      "n": 4,
+      "n_total": 4,
+      "wr": 100.0,
+      "pnl": 23.55,
+      "pf": 999,
+      "avg_w": 5.89,
+      "avg_l": 0,
+      "best_w": 14.07,
+      "worst_l": 0,
+      "avg_mfe": 6.06,
+      "bull_stack_pct": 0.0,
+      "regime_mix": {
+        "TRENDING": 3,
+        "TRANSITIONAL": 1
+      }
+    },
+    {
+      "path": "tt_n_test_support",
+      "n": 7,
+      "n_total": 7,
+      "wr": 57.1,
+      "pnl": 7.89,
+      "pf": 3.02,
+      "avg_w": 2.95,
+      "avg_l": -1.3,
+      "best_w": 5.01,
+      "worst_l": -1.71,
+      "avg_mfe": 3.45,
+      "bull_stack_pct": 100.0,
+      "regime_mix": {
+        "TRENDING": 6,
+        "TRANSITIONAL": 1
+      }
+    },
+    {
+      "path": "tt_range_reversal_long",
+      "n": 4,
+      "n_total": 4,
+      "wr": 50.0,
+      "pnl": 7.76,
+      "pf": 6.86,
+      "avg_w": 4.54,
+      "avg_l": -0.66,
+      "best_w": 8.73,
+      "worst_l": -0.8,
+      "avg_mfe": 4.93,
+      "bull_stack_pct": 100.0,
+      "regime_mix": {
+        "TRENDING": 3,
+        "TRANSITIONAL": 1
+      }
+    },
+    {
+      "path": "tt_n_test_resistance",
+      "n": 1,
+      "n_total": 1,
+      "wr": 0.0,
+      "pnl": -1.19,
+      "pf": 0.0,
+      "avg_w": 0,
+      "avg_l": -1.19,
+      "best_w": 0,
+      "worst_l": -1.19,
+      "avg_mfe": 0.0,
+      "bull_stack_pct": 0.0,
+      "regime_mix": {
+        "TRENDING": 1
+      }
+    },
+    {
+      "path": "momentum_score",
+      "n": 2,
+      "n_total": 2,
+      "wr": 0.0,
+      "pnl": -8.41,
+      "pf": 0.0,
+      "avg_w": 0,
+      "avg_l": -4.2,
+      "best_w": 0,
+      "worst_l": -5.17,
+      "avg_mfe": 0.54,
+      "bull_stack_pct": 100.0,
+      "regime_mix": {
+        "TRENDING": 2
+      }
+    },
+    {
+      "path": "ema_regime_confirmed_long",
+      "n": 1,
+      "n_total": 1,
+      "wr": 0.0,
+      "pnl": -17.84,
+      "pf": 0.0,
+      "avg_w": 0,
+      "avg_l": -17.84,
+      "best_w": 0,
+      "worst_l": -17.84,
+      "avg_mfe": 1.05,
+      "bull_stack_pct": 0.0,
+      "regime_mix": {
+        "?": 1
+      }
+    }
+  ],
+  "exit_rule_performance": [
+    {
+      "exit_reason": "replay_end_close",
+      "n": 13,
+      "n_total": 13,
+      "wr": 84.6,
+      "pnl": 333.5,
+      "pf": 12.46,
+      "avg_w": 32.96,
+      "avg_l": -14.55,
+      "best_w": 111.11,
+      "worst_l": -20.25,
+      "avg_giveback": -23.27
+    },
+    {
+      "exit_reason": "PROFIT_GIVEBACK_STAGE_HOLD",
+      "n": 11,
+      "n_total": 11,
+      "wr": 90.9,
+      "pnl": 10.41,
+      "pf": 75.29,
+      "avg_w": 1.05,
+      "avg_l": -0.14,
+      "best_w": 1.91,
+      "worst_l": -0.14,
+      "avg_giveback": 5.06
+    },
+    {
+      "exit_reason": "TP_FULL",
+      "n": 9,
+      "n_total": 9,
+      "wr": 100.0,
+      "pnl": 40.61,
+      "pf": 999,
+      "avg_w": 4.51,
+      "avg_l": 0,
+      "best_w": 12.37,
+      "worst_l": 0,
+      "avg_giveback": 5.46
+    },
+    {
+      "exit_reason": "max_loss",
+      "n": 8,
+      "n_total": 8,
+      "wr": 0.0,
+      "pnl": -21.04,
+      "pf": 0.0,
+      "avg_w": 0,
+      "avg_l": -2.63,
+      "best_w": 0,
+      "worst_l": -4.01,
+      "avg_giveback": 3.58
+    },
+    {
+      "exit_reason": "atr_week_618_full_exit",
+      "n": 8,
+      "n_total": 8,
+      "wr": 100.0,
+      "pnl": 30.56,
+      "pf": 999,
+      "avg_w": 3.82,
+      "avg_l": 0,
+      "best_w": 21.18,
+      "worst_l": 0,
+      "avg_giveback": 4.56
+    },
+    {
+      "exit_reason": "mfe_decay_structural_flatten",
+      "n": 7,
+      "n_total": 7,
+      "wr": 100.0,
+      "pnl": 12.37,
+      "pf": 999,
+      "avg_w": 1.77,
+      "avg_l": 0,
+      "best_w": 2.2,
+      "worst_l": 0,
+      "avg_giveback": 4.56
+    },
+    {
+      "exit_reason": "phase_i_mfe_fast_cut_zero_mfe",
+      "n": 7,
+      "n_total": 7,
+      "wr": 0.0,
+      "pnl": -8.59,
+      "pf": 0.0,
+      "avg_w": 0,
+      "avg_l": -1.23,
+      "best_w": 0,
+      "worst_l": -1.71,
+      "avg_giveback": 1.16
+    },
+    {
+      "exit_reason": "sl_breached",
+      "n": 6,
+      "n_total": 6,
+      "wr": 83.3,
+      "pnl": 34.12,
+      "pf": 66.46,
+      "avg_w": 6.93,
+      "avg_l": -0.52,
+      "best_w": 12.5,
+      "worst_l": -0.52,
+      "avg_giveback": 6.88
+    },
+    {
+      "exit_reason": "HARD_FUSE_RSI_EXTREME",
+      "n": 5,
+      "n_total": 5,
+      "wr": 100.0,
+      "pnl": 16.86,
+      "pf": 999,
+      "avg_w": 3.37,
+      "avg_l": 0,
+      "best_w": 5.46,
+      "worst_l": 0,
+      "avg_giveback": 2.22
+    },
+    {
+      "exit_reason": "atr_day_adverse_382_cut",
+      "n": 5,
+      "n_total": 5,
+      "wr": 0.0,
+      "pnl": -4.73,
+      "pf": 0.0,
+      "avg_w": 0,
+      "avg_l": -0.95,
+      "best_w": 0,
+      "worst_l": -1.44,
+      "avg_giveback": 1.59
+    },
+    {
+      "exit_reason": "peak_lock_ema12_deep_break",
+      "n": 4,
+      "n_total": 4,
+      "wr": 100.0,
+      "pnl": 7.69,
+      "pf": 999,
+      "avg_w": 1.92,
+      "avg_l": 0,
+      "best_w": 2.72,
+      "worst_l": 0,
+      "avg_giveback": 2.26
+    },
+    {
+      "exit_reason": "stagnant_no_commitment",
+      "n": 3,
+      "n_total": 3,
+      "wr": 100.0,
+      "pnl": 2.76,
+      "pf": 999,
+      "avg_w": 0.92,
+      "avg_l": 0,
+      "best_w": 1.09,
+      "worst_l": 0,
+      "avg_giveback": 1.13
+    },
+    {
+      "exit_reason": "max_loss_time_scaled",
+      "n": 3,
+      "n_total": 3,
+      "wr": 0.0,
+      "pnl": -3.61,
+      "pf": 0.0,
+      "avg_w": 0,
+      "avg_l": -1.2,
+      "best_w": 0,
+      "worst_l": -2.34,
+      "avg_giveback": 2.31
+    },
+    {
+      "exit_reason": "phase_i_mfe_cut_4h",
+      "n": 2,
+      "n_total": 2,
+      "wr": 0.0,
+      "pnl": -3.15,
+      "pf": 0.0,
+      "avg_w": 0,
+      "avg_l": -1.58,
+      "best_w": 0,
+      "worst_l": -1.59,
+      "avg_giveback": 2.0
+    },
+    {
+      "exit_reason": "ST_FLIP_4H_CLOSE",
+      "n": 2,
+      "n_total": 2,
+      "wr": 100.0,
+      "pnl": 8.69,
+      "pf": 999,
+      "avg_w": 4.35,
+      "avg_l": 0,
+      "best_w": 6.51,
+      "worst_l": 0,
+      "avg_giveback": 5.36
+    },
+    {
+      "exit_reason": "SMART_RUNNER_TRIM_REASSESS_ROUNDTRIP_FAILURE",
+      "n": 2,
+      "n_total": 2,
+      "wr": 0.0,
+      "pnl": -0.14,
+      "pf": 0.0,
+      "avg_w": 0,
+      "avg_l": -0.07,
+      "best_w": 0,
+      "worst_l": -0.09,
+      "avg_giveback": 0.74
+    },
+    {
+      "exit_reason": "runner_drawdown_cap",
+      "n": 2,
+      "n_total": 2,
+      "wr": 0.0,
+      "pnl": -1.12,
+      "pf": 0.0,
+      "avg_w": 0,
+      "avg_l": -0.56,
+      "best_w": 0,
+      "worst_l": -0.67,
+      "avg_giveback": 1.98
+    },
+    {
+      "exit_reason": "phase_i_mfe_fast_cut_2h",
+      "n": 2,
+      "n_total": 2,
+      "wr": 0.0,
+      "pnl": -1.12,
+      "pf": 0.0,
+      "avg_w": 0,
+      "avg_l": -0.56,
+      "best_w": 0,
+      "worst_l": -0.8,
+      "avg_giveback": 0.74
+    },
+    {
+      "exit_reason": "HARD_LOSS_CAP",
+      "n": 2,
+      "n_total": 2,
+      "wr": 0.0,
+      "pnl": -23.01,
+      "pf": 0.0,
+      "avg_w": 0,
+      "avg_l": -11.51,
+      "best_w": 0,
+      "worst_l": -17.84,
+      "avg_giveback": 12.08
+    },
+    {
+      "exit_reason": "phase_i_mfe_dead_money_24h",
+      "n": 1,
+      "n_total": 1,
+      "wr": 0.0,
+      "pnl": -1.07,
+      "pf": 0.0,
+      "avg_w": 0,
+      "avg_l": -1.07,
+      "best_w": 0,
+      "worst_l": -1.07,
+      "avg_giveback": 2.29
+    },
+    {
+      "exit_reason": "hard_max_hold_504h",
+      "n": 1,
+      "n_total": 1,
+      "wr": 100.0,
+      "pnl": 1.38,
+      "pf": 999,
+      "avg_w": 1.38,
+      "avg_l": 0,
+      "best_w": 1.38,
+      "worst_l": 0,
+      "avg_giveback": 2.41
+    },
+    {
+      "exit_reason": "SMART_RUNNER_SUPPORT_BREAK_CLOUD",
+      "n": 1,
+      "n_total": 1,
+      "wr": 0.0,
+      "pnl": -0.26,
+      "pf": 0.0,
+      "avg_w": 0,
+      "avg_l": -0.26,
+      "best_w": 0,
+      "worst_l": -0.26,
+      "avg_giveback": 2.24
+    },
+    {
+      "exit_reason": "PROFIT_GIVEBACK",
+      "n": 1,
+      "n_total": 1,
+      "wr": 100.0,
+      "pnl": 0.78,
+      "pf": 999,
+      "avg_w": 0.78,
+      "avg_l": 0,
+      "best_w": 0.78,
+      "worst_l": 0,
+      "avg_giveback": 4.45
+    },
+    {
+      "exit_reason": "v13_hard_pnl_floor",
+      "n": 1,
+      "n_total": 1,
+      "wr": 0.0,
+      "pnl": -1.88,
+      "pf": 0.0,
+      "avg_w": 0,
+      "avg_l": -1.88,
+      "best_w": 0,
+      "worst_l": -1.88,
+      "avg_giveback": 2.82
+    },
+    {
+      "exit_reason": "SOFT_FUSE_RSI_CONFIRMED",
+      "n": 1,
+      "n_total": 1,
+      "wr": 100.0,
+      "pnl": 0.64,
+      "pf": 999,
+      "avg_w": 0.64,
+      "avg_l": 0,
+      "best_w": 0.64,
+      "worst_l": 0,
+      "avg_giveback": 0.13
+    }
+  ],
+  "winner_forensics": {
+    "top_winners": [
+      {
+        "ticker": "LITE",
+        "entry_path": "tt_pullback",
+        "entry_date": "2025-07-14",
+        "exit_date": "2025-07-31",
+        "pnl_pct": 111.11,
+        "mfe": 22.3,
+        "exit_reason": "replay_end_close"
+      },
+      {
+        "ticker": "AVGO",
+        "entry_path": "tt_pullback",
+        "entry_date": "2025-07-23",
+        "exit_date": "2025-07-31",
+        "pnl_pct": 50.47,
+        "mfe": 8.38,
+        "exit_reason": "replay_end_close"
+      },
+      {
+        "ticker": "FN",
+        "entry_path": "tt_ath_breakout",
+        "entry_date": "2025-07-28",
+        "exit_date": "2025-07-31",
+        "pnl_pct": 40.65,
+        "mfe": 6.16,
+        "exit_reason": "replay_end_close"
+      },
+      {
+        "ticker": "BWXT",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-23",
+        "exit_date": "2025-07-31",
+        "pnl_pct": 39.25,
+        "mfe": 6.78,
+        "exit_reason": "replay_end_close"
+      },
+      {
+        "ticker": "PLTR",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-23",
+        "exit_date": "2025-07-31",
+        "pnl_pct": 38.56,
+        "mfe": 7.77,
+        "exit_reason": "replay_end_close"
+      },
+      {
+        "ticker": "PSTG",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-23",
+        "exit_date": "2025-07-31",
+        "pnl_pct": 25.7,
+        "mfe": 8.26,
+        "exit_reason": "replay_end_close"
+      },
+      {
+        "ticker": "BK",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-17",
+        "exit_date": "2025-07-31",
+        "pnl_pct": 22.19,
+        "mfe": 6.33,
+        "exit_reason": "replay_end_close"
+      },
+      {
+        "ticker": "AEHR",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-21",
+        "exit_date": "2025-07-28",
+        "pnl_pct": 21.18,
+        "mfe": 42.01,
+        "exit_reason": "atr_week_618_full_exit"
+      },
+      {
+        "ticker": "UTHR",
+        "entry_path": "tt_gap_reversal_short",
+        "entry_date": "2025-07-31",
+        "exit_date": "2025-07-31",
+        "pnl_pct": 14.07,
+        "mfe": 2.59,
+        "exit_reason": "replay_end_close"
+      },
+      {
+        "ticker": "U",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-14",
+        "exit_date": "2025-07-22",
+        "pnl_pct": 12.5,
+        "mfe": 29.07,
+        "exit_reason": "sl_breached"
+      },
+      {
+        "ticker": "JOBY",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-07",
+        "exit_date": "2025-07-15",
+        "pnl_pct": 12.37,
+        "mfe": 33.46,
+        "exit_reason": "TP_FULL"
+      },
+      {
+        "ticker": "NVDA",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-28",
+        "exit_date": "2025-07-31",
+        "pnl_pct": 12.18,
+        "mfe": 4.13,
+        "exit_reason": "replay_end_close"
+      },
+      {
+        "ticker": "IREN",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-01",
+        "exit_date": "2025-07-15",
+        "pnl_pct": 10.21,
+        "mfe": 21.7,
+        "exit_reason": "sl_breached"
+      },
+      {
+        "ticker": "AMD",
+        "entry_path": "tt_range_reversal_long",
+        "entry_date": "2025-07-08",
+        "exit_date": "2025-07-22",
+        "pnl_pct": 8.73,
+        "mfe": 17.62,
+        "exit_reason": "sl_breached"
+      },
+      {
+        "ticker": "TPL",
+        "entry_path": "tt_gap_reversal_short",
+        "entry_date": "2025-07-07",
+        "exit_date": "2025-07-25",
+        "pnl_pct": 6.51,
+        "mfe": 13.87,
+        "exit_reason": "ST_FLIP_4H_CLOSE"
+      },
+      {
+        "ticker": "BE",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-25",
+        "exit_date": "2025-07-31",
+        "pnl_pct": 6.1,
+        "mfe": 10.07,
+        "exit_reason": "TP_FULL"
+      },
+      {
+        "ticker": "IESC",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-23",
+        "exit_date": "2025-07-31",
+        "pnl_pct": 5.81,
+        "mfe": 12.77,
+        "exit_reason": "TP_FULL"
+      },
+      {
+        "ticker": "AGQ",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-10",
+        "exit_date": "2025-07-11",
+        "pnl_pct": 5.46,
+        "mfe": 8.79,
+        "exit_reason": "HARD_FUSE_RSI_EXTREME"
+      },
+      {
+        "ticker": "GOOGL",
+        "entry_path": "tt_n_test_support",
+        "entry_date": "2025-07-01",
+        "exit_date": "2025-07-23",
+        "pnl_pct": 5.01,
+        "mfe": 9.35,
+        "exit_reason": "TP_FULL"
+      },
+      {
+        "ticker": "DE",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-31",
+        "exit_date": "2025-07-31",
+        "pnl_pct": 4.25,
+        "mfe": 0.64,
+        "exit_reason": "replay_end_close"
+      },
+      {
+        "ticker": "CAT",
+        "entry_path": "tt_ath_breakout",
+        "entry_date": "2025-07-31",
+        "exit_date": "2025-07-31",
+        "pnl_pct": 4.17,
+        "mfe": 0.78,
+        "exit_reason": "replay_end_close"
+      },
+      {
+        "ticker": "AMD",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-25",
+        "exit_date": "2025-07-29",
+        "pnl_pct": 4.12,
+        "mfe": 7.65,
+        "exit_reason": "HARD_FUSE_RSI_EXTREME"
+      },
+      {
+        "ticker": "JCI",
+        "entry_path": "tt_n_test_support",
+        "entry_date": "2025-07-14",
+        "exit_date": "2025-07-28",
+        "pnl_pct": 3.65,
+        "mfe": 5.48,
+        "exit_reason": "TP_FULL"
+      },
+      {
+        "ticker": "MTZ",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-23",
+        "exit_date": "2025-07-31",
+        "pnl_pct": 3.38,
+        "mfe": 5.71,
+        "exit_reason": "TP_FULL"
+      },
+      {
+        "ticker": "EMR",
+        "entry_path": "tt_n_test_support",
+        "entry_date": "2025-07-09",
+        "exit_date": "2025-07-30",
+        "pnl_pct": 3.09,
+        "mfe": 7.45,
+        "exit_reason": "atr_week_618_full_exit"
+      }
+    ],
+    "ones_that_got_away": [
+      {
+        "ticker": "JOBY",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-07",
+        "exit_date": "2025-07-15",
+        "mfe": 33.46,
+        "kept": 12.37,
+        "giveback_pp": 21.09,
+        "exit_reason": "TP_FULL"
+      },
+      {
+        "ticker": "AEHR",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-21",
+        "exit_date": "2025-07-28",
+        "mfe": 42.01,
+        "kept": 21.18,
+        "giveback_pp": 20.83,
+        "exit_reason": "atr_week_618_full_exit"
+      },
+      {
+        "ticker": "U",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-14",
+        "exit_date": "2025-07-22",
+        "mfe": 29.07,
+        "kept": 12.5,
+        "giveback_pp": 16.57,
+        "exit_reason": "sl_breached"
+      },
+      {
+        "ticker": "IREN",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-01",
+        "exit_date": "2025-07-15",
+        "mfe": 21.7,
+        "kept": 10.21,
+        "giveback_pp": 11.49,
+        "exit_reason": "sl_breached"
+      },
+      {
+        "ticker": "AMD",
+        "entry_path": "tt_range_reversal_long",
+        "entry_date": "2025-07-08",
+        "exit_date": "2025-07-22",
+        "mfe": 17.62,
+        "kept": 8.73,
+        "giveback_pp": 8.89,
+        "exit_reason": "sl_breached"
+      },
+      {
+        "ticker": "GLXY",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-23",
+        "exit_date": "2025-07-25",
+        "mfe": 8.86,
+        "kept": 0.69,
+        "giveback_pp": 8.17,
+        "exit_reason": "PROFIT_GIVEBACK_STAGE_HOLD"
+      },
+      {
+        "ticker": "KTOS",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-17",
+        "exit_date": "2025-07-22",
+        "mfe": 8.07,
+        "kept": 0.03,
+        "giveback_pp": 8.04,
+        "exit_reason": "PROFIT_GIVEBACK_STAGE_HOLD"
+      },
+      {
+        "ticker": "COIN",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-17",
+        "exit_date": "2025-07-22",
+        "mfe": 9.2,
+        "kept": 1.37,
+        "giveback_pp": 7.84,
+        "exit_reason": "mfe_decay_structural_flatten"
+      },
+      {
+        "ticker": "APLD",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-17",
+        "exit_date": "2025-07-22",
+        "mfe": 9.5,
+        "kept": 1.91,
+        "giveback_pp": 7.59,
+        "exit_reason": "PROFIT_GIVEBACK_STAGE_HOLD"
+      },
+      {
+        "ticker": "TPL",
+        "entry_path": "tt_gap_reversal_short",
+        "entry_date": "2025-07-07",
+        "exit_date": "2025-07-25",
+        "mfe": 13.87,
+        "kept": 6.51,
+        "giveback_pp": 7.36,
+        "exit_reason": "ST_FLIP_4H_CLOSE"
+      },
+      {
+        "ticker": "ALB",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-17",
+        "exit_date": "2025-07-23",
+        "mfe": 9.39,
+        "kept": 2.2,
+        "giveback_pp": 7.2,
+        "exit_reason": "mfe_decay_structural_flatten"
+      },
+      {
+        "ticker": "IESC",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-23",
+        "exit_date": "2025-07-31",
+        "mfe": 12.77,
+        "kept": 5.81,
+        "giveback_pp": 6.96,
+        "exit_reason": "TP_FULL"
+      },
+      {
+        "ticker": "AVAV",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-14",
+        "exit_date": "2025-07-22",
+        "mfe": 7.99,
+        "kept": 1.54,
+        "giveback_pp": 6.45,
+        "exit_reason": "PROFIT_GIVEBACK_STAGE_HOLD"
+      },
+      {
+        "ticker": "IBP",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-01",
+        "exit_date": "2025-07-14",
+        "mfe": 7.63,
+        "kept": 1.98,
+        "giveback_pp": 5.65,
+        "exit_reason": "atr_week_618_full_exit"
+      },
+      {
+        "ticker": "KTOS",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-23",
+        "exit_date": "2025-07-28",
+        "mfe": 7.71,
+        "kept": 2.17,
+        "giveback_pp": 5.54,
+        "exit_reason": "mfe_decay_structural_flatten"
+      }
+    ],
+    "total_potential_pnl_left_on_table": 149.67
+  },
+  "loser_forensics": {
+    "top_losers": [
+      {
+        "ticker": "APLD",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-31",
+        "exit_date": "2025-07-31",
+        "pnl_pct": -20.25,
+        "mfe": 0.0,
+        "exit_reason": "replay_end_close",
+        "had_profit_window": false
+      },
+      {
+        "ticker": "CSX",
+        "entry_path": "ema_regime_confirmed_long",
+        "entry_date": "2025-07-31",
+        "exit_date": "2025-09-08",
+        "pnl_pct": -17.84,
+        "mfe": 1.05,
+        "exit_reason": "HARD_LOSS_CAP",
+        "had_profit_window": true
+      },
+      {
+        "ticker": "SPY",
+        "entry_path": "tt_ath_breakout",
+        "entry_date": "2025-07-28",
+        "exit_date": "2025-07-31",
+        "pnl_pct": -8.86,
+        "mfe": 0.33,
+        "exit_reason": "replay_end_close",
+        "had_profit_window": false
+      },
+      {
+        "ticker": "ORCL",
+        "entry_path": "momentum_score",
+        "entry_date": "2025-07-31",
+        "exit_date": "2025-08-01",
+        "pnl_pct": -5.17,
+        "mfe": 0.11,
+        "exit_reason": "HARD_LOSS_CAP",
+        "had_profit_window": false
+      },
+      {
+        "ticker": "MDB",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-09",
+        "exit_date": "2025-07-10",
+        "pnl_pct": -4.01,
+        "mfe": 0.86,
+        "exit_reason": "max_loss",
+        "had_profit_window": false
+      },
+      {
+        "ticker": "CDNS",
+        "entry_path": "momentum_score",
+        "entry_date": "2025-07-31",
+        "exit_date": "2025-08-01",
+        "pnl_pct": -3.24,
+        "mfe": 0.98,
+        "exit_reason": "max_loss",
+        "had_profit_window": false
+      },
+      {
+        "ticker": "INTC",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-01",
+        "exit_date": "2025-07-02",
+        "pnl_pct": -3.23,
+        "mfe": 0.42,
+        "exit_reason": "max_loss",
+        "had_profit_window": false
+      },
+      {
+        "ticker": "IBP",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-23",
+        "exit_date": "2025-07-24",
+        "pnl_pct": -3.04,
+        "mfe": 0.47,
+        "exit_reason": "max_loss",
+        "had_profit_window": false
+      },
+      {
+        "ticker": "ETHA",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-24",
+        "exit_date": "2025-07-25",
+        "pnl_pct": -2.89,
+        "mfe": 0.8,
+        "exit_reason": "max_loss",
+        "had_profit_window": false
+      },
+      {
+        "ticker": "APP",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-21",
+        "exit_date": "2025-07-22",
+        "pnl_pct": -2.52,
+        "mfe": 0.0,
+        "exit_reason": "max_loss",
+        "had_profit_window": false
+      },
+      {
+        "ticker": "MTZ",
+        "entry_path": "tt_ath_breakout",
+        "entry_date": "2025-07-07",
+        "exit_date": "2025-07-10",
+        "pnl_pct": -2.34,
+        "mfe": 0.53,
+        "exit_reason": "max_loss_time_scaled",
+        "had_profit_window": false
+      },
+      {
+        "ticker": "ARM",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-21",
+        "exit_date": "2025-07-22",
+        "pnl_pct": -1.88,
+        "mfe": 0.94,
+        "exit_reason": "v13_hard_pnl_floor",
+        "had_profit_window": false
+      },
+      {
+        "ticker": "PLTR",
+        "entry_path": "tt_n_test_support",
+        "entry_date": "2025-07-21",
+        "exit_date": "2025-07-21",
+        "pnl_pct": -1.71,
+        "mfe": 0.0,
+        "exit_reason": "phase_i_mfe_fast_cut_zero_mfe",
+        "had_profit_window": false
+      },
+      {
+        "ticker": "KWEB",
+        "entry_path": "tt_n_test_support",
+        "entry_date": "2025-07-01",
+        "exit_date": "2025-07-02",
+        "pnl_pct": -1.59,
+        "mfe": 0.47,
+        "exit_reason": "phase_i_mfe_cut_4h",
+        "had_profit_window": false
+      },
+      {
+        "ticker": "CAT",
+        "entry_path": "tt_ath_breakout",
+        "entry_date": "2025-07-28",
+        "exit_date": "2025-07-29",
+        "pnl_pct": -1.57,
+        "mfe": 0.38,
+        "exit_reason": "phase_i_mfe_cut_4h",
+        "had_profit_window": false
+      },
+      {
+        "ticker": "FIX",
+        "entry_path": "tt_pullback",
+        "entry_date": "2025-07-01",
+        "exit_date": "2025-07-02",
+        "pnl_pct": -1.45,
+        "mfe": 0.0,
+        "exit_reason": "phase_i_mfe_fast_cut_zero_mfe",
+        "had_profit_window": false
+      },
+      {
+        "ticker": "AVGO",
+        "entry_path": "tt_ath_breakout",
+        "entry_date": "2025-07-15",
+        "exit_date": "2025-07-16",
+        "pnl_pct": -1.44,
+        "mfe": 0.47,
+        "exit_reason": "atr_day_adverse_382_cut",
+        "had_profit_window": false
+      },
+      {
+        "ticker": "SGI",
+        "entry_path": "tt_pullback",
+        "entry_date": "2025-07-28",
+        "exit_date": "2025-07-29",
+        "pnl_pct": -1.41,
+        "mfe": 0.0,
+        "exit_reason": "phase_i_mfe_fast_cut_zero_mfe",
+        "had_profit_window": false
+      },
+      {
+        "ticker": "FIX",
+        "entry_path": "tt_pullback",
+        "entry_date": "2025-07-17",
+        "exit_date": "2025-07-22",
+        "pnl_pct": -1.31,
+        "mfe": 0.81,
+        "exit_reason": "max_loss",
+        "had_profit_window": false
+      },
+      {
+        "ticker": "TT",
+        "entry_path": "tt_ath_breakout",
+        "entry_date": "2025-07-14",
+        "exit_date": "2025-07-16",
+        "pnl_pct": -1.22,
+        "mfe": 0.71,
+        "exit_reason": "atr_day_adverse_382_cut",
+        "had_profit_window": false
+      },
+      {
+        "ticker": "LULU",
+        "entry_path": "tt_n_test_resistance",
+        "entry_date": "2025-07-09",
+        "exit_date": "2025-07-10",
+        "pnl_pct": -1.19,
+        "mfe": 0.0,
+        "exit_reason": "phase_i_mfe_fast_cut_zero_mfe",
+        "had_profit_window": false
+      },
+      {
+        "ticker": "XHB",
+        "entry_path": "tt_pullback",
+        "entry_date": "2025-07-28",
+        "exit_date": "2025-07-29",
+        "pnl_pct": -1.1,
+        "mfe": 0.0,
+        "exit_reason": "phase_i_mfe_fast_cut_zero_mfe",
+        "had_profit_window": false
+      },
+      {
+        "ticker": "XHB",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-01",
+        "exit_date": "2025-07-07",
+        "pnl_pct": -1.07,
+        "mfe": 1.22,
+        "exit_reason": "phase_i_mfe_dead_money_24h",
+        "had_profit_window": true
+      },
+      {
+        "ticker": "CVNA",
+        "entry_path": "tt_gap_reversal_long",
+        "entry_date": "2025-07-07",
+        "exit_date": "2025-07-08",
+        "pnl_pct": -1.06,
+        "mfe": 0.88,
+        "exit_reason": "max_loss_time_scaled",
+        "had_profit_window": false
+      },
+      {
+        "ticker": "IWM",
+        "entry_path": "tt_pullback",
+        "entry_date": "2025-07-23",
+        "exit_date": "2025-07-25",
+        "pnl_pct": -1.0,
+        "mfe": 0.57,
+        "exit_reason": "atr_day_adverse_382_cut",
+        "had_profit_window": false
+      }
+    ],
+    "categories": {
+      "rapid_stop_outs_mfe_under_05pct": {
+        "n": 19,
+        "total_pnl": -57.9,
+        "comment": "Entries that never went green \u2014 entry quality issue"
+      },
+      "slow_bleeds_mfe_05_to_3pct": {
+        "n": 20,
+        "total_pnl": -41.46,
+        "comment": "Got small green then faded \u2014 exit timing or trail too tight"
+      },
+      "late_exits_mfe_over_3pct": {
+        "n": 1,
+        "total_pnl": -0.14,
+        "comment": "Had real edge but gave it all back \u2014 winner-protect needed"
+      }
+    }
+  },
+  "regime_analysis": {
+    "by_regime_class": {
+      "TRENDING": {
+        "n": 82,
+        "n_total": 82,
+        "wr": 63.4,
+        "pnl": 367.88,
+        "pf": 8.96,
+        "avg_w": 7.96,
+        "avg_l": -1.54,
+        "best_w": 111.11,
+        "worst_l": -8.86
+      },
+      "TRANSITIONAL": {
+        "n": 22,
+        "n_total": 22,
+        "wr": 63.6,
+        "pnl": 82.32,
+        "pf": 3.5,
+        "avg_w": 8.23,
+        "avg_l": -4.12,
+        "best_w": 39.25,
+        "worst_l": -20.25
+      },
+      "CHOPPY": {
+        "n": 2,
+        "n_total": 2,
+        "wr": 50.0,
+        "pnl": -1.72,
+        "pf": 0.32,
+        "avg_w": 0.8,
+        "avg_l": -2.52,
+        "best_w": 0.8,
+        "worst_l": -2.52
+      },
+      "?": {
+        "n": 1,
+        "n_total": 1,
+        "wr": 0.0,
+        "pnl": -17.84,
+        "pf": 0.0,
+        "avg_w": 0,
+        "avg_l": -17.84,
+        "best_w": 0,
+        "worst_l": -17.84
+      }
+    },
+    "by_state": {
+      "HTF_BULL_LTF_BULL": {
+        "n": 99,
+        "n_total": 99,
+        "wr": 62.6,
+        "pnl": 418.83,
+        "pf": 6.3,
+        "avg_w": 8.03,
+        "avg_l": -2.14,
+        "best_w": 111.11,
+        "worst_l": -20.25
+      },
+      "HTF_BULL_LTF_PULLBACK": {
+        "n": 2,
+        "n_total": 2,
+        "wr": 50.0,
+        "pnl": 7.28,
+        "pf": 6.03,
+        "avg_w": 8.73,
+        "avg_l": -1.45,
+        "best_w": 8.73,
+        "worst_l": -1.45
+      },
+      "HTF_BEAR_LTF_BEAR": {
+        "n": 5,
+        "n_total": 5,
+        "wr": 80.0,
+        "pnl": 22.36,
+        "pf": 19.81,
+        "avg_w": 5.89,
+        "avg_l": -1.19,
+        "best_w": 14.07,
+        "worst_l": -1.19
+      },
+      "?": {
+        "n": 1,
+        "n_total": 1,
+        "wr": 0.0,
+        "pnl": -17.84,
+        "pf": 0.0,
+        "avg_w": 0,
+        "avg_l": -17.84,
+        "best_w": 0,
+        "worst_l": -17.84
+      }
+    },
+    "by_vix_state": {
+      "vol_calm": {
+        "n": 70,
+        "n_total": 70,
+        "wr": 58.6,
+        "pnl": 114.53,
+        "pf": 2.37,
+        "avg_w": 4.83,
+        "avg_l": -2.88,
+        "best_w": 40.65,
+        "worst_l": -20.25
+      },
+      "vol_up": {
+        "n": 18,
+        "n_total": 18,
+        "wr": 61.1,
+        "pnl": 148.53,
+        "pf": 22.61,
+        "avg_w": 14.13,
+        "avg_l": -0.98,
+        "best_w": 111.11,
+        "worst_l": -2.34
+      },
+      "vol_drop": {
+        "n": 19,
+        "n_total": 19,
+        "wr": 78.9,
+        "pnl": 167.57,
+        "pf": 19.14,
+        "avg_w": 11.79,
+        "avg_l": -2.31,
+        "best_w": 50.47,
+        "worst_l": -4.01
+      }
+    },
+    "by_sector_rotation": {
+      "risk_off": {
+        "n": 32,
+        "n_total": 32,
+        "wr": 65.6,
+        "pnl": 47.13,
+        "pf": 4.66,
+        "avg_w": 2.86,
+        "avg_l": -1.17,
+        "best_w": 12.37,
+        "worst_l": -3.23
+      },
+      "risk_on": {
+        "n": 53,
+        "n_total": 53,
+        "wr": 62.3,
+        "pnl": 231.04,
+        "pf": 4.11,
+        "avg_w": 9.25,
+        "avg_l": -3.71,
+        "best_w": 50.47,
+        "worst_l": -20.25
+      },
+      "balanced": {
+        "n": 22,
+        "n_total": 22,
+        "wr": 59.1,
+        "pnl": 152.46,
+        "pf": 13.31,
+        "avg_w": 12.68,
+        "avg_l": -1.38,
+        "best_w": 111.11,
+        "worst_l": -2.89
+      }
+    }
+  },
+  "cross_asset": {
+    "gold_pct": {
+      "wins_avg": -0.031,
+      "losses_avg": 0.146,
+      "n_wins": 67,
+      "n_losses": 40
+    },
+    "silver_pct": {
+      "wins_avg": -0.066,
+      "losses_avg": 0.006,
+      "n_wins": 67,
+      "n_losses": 40
+    },
+    "oil_pct": {
+      "wins_avg": 0.2,
+      "losses_avg": 0.433,
+      "n_wins": 67,
+      "n_losses": 40
+    },
+    "dollar_pct": {
+      "wins_avg": 0.09,
+      "losses_avg": 0.233,
+      "n_wins": 67,
+      "n_losses": 40
+    },
+    "energy_pct": {
+      "wins_avg": 0.472,
+      "losses_avg": 0.087,
+      "n_wins": 67,
+      "n_losses": 40
+    },
+    "btc_pct": {
+      "wins_avg": -0.391,
+      "losses_avg": -0.352,
+      "n_wins": 67,
+      "n_losses": 40
+    }
+  },
+  "rr_analysis": [
+    {
+      "bucket": "<1.5",
+      "n": 1,
+      "n_total": 1,
+      "wr": 100.0,
+      "pnl": 22.19,
+      "pf": 999,
+      "avg_w": 22.19,
+      "avg_l": 0,
+      "best_w": 22.19,
+      "worst_l": 0
+    },
+    {
+      "bucket": "1.5-2.0",
+      "n": 35,
+      "n_total": 35,
+      "wr": 68.6,
+      "pnl": 50.07,
+      "pf": 6.32,
+      "avg_w": 2.48,
+      "avg_l": -0.86,
+      "best_w": 14.07,
+      "worst_l": -1.57
+    },
+    {
+      "bucket": "2.0-3.0",
+      "n": 63,
+      "n_total": 63,
+      "wr": 60.3,
+      "pnl": 354.52,
+      "pf": 7.15,
+      "avg_w": 10.85,
+      "avg_l": -2.31,
+      "best_w": 111.11,
+      "worst_l": -17.84
+    },
+    {
+      "bucket": "3.0-5.0",
+      "n": 8,
+      "n_total": 8,
+      "wr": 50.0,
+      "pnl": 3.85,
+      "pf": 1.12,
+      "avg_w": 9.07,
+      "avg_l": -8.11,
+      "best_w": 21.18,
+      "worst_l": -20.25
+    }
+  ],
+  "mtf_concordance": [
+    {
+      "bucket": "mostly_aligned",
+      "n": 5,
+      "n_total": 5,
+      "wr": 40.0,
+      "pnl": 55.71,
+      "pf": 16.99,
+      "avg_w": 29.6,
+      "avg_l": -1.16,
+      "best_w": 50.47,
+      "worst_l": -1.59
+    },
+    {
+      "bucket": "half_aligned",
+      "n": 9,
+      "n_total": 9,
+      "wr": 66.7,
+      "pnl": 121.05,
+      "pf": 40.95,
+      "avg_w": 20.68,
+      "avg_l": -1.01,
+      "best_w": 111.11,
+      "worst_l": -1.41
+    },
+    {
+      "bucket": "misaligned",
+      "n": 92,
+      "n_total": 92,
+      "wr": 64.1,
+      "pnl": 271.71,
+      "pf": 4.62,
+      "avg_w": 5.88,
+      "avg_l": -2.28,
+      "best_w": 40.65,
+      "worst_l": -20.25
+    },
+    {
+      "bucket": "unknown",
+      "n": 1,
+      "n_total": 1,
+      "wr": 0.0,
+      "pnl": -17.84,
+      "pf": 0.0,
+      "avg_w": 0,
+      "avg_l": -17.84,
+      "best_w": 0,
+      "worst_l": -17.84
+    }
+  ],
+  "event_proximity": [
+    {
+      "bucket": "no_event",
+      "n": 105,
+      "n_total": 105,
+      "wr": 61.9,
+      "pnl": 407.49,
+      "pf": 5.1,
+      "avg_w": 7.8,
+      "avg_l": -2.49,
+      "best_w": 111.11,
+      "worst_l": -20.25
+    },
+    {
+      "bucket": "earnings_<24h",
+      "n": 2,
+      "n_total": 2,
+      "wr": 100.0,
+      "pnl": 23.14,
+      "pf": 999,
+      "avg_w": 11.57,
+      "avg_l": 0,
+      "best_w": 22.19,
+      "worst_l": 0
+    }
+  ],
+  "data_integrity": {
+    "exit_reason_unknown_finalized": [],
+    "closed_today_walllclock": 0,
+    "duplicate_open_per_ticker": {},
+    "long_held_over_60d": []
+  },
+  "priority_fixes": [
+    {
+      "priority": "HIGH",
+      "category": "WINNER_PROTECT",
+      "target": "MFE giveback >5pp on winners",
+      "impact_pnl_pct": 74.83,
+      "n_trades_affected": 15,
+      "recommendation": "Top winners gave back 149.7pp combined from MFE peaks. Add a winner-protect anchor: when MFE >= 15%, lock SL at entry + 0.6 \u00d7 MFE to capture more of the runner."
+    },
+    {
+      "priority": "HIGH",
+      "category": "ENTRY_QUALITY",
+      "target": "Rapid stop-outs (MFE < 0.5%)",
+      "impact_pnl_pct": -57.9,
+      "n_trades_affected": 19,
+      "recommendation": "19 entries never went above +0.5% \u2014 these are entry-quality failures. Audit which entry paths/regimes/RVol levels these came from and tighten the conviction floor or require more confirmation."
+    },
+    {
+      "priority": "HIGH",
+      "category": "EXIT_RULE",
+      "target": "max_loss",
+      "impact_pnl_pct": -21.04,
+      "n_trades_affected": 8,
+      "wr": 0.0,
+      "avg_giveback": 3.58,
+      "recommendation": "Exit rule 'max_loss' fired 8\u00d7 with WR 0% and net -21.04% PnL (avg giveback 3.6%). Consider deferring on daily-cloud-hold, requiring confirmation, or tightening."
+    },
+    {
+      "priority": "HIGH",
+      "category": "EXIT_RULE",
+      "target": "phase_i_mfe_fast_cut_zero_mfe",
+      "impact_pnl_pct": -8.59,
+      "n_trades_affected": 7,
+      "wr": 0.0,
+      "avg_giveback": 1.16,
+      "recommendation": "Exit rule 'phase_i_mfe_fast_cut_zero_mfe' fired 7\u00d7 with WR 0% and net -8.59% PnL (avg giveback 1.2%). Consider deferring on daily-cloud-hold, requiring confirmation, or tightening."
+    },
+    {
+      "priority": "MEDIUM",
+      "category": "EXIT_RULE",
+      "target": "atr_day_adverse_382_cut",
+      "impact_pnl_pct": -4.73,
+      "n_trades_affected": 5,
+      "wr": 0.0,
+      "avg_giveback": 1.59,
+      "recommendation": "Exit rule 'atr_day_adverse_382_cut' fired 5\u00d7 with WR 0% and net -4.73% PnL (avg giveback 1.6%). Consider deferring on daily-cloud-hold, requiring confirmation, or tightening."
+    }
+  ]
+}
