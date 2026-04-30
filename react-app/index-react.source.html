@@ -18165,7 +18165,12 @@
                         return true;
                       });
                     })();
-                    const earningItems = (Array.isArray(earningsEvents) ? earningsEvents : []).slice(0, 12);
+                    // V15 P0.7.34 (2026-04-30): lift the earnings cap from 12 to 50
+                    // per user request "we are not showing the full bunch, maybe it is
+                    // max capped on the Market Pulse? Can we update this to allow more
+                    // to be shown?". The container already wraps; on heavy days the
+                    // earnings list gets large but readers can scan the full set.
+                    const earningItems = (Array.isArray(earningsEvents) ? earningsEvents : []).slice(0, 50);
                     if (macroItems.length === 0 && earningItems.length === 0) return null;
                     return (
                       <div className="mb-3">
