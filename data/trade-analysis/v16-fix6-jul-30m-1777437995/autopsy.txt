@@ -1,0 +1,224 @@
+Loading enriched trades from /workspace/data/trade-analysis/v16-fix6-jul-30m-1777437995/trades-enriched.json ...
+  114 trades (with joined context)
+
+===========================================================================
+FULL TRADE AUTOPSY: v16-fix6-jul-30m-1777437995
+===========================================================================
+Generated: 2026-04-29T05:49:05.730296+00:00
+
+===========================================================================
+1. RUN OVERVIEW
+===========================================================================
+Total trades: 114
+Status mix:   {'WIN': 62, 'LOSS': 52}
+Closed: 114  WR: 54.4%  PnL: +305.50%  PF: 5.04
+Avg WIN: +6.15%  Avg LOSS: -1.46%
+Best WIN: +49.27%  Worst LOSS: -8.66%
+Account: $100,000 -> $112,075 (+12.08%) | Peak $112,075 | Max DD -1.72%
+
+Weekly equity progression:
+Week          N       PnL$      Cum%
+2025-W27      6 $     -555   -0.56%
+2025-W28     20 $      +54   -0.50%
+2025-W29     27 $   +3,938   +3.44%
+2025-W30     25 $   +1,209   +4.65%
+2025-W31     36 $   +7,429  +12.08%
+
+===========================================================================
+2. SETUP FITNESS — per-entry-path
+===========================================================================
+Path                            N   WR%     PnL%    PF  AvgMFE%  Bull%
+---------------------------------------------------------------------------
+tt_gap_reversal_long           74   58  +247.46   6.5    +5.6    89%
+tt_pullback                    10   50   +48.46  11.8    +2.2    90%
+tt_ath_breakout                14   50    +5.17   1.4    +1.0   100%
+tt_range_reversal_long          5   60    +3.89   5.4    +2.0   100%
+tt_gap_reversal_short           2   50    +1.51   2.3    +2.5     0%
+tt_n_test_support               8   38    +0.20   1.0    +2.8   100%
+tt_n_test_resistance            1    0    -1.19   0.0    +0.0     0%
+
+===========================================================================
+3. EXIT RULE PERFORMANCE
+===========================================================================
+Exit Reason                               N   WR%     PnL%   AvgGB
+----------------------------------------------------------------------
+TP_FULL                                  10  100   +46.68  +5.77
+max_loss                                 10    0   -21.74  +2.85
+phase_i_mfe_fast_cut_zero_mfe            10    0   -12.09  +1.44
+atr_week_618_full_exit                   10   80   +34.35  +3.89
+replay_end_close                         10   90  +208.68 -15.90
+mfe_decay_structural_flatten              9  100   +23.97  +6.21
+HARD_FUSE_RSI_EXTREME                     7  100   +25.92  +2.77
+PROFIT_GIVEBACK_STAGE_HOLD                6   83    +4.65  +5.42
+atr_day_adverse_382_cut                   6    0    -5.98  +1.30
+sl_breached                               5   60   +12.41  +3.76
+stagnant_no_commitment                    3  100    +2.76  +1.13
+peak_lock_ema12_deep_break                3  100    +4.31  +4.10
+SMART_RUNNER_SUPPORT_BREAK_CLOUD          3    0    -0.94  +1.68
+phase_i_mfe_fast_cut_2h                   3    0    -3.23  +1.16
+
+===========================================================================
+4. WINNER FORENSICS — top winners + ones that got away
+===========================================================================
+
+Top 10 winners:
+Ticker  Setup                      Entry       Exit           PnL%   MFE% Reason
+AVGO    tt_pullback                2025-07-23  2025-07-31  +49.27%   8.4% replay_end_close
+BWXT    tt_gap_reversal_long       2025-07-23  2025-07-31  +38.35%   6.8% replay_end_close
+PLTR    tt_gap_reversal_long       2025-07-23  2025-07-31  +37.68%   7.8% replay_end_close
+GEV     tt_gap_reversal_long       2025-07-23  2025-07-31  +28.06%   7.7% replay_end_close
+PSTG    tt_gap_reversal_long       2025-07-23  2025-07-31  +25.12%   8.3% replay_end_close
+BK      tt_gap_reversal_long       2025-07-17  2025-07-31  +22.25%   6.3% replay_end_close
+AEHR    tt_gap_reversal_long       2025-07-21  2025-07-28  +21.18%  42.0% atr_week_618_full_exit
+JOBY    tt_gap_reversal_long       2025-07-07  2025-07-15  +12.37%  33.5% TP_FULL
+U       tt_gap_reversal_long       2025-07-07  2025-07-16  +12.14%  28.4% TP_FULL
+IREN    tt_gap_reversal_long       2025-07-01  2025-07-15  +10.21%  21.7% sl_breached
+
+Top 12 'ones that got away' (MFE >5pp giveback):
+Ticker  Setup                      Dates                     MFE%   Kept%  Gave back
+JOBY    tt_gap_reversal_long       2025-07-07->2025-07-15   33.5% +12.37%     21.09pp
+AEHR    tt_gap_reversal_long       2025-07-21->2025-07-28   42.0% +21.18%     20.83pp
+U       tt_gap_reversal_long       2025-07-07->2025-07-16   28.4% +12.14%     16.31pp
+BE      tt_gap_reversal_long       2025-07-07->2025-07-10   19.9%  +7.95%     11.96pp
+RIOT    tt_gap_reversal_long       2025-07-17->2025-07-23   16.1%  +4.65%     11.50pp
+IREN    tt_gap_reversal_long       2025-07-01->2025-07-15   21.7% +10.21%     11.49pp
+APLD    tt_gap_reversal_long       2025-07-17->2025-07-22   10.3%  +1.10%      9.16pp
+GLXY    tt_gap_reversal_long       2025-07-23->2025-07-25    8.9%  +0.69%      8.17pp
+AVAV    tt_gap_reversal_long       2025-07-16->2025-07-22    8.8%  +1.38%      7.39pp
+ALB     tt_gap_reversal_long       2025-07-17->2025-07-23    9.4%  +2.20%      7.20pp
+LITE    tt_gap_reversal_long       2025-07-15->2025-07-22    8.9%  +1.81%      7.11pp
+IESC    tt_gap_reversal_long       2025-07-23->2025-07-31   12.8%  +5.81%      6.96pp
+
+Total PnL left on the table from giveback: +156.33 pp
+
+===========================================================================
+5. LOSER FORENSICS
+===========================================================================
+
+Loser categories:
+  rapid_stop_outs_mfe_under_05pct                  N= 27  PnL= -52.40%  (Entries that never went green — entry quality issue)
+  slow_bleeds_mfe_05_to_3pct                       N= 24  PnL= -23.22%  (Got small green then faded — exit timing or trail too tight)
+  late_exits_mfe_over_3pct                         N=  1  PnL=  -0.04%  (Had real edge but gave it all back — winner-protect needed)
+
+Top 10 losers:
+Ticker  Setup                      Dates                      PnL%   MFE% Reason
+SPY     tt_ath_breakout            2025-07-28->2025-07-31   -8.66%   0.3% replay_end_close
+KLAC    tt_n_test_support          2025-07-30->2025-07-31   -5.33%   1.2% PRE_EARNINGS_FORCE_EXIT
+MU      tt_gap_reversal_long       2025-07-11->2025-07-14   -4.58%   0.3% HARD_LOSS_CAP
+CLS     tt_gap_reversal_long       2025-07-09->2025-07-10   -4.01%   0.0% max_loss
+MDB     tt_gap_reversal_long       2025-07-09->2025-07-10   -4.01%   0.9% max_loss
+TWLO    tt_gap_reversal_long       2025-07-15->2025-07-16   -4.01%   0.0% v13_hard_pnl_floor
+INTC    tt_gap_reversal_long       2025-07-01->2025-07-02   -3.23%   0.4% max_loss
+APP     tt_gap_reversal_long       2025-07-21->2025-07-22   -2.52%   0.0% max_loss
+CLS     tt_gap_reversal_long       2025-07-21->2025-07-22   -2.23%   0.1% max_loss
+AMD     tt_gap_reversal_long       2025-07-11->2025-07-14   -1.94%   0.0% atr_day_adverse_382_cut
+
+===========================================================================
+6. REGIME ANALYSIS
+===========================================================================
+
+By regime_class:
+Bucket                      N   WR%     PnL%    PF
+TRENDING                   86   56  +217.07   5.3
+TRANSITIONAL               23   52   +95.83   8.2
+CHOPPY                      5   40    -7.40   0.4
+
+By state:
+Bucket                      N   WR%     PnL%    PF
+HTF_BULL_LTF_BULL         108   56  +304.16   5.3
+HTF_BULL_LTF_PULLBACK       2   50    +1.53   2.1
+HTF_BEAR_LTF_BEAR           4   25    -0.19   0.9
+
+By VIX state:
+Bucket                      N   WR%     PnL%    PF
+vol_calm                   79   53   +85.14   2.5
+vol_up                     13   38   +34.25   7.2
+vol_drop                   22   68  +186.10  14.9
+
+By sector rotation:
+Bucket                      N   WR%     PnL%    PF
+risk_off                   42   57   +65.97   5.2
+risk_on                    48   58  +220.04   7.4
+balanced                   24   42   +19.49   1.8
+
+===========================================================================
+7. CROSS-ASSET BACKDROP — winner vs loser averages
+===========================================================================
+Asset            Wins avg   Losses avg    Spread
+gold_pct           -0.09%       +0.09%    -0.19pp
+silver_pct         -0.11%       +0.06%    -0.16pp
+oil_pct            +0.62%       +1.01%    -0.40pp
+dollar_pct         +0.10%       +0.22%    -0.12pp
+energy_pct         +0.30%       -0.02%    +0.32pp
+btc_pct            -0.53%       -0.08%    -0.45pp
+
+===========================================================================
+8. R:R DISTRIBUTION
+===========================================================================
+R:R bucket        N   WR%     PnL%    PF
+<1.5              1  100   +22.25 999.0
+1.5-2.0          34   62   +36.82   5.2
+2.0-3.0          72   49  +225.04   5.0
+3.0-5.0           7   71   +21.39   2.9
+
+===========================================================================
+9. MTF CONCORDANCE
+===========================================================================
+Bucket                  N   WR%     PnL%    PF
+mostly_aligned          5   40   +47.97  12.2
+half_aligned            6  100   +10.53 999.0
+misaligned            103   52  +246.99   4.5
+
+===========================================================================
+10. EVENT PROXIMITY
+===========================================================================
+Bucket                       N   WR%     PnL%    PF
+no_event                   105   56  +280.38   5.1
+earnings_<24h                1  100   +28.06 999.0
+macro_<24h                   5   40    +3.25   3.2
+earnings_unknown_h           1    0    -0.23   0.0
+earnings_24-72h              2    0    -5.96   0.0
+
+===========================================================================
+11. DATA INTEGRITY ANOMALIES
+===========================================================================
+Trades with exit_reason='unknown' AND status WIN/LOSS: 0
+
+Trades with duplicate-OPEN per ticker: {}
+Trades closed today (wall-clock): 0
+Trades held >60 days: 0
+
+===========================================================================
+12. PRIORITIZED FIX LIST
+===========================================================================
+Pri     Category           Target                               PnL impact  Trades
+-------------------------------------------------------------------------------------
+HIGH    WINNER_PROTECT     MFE giveback >5pp on winners            +78.17%      15
+HIGH    ENTRY_QUALITY      Rapid stop-outs (MFE < 0.5%)            -52.40%      27
+HIGH    EXIT_RULE          max_loss                                -21.74%      10
+HIGH    EXIT_RULE          phase_i_mfe_fast_cut_zero_mfe           -12.09%      10
+HIGH    EXIT_RULE          atr_day_adverse_382_cut                  -5.98%       6
+
+DETAILED RECOMMENDATIONS:
+
+  1. [HIGH] WINNER_PROTECT: MFE giveback >5pp on winners
+     Impact: +78.17% PnL across 15 trades
+     Top winners gave back 156.3pp combined from MFE peaks. Add a winner-protect anchor: when MFE >= 15%, lock SL at entry + 0.6 × MFE to capture more of the runner.
+
+  2. [HIGH] ENTRY_QUALITY: Rapid stop-outs (MFE < 0.5%)
+     Impact: -52.40% PnL across 27 trades
+     27 entries never went above +0.5% — these are entry-quality failures. Audit which entry paths/regimes/RVol levels these came from and tighten the conviction floor or require more confirmation.
+
+  3. [HIGH] EXIT_RULE: max_loss
+     Impact: -21.74% PnL across 10 trades
+     Exit rule 'max_loss' fired 10× with WR 0% and net -21.74% PnL (avg giveback 2.9%). Consider deferring on daily-cloud-hold, requiring confirmation, or tightening.
+
+  4. [HIGH] EXIT_RULE: phase_i_mfe_fast_cut_zero_mfe
+     Impact: -12.09% PnL across 10 trades
+     Exit rule 'phase_i_mfe_fast_cut_zero_mfe' fired 10× with WR 0% and net -12.09% PnL (avg giveback 1.4%). Consider deferring on daily-cloud-hold, requiring confirmation, or tightening.
+
+  5. [HIGH] EXIT_RULE: atr_day_adverse_382_cut
+     Impact: -5.98% PnL across 6 trades
+     Exit rule 'atr_day_adverse_382_cut' fired 6× with WR 0% and net -5.98% PnL (avg giveback 1.3%). Consider deferring on daily-cloud-hold, requiring confirmation, or tightening.
+JSON saved: /workspace/data/trade-analysis/v16-fix6-jul-30m-1777437995/autopsy.json
+

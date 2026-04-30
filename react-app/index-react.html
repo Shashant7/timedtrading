@@ -7,10 +7,11 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes"
     />
     <title>Timed Trading</title>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none'%3E%3Cdefs%3E%3ClinearGradient id='r' x1='6' y1='42' x2='42' y2='6'%3E%3Cstop offset='0%25' stop-color='%2334d399'/%3E%3Cstop offset='100%25' stop-color='%2367e8f9'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='48' height='48' rx='11' fill='%23000'/%3E%3Ccircle cx='24' cy='24' r='17' stroke='url(%23r)' stroke-width='3' fill='none'/%3E%3Cline x1='24' y1='24' x2='19' y2='18.5' stroke='%23636366' stroke-width='4' stroke-linecap='round'/%3E%3Cline x1='24' y1='24' x2='29.5' y2='16.5' stroke='%2330d158' stroke-width='4.5' stroke-linecap='round'/%3E%3Ccircle cx='24' cy='24' r='3.5' fill='%2330d158'/%3E%3Ccircle cx='24' cy='24' r='1.5' fill='%23000'/%3E%3C/svg%3E" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2048%2048%27%20fill%3D%27none%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27r%27%20x1%3D%276%27%20y1%3D%2742%27%20x2%3D%2742%27%20y2%3D%276%27%3E%3Cstop%20offset%3D%270%25%27%20stop-color%3D%27%2334d399%27%2F%3E%3Cstop%20offset%3D%27100%25%27%20stop-color%3D%27%2367e8f9%27%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20width%3D%2748%27%20height%3D%2748%27%20rx%3D%2711%27%20fill%3D%27%23000%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%2717%27%20stroke%3D%27url%28%23r%29%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%277.5%27%20x2%3D%2724%27%20y2%3D%2710.5%27%20stroke%3D%27%2334d399%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20opacity%3D%270.5%27%2F%3E%3Cline%20x1%3D%277.5%27%20y1%3D%2724%27%20x2%3D%2710.5%27%20y2%3D%2724%27%20stroke%3D%27%2334d399%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20opacity%3D%270.5%27%2F%3E%3Cline%20x1%3D%2719%27%20y1%3D%2718.5%27%20x2%3D%2716%27%20y2%3D%2715.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2719%27%20y2%3D%2718.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%273.5%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2729.5%27%20y1%3D%2716.5%27%20x2%3D%2732%27%20y2%3D%2712.9%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2729.5%27%20y2%3D%2716.5%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%274%27%20stroke-linecap%3D%27round%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%273.2%27%20fill%3D%27%2330d158%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%271.3%27%20fill%3D%27%23000%27%2F%3E%3C%2Fsvg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260423a" />
 
     <!-- React & ReactDOM via CDN -->
     <script
@@ -68,7 +69,7 @@
           window.RechartsFailed = true;
         };
         script.onload = function () {
-          console.log("Recharts loaded from jsdelivr");
+          debugLog("Recharts loaded from jsdelivr");
         };
         document.head.appendChild(script);
       }
@@ -473,9 +474,19 @@
   </head>
   <body>
     <div id="root">
-      <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; gap:16px; background:#0d1117">
-        <div class="loading-spinner loading-spinner-lg"></div>
-        <p style="font-family:Inter,sans-serif; font-size:13px; color:#6b7280; letter-spacing:0.02em">Loading dashboard...</p>
+      <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; gap:14px; background:var(--tt-bg-0)">
+        <svg width="44" height="44" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+          <defs><linearGradient id="tt-splash-ring" x1="6" y1="42" x2="42" y2="6"><stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#67e8f9"/></linearGradient></defs>
+          <rect width="48" height="48" rx="11" fill="#000"/>
+          <circle cx="24" cy="24" r="17" stroke="url(#tt-splash-ring)" stroke-width="2.5" fill="none"/>
+          <line x1="24" y1="24" x2="19" y2="18.5" stroke="#636366" stroke-width="3.5" stroke-linecap="round"/>
+          <line x1="24" y1="24" x2="29.5" y2="16.5" stroke="#30d158" stroke-width="4" stroke-linecap="round"/>
+          <circle cx="24" cy="24" r="3.2" fill="#30d158"/>
+        </svg>
+        <div style="display:flex; align-items:center; gap:8px">
+          <span class="tt-heartbeat"></span>
+          <p class="tt-label" style="margin:0">Loading dashboard</p>
+        </div>
       </div>
     </div>
 
@@ -484,7 +495,8 @@
     <script src="investor-panel.js?v=20260226a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-right-rail.compiled.js?v=20260318e"></script>
-    <script src="./index-react.compiled.d9c3e02beb.js"></script>
+    <script src="ticker-spider-chart.js?v=20260420a"></script>
+    <script src="./index-react.compiled.fd14b956a8.js"></script>
 
     <!-- Initialize app - separate script to avoid Babel parsing issues -->
     <script>
@@ -526,7 +538,6 @@
             ReactDOM.render(wrappedApp, rootElement);
           }
 
-          console.log("[App] Dashboard initialized successfully");
           // Push notification registration is handled by AuthGate after server-verified auth.
           // Do NOT call TimedPushRegister here — it would fire before auth is confirmed.
           if (window.TimedSessionHeartbeat) window.TimedSessionHeartbeat(API_BASE);
@@ -560,14 +571,13 @@
         }
       }
 
-      // Poll for window.App in case the compiled bundle is still loading
+      // Poll for window.App in case the compiled bundle is still loading.
       function waitForAppAndInit() {
         var attempts = 0;
         var maxAttempts = 100; // 10 seconds max (100 * 100ms)
         function poll() {
           attempts++;
           if (typeof window.App !== "undefined") {
-            console.log("[App] App bundle ready after " + (attempts * 100) + "ms");
             initializeApp();
           } else if (attempts < maxAttempts) {
             setTimeout(poll, 100);

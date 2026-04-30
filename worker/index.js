@@ -857,6 +857,9 @@ const ROUTES = [
   ["GET", "/timed/etf/groups", "GET /timed/etf/groups"],
   ["GET", (p) => /^\/timed\/etf\/holdings\/[A-Z]+$/i.test(p), "GET /timed/etf/holdings/:symbol"],
   ["POST", "/timed/etf/sync", "POST /timed/etf/sync"],
+  ["GET", "/timed/etf/history", "GET /timed/etf/history"],
+  ["GET", "/timed/etf/core-ideas", "GET /timed/etf/core-ideas"],
+  ["POST", "/timed/etf/core-ideas", "POST /timed/etf/core-ideas"],
   // ── Email ──
   ["GET", "/timed/email/unsubscribe", "GET /timed/email/unsubscribe"],
   ["GET", "/timed/email/preferences", "GET /timed/email/preferences"],
@@ -7357,12 +7360,158 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           const _tickerSymUpper = String(tickerData?.ticker || "").toUpperCase();
           const _isPrecisionETF = _etfPrecisionEnabled && _etfPrecisionTickers.includes(_tickerSymUpper);
 
+          // ──────────────────────────────────────────────────────────────
+          // V15 P0.7.27 (2026-04-30) — RUNNER PROTECTION FOR HEALTHY TRADES
+          //
+          // Skip Tier 0 and Tier 4 dead-money cuts when:
+          //   1. No adverse divergence at entry (entrySignals)
+          //   2. No current TD9_bear active against the trade direction (live tickerData)
+          //   3. Structure intact (already-implemented _structIntactGracePassed
+          //      check below applies; we add divergence + TD checks here)
+          //
+          // Why: per user observation on XHB Jul 1 (LONG, 142h hold, MFE+1.22%,
+          // PnL -1.07%, exit via phase_i_mfe_dead_money_24h). XHB had NO
+          // adverse divergence, NO TD9_bear, structure was intact (bull_stack,
+          // above E21). The trade was simply slow. Cutting at hour 24+ killed
+          // a healthy trade that needed time to develop.
+          //
+          // Cohort analysis on v16-baseline-ctx (101 trades): of 8 dead-money
+          // cuts with NO adverse divergence at entry, 6 became wins (ALB,
+          // LITE, H, BG, DCI, CAT) — the early cut didn't actually save them
+          // from losses; the trades developed slowly into modest wins despite
+          // the cut interrupting them. Total cohort PnL: +6.44%.
+          //
+          // Implementation: compute a "fragile_at_entry" flag from entrySignals
+          // and a "currently_threatened" flag from live tickerData. Used by
+          // Tier 0 and Tier 4 below to gate their MFE-only kill conditions.
+          // The "currently red" tiers (1, 2, 3) still fire as today since they
+          // already require pnlPct <= -0.8% / -1.5% / -2.0% — real damage, not
+          // "took too long".
+          // ──────────────────────────────────────────────────────────────
+          let _runnerProtectActive = false;
+          {
+            const _rpEnabled = String(
+              tickerData?._env?._deepAuditConfig?.deep_audit_runner_protect_healthy_enabled ?? "true"
+            ) === "true";
+            if (_rpEnabled) {
+              // Step 1: was the trade fragile at entry? (any adverse divergence)
+              const _entrySignals = openPosition?.entrySignals || openPosition?.entry_signals || null;
+              const _fragileAtEntry = _entrySignals && (
+                _entrySignals.has_adverse_rsi_div || _entrySignals.has_adverse_phase_div
+              );
+              // Step 2: is the trade currently threatened? (live TD9-bear active against us)
+              const _liveTd = tickerData?.td_sequential?.per_tf || {};
+              const _isLong = direction === "LONG";
+              const _adverseTd9Key = _isLong ? "td9_bear" : "td9_bull";
+              const _adversePrepKey = _isLong ? "bear_prep" : "bull_prep";
+              const _currentlyThreatened = (
+                !!(_liveTd.D || {})[_adverseTd9Key]
+                || !!(_liveTd["240"] || {})[_adverseTd9Key]
+                || !!(_liveTd["60"] || {})[_adverseTd9Key]
+                || ((_liveTd.D || {})[_adversePrepKey] || 0) >= 9
+              );
+              // Step 3: structure intact (same as existing _structIntactGracePassed below)
+              const _ds = tickerData?.daily_structure || {};
+              const _structAligned = _isLong ? _ds.bull_stack === true : _ds.bear_stack === true;
+              const _e21 = Number(_ds?.e21);
+              const _px = Number(tickerData?.price);
+              const _aboveE21 = (_isLong && _px > _e21) || (!_isLong && _px < _e21);
+              const _structIntact = _structAligned && _aboveE21;
+
+              // Active = trade was healthy at entry, still healthy, and structure good
+              _runnerProtectActive = !_fragileAtEntry && !_currentlyThreatened && _structIntact;
+
+              if (_runnerProtectActive) {
+                tickerData.__runner_protect_active = true;
+              }
+            }
+          }
+
+          // ──────────────────────────────────────────────────────────────
+          // V15 P0.7.26 (2026-04-30) — ADVERSE-DIV DEAD-MONEY CUT
+          //
+          // Trades that entered with adverse divergence (RSI or phase) AND
+          // failed to reach +1% MFE within first 4 hours are systematic
+          // losers. Counterfactual on v16-baseline-ctx (101 trades):
+          //   "any adverse div + MFE < 1.0% in first 4h" caught 19 trades,
+          //   ALL 19 were losses, total -42.39pp. Net Δ if exited at BE
+          //   (~0%) instead of letting them run: +42.39pp PnL (no winner
+          //   cost). WR jumps 67.3% → 82.9% on the surviving cohort.
+          //
+          // Why this is exit-side, not entry-side: removing the trade
+          // entirely would free a slot that fills with an alternative
+          // (cascade). Capping at BE preserves the slot allocation —
+          // no cascade risk. Same trade just exits earlier with smaller
+          // damage.
+          //
+          // Why MFE<1% over 4h is the cohort cutoff: F4 (BOTH RSI+phase
+          // div) trades that reached +2% MFE became wins (FIX +2.20%,
+          // LRCX +2.55%); those that didn't, all lost. Broader "any
+          // adverse div" cohort follows the same pattern at +1% MFE.
+          //
+          // Tunable via DA keys; default ON. tt_gap_reversal_long is
+          // exempt because gap-reversals can move slowly then explode.
+          //
+          // See: tasks/2026-04-29-cascade-lessons.md (Option 2 winner)
+          //      tasks/phase-c-validation-2026-04-29.md
+          // ──────────────────────────────────────────────────────────────
+          {
+            const _admEnabled = String(
+              tickerData?._env?._deepAuditConfig?.deep_audit_adv_div_dead_money_enabled ?? "true"
+            ) === "true";
+            const _admMinHrs = Number(
+              tickerData?._env?._deepAuditConfig?.deep_audit_adv_div_dead_money_min_hours ?? 4
+            );
+            const _admMaxHrs = Number(
+              tickerData?._env?._deepAuditConfig?.deep_audit_adv_div_dead_money_max_hours ?? 8
+            );
+            const _admMfeFloor = Number(
+              tickerData?._env?._deepAuditConfig?.deep_audit_adv_div_dead_money_mfe_floor_pct ?? 1.0
+            );
+            const _admExemptPaths = String(
+              tickerData?._env?._deepAuditConfig?.deep_audit_adv_div_dead_money_exempt_paths
+              ?? "tt_gap_reversal_long,tt_gap_reversal_short"
+            ).split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+            // Pull the entry-time signal flags stamped on the trade (P0.7.26)
+            const _admSignals = openPosition?.entrySignals || openPosition?.entry_signals || null;
+            const _admEntryPath = String(openPosition?.entryPath || openPosition?.entry_path || "").toLowerCase();
+            const _admEligible = _admEnabled
+              && _admSignals
+              && (_admSignals.has_adverse_rsi_div || _admSignals.has_adverse_phase_div)
+              && !_admExemptPaths.includes(_admEntryPath)
+              && !_isPrecisionETF
+              && !tickerData?.__v12_winner_protect_active
+              && _agH >= _admMinHrs && _agH < _admMaxHrs
+              && _mfeAbs < _admMfeFloor;
+            if (_admEligible) {
+              // Force-exit at break-even (or current price, whichever is closer
+              // to BE; the engine handles "exit at current price" via the exit
+              // lane — we just signal it).
+              tickerData.__exit_reason = "adv_div_dead_money_be_cut";
+              tickerData.__exit_family = "safety";
+              tickerData.__exit_meta = {
+                age_hrs: Math.round(_agH * 10) / 10,
+                mfe_pct: _mfeAbs,
+                pnl_pct: pnlPct,
+                f4: !!_admSignals.is_f4_severe,
+                adv_rsi: !!_admSignals.has_adverse_rsi_div,
+                adv_phase: !!_admSignals.has_adverse_phase_div,
+                adv_phase_tf: _admSignals.adverse_phase_strongest_tf,
+              };
+              console.log(`[ADV_DIV_BE_CUT] ${tickerData?.ticker} age=${_agH.toFixed(1)}h mfe=${_mfeAbs.toFixed(2)}% pnl=${pnlPct.toFixed(2)}% f4=${_admSignals.is_f4_severe} adv_rsi=${_admSignals.has_adverse_rsi_div} adv_phase=${_admSignals.has_adverse_phase_div}`);
+              return "exit";
+            }
+          }
+
           // Tier 0 (V12): immediate disaster — older than min_age_hours,
           // pnl already red past _p1MaxMaePct, zero MFE. Precision ETFs
           // skip this entirely (they get their own min_hold guard).
           // P3: if winner-protect is active this block never triggers
           // (pnl would be positive anyway in that state, but guarding).
-          if (!_isPrecisionETF && !tickerData?.__v12_winner_protect_active &&
+          // V15 P0.7.27 (2026-04-30): runner-protect-active also skips
+          // (healthy trade with no adverse div / TD threat / structure
+          // intact deserves more time to develop).
+          if (!_isPrecisionETF && !tickerData?.__v12_winner_protect_active && !_runnerProtectActive &&
               _agH >= _p1MinAgeHours && _agH < 8 && pnlPct <= -1.0 && _mfeAbs < 0.3 && _maeAbs >= _p1MaxMaePct) {
             tickerData.__exit_reason = "phase_i_mfe_fast_cut_zero_mfe";
             tickerData.__exit_family = "safety";
@@ -7394,6 +7543,13 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           // "structure intact" grace: if daily is still bull-stacked
           // AND price is above e21, extend grace to 48h. This lets
           // healthy setups breathe before we yank capital.
+          //
+          // V15 P0.7.27 (2026-04-30): if _runnerProtectActive (no adverse
+          // div at entry + no live TD9-bear + structure intact), SKIP this
+          // tier entirely. Per XHB Jul 1 forensic: trade had no adverse
+          // signals, structure was intact, but slow development triggered
+          // this cut at hour 24+. Cohort analysis showed 6 of 8 such cuts
+          // became wins anyway — this rule is killing healthy slow movers.
           {
             const _structIntactGracePassed = (() => {
               const _ds = tickerData?.daily_structure || {};
@@ -7407,7 +7563,9 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
               return _structAligned && _aboveE21;
             })();
             const _deadMoneyGraceH = _structIntactGracePassed ? 48 : 24;
-            if (_agH >= _deadMoneyGraceH && _agH < 72 && pnlPct < 0 && _mfeAbs < 1.5) {
+            // V15 P0.7.27: runner-protect-active fully skips this tier.
+            if (!_runnerProtectActive
+                && _agH >= _deadMoneyGraceH && _agH < 72 && pnlPct < 0 && _mfeAbs < 1.5) {
               tickerData.__exit_reason = "phase_i_mfe_dead_money_24h";
               tickerData.__exit_family = "safety";
               tickerData.__exit_meta = { age_h: _agH, struct_intact: _structIntactGracePassed };
@@ -12774,6 +12932,13 @@ function build3TierTPArray(tickerData, entryPrice, direction) {
       if (_curDist < _minDist) {
         pTrimEnforced = isLong ? entryPrice + _minDist : entryPrice - _minDist;
       }
+      // Note (V15 P0.7.28 reframed 2026-04-30): we deliberately KEEP standard
+      // TP1 distance for TD9_bear LTF trades. TP1 tightening showed -5pp PnL
+      // counterfactual cost (capped IBP/RBLX/ASTS/APLD wins). The TD9-fragile
+      // protection now ONLY fires post-trim via BE-lock-on-TRIM in the trim
+      // execution path (search "TD9_FRAGILE_TRIM_BE_LOCK" in this file).
+      // Net design: same trim distance as today, but if trim DOES hit, we
+      // immediately lock SL to entry — runner half is downside-protected.
 
       const result = [
         {
@@ -14332,6 +14497,11 @@ async function processTradeSimulation(
           maxAdverseExcursion: Number(openTrade.maxAdverseExcursion ?? openTrade.max_adverse_excursion ?? openTrade.maePct) || 0,
           trimmedPct: Number(openTrade.trimmedPct ?? openTrade.trimmed_pct) || 0,
           shares: Number(openTrade.shares ?? openTrade.qty) || 0,
+          // V15 P0.7.26 — propagate entry-time signal flags so exit-side
+          // modulators (adv-div dead-money cut etc.) can read them
+          entrySignals: openTrade.entrySignals || openTrade.entry_signals || null,
+          entryPath: openTrade.entryPath || openTrade.entry_path || null,
+          entry_path: openTrade.entry_path || openTrade.entryPath || null,
           __tradeRef: openTrade,
         };
       }
@@ -15292,8 +15462,43 @@ async function processTradeSimulation(
       // A partial trim realizes P&L but does not grant permission to ratchet the
       // stop. The remaining runner keeps the original invalidation until later
       // lifecycle logic proves fresh post-trim structure.
+      //
+      // V15 P0.7.28 (2026-04-30) — TD9 FRAGILE EXCEPTION:
+      // If trade entered with TD9_bear active on 30m/1h/4h (entrySignals.td9_bear_ltf_active),
+      // we DO move SL to break-even on TRIM TP hit. Per user direction:
+      // "treat TD9 type trades with caution and more aggressive take profits,
+      // rather than a tight SL, lets trim at the first sign of solid gains
+      // and update the stop loss to BE, that way we are protected either way."
+      // The trim already realized profit on first half; runner protected
+      // at BE = no further loss possible. If trade continues working,
+      // runner captures it. If it reverses, BE exit takes the runner.
       if (tgt >= THREE_TIER_CONFIG.TRIM.trimPct && oldTrim < THREE_TIER_CONFIG.TRIM.trimPct) {
-        console.log(`[3-TIER] ${sym} TRIM TP hit: partial trim only, original stop/invalidation unchanged`);
+        const _td9Fragile = !!(trade.entrySignals?.td9_bear_ltf_active
+                              || trade.entry_signals?.td9_bear_ltf_active);
+        const _td9FragileEnabled = String(
+          tickerData?._env?._deepAuditConfig?.deep_audit_td9_fragile_be_lock_enabled ?? "true"
+        ) === "true";
+        if (_td9Fragile && _td9FragileEnabled) {
+          const _td9Entry = Number(trade.entryPrice);
+          const _td9OldSl = Number(trade.sl);
+          if (Number.isFinite(_td9Entry) && _td9Entry > 0) {
+            // For LONG: SL moves UP to entry (only if not already tighter)
+            // For SHORT: SL moves DOWN to entry (only if not already tighter)
+            const _shouldLockBe = dir === "LONG"
+              ? _td9Entry > _td9OldSl || !Number.isFinite(_td9OldSl)
+              : _td9Entry < _td9OldSl || !Number.isFinite(_td9OldSl);
+            if (_shouldLockBe) {
+              trade.sl = _td9Entry;
+              slAdjusted = true;
+              slAdjustReason = "TD9_FRAGILE_TRIM_BE_LOCK";
+              console.log(`[3-TIER] ${sym} TRIM TP hit + TD9 fragile: SL locked to BE at $${_td9Entry.toFixed(2)} (was $${_td9OldSl.toFixed(2)})`);
+            } else {
+              console.log(`[3-TIER] ${sym} TRIM TP hit + TD9 fragile: SL already tighter than BE, keeping`);
+            }
+          }
+        } else {
+          console.log(`[3-TIER] ${sym} TRIM TP hit: partial trim only, original stop/invalidation unchanged`);
+        }
       }
 
       // Tier 2: EXIT TP hit (80%) -> Move SL to TRIM TP price
@@ -19366,6 +19571,56 @@ async function processTradeSimulation(
               gradeScore,
               estimated_peak_hours: tickerData?.__timeToTarget?.estimatedPeakHours || null,
               estimated_peak_bars: tickerData?.__timeToTarget?.estimatedPeakBars || null,
+              // V15 P0.7.26 (2026-04-30) — Capture entry-time signal state for
+              // exit-side modulation. Today's lesson: entry-side filters
+              // cascade (slot reshuffle); exit-side modulation does not
+              // because the same ticker stays in the same slot. We stamp
+              // divergence + TD + PDZ flags HERE so exit logic can read them
+              // without re-parsing rank_trace_json.
+              //
+              // Used by: dead-money fast-cut for adverse-divergence trades
+              // (see classifyKanbanStage / phase_i_adv_div_dead_money_cut).
+              entrySignals: (() => {
+                const _div = tickerData?.__entry_divergence_summary || {};
+                const _advRsi = Number((_div.adverse_rsi || {}).count) || 0;
+                const _advPhase = Number((_div.adverse_phase || {}).count) || 0;
+                const _advPhaseStrongTf = String(((_div.adverse_phase || {}).strongest || {}).tf || "").toLowerCase();
+                const _td = tickerData?.td_sequential?.per_tf || {};
+                const _isLong = direction === "LONG";
+                const _adverseTd9Key = _isLong ? "td9_bear" : "td9_bull";
+                const _adversePrepKey = _isLong ? "bear_prep" : "bull_prep";
+                // V15 P0.7.28 — TD9 LTF active flag (used by Fix A:
+                // tighter TP1 + BE-lock on trim for fragile-trade mode)
+                const _td9LtfActive = !!(_td["30"] || {})[_adverseTd9Key]
+                                       || !!(_td["60"] || {})[_adverseTd9Key]
+                                       || !!(_td["240"] || {})[_adverseTd9Key];
+                return {
+                  // Divergence summary at entry
+                  has_adverse_rsi_div: _advRsi >= 1,
+                  has_adverse_phase_div: _advPhase >= 1,
+                  is_f4_severe: _advRsi >= 1 && _advPhase >= 1,
+                  adverse_phase_strongest_tf: _advPhaseStrongTf || null,
+                  // TD at entry — useful for exit-side decisions
+                  daily_td9_adverse: !!(_td.D || {})[_adverseTd9Key],
+                  daily_adverse_prep: Number((_td.D || {})[_adversePrepKey]) || 0,
+                  fourh_adverse_prep: Number((_td["240"] || {})[_adversePrepKey]) || 0,
+                  // V15 P0.7.28 — TD9_bear (or _bull for SHORT) fired on
+                  // any LTF (30m/1h/4h). Trade enters but is treated as
+                  // FRAGILE: tighter TP1 + auto-BE on trim hit. See Fix A.
+                  td9_bear_ltf_active: _td9LtfActive,
+                  // PDZ at entry
+                  pdz_d: tickerData?.pdz_zone_D || null,
+                  pdz_4h: tickerData?.pdz_zone_4h || null,
+                  // Personality
+                  personality: String(
+                    tickerData?._ticker_profile?.learning?.personality
+                    || tickerData?.ticker_character?.learned_profile?.personality
+                    || tickerData?.ticker_character?.personality
+                    || tickerData?.execution_profile?.personality
+                    || ""
+                  ).toUpperCase() || null,
+                };
+              })(),
               sectorAtEntry: (() => {
                 const sa = getSectorAlignmentCached(sym);
                 return sa ? { sector: sa.sector, aligned: sa.aligned, direction: sa.direction, strength: sa.strength } : null;
@@ -19544,6 +19799,49 @@ async function processTradeSimulation(
                     // request: "Divergence recently or forming across TFs".
                     // adverse = divergence going against trade direction.
                     divergence: tickerData?.__entry_divergence_summary || null,
+                    // V15 P0.7.33 (2026-04-30) — capture VWAP per TF.
+                    // Per user request: distance to/from VWAP, reactions
+                    // at VWAP, anchored variants. Captured for retrospective
+                    // analysis to find VWAP-based edges in the canonical
+                    // Jul→Apr run.
+                    //   vwap        — cumulative VWAP from start of bar series
+                    //   rolling_20  — 20-bar rolling VWAP (intraday session approx)
+                    //   dist_pct    — (px - vwap) / vwap * 100, signed
+                    //   slope_5bar  — 5-bar % change of cumulative VWAP
+                    //   above       — boolean: price > VWAP
+                    //   touch_bars  — bars since price last crossed VWAP
+                    vwap: (() => {
+                      // TF labels in tickerData.tf_tech: "10","15","30","1H","4H","D","W"
+                      // We expose the canonical "10/30/60/240/D/W" naming on the
+                      // snapshot for downstream consistency with td_seq + rsi.
+                      const tfPairs = [
+                        ["10", "10"],
+                        ["30", "30"],
+                        ["60", "1H"],
+                        ["240", "4H"],
+                        ["D", "D"],
+                        ["W", "W"],
+                      ];
+                      const out = {};
+                      for (const [outKey, srcKey] of tfPairs) {
+                        const tfData = tickerData?.tf_tech?.[srcKey];
+                        if (!tfData) continue;
+                        const v = Number(tfData.vwap);
+                        if (!Number.isFinite(v) || v <= 0) continue;
+                        out[outKey] = {
+                          vwap: Math.round(v * 10000) / 10000,
+                          rolling_20: Number.isFinite(tfData.vwapRolling20)
+                            ? Math.round(tfData.vwapRolling20 * 10000) / 10000 : null,
+                          dist_pct: Number.isFinite(tfData.vwapDistPct)
+                            ? Math.round(tfData.vwapDistPct * 100) / 100 : null,
+                          slope_5bar: Number.isFinite(tfData.vwapSlope5bar)
+                            ? Math.round(tfData.vwapSlope5bar * 100) / 100 : null,
+                          above: tfData.vwapAbove === true ? true : (tfData.vwapAbove === false ? false : null),
+                          touch_bars: Number.isFinite(tfData.vwapTouchBars) ? tfData.vwapTouchBars : null,
+                        };
+                      }
+                      return Object.keys(out).length ? out : null;
+                    })(),
                     // 5. Event proximity (always stamped now,
                     //    not only when blocking entry)
                     upcoming_risk_event: tickerData?.__upcomingEntryEvent
@@ -25812,6 +26110,198 @@ async function d1EnsureBacktestRunsSchema(env) {
     _backtestRunsSchemaReady = true;
   } catch (e) {
     console.error("[BACKTEST RUNS] Schema migration failed:", String(e).slice(0, 200));
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// V15 P0.7.30 (2026-04-30) — Phase 2: ETF rebalance history + Core Ideas
+//
+// `etf_holdings.js` already auto-syncs GRNY/GRNJ/GRNI from grannyshots.com
+// and overwrites a single KV doc per ETF. That gives us "current" but no
+// historical record — backtests before today see today's holdings, not
+// the holdings that were live then.
+//
+// Two append-only D1 tables:
+//   etf_rebalance_history — one row per ETF per snapshot date
+//   etf_core_ideas — Top-5/Bottom-5 picks from monthly Fundstrat Direct
+//                    decks (different from broader ETF holdings)
+//
+// Lookup contracts (Phase 2 follow-up):
+//   getETFHoldingsAsOf(etf, date) → most recent rebalance with effective_date <= date
+//   getCoreIdeasAsOf(date) → Top/Bottom 5 active at date
+// ─────────────────────────────────────────────────────────────────────────
+let _etfHistorySchemaReady = false;
+async function d1EnsureEtfHistorySchema(env) {
+  if (_etfHistorySchemaReady) return;
+  const db = env?.DB;
+  if (!db) return;
+  try {
+    await db.batch([
+      db.prepare(`CREATE TABLE IF NOT EXISTS etf_rebalance_history (
+        etf_symbol TEXT NOT NULL,
+        snapshot_date TEXT NOT NULL,
+        captured_at INTEGER NOT NULL,
+        source_label TEXT,
+        source_url TEXT,
+        holdings_json TEXT NOT NULL,
+        ticker_count INTEGER DEFAULT 0,
+        diff_added_json TEXT,
+        diff_removed_json TEXT,
+        diff_reweighted_json TEXT,
+        is_rebalance INTEGER DEFAULT 0,
+        PRIMARY KEY (etf_symbol, snapshot_date)
+      )`),
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_etf_history_symbol_date ON etf_rebalance_history(etf_symbol, snapshot_date DESC)`),
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_etf_history_rebalance ON etf_rebalance_history(is_rebalance, snapshot_date DESC)`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS etf_core_ideas (
+        period_label TEXT NOT NULL,
+        period_date TEXT NOT NULL,
+        captured_at INTEGER NOT NULL,
+        source_label TEXT,
+        bucket TEXT NOT NULL,
+        ticker TEXT NOT NULL,
+        rank INTEGER NOT NULL,
+        notes TEXT,
+        PRIMARY KEY (period_label, bucket, ticker)
+      )`),
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_etf_core_ideas_date ON etf_core_ideas(period_date DESC)`),
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_etf_core_ideas_ticker ON etf_core_ideas(ticker, period_date DESC)`),
+    ]);
+    _etfHistorySchemaReady = true;
+  } catch (e) {
+    console.error("[ETF HISTORY] Schema migration failed:", String(e).slice(0, 200));
+  }
+}
+
+/**
+ * persistEtfHistorySnapshot(env, args)
+ * Append-only writer: one row per ETF per snapshot_date in
+ * etf_rebalance_history. INSERT OR REPLACE so multi-syncs same day
+ * just update the latest captured_at (idempotent).
+ */
+async function persistEtfHistorySnapshot(env, args = {}) {
+  const db = env?.DB;
+  if (!db) return;
+  await d1EnsureEtfHistorySchema(env);
+  const {
+    etf_symbol,
+    snapshot_date,
+    source_label,
+    source_url,
+    holdings,
+    count,
+    diff,
+  } = args || {};
+  if (!etf_symbol || !snapshot_date || !Array.isArray(holdings)) return;
+  const now = Date.now();
+  const isRebalance = !!(diff && diff.hasChanges);
+  try {
+    await db.prepare(
+      `INSERT OR REPLACE INTO etf_rebalance_history
+       (etf_symbol, snapshot_date, captured_at, source_label, source_url,
+        holdings_json, ticker_count, diff_added_json, diff_removed_json,
+        diff_reweighted_json, is_rebalance)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`
+    ).bind(
+      String(etf_symbol).toUpperCase(),
+      String(snapshot_date).slice(0, 10),
+      now,
+      source_label || null,
+      source_url || null,
+      JSON.stringify(holdings),
+      Number(count) || holdings.length,
+      diff && Array.isArray(diff.added) && diff.added.length ? JSON.stringify(diff.added) : null,
+      diff && Array.isArray(diff.removed) && diff.removed.length ? JSON.stringify(diff.removed) : null,
+      diff && Array.isArray(diff.reweighted) && diff.reweighted.length ? JSON.stringify(diff.reweighted) : null,
+      isRebalance ? 1 : 0,
+    ).run();
+  } catch (e) {
+    console.warn("[ETF HISTORY] persistEtfHistorySnapshot failed:", String(e).slice(0, 200));
+  }
+}
+
+/**
+ * getETFHoldingsAsOf(env, etfSymbol, dateStr)
+ * Returns the most recent rebalance snapshot with snapshot_date <= dateStr.
+ * @param {string} etfSymbol - 'GRNY' | 'GRNJ' | 'GRNI'
+ * @param {string} dateStr - ISO date 'YYYY-MM-DD' or epoch ms
+ * @returns {Promise<{snapshot_date, holdings: Array, ticker_count, source_label} | null>}
+ */
+async function getETFHoldingsAsOf(env, etfSymbol, dateStr) {
+  const db = env?.DB;
+  if (!db || !etfSymbol || !dateStr) return null;
+  try {
+    await d1EnsureEtfHistorySchema(env);
+    const date = typeof dateStr === "number"
+      ? new Date(dateStr).toISOString().slice(0, 10)
+      : String(dateStr).slice(0, 10);
+    const row = await db.prepare(
+      `SELECT etf_symbol, snapshot_date, captured_at, holdings_json, ticker_count, source_label, source_url, is_rebalance
+       FROM etf_rebalance_history
+       WHERE etf_symbol = ?1 AND snapshot_date <= ?2
+       ORDER BY snapshot_date DESC LIMIT 1`
+    ).bind(String(etfSymbol).toUpperCase(), date).first();
+    if (!row) return null;
+    let holdings = [];
+    try { holdings = JSON.parse(row.holdings_json || "[]"); } catch {}
+    return {
+      etf_symbol: row.etf_symbol,
+      snapshot_date: row.snapshot_date,
+      captured_at: row.captured_at,
+      holdings,
+      ticker_count: row.ticker_count,
+      source_label: row.source_label,
+      source_url: row.source_url,
+      is_rebalance: !!row.is_rebalance,
+    };
+  } catch (e) {
+    console.error("[ETF HISTORY] getETFHoldingsAsOf failed:", String(e).slice(0, 200));
+    return null;
+  }
+}
+
+/**
+ * getCoreIdeasAsOf(env, dateStr)
+ * Returns the Top/Bottom 5 Core Ideas active at the given date — most recent
+ * period_date with period_date <= dateStr.
+ * @returns {Promise<{period_label, period_date, large_cap_top: [], large_cap_bottom: [], smid_top: [], smid_bottom: []} | null>}
+ */
+async function getCoreIdeasAsOf(env, dateStr) {
+  const db = env?.DB;
+  if (!db || !dateStr) return null;
+  try {
+    await d1EnsureEtfHistorySchema(env);
+    const date = typeof dateStr === "number"
+      ? new Date(dateStr).toISOString().slice(0, 10)
+      : String(dateStr).slice(0, 10);
+    // Find latest period_date <= date
+    const periodRow = await db.prepare(
+      `SELECT period_label, period_date FROM etf_core_ideas
+       WHERE period_date <= ?1
+       ORDER BY period_date DESC LIMIT 1`
+    ).bind(date).first();
+    if (!periodRow) return null;
+    const { results: rows } = await db.prepare(
+      `SELECT bucket, ticker, rank, notes FROM etf_core_ideas
+       WHERE period_label = ?1
+       ORDER BY bucket, rank ASC`
+    ).bind(periodRow.period_label).all();
+    const out = {
+      period_label: periodRow.period_label,
+      period_date: periodRow.period_date,
+      large_cap_top: [],
+      large_cap_bottom: [],
+      smid_top: [],
+      smid_bottom: [],
+    };
+    for (const r of (rows || [])) {
+      const k = r.bucket;
+      if (out[k]) out[k].push({ ticker: r.ticker, rank: r.rank, notes: r.notes });
+    }
+    return out;
+  } catch (e) {
+    console.error("[ETF HISTORY] getCoreIdeasAsOf failed:", String(e).slice(0, 200));
+    return null;
   }
 }
 
@@ -32359,16 +32849,46 @@ function createTradeEntryEmbed(
   const _riskPct = Number(tickerData?.__riskBudget || tickerData?.riskBudget) || 0;
   const _shares = execution?.qty || Number(tickerData?.__shares) || 0;
   const _notional = execution?.value || (_shares > 0 && entryPrice > 0 ? _shares * entryPrice : 0);
+  // V15 P0.7.41 (2026-04-30) — User-friendly setup names per direction:
+  // "We need to clean up the Setup names, they look like TT Tt and they
+  // also mirror too much of Ripster language. ... update the UI to show
+  // names that are Timed Trading tone and style." Display-layer rename
+  // only; engine entry_path values are unchanged.
   const _SETUP_MAP = {
-    ema_regime_confirmed_long: "TT Confirmed Long", ema_regime_confirmed_short: "TT Confirmed Short",
-    ema_regime_early_long: "TT Early Long", ema_regime_early_short: "TT Early Short",
-    gold_long: "TT Breakout Long", gold_short: "TT Reversal Short", gold_short_pullback: "TT Reversal Short Pullback",
-    momentum_score: "TT Momentum", squeeze_setup: "TT Squeeze", elite: "TT Elite",
-    breakout: "TT Breakout", mean_revert_td9: "TT Mean Revert TD9",
-    ripster_momentum: "TT Momentum", ripster_pullback: "TT Pullback", ripster_reclaim: "TT Reclaim",
-    mean_reversion_pdz: "TT Mean Reversion",
+    // Setup names used in current engine (V16):
+    tt_pullback:                    "Pullback Reclaim",
+    tt_gap_reversal_long:           "Gap Reversal (Long)",
+    tt_gap_reversal_short:          "Gap Reversal (Short)",
+    tt_ath_breakout:                "ATH Breakout",
+    tt_n_test_support:              "Support Bounce",
+    tt_n_test_resistance:           "Resistance Fade",
+    tt_range_reversal_long:         "Range Reversal (Long)",
+    tt_range_reversal_short:        "Range Reversal (Short)",
+    tt_reclaim:                     "Reclaim Long",
+    tt_index_etf_swing:             "Index Swing",
+    momentum_score:                 "Momentum Push",
+    squeeze_setup:                  "Squeeze Release",
+    breakout:                       "Breakout",
+    mean_revert_td9:                "TD9 Mean Reversion",
+    mean_reversion_pdz:             "Discount Mean Reversion",
+    elite:                          "Elite Setup",
+    // Legacy V13/V14 entry paths (still surfaced in older trades):
+    ema_regime_confirmed_long:      "Confirmed Long",
+    ema_regime_confirmed_short:     "Confirmed Short",
+    ema_regime_early_long:          "Early Long",
+    ema_regime_early_short:         "Early Short",
+    gold_long:                      "Breakout Long",
+    gold_short:                     "Reversal Short",
+    gold_short_pullback:            "Reversal Short Pullback",
+    ripster_momentum:               "Momentum Push",
+    ripster_pullback:               "Pullback Reclaim",
+    ripster_reclaim:                "Reclaim Long",
+    ripster_short_pivot_reclaimed:  "Short Pivot Reclaim",
   };
-  const _fmtSetup = (n) => _SETUP_MAP[n] || (n ? "TT " + n.replace(/^ripster_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : "TT Setup");
+  const _fmtSetup = (n) => _SETUP_MAP[n]
+    || (n
+        ? n.replace(/^tt_/i, "").replace(/^ripster_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
+        : "Setup");
   if (_setupName || _setupGrade) {
     const riskLabel = _riskPct > 0 && _riskPct < 1 ? `${(_riskPct * 100).toFixed(2)}% risk` : (_riskPct >= 1 ? `$${_riskPct} risk` : "");
     summaryLines.push(`Setup:  **${_fmtSetup(_setupName)}** ${_setupGrade ? `(${_setupGrade})` : ""}${riskLabel ? `  |  **${riskLabel}**` : ""}`);
@@ -32379,19 +32899,41 @@ function createTradeEntryEmbed(
   fields.push({ name: "Trade Details", value: summaryLines.join("\n"), inline: false });
 
   // 2. Signal Quality — translated to plain English
+  // V15 P0.7.41 — also surface Conviction Score (focus-tier composite)
+  // when available, alongside the existing Rank ("Signal Strength").
   const qualParts = [];
-  if (Number.isFinite(rank) && rank > 0) qualParts.push(`Signal Strength: **${rank}**/100`);
+  if (Number.isFinite(rank) && rank > 0) qualParts.push(`Signal Strength (Rank): **${rank}**/100`);
+  const _conv = Number(tickerData?.__focus_conviction_score ?? tickerData?.focus_conviction_score) || 0;
+  const _convTier = String(tickerData?.__focus_tier || tickerData?.focus_tier || "").toUpperCase();
+  if (_conv > 0) {
+    qualParts.push(`Conviction: **${_conv.toFixed(0)}**${_convTier ? ` (${_convTier})` : ""}`);
+  }
   if (Number.isFinite(rr) && rr > 0) qualParts.push(`Risk/Reward: **${rr.toFixed(1)}:1**`);
   const sigs = [];
   if (tickerData?.flags?.momentum_elite) sigs.push("Strong Momentum");
   if (tickerData?.flags?.sq30_release) sigs.push("Squeeze Breakout");
   else if (tickerData?.flags?.sq30_on) sigs.push("Compression Building");
   if (tickerData?.td_sequential) {
-    if (tickerData.td_sequential.td9_bullish || tickerData.td_sequential.td9_bearish) sigs.push("Exhaustion Signal (TD9)");
-    if (tickerData.td_sequential.td13_bullish || tickerData.td_sequential.td13_bearish) sigs.push("Extended Exhaustion (TD13)");
+    if (tickerData.td_sequential.td9_bullish || tickerData.td_sequential.td9_bearish) sigs.push("TD9 Exhaustion Signal");
+    if (tickerData.td_sequential.td13_bullish || tickerData.td_sequential.td13_bearish) sigs.push("TD13 Extended Exhaustion");
   }
   if (tickerData?.flags?.st_flip_bull || tickerData?.flags?.st_flip_bear) sigs.push("Fresh SuperTrend Flip");
   if (tickerData?.flags?.rsi_div_bull || tickerData?.flags?.rsi_div_bear) sigs.push("RSI Divergence");
+  // V15 P0.7.41 — surface PDZ premium-stack as a positive signal (per forensic:
+  // 93% WR cohort)
+  const _pdzD = String(tickerData?.pdz_zone_D || "").toLowerCase();
+  const _pdz4h = String(tickerData?.pdz_zone_4h || "").toLowerCase();
+  if (_pdzD === "premium" && _pdz4h === "premium") sigs.push("Premium Zone Stack (HTF)");
+  // V15 P0.7.42 — VWAP context (only call out if meaningful)
+  // Discord readers are the trader; surface VWAP only when it's actively
+  // confirming or contradicting the setup direction.
+  const _v60 = tickerData?.tf_tech?.["1H"]?.vwap || tickerData?.tf_tech?.["60"]?.vwap;
+  const _v60dist = Number(tickerData?.tf_tech?.["1H"]?.vwapDistPct ?? tickerData?.tf_tech?.["60"]?.vwapDistPct);
+  const _v60above = tickerData?.tf_tech?.["1H"]?.vwapAbove ?? tickerData?.tf_tech?.["60"]?.vwapAbove;
+  if (Number.isFinite(_v60dist) && _v60) {
+    if (isLong && _v60above === true && _v60dist > 0.5) sigs.push(`Above 1H VWAP +${_v60dist.toFixed(1)}%`);
+    else if (!isLong && _v60above === false && _v60dist < -0.5) sigs.push(`Below 1H VWAP ${_v60dist.toFixed(1)}%`);
+  }
   if (sigs.length > 0) qualParts.push(`Signals: ${sigs.join(", ")}`);
   if (qualParts.length > 0) {
     fields.push({ name: "Signal Quality", value: qualParts.join("\n"), inline: false });
@@ -32480,18 +33022,27 @@ function createTradeTrimmedEmbed(
   }
   fields.push({ name: "Trim Status", value: statusLines.join("\n"), inline: false });
 
-  // 3. Setup context
+  // 3. Setup context — V15 P0.7.41 (2026-04-30) shared setup map
   const _trimSetup = trade?.setupName || trade?.setup_name || tickerData?.__setupName || null;
   const _trimGrade = trade?.setupGrade || trade?.setup_grade || tickerData?.__setupGrade || null;
   if (_trimSetup || _trimGrade) {
     const _SETUP_MAP = {
-      ema_regime_confirmed_long: "TT Confirmed Long", ema_regime_confirmed_short: "TT Confirmed Short",
-      ema_regime_early_long: "TT Early Long", ema_regime_early_short: "TT Early Short",
-      gold_long: "TT Breakout Long", gold_short: "TT Reversal Short",
-      momentum_score: "TT Momentum", ripster_momentum: "TT Momentum", ripster_pullback: "TT Pullback",
-      ripster_reclaim: "TT Reclaim", mean_reversion_pdz: "TT Mean Reversion",
+      tt_pullback: "Pullback Reclaim", tt_gap_reversal_long: "Gap Reversal (Long)",
+      tt_gap_reversal_short: "Gap Reversal (Short)", tt_ath_breakout: "ATH Breakout",
+      tt_n_test_support: "Support Bounce", tt_n_test_resistance: "Resistance Fade",
+      tt_range_reversal_long: "Range Reversal (Long)", tt_range_reversal_short: "Range Reversal (Short)",
+      tt_reclaim: "Reclaim Long", tt_index_etf_swing: "Index Swing",
+      momentum_score: "Momentum Push", squeeze_setup: "Squeeze Release", breakout: "Breakout",
+      mean_revert_td9: "TD9 Mean Reversion", mean_reversion_pdz: "Discount Mean Reversion",
+      elite: "Elite Setup",
+      ema_regime_confirmed_long: "Confirmed Long", ema_regime_confirmed_short: "Confirmed Short",
+      ema_regime_early_long: "Early Long", ema_regime_early_short: "Early Short",
+      gold_long: "Breakout Long", gold_short: "Reversal Short",
+      ripster_momentum: "Momentum Push", ripster_pullback: "Pullback Reclaim",
+      ripster_reclaim: "Reclaim Long",
     };
-    const fmtS = (n) => _SETUP_MAP[n] || (n ? "TT " + n.replace(/^ripster_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : null);
+    const fmtS = (n) => _SETUP_MAP[n]
+      || (n ? n.replace(/^tt_/i, "").replace(/^ripster_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : null);
     const parts = [];
     if (_trimSetup) parts.push(`Setup: **${fmtS(_trimSetup)}**`);
     if (_trimGrade) parts.push(`Grade: **${_trimGrade}**`);
@@ -32626,18 +33177,27 @@ function createTradeClosedEmbed(
     fields.push({ name: "Exit Reason", value: humanExitReason, inline: true });
   }
 
-  // 3. Setup context
+  // 3. Setup context — V15 P0.7.41 (2026-04-30) shared setup map
   const _exitSetup = trade?.setupName || trade?.setup_name || tickerData?.__setupName || null;
   const _exitGrade = trade?.setupGrade || trade?.setup_grade || tickerData?.__setupGrade || null;
   if (_exitSetup || _exitGrade) {
     const _SETUP_MAP = {
-      ema_regime_confirmed_long: "TT Confirmed Long", ema_regime_confirmed_short: "TT Confirmed Short",
-      ema_regime_early_long: "TT Early Long", ema_regime_early_short: "TT Early Short",
-      gold_long: "TT Breakout Long", gold_short: "TT Reversal Short",
-      momentum_score: "TT Momentum", ripster_momentum: "TT Momentum", ripster_pullback: "TT Pullback",
-      ripster_reclaim: "TT Reclaim", mean_reversion_pdz: "TT Mean Reversion",
+      tt_pullback: "Pullback Reclaim", tt_gap_reversal_long: "Gap Reversal (Long)",
+      tt_gap_reversal_short: "Gap Reversal (Short)", tt_ath_breakout: "ATH Breakout",
+      tt_n_test_support: "Support Bounce", tt_n_test_resistance: "Resistance Fade",
+      tt_range_reversal_long: "Range Reversal (Long)", tt_range_reversal_short: "Range Reversal (Short)",
+      tt_reclaim: "Reclaim Long", tt_index_etf_swing: "Index Swing",
+      momentum_score: "Momentum Push", squeeze_setup: "Squeeze Release", breakout: "Breakout",
+      mean_revert_td9: "TD9 Mean Reversion", mean_reversion_pdz: "Discount Mean Reversion",
+      elite: "Elite Setup",
+      ema_regime_confirmed_long: "Confirmed Long", ema_regime_confirmed_short: "Confirmed Short",
+      ema_regime_early_long: "Early Long", ema_regime_early_short: "Early Short",
+      gold_long: "Breakout Long", gold_short: "Reversal Short",
+      ripster_momentum: "Momentum Push", ripster_pullback: "Pullback Reclaim",
+      ripster_reclaim: "Reclaim Long",
     };
-    const fmtS = (n) => _SETUP_MAP[n] || (n ? "TT " + n.replace(/^ripster_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : null);
+    const fmtS = (n) => _SETUP_MAP[n]
+      || (n ? n.replace(/^tt_/i, "").replace(/^ripster_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : null);
     const parts = [];
     if (_exitSetup) parts.push(`Setup: **${fmtS(_exitSetup)}**`);
     if (_exitGrade) parts.push(`Grade: **${_exitGrade}**`);
@@ -56922,8 +57482,99 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const result = await syncAllETFHoldings(env, {
             notifyDiscord,
             addToUniverse: (env2, tickers, wMap) => etfAutoAddTickers(env2, tickers, wMap, ctx),
+            persistHistory: persistEtfHistorySnapshot,
           });
           return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/etf/history?etf=GRNY&date=2026-04-15&key=...
+      // Returns the ETF holdings snapshot active on the given date
+      // (most recent snapshot_date <= date). Used by backtests to pull
+      // historically-correct ETF membership.
+      if (routeKey === "GET /timed/etf/history") {
+        try {
+          const etf = String(url.searchParams.get("etf") || "").toUpperCase();
+          const date = url.searchParams.get("date") || new Date().toISOString().slice(0, 10);
+          const limit = Math.max(1, Math.min(50, Number(url.searchParams.get("limit") || "1")));
+          if (!etf) {
+            return sendJSON({ ok: false, error: "etf query param required (GRNY|GRNJ|GRNI)" }, 400, corsHeaders(env, req));
+          }
+          if (limit === 1) {
+            const snap = await getETFHoldingsAsOf(env, etf, date);
+            return sendJSON({ ok: true, snap }, 200, corsHeaders(env, req));
+          }
+          // Multiple history rows
+          await d1EnsureEtfHistorySchema(env);
+          const { results } = await env.DB.prepare(
+            `SELECT etf_symbol, snapshot_date, captured_at, ticker_count, source_label, source_url, is_rebalance
+             FROM etf_rebalance_history
+             WHERE etf_symbol = ?1 AND snapshot_date <= ?2
+             ORDER BY snapshot_date DESC LIMIT ?3`
+          ).bind(etf, date, limit).all();
+          return sendJSON({ ok: true, snapshots: results || [] }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/etf/core-ideas?date=2026-04-15&key=...
+      // Returns the Top/Bottom 5 Core Ideas (large_cap_top, large_cap_bottom,
+      // smid_top, smid_bottom) active on the given date.
+      if (routeKey === "GET /timed/etf/core-ideas") {
+        try {
+          const date = url.searchParams.get("date") || new Date().toISOString().slice(0, 10);
+          const ideas = await getCoreIdeasAsOf(env, date);
+          return sendJSON({ ok: true, ideas }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/etf/core-ideas (admin only)
+      // Body: { period_label: "apr-2026", period_date: "2026-04-23",
+      //   source_label: "Fundstrat Direct Apr 2026 Market Update",
+      //   large_cap_top: ["AMD","ANET","AVGO","BK","GS"],
+      //   large_cap_bottom: ["PKG","VST","GE","PPG","NOC"],
+      //   smid_top: ["IESC","STRL","FIX","CRS","LITE"],
+      //   smid_bottom: ["ARRY","ELF","GLXY","CARR","KTOS"]
+      // }
+      if (routeKey === "POST /timed/etf/core-ideas") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const body = await req.json().catch(() => ({}));
+          const periodLabel = String(body.period_label || "").trim();
+          const periodDate = String(body.period_date || "").slice(0, 10);
+          const sourceLabel = String(body.source_label || "").trim() || null;
+          if (!periodLabel || !periodDate) {
+            return sendJSON({ ok: false, error: "period_label and period_date required" }, 400, corsHeaders(env, req));
+          }
+          await d1EnsureEtfHistorySchema(env);
+          const now = Date.now();
+          const buckets = [
+            ["large_cap_top", body.large_cap_top],
+            ["large_cap_bottom", body.large_cap_bottom],
+            ["smid_top", body.smid_top],
+            ["smid_bottom", body.smid_bottom],
+          ];
+          let inserted = 0;
+          for (const [bucket, list] of buckets) {
+            if (!Array.isArray(list)) continue;
+            for (let i = 0; i < list.length; i++) {
+              const ticker = String(list[i] || "").toUpperCase().trim();
+              if (!ticker) continue;
+              await env.DB.prepare(
+                `INSERT OR REPLACE INTO etf_core_ideas
+                 (period_label, period_date, captured_at, source_label, bucket, ticker, rank, notes)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`
+              ).bind(periodLabel, periodDate, now, sourceLabel, bucket, ticker, i + 1, null).run();
+              inserted++;
+            }
+          }
+          return sendJSON({ ok: true, period_label: periodLabel, inserted }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
         }
@@ -62049,6 +62700,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             const result = await syncAllETFHoldings(env, {
               notifyDiscord,
               addToUniverse: (env2, tickers, wMap) => etfAutoAddTickers(env2, tickers, wMap, ctx),
+              persistHistory: persistEtfHistorySnapshot,
             });
             console.log(`[ETF SYNC CRON] ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)${result.autoAdded?.length ? `, auto-added: ${result.autoAdded.join(",")}` : ""}`);
           } catch (e) {

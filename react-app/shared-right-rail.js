@@ -67,20 +67,30 @@
       ema_cross: "EMA cross", supertrend: "SuperTrend", ema_structure: "EMA structure",
       ema_depth: "EMA depth", rsi: "RSI", ema5_48: "EMA 5/48", s1_slope: "Slope",
     };
+    /* V15 P0.7.42 (2026-04-30) — UI-only setup name cleanup
+     * Per user: "We need to clean up the Setup names, they look like TT Tt and they
+     * also mirror too much of Ripster language." Display-layer only;
+     * raw entry_path values are unchanged in the DB. */
     const SETUP_NAME_MAP = {
-      ema_regime_confirmed_long: "TT Confirmed Long", ema_regime_confirmed_short: "TT Confirmed Short",
-      ema_regime_early_long: "TT Early Long", ema_regime_early_short: "TT Early Short",
-      gold_long: "TT Breakout Long", gold_short: "TT Reversal Short", gold_short_pullback: "TT Reversal Short Pullback",
-      momentum_score: "TT Momentum", squeeze_setup: "TT Squeeze", elite: "TT Elite",
-      breakout: "TT Breakout", mean_revert_td9: "TT Mean Revert TD9",
-      ripster_momentum: "TT Momentum", ripster_pullback: "TT Pullback",
-      ripster_reclaim: "TT Reclaim", ripster_short_pivot_reclaimed: "TT Pivot Reclaimed",
-      mean_reversion_pdz: "TT Mean Reversion",
+      tt_pullback: "Pullback Reclaim", tt_gap_reversal_long: "Gap Reversal (Long)",
+      tt_gap_reversal_short: "Gap Reversal (Short)", tt_ath_breakout: "ATH Breakout",
+      tt_n_test_support: "Support Bounce", tt_n_test_resistance: "Resistance Fade",
+      tt_range_reversal_long: "Range Reversal (Long)", tt_range_reversal_short: "Range Reversal (Short)",
+      tt_reclaim: "Reclaim Long", tt_index_etf_swing: "Index Swing",
+      ema_regime_confirmed_long: "Confirmed Long", ema_regime_confirmed_short: "Confirmed Short",
+      ema_regime_early_long: "Early Long", ema_regime_early_short: "Early Short",
+      gold_long: "Breakout Long", gold_short: "Reversal Short", gold_short_pullback: "Reversal Pullback",
+      momentum_score: "Momentum Push", squeeze_setup: "Squeeze Release",
+      elite: "Elite Setup", breakout: "Breakout",
+      mean_revert_td9: "TD9 Mean Reversion", mean_reversion_pdz: "Discount Mean Reversion",
+      ripster_momentum: "Momentum Push", ripster_pullback: "Pullback Reclaim",
+      ripster_reclaim: "Reclaim Long", ripster_short_pivot_reclaimed: "Short Pivot Reclaim",
     };
     function _formatPath(path) {
       if (!path || typeof path !== "string") return null;
       if (SETUP_NAME_MAP[path]) return SETUP_NAME_MAP[path];
-      return "TT " + path.replace(/^ripster_?/i, "").replace(/^saty_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+      return path.replace(/^tt_/i, "").replace(/^ripster_?/i, "").replace(/^saty_?/i, "")
+                 .replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
     }
     function _parseSnapshot(snap) {
       if (!snap) return null;
@@ -2840,20 +2850,32 @@
                           const currentMove = dir === "LONG" ? price - slVal : slVal - price;
                           return Math.max(0, Math.min(1, currentMove / totalMove));
                         };
+                        // V15 P0.7.37 (2026-04-30): user-friendly tier labels.
+                        // Was: "Take Profit 1 (Trim 60%)", "Take Profit 2 (Exit 85%)", "Take Profit 3 (Runner)".
+                        // Now: "First Target — Lock in 60% gains", "Main Target — Lock in 85%", "Stretch Target — Let runners run".
+                        // Tooltip on each card explains exact mechanics for power users.
                         const tierCards = [
-                          { tp: tpTrim, rr: rrTrim, label: "Take Profit 1", sub: "Trim 60%", icon: "🎯", bg: "bg-yellow-500/10", border: "border-yellow-500/30", text: "text-yellow-400" },
-                          { tp: tpExit, rr: rrExit, label: "Take Profit 2", sub: "Exit 85%", icon: "💰", bg: "bg-orange-500/10", border: "border-orange-500/30", text: "text-orange-400" },
-                          { tp: tpRunner, rr: rrRunner, label: "Take Profit 3", sub: "Runner", icon: "🚀", bg: "bg-teal-500/10", border: "border-teal-500/30", text: "text-teal-400" },
+                          { tp: tpTrim,   rr: rrTrim,   label: "First Target",   sub: "Lock in early gains",  tip: "Trim 60% of the position to capture initial profit and reduce risk on the rest.", icon: "🎯", bg: "bg-yellow-500/10", border: "border-yellow-500/30", text: "text-yellow-400" },
+                          { tp: tpExit,   rr: rrExit,   label: "Main Target",    sub: "Lock in main profit",  tip: "Trim down to 15% remaining — capture the bulk of the win and let a small runner ride.", icon: "💰", bg: "bg-orange-500/10", border: "border-orange-500/30", text: "text-orange-400" },
+                          { tp: tpRunner, rr: rrRunner, label: "Stretch Target", sub: "Let runners run",      tip: "Final exit on remaining 15% — captures extended moves when the trade keeps working.", icon: "🚀", bg: "bg-teal-500/10",   border: "border-teal-500/30",   text: "text-teal-400" },
                         ];
                         return (
                           <div className="mb-4 space-y-2">
-                            <div className="text-[10px] text-[#6b7280] font-semibold uppercase tracking-wider">Risk / Reward Levels</div>
+                            <div className="text-[10px] text-[#6b7280] font-semibold uppercase tracking-wider"
+                              title="Where the system would exit if right (Take Profit) or wrong (Stop Loss). Distances and R:R show how much room each side has.">
+                              Risk / Reward Levels
+                            </div>
                             {hasSl && (
                               <div className="space-y-1.5">
                                 {/* Original SL — always shown when SL exists */}
                                 {(() => { const slFromKijun = Number.isFinite(kijunSL) && kijunSL > 0 && slRaw === kijunSL; return (
-                                <div className={`p-2.5 rounded border flex items-center justify-between ${tslActive ? "bg-white/[0.02] border-white/[0.08]" : "bg-red-500/10 border-red-500/30"}`} title={slFromKijun ? "Kijun-Sen (Ichimoku Cloud) reference" : undefined}>
-                                  <span className={`text-xs font-semibold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`}>Stop Loss{slFromKijun ? " (Kijun)" : ""}</span>
+                                <div className={`p-2.5 rounded border flex items-center justify-between ${tslActive ? "bg-white/[0.02] border-white/[0.08]" : "bg-red-500/10 border-red-500/30"}`}
+                                  title={slFromKijun
+                                    ? "Stop Loss anchored at Kijun-Sen — a key swing-low support level. If price breaks this, the trade thesis is invalidated."
+                                    : "Stop Loss — exit price if the trade goes wrong. The distance from entry to here is your risk per share."}>
+                                  <span className={`text-xs font-semibold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`}>
+                                    Stop Loss{slFromKijun ? " (Kijun)" : ""}
+                                  </span>
                                   <div className="flex items-center gap-2">
                                     <span className={`text-xs font-bold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`}>{tslActive && slOrig ? `$${slOrig.toFixed(2)}` : `$${sl.toFixed(2)}`}</span>
                                     {!tslActive && Number.isFinite(slDistPct) && <span className="text-[9px] text-red-300/70">{slDistPct.toFixed(1)}%</span>}
@@ -2864,8 +2886,9 @@
                                 ); })()}
                                 {/* TSL — only shown when stop has been trailed */}
                                 {tslActive && (
-                                  <div className="p-2.5 rounded border bg-red-500/10 border-red-500/30 flex items-center justify-between">
-                                    <span className="text-xs font-semibold text-red-400" title="Trailing Stop Loss">TSL</span>
+                                  <div className="p-2.5 rounded border bg-red-500/10 border-red-500/30 flex items-center justify-between"
+                                    title="Trailing Stop — moves up with price to lock in profit. Original Stop Loss is shown above (in gray) for reference.">
+                                    <span className="text-xs font-semibold text-red-400">Trailing Stop</span>
                                     <span className="text-xs font-bold text-red-400">${sl.toFixed(2)}</span>
                                     {Number.isFinite(slDistPct) && <span className="text-[9px] text-red-300/70">{slDistPct.toFixed(1)}% risk</span>}
                                   </div>
@@ -2877,12 +2900,12 @@
                                 tierCards.filter(t => Number.isFinite(t.tp) && t.tp > 0).map((tier, idx) => {
                                   const progress = getProgressToTp(tier.tp);
                                   return (
-                                    <div key={idx} className={`p-2.5 rounded border ${tier.bg} ${tier.border}`}>
+                                    <div key={idx} className={`p-2.5 rounded border ${tier.bg} ${tier.border}`} title={tier.tip}>
                                       <div className="flex justify-between items-center mb-1.5">
                                         <div className="flex items-center gap-2">
                                           <span className="text-sm">{tier.icon}</span>
                                           <span className={`text-xs font-semibold ${tier.text}`}>{tier.label}</span>
-                                          <span className="text-[10px] text-[#6b7280]">({tier.sub})</span>
+                                          <span className="text-[10px] text-[#6b7280]">{tier.sub}</span>
                                         </div>
                                         <div className="flex items-center gap-2">
                                           <span className={`text-xs font-bold ${tier.text}`}>${tier.tp.toFixed(2)}</span>
@@ -3504,7 +3527,10 @@
                         {/* Rank */}
                         {rankTotal > 0 && (
                           <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
-                            <span className="text-[#6b7280]">Rank</span>
+                            <span className="text-[#6b7280]"
+                              title="Rank: where this ticker stands among all tracked names today. Lower number = stronger setup. Updates after each scoring cycle.">
+                              Rank
+                            </span>
                             <span className="font-semibold">
                               {rankPosition > 0
                                 ? `#${rankPosition} of ${rankTotal}`
@@ -3520,13 +3546,50 @@
 
                         {/* Score */}
                         <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
-                          <span className="text-[#6b7280]">Score</span>
+                          <span className="text-[#6b7280]" title="Dynamic Score: blends rank with active flags (multi-TF alignment, regime, RVol). Range 0-100.">Score</span>
                           <span className="font-semibold text-blue-400 text-lg">
                             {Number.isFinite(displayScore)
                               ? displayScore.toFixed(1)
                               : "—"}
                           </span>
                         </div>
+
+                        {/* Conviction — focus tier composite (0-160 typical) */}
+                        {(() => {
+                          const conv = Number(
+                            ticker?.focus_conviction_score
+                            ?? ticker?.__focus_conviction_score
+                            ?? ticker?.conviction_score
+                            ?? ticker?.conviction
+                          );
+                          if (!Number.isFinite(conv) || conv <= 0) return null;
+                          const tier = String(
+                            ticker?.focus_tier
+                            ?? ticker?.__focus_tier
+                            ?? ""
+                          ).toUpperCase();
+                          // Convert to color band: <60 amber, 60-90 sky, 90-110 emerald, 110+ violet
+                          const color =
+                            conv >= 110 ? "text-violet-400" :
+                            conv >= 90  ? "text-emerald-400" :
+                            conv >= 60  ? "text-sky-400" :
+                                          "text-amber-400";
+                          return (
+                            <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                              <span className="text-[#6b7280]" title="Conviction Score: focus-tier composite from liquidity, volatility, trend, sector, history, and Saty ATR proximity. Higher = more reasons to act now.">
+                                Conviction
+                                {tier && (
+                                  <span className="ml-1.5 text-[9px] font-bold uppercase tracking-wide text-[#9ca3af]">
+                                    {tier}
+                                  </span>
+                                )}
+                              </span>
+                              <span className={`font-semibold ${color} text-lg`}>
+                                {conv.toFixed(0)}
+                              </span>
+                            </div>
+                          );
+                        })()}
 
                         {/* Dead code — Model Score removed */}
                         {false && (() => {

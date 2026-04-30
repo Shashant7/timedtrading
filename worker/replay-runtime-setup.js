@@ -210,6 +210,51 @@ export const REPLAY_DA_KEYS = [
   // V15 P0.7.24 (2026-04-29): FIX 12 V4 — F2 disable + F4 severe divergence
   "deep_audit_quality_block_f2_enabled",
   "deep_audit_quality_block_f4_enabled",
+  // ─────────────────────────────────────────────────────────────────────
+  // Phase C (2026-04-29): rank-all-take-top-N entry selection
+  // See: tasks/phase-c-rank-all-take-top-n-design.md
+  // ─────────────────────────────────────────────────────────────────────
+  "deep_audit_phase_c_enabled",
+  "deep_audit_phase_c_w_rank",
+  "deep_audit_phase_c_w_conviction",
+  "deep_audit_phase_c_w_divergence",
+  "deep_audit_phase_c_w_pdz",
+  "deep_audit_phase_c_w_td",
+  "deep_audit_phase_c_w_personality",
+  "deep_audit_phase_c_w_rr",
+  "deep_audit_phase_c_fill_factor",
+  "deep_audit_phase_c_hard_cap_per_bar",
+  "deep_audit_phase_c_hard_cap_per_cycle",
+  "deep_audit_phase_c_quality_score_min",
+  // ─────────────────────────────────────────────────────────────────────
+  // V15 P0.7.26 (2026-04-30) — adverse-divergence dead-money cut
+  // Trades entered with adverse RSI or phase divergence + MFE never
+  // reaches threshold by max_hours → force-exit at break-even.
+  // Exit-side; no cascade risk. Counterfactual: 19 trades, all losses,
+  // saves +42pp PnL, WR 67.3% → 82.9%.
+  // ─────────────────────────────────────────────────────────────────────
+  "deep_audit_adv_div_dead_money_enabled",
+  "deep_audit_adv_div_dead_money_min_hours",
+  "deep_audit_adv_div_dead_money_max_hours",
+  "deep_audit_adv_div_dead_money_mfe_floor_pct",
+  "deep_audit_adv_div_dead_money_exempt_paths",
+  // V15 P0.7.27 (2026-04-30) — runner protection for healthy trades
+  // Skip Tier 0 + Tier 4 dead-money cuts when no adverse div at entry,
+  // no live TD9-bear threat, structure intact. Per XHB observation +
+  // cohort analysis (6/8 such cuts became wins anyway).
+  "deep_audit_runner_protect_healthy_enabled",
+  // V15 P0.7.28 (2026-04-30) — TD9_bear LTF FRAGILE-TRADE management
+  // When TD9_bear (or _bull for SHORT) has fired on 30m/1h/4h at entry,
+  // treat the trade as fragile: tighten TP1 distance + auto-BE-lock SL
+  // on TRIM TP hit. Per user direction (Apr 30 forensic on INTC/CLS/AYI
+  // /AVGO Jul 17): rather than blocking these structurally-warned entries,
+  // let them in but capture profit fast and protect aggressively.
+  "deep_audit_td9_fragile_be_lock_enabled",
+  "deep_audit_td9_fragile_tp1_tighten_enabled",
+  "deep_audit_td9_fragile_min_trim_atr_mult",
+  "deep_audit_td9_fragile_min_trim_pct",
+  "deep_audit_td9_fragile_max_trim_atr_mult",
+  "deep_audit_td9_fragile_max_trim_pct",
   // V13 Focus Tier (2026-04-24): intrinsic conviction score — see
   // tasks/v13-focus-tier-strategy-2026-04-24.md
   "deep_audit_focus_tier_enabled",

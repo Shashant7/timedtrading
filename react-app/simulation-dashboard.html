@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <title>Timed Trading - Trade Tracker</title>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none'%3E%3Cdefs%3E%3ClinearGradient id='r' x1='6' y1='42' x2='42' y2='6'%3E%3Cstop offset='0%25' stop-color='%2334d399'/%3E%3Cstop offset='100%25' stop-color='%2367e8f9'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='48' height='48' rx='11' fill='%23000'/%3E%3Ccircle cx='24' cy='24' r='17' stroke='url(%23r)' stroke-width='3' fill='none'/%3E%3Cline x1='24' y1='24' x2='19' y2='18.5' stroke='%23636366' stroke-width='4' stroke-linecap='round'/%3E%3Cline x1='24' y1='24' x2='29.5' y2='16.5' stroke='%2330d158' stroke-width='4.5' stroke-linecap='round'/%3E%3Ccircle cx='24' cy='24' r='3.5' fill='%2330d158'/%3E%3Ccircle cx='24' cy='24' r='1.5' fill='%23000'/%3E%3C/svg%3E" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2048%2048%27%20fill%3D%27none%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27r%27%20x1%3D%276%27%20y1%3D%2742%27%20x2%3D%2742%27%20y2%3D%276%27%3E%3Cstop%20offset%3D%270%25%27%20stop-color%3D%27%2334d399%27%2F%3E%3Cstop%20offset%3D%27100%25%27%20stop-color%3D%27%2367e8f9%27%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20width%3D%2748%27%20height%3D%2748%27%20rx%3D%2711%27%20fill%3D%27%23000%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%2717%27%20stroke%3D%27url%28%23r%29%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%277.5%27%20x2%3D%2724%27%20y2%3D%2710.5%27%20stroke%3D%27%2334d399%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20opacity%3D%270.5%27%2F%3E%3Cline%20x1%3D%277.5%27%20y1%3D%2724%27%20x2%3D%2710.5%27%20y2%3D%2724%27%20stroke%3D%27%2334d399%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20opacity%3D%270.5%27%2F%3E%3Cline%20x1%3D%2719%27%20y1%3D%2718.5%27%20x2%3D%2716%27%20y2%3D%2715.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2719%27%20y2%3D%2718.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%273.5%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2729.5%27%20y1%3D%2716.5%27%20x2%3D%2732%27%20y2%3D%2712.9%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2729.5%27%20y2%3D%2716.5%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%274%27%20stroke-linecap%3D%27round%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%273.2%27%20fill%3D%27%2330d158%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%271.3%27%20fill%3D%27%23000%27%2F%3E%3C%2Fsvg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -129,6 +129,10 @@
     <script src="shared-price-utils.js?v=20260211a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-right-rail.compiled.js?v=20260318e"></script>
+    <!-- V15 P0.7.36 (2026-04-30): Trades Performance overview component
+         (Monthly perf table, setup breakdown, P&L calendar heatmap).
+         Self-contained factory at react-app/trades-performance.js. -->
+    <script src="trades-performance.js?v=20260430a"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, memo, useRef, createElement } = React;
       const html = (function () {
@@ -5966,6 +5970,50 @@
       }
 
       // ─────────────────────────────────────────────────────────────
+      // PerformanceOverviewSection — V15 P0.7.36 (2026-04-30)
+      //
+      // Wraps the standalone trades-performance.js factory component with:
+      //  - Section heading
+      //  - Memoized factory call (only constructs once per mount)
+      //  - Graceful fallback if the script failed to load
+      //
+      // The component itself renders:
+      //  - Top-line summary stripe (Closed/WR/PnL%/PnL$)
+      //  - Monthly Performance Table (per month: WR, PnL, best, worst)
+      //  - Setup Breakdown (rolled-up per-setup performance)
+      //  - P&L Calendar heatmap (90-day GitHub-style grid)
+      // ─────────────────────────────────────────────────────────────
+      function PerformanceOverviewSection({ trades, loading }) {
+        const TradesPerformance = useMemo(() => {
+          const factory = (typeof window !== "undefined") && window.TradesPerformanceFactory;
+          if (!factory) return null;
+          try {
+            return factory({ React, API_BASE });
+          } catch (e) {
+            console.warn("[PerformanceOverview] factory failed:", e);
+            return null;
+          }
+        }, []);
+
+        if (!TradesPerformance) {
+          return null; // Gracefully hide if script didn't load — dashboard remains functional
+        }
+
+        return (
+          <div className="mb-6 p-5 rounded-xl"
+            style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+              <h2 className="text-[15px] font-semibold text-white">Performance Overview</h2>
+              <span className="text-[10px] uppercase tracking-wider text-[#6b7280]">
+                Closed trades · 90-day calendar
+              </span>
+            </div>
+            <TradesPerformance trades={trades} loading={loading} />
+          </div>
+        );
+      }
+
+      // ─────────────────────────────────────────────────────────────
       // PortfolioColumn — unified column for Active Trader OR Investor
       // Renders: Equity Curve -> Metrics -> Open Positions -> Trade History
       // ─────────────────────────────────────────────────────────────
@@ -7861,8 +7909,17 @@
                   </div>
                 )}
 
+                {/* ═══ Performance Overview — Monthly + Setup Breakdown + P&L Calendar ═══ */}
+                {/* V15 P0.7.36 (2026-04-30): self-contained component loaded via window.TradesPerformanceFactory */}
+                <div className={`${selectedTicker || selectedTrade ? "mr-[470px] xl:mr-[580px]" : ""}`}>
+                  <PerformanceOverviewSection
+                    trades={ledgerFilteredTrades || []}
+                    loading={(ledgerTrades ?? {}).loading}
+                  />
+                </div>
+
                 {/* ═══ Dual-Column Layout: Active Trader | Investor ═══ */}
-                <div className={`${selectedTicker || selectedTrade ? "mr-[470px]" : ""}`}>
+                <div className={`${selectedTicker || selectedTrade ? "mr-[470px] xl:mr-[580px]" : ""}`}>
 
                   {/* Mobile: Tab toggle (hidden on lg+) */}
                   <div className="flex items-center gap-1 mb-4 border-b border-[var(--tt-border)] lg:hidden">
@@ -7945,9 +8002,12 @@
                   </div>
                 </div>
 
-                  {/* Right rail — same component and look as Dashboard */}
+                  {/* Right rail — same component and look as Dashboard
+                       V15 P0.7.37: wider on xl+ screens (560px) for better readability;
+                       desktop-only (lg:) keeps 450px; mobile is full-width via the
+                       investor-dashboard pattern. */}
                   {(selectedTicker || selectedTrade) && !modalOnly && (
-                    <div className="fixed right-0 top-[49px] w-[450px] bottom-0 z-40 slide-in-right shadow-2xl overflow-y-auto bg-[#0b0e11] border-l border-white/[0.04]">
+                    <div className="fixed right-0 top-[49px] w-[450px] xl:w-[560px] bottom-0 z-40 slide-in-right shadow-2xl overflow-y-auto bg-[#0b0e11] border-l border-white/[0.04]">
                       <TickerDetailsLoader
                         tickerSymbol={selectedTrade ? selectedTrade.ticker : selectedTicker}
                         trade={selectedTrade}
@@ -7988,8 +8048,26 @@
                     const notional = Number(t.notional) || (shares > 0 && entryPx > 0 ? shares * entryPx : 0);
                     const dur = (Number(t.exit_ts) || 0) - (Number(t.entry_ts) || 0);
                     const durLabel = (() => { if (dur <= 0) return null; const m=Math.round(dur/60000); const h=Math.floor(m/60); const d=Math.floor(h/24); return d>0?`${d}d ${h%24}h`:h>0?`${h}h ${m%60}m`:`${m}m`; })();
-                    const SETUP_MAP = { ema_regime_confirmed_long:"TT Confirmed Long", ema_regime_confirmed_short:"TT Confirmed Short", ema_regime_early_long:"TT Early Long", ema_regime_early_short:"TT Early Short", gold_long:"TT Breakout Long", gold_short:"TT Reversal Short", gold_short_pullback:"TT Reversal Short Pullback", momentum_score:"TT Momentum", squeeze_setup:"TT Squeeze", elite:"TT Elite", breakout:"TT Breakout", mean_revert_td9:"TT Mean Revert TD9", ripster_momentum:"TT Momentum", ripster_pullback:"TT Pullback", ripster_reclaim:"TT Reclaim", ripster_short_pivot_reclaimed:"TT Pivot Reclaimed", mean_reversion_pdz:"TT Mean Reversion" };
-                    const fmtPath = (p) => SETUP_MAP[p] || ("TT " + p.replace(/^ripster_?/i,"").replace(/^saty_?/i,"").replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase()));
+                    /* V15 P0.7.42 (2026-04-30) — UI-only setup name cleanup
+                     * Per user: "We need to clean up the Setup names, they look like TT Tt and they
+                     * also mirror too much of Ripster language." Display-layer only;
+                     * raw entry_path values are unchanged in the DB. */
+                    const SETUP_MAP = {
+                      tt_pullback: "Pullback Reclaim", tt_gap_reversal_long: "Gap Reversal (Long)",
+                      tt_gap_reversal_short: "Gap Reversal (Short)", tt_ath_breakout: "ATH Breakout",
+                      tt_n_test_support: "Support Bounce", tt_n_test_resistance: "Resistance Fade",
+                      tt_range_reversal_long: "Range Reversal (Long)", tt_range_reversal_short: "Range Reversal (Short)",
+                      tt_reclaim: "Reclaim Long", tt_index_etf_swing: "Index Swing",
+                      ema_regime_confirmed_long: "Confirmed Long", ema_regime_confirmed_short: "Confirmed Short",
+                      ema_regime_early_long: "Early Long", ema_regime_early_short: "Early Short",
+                      gold_long: "Breakout Long", gold_short: "Reversal Short", gold_short_pullback: "Reversal Pullback",
+                      momentum_score: "Momentum Push", squeeze_setup: "Squeeze Release",
+                      elite: "Elite Setup", breakout: "Breakout",
+                      mean_revert_td9: "TD9 Mean Reversion", mean_reversion_pdz: "Discount Mean Reversion",
+                      ripster_momentum: "Momentum Push", ripster_pullback: "Pullback Reclaim",
+                      ripster_reclaim: "Reclaim Long", ripster_short_pivot_reclaimed: "Short Pivot Reclaim",
+                    };
+                    const fmtPath = (p) => SETUP_MAP[p] || (p ? p.replace(/^tt_/i,"").replace(/^ripster_?/i,"").replace(/^saty_?/i,"").replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase()) : "Setup");
                     const EXIT_MAP = { sl_breached:"Price moved against us and hit our safety exit.", SL:"Price moved against us and hit our safety exit.", max_loss:"Position reached our maximum acceptable loss — exited to protect capital.", HARD_FUSE_RSI_EXTREME:"Momentum indicators hit extreme levels — high chance of reversal, exiting now.", SOFT_FUSE_RSI_CONFIRMED:"Multiple signals confirmed momentum is reversing — exiting to protect gains.", RUNNER_PEAK_TRAIL:"Letting the winner run paid off — trailed up and exited after pullback from peak.", RUNNER_MAX_DRAWDOWN_BREAKER:"The remaining position pulled back too far from its high — closed to protect gains.", HARD_LOSS_CAP:"Hard safety limit hit — exited to prevent further damage.", MFE_SAFETY_TRIM:"Locked in profits while the trade was ahead — taking money off the table.", PHASE_LEAVE_100:"Momentum peaked and is starting to fade — securing gains before reversal.", STALL_BREAKEVEN:"Position stalled with no momentum — closed near breakeven.", STALL_FORCE_CLOSE:"Position went nowhere for too long — closed to free up capital for better setups.", SMART_RUNNER_TD_EXHAUSTION_RUNNER:"Trend exhaustion detected — exiting remaining shares before likely reversal.", SMART_RUNNER_SUPPORT_BREAK_CLOUD:"Key support level broke down — exiting to avoid further downside.", SMART_RUNNER_SQUEEZE_RELEASE_AGAINST:"Volatility squeeze fired against our direction — exiting before the move accelerates.", TP_FULL:"All profit targets hit — full exit with gains locked in." };
                     return html`<${TradeReviewModal} trade=${t} closeModal=${closeModal} _fmt=${_fmt} entryPx=${entryPx} exitPx=${exitPx} pnl=${pnl} shares=${shares} trimPct=${trimPct} trimmed=${trimmed} remaining=${remaining} exitReason=${exitReason} entryPath=${entryPath} setupGrade=${setupGrade} rank=${rank} riskBudget=${riskBudget} notional=${notional} durLabel=${durLabel} fmtPath=${fmtPath} EXIT_MAP=${EXIT_MAP} />`;
                   })()}

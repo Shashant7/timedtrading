@@ -282,7 +282,7 @@ export async function syncAllETFHoldings(env, opts = {}) {
       rebalanceEmbeds.push(buildRebalanceEmbed(symbol, diff));
     }
 
-    // Store full holdings
+    // Store full holdings (latest cache — overwrite each sync)
     await kvPutJSON(KV, `${KV_PREFIX_HOLDINGS}${symbol}`, {
       symbol,
       name: ETF_SOURCES[symbol].name,
@@ -290,6 +290,25 @@ export async function syncAllETFHoldings(env, opts = {}) {
       count: result.count,
       syncedAt: Date.now(),
     });
+
+    // V15 P0.7.30 — append-only D1 history row.
+    // We snapshot once per UTC day to avoid clutter; if a row already exists
+    // for today, we update it (catches multi-syncs in same day).
+    if (typeof opts.persistHistory === "function") {
+      try {
+        await opts.persistHistory(env, {
+          etf_symbol: symbol,
+          snapshot_date: new Date().toISOString().slice(0, 10),
+          source_label: "grannyshots.com",
+          source_url: ETF_SOURCES[symbol].url,
+          holdings: result.holdings,
+          count: result.count,
+          diff,
+        });
+      } catch (e) {
+        console.warn(`[ETF SYNC] history write failed for ${symbol}:`, String(e).slice(0, 200));
+      }
+    }
 
     // Build groups and weight map
     allGroups[symbol] = result.holdings.map(h => h.ticker);

@@ -2,7 +2,33 @@
 
 > **Plan:** Start with `tasks/PLAN.md`, then use `tasks/jul-apr-recovery-and-promotion-plan-2026-04-08.md` as the authoritative recovery path and `tasks/jul-apr-validation-contract-2026-04-08.md` as the launch gate for every future lane.
 >
-> **Active holistic plan (2026-04-17):** `tasks/holistic-regime-calibration-plan-2026-04-17.md` — monthly backdrop + monthly slicing + SPY ≥ 80 % track + dynamic regime calibration, executed by a Cloud Agent against feature branches (one PR per phase). This supersedes any open R6 / widen-v7 / v6-full-universe sub-items below once Phase A lands.
+> **Active plan (2026-04-30):** Round 3 UI shipped (`tasks/round3-ui-shipped-2026-04-30.md`) and the post-canon model roadmap (`tasks/model-roadmap-post-canon-2026-04-30.md`) define the next gates. Full-Jul → Apr canonical autopsy lives in `tasks/autopsy-2026-04-30.txt`. PR #49 is the Round 3 UI cutover.
+>
+> **Prior holistic plan (2026-04-17):** `tasks/holistic-regime-calibration-plan-2026-04-17.md` — monthly backdrop + monthly slicing + SPY ≥ 80 % track + dynamic regime calibration. Phases B–G remain on the backlog; the post-canon roadmap supersedes Phase F's "regime calibration" track because we now have personality-conditional evidence from the merged 588-trade dataset.
+
+## Round 3 UI + post-canon model gates [2026-04-30]
+
+### Gate 0 — UI live validation (now)
+- [ ] User signs off on PR #49 preview (https://cursor-round3-ui-relaunch-2e.timedtrading.pages.dev/) or flags pixel fixes.
+- [ ] Merge PR #49 → main → Pages auto-deploy to production.
+
+### Gate 1 — P1 model fixes (next branch)
+- [ ] **P4 prerequisite** — write `entrySignals` (adverse_rsi, adverse_phase, td9_with_us, pdz_zone_D, ticker_personality) onto trade record at creation in `worker/index.js`.
+- [ ] **P1a** — re-enable `deep_audit_runner_protect_healthy_enabled` + new gate `deep_audit_runner_protect_require_clean_entry` (default `true`) in `processTradeSimulation`. Bypass `phase_i_mfe_fast_cut_*` and `phase_i_mfe_dead_money_24h` only when entrySignals show no adverse divergence at entry.
+- [ ] **P1b** — block strong adverse RSI div (strength ≥ 30) in `worker/pipeline/entry-selector.js`. Unit test in `scripts/test-phase-c-entry-selector.js`.
+
+### Gate 2 — A/B replay validation
+- [ ] Re-run canonical Jul → Apr backtest with P1a/P1b OFF — must reproduce baseline +421%.
+- [ ] Re-run with P1a + P1b ON.
+- [ ] Compare per-month PnL; promotion criteria: 8/10 months ≥ baseline, Mar 2026 ≥ baseline, no new ≤ −5% regressions, no new "open at end" pile-up.
+
+### Gate 3 — Live activation
+- [ ] Merge if Gate 2 passes; activate DA flags in simulation slot only first.
+- [ ] Watch ≥ 1 week of live behavior before flipping any non-sim slot.
+
+### Gate 4 — P2 / P3 (deferred until P1 is validated and live)
+- [ ] **P2** — block `discount_approach LONG` on personality ∈ {VOLATILE_RUNNER, PULLBACK_PLAYER}.
+- [ ] **P3** — personality-aware `atr_day_adverse_382_cut`: keep tight on VOLATILE_RUNNER, loosen/disable on PULLBACK_PLAYER + SLOW_GRINDER.
 
 ## Holistic Regime Calibration [2026-04-17]
 - [ ] **Phase A — Foundation freeze** (branch `phase-a/foundation-freeze`): commit R5 + R6 + KV-binding fix as one reviewable PR; lock `R5 ON + R2v3 ON + R6 ON` as the base package; redeploy worker and record Version ID; append orchestrator / dual-writer / Bug E lessons to `tasks/lessons.md` (done on this plan branch).

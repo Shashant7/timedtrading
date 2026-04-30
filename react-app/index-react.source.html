@@ -7,7 +7,7 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes"
     />
     <title>Timed Trading</title>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none'%3E%3Cdefs%3E%3ClinearGradient id='r' x1='6' y1='42' x2='42' y2='6'%3E%3Cstop offset='0%25' stop-color='%2334d399'/%3E%3Cstop offset='100%25' stop-color='%2367e8f9'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='48' height='48' rx='11' fill='%23000'/%3E%3Ccircle cx='24' cy='24' r='17' stroke='url(%23r)' stroke-width='3' fill='none'/%3E%3Cline x1='24' y1='24' x2='19' y2='18.5' stroke='%23636366' stroke-width='4' stroke-linecap='round'/%3E%3Cline x1='24' y1='24' x2='29.5' y2='16.5' stroke='%2330d158' stroke-width='4.5' stroke-linecap='round'/%3E%3Ccircle cx='24' cy='24' r='3.5' fill='%2330d158'/%3E%3Ccircle cx='24' cy='24' r='1.5' fill='%23000'/%3E%3C/svg%3E" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2048%2048%27%20fill%3D%27none%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27r%27%20x1%3D%276%27%20y1%3D%2742%27%20x2%3D%2742%27%20y2%3D%276%27%3E%3Cstop%20offset%3D%270%25%27%20stop-color%3D%27%2334d399%27%2F%3E%3Cstop%20offset%3D%27100%25%27%20stop-color%3D%27%2367e8f9%27%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20width%3D%2748%27%20height%3D%2748%27%20rx%3D%2711%27%20fill%3D%27%23000%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%2717%27%20stroke%3D%27url%28%23r%29%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%277.5%27%20x2%3D%2724%27%20y2%3D%2710.5%27%20stroke%3D%27%2334d399%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20opacity%3D%270.5%27%2F%3E%3Cline%20x1%3D%277.5%27%20y1%3D%2724%27%20x2%3D%2710.5%27%20y2%3D%2724%27%20stroke%3D%27%2334d399%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20opacity%3D%270.5%27%2F%3E%3Cline%20x1%3D%2719%27%20y1%3D%2718.5%27%20x2%3D%2716%27%20y2%3D%2715.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2719%27%20y2%3D%2718.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%273.5%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2729.5%27%20y1%3D%2716.5%27%20x2%3D%2732%27%20y2%3D%2712.9%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2729.5%27%20y2%3D%2716.5%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%274%27%20stroke-linecap%3D%27round%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%273.2%27%20fill%3D%27%2330d158%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%271.3%27%20fill%3D%27%23000%27%2F%3E%3C%2Fsvg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -3232,9 +3232,19 @@
         const rrRaw = tickerLike?.rr != null ? Number(tickerLike.rr) : 0.5;
         const rr = Number.isFinite(rrRaw) && rrRaw > 0 ? rrRaw : 0.5;
         const cappedRR = Math.min(rr, rrCap);
+        // V15 P0.7.43 — small conviction-tier bump so the bubble size also
+        // reflects setup quality, not just R:R + completion. Tier A/B/C is
+        // the focus-tier composite emitted by the worker; absent ⇒ 0 bump.
+        const tier = String(
+          tickerLike?.focus_tier
+            ?? tickerLike?.__focus_tier
+            ?? tickerLike?.focusTier
+            ?? "",
+        ).toUpperCase();
+        const tierBump = tier === "A" ? 1.5 : tier === "B" ? 0.8 : tier === "C" ? 0.3 : 0;
         const size = waiting
           ? baseSize * 0.7
-          : baseSize + cappedRR * rrMultiplier * (1 - validComp);
+          : baseSize + cappedRR * rrMultiplier * (1 - validComp) + tierBump;
         const finalSize = Math.max(
           baseSize,
           size + bubbleSizeSeed(symbolOverride || tickerLike?.ticker),
@@ -4202,12 +4212,26 @@
               t.rank !== null,
           );
 
-          // Sort by dynamicScore from API (backend calculation) - pure score sorting, no alphabetical tiebreaker
+          // V15 P0.7.32 (2026-04-30) — sort by composite (rank + conviction).
+          // dynamicScore from API is rank-based (~0-100). Conviction Score
+          // (0-160 range) is a complementary signal capturing the focus-tier
+          // model's confidence. We blend them so users see "high rank +
+          // high conviction" at the top consistently.
+          //
+          // Tiebreakers: higher conviction wins ties on dynamicScore;
+          // higher R:R wins ties on conviction.
           allTickersWithRank.sort((a, b) => {
-            const scoreA = Number(a.dynamicScore || a.rank) || 0; // Use dynamicScore from API, fallback to rank
+            const scoreA = Number(a.dynamicScore || a.rank) || 0;
             const scoreB = Number(b.dynamicScore || b.rank) || 0;
-            // Descending order: higher score = better position
-            return scoreB - scoreA;
+            const dScore = scoreB - scoreA;
+            if (Math.abs(dScore) > 0.001) return dScore;
+            const convA = Number(a.focus_conviction_score || a.conviction || 0);
+            const convB = Number(b.focus_conviction_score || b.conviction || 0);
+            const dConv = convB - convA;
+            if (Math.abs(dConv) > 0.001) return dConv;
+            const rrA = Number(a.rr || 0);
+            const rrB = Number(b.rr || 0);
+            return rrB - rrA;
           });
 
           // Ranked order lookup (ticker -> index) based on the sorted list above.
@@ -12575,6 +12599,30 @@
         // Has kanban data if there are tickers in any stage beyond watch
         const hasKanbanData = kanbanActiveCount > 0;
 
+        // V15 P0.7.43 — counts that drive the View tab badges. We split into
+        // two flavours: a soft total (for the small grey count) and an
+        // actionable-now flag (for the colored dot).
+        //   Active Trader actionable = enter/trim/exit/defend stages
+        //   Investor actionable = TODO (placeholder until we wire ETF/core-idea
+        //   change events through investor-panel — for now we use saved + open
+        //   trade count as a soft indicator)
+        const traderActionableCount = (kanbanStageCounts.enter || 0) + (kanbanStageCounts.trim || 0) + (kanbanStageCounts.defend || 0) + (kanbanStageCounts.exit || 0);
+        const traderHoldCount = kanbanStageCounts.hold || 0;
+        const investorTotalCount = (() => {
+          // Best-effort: count tickers tagged as long-term/core/ETF in the
+          // current universe. Falls back to `savedTickers` so the badge
+          // is never empty for users who set their own watchlist.
+          try {
+            const etfSet = new Set(["GRNY", "GRNJ", "GLD", "TLT", "DXY"]);
+            const ttSet = new Set(Array.isArray(tickers) ? tickers.map(t => normTicker(t?.ticker)) : []);
+            let n = 0;
+            for (const sym of etfSet) if (ttSet.has(sym)) n++;
+            // Also surface any open trade with a multi-day hold horizon (planned)
+            n += (Array.isArray(savedTickers) ? savedTickers.length : 0);
+            return n;
+          } catch (_) { return 0; }
+        })();
+
         // Active Positions snapshot logic
         const [snap, setSnap] = React.useState(() => {
           try {
@@ -13374,20 +13422,42 @@
           } catch {}
         }, [itemKeys, laneKey]);
 
+        // V15 P0.7.43 (2026-04-30) — per-lane accent + active-state styling.
+        // User: "The Kanban and Viewport Cards could use a fresh polish and
+        // a cleaner look." Each lane gets a color-coded vertical accent so
+        // pipeline / management lanes are easier to scan at a glance.
+        const LANE_ACCENT = {
+          setup:   { bar: "#a78bfa", label: "text-[#c4b5fd]", count: "text-[#e5e7eb]", glow: "rgba(167,139,250,0.10)" },  // violet — Setup
+          enter:   { bar: "#f59e0b", label: "text-[#fcd34d]", count: "text-white",     glow: "rgba(245,158,11,0.12)" },  // amber — In Review (actionable)
+          new:     { bar: "#22d3ee", label: "text-[#a5f3fc]", count: "text-[#e5e7eb]", glow: "rgba(34,211,238,0.08)" },   // cyan — Position Initiated
+          hold:    { bar: "#34d399", label: "text-[#86efac]", count: "text-[#e5e7eb]", glow: "rgba(52,211,153,0.06)" },   // green — Hold
+          defend:  { bar: "#fb923c", label: "text-[#fdba74]", count: "text-white",     glow: "rgba(251,146,60,0.10)" },   // orange — Defend (warning)
+          trim:    { bar: "#fbbf24", label: "text-[#fde68a]", count: "text-white",     glow: "rgba(251,191,36,0.10)" },   // gold — Trim (action)
+          exit:    { bar: "#9ca3af", label: "text-[#d1d5db]", count: "text-[#e5e7eb]", glow: "rgba(156,163,175,0.04)" },  // slate — Exit
+        };
+        const acc = LANE_ACCENT[laneKey] || { bar: "#3f3f46", label: "text-[#6b7280]", count: "text-[#e5e7eb]", glow: "transparent" };
+        const isActionable = count > 0 && (laneKey === "enter" || laneKey === "trim" || laneKey === "defend" || laneKey === "exit");
         return (
-          <div className="flex items-stretch gap-0 mb-0.5 kanban-lane">
-            {/* Lane label */}
+          <div className="flex items-stretch gap-0 mb-0.5 kanban-lane" style={{ background: count > 0 ? acc.glow : "transparent" }}>
+            {/* Lane label — V15 P0.7.43 polish: vertical accent bar + count pill */}
             <div
-              className="flex flex-col justify-center items-center w-[48px] shrink-0 border-r border-r-white/[0.04] px-1 py-2"
-              style={{ background: "transparent" }}
+              className="flex items-stretch w-[58px] shrink-0 border-r border-r-white/[0.04]"
               title={subtitle || title}
             >
-              <span className="text-[9px] font-bold uppercase tracking-widest text-[#4b5563] text-center leading-tight">
-                {title}
-              </span>
-              <span className={`text-[11px] font-bold tabular-nums mt-0.5 ${count > 0 ? "text-[#e5e7eb]" : "text-[#2a2e35]"}`}>
-                {count}
-              </span>
+              <div className="w-[3px] flex-shrink-0" style={{ background: count > 0 ? acc.bar : "rgba(255,255,255,0.04)" }} />
+              <div className="flex flex-col justify-center items-center px-1 py-2 flex-1">
+                <span className={`text-[9px] font-bold uppercase tracking-widest text-center leading-tight ${count > 0 ? acc.label : "text-[#3a3f47]"}`}>
+                  {title}
+                </span>
+                {count > 0 ? (
+                  <span className={`mt-1 inline-flex items-center justify-center min-w-[18px] h-[16px] px-1 rounded-full text-[10px] font-bold tabular-nums ${acc.count}`}
+                    style={{ background: isActionable ? acc.bar + "33" : "rgba(255,255,255,0.06)", border: `1px solid ${isActionable ? acc.bar + "55" : "rgba(255,255,255,0.08)"}` }}>
+                    {count}
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-semibold text-[#2a2e35] mt-1">0</span>
+                )}
+              </div>
             </div>
             {/* Horizontal scrollable card area */}
             <div
@@ -13669,27 +13739,28 @@
 
         return (
           <div>
-            {/* Legend: Lanes + Badges (Active Trader Cards view) */}
-            <div className="mb-2 space-y-1.5">
-              <div className="px-2 py-1.5 rounded-lg border border-white/[0.04] bg-white/[0.015] flex items-center flex-nowrap gap-x-4 text-[10px] text-[#6b7280] overflow-x-auto">
-                <span className="text-[11px] font-semibold text-white/70 shrink-0">Pipeline</span>
-                <span className="shrink-0">📋 <span className="text-[#8b95a5]">Setup — building toward a trade</span></span>
-                <span className="shrink-0">🔍 <span className="text-[#8b95a5]">In Review — CIO evaluating entry</span></span>
-                <span className="shrink-0">✅ <span className="text-[#8b95a5]">Position Initiated — trade placed</span></span>
-                <span className="text-[#4b5563] shrink-0">→</span>
-                <span className="shrink-0">🔒 <span className="text-[#8b95a5]">Hold — healthy, let run</span></span>
-                <span className="shrink-0">🛡 <span className="text-[#8b95a5]">Defend — tighten stops</span></span>
-                <span className="shrink-0">✂️ <span className="text-[#8b95a5]">Trim — near TP, take partials</span></span>
-                <span className="shrink-0">🚪 <span className="text-[#8b95a5]">Exit — closed or invalidated</span></span>
+            {/* Legend: Lanes + Badges (Active Trader Cards view) — V15 P0.7.43 polish */}
+            <div className="mb-2 space-y-1">
+              <div className="px-2.5 py-1.5 rounded-xl border border-white/[0.06] bg-white/[0.02] flex items-center flex-nowrap gap-x-3 text-[10px] text-[#9ca3af] overflow-x-auto">
+                <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#6b7280] shrink-0">Pipeline</span>
+                <span className="shrink-0 flex items-center gap-1"><span className="inline-block w-1 h-3 rounded" style={{ background: "#a78bfa" }} /> Setup</span>
+                <span className="shrink-0 flex items-center gap-1"><span className="inline-block w-1 h-3 rounded" style={{ background: "#f59e0b" }} /> In Review</span>
+                <span className="shrink-0 flex items-center gap-1"><span className="inline-block w-1 h-3 rounded" style={{ background: "#22d3ee" }} /> Initiated</span>
+                <span className="text-[#4b5563] shrink-0">›</span>
+                <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#6b7280] shrink-0">Manage</span>
+                <span className="shrink-0 flex items-center gap-1"><span className="inline-block w-1 h-3 rounded" style={{ background: "#34d399" }} /> Hold</span>
+                <span className="shrink-0 flex items-center gap-1"><span className="inline-block w-1 h-3 rounded" style={{ background: "#fb923c" }} /> Defend</span>
+                <span className="shrink-0 flex items-center gap-1"><span className="inline-block w-1 h-3 rounded" style={{ background: "#fbbf24" }} /> Trim</span>
+                <span className="shrink-0 flex items-center gap-1"><span className="inline-block w-1 h-3 rounded" style={{ background: "#9ca3af" }} /> Exit</span>
               </div>
-              <div className="px-2 py-1.5 rounded-lg border border-white/[0.04] bg-white/[0.015] flex items-center flex-nowrap gap-x-5 text-[10px] text-[#6b7280] overflow-x-auto">
-                <span className="text-[11px] font-semibold text-white/70 shrink-0">Badges</span>
-                <span className="shrink-0">💎 <span className="text-[#8b95a5]">Prime — meets all quality gates</span></span>
-                <span className="shrink-0">🎯 <span className="text-[#8b95a5]">Entry Zone — price near optimal entry</span></span>
-                <span className="shrink-0">🔥 <span className="text-[#8b95a5]">MoElite — momentum + volume confirmation</span></span>
-                <span className="shrink-0">🧨 <span className="text-[#8b95a5]">Squeeze — volatility squeeze, breakout expected</span></span>
-                <span className="shrink-0">⚡ <span className="text-[#8b95a5]">Release — squeeze released, breakout firing</span></span>
-                <span className="shrink-0">📅 <span className="text-[#8b95a5]">Earnings — within 7 days</span></span>
+              <div className="px-2.5 py-1.5 rounded-xl border border-white/[0.06] bg-white/[0.02] flex items-center flex-nowrap gap-x-4 text-[10px] text-[#9ca3af] overflow-x-auto">
+                <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#6b7280] shrink-0">Badges</span>
+                <span className="shrink-0">💎 Prime</span>
+                <span className="shrink-0">🎯 Entry Zone</span>
+                <span className="shrink-0">🔥 MoElite</span>
+                <span className="shrink-0">🧨 Squeeze</span>
+                <span className="shrink-0">⚡ Release</span>
+                <span className="shrink-0">📅 Earnings ≤7d</span>
               </div>
             </div>
             <div>
@@ -17414,8 +17485,23 @@
         const [timeTravelForwardReturns, setTimeTravelForwardReturns] = useState(null);
         const [timeTravelResetSignal, setTimeTravelResetSignal] = useState(0);
 
-        const [activeInsight, setActiveInsight] = useState(null);
+        // V15 P0.7.43 (2026-04-30) — default Bubble Map filter is "Focus"
+        // (Kanban + Market Pulse + saved). User: "by default, we should select
+        // a filter that doesn't clutter the bubble map with everything, but
+        // something more actionable." Persist user override in localStorage.
+        const [activeInsight, setActiveInsight] = useState(() => {
+          try {
+            const v = localStorage.getItem("tt_bubble_active_insight");
+            if (v === "__none__") return null;
+            return v || "focus";
+          } catch (_) { return "focus"; }
+        });
         const [activeSubInsight, setActiveSubInsight] = useState(null);
+        useEffect(() => {
+          try {
+            localStorage.setItem("tt_bubble_active_insight", activeInsight === null ? "__none__" : activeInsight);
+          } catch (_) { /* no-op */ }
+        }, [activeInsight]);
         const [bubbleSearchOpen, setBubbleSearchOpen] = useState(false);
         const [bubbleLayoutMode, setBubbleLayoutMode] = useState("score");
 
@@ -17466,7 +17552,42 @@
 
           const ENTRY_STAGES = new Set(["setup", "setup_watch", "enter", "enter_now", "flip_watch", "just_flipped"]);
           const ACTIONABLE_STAGES = new Set(["enter", "enter_now", "trim", "exit", "defend"]);
+          const KANBAN_STAGES = new Set([
+            "setup", "setup_watch", "flip_watch",
+            "in_review", "enter", "enter_now", "just_flipped",
+            "just_entered",
+            "hold", "trim", "defend", "exit",
+          ]);
           const chips = [];
+
+          // ── Focus (V15 P0.7.43 default) — Kanban + Market Pulse + Saved ──
+          // User: "by default, we should select a filter that doesn't clutter
+          // the bubble map with everything... All of the tickers represented
+          // in Active Trader Kanban Lanes Plus the Market Pulse Tickers."
+          // We add Saved (pinned by user) for free since it's also high-signal.
+          const _focusSet = new Set();
+          for (const t of allTickers) {
+            const ks = String(t.kanban_stage || "").toLowerCase();
+            if (KANBAN_STAGES.has(ks)) _focusSet.add(normTicker(t?.ticker));
+          }
+          const _mpSyms = window._ttIsAdmin ? MARKET_PULSE_ADMIN_SYMBOLS : MARKET_PULSE_PUBLIC_SYMBOLS;
+          for (const s of _mpSyms) _focusSet.add(normTicker(s));
+          if (Array.isArray(savedTickers)) for (const s of savedTickers) _focusSet.add(normTicker(s));
+          // Always include the open-trade tickers (already covered by kanban
+          // mostly, but defensive in case stage tagging is delayed).
+          if (Array.isArray(trades)) {
+            for (const tr of trades) {
+              if (!tr?.exit_ts && !tr?.exit_timestamp) _focusSet.add(normTicker(tr?.ticker));
+            }
+          }
+          const focusTickers = allTickers.filter(t => _focusSet.has(normTicker(t?.ticker)));
+          chips.push({
+            id: "focus", icon: "🎯", label: "Focus", count: focusTickers.length, color: "blue",
+            tickers: focusTickers.map(t => t.ticker),
+            tooltip: `Default view — your active universe.\nKanban lanes + Market Pulse + Saved + open trades.\nKeeps the chart actionable, not cluttered.`,
+            row: 1,
+            isDefault: true,
+          });
 
           // ── Actionable — tickers in stages that require a decision now ──
           const actionable = allTickers.filter(t => ACTIONABLE_STAGES.has(String(t.kanban_stage || "").toLowerCase()));
@@ -17475,6 +17596,8 @@
               id: "actionable", icon: "\u26A1", label: "Actionable", count: actionable.length, color: "amber",
               tickers: actionable.map(t => t.ticker),
               tooltip: `Tickers in enter/trim/exit/defend stages\n${actionable.slice(0, 8).map(t => `${t.ticker} (${t.kanban_stage})`).join(", ")}`,
+              row: 1,
+              group: "now",
             });
           }
 
@@ -17491,6 +17614,7 @@
             id: "high_conviction", icon: "🎖️", label: "High Conviction", count: conviction.length, color: "emerald",
             tickers: conviction.map(t => t.ticker),
             tooltip: `Aligned trend + Score ≥ 65 + R:R ≥ 2 + In Corridor\n${conviction.slice(0, 5).map(t => t.ticker).join(", ") || "None right now"}`,
+            row: 1, group: "now",
           });
 
           // ── Sector Rotation ──
@@ -17521,6 +17645,7 @@
                 label: `${short(best.sector)} ↑ ${short(worst.sector)} ↓`,
                 count: null, color: "purple", tickers: rotTickers,
                 tooltip: `Sector Strength Ranking:\n${rankLines}\n\nMoney rotating into ${best.sector}, out of ${worst.sector}.\nBased on HTF trend alignment across tickers per sector.`,
+                row: 1, group: "structure",
               });
             }
           }
@@ -17534,6 +17659,7 @@
           chips.push({ id: "early_long", icon: "📈", label: "Early LONG", count: earlyLong.length, color: "green",
             tickers: earlyLong.map(t => t.ticker),
             tooltip: `HTF bullish + LTF approaching entry corridor\n${earlyLong.slice(0, 5).map(t => t.ticker).join(", ") || "—"}`,
+            row: 1, group: "setups",
           });
 
           // ── Early SHORT ──
@@ -17545,6 +17671,7 @@
           chips.push({ id: "early_short", icon: "📉", label: "Early SHORT", count: earlyShort.length, color: "red",
             tickers: earlyShort.map(t => t.ticker),
             tooltip: `HTF bearish + LTF approaching entry corridor\n${earlyShort.slice(0, 5).map(t => t.ticker).join(", ") || "—"}`,
+            row: 1, group: "setups",
           });
 
           // ── Squeeze (building pressure) ──
@@ -17552,6 +17679,7 @@
           chips.push({ id: "squeeze", icon: "🔋", label: "Squeeze", count: squeeze.length, color: "amber",
             tickers: squeeze.map(t => t.ticker),
             tooltip: `Bollinger Bands inside Keltner Channels on 30m — volatility contracting.\nExpect expansion soon.\n${squeeze.slice(0, 5).map(t => t.ticker).join(", ") || "—"}`,
+            row: 1, group: "momentum",
           });
 
           // ── Breakout ──
@@ -17562,6 +17690,7 @@
           chips.push({ id: "breakout", icon: "💥", label: "Breakout", count: breakout.length, color: "cyan",
             tickers: breakout.map(t => t.ticker),
             tooltip: `Squeeze released or fresh stage transition — move in progress.\n${breakout.slice(0, 5).map(t => t.ticker).join(", ") || "—"}`,
+            row: 1, group: "momentum",
           });
 
           // ── In Corridor ──
@@ -17572,6 +17701,7 @@
           chips.push({ id: "corridor", icon: "🎯", label: "In Corridor", count: corridor.length, color: "blue",
             tickers: corridor.map(t => t.ticker),
             tooltip: `LTF score in optimal entry zone for the HTF trend direction.\n${corridor.slice(0, 5).map(t => t.ticker).join(", ") || "—"}`,
+            row: 1, group: "setups",
           });
 
           // ── High R:R Early ──
@@ -17592,6 +17722,7 @@
             color: "gold",
             tickers: highRrEarly.map(t => t.ticker),
             tooltip: `High reward-to-risk with upside still available.\nR:R ≥ 2.0, completion ≤ 45%, and timing support from corridor/flip/release.\n${highRrEarly.slice(0, 6).map(t => t.ticker).join(", ") || "—"}`,
+            row: 1, group: "setups",
           });
 
           // ── Accelerating ──
@@ -17604,6 +17735,7 @@
           chips.push({ id: "accelerating", icon: "⚡", label: "Accelerating", count: accel.length, color: "emerald",
             tickers: accel.map(t => t.ticker),
             tooltip: `Momentum accelerating — score delta >5 (LTF) or >3 (HTF) in last 4h.\n${accel.slice(0, 5).map(t => t.ticker).join(", ") || "—"}`,
+            row: 1, group: "momentum",
           });
 
           // ── Momentum Elite ──
@@ -17611,6 +17743,7 @@
           chips.push({ id: "momentum_elite", icon: "🔥", label: "Mo Elite", count: moElite.length, color: "gold",
             tickers: moElite.map(t => t.ticker),
             tooltip: `Momentum Elite — confirmed strong momentum (|mom/σ| > 1.0) across 2+ timeframes (30m, 15m, 5m).\nVolume + price aligned. These are the strongest movers right now.\n${moElite.slice(0, 5).map(t => t.ticker).join(", ") || "—"}`,
+            row: 1, group: "momentum",
           });
 
           // ── Volume Surge ──
@@ -17622,6 +17755,7 @@
           chips.push({ id: "volume_surge", icon: "📊", label: "Vol Surge", count: volSurge.length, color: "cyan",
             tickers: volSurge.map(t => t.ticker),
             tooltip: `Relative volume ≥ 1.5x on 30m or 60m — unusual activity.\nInstitutional interest likely.\n${volSurge.slice(0, 5).map(t => t.ticker).join(", ") || "—"}`,
+            row: 1, group: "momentum",
           });
 
           // ── Row 2: Market context chips ──
@@ -17641,7 +17775,7 @@
             tooltip: window._ttIsAdmin
               ? "Admin Market Pulse\nFutures, indices, S&P sectors, and crypto."
               : "Market Pulse\nSPY, QQQ, IWM, commodity ETF equivalents, crypto, and S&P sectors.",
-            row: 2,
+            row: 2, group: "context",
           });
 
           const topMoverSymbols = getBubbleMapTopMoverSymbols(allTickers);
@@ -17652,6 +17786,7 @@
             color: "emerald",
             tickers: topMoverSymbols,
             tooltip: `Top Movers\nIncludes RTH gainers/losers and EXT movers when extended-hours data is available.`,
+            row: 2, group: "context",
           });
 
           // ── Indexes ──
@@ -17661,7 +17796,7 @@
             id: "indexes", icon: "📈", label: "Indexes", count: idxTickers.length, color: "blue",
             tickers: idxTickers.map(t => t.ticker),
             tooltip: `Major index ETFs\n${INDEX_SYMS.join(", ")}`,
-            row: 2,
+            row: 2, group: "context",
           });
 
           // ── Futures (admin-only — TradingView sourced) ──
@@ -17672,7 +17807,7 @@
               id: "futures", icon: "⚡", label: "Futures", count: futTickers.length, color: "amber",
               tickers: futTickers.map(t => t.ticker),
               tooltip: `Futures & crypto\n${FUTURES_SYMS.join(", ")}`,
-              row: 2,
+              row: 2, group: "context",
             });
           }
 
@@ -17683,7 +17818,7 @@
             id: "sp_sectors", icon: "🏛️", label: "S&P Sectors", count: spEtfTickers.length, color: "purple",
             tickers: spEtfTickers.map(t => t.ticker),
             tooltip: `S&P Sector ETFs\n${SP_ETF_SYMS.join(", ")}`,
-            row: 2,
+            row: 2, group: "context",
             hasSub: true,
           });
 
@@ -17709,7 +17844,7 @@
           }
 
           return chips;
-        }, [bubbleMapUniverseTickers, savedTickers]);
+        }, [bubbleMapUniverseTickers, savedTickers, trades]);
 
         const activeInsightTickers = useMemo(() => {
           if (!activeInsight) return null;
@@ -18151,7 +18286,12 @@
                         return true;
                       });
                     })();
-                    const earningItems = (Array.isArray(earningsEvents) ? earningsEvents : []).slice(0, 12);
+                    // V15 P0.7.34 (2026-04-30): lift the earnings cap from 12 to 50
+                    // per user request "we are not showing the full bunch, maybe it is
+                    // max capped on the Market Pulse? Can we update this to allow more
+                    // to be shown?". The container already wraps; on heavy days the
+                    // earnings list gets large but readers can scan the full set.
+                    const earningItems = (Array.isArray(earningsEvents) ? earningsEvents : []).slice(0, 50);
                     if (macroItems.length === 0 && earningItems.length === 0) return null;
                     return (
                       <div className="mb-3">
@@ -18374,24 +18514,93 @@
                     const ethLosers = ethSorted.slice(-5).reverse();
                     const hasEth = ethGainers.length > 0 || ethLosers.length > 0;
                     if (rthGainers.length === 0 && rthLosers.length === 0 && !hasEth) return null;
+                    // V15 P0.7.39 (2026-04-30): Top Movers as compact tables.
+                    // Per user feedback: "RTH/ETH Top Gainers/Losers Pills — we
+                    // should make these a similar style we are using in the
+                    // Daily Brief, where they are more table format like the
+                    // Regime bar above." Two-column gainers|losers grid per
+                    // session (RTH then EXT), each row: ticker · price · %.
+                    const moverRow = (t, isGain, pctKey, priceKey, idx) => {
+                      const sym = t?.ticker || t?.symbol || "?";
+                      const pct = Number(t[pctKey]) || 0;
+                      const price = Number(t[priceKey]) || 0;
+                      const name = t?.context?.name || t?.companyName || "";
+                      const title = name ? `${sym} — ${name}` : sym;
+                      const colorClass = isGain ? "text-emerald-400" : "text-rose-400";
+                      const dotBg = isGain ? "rgba(34,197,94,0.7)" : "rgba(239,68,68,0.7)";
+                      return (
+                        <button
+                          key={`${sym}-${idx}`}
+                          onClick={() => handleTickerSelect(sym)}
+                          title={title}
+                          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-md hover:bg-white/[0.04] transition-colors group"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="w-1 h-1 rounded-full shrink-0" style={{ background: dotBg }} />
+                            <span className="text-[12px] font-bold text-white tracking-tight">{sym}</span>
+                          </div>
+                          <div className="flex items-center gap-2.5 tabular-nums">
+                            {price > 0 && (
+                              <span className="text-[11px] text-[#9ca3af]">${price.toFixed(2)}</span>
+                            )}
+                            <span className={`text-[12px] font-semibold ${colorClass} min-w-[55px] text-right`}>
+                              {pct >= 0 ? "+" : ""}{pct.toFixed(2)}%
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    };
+                    const moverTable = (label, badgeCls, gainers, losers, isGain, pctKey, priceKey) => (
+                      <div className="grid grid-cols-2 gap-x-3 mt-1">
+                        {/* Gainers column */}
+                        <div>
+                          <div className="flex items-center gap-1.5 px-1 mb-1">
+                            <span className="text-[9px] uppercase tracking-wider text-emerald-400 font-bold">▲ Gainers</span>
+                            <span className="text-[9px] text-[#6b7280] tabular-nums">{gainers.length}</span>
+                          </div>
+                          <div className="rounded-md overflow-hidden bg-white/[0.015] border border-white/[0.04]">
+                            {gainers.length > 0
+                              ? gainers.map((t, i) => moverRow(t, true, pctKey, priceKey, i))
+                              : <div className="px-2.5 py-2 text-[10px] text-[#6b7280]">No gainers in this session.</div>}
+                          </div>
+                        </div>
+                        {/* Losers column */}
+                        <div>
+                          <div className="flex items-center gap-1.5 px-1 mb-1">
+                            <span className="text-[9px] uppercase tracking-wider text-rose-400 font-bold">▼ Losers</span>
+                            <span className="text-[9px] text-[#6b7280] tabular-nums">{losers.length}</span>
+                          </div>
+                          <div className="rounded-md overflow-hidden bg-white/[0.015] border border-white/[0.04]">
+                            {losers.length > 0
+                              ? losers.map((t, i) => moverRow(t, false, pctKey, priceKey, i))
+                              : <div className="px-2.5 py-2 text-[10px] text-[#6b7280]">No losers in this session.</div>}
+                          </div>
+                        </div>
+                      </div>
+                    );
                     return (
                       <div className="mb-3">
                         <div className="flex items-center gap-2 mb-2">
                           <span className="tt-label">Top Movers</span>
                           <span style={{ flex: 1, height: 1, background: "var(--tt-border-weak)" }} />
                         </div>
-                        <div className="space-y-1.5">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="px-1.5 py-px rounded text-[9px] font-bold tracking-wide border shrink-0 bg-cyan-500/15 text-cyan-400 border-cyan-500/30">RTH</span>
-                            {rthGainers.map(t => chip(t, true, "_pct", "_price"))}
-                            {rthLosers.map(t => chip(t, false, "_pct", "_price"))}
-                            {rthGainers.length === 0 && rthLosers.length === 0 && <span className="text-[10px] text-[#6b7280]">No movers</span>}
+                        <div className="space-y-3">
+                          {/* RTH */}
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold tracking-wide border bg-cyan-500/15 text-cyan-400 border-cyan-500/30">RTH</span>
+                              <span className="text-[10px] text-[#6b7280]">Regular Trading Hours</span>
+                            </div>
+                            {moverTable("RTH", "bg-cyan-500/15 text-cyan-400 border-cyan-500/30", rthGainers, rthLosers, null, "_pct", "_price")}
                           </div>
+                          {/* EXT — only when market closed and we have ETH data */}
                           {hasEth && (
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="px-1.5 py-px rounded text-[9px] font-bold tracking-wide border shrink-0 bg-amber-500/15 text-amber-400 border-amber-500/30">EXT</span>
-                              {ethGainers.map(t => chip(t, true, "_ethPct", "_ethPrice"))}
-                              {ethLosers.map(t => chip(t, false, "_ethPct", "_ethPrice"))}
+                            <div>
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold tracking-wide border bg-amber-500/15 text-amber-400 border-amber-500/30">EXT</span>
+                                <span className="text-[10px] text-[#6b7280]">Extended Hours (Pre/Post)</span>
+                              </div>
+                              {moverTable("EXT", "bg-amber-500/15 text-amber-400 border-amber-500/30", ethGainers, ethLosers, null, "_ethPct", "_ethPrice")}
                             </div>
                           )}
                         </div>
@@ -18429,31 +18638,56 @@
                             ? "bg-gradient-to-r from-violet-500/20 to-indigo-500/15 text-white"
                             : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
                         }`}
+                        title="Bubble Map + Viewport Cards"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                         Analysis
                       </button>
                       <button
                         onClick={() => handleDashboardModeChange("trader")}
-                        className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] font-semibold transition-all border-l border-white/[0.06] ${
+                        className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] font-semibold transition-all border-l border-white/[0.06] relative ${
                           dashboardMode === "trader"
                             ? "bg-gradient-to-r from-cyan-500/20 to-teal-500/15 text-white"
                             : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
                         }`}
+                        title={traderActionableCount > 0
+                          ? `${traderActionableCount} actionable now in Active Trader (enter / trim / defend / exit)`
+                          : `${traderHoldCount} positions on hold`}
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
-                        Active Trader
+                        <span>Active Trader</span>
+                        {/* V15 P0.7.43 — live count badge + actionable dot.
+                            User: "Badging is an idea if there is something
+                            actionable on those sections." */}
+                        {(traderActionableCount + traderHoldCount) > 0 && (
+                          <span className={`ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[16px] px-1 rounded-full text-[9px] font-bold tabular-nums ${
+                            traderActionableCount > 0
+                              ? "bg-amber-500/30 text-amber-200 border border-amber-400/40"
+                              : "bg-white/10 text-[#9ca3af]"
+                          }`}>
+                            {traderActionableCount + traderHoldCount}
+                          </span>
+                        )}
+                        {traderActionableCount > 0 && dashboardMode !== "trader" && (
+                          <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" aria-hidden />
+                        )}
                       </button>
                       <button
                         onClick={() => handleDashboardModeChange("investor")}
-                        className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] font-semibold transition-all border-l border-white/[0.06] ${
+                        className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] font-semibold transition-all border-l border-white/[0.06] relative ${
                           dashboardMode === "investor"
                             ? "bg-gradient-to-r from-emerald-500/20 to-teal-500/15 text-white"
                             : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
                         }`}
+                        title="Long-term ETF + core-idea positions"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                        Investor
+                        <span>Investor</span>
+                        {investorTotalCount > 0 && (
+                          <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[16px] px-1 rounded-full text-[9px] font-bold tabular-nums bg-white/10 text-[#9ca3af]">
+                            {investorTotalCount}
+                          </span>
+                        )}
                       </button>
                       <button
                         onClick={() => handleDashboardModeChange("all")}
@@ -18462,9 +18696,15 @@
                             ? "bg-gradient-to-r from-blue-500/20 to-indigo-500/15 text-white"
                             : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
                         }`}
+                        title="Sortable table of every ticker in scope"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M3 6h18M3 14h18M3 18h18" /></svg>
-                        All
+                        <span>All</span>
+                        {Array.isArray(tickers) && tickers.length > 0 && (
+                          <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[16px] px-1 rounded-full text-[9px] font-bold tabular-nums bg-white/10 text-[#9ca3af]">
+                            {tickers.length}
+                          </span>
+                        )}
                       </button>
                     </div>
                     </div>
@@ -18867,10 +19107,10 @@
                       {/* Bubble Chart - Center Hero (flexible, takes remaining space) */}
                       <div
                         className={`relative w-full lg:flex-1 lg:min-w-0 lg:h-full flex flex-col transition-[margin] duration-300 ${
-                          selectedTicker ? "lg:mr-[470px]" : ""
+                          selectedTicker ? "lg:mr-[540px] xl:mr-[620px]" : ""
                         }`}
                       >
-                        {/* Bubble Chart Legend — Analysis view */}
+                        {/* Bubble Chart Legend — Analysis view (V15 P0.7.43 polish: score derivation tooltip) */}
                         <div className="px-3 py-2 mb-1 rounded-lg border border-white/[0.06] bg-white/[0.02]" data-coachmark="bubble-chart">
                           <div className="flex items-center gap-3 text-[10px] text-[#8b95a5] flex-wrap">
                             <span className="font-semibold text-white text-[11px] shrink-0">Bubble Map</span>
@@ -18882,7 +19122,7 @@
                                     ? "bg-blue-500/20 text-blue-200"
                                     : "text-[#7c8798] hover:text-white"
                                 }`}
-                                title="Balanced score map with mild spacing enhancement"
+                                title="Raw score map — every ticker placed at its true HTF/LTF coordinates"
                               >
                                 Score View
                               </button>
@@ -18893,28 +19133,60 @@
                                     ? "bg-emerald-500/20 text-emerald-200"
                                     : "text-[#7c8798] hover:text-white"
                                 }`}
-                                title="Expands the crowded center and emphasizes setup separation"
+                                title="Expands the crowded center so setups in the entry corridor are easier to separate"
                               >
                                 Setup Timing
                               </button>
                             </div>
                             <span className="text-[#4b5563] shrink-0">|</span>
-                            <span className="shrink-0" title="X-axis: short-term momentum score. Y-axis: long-term trend strength. Setup Timing view applies a stronger center spread so similar-score names are easier to separate.">
-                              {bubbleLayoutMode === "timing"
-                                ? "Timing-spread momentum vs trend"
-                                : "X: momentum · Y: trend"}
+                            <span className="shrink-0">
+                              <span className="text-emerald-300 font-semibold">Y</span> trend ·{" "}
+                              <span className="text-cyan-300 font-semibold">X</span> momentum ·{" "}
+                              <span className="text-amber-300 font-semibold">size</span> R:R
                             </span>
-                            <span className="shrink-0" title="Bigger bubble = higher reward-to-risk with more upside remaining. Late setups shrink as completion rises.">Size = R:R x upside left</span>
                             <span className="text-[#4b5563] shrink-0">|</span>
-                            <span className="flex items-center gap-1 shrink-0" title="Pulsing glow = the system is flagging this ticker for action (enter, trim, exit, defend). These are your focus tickers."><svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.5" fill="rgba(34,211,238,0.25)" stroke="#22d3ee" strokeWidth="0.8"><animate attributeName="r" values="3;4.5;3" dur="2s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.8;0.3;0.8" dur="2s" repeatCount="indefinite"/></circle></svg> <span className="text-cyan-300 font-semibold">Pulsing = Actionable</span></span>
-                            <span className="shrink-0 text-[9px] text-[#6b7280]" title="Pulsing bubbles are in stages like Enter Now, Trim, Exit, or Defend — the system is telling you to act.">(enter · trim · exit · defend)</span>
+                            {/* V15 P0.7.43 — info popover with full score derivation */}
+                            <span className="relative group shrink-0">
+                              <button className="px-2 py-0.5 rounded-full border border-white/10 bg-white/[0.04] text-[#9ca3af] text-[10px] font-semibold hover:text-white hover:bg-white/[0.08] transition-colors">
+                                How is this scored?
+                              </button>
+                              <span className="pointer-events-none absolute top-full left-0 mt-1.5 px-3 py-2 rounded-lg bg-[#0f1217] border border-white/15 text-[10px] text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity z-50 w-[340px] shadow-2xl leading-relaxed">
+                                <strong className="text-white">Bubble position</strong><br />
+                                <span className="text-emerald-300">Y · HTF score</span> blends EMA stack, SuperTrend, daily / 4H / 1H trend agreement, and TD/PDZ premium-stack confirmation.<br />
+                                <span className="text-cyan-300">X · LTF score</span> blends 30m / 10m EMA cross, RSI/Stoch, squeeze release, momentum vs σ. Sign matches the active direction (positive = with-trend).<br /><br />
+                                <strong className="text-white">Bubble size</strong><br />
+                                <span className="text-amber-300">R:R × upside-left</span>: planned reward / risk multiplied by (1 − completion). Late-stage moves shrink; fresh setups grow. Conviction-tier (A/B/C) adds a small radius bump.<br /><br />
+                                <strong className="text-white">Pulse glow</strong><br />
+                                Lit when the engine flags Enter / Trim / Defend / Exit — the system is telling you to act.
+                              </span>
+                            </span>
+                            <span className="text-[#4b5563] shrink-0">|</span>
+                            <span className="flex items-center gap-1 shrink-0" title="Pulsing bubbles are in stages like Enter Now, Trim, Exit, or Defend — the system is telling you to act."><svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.5" fill="rgba(34,211,238,0.25)" stroke="#22d3ee" strokeWidth="0.8"><animate attributeName="r" values="3;4.5;3" dur="2s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.8;0.3;0.8" dur="2s" repeatCount="indefinite"/></circle></svg> <span className="text-cyan-300 font-semibold">Pulse = Actionable</span></span>
                           </div>
                         </div>
                         {/* Insight Chips — Two rows + dynamic sector sub-group */}
                         {insightChips.length > 0 && (() => {
+                          /* V15 P0.7.43 (2026-04-30) — tabular grouped filter pills, cohesive with
+                           * Market Pulse pattern. User: "We should add a better tabular view of the
+                           * Filter Pills, much like how the Market Pulse pills were updated, so it
+                           * is cohesive."
+                           *
+                           * Grouping:
+                           *   Focus  → default (Kanban + MP + Saved)
+                           *   Now    → Actionable, High Conviction
+                           *   Setups → Early LONG/SHORT, Corridor, High R:R Early
+                           *   Momentum → Squeeze, Breakout, Accelerating, Mo Elite, Vol Surge
+                           *   Structure → Sector rotation
+                           *   Context (row 2) → Market Pulse, Top Movers, Indexes, Futures, S&P Sectors
+                           */
                           const visible = insightChips.filter(c => c.count === null || c.count > 0);
-                          const row1 = visible.filter(c => !c.isSector && !c.row);
-                          const row2 = visible.filter(c => c.row === 2);
+                          const focus = visible.find(c => c.id === "focus");
+                          const byGroup = (g) => visible.filter(c => !c.isSector && c.group === g && c.id !== "focus");
+                          const now = byGroup("now");
+                          const setups = byGroup("setups");
+                          const momentum = byGroup("momentum");
+                          const structure = byGroup("structure");
+                          const context = visible.filter(c => c.row === 2);
                           const sectorSubs = visible.filter(c => c.isSector);
                           const colorMap = {
                             purple: { bg: "bg-purple-500/15", border: "border-purple-500/30", text: "text-purple-300", activeBg: "bg-purple-500/30", activeBorder: "border-purple-400/60", glow: "shadow-purple-500/30" },
@@ -18955,43 +19227,59 @@
                               </button>
                             );
                           };
+                          // Tabular row: fixed-width left label + horizontally scrolling chips
+                          const renderRow = (label, chips, accent) => {
+                            if (!chips || chips.length === 0) return null;
+                            return (
+                              <div className="flex items-center gap-2 py-0.5">
+                                <div className={`text-[9px] font-semibold uppercase tracking-[0.16em] w-20 flex-shrink-0 ${accent || "text-[#6b7280]"}`}>
+                                  {label}
+                                </div>
+                                <div className="flex gap-1.5 overflow-x-auto scrollbar-hide items-center min-w-0">
+                                  {chips.map(c => renderChip(c, false))}
+                                </div>
+                              </div>
+                            );
+                          };
                           return (
-                            <div className="space-y-2 px-1 mb-1">
-                              {row2.length > 0 && (
-                                <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-2.5 py-2">
-                                  <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#6b7280]">
-                                    Overview
-                                  </div>
-                                  <div className="flex gap-1.5 overflow-x-auto scrollbar-hide items-center">
-                                    {row2.map(c => renderChip(c, false))}
-                                  </div>
-                                </div>
-                              )}
-                              <div className="rounded-xl border border-cyan-500/10 bg-cyan-500/[0.04] px-2.5 py-2">
-                                <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200/70">
-                                  Something Interesting
-                                </div>
-                                <div className="flex gap-1.5 overflow-x-auto scrollbar-hide items-center">
-                                  {row1.map(c => renderChip(c, false))}
-                                  {activeInsight && (
+                            <div className="space-y-1 px-1 mb-1">
+                              {/* Primary group — Focus + Now (above the chart); cohesive with Market Pulse rows */}
+                              <div className="rounded-xl border border-cyan-500/10 bg-cyan-500/[0.04] px-2.5 py-1.5 space-y-0.5">
+                                {focus && renderRow("Focus", [focus], "text-cyan-200/80")}
+                                {renderRow("Now", now, "text-amber-200/80")}
+                                {renderRow("Setups", setups, "text-emerald-200/80")}
+                                {renderRow("Momentum", momentum, "text-yellow-200/80")}
+                                {renderRow("Structure", structure, "text-purple-200/80")}
+                                {activeInsight && (
+                                  <div className="flex items-center justify-end pt-0.5">
                                     <button
                                       onClick={() => { setActiveInsight(null); setActiveSubInsight(null); }}
                                       className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border border-white/10 bg-white/5 text-gray-400 hover:text-white transition-colors shrink-0"
-                                    >✕ Clear</button>
-                                  )}
-                                </div>
+                                    >✕ Clear filter</button>
+                                  </div>
+                                )}
                               </div>
-                              {/* Row 3: Dynamic sector sub-chips (only when S&P Sectors is active) */}
+                              {/* Context row — secondary, distinct background */}
+                              {context.length > 0 && (
+                                <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-2.5 py-1.5">
+                                  {renderRow("Context", context, "text-[#9ca3af]")}
+                                </div>
+                              )}
+                              {/* Sector drill-down — only when S&P Sectors is active */}
                               {activeInsight === "sp_sectors" && sectorSubs.length > 0 && (
-                                <div className="flex gap-1.5 overflow-x-auto scrollbar-hide items-center">
-                                  <span className="text-[9px] text-[#6b7280] shrink-0">Drill into:</span>
-                                  {sectorSubs.map(c => renderChip(c, true))}
-                                  {activeSubInsight && (
-                                    <button
-                                      onClick={() => setActiveSubInsight(null)}
-                                      className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-medium border border-white/10 bg-white/5 text-gray-400 hover:text-white transition-colors shrink-0"
-                                    >✕</button>
-                                  )}
+                                <div className="rounded-xl border border-purple-500/10 bg-purple-500/[0.03] px-2.5 py-1.5">
+                                  <div className="flex items-center gap-2">
+                                    <div className="text-[9px] font-semibold uppercase tracking-[0.16em] w-20 flex-shrink-0 text-purple-200/80">Drill</div>
+                                    <div className="flex gap-1.5 overflow-x-auto scrollbar-hide items-center min-w-0">
+                                      {sectorSubs.map(c => renderChip(c, true))}
+                                      {activeSubInsight && (
+                                        <button
+                                          onClick={() => setActiveSubInsight(null)}
+                                          className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-medium border border-white/10 bg-white/5 text-gray-400 hover:text-white transition-colors shrink-0"
+                                        >✕</button>
+                                      )}
+                                    </div>
+                                  </div>
                                 </div>
                               )}
                             </div>
@@ -19096,7 +19384,7 @@
                           onMouseDown={() => handleTickerSelect(null)}
                         />
                         <div
-                          className="fixed right-0 top-[60px] sm:top-[52px] w-full sm:w-[520px] bottom-[64px] sm:bottom-[56px] bg-[#0b0e11] border-l border-white/[0.04] z-40 slide-in-right shadow-xl overflow-y-auto"
+                          className="fixed right-0 top-[60px] sm:top-[52px] w-full sm:w-[520px] xl:w-[600px] bottom-[64px] sm:bottom-[56px] bg-[#0b0e11] border-l border-white/[0.04] z-40 slide-in-right shadow-xl overflow-y-auto"
                           onMouseDown={(e) => e.stopPropagation()}
                         >
                           <OverlayPortal

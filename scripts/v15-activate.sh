@@ -104,6 +104,30 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_quality_block_f3_slope_max", "value": "3.0" },
     { "key": "deep_audit_quality_block_f4_enabled", "value": "true" },
 
+    { "key": "deep_audit_phase_c_enabled", "value": "false" },
+    { "key": "deep_audit_phase_c_w_rank", "value": "1.0" },
+    { "key": "deep_audit_phase_c_w_conviction", "value": "0.5" },
+    { "key": "deep_audit_phase_c_w_divergence", "value": "1.0" },
+    { "key": "deep_audit_phase_c_w_pdz", "value": "1.0" },
+    { "key": "deep_audit_phase_c_w_td", "value": "1.0" },
+    { "key": "deep_audit_phase_c_w_personality", "value": "1.0" },
+    { "key": "deep_audit_phase_c_w_rr", "value": "0.0" },
+    { "key": "deep_audit_phase_c_fill_factor", "value": "0.20" },
+    { "key": "deep_audit_phase_c_hard_cap_per_bar", "value": "8" },
+    { "key": "deep_audit_phase_c_hard_cap_per_cycle", "value": "8" },
+    { "key": "deep_audit_phase_c_quality_score_min", "value": "-20" },
+
+    { "key": "deep_audit_adv_div_dead_money_enabled", "value": "false" },
+    { "key": "deep_audit_adv_div_dead_money_min_hours", "value": "4" },
+    { "key": "deep_audit_adv_div_dead_money_max_hours", "value": "8" },
+    { "key": "deep_audit_adv_div_dead_money_mfe_floor_pct", "value": "1.0" },
+    { "key": "deep_audit_adv_div_dead_money_exempt_paths", "value": "tt_gap_reversal_long,tt_gap_reversal_short" },
+
+    { "key": "deep_audit_runner_protect_healthy_enabled", "value": "false" },
+
+    { "key": "deep_audit_td9_fragile_be_lock_enabled", "value": "false" },
+    { "key": "deep_audit_td9_fragile_tp1_tighten_enabled", "value": "false" },
+
     { "key": "deep_audit_stagnant_deferral_max_days", "value": "14" },
     { "key": "deep_audit_stagnant_low_mae_threshold_pct", "value": "0.75" },
     { "key": "deep_audit_stagnant_squeeze_deferral_enabled", "value": "true" },
