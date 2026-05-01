@@ -67,24 +67,60 @@ function BriefInfographic({
   }, t.label && React.createElement("span", {
     className: "text-[#9ca3af] font-medium"
   }, t.label, ": "), React.createElement("span", null, t.body)))))), React.createElement("div", {
-    className: "flex flex-wrap items-center gap-2"
-  }, hl.regime && React.createElement(Badge, {
-    label: "Regime",
-    value: hl.regime.replace(/_/g, " "),
-    color: "#67e8f9"
-  }), hl.vix && React.createElement(Badge, {
-    label: "VIX",
-    value: `${hl.vix.level.toFixed(2)} · ${vixBucket}`,
-    color: vixColor
-  }), hl.breadth && React.createElement(Badge, {
-    label: "Breadth",
-    value: `${hl.breadth.green}/${hl.breadth.total}`,
-    color: hl.breadth.green >= hl.breadth.total * 0.6 ? "#34d399" : hl.breadth.green <= hl.breadth.total * 0.4 ? "#ef4444" : "#fbbf24"
-  }), hl.openTrades != null && React.createElement(Badge, {
-    label: "Open Trades",
-    value: String(hl.openTrades),
-    color: "#a78bfa"
-  })), indicies.length > 0 && React.createElement("div", {
+    className: "ds-card",
+    style: {
+      padding: "var(--ds-space-3) var(--ds-space-4)",
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+      gap: "var(--ds-space-2)"
+    }
+  }, hl.regime && React.createElement("div", {
+    className: "ds-metric"
+  }, React.createElement("div", {
+    className: "ds-metric__label"
+  }, "Regime"), React.createElement("div", {
+    className: "ds-metric__row"
+  }, React.createElement("div", {
+    className: "ds-metric__value",
+    style: {
+      fontSize: "var(--ds-fs-emph)",
+      textTransform: "capitalize"
+    }
+  }, hl.regime.replace(/_/g, " ").toLowerCase()))), hl.vix && React.createElement("div", {
+    className: "ds-metric"
+  }, React.createElement("div", {
+    className: "ds-metric__label"
+  }, "VIX"), React.createElement("div", {
+    className: "ds-metric__row"
+  }, React.createElement("div", {
+    className: "ds-metric__value"
+  }, hl.vix.level.toFixed(2)), React.createElement("div", {
+    className: `ds-metric__delta ds-metric__delta--${hl.vix.level < 20 ? "up" : hl.vix.level > 30 ? "dn" : "accent"}`
+  }, vixBucket))), hl.breadth && React.createElement("div", {
+    className: "ds-metric"
+  }, React.createElement("div", {
+    className: "ds-metric__label"
+  }, "Breadth"), React.createElement("div", {
+    className: "ds-metric__row"
+  }, React.createElement("div", {
+    className: "ds-metric__value"
+  }, hl.breadth.green, React.createElement("span", {
+    style: {
+      color: "var(--ds-text-faint)",
+      fontSize: "var(--ds-fs-meta)",
+      marginLeft: 2
+    }
+  }, "/", hl.breadth.total)), React.createElement("div", {
+    className: `ds-metric__delta ds-metric__delta--${hl.breadth.green >= hl.breadth.total * 0.6 ? "up" : hl.breadth.green <= hl.breadth.total * 0.4 ? "dn" : "accent"}`
+  }, Math.round(100 * hl.breadth.green / Math.max(1, hl.breadth.total)), "%"))), hl.openTrades != null && React.createElement("div", {
+    className: "ds-metric"
+  }, React.createElement("div", {
+    className: "ds-metric__label"
+  }, "Open Trades"), React.createElement("div", {
+    className: "ds-metric__row"
+  }, React.createElement("div", {
+    className: "ds-metric__value"
+  }, hl.openTrades)))), indicies.length > 0 && React.createElement("div", {
     className: "grid grid-cols-1 md:grid-cols-3 gap-2"
   }, indicies.map(idx => {
     const lvls = idx.levels || {};

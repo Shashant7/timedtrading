@@ -260,12 +260,42 @@
               </div>
             )}
 
-            {/* Headline strip */}
-            <div className="flex flex-wrap items-center gap-2">
-              {hl.regime && <Badge label="Regime" value={hl.regime.replace(/_/g, " ")} color="#67e8f9" />}
-              {hl.vix && <Badge label="VIX" value={`${hl.vix.level.toFixed(2)} · ${vixBucket}`} color={vixColor} />}
-              {hl.breadth && <Badge label="Breadth" value={`${hl.breadth.green}/${hl.breadth.total}`} color={hl.breadth.green >= (hl.breadth.total * 0.6) ? "#34d399" : hl.breadth.green <= (hl.breadth.total * 0.4) ? "#ef4444" : "#fbbf24"} />}
-              {hl.openTrades != null && <Badge label="Open Trades" value={String(hl.openTrades)} color="#a78bfa" />}
+            {/* Headline metrics strip — V2 (2026-05-01) on ds-metric */}
+            <div className="ds-card" style={{ padding: "var(--ds-space-3) var(--ds-space-4)", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "var(--ds-space-2)" }}>
+              {hl.regime && (
+                <div className="ds-metric">
+                  <div className="ds-metric__label">Regime</div>
+                  <div className="ds-metric__row">
+                    <div className="ds-metric__value" style={{ fontSize: "var(--ds-fs-emph)", textTransform: "capitalize" }}>{hl.regime.replace(/_/g, " ").toLowerCase()}</div>
+                  </div>
+                </div>
+              )}
+              {hl.vix && (
+                <div className="ds-metric">
+                  <div className="ds-metric__label">VIX</div>
+                  <div className="ds-metric__row">
+                    <div className="ds-metric__value">{hl.vix.level.toFixed(2)}</div>
+                    <div className={`ds-metric__delta ds-metric__delta--${hl.vix.level < 20 ? "up" : hl.vix.level > 30 ? "dn" : "accent"}`}>{vixBucket}</div>
+                  </div>
+                </div>
+              )}
+              {hl.breadth && (
+                <div className="ds-metric">
+                  <div className="ds-metric__label">Breadth</div>
+                  <div className="ds-metric__row">
+                    <div className="ds-metric__value">{hl.breadth.green}<span style={{ color: "var(--ds-text-faint)", fontSize: "var(--ds-fs-meta)", marginLeft: 2 }}>/{hl.breadth.total}</span></div>
+                    <div className={`ds-metric__delta ds-metric__delta--${hl.breadth.green >= (hl.breadth.total * 0.6) ? "up" : hl.breadth.green <= (hl.breadth.total * 0.4) ? "dn" : "accent"}`}>{Math.round(100*hl.breadth.green/Math.max(1,hl.breadth.total))}%</div>
+                  </div>
+                </div>
+              )}
+              {hl.openTrades != null && (
+                <div className="ds-metric">
+                  <div className="ds-metric__label">Open Trades</div>
+                  <div className="ds-metric__row">
+                    <div className="ds-metric__value">{hl.openTrades}</div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Index cards (V15 P0.7.42 — Day & Week GG with close-prob) */}
