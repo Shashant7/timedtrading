@@ -973,14 +973,34 @@ function useTrades(enabled = true) {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch(`${API_BASE}/timed/trades?source=promoted`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      if (json.ok && Array.isArray(json.trades)) {
-        setTrades(json.trades);
-      } else {
-        setTrades([]);
+      const [promRes, posRes] = await Promise.all([fetch(`${API_BASE}/timed/trades?source=promoted`).then(r => r.ok ? r.json() : null).catch(() => null), fetch(`${API_BASE}/timed/trades?source=positions`).then(r => r.ok ? r.json() : null).catch(() => null)]);
+      const merged = [];
+      const seen = new Set();
+      const norm = tr => {
+        const sym = String(tr?.ticker || "").toUpperCase();
+        const dir = String(tr?.direction || "").toUpperCase();
+        const ts = Number(tr?.entry_ts || tr?.entryTime || tr?.created_at || 0);
+        return `${sym}:${dir}:${ts}`;
+      };
+      if (posRes?.ok && Array.isArray(posRes.trades)) {
+        for (const tr of posRes.trades) {
+          const m = {
+            ...tr,
+            entry_price: tr.entry_price ?? tr.entryPrice ?? null,
+            sl: tr.sl ?? tr.stop_loss ?? null,
+            tp: tr.tp ?? tr.take_profit ?? null
+          };
+          merged.push(m);
+          seen.add(norm(m));
+        }
       }
+      if (promRes?.ok && Array.isArray(promRes.trades)) {
+        for (const tr of promRes.trades) {
+          if (seen.has(norm(tr))) continue;
+          merged.push(tr);
+        }
+      }
+      setTrades(merged);
     } catch (err) {
       setError(err.message);
       console.error("Failed to fetch trades:", err);
@@ -1710,6 +1730,9 @@ function groupsForTicker(t) {
 function isTickerTTSelected(t) {
   const T = normTicker(t);
   return GROUPS.UPTICKS?.has(T) || GROUPS.GRNI?.has(T) || GROUPS.GRNJ?.has(T) || GROUPS.GRNY?.has(T);
+}
+if (typeof window !== "undefined") {
+  window.isTickerTTSelected = isTickerTTSelected;
 }
 function isTickerInGroups(t) {
   const T = normTicker(t);
@@ -9578,7 +9601,7 @@ const DsCompactCard = React.memo(function DsCompactCard({
       if (tpArrRaw && tpArrRaw.length > 0) {
         return tpArrRaw.map(x => Number(x?.price ?? x)).filter(Number.isFinite);
       }
-      const single = Number(openTrade.tp) || Number(t?.tp) || null;
+      const single = Number(openTrade.tp) || Number(openTrade.take_profit) || Number(t?.tp) || Number(t?.tp_target_price) || null;
       return single ? [single] : [];
     })();
     const allPx = [ep, price, sl, ...tps].filter(p => Number.isFinite(p) && p > 0);
@@ -9784,35 +9807,73 @@ const DsCompactCard = React.memo(function DsCompactCard({
     dangerouslySetInnerHTML: {
       __html: sparkSvg
     }
-  }), React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: "var(--ds-space-1)",
-      marginTop: "var(--ds-space-2)",
-      flexWrap: "wrap",
-      zIndex: 2,
-      position: "relative"
+  }), (() => {
+    const tfm = t?.tf_tech || {};
+    const tfList = ["10", "15", "30", "1H", "60", "4H", "240"];
+    let sqState = null;
+    let sqTf = null;
+    for (const tfk of tfList) {
+      const row = tfm[tfk];
+      if (!row?.sq) continue;
+      if (row.sq.r) {
+        sqState = "release";
+        sqTf = tfk;
+        break;
+      }
     }
-  }, rank != null && React.createElement("span", {
-    className: "ds-chip ds-chip--sm",
-    style: {
-      fontFamily: "var(--tt-font-mono)"
-    },
-    title: "Rank"
-  }, "R", rank), conv != null && React.createElement("span", {
-    className: `ds-chip ds-chip--sm ${tier === "A" ? "ds-chip--up" : tier === "B" ? "ds-chip--accent" : "ds-chip--solid"}`,
-    style: {
-      fontFamily: "var(--tt-font-mono)"
-    },
-    title: "Conviction tier"
-  }, tier || "C", "\xB7", Math.round(conv)), rr != null && React.createElement("span", {
-    className: `ds-chip ds-chip--sm ${rr >= 2 ? "ds-chip--up" : rr >= 1.5 ? "ds-chip--accent" : ""}`,
-    style: {
-      fontFamily: "var(--tt-font-mono)"
-    },
-    title: "Risk:Reward"
-  }, rr.toFixed(1), "R")));
+    if (!sqState) {
+      for (const tfk of tfList) {
+        const row = tfm[tfk];
+        if (!row?.sq) continue;
+        if (row.sq.s) {
+          sqState = "on";
+          sqTf = tfk;
+          break;
+        }
+        if (row.sq.c) {
+          sqState = "compressed";
+          sqTf = tfk;
+          break;
+        }
+      }
+    }
+    const sqChip = sqState ? React.createElement("span", {
+      className: `ds-chip ds-chip--sm ${sqState === "release" ? "ds-chip--accent" : sqState === "on" ? "" : "ds-chip--solid"}`,
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: `Squeeze ${sqState} on ${sqTf}`
+    }, "SQ ", sqState === "release" ? "RLS" : sqState === "on" ? "ON" : "CMP") : null;
+    return React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: "var(--ds-space-1)",
+        marginTop: "var(--ds-space-2)",
+        flexWrap: "wrap",
+        zIndex: 2,
+        position: "relative"
+      }
+    }, rank != null && React.createElement("span", {
+      className: "ds-chip ds-chip--sm",
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: "Rank"
+    }, "R", rank), conv != null && React.createElement("span", {
+      className: `ds-chip ds-chip--sm ${tier === "A" ? "ds-chip--up" : tier === "B" ? "ds-chip--accent" : "ds-chip--solid"}`,
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: "Conviction tier"
+    }, tier || "C", "\xB7", Math.round(conv)), rr != null && React.createElement("span", {
+      className: `ds-chip ds-chip--sm ${rr >= 2 ? "ds-chip--up" : rr >= 1.5 ? "ds-chip--accent" : ""}`,
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: "Risk:Reward"
+    }, rr.toFixed(1), "R"), sqChip);
+  })());
 });
 function renderCompactCardFn(t, {
   onSelectTicker,

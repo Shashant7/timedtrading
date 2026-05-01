@@ -1610,17 +1610,48 @@
         const [error, setError] = useState(null);
 
         const fetchTrades = useCallback(async () => {
+          /* V2.1 round 3 (2026-05-01) — fetch BOTH promoted (historical) AND
+             positions (live open). The cards/RR/kanban need live entry/SL/TP
+             so the active-trade progress bar and LONG/SHORT chip render.
+             Promoted-only returned an empty map for live tickers. */
           try {
             setLoading(true);
             setError(null);
-            const res = await fetch(`${API_BASE}/timed/trades?source=promoted`);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const json = await res.json();
-            if (json.ok && Array.isArray(json.trades)) {
-              setTrades(json.trades);
-            } else {
-              setTrades([]);
+            const [promRes, posRes] = await Promise.all([
+              fetch(`${API_BASE}/timed/trades?source=promoted`).then(r => r.ok ? r.json() : null).catch(() => null),
+              fetch(`${API_BASE}/timed/trades?source=positions`).then(r => r.ok ? r.json() : null).catch(() => null),
+            ]);
+            const merged = [];
+            const seen = new Set();
+            const norm = (tr) => {
+              const sym = String(tr?.ticker || "").toUpperCase();
+              const dir = String(tr?.direction || "").toUpperCase();
+              const ts = Number(tr?.entry_ts || tr?.entryTime || tr?.created_at || 0);
+              return `${sym}:${dir}:${ts}`;
+            };
+            // Live positions take priority — they carry the most accurate
+            // entry/SL/TP for cards/RR.
+            if (posRes?.ok && Array.isArray(posRes.trades)) {
+              for (const tr of posRes.trades) {
+                // Normalize position fields → trade-shape so the rest of the
+                // UI can read entry_price / sl / tp uniformly.
+                const m = {
+                  ...tr,
+                  entry_price: tr.entry_price ?? tr.entryPrice ?? null,
+                  sl: tr.sl ?? tr.stop_loss ?? null,
+                  tp: tr.tp ?? tr.take_profit ?? null,
+                };
+                merged.push(m);
+                seen.add(norm(m));
+              }
             }
+            if (promRes?.ok && Array.isArray(promRes.trades)) {
+              for (const tr of promRes.trades) {
+                if (seen.has(norm(tr))) continue;
+                merged.push(tr);
+              }
+            }
+            setTrades(merged);
           } catch (err) {
             setError(err.message);
             console.error("Failed to fetch trades:", err);
@@ -2382,6 +2413,10 @@
       function isTickerTTSelected(t) {
         const T = normTicker(t);
         return (GROUPS.UPTICKS?.has(T) || GROUPS.GRNI?.has(T) || GROUPS.GRNJ?.has(T) || GROUPS.GRNY?.has(T));
+      }
+      // V2.1 round 3 (2026-05-01) — expose so the RR (separate file) can use it.
+      if (typeof window !== "undefined") {
+        window.isTickerTTSelected = isTickerTTSelected;
       }
 
       function isTickerInGroups(t) {
@@ -12297,7 +12332,9 @@
           if (!ep) return null;
           const isLong = tradeDir === "LONG";
           const sl = Number(openTrade.sl ?? openTrade.stop_loss) || Number(t?.sl) || null;
-          // TP array: prefer trade.tp_array; fall back to single tp
+          /* V2.1 round 3 (2026-05-01) — accept all known TP shapes:
+             tpArray (backtest), tp_array (snake_case), single tp (legacy),
+             take_profit (live position), or ticker-side tp / tp_target_price. */
           const tpArrRaw = Array.isArray(openTrade.tpArray) ? openTrade.tpArray
                          : Array.isArray(openTrade.tp_array) ? openTrade.tp_array
                          : null;
@@ -12305,7 +12342,11 @@
             if (tpArrRaw && tpArrRaw.length > 0) {
               return tpArrRaw.map(x => Number(x?.price ?? x)).filter(Number.isFinite);
             }
-            const single = Number(openTrade.tp) || Number(t?.tp) || null;
+            const single = Number(openTrade.tp)
+                        || Number(openTrade.take_profit)
+                        || Number(t?.tp)
+                        || Number(t?.tp_target_price)
+                        || null;
             return single ? [single] : [];
           })();
           // Determine domain: include all known levels + current price
@@ -12452,12 +12493,43 @@
             {progressBar}
             {/* Sparkline behind text wash */}
             {sparkSvg && <div className="ds-tickercard__spark" dangerouslySetInnerHTML={{ __html: sparkSvg }} />}
-            {/* Bottom signal row: rank · conviction tier · RR */}
-            <div style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-1)", marginTop: "var(--ds-space-2)", flexWrap: "wrap", zIndex: 2, position: "relative" }}>
-              {rank != null && <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }} title="Rank">R{rank}</span>}
-              {conv != null && <span className={`ds-chip ds-chip--sm ${tier === "A" ? "ds-chip--up" : tier === "B" ? "ds-chip--accent" : "ds-chip--solid"}`} style={{ fontFamily: "var(--tt-font-mono)" }} title="Conviction tier">{tier || "C"}·{Math.round(conv)}</span>}
-              {rr != null && <span className={`ds-chip ds-chip--sm ${rr >= 2 ? "ds-chip--up" : rr >= 1.5 ? "ds-chip--accent" : ""}`} style={{ fontFamily: "var(--tt-font-mono)" }} title="Risk:Reward">{rr.toFixed(1)}R</span>}
-            </div>
+            {/* Bottom signal row: rank · conviction tier · RR · squeeze · MTF */}
+            {(() => {
+              /* V2.1 round 3 (2026-05-01) — re-surface squeeze / compressed /
+                 release indicators that the v2 cards previously dropped.
+                 Reads tf_tech across LTFs and uses the most-actionable signal:
+                 release > on > compressed. */
+              const tfm = t?.tf_tech || {};
+              const tfList = ["10","15","30","1H","60","4H","240"];
+              let sqState = null; // 'release' | 'on' | 'compressed' | null
+              let sqTf = null;
+              for (const tfk of tfList) {
+                const row = tfm[tfk]; if (!row?.sq) continue;
+                if (row.sq.r) { sqState = "release"; sqTf = tfk; break; }
+              }
+              if (!sqState) {
+                for (const tfk of tfList) {
+                  const row = tfm[tfk]; if (!row?.sq) continue;
+                  if (row.sq.s) { sqState = "on"; sqTf = tfk; break; }
+                  if (row.sq.c) { sqState = "compressed"; sqTf = tfk; break; }
+                }
+              }
+              const sqChip = sqState ? (
+                <span className={`ds-chip ds-chip--sm ${sqState === "release" ? "ds-chip--accent" : sqState === "on" ? "" : "ds-chip--solid"}`}
+                      style={{ fontFamily: "var(--tt-font-mono)" }}
+                      title={`Squeeze ${sqState} on ${sqTf}`}>
+                  SQ {sqState === "release" ? "RLS" : sqState === "on" ? "ON" : "CMP"}
+                </span>
+              ) : null;
+              return (
+                <div style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-1)", marginTop: "var(--ds-space-2)", flexWrap: "wrap", zIndex: 2, position: "relative" }}>
+                  {rank != null && <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }} title="Rank">R{rank}</span>}
+                  {conv != null && <span className={`ds-chip ds-chip--sm ${tier === "A" ? "ds-chip--up" : tier === "B" ? "ds-chip--accent" : "ds-chip--solid"}`} style={{ fontFamily: "var(--tt-font-mono)" }} title="Conviction tier">{tier || "C"}·{Math.round(conv)}</span>}
+                  {rr != null && <span className={`ds-chip ds-chip--sm ${rr >= 2 ? "ds-chip--up" : rr >= 1.5 ? "ds-chip--accent" : ""}`} style={{ fontFamily: "var(--tt-font-mono)" }} title="Risk:Reward">{rr.toFixed(1)}R</span>}
+                  {sqChip}
+                </div>
+              );
+            })()}
           </button>
         );
       });
