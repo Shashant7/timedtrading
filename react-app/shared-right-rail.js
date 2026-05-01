@@ -431,7 +431,7 @@
 
     // TradingView Lightweight Charts Sub-Component for Right Rail
     // ═══════════════════════════════════════════════════════════════════════
-    function LWChart({ candles: rawCandles, chartTf, overlays, onCrosshair, height: propHeight, priceLines: propPriceLines, markers: propMarkers, ticker: propTicker }) {
+    function LWChart({ candles: rawCandles, chartTf, overlays, onCrosshair, height: propHeight, priceLines: propPriceLines, markers: propMarkers, ticker: propTicker, hideOverlayToggles = false }) {
       const containerRef = useRef(null);
       const chartInstanceRef = useRef(null);
       const candleSeriesRef = useRef(null);
@@ -845,8 +845,11 @@
       }
 
       return React.createElement("div", { className: "w-full relative -mx-3 px-3" },
-        // Overlay toggles
-        React.createElement("div", { className: "flex items-center gap-1.5 mb-1 flex-wrap" },
+        // V2.1 round 6 (2026-05-01) — Legacy in-canvas overlay-toggle row
+        // suppressed when the parent passes hideOverlayToggles=true (the v2
+        // Setup panel renders its own gold-styled toggles outside the chart,
+        // and the duplicate row was visible in the right rail).
+        !hideOverlayToggles && React.createElement("div", { className: "flex items-center gap-1.5 mb-1 flex-wrap" },
           [
             { key: "ema21", label: "21 EMA", color: "#fbbf24" },
             { key: "ema48", label: "48 EMA", color: "#a78bfa" },
@@ -2125,7 +2128,40 @@
                           >{isSavedRR ? "★" : "☆"}</button>
                         );
                       })()}
-                      <button className="ds-chip ds-chip--sm" onClick={() => { try { navigator.clipboard.writeText(window.location.origin + "/?ticker=" + tickerSymbol); } catch (_) {} }} title="Copy share link">↗</button>
+                      {/* V2.1 round 6 (2026-05-01) — Share icon (was copy-link arrow).
+                          Uses navigator.share when available (mobile native sheet),
+                          falls back to clipboard copy with a transient toast on desktop. */}
+                      <button
+                        className="ds-chip ds-chip--sm"
+                        onClick={async () => {
+                          const url = `${window.location.origin}/?ticker=${encodeURIComponent(tickerSymbol)}`;
+                          const title = `${tickerSymbol} \u2014 Timed Trading`;
+                          try {
+                            if (navigator.share) {
+                              await navigator.share({ title, url });
+                            } else {
+                              await navigator.clipboard.writeText(url);
+                              try {
+                                const t = document.createElement("div");
+                                t.textContent = "Link copied";
+                                t.style.cssText = "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ds-bg-canvas);color:var(--ds-text-display);border:1px solid var(--ds-stroke);border-radius:var(--ds-radius);padding:8px 14px;font-size:12px;font-family:var(--tt-font-mono);z-index:99999;box-shadow:0 8px 32px rgba(0,0,0,0.5)";
+                                document.body.appendChild(t);
+                                setTimeout(() => t.remove(), 1600);
+                              } catch (_) {}
+                            }
+                          } catch (_) {}
+                        }}
+                        title="Share ticker"
+                        aria-label="Share ticker"
+                        style={{ padding: "0 6px" }}
+                      >
+                        {/* iOS-style share glyph (square with up arrow) */}
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M12 3v12" />
+                          <path d="M8 7l4-4 4 4" />
+                          <path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" />
+                        </svg>
+                      </button>
                       <button className="ds-chip ds-chip--sm" onClick={onClose} title="Close">✕</button>
                     </div>
                   </div>
@@ -2290,17 +2326,17 @@
                         <Panel title="Conviction">
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--ds-space-2)" }}>
                             {v2Rank != null && (
-                              <div title="RANK — position vs all eligible tickers, lower is better. R1 = top idea right now.">
+                              <div title="RANK — your ticker's position when all eligible tickers are sorted by SCORE (best first). R1 is the engine's top idea right now; high numbers (e.g. R94) mean the ticker is far down the list.">
                                 <Metric label="Rank" value={`R${v2Rank}`} />
                               </div>
                             )}
                             {v2Score != null && (
-                              <div title="SCORE — composite alignment score (0–200) combining LTF momentum, HTF structure, RVol, fuel and divergence.">
+                              <div title="SCORE — composite alignment score (0–200) combining LTF momentum, HTF structure, RVol, fuel and divergence. Higher is better. Rank is derived from this — R1 = highest score.">
                                 <Metric label="Score" value={Math.round(v2Score)} />
                               </div>
                             )}
                             {v2Conv != null && (
-                              <div title="CONVICTION — engine confidence in the active setup (0–100). Tier A is highest conviction; Tier C is lowest.">
+                              <div title="CONVICTION — engine confidence (0–100) in the active setup itself, independent of rank. A ticker can be R94 (low rank) yet have high Conviction if its specific setup is well-formed. Tier A = highest, Tier C = lowest.">
                                 <Metric label="Conviction" value={Math.round(v2Conv)} delta={v2Tier || null} />
                               </div>
                             )}
@@ -2518,6 +2554,7 @@
                               priceLines: buildLines(),
                               ticker,
                               height: 240,
+                              hideOverlayToggles: true,
                             })}
                           </div>
                         </Panel>
@@ -2628,6 +2665,94 @@
                   {/* TECHNICALS TAB */}
                   {v2RailTab === "TECHNICALS" && (
                     <>
+                      {/* V2.1 round 6 (2026-05-01) — Technical Analysis narrative.
+                          Per user: "It would be nice to provide a quick technical
+                          analysis narrative on top of the technicals section in
+                          the right rail." Builds plain-language commentary from
+                          tf_tech across LTF/HTF, RSI extremes, squeeze state,
+                          and TD count to give a "what does this all mean" read. */}
+                      {ticker?.tf_tech && (() => {
+                        const tfm = ticker.tf_tech || {};
+                        const sym = tickerSymbol;
+                        const dirSign = (() => {
+                          const s = String(ticker?.state || "").toUpperCase();
+                          if (s.startsWith("HTF_BULL")) return 1;
+                          if (s.startsWith("HTF_BEAR")) return -1;
+                          const t30 = Number(tfm["30"]?.stDir);
+                          const t1h = Number(tfm["1H"]?.stDir || tfm["60"]?.stDir);
+                          const tdy = Number(tfm.D?.stDir);
+                          const sum = (t30||0)+(t1h||0)+(tdy||0);
+                          return sum > 0 ? 1 : sum < 0 ? -1 : 0;
+                        })();
+                        const dir = dirSign === 1 ? "bullish" : dirSign === -1 ? "bearish" : "mixed";
+                        const lines = [];
+                        // HTF posture
+                        const dailyStack = Number(tfm.D?.ema?.stack);
+                        const fourhStack = Number(tfm["4H"]?.ema?.stack || tfm["240"]?.ema?.stack);
+                        if (Number.isFinite(dailyStack) && dailyStack !== 0) {
+                          if (dailyStack >= 4) lines.push(`Daily structure is strongly bullish (full EMA stack).`);
+                          else if (dailyStack <= -4) lines.push(`Daily structure is strongly bearish (full EMA stack down).`);
+                          else if (dailyStack > 0) lines.push(`Daily structure leans bullish but not fully stacked.`);
+                          else lines.push(`Daily structure leans bearish but not fully stacked.`);
+                        }
+                        if (Number.isFinite(fourhStack) && Math.sign(fourhStack) !== Math.sign(dailyStack || 0) && fourhStack !== 0) {
+                          lines.push(`Watch the 4H \u2014 it's moving against the Daily, suggests pullback or counter-rotation.`);
+                        }
+                        // RSI extremes
+                        const rsi1H = Number(tfm["1H"]?.rsi?.r5 || tfm["60"]?.rsi?.r5);
+                        const rsiD  = Number(tfm.D?.rsi?.r5);
+                        if (Number.isFinite(rsiD) && rsiD >= 70) lines.push(`Daily RSI ${rsiD.toFixed(0)} is overbought \u2014 reversal risk elevated.`);
+                        else if (Number.isFinite(rsiD) && rsiD <= 30) lines.push(`Daily RSI ${rsiD.toFixed(0)} is oversold \u2014 mean-reversion bounce possible.`);
+                        if (Number.isFinite(rsi1H) && rsi1H >= 70 && (!Number.isFinite(rsiD) || rsiD < 70)) lines.push(`1H RSI ${rsi1H.toFixed(0)} is hot but Daily isn't \u2014 short-term overheat.`);
+                        // Squeeze
+                        let sqLine = null;
+                        for (const k of ["15","30","1H","60","4H","240","D"]) {
+                          const sq = tfm[k]?.sq;
+                          if (!sq) continue;
+                          if (sq.r) { sqLine = `Squeeze just RELEASED on ${k === "60" ? "1H" : k === "240" ? "4H" : k} \u2014 expect an expansion move.`; break; }
+                        }
+                        if (!sqLine) {
+                          for (const k of ["15","30","1H","60","4H","240","D"]) {
+                            const sq = tfm[k]?.sq;
+                            if (!sq) continue;
+                            if (sq.s) { sqLine = `Volatility coiled with squeeze ON ${k === "60" ? "1H" : k === "240" ? "4H" : k} \u2014 watch for expansion.`; break; }
+                          }
+                        }
+                        if (sqLine) lines.push(sqLine);
+                        // Divergence
+                        const rsiDivBear = ticker?.rsi_divergence?.bear?.active || tfm["1H"]?.rsiDiv?.bear?.a;
+                        const rsiDivBull = ticker?.rsi_divergence?.bull?.active || tfm["1H"]?.rsiDiv?.bull?.a;
+                        if (rsiDivBear) lines.push(`RSI bearish divergence active \u2014 momentum slowing while price still pushes up.`);
+                        if (rsiDivBull) lines.push(`RSI bullish divergence active \u2014 selling losing steam, watch for reversal.`);
+                        // TD
+                        const tdD = ticker?.td_sequential?.per_tf?.D || ticker?.td_sequential?.per_tf?.["1D"];
+                        if (tdD) {
+                          const bp = Number(tdD.bullish_prep_count) || 0;
+                          const sp = Number(tdD.bearish_prep_count) || 0;
+                          if (sp >= 8) lines.push(`Daily TD${sp} setup count is exhaustion-high on the bear side.`);
+                          else if (bp >= 8) lines.push(`Daily TD${bp} setup count is exhaustion-high on the bull side.`);
+                        }
+                        if (lines.length === 0) {
+                          lines.push(`Technicals look balanced \u2014 no extreme readings, no exhaustion signals, no fresh squeeze. Waiting for a catalyst.`);
+                        }
+                        return (
+                          <Panel title={`Technical Analysis \u00B7 ${sym}`}>
+                            <p style={{ margin: 0, fontSize: "var(--ds-fs-body)", lineHeight: 1.6, color: "var(--ds-text-body)" }}>
+                              <span style={{
+                                fontFamily: "var(--tt-font-mono)",
+                                fontSize: 9,
+                                letterSpacing: "0.16em",
+                                textTransform: "uppercase",
+                                color: dir === "bullish" ? "var(--ds-up)" : dir === "bearish" ? "var(--ds-dn)" : "var(--ds-text-muted)",
+                                fontWeight: 700,
+                                marginRight: 8,
+                              }}>{dir} bias</span>
+                              {lines.join(" ")}
+                            </p>
+                          </Panel>
+                        );
+                      })()}
+
                       {/* Multi-TF stack — full table with RSI / ATR% / Squeeze / Phase / State.
                           V2.1 round 3 (2026-05-01) — Field paths fixed:
                             t.rsi.r5  (not t.rsi)

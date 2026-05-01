@@ -3391,7 +3391,7 @@ const TickerDetailsLoader = ({
     sectors: sectors,
     rankedTickers: rankedTickers,
     rankedTickerPositions: rankedTickerPositions,
-    initialRailTab: trade ? "TRADE_HISTORY" : null,
+    initialRailTab: trade ? "HISTORY" : null,
     openAutopsyForTrade: openAutopsyForTrade,
     effectiveStage: effectiveStage,
     modalOnly: modalOnly
@@ -5075,7 +5075,8 @@ function TradeReviewChart({
   exitPrice,
   entryTs,
   exitTs,
-  trimTs
+  trimTs,
+  trimPrice
 }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
@@ -5206,6 +5207,16 @@ function TradeReviewChart({
           title: "Exit"
         });
       }
+      if (Number(trimPrice) > 0) {
+        candleSeries.createPriceLine({
+          price: Number(trimPrice),
+          color: "#14b8a6",
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: "Trim"
+        });
+      }
       const markers = [];
       if (entryTs && Number(entryTs) > 0) {
         const t = snapToBar(entryTs, bars);
@@ -5320,7 +5331,7 @@ function TradeReviewModal({
     background: "rgba(0,0,0,0.7)",
     backdropFilter: "blur(4px)"
   }} onClick=${closeModal}>
-            <div className="bg-[#0b0e11] border border-white/[0.04] w-full h-full md:h-auto md:max-w-[860px] md:max-h-[94vh] md:rounded-xl overflow-hidden flex flex-col" onClick=${e => e.stopPropagation()}>
+            <div className="bg-[#0b0e11] border border-white/[0.04] w-full h-full md:h-auto md:max-w-[1100px] md:max-h-[96vh] md:rounded-xl overflow-hidden flex flex-col" onClick=${e => e.stopPropagation()}>
               <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06]" style=${{
     background: "rgba(255,255,255,0.02)"
   }}>
@@ -5366,7 +5377,7 @@ function TradeReviewModal({
                   ${rank > 0 && html`<span className="text-[10px] text-[#9ca3af] ml-auto">Rank #${rank}</span>`}
                 </div>
 
-                <${TradeReviewChart} ticker=${t.ticker} entryPrice=${entryPx} exitPrice=${exitPx} entryTs=${t.entry_ts} exitTs=${t.exit_ts} trimTs=${t.trim_ts} />
+                <${TradeReviewChart} ticker=${t.ticker} entryPrice=${entryPx} exitPrice=${exitPx} entryTs=${t.entry_ts} exitTs=${t.exit_ts} trimTs=${t.trim_ts} trimPrice=${Number(t.trim_price || t.trimPrice) || 0} />
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                   <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-3 py-2">
@@ -5398,15 +5409,7 @@ function TradeReviewModal({
                   </div>
                 </div>
 
-                ${(t.trade_id || t.id) && html`
-                  <div className="text-center pt-1">
-                    <a href=${`trade-autopsy.html?trade_id=${encodeURIComponent(t.trade_id || t.id)}&readonly=1`}
-                      target="_blank" rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium text-[#14b8a6] bg-[#14b8a6]/10 hover:bg-[#14b8a6]/20 border border-[#14b8a6]/20 transition-colors">
-                      View Full Trade Autopsy →
-                    </a>
-                  </div>
-                `}
+                ${""}
               </div>
             </div>
           </div>
@@ -6851,7 +6854,14 @@ function App() {
       ripster_reclaim: "Reclaim Long",
       ripster_short_pivot_reclaimed: "Short Pivot Reclaim"
     };
-    const fmtPath = p => SETUP_MAP[p] || (p ? p.replace(/^tt_/i, "").replace(/^ripster_?/i, "").replace(/^saty_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : "Setup");
+    const fmtPath = p => {
+      if (!p) return "Setup";
+      let s = String(p).toLowerCase().trim();
+      while (/^(tt|ripster|saty)_/.test(s)) s = s.replace(/^(tt|ripster|saty)_/, "");
+      if (SETUP_MAP[s]) return SETUP_MAP[s];
+      if (SETUP_MAP[`tt_${s}`]) return SETUP_MAP[`tt_${s}`];
+      return s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    };
     const EXIT_MAP = {
       sl_breached: "Price moved against us and hit our safety exit.",
       SL: "Price moved against us and hit our safety exit.",

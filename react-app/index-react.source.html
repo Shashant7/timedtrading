@@ -12683,20 +12683,12 @@
           return { openCount, openUnrealized, todayClosedRealized, todayWins, todayLosses, dayNet: openUnrealized + todayClosedRealized };
         }, [trades]);
 
-        /* V2.1 round 5 (2026-05-01) — Top Signal richer logic.
-           Per user: "Top Signal has been AMZN this whole week — feel like
-           there can be more provided in that section". The previous logic
-           just took rank #1 not-in-a-trade, which is sticky. Now we pick
-           the most actionable signal across categories and rotate the
-           label to explain WHY it's chosen:
-             - Just Flipped: state went from HTF_BULL -> HTF_BEAR (or vice
-               versa) within the last hour — fresh idea
-             - Squeeze Release: sq30_release flag — explosive move imminent
-             - Top Rank: highest-rank not-in-trade (legacy fallback)
-           Also tries multiple candidates so the strip rotates between
-           tickers as conditions change. */
-        const topOpp = React.useMemo(() => {
-          if (!Array.isArray(allTickersWithRanks) || allTickersWithRanks.length === 0) return null;
+        /* V2.1 round 6 (2026-05-01) — Top Signals list.
+           Per user: header should show ONE PER CATEGORY (up to 5), not just
+           the single Top Signal. Picks the best ticker for each category
+           and dedupes so the same ticker doesn't appear twice. */
+        const topSignals = React.useMemo(() => {
+          if (!Array.isArray(allTickersWithRanks) || allTickersWithRanks.length === 0) return [];
           const openSet = new Set(
             (Array.isArray(trades) ? trades : [])
               .filter(tr => !tr?.exit_ts && !tr?.exit_timestamp)
@@ -12707,58 +12699,56 @@
             const rank = Number(t?.rank);
             return sym && !openSet.has(sym) && Number.isFinite(rank) && rank > 0;
           });
-          if (eligible.length === 0) return null;
-          // 1) Squeeze release (high-energy)
-          const sqRelease = eligible.find(t => t?.flags?.sq30_release === true);
-          if (sqRelease) {
-            return {
-              ticker: String(sqRelease.ticker).toUpperCase(),
-              rank: Number(sqRelease.rank),
-              dir: sqRelease.direction || sqRelease.consensus_direction || "—",
-              setup: sqRelease.setup_name || sqRelease.entry_path || "—",
-              kind: "Squeeze Release",
-              tip: "30-min squeeze just released — explosive move likely. Top-ranked candidate not already in a trade.",
-            };
-          }
-          // 2) Just flipped (fresh state change in last 60min)
+          if (eligible.length === 0) return [];
           const oneHrAgo = Date.now() - 60 * 60 * 1000;
-          const justFlipped = eligible.find(t => {
-            const flipTs = Number(t?.last_state_change_ts || t?.flip_ts || 0);
-            return flipTs > oneHrAgo;
-          });
-          if (justFlipped) {
-            return {
-              ticker: String(justFlipped.ticker).toUpperCase(),
-              rank: Number(justFlipped.rank),
-              dir: justFlipped.direction || justFlipped.consensus_direction || "—",
-              setup: justFlipped.setup_name || justFlipped.entry_path || "—",
+          const cats = [
+            {
+              kind: "Top Rank",
+              tip: "Highest-ranked ticker not already in an open trade. The model's #1 idea right now.",
+              find: (list) => list[0] || null,
+            },
+            {
+              kind: "Squeeze Release",
+              tip: "30-min squeeze just released \u2014 explosive move likely. Top-ranked candidate with sq30_release flag.",
+              find: (list) => list.find(t => t?.flags?.sq30_release === true) || null,
+            },
+            {
               kind: "Just Flipped",
-              tip: "State changed within the last hour — fresh idea. Top-ranked candidate not already in a trade.",
-            };
-          }
-          // 3) Momentum elite
-          const momentumElite = eligible.find(t => t?.flags?.momentum_elite === true);
-          if (momentumElite) {
-            return {
-              ticker: String(momentumElite.ticker).toUpperCase(),
-              rank: Number(momentumElite.rank),
-              dir: momentumElite.direction || momentumElite.consensus_direction || "—",
-              setup: momentumElite.setup_name || momentumElite.entry_path || "—",
+              tip: "State changed within the last hour \u2014 fresh idea. Top-ranked candidate that just flipped.",
+              find: (list) => list.find(t => Number(t?.last_state_change_ts || t?.flip_ts || 0) > oneHrAgo) || null,
+            },
+            {
               kind: "Momentum Elite",
-              tip: "Multi-TF momentum aligned and accelerating. Top-ranked candidate not already in a trade.",
-            };
+              tip: "Multi-TF momentum aligned and accelerating. Top-ranked candidate with momentum_elite flag.",
+              find: (list) => list.find(t => t?.flags?.momentum_elite === true) || null,
+            },
+            {
+              kind: "High R:R",
+              tip: "Top-ranked candidate with risk:reward >= 2.5 \u2014 best reward-per-unit-risk on the board.",
+              find: (list) => list.find(t => Number(t?.rr) >= 2.5) || null,
+            },
+          ];
+          const seen = new Set();
+          const out = [];
+          for (const c of cats) {
+            const t = c.find(eligible);
+            if (!t) continue;
+            const sym = String(t.ticker).toUpperCase();
+            if (seen.has(sym)) continue;
+            seen.add(sym);
+            out.push({
+              ticker: sym,
+              rank: Number(t.rank),
+              dir: t.direction || t.consensus_direction || "\u2014",
+              setup: t.setup_name || t.entry_path || "\u2014",
+              kind: c.kind,
+              tip: c.tip,
+            });
+            if (out.length >= 5) break;
           }
-          // 4) Top rank fallback
-          const t = eligible[0];
-          return {
-            ticker: String(t.ticker).toUpperCase(),
-            rank: Number(t.rank),
-            dir: t.direction || t.consensus_direction || "—",
-            setup: t.setup_name || t.entry_path || "—",
-            kind: "Top Rank",
-            tip: "Highest-ranked ticker not already in an open trade. Rotates as new signals emerge.",
-          };
+          return out;
         }, [allTickersWithRanks, trades]);
+        const topOpp = topSignals[0] || null; // legacy single-item code paths
 
         const toneCls = (tone) => {
           switch (tone) {
@@ -12875,30 +12865,32 @@
               </Cell>
             )}
 
-            {/* Top opportunity */}
-            {topOpp && (
+            {/* V2.1 round 6 (2026-05-01) — Top Signals: up to 5 categories
+                rendered side-by-side in the status strip. Each cell shows
+                the category label + ticker + rank + direction. Cells share
+                consistent padding/border so the strip reads as one row. */}
+            {topSignals && topSignals.map((sig, i) => (
               <button
-                onClick={() => onSelectTicker && onSelectTicker(topOpp.ticker)}
+                key={`sig-${sig.kind}-${sig.ticker}`}
+                onClick={() => onSelectTicker && onSelectTicker(sig.ticker)}
                 className="flex flex-col justify-center min-w-0 hover:bg-white/[0.04] transition-colors group text-left"
                 style={{ padding: "6px 14px", borderRight: "1px solid var(--tt-border-weak)" }}
-                title={topOpp.tip || `Best current opportunity — click to open ${topOpp.ticker}`}
+                title={sig.tip || `${sig.kind} \u2014 click to open ${sig.ticker}`}
               >
-                <div className="tt-label" style={{ fontSize: 9, marginBottom: 2 }}>
-                  {topOpp.kind || "Top Signal"}
-                </div>
-                <div style={{ fontSize: 12, lineHeight: 1.2 }} className="truncate">
-                  <span className="tt-num font-bold text-white group-hover:text-cyan-300 transition-colors">{topOpp.ticker}</span>
+                <div className="tt-label" style={{ fontSize: 9, marginBottom: 2 }}>{sig.kind}</div>
+                <div style={{ fontSize: 12, lineHeight: 1.2, whiteSpace: "nowrap" }}>
+                  <span className="tt-num font-bold text-white group-hover:text-cyan-300 transition-colors">{sig.ticker}</span>
                   <span className="tt-num ml-1.5" style={{ fontSize: 10.5, color: "var(--tt-text-3)" }}>
-                    rank <span className="font-semibold" style={{ color: "var(--tt-info)" }}>{topOpp.rank}</span>
+                    R<span className="font-semibold" style={{ color: "var(--tt-info)" }}>{sig.rank}</span>
                   </span>
-                  {topOpp.dir && topOpp.dir !== "—" && (
-                    <span className="ml-1.5" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.08em", color: String(topOpp.dir).toUpperCase().includes("SHORT") ? "var(--tt-danger)" : "var(--tt-success)" }}>
-                      {String(topOpp.dir).toUpperCase().includes("SHORT") ? "short" : "long"}
+                  {sig.dir && sig.dir !== "\u2014" && (
+                    <span className="ml-1" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: String(sig.dir).toUpperCase().includes("SHORT") ? "var(--tt-danger)" : "var(--tt-success)" }}>
+                      {String(sig.dir).toUpperCase().includes("SHORT") ? "S" : "L"}
                     </span>
                   )}
                 </div>
               </button>
-            )}
+            ))}
 
             {/* Market status (right-aligned) */}
             <div className="flex items-center ml-auto" style={{ padding: "6px 14px" }}>
@@ -19238,11 +19230,18 @@
                         </div>
                       </div>
                     );
+                    /* V2.1 round 6 (2026-05-01) — RTH + EXT side by side on
+                       the same row (was stacked vertically). On narrow screens
+                       they wrap onto two rows (flex-wrap). */
                     return (
-                      <div className="mb-3" style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-1)" }}>
-                        <SessionRow pillLabel="RTH" pillCls="ds-chip--accent" gainers={rthGainers} losers={rthLosers} pctKey="_pct" priceKey="_price" />
+                      <div className="mb-3" style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
+                        <div style={{ flex: hasEth ? "1 1 360px" : "1 1 100%", minWidth: 0 }}>
+                          <SessionRow pillLabel="RTH" pillCls="ds-chip--accent" gainers={rthGainers} losers={rthLosers} pctKey="_pct" priceKey="_price" />
+                        </div>
                         {hasEth && (
-                          <SessionRow pillLabel="EXT" pillCls="" gainers={ethGainers} losers={ethLosers} pctKey="_ethPct" priceKey="_ethPrice" />
+                          <div style={{ flex: "1 1 360px", minWidth: 0 }}>
+                            <SessionRow pillLabel="EXT" pillCls="" gainers={ethGainers} losers={ethLosers} pctKey="_ethPct" priceKey="_ethPrice" />
+                          </div>
                         )}
                       </div>
                     );
@@ -19857,32 +19856,49 @@
                           if (focus) focusBucket.push(focus);
                           for (const c of now)    focusBucket.push(c);
                           for (const c of setups) focusBucket.push(c);
+                          /* V2.1 round 6 (2026-05-01) — equal-height tiles.
+                             Per user: heights for Momentum and Context were
+                             off. align-items:stretch on the row plus a fixed
+                             minHeight on the tile + h:100% inner content
+                             keeps all 4 tiles visually identical regardless
+                             of how many chips each holds. */
                           const Section = ({ label, items, accent }) => {
-                            if (!items || items.length === 0) return null;
+                            const empty = !items || items.length === 0;
                             return (
-                              <div className="ds-glass" style={{ padding: "var(--ds-space-2) var(--ds-space-3)", flex: "1 1 0", minWidth: 0 }}>
+                              <div className="ds-glass" style={{
+                                padding: "var(--ds-space-2) var(--ds-space-3)",
+                                flex: "1 1 0",
+                                minWidth: 0,
+                                minHeight: 44,
+                                display: "flex",
+                                alignItems: "center",
+                                opacity: empty ? 0.45 : 1,
+                              }}>
                                 <div style={{
                                   display: "flex",
                                   alignItems: "center",
                                   flexWrap: "nowrap",
                                   gap: 4,
                                   overflowX: "auto",
+                                  width: "100%",
                                 }} className="scrollbar-hide">
                                   <span className="ds-caption" style={{ color: accent, marginRight: 6, flexShrink: 0 }}>{label}</span>
-                                  {items.map(c => renderChip(c, false))}
+                                  {empty
+                                    ? <span style={{ fontSize: 11, color: "var(--ds-text-faint)" }}>none</span>
+                                    : items.map(c => renderChip(c, false))}
                                 </div>
                               </div>
                             );
                           };
                           return (
                             <div className="mb-2" style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-1)" }}>
-                              {/* Row 1: Focus | Momentum */}
-                              <div style={{ display: "flex", gap: "var(--ds-space-1)" }}>
+                              {/* Row 1: Focus | Momentum — equal-height tiles via align-items:stretch */}
+                              <div style={{ display: "flex", gap: "var(--ds-space-1)", alignItems: "stretch" }}>
                                 <Section label="Focus" items={focusBucket} accent="var(--ds-accent)" />
                                 <Section label="Momentum" items={momentum} accent="var(--ds-warn)" />
                               </div>
                               {/* Row 2: Structure | Context */}
-                              <div style={{ display: "flex", gap: "var(--ds-space-1)" }}>
+                              <div style={{ display: "flex", gap: "var(--ds-space-1)", alignItems: "stretch" }}>
                                 <Section label="Structure" items={structure} accent="var(--ds-violet)" />
                                 <Section label="Context" items={context} accent="var(--ds-text-muted)" />
                               </div>

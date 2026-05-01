@@ -5457,8 +5457,11 @@ const TF_TO_ALPACA = {
 // M (Monthly) included for investor-grade scoring (computeInvestorScore)
 const ALL_TFS = ["M", "W", "D", "240", "60", "30", "15", "10"];
 
-// All timeframes we fetch from Alpaca for candle storage (5m dropped — swing focus)
-const CRON_FETCH_TFS = ["M", "W", "D", "240", "60", "30", "10"];
+// All timeframes we fetch from Alpaca for candle storage (5m dropped — swing focus).
+// V15 P0.7.49 (2026-05-01) — Added "15" so 15m candles are backfilled on the
+// scheduled cron and tf_tech.15 / TD per_tf.15 are populated. Without this
+// the RR Multi-TF Stack 15m row was always blank.
+const CRON_FETCH_TFS = ["M", "W", "D", "240", "60", "30", "15", "10"];
 
 // TD Sequential timeframes — computed on 8 TFs for chart overlays (5m dropped).
 // V15 P0.7.47 (2026-05-01) — Added "15" so the RR TD panel can show the

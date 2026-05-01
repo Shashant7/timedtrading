@@ -57564,7 +57564,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
       if (routeKey === "GET /timed/daily-brief/archive/:id") {
         try {
-          const briefId = pathname.replace("/timed/daily-brief/archive/", "");
+          /* V15 P0.7.49 (2026-05-01) — `pathname` was undefined here.
+             The router uses `url.pathname` from the request URL; the local
+             scope didn't have it so the handler threw on every request. */
+          const _pathname = (() => { try { return new URL(req.url).pathname; } catch (_) { return ""; } })();
+          const briefId = _pathname.replace("/timed/daily-brief/archive/", "");
           const result = await handleGetArchiveBrief(env, briefId);
           return sendJSON(result, 200, corsHeaders(env, req));
         } catch (e) {
