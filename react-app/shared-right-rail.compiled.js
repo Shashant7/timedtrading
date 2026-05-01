@@ -2950,7 +2950,22 @@
           dangerouslySetInnerHTML: {
             __html: v2SparkSvg
           }
-        })), (v2Rank || v2Score || v2Conv) && /*#__PURE__*/React.createElement(Panel, {
+        })), window.TickerSpiderChartFactory && (() => {
+          const SpiderC = window.TickerSpiderChartFactory({
+            React
+          });
+          return /*#__PURE__*/React.createElement("div", {
+            style: {
+              marginBottom: "var(--ds-space-3)"
+            }
+          }, /*#__PURE__*/React.createElement(SpiderC, {
+            ticker: ticker,
+            direction: v2Dir,
+            compact: true,
+            size: 240,
+            showLegend: true
+          }));
+        })(), (v2Rank || v2Score || v2Conv) && /*#__PURE__*/React.createElement(Panel, {
           title: "Conviction"
         }, /*#__PURE__*/React.createElement("div", {
           style: {
@@ -2968,37 +2983,173 @@
           label: "Conviction",
           value: Math.round(v2Conv),
           delta: v2Tier || null
-        }))), v2Pos && /*#__PURE__*/React.createElement(Panel, {
+        })), typeof window !== "undefined" && typeof window.calculateScoreBreakdown === "function" && (() => {
+          try {
+            const breakdown = window.calculateScoreBreakdown(ticker);
+            if (!breakdown || !Array.isArray(breakdown.adjustments) || breakdown.adjustments.length === 0) return null;
+            return /*#__PURE__*/React.createElement("details", {
+              style: {
+                marginTop: "var(--ds-space-3)"
+              }
+            }, /*#__PURE__*/React.createElement("summary", {
+              className: "ds-caption",
+              style: {
+                cursor: "pointer",
+                padding: "var(--ds-space-1) 0",
+                color: "var(--ds-accent)"
+              }
+            }, "Score Breakdown (", breakdown.adjustments.length, " adjustments)"), /*#__PURE__*/React.createElement("div", {
+              style: {
+                marginTop: "var(--ds-space-2)",
+                display: "flex",
+                flexDirection: "column",
+                gap: 4
+              }
+            }, breakdown.adjustments.slice(0, 12).map((a, i) => /*#__PURE__*/React.createElement("div", {
+              key: `adj-${i}`,
+              style: {
+                display: "flex",
+                justifyContent: "space-between",
+                padding: "4px 8px",
+                borderRadius: "var(--ds-radius-xs)",
+                background: "var(--ds-bg-glass)",
+                fontSize: "var(--ds-fs-meta)"
+              }
+            }, /*#__PURE__*/React.createElement("span", {
+              style: {
+                color: "var(--ds-text-muted)"
+              }
+            }, a.label || a.reason), /*#__PURE__*/React.createElement("span", {
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                fontWeight: 600,
+                color: a.delta >= 0 ? "var(--ds-up)" : "var(--ds-dn)"
+              }
+            }, a.delta >= 0 ? "+" : "", Number(a.delta).toFixed(1))))));
+          } catch (_) {
+            return null;
+          }
+        })()), v2Pos && /*#__PURE__*/React.createElement(Panel, {
           title: "Position",
           action: /*#__PURE__*/React.createElement("span", {
-            className: "ds-chip ds-chip--sm",
+            className: `ds-chip ds-chip--sm ${v2DirChip}`,
             style: {
               fontFamily: "var(--tt-font-mono)"
             }
           }, trade?.direction || v2Dir)
-        }, /*#__PURE__*/React.createElement("div", {
+        }, (() => {
+          const entry = v2Pos.entry;
+          const current = v2Pos.current;
+          const sl = v2Pos.sl;
+          const tp = v2Pos.tp;
+          if (!entry) return null;
+          const isLong = String(trade?.direction || "LONG").toUpperCase() === "LONG";
+          // Build levels with relative position 0..100
+          const allPx = [entry, current, sl, tp].filter(p => Number.isFinite(p) && p > 0);
+          if (allPx.length < 2) return null;
+          const min = Math.min(...allPx);
+          const max = Math.max(...allPx);
+          const range = max - min || 1;
+          const padding = range * 0.10;
+          const lo = min - padding;
+          const hi = max + padding;
+          const yFor = px => 100 - (px - lo) / (hi - lo) * 100;
+          const levels = [tp ? {
+            label: "Target",
+            px: tp,
+            color: "var(--ds-up)",
+            align: isLong ? "top" : "bot"
+          } : null, {
+            label: "Current",
+            px: current,
+            color: "var(--ds-accent)",
+            isCurrent: true
+          }, {
+            label: "Entry",
+            px: entry,
+            color: "var(--ds-text-muted)"
+          }, sl ? {
+            label: "Stop",
+            px: sl,
+            color: "var(--ds-dn)",
+            align: isLong ? "bot" : "top"
+          } : null].filter(Boolean).sort((a, b) => b.px - a.px);
+          return /*#__PURE__*/React.createElement("div", {
+            style: {
+              position: "relative",
+              height: 140,
+              margin: "var(--ds-space-2) 0",
+              borderLeft: "2px solid var(--ds-stroke)",
+              paddingLeft: "var(--ds-space-3)"
+            }
+          }, levels.map((l, i) => {
+            const top = yFor(l.px);
+            return /*#__PURE__*/React.createElement("div", {
+              key: `lvl-${i}`,
+              style: {
+                position: "absolute",
+                top: `${top}%`,
+                left: -2,
+                right: 0,
+                transform: "translateY(-50%)",
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--ds-space-2)"
+              }
+            }, /*#__PURE__*/React.createElement("div", {
+              style: {
+                width: 10,
+                height: l.isCurrent ? 10 : 6,
+                borderRadius: 3,
+                background: l.color,
+                border: l.isCurrent ? "2px solid var(--ds-bg-canvas)" : "none",
+                boxShadow: l.isCurrent ? "0 0 0 1px var(--ds-accent)" : "none",
+                marginLeft: -6
+              }
+            }), /*#__PURE__*/React.createElement("span", {
+              style: {
+                fontSize: "var(--ds-fs-caption)",
+                color: "var(--ds-text-muted)",
+                textTransform: "uppercase",
+                letterSpacing: "0.16em",
+                fontWeight: 700,
+                minWidth: 56
+              }
+            }, l.label), /*#__PURE__*/React.createElement("span", {
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                fontSize: "var(--ds-fs-body)",
+                color: l.color,
+                fontWeight: 600
+              }
+            }, "$", l.px.toFixed(2)), l.isCurrent && /*#__PURE__*/React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${v2Pos.pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
+              style: {
+                marginLeft: "auto",
+                fontFamily: "var(--tt-font-mono)"
+              }
+            }, v2Pos.pnlPct >= 0 ? "+" : "", v2Pos.pnlPct.toFixed(2), "%"));
+          }));
+        })(), /*#__PURE__*/React.createElement("div", {
           style: {
             display: "grid",
-            gridTemplateColumns: "repeat(2, 1fr)",
-            gap: "var(--ds-space-2)"
+            gridTemplateColumns: "repeat(3, 1fr)",
+            gap: "var(--ds-space-2)",
+            marginTop: "var(--ds-space-3)"
           }
         }, /*#__PURE__*/React.createElement(Metric, {
           label: "Entry",
           value: `$${v2Pos.entry.toFixed(2)}`
         }), /*#__PURE__*/React.createElement(Metric, {
-          label: "Current",
-          value: `$${v2Pos.current.toFixed(2)}`
-        }), /*#__PURE__*/React.createElement(Metric, {
           label: "P&L",
           value: `${v2Pos.pnlPct >= 0 ? "+" : ""}${v2Pos.pnlPct.toFixed(2)}%`,
           delta: v2Pos.pnlPct >= 0 ? "Up" : "Down",
           deltaClass: v2Pos.pnlPct >= 0 ? "up" : "dn"
-        }), v2Pos.sl && /*#__PURE__*/React.createElement(Metric, {
-          label: "Stop",
-          value: `$${v2Pos.sl.toFixed(2)}`
-        }), v2Pos.tp && /*#__PURE__*/React.createElement(Metric, {
-          label: "Target",
-          value: `$${v2Pos.tp.toFixed(2)}`
+        }), ticker?.rr && /*#__PURE__*/React.createElement(Metric, {
+          label: "R:R",
+          value: Number(ticker.rr).toFixed(2),
+          delta: Number(ticker.rr) >= 2 ? "Strong" : "OK",
+          deltaClass: Number(ticker.rr) >= 2 ? "up" : "accent"
         }))), predictionContract && /*#__PURE__*/React.createElement(Panel, {
           title: "Model Guidance",
           action: predictionContract?.action_label && /*#__PURE__*/React.createElement("span", {
@@ -3080,31 +3231,151 @@
           style: {
             alignSelf: "flex-start"
           }
-        }, ticker.setup_grade))), (ticker?.sl || ticker?.tp || ticker?.rr) && /*#__PURE__*/React.createElement(Panel, {
-          title: "Risk & Targets"
+        }, ticker.setup_grade))), chartCandles && chartCandles.length >= 2 && /*#__PURE__*/React.createElement(Panel, {
+          title: "Chart",
+          action: /*#__PURE__*/React.createElement("div", {
+            className: "ds-chipgroup",
+            style: {
+              padding: 2
+            }
+          }, ["10", "30", "60", "240", "D"].map(tf => /*#__PURE__*/React.createElement("button", {
+            key: `ctf-${tf}`,
+            onClick: () => setChartTf(tf),
+            className: `ds-chipgroup__item ${chartTf === tf ? "ds-chipgroup__item--active" : ""}`,
+            style: {
+              padding: "3px 8px",
+              fontSize: 10
+            }
+          }, tf === "D" ? "D" : `${tf}m`)))
         }, /*#__PURE__*/React.createElement("div", {
           style: {
-            display: "grid",
-            gridTemplateColumns: "repeat(2, 1fr)",
-            gap: "var(--ds-space-2)"
+            height: 220
           }
-        }, ticker?.entry_price && /*#__PURE__*/React.createElement(Metric, {
-          label: "Entry",
-          value: `$${Number(ticker.entry_price).toFixed(2)}`
-        }), ticker?.sl && /*#__PURE__*/React.createElement(Metric, {
-          label: "Stop",
-          value: `$${Number(ticker.sl).toFixed(2)}`,
-          deltaClass: "dn"
-        }), ticker?.tp && /*#__PURE__*/React.createElement(Metric, {
-          label: "Target",
-          value: `$${Number(ticker.tp).toFixed(2)}`,
-          deltaClass: "up"
-        }), ticker?.rr && /*#__PURE__*/React.createElement(Metric, {
-          label: "R:R",
-          value: `${Number(ticker.rr).toFixed(2)}`,
-          delta: Number(ticker.rr) >= 2 ? "Strong" : "OK",
-          deltaClass: Number(ticker.rr) >= 2 ? "up" : "accent"
-        }))), ticker?._ticker_profile && /*#__PURE__*/React.createElement(Panel, {
+        }, React.createElement(LWChart, {
+          candles: chartCandles,
+          chartTf,
+          overlays: chartOverlays,
+          priceLines: (() => {
+            const lines = [];
+            if (ticker?.entry_price) lines.push({
+              price: Number(ticker.entry_price),
+              color: "rgba(245,194,92,0.65)",
+              title: "Entry",
+              lineStyle: 0
+            });
+            if (ticker?.sl) lines.push({
+              price: Number(ticker.sl),
+              color: "rgba(244,63,94,0.7)",
+              title: "Stop",
+              lineStyle: 2
+            });
+            if (ticker?.tp) lines.push({
+              price: Number(ticker.tp),
+              color: "rgba(34,197,94,0.7)",
+              title: "Target",
+              lineStyle: 2
+            });
+            return lines;
+          })(),
+          ticker,
+          height: 220
+        }))), (ticker?.sl || ticker?.tp || ticker?.entry_price) && (() => {
+          const entry = Number(ticker.entry_price) || 0;
+          const sl = Number(ticker.sl) || 0;
+          const tp = Number(ticker.tp) || 0;
+          const cur = v2Price || entry;
+          const all = [entry, cur, sl, tp].filter(p => Number.isFinite(p) && p > 0);
+          if (all.length < 2) return null;
+          const min = Math.min(...all);
+          const max = Math.max(...all);
+          const padding = (max - min) * 0.10 || 1;
+          const lo = min - padding;
+          const hi = max + padding;
+          const yFor = px => 100 - (px - lo) / (hi - lo) * 100;
+          const isLong = v2Dir === "LONG";
+          const levels = [tp ? {
+            label: "Target",
+            px: tp,
+            color: "var(--ds-up)"
+          } : null, cur ? {
+            label: "Current",
+            px: cur,
+            color: "var(--ds-accent)",
+            isCurrent: true
+          } : null, entry ? {
+            label: "Entry",
+            px: entry,
+            color: "var(--ds-text-muted)"
+          } : null, sl ? {
+            label: "Stop",
+            px: sl,
+            color: "var(--ds-dn)"
+          } : null].filter(Boolean).sort((a, b) => b.px - a.px);
+          return /*#__PURE__*/React.createElement(Panel, {
+            title: "Risk & Targets",
+            action: ticker?.rr && /*#__PURE__*/React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${Number(ticker.rr) >= 2 ? "ds-chip--up" : "ds-chip--accent"}`
+            }, "R:R ", Number(ticker.rr).toFixed(2))
+          }, /*#__PURE__*/React.createElement("div", {
+            style: {
+              position: "relative",
+              height: 160,
+              marginTop: "var(--ds-space-2)",
+              borderLeft: "2px solid var(--ds-stroke)",
+              paddingLeft: "var(--ds-space-3)"
+            }
+          }, levels.map((l, i) => {
+            const top = yFor(l.px);
+            return /*#__PURE__*/React.createElement("div", {
+              key: `rt-${i}`,
+              style: {
+                position: "absolute",
+                top: `${top}%`,
+                left: -2,
+                right: 0,
+                transform: "translateY(-50%)",
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--ds-space-2)"
+              }
+            }, /*#__PURE__*/React.createElement("div", {
+              style: {
+                width: 10,
+                height: l.isCurrent ? 10 : 6,
+                borderRadius: 3,
+                background: l.color,
+                border: l.isCurrent ? "2px solid var(--ds-bg-canvas)" : "none",
+                boxShadow: l.isCurrent ? "0 0 0 1px var(--ds-accent)" : "none",
+                marginLeft: -6
+              }
+            }), /*#__PURE__*/React.createElement("span", {
+              style: {
+                fontSize: "var(--ds-fs-caption)",
+                color: "var(--ds-text-muted)",
+                textTransform: "uppercase",
+                letterSpacing: "0.16em",
+                fontWeight: 700,
+                minWidth: 56
+              }
+            }, l.label), /*#__PURE__*/React.createElement("span", {
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                fontSize: "var(--ds-fs-body)",
+                color: l.color,
+                fontWeight: 600
+              }
+            }, "$", l.px.toFixed(2)), l.isCurrent && entry && (() => {
+              const pct = isLong ? (cur - entry) / entry * 100 : (entry - cur) / entry * 100;
+              return /*#__PURE__*/React.createElement("span", {
+                className: `ds-chip ds-chip--sm ${pct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
+                style: {
+                  marginLeft: "auto",
+                  fontFamily: "var(--tt-font-mono)"
+                }
+              }, pct >= 0 ? "+" : "", pct.toFixed(2), "%");
+            })());
+          })));
+        })(), ticker?._ticker_profile && /*#__PURE__*/React.createElement(Panel, {
           title: "Profile"
         }, /*#__PURE__*/React.createElement("div", {
           style: {
@@ -3118,12 +3389,42 @@
           className: "ds-chip ds-chip--sm"
         }, "ATR p50: ", Number(ticker._ticker_profile.atr_pct_p50).toFixed(2), "%"), ticker._ticker_profile.trend_persistence != null && /*#__PURE__*/React.createElement("span", {
           className: "ds-chip ds-chip--sm"
-        }, "Persistence: ", Number(ticker._ticker_profile.trend_persistence).toFixed(2))))), v2RailTab === "TECHNICALS" && /*#__PURE__*/React.createElement(React.Fragment, null, ticker?.tf_tech && /*#__PURE__*/React.createElement(Panel, {
+        }, "Persistence: ", Number(ticker._ticker_profile.trend_persistence).toFixed(2)))), (modelSignal?.sector || modelSignal?.market) && /*#__PURE__*/React.createElement(Panel, {
+          title: "Sector & Market"
+        }, /*#__PURE__*/React.createElement("div", {
+          style: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--ds-space-2)"
+          }
+        }, modelSignal?.sector && /*#__PURE__*/React.createElement("div", {
+          style: {
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--ds-space-2)"
+          }
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "ds-caption"
+        }, "Sector"), /*#__PURE__*/React.createElement("span", {
+          className: `ds-chip ds-chip--sm ${(modelSignal.sector.netSignal || 0) > 0 ? "ds-chip--up" : (modelSignal.sector.netSignal || 0) < 0 ? "ds-chip--dn" : "ds-chip--solid"}`
+        }, modelSignal.sector.label || modelSignal.sector.sector || "—")), modelSignal?.market && /*#__PURE__*/React.createElement("div", {
+          style: {
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--ds-space-2)"
+          }
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "ds-caption"
+        }, "Market"), /*#__PURE__*/React.createElement("span", {
+          className: `ds-chip ds-chip--sm ${(modelSignal.market.netSignal || 0) > 0 ? "ds-chip--up" : (modelSignal.market.netSignal || 0) < 0 ? "ds-chip--dn" : "ds-chip--solid"}`
+        }, modelSignal.market.label || "—"), modelSignal.market.riskFlag && /*#__PURE__*/React.createElement("span", {
+          className: "ds-chip ds-chip--sm ds-chip--dn"
+        }, "RISK"))))), v2RailTab === "TECHNICALS" && /*#__PURE__*/React.createElement(React.Fragment, null, ticker?.tf_tech && /*#__PURE__*/React.createElement(Panel, {
           title: "Multi-TF Stack"
         }, /*#__PURE__*/React.createElement("div", {
           style: {
             display: "grid",
-            gridTemplateColumns: "60px repeat(3, 1fr)",
+            gridTemplateColumns: "50px repeat(5, 1fr)",
             gap: "var(--ds-space-1)",
             fontFamily: "var(--tt-font-mono)",
             fontSize: "var(--ds-fs-meta)"
@@ -3145,9 +3446,20 @@
           style: {
             textAlign: "right"
           }
+        }, "SQ"), /*#__PURE__*/React.createElement("div", {
+          className: "ds-caption",
+          style: {
+            textAlign: "right"
+          }
+        }, "Phase"), /*#__PURE__*/React.createElement("div", {
+          className: "ds-caption",
+          style: {
+            textAlign: "right"
+          }
         }, "State"), ["10", "30", "1H", "4H", "D"].map(tf => {
           const t = ticker.tf_tech?.[tf] || ticker.tf_tech?.[`${tf}m`];
           if (!t) return null;
+          const sq = t.sq || {};
           return /*#__PURE__*/React.createElement(React.Fragment, {
             key: `tf-${tf}`
           }, /*#__PURE__*/React.createElement("div", {
@@ -3157,7 +3469,7 @@
           }, tf), /*#__PURE__*/React.createElement("div", {
             style: {
               textAlign: "right",
-              color: "var(--ds-text-display)"
+              color: t.rsi >= 70 ? "var(--ds-up)" : t.rsi <= 30 ? "var(--ds-dn)" : "var(--ds-text-display)"
             }
           }, Number(t.rsi || 0).toFixed(1)), /*#__PURE__*/React.createElement("div", {
             style: {
@@ -3167,31 +3479,257 @@
           }, Number(t.atr_pct || 0).toFixed(2)), /*#__PURE__*/React.createElement("div", {
             style: {
               textAlign: "right",
+              color: sq.release ? "var(--ds-accent)" : sq.on ? "var(--ds-warn)" : "var(--ds-text-faint)"
+            }
+          }, sq.release ? "RLS" : sq.on ? "ON" : "—"), /*#__PURE__*/React.createElement("div", {
+            style: {
+              textAlign: "right",
+              color: "var(--ds-text-display)"
+            }
+          }, Number(t.ph || 0).toFixed(0)), /*#__PURE__*/React.createElement("div", {
+            style: {
+              textAlign: "right",
               color: t.bull_stack ? "var(--ds-up)" : t.bear_stack ? "var(--ds-dn)" : "var(--ds-text-muted)"
             }
           }, t.bull_stack ? "BULL" : t.bear_stack ? "BEAR" : "MIX"));
-        }))), ticker?.td_sequential && /*#__PURE__*/React.createElement(Panel, {
-          title: "TD Sequential"
+        }))), ticker?.rsi != null && /*#__PURE__*/React.createElement(Panel, {
+          title: "RSI & Divergence",
+          action: /*#__PURE__*/React.createElement("span", {
+            className: `ds-chip ds-chip--sm ${ticker.rsi >= 70 ? "ds-chip--dn" : ticker.rsi <= 30 ? "ds-chip--up" : "ds-chip--solid"}`,
+            style: {
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, Number(ticker.rsi).toFixed(1))
         }, /*#__PURE__*/React.createElement("div", {
           style: {
+            position: "relative",
+            height: 24,
+            background: "var(--ds-bg-glass)",
+            borderRadius: "var(--ds-radius-xs)",
+            overflow: "hidden",
+            marginTop: "var(--ds-space-2)"
+          }
+        }, /*#__PURE__*/React.createElement("div", {
+          style: {
+            position: "absolute",
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: "30%",
+            background: "rgba(34,197,94,0.06)"
+          }
+        }), /*#__PURE__*/React.createElement("div", {
+          style: {
+            position: "absolute",
+            right: 0,
+            top: 0,
+            bottom: 0,
+            width: "30%",
+            background: "rgba(244,63,94,0.06)"
+          }
+        }), /*#__PURE__*/React.createElement("div", {
+          style: {
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            left: 0,
+            width: `${Math.max(0, Math.min(100, Number(ticker.rsi)))}%`,
+            background: ticker.rsi >= 70 ? "rgba(244,63,94,0.45)" : ticker.rsi <= 30 ? "rgba(34,197,94,0.45)" : "rgba(245,194,92,0.35)"
+          }
+        }), /*#__PURE__*/React.createElement("div", {
+          style: {
+            position: "absolute",
+            left: "30%",
+            top: 0,
+            bottom: 0,
+            width: 1,
+            background: "var(--ds-stroke-hi)"
+          }
+        }), /*#__PURE__*/React.createElement("div", {
+          style: {
+            position: "absolute",
+            left: "70%",
+            top: 0,
+            bottom: 0,
+            width: 1,
+            background: "var(--ds-stroke-hi)"
+          }
+        })), /*#__PURE__*/React.createElement("div", {
+          style: {
+            display: "flex",
+            justifyContent: "space-between",
+            marginTop: 4,
+            fontSize: "var(--ds-fs-caption)",
+            color: "var(--ds-text-faint)",
+            fontFamily: "var(--tt-font-mono)"
+          }
+        }, /*#__PURE__*/React.createElement("span", null, "0"), /*#__PURE__*/React.createElement("span", null, "30"), /*#__PURE__*/React.createElement("span", null, "50"), /*#__PURE__*/React.createElement("span", null, "70"), /*#__PURE__*/React.createElement("span", null, "100")), (ticker?.rsi_divergence || ticker?.phase_divergence) && /*#__PURE__*/React.createElement("div", {
+          style: {
+            marginTop: "var(--ds-space-3)",
             display: "flex",
             flexWrap: "wrap",
             gap: "var(--ds-space-1)"
           }
-        }, Object.entries(ticker.td_sequential.per_tf || {}).slice(0, 4).map(([tf, d]) => /*#__PURE__*/React.createElement("span", {
-          key: `td-${tf}`,
-          className: "ds-chip ds-chip--sm",
+        }, ticker.rsi_divergence?.bull && /*#__PURE__*/React.createElement("span", {
+          className: "ds-chip ds-chip--sm ds-chip--up"
+        }, "RSI Bull Div"), ticker.rsi_divergence?.bear && /*#__PURE__*/React.createElement("span", {
+          className: "ds-chip ds-chip--sm ds-chip--dn"
+        }, "RSI Bear Div"), ticker.phase_divergence?.bull && /*#__PURE__*/React.createElement("span", {
+          className: "ds-chip ds-chip--sm ds-chip--up"
+        }, "Phase Bull Div"), ticker.phase_divergence?.bear && /*#__PURE__*/React.createElement("span", {
+          className: "ds-chip ds-chip--sm ds-chip--dn"
+        }, "Phase Bear Div"))), ticker?.td_sequential && /*#__PURE__*/React.createElement(Panel, {
+          title: "TD Sequential"
+        }, /*#__PURE__*/React.createElement("div", {
           style: {
+            display: "grid",
+            gridTemplateColumns: "repeat(2, 1fr)",
+            gap: "var(--ds-space-1)"
+          }
+        }, Object.entries(ticker.td_sequential.per_tf || {}).slice(0, 6).map(([tf, d]) => /*#__PURE__*/React.createElement("div", {
+          key: `td-${tf}`,
+          style: {
+            display: "flex",
+            justifyContent: "space-between",
+            padding: "4px 8px",
+            background: "var(--ds-bg-glass)",
+            borderRadius: "var(--ds-radius-xs)",
+            fontSize: "var(--ds-fs-meta)",
             fontFamily: "var(--tt-font-mono)"
           }
-        }, tf, ": bull ", d.bull_prep || 0, " / bear ", d.bear_prep || 0))))), v2RailTab === "HISTORY" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Panel, {
-          title: "Trade Ledger"
+        }, /*#__PURE__*/React.createElement("span", {
+          style: {
+            color: "var(--ds-text-muted)"
+          }
+        }, tf), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
+          style: {
+            color: "var(--ds-up)",
+            marginRight: 6
+          }
+        }, "\u2191", d.bull_prep || 0), /*#__PURE__*/React.createElement("span", {
+          style: {
+            color: "var(--ds-dn)"
+          }
+        }, "\u2193", d.bear_prep || 0)))))), (ticker?.daily_ema_cloud || ticker?.fourh_ema_cloud || ticker?.oneh_ema_cloud) && /*#__PURE__*/React.createElement(Panel, {
+          title: "EMA Clouds"
         }, /*#__PURE__*/React.createElement("div", {
+          style: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--ds-space-1)"
+          }
+        }, [["Daily", ticker.daily_ema_cloud], ["4H", ticker.fourh_ema_cloud], ["1H", ticker.oneh_ema_cloud]].map(([label, c]) => {
+          if (!c) return null;
+          const status = c.status || c.cloud_state || (c.bull ? "bull" : c.bear ? "bear" : "neutral");
+          const cls = status === "bull" || c.bull ? "ds-chip--up" : status === "bear" || c.bear ? "ds-chip--dn" : "ds-chip--solid";
+          return /*#__PURE__*/React.createElement("div", {
+            key: `cloud-${label}`,
+            style: {
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--ds-space-2)"
+            }
+          }, /*#__PURE__*/React.createElement("span", {
+            className: "ds-caption",
+            style: {
+              minWidth: 48
+            }
+          }, label), /*#__PURE__*/React.createElement("span", {
+            className: `ds-chip ds-chip--sm ${cls}`
+          }, String(status).toUpperCase()));
+        }))), ticker?.fundamentals && (ticker.fundamentals.pe || ticker.fundamentals.peg || ticker.fundamentals.eps_growth) && /*#__PURE__*/React.createElement(Panel, {
+          title: "Fundamentals"
+        }, /*#__PURE__*/React.createElement("div", {
+          style: {
+            display: "grid",
+            gridTemplateColumns: "repeat(3, 1fr)",
+            gap: "var(--ds-space-2)"
+          }
+        }, ticker.fundamentals.pe != null && /*#__PURE__*/React.createElement(Metric, {
+          label: "P/E",
+          value: Number(ticker.fundamentals.pe).toFixed(1)
+        }), ticker.fundamentals.peg != null && /*#__PURE__*/React.createElement(Metric, {
+          label: "PEG",
+          value: Number(ticker.fundamentals.peg).toFixed(2)
+        }), ticker.fundamentals.eps_growth != null && /*#__PURE__*/React.createElement(Metric, {
+          label: "EPS Gr",
+          value: `${Number(ticker.fundamentals.eps_growth).toFixed(1)}%`,
+          delta: Number(ticker.fundamentals.eps_growth) > 0 ? "Up" : "Dn",
+          deltaClass: Number(ticker.fundamentals.eps_growth) > 0 ? "up" : "dn"
+        })))), v2RailTab === "HISTORY" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Panel, {
+          title: "Trade Ledger",
+          action: ledgerTrades.length > 0 && /*#__PURE__*/React.createElement("span", {
+            className: "ds-chip ds-chip--sm"
+          }, ledgerTrades.length, " trade", ledgerTrades.length === 1 ? "" : "s")
+        }, ledgerTrades.length === 0 ? /*#__PURE__*/React.createElement("div", {
           style: {
             fontSize: "var(--ds-fs-body)",
             color: "var(--ds-text-muted)"
           }
-        }, ledgerTrades.length > 0 ? `${ledgerTrades.length} trade${ledgerTrades.length === 1 ? "" : "s"} on this ticker` : "No prior trades on this ticker")))), /*#__PURE__*/React.createElement("div", {
+        }, "No prior trades on this ticker.") : /*#__PURE__*/React.createElement("div", {
+          style: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--ds-space-1)"
+          }
+        }, ledgerTrades.slice(0, 10).map((t, i) => {
+          const pnlPct = Number(t.pnl_pct ?? t.pnlPct) || 0;
+          const isWin = String(t.status || "").toUpperCase() === "WIN";
+          const dt = new Date(Number(t.entry_ts || t.exit_ts || 0));
+          return /*#__PURE__*/React.createElement("div", {
+            key: `tr-${i}`,
+            onClick: () => openAutopsyForTrade && openAutopsyForTrade(t),
+            style: {
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "8px 10px",
+              background: "var(--ds-bg-glass)",
+              borderRadius: "var(--ds-radius-xs)",
+              cursor: openAutopsyForTrade ? "pointer" : "default",
+              fontSize: "var(--ds-fs-meta)"
+            }
+          }, /*#__PURE__*/React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--ds-space-2)"
+            }
+          }, /*#__PURE__*/React.createElement("span", {
+            className: `ds-chip ds-chip--sm ${isWin ? "ds-chip--up" : "ds-chip--dn"}`,
+            style: {
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, t.direction || "?"), /*#__PURE__*/React.createElement("span", {
+            style: {
+              color: "var(--ds-text-muted)",
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, dt.toLocaleDateString())), /*#__PURE__*/React.createElement("span", {
+            className: `ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
+            style: {
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, pnlPct >= 0 ? "+" : "", pnlPct.toFixed(2), "%"));
+        }))), candlePerf && Object.keys(candlePerf).length > 0 && /*#__PURE__*/React.createElement(Panel, {
+          title: "Performance"
+        }, /*#__PURE__*/React.createElement("div", {
+          style: {
+            display: "grid",
+            gridTemplateColumns: "repeat(4, 1fr)",
+            gap: "var(--ds-space-2)"
+          }
+        }, ["1d", "5d", "30d", "90d"].map(per => {
+          const v = candlePerf[per];
+          if (v == null) return null;
+          const n = Number(v);
+          return /*#__PURE__*/React.createElement(Metric, {
+            key: per,
+            label: per.toUpperCase(),
+            value: `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`,
+            deltaClass: n >= 0 ? "up" : "dn"
+          });
+        }))))), /*#__PURE__*/React.createElement("div", {
           style: {
             borderTop: "1px solid var(--ds-stroke)",
             padding: "var(--ds-space-3) var(--ds-space-4)"

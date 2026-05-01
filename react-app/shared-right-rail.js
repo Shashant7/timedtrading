@@ -2079,6 +2079,16 @@
                         {v2SparkSvg && <div className="ds-tickercard__spark" dangerouslySetInnerHTML={{ __html: v2SparkSvg }} />}
                       </div>
 
+                      {/* ── Spider Chart panel — Inspiration 3, Signal Radar ── */}
+                      {window.TickerSpiderChartFactory && (() => {
+                        const SpiderC = window.TickerSpiderChartFactory({ React });
+                        return (
+                          <div style={{ marginBottom: "var(--ds-space-3)" }}>
+                            <SpiderC ticker={ticker} direction={v2Dir} compact={true} size={240} showLegend={true} />
+                          </div>
+                        );
+                      })()}
+
                       {/* Conviction panel */}
                       {(v2Rank || v2Score || v2Conv) && (
                         <Panel title="Conviction">
@@ -2087,23 +2097,106 @@
                             {v2Score != null && <Metric label="Score" value={Math.round(v2Score)} />}
                             {v2Conv != null && <Metric label="Conviction" value={Math.round(v2Conv)} delta={v2Tier || null} />}
                           </div>
+                          {/* Score Breakdown — accordion (uses calculateScoreBreakdown if available) */}
+                          {typeof window !== "undefined" && typeof window.calculateScoreBreakdown === "function" && (() => {
+                            try {
+                              const breakdown = window.calculateScoreBreakdown(ticker);
+                              if (!breakdown || !Array.isArray(breakdown.adjustments) || breakdown.adjustments.length === 0) return null;
+                              return (
+                                <details style={{ marginTop: "var(--ds-space-3)" }}>
+                                  <summary className="ds-caption" style={{ cursor: "pointer", padding: "var(--ds-space-1) 0", color: "var(--ds-accent)" }}>
+                                    Score Breakdown ({breakdown.adjustments.length} adjustments)
+                                  </summary>
+                                  <div style={{ marginTop: "var(--ds-space-2)", display: "flex", flexDirection: "column", gap: 4 }}>
+                                    {breakdown.adjustments.slice(0, 12).map((a, i) => (
+                                      <div key={`adj-${i}`} style={{ display: "flex", justifyContent: "space-between", padding: "4px 8px", borderRadius: "var(--ds-radius-xs)", background: "var(--ds-bg-glass)", fontSize: "var(--ds-fs-meta)" }}>
+                                        <span style={{ color: "var(--ds-text-muted)" }}>{a.label || a.reason}</span>
+                                        <span style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 600, color: a.delta >= 0 ? "var(--ds-up)" : "var(--ds-dn)" }}>
+                                          {a.delta >= 0 ? "+" : ""}{Number(a.delta).toFixed(1)}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </details>
+                              );
+                            } catch (_) { return null; }
+                          })()}
                         </Panel>
                       )}
 
-                      {/* Position panel — only when open trade exists */}
+                      {/* Position panel — only when open trade exists; with vertical price-level viz */}
                       {v2Pos && (
-                        <Panel title="Position" action={<span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }}>{trade?.direction || v2Dir}</span>}>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "var(--ds-space-2)" }}>
+                        <Panel title="Position" action={<span className={`ds-chip ds-chip--sm ${v2DirChip}`} style={{ fontFamily: "var(--tt-font-mono)" }}>{trade?.direction || v2Dir}</span>}>
+                          {/* Vertical price ladder: SL ─ Entry ─ Current ─ TP */}
+                          {(() => {
+                            const entry = v2Pos.entry;
+                            const current = v2Pos.current;
+                            const sl = v2Pos.sl;
+                            const tp = v2Pos.tp;
+                            if (!entry) return null;
+                            const isLong = String(trade?.direction || "LONG").toUpperCase() === "LONG";
+                            // Build levels with relative position 0..100
+                            const allPx = [entry, current, sl, tp].filter(p => Number.isFinite(p) && p > 0);
+                            if (allPx.length < 2) return null;
+                            const min = Math.min(...allPx);
+                            const max = Math.max(...allPx);
+                            const range = (max - min) || 1;
+                            const padding = range * 0.10;
+                            const lo = min - padding;
+                            const hi = max + padding;
+                            const yFor = (px) => 100 - ((px - lo) / (hi - lo)) * 100;
+                            const levels = [
+                              tp ? { label: "Target", px: tp, color: "var(--ds-up)", align: isLong ? "top" : "bot" } : null,
+                              { label: "Current", px: current, color: "var(--ds-accent)", isCurrent: true },
+                              { label: "Entry", px: entry, color: "var(--ds-text-muted)" },
+                              sl ? { label: "Stop", px: sl, color: "var(--ds-dn)", align: isLong ? "bot" : "top" } : null,
+                            ].filter(Boolean).sort((a, b) => b.px - a.px);
+                            return (
+                              <div style={{ position: "relative", height: 140, margin: "var(--ds-space-2) 0", borderLeft: "2px solid var(--ds-stroke)", paddingLeft: "var(--ds-space-3)" }}>
+                                {levels.map((l, i) => {
+                                  const top = yFor(l.px);
+                                  return (
+                                    <div key={`lvl-${i}`} style={{
+                                      position: "absolute",
+                                      top: `${top}%`,
+                                      left: -2,
+                                      right: 0,
+                                      transform: "translateY(-50%)",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: "var(--ds-space-2)",
+                                    }}>
+                                      <div style={{
+                                        width: 10, height: l.isCurrent ? 10 : 6,
+                                        borderRadius: 3,
+                                        background: l.color,
+                                        border: l.isCurrent ? "2px solid var(--ds-bg-canvas)" : "none",
+                                        boxShadow: l.isCurrent ? "0 0 0 1px var(--ds-accent)" : "none",
+                                        marginLeft: -6,
+                                      }} />
+                                      <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", textTransform: "uppercase", letterSpacing: "0.16em", fontWeight: 700, minWidth: 56 }}>{l.label}</span>
+                                      <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: l.color, fontWeight: 600 }}>${l.px.toFixed(2)}</span>
+                                      {l.isCurrent && (
+                                        <span className={`ds-chip ds-chip--sm ${v2Pos.pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`} style={{ marginLeft: "auto", fontFamily: "var(--tt-font-mono)" }}>
+                                          {v2Pos.pnlPct >= 0 ? "+" : ""}{v2Pos.pnlPct.toFixed(2)}%
+                                        </span>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })()}
+                          {/* Compact metric strip below the ladder */}
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--ds-space-2)", marginTop: "var(--ds-space-3)" }}>
                             <Metric label="Entry" value={`$${v2Pos.entry.toFixed(2)}`} />
-                            <Metric label="Current" value={`$${v2Pos.current.toFixed(2)}`} />
                             <Metric label="P&L" value={`${v2Pos.pnlPct >= 0 ? "+" : ""}${v2Pos.pnlPct.toFixed(2)}%`} delta={v2Pos.pnlPct >= 0 ? "Up" : "Down"} deltaClass={v2Pos.pnlPct >= 0 ? "up" : "dn"} />
-                            {v2Pos.sl && <Metric label="Stop" value={`$${v2Pos.sl.toFixed(2)}`} />}
-                            {v2Pos.tp && <Metric label="Target" value={`$${v2Pos.tp.toFixed(2)}`} />}
+                            {ticker?.rr && <Metric label="R:R" value={Number(ticker.rr).toFixed(2)} delta={Number(ticker.rr) >= 2 ? "Strong" : "OK"} deltaClass={Number(ticker.rr) >= 2 ? "up" : "accent"} />}
                           </div>
                         </Panel>
                       )}
 
-                      {/* Model Guidance — single panel, eliminates dup */}
+                      {/* Model Guidance — single panel */}
                       {predictionContract && (
                         <Panel title="Model Guidance" action={predictionContract?.action_label && <span className="ds-chip ds-chip--sm ds-chip--accent">{String(predictionContract.action_label).toUpperCase()}</span>}>
                           {predictionContract?.thesis && (
@@ -2158,17 +2251,103 @@
                           </div>
                         </Panel>
                       )}
-                      {/* Risk & Targets */}
-                      {(ticker?.sl || ticker?.tp || ticker?.rr) && (
-                        <Panel title="Risk & Targets">
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "var(--ds-space-2)" }}>
-                            {ticker?.entry_price && <Metric label="Entry" value={`$${Number(ticker.entry_price).toFixed(2)}`} />}
-                            {ticker?.sl && <Metric label="Stop" value={`$${Number(ticker.sl).toFixed(2)}`} deltaClass="dn" />}
-                            {ticker?.tp && <Metric label="Target" value={`$${Number(ticker.tp).toFixed(2)}`} deltaClass="up" />}
-                            {ticker?.rr && <Metric label="R:R" value={`${Number(ticker.rr).toFixed(2)}`} delta={Number(ticker.rr) >= 2 ? "Strong" : "OK"} deltaClass={Number(ticker.rr) >= 2 ? "up" : "accent"} />}
+
+                      {/* ── Mini Chart with SL/TP/Entry overlays ── */}
+                      {chartCandles && chartCandles.length >= 2 && (
+                        <Panel title="Chart" action={
+                          <div className="ds-chipgroup" style={{ padding: 2 }}>
+                            {["10", "30", "60", "240", "D"].map((tf) => (
+                              <button
+                                key={`ctf-${tf}`}
+                                onClick={() => setChartTf(tf)}
+                                className={`ds-chipgroup__item ${chartTf === tf ? "ds-chipgroup__item--active" : ""}`}
+                                style={{ padding: "3px 8px", fontSize: 10 }}
+                              >{tf === "D" ? "D" : `${tf}m`}</button>
+                            ))}
+                          </div>
+                        }>
+                          <div style={{ height: 220 }}>
+                            {React.createElement(LWChart, {
+                              candles: chartCandles,
+                              chartTf,
+                              overlays: chartOverlays,
+                              priceLines: (() => {
+                                const lines = [];
+                                if (ticker?.entry_price) lines.push({ price: Number(ticker.entry_price), color: "rgba(245,194,92,0.65)", title: "Entry", lineStyle: 0 });
+                                if (ticker?.sl)          lines.push({ price: Number(ticker.sl), color: "rgba(244,63,94,0.7)", title: "Stop", lineStyle: 2 });
+                                if (ticker?.tp)          lines.push({ price: Number(ticker.tp), color: "rgba(34,197,94,0.7)", title: "Target", lineStyle: 2 });
+                                return lines;
+                              })(),
+                              ticker,
+                              height: 220,
+                            })}
                           </div>
                         </Panel>
                       )}
+
+                      {/* Risk & Targets — vertical price ladder */}
+                      {(ticker?.sl || ticker?.tp || ticker?.entry_price) && (() => {
+                        const entry = Number(ticker.entry_price) || 0;
+                        const sl = Number(ticker.sl) || 0;
+                        const tp = Number(ticker.tp) || 0;
+                        const cur = v2Price || entry;
+                        const all = [entry, cur, sl, tp].filter(p => Number.isFinite(p) && p > 0);
+                        if (all.length < 2) return null;
+                        const min = Math.min(...all);
+                        const max = Math.max(...all);
+                        const padding = (max - min) * 0.10 || 1;
+                        const lo = min - padding;
+                        const hi = max + padding;
+                        const yFor = (px) => 100 - ((px - lo) / (hi - lo)) * 100;
+                        const isLong = v2Dir === "LONG";
+                        const levels = [
+                          tp ? { label: "Target", px: tp, color: "var(--ds-up)" } : null,
+                          cur ? { label: "Current", px: cur, color: "var(--ds-accent)", isCurrent: true } : null,
+                          entry ? { label: "Entry", px: entry, color: "var(--ds-text-muted)" } : null,
+                          sl ? { label: "Stop", px: sl, color: "var(--ds-dn)" } : null,
+                        ].filter(Boolean).sort((a, b) => b.px - a.px);
+                        return (
+                          <Panel title="Risk & Targets" action={ticker?.rr && <span className={`ds-chip ds-chip--sm ${Number(ticker.rr) >= 2 ? "ds-chip--up" : "ds-chip--accent"}`}>R:R {Number(ticker.rr).toFixed(2)}</span>}>
+                            <div style={{ position: "relative", height: 160, marginTop: "var(--ds-space-2)", borderLeft: "2px solid var(--ds-stroke)", paddingLeft: "var(--ds-space-3)" }}>
+                              {levels.map((l, i) => {
+                                const top = yFor(l.px);
+                                return (
+                                  <div key={`rt-${i}`} style={{
+                                    position: "absolute",
+                                    top: `${top}%`,
+                                    left: -2,
+                                    right: 0,
+                                    transform: "translateY(-50%)",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "var(--ds-space-2)",
+                                  }}>
+                                    <div style={{
+                                      width: 10, height: l.isCurrent ? 10 : 6,
+                                      borderRadius: 3,
+                                      background: l.color,
+                                      border: l.isCurrent ? "2px solid var(--ds-bg-canvas)" : "none",
+                                      boxShadow: l.isCurrent ? "0 0 0 1px var(--ds-accent)" : "none",
+                                      marginLeft: -6,
+                                    }} />
+                                    <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", textTransform: "uppercase", letterSpacing: "0.16em", fontWeight: 700, minWidth: 56 }}>{l.label}</span>
+                                    <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: l.color, fontWeight: 600 }}>${l.px.toFixed(2)}</span>
+                                    {l.isCurrent && entry && (() => {
+                                      const pct = isLong ? ((cur - entry) / entry * 100) : ((entry - cur) / entry * 100);
+                                      return (
+                                        <span className={`ds-chip ds-chip--sm ${pct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`} style={{ marginLeft: "auto", fontFamily: "var(--tt-font-mono)" }}>
+                                          {pct >= 0 ? "+" : ""}{pct.toFixed(2)}%
+                                        </span>
+                                      );
+                                    })()}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </Panel>
+                        );
+                      })()}
+
                       {/* Profile */}
                       {ticker?._ticker_profile && (
                         <Panel title="Profile">
@@ -2179,28 +2358,58 @@
                           </div>
                         </Panel>
                       )}
+
+                      {/* Sector & Market context */}
+                      {(modelSignal?.sector || modelSignal?.market) && (
+                        <Panel title="Sector & Market">
+                          <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-2)" }}>
+                            {modelSignal?.sector && (
+                              <div style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-2)" }}>
+                                <span className="ds-caption">Sector</span>
+                                <span className={`ds-chip ds-chip--sm ${(modelSignal.sector.netSignal || 0) > 0 ? "ds-chip--up" : (modelSignal.sector.netSignal || 0) < 0 ? "ds-chip--dn" : "ds-chip--solid"}`}>
+                                  {modelSignal.sector.label || modelSignal.sector.sector || "—"}
+                                </span>
+                              </div>
+                            )}
+                            {modelSignal?.market && (
+                              <div style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-2)" }}>
+                                <span className="ds-caption">Market</span>
+                                <span className={`ds-chip ds-chip--sm ${(modelSignal.market.netSignal || 0) > 0 ? "ds-chip--up" : (modelSignal.market.netSignal || 0) < 0 ? "ds-chip--dn" : "ds-chip--solid"}`}>
+                                  {modelSignal.market.label || "—"}
+                                </span>
+                                {modelSignal.market.riskFlag && <span className="ds-chip ds-chip--sm ds-chip--dn">RISK</span>}
+                              </div>
+                            )}
+                          </div>
+                        </Panel>
+                      )}
                     </>
                   )}
 
                   {/* TECHNICALS TAB */}
                   {v2RailTab === "TECHNICALS" && (
                     <>
-                      {/* Multi-TF stack — quick view */}
+                      {/* Multi-TF stack — full table with EMA / ATR / RSI / Squeeze / Phase / VWAP */}
                       {ticker?.tf_tech && (
                         <Panel title="Multi-TF Stack">
-                          <div style={{ display: "grid", gridTemplateColumns: "60px repeat(3, 1fr)", gap: "var(--ds-space-1)", fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-meta)" }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "50px repeat(5, 1fr)", gap: "var(--ds-space-1)", fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-meta)" }}>
                             <div className="ds-caption">TF</div>
                             <div className="ds-caption" style={{ textAlign: "right" }}>RSI</div>
                             <div className="ds-caption" style={{ textAlign: "right" }}>ATR%</div>
+                            <div className="ds-caption" style={{ textAlign: "right" }}>SQ</div>
+                            <div className="ds-caption" style={{ textAlign: "right" }}>Phase</div>
                             <div className="ds-caption" style={{ textAlign: "right" }}>State</div>
                             {["10","30","1H","4H","D"].map((tf) => {
                               const t = ticker.tf_tech?.[tf] || ticker.tf_tech?.[`${tf}m`];
                               if (!t) return null;
+                              const sq = t.sq || {};
                               return (
                                 <React.Fragment key={`tf-${tf}`}>
                                   <div style={{ color: "var(--ds-text-muted)" }}>{tf}</div>
-                                  <div style={{ textAlign: "right", color: "var(--ds-text-display)" }}>{Number(t.rsi || 0).toFixed(1)}</div>
+                                  <div style={{ textAlign: "right", color: t.rsi >= 70 ? "var(--ds-up)" : t.rsi <= 30 ? "var(--ds-dn)" : "var(--ds-text-display)" }}>{Number(t.rsi || 0).toFixed(1)}</div>
                                   <div style={{ textAlign: "right", color: "var(--ds-text-display)" }}>{Number(t.atr_pct || 0).toFixed(2)}</div>
+                                  <div style={{ textAlign: "right", color: sq.release ? "var(--ds-accent)" : sq.on ? "var(--ds-warn)" : "var(--ds-text-faint)" }}>{sq.release ? "RLS" : sq.on ? "ON" : "—"}</div>
+                                  <div style={{ textAlign: "right", color: "var(--ds-text-display)" }}>{Number(t.ph || 0).toFixed(0)}</div>
                                   <div style={{ textAlign: "right", color: t.bull_stack ? "var(--ds-up)" : t.bear_stack ? "var(--ds-dn)" : "var(--ds-text-muted)" }}>
                                     {t.bull_stack ? "BULL" : t.bear_stack ? "BEAR" : "MIX"}
                                   </div>
@@ -2210,15 +2419,82 @@
                           </div>
                         </Panel>
                       )}
+
+                      {/* RSI + Divergence panel */}
+                      {ticker?.rsi != null && (
+                        <Panel title="RSI & Divergence" action={<span className={`ds-chip ds-chip--sm ${ticker.rsi >= 70 ? "ds-chip--dn" : ticker.rsi <= 30 ? "ds-chip--up" : "ds-chip--solid"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>{Number(ticker.rsi).toFixed(1)}</span>}>
+                          {/* Visual RSI bar */}
+                          <div style={{ position: "relative", height: 24, background: "var(--ds-bg-glass)", borderRadius: "var(--ds-radius-xs)", overflow: "hidden", marginTop: "var(--ds-space-2)" }}>
+                            {/* OB / OS zones */}
+                            <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: "30%", background: "rgba(34,197,94,0.06)" }} />
+                            <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: "30%", background: "rgba(244,63,94,0.06)" }} />
+                            {/* Fill bar */}
+                            <div style={{
+                              position: "absolute", top: 0, bottom: 0, left: 0,
+                              width: `${Math.max(0, Math.min(100, Number(ticker.rsi)))}%`,
+                              background: ticker.rsi >= 70 ? "rgba(244,63,94,0.45)" : ticker.rsi <= 30 ? "rgba(34,197,94,0.45)" : "rgba(245,194,92,0.35)",
+                            }} />
+                            <div style={{ position: "absolute", left: "30%", top: 0, bottom: 0, width: 1, background: "var(--ds-stroke-hi)" }} />
+                            <div style={{ position: "absolute", left: "70%", top: 0, bottom: 0, width: 1, background: "var(--ds-stroke-hi)" }} />
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" }}>
+                            <span>0</span><span>30</span><span>50</span><span>70</span><span>100</span>
+                          </div>
+                          {/* Divergence chips */}
+                          {(ticker?.rsi_divergence || ticker?.phase_divergence) && (
+                            <div style={{ marginTop: "var(--ds-space-3)", display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
+                              {ticker.rsi_divergence?.bull && <span className="ds-chip ds-chip--sm ds-chip--up">RSI Bull Div</span>}
+                              {ticker.rsi_divergence?.bear && <span className="ds-chip ds-chip--sm ds-chip--dn">RSI Bear Div</span>}
+                              {ticker.phase_divergence?.bull && <span className="ds-chip ds-chip--sm ds-chip--up">Phase Bull Div</span>}
+                              {ticker.phase_divergence?.bear && <span className="ds-chip ds-chip--sm ds-chip--dn">Phase Bear Div</span>}
+                            </div>
+                          )}
+                        </Panel>
+                      )}
+
                       {/* TD Sequential */}
                       {ticker?.td_sequential && (
                         <Panel title="TD Sequential">
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
-                            {Object.entries(ticker.td_sequential.per_tf || {}).slice(0, 4).map(([tf, d]) => (
-                              <span key={`td-${tf}`} className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }}>
-                                {tf}: bull {d.bull_prep || 0} / bear {d.bear_prep || 0}
-                              </span>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "var(--ds-space-1)" }}>
+                            {Object.entries(ticker.td_sequential.per_tf || {}).slice(0, 6).map(([tf, d]) => (
+                              <div key={`td-${tf}`} style={{ display: "flex", justifyContent: "space-between", padding: "4px 8px", background: "var(--ds-bg-glass)", borderRadius: "var(--ds-radius-xs)", fontSize: "var(--ds-fs-meta)", fontFamily: "var(--tt-font-mono)" }}>
+                                <span style={{ color: "var(--ds-text-muted)" }}>{tf}</span>
+                                <span>
+                                  <span style={{ color: "var(--ds-up)", marginRight: 6 }}>↑{d.bull_prep || 0}</span>
+                                  <span style={{ color: "var(--ds-dn)" }}>↓{d.bear_prep || 0}</span>
+                                </span>
+                              </div>
                             ))}
+                          </div>
+                        </Panel>
+                      )}
+
+                      {/* EMA Clouds */}
+                      {(ticker?.daily_ema_cloud || ticker?.fourh_ema_cloud || ticker?.oneh_ema_cloud) && (
+                        <Panel title="EMA Clouds">
+                          <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-1)" }}>
+                            {[["Daily", ticker.daily_ema_cloud], ["4H", ticker.fourh_ema_cloud], ["1H", ticker.oneh_ema_cloud]].map(([label, c]) => {
+                              if (!c) return null;
+                              const status = c.status || c.cloud_state || (c.bull ? "bull" : c.bear ? "bear" : "neutral");
+                              const cls = status === "bull" || c.bull ? "ds-chip--up" : status === "bear" || c.bear ? "ds-chip--dn" : "ds-chip--solid";
+                              return (
+                                <div key={`cloud-${label}`} style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-2)" }}>
+                                  <span className="ds-caption" style={{ minWidth: 48 }}>{label}</span>
+                                  <span className={`ds-chip ds-chip--sm ${cls}`}>{String(status).toUpperCase()}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </Panel>
+                      )}
+
+                      {/* Fundamentals */}
+                      {ticker?.fundamentals && (ticker.fundamentals.pe || ticker.fundamentals.peg || ticker.fundamentals.eps_growth) && (
+                        <Panel title="Fundamentals">
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--ds-space-2)" }}>
+                            {ticker.fundamentals.pe != null && <Metric label="P/E" value={Number(ticker.fundamentals.pe).toFixed(1)} />}
+                            {ticker.fundamentals.peg != null && <Metric label="PEG" value={Number(ticker.fundamentals.peg).toFixed(2)} />}
+                            {ticker.fundamentals.eps_growth != null && <Metric label="EPS Gr" value={`${Number(ticker.fundamentals.eps_growth).toFixed(1)}%`} delta={Number(ticker.fundamentals.eps_growth) > 0 ? "Up" : "Dn"} deltaClass={Number(ticker.fundamentals.eps_growth) > 0 ? "up" : "dn"} />}
                           </div>
                         </Panel>
                       )}
@@ -2228,11 +2504,57 @@
                   {/* HISTORY TAB */}
                   {v2RailTab === "HISTORY" && (
                     <>
-                      <Panel title="Trade Ledger">
-                        <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)" }}>
-                          {ledgerTrades.length > 0 ? `${ledgerTrades.length} trade${ledgerTrades.length === 1 ? "" : "s"} on this ticker` : "No prior trades on this ticker"}
-                        </div>
+                      {/* Trade Ledger summary + per-trade rows */}
+                      <Panel title="Trade Ledger" action={ledgerTrades.length > 0 && <span className="ds-chip ds-chip--sm">{ledgerTrades.length} trade{ledgerTrades.length === 1 ? "" : "s"}</span>}>
+                        {ledgerTrades.length === 0 ? (
+                          <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)" }}>No prior trades on this ticker.</div>
+                        ) : (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-1)" }}>
+                            {ledgerTrades.slice(0, 10).map((t, i) => {
+                              const pnlPct = Number(t.pnl_pct ?? t.pnlPct) || 0;
+                              const isWin = String(t.status || "").toUpperCase() === "WIN";
+                              const dt = new Date(Number(t.entry_ts || t.exit_ts || 0));
+                              return (
+                                <div key={`tr-${i}`}
+                                  onClick={() => openAutopsyForTrade && openAutopsyForTrade(t)}
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    padding: "8px 10px",
+                                    background: "var(--ds-bg-glass)",
+                                    borderRadius: "var(--ds-radius-xs)",
+                                    cursor: openAutopsyForTrade ? "pointer" : "default",
+                                    fontSize: "var(--ds-fs-meta)",
+                                  }}
+                                >
+                                  <div style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-2)" }}>
+                                    <span className={`ds-chip ds-chip--sm ${isWin ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>{t.direction || "?"}</span>
+                                    <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)" }}>{dt.toLocaleDateString()}</span>
+                                  </div>
+                                  <span className={`ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
+                                    {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </Panel>
+
+                      {/* Performance vs market */}
+                      {candlePerf && Object.keys(candlePerf).length > 0 && (
+                        <Panel title="Performance">
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "var(--ds-space-2)" }}>
+                            {["1d", "5d", "30d", "90d"].map((per) => {
+                              const v = candlePerf[per];
+                              if (v == null) return null;
+                              const n = Number(v);
+                              return <Metric key={per} label={per.toUpperCase()} value={`${n >= 0 ? "+" : ""}${n.toFixed(2)}%`} deltaClass={n >= 0 ? "up" : "dn"} />;
+                            })}
+                          </div>
+                        </Panel>
+                      )}
                     </>
                   )}
                 </div>
