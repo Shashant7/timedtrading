@@ -974,3 +974,70 @@ input, button, select, textarea {
   border-color: var(--ds-stroke-soft) !important;
 }
 
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * V2 SKELETON LOADING (2026-05-01)
+ *
+ * Per user: "the way the main page loads, it kind of jerks into place".
+ * Add a skeleton outline that paints the layout shape immediately so
+ * the content fades in over the same skeleton silhouette.
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+@keyframes ds-skeleton-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.ds-skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 0%,
+    rgba(255, 255, 255, 0.08) 40%,
+    rgba(255, 255, 255, 0.04) 80%
+  );
+  background-size: 200% 100%;
+  animation: ds-skeleton-shimmer 1.6s ease-in-out infinite;
+  border-radius: var(--ds-radius-sm);
+}
+
+.ds-skeleton--row {
+  height: 16px;
+  margin-bottom: 8px;
+}
+
+.ds-skeleton--card {
+  height: 120px;
+  margin-bottom: var(--ds-space-3);
+  border-radius: var(--ds-radius);
+}
+
+.ds-skeleton--tile {
+  height: 80px;
+  border-radius: var(--ds-radius-sm);
+}
+
+.ds-skeleton--chip {
+  display: inline-block;
+  height: 24px;
+  width: 80px;
+  border-radius: 999px;
+  margin-right: 6px;
+  margin-bottom: 6px;
+}
+
+.ds-skeleton--bubble {
+  width: 100%;
+  min-height: 400px;
+  border-radius: var(--ds-radius-lg);
+}
+
+/* Smooth content fade-in once data is ready */
+@keyframes ds-fade-in {
+  0%   { opacity: 0; transform: translateY(2px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.ds-fade-in {
+  animation: ds-fade-in var(--ds-dur-fast) var(--ds-ease-out);
+}
+

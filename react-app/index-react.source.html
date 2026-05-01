@@ -481,18 +481,59 @@
   </head>
   <body class="ds-v2">
     <div id="root">
-      <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; gap:14px; background:var(--tt-bg-0)">
-        <svg width="44" height="44" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-          <defs><linearGradient id="tt-splash-ring" x1="6" y1="42" x2="42" y2="6"><stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#67e8f9"/></linearGradient></defs>
-          <rect width="48" height="48" rx="11" fill="#000"/>
-          <circle cx="24" cy="24" r="17" stroke="url(#tt-splash-ring)" stroke-width="2.5" fill="none"/>
-          <line x1="24" y1="24" x2="19" y2="18.5" stroke="#636366" stroke-width="3.5" stroke-linecap="round"/>
-          <line x1="24" y1="24" x2="29.5" y2="16.5" stroke="#30d158" stroke-width="4" stroke-linecap="round"/>
-          <circle cx="24" cy="24" r="3.2" fill="#30d158"/>
-        </svg>
-        <div style="display:flex; align-items:center; gap:8px">
-          <span class="tt-heartbeat"></span>
-          <p class="tt-label" style="margin:0">Loading dashboard</p>
+      <!-- V2.1 (2026-05-01): skeleton outline matches v2 layout shape so the
+           paint-in is seamless instead of jerking. Per user feedback. -->
+      <div style="min-height:100vh; background:var(--ds-bg-canvas); padding:16px 20px; display:flex; flex-direction:column; gap:12px">
+        <!-- Status strip skeleton (regime, vix, breadth, top) -->
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:10px 12px; border-radius:14px; border:1px solid var(--ds-stroke); background:var(--ds-bg-glass)">
+          <span class="ds-skeleton ds-skeleton--chip" style="width:120px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:90px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:110px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:140px; margin-left:auto"></span>
+        </div>
+        <!-- Upcoming events skeleton -->
+        <div style="display:flex; gap:8px; flex-wrap:wrap; padding:10px 12px; border-radius:14px; border:1px solid var(--ds-stroke); background:var(--ds-bg-glass)">
+          <span class="ds-skeleton ds-skeleton--chip"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:110px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:90px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:130px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:80px"></span>
+        </div>
+        <!-- Market pulse priority tiles skeleton -->
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:10px">
+          <div class="ds-skeleton ds-skeleton--tile"></div>
+          <div class="ds-skeleton ds-skeleton--tile"></div>
+          <div class="ds-skeleton ds-skeleton--tile"></div>
+          <div class="ds-skeleton ds-skeleton--tile"></div>
+          <div class="ds-skeleton ds-skeleton--tile"></div>
+          <div class="ds-skeleton ds-skeleton--tile"></div>
+        </div>
+        <!-- Top movers row skeleton -->
+        <div style="display:flex; gap:6px; flex-wrap:wrap; padding:10px 12px; border-radius:14px; border:1px solid var(--ds-stroke); background:var(--ds-bg-glass)">
+          <span class="ds-skeleton ds-skeleton--chip" style="width:70px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:60px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:60px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:60px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:60px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:60px"></span>
+        </div>
+        <!-- View tabs skeleton -->
+        <div style="display:flex; gap:8px; justify-content:center">
+          <span class="ds-skeleton ds-skeleton--chip" style="width:120px; height:36px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:140px; height:36px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:120px; height:36px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:80px; height:36px"></span>
+        </div>
+        <!-- Bubble map area skeleton -->
+        <div style="display:grid; grid-template-columns:320px 1fr; gap:12px; flex:1; min-height:600px">
+          <div style="display:flex; flex-direction:column; gap:8px">
+            <div class="ds-skeleton ds-skeleton--tile" style="height:60px"></div>
+            <div class="ds-skeleton ds-skeleton--tile" style="height:60px"></div>
+            <div class="ds-skeleton ds-skeleton--tile" style="height:60px"></div>
+            <div class="ds-skeleton ds-skeleton--tile" style="height:60px"></div>
+            <div class="ds-skeleton ds-skeleton--tile" style="height:60px"></div>
+          </div>
+          <div class="ds-skeleton ds-skeleton--bubble"></div>
         </div>
       </div>
     </div>
@@ -12173,7 +12214,90 @@
           && prev.addingTicker === next.addingTicker;
       });
 
+      /* V2.1 (2026-05-01) — DS CompactCard
+       * Replaces the legacy 600-line CompactCard with a clean v2 surface.
+       * Per user: cards should match the rest of the app design language; no
+       * emojis (right rail holds detail). Logo + symbol + price + change
+       * sparkline + 1-2 essential signal chips.
+       */
+      const DsCompactCard = React.memo(function DsCompactCard({ t, onSelectTicker, tradeByTicker }) {
+        const sym = String(t?.ticker || "").toUpperCase();
+        const price = Number(t?.price ?? t?.close);
+        const dc = (() => { try { return getDailyChange(t); } catch (_) { return null; } })();
+        const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
+        const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
+        const rank = Number(t?.rank) || null;
+        const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
+        const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
+        const rr = Number(t?.rr) || null;
+        const stage = String(t?.kanban_stage || "").toLowerCase();
+        const openTrade = tradeByTicker?.get?.(sym) || null;
+        const hasOpen = openTrade && !openTrade.exit_ts;
+        // Bias label for the trade direction
+        const tradeDir = hasOpen ? String(openTrade.direction || "").toUpperCase() : null;
+        const sparkPoints = (() => {
+          const arr = (t?.intraday_5m || t?.intraday || []).slice(-30).map(p => Number(p?.c ?? p)).filter(Number.isFinite);
+          if (arr.length >= 2) return arr;
+          const pc = Number(t?.prev_close ?? t?.pc) || price;
+          return [pc, price];
+        })();
+        const sparkSvg = (typeof window !== "undefined" && window.DS && Number.isFinite(price))
+          ? window.DS.sparklineSvg(sparkPoints, { width: 280, height: 50, direction: dir, strokeWidth: 1.4 })
+          : "";
+        const stageChip = (() => {
+          if (stage === "trim") return { label: "Trim", cls: "ds-chip--accent" };
+          if (stage === "defend") return { label: "Defend", cls: "ds-chip--dn" };
+          if (stage === "exit") return { label: "Exit", cls: "ds-chip--dn" };
+          if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return { label: "Enter", cls: "ds-chip--accent" };
+          if (stage === "hold" || stage === "active" || stage === "just_entered") return { label: "Hold", cls: "ds-chip--up" };
+          if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") return { label: "Setup", cls: "" };
+          return null;
+        })();
+        return (
+          <button
+            onClick={() => onSelectTicker && onSelectTicker(sym)}
+            className="ds-tickercard"
+            style={{ width: 280, textAlign: "left", padding: "var(--ds-space-3)" }}>
+            <div className="ds-tickercard__head">
+              <div className="ds-tickercard__logo" ref={(el) => {
+                if (el && !el.dataset.dsInit && window.DS) {
+                  el.dataset.dsInit = "1";
+                  try { el.replaceWith(window.DS.tickerLogo(sym, { size: 22 })); } catch (_) {}
+                }
+              }} style={{ width: 22, height: 22 }}>{sym.slice(0, 2)}</div>
+              <span className="ds-tickercard__symbol" style={{ fontSize: 13 }}>{sym}</span>
+              {tradeDir && (
+                <span className={`ds-chip ds-chip--sm ${tradeDir === "LONG" ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)", marginLeft: 4 }}>{tradeDir}</span>
+              )}
+              {stageChip && (
+                <span className={`ds-chip ds-chip--sm ${stageChip.cls}`} style={{ marginLeft: "auto" }}>{stageChip.label}</span>
+              )}
+            </div>
+            <div className="ds-tickercard__price" style={{ fontSize: 18 }}>{Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"}</div>
+            {dayPct != null && (
+              <div className={`ds-tickercard__change ds-tickercard__change--${dir}`} style={{ fontSize: 12 }}>
+                {dir === "up" ? "▲" : dir === "dn" ? "▼" : "◆"} {dayPct >= 0 ? "+" : ""}{dayPct.toFixed(2)}%
+              </div>
+            )}
+            {/* Sparkline behind text wash */}
+            {sparkSvg && <div className="ds-tickercard__spark" dangerouslySetInnerHTML={{ __html: sparkSvg }} />}
+            {/* Bottom signal row: rank · conviction tier · RR */}
+            <div style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-1)", marginTop: "var(--ds-space-2)", flexWrap: "wrap", zIndex: 2, position: "relative" }}>
+              {rank != null && <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }} title="Rank">R{rank}</span>}
+              {conv != null && <span className={`ds-chip ds-chip--sm ${tier === "A" ? "ds-chip--up" : tier === "B" ? "ds-chip--accent" : "ds-chip--solid"}`} style={{ fontFamily: "var(--tt-font-mono)" }} title="Conviction tier">{tier || "C"}·{Math.round(conv)}</span>}
+              {rr != null && <span className={`ds-chip ds-chip--sm ${rr >= 2 ? "ds-chip--up" : rr >= 1.5 ? "ds-chip--accent" : ""}`} style={{ fontFamily: "var(--tt-font-mono)" }} title="Risk:Reward">{rr.toFixed(1)}R</span>}
+            </div>
+          </button>
+        );
+      });
+
       function renderCompactCardFn(t, { onSelectTicker, savedTickers, toggleSavedTicker, tradeByTicker, addingTicker } = {}) {
+        /* V2.1 (2026-05-01) — Use DsCompactCard by default; legacy CompactCard
+           kept available for fallback by setting window._dsV2CardsEnabled = false */
+        const useV2 = (typeof window !== "undefined" && window._dsV2CardsEnabled !== false);
+        if (useV2) {
+          return <DsCompactCard t={t} onSelectTicker={onSelectTicker} tradeByTicker={tradeByTicker} />;
+        }
         return <CompactCard t={t} onSelectTicker={onSelectTicker} savedTickers={savedTickers} toggleSavedTicker={toggleSavedTicker} tradeByTicker={tradeByTicker} addingTicker={addingTicker} />;
       }
 
@@ -17049,6 +17173,52 @@
         // Real-time price feed: WS push (primary) + HTTP poll fallback (every 30s)
         const { wsConnected, wsLastMessage } = useWebSocket(data, setTickerData);
         const { priceLastUpdated } = usePriceFeed(data, setTickerData);
+
+        /* V2.1 (2026-05-01) — 1H sparkline cache for Market Pulse tiles.
+           Per user: "For Sparklines, we use the 1 hour TF". Fetches /timed/candles?tf=60
+           for the priority symbols once on mount, refreshes every 5 minutes. */
+        const [sparklineCache, setSparklineCache] = useState({});
+        const fetchSparkline = React.useCallback(async (sym) => {
+          try {
+            const r = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=60&limit=24`, { cache: "no-store" });
+            const j = await r.json();
+            const candles = Array.isArray(j?.candles) ? j.candles : [];
+            const closes = candles.map(c => Number(c?.c ?? c?.close)).filter(Number.isFinite);
+            return closes;
+          } catch (_) {
+            return null;
+          }
+        }, []);
+        const ensureSparkline = React.useCallback((sym) => {
+          if (!sym) return null;
+          const upper = String(sym).toUpperCase();
+          if (sparklineCache[upper]) return sparklineCache[upper];
+          // Fetch async; React will re-render when state updates
+          if (sparklineCache[upper] === undefined) {
+            setSparklineCache(prev => ({ ...prev, [upper]: null }));  // mark in-flight
+            fetchSparkline(upper).then(arr => {
+              if (arr && arr.length >= 2) {
+                setSparklineCache(prev => ({ ...prev, [upper]: arr }));
+              }
+            });
+          }
+          return null;
+        }, [sparklineCache, fetchSparkline]);
+        // Refresh priority sparklines every 5 minutes
+        React.useEffect(() => {
+          const interval = setInterval(() => {
+            const symbols = Object.keys(sparklineCache);
+            symbols.forEach(sym => {
+              fetchSparkline(sym).then(arr => {
+                if (arr && arr.length >= 2) {
+                  setSparklineCache(prev => ({ ...prev, [sym]: arr }));
+                }
+              });
+            });
+          }, 5 * 60 * 1000);
+          return () => clearInterval(interval);
+        }, [sparklineCache, fetchSparkline]);
+
         const tradeDataReady = secondaryDataReady && dashboardMode !== "analysis";
         const { trades } = useTrades(tradeDataReady);
         const tradeByTicker = React.useMemo(() => {
@@ -18412,13 +18582,13 @@
                       if (td) { const dc = getDailyChange(td); if (dc && Number.isFinite(dc.dayPct)) pct = dc.dayPct; }
                       if (pct === null) pct = 0;
                       const dir = pct > 0.05 ? "up" : pct < -0.05 ? "dn" : "flat";
-                      // Build a 32-pt synthetic spark from intra-day if available, else flat
+                      /* V2.1 (2026-05-01) — sparklines use real 1H closes via ensureSparkline cache.
+                         Per user: "For Sparklines, we use the 1 hour TF". */
+                      const cachedSpark = ensureSparkline(sym);
                       const sparkPoints = (() => {
-                        const arr = (td?.intraday_5m || td?.intraday || []).slice(-40).map(p => Number(p?.c ?? p)).filter(Number.isFinite);
-                        if (arr.length >= 2) return arr;
-                        // Fallback: synth from prevClose to current
-                        const pc = Number(td?.prev_close ?? td?.pc) || price;
-                        return [pc, price];
+                        if (cachedSpark && cachedSpark.length >= 2) return cachedSpark;
+                        // While fetching, show flat horizontal line at current price (no fake jagged synth)
+                        return [price, price];
                       })();
                       const sparkSvg = window.DS ? window.DS.sparklineSvg(sparkPoints, { width: 220, height: 52, direction: dir, strokeWidth: 1.5 }) : "";
                       return (
