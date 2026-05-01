@@ -901,3 +901,76 @@ input, button, select, textarea {
   margin: var(--ds-space-3) 0;
 }
 
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * V2 CARD-LIGHTENING LAYER (2026-05-01)
+ *
+ * Per user feedback: "watchlist and how each ticker is represented feels
+ * light where as in our Viewport and Cards look heavy".
+ *
+ * Rather than rewrite the 600-line CompactCard component, this layer
+ * applies under .ds-v2 .kanban-card / .ds-v2 .compact-card to:
+ *   - Replace strong borders with v2 strokes
+ *   - Replace internal full-strength bg pills with v2 muted variants
+ *   - Replace mixed font sizes with v2 type scale
+ *   - Move sparkline visually behind text (z-index + opacity)
+ *
+ * Surgical: targets only existing classes; doesn't restructure DOM.
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+.ds-v2 .kanban-card,
+.ds-v2 .compact-card {
+  /* Card chrome */
+  background: var(--ds-bg-surface) !important;
+  border: 1px solid var(--ds-stroke) !important;
+  border-radius: var(--ds-radius) !important;
+  transition: background var(--ds-dur-fast) var(--ds-ease-out),
+              border-color var(--ds-dur-fast) var(--ds-ease-out) !important;
+}
+.ds-v2 .kanban-card:hover,
+.ds-v2 .compact-card:hover {
+  background: var(--ds-bg-surface-hi) !important;
+  border-color: var(--ds-stroke-hi) !important;
+}
+
+/* Soften the dense inline pills inside the cards */
+.ds-v2 .kanban-card [class*="bg-cyan-500"]:not(.ds-chip),
+.ds-v2 .compact-card [class*="bg-cyan-500"]:not(.ds-chip) {
+  background-color: var(--ds-up-bg) !important;
+  border-color: transparent !important;
+}
+.ds-v2 .kanban-card [class*="bg-rose-500"]:not(.ds-chip),
+.ds-v2 .kanban-card [class*="bg-red-500"]:not(.ds-chip),
+.ds-v2 .compact-card [class*="bg-rose-500"]:not(.ds-chip),
+.ds-v2 .compact-card [class*="bg-red-500"]:not(.ds-chip) {
+  background-color: var(--ds-dn-bg) !important;
+  border-color: transparent !important;
+}
+.ds-v2 .kanban-card [class*="bg-amber-500"]:not(.ds-chip),
+.ds-v2 .compact-card [class*="bg-amber-500"]:not(.ds-chip) {
+  background-color: var(--ds-accent-dim) !important;
+  border-color: transparent !important;
+}
+.ds-v2 .kanban-card [class*="bg-emerald-500"]:not(.ds-chip),
+.ds-v2 .compact-card [class*="bg-emerald-500"]:not(.ds-chip) {
+  background-color: var(--ds-up-bg) !important;
+  border-color: transparent !important;
+}
+
+/* Numbers inside cards: tabular-nums + slightly tighter tracking */
+.ds-v2 .kanban-card .tabular-nums,
+.ds-v2 .compact-card .tabular-nums {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* Internal dividers — soften */
+.ds-v2 .kanban-card .border-white\/\[0\.06\],
+.ds-v2 .kanban-card .border-white\/\[0\.08\],
+.ds-v2 .kanban-card .border-white\/\[0\.10\],
+.ds-v2 .compact-card .border-white\/\[0\.06\],
+.ds-v2 .compact-card .border-white\/\[0\.08\],
+.ds-v2 .compact-card .border-white\/\[0\.10\] {
+  border-color: var(--ds-stroke-soft) !important;
+}
+
