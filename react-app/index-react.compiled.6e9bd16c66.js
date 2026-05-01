@@ -10048,20 +10048,6 @@ function ActionCenterPanel({
   }, [tickers, localTradeByTicker]);
   const kanbanActiveCount = kanbanStageCounts.setup + kanbanStageCounts.enter + kanbanStageCounts.hold + kanbanStageCounts.defend + kanbanStageCounts.trim + kanbanStageCounts.exit;
   const hasKanbanData = kanbanActiveCount > 0;
-  const traderActionableCount = (kanbanStageCounts.enter || 0) + (kanbanStageCounts.trim || 0) + (kanbanStageCounts.defend || 0) + (kanbanStageCounts.exit || 0);
-  const traderHoldCount = kanbanStageCounts.hold || 0;
-  const investorTotalCount = (() => {
-    try {
-      const etfSet = new Set(["GRNY", "GRNJ", "GLD", "TLT", "DXY"]);
-      const ttSet = new Set(Array.isArray(tickers) ? tickers.map(t => normTicker(t?.ticker)) : []);
-      let n = 0;
-      for (const sym of etfSet) if (ttSet.has(sym)) n++;
-      n += Array.isArray(savedTickers) ? savedTickers.length : 0;
-      return n;
-    } catch (_) {
-      return 0;
-    }
-  })();
   const [snap, setSnap] = React.useState(() => {
     try {
       const raw = localStorage.getItem(storageKey);
@@ -14636,6 +14622,56 @@ function App() {
     }
     return filtered;
   }, [data, effectiveFilters, trades, socialAdditions, timeTravelTickers, savedTickers, activeInsightTickers]);
+  const _appKanbanCounts = useMemo(() => {
+    const counts = {
+      setup: 0,
+      enter: 0,
+      hold: 0,
+      defend: 0,
+      trim: 0,
+      exit: 0
+    };
+    const tradeByTicker = new Map();
+    if (Array.isArray(trades)) {
+      for (const t of trades) {
+        const sym = String(t?.ticker || "").toUpperCase();
+        if (!sym) continue;
+        if (!tradeByTicker.has(sym) || !tradeByTicker.get(sym)?.exit_ts) {
+          tradeByTicker.set(sym, t);
+        }
+      }
+    }
+    (tickers || []).forEach(t => {
+      let stage = String(t?.kanban_stage || "").toLowerCase();
+      const sym = String(t?.ticker || "").toUpperCase();
+      const trade = tradeByTicker.get(sym);
+      if (trade) {
+        const st = String(trade.status || "").toUpperCase();
+        const trimPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
+        const isClosed = st === "WIN" || st === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs) || trimPct >= 0.9999;
+        const isOpen = !isClosed && (st === "OPEN" || st === "TP_HIT_TRIM" || !st);
+        if (isOpen) {
+          if (st === "TP_HIT_TRIM" || trimPct > 0) stage = "trim";else if (!["defend", "trim", "exit", "hold", "active", "just_entered"].includes(stage)) stage = "hold";
+        }
+      }
+      if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") counts.setup++;else if (stage === "in_review" || stage === "enter" || stage === "enter_now" || stage === "just_flipped") counts.enter++;else if (stage === "active" || stage === "just_entered" || stage === "hold") counts.hold++;else if (stage === "defend") counts.defend++;else if (stage === "trim") counts.trim++;else if (stage === "exit") counts.exit++;
+    });
+    return counts;
+  }, [tickers, trades]);
+  const traderActionableCount = (_appKanbanCounts.enter || 0) + (_appKanbanCounts.trim || 0) + (_appKanbanCounts.defend || 0) + (_appKanbanCounts.exit || 0);
+  const traderHoldCount = _appKanbanCounts.hold || 0;
+  const investorTotalCount = useMemo(() => {
+    try {
+      const etfSet = new Set(["GRNY", "GRNJ", "GLD", "TLT", "DXY"]);
+      const ttSet = new Set(Array.isArray(tickers) ? tickers.map(t => normTicker(t?.ticker)) : []);
+      let n = 0;
+      for (const sym of etfSet) if (ttSet.has(sym)) n++;
+      n += Array.isArray(savedTickers) ? savedTickers.length : 0;
+      return n;
+    } catch (_) {
+      return 0;
+    }
+  }, [tickers, savedTickers]);
   const bubbleMapTickers = useMemo(() => {
     let filtered = timeTravelTickers !== null ? timeTravelTickers : applyFilters(data, bubbleMapFilters, trades, socialAdditions, savedTickers);
     if (activeInsightTickers) {
@@ -15178,25 +15214,29 @@ function App() {
     })();
     const earningItems = (Array.isArray(earningsEvents) ? earningsEvents : []).slice(0, 50);
     if (macroItems.length === 0 && earningItems.length === 0) return null;
+    const Row = ({
+      label,
+      sublabel,
+      children
+    }) => React.createElement("div", {
+      className: "flex items-start gap-3 py-1"
+    }, React.createElement("div", {
+      className: "w-32 shrink-0 pt-0.5"
+    }, React.createElement("div", {
+      className: "text-[9px] font-bold uppercase tracking-[0.16em] text-[#6b7280]"
+    }, label), sublabel && React.createElement("div", {
+      className: "text-[8px] text-[#4b5563] tabular-nums"
+    }, sublabel)), React.createElement("div", {
+      className: "flex-1 min-w-0 flex flex-wrap gap-1.5"
+    }, children));
     return React.createElement("div", {
-      className: "mb-3"
-    }, React.createElement("div", {
-      className: "flex flex-wrap items-center gap-2 mb-1.5"
-    }, React.createElement("span", {
-      className: "text-[10px] text-[#6b7280] font-semibold tracking-wide uppercase"
-    }, "Upcoming Events"), React.createElement("span", {
-      className: "text-[9px] text-[#4b5563] tabular-nums"
-    }, macroItems.length, " macro \xB7 ", earningItems.length, " earnings")), React.createElement("div", {
-      className: "flex flex-wrap items-start gap-3"
-    }, React.createElement("div", {
-      className: "flex items-start gap-1.5 min-w-0"
-    }, React.createElement("span", {
-      className: "text-[8px] uppercase tracking-wide text-[#4b5563] pt-1 shrink-0"
-    }, "Macro"), macroItems.length > 0 ? React.createElement("div", {
-      className: "flex flex-wrap gap-1.5"
-    }, macroItems.map((ev, i) => React.createElement("div", {
+      className: "mb-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-1.5"
+    }, React.createElement(Row, {
+      label: "Macro",
+      sublabel: macroItems.length > 0 ? `${macroItems.length} this week` : null
+    }, macroItems.length > 0 ? macroItems.map((ev, i) => React.createElement("div", {
       key: `macro-${ev.type}-${ev.date || i}`,
-      className: `flex items-center gap-1 px-2 py-1 rounded-md border ${macroTypeCls(ev.type)}`,
+      className: `flex items-center gap-1 px-2 py-0.5 rounded-md border ${macroTypeCls(ev.type)}`,
       title: ev.label || ev.type
     }, React.createElement("span", {
       className: "text-[9px] font-bold"
@@ -15204,15 +15244,12 @@ function App() {
       className: "text-[8px] opacity-80"
     }, formatDayLabel(ev.date)), React.createElement("span", {
       className: "text-[8px] opacity-60"
-    }, formatMacroTime(ev.ts), " ET")))) : React.createElement("div", {
+    }, formatMacroTime(ev.ts), " ET"))) : React.createElement("span", {
       className: "text-[10px] text-[#6b7280]"
-    }, "None")), React.createElement("div", {
-      className: "flex items-start gap-1.5 min-w-0"
-    }, React.createElement("span", {
-      className: "text-[8px] uppercase tracking-wide text-[#4b5563] pt-1 shrink-0"
-    }, "Earnings"), earningItems.length > 0 ? React.createElement("div", {
-      className: "flex flex-wrap gap-1.5"
-    }, earningItems.map((e, i) => {
+    }, "None")), React.createElement(Row, {
+      label: "Earnings",
+      sublabel: earningItems.length > 0 ? `${earningItems.length} on deck` : null
+    }, earningItems.length > 0 ? earningItems.map((e, i) => {
       const beatMiss = e.epsActual != null && e.epsEstimate != null ? e.epsActual >= e.epsEstimate ? "Beat" : "Miss" : null;
       const chipColor = (() => {
         if (beatMiss === "Beat") return "border-green-500/30 bg-green-500/10 text-green-300";
@@ -15223,7 +15260,7 @@ function App() {
       return React.createElement("button", {
         key: `ev-${i}`,
         onClick: () => handleTickerSelect(e.symbol),
-        className: `flex items-center gap-1 px-2 py-1 rounded-md border ${chipColor} hover:brightness-125`
+        className: `flex items-center gap-1 px-2 py-0.5 rounded-md border ${chipColor} hover:brightness-125`
       }, React.createElement("span", {
         className: "text-[9px] font-bold"
       }, e.symbol), React.createElement("span", {
@@ -15233,9 +15270,9 @@ function App() {
       }, formatHour(e.hour)), beatMiss && React.createElement("span", {
         className: `text-[8px] font-semibold ${beatMiss === "Beat" ? "text-green-400" : "text-rose-400"}`
       }, beatMiss));
-    })) : React.createElement("div", {
+    }) : React.createElement("span", {
       className: "text-[10px] text-[#6b7280]"
-    }, "None"))));
+    }, "None")));
   })(), window._ttIsPro && (() => {
     const allData = data && typeof data === "object" ? data : {};
     const intensityAlpha = absPct => {
@@ -15253,7 +15290,9 @@ function App() {
       if (absPct <= 12) return 0.70;
       return 0.85;
     };
-    const renderPulseChip = sym => {
+    const PriorityTile = ({
+      sym
+    }) => {
       const td = allData[sym];
       const price = Number(td?.price ?? td?.close ?? 0);
       if (price <= 0) return null;
@@ -15263,35 +15302,98 @@ function App() {
         if (dc && Number.isFinite(dc.dayPct)) pct = dc.dayPct;
       }
       if (pct === null) pct = 0;
-      const up = pct >= 0;
-      const absPct = Math.abs(pct);
-      const alpha = intensityAlpha(absPct);
-      const bAlpha = intensityBorder(absPct);
-      const rgb = up ? "34,197,94" : "239,68,68";
-      const pillBg = `rgba(${rgb},${alpha.toFixed(3)})`;
-      const borderStyle = `1px solid rgba(${rgb},${bAlpha.toFixed(2)})`;
+      const dir = pct > 0.05 ? "up" : pct < -0.05 ? "dn" : "flat";
+      const sparkPoints = (() => {
+        const arr = (td?.intraday_5m || td?.intraday || []).slice(-40).map(p => Number(p?.c ?? p)).filter(Number.isFinite);
+        if (arr.length >= 2) return arr;
+        const pc = Number(td?.prev_close ?? td?.pc) || price;
+        return [pc, price];
+      })();
+      const sparkSvg = window.DS ? window.DS.sparklineSvg(sparkPoints, {
+        width: 220,
+        height: 52,
+        direction: dir,
+        strokeWidth: 1.5
+      }) : "";
       return React.createElement("button", {
-        key: `mp0-${sym}`,
         onClick: () => handleTickerSelect(sym),
-        className: "flex items-center gap-1 px-2 py-1 rounded-md hover:brightness-125 flex-shrink-0 transition-all",
+        className: "ds-tickercard ds-tickercard--default flex-1 min-w-0",
         style: {
-          background: pillBg,
-          border: borderStyle
+          textAlign: "left"
+        }
+      }, React.createElement("div", {
+        className: "ds-tickercard__head"
+      }, window.DS ? React.createElement("div", {
+        className: "ds-tickercard__logo",
+        ref: el => {
+          if (el && !el.dataset.dsInit) {
+            el.dataset.dsInit = "1";
+            const logoEl = window.DS.tickerLogo(sym, {
+              size: 24
+            });
+            el.replaceWith(logoEl);
+          }
+        }
+      }, String(sym).slice(0, 2)) : null, React.createElement("span", {
+        className: "ds-tickercard__symbol"
+      }, sym)), React.createElement("div", {
+        className: "ds-tickercard__price"
+      }, "$", price.toFixed(2)), React.createElement("div", {
+        className: `ds-tickercard__change ds-tickercard__change--${dir}`
+      }, dir === "up" ? "▲" : dir === "dn" ? "▼" : "◆", " ", pct >= 0 ? "+" : "", pct.toFixed(2), "%"), sparkSvg && React.createElement("div", {
+        className: "ds-tickercard__spark",
+        dangerouslySetInnerHTML: {
+          __html: sparkSvg
+        }
+      }));
+    };
+    const ContextChip = ({
+      sym
+    }) => {
+      const td = allData[sym];
+      const price = Number(td?.price ?? td?.close ?? 0);
+      if (price <= 0) return null;
+      let pct = null;
+      if (td) {
+        const dc = getDailyChange(td);
+        if (dc && Number.isFinite(dc.dayPct)) pct = dc.dayPct;
+      }
+      if (pct === null) pct = 0;
+      const dir = pct > 0.05 ? "up" : pct < -0.05 ? "dn" : "flat";
+      return React.createElement("button", {
+        onClick: () => handleTickerSelect(sym),
+        className: `ds-chip ds-chip--${dir === "up" ? "up" : dir === "dn" ? "dn" : "solid"}`,
+        style: {
+          textAlign: "left"
         }
       }, React.createElement("span", {
-        className: "text-[10px] text-white font-bold"
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontWeight: 700
+        }
       }, sym), React.createElement("span", {
-        className: "text-[9px] text-gray-400"
+        style: {
+          color: "var(--ds-text-muted)",
+          fontWeight: 500
+        }
       }, "$", price.toFixed(2)), React.createElement("span", {
-        className: `text-[9px] font-semibold ${up ? "text-[#00e676]" : "text-rose-400"}`
+        style: {
+          fontFamily: "var(--tt-font-mono)"
+        }
       }, pct >= 0 ? "+" : "", pct.toFixed(2), "%"));
     };
     const _isAdminPulse = window._ttIsAdmin;
-    const row1 = _isAdminPulse ? ["US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD"] : ["VIXY", "USO", "GLD", "SLV", "DIA", "BTCUSD", "ETHUSD"];
-    const row2 = _isAdminPulse ? ["SPY", "QQQ", "IWM", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"] : ["SPY", "QQQ", "IWM", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
-    const row1Chips = row1.map(s => renderPulseChip(s)).filter(Boolean);
-    const row2Chips = row2.map(s => renderPulseChip(s)).filter(Boolean);
-    if (row1Chips.length === 0 && row2Chips.length === 0) return null;
+    const priorityRow = _isAdminPulse ? ["SPY", "QQQ", "IWM", "VX1!", "CL1!", "GC1!", "BTCUSD"] : ["SPY", "QQQ", "IWM", "VIXY", "USO", "GLD", "BTCUSD"];
+    const contextRow = _isAdminPulse ? ["US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "SI1!", "ETHUSD", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"] : ["SLV", "DIA", "ETHUSD", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
+    const priorityTiles = priorityRow.map(s => allData[s] && Number(allData[s]?.price) > 0 ? React.createElement(PriorityTile, {
+      key: `pri-${s}`,
+      sym: s
+    }) : null).filter(Boolean);
+    const contextChips = contextRow.map(s => allData[s] && Number(allData[s]?.price) > 0 ? React.createElement(ContextChip, {
+      key: `ctx-${s}`,
+      sym: s
+    }) : null).filter(Boolean);
+    if (priorityTiles.length === 0 && contextChips.length === 0) return null;
     const freshness = (() => {
       if (!priceLastUpdated || priceLastUpdated <= 0) return null;
       const ago = Math.round((Date.now() - priceLastUpdated) / 1000);
@@ -15300,24 +15402,47 @@ function App() {
       return `${Math.floor(ago / 3600)}h ago`;
     })();
     return React.createElement("div", {
-      className: "mb-3"
+      className: "mb-3",
+      style: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--ds-space-2)"
+      }
+    }, priorityTiles.length > 0 && React.createElement("div", null, React.createElement("div", {
+      className: "ds-row",
+      style: {
+        alignItems: "center"
+      }
     }, React.createElement("div", {
-      className: "flex flex-wrap items-center gap-2 mb-1.5"
-    }, React.createElement("span", {
-      className: "text-[10px] text-[#6b7280] font-semibold tracking-wide uppercase"
-    }, "Market Pulse"), freshness && React.createElement("span", {
-      className: "text-[9px] text-[#4b5563] tabular-nums"
+      className: "ds-row__label"
+    }, React.createElement("div", {
+      className: "ds-caption"
+    }, "Market Pulse"), freshness && React.createElement("div", {
+      style: {
+        fontSize: "var(--ds-fs-caption)",
+        color: "var(--ds-text-faint)",
+        marginTop: 2
+      }
     }, "updated ", freshness)), React.createElement("div", {
-      className: "space-y-1.5"
-    }, row1Chips.length > 0 && React.createElement("div", null, React.createElement("div", {
-      className: "text-[8px] uppercase tracking-wide text-[#4b5563] mb-1"
-    }, _isAdminPulse ? "Futures, Commodities, Crypto" : "Commodities & Crypto"), React.createElement("div", {
-      className: "flex flex-wrap gap-1.5"
-    }, row1Chips)), row2Chips.length > 0 && React.createElement("div", null, React.createElement("div", {
-      className: "text-[8px] uppercase tracking-wide text-[#4b5563] mb-1"
-    }, "Indices & Sector ETFs"), React.createElement("div", {
-      className: "flex flex-wrap gap-1.5"
-    }, row2Chips))));
+      className: "ds-row__content",
+      style: {
+        gap: "var(--ds-space-2)"
+      }
+    }, priorityTiles))), contextChips.length > 0 && React.createElement("div", {
+      className: "ds-row"
+    }, React.createElement("div", {
+      className: "ds-row__label"
+    }, React.createElement("div", {
+      className: "ds-caption"
+    }, "Context"), React.createElement("div", {
+      style: {
+        fontSize: "var(--ds-fs-caption)",
+        color: "var(--ds-text-faint)",
+        marginTop: 2
+      }
+    }, _isAdminPulse ? "Futures · Sectors" : "Commodities · Sectors")), React.createElement("div", {
+      className: "ds-row__content"
+    }, contextChips)));
   })(), _secondaryReady && (() => {
     const allArr = data && typeof data === 'object' ? Object.entries(data).map(([sym, row]) => ({
       ...(row || {}),
@@ -15422,86 +15547,207 @@ function App() {
     const ethLosers = ethSorted.slice(-5).reverse();
     const hasEth = ethGainers.length > 0 || ethLosers.length > 0;
     if (rthGainers.length === 0 && rthLosers.length === 0 && !hasEth) return null;
-    const moverRow = (t, isGain, pctKey, priceKey, idx) => {
+    const MoverRow = ({
+      t,
+      isGain,
+      pctKey,
+      priceKey,
+      idx
+    }) => {
       const sym = t?.ticker || t?.symbol || "?";
       const pct = Number(t[pctKey]) || 0;
       const price = Number(t[priceKey]) || 0;
-      const name = t?.context?.name || t?.companyName || "";
-      const title = name ? `${sym} — ${name}` : sym;
-      const colorClass = isGain ? "text-emerald-400" : "text-rose-400";
-      const dotBg = isGain ? "rgba(34,197,94,0.7)" : "rgba(239,68,68,0.7)";
+      const dir = isGain ? "up" : "dn";
       return React.createElement("button", {
         key: `${sym}-${idx}`,
         onClick: () => handleTickerSelect(sym),
-        title: title,
-        className: "w-full flex items-center justify-between px-2.5 py-1.5 rounded-md hover:bg-white/[0.04] transition-colors group"
-      }, React.createElement("div", {
-        className: "flex items-center gap-2 min-w-0"
-      }, React.createElement("span", {
-        className: "w-1 h-1 rounded-full shrink-0",
+        className: "ds-card ds-card--interactive",
         style: {
-          background: dotBg
+          padding: "8px 10px",
+          display: "flex",
+          alignItems: "center",
+          gap: "var(--ds-space-2)",
+          textAlign: "left",
+          borderRadius: "var(--ds-radius-sm)"
         }
-      }), React.createElement("span", {
-        className: "text-[12px] font-bold text-white tracking-tight"
-      }, sym)), React.createElement("div", {
-        className: "flex items-center gap-2.5 tabular-nums"
+      }, React.createElement("div", {
+        className: "ds-tickercard__logo",
+        ref: el => {
+          if (el && !el.dataset.dsInit && window.DS) {
+            el.dataset.dsInit = "1";
+            try {
+              el.replaceWith(window.DS.tickerLogo(sym, {
+                size: 22
+              }));
+            } catch (_) {}
+          }
+        },
+        style: {
+          width: 22,
+          height: 22
+        }
+      }, String(sym).slice(0, 2)), React.createElement("span", {
+        className: "ds-tickercard__symbol",
+        style: {
+          fontSize: 13
+        }
+      }, sym), React.createElement("span", {
+        style: {
+          marginLeft: "auto",
+          display: "flex",
+          alignItems: "center",
+          gap: "var(--ds-space-2)"
+        }
       }, price > 0 && React.createElement("span", {
-        className: "text-[11px] text-[#9ca3af]"
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: 11,
+          color: "var(--ds-text-muted)"
+        }
       }, "$", price.toFixed(2)), React.createElement("span", {
-        className: `text-[12px] font-semibold ${colorClass} min-w-[55px] text-right`
+        className: `ds-chip ds-chip--sm ds-chip--${dir}`,
+        style: {
+          fontSize: 11,
+          minWidth: 60,
+          justifyContent: "center"
+        }
       }, pct >= 0 ? "+" : "", pct.toFixed(2), "%")));
     };
-    const moverTable = (label, badgeCls, gainers, losers, isGain, pctKey, priceKey) => React.createElement("div", {
-      className: "grid grid-cols-2 gap-x-3 mt-1"
-    }, React.createElement("div", null, React.createElement("div", {
-      className: "flex items-center gap-1.5 px-1 mb-1"
-    }, React.createElement("span", {
-      className: "text-[9px] uppercase tracking-wider text-emerald-400 font-bold"
-    }, "\u25B2 Gainers"), React.createElement("span", {
-      className: "text-[9px] text-[#6b7280] tabular-nums"
-    }, gainers.length)), React.createElement("div", {
-      className: "rounded-md overflow-hidden bg-white/[0.015] border border-white/[0.04]"
-    }, gainers.length > 0 ? gainers.map((t, i) => moverRow(t, true, pctKey, priceKey, i)) : React.createElement("div", {
-      className: "px-2.5 py-2 text-[10px] text-[#6b7280]"
-    }, "No gainers in this session."))), React.createElement("div", null, React.createElement("div", {
-      className: "flex items-center gap-1.5 px-1 mb-1"
-    }, React.createElement("span", {
-      className: "text-[9px] uppercase tracking-wider text-rose-400 font-bold"
-    }, "\u25BC Losers"), React.createElement("span", {
-      className: "text-[9px] text-[#6b7280] tabular-nums"
-    }, losers.length)), React.createElement("div", {
-      className: "rounded-md overflow-hidden bg-white/[0.015] border border-white/[0.04]"
-    }, losers.length > 0 ? losers.map((t, i) => moverRow(t, false, pctKey, priceKey, i)) : React.createElement("div", {
-      className: "px-2.5 py-2 text-[10px] text-[#6b7280]"
-    }, "No losers in this session."))));
-    return React.createElement("div", {
-      className: "mb-3"
-    }, React.createElement("div", {
-      className: "flex items-center gap-2 mb-2"
-    }, React.createElement("span", {
-      className: "tt-label"
-    }, "Top Movers"), React.createElement("span", {
+    const MoverColumn = ({
+      title,
+      items,
+      isGain,
+      pctKey,
+      priceKey
+    }) => React.createElement("div", {
       style: {
-        flex: 1,
-        height: 1,
-        background: "var(--tt-border-weak)"
+        display: "flex",
+        flexDirection: "column",
+        gap: 6
       }
-    })), React.createElement("div", {
-      className: "space-y-3"
-    }, React.createElement("div", null, React.createElement("div", {
-      className: "flex items-center gap-2 mb-1"
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "0 4px"
+      }
     }, React.createElement("span", {
-      className: "px-2 py-0.5 rounded text-[10px] font-bold tracking-wide border bg-cyan-500/15 text-cyan-400 border-cyan-500/30"
-    }, "RTH"), React.createElement("span", {
-      className: "text-[10px] text-[#6b7280]"
-    }, "Regular Trading Hours")), moverTable("RTH", "bg-cyan-500/15 text-cyan-400 border-cyan-500/30", rthGainers, rthLosers, null, "_pct", "_price")), hasEth && React.createElement("div", null, React.createElement("div", {
-      className: "flex items-center gap-2 mb-1"
+      className: "ds-caption",
+      style: {
+        color: isGain ? "var(--ds-up)" : "var(--ds-dn)"
+      }
+    }, isGain ? "▲ Gainers" : "▼ Losers"), React.createElement("span", {
+      style: {
+        fontSize: 10,
+        color: "var(--ds-text-faint)",
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, items.length)), React.createElement("div", {
+      style: {
+        display: "flex",
+        flexDirection: "column",
+        gap: 4
+      }
+    }, items.length > 0 ? items.map((t, i) => React.createElement(MoverRow, {
+      key: `${pctKey}-${title}-${i}`,
+      t: t,
+      isGain: isGain,
+      pctKey: pctKey,
+      priceKey: priceKey,
+      idx: i
+    })) : React.createElement("div", {
+      style: {
+        padding: "8px 10px",
+        fontSize: 11,
+        color: "var(--ds-text-faint)"
+      }
+    }, "No movers in this session.")));
+    const MoverTable = ({
+      gainers,
+      losers,
+      pctKey,
+      priceKey
+    }) => React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: "var(--ds-space-3)"
+      }
+    }, React.createElement(MoverColumn, {
+      title: "g",
+      items: gainers,
+      isGain: true,
+      pctKey: pctKey,
+      priceKey: priceKey
+    }), React.createElement(MoverColumn, {
+      title: "l",
+      items: losers,
+      isGain: false,
+      pctKey: pctKey,
+      priceKey: priceKey
+    }));
+    return React.createElement("div", {
+      className: "mb-3",
+      style: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--ds-space-2)"
+      }
+    }, React.createElement("div", {
+      className: "ds-row"
+    }, React.createElement("div", {
+      className: "ds-row__label"
     }, React.createElement("span", {
-      className: "px-2 py-0.5 rounded text-[10px] font-bold tracking-wide border bg-amber-500/15 text-amber-400 border-amber-500/30"
-    }, "EXT"), React.createElement("span", {
-      className: "text-[10px] text-[#6b7280]"
-    }, "Extended Hours (Pre/Post)")), moverTable("EXT", "bg-amber-500/15 text-amber-400 border-amber-500/30", ethGainers, ethLosers, null, "_ethPct", "_ethPrice"))));
+      className: "ds-chip ds-chip--accent ds-chip--sm",
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, "RTH"), React.createElement("div", {
+      style: {
+        fontSize: "var(--ds-fs-caption)",
+        color: "var(--ds-text-faint)",
+        marginTop: 4
+      }
+    }, "Regular Hours")), React.createElement("div", {
+      className: "ds-row__content",
+      style: {
+        flexDirection: "column"
+      }
+    }, React.createElement(MoverTable, {
+      gainers: rthGainers,
+      losers: rthLosers,
+      pctKey: "_pct",
+      priceKey: "_price"
+    }))), hasEth && React.createElement("div", {
+      className: "ds-row"
+    }, React.createElement("div", {
+      className: "ds-row__label"
+    }, React.createElement("span", {
+      className: "ds-chip ds-chip--sm",
+      style: {
+        fontFamily: "var(--tt-font-mono)",
+        color: "var(--ds-warn)",
+        borderColor: "var(--ds-warn)",
+        background: "rgba(245,158,11,0.10)"
+      }
+    }, "EXT"), React.createElement("div", {
+      style: {
+        fontSize: "var(--ds-fs-caption)",
+        color: "var(--ds-text-faint)",
+        marginTop: 4
+      }
+    }, "Extended Hours")), React.createElement("div", {
+      className: "ds-row__content",
+      style: {
+        flexDirection: "column"
+      }
+    }, React.createElement(MoverTable, {
+      gainers: ethGainers,
+      losers: ethLosers,
+      pctKey: "_ethPct",
+      priceKey: "_ethPrice"
+    }))));
   })(), (dashboardMode === "trader" || dashboardMode === "investor") && React.createElement("div", {
     className: "mb-4"
   }, React.createElement(ActionCenterPanel, {
@@ -15518,20 +15764,16 @@ function App() {
     savedTickers: savedTickers,
     toggleSavedTicker: toggleSavedTicker
   })), React.createElement("div", {
-    className: "mb-4 flex items-center justify-center gap-2",
+    className: "mb-4 flex items-center justify-center gap-3",
     "data-coachmark": "nav-modes"
   }, React.createElement("span", {
-    className: "tt-label hidden sm:inline",
-    style: {
-      fontSize: 9
-    }
+    className: "ds-caption hidden sm:inline"
   }, "View"), React.createElement("div", {
-    className: "flex justify-center"
-  }, React.createElement("div", {
-    className: "flex w-full sm:w-auto items-stretch bg-white/[0.04] border border-white/[0.10] rounded-xl overflow-hidden shadow-sm"
+    className: "ds-tab",
+    role: "tablist"
   }, React.createElement("button", {
     onClick: () => handleDashboardModeChange("analysis"),
-    className: `flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] font-semibold transition-all ${dashboardMode === "analysis" ? "bg-gradient-to-r from-violet-500/20 to-indigo-500/15 text-white" : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"}`,
+    className: `ds-tab__item ${dashboardMode === "analysis" ? "ds-tab__item--active" : ""}`,
     title: "Bubble Map + Viewport Cards"
   }, React.createElement("svg", {
     className: "w-4 h-4",
@@ -15543,9 +15785,9 @@ function App() {
     strokeLinecap: "round",
     strokeLinejoin: "round",
     d: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-  })), "Analysis"), React.createElement("button", {
+  })), React.createElement("span", null, "Analysis")), React.createElement("button", {
     onClick: () => handleDashboardModeChange("trader"),
-    className: `flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] font-semibold transition-all border-l border-white/[0.06] relative ${dashboardMode === "trader" ? "bg-gradient-to-r from-cyan-500/20 to-teal-500/15 text-white" : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"}`,
+    className: `ds-tab__item ${dashboardMode === "trader" ? "ds-tab__item--active" : ""}`,
     title: traderActionableCount > 0 ? `${traderActionableCount} actionable now in Active Trader (enter / trim / defend / exit)` : `${traderHoldCount} positions on hold`
   }, React.createElement("svg", {
     className: "w-4 h-4",
@@ -15558,13 +15800,13 @@ function App() {
     strokeLinejoin: "round",
     d: "M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
   })), React.createElement("span", null, "Active Trader"), traderActionableCount + traderHoldCount > 0 && React.createElement("span", {
-    className: `ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[16px] px-1 rounded-full text-[9px] font-bold tabular-nums ${traderActionableCount > 0 ? "bg-amber-500/30 text-amber-200 border border-amber-400/40" : "bg-white/10 text-[#9ca3af]"}`
+    className: "ds-tab__count"
   }, traderActionableCount + traderHoldCount), traderActionableCount > 0 && dashboardMode !== "trader" && React.createElement("span", {
-    className: "absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse",
+    className: "ds-tab__dot",
     "aria-hidden": true
   })), React.createElement("button", {
     onClick: () => handleDashboardModeChange("investor"),
-    className: `flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] font-semibold transition-all border-l border-white/[0.06] relative ${dashboardMode === "investor" ? "bg-gradient-to-r from-emerald-500/20 to-teal-500/15 text-white" : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"}`,
+    className: `ds-tab__item ${dashboardMode === "investor" ? "ds-tab__item--active" : ""}`,
     title: "Long-term ETF + core-idea positions"
   }, React.createElement("svg", {
     className: "w-4 h-4",
@@ -15577,10 +15819,10 @@ function App() {
     strokeLinejoin: "round",
     d: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
   })), React.createElement("span", null, "Investor"), investorTotalCount > 0 && React.createElement("span", {
-    className: "ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[16px] px-1 rounded-full text-[9px] font-bold tabular-nums bg-white/10 text-[#9ca3af]"
+    className: "ds-tab__count"
   }, investorTotalCount)), React.createElement("button", {
     onClick: () => handleDashboardModeChange("all"),
-    className: `flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] font-semibold transition-all border-l border-white/[0.06] ${dashboardMode === "all" ? "bg-gradient-to-r from-blue-500/20 to-indigo-500/15 text-white" : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"}`,
+    className: `ds-tab__item ${dashboardMode === "all" ? "ds-tab__item--active" : ""}`,
     title: "Sortable table of every ticker in scope"
   }, React.createElement("svg", {
     className: "w-4 h-4",
@@ -15593,8 +15835,8 @@ function App() {
     strokeLinejoin: "round",
     d: "M3 10h18M3 6h18M3 14h18M3 18h18"
   })), React.createElement("span", null, "All"), Array.isArray(tickers) && tickers.length > 0 && React.createElement("span", {
-    className: "ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[16px] px-1 rounded-full text-[9px] font-bold tabular-nums bg-white/10 text-[#9ca3af]"
-  }, tickers.length))))), React.createElement("div", {
+    className: "ds-tab__count"
+  }, tickers.length)))), React.createElement("div", {
     className: "mb-4 rounded-2xl border border-white/[0.08] bg-white/[0.025] p-3 shadow-[0_12px_32px_rgba(0,0,0,0.2)]",
     "data-coachmark": "search-filter"
   }, React.createElement("div", {
@@ -16063,75 +16305,8 @@ function App() {
     const structure = byGroup("structure");
     const context = visible.filter(c => c.row === 2);
     const sectorSubs = visible.filter(c => c.isSector);
-    const colorMap = {
-      purple: {
-        bg: "bg-purple-500/15",
-        border: "border-purple-500/30",
-        text: "text-purple-300",
-        activeBg: "bg-purple-500/30",
-        activeBorder: "border-purple-400/60",
-        glow: "shadow-purple-500/30"
-      },
-      green: {
-        bg: "bg-emerald-500/15",
-        border: "border-emerald-500/30",
-        text: "text-emerald-300",
-        activeBg: "bg-emerald-500/30",
-        activeBorder: "border-emerald-400/60",
-        glow: "shadow-emerald-500/30"
-      },
-      red: {
-        bg: "bg-rose-500/15",
-        border: "border-rose-500/30",
-        text: "text-rose-300",
-        activeBg: "bg-rose-500/30",
-        activeBorder: "border-rose-400/60",
-        glow: "shadow-rose-500/30"
-      },
-      amber: {
-        bg: "bg-amber-500/15",
-        border: "border-amber-500/30",
-        text: "text-amber-300",
-        activeBg: "bg-amber-500/30",
-        activeBorder: "border-amber-400/60",
-        glow: "shadow-amber-500/30"
-      },
-      cyan: {
-        bg: "bg-cyan-500/15",
-        border: "border-cyan-500/30",
-        text: "text-cyan-300",
-        activeBg: "bg-cyan-500/30",
-        activeBorder: "border-cyan-400/60",
-        glow: "shadow-cyan-500/30"
-      },
-      blue: {
-        bg: "bg-blue-500/15",
-        border: "border-blue-500/30",
-        text: "text-blue-300",
-        activeBg: "bg-blue-500/30",
-        activeBorder: "border-blue-400/60",
-        glow: "shadow-blue-500/30"
-      },
-      emerald: {
-        bg: "bg-emerald-500/15",
-        border: "border-emerald-500/30",
-        text: "text-emerald-300",
-        activeBg: "bg-emerald-500/30",
-        activeBorder: "border-emerald-400/60",
-        glow: "shadow-emerald-500/30"
-      },
-      gold: {
-        bg: "bg-yellow-500/15",
-        border: "border-yellow-500/30",
-        text: "text-yellow-300",
-        activeBg: "bg-yellow-500/30",
-        activeBorder: "border-yellow-400/60",
-        glow: "shadow-yellow-500/30"
-      }
-    };
     const renderChip = (chip, isSub) => {
       const isActive = isSub ? activeSubInsight === chip.id : activeInsight === chip.id;
-      const c = colorMap[chip.color] || colorMap.blue;
       return React.createElement("button", {
         key: chip.id,
         title: chip.tooltip,
@@ -16143,48 +16318,87 @@ function App() {
             if (chip.id !== "sp_sectors") setActiveSubInsight(null);
           }
         },
-        className: `group relative flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold border whitespace-nowrap transition-all duration-200 shrink-0 ${isActive ? `${c.activeBg} ${c.activeBorder} ${c.text} shadow-sm ${c.glow}` : `${c.bg} ${c.border} ${c.text} hover:brightness-110`}`
+        className: `ds-chip ds-chip--sm ${isActive ? "ds-chip--accent" : ""}`
       }, React.createElement("span", null, chip.label), chip.count !== null && React.createElement("span", {
-        className: "font-bold opacity-80 tabular-nums"
-      }, chip.count), React.createElement("span", {
-        className: "pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2.5 py-1.5 rounded-lg bg-[#141820] border border-white/10 text-[9px] text-gray-300 whitespace-pre-line opacity-0 group-hover:opacity-100 transition-opacity z-50 max-w-[240px] shadow-xl"
-      }, chip.tooltip));
+        className: "ds-chip__count"
+      }, chip.count));
     };
-    const renderRow = (label, chips, accent) => {
+    const renderRow = (label, chips) => {
       if (!chips || chips.length === 0) return null;
       return React.createElement("div", {
-        className: "flex items-center gap-2 py-0.5"
+        className: "ds-row",
+        style: {
+          padding: "2px 0"
+        }
       }, React.createElement("div", {
-        className: `text-[9px] font-semibold uppercase tracking-[0.16em] w-20 flex-shrink-0 ${accent || "text-[#6b7280]"}`
-      }, label), React.createElement("div", {
-        className: "flex gap-1.5 overflow-x-auto scrollbar-hide items-center min-w-0"
+        className: "ds-row__label",
+        style: {
+          width: 96
+        }
+      }, React.createElement("div", {
+        className: "ds-caption"
+      }, label)), React.createElement("div", {
+        className: "ds-row__content",
+        style: {
+          overflowX: "auto"
+        }
       }, chips.map(c => renderChip(c, false))));
     };
     return React.createElement("div", {
       className: "space-y-1 px-1 mb-1"
     }, React.createElement("div", {
-      className: "rounded-xl border border-cyan-500/10 bg-cyan-500/[0.04] px-2.5 py-1.5 space-y-0.5"
-    }, focus && renderRow("Focus", [focus], "text-cyan-200/80"), renderRow("Now", now, "text-amber-200/80"), renderRow("Setups", setups, "text-emerald-200/80"), renderRow("Momentum", momentum, "text-yellow-200/80"), renderRow("Structure", structure, "text-purple-200/80"), activeInsight && React.createElement("div", {
-      className: "flex items-center justify-end pt-0.5"
+      className: "ds-glass",
+      style: {
+        padding: "var(--ds-space-3)",
+        paddingTop: "var(--ds-space-2)",
+        paddingBottom: "var(--ds-space-2)"
+      }
+    }, focus && renderRow("Focus", [focus]), renderRow("Now", now), renderRow("Setups", setups), renderRow("Momentum", momentum), renderRow("Structure", structure), activeInsight && React.createElement("div", {
+      className: "flex items-center justify-end",
+      style: {
+        paddingTop: "var(--ds-space-1)"
+      }
     }, React.createElement("button", {
       onClick: () => {
         setActiveInsight(null);
         setActiveSubInsight(null);
       },
-      className: "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border border-white/10 bg-white/5 text-gray-400 hover:text-white transition-colors shrink-0"
+      className: "ds-chip ds-chip--sm"
     }, "\u2715 Clear filter"))), context.length > 0 && React.createElement("div", {
-      className: "rounded-xl border border-white/[0.06] bg-white/[0.02] px-2.5 py-1.5"
-    }, renderRow("Context", context, "text-[#9ca3af]")), activeInsight === "sp_sectors" && sectorSubs.length > 0 && React.createElement("div", {
-      className: "rounded-xl border border-purple-500/10 bg-purple-500/[0.03] px-2.5 py-1.5"
+      className: "ds-glass",
+      style: {
+        padding: "var(--ds-space-2) var(--ds-space-3)",
+        background: "var(--ds-bg-glass)"
+      }
+    }, renderRow("Context", context)), activeInsight === "sp_sectors" && sectorSubs.length > 0 && React.createElement("div", {
+      className: "ds-glass",
+      style: {
+        padding: "var(--ds-space-2) var(--ds-space-3)",
+        background: "rgba(167,139,250,0.05)"
+      }
     }, React.createElement("div", {
-      className: "flex items-center gap-2"
+      className: "ds-row",
+      style: {
+        padding: "2px 0"
+      }
     }, React.createElement("div", {
-      className: "text-[9px] font-semibold uppercase tracking-[0.16em] w-20 flex-shrink-0 text-purple-200/80"
-    }, "Drill"), React.createElement("div", {
-      className: "flex gap-1.5 overflow-x-auto scrollbar-hide items-center min-w-0"
+      className: "ds-row__label",
+      style: {
+        width: 96
+      }
+    }, React.createElement("div", {
+      className: "ds-caption",
+      style: {
+        color: "var(--ds-violet)"
+      }
+    }, "Drill")), React.createElement("div", {
+      className: "ds-row__content",
+      style: {
+        overflowX: "auto"
+      }
     }, sectorSubs.map(c => renderChip(c, true)), activeSubInsight && React.createElement("button", {
       onClick: () => setActiveSubInsight(null),
-      className: "flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-medium border border-white/10 bg-white/5 text-gray-400 hover:text-white transition-colors shrink-0"
+      className: "ds-chip ds-chip--sm"
     }, "\u2715")))));
   })(), React.createElement("div", {
     className: "flex-1 min-h-0"
