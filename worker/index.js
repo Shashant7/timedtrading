@@ -7503,6 +7503,44 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
             }
           }
 
+          // V15 P0.7.45 / S3 (2026-04-30) — PERSONALITY-AWARE FAST-CUT GRACE
+          //
+          // Holistic review forensic: phase_i_mfe_fast_cut_zero_mfe (n=30,
+          // capture -3142%) and phase_i_mfe_fast_cut_2h (n=15, capture -1084%)
+          // hurt PULLBACK_PLAYER and SLOW_GRINDER personalities most. These
+          // setups are designed to absorb adverse moves and reclaim — the
+          // 2h / 8h fast cut fires before the reclaim has a chance.
+          //
+          // Action: when entry signals identify the ticker as PULLBACK_PLAYER
+          // or SLOW_GRINDER, scale the min-age threshold by 1.5x AND require
+          // a more red pnlPct (-1.5% instead of -1.0%) before tripping the
+          // zero-MFE cut. Same idea for Tier 1 (2-4h cut) — push it to 3-6h.
+          //
+          // VOLATILE_RUNNER and MODERATE keep current behavior — those benefit
+          // from the tight cuts.
+          //
+          // Tunable:
+          //   deep_audit_personality_aware_fast_cut_enabled (default true)
+          //   deep_audit_personality_grace_multiplier      (default 1.5)
+          //   deep_audit_personality_grace_pnl_floor       (default -1.5)
+          // ──────────────────────────────────────────────────────────────
+          const _entryPersonality = String(
+            (openPosition?.entrySignals?.personality
+             || openPosition?.entry_signals?.personality
+             || "")
+          ).toUpperCase();
+          const _slowPersonality = (_entryPersonality === "PULLBACK_PLAYER"
+                                    || _entryPersonality === "SLOW_GRINDER");
+          const _s3Enabled = String(
+            tickerData?._env?._deepAuditConfig?.deep_audit_personality_aware_fast_cut_enabled ?? "true"
+          ) === "true";
+          const _s3GraceMult = _s3Enabled && _slowPersonality
+            ? Number(tickerData?._env?._deepAuditConfig?.deep_audit_personality_grace_multiplier ?? 1.5)
+            : 1.0;
+          const _s3PnlFloor = _s3Enabled && _slowPersonality
+            ? Number(tickerData?._env?._deepAuditConfig?.deep_audit_personality_grace_pnl_floor ?? -1.5)
+            : -1.0;
+
           // Tier 0 (V12): immediate disaster — older than min_age_hours,
           // pnl already red past _p1MaxMaePct, zero MFE. Precision ETFs
           // skip this entirely (they get their own min_hold guard).
@@ -7511,17 +7549,29 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           // V15 P0.7.27 (2026-04-30): runner-protect-active also skips
           // (healthy trade with no adverse div / TD threat / structure
           // intact deserves more time to develop).
-          if (!_isPrecisionETF && !tickerData?.__v12_winner_protect_active && !_runnerProtectActive &&
-              _agH >= _p1MinAgeHours && _agH < 8 && pnlPct <= -1.0 && _mfeAbs < 0.3 && _maeAbs >= _p1MaxMaePct) {
-            tickerData.__exit_reason = "phase_i_mfe_fast_cut_zero_mfe";
-            tickerData.__exit_family = "safety";
-            return "exit";
+          // V15 P0.7.45 / S3 (2026-04-30): also gated by personality grace.
+          {
+            const _t0MinAge = _p1MinAgeHours * _s3GraceMult;
+            const _t0PnlMax = _s3PnlFloor;  // -1.0 default; -1.5 for slow personalities
+            if (!_isPrecisionETF && !tickerData?.__v12_winner_protect_active && !_runnerProtectActive &&
+                _agH >= _t0MinAge && _agH < 8 && pnlPct <= _t0PnlMax && _mfeAbs < 0.3 && _maeAbs >= _p1MaxMaePct) {
+              tickerData.__exit_reason = "phase_i_mfe_fast_cut_zero_mfe";
+              tickerData.__exit_family = "safety";
+              if (_slowPersonality) tickerData.__exit_meta = { ...(tickerData.__exit_meta || {}), s3_grace_applied: true, personality: _entryPersonality };
+              return "exit";
+            }
           }
-          // Tier 1: fastest — no commitment within 2-4h, already in red
-          if (_agH >= 2 && _agH < 4 && pnlPct <= -0.8 && _mfeAbs < 0.3) {
-            tickerData.__exit_reason = "phase_i_mfe_fast_cut_2h";
-            tickerData.__exit_family = "safety";
-            return "exit";
+          // Tier 1: fastest — no commitment within 2-4h (3-6h for slow personalities), already in red
+          {
+            const _t1Lo = 2 * _s3GraceMult;     // 2 → 3 for slow
+            const _t1Hi = 4 * _s3GraceMult;     // 4 → 6 for slow
+            const _t1Pnl = _slowPersonality ? -1.2 : -0.8;
+            if (_agH >= _t1Lo && _agH < _t1Hi && pnlPct <= _t1Pnl && _mfeAbs < 0.3) {
+              tickerData.__exit_reason = "phase_i_mfe_fast_cut_2h";
+              tickerData.__exit_family = "safety";
+              if (_slowPersonality) tickerData.__exit_meta = { ...(tickerData.__exit_meta || {}), s3_grace_applied: true, personality: _entryPersonality };
+              return "exit";
+            }
           }
           // Tier 2: 4h checkpoint (now overlaps with Tier 0 at >=4 <8, either
           // wins on pnl/MFE criteria; no boundary gap)
@@ -8870,6 +8920,81 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     // already extreme (>=5%) or actual position completion is near TP.
     const trimGuardActive = positionAgeMin < 30 && pnlPct < 3.0;
     const trimSignal = isRsiExtreme || isFuelCritical || isPhaseExtreme || isNearTp || isPnlExtreme || stFlipAgainst || gateCompleted;
+
+    // ─────────────────────────────────────────────────────────────────────
+    // V15 P0.7.45 / S2 (2026-04-30) — MFE PEAK-LOCK TRIM
+    //
+    // Holistic-review forensic on 588 closed trades:
+    //   • 51 LOSSES had MFE ≥ 1% AND MFE > |MAE| (i.e., went green first
+    //     by ≥ 1%, then reversed into the SL).
+    //   • Counterfactual: 50%-trim-at-half-MFE on these 51 trades saves
+    //     +$12,791 on a $100k base portfolio (~28% PnL improvement).
+    //   • Even the broader winners are hurt — every profitable setup has
+    //     capture efficiency ≤ 33%; PROFIT_GIVEBACK_STAGE_HOLD alone has
+    //     12% capture across 65 trades and ~$34k of total giveback.
+    //
+    // Rule: when MFE has reached `min_lock_threshold` AND the trade is
+    // currently retraced by `lock_retrace_pct` of the MFE peak (and still
+    // green), trigger a TRIM (50% by default) that locks in roughly half
+    // of the peak gain. This converts a "would-be SL loss" into a
+    // small-win + scratch outcome.
+    //
+    // Tunable:
+    //   deep_audit_mfe_peak_lock_enabled        (default true)
+    //   deep_audit_mfe_peak_lock_min_threshold  (default 1.0  — % MFE)
+    //   deep_audit_mfe_peak_lock_retrace_pct    (default 0.5  — fraction)
+    //   deep_audit_mfe_peak_lock_min_remaining  (default 0.2  — % current pnl floor)
+    //
+    // Won't fire if:
+    //   - Trade already trimmed (trimmedPct > 0)
+    //   - Trade is at TP completion (handled by other paths)
+    //   - Trade entered with momentum_elite + premium_stack (let runners run)
+    // ─────────────────────────────────────────────────────────────────────
+    {
+      const _s2Enabled = String(
+        tickerData?._env?._deepAuditConfig?.deep_audit_mfe_peak_lock_enabled ?? "true"
+      ) === "true";
+      const _s2Threshold = Number(
+        tickerData?._env?._deepAuditConfig?.deep_audit_mfe_peak_lock_min_threshold ?? 1.0
+      );
+      const _s2RetracePct = Number(
+        tickerData?._env?._deepAuditConfig?.deep_audit_mfe_peak_lock_retrace_pct ?? 0.5
+      );
+      const _s2MinRemaining = Number(
+        tickerData?._env?._deepAuditConfig?.deep_audit_mfe_peak_lock_min_remaining ?? 0.2
+      );
+      const _alreadyTrimmed = Number(openPosition?.trimmedPct ?? openPosition?.trimmed_pct ?? 0) > 0;
+      const _mfePctSigned = Number(openPosition?.maxFavorableExcursion ?? openPosition?.max_favorable_excursion ?? 0);
+      const _mfePct = Math.abs(_mfePctSigned);  // MFE is recorded as a + magnitude regardless of direction
+      const _gradeMomentumElite = !!tickerData?.flags?.momentum_elite;
+      const _isPremiumStack = (() => {
+        const es = openPosition?.entrySignals || openPosition?.entry_signals || null;
+        if (!es) return false;
+        const pdzD = String(es.pdz_d || "").toLowerCase();
+        const pdz4 = String(es.pdz_4h || "").toLowerCase();
+        return pdzD.includes("premium") && pdz4.includes("premium");
+      })();
+      const _exemptRunner = _gradeMomentumElite && _isPremiumStack;
+
+      const _peakLockEligible = _s2Enabled
+        && !_alreadyTrimmed
+        && !_exemptRunner
+        && !isNearTp                          // already covered by completion path
+        && _mfePct >= _s2Threshold            // peak reached at least our threshold
+        && pnlPct > _s2MinRemaining           // still positive (don't trim into a loss)
+        && pnlPct < (_mfePct * (1 - _s2RetracePct));  // retraced at least retrace_pct of the peak
+
+      if (_peakLockEligible) {
+        tickerData.__trim_reason = "mfe_peak_lock";
+        tickerData.__trim_pct = 0.5;
+        tickerData.__trim_meta = {
+          mfe_pct: Math.round(_mfePct * 100) / 100,
+          current_pnl_pct: Math.round(pnlPct * 100) / 100,
+          retrace_pct: Math.round((1 - pnlPct / _mfePct) * 100) / 100,
+        };
+        return "trim";
+      }
+    }
 
     // PDZ-AWARE TRIM MODULATION:
     // In extended zone (LONG in premium / SHORT in discount): trim eagerly
@@ -16280,8 +16405,17 @@ async function processTradeSimulation(
         const _curPnlPct = _isLongMfe
           ? ((pxNow - _entryPxMfe) / _entryPxMfe) * 100
           : ((_entryPxMfe - pxNow) / _entryPxMfe) * 100;
-        const prevMfe = Number(openTrade.maxFavorableExcursion) || 0;
-        const prevMae = Number(openTrade.maxAdverseExcursion) || 0;
+        /* V15 P0.7.46 (2026-05-01) — initialize MFE/MAE to 0 on first observation
+           so trades that close on the entry bar still have non-NULL values (was
+           leaving NULL on ~7% of canonical-run trades). Prior code returned 0
+           via `Number(undefined) || 0` for the comparison, but never wrote the
+           zero back — so same-bar exits never persisted MFE/MAE. */
+        const prevMfe = openTrade.maxFavorableExcursion != null
+          ? Number(openTrade.maxFavorableExcursion) : 0;
+        const prevMae = openTrade.maxAdverseExcursion != null
+          ? Number(openTrade.maxAdverseExcursion) : 0;
+        if (openTrade.maxFavorableExcursion == null) openTrade.maxFavorableExcursion = 0;
+        if (openTrade.maxAdverseExcursion == null) openTrade.maxAdverseExcursion = 0;
         if (_curPnlPct > prevMfe) openTrade.maxFavorableExcursion = Math.round(_curPnlPct * 10000) / 10000;
         if (_curPnlPct < prevMae) openTrade.maxAdverseExcursion = Math.round(_curPnlPct * 10000) / 10000;
       }
@@ -19549,6 +19683,10 @@ async function processTradeSimulation(
               trimmedPct: 0,
               history: [ev],
               notional: notional,
+              /* V15 P0.7.46 (2026-05-01) — initialize MFE/MAE to 0 at creation
+                 so they are never NULL even on same-bar entry-and-exit trades. */
+              maxFavorableExcursion: 0,
+              maxAdverseExcursion: 0,
               confidence: confidence,
               confidenceBreakdown: confidenceBreakdown,
               sizing: {
@@ -26093,6 +26231,11 @@ async function d1EnsureBacktestRunsSchema(env) {
       // Populated when deep_audit_rank_trace_force_enabled=true on
       // enter-stage bars. See tasks/v11-rank-integrity-audit-2026-04-22.md
       `ALTER TABLE backtest_run_trades ADD COLUMN rank_trace_json TEXT`,
+      // V15 P0.7.45 (2026-04-30) — entry-time signal flags persisted at
+      // trade creation, so exit-side analysis (runner-protect, dead-money
+      // bypass, S2 MFE-lock gate) can read directly from the trade row
+      // without re-parsing rank_trace_json.setup_snapshot.
+      `ALTER TABLE backtest_run_trades ADD COLUMN entry_signals_json TEXT`,
     ];
     for (const stmt of brtExtraCols) {
       try { await db.prepare(stmt).run(); } catch {}
@@ -26102,6 +26245,8 @@ async function d1EnsureBacktestRunsSchema(env) {
       `ALTER TABLE trades ADD COLUMN max_favorable_excursion REAL`,
       `ALTER TABLE trades ADD COLUMN max_adverse_excursion REAL`,
       `ALTER TABLE trades ADD COLUMN rank_trace_json TEXT`,
+      // V15 P0.7.45 — entry signals persisted at creation; see comment above.
+      `ALTER TABLE trades ADD COLUMN entry_signals_json TEXT`,
     ];
     for (const stmt of tradesExtraCols) {
       try { await db.prepare(stmt).run(); } catch {}
@@ -30622,22 +30767,28 @@ async function d1UpsertTrade(env, trade) {
     ) : null
   );
 
+  /* V15 P0.7.45 (2026-04-30) — added entry_signals_json (final binding ?30 / ?29).
+     Carries adverse_rsi_div, adverse_phase_div, td9_bear_ltf_active, pdz_d/4h,
+     personality flags so exit logic + autopsy don't have to re-parse
+     rank_trace_json.setup_snapshot. */
   const insertWithTrimPrice = `INSERT OR IGNORE INTO trades
           (trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
            created_at, updated_at, trim_ts, trim_price, run_id,
            setup_name, setup_grade, risk_budget, shares, notional,
-           entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json)
+           entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json,
+           entry_signals_json)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29)`;
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30)`;
   const insertWithoutTrimPrice = `INSERT OR IGNORE INTO trades
           (trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
            created_at, updated_at, trim_ts, run_id,
            setup_name, setup_grade, risk_budget, shares, notional,
-           entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json)
+           entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json,
+           entry_signals_json)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)`;
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29)`;
 
   const resolvedEntryPrice = trade.entryPrice != null ? Number(trade.entryPrice)
     : trade.entry_price != null ? Number(trade.entry_price) : null;
@@ -30685,6 +30836,13 @@ async function d1UpsertTrade(env, trade) {
         resolvedMfe,
         resolvedMae,
         trade.rankTraceJson ?? trade.rank_trace_json ?? null,
+        /* V15 P0.7.45 — entry_signals_json: stringify if object, else pass-through */
+        (() => {
+          const es = trade.entrySignals ?? trade.entry_signals ?? null;
+          if (es == null) return null;
+          if (typeof es === "string") return es;
+          try { return JSON.stringify(es); } catch (_) { return null; }
+        })(),
       )
       .run();
 
@@ -30700,7 +30858,8 @@ async function d1UpsertTrade(env, trade) {
           entry_path=COALESCE(?25, entry_path),
           max_favorable_excursion=COALESCE(?26, max_favorable_excursion),
           max_adverse_excursion=COALESCE(?27, max_adverse_excursion),
-          rank_trace_json=COALESCE(?28, rank_trace_json)
+          rank_trace_json=COALESCE(?28, rank_trace_json),
+          entry_signals_json=COALESCE(?29, entry_signals_json)
          WHERE trade_id=?1`,
       )
       .bind(
@@ -30736,6 +30895,13 @@ async function d1UpsertTrade(env, trade) {
         resolvedMfe,
         resolvedMae,
         trade.rankTraceJson ?? trade.rank_trace_json ?? null,
+        /* V15 P0.7.45 — same encoding as INSERT branch */
+        (() => {
+          const es = trade.entrySignals ?? trade.entry_signals ?? null;
+          if (es == null) return null;
+          if (typeof es === "string") return es;
+          try { return JSON.stringify(es); } catch (_) { return null; }
+        })(),
       )
       .run();
 
@@ -30789,14 +30955,22 @@ async function d1ArchiveRunTrade(env, runId, trade) {
           .replace(/\b\w/g, c => c.toUpperCase())
       ) : null
     );
+    /* V15 P0.7.45 — entry_signals_json archived alongside rank_trace_json */
+    const archEntrySignalsJson = (() => {
+      const es = trade.entrySignals ?? trade.entry_signals ?? null;
+      if (es == null) return null;
+      if (typeof es === "string") return es;
+      try { return JSON.stringify(es); } catch (_) { return null; }
+    })();
     await db.prepare(
       `INSERT OR REPLACE INTO backtest_run_trades
         (run_id, trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
          exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
          created_at, updated_at, trim_ts, trim_price,
          setup_name, setup_grade, risk_budget, shares, notional,
-         entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json)
-       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29)`
+         entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json,
+         entry_signals_json)
+       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30)`
     ).bind(
       String(runId),
       tradeId,
@@ -30827,6 +31001,7 @@ async function d1ArchiveRunTrade(env, runId, trade) {
       archMfe,
       archMae,
       trade.rankTraceJson ?? trade.rank_trace_json ?? null,
+      archEntrySignalsJson,
     ).run();
   } catch (e) {
     console.warn("[ARCHIVE] d1ArchiveRunTrade failed:", String(e).slice(0, 150));

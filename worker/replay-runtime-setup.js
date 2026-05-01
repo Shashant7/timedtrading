@@ -243,6 +243,27 @@ export const REPLAY_DA_KEYS = [
   // no live TD9-bear threat, structure intact. Per XHB observation +
   // cohort analysis (6/8 such cuts became wins anyway).
   "deep_audit_runner_protect_healthy_enabled",
+  // ─────────────────────────────────────────────────────────────────────
+  // V15 P0.7.45 / Phase B-1 (2026-04-30) — exit-side rebuild from holistic
+  // review of 588-trade canonical run. Two new gate families:
+  //
+  //   S2 — MFE peak-lock trim. When MFE has reached >= min_threshold and
+  //   price has retraced >= retrace_pct of that peak (still green), trim
+  //   50% of position. Counterfactual on losses: +$12,791 / +28% on a
+  //   $100k base portfolio.
+  //
+  //   S3 — Personality-aware fast-cut grace. Phase-I dead-money cuts hurt
+  //   PULLBACK_PLAYER + SLOW_GRINDER personalities (capture -1084% / -3142%).
+  //   Scale min-age + pnl thresholds by grace_multiplier when personality
+  //   is one of those two; VOLATILE_RUNNER + MODERATE keep tight cuts.
+  // ─────────────────────────────────────────────────────────────────────
+  "deep_audit_mfe_peak_lock_enabled",
+  "deep_audit_mfe_peak_lock_min_threshold",
+  "deep_audit_mfe_peak_lock_retrace_pct",
+  "deep_audit_mfe_peak_lock_min_remaining",
+  "deep_audit_personality_aware_fast_cut_enabled",
+  "deep_audit_personality_grace_multiplier",
+  "deep_audit_personality_grace_pnl_floor",
   // V15 P0.7.28 (2026-04-30) — TD9_bear LTF FRAGILE-TRADE management
   // When TD9_bear (or _bull for SHORT) has fired on 30m/1h/4h at entry,
   // treat the trade as fragile: tighten TP1 distance + auto-BE-lock SL
