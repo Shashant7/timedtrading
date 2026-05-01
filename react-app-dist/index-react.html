@@ -472,18 +472,59 @@
   </head>
   <body class="ds-v2">
     <div id="root">
-      <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; gap:14px; background:var(--tt-bg-0)">
-        <svg width="44" height="44" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-          <defs><linearGradient id="tt-splash-ring" x1="6" y1="42" x2="42" y2="6"><stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#67e8f9"/></linearGradient></defs>
-          <rect width="48" height="48" rx="11" fill="#000"/>
-          <circle cx="24" cy="24" r="17" stroke="url(#tt-splash-ring)" stroke-width="2.5" fill="none"/>
-          <line x1="24" y1="24" x2="19" y2="18.5" stroke="#636366" stroke-width="3.5" stroke-linecap="round"/>
-          <line x1="24" y1="24" x2="29.5" y2="16.5" stroke="#30d158" stroke-width="4" stroke-linecap="round"/>
-          <circle cx="24" cy="24" r="3.2" fill="#30d158"/>
-        </svg>
-        <div style="display:flex; align-items:center; gap:8px">
-          <span class="tt-heartbeat"></span>
-          <p class="tt-label" style="margin:0">Loading dashboard</p>
+      <!-- V2.1 (2026-05-01): skeleton outline matches v2 layout shape so the
+           paint-in is seamless instead of jerking. Per user feedback. -->
+      <div style="min-height:100vh; background:var(--ds-bg-canvas); padding:16px 20px; display:flex; flex-direction:column; gap:12px">
+        <!-- Status strip skeleton (regime, vix, breadth, top) -->
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:10px 12px; border-radius:14px; border:1px solid var(--ds-stroke); background:var(--ds-bg-glass)">
+          <span class="ds-skeleton ds-skeleton--chip" style="width:120px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:90px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:110px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:140px; margin-left:auto"></span>
+        </div>
+        <!-- Upcoming events skeleton -->
+        <div style="display:flex; gap:8px; flex-wrap:wrap; padding:10px 12px; border-radius:14px; border:1px solid var(--ds-stroke); background:var(--ds-bg-glass)">
+          <span class="ds-skeleton ds-skeleton--chip"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:110px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:90px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:130px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:80px"></span>
+        </div>
+        <!-- Market pulse priority tiles skeleton -->
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:10px">
+          <div class="ds-skeleton ds-skeleton--tile"></div>
+          <div class="ds-skeleton ds-skeleton--tile"></div>
+          <div class="ds-skeleton ds-skeleton--tile"></div>
+          <div class="ds-skeleton ds-skeleton--tile"></div>
+          <div class="ds-skeleton ds-skeleton--tile"></div>
+          <div class="ds-skeleton ds-skeleton--tile"></div>
+        </div>
+        <!-- Top movers row skeleton -->
+        <div style="display:flex; gap:6px; flex-wrap:wrap; padding:10px 12px; border-radius:14px; border:1px solid var(--ds-stroke); background:var(--ds-bg-glass)">
+          <span class="ds-skeleton ds-skeleton--chip" style="width:70px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:60px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:60px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:60px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:60px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:60px"></span>
+        </div>
+        <!-- View tabs skeleton -->
+        <div style="display:flex; gap:8px; justify-content:center">
+          <span class="ds-skeleton ds-skeleton--chip" style="width:120px; height:36px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:140px; height:36px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:120px; height:36px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:80px; height:36px"></span>
+        </div>
+        <!-- Bubble map area skeleton -->
+        <div style="display:grid; grid-template-columns:320px 1fr; gap:12px; flex:1; min-height:600px">
+          <div style="display:flex; flex-direction:column; gap:8px">
+            <div class="ds-skeleton ds-skeleton--tile" style="height:60px"></div>
+            <div class="ds-skeleton ds-skeleton--tile" style="height:60px"></div>
+            <div class="ds-skeleton ds-skeleton--tile" style="height:60px"></div>
+            <div class="ds-skeleton ds-skeleton--tile" style="height:60px"></div>
+            <div class="ds-skeleton ds-skeleton--tile" style="height:60px"></div>
+          </div>
+          <div class="ds-skeleton ds-skeleton--bubble"></div>
         </div>
       </div>
     </div>
@@ -493,9 +534,9 @@
     <script src="ds-components.js?v=20260501a"></script>
     <script src="investor-panel.js?v=20260226a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260501a"></script>
+    <script src="shared-right-rail.compiled.js?v=20260501b"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
-    <script src="index-react.compiled.ecf4e0f3ba.js"></script>
+    <script src="index-react.compiled.41379f08a9.js"></script>
 
     <!-- Initialize app - separate script to avoid Babel parsing issues -->
     <script>

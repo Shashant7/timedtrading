@@ -9490,6 +9490,156 @@ const CompactCard = React.memo(function CompactCard({
   const tradeEqual = prevTrade === nextTrade || prevTrade?.status === nextTrade?.status && prevTrade?.entry_price === nextTrade?.entry_price && prevTrade?.exit_ts === nextTrade?.exit_ts && prevTrade?.trimmed_pct === nextTrade?.trimmed_pct && prevTrade?.sl_original === nextTrade?.sl_original;
   return tradeEqual && pt.price === nt.price && pt.state === nt.state && pt.kanban_stage === nt.kanban_stage && pt.score === nt.score && pt.sl === nt.sl && pt.tp_trim === nt.tp_trim && pt.tp_exit === nt.tp_exit && pt.tp_runner === nt.tp_runner && pt.day_change_pct === nt.day_change_pct && pt._live_daily_change_pct === nt._live_daily_change_pct && pt._ah_change_pct === nt._ah_change_pct && pt.has_open_position === nt.has_open_position && pt.position_sl === nt.position_sl && pt.position_tp === nt.position_tp && pt.entry_price === nt.entry_price && pt.__execution_block_reason === nt.__execution_block_reason && pt._sparkline === nt._sparkline && prev.savedTickers === next.savedTickers && prev.onSelectTicker === next.onSelectTicker && prev.addingTicker === next.addingTicker;
 });
+const DsCompactCard = React.memo(function DsCompactCard({
+  t,
+  onSelectTicker,
+  tradeByTicker
+}) {
+  const sym = String(t?.ticker || "").toUpperCase();
+  const price = Number(t?.price ?? t?.close);
+  const dc = (() => {
+    try {
+      return getDailyChange(t);
+    } catch (_) {
+      return null;
+    }
+  })();
+  const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
+  const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
+  const rank = Number(t?.rank) || null;
+  const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
+  const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
+  const rr = Number(t?.rr) || null;
+  const stage = String(t?.kanban_stage || "").toLowerCase();
+  const openTrade = tradeByTicker?.get?.(sym) || null;
+  const hasOpen = openTrade && !openTrade.exit_ts;
+  const tradeDir = hasOpen ? String(openTrade.direction || "").toUpperCase() : null;
+  const sparkPoints = (() => {
+    const arr = (t?.intraday_5m || t?.intraday || []).slice(-30).map(p => Number(p?.c ?? p)).filter(Number.isFinite);
+    if (arr.length >= 2) return arr;
+    const pc = Number(t?.prev_close ?? t?.pc) || price;
+    return [pc, price];
+  })();
+  const sparkSvg = typeof window !== "undefined" && window.DS && Number.isFinite(price) ? window.DS.sparklineSvg(sparkPoints, {
+    width: 280,
+    height: 50,
+    direction: dir,
+    strokeWidth: 1.4
+  }) : "";
+  const stageChip = (() => {
+    if (stage === "trim") return {
+      label: "Trim",
+      cls: "ds-chip--accent"
+    };
+    if (stage === "defend") return {
+      label: "Defend",
+      cls: "ds-chip--dn"
+    };
+    if (stage === "exit") return {
+      label: "Exit",
+      cls: "ds-chip--dn"
+    };
+    if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return {
+      label: "Enter",
+      cls: "ds-chip--accent"
+    };
+    if (stage === "hold" || stage === "active" || stage === "just_entered") return {
+      label: "Hold",
+      cls: "ds-chip--up"
+    };
+    if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") return {
+      label: "Setup",
+      cls: ""
+    };
+    return null;
+  })();
+  return React.createElement("button", {
+    onClick: () => onSelectTicker && onSelectTicker(sym),
+    className: "ds-tickercard",
+    style: {
+      width: 280,
+      textAlign: "left",
+      padding: "var(--ds-space-3)"
+    }
+  }, React.createElement("div", {
+    className: "ds-tickercard__head"
+  }, React.createElement("div", {
+    className: "ds-tickercard__logo",
+    ref: el => {
+      if (el && !el.dataset.dsInit && window.DS) {
+        el.dataset.dsInit = "1";
+        try {
+          el.replaceWith(window.DS.tickerLogo(sym, {
+            size: 22
+          }));
+        } catch (_) {}
+      }
+    },
+    style: {
+      width: 22,
+      height: 22
+    }
+  }, sym.slice(0, 2)), React.createElement("span", {
+    className: "ds-tickercard__symbol",
+    style: {
+      fontSize: 13
+    }
+  }, sym), tradeDir && React.createElement("span", {
+    className: `ds-chip ds-chip--sm ${tradeDir === "LONG" ? "ds-chip--up" : "ds-chip--dn"}`,
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      marginLeft: 4
+    }
+  }, tradeDir), stageChip && React.createElement("span", {
+    className: `ds-chip ds-chip--sm ${stageChip.cls}`,
+    style: {
+      marginLeft: "auto"
+    }
+  }, stageChip.label)), React.createElement("div", {
+    className: "ds-tickercard__price",
+    style: {
+      fontSize: 18
+    }
+  }, Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"), dayPct != null && React.createElement("div", {
+    className: `ds-tickercard__change ds-tickercard__change--${dir}`,
+    style: {
+      fontSize: 12
+    }
+  }, dir === "up" ? "▲" : dir === "dn" ? "▼" : "◆", " ", dayPct >= 0 ? "+" : "", dayPct.toFixed(2), "%"), sparkSvg && React.createElement("div", {
+    className: "ds-tickercard__spark",
+    dangerouslySetInnerHTML: {
+      __html: sparkSvg
+    }
+  }), React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: "var(--ds-space-1)",
+      marginTop: "var(--ds-space-2)",
+      flexWrap: "wrap",
+      zIndex: 2,
+      position: "relative"
+    }
+  }, rank != null && React.createElement("span", {
+    className: "ds-chip ds-chip--sm",
+    style: {
+      fontFamily: "var(--tt-font-mono)"
+    },
+    title: "Rank"
+  }, "R", rank), conv != null && React.createElement("span", {
+    className: `ds-chip ds-chip--sm ${tier === "A" ? "ds-chip--up" : tier === "B" ? "ds-chip--accent" : "ds-chip--solid"}`,
+    style: {
+      fontFamily: "var(--tt-font-mono)"
+    },
+    title: "Conviction tier"
+  }, tier || "C", "\xB7", Math.round(conv)), rr != null && React.createElement("span", {
+    className: `ds-chip ds-chip--sm ${rr >= 2 ? "ds-chip--up" : rr >= 1.5 ? "ds-chip--accent" : ""}`,
+    style: {
+      fontFamily: "var(--tt-font-mono)"
+    },
+    title: "Risk:Reward"
+  }, rr.toFixed(1), "R")));
+});
 function renderCompactCardFn(t, {
   onSelectTicker,
   savedTickers,
@@ -9497,6 +9647,14 @@ function renderCompactCardFn(t, {
   tradeByTicker,
   addingTicker
 } = {}) {
+  const useV2 = typeof window !== "undefined" && window._dsV2CardsEnabled !== false;
+  if (useV2) {
+    return React.createElement(DsCompactCard, {
+      t: t,
+      onSelectTicker: onSelectTicker,
+      tradeByTicker: tradeByTicker
+    });
+  }
   return React.createElement(CompactCard, {
     t: t,
     onSelectTicker: onSelectTicker,
@@ -13834,6 +13992,56 @@ function App() {
   const {
     priceLastUpdated
   } = usePriceFeed(data, setTickerData);
+  const [sparklineCache, setSparklineCache] = useState({});
+  const fetchSparkline = React.useCallback(async sym => {
+    try {
+      const r = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=60&limit=24`, {
+        cache: "no-store"
+      });
+      const j = await r.json();
+      const candles = Array.isArray(j?.candles) ? j.candles : [];
+      const closes = candles.map(c => Number(c?.c ?? c?.close)).filter(Number.isFinite);
+      return closes;
+    } catch (_) {
+      return null;
+    }
+  }, []);
+  const ensureSparkline = React.useCallback(sym => {
+    if (!sym) return null;
+    const upper = String(sym).toUpperCase();
+    if (sparklineCache[upper]) return sparklineCache[upper];
+    if (sparklineCache[upper] === undefined) {
+      setSparklineCache(prev => ({
+        ...prev,
+        [upper]: null
+      }));
+      fetchSparkline(upper).then(arr => {
+        if (arr && arr.length >= 2) {
+          setSparklineCache(prev => ({
+            ...prev,
+            [upper]: arr
+          }));
+        }
+      });
+    }
+    return null;
+  }, [sparklineCache, fetchSparkline]);
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      const symbols = Object.keys(sparklineCache);
+      symbols.forEach(sym => {
+        fetchSparkline(sym).then(arr => {
+          if (arr && arr.length >= 2) {
+            setSparklineCache(prev => ({
+              ...prev,
+              [sym]: arr
+            }));
+          }
+        });
+      });
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [sparklineCache, fetchSparkline]);
   const tradeDataReady = secondaryDataReady && dashboardMode !== "analysis";
   const {
     trades
@@ -15303,11 +15511,10 @@ function App() {
       }
       if (pct === null) pct = 0;
       const dir = pct > 0.05 ? "up" : pct < -0.05 ? "dn" : "flat";
+      const cachedSpark = ensureSparkline(sym);
       const sparkPoints = (() => {
-        const arr = (td?.intraday_5m || td?.intraday || []).slice(-40).map(p => Number(p?.c ?? p)).filter(Number.isFinite);
-        if (arr.length >= 2) return arr;
-        const pc = Number(td?.prev_close ?? td?.pc) || price;
-        return [pc, price];
+        if (cachedSpark && cachedSpark.length >= 2) return cachedSpark;
+        return [price, price];
       })();
       const sparkSvg = window.DS ? window.DS.sparklineSvg(sparkPoints, {
         width: 220,
@@ -15547,7 +15754,7 @@ function App() {
     const ethLosers = ethSorted.slice(-5).reverse();
     const hasEth = ethGainers.length > 0 || ethLosers.length > 0;
     if (rthGainers.length === 0 && rthLosers.length === 0 && !hasEth) return null;
-    const MoverRow = ({
+    const MoverChip = ({
       t,
       isGain,
       pctKey,
@@ -15556,198 +15763,113 @@ function App() {
     }) => {
       const sym = t?.ticker || t?.symbol || "?";
       const pct = Number(t[pctKey]) || 0;
-      const price = Number(t[priceKey]) || 0;
       const dir = isGain ? "up" : "dn";
       return React.createElement("button", {
         key: `${sym}-${idx}`,
         onClick: () => handleTickerSelect(sym),
-        className: "ds-card ds-card--interactive",
-        style: {
-          padding: "8px 10px",
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--ds-space-2)",
-          textAlign: "left",
-          borderRadius: "var(--ds-radius-sm)"
-        }
-      }, React.createElement("div", {
-        className: "ds-tickercard__logo",
-        ref: el => {
-          if (el && !el.dataset.dsInit && window.DS) {
-            el.dataset.dsInit = "1";
-            try {
-              el.replaceWith(window.DS.tickerLogo(sym, {
-                size: 22
-              }));
-            } catch (_) {}
-          }
-        },
-        style: {
-          width: 22,
-          height: 22
-        }
-      }, String(sym).slice(0, 2)), React.createElement("span", {
-        className: "ds-tickercard__symbol",
-        style: {
-          fontSize: 13
-        }
-      }, sym), React.createElement("span", {
-        style: {
-          marginLeft: "auto",
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--ds-space-2)"
-        }
-      }, price > 0 && React.createElement("span", {
-        style: {
-          fontFamily: "var(--tt-font-mono)",
-          fontSize: 11,
-          color: "var(--ds-text-muted)"
-        }
-      }, "$", price.toFixed(2)), React.createElement("span", {
         className: `ds-chip ds-chip--sm ds-chip--${dir}`,
         style: {
-          fontSize: 11,
-          minWidth: 60,
-          justifyContent: "center"
+          fontFamily: "var(--tt-font-mono)"
         }
-      }, pct >= 0 ? "+" : "", pct.toFixed(2), "%")));
+      }, React.createElement("span", {
+        style: {
+          fontWeight: 700
+        }
+      }, sym), React.createElement("span", null, pct >= 0 ? "+" : "", pct.toFixed(2), "%"));
     };
-    const MoverColumn = ({
-      title,
-      items,
-      isGain,
-      pctKey,
-      priceKey
-    }) => React.createElement("div", {
-      style: {
-        display: "flex",
-        flexDirection: "column",
-        gap: 6
-      }
-    }, React.createElement("div", {
-      style: {
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        padding: "0 4px"
-      }
-    }, React.createElement("span", {
-      className: "ds-caption",
-      style: {
-        color: isGain ? "var(--ds-up)" : "var(--ds-dn)"
-      }
-    }, isGain ? "▲ Gainers" : "▼ Losers"), React.createElement("span", {
-      style: {
-        fontSize: 10,
-        color: "var(--ds-text-faint)",
-        fontFamily: "var(--tt-font-mono)"
-      }
-    }, items.length)), React.createElement("div", {
-      style: {
-        display: "flex",
-        flexDirection: "column",
-        gap: 4
-      }
-    }, items.length > 0 ? items.map((t, i) => React.createElement(MoverRow, {
-      key: `${pctKey}-${title}-${i}`,
-      t: t,
-      isGain: isGain,
-      pctKey: pctKey,
-      priceKey: priceKey,
-      idx: i
-    })) : React.createElement("div", {
-      style: {
-        padding: "8px 10px",
-        fontSize: 11,
-        color: "var(--ds-text-faint)"
-      }
-    }, "No movers in this session.")));
-    const MoverTable = ({
+    const SessionRow = ({
+      pillLabel,
+      pillCls,
       gainers,
       losers,
       pctKey,
       priceKey
     }) => React.createElement("div", {
+      className: "ds-glass",
       style: {
-        display: "grid",
-        gridTemplateColumns: "1fr 1fr",
-        gap: "var(--ds-space-3)"
+        padding: "var(--ds-space-2) var(--ds-space-3)"
       }
-    }, React.createElement(MoverColumn, {
-      title: "g",
-      items: gainers,
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        flexWrap: "nowrap",
+        gap: 4,
+        overflowX: "auto"
+      },
+      className: "scrollbar-hide"
+    }, React.createElement("span", {
+      className: `ds-chip ds-chip--sm ${pillCls}`,
+      style: {
+        fontFamily: "var(--tt-font-mono)",
+        flexShrink: 0
+      }
+    }, pillLabel), React.createElement("span", {
+      className: "ds-caption",
+      style: {
+        color: "var(--ds-up)",
+        marginLeft: 6,
+        marginRight: 4
+      }
+    }, "\u25B2"), gainers.length > 0 ? gainers.map((t, i) => React.createElement(MoverChip, {
+      key: `g-${i}`,
+      t: t,
       isGain: true,
       pctKey: pctKey,
-      priceKey: priceKey
-    }), React.createElement(MoverColumn, {
-      title: "l",
-      items: losers,
+      priceKey: priceKey,
+      idx: i
+    })) : React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: "var(--ds-text-faint)"
+      }
+    }, "\u2014"), React.createElement("span", {
+      style: {
+        color: "var(--ds-text-faint)",
+        margin: "0 6px",
+        opacity: 0.5
+      }
+    }, "\xB7"), React.createElement("span", {
+      className: "ds-caption",
+      style: {
+        color: "var(--ds-dn)",
+        marginRight: 4
+      }
+    }, "\u25BC"), losers.length > 0 ? losers.map((t, i) => React.createElement(MoverChip, {
+      key: `l-${i}`,
+      t: t,
       isGain: false,
       pctKey: pctKey,
-      priceKey: priceKey
-    }));
+      priceKey: priceKey,
+      idx: i
+    })) : React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: "var(--ds-text-faint)"
+      }
+    }, "\u2014")));
     return React.createElement("div", {
       className: "mb-3",
       style: {
         display: "flex",
         flexDirection: "column",
-        gap: "var(--ds-space-2)"
+        gap: "var(--ds-space-1)"
       }
-    }, React.createElement("div", {
-      className: "ds-row"
-    }, React.createElement("div", {
-      className: "ds-row__label"
-    }, React.createElement("span", {
-      className: "ds-chip ds-chip--accent ds-chip--sm",
-      style: {
-        fontFamily: "var(--tt-font-mono)"
-      }
-    }, "RTH"), React.createElement("div", {
-      style: {
-        fontSize: "var(--ds-fs-caption)",
-        color: "var(--ds-text-faint)",
-        marginTop: 4
-      }
-    }, "Regular Hours")), React.createElement("div", {
-      className: "ds-row__content",
-      style: {
-        flexDirection: "column"
-      }
-    }, React.createElement(MoverTable, {
+    }, React.createElement(SessionRow, {
+      pillLabel: "RTH",
+      pillCls: "ds-chip--accent",
       gainers: rthGainers,
       losers: rthLosers,
       pctKey: "_pct",
       priceKey: "_price"
-    }))), hasEth && React.createElement("div", {
-      className: "ds-row"
-    }, React.createElement("div", {
-      className: "ds-row__label"
-    }, React.createElement("span", {
-      className: "ds-chip ds-chip--sm",
-      style: {
-        fontFamily: "var(--tt-font-mono)",
-        color: "var(--ds-warn)",
-        borderColor: "var(--ds-warn)",
-        background: "rgba(245,158,11,0.10)"
-      }
-    }, "EXT"), React.createElement("div", {
-      style: {
-        fontSize: "var(--ds-fs-caption)",
-        color: "var(--ds-text-faint)",
-        marginTop: 4
-      }
-    }, "Extended Hours")), React.createElement("div", {
-      className: "ds-row__content",
-      style: {
-        flexDirection: "column"
-      }
-    }, React.createElement(MoverTable, {
+    }), hasEth && React.createElement(SessionRow, {
+      pillLabel: "EXT",
+      pillCls: "",
       gainers: ethGainers,
       losers: ethLosers,
       pctKey: "_ethPct",
       priceKey: "_ethPrice"
-    }))));
+    }));
   })(), (dashboardMode === "trader" || dashboardMode === "investor") && React.createElement("div", {
     className: "mb-4"
   }, React.createElement(ActionCenterPanel, {
@@ -16323,83 +16445,117 @@ function App() {
         className: "ds-chip__count"
       }, chip.count));
     };
-    const renderRow = (label, chips) => {
-      if (!chips || chips.length === 0) return null;
-      return React.createElement("div", {
-        className: "ds-row",
+    const renderGroup = (groupKey, groupChips, accentClass) => {
+      if (!groupChips || groupChips.length === 0) return null;
+      return React.createElement(React.Fragment, {
+        key: `grp-${groupKey}`
+      }, React.createElement("span", {
+        className: "ds-caption",
         style: {
-          padding: "2px 0"
+          color: accentClass || "var(--ds-text-faint)",
+          marginLeft: 4,
+          marginRight: 4
         }
-      }, React.createElement("div", {
-        className: "ds-row__label",
+      }, groupKey), groupChips.map(c => renderChip(c, false)), React.createElement("span", {
         style: {
-          width: 96
+          color: "var(--ds-text-faint)",
+          margin: "0 6px",
+          opacity: 0.5
         }
-      }, React.createElement("div", {
-        className: "ds-caption"
-      }, label)), React.createElement("div", {
-        className: "ds-row__content",
-        style: {
-          overflowX: "auto"
-        }
-      }, chips.map(c => renderChip(c, false))));
+      }, "\xB7"));
     };
     return React.createElement("div", {
-      className: "space-y-1 px-1 mb-1"
+      className: "mb-2",
+      style: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--ds-space-1)"
+      }
     }, React.createElement("div", {
       className: "ds-glass",
       style: {
-        padding: "var(--ds-space-3)",
-        paddingTop: "var(--ds-space-2)",
-        paddingBottom: "var(--ds-space-2)"
+        padding: "var(--ds-space-2) var(--ds-space-3)"
       }
-    }, focus && renderRow("Focus", [focus]), renderRow("Now", now), renderRow("Setups", setups), renderRow("Momentum", momentum), renderRow("Structure", structure), activeInsight && React.createElement("div", {
-      className: "flex items-center justify-end",
+    }, React.createElement("div", {
       style: {
-        paddingTop: "var(--ds-space-1)"
+        display: "flex",
+        alignItems: "center",
+        flexWrap: "nowrap",
+        gap: 4,
+        overflowX: "auto",
+        paddingBottom: 2
+      },
+      className: "scrollbar-hide"
+    }, focus && React.createElement(React.Fragment, null, React.createElement("span", {
+      className: "ds-caption",
+      style: {
+        color: "var(--ds-accent)",
+        marginRight: 4
       }
-    }, React.createElement("button", {
+    }, "Focus"), renderChip(focus, false), React.createElement("span", {
+      style: {
+        color: "var(--ds-text-faint)",
+        margin: "0 6px",
+        opacity: 0.5
+      }
+    }, "\xB7")), renderGroup("Now", now, "var(--ds-warn)"), renderGroup("Setups", setups, "var(--ds-up)"), renderGroup("Momentum", momentum, "var(--ds-accent)"), renderGroup("Structure", structure, "var(--ds-violet)"), activeInsight && React.createElement("button", {
       onClick: () => {
         setActiveInsight(null);
         setActiveSubInsight(null);
       },
-      className: "ds-chip ds-chip--sm"
-    }, "\u2715 Clear filter"))), context.length > 0 && React.createElement("div", {
+      className: "ds-chip ds-chip--sm",
+      style: {
+        marginLeft: "auto",
+        flexShrink: 0
+      }
+    }, "\u2715 Clear"))), context.length > 0 && React.createElement("div", {
       className: "ds-glass",
       style: {
-        padding: "var(--ds-space-2) var(--ds-space-3)",
-        background: "var(--ds-bg-glass)"
+        padding: "var(--ds-space-2) var(--ds-space-3)"
       }
-    }, renderRow("Context", context)), activeInsight === "sp_sectors" && sectorSubs.length > 0 && React.createElement("div", {
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        flexWrap: "nowrap",
+        gap: 4,
+        overflowX: "auto"
+      },
+      className: "scrollbar-hide"
+    }, React.createElement("span", {
+      className: "ds-caption",
+      style: {
+        color: "var(--ds-text-muted)",
+        marginRight: 4
+      }
+    }, "Context"), context.map(c => renderChip(c, false)))), activeInsight === "sp_sectors" && sectorSubs.length > 0 && React.createElement("div", {
       className: "ds-glass",
       style: {
         padding: "var(--ds-space-2) var(--ds-space-3)",
         background: "rgba(167,139,250,0.05)"
       }
     }, React.createElement("div", {
-      className: "ds-row",
       style: {
-        padding: "2px 0"
-      }
-    }, React.createElement("div", {
-      className: "ds-row__label",
-      style: {
-        width: 96
-      }
-    }, React.createElement("div", {
+        display: "flex",
+        alignItems: "center",
+        flexWrap: "nowrap",
+        gap: 4,
+        overflowX: "auto"
+      },
+      className: "scrollbar-hide"
+    }, React.createElement("span", {
       className: "ds-caption",
       style: {
-        color: "var(--ds-violet)"
+        color: "var(--ds-violet)",
+        marginRight: 4
       }
-    }, "Drill")), React.createElement("div", {
-      className: "ds-row__content",
-      style: {
-        overflowX: "auto"
-      }
-    }, sectorSubs.map(c => renderChip(c, true)), activeSubInsight && React.createElement("button", {
+    }, "Drill"), sectorSubs.map(c => renderChip(c, true)), activeSubInsight && React.createElement("button", {
       onClick: () => setActiveSubInsight(null),
-      className: "ds-chip ds-chip--sm"
-    }, "\u2715")))));
+      className: "ds-chip ds-chip--sm",
+      style: {
+        marginLeft: 6
+      }
+    }, "\u2715"))));
   })(), React.createElement("div", {
     className: "flex-1 min-h-0"
   }, loading && tickers.length === 0 || !_secondaryReady ? React.createElement("div", {

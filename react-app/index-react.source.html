@@ -481,18 +481,59 @@
   </head>
   <body class="ds-v2">
     <div id="root">
-      <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; gap:14px; background:var(--tt-bg-0)">
-        <svg width="44" height="44" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-          <defs><linearGradient id="tt-splash-ring" x1="6" y1="42" x2="42" y2="6"><stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#67e8f9"/></linearGradient></defs>
-          <rect width="48" height="48" rx="11" fill="#000"/>
-          <circle cx="24" cy="24" r="17" stroke="url(#tt-splash-ring)" stroke-width="2.5" fill="none"/>
-          <line x1="24" y1="24" x2="19" y2="18.5" stroke="#636366" stroke-width="3.5" stroke-linecap="round"/>
-          <line x1="24" y1="24" x2="29.5" y2="16.5" stroke="#30d158" stroke-width="4" stroke-linecap="round"/>
-          <circle cx="24" cy="24" r="3.2" fill="#30d158"/>
-        </svg>
-        <div style="display:flex; align-items:center; gap:8px">
-          <span class="tt-heartbeat"></span>
-          <p class="tt-label" style="margin:0">Loading dashboard</p>
+      <!-- V2.1 (2026-05-01): skeleton outline matches v2 layout shape so the
+           paint-in is seamless instead of jerking. Per user feedback. -->
+      <div style="min-height:100vh; background:var(--ds-bg-canvas); padding:16px 20px; display:flex; flex-direction:column; gap:12px">
+        <!-- Status strip skeleton (regime, vix, breadth, top) -->
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:10px 12px; border-radius:14px; border:1px solid var(--ds-stroke); background:var(--ds-bg-glass)">
+          <span class="ds-skeleton ds-skeleton--chip" style="width:120px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:90px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:110px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:140px; margin-left:auto"></span>
+        </div>
+        <!-- Upcoming events skeleton -->
+        <div style="display:flex; gap:8px; flex-wrap:wrap; padding:10px 12px; border-radius:14px; border:1px solid var(--ds-stroke); background:var(--ds-bg-glass)">
+          <span class="ds-skeleton ds-skeleton--chip"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:110px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:90px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:130px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:80px"></span>
+        </div>
+        <!-- Market pulse priority tiles skeleton -->
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:10px">
+          <div class="ds-skeleton ds-skeleton--tile"></div>
+          <div class="ds-skeleton ds-skeleton--tile"></div>
+          <div class="ds-skeleton ds-skeleton--tile"></div>
+          <div class="ds-skeleton ds-skeleton--tile"></div>
+          <div class="ds-skeleton ds-skeleton--tile"></div>
+          <div class="ds-skeleton ds-skeleton--tile"></div>
+        </div>
+        <!-- Top movers row skeleton -->
+        <div style="display:flex; gap:6px; flex-wrap:wrap; padding:10px 12px; border-radius:14px; border:1px solid var(--ds-stroke); background:var(--ds-bg-glass)">
+          <span class="ds-skeleton ds-skeleton--chip" style="width:70px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:60px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:60px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:60px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:60px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:60px"></span>
+        </div>
+        <!-- View tabs skeleton -->
+        <div style="display:flex; gap:8px; justify-content:center">
+          <span class="ds-skeleton ds-skeleton--chip" style="width:120px; height:36px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:140px; height:36px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:120px; height:36px"></span>
+          <span class="ds-skeleton ds-skeleton--chip" style="width:80px; height:36px"></span>
+        </div>
+        <!-- Bubble map area skeleton -->
+        <div style="display:grid; grid-template-columns:320px 1fr; gap:12px; flex:1; min-height:600px">
+          <div style="display:flex; flex-direction:column; gap:8px">
+            <div class="ds-skeleton ds-skeleton--tile" style="height:60px"></div>
+            <div class="ds-skeleton ds-skeleton--tile" style="height:60px"></div>
+            <div class="ds-skeleton ds-skeleton--tile" style="height:60px"></div>
+            <div class="ds-skeleton ds-skeleton--tile" style="height:60px"></div>
+            <div class="ds-skeleton ds-skeleton--tile" style="height:60px"></div>
+          </div>
+          <div class="ds-skeleton ds-skeleton--bubble"></div>
         </div>
       </div>
     </div>
@@ -502,7 +543,7 @@
     <script src="ds-components.js?v=20260501a"></script>
     <script src="investor-panel.js?v=20260226a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260501a"></script>
+    <script src="shared-right-rail.compiled.js?v=20260501b"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef, memo } = React;
@@ -12173,7 +12214,90 @@
           && prev.addingTicker === next.addingTicker;
       });
 
+      /* V2.1 (2026-05-01) — DS CompactCard
+       * Replaces the legacy 600-line CompactCard with a clean v2 surface.
+       * Per user: cards should match the rest of the app design language; no
+       * emojis (right rail holds detail). Logo + symbol + price + change
+       * sparkline + 1-2 essential signal chips.
+       */
+      const DsCompactCard = React.memo(function DsCompactCard({ t, onSelectTicker, tradeByTicker }) {
+        const sym = String(t?.ticker || "").toUpperCase();
+        const price = Number(t?.price ?? t?.close);
+        const dc = (() => { try { return getDailyChange(t); } catch (_) { return null; } })();
+        const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
+        const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
+        const rank = Number(t?.rank) || null;
+        const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
+        const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
+        const rr = Number(t?.rr) || null;
+        const stage = String(t?.kanban_stage || "").toLowerCase();
+        const openTrade = tradeByTicker?.get?.(sym) || null;
+        const hasOpen = openTrade && !openTrade.exit_ts;
+        // Bias label for the trade direction
+        const tradeDir = hasOpen ? String(openTrade.direction || "").toUpperCase() : null;
+        const sparkPoints = (() => {
+          const arr = (t?.intraday_5m || t?.intraday || []).slice(-30).map(p => Number(p?.c ?? p)).filter(Number.isFinite);
+          if (arr.length >= 2) return arr;
+          const pc = Number(t?.prev_close ?? t?.pc) || price;
+          return [pc, price];
+        })();
+        const sparkSvg = (typeof window !== "undefined" && window.DS && Number.isFinite(price))
+          ? window.DS.sparklineSvg(sparkPoints, { width: 280, height: 50, direction: dir, strokeWidth: 1.4 })
+          : "";
+        const stageChip = (() => {
+          if (stage === "trim") return { label: "Trim", cls: "ds-chip--accent" };
+          if (stage === "defend") return { label: "Defend", cls: "ds-chip--dn" };
+          if (stage === "exit") return { label: "Exit", cls: "ds-chip--dn" };
+          if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return { label: "Enter", cls: "ds-chip--accent" };
+          if (stage === "hold" || stage === "active" || stage === "just_entered") return { label: "Hold", cls: "ds-chip--up" };
+          if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") return { label: "Setup", cls: "" };
+          return null;
+        })();
+        return (
+          <button
+            onClick={() => onSelectTicker && onSelectTicker(sym)}
+            className="ds-tickercard"
+            style={{ width: 280, textAlign: "left", padding: "var(--ds-space-3)" }}>
+            <div className="ds-tickercard__head">
+              <div className="ds-tickercard__logo" ref={(el) => {
+                if (el && !el.dataset.dsInit && window.DS) {
+                  el.dataset.dsInit = "1";
+                  try { el.replaceWith(window.DS.tickerLogo(sym, { size: 22 })); } catch (_) {}
+                }
+              }} style={{ width: 22, height: 22 }}>{sym.slice(0, 2)}</div>
+              <span className="ds-tickercard__symbol" style={{ fontSize: 13 }}>{sym}</span>
+              {tradeDir && (
+                <span className={`ds-chip ds-chip--sm ${tradeDir === "LONG" ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)", marginLeft: 4 }}>{tradeDir}</span>
+              )}
+              {stageChip && (
+                <span className={`ds-chip ds-chip--sm ${stageChip.cls}`} style={{ marginLeft: "auto" }}>{stageChip.label}</span>
+              )}
+            </div>
+            <div className="ds-tickercard__price" style={{ fontSize: 18 }}>{Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"}</div>
+            {dayPct != null && (
+              <div className={`ds-tickercard__change ds-tickercard__change--${dir}`} style={{ fontSize: 12 }}>
+                {dir === "up" ? "▲" : dir === "dn" ? "▼" : "◆"} {dayPct >= 0 ? "+" : ""}{dayPct.toFixed(2)}%
+              </div>
+            )}
+            {/* Sparkline behind text wash */}
+            {sparkSvg && <div className="ds-tickercard__spark" dangerouslySetInnerHTML={{ __html: sparkSvg }} />}
+            {/* Bottom signal row: rank · conviction tier · RR */}
+            <div style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-1)", marginTop: "var(--ds-space-2)", flexWrap: "wrap", zIndex: 2, position: "relative" }}>
+              {rank != null && <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }} title="Rank">R{rank}</span>}
+              {conv != null && <span className={`ds-chip ds-chip--sm ${tier === "A" ? "ds-chip--up" : tier === "B" ? "ds-chip--accent" : "ds-chip--solid"}`} style={{ fontFamily: "var(--tt-font-mono)" }} title="Conviction tier">{tier || "C"}·{Math.round(conv)}</span>}
+              {rr != null && <span className={`ds-chip ds-chip--sm ${rr >= 2 ? "ds-chip--up" : rr >= 1.5 ? "ds-chip--accent" : ""}`} style={{ fontFamily: "var(--tt-font-mono)" }} title="Risk:Reward">{rr.toFixed(1)}R</span>}
+            </div>
+          </button>
+        );
+      });
+
       function renderCompactCardFn(t, { onSelectTicker, savedTickers, toggleSavedTicker, tradeByTicker, addingTicker } = {}) {
+        /* V2.1 (2026-05-01) — Use DsCompactCard by default; legacy CompactCard
+           kept available for fallback by setting window._dsV2CardsEnabled = false */
+        const useV2 = (typeof window !== "undefined" && window._dsV2CardsEnabled !== false);
+        if (useV2) {
+          return <DsCompactCard t={t} onSelectTicker={onSelectTicker} tradeByTicker={tradeByTicker} />;
+        }
         return <CompactCard t={t} onSelectTicker={onSelectTicker} savedTickers={savedTickers} toggleSavedTicker={toggleSavedTicker} tradeByTicker={tradeByTicker} addingTicker={addingTicker} />;
       }
 
@@ -17049,6 +17173,52 @@
         // Real-time price feed: WS push (primary) + HTTP poll fallback (every 30s)
         const { wsConnected, wsLastMessage } = useWebSocket(data, setTickerData);
         const { priceLastUpdated } = usePriceFeed(data, setTickerData);
+
+        /* V2.1 (2026-05-01) — 1H sparkline cache for Market Pulse tiles.
+           Per user: "For Sparklines, we use the 1 hour TF". Fetches /timed/candles?tf=60
+           for the priority symbols once on mount, refreshes every 5 minutes. */
+        const [sparklineCache, setSparklineCache] = useState({});
+        const fetchSparkline = React.useCallback(async (sym) => {
+          try {
+            const r = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=60&limit=24`, { cache: "no-store" });
+            const j = await r.json();
+            const candles = Array.isArray(j?.candles) ? j.candles : [];
+            const closes = candles.map(c => Number(c?.c ?? c?.close)).filter(Number.isFinite);
+            return closes;
+          } catch (_) {
+            return null;
+          }
+        }, []);
+        const ensureSparkline = React.useCallback((sym) => {
+          if (!sym) return null;
+          const upper = String(sym).toUpperCase();
+          if (sparklineCache[upper]) return sparklineCache[upper];
+          // Fetch async; React will re-render when state updates
+          if (sparklineCache[upper] === undefined) {
+            setSparklineCache(prev => ({ ...prev, [upper]: null }));  // mark in-flight
+            fetchSparkline(upper).then(arr => {
+              if (arr && arr.length >= 2) {
+                setSparklineCache(prev => ({ ...prev, [upper]: arr }));
+              }
+            });
+          }
+          return null;
+        }, [sparklineCache, fetchSparkline]);
+        // Refresh priority sparklines every 5 minutes
+        React.useEffect(() => {
+          const interval = setInterval(() => {
+            const symbols = Object.keys(sparklineCache);
+            symbols.forEach(sym => {
+              fetchSparkline(sym).then(arr => {
+                if (arr && arr.length >= 2) {
+                  setSparklineCache(prev => ({ ...prev, [sym]: arr }));
+                }
+              });
+            });
+          }, 5 * 60 * 1000);
+          return () => clearInterval(interval);
+        }, [sparklineCache, fetchSparkline]);
+
         const tradeDataReady = secondaryDataReady && dashboardMode !== "analysis";
         const { trades } = useTrades(tradeDataReady);
         const tradeByTicker = React.useMemo(() => {
@@ -18412,13 +18582,13 @@
                       if (td) { const dc = getDailyChange(td); if (dc && Number.isFinite(dc.dayPct)) pct = dc.dayPct; }
                       if (pct === null) pct = 0;
                       const dir = pct > 0.05 ? "up" : pct < -0.05 ? "dn" : "flat";
-                      // Build a 32-pt synthetic spark from intra-day if available, else flat
+                      /* V2.1 (2026-05-01) — sparklines use real 1H closes via ensureSparkline cache.
+                         Per user: "For Sparklines, we use the 1 hour TF". */
+                      const cachedSpark = ensureSparkline(sym);
                       const sparkPoints = (() => {
-                        const arr = (td?.intraday_5m || td?.intraday || []).slice(-40).map(p => Number(p?.c ?? p)).filter(Number.isFinite);
-                        if (arr.length >= 2) return arr;
-                        // Fallback: synth from prevClose to current
-                        const pc = Number(td?.prev_close ?? td?.pc) || price;
-                        return [pc, price];
+                        if (cachedSpark && cachedSpark.length >= 2) return cachedSpark;
+                        // While fetching, show flat horizontal line at current price (no fake jagged synth)
+                        return [price, price];
                       })();
                       const sparkSvg = window.DS ? window.DS.sparklineSvg(sparkPoints, { width: 220, height: 52, direction: dir, strokeWidth: 1.5 }) : "";
                       return (
@@ -18603,79 +18773,52 @@
                     // Daily Brief, where they are more table format like the
                     // Regime bar above." Two-column gainers|losers grid per
                     // session (RTH then EXT), each row: ticker · price · %.
-                    /* V2 (2026-05-01) — Top Movers on Design System v2.
-                       Each mover row = mini ds-tickercard with logo + symbol + price + change.
-                       Session label (RTH/EXT) lives in the ds-row label column.
-                       Cohesive with Market Pulse + View tabs above. */
-                    const MoverRow = ({ t, isGain, pctKey, priceKey, idx }) => {
+                    /* V2.1 (2026-05-01) — Top Movers compressed to Context-row density.
+                       Per user: "RTH and ETH section takes up a lot of space, it should
+                       be the same size as Context and same style".
+                       Each mover = ds-chip with up/dn variant; horizontal flow. */
+                    const MoverChip = ({ t, isGain, pctKey, priceKey, idx }) => {
                       const sym = t?.ticker || t?.symbol || "?";
                       const pct = Number(t[pctKey]) || 0;
-                      const price = Number(t[priceKey]) || 0;
                       const dir = isGain ? "up" : "dn";
                       return (
                         <button
                           key={`${sym}-${idx}`}
                           onClick={() => handleTickerSelect(sym)}
-                          className="ds-card ds-card--interactive"
-                          style={{ padding: "8px 10px", display: "flex", alignItems: "center", gap: "var(--ds-space-2)", textAlign: "left", borderRadius: "var(--ds-radius-sm)" }}>
-                          <div className="ds-tickercard__logo" ref={(el) => {
-                            if (el && !el.dataset.dsInit && window.DS) {
-                              el.dataset.dsInit = "1";
-                              try { el.replaceWith(window.DS.tickerLogo(sym, { size: 22 })); } catch (_) {}
-                            }
-                          }} style={{ width: 22, height: 22 }}>{String(sym).slice(0,2)}</div>
-                          <span className="ds-tickercard__symbol" style={{ fontSize: 13 }}>{sym}</span>
-                          <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "var(--ds-space-2)" }}>
-                            {price > 0 && <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: 11, color: "var(--ds-text-muted)" }}>${price.toFixed(2)}</span>}
-                            <span className={`ds-chip ds-chip--sm ds-chip--${dir}`} style={{ fontSize: 11, minWidth: 60, justifyContent: "center" }}>
-                              {pct >= 0 ? "+" : ""}{pct.toFixed(2)}%
-                            </span>
-                          </span>
+                          className={`ds-chip ds-chip--sm ds-chip--${dir}`}
+                          style={{ fontFamily: "var(--tt-font-mono)" }}>
+                          <span style={{ fontWeight: 700 }}>{sym}</span>
+                          <span>{pct >= 0 ? "+" : ""}{pct.toFixed(2)}%</span>
                         </button>
                       );
                     };
-                    const MoverColumn = ({ title, items, isGain, pctKey, priceKey }) => (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "0 4px" }}>
-                          <span className="ds-caption" style={{ color: isGain ? "var(--ds-up)" : "var(--ds-dn)" }}>
-                            {isGain ? "▲ Gainers" : "▼ Losers"}
-                          </span>
-                          <span style={{ fontSize: 10, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" }}>{items.length}</span>
+                    const SessionRow = ({ pillLabel, pillCls, gainers, losers, pctKey, priceKey }) => (
+                      <div className="ds-glass" style={{ padding: "var(--ds-space-2) var(--ds-space-3)" }}>
+                        <div style={{
+                          display: "flex",
+                          alignItems: "center",
+                          flexWrap: "nowrap",
+                          gap: 4,
+                          overflowX: "auto",
+                        }} className="scrollbar-hide">
+                          <span className={`ds-chip ds-chip--sm ${pillCls}`} style={{ fontFamily: "var(--tt-font-mono)", flexShrink: 0 }}>{pillLabel}</span>
+                          <span className="ds-caption" style={{ color: "var(--ds-up)", marginLeft: 6, marginRight: 4 }}>▲</span>
+                          {gainers.length > 0
+                            ? gainers.map((t, i) => <MoverChip key={`g-${i}`} t={t} isGain={true} pctKey={pctKey} priceKey={priceKey} idx={i} />)
+                            : <span style={{ fontSize: 11, color: "var(--ds-text-faint)" }}>—</span>}
+                          <span style={{ color: "var(--ds-text-faint)", margin: "0 6px", opacity: 0.5 }}>·</span>
+                          <span className="ds-caption" style={{ color: "var(--ds-dn)", marginRight: 4 }}>▼</span>
+                          {losers.length > 0
+                            ? losers.map((t, i) => <MoverChip key={`l-${i}`} t={t} isGain={false} pctKey={pctKey} priceKey={priceKey} idx={i} />)
+                            : <span style={{ fontSize: 11, color: "var(--ds-text-faint)" }}>—</span>}
                         </div>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          {items.length > 0
-                            ? items.map((t, i) => <MoverRow key={`${pctKey}-${title}-${i}`} t={t} isGain={isGain} pctKey={pctKey} priceKey={priceKey} idx={i} />)
-                            : <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--ds-text-faint)" }}>No movers in this session.</div>}
-                        </div>
-                      </div>
-                    );
-                    const MoverTable = ({ gainers, losers, pctKey, priceKey }) => (
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--ds-space-3)" }}>
-                        <MoverColumn title="g" items={gainers} isGain={true} pctKey={pctKey} priceKey={priceKey} />
-                        <MoverColumn title="l" items={losers} isGain={false} pctKey={pctKey} priceKey={priceKey} />
                       </div>
                     );
                     return (
-                      <div className="mb-3" style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-2)" }}>
-                        <div className="ds-row">
-                          <div className="ds-row__label">
-                            <span className="ds-chip ds-chip--accent ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }}>RTH</span>
-                            <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", marginTop: 4 }}>Regular Hours</div>
-                          </div>
-                          <div className="ds-row__content" style={{ flexDirection: "column" }}>
-                            <MoverTable gainers={rthGainers} losers={rthLosers} pctKey="_pct" priceKey="_price" />
-                          </div>
-                        </div>
+                      <div className="mb-3" style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-1)" }}>
+                        <SessionRow pillLabel="RTH" pillCls="ds-chip--accent" gainers={rthGainers} losers={rthLosers} pctKey="_pct" priceKey="_price" />
                         {hasEth && (
-                          <div className="ds-row">
-                            <div className="ds-row__label">
-                              <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)", color: "var(--ds-warn)", borderColor: "var(--ds-warn)", background: "rgba(245,158,11,0.10)" }}>EXT</span>
-                              <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", marginTop: 4 }}>Extended Hours</div>
-                            </div>
-                            <div className="ds-row__content" style={{ flexDirection: "column" }}>
-                              <MoverTable gainers={ethGainers} losers={ethLosers} pctKey="_ethPct" priceKey="_ethPrice" />
-                            </div>
-                          </div>
+                          <SessionRow pillLabel="EXT" pillCls="" gainers={ethGainers} losers={ethLosers} pctKey="_ethPct" priceKey="_ethPrice" />
                         )}
                       </div>
                     );
@@ -19256,60 +19399,82 @@
                               </button>
                             );
                           };
-                          // Tabular row: fixed-width left label + horizontally scrolling chips
-                          const renderRow = (label, chips) => {
-                            if (!chips || chips.length === 0) return null;
+                          /* V2.1 (2026-05-01) — single full-width row matching status-strip width.
+                             Per user: "should resemble top Regime section, stay consistent so it is easy to scan".
+                             Inline group separator dots between groups so user still gets the lens-grouping signal
+                             without 5 stacked rows. */
+                          const renderGroup = (groupKey, groupChips, accentClass) => {
+                            if (!groupChips || groupChips.length === 0) return null;
                             return (
-                              <div className="ds-row" style={{ padding: "2px 0" }}>
-                                <div className="ds-row__label" style={{ width: 96 }}>
-                                  <div className="ds-caption">{label}</div>
-                                </div>
-                                <div className="ds-row__content" style={{ overflowX: "auto" }}>
-                                  {chips.map(c => renderChip(c, false))}
-                                </div>
-                              </div>
+                              <React.Fragment key={`grp-${groupKey}`}>
+                                <span className="ds-caption" style={{ color: accentClass || "var(--ds-text-faint)", marginLeft: 4, marginRight: 4 }}>{groupKey}</span>
+                                {groupChips.map(c => renderChip(c, false))}
+                                <span style={{ color: "var(--ds-text-faint)", margin: "0 6px", opacity: 0.5 }}>·</span>
+                              </React.Fragment>
                             );
                           };
                           return (
-                            <div className="space-y-1 px-1 mb-1">
-                              {/* Primary group — Focus + Now (above the chart) */}
-                              <div className="ds-glass" style={{ padding: "var(--ds-space-3)", paddingTop: "var(--ds-space-2)", paddingBottom: "var(--ds-space-2)" }}>
-                                {focus && renderRow("Focus", [focus])}
-                                {renderRow("Now", now)}
-                                {renderRow("Setups", setups)}
-                                {renderRow("Momentum", momentum)}
-                                {renderRow("Structure", structure)}
-                                {activeInsight && (
-                                  <div className="flex items-center justify-end" style={{ paddingTop: "var(--ds-space-1)" }}>
+                            <div className="mb-2" style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-1)" }}>
+                              {/* PRIMARY ROW — single horizontal flow, matches status-strip width */}
+                              <div className="ds-glass" style={{ padding: "var(--ds-space-2) var(--ds-space-3)" }}>
+                                <div style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  flexWrap: "nowrap",
+                                  gap: 4,
+                                  overflowX: "auto",
+                                  paddingBottom: 2,
+                                }} className="scrollbar-hide">
+                                  {focus && (
+                                    <>
+                                      <span className="ds-caption" style={{ color: "var(--ds-accent)", marginRight: 4 }}>Focus</span>
+                                      {renderChip(focus, false)}
+                                      <span style={{ color: "var(--ds-text-faint)", margin: "0 6px", opacity: 0.5 }}>·</span>
+                                    </>
+                                  )}
+                                  {renderGroup("Now", now, "var(--ds-warn)")}
+                                  {renderGroup("Setups", setups, "var(--ds-up)")}
+                                  {renderGroup("Momentum", momentum, "var(--ds-accent)")}
+                                  {renderGroup("Structure", structure, "var(--ds-violet)")}
+                                  {activeInsight && (
                                     <button
                                       onClick={() => { setActiveInsight(null); setActiveSubInsight(null); }}
                                       className="ds-chip ds-chip--sm"
-                                    >✕ Clear filter</button>
-                                  </div>
-                                )}
+                                      style={{ marginLeft: "auto", flexShrink: 0 }}
+                                    >✕ Clear</button>
+                                  )}
+                                </div>
                               </div>
-                              {/* Context row — secondary, slightly different surface */}
+                              {/* CONTEXT ROW — secondary, same width pattern */}
                               {context.length > 0 && (
-                                <div className="ds-glass" style={{ padding: "var(--ds-space-2) var(--ds-space-3)", background: "var(--ds-bg-glass)" }}>
-                                  {renderRow("Context", context)}
+                                <div className="ds-glass" style={{ padding: "var(--ds-space-2) var(--ds-space-3)" }}>
+                                  <div style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    flexWrap: "nowrap",
+                                    gap: 4,
+                                    overflowX: "auto",
+                                  }} className="scrollbar-hide">
+                                    <span className="ds-caption" style={{ color: "var(--ds-text-muted)", marginRight: 4 }}>Context</span>
+                                    {context.map(c => renderChip(c, false))}
+                                  </div>
                                 </div>
                               )}
-                              {/* Sector drill-down — only when S&P Sectors is active */}
+                              {/* SECTOR DRILL — only when S&P Sectors is active */}
                               {activeInsight === "sp_sectors" && sectorSubs.length > 0 && (
                                 <div className="ds-glass" style={{ padding: "var(--ds-space-2) var(--ds-space-3)", background: "rgba(167,139,250,0.05)" }}>
-                                  <div className="ds-row" style={{ padding: "2px 0" }}>
-                                    <div className="ds-row__label" style={{ width: 96 }}>
-                                      <div className="ds-caption" style={{ color: "var(--ds-violet)" }}>Drill</div>
-                                    </div>
-                                    <div className="ds-row__content" style={{ overflowX: "auto" }}>
-                                      {sectorSubs.map(c => renderChip(c, true))}
-                                      {activeSubInsight && (
-                                        <button
-                                          onClick={() => setActiveSubInsight(null)}
-                                          className="ds-chip ds-chip--sm"
-                                        >✕</button>
-                                      )}
-                                    </div>
+                                  <div style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    flexWrap: "nowrap",
+                                    gap: 4,
+                                    overflowX: "auto",
+                                  }} className="scrollbar-hide">
+                                    <span className="ds-caption" style={{ color: "var(--ds-violet)", marginRight: 4 }}>Drill</span>
+                                    {sectorSubs.map(c => renderChip(c, true))}
+                                    {activeSubInsight && (
+                                      <button onClick={() => setActiveSubInsight(null)} className="ds-chip ds-chip--sm" style={{ marginLeft: 6 }}>✕</button>
+                                    )}
                                   </div>
                                 </div>
                               )}
