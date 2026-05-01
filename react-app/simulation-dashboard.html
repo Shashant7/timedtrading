@@ -4366,6 +4366,14 @@
           return "hold";
         })();
 
+        /* V2.1 round 6 (2026-05-01) — initialRailTab maps to v2 tab keys.
+           The legacy tab name "TRADE_HISTORY" doesn't exist in the v2 tab
+           list (SNAPSHOT/SETUP/TECHNICALS/HISTORY) and the v2 fallback
+           silently degraded it to SNAPSHOT. Worse, downstream effects
+           still keyed on "TRADE_HISTORY" === railTab and never fired —
+           tradeChartSelection stayed null and triggered a render crash
+           when the History panel tried to select the first trade.
+           Map now to v2 tab "HISTORY" so the History panel mounts cleanly. */
         return (
           <TickerDetailRightRail
             ticker={tickerData}
@@ -4375,7 +4383,7 @@
             sectors={sectors}
             rankedTickers={rankedTickers}
             rankedTickerPositions={rankedTickerPositions}
-            initialRailTab={trade ? "TRADE_HISTORY" : null}
+            initialRailTab={trade ? "HISTORY" : null}
             openAutopsyForTrade={openAutopsyForTrade}
             effectiveStage={effectiveStage}
             modalOnly={modalOnly}
@@ -6468,7 +6476,9 @@
         </div>`;
       }
 
-      function TradeReviewChart({ ticker, entryPrice, exitPrice, entryTs, exitTs, trimTs }) {
+      /* V2.1 round 6 (2026-05-01) — accept trimPrice prop so the chart can
+         draw a horizontal trim line (was only drawing a marker arrow). */
+      function TradeReviewChart({ ticker, entryPrice, exitPrice, entryTs, exitTs, trimTs, trimPrice }) {
         const containerRef = useRef(null);
         const chartRef = useRef(null);
         const [tf, setTf] = useState("15");
@@ -6543,6 +6553,11 @@
               if (Number(exitPrice) > 0) {
                 candleSeries.createPriceLine({ price: Number(exitPrice), color: "#f59e0b", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "Exit" });
               }
+              /* V2.1 round 6 (2026-05-01) — Draw trim level line (teal),
+                 matching the trim marker arrow already drawn below. */
+              if (Number(trimPrice) > 0) {
+                candleSeries.createPriceLine({ price: Number(trimPrice), color: "#14b8a6", lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "Trim" });
+              }
 
               const markers = [];
               if (entryTs && Number(entryTs) > 0) {
@@ -6600,9 +6615,12 @@
       }
 
       function TradeReviewModal({ trade: t, closeModal, _fmt, entryPx, exitPx, pnl, shares, trimPct, trimmed, remaining, exitReason, entryPath, setupGrade, rank, riskBudget, notional, durLabel, fmtPath, EXIT_MAP }) {
+        /* V2.1 round 6 (2026-05-01) — Modal made larger (1100px / 96vh)
+           per user feedback. The previous 860px / 94vh was too cramped
+           for the chart + 3-column trade story to read comfortably. */
         return html`
           <div className="fixed inset-0 z-[100] flex items-center justify-center md:p-4" style=${{background:"rgba(0,0,0,0.7)",backdropFilter:"blur(4px)"}} onClick=${closeModal}>
-            <div className="bg-[#0b0e11] border border-white/[0.04] w-full h-full md:h-auto md:max-w-[860px] md:max-h-[94vh] md:rounded-xl overflow-hidden flex flex-col" onClick=${e=>e.stopPropagation()}>
+            <div className="bg-[#0b0e11] border border-white/[0.04] w-full h-full md:h-auto md:max-w-[1100px] md:max-h-[96vh] md:rounded-xl overflow-hidden flex flex-col" onClick=${e=>e.stopPropagation()}>
               <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06]" style=${{background:"rgba(255,255,255,0.02)"}}>
                 <h2 className="text-[15px] font-semibold text-white truncate">${t.ticker} ${(t.direction||"").toUpperCase()} — Trade Review</h2>
                 <button onClick=${closeModal} className="p-1.5 -mr-1 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06]">✕</button>
@@ -6639,7 +6657,7 @@
                   ${rank > 0 && html`<span className="text-[10px] text-[#9ca3af] ml-auto">Rank #${rank}</span>`}
                 </div>
 
-                <${TradeReviewChart} ticker=${t.ticker} entryPrice=${entryPx} exitPrice=${exitPx} entryTs=${t.entry_ts} exitTs=${t.exit_ts} trimTs=${t.trim_ts} />
+                <${TradeReviewChart} ticker=${t.ticker} entryPrice=${entryPx} exitPrice=${exitPx} entryTs=${t.entry_ts} exitTs=${t.exit_ts} trimTs=${t.trim_ts} trimPrice=${Number(t.trim_price || t.trimPrice) || 0} />
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                   <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-3 py-2">
@@ -6671,15 +6689,9 @@
                   </div>
                 </div>
 
-                ${(t.trade_id || t.id) && html`
-                  <div className="text-center pt-1">
-                    <a href=${`trade-autopsy.html?trade_id=${encodeURIComponent(t.trade_id || t.id)}&readonly=1`}
-                      target="_blank" rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium text-[#14b8a6] bg-[#14b8a6]/10 hover:bg-[#14b8a6]/20 border border-[#14b8a6]/20 transition-colors">
-                      View Full Trade Autopsy →
-                    </a>
-                  </div>
-                `}
+                ${/* V2.1 round 6 (2026-05-01) — \"View Full Trade Autopsy\"
+                       button removed per user: that page is admin-only.
+                       Modal now closes on the X / outside click, no further nav. */ ""}
               </div>
             </div>
           </div>
@@ -8068,7 +8080,24 @@
                       ripster_momentum: "Momentum Push", ripster_pullback: "Pullback Reclaim",
                       ripster_reclaim: "Reclaim Long", ripster_short_pivot_reclaimed: "Short Pivot Reclaim",
                     };
-                    const fmtPath = (p) => SETUP_MAP[p] || (p ? p.replace(/^tt_/i,"").replace(/^ripster_?/i,"").replace(/^saty_?/i,"").replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase()) : "Setup");
+                    /* V2.1 round 6 (2026-05-01) — Setup name cleanup made
+                       robust against legacy double-prefixed values like
+                       'TT_TT_GAP_REVERSAL_LONG' (the user reports labels
+                       reading "TT Tt Gap Reversal Long"). The fix:
+                       1) lowercase before lookup (SETUP_MAP keys are lower)
+                       2) strip ANY repeated tt_/ripster_/saty_ prefix
+                       3) only then apply the SETUP_MAP / titleCase fallback. */
+                    const fmtPath = (p) => {
+                      if (!p) return "Setup";
+                      let s = String(p).toLowerCase().trim();
+                      // Strip repeated leading "tt_" / "ripster_" / "saty_" prefixes
+                      while (/^(tt|ripster|saty)_/.test(s)) s = s.replace(/^(tt|ripster|saty)_/, "");
+                      // Try SETUP_MAP after each strip pass (mapped keys may include the first "tt_")
+                      if (SETUP_MAP[s]) return SETUP_MAP[s];
+                      if (SETUP_MAP[`tt_${s}`]) return SETUP_MAP[`tt_${s}`];
+                      // Fallback: spaces + Title Case
+                      return s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+                    };
                     const EXIT_MAP = { sl_breached:"Price moved against us and hit our safety exit.", SL:"Price moved against us and hit our safety exit.", max_loss:"Position reached our maximum acceptable loss — exited to protect capital.", HARD_FUSE_RSI_EXTREME:"Momentum indicators hit extreme levels — high chance of reversal, exiting now.", SOFT_FUSE_RSI_CONFIRMED:"Multiple signals confirmed momentum is reversing — exiting to protect gains.", RUNNER_PEAK_TRAIL:"Letting the winner run paid off — trailed up and exited after pullback from peak.", RUNNER_MAX_DRAWDOWN_BREAKER:"The remaining position pulled back too far from its high — closed to protect gains.", HARD_LOSS_CAP:"Hard safety limit hit — exited to prevent further damage.", MFE_SAFETY_TRIM:"Locked in profits while the trade was ahead — taking money off the table.", PHASE_LEAVE_100:"Momentum peaked and is starting to fade — securing gains before reversal.", STALL_BREAKEVEN:"Position stalled with no momentum — closed near breakeven.", STALL_FORCE_CLOSE:"Position went nowhere for too long — closed to free up capital for better setups.", SMART_RUNNER_TD_EXHAUSTION_RUNNER:"Trend exhaustion detected — exiting remaining shares before likely reversal.", SMART_RUNNER_SUPPORT_BREAK_CLOUD:"Key support level broke down — exiting to avoid further downside.", SMART_RUNNER_SQUEEZE_RELEASE_AGAINST:"Volatility squeeze fired against our direction — exiting before the move accelerates.", TP_FULL:"All profit targets hit — full exit with gains locked in." };
                     return html`<${TradeReviewModal} trade=${t} closeModal=${closeModal} _fmt=${_fmt} entryPx=${entryPx} exitPx=${exitPx} pnl=${pnl} shares=${shares} trimPct=${trimPct} trimmed=${trimmed} remaining=${remaining} exitReason=${exitReason} entryPath=${entryPath} setupGrade=${setupGrade} rank=${rank} riskBudget=${riskBudget} notional=${notional} durLabel=${durLabel} fmtPath=${fmtPath} EXIT_MAP=${EXIT_MAP} />`;
                   })()}

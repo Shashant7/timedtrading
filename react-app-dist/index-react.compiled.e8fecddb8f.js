@@ -10082,62 +10082,58 @@ function StatusStrip({
       dayNet: openUnrealized + todayClosedRealized
     };
   }, [trades]);
-  const topOpp = React.useMemo(() => {
-    if (!Array.isArray(allTickersWithRanks) || allTickersWithRanks.length === 0) return null;
+  const topSignals = React.useMemo(() => {
+    if (!Array.isArray(allTickersWithRanks) || allTickersWithRanks.length === 0) return [];
     const openSet = new Set((Array.isArray(trades) ? trades : []).filter(tr => !tr?.exit_ts && !tr?.exit_timestamp).map(tr => String(tr?.ticker || "").toUpperCase()));
     const eligible = allTickersWithRanks.filter(t => {
       const sym = String(t?.ticker || "").toUpperCase();
       const rank = Number(t?.rank);
       return sym && !openSet.has(sym) && Number.isFinite(rank) && rank > 0;
     });
-    if (eligible.length === 0) return null;
-    const sqRelease = eligible.find(t => t?.flags?.sq30_release === true);
-    if (sqRelease) {
-      return {
-        ticker: String(sqRelease.ticker).toUpperCase(),
-        rank: Number(sqRelease.rank),
-        dir: sqRelease.direction || sqRelease.consensus_direction || "—",
-        setup: sqRelease.setup_name || sqRelease.entry_path || "—",
-        kind: "Squeeze Release",
-        tip: "30-min squeeze just released — explosive move likely. Top-ranked candidate not already in a trade."
-      };
-    }
+    if (eligible.length === 0) return [];
     const oneHrAgo = Date.now() - 60 * 60 * 1000;
-    const justFlipped = eligible.find(t => {
-      const flipTs = Number(t?.last_state_change_ts || t?.flip_ts || 0);
-      return flipTs > oneHrAgo;
-    });
-    if (justFlipped) {
-      return {
-        ticker: String(justFlipped.ticker).toUpperCase(),
-        rank: Number(justFlipped.rank),
-        dir: justFlipped.direction || justFlipped.consensus_direction || "—",
-        setup: justFlipped.setup_name || justFlipped.entry_path || "—",
-        kind: "Just Flipped",
-        tip: "State changed within the last hour — fresh idea. Top-ranked candidate not already in a trade."
-      };
-    }
-    const momentumElite = eligible.find(t => t?.flags?.momentum_elite === true);
-    if (momentumElite) {
-      return {
-        ticker: String(momentumElite.ticker).toUpperCase(),
-        rank: Number(momentumElite.rank),
-        dir: momentumElite.direction || momentumElite.consensus_direction || "—",
-        setup: momentumElite.setup_name || momentumElite.entry_path || "—",
-        kind: "Momentum Elite",
-        tip: "Multi-TF momentum aligned and accelerating. Top-ranked candidate not already in a trade."
-      };
-    }
-    const t = eligible[0];
-    return {
-      ticker: String(t.ticker).toUpperCase(),
-      rank: Number(t.rank),
-      dir: t.direction || t.consensus_direction || "—",
-      setup: t.setup_name || t.entry_path || "—",
+    const cats = [{
       kind: "Top Rank",
-      tip: "Highest-ranked ticker not already in an open trade. Rotates as new signals emerge."
-    };
+      tip: "Highest-ranked ticker not already in an open trade. The model's #1 idea right now.",
+      find: list => list[0] || null
+    }, {
+      kind: "Squeeze Release",
+      tip: "30-min squeeze just released \u2014 explosive move likely. Top-ranked candidate with sq30_release flag.",
+      find: list => list.find(t => t?.flags?.sq30_release === true) || null
+    }, {
+      kind: "Just Flipped",
+      tip: "State changed within the last hour \u2014 fresh idea. Top-ranked candidate that just flipped.",
+      find: list => list.find(t => Number(t?.last_state_change_ts || t?.flip_ts || 0) > oneHrAgo) || null
+    }, {
+      kind: "Momentum Elite",
+      tip: "Multi-TF momentum aligned and accelerating. Top-ranked candidate with momentum_elite flag.",
+      find: list => list.find(t => t?.flags?.momentum_elite === true) || null
+    }, {
+      kind: "High R:R",
+      tip: "Top-ranked candidate with risk:reward >= 2.5 \u2014 best reward-per-unit-risk on the board.",
+      find: list => list.find(t => Number(t?.rr) >= 2.5) || null
+    }];
+    const seen = new Set();
+    const out = [];
+    for (const c of cats) {
+      const t = c.find(eligible);
+      if (!t) continue;
+      const sym = String(t.ticker).toUpperCase();
+      if (seen.has(sym)) continue;
+      seen.add(sym);
+      out.push({
+        ticker: sym,
+        rank: Number(t.rank),
+        dir: t.direction || t.consensus_direction || "\u2014",
+        setup: t.setup_name || t.entry_path || "\u2014",
+        kind: c.kind,
+        tip: c.tip
+      });
+      if (out.length >= 5) break;
+    }
+    return out;
   }, [allTickersWithRanks, trades]);
+  const topOpp = topSignals[0] || null;
   const toneCls = tone => {
     switch (tone) {
       case "success":
@@ -10329,48 +10325,49 @@ function StatusStrip({
     style: {
       color: "var(--tt-text-4)"
     }
-  }, "L")))), topOpp && React.createElement("button", {
-    onClick: () => onSelectTicker && onSelectTicker(topOpp.ticker),
+  }, "L")))), topSignals && topSignals.map((sig, i) => React.createElement("button", {
+    key: `sig-${sig.kind}-${sig.ticker}`,
+    onClick: () => onSelectTicker && onSelectTicker(sig.ticker),
     className: "flex flex-col justify-center min-w-0 hover:bg-white/[0.04] transition-colors group text-left",
     style: {
       padding: "6px 14px",
       borderRight: "1px solid var(--tt-border-weak)"
     },
-    title: topOpp.tip || `Best current opportunity — click to open ${topOpp.ticker}`
+    title: sig.tip || `${sig.kind} \u2014 click to open ${sig.ticker}`
   }, React.createElement("div", {
     className: "tt-label",
     style: {
       fontSize: 9,
       marginBottom: 2
     }
-  }, topOpp.kind || "Top Signal"), React.createElement("div", {
+  }, sig.kind), React.createElement("div", {
     style: {
       fontSize: 12,
-      lineHeight: 1.2
-    },
-    className: "truncate"
+      lineHeight: 1.2,
+      whiteSpace: "nowrap"
+    }
   }, React.createElement("span", {
     className: "tt-num font-bold text-white group-hover:text-cyan-300 transition-colors"
-  }, topOpp.ticker), React.createElement("span", {
+  }, sig.ticker), React.createElement("span", {
     className: "tt-num ml-1.5",
     style: {
       fontSize: 10.5,
       color: "var(--tt-text-3)"
     }
-  }, "rank ", React.createElement("span", {
+  }, "R", React.createElement("span", {
     className: "font-semibold",
     style: {
       color: "var(--tt-info)"
     }
-  }, topOpp.rank)), topOpp.dir && topOpp.dir !== "—" && React.createElement("span", {
-    className: "ml-1.5",
+  }, sig.rank)), sig.dir && sig.dir !== "\u2014" && React.createElement("span", {
+    className: "ml-1",
     style: {
       fontSize: 9.5,
       textTransform: "uppercase",
-      letterSpacing: "0.08em",
-      color: String(topOpp.dir).toUpperCase().includes("SHORT") ? "var(--tt-danger)" : "var(--tt-success)"
+      letterSpacing: "0.06em",
+      color: String(sig.dir).toUpperCase().includes("SHORT") ? "var(--tt-danger)" : "var(--tt-success)"
     }
-  }, String(topOpp.dir).toUpperCase().includes("SHORT") ? "short" : "long"))), React.createElement("div", {
+  }, String(sig.dir).toUpperCase().includes("SHORT") ? "S" : "L")))), React.createElement("div", {
     className: "flex items-center ml-auto",
     style: {
       padding: "6px 14px"
@@ -16273,8 +16270,13 @@ function App() {
       className: "mb-3",
       style: {
         display: "flex",
-        flexDirection: "column",
+        flexWrap: "wrap",
         gap: "var(--ds-space-1)"
+      }
+    }, React.createElement("div", {
+      style: {
+        flex: hasEth ? "1 1 360px" : "1 1 100%",
+        minWidth: 0
       }
     }, React.createElement(SessionRow, {
       pillLabel: "RTH",
@@ -16283,14 +16285,19 @@ function App() {
       losers: rthLosers,
       pctKey: "_pct",
       priceKey: "_price"
-    }), hasEth && React.createElement(SessionRow, {
+    })), hasEth && React.createElement("div", {
+      style: {
+        flex: "1 1 360px",
+        minWidth: 0
+      }
+    }, React.createElement(SessionRow, {
       pillLabel: "EXT",
       pillCls: "",
       gainers: ethGainers,
       losers: ethLosers,
       pctKey: "_ethPct",
       priceKey: "_ethPrice"
-    }));
+    })));
   })(), (dashboardMode === "trader" || dashboardMode === "investor") && React.createElement("div", {
     className: "mb-4"
   }, React.createElement(ActionCenterPanel, {
@@ -16889,13 +16896,17 @@ function App() {
       items,
       accent
     }) => {
-      if (!items || items.length === 0) return null;
+      const empty = !items || items.length === 0;
       return React.createElement("div", {
         className: "ds-glass",
         style: {
           padding: "var(--ds-space-2) var(--ds-space-3)",
           flex: "1 1 0",
-          minWidth: 0
+          minWidth: 0,
+          minHeight: 44,
+          display: "flex",
+          alignItems: "center",
+          opacity: empty ? 0.45 : 1
         }
       }, React.createElement("div", {
         style: {
@@ -16903,7 +16914,8 @@ function App() {
           alignItems: "center",
           flexWrap: "nowrap",
           gap: 4,
-          overflowX: "auto"
+          overflowX: "auto",
+          width: "100%"
         },
         className: "scrollbar-hide"
       }, React.createElement("span", {
@@ -16913,7 +16925,12 @@ function App() {
           marginRight: 6,
           flexShrink: 0
         }
-      }, label), items.map(c => renderChip(c, false))));
+      }, label), empty ? React.createElement("span", {
+        style: {
+          fontSize: 11,
+          color: "var(--ds-text-faint)"
+        }
+      }, "none") : items.map(c => renderChip(c, false))));
     };
     return React.createElement("div", {
       className: "mb-2",
@@ -16925,7 +16942,8 @@ function App() {
     }, React.createElement("div", {
       style: {
         display: "flex",
-        gap: "var(--ds-space-1)"
+        gap: "var(--ds-space-1)",
+        alignItems: "stretch"
       }
     }, React.createElement(Section, {
       label: "Focus",
@@ -16938,7 +16956,8 @@ function App() {
     })), React.createElement("div", {
       style: {
         display: "flex",
-        gap: "var(--ds-space-1)"
+        gap: "var(--ds-space-1)",
+        alignItems: "stretch"
       }
     }, React.createElement(Section, {
       label: "Structure",
