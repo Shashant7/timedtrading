@@ -27,16 +27,21 @@
  *   - Divergence— inverse divergence severity (clean = 10)
  */
 (function () {
+  /* V2.1 round 4 (2026-05-01) — Polished labels.
+     - Shorter strings: PHASE/RSI → PHASE, VOLATILITY → VOL, DIVERGENCE → DIV.
+       The hover tooltip / legend retains the full meaning.
+     - Reduced max length keeps labels inside the SVG viewBox even on the
+       compact 240px size used by the right rail. */
   const DIMENSIONS = [
-    { key: "ltf", label: "LTF", hint: "10m/15m/30m trend alignment" },
-    { key: "htf", label: "HTF", hint: "1H/4H/Daily trend alignment" },
-    { key: "rvol", label: "RVol", hint: "Relative volume vs 20-bar avg" },
-    { key: "phase", label: "Phase/RSI", hint: "Phase zone + RSI posture" },
-    { key: "rr", label: "R:R", hint: "Swing risk:reward to next TP" },
+    { key: "ltf",    label: "LTF",    hint: "10m/15m/30m trend alignment" },
+    { key: "htf",    label: "HTF",    hint: "1H/4H/Daily trend alignment" },
+    { key: "rvol",   label: "RVol",   hint: "Relative volume vs 20-bar avg" },
+    { key: "phase",  label: "Phase",  hint: "Phase zone + RSI posture" },
+    { key: "rr",     label: "R:R",    hint: "Swing risk:reward to next TP" },
     { key: "sector", label: "Sector", hint: "Sector strength vs SPY" },
-    { key: "vol", label: "Volatility", hint: "ATR compression (tight = better)" },
-    { key: "event", label: "Event", hint: "Inverse: distance from earnings / macro" },
-    { key: "div", label: "Divergence", hint: "Inverse: indicator cleanness" },
+    { key: "vol",    label: "Vol",    hint: "Volatility — tight ATR is better" },
+    { key: "event",  label: "Event",  hint: "Inverse: distance from earnings / macro" },
+    { key: "div",    label: "Div",    hint: "Inverse: indicator divergence cleanness" },
   ];
 
   function clamp(n, lo, hi) {
@@ -320,9 +325,15 @@
      tracked caption styling. Center: big avg score in JBM. */
   function SpiderSvg({ scores, size, compact, title, dir }) {
     const React = window.React;
-    const cx = size / 2;
-    const cy = size / 2;
-    const radius = (size / 2) - (compact ? 28 : 36);
+    /* V2.1 round 4 (2026-05-01) — viewBox is now padded so vertex labels
+       (placed at radius * 1.3 for breathing room) never get clipped on
+       the left/right edges. The "size" prop still controls render width;
+       internal coords are scaled to the new larger viewBox. */
+    const labelPad = compact ? 36 : 44;
+    const vb = size + labelPad * 2; // expand viewBox both sides
+    const cx = vb / 2;
+    const cy = vb / 2;
+    const radius = (size / 2) - (compact ? 12 : 18); // pull plot in slightly
     const dims = DIMENSIONS;
     const n = dims.length;
     const angleFor = (i) => (-Math.PI / 2) + (i * 2 * Math.PI) / n;
@@ -343,22 +354,33 @@
     const dataFill = "rgba(167, 139, 250, 0.20)";
     const dataStroke = "rgba(167, 139, 250, 0.55)";
     const labelFs = compact ? 9 : 10;
-    const labelTracking = "0.16em";
+    const labelTracking = "0.14em";
 
     return React.createElement("svg", {
       width: size,
       height: size,
-      viewBox: `0 0 ${size} ${size}`,
+      viewBox: `0 0 ${vb} ${vb}`,
+      preserveAspectRatio: "xMidYMid meet",
       role: "img",
       "aria-label": title || "Ticker score radar",
-      style: { display: "block" },
+      style: { display: "block", overflow: "visible" },
     },
       React.createElement("g", null,
-        // Outer pentagon edge (only ring drawn — Inspiration 3 minimalism)
+        // V2.1 round 4 — Polished frame:
+        //   inner faint guide ring at score=5 (mid-line) for read-ability
+        //   outer ring at score=10 (max)
+        React.createElement("polygon", {
+          points: dims.map((_, i) => point(5, i).join(",")).join(" "),
+          fill: "none",
+          stroke: "rgba(255,255,255,0.05)",
+          strokeWidth: 1,
+          strokeDasharray: "2 4",
+          strokeLinejoin: "round",
+        }),
         React.createElement("polygon", {
           points: outerPoly,
           fill: "none",
-          stroke: "rgba(255,255,255,0.14)",
+          stroke: "rgba(255,255,255,0.16)",
           strokeWidth: 1,
           strokeLinejoin: "round",
         }),
@@ -368,7 +390,7 @@
           return React.createElement("line", {
             key: `spoke-${d.key}`,
             x1: cx, y1: cy, x2, y2,
-            stroke: "rgba(255,255,255,0.04)",
+            stroke: "rgba(255,255,255,0.05)",
             strokeWidth: 1,
           });
         }),
@@ -382,12 +404,17 @@
         }),
         // Vertex dots
         pts.map((p, i) => React.createElement("circle", {
-          key: `pt-${i}`, cx: p[0], cy: p[1], r: compact ? 2 : 2.5,
+          key: `pt-${i}`, cx: p[0], cy: p[1], r: compact ? 2.5 : 3,
           fill: dataStroke,
+          stroke: "rgba(11,14,17,0.9)",
+          strokeWidth: 1,
         })),
-        // Vertex labels — caption type, no values (less visual noise)
+        // Vertex labels — caption type, no values (less visual noise).
+        // V2.1 round 4: place labels at score=11.5 instead of 13, with the
+        // viewBox padding above this is now safe and labels look closer to
+        // the polygon for tighter visual coherence.
         dims.map((d, i) => {
-          const [lx, ly] = point(13, i);
+          const [lx, ly] = point(11.6, i);
           const anchor = Math.abs(lx - cx) < 6 ? "middle" : (lx > cx ? "start" : "end");
           return React.createElement("text", {
             key: `lbl-${d.key}`,
@@ -395,7 +422,7 @@
             fontSize: labelFs,
             fontWeight: 700,
             fontFamily: "var(--tt-font-ui)",
-            fill: "#8C92A0",
+            fill: "#9099A8",
             textAnchor: anchor,
             dominantBaseline: "middle",
             letterSpacing: labelTracking,

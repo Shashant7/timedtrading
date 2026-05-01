@@ -550,45 +550,72 @@
       useEffect(() => {
         if (!containerRef.current || !LWC || mapped.length < 2) return;
 
-        // Create chart
+        /* V2.1 round 5 (2026-05-01) — LWChart styled to match the Daily
+           Brief chart per user feedback ("nice and clean"). Changes:
+           - Lighter grid (38,50,95,0.20 vs 0.35) — less visual noise
+           - Lighter text (#7c8493 vs #6b7280) — same as Daily Brief
+           - Larger font (11 vs 10) so axis labels are legible
+           - Right-axis padding (0.08 top/bot vs 0.05) so candles don't kiss
+             the panel edges
+           - minimumWidth + entireTextOnly on the price scale so the axis
+             reserves a stable width and labels never overlap candles
+           - Traditional teal/red candle colors (#26a69a / #ef5350) — softer
+             than the saturated #22c55e / #ef4444
+           - tickMarkFormatter switches between date and time based on TF
+           - localization.priceFormatter shows VIX/%-based as 2dp, equities
+             as 2dp (consistent with Daily Brief)
+           - timeFormatter uses month/day/hour/min for tooltips */
         const chartHeight = propHeight || 320;
+        const _isHtfChart = ["D", "W", "M"].includes(String(chartTf));
         const chart = LWC.createChart(containerRef.current, {
           width: containerRef.current.clientWidth,
           height: chartHeight,
           layout: {
             background: { type: "solid", color: "#0b0e11" },
-            textColor: "#6b7280",
-            fontSize: 10,
+            textColor: "#7c8493",
+            fontSize: 11,
           },
           grid: {
-            vertLines: { color: "rgba(38,50,95,0.35)" },
-            horzLines: { color: "rgba(38,50,95,0.35)" },
+            vertLines: { color: "rgba(38,50,95,0.20)" },
+            horzLines: { color: "rgba(38,50,95,0.20)" },
           },
           crosshair: {
             mode: LWC.CrosshairMode.Normal,
-            vertLine: { color: "rgba(255,255,255,0.15)", width: 1, style: 2, labelBackgroundColor: "#1e293b" },
-            horzLine: { color: "rgba(255,255,255,0.15)", width: 1, style: 2, labelBackgroundColor: "#1e293b" },
+            vertLine: { color: "rgba(255,255,255,0.12)", width: 1, style: 2, labelBackgroundColor: "#1e293b" },
+            horzLine: { color: "rgba(255,255,255,0.12)", width: 1, style: 2, labelBackgroundColor: "#1e293b" },
           },
           rightPriceScale: {
-            borderColor: "rgba(38,50,95,0.5)",
-            scaleMargins: { top: 0.05, bottom: 0.05 },
+            borderColor: "rgba(38,50,95,0.3)",
+            scaleMargins: { top: 0.08, bottom: 0.08 },
+            autoScale: true,
+            minimumWidth: 70,
+            entireTextOnly: true,
           },
           timeScale: {
-            borderColor: "rgba(38,50,95,0.5)",
-            timeVisible: !["D", "W", "M"].includes(String(chartTf)),
+            borderColor: "rgba(38,50,95,0.3)",
+            timeVisible: !_isHtfChart,
             secondsVisible: false,
+            rightOffset: 5,
+            barSpacing: String(chartTf) === "D" ? 12 : String(chartTf) === "60" ? 8 : 6,
             tickMarkFormatter: (time) => {
               try {
                 const d = new Date(time * 1000);
+                if (_isHtfChart) return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
                 return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
               } catch (_) { return ""; }
             },
           },
           localization: {
+            priceFormatter: (p) => {
+              const sym = String(propTicker?.ticker || "").toUpperCase();
+              if (sym === "VX1!" || sym === "VIX") return p.toFixed(2);
+              return p.toFixed(2);
+            },
             timeFormatter: (time) => {
               try {
                 const d = new Date(time * 1000);
-                return d.toLocaleString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", timeZone: "America/New_York" });
+                if (_isHtfChart) return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" });
+                return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
               } catch (_) { return ""; }
             },
           },
@@ -596,14 +623,14 @@
         });
         chartInstanceRef.current = chart;
 
-        // Candlestick series — standardized colors across all charts
+        // Candlestick series — soft teal/red palette matching Daily Brief
         const candleSeries = chart.addCandlestickSeries({
-          upColor: "#22c55e",
-          downColor: "#ef4444",
-          borderUpColor: "#22c55e",
-          borderDownColor: "#ef4444",
-          wickUpColor: "#22c55e",
-          wickDownColor: "#ef4444",
+          upColor: "#26a69a",
+          downColor: "#ef5350",
+          borderUpColor: "#26a69a",
+          borderDownColor: "#ef5350",
+          wickUpColor: "#26a69a",
+          wickDownColor: "#ef5350",
         });
         candleSeries.setData(mapped);
         candleSeriesRef.current = candleSeries;
@@ -1178,6 +1205,9 @@
         effectiveStage = null,
         earningsMap = null,
         addingTicker = null,
+        /* V2.1 round 4 (2026-05-01) — Save toggle threaded through dashboard. */
+        savedTickers = null,
+        toggleSavedTicker = null,
         openAutopsyForTrade = null,
         modalOnly = false,
       }) {
@@ -2078,6 +2108,23 @@
                       )}
                     </div>
                     <div className="flex items-center gap-1">
+                      {/* V2.1 round 4 (2026-05-01) — Save / star toggle on RR. */}
+                      {toggleSavedTicker && (() => {
+                        const isSavedRR = !!(savedTickers && savedTickers.has && savedTickers.has(tickerSymbol));
+                        return (
+                          <button
+                            className="ds-chip ds-chip--sm"
+                            onClick={() => toggleSavedTicker(tickerSymbol)}
+                            title={isSavedRR ? "Saved \u2014 click to unsave" : "Save ticker"}
+                            aria-label={isSavedRR ? "Unsave ticker" : "Save ticker"}
+                            style={{
+                              color: isSavedRR ? "var(--ds-accent)" : "var(--ds-text-muted)",
+                              background: isSavedRR ? "var(--ds-accent-dim)" : "transparent",
+                              borderColor: isSavedRR ? "var(--ds-accent)" : "var(--ds-stroke)",
+                            }}
+                          >{isSavedRR ? "★" : "☆"}</button>
+                        );
+                      })()}
                       <button className="ds-chip ds-chip--sm" onClick={() => { try { navigator.clipboard.writeText(window.location.origin + "/?ticker=" + tickerSymbol); } catch (_) {} }} title="Copy share link">↗</button>
                       <button className="ds-chip ds-chip--sm" onClick={onClose} title="Close">✕</button>
                     </div>
@@ -2312,40 +2359,96 @@
                         </Panel>
                       )}
 
-                      {/* ── Mini Chart with SL/TP/Entry overlays ── */}
-                      {chartCandles && chartCandles.length >= 2 && (
-                        <Panel title="Chart" action={
-                          <div className="ds-chipgroup" style={{ padding: 2 }}>
-                            {/* V2.1 round 3 (2026-05-01) — Drop 10m, use 15m as
-                                leading LTF (matches engine's leadingLtf). */}
-                            {["15", "30", "60", "240", "D"].map((tf) => (
+                      {/* ── Mini Chart with SL/TP/Entry overlays ──
+                          V2.1 round 4 (2026-05-01) — Functional header:
+                            - TF chips (15 / 30 / 1H / 4H / D)
+                            - Indicator toggles (EMA21 / EMA48 / EMA200 / ST / TD)
+                            - Expand-to-modal button (re-uses the legacy modal
+                              already mounted further down in this file).
+                          Stability: priceLines and overlays are memoized so
+                          the LWChart useEffect doesn't tear down on every poll.
+                          (the parent already drops propTicker from its deps;
+                          here we also memoize priceLines to keep their
+                          identity stable when entry/sl/tp don't change.) */}
+                      {chartCandles && chartCandles.length >= 2 && (() => {
+                        const stableLines = React.useMemo(() => {
+                          const lines = [];
+                          const ep = Number(ticker?.entry_price);
+                          const slPx = Number(ticker?.sl);
+                          const tpPx = Number(ticker?.tp);
+                          if (Number.isFinite(ep) && ep > 0) lines.push({ price: ep, color: "rgba(245,194,92,0.65)", title: "Entry", lineStyle: 0 });
+                          if (Number.isFinite(slPx) && slPx > 0) lines.push({ price: slPx, color: "rgba(244,63,94,0.7)", title: "Stop", lineStyle: 2 });
+                          if (Number.isFinite(tpPx) && tpPx > 0) lines.push({ price: tpPx, color: "rgba(34,197,94,0.7)", title: "Target", lineStyle: 2 });
+                          return lines;
+                        }, [ticker?.entry_price, ticker?.sl, ticker?.tp]);
+                        const indicatorBtn = (key, label, title) => {
+                          const on = !!chartOverlays[key];
+                          return (
+                            <button
+                              key={`ind-${key}`}
+                              onClick={() => setChartOverlays(prev => ({ ...prev, [key]: !prev[key] }))}
+                              className="ds-chip ds-chip--sm"
+                              title={title}
+                              style={{
+                                fontFamily: "var(--tt-font-mono)",
+                                padding: "0 6px",
+                                color: on ? "var(--ds-accent)" : "var(--ds-text-muted)",
+                                background: on ? "var(--ds-accent-dim)" : "transparent",
+                                borderColor: on ? "var(--ds-accent)" : "var(--ds-stroke)",
+                              }}
+                            >{label}</button>
+                          );
+                        };
+                        return (
+                        <Panel
+                          title="Chart"
+                          action={
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <div className="ds-chipgroup" style={{ padding: 2 }}>
+                                {["15", "30", "60", "240", "D"].map((tf) => (
+                                  <button
+                                    key={`ctf-${tf}`}
+                                    onClick={() => setChartTf(tf)}
+                                    className={`ds-chipgroup__item ${chartTf === tf ? "ds-chipgroup__item--active" : ""}`}
+                                    style={{ padding: "3px 8px", fontSize: 10 }}
+                                  >{tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`}</button>
+                                ))}
+                              </div>
                               <button
-                                key={`ctf-${tf}`}
-                                onClick={() => setChartTf(tf)}
-                                className={`ds-chipgroup__item ${chartTf === tf ? "ds-chipgroup__item--active" : ""}`}
-                                style={{ padding: "3px 8px", fontSize: 10 }}
-                              >{tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`}</button>
-                            ))}
+                                className="ds-chip ds-chip--sm"
+                                onClick={() => setChartExpanded(true)}
+                                title="Expand chart"
+                                style={{ fontFamily: "var(--tt-font-mono)", padding: "0 8px" }}
+                              >⤢</button>
+                            </div>
+                          }
+                        >
+                          {/* Indicator toggle row */}
+                          <div style={{
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: 4,
+                            marginBottom: "var(--ds-space-2)",
+                          }}>
+                            {indicatorBtn("ema21", "EMA21", "21-period EMA")}
+                            {indicatorBtn("ema48", "EMA48", "48-period EMA")}
+                            {indicatorBtn("ema200", "EMA200", "200-period EMA")}
+                            {indicatorBtn("supertrend", "ST", "SuperTrend (10, 3)")}
+                            {indicatorBtn("tdSequential", "TD", "TD Sequential markers")}
                           </div>
-                        }>
-                          <div style={{ height: 220 }}>
+                          <div style={{ height: 240 }}>
                             {React.createElement(LWChart, {
                               candles: chartCandles,
                               chartTf,
                               overlays: chartOverlays,
-                              priceLines: (() => {
-                                const lines = [];
-                                if (ticker?.entry_price) lines.push({ price: Number(ticker.entry_price), color: "rgba(245,194,92,0.65)", title: "Entry", lineStyle: 0 });
-                                if (ticker?.sl)          lines.push({ price: Number(ticker.sl), color: "rgba(244,63,94,0.7)", title: "Stop", lineStyle: 2 });
-                                if (ticker?.tp)          lines.push({ price: Number(ticker.tp), color: "rgba(34,197,94,0.7)", title: "Target", lineStyle: 2 });
-                                return lines;
-                              })(),
+                              priceLines: stableLines,
                               ticker,
-                              height: 220,
+                              height: 240,
                             })}
                           </div>
                         </Panel>
-                      )}
+                        );
+                      })()}
 
                       {/* Risk & Targets — vertical price ladder */}
                       {(ticker?.sl || ticker?.tp || ticker?.entry_price) && (() => {
@@ -2599,22 +2702,73 @@
                         </Panel>
                       )}
 
-                      {/* TD Sequential */}
-                      {ticker?.td_sequential && (
-                        <Panel title="TD Sequential">
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "var(--ds-space-1)" }}>
-                            {Object.entries(ticker.td_sequential.per_tf || {}).slice(0, 6).map(([tf, d]) => (
-                              <div key={`td-${tf}`} style={{ display: "flex", justifyContent: "space-between", padding: "4px 8px", background: "var(--ds-bg-glass)", borderRadius: "var(--ds-radius-xs)", fontSize: "var(--ds-fs-meta)", fontFamily: "var(--tt-font-mono)" }}>
-                                <span style={{ color: "var(--ds-text-muted)" }}>{tf}</span>
-                                <span>
-                                  <span style={{ color: "var(--ds-up)", marginRight: 6 }}>↑{d.bull_prep || 0}</span>
-                                  <span style={{ color: "var(--ds-dn)" }}>↓{d.bear_prep || 0}</span>
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </Panel>
-                      )}
+                      {/* TD Sequential.
+                          V2.1 round 4 (2026-05-01) — Field paths fixed:
+                            d.bullish_prep_count / d.bearish_prep_count are the
+                            live shape from indicators.js; the snapshot variant
+                            d.bull_prep / d.bear_prep is the fallback.
+                          Also dropped 10m row (per user — 15m is the leading
+                          LTF, not 10m), and labeled raw 60/240 keys as 1H/4H
+                          for readability. TD13 / TD9 hits surface as chips.
+                          */}
+                      {ticker?.td_sequential && (() => {
+                        const perTf = ticker.td_sequential.per_tf || {};
+                        const TF_DISPLAY = [
+                          ["15", "15m"],
+                          ["30", "30m"],
+                          ["60", "1H"],
+                          ["240", "4H"],
+                          ["D", "D"],
+                          ["W", "W"],
+                        ];
+                        const rows = TF_DISPLAY.map(([key, label]) => {
+                          const d = perTf[key] || {};
+                          const bull = Number(d.bullish_prep_count ?? d.bull_prep) || 0;
+                          const bear = Number(d.bearish_prep_count ?? d.bear_prep) || 0;
+                          const td9b = !!d.td9_bullish, td9s = !!d.td9_bearish;
+                          const td13b = !!d.td13_bullish, td13s = !!d.td13_bearish;
+                          return { key, label, bull, bear, td9b, td9s, td13b, td13s };
+                        });
+                        // Insight: highest active count
+                        const peak = rows.reduce((p, r) => {
+                          const m = Math.max(r.bull, r.bear);
+                          if (m > p.m) return { m, side: r.bull >= r.bear ? "bull" : "bear", tf: r.label };
+                          return p;
+                        }, { m: 0, side: null, tf: null });
+                        const insight = peak.m === 0
+                          ? "No active TD count yet — fresh trend."
+                          : peak.m >= 9
+                            ? `TD${peak.m} ${peak.side === "bull" ? "exhaustion HIGH" : "exhaustion LOW"} on ${peak.tf} — reversal watch.`
+                            : peak.m >= 7
+                              ? `TD${peak.m} approaching exhaustion on ${peak.tf} (${peak.side}).`
+                              : `TD${peak.m} on ${peak.tf} (${peak.side}).`;
+                        return (
+                          <Panel title="TD Sequential" action={peak.m >= 7 && (
+                            <span className={`ds-chip ds-chip--sm ${peak.m >= 9 ? "ds-chip--accent" : ""}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
+                              TD{peak.m} {peak.tf}
+                            </span>
+                          )}>
+                            <p style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", margin: "0 0 var(--ds-space-2) 0", lineHeight: 1.5 }}>{insight}</p>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "var(--ds-space-1)" }}>
+                              {rows.map(r => (
+                                <div key={`td-${r.key}`} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", background: "var(--ds-bg-glass)", borderRadius: "var(--ds-radius-xs)", fontSize: "var(--ds-fs-meta)", fontFamily: "var(--tt-font-mono)" }}>
+                                  <span style={{ color: "var(--ds-text-muted)" }}>{r.label}</span>
+                                  <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                    {(r.td13b || r.td13s) && (
+                                      <span className={`ds-chip ds-chip--sm ${r.td13b ? "ds-chip--up" : "ds-chip--dn"}`} style={{ padding: "0 4px", fontSize: 9 }}>13</span>
+                                    )}
+                                    {(r.td9b || r.td9s) && !(r.td13b || r.td13s) && (
+                                      <span className={`ds-chip ds-chip--sm ${r.td9b ? "ds-chip--up" : "ds-chip--dn"}`} style={{ padding: "0 4px", fontSize: 9 }}>9</span>
+                                    )}
+                                    <span style={{ color: r.bull >= 7 ? "var(--ds-accent)" : "var(--ds-up)" }}>↑{r.bull}</span>
+                                    <span style={{ color: r.bear >= 7 ? "var(--ds-accent)" : "var(--ds-dn)" }}>↓{r.bear}</span>
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </Panel>
+                        );
+                      })()}
 
                       {/* EMA Clouds */}
                       {(ticker?.daily_ema_cloud || ticker?.fourh_ema_cloud || ticker?.oneh_ema_cloud) && (

@@ -9516,9 +9516,12 @@ const CompactCard = React.memo(function CompactCard({
 const DsCompactCard = React.memo(function DsCompactCard({
   t,
   onSelectTicker,
-  tradeByTicker
+  tradeByTicker,
+  savedTickers,
+  toggleSavedTicker
 }) {
   const sym = String(t?.ticker || "").toUpperCase();
+  const isSaved = !!(savedTickers && savedTickers.has && savedTickers.has(sym));
   const price = Number(t?.price ?? t?.close);
   const dc = (() => {
     try {
@@ -9792,7 +9795,24 @@ const DsCompactCard = React.memo(function DsCompactCard({
     style: {
       marginLeft: "auto"
     }
-  }, stageChip.label)), React.createElement("div", {
+  }, stageChip.label), toggleSavedTicker && React.createElement("button", {
+    onClick: e => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleSavedTicker(sym);
+    },
+    className: "ds-chip ds-chip--sm",
+    style: {
+      marginLeft: stageChip ? 4 : "auto",
+      padding: "0 6px",
+      height: 18,
+      color: isSaved ? "var(--ds-accent)" : "var(--ds-text-muted)",
+      background: isSaved ? "var(--ds-accent-dim)" : "transparent",
+      borderColor: isSaved ? "var(--ds-accent)" : "var(--ds-stroke)"
+    },
+    title: isSaved ? "Saved — click to unsave" : "Save ticker",
+    "aria-label": isSaved ? "Unsave ticker" : "Save ticker"
+  }, isSaved ? "★" : "☆")), React.createElement("div", {
     className: "ds-tickercard__price",
     style: {
       fontSize: 18
@@ -9887,7 +9907,9 @@ function renderCompactCardFn(t, {
     return React.createElement(DsCompactCard, {
       t: t,
       onSelectTicker: onSelectTicker,
-      tradeByTicker: tradeByTicker
+      tradeByTicker: tradeByTicker,
+      savedTickers: savedTickers,
+      toggleSavedTicker: toggleSavedTicker
     });
   }
   return React.createElement(CompactCard, {
@@ -10544,9 +10566,6 @@ function ActionCenterPanel({
   const activePositionsCount = rows.length;
   const rankTotal = rankPositions && typeof rankPositions === "object" ? Object.keys(rankPositions).length : null;
   const kanbanCount = hasEarlyMovers ? earlyMoversCount : kanbanActiveCount;
-  if (!hasEarlyMovers && !hasKanbanData && activePositionsCount === 0) {
-    return null;
-  }
   const todayLocal = (() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -13987,7 +14006,9 @@ const OverlayPortal = ({
   selectedJourneyTs = null,
   earningsMap = null,
   dashboardMode = "trader",
-  addingTicker = null
+  addingTicker = null,
+  savedTickers = null,
+  toggleSavedTicker = null
 }) => {
   if (!selectedTicker) return null;
   try {
@@ -14086,7 +14107,9 @@ const OverlayPortal = ({
       effectiveStage: effectiveStage,
       earningsMap: earningsMap,
       initialRailTab: initialRailTab,
-      addingTicker: addingTicker
+      addingTicker: addingTicker,
+      savedTickers: savedTickers,
+      toggleSavedTicker: toggleSavedTicker
     });
   } catch (error) {
     console.error("OverlayPortal error:", error);
@@ -16071,12 +16094,20 @@ function App() {
     }, items.map(t => chip(t, isGain, pctKey, priceKey))) : React.createElement("div", {
       className: "text-[10px] text-[#6b7280]"
     }, "No movers in this bucket."));
+    const ABS_CAP = sym => CRYPTO_24H.has(sym) ? 200 : 50;
     const rthArr = allArr.map(t => {
       const px = Number(t?.price ?? t?.close);
       if (!Number.isFinite(px) || px <= 0) return null;
       const dc = getDailyChange(t);
       const pct = dc?.dayPct;
       if (!Number.isFinite(pct)) return null;
+      const sym = String(t?.ticker || "").toUpperCase();
+      if (Math.abs(pct) > ABS_CAP(sym)) {
+        if (typeof console !== "undefined") {
+          console.warn(`[movers] dropped ${sym} dayPct=${pct.toFixed(2)}% (sanity cap ${ABS_CAP(sym)}%)`);
+        }
+        return null;
+      }
       return {
         ...t,
         _pct: pct,
@@ -16090,6 +16121,8 @@ function App() {
     const ethArr = _moversMarketOpen ? [] : allArr.filter(t => !CRYPTO_24H.has(t?.ticker)).map(t => {
       const pct = Number(t?._ah_change_pct);
       if (!Number.isFinite(pct) || pct === 0) return null;
+      const sym = String(t?.ticker || "").toUpperCase();
+      if (Math.abs(pct) > ABS_CAP(sym)) return null;
       const px = Number(t?._ah_price) || Number(t?.price ?? t?.close) || 0;
       return {
         ...t,
@@ -16442,13 +16475,27 @@ function App() {
     }),
     className: `px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${effectiveFilters.group === "SAVED" ? "bg-amber-500/20 border-amber-500/40 text-amber-300" : "bg-white/[0.02] border-white/[0.06] text-[#6b7280] hover:text-amber-300 hover:bg-amber-500/10"}`,
     title: `Show only saved tickers (${savedTickers.size} saved)`
-  }, "\u2B50 Saved", savedTickers.size > 0 ? ` (${savedTickers.size})` : ""), React.createElement("button", {
-    onClick: () => handleFilterChange({
-      group: effectiveFilters.group === "TT_SELECTED" ? "ALL" : "TT_SELECTED"
-    }),
-    className: `px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors whitespace-nowrap ${effectiveFilters.group === "TT_SELECTED" ? "bg-violet-500/20 border-violet-500/40 text-violet-300" : "bg-white/[0.02] border-white/[0.06] text-[#6b7280] hover:text-violet-300 hover:bg-violet-500/10"}`,
-    title: "Show TT Selected tickers"
-  }, "TT Selected"), (dashboardMode === "investor" || effectiveFilters.group === "INVESTOR_ACTIONABLE") && React.createElement("button", {
+  }, "\u2B50 Saved", savedTickers.size > 0 ? ` (${savedTickers.size})` : ""), (() => {
+    const ttCount = (Array.isArray(tickers) ? tickers : []).filter(t => isTickerTTSelected(t?.ticker)).length;
+    const isActive = effectiveFilters.group === "TT_SELECTED";
+    return React.createElement("button", {
+      onClick: () => handleFilterChange({
+        group: isActive ? "ALL" : "TT_SELECTED"
+      }),
+      className: `px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors whitespace-nowrap inline-flex items-center gap-1.5 ${isActive ? "bg-amber-500/20 border-amber-500/40 text-amber-200" : "bg-white/[0.02] border-white/[0.06] text-[#6b7280] hover:text-amber-200 hover:bg-amber-500/10"}`,
+      title: "Show TT Selected tickers (Fundstrat Direct picks)"
+    }, React.createElement("span", {
+      style: {
+        width: 6,
+        height: 6,
+        borderRadius: "50%",
+        background: "var(--ds-accent)",
+        boxShadow: "0 0 0 2px rgba(245,194,92,0.20)",
+        flexShrink: 0,
+        display: "inline-block"
+      }
+    }), "TT Selected", ttCount > 0 ? ` (${ttCount})` : "");
+  })(), (dashboardMode === "investor" || effectiveFilters.group === "INVESTOR_ACTIONABLE") && React.createElement("button", {
     onClick: () => handleFilterChange({
       group: effectiveFilters.group === "INVESTOR_ACTIONABLE" ? "ALL" : "INVESTOR_ACTIONABLE"
     }),
@@ -17048,7 +17095,9 @@ function App() {
     selectedJourneyTs: journeySelectedPoint?.ts ?? null,
     earningsMap: earningsMap,
     dashboardMode: dashboardMode,
-    addingTicker: userTickers.addingTicker
+    addingTicker: userTickers.addingTicker,
+    savedTickers: savedTickers,
+    toggleSavedTicker: toggleSavedTicker
   }))), dashboardMode === "trader" && !noTickerResults && React.createElement("div", {
     className: "relative pb-12",
     "data-coachmark": "kanban-lanes"
