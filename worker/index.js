@@ -30655,243 +30655,182 @@ async function d1UpsertAlert(env, alert) {
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+ * V15 P0.7.46 (2026-05-01) — DATA CAPTURE ARCHITECTURE
+ *
+ * Single source of truth for trade-row construction. Both d1UpsertTrade and
+ * d1ArchiveRunTrade now route through _buildTradeRowForD1, so adding a new
+ * column means editing ONE function instead of 3 INSERTs + 3 UPDATEs.
+ *
+ * Each captured field uses a 3-tier resolver chain:
+ *   1. Top-level field on the trade object (camelCase → snake_case)
+ *   2. Nested in setup_snapshot inside rank_trace_json
+ *   3. Static lookup function (e.g., getSector for sector)
+ *
+ * See tasks/data-capture-architecture-2026-05-01.md for design rationale.
+ * ═════════════════════════════════════════════════════════════════════════ */
+
+function _isoToMsSafe(v) {
+  if (v == null) return null;
+  if (typeof v === "number" && Number.isFinite(v)) return v < 1e12 ? v * 1000 : v;
+  try { return isoToMs(v); } catch (_) { return null; }
+}
+
+function _captureParseRankTrace(trade) {
+  const raw = trade?.rankTraceJson ?? trade?.rank_trace_json;
+  if (!raw) return null;
+  if (typeof raw === "object") return raw;
+  if (typeof raw !== "string") return null;
+  try { return JSON.parse(raw); } catch (_) { return null; }
+}
+
+/** Resolve entry_signals_json. Returns a JSON string ready to bind, or null. */
+function _captureResolveEntrySignals(trade) {
+  // Tier 1: explicit field on trade object
+  let es = trade?.entrySignals ?? trade?.entry_signals;
+  // Tier 2: derive from setup_snapshot in rank_trace_json
+  if (es == null) {
+    const _ss = _captureParseRankTrace(trade)?.setup_snapshot;
+    if (_ss) {
+      const _div = _ss.divergence || {};
+      const _td = _ss.td_seq || {};
+      const _isLong = String(trade?.direction || "LONG").toUpperCase() === "LONG";
+      const _adverseTd9Key = _isLong ? "td9_bear" : "td9_bull";
+      const _adversePrepKey = _isLong ? "bear_prep" : "bull_prep";
+      es = {
+        has_adverse_rsi_div: _div.adverse_rsi != null && _div.adverse_rsi !== false,
+        has_adverse_phase_div: _div.adverse_phase != null && _div.adverse_phase !== false,
+        adverse_phase_strongest_tf: ((_div.adverse_phase || {}).strongest || {}).tf || null,
+        td9_bear_ltf_active: !!(
+          (_td["30"] || {})[_adverseTd9Key]
+          || (_td["60"] || {})[_adverseTd9Key]
+          || (_td["240"] || {})[_adverseTd9Key]
+        ),
+        daily_td9_adverse: !!(_td.D || {})[_adverseTd9Key],
+        daily_adverse_prep: Number((_td.D || {})[_adversePrepKey]) || 0,
+        fourh_adverse_prep: Number((_td["240"] || {})[_adversePrepKey]) || 0,
+        pdz_d: (_ss.pdz || {}).D || null,
+        pdz_4h: (_ss.pdz || {}).h4 || (_ss.pdz || {})["4h"] || null,
+        personality: _ss.ticker_personality || null,
+        regime_class: _ss.regime_class || null,
+        derived_from_setup_snapshot: true,
+      };
+    }
+  }
+  if (es == null) return null;
+  if (typeof es === "string") return es;
+  try { return JSON.stringify(es); } catch (_) { return null; }
+}
+
+/** Resolve sector. Returns a string or null. */
+function _captureResolveSector(trade) {
+  // Tier 1: explicit
+  const direct = trade?.sector
+    ?? trade?.sectorAtEntry?.sector
+    ?? trade?.sector_at_entry?.sector;
+  if (direct) return String(direct);
+  // Tier 2: setup_snapshot
+  const ss = _captureParseRankTrace(trade)?.setup_snapshot;
+  if (ss?.sector) return String(ss.sector);
+  // Tier 3: static lookup (sector-mapping.js)
+  try {
+    const tk = String(trade?.ticker || "").toUpperCase();
+    if (tk && typeof getSector === "function") {
+      const s = getSector(tk);
+      if (s && s !== "UNKNOWN" && s !== "Unknown") return String(s);
+    }
+  } catch (_) { /* swallow */ }
+  return null;
+}
+
+/** Build the canonical trade row object. Both writers consume this. */
+function _buildTradeRowForD1(trade, opts = {}) {
+  if (!trade) return null;
+  const tradeId = String(trade.id || trade.trade_id || "").trim();
+  if (!tradeId) return null;
+
+  let entryTs = _isoToMsSafe(trade.entry_ts ?? trade.entryTime);
+  let exitTs = _isoToMsSafe(trade.exit_ts);
+  if (exitTs == null && Array.isArray(trade.history)) {
+    for (let i = trade.history.length - 1; i >= 0; i--) {
+      const e = trade.history[i];
+      if (e && e.type === "EXIT") { exitTs = _isoToMsSafe(e.timestamp); break; }
+    }
+  }
+  let trimTs = _isoToMsSafe(trade.trim_ts ?? trade.trimTs);
+  let trimPrice = trade.trim_price != null ? Number(trade.trim_price) : (trade.trimPrice != null ? Number(trade.trimPrice) : null);
+
+  const resolvedEntryPrice = trade.entryPrice != null ? Number(trade.entryPrice) : (trade.entry_price != null ? Number(trade.entry_price) : null);
+  const resolvedExitPrice = trade.exitPrice != null ? Number(trade.exitPrice) : (trade.exit_price != null ? Number(trade.exit_price) : null);
+  const resolvedPnlPct = trade.pnlPct != null ? Number(trade.pnlPct) : (trade.pnl_pct != null ? Number(trade.pnl_pct) : null);
+  const resolvedExitReason = trade.exitReason != null ? String(trade.exitReason) : (trade.exit_reason != null ? String(trade.exit_reason) : null);
+  const resolvedEntryPath = trade.entryPath ?? trade.entry_path ?? null;
+  const resolvedRunId = opts.runId || trade.run_id || null;
+  const resolvedSetupName = trade.setupName ?? trade.setup_name ?? null;
+
+  return {
+    trade_id: tradeId,
+    ticker: String(trade.ticker || "").toUpperCase() || null,
+    direction: String(trade.direction || "").toUpperCase() || null,
+    entry_ts: Number.isFinite(entryTs) ? entryTs : null,
+    entry_price: Number.isFinite(resolvedEntryPrice) ? resolvedEntryPrice : null,
+    rank: trade.rank != null ? Number(trade.rank) : null,
+    rr: trade.rr != null ? Number(trade.rr) : null,
+    status: trade.status != null ? String(trade.status) : null,
+    exit_ts: Number.isFinite(exitTs) ? exitTs : null,
+    exit_price: Number.isFinite(resolvedExitPrice) ? resolvedExitPrice : null,
+    exit_reason: resolvedExitReason,
+    trimmed_pct: trade.trimmedPct != null ? Number(trade.trimmedPct) : (trade.trimmed_pct != null ? Number(trade.trimmed_pct) : null),
+    pnl: trade.pnl != null ? Number(trade.pnl) : null,
+    pnl_pct: resolvedPnlPct,
+    script_version: trade.scriptVersion != null ? String(trade.scriptVersion) : (trade.script_version != null ? String(trade.script_version) : null),
+    created_at: entryTs || Date.now(),
+    updated_at: Date.now(),
+    trim_ts: Number.isFinite(trimTs) ? trimTs : null,
+    trim_price: Number.isFinite(trimPrice) ? trimPrice : null,
+    run_id: resolvedRunId ? String(resolvedRunId) : null,
+    setup_name: resolvedSetupName,
+    setup_grade: trade.setupGrade ?? trade.setup_grade ?? null,
+    risk_budget: Number(trade.riskBudget ?? trade.risk_budget) || null,
+    shares: Number(trade.shares) || null,
+    notional: Number(trade.notional ?? (Number(trade.shares) * Number(resolvedEntryPrice))) || null,
+    entry_path: resolvedEntryPath ? String(resolvedEntryPath) : null,
+    max_favorable_excursion: trade.maxFavorableExcursion != null ? Number(trade.maxFavorableExcursion) : (trade.max_favorable_excursion != null ? Number(trade.max_favorable_excursion) : 0),
+    max_adverse_excursion: trade.maxAdverseExcursion != null ? Number(trade.maxAdverseExcursion) : (trade.max_adverse_excursion != null ? Number(trade.max_adverse_excursion) : 0),
+    rank_trace_json: trade.rankTraceJson ?? trade.rank_trace_json ?? null,
+    /* ─── Capture-architecture additions (the new columns) ─────────── */
+    entry_signals_json: _captureResolveEntrySignals(trade),
+    sector: _captureResolveSector(trade),
+  };
+}
+
 async function d1UpsertTrade(env, trade) {
   const db = env?.DB;
   if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
   if (!trade) return { ok: false, skipped: true, reason: "missing_trade" };
 
-  const tradeId = String(trade.id || trade.trade_id || "").trim();
-  if (!tradeId) return { ok: false, skipped: true, reason: "missing_trade_id" };
+  /* V15 P0.7.46 (2026-05-01) — single-source-of-truth row builder.
+     Replaces the old INSERT-then-UPDATE dance with one upsert SQL.
+     See tasks/data-capture-architecture-2026-05-01.md. */
+  const row = _buildTradeRowForD1(trade, { runId: trade.run_id ?? trade.runId });
+  if (!row) return { ok: false, skipped: true, reason: "row_build_failed" };
+  const tradeId = row.trade_id;
 
-  const ticker = String(trade.ticker || "").toUpperCase();
-  const direction = String(trade.direction || "").toUpperCase();
-  // Prefer numeric entry_ts (ms); normalize seconds to ms so display is correct
-  let entryTs = Number(trade.entry_ts);
-  if (!Number.isFinite(entryTs) || entryTs <= 0)
-    entryTs = isoToMs(trade.entryTime) || null;
-  if (Number.isFinite(entryTs) && entryTs < 1e12) entryTs = entryTs * 1000;
-  const createdAt = entryTs || Date.now();
-  const updatedAt = Date.now();
 
-  // Best-effort exit ts from trade.exit_ts, then history EXIT event
-  let exitTs = Number(trade.exit_ts);
-  if (!Number.isFinite(exitTs) || exitTs <= 0) exitTs = null;
-  if (exitTs != null && exitTs < 1e12) exitTs = exitTs * 1000;
-  let exitEvent = null;
-  if (exitTs == null && Array.isArray(trade.history)) {
-    for (let i = trade.history.length - 1; i >= 0; i--) {
-      const e = trade.history[i];
-      if (e && e.type === "EXIT") {
-        exitEvent = e;
-        exitTs = isoToMs(e.timestamp);
-        break;
-      }
-    }
-  }
-
-  // Best-effort exit price/reason from history for legacy trades (so backfill becomes useful)
-  const derivedExitPrice =
-    trade.exitPrice != null
-      ? Number(trade.exitPrice)
-      : exitEvent && exitEvent.price != null
-        ? Number(exitEvent.price)
-        : null;
-  const derivedExitReason =
-    trade.exitReason != null
-      ? String(trade.exitReason)
-      : inferExitReasonForLegacyTrade(trade, exitEvent);
-
-  let trimTs = Number(trade.trim_ts);
-  if (!Number.isFinite(trimTs) && Array.isArray(trade.history)) {
-    for (let i = trade.history.length - 1; i >= 0; i--) {
-      const e = trade.history[i];
-      if (e && e.type === "TRIM") {
-        trimTs = isoToMs(e.timestamp) || Number(e.ts) || 0;
-        if (trimTs < 1e12) trimTs = trimTs * 1000;
-        break;
-      }
-    }
-  }
-  if (Number.isFinite(trimTs) && trimTs < 1e12) trimTs = trimTs * 1000;
-
-  let trimPrice = Number(trade.trim_price ?? trade.trimPrice);
-  if (!Number.isFinite(trimPrice) && Array.isArray(trade.history)) {
-    for (let i = trade.history.length - 1; i >= 0; i--) {
-      const e = trade.history[i];
-      if (e && e.type === "TRIM" && e.price != null) {
-        trimPrice = Number(e.price);
-        break;
-      }
-    }
-  }
-
-  const resolvedRunId = trade.run_id ?? trade.runId ?? null;
-  // Phase-I V11 (2026-04-22): derive entry_path / MFE / MAE from any available
-  // field (both camelCase + snake_case are used throughout the codebase).
-  const resolvedEntryPath = trade.entryPath ?? trade.entry_path ?? null;
-  const resolvedMfe = Number.isFinite(Number(trade.maxFavorableExcursion))
-    ? Number(trade.maxFavorableExcursion)
-    : Number.isFinite(Number(trade.max_favorable_excursion))
-      ? Number(trade.max_favorable_excursion)
-      : Number.isFinite(Number(trade.mfePct))
-        ? Number(trade.mfePct)
-        : null;
-  const resolvedMae = Number.isFinite(Number(trade.maxAdverseExcursion))
-    ? Number(trade.maxAdverseExcursion)
-    : Number.isFinite(Number(trade.max_adverse_excursion))
-      ? Number(trade.max_adverse_excursion)
-      : Number.isFinite(Number(trade.maePct))
-        ? Number(trade.maePct)
-        : null;
-  // If setupName is missing but entryPath is known, derive a display name
-  // so trade-autopsy / reporting is complete. Mirrors formatSetupName() logic.
-  const derivedSetupName = trade.setupName ?? trade.setup_name ?? (
-    resolvedEntryPath ? (
-      SETUP_NAME_MAP[resolvedEntryPath] ?? "TT " + String(resolvedEntryPath)
-        .replace(/^ripster_?/i, "")
-        .replace(/_/g, " ")
-        .replace(/\b\w/g, c => c.toUpperCase())
-    ) : null
-  );
-
-  /* V15 P0.7.45 (2026-04-30) — added entry_signals_json (final binding ?30 / ?29).
-     Carries adverse_rsi_div, adverse_phase_div, td9_bear_ltf_active, pdz_d/4h,
-     personality flags so exit logic + autopsy don't have to re-parse
-     rank_trace_json.setup_snapshot. */
-  const insertWithTrimPrice = `INSERT OR IGNORE INTO trades
-          (trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
-           exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
-           created_at, updated_at, trim_ts, trim_price, run_id,
-           setup_name, setup_grade, risk_budget, shares, notional,
-           entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json,
-           entry_signals_json)
-         VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30)`;
-  const insertWithoutTrimPrice = `INSERT OR IGNORE INTO trades
-          (trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
-           exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
-           created_at, updated_at, trim_ts, run_id,
-           setup_name, setup_grade, risk_budget, shares, notional,
-           entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json,
-           entry_signals_json)
-         VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29)`;
-
-  const resolvedEntryPrice = trade.entryPrice != null ? Number(trade.entryPrice)
-    : trade.entry_price != null ? Number(trade.entry_price) : null;
-  const resolvedPnlPct = trade.pnlPct != null ? Number(trade.pnlPct)
-    : trade.pnl_pct != null ? Number(trade.pnl_pct) : null;
-  const resolvedExitPrice = Number.isFinite(derivedExitPrice) ? derivedExitPrice
-    : trade.exitPrice != null ? Number(trade.exitPrice)
-    : trade.exit_price != null ? Number(trade.exit_price) : null;
+  /* SQLite UPSERT: INSERT ... ON CONFLICT(pk) DO UPDATE SET col = COALESCE(excluded.col, col).
+     COALESCE preserves an existing column value when the new bind is null
+     (matches the behavior of the prior UPDATE COALESCE). */
+  const cols = Object.keys(row);
+  const placeholders = cols.map((_, i) => `?${i + 1}`).join(", ");
+  const updateAssignments = cols
+    .filter((c) => c !== "trade_id" && c !== "created_at")
+    .map((c) => `${c} = COALESCE(excluded.${c}, trades.${c})`)
+    .join(", ");
+  const sql = `INSERT INTO trades (${cols.join(", ")}) VALUES (${placeholders})
+               ON CONFLICT(trade_id) DO UPDATE SET ${updateAssignments}`;
 
   try {
-    // Preserve created_at by inserting once.
-    await db
-      .prepare(insertWithTrimPrice)
-      .bind(
-        tradeId,
-        ticker || null,
-        direction || null,
-        entryTs != null ? Number(entryTs) : null,
-        resolvedEntryPrice,
-        trade.rank != null ? Number(trade.rank) : null,
-        trade.rr != null ? Number(trade.rr) : null,
-        trade.status != null ? String(trade.status) : null,
-        exitTs != null ? Number(exitTs) : null,
-        resolvedExitPrice,
-        derivedExitReason != null ? String(derivedExitReason) : null,
-        trade.trimmedPct != null ? Number(trade.trimmedPct) : null,
-        trade.pnl != null ? Number(trade.pnl) : null,
-        resolvedPnlPct,
-        trade.scriptVersion != null
-          ? String(trade.scriptVersion)
-          : trade.script_version != null
-            ? String(trade.script_version)
-            : null,
-        createdAt,
-        updatedAt,
-        Number.isFinite(trimTs) ? trimTs : null,
-        Number.isFinite(trimPrice) ? trimPrice : null,
-        resolvedRunId != null ? String(resolvedRunId) : null,
-        derivedSetupName,
-        trade.setupGrade ?? trade.setup_grade ?? null,
-        Number(trade.riskBudget ?? trade.risk_budget) || null,
-        Number(trade.shares) || null,
-        Number(trade.notional ?? (Number(trade.shares) * resolvedEntryPrice)) || null,
-        resolvedEntryPath != null ? String(resolvedEntryPath) : null,
-        resolvedMfe,
-        resolvedMae,
-        trade.rankTraceJson ?? trade.rank_trace_json ?? null,
-        /* V15 P0.7.45 — entry_signals_json: stringify if object, else pass-through */
-        (() => {
-          const es = trade.entrySignals ?? trade.entry_signals ?? null;
-          if (es == null) return null;
-          if (typeof es === "string") return es;
-          try { return JSON.stringify(es); } catch (_) { return null; }
-        })(),
-      )
-      .run();
-
-    await db
-      .prepare(
-        `UPDATE trades SET
-          ticker=?2, direction=?3, entry_ts=?4, entry_price=?5, rank=?6, rr=?7, status=?8,
-          exit_ts=?9, exit_price=?10, exit_reason=?11,
-          trimmed_pct=?12, pnl=?13, pnl_pct=?14, script_version=?15,
-          updated_at=?16, trim_ts=?17, trim_price=?18, run_id=COALESCE(?19, run_id),
-          setup_name=COALESCE(?20, setup_name), setup_grade=COALESCE(?21, setup_grade), risk_budget=COALESCE(?22, risk_budget),
-          shares=COALESCE(?23, shares), notional=COALESCE(?24, notional),
-          entry_path=COALESCE(?25, entry_path),
-          max_favorable_excursion=COALESCE(?26, max_favorable_excursion),
-          max_adverse_excursion=COALESCE(?27, max_adverse_excursion),
-          rank_trace_json=COALESCE(?28, rank_trace_json),
-          entry_signals_json=COALESCE(?29, entry_signals_json)
-         WHERE trade_id=?1`,
-      )
-      .bind(
-        tradeId,
-        ticker || null,
-        direction || null,
-        entryTs != null ? Number(entryTs) : null,
-        resolvedEntryPrice,
-        trade.rank != null ? Number(trade.rank) : null,
-        trade.rr != null ? Number(trade.rr) : null,
-        trade.status != null ? String(trade.status) : null,
-        exitTs != null ? Number(exitTs) : null,
-        resolvedExitPrice,
-        derivedExitReason != null ? String(derivedExitReason) : null,
-        trade.trimmedPct != null ? Number(trade.trimmedPct) : null,
-        trade.pnl != null ? Number(trade.pnl) : null,
-        resolvedPnlPct,
-        trade.scriptVersion != null
-          ? String(trade.scriptVersion)
-          : trade.script_version != null
-            ? String(trade.script_version)
-            : null,
-        updatedAt,
-        Number.isFinite(trimTs) ? trimTs : null,
-        Number.isFinite(trimPrice) ? trimPrice : null,
-        resolvedRunId != null ? String(resolvedRunId) : null,
-        derivedSetupName,
-        trade.setupGrade ?? trade.setup_grade ?? null,
-        Number(trade.riskBudget ?? trade.risk_budget) || null,
-        Number(trade.shares) || null,
-        Number(trade.notional ?? (Number(trade.shares) * resolvedEntryPrice)) || null,
-        resolvedEntryPath != null ? String(resolvedEntryPath) : null,
-        resolvedMfe,
-        resolvedMae,
-        trade.rankTraceJson ?? trade.rank_trace_json ?? null,
-        /* V15 P0.7.45 — same encoding as INSERT branch */
-        (() => {
-          const es = trade.entrySignals ?? trade.entry_signals ?? null;
-          if (es == null) return null;
-          if (typeof es === "string") return es;
-          try { return JSON.stringify(es); } catch (_) { return null; }
-        })(),
-      )
-      .run();
-
+    await db.prepare(sql).bind(...cols.map((c) => row[c])).run();
     return { ok: true, trade_id: tradeId };
   } catch (err) {
     console.error(`[D1 LEDGER] Trade upsert failed for ${tradeId}:`, err);
@@ -30904,92 +30843,22 @@ async function d1UpsertTrade(env, trade) {
 async function d1ArchiveRunTrade(env, runId, trade) {
   const db = env?.DB;
   if (!db || !runId || !trade) return;
-  const tradeId = String(trade.id || trade.trade_id || "").trim();
-  if (!tradeId) return;
+  /* V15 P0.7.46 (2026-05-01) — single-source-of-truth row builder.
+     Reuses _buildTradeRowForD1 + adds run_id explicitly so backtest_run_trades
+     gets the same capture surface as trades. */
+  const row = _buildTradeRowForD1(trade, { runId });
+  if (!row) return;
   try {
     await d1EnsureBacktestRunsSchema(env);
-    const ticker = String(trade.ticker || "").toUpperCase();
-    const direction = String(trade.direction || "").toUpperCase();
-    let entryTs = Number(trade.entry_ts);
-    if (!Number.isFinite(entryTs) || entryTs <= 0) entryTs = isoToMs(trade.entryTime) || null;
-    if (Number.isFinite(entryTs) && entryTs < 1e12) entryTs = entryTs * 1000;
-    let exitTs = Number(trade.exit_ts);
-    if (!Number.isFinite(exitTs) || exitTs <= 0) exitTs = null;
-    if (exitTs != null && exitTs < 1e12) exitTs = exitTs * 1000;
-    let trimTs = Number(trade.trim_ts);
-    if (Number.isFinite(trimTs) && trimTs < 1e12) trimTs = trimTs * 1000;
-    if (!Number.isFinite(trimTs)) trimTs = null;
-    const exitPrice = trade.exitPrice != null ? Number(trade.exitPrice) : trade.exit_price != null ? Number(trade.exit_price) : null;
-    const entryPrice = trade.entryPrice != null ? Number(trade.entryPrice) : trade.entry_price != null ? Number(trade.entry_price) : null;
-    const exitReason = trade.exitReason || trade.exit_reason || null;
-    const pnlPct = trade.pnlPct != null ? Number(trade.pnlPct) : trade.pnl_pct != null ? Number(trade.pnl_pct) : null;
-    const trimPrice = Number(trade.trim_price ?? trade.trimPrice) || null;
-    // Phase-I V11: persist entry_path + MFE/MAE on archive writes too
-    const archEntryPath = trade.entryPath ?? trade.entry_path ?? null;
-    const archMfe = Number.isFinite(Number(trade.maxFavorableExcursion))
-      ? Number(trade.maxFavorableExcursion)
-      : Number.isFinite(Number(trade.max_favorable_excursion))
-        ? Number(trade.max_favorable_excursion) : null;
-    const archMae = Number.isFinite(Number(trade.maxAdverseExcursion))
-      ? Number(trade.maxAdverseExcursion)
-      : Number.isFinite(Number(trade.max_adverse_excursion))
-        ? Number(trade.max_adverse_excursion) : null;
-    const archSetupName = trade.setupName ?? trade.setup_name ?? (
-      archEntryPath ? (
-        SETUP_NAME_MAP[archEntryPath] ?? "TT " + String(archEntryPath)
-          .replace(/^ripster_?/i, "")
-          .replace(/_/g, " ")
-          .replace(/\b\w/g, c => c.toUpperCase())
-      ) : null
-    );
-    /* V15 P0.7.45 — entry_signals_json archived alongside rank_trace_json */
-    const archEntrySignalsJson = (() => {
-      const es = trade.entrySignals ?? trade.entry_signals ?? null;
-      if (es == null) return null;
-      if (typeof es === "string") return es;
-      try { return JSON.stringify(es); } catch (_) { return null; }
-    })();
-    await db.prepare(
-      `INSERT OR REPLACE INTO backtest_run_trades
-        (run_id, trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
-         exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
-         created_at, updated_at, trim_ts, trim_price,
-         setup_name, setup_grade, risk_budget, shares, notional,
-         entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json,
-         entry_signals_json)
-       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30)`
-    ).bind(
-      String(runId),
-      tradeId,
-      ticker || null,
-      direction || null,
-      entryTs != null ? Number(entryTs) : null,
-      entryPrice,
-      trade.rank != null ? Number(trade.rank) : null,
-      trade.rr != null ? Number(trade.rr) : null,
-      trade.status != null ? String(trade.status) : null,
-      exitTs,
-      Number.isFinite(exitPrice) ? exitPrice : null,
-      exitReason != null ? String(exitReason) : null,
-      trade.trimmedPct != null ? Number(trade.trimmedPct) : (trade.trimmed_pct != null ? Number(trade.trimmed_pct) : null),
-      trade.pnl != null ? Number(trade.pnl) : null,
-      pnlPct,
-      trade.scriptVersion ?? trade.script_version ?? null,
-      Number(entryTs) || Date.now(),
-      Date.now(),
-      trimTs,
-      Number.isFinite(trimPrice) ? trimPrice : null,
-      archSetupName,
-      trade.setupGrade ?? trade.setup_grade ?? null,
-      Number(trade.riskBudget ?? trade.risk_budget) || null,
-      Number(trade.shares) || null,
-      Number(trade.notional ?? (Number(trade.shares) * Number(entryPrice))) || null,
-      archEntryPath != null ? String(archEntryPath) : null,
-      archMfe,
-      archMae,
-      trade.rankTraceJson ?? trade.rank_trace_json ?? null,
-      archEntrySignalsJson,
-    ).run();
+    /* backtest_run_trades doesn't have run_id INSIDE the row builder output —
+       it's the composite-key prefix. Build the final write row explicitly: */
+    const archiveRow = { run_id: String(runId), ...row };
+    delete archiveRow.run_id_dup;  // safety
+    archiveRow.run_id = String(runId);
+    const cols = Object.keys(archiveRow);
+    const placeholders = cols.map((_, i) => `?${i + 1}`).join(", ");
+    const sql = `INSERT OR REPLACE INTO backtest_run_trades (${cols.join(", ")}) VALUES (${placeholders})`;
+    await db.prepare(sql).bind(...cols.map((c) => archiveRow[c])).run();
   } catch (e) {
     console.warn("[ARCHIVE] d1ArchiveRunTrade failed:", String(e).slice(0, 150));
   }

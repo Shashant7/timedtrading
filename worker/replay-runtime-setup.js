@@ -794,6 +794,16 @@ function mapArchivedReplayTrade(row, replayLockVal) {
     maxFavorableExcursion: row.max_favorable_excursion ?? null,
     max_adverse_excursion: row.max_adverse_excursion ?? null,
     maxAdverseExcursion: row.max_adverse_excursion ?? null,
+    /* V15 P0.7.46 — include the data-capture columns on the mapped trade
+       so cross-batch reconciliation preserves them. Without this, the merge
+       step at line 918 spreads d1Trade over fromKv with these fields
+       undefined, clobbering the KV values to undefined and silently
+       breaking entry-time data capture on multi-batch runs. */
+    rank_trace_json: row.rank_trace_json ?? null,
+    rankTraceJson: row.rank_trace_json ?? null,
+    entry_signals_json: row.entry_signals_json ?? null,
+    entrySignals: row.entry_signals_json ?? null,
+    sector: row.sector ?? null,
     run_id: replayLockVal,
   };
 }
@@ -860,11 +870,20 @@ export async function loadReplayScopedTrades(args = {}) {
   if (!resetTrades && reconcileRunId && db) {
     try {
       await d1EnsureBacktestRunsSchema(env);
+      /* V15 P0.7.46 (2026-05-01) — include entry_signals_json + sector in the
+         reconciliation SELECT so they survive the cross-batch merge.
+         Without this, batch N+1 reads the trade from D1 missing these fields,
+         spreads d1Trade over fromKv (which clobbers entry_signals/sector
+         to undefined), and writes the missing-fields version back to D1.
+         Net effect: data-capture columns are silently NULL on every multi-batch
+         run, even though the resolver computes them correctly at the first
+         write. See tasks/data-capture-architecture-2026-05-01.md. */
       const { results: liveRows } = await db.prepare(
         `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
                 exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
                 trim_ts, trim_price, setup_name, setup_grade, risk_budget, shares, notional,
-                entry_path, max_favorable_excursion, max_adverse_excursion
+                entry_path, max_favorable_excursion, max_adverse_excursion,
+                rank_trace_json, entry_signals_json, sector
          FROM trades WHERE run_id = ?1`
       ).bind(reconcileRunId).all();
       console.log(`${logPrefix} D1 query returned: rows=${(liveRows||[]).length} run_id=${reconcileRunId}`);
@@ -925,6 +944,10 @@ export async function loadReplayScopedTrades(args = {}) {
             // Preserve KV-only fields explicitly when D1 had nulls
             rank_trace_json: d1Trade.rank_trace_json ?? fromKv.rank_trace_json ?? null,
             entry_path: d1Trade.entry_path ?? fromKv.entry_path ?? null,
+            /* V15 P0.7.46 — same preserve-KV-when-D1-null pattern for the new
+               capture columns, so multi-batch reconciliation doesn't drop them. */
+            entry_signals_json: d1Trade.entry_signals_json ?? fromKv.entry_signals_json ?? null,
+            sector: d1Trade.sector ?? fromKv.sector ?? null,
           };
           merged.push(reconciled);
         }
