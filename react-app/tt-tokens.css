@@ -60,6 +60,99 @@
   --tt-editorial:    #a78bfa;                 /* purple for narrative / live */
   --tt-editorial-dim:rgba(167,139,250,0.14);
 
+
+  /* ═══════════════════════════════════════════════════════════════════
+   * DESIGN SYSTEM v2 (2026-05-01) — single namespace `--ds-*`
+   *
+   * Rule: every NEW surface uses --ds-* tokens exclusively. Existing
+   * --tt-* tokens stay for backward compat but new code MUST NOT use them.
+   * See tasks/design-system-v2-spec-2026-05-01.md for the full spec +
+   * surface-by-surface application matrix.
+   * ═══════════════════════════════════════════════════════════════════ */
+
+  /* Backgrounds — slightly warm, 5 levels */
+  --ds-bg-canvas:     #0A0D11;
+  --ds-bg-surface:    #13171D;
+  --ds-bg-surface-hi: #1A1F26;
+  --ds-bg-glass:      rgba(255, 255, 255, 0.04);
+  --ds-bg-glass-hi:   rgba(255, 255, 255, 0.07);
+
+  /* Text — 4 levels, slightly warmer than tt */
+  --ds-text-display:  #F4F5F7;
+  --ds-text-body:     #D8DCE3;
+  --ds-text-muted:    #8C92A0;
+  --ds-text-faint:    #5C6270;
+
+  /* Accent — gold (not teal/cyan/blue). The unique signal. */
+  --ds-accent:        #F5C25C;
+  --ds-accent-hi:     #FFD27A;
+  --ds-accent-soft:   #E0B265;
+  --ds-accent-dim:    rgba(245, 194, 92, 0.14);
+  --ds-accent-glow:   rgba(245, 194, 92, 0.40);
+
+  /* Direction — restrained green/red; warmer red than --tt-danger */
+  --ds-up:            #22C55E;
+  --ds-up-soft:       #34D399;
+  --ds-up-bg:         rgba(34, 197, 94, 0.10);
+  --ds-dn:            #F43F5E;
+  --ds-dn-soft:       #FB7185;
+  --ds-dn-bg:         rgba(244, 63, 94, 0.10);
+  --ds-flat:          #9CA3AF;
+
+  /* Semantic accents — used SPARINGLY */
+  --ds-info:          #60A5FA;
+  --ds-warn:          #F59E0B;
+  --ds-violet:        #A78BFA;
+
+  /* Strokes & dividers */
+  --ds-stroke-soft:   rgba(255, 255, 255, 0.04);
+  --ds-stroke:        rgba(255, 255, 255, 0.08);
+  --ds-stroke-hi:     rgba(255, 255, 255, 0.14);
+
+  /* Sparkline overlays — fill under text, stroke on top */
+  --ds-spark-up-fill:    rgba(52, 211, 153, 0.16);
+  --ds-spark-up-stroke:  rgba(52, 211, 153, 0.55);
+  --ds-spark-dn-fill:    rgba(244, 63, 94, 0.16);
+  --ds-spark-dn-stroke:  rgba(244, 63, 94, 0.55);
+  --ds-spark-flat-fill:  rgba(245, 194, 92, 0.12);
+  --ds-spark-flat-stroke:rgba(245, 194, 92, 0.45);
+
+  /* Type sizes — narrower scale than tt, gives stronger hierarchy */
+  --ds-fs-caption: 10px;
+  --ds-fs-meta:    11px;
+  --ds-fs-body:    13px;
+  --ds-fs-emph:    15px;
+  --ds-fs-h2:      22px;
+  --ds-fs-hero:    32px;
+  --ds-fs-mega:    44px;
+
+  /* Spacing — same 8-step scale as --tt, alias for consistency */
+  --ds-space-1: 4px;
+  --ds-space-2: 8px;
+  --ds-space-3: 12px;
+  --ds-space-4: 16px;
+  --ds-space-5: 24px;
+  --ds-space-6: 32px;
+  --ds-space-7: 48px;
+  --ds-space-8: 64px;
+
+  /* Radius */
+  --ds-radius-xs: 4px;
+  --ds-radius-sm: 8px;
+  --ds-radius:    14px;
+  --ds-radius-lg: 18px;
+  --ds-radius-xl: 24px;
+
+  /* Motion — snappy by default, one slow gesture */
+  --ds-dur-instant: 80ms;
+  --ds-dur-fast:    160ms;
+  --ds-dur-pulse:   600ms;
+  --ds-ease-out:    cubic-bezier(0.2, 0, 0, 1);
+
+  /* Shadow — used sparingly */
+  --ds-shadow-card: 0 2px 8px rgba(0, 0, 0, 0.28);
+  --ds-shadow-pop:  0 12px 32px rgba(0, 0, 0, 0.32);
+
   /* ─── Type scale ─────────────────────────────────────────────────── */
 
   /* 8-step scale, 12px base, 1.25 ratio rounded to whole px */
@@ -405,3 +498,406 @@ input, button, select, textarea {
  * have too many saturated bg tints competing with the sparkline and
  * price color. Rather than risk a fragile selector now, flagged for a
  * dedicated CompactCard refactor. */
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * DESIGN SYSTEM v2 — UTILITY CLASSES
+ * Component-equivalent CSS. Use these instead of inline styles or ad-hoc
+ * Tailwind. See tasks/design-system-v2-spec-2026-05-01.md
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+/* ─── DsCard ─────────────────────────────────────────────────────────── */
+
+.ds-card {
+  background: var(--ds-bg-surface);
+  border: 1px solid var(--ds-stroke);
+  border-radius: var(--ds-radius);
+  padding: var(--ds-space-4);
+  transition: background var(--ds-dur-fast) var(--ds-ease-out),
+              border-color var(--ds-dur-fast) var(--ds-ease-out);
+}
+.ds-card--glass {
+  background: var(--ds-bg-glass);
+  border-color: var(--ds-stroke);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.ds-card--interactive {
+  cursor: pointer;
+}
+.ds-card--interactive:hover {
+  background: var(--ds-bg-surface-hi);
+  border-color: var(--ds-stroke-hi);
+}
+.ds-card--accent {
+  border-color: var(--ds-accent-dim);
+  box-shadow: 0 0 0 1px var(--ds-accent-dim) inset, var(--ds-shadow-card);
+}
+.ds-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  margin-bottom: var(--ds-space-3);
+}
+.ds-card__title {
+  font-size: var(--ds-fs-emph);
+  font-weight: 600;
+  color: var(--ds-text-display);
+}
+.ds-card__subtitle {
+  font-size: var(--ds-fs-meta);
+  color: var(--ds-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+}
+
+/* ─── DsCaption (the small uppercase tracked label) ────────────────── */
+
+.ds-caption {
+  font-size: var(--ds-fs-caption);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--ds-text-muted);
+  line-height: 1.2;
+}
+.ds-caption--accent { color: var(--ds-accent-soft); }
+.ds-caption--up     { color: var(--ds-up); }
+.ds-caption--dn     { color: var(--ds-dn); }
+
+/* ─── DsHero (the giant numeric display) ───────────────────────────── */
+
+.ds-hero {
+  font-family: var(--tt-font-mono);
+  font-size: var(--ds-fs-hero);
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--ds-text-display);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.ds-hero--mega { font-size: var(--ds-fs-mega); }
+.ds-hero--accent { color: var(--ds-accent); }
+
+/* ─── DsMetricTile ─────────────────────────────────────────────────── */
+
+.ds-metric {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-3) var(--ds-space-4);
+  border-radius: var(--ds-radius-sm);
+  background: transparent;
+  min-width: 110px;
+}
+.ds-metric__label {
+  font-size: var(--ds-fs-caption);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--ds-text-muted);
+}
+.ds-metric__row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+}
+.ds-metric__value {
+  font-family: var(--tt-font-mono);
+  font-size: var(--ds-fs-hero);
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ds-text-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.ds-metric__delta {
+  font-family: var(--tt-font-mono);
+  font-size: var(--ds-fs-meta);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 6px;
+  border-radius: var(--ds-radius-xs);
+}
+.ds-metric__delta--up { color: var(--ds-up); background: var(--ds-up-bg); }
+.ds-metric__delta--dn { color: var(--ds-dn); background: var(--ds-dn-bg); }
+.ds-metric__delta--accent { color: var(--ds-accent); background: var(--ds-accent-dim); }
+.ds-metric__spark { margin-top: var(--ds-space-1); }
+.ds-metric--separator {
+  border-right: 1px solid var(--ds-stroke);
+}
+
+/* ─── DsTickerCard ─────────────────────────────────────────────────── */
+
+.ds-tickercard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-4);
+  background: var(--ds-bg-surface);
+  border: 1px solid var(--ds-stroke);
+  border-radius: var(--ds-radius);
+  overflow: hidden;
+  isolation: isolate;
+  transition: background var(--ds-dur-fast) var(--ds-ease-out),
+              border-color var(--ds-dur-fast) var(--ds-ease-out),
+              transform var(--ds-dur-fast) var(--ds-ease-out);
+}
+.ds-tickercard:hover {
+  background: var(--ds-bg-surface-hi);
+  border-color: var(--ds-stroke-hi);
+}
+.ds-tickercard__head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  z-index: 2;
+}
+.ds-tickercard__logo {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--ds-bg-surface-hi);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ds-text-display);
+  font-family: var(--tt-font-mono);
+}
+.ds-tickercard__symbol {
+  font-family: var(--tt-font-mono);
+  font-weight: 700;
+  font-size: var(--ds-fs-emph);
+  color: var(--ds-text-display);
+  letter-spacing: -0.01em;
+}
+.ds-tickercard__sub {
+  font-size: var(--ds-fs-meta);
+  color: var(--ds-text-muted);
+  margin-left: auto;
+}
+.ds-tickercard__price {
+  font-family: var(--tt-font-mono);
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--ds-text-display);
+  letter-spacing: -0.01em;
+  z-index: 2;
+}
+.ds-tickercard__change {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  font-family: var(--tt-font-mono);
+  font-size: var(--ds-fs-body);
+  font-weight: 600;
+  z-index: 2;
+}
+.ds-tickercard__change--up { color: var(--ds-up); }
+.ds-tickercard__change--dn { color: var(--ds-dn); }
+.ds-tickercard__change--flat { color: var(--ds-flat); }
+.ds-tickercard__spark {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 50%;
+  z-index: 1;
+  opacity: 0.45;
+  pointer-events: none;
+}
+.ds-tickercard--compact { padding: var(--ds-space-3); }
+.ds-tickercard--compact .ds-tickercard__logo { width: 20px; height: 20px; }
+.ds-tickercard--compact .ds-tickercard__symbol { font-size: var(--ds-fs-body); }
+.ds-tickercard--compact .ds-tickercard__price { font-size: 18px; }
+.ds-tickercard--hero { padding: var(--ds-space-5); }
+.ds-tickercard--hero .ds-tickercard__logo { width: 32px; height: 32px; font-size: 12px; }
+.ds-tickercard--hero .ds-tickercard__symbol { font-size: 18px; }
+.ds-tickercard--hero .ds-tickercard__price { font-size: 32px; }
+
+/* ─── DsChip ───────────────────────────────────────────────────────── */
+
+.ds-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-family: var(--tt-font-ui);
+  font-size: var(--ds-fs-meta);
+  font-weight: 600;
+  line-height: 1;
+  background: var(--ds-bg-glass);
+  border: 1px solid var(--ds-stroke);
+  color: var(--ds-text-body);
+  cursor: pointer;
+  transition: background var(--ds-dur-fast) var(--ds-ease-out),
+              border-color var(--ds-dur-fast) var(--ds-ease-out),
+              color var(--ds-dur-fast) var(--ds-ease-out);
+  white-space: nowrap;
+}
+.ds-chip:hover { background: var(--ds-bg-glass-hi); }
+.ds-chip--solid    { background: var(--ds-bg-glass-hi); border-color: transparent; }
+.ds-chip--accent   { background: var(--ds-accent-dim); border-color: var(--ds-accent); color: var(--ds-accent); }
+.ds-chip--up       { background: var(--ds-up-bg); border-color: transparent; color: var(--ds-up); }
+.ds-chip--dn       { background: var(--ds-dn-bg); border-color: transparent; color: var(--ds-dn); }
+.ds-chip--sm       { padding: 2px 6px; font-size: var(--ds-fs-caption); }
+.ds-chip--lg       { padding: 6px 14px; font-size: var(--ds-fs-body); }
+.ds-chip__count    { color: var(--ds-text-muted); font-weight: 700; }
+.ds-chip--accent .ds-chip__count { color: var(--ds-accent); }
+
+/* ─── DsChipGroup (segmented) ──────────────────────────────────────── */
+
+.ds-chipgroup {
+  display: inline-flex;
+  align-items: stretch;
+  background: var(--ds-bg-glass);
+  border: 1px solid var(--ds-stroke);
+  border-radius: 12px;
+  padding: 3px;
+  gap: 2px;
+}
+.ds-chipgroup__item {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  padding: 6px 14px;
+  border-radius: 9px;
+  font-size: var(--ds-fs-meta);
+  font-weight: 600;
+  color: var(--ds-text-muted);
+  cursor: pointer;
+  transition: background var(--ds-dur-fast), color var(--ds-dur-fast);
+  background: transparent;
+  border: none;
+}
+.ds-chipgroup__item:hover { color: var(--ds-text-body); }
+.ds-chipgroup__item--active {
+  background: var(--ds-accent-dim);
+  color: var(--ds-accent);
+}
+
+/* ─── DsRow (label-on-left content-on-right pattern) ───────────────── */
+
+.ds-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-2) 0;
+}
+.ds-row__label {
+  width: 128px;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+.ds-row__content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-2);
+}
+
+/* ─── DsGlassPanel ─────────────────────────────────────────────────── */
+
+.ds-glass {
+  background: var(--ds-bg-glass);
+  border: 1px solid var(--ds-stroke);
+  border-radius: var(--ds-radius);
+  padding: var(--ds-space-4);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.ds-glass + .ds-glass { margin-top: var(--ds-space-3); }
+.ds-glass__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--ds-space-3);
+}
+.ds-glass__title {
+  font-size: var(--ds-fs-caption);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--ds-text-muted);
+}
+
+/* ─── DsTab (the segmented control for View modes) ─────────────────── */
+
+.ds-tab {
+  display: inline-flex;
+  align-items: stretch;
+  background: var(--ds-bg-glass);
+  border: 1px solid var(--ds-stroke);
+  border-radius: 14px;
+  padding: 4px;
+  gap: 2px;
+}
+.ds-tab__item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding: 8px 16px;
+  border-radius: 11px;
+  font-size: var(--ds-fs-body);
+  font-weight: 600;
+  color: var(--ds-text-muted);
+  cursor: pointer;
+  transition: background var(--ds-dur-fast), color var(--ds-dur-fast);
+  background: transparent;
+  border: none;
+  white-space: nowrap;
+}
+.ds-tab__item:hover { color: var(--ds-text-body); }
+.ds-tab__item--active {
+  background: var(--ds-accent-dim);
+  color: var(--ds-accent);
+}
+.ds-tab__item--active::before {
+  /* subtle gold glow under the active item */
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 0 1px var(--ds-accent-glow) inset;
+  pointer-events: none;
+}
+.ds-tab__count {
+  font-family: var(--tt-font-mono);
+  font-weight: 700;
+  font-size: var(--ds-fs-meta);
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ds-text-muted);
+}
+.ds-tab__item--active .ds-tab__count {
+  background: var(--ds-accent-dim);
+  color: var(--ds-accent);
+}
+.ds-tab__dot {
+  position: absolute;
+  top: 6px; right: 6px;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--ds-accent);
+  box-shadow: 0 0 0 3px var(--ds-accent-glow);
+  animation: ds-pulse 2s var(--ds-ease-out) infinite;
+}
+@keyframes ds-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px var(--ds-accent-glow); }
+  50%      { box-shadow: 0 0 0 6px transparent; }
+}
+
+/* ─── DsDivider (use sparingly; prefer whitespace) ─────────────────── */
+
+.ds-divider {
+  height: 1px;
+  background: var(--ds-stroke-soft);
+  margin: var(--ds-space-3) 0;
+}
+
