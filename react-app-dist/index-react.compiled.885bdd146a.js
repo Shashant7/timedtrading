@@ -10579,58 +10579,130 @@ function ActionCenterPanel({
     const s = String(t?.status || "").toUpperCase();
     return s === "OPEN" || s === "TP_HIT_TRIM";
   }).length;
+  const Stat = ({
+    label,
+    value,
+    tone = "default",
+    title = null
+  }) => {
+    const valueColor = tone === "up" ? "var(--ds-up)" : tone === "dn" ? "var(--ds-dn)" : tone === "accent" ? "var(--ds-accent)" : "var(--ds-text-display)";
+    return React.createElement("span", {
+      title: title || undefined,
+      style: {
+        display: "inline-flex",
+        alignItems: "baseline",
+        gap: 6
+      }
+    }, React.createElement("span", {
+      className: "ds-caption",
+      style: {
+        letterSpacing: "0.16em"
+      }
+    }, label), React.createElement("span", {
+      style: {
+        fontFamily: "var(--tt-font-mono)",
+        fontWeight: 700,
+        fontVariantNumeric: "tabular-nums",
+        color: valueColor,
+        fontSize: "var(--ds-fs-body)",
+        letterSpacing: "-0.01em"
+      }
+    }, value));
+  };
+  const fmt = n => typeof fmtUsd === "function" ? fmtUsd(n) : `$${Number(n).toFixed(2)}`;
+  const sign = n => (n >= 0 ? "+" : "") + fmt(n);
   return React.createElement("div", {
     className: "mb-2"
   }, React.createElement("div", {
-    className: "px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06] flex items-center justify-between flex-wrap gap-2"
+    className: "ds-glass",
+    style: {
+      padding: "var(--ds-space-2) var(--ds-space-3)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      flexWrap: "wrap",
+      gap: "var(--ds-space-3)"
+    }
   }, React.createElement("div", {
-    className: "flex items-center gap-5 text-[11px]"
-  }, todayActivityCount > 0 || queuedPendingCount > 0 || queuedPending.length > 0 ? React.createElement(React.Fragment, null, React.createElement("span", {
-    className: "text-[#6b7280]"
-  }, "Entries ", React.createElement("span", {
-    className: "text-white font-bold tabular-nums"
-  }, todayEntries.length)), React.createElement("span", {
-    className: "text-[#6b7280]"
-  }, "Exits ", React.createElement("span", {
-    className: "text-white font-bold tabular-nums"
-  }, todayExits.length)), todayExits.length > 0 && React.createElement("span", {
-    className: "text-[#6b7280]"
-  }, "W/L ", React.createElement("span", {
-    className: "text-teal-400 font-bold tabular-nums"
-  }, todayWins), React.createElement("span", {
-    className: "text-[#4b5563]"
-  }, "/"), React.createElement("span", {
-    className: "text-rose-400 font-bold tabular-nums"
-  }, todayLosses)), (queuedPendingCount > 0 || queuedPending.length > 0) && React.createElement("span", {
-    className: "text-amber-400/80",
-    title: queuedPending.map(a => `${a.ticker}: ${a.action} (${a.reason})`).join("\n")
-  }, "Queued ", React.createElement("span", {
-    className: "text-amber-300 font-bold tabular-nums"
-  }, queuedPendingCount || queuedPending.length)), todayExits.length > 0 && React.createElement("span", {
-    className: "text-[#6b7280]"
-  }, "Today Realized ", React.createElement("span", {
-    className: `font-bold tabular-nums ${todayRealizedPnl >= 0 ? "text-teal-400" : "text-rose-400"}`
-  }, todayRealizedPnl >= 0 ? "+" : "", typeof fmtUsd === "function" ? fmtUsd(todayRealizedPnl) : `$${todayRealizedPnl.toFixed(2)}`))) : React.createElement("span", {
-    className: "text-[#4b5563]"
-  }, "No activity today")), React.createElement("div", {
-    className: "flex items-center gap-5 text-[11px]"
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: "var(--ds-space-4)",
+      flexWrap: "wrap"
+    }
+  }, todayActivityCount > 0 || queuedPendingCount > 0 || queuedPending.length > 0 ? React.createElement(React.Fragment, null, React.createElement(Stat, {
+    label: "Entries",
+    value: todayEntries.length
+  }), React.createElement(Stat, {
+    label: "Exits",
+    value: todayExits.length
+  }), todayExits.length > 0 && React.createElement("span", {
+    style: {
+      display: "inline-flex",
+      alignItems: "baseline",
+      gap: 6
+    }
   }, React.createElement("span", {
-    className: "text-[#6b7280]"
-  }, "Account ", React.createElement("span", {
-    className: "text-white font-bold tabular-nums"
-  }, accountValue != null ? typeof fmtUsd === "function" ? fmtUsd(accountValue) : `$${accountValue.toFixed(0)}` : "Loading...")), React.createElement("span", {
-    className: "text-[#6b7280]"
-  }, "Realized ", React.createElement("span", {
-    className: `font-bold tabular-nums ${allRealizedPnl >= 0 ? "text-teal-400" : "text-rose-400"}`
-  }, allRealizedPnl >= 0 ? "+" : "", typeof fmtUsd === "function" ? fmtUsd(allRealizedPnl) : `$${allRealizedPnl.toFixed(2)}`)), React.createElement("span", {
-    className: "text-[#6b7280]"
-  }, "Open ", React.createElement("span", {
-    className: "text-white font-bold tabular-nums"
-  }, openPositionCount)), React.createElement("span", {
-    className: "text-[#6b7280]"
-  }, "Open P&L ", React.createElement("span", {
-    className: `font-bold tabular-nums ${openPnl >= 0 ? "text-teal-400" : "text-rose-400"}`
-  }, openPnl >= 0 ? "+" : "", typeof fmtUsd === "function" ? fmtUsd(openPnl) : `$${openPnl.toFixed(2)}`)))));
+    className: "ds-caption",
+    style: {
+      letterSpacing: "0.16em"
+    }
+  }, "W/L"), React.createElement("span", {
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      fontWeight: 700,
+      fontVariantNumeric: "tabular-nums",
+      fontSize: "var(--ds-fs-body)"
+    }
+  }, React.createElement("span", {
+    style: {
+      color: "var(--ds-up)"
+    }
+  }, todayWins), React.createElement("span", {
+    style: {
+      color: "var(--ds-text-faint)"
+    }
+  }, "/"), React.createElement("span", {
+    style: {
+      color: "var(--ds-dn)"
+    }
+  }, todayLosses))), (queuedPendingCount > 0 || queuedPending.length > 0) && React.createElement(Stat, {
+    label: "Queued",
+    value: queuedPendingCount || queuedPending.length,
+    tone: "accent",
+    title: queuedPending.map(a => `${a.ticker}: ${a.action} (${a.reason})`).join("\n")
+  }), todayExits.length > 0 && React.createElement(Stat, {
+    label: "Today Realized",
+    value: sign(todayRealizedPnl),
+    tone: todayRealizedPnl >= 0 ? "up" : "dn"
+  })) : React.createElement("span", {
+    className: "ds-caption",
+    style: {
+      color: "var(--ds-text-faint)",
+      letterSpacing: "0.12em"
+    }
+  }, "No activity today")), React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: "var(--ds-space-4)",
+      flexWrap: "wrap"
+    }
+  }, React.createElement(Stat, {
+    label: "Account",
+    value: accountValue != null ? fmt(accountValue) : "—"
+  }), React.createElement(Stat, {
+    label: "Realized",
+    value: sign(allRealizedPnl),
+    tone: allRealizedPnl >= 0 ? "up" : "dn"
+  }), React.createElement(Stat, {
+    label: "Open",
+    value: openPositionCount
+  }), React.createElement(Stat, {
+    label: "Open P&L",
+    value: sign(openPnl),
+    tone: openPnl >= 0 ? "up" : "dn"
+  }))));
 }
 const STAGE_ORDER = {
   watch: 0,
@@ -15644,13 +15716,13 @@ function App() {
       }
     };
     const macroTypeCls = type => ({
-      FOMC: "border-amber-500/30 bg-amber-500/10 text-amber-300",
-      CPI: "border-violet-500/30 bg-violet-500/10 text-violet-300",
-      NFP: "border-sky-500/30 bg-sky-500/10 text-sky-300",
-      PPI: "border-cyan-500/30 bg-cyan-500/10 text-cyan-300",
-      GDP: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
-      PCE: "border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-300"
-    })[type] || "border-white/[0.08] bg-white/[0.03] text-gray-300";
+      FOMC: "ds-chip ds-chip--sm ds-chip--accent",
+      CPI: "ds-chip ds-chip--sm",
+      NFP: "ds-chip ds-chip--sm",
+      PPI: "ds-chip ds-chip--sm",
+      GDP: "ds-chip ds-chip--sm ds-chip--up",
+      PCE: "ds-chip ds-chip--sm"
+    })[type] || "ds-chip ds-chip--sm ds-chip--solid";
     const macroItems = (() => {
       const seen = new Set();
       return (Array.isArray(macroEvents) ? macroEvents : []).filter(ev => {
@@ -15661,65 +15733,102 @@ function App() {
     })();
     const earningItems = (Array.isArray(earningsEvents) ? earningsEvents : []).slice(0, 50);
     if (macroItems.length === 0 && earningItems.length === 0) return null;
-    const Row = ({
-      label,
-      sublabel,
-      children
-    }) => React.createElement("div", {
-      className: "flex items-start gap-3 py-1"
-    }, React.createElement("div", {
-      className: "w-32 shrink-0 pt-0.5"
-    }, React.createElement("div", {
-      className: "text-[9px] font-bold uppercase tracking-[0.16em] text-[#6b7280]"
-    }, label), sublabel && React.createElement("div", {
-      className: "text-[8px] text-[#4b5563] tabular-nums"
-    }, sublabel)), React.createElement("div", {
-      className: "flex-1 min-w-0 flex flex-wrap gap-1.5"
-    }, children));
     return React.createElement("div", {
-      className: "mb-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-1.5"
-    }, React.createElement(Row, {
-      label: "Macro",
-      sublabel: macroItems.length > 0 ? `${macroItems.length} this week` : null
-    }, macroItems.length > 0 ? macroItems.map((ev, i) => React.createElement("div", {
+      className: "mb-2",
+      style: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--ds-space-1)"
+      }
+    }, macroItems.length > 0 && React.createElement("div", {
+      className: "ds-row",
+      style: {
+        alignItems: "flex-start"
+      }
+    }, React.createElement("div", {
+      className: "ds-row__label"
+    }, React.createElement("div", {
+      className: "ds-caption"
+    }, "Macro"), React.createElement("div", {
+      style: {
+        fontSize: "var(--ds-fs-caption)",
+        color: "var(--ds-text-faint)",
+        marginTop: 2,
+        fontVariantNumeric: "tabular-nums"
+      }
+    }, macroItems.length, " this week")), React.createElement("div", {
+      className: "ds-row__content"
+    }, macroItems.map((ev, i) => React.createElement("span", {
       key: `macro-${ev.type}-${ev.date || i}`,
-      className: `flex items-center gap-1 px-2 py-0.5 rounded-md border ${macroTypeCls(ev.type)}`,
+      className: macroTypeCls(ev.type),
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      },
       title: ev.label || ev.type
     }, React.createElement("span", {
-      className: "text-[9px] font-bold"
+      style: {
+        fontWeight: 700
+      }
     }, ev.type), React.createElement("span", {
-      className: "text-[8px] opacity-80"
+      style: {
+        color: "var(--ds-text-muted)",
+        fontWeight: 500
+      }
     }, formatDayLabel(ev.date)), React.createElement("span", {
-      className: "text-[8px] opacity-60"
-    }, formatMacroTime(ev.ts), " ET"))) : React.createElement("span", {
-      className: "text-[10px] text-[#6b7280]"
-    }, "None")), React.createElement(Row, {
-      label: "Earnings",
-      sublabel: earningItems.length > 0 ? `${earningItems.length} on deck` : null
-    }, earningItems.length > 0 ? earningItems.map((e, i) => {
+      style: {
+        color: "var(--ds-text-faint)",
+        fontWeight: 500
+      }
+    }, formatMacroTime(ev.ts), " ET"))))), earningItems.length > 0 && React.createElement("div", {
+      className: "ds-row",
+      style: {
+        alignItems: "flex-start"
+      }
+    }, React.createElement("div", {
+      className: "ds-row__label"
+    }, React.createElement("div", {
+      className: "ds-caption"
+    }, "Earnings"), React.createElement("div", {
+      style: {
+        fontSize: "var(--ds-fs-caption)",
+        color: "var(--ds-text-faint)",
+        marginTop: 2,
+        fontVariantNumeric: "tabular-nums"
+      }
+    }, earningItems.length, " on deck")), React.createElement("div", {
+      className: "ds-row__content"
+    }, earningItems.map((e, i) => {
       const beatMiss = e.epsActual != null && e.epsEstimate != null ? e.epsActual >= e.epsEstimate ? "Beat" : "Miss" : null;
-      const chipColor = (() => {
-        if (beatMiss === "Beat") return "border-green-500/30 bg-green-500/10 text-green-300";
-        if (beatMiss === "Miss") return "border-rose-500/30 bg-rose-500/10 text-rose-300";
-        if (e.date === todayStr) return "border-amber-500/30 bg-amber-500/10 text-amber-300";
-        return "border-white/[0.08] bg-white/[0.03] text-gray-300";
-      })();
+      const chipCls = beatMiss === "Beat" ? "ds-chip ds-chip--sm ds-chip--up" : beatMiss === "Miss" ? "ds-chip ds-chip--sm ds-chip--dn" : e.date === todayStr ? "ds-chip ds-chip--sm ds-chip--accent" : "ds-chip ds-chip--sm ds-chip--solid";
       return React.createElement("button", {
         key: `ev-${i}`,
         onClick: () => handleTickerSelect(e.symbol),
-        className: `flex items-center gap-1 px-2 py-0.5 rounded-md border ${chipColor} hover:brightness-125`
+        className: chipCls,
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          textAlign: "left"
+        },
+        title: `${e.symbol} earnings${e.hour ? ` (${formatHour(e.hour)})` : ""}`
       }, React.createElement("span", {
-        className: "text-[9px] font-bold"
+        style: {
+          fontWeight: 700
+        }
       }, e.symbol), React.createElement("span", {
-        className: "text-[8px] opacity-70"
+        style: {
+          color: "var(--ds-text-muted)",
+          fontWeight: 500
+        }
       }, formatDayLabel(e.date)), formatHour(e.hour) && React.createElement("span", {
-        className: "text-[8px] opacity-60"
+        style: {
+          color: "var(--ds-text-faint)",
+          fontWeight: 500
+        }
       }, formatHour(e.hour)), beatMiss && React.createElement("span", {
-        className: `text-[8px] font-semibold ${beatMiss === "Beat" ? "text-green-400" : "text-rose-400"}`
+        style: {
+          fontWeight: 700
+        }
       }, beatMiss));
-    }) : React.createElement("span", {
-      className: "text-[10px] text-[#6b7280]"
-    }, "None")));
+    }))));
   })(), window._ttIsPro && (() => {
     const allData = data && typeof data === "object" ? data : {};
     const intensityAlpha = absPct => {

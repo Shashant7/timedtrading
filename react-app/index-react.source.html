@@ -13144,37 +13144,85 @@
           return s === "OPEN" || s === "TP_HIT_TRIM";
         }).length;
 
+        /* V2.1 round 4 (2026-05-01) — Account Summary on Design System v2.
+           Switches from raw Tailwind hex colors + arbitrary text-[11px] to
+           ds-glass shell, ds-caption labels, and JBM mono numerals so the
+           strip reads as the same family as Macro/Earnings, Market Pulse,
+           Context, and RTH/EXT above it. */
+        const Stat = ({ label, value, tone = "default", title = null }) => {
+          const valueColor = tone === "up" ? "var(--ds-up)"
+                          : tone === "dn" ? "var(--ds-dn)"
+                          : tone === "accent" ? "var(--ds-accent)"
+                          : "var(--ds-text-display)";
+          return (
+            <span title={title || undefined} style={{ display: "inline-flex", alignItems: "baseline", gap: 6 }}>
+              <span className="ds-caption" style={{ letterSpacing: "0.16em" }}>{label}</span>
+              <span style={{
+                fontFamily: "var(--tt-font-mono)",
+                fontWeight: 700,
+                fontVariantNumeric: "tabular-nums",
+                color: valueColor,
+                fontSize: "var(--ds-fs-body)",
+                letterSpacing: "-0.01em",
+              }}>{value}</span>
+            </span>
+          );
+        };
+        const fmt = (n) => typeof fmtUsd === "function" ? fmtUsd(n) : `$${Number(n).toFixed(2)}`;
+        const sign = (n) => (n >= 0 ? "+" : "") + fmt(n);
         return (
           <div className="mb-2">
-            <div className="px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06] flex items-center justify-between flex-wrap gap-2">
-              {/* Left: Today Summary — matches right-side font style */}
-              <div className="flex items-center gap-5 text-[11px]">
+            <div className="ds-glass" style={{
+              padding: "var(--ds-space-2) var(--ds-space-3)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: "var(--ds-space-3)",
+            }}>
+              {/* Left: Today's activity */}
+              <div style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-4)", flexWrap: "wrap" }}>
                 {todayActivityCount > 0 || queuedPendingCount > 0 || queuedPending.length > 0 ? (
                   <>
-                    <span className="text-[#6b7280]">Entries <span className="text-white font-bold tabular-nums">{todayEntries.length}</span></span>
-                    <span className="text-[#6b7280]">Exits <span className="text-white font-bold tabular-nums">{todayExits.length}</span></span>
+                    <Stat label="Entries" value={todayEntries.length} />
+                    <Stat label="Exits" value={todayExits.length} />
                     {todayExits.length > 0 && (
-                      <span className="text-[#6b7280]">W/L <span className="text-teal-400 font-bold tabular-nums">{todayWins}</span><span className="text-[#4b5563]">/</span><span className="text-rose-400 font-bold tabular-nums">{todayLosses}</span></span>
-                    )}
-                    {(queuedPendingCount > 0 || queuedPending.length > 0) && (
-                      <span className="text-amber-400/80" title={queuedPending.map(a => `${a.ticker}: ${a.action} (${a.reason})`).join("\n")}>
-                        Queued <span className="text-amber-300 font-bold tabular-nums">{queuedPendingCount || queuedPending.length}</span>
+                      <span style={{ display: "inline-flex", alignItems: "baseline", gap: 6 }}>
+                        <span className="ds-caption" style={{ letterSpacing: "0.16em" }}>W/L</span>
+                        <span style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700, fontVariantNumeric: "tabular-nums", fontSize: "var(--ds-fs-body)" }}>
+                          <span style={{ color: "var(--ds-up)" }}>{todayWins}</span>
+                          <span style={{ color: "var(--ds-text-faint)" }}>/</span>
+                          <span style={{ color: "var(--ds-dn)" }}>{todayLosses}</span>
+                        </span>
                       </span>
                     )}
+                    {(queuedPendingCount > 0 || queuedPending.length > 0) && (
+                      <Stat label="Queued"
+                            value={queuedPendingCount || queuedPending.length}
+                            tone="accent"
+                            title={queuedPending.map(a => `${a.ticker}: ${a.action} (${a.reason})`).join("\n")} />
+                    )}
                     {todayExits.length > 0 && (
-                      <span className="text-[#6b7280]">Today Realized <span className={`font-bold tabular-nums ${todayRealizedPnl >= 0 ? "text-teal-400" : "text-rose-400"}`}>{todayRealizedPnl >= 0 ? "+" : ""}{typeof fmtUsd === "function" ? fmtUsd(todayRealizedPnl) : `$${todayRealizedPnl.toFixed(2)}`}</span></span>
+                      <Stat label="Today Realized"
+                            value={sign(todayRealizedPnl)}
+                            tone={todayRealizedPnl >= 0 ? "up" : "dn"} />
                     )}
                   </>
                 ) : (
-                  <span className="text-[#4b5563]">No activity today</span>
+                  <span className="ds-caption" style={{ color: "var(--ds-text-faint)", letterSpacing: "0.12em" }}>No activity today</span>
                 )}
               </div>
-              {/* Right: Account + Open Positions — Realized = total from all closed trades */}
-              <div className="flex items-center gap-5 text-[11px]">
-                <span className="text-[#6b7280]">Account <span className="text-white font-bold tabular-nums">{accountValue != null ? (typeof fmtUsd === "function" ? fmtUsd(accountValue) : `$${accountValue.toFixed(0)}`) : "Loading..."}</span></span>
-                <span className="text-[#6b7280]">Realized <span className={`font-bold tabular-nums ${allRealizedPnl >= 0 ? "text-teal-400" : "text-rose-400"}`}>{allRealizedPnl >= 0 ? "+" : ""}{typeof fmtUsd === "function" ? fmtUsd(allRealizedPnl) : `$${allRealizedPnl.toFixed(2)}`}</span></span>
-                <span className="text-[#6b7280]">Open <span className="text-white font-bold tabular-nums">{openPositionCount}</span></span>
-                <span className="text-[#6b7280]">Open P&L <span className={`font-bold tabular-nums ${openPnl >= 0 ? "text-teal-400" : "text-rose-400"}`}>{openPnl >= 0 ? "+" : ""}{typeof fmtUsd === "function" ? fmtUsd(openPnl) : `$${openPnl.toFixed(2)}`}</span></span>
+              {/* Right: Account roll-up */}
+              <div style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-4)", flexWrap: "wrap" }}>
+                <Stat label="Account"
+                      value={accountValue != null ? fmt(accountValue) : "—"} />
+                <Stat label="Realized"
+                      value={sign(allRealizedPnl)}
+                      tone={allRealizedPnl >= 0 ? "up" : "dn"} />
+                <Stat label="Open" value={openPositionCount} />
+                <Stat label="Open P&L"
+                      value={sign(openPnl)}
+                      tone={openPnl >= 0 ? "up" : "dn"} />
               </div>
             </div>
           </div>
@@ -18728,14 +18776,18 @@
                         return new Date(tsMs).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
                       } catch { return ""; }
                     };
+                    /* V2.1 round 4 (2026-05-01) — Macro/Earnings row uses
+                       Design System v2 primitives so the typography matches
+                       Market Pulse, Context, RTH/EXT, and Account Summary
+                       (cohesive end-to-end). */
                     const macroTypeCls = (type) => ({
-                      FOMC: "border-amber-500/30 bg-amber-500/10 text-amber-300",
-                      CPI: "border-violet-500/30 bg-violet-500/10 text-violet-300",
-                      NFP: "border-sky-500/30 bg-sky-500/10 text-sky-300",
-                      PPI: "border-cyan-500/30 bg-cyan-500/10 text-cyan-300",
-                      GDP: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
-                      PCE: "border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-300",
-                    }[type] || "border-white/[0.08] bg-white/[0.03] text-gray-300");
+                      FOMC: "ds-chip ds-chip--sm ds-chip--accent",
+                      CPI:  "ds-chip ds-chip--sm",
+                      NFP:  "ds-chip ds-chip--sm",
+                      PPI:  "ds-chip ds-chip--sm",
+                      GDP:  "ds-chip ds-chip--sm ds-chip--up",
+                      PCE:  "ds-chip ds-chip--sm",
+                    }[type] || "ds-chip ds-chip--sm ds-chip--solid");
                     const macroItems = (() => {
                       const seen = new Set();
                       return (Array.isArray(macroEvents) ? macroEvents : []).filter(ev => {
@@ -18744,60 +18796,69 @@
                         return true;
                       });
                     })();
-                    // V15 P0.7.34 (2026-04-30): lift the earnings cap from 12 to 50
-                    // per user request "we are not showing the full bunch, maybe it is
-                    // max capped on the Market Pulse? Can we update this to allow more
-                    // to be shown?". The container already wraps; on heavy days the
-                    // earnings list gets large but readers can scan the full set.
                     const earningItems = (Array.isArray(earningsEvents) ? earningsEvents : []).slice(0, 50);
                     if (macroItems.length === 0 && earningItems.length === 0) return null;
-                    /* Unified row helper — fixed-width left label, content right */
-                    const Row = ({ label, sublabel, children }) => (
-                      <div className="flex items-start gap-3 py-1">
-                        <div className="w-32 shrink-0 pt-0.5">
-                          <div className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#6b7280]">{label}</div>
-                          {sublabel && <div className="text-[8px] text-[#4b5563] tabular-nums">{sublabel}</div>}
-                        </div>
-                        <div className="flex-1 min-w-0 flex flex-wrap gap-1.5">{children}</div>
-                      </div>
-                    );
                     return (
-                      <div className="mb-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-1.5">
-                        <Row label="Macro" sublabel={macroItems.length > 0 ? `${macroItems.length} this week` : null}>
-                          {macroItems.length > 0 ? macroItems.map((ev, i) => (
-                            <div
-                              key={`macro-${ev.type}-${ev.date || i}`}
-                              className={`flex items-center gap-1 px-2 py-0.5 rounded-md border ${macroTypeCls(ev.type)}`}
-                              title={ev.label || ev.type}
-                            >
-                              <span className="text-[9px] font-bold">{ev.type}</span>
-                              <span className="text-[8px] opacity-80">{formatDayLabel(ev.date)}</span>
-                              <span className="text-[8px] opacity-60">{formatMacroTime(ev.ts)} ET</span>
+                      <div className="mb-2" style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-1)" }}>
+                        {macroItems.length > 0 && (
+                          <div className="ds-row" style={{ alignItems: "flex-start" }}>
+                            <div className="ds-row__label">
+                              <div className="ds-caption">Macro</div>
+                              <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", marginTop: 2, fontVariantNumeric: "tabular-nums" }}>
+                                {macroItems.length} this week
+                              </div>
                             </div>
-                          )) : <span className="text-[10px] text-[#6b7280]">None</span>}
-                        </Row>
-                        <Row label="Earnings" sublabel={earningItems.length > 0 ? `${earningItems.length} on deck` : null}>
-                          {earningItems.length > 0 ? earningItems.map((e, i) => {
-                            const beatMiss = e.epsActual != null && e.epsEstimate != null
-                              ? (e.epsActual >= e.epsEstimate ? "Beat" : "Miss")
-                              : null;
-                            const chipColor = (() => {
-                              if (beatMiss === "Beat") return "border-green-500/30 bg-green-500/10 text-green-300";
-                              if (beatMiss === "Miss") return "border-rose-500/30 bg-rose-500/10 text-rose-300";
-                              if (e.date === todayStr) return "border-amber-500/30 bg-amber-500/10 text-amber-300";
-                              return "border-white/[0.08] bg-white/[0.03] text-gray-300";
-                            })();
-                            return (
-                              <button key={`ev-${i}`} onClick={() => handleTickerSelect(e.symbol)}
-                                className={`flex items-center gap-1 px-2 py-0.5 rounded-md border ${chipColor} hover:brightness-125`}>
-                                <span className="text-[9px] font-bold">{e.symbol}</span>
-                                <span className="text-[8px] opacity-70">{formatDayLabel(e.date)}</span>
-                                {formatHour(e.hour) && <span className="text-[8px] opacity-60">{formatHour(e.hour)}</span>}
-                                {beatMiss && <span className={`text-[8px] font-semibold ${beatMiss === "Beat" ? "text-green-400" : "text-rose-400"}`}>{beatMiss}</span>}
-                              </button>
-                            );
-                          }) : <span className="text-[10px] text-[#6b7280]">None</span>}
-                        </Row>
+                            <div className="ds-row__content">
+                              {macroItems.map((ev, i) => (
+                                <span
+                                  key={`macro-${ev.type}-${ev.date || i}`}
+                                  className={macroTypeCls(ev.type)}
+                                  style={{ fontFamily: "var(--tt-font-mono)" }}
+                                  title={ev.label || ev.type}
+                                >
+                                  <span style={{ fontWeight: 700 }}>{ev.type}</span>
+                                  <span style={{ color: "var(--ds-text-muted)", fontWeight: 500 }}>{formatDayLabel(ev.date)}</span>
+                                  <span style={{ color: "var(--ds-text-faint)", fontWeight: 500 }}>{formatMacroTime(ev.ts)} ET</span>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {earningItems.length > 0 && (
+                          <div className="ds-row" style={{ alignItems: "flex-start" }}>
+                            <div className="ds-row__label">
+                              <div className="ds-caption">Earnings</div>
+                              <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", marginTop: 2, fontVariantNumeric: "tabular-nums" }}>
+                                {earningItems.length} on deck
+                              </div>
+                            </div>
+                            <div className="ds-row__content">
+                              {earningItems.map((e, i) => {
+                                const beatMiss = e.epsActual != null && e.epsEstimate != null
+                                  ? (e.epsActual >= e.epsEstimate ? "Beat" : "Miss")
+                                  : null;
+                                const chipCls = beatMiss === "Beat" ? "ds-chip ds-chip--sm ds-chip--up"
+                                              : beatMiss === "Miss" ? "ds-chip ds-chip--sm ds-chip--dn"
+                                              : e.date === todayStr ? "ds-chip ds-chip--sm ds-chip--accent"
+                                              : "ds-chip ds-chip--sm ds-chip--solid";
+                                return (
+                                  <button
+                                    key={`ev-${i}`}
+                                    onClick={() => handleTickerSelect(e.symbol)}
+                                    className={chipCls}
+                                    style={{ fontFamily: "var(--tt-font-mono)", textAlign: "left" }}
+                                    title={`${e.symbol} earnings${e.hour ? ` (${formatHour(e.hour)})` : ""}`}
+                                  >
+                                    <span style={{ fontWeight: 700 }}>{e.symbol}</span>
+                                    <span style={{ color: "var(--ds-text-muted)", fontWeight: 500 }}>{formatDayLabel(e.date)}</span>
+                                    {formatHour(e.hour) && <span style={{ color: "var(--ds-text-faint)", fontWeight: 500 }}>{formatHour(e.hour)}</span>}
+                                    {beatMiss && <span style={{ fontWeight: 700 }}>{beatMiss}</span>}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })()}
