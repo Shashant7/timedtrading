@@ -2131,7 +2131,7 @@
                   </div>
                   {/* Live price strip */}
                   {v2Price > 0 && (
-                    <div className="flex items-baseline gap-3" style={{ marginBottom: "var(--ds-space-3)" }}>
+                    <div className="flex items-baseline gap-3" style={{ marginBottom: "var(--ds-space-2)" }}>
                       <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-hero)", fontWeight: 600, color: "var(--ds-text-display)", letterSpacing: "-0.01em" }}>${v2Price.toFixed(2)}</span>
                       {Number.isFinite(v2DayPct) && (
                         <span className={`ds-chip ds-chip--sm ds-chip--${v2SparkDir === "flat" ? "solid" : v2SparkDir}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
@@ -2140,6 +2140,79 @@
                       )}
                     </div>
                   )}
+                  {/* V2.1 round 5 (2026-05-01) — Ticker context line.
+                      Per user: header should include full name, mkt cap,
+                      sector, personality. Renders only when at least one
+                      of these fields is available. */}
+                  {(() => {
+                    const fullName = ticker?.context?.name || ticker?.companyName || latestTicker?.context?.name || null;
+                    const mktCap = Number(ticker?.market_cap ?? ticker?.marketCap ?? latestTicker?.market_cap);
+                    const sector = (typeof getTickerSector === "function" ? getTickerSector(tickerSymbol) : null)
+                                || ticker?.sector
+                                || ticker?.context?.sector
+                                || ticker?._sector
+                                || null;
+                    const personality = ticker?._ticker_profile?.behavior_type
+                                     || ticker?.execution_profile?.personality
+                                     || ticker?.ticker_personality
+                                     || null;
+                    const fmtMcap = (n) => {
+                      if (!Number.isFinite(n) || n <= 0) return null;
+                      if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
+                      if (n >= 1e9)  return `$${(n / 1e9).toFixed(2)}B`;
+                      if (n >= 1e6)  return `$${(n / 1e6).toFixed(0)}M`;
+                      return `$${n.toFixed(0)}`;
+                    };
+                    const mcapStr = fmtMcap(mktCap);
+                    if (!fullName && !mcapStr && !sector && !personality) return null;
+                    return (
+                      <div style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        alignItems: "center",
+                        gap: 6,
+                        marginBottom: "var(--ds-space-3)",
+                        fontSize: "var(--ds-fs-meta)",
+                        color: "var(--ds-text-muted)",
+                      }}>
+                        {fullName && (
+                          <span style={{
+                            color: "var(--ds-text-body)",
+                            fontWeight: 500,
+                            maxWidth: 240,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }} title={fullName}>{fullName}</span>
+                        )}
+                        {mcapStr && (
+                          <>
+                            {fullName && <span style={{ color: "var(--ds-text-faint)" }}>·</span>}
+                            <span style={{ fontFamily: "var(--tt-font-mono)" }} title="Market capitalization">{mcapStr}</span>
+                          </>
+                        )}
+                        {sector && (
+                          <>
+                            <span style={{ color: "var(--ds-text-faint)" }}>·</span>
+                            <span title="Sector">{String(sector).replace(/_/g, " ")}</span>
+                          </>
+                        )}
+                        {personality && (
+                          <>
+                            <span style={{ color: "var(--ds-text-faint)" }}>·</span>
+                            <span style={{
+                              fontFamily: "var(--tt-font-mono)",
+                              fontSize: 9,
+                              letterSpacing: "0.12em",
+                              textTransform: "uppercase",
+                              color: "var(--ds-accent)",
+                              fontWeight: 700,
+                            }} title="Behavior personality (engine classification)">{String(personality).replace(/_/g, " ")}</span>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
                   {/* Tab nav */}
                   <div className="ds-tab" role="tablist" style={{ width: "100%" }}>
                     {[["SNAPSHOT","Snapshot"],["SETUP","Setup"],["TECHNICALS","Technicals"],["HISTORY","History"]].map(([key, label]) => (

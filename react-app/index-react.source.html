@@ -12683,7 +12683,18 @@
           return { openCount, openUnrealized, todayClosedRealized, todayWins, todayLosses, dayNet: openUnrealized + todayClosedRealized };
         }, [trades]);
 
-        // ── top opportunity: highest-rank ticker that isn't already in a trade
+        /* V2.1 round 5 (2026-05-01) — Top Signal richer logic.
+           Per user: "Top Signal has been AMZN this whole week — feel like
+           there can be more provided in that section". The previous logic
+           just took rank #1 not-in-a-trade, which is sticky. Now we pick
+           the most actionable signal across categories and rotate the
+           label to explain WHY it's chosen:
+             - Just Flipped: state went from HTF_BULL -> HTF_BEAR (or vice
+               versa) within the last hour — fresh idea
+             - Squeeze Release: sq30_release flag — explosive move imminent
+             - Top Rank: highest-rank not-in-trade (legacy fallback)
+           Also tries multiple candidates so the strip rotates between
+           tickers as conditions change. */
         const topOpp = React.useMemo(() => {
           if (!Array.isArray(allTickersWithRanks) || allTickersWithRanks.length === 0) return null;
           const openSet = new Set(
@@ -12691,15 +12702,62 @@
               .filter(tr => !tr?.exit_ts && !tr?.exit_timestamp)
               .map(tr => String(tr?.ticker || "").toUpperCase())
           );
-          for (const t of allTickersWithRanks) {
+          const eligible = allTickersWithRanks.filter(t => {
             const sym = String(t?.ticker || "").toUpperCase();
-            if (!sym) continue;
-            if (openSet.has(sym)) continue;
             const rank = Number(t?.rank);
-            if (!Number.isFinite(rank) || rank <= 0) continue;
-            return { ticker: sym, rank, dir: t?.direction || t?.consensus_direction || "—", setup: t?.setup_name || t?.entry_path || "—" };
+            return sym && !openSet.has(sym) && Number.isFinite(rank) && rank > 0;
+          });
+          if (eligible.length === 0) return null;
+          // 1) Squeeze release (high-energy)
+          const sqRelease = eligible.find(t => t?.flags?.sq30_release === true);
+          if (sqRelease) {
+            return {
+              ticker: String(sqRelease.ticker).toUpperCase(),
+              rank: Number(sqRelease.rank),
+              dir: sqRelease.direction || sqRelease.consensus_direction || "—",
+              setup: sqRelease.setup_name || sqRelease.entry_path || "—",
+              kind: "Squeeze Release",
+              tip: "30-min squeeze just released — explosive move likely. Top-ranked candidate not already in a trade.",
+            };
           }
-          return null;
+          // 2) Just flipped (fresh state change in last 60min)
+          const oneHrAgo = Date.now() - 60 * 60 * 1000;
+          const justFlipped = eligible.find(t => {
+            const flipTs = Number(t?.last_state_change_ts || t?.flip_ts || 0);
+            return flipTs > oneHrAgo;
+          });
+          if (justFlipped) {
+            return {
+              ticker: String(justFlipped.ticker).toUpperCase(),
+              rank: Number(justFlipped.rank),
+              dir: justFlipped.direction || justFlipped.consensus_direction || "—",
+              setup: justFlipped.setup_name || justFlipped.entry_path || "—",
+              kind: "Just Flipped",
+              tip: "State changed within the last hour — fresh idea. Top-ranked candidate not already in a trade.",
+            };
+          }
+          // 3) Momentum elite
+          const momentumElite = eligible.find(t => t?.flags?.momentum_elite === true);
+          if (momentumElite) {
+            return {
+              ticker: String(momentumElite.ticker).toUpperCase(),
+              rank: Number(momentumElite.rank),
+              dir: momentumElite.direction || momentumElite.consensus_direction || "—",
+              setup: momentumElite.setup_name || momentumElite.entry_path || "—",
+              kind: "Momentum Elite",
+              tip: "Multi-TF momentum aligned and accelerating. Top-ranked candidate not already in a trade.",
+            };
+          }
+          // 4) Top rank fallback
+          const t = eligible[0];
+          return {
+            ticker: String(t.ticker).toUpperCase(),
+            rank: Number(t.rank),
+            dir: t.direction || t.consensus_direction || "—",
+            setup: t.setup_name || t.entry_path || "—",
+            kind: "Top Rank",
+            tip: "Highest-ranked ticker not already in an open trade. Rotates as new signals emerge.",
+          };
         }, [allTickersWithRanks, trades]);
 
         const toneCls = (tone) => {
@@ -12823,9 +12881,11 @@
                 onClick={() => onSelectTicker && onSelectTicker(topOpp.ticker)}
                 className="flex flex-col justify-center min-w-0 hover:bg-white/[0.04] transition-colors group text-left"
                 style={{ padding: "6px 14px", borderRight: "1px solid var(--tt-border-weak)" }}
-                title={`Best current opportunity — click to open ${topOpp.ticker}`}
+                title={topOpp.tip || `Best current opportunity — click to open ${topOpp.ticker}`}
               >
-                <div className="tt-label" style={{ fontSize: 9, marginBottom: 2 }}>Top Signal</div>
+                <div className="tt-label" style={{ fontSize: 9, marginBottom: 2 }}>
+                  {topOpp.kind || "Top Signal"}
+                </div>
                 <div style={{ fontSize: 12, lineHeight: 1.2 }} className="truncate">
                   <span className="tt-num font-bold text-white group-hover:text-cyan-300 transition-colors">{topOpp.ticker}</span>
                   <span className="tt-num ml-1.5" style={{ fontSize: 10.5, color: "var(--tt-text-3)" }}>
@@ -19783,68 +19843,58 @@
                               </button>
                             );
                           };
-                          /* V2.1 (2026-05-01) — single full-width row matching status-strip width.
-                             Per user: "should resemble top Regime section, stay consistent so it is easy to scan".
-                             Inline group separator dots between groups so user still gets the lens-grouping signal
-                             without 5 stacked rows. */
-                          const renderGroup = (groupKey, groupChips, accentClass) => {
-                            if (!groupChips || groupChips.length === 0) return null;
+                          /* V2.1 round 5 (2026-05-01) — Bubble Map filter pills
+                             reorganized into 4 DISTINCT SECTIONS over 2 ROWS:
+                               Row 1 (left): Focus  | Momentum
+                               Row 2 (left): Structure | Context
+                             Each section is its own ds-glass tile with the
+                             label inline. "Now" + "Setups" merge into Focus
+                             (they're all "actionable now" lenses).
+                             Per user: "make it four distinct sections,
+                             across 2 rows: Focus, Momentum, Structure, Context".
+                             */
+                          const focusBucket = [];
+                          if (focus) focusBucket.push(focus);
+                          for (const c of now)    focusBucket.push(c);
+                          for (const c of setups) focusBucket.push(c);
+                          const Section = ({ label, items, accent }) => {
+                            if (!items || items.length === 0) return null;
                             return (
-                              <React.Fragment key={`grp-${groupKey}`}>
-                                <span className="ds-caption" style={{ color: accentClass || "var(--ds-text-faint)", marginLeft: 4, marginRight: 4 }}>{groupKey}</span>
-                                {groupChips.map(c => renderChip(c, false))}
-                                <span style={{ color: "var(--ds-text-faint)", margin: "0 6px", opacity: 0.5 }}>·</span>
-                              </React.Fragment>
-                            );
-                          };
-                          return (
-                            <div className="mb-2" style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-1)" }}>
-                              {/* PRIMARY ROW — single horizontal flow, matches status-strip width */}
-                              <div className="ds-glass" style={{ padding: "var(--ds-space-2) var(--ds-space-3)" }}>
+                              <div className="ds-glass" style={{ padding: "var(--ds-space-2) var(--ds-space-3)", flex: "1 1 0", minWidth: 0 }}>
                                 <div style={{
                                   display: "flex",
                                   alignItems: "center",
                                   flexWrap: "nowrap",
                                   gap: 4,
                                   overflowX: "auto",
-                                  paddingBottom: 2,
                                 }} className="scrollbar-hide">
-                                  {focus && (
-                                    <>
-                                      <span className="ds-caption" style={{ color: "var(--ds-accent)", marginRight: 4 }}>Focus</span>
-                                      {renderChip(focus, false)}
-                                      <span style={{ color: "var(--ds-text-faint)", margin: "0 6px", opacity: 0.5 }}>·</span>
-                                    </>
-                                  )}
-                                  {renderGroup("Now", now, "var(--ds-warn)")}
-                                  {renderGroup("Setups", setups, "var(--ds-up)")}
-                                  {renderGroup("Momentum", momentum, "var(--ds-accent)")}
-                                  {renderGroup("Structure", structure, "var(--ds-violet)")}
-                                  {activeInsight && (
-                                    <button
-                                      onClick={() => { setActiveInsight(null); setActiveSubInsight(null); }}
-                                      className="ds-chip ds-chip--sm"
-                                      style={{ marginLeft: "auto", flexShrink: 0 }}
-                                    >✕ Clear</button>
-                                  )}
+                                  <span className="ds-caption" style={{ color: accent, marginRight: 6, flexShrink: 0 }}>{label}</span>
+                                  {items.map(c => renderChip(c, false))}
                                 </div>
                               </div>
-                              {/* CONTEXT ROW — secondary, same width pattern */}
-                              {context.length > 0 && (
-                                <div className="ds-glass" style={{ padding: "var(--ds-space-2) var(--ds-space-3)" }}>
-                                  <div style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    flexWrap: "nowrap",
-                                    gap: 4,
-                                    overflowX: "auto",
-                                  }} className="scrollbar-hide">
-                                    <span className="ds-caption" style={{ color: "var(--ds-text-muted)", marginRight: 4 }}>Context</span>
-                                    {context.map(c => renderChip(c, false))}
-                                  </div>
+                            );
+                          };
+                          return (
+                            <div className="mb-2" style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-1)" }}>
+                              {/* Row 1: Focus | Momentum */}
+                              <div style={{ display: "flex", gap: "var(--ds-space-1)" }}>
+                                <Section label="Focus" items={focusBucket} accent="var(--ds-accent)" />
+                                <Section label="Momentum" items={momentum} accent="var(--ds-warn)" />
+                              </div>
+                              {/* Row 2: Structure | Context */}
+                              <div style={{ display: "flex", gap: "var(--ds-space-1)" }}>
+                                <Section label="Structure" items={structure} accent="var(--ds-violet)" />
+                                <Section label="Context" items={context} accent="var(--ds-text-muted)" />
+                              </div>
+                              {/* Active filter affordance + sector drill */}
+                              {activeInsight && (
+                                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                                  <button
+                                    onClick={() => { setActiveInsight(null); setActiveSubInsight(null); }}
+                                    className="ds-chip ds-chip--sm"
+                                  >✕ Clear filter</button>
                                 </div>
                               )}
-                              {/* SECTOR DRILL — only when S&P Sectors is active */}
                               {activeInsight === "sp_sectors" && sectorSubs.length > 0 && (
                                 <div className="ds-glass" style={{ padding: "var(--ds-space-2) var(--ds-space-3)", background: "rgba(167,139,250,0.05)" }}>
                                   <div style={{

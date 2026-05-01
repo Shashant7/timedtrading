@@ -2786,7 +2786,7 @@
           }, "\u2715"))), v2Price > 0 && React.createElement("div", {
             className: "flex items-baseline gap-3",
             style: {
-              marginBottom: "var(--ds-space-3)"
+              marginBottom: "var(--ds-space-2)"
             }
           }, React.createElement("span", {
             style: {
@@ -2801,7 +2801,71 @@
             style: {
               fontFamily: "var(--tt-font-mono)"
             }
-          }, v2DayPct >= 0 ? "▲ +" : "▼ ", v2DayPct.toFixed(2), "%")), React.createElement("div", {
+          }, v2DayPct >= 0 ? "▲ +" : "▼ ", v2DayPct.toFixed(2), "%")), (() => {
+            const fullName = ticker?.context?.name || ticker?.companyName || latestTicker?.context?.name || null;
+            const mktCap = Number(ticker?.market_cap ?? ticker?.marketCap ?? latestTicker?.market_cap);
+            const sector = (typeof getTickerSector === "function" ? getTickerSector(tickerSymbol) : null) || ticker?.sector || ticker?.context?.sector || ticker?._sector || null;
+            const personality = ticker?._ticker_profile?.behavior_type || ticker?.execution_profile?.personality || ticker?.ticker_personality || null;
+            const fmtMcap = n => {
+              if (!Number.isFinite(n) || n <= 0) return null;
+              if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
+              if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+              if (n >= 1e6) return `$${(n / 1e6).toFixed(0)}M`;
+              return `$${n.toFixed(0)}`;
+            };
+            const mcapStr = fmtMcap(mktCap);
+            if (!fullName && !mcapStr && !sector && !personality) return null;
+            return React.createElement("div", {
+              style: {
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "center",
+                gap: 6,
+                marginBottom: "var(--ds-space-3)",
+                fontSize: "var(--ds-fs-meta)",
+                color: "var(--ds-text-muted)"
+              }
+            }, fullName && React.createElement("span", {
+              style: {
+                color: "var(--ds-text-body)",
+                fontWeight: 500,
+                maxWidth: 240,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap"
+              },
+              title: fullName
+            }, fullName), mcapStr && React.createElement(React.Fragment, null, fullName && React.createElement("span", {
+              style: {
+                color: "var(--ds-text-faint)"
+              }
+            }, "\xB7"), React.createElement("span", {
+              style: {
+                fontFamily: "var(--tt-font-mono)"
+              },
+              title: "Market capitalization"
+            }, mcapStr)), sector && React.createElement(React.Fragment, null, React.createElement("span", {
+              style: {
+                color: "var(--ds-text-faint)"
+              }
+            }, "\xB7"), React.createElement("span", {
+              title: "Sector"
+            }, String(sector).replace(/_/g, " "))), personality && React.createElement(React.Fragment, null, React.createElement("span", {
+              style: {
+                color: "var(--ds-text-faint)"
+              }
+            }, "\xB7"), React.createElement("span", {
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                fontSize: 9,
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                color: "var(--ds-accent)",
+                fontWeight: 700
+              },
+              title: "Behavior personality (engine classification)"
+            }, String(personality).replace(/_/g, " "))));
+          })(), React.createElement("div", {
             className: "ds-tab",
             role: "tablist",
             style: {

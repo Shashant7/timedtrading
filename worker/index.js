@@ -36386,9 +36386,26 @@ export default {
               Number.isFinite(prevClose) &&
               prevClose > 0
             ) {
-              payload.prev_close = prevClose;
-              payload.day_change = price - prevClose;
-              payload.day_change_pct = ((price - prevClose) / prevClose) * 100;
+              const computedDp = ((price - prevClose) / prevClose) * 100;
+              /* V15 P0.7.48 (2026-05-01) — Webhook sanity guard.
+                 TradingView sometimes delivers a stale or symbol-mismatched
+                 `price` (e.g. SPX showed $92 vs prevClose $5800 → -98.7%
+                 because the TV webhook timed out and replayed an old payload).
+                 Reject the day-change calculation when the absolute move is
+                 outside ±50% for non-crypto / ±200% for crypto. The bad
+                 number used to flow all the way to the UI. */
+              const _isCrypto = ticker === "BTCUSD" || ticker === "ETHUSD";
+              const _absCap = _isCrypto ? 200 : 50;
+              if (Math.abs(computedDp) > _absCap) {
+                console.warn(`[DAILY CHANGE] ${ticker} dropped insane dp=${computedDp.toFixed(2)}% (price=${price}, pc=${prevClose}, cap ${_absCap}%) — likely stale webhook`);
+                // Keep prev_close on payload so other fields can still
+                // reference it, but do NOT set day_change / day_change_pct.
+                payload.prev_close = prevClose;
+              } else {
+                payload.prev_close = prevClose;
+                payload.day_change = price - prevClose;
+                payload.day_change_pct = computedDp;
+              }
             }
           } catch (e) {
             console.warn(
@@ -39085,7 +39102,13 @@ export default {
                     const pfAhDp2 = Number(pf.ahdp);
                     const pfAhDc2 = Number(pf.ahdc);
                     const pfAhP2 = Number(pf.ahp);
-                    if (Number.isFinite(pfAhDp2) && pfAhDp2 !== 0) {
+                    /* V15 P0.7.48 (2026-05-01) — Same ±50% sanity cap on
+                       extended-hours data. Bad webhook payloads were
+                       ending up in the EXT row of Top Movers (e.g. SPX
+                       -98.72%). */
+                    const _isCrypto2 = sym === "BTCUSD" || sym === "ETHUSD";
+                    const _absCap2 = _isCrypto2 ? 200 : 50;
+                    if (Number.isFinite(pfAhDp2) && pfAhDp2 !== 0 && Math.abs(pfAhDp2) <= _absCap2) {
                       obj._ah_change_pct = pfAhDp2;
                       obj._ah_change = Number.isFinite(pfAhDc2) ? pfAhDc2 : 0;
                       if (Number.isFinite(pfAhP2) && pfAhP2 > 0) obj._ah_price = pfAhP2;
@@ -40021,7 +40044,12 @@ export default {
                   const pfAhDp = Number(pf.ahdp);
                   const pfAhDc = Number(pf.ahdc);
                   const pfAhP = Number(pf.ahp);
-                  if (Number.isFinite(pfAhDp) && pfAhDp !== 0) {
+                  /* V15 P0.7.48 (2026-05-01) — same ±50% sanity cap as
+                     primary path. Bad webhook payloads (e.g. SPX -98.72%)
+                     were leaking into the EXT row of Top Movers. */
+                  const _isCryptoB = sym === "BTCUSD" || sym === "ETHUSD";
+                  const _absCapB = _isCryptoB ? 200 : 50;
+                  if (Number.isFinite(pfAhDp) && pfAhDp !== 0 && Math.abs(pfAhDp) <= _absCapB) {
                     obj._ah_change_pct = pfAhDp;
                     obj._ah_change = Number.isFinite(pfAhDc) ? pfAhDc : 0;
                     if (Number.isFinite(pfAhP) && pfAhP > 0) obj._ah_price = pfAhP;
