@@ -18397,40 +18397,88 @@
                       if (absPct <= 12) return 0.70;
                       return 0.85;
                     };
-                    const renderPulseChip = (sym) => {
+                    /* ═════════════════════════════════════════════════════════
+                     * V2 (2026-05-01) — Market Pulse on Design System v2.
+                     * Per Inspiration 5: hero tile cards for the priority
+                     * indices (SPY/QQQ/IWM + VIX), then a denser tile-row
+                     * for the wider context (sectors / commodities / crypto).
+                     * Each tile = ds-tickercard. Cohesive with Top Movers.
+                     * ════════════════════════════════════════════════════════ */
+                    const PriorityTile = ({ sym }) => {
                       const td = allData[sym];
                       const price = Number(td?.price ?? td?.close ?? 0);
                       if (price <= 0) return null;
                       let pct = null;
                       if (td) { const dc = getDailyChange(td); if (dc && Number.isFinite(dc.dayPct)) pct = dc.dayPct; }
                       if (pct === null) pct = 0;
-                      const up = pct >= 0;
-                      const absPct = Math.abs(pct);
-                      const alpha = intensityAlpha(absPct);
-                      const bAlpha = intensityBorder(absPct);
-                      const rgb = up ? "34,197,94" : "239,68,68";
-                      const pillBg = `rgba(${rgb},${alpha.toFixed(3)})`;
-                      const borderStyle = `1px solid rgba(${rgb},${bAlpha.toFixed(2)})`;
+                      const dir = pct > 0.05 ? "up" : pct < -0.05 ? "dn" : "flat";
+                      // Build a 32-pt synthetic spark from intra-day if available, else flat
+                      const sparkPoints = (() => {
+                        const arr = (td?.intraday_5m || td?.intraday || []).slice(-40).map(p => Number(p?.c ?? p)).filter(Number.isFinite);
+                        if (arr.length >= 2) return arr;
+                        // Fallback: synth from prevClose to current
+                        const pc = Number(td?.prev_close ?? td?.pc) || price;
+                        return [pc, price];
+                      })();
+                      const sparkSvg = window.DS ? window.DS.sparklineSvg(sparkPoints, { width: 220, height: 52, direction: dir, strokeWidth: 1.5 }) : "";
                       return (
-                        <button key={`mp0-${sym}`} onClick={() => handleTickerSelect(sym)}
-                          className="flex items-center gap-1 px-2 py-1 rounded-md hover:brightness-125 flex-shrink-0 transition-all"
-                          style={{ background: pillBg, border: borderStyle }}>
-                          <span className="text-[10px] text-white font-bold">{sym}</span>
-                          <span className="text-[9px] text-gray-400">${price.toFixed(2)}</span>
-                          <span className={`text-[9px] font-semibold ${up ? "text-[#00e676]" : "text-rose-400"}`}>{pct >= 0 ? "+" : ""}{pct.toFixed(2)}%</span>
+                        <button onClick={() => handleTickerSelect(sym)}
+                          className="ds-tickercard ds-tickercard--default flex-1 min-w-0"
+                          style={{ textAlign: "left" }}>
+                          <div className="ds-tickercard__head">
+                            {window.DS ? (
+                              <div className="ds-tickercard__logo" ref={(el) => {
+                                if (el && !el.dataset.dsInit) {
+                                  el.dataset.dsInit = "1";
+                                  const logoEl = window.DS.tickerLogo(sym, { size: 24 });
+                                  el.replaceWith(logoEl);
+                                }
+                              }}>{String(sym).slice(0,2)}</div>
+                            ) : null}
+                            <span className="ds-tickercard__symbol">{sym}</span>
+                          </div>
+                          <div className="ds-tickercard__price">${price.toFixed(2)}</div>
+                          <div className={`ds-tickercard__change ds-tickercard__change--${dir}`}>
+                            {dir === "up" ? "▲" : dir === "dn" ? "▼" : "◆"} {pct >= 0 ? "+" : ""}{pct.toFixed(2)}%
+                          </div>
+                          {sparkSvg && (
+                            <div className="ds-tickercard__spark" dangerouslySetInnerHTML={{ __html: sparkSvg }} />
+                          )}
+                        </button>
+                      );
+                    };
+                    const ContextChip = ({ sym }) => {
+                      const td = allData[sym];
+                      const price = Number(td?.price ?? td?.close ?? 0);
+                      if (price <= 0) return null;
+                      let pct = null;
+                      if (td) { const dc = getDailyChange(td); if (dc && Number.isFinite(dc.dayPct)) pct = dc.dayPct; }
+                      if (pct === null) pct = 0;
+                      const dir = pct > 0.05 ? "up" : pct < -0.05 ? "dn" : "flat";
+                      return (
+                        <button onClick={() => handleTickerSelect(sym)}
+                          className={`ds-chip ds-chip--${dir === "up" ? "up" : dir === "dn" ? "dn" : "solid"}`}
+                          style={{ textAlign: "left" }}>
+                          <span style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700 }}>{sym}</span>
+                          <span style={{ color: "var(--ds-text-muted)", fontWeight: 500 }}>${price.toFixed(2)}</span>
+                          <span style={{ fontFamily: "var(--tt-font-mono)" }}>{pct >= 0 ? "+" : ""}{pct.toFixed(2)}%</span>
                         </button>
                       );
                     };
                     const _isAdminPulse = window._ttIsAdmin;
-                    const row1 = _isAdminPulse
-                      ? ["US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD"]
-                      : ["VIXY", "USO", "GLD", "SLV", "DIA", "BTCUSD", "ETHUSD"];
-                    const row2 = _isAdminPulse
-                      ? ["SPY", "QQQ", "IWM", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"]
-                      : ["SPY", "QQQ", "IWM", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
-                    const row1Chips = row1.map(s => renderPulseChip(s)).filter(Boolean);
-                    const row2Chips = row2.map(s => renderPulseChip(s)).filter(Boolean);
-                    if (row1Chips.length === 0 && row2Chips.length === 0) return null;
+                    // Priority row — the hero tiles. SPY/QQQ/IWM + VIX always.
+                    const priorityRow = _isAdminPulse
+                      ? ["SPY", "QQQ", "IWM", "VX1!", "CL1!", "GC1!", "BTCUSD"]
+                      : ["SPY", "QQQ", "IWM", "VIXY", "USO", "GLD", "BTCUSD"];
+                    // Context row — sectors + futures (denser chip view)
+                    const contextRow = _isAdminPulse
+                      ? ["US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "SI1!", "ETHUSD",
+                         "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"]
+                      : ["SLV", "DIA", "ETHUSD",
+                         "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
+                    const priorityTiles = priorityRow.map(s => allData[s] && Number(allData[s]?.price) > 0 ? <PriorityTile key={`pri-${s}`} sym={s} /> : null).filter(Boolean);
+                    const contextChips = contextRow.map(s => allData[s] && Number(allData[s]?.price) > 0 ? <ContextChip key={`ctx-${s}`} sym={s} /> : null).filter(Boolean);
+                    if (priorityTiles.length === 0 && contextChips.length === 0) return null;
                     const freshness = (() => {
                       if (!priceLastUpdated || priceLastUpdated <= 0) return null;
                       const ago = Math.round((Date.now() - priceLastUpdated) / 1000);
@@ -18438,30 +18486,35 @@
                       if (ago < 3600) return `${Math.floor(ago / 60)}m ago`;
                       return `${Math.floor(ago / 3600)}h ago`;
                     })();
-                    /* V15 P0.7.44 — unified row pattern (same as Upcoming Events above) */
-                    const Row = ({ label, sublabel, children }) => (
-                      <div className="flex items-start gap-3 py-1">
-                        <div className="w-32 shrink-0 pt-0.5">
-                          <div className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#6b7280]">{label}</div>
-                          {sublabel && <div className="text-[8px] text-[#4b5563] tabular-nums">{sublabel}</div>}
-                        </div>
-                        <div className="flex-1 min-w-0 flex flex-wrap gap-1.5">{children}</div>
-                      </div>
-                    );
                     return (
-                      <div className="mb-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-1.5">
-                        {row1Chips.length > 0 && (
-                          <Row
-                            label={_isAdminPulse ? "Futures · Commodities" : "Commodities · Crypto"}
-                            sublabel={freshness ? `${freshness}` : null}
-                          >
-                            {row1Chips}
-                          </Row>
+                      <div className="mb-3" style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-2)" }}>
+                        {/* Priority tile row */}
+                        {priorityTiles.length > 0 && (
+                          <div>
+                            <div className="ds-row" style={{ alignItems: "center" }}>
+                              <div className="ds-row__label">
+                                <div className="ds-caption">Market Pulse</div>
+                                {freshness && <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", marginTop: 2 }}>updated {freshness}</div>}
+                              </div>
+                              <div className="ds-row__content" style={{ gap: "var(--ds-space-2)" }}>
+                                {priorityTiles}
+                              </div>
+                            </div>
+                          </div>
                         )}
-                        {row2Chips.length > 0 && (
-                          <Row label="Indices · Sectors">
-                            {row2Chips}
-                          </Row>
+                        {/* Context chip row */}
+                        {contextChips.length > 0 && (
+                          <div className="ds-row">
+                            <div className="ds-row__label">
+                              <div className="ds-caption">Context</div>
+                              <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", marginTop: 2 }}>
+                                {_isAdminPulse ? "Futures · Sectors" : "Commodities · Sectors"}
+                              </div>
+                            </div>
+                            <div className="ds-row__content">
+                              {contextChips}
+                            </div>
+                          </div>
                         )}
                       </div>
                     );
@@ -18662,87 +18715,58 @@
                     />
                   </div>}
 
-                  {/* ═══ 4b. MODE SELECTOR — Analysis / Active Trader / Investor ═══ */}
-                  <div className="mb-4 flex items-center justify-center gap-2" data-coachmark="nav-modes">
-                    <span className="tt-label hidden sm:inline" style={{ fontSize: 9 }}>View</span>
-                    <div className="flex justify-center">
-                    <div className="flex w-full sm:w-auto items-stretch bg-white/[0.04] border border-white/[0.10] rounded-xl overflow-hidden shadow-sm">
+                  {/* ═══ 4b. MODE SELECTOR — Analysis / Active Trader / Investor / All
+                       V2 (2026-05-01) — DS tab pattern with gold accent on active.
+                       Per spec section 4: cohesive with bubble-map filter pills. ═══ */}
+                  <div className="mb-4 flex items-center justify-center gap-3" data-coachmark="nav-modes">
+                    <span className="ds-caption hidden sm:inline">View</span>
+                    <div className="ds-tab" role="tablist">
                       <button
                         onClick={() => handleDashboardModeChange("analysis")}
-                        className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] font-semibold transition-all ${
-                          dashboardMode === "analysis"
-                            ? "bg-gradient-to-r from-violet-500/20 to-indigo-500/15 text-white"
-                            : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
-                        }`}
+                        className={`ds-tab__item ${dashboardMode === "analysis" ? "ds-tab__item--active" : ""}`}
                         title="Bubble Map + Viewport Cards"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
-                        Analysis
+                        <span>Analysis</span>
                       </button>
                       <button
                         onClick={() => handleDashboardModeChange("trader")}
-                        className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] font-semibold transition-all border-l border-white/[0.06] relative ${
-                          dashboardMode === "trader"
-                            ? "bg-gradient-to-r from-cyan-500/20 to-teal-500/15 text-white"
-                            : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
-                        }`}
+                        className={`ds-tab__item ${dashboardMode === "trader" ? "ds-tab__item--active" : ""}`}
                         title={traderActionableCount > 0
                           ? `${traderActionableCount} actionable now in Active Trader (enter / trim / defend / exit)`
                           : `${traderHoldCount} positions on hold`}
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
                         <span>Active Trader</span>
-                        {/* V15 P0.7.43 — live count badge + actionable dot.
-                            User: "Badging is an idea if there is something
-                            actionable on those sections." */}
                         {(traderActionableCount + traderHoldCount) > 0 && (
-                          <span className={`ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[16px] px-1 rounded-full text-[9px] font-bold tabular-nums ${
-                            traderActionableCount > 0
-                              ? "bg-amber-500/30 text-amber-200 border border-amber-400/40"
-                              : "bg-white/10 text-[#9ca3af]"
-                          }`}>
-                            {traderActionableCount + traderHoldCount}
-                          </span>
+                          <span className="ds-tab__count">{traderActionableCount + traderHoldCount}</span>
                         )}
                         {traderActionableCount > 0 && dashboardMode !== "trader" && (
-                          <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" aria-hidden />
+                          <span className="ds-tab__dot" aria-hidden />
                         )}
                       </button>
                       <button
                         onClick={() => handleDashboardModeChange("investor")}
-                        className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] font-semibold transition-all border-l border-white/[0.06] relative ${
-                          dashboardMode === "investor"
-                            ? "bg-gradient-to-r from-emerald-500/20 to-teal-500/15 text-white"
-                            : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
-                        }`}
+                        className={`ds-tab__item ${dashboardMode === "investor" ? "ds-tab__item--active" : ""}`}
                         title="Long-term ETF + core-idea positions"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                         <span>Investor</span>
                         {investorTotalCount > 0 && (
-                          <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[16px] px-1 rounded-full text-[9px] font-bold tabular-nums bg-white/10 text-[#9ca3af]">
-                            {investorTotalCount}
-                          </span>
+                          <span className="ds-tab__count">{investorTotalCount}</span>
                         )}
                       </button>
                       <button
                         onClick={() => handleDashboardModeChange("all")}
-                        className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-2.5 sm:px-4 py-2 text-[11px] sm:text-[12px] font-semibold transition-all border-l border-white/[0.06] ${
-                          dashboardMode === "all"
-                            ? "bg-gradient-to-r from-blue-500/20 to-indigo-500/15 text-white"
-                            : "text-[#6b7280] hover:text-white hover:bg-white/[0.05]"
-                        }`}
+                        className={`ds-tab__item ${dashboardMode === "all" ? "ds-tab__item--active" : ""}`}
                         title="Sortable table of every ticker in scope"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M3 6h18M3 14h18M3 18h18" /></svg>
                         <span>All</span>
                         {Array.isArray(tickers) && tickers.length > 0 && (
-                          <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[16px] px-1 rounded-full text-[9px] font-bold tabular-nums bg-white/10 text-[#9ca3af]">
-                            {tickers.length}
-                          </span>
+                          <span className="ds-tab__count">{tickers.length}</span>
                         )}
                       </button>
-                    </div>
                     </div>
                   </div>
 
@@ -19224,19 +19248,11 @@
                           const structure = byGroup("structure");
                           const context = visible.filter(c => c.row === 2);
                           const sectorSubs = visible.filter(c => c.isSector);
-                          const colorMap = {
-                            purple: { bg: "bg-purple-500/15", border: "border-purple-500/30", text: "text-purple-300", activeBg: "bg-purple-500/30", activeBorder: "border-purple-400/60", glow: "shadow-purple-500/30" },
-                            green: { bg: "bg-emerald-500/15", border: "border-emerald-500/30", text: "text-emerald-300", activeBg: "bg-emerald-500/30", activeBorder: "border-emerald-400/60", glow: "shadow-emerald-500/30" },
-                            red: { bg: "bg-rose-500/15", border: "border-rose-500/30", text: "text-rose-300", activeBg: "bg-rose-500/30", activeBorder: "border-rose-400/60", glow: "shadow-rose-500/30" },
-                            amber: { bg: "bg-amber-500/15", border: "border-amber-500/30", text: "text-amber-300", activeBg: "bg-amber-500/30", activeBorder: "border-amber-400/60", glow: "shadow-amber-500/30" },
-                            cyan: { bg: "bg-cyan-500/15", border: "border-cyan-500/30", text: "text-cyan-300", activeBg: "bg-cyan-500/30", activeBorder: "border-cyan-400/60", glow: "shadow-cyan-500/30" },
-                            blue: { bg: "bg-blue-500/15", border: "border-blue-500/30", text: "text-blue-300", activeBg: "bg-blue-500/30", activeBorder: "border-blue-400/60", glow: "shadow-blue-500/30" },
-                            emerald: { bg: "bg-emerald-500/15", border: "border-emerald-500/30", text: "text-emerald-300", activeBg: "bg-emerald-500/30", activeBorder: "border-emerald-400/60", glow: "shadow-emerald-500/30" },
-                            gold: { bg: "bg-yellow-500/15", border: "border-yellow-500/30", text: "text-yellow-300", activeBg: "bg-yellow-500/30", activeBorder: "border-yellow-400/60", glow: "shadow-yellow-500/30" },
-                          };
+                          /* V2 (2026-05-01) — DS chip pattern. All variants resolve
+                             to the same gold-on-active treatment so the bubble-map
+                             filter pills look like the View tabs above (cohesive). */
                           const renderChip = (chip, isSub) => {
                             const isActive = isSub ? activeSubInsight === chip.id : activeInsight === chip.id;
-                            const c = colorMap[chip.color] || colorMap.blue;
                             return (
                               <button
                                 key={chip.id}
@@ -19249,29 +19265,22 @@
                                     if (chip.id !== "sp_sectors") setActiveSubInsight(null);
                                   }
                                 }}
-                                className={`group relative flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold border whitespace-nowrap transition-all duration-200 shrink-0 ${
-                                  isActive
-                                    ? `${c.activeBg} ${c.activeBorder} ${c.text} shadow-sm ${c.glow}`
-                                    : `${c.bg} ${c.border} ${c.text} hover:brightness-110`
-                                }`}
+                                className={`ds-chip ds-chip--sm ${isActive ? "ds-chip--accent" : ""}`}
                               >
                                 <span>{chip.label}</span>
-                                {chip.count !== null && <span className="font-bold opacity-80 tabular-nums">{chip.count}</span>}
-                                <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2.5 py-1.5 rounded-lg bg-[#141820] border border-white/10 text-[9px] text-gray-300 whitespace-pre-line opacity-0 group-hover:opacity-100 transition-opacity z-50 max-w-[240px] shadow-xl">
-                                  {chip.tooltip}
-                                </span>
+                                {chip.count !== null && <span className="ds-chip__count">{chip.count}</span>}
                               </button>
                             );
                           };
                           // Tabular row: fixed-width left label + horizontally scrolling chips
-                          const renderRow = (label, chips, accent) => {
+                          const renderRow = (label, chips) => {
                             if (!chips || chips.length === 0) return null;
                             return (
-                              <div className="flex items-center gap-2 py-0.5">
-                                <div className={`text-[9px] font-semibold uppercase tracking-[0.16em] w-20 flex-shrink-0 ${accent || "text-[#6b7280]"}`}>
-                                  {label}
+                              <div className="ds-row" style={{ padding: "2px 0" }}>
+                                <div className="ds-row__label" style={{ width: 96 }}>
+                                  <div className="ds-caption">{label}</div>
                                 </div>
-                                <div className="flex gap-1.5 overflow-x-auto scrollbar-hide items-center min-w-0">
+                                <div className="ds-row__content" style={{ overflowX: "auto" }}>
                                   {chips.map(c => renderChip(c, false))}
                                 </div>
                               </div>
@@ -19279,39 +19288,41 @@
                           };
                           return (
                             <div className="space-y-1 px-1 mb-1">
-                              {/* Primary group — Focus + Now (above the chart); cohesive with Market Pulse rows */}
-                              <div className="rounded-xl border border-cyan-500/10 bg-cyan-500/[0.04] px-2.5 py-1.5 space-y-0.5">
-                                {focus && renderRow("Focus", [focus], "text-cyan-200/80")}
-                                {renderRow("Now", now, "text-amber-200/80")}
-                                {renderRow("Setups", setups, "text-emerald-200/80")}
-                                {renderRow("Momentum", momentum, "text-yellow-200/80")}
-                                {renderRow("Structure", structure, "text-purple-200/80")}
+                              {/* Primary group — Focus + Now (above the chart) */}
+                              <div className="ds-glass" style={{ padding: "var(--ds-space-3)", paddingTop: "var(--ds-space-2)", paddingBottom: "var(--ds-space-2)" }}>
+                                {focus && renderRow("Focus", [focus])}
+                                {renderRow("Now", now)}
+                                {renderRow("Setups", setups)}
+                                {renderRow("Momentum", momentum)}
+                                {renderRow("Structure", structure)}
                                 {activeInsight && (
-                                  <div className="flex items-center justify-end pt-0.5">
+                                  <div className="flex items-center justify-end" style={{ paddingTop: "var(--ds-space-1)" }}>
                                     <button
                                       onClick={() => { setActiveInsight(null); setActiveSubInsight(null); }}
-                                      className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border border-white/10 bg-white/5 text-gray-400 hover:text-white transition-colors shrink-0"
+                                      className="ds-chip ds-chip--sm"
                                     >✕ Clear filter</button>
                                   </div>
                                 )}
                               </div>
-                              {/* Context row — secondary, distinct background */}
+                              {/* Context row — secondary, slightly different surface */}
                               {context.length > 0 && (
-                                <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-2.5 py-1.5">
-                                  {renderRow("Context", context, "text-[#9ca3af]")}
+                                <div className="ds-glass" style={{ padding: "var(--ds-space-2) var(--ds-space-3)", background: "var(--ds-bg-glass)" }}>
+                                  {renderRow("Context", context)}
                                 </div>
                               )}
                               {/* Sector drill-down — only when S&P Sectors is active */}
                               {activeInsight === "sp_sectors" && sectorSubs.length > 0 && (
-                                <div className="rounded-xl border border-purple-500/10 bg-purple-500/[0.03] px-2.5 py-1.5">
-                                  <div className="flex items-center gap-2">
-                                    <div className="text-[9px] font-semibold uppercase tracking-[0.16em] w-20 flex-shrink-0 text-purple-200/80">Drill</div>
-                                    <div className="flex gap-1.5 overflow-x-auto scrollbar-hide items-center min-w-0">
+                                <div className="ds-glass" style={{ padding: "var(--ds-space-2) var(--ds-space-3)", background: "rgba(167,139,250,0.05)" }}>
+                                  <div className="ds-row" style={{ padding: "2px 0" }}>
+                                    <div className="ds-row__label" style={{ width: 96 }}>
+                                      <div className="ds-caption" style={{ color: "var(--ds-violet)" }}>Drill</div>
+                                    </div>
+                                    <div className="ds-row__content" style={{ overflowX: "auto" }}>
                                       {sectorSubs.map(c => renderChip(c, true))}
                                       {activeSubInsight && (
                                         <button
                                           onClick={() => setActiveSubInsight(null)}
-                                          className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-medium border border-white/10 bg-white/5 text-gray-400 hover:text-white transition-colors shrink-0"
+                                          className="ds-chip ds-chip--sm"
                                         >✕</button>
                                       )}
                                     </div>
