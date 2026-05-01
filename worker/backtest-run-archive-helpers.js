@@ -451,18 +451,24 @@ export async function finalizeBacktestRun(db, body = {}) {
     // runs showed NULL rank_trace_json in backtest_run_trades even when
     // the live `trades` table had the data. Include every column the
     // target table has so nothing gets silently dropped.
+    // V15 P0.7.46 (2026-05-01) — also include entry_signals_json + sector
+    // so the finalize-archive copy doesn't drop the new flat columns
+    // (the per-batch d1ArchiveRunTrade also writes them; this is the
+    // backstop for runs where finalize is the only archive event).
     const archRes = await db.prepare(
       `INSERT OR REPLACE INTO backtest_run_trades
         (run_id, trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
          exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
          created_at, updated_at, trim_ts, trim_price,
          setup_name, setup_grade, risk_budget, shares, notional,
-         entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json)
+         entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json,
+         entry_signals_json, sector)
        SELECT COALESCE(run_id, ?1), trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
               exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
               created_at, updated_at, trim_ts, trim_price,
               setup_name, setup_grade, risk_budget, shares, notional,
-              entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json
+              entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json,
+              entry_signals_json, sector
        FROM trades
        WHERE run_id = ?1 ${cleanReplayLane ? "" : "OR run_id IS NULL"}`
     ).bind(runId).run();

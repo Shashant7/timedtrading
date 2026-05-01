@@ -778,6 +778,10 @@ const ROUTES = [
   ["GET", "/timed/admin/replay-lock", "GET /timed/admin/replay-lock"],
   ["DELETE", "/timed/admin/replay-lock", "DELETE /timed/admin/replay-lock"],
   ["POST", "/timed/admin/cleanup-orphan-trades", "POST /timed/admin/cleanup-orphan-trades"],
+  // V15 P0.7.46 (2026-05-01) — read-only KV inspector for debugging
+  // capture / write-path issues. ?k=<key>&key=<api-key> → { value }
+  ["GET", "/timed/admin/kv/get", "GET /timed/admin/kv/get"],
+  ["GET", "/timed/admin/kv/list", "GET /timed/admin/kv/list"],
   ["POST", "/timed/admin/backtests/start", "POST /timed/admin/backtests/start"],
   ["POST", "/timed/admin/backtests/cancel", "POST /timed/admin/backtests/cancel"],
   ["GET", "/timed/admin/backtests/status", "GET /timed/admin/backtests/status"],
@@ -16280,8 +16284,18 @@ async function processTradeSimulation(
         const _curPnlPct = _isLongMfe
           ? ((pxNow - _entryPxMfe) / _entryPxMfe) * 100
           : ((_entryPxMfe - pxNow) / _entryPxMfe) * 100;
-        const prevMfe = Number(openTrade.maxFavorableExcursion) || 0;
-        const prevMae = Number(openTrade.maxAdverseExcursion) || 0;
+        /* V15 P0.7.46 (2026-05-01) — initialize MFE/MAE to 0 on first observation
+           so trades that close on the entry bar still have non-NULL values (was
+           leaving NULL on ~7% of canonical-run trades). Prior code returned 0
+           via `Number(undefined) || 0` for the comparison, but never wrote the
+           zero back — so same-bar exits never persisted MFE/MAE.
+           Re-applied here on the data-capture branch (origin: 9c041c9). */
+        const prevMfe = openTrade.maxFavorableExcursion != null
+          ? Number(openTrade.maxFavorableExcursion) : 0;
+        const prevMae = openTrade.maxAdverseExcursion != null
+          ? Number(openTrade.maxAdverseExcursion) : 0;
+        if (openTrade.maxFavorableExcursion == null) openTrade.maxFavorableExcursion = 0;
+        if (openTrade.maxAdverseExcursion == null) openTrade.maxAdverseExcursion = 0;
         if (_curPnlPct > prevMfe) openTrade.maxFavorableExcursion = Math.round(_curPnlPct * 10000) / 10000;
         if (_curPnlPct < prevMae) openTrade.maxAdverseExcursion = Math.round(_curPnlPct * 10000) / 10000;
       }
@@ -19549,6 +19563,11 @@ async function processTradeSimulation(
               trimmedPct: 0,
               history: [ev],
               notional: notional,
+              /* V15 P0.7.46 (2026-05-01) — initialize MFE/MAE to 0 at creation
+                 so they are never NULL even on same-bar entry-and-exit trades.
+                 Re-applied here on the data-capture branch (origin: 9c041c9). */
+              maxFavorableExcursion: 0,
+              maxAdverseExcursion: 0,
               confidence: confidence,
               confidenceBreakdown: confidenceBreakdown,
               sizing: {
@@ -26093,6 +26112,11 @@ async function d1EnsureBacktestRunsSchema(env) {
       // Populated when deep_audit_rank_trace_force_enabled=true on
       // enter-stage bars. See tasks/v11-rank-integrity-audit-2026-04-22.md
       `ALTER TABLE backtest_run_trades ADD COLUMN rank_trace_json TEXT`,
+      // V15 P0.7.46 (2026-05-01) — flat capture columns mirrored on the
+      // archive table so per-run SELECTs don't have to parse setup_snapshot.
+      // See tasks/data-capture-architecture-2026-05-01.md
+      `ALTER TABLE backtest_run_trades ADD COLUMN entry_signals_json TEXT`,
+      `ALTER TABLE backtest_run_trades ADD COLUMN sector TEXT`,
     ];
     for (const stmt of brtExtraCols) {
       try { await db.prepare(stmt).run(); } catch {}
@@ -26102,6 +26126,12 @@ async function d1EnsureBacktestRunsSchema(env) {
       `ALTER TABLE trades ADD COLUMN max_favorable_excursion REAL`,
       `ALTER TABLE trades ADD COLUMN max_adverse_excursion REAL`,
       `ALTER TABLE trades ADD COLUMN rank_trace_json TEXT`,
+      // V15 P0.7.46 (2026-05-01) — flat capture columns. Mirror of the
+      // hot fields inside rank_trace_json.setup_snapshot so analysis can
+      // SELECT/GROUP without parsing JSON in SQLite. Idempotent ALTER.
+      // See tasks/data-capture-architecture-2026-05-01.md
+      `ALTER TABLE trades ADD COLUMN entry_signals_json TEXT`,
+      `ALTER TABLE trades ADD COLUMN sector TEXT`,
     ];
     for (const stmt of tradesExtraCols) {
       try { await db.prepare(stmt).run(); } catch {}
@@ -30523,6 +30553,98 @@ async function d1UpsertAlert(env, alert) {
   }
 }
 
+/* ═════════════════════════════════════════════════════════════════════════
+ * V15 P0.7.46 (2026-05-01) — DATA CAPTURE RESOLVERS
+ *
+ * Resolves the flat `entry_signals_json` and `sector` columns from any
+ * available source on the trade object. 3-tier lookup, in order:
+ *
+ *   1. Top-level field on trade (camelCase, then snake_case)
+ *   2. Nested in setup_snapshot inside rank_trace_json (the existing capture)
+ *   3. Static lookup (sector → SECTOR_MAP via getSector)
+ *
+ * Both d1UpsertTrade (live trades table) and d1ArchiveRunTrade
+ * (backtest_run_trades) call these so the bind value is consistent.
+ *
+ * See tasks/data-capture-architecture-2026-05-01.md
+ * ═════════════════════════════════════════════════════════════════════════ */
+function _captureParseRankTrace(trade) {
+  const raw = trade?.rankTraceJson ?? trade?.rank_trace_json;
+  if (!raw) return null;
+  if (typeof raw === "object") return raw;
+  if (typeof raw !== "string") return null;
+  try { return JSON.parse(raw); } catch (_) { return null; }
+}
+
+/** Resolve entry_signals_json. Returns a JSON string ready to bind, or null. */
+function _captureResolveEntrySignals(trade) {
+  // Tier 1: explicit field on trade object
+  let es = trade?.entrySignals ?? trade?.entry_signals ?? null;
+  // Tier 2: derive from setup_snapshot inside rank_trace_json
+  if (es == null) {
+    const _rt = _captureParseRankTrace(trade);
+    const _ss = _rt?.setup_snapshot;
+    if (_ss) {
+      const _div = _ss.divergence || {};
+      const _td = _ss.td_seq || {};
+      const _isLong = String(trade?.direction || "LONG").toUpperCase() === "LONG";
+      const _adverseTd9Key = _isLong ? "td9_bear" : "td9_bull";
+      const _adversePrepKey = _isLong ? "bear_prep" : "bull_prep";
+      // Divergence summary objects look like { adverse_rsi: { count, strongest:{tf} }, adverse_phase: {...} }
+      const _advRsiCount = Number((_div.adverse_rsi || {}).count) || 0;
+      const _advPhaseCount = Number((_div.adverse_phase || {}).count) || 0;
+      const _advPhaseStrongTf = String(((_div.adverse_phase || {}).strongest || {}).tf || "").toLowerCase() || null;
+      es = {
+        has_adverse_rsi_div: _advRsiCount >= 1 || (_div.adverse_rsi != null && _div.adverse_rsi !== false && typeof _div.adverse_rsi !== "object"),
+        has_adverse_phase_div: _advPhaseCount >= 1 || (_div.adverse_phase != null && _div.adverse_phase !== false && typeof _div.adverse_phase !== "object"),
+        is_f4_severe: _advRsiCount >= 1 && _advPhaseCount >= 1,
+        adverse_phase_strongest_tf: _advPhaseStrongTf,
+        td9_bear_ltf_active: !!(
+          (_td["30"] || {})[_adverseTd9Key]
+          || (_td["60"] || {})[_adverseTd9Key]
+          || (_td["240"] || {})[_adverseTd9Key]
+        ),
+        daily_td9_adverse: !!(_td.D || {})[_adverseTd9Key],
+        daily_adverse_prep: Number((_td.D || {})[_adversePrepKey]) || 0,
+        fourh_adverse_prep: Number((_td["240"] || {})[_adversePrepKey]) || 0,
+        pdz_d: (_ss.pdz || {}).D || null,
+        pdz_4h: (_ss.pdz || {}).h4 || (_ss.pdz || {})["4h"] || null,
+        personality: _ss.ticker_personality
+          ? String(_ss.ticker_personality).toUpperCase()
+          : null,
+        regime_class: _ss.regime_class || null,
+        derived_from: "setup_snapshot",
+      };
+    }
+  }
+  if (es == null) return null;
+  if (typeof es === "string") return es;
+  try { return JSON.stringify(es); } catch (_) { return null; }
+}
+
+/** Resolve sector. Returns a string, or null. */
+function _captureResolveSector(trade) {
+  // Tier 1: explicit field on trade object
+  const direct = trade?.sector
+    ?? trade?.sectorAtEntry?.sector
+    ?? trade?.sector_at_entry?.sector;
+  if (direct) return String(direct);
+  // Tier 2: setup_snapshot.sector
+  const _ss = _captureParseRankTrace(trade)?.setup_snapshot;
+  if (_ss?.sector) return String(_ss.sector);
+  if (_ss?.sector_alignment?.sector) return String(_ss.sector_alignment.sector);
+  // Tier 3: static lookup via local getSector (defined later in file but
+  // hoisted as a function declaration). Falls back to null if not in map.
+  try {
+    const tk = String(trade?.ticker || "").toUpperCase();
+    if (tk && typeof getSector === "function") {
+      const s = getSector(tk);
+      if (s && s !== "UNKNOWN" && s !== "Unknown") return String(s);
+    }
+  } catch (_) { /* swallow */ }
+  return null;
+}
+
 async function d1UpsertTrade(env, trade) {
   const db = env?.DB;
   if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
@@ -30530,6 +30652,28 @@ async function d1UpsertTrade(env, trade) {
 
   const tradeId = String(trade.id || trade.trade_id || "").trim();
   if (!tradeId) return { ok: false, skipped: true, reason: "missing_trade_id" };
+
+  // V15 P0.7.46 (2026-05-01) — KV-based capture probe so we can confirm
+  // the write path actually fires for a given trade ID. Best-effort,
+  // 10-min TTL. Inspect via /timed/admin/kv/get?k=debug:capture:<tradeId>
+  try {
+    const KV_PROBE = env?.KV_TIMED;
+    if (KV_PROBE && typeof KV_PROBE.put === "function") {
+      const _probe = {
+        ts: Date.now(),
+        path: "d1UpsertTrade",
+        run_id: trade.run_id ?? trade.runId ?? null,
+        ticker: trade.ticker || null,
+        has_entrySignals: trade.entrySignals != null,
+        has_rankTraceJson: (trade.rankTraceJson ?? trade.rank_trace_json) != null,
+        resolved_es_len: ((s) => s ? s.length : 0)(_captureResolveEntrySignals(trade)),
+        resolved_sector: _captureResolveSector(trade),
+      };
+      // Don't await — best-effort, don't slow down the trade write.
+      KV_PROBE.put(`debug:capture:${tradeId}`, JSON.stringify(_probe), { expirationTtl: 600 })
+        .catch(() => {});
+    }
+  } catch (_) { /* swallow */ }
 
   const ticker = String(trade.ticker || "").toUpperCase();
   const direction = String(trade.direction || "").toUpperCase();
@@ -30622,22 +30766,30 @@ async function d1UpsertTrade(env, trade) {
     ) : null
   );
 
+  // V15 P0.7.46 (2026-05-01) — flat capture columns appended after rank_trace_json.
+  // entry_signals_json carries adverse divergence + TD9 + PDZ + personality flags.
+  // sector is a static lookup (SECTOR_MAP) so analysis can GROUP without parsing.
   const insertWithTrimPrice = `INSERT OR IGNORE INTO trades
           (trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
            created_at, updated_at, trim_ts, trim_price, run_id,
            setup_name, setup_grade, risk_budget, shares, notional,
-           entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json)
+           entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json,
+           entry_signals_json, sector)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29)`;
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31)`;
   const insertWithoutTrimPrice = `INSERT OR IGNORE INTO trades
           (trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
            created_at, updated_at, trim_ts, run_id,
            setup_name, setup_grade, risk_budget, shares, notional,
-           entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json)
+           entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json,
+           entry_signals_json, sector)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)`;
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30)`;
+  // Resolve once, reuse in INSERT + UPDATE bind lists.
+  const resolvedEntrySignalsJson = _captureResolveEntrySignals(trade);
+  const resolvedSector = _captureResolveSector(trade);
 
   const resolvedEntryPrice = trade.entryPrice != null ? Number(trade.entryPrice)
     : trade.entry_price != null ? Number(trade.entry_price) : null;
@@ -30685,6 +30837,8 @@ async function d1UpsertTrade(env, trade) {
         resolvedMfe,
         resolvedMae,
         trade.rankTraceJson ?? trade.rank_trace_json ?? null,
+        resolvedEntrySignalsJson,
+        resolvedSector,
       )
       .run();
 
@@ -30700,7 +30854,9 @@ async function d1UpsertTrade(env, trade) {
           entry_path=COALESCE(?25, entry_path),
           max_favorable_excursion=COALESCE(?26, max_favorable_excursion),
           max_adverse_excursion=COALESCE(?27, max_adverse_excursion),
-          rank_trace_json=COALESCE(?28, rank_trace_json)
+          rank_trace_json=COALESCE(?28, rank_trace_json),
+          entry_signals_json=COALESCE(?29, entry_signals_json),
+          sector=COALESCE(?30, sector)
          WHERE trade_id=?1`,
       )
       .bind(
@@ -30736,10 +30892,19 @@ async function d1UpsertTrade(env, trade) {
         resolvedMfe,
         resolvedMae,
         trade.rankTraceJson ?? trade.rank_trace_json ?? null,
+        resolvedEntrySignalsJson,
+        resolvedSector,
       )
       .run();
 
-    return { ok: true, trade_id: tradeId };
+    return {
+      ok: true,
+      trade_id: tradeId,
+      capture: {
+        entry_signals_json_len: resolvedEntrySignalsJson ? resolvedEntrySignalsJson.length : 0,
+        sector: resolvedSector,
+      },
+    };
   } catch (err) {
     console.error(`[D1 LEDGER] Trade upsert failed for ${tradeId}:`, err);
     return { ok: false, error: String(err) };
@@ -30789,14 +30954,19 @@ async function d1ArchiveRunTrade(env, runId, trade) {
           .replace(/\b\w/g, c => c.toUpperCase())
       ) : null
     );
+    // V15 P0.7.46 (2026-05-01) — same 3-tier resolver as d1UpsertTrade
+    // so backtest_run_trades and trades stay in sync on capture columns.
+    const archEntrySignalsJson = _captureResolveEntrySignals(trade);
+    const archSector = _captureResolveSector(trade);
     await db.prepare(
       `INSERT OR REPLACE INTO backtest_run_trades
         (run_id, trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
          exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
          created_at, updated_at, trim_ts, trim_price,
          setup_name, setup_grade, risk_budget, shares, notional,
-         entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json)
-       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29)`
+         entry_path, max_favorable_excursion, max_adverse_excursion, rank_trace_json,
+         entry_signals_json, sector)
+       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31)`
     ).bind(
       String(runId),
       tradeId,
@@ -30827,7 +30997,28 @@ async function d1ArchiveRunTrade(env, runId, trade) {
       archMfe,
       archMae,
       trade.rankTraceJson ?? trade.rank_trace_json ?? null,
+      archEntrySignalsJson,
+      archSector,
     ).run();
+    // V15 P0.7.46 (2026-05-01) — best-effort KV probe for the archive path.
+    // Confirms d1ArchiveRunTrade actually fires for a given trade_id.
+    try {
+      const KV_PROBE = env?.KV_TIMED;
+      if (KV_PROBE && typeof KV_PROBE.put === "function") {
+        KV_PROBE.put(
+          `debug:capture-archive:${tradeId}`,
+          JSON.stringify({
+            ts: Date.now(),
+            run_id: String(runId),
+            ticker,
+            es_len: archEntrySignalsJson ? archEntrySignalsJson.length : 0,
+            sector: archSector,
+            has_rank_trace: !!(trade.rankTraceJson ?? trade.rank_trace_json),
+          }),
+          { expirationTtl: 600 },
+        ).catch(() => {});
+      }
+    } catch (_) { /* swallow */ }
   } catch (e) {
     console.warn("[ARCHIVE] d1ArchiveRunTrade failed:", String(e).slice(0, 150));
   }
@@ -48795,6 +48986,50 @@ export default {
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // V15 P0.7.46 (2026-05-01) — Read-only KV inspector for debugging.
+      // GET /timed/admin/kv/get?k=<key>&key=<api-key> → { ok, key, value }
+      // Used to retrieve debug:capture:* probes written by d1UpsertTrade.
+      if (routeKey === "GET /timed/admin/kv/get") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const KV = env?.KV_TIMED;
+        if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+        try {
+          const k = String(url.searchParams.get("k") || "").trim();
+          if (!k) return sendJSON({ ok: false, error: "k_required" }, 400, corsHeaders(env, req));
+          const v = await KV.get(k);
+          let parsed = v;
+          try { parsed = v != null ? JSON.parse(v) : null; } catch { /* keep raw */ }
+          return sendJSON({ ok: true, key: k, value: parsed, raw: v }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // V15 P0.7.46 (2026-05-01) — KV key prefix list for debugging.
+      // GET /timed/admin/kv/list?prefix=debug:capture:&limit=100&key=<api-key>
+      if (routeKey === "GET /timed/admin/kv/list") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const KV = env?.KV_TIMED;
+        if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+        try {
+          const prefix = String(url.searchParams.get("prefix") || "").trim();
+          const limit = Math.min(Number(url.searchParams.get("limit") || 100), 1000);
+          const list = await KV.list({ prefix, limit });
+          return sendJSON({
+            ok: true,
+            prefix,
+            count: list?.keys?.length || 0,
+            keys: (list?.keys || []).map((k) => ({ name: k.name, expiration: k.expiration || null })),
+            list_complete: !!list?.list_complete,
+            cursor: list?.cursor || null,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }
       }
 
