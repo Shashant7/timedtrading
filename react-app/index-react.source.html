@@ -18603,95 +18603,79 @@
                     // Daily Brief, where they are more table format like the
                     // Regime bar above." Two-column gainers|losers grid per
                     // session (RTH then EXT), each row: ticker · price · %.
-                    const moverRow = (t, isGain, pctKey, priceKey, idx) => {
+                    /* V2 (2026-05-01) — Top Movers on Design System v2.
+                       Each mover row = mini ds-tickercard with logo + symbol + price + change.
+                       Session label (RTH/EXT) lives in the ds-row label column.
+                       Cohesive with Market Pulse + View tabs above. */
+                    const MoverRow = ({ t, isGain, pctKey, priceKey, idx }) => {
                       const sym = t?.ticker || t?.symbol || "?";
                       const pct = Number(t[pctKey]) || 0;
                       const price = Number(t[priceKey]) || 0;
-                      const name = t?.context?.name || t?.companyName || "";
-                      const title = name ? `${sym} — ${name}` : sym;
-                      const colorClass = isGain ? "text-emerald-400" : "text-rose-400";
-                      const dotBg = isGain ? "rgba(34,197,94,0.7)" : "rgba(239,68,68,0.7)";
+                      const dir = isGain ? "up" : "dn";
                       return (
                         <button
                           key={`${sym}-${idx}`}
                           onClick={() => handleTickerSelect(sym)}
-                          title={title}
-                          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-md hover:bg-white/[0.04] transition-colors group"
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="w-1 h-1 rounded-full shrink-0" style={{ background: dotBg }} />
-                            <span className="text-[12px] font-bold text-white tracking-tight">{sym}</span>
-                          </div>
-                          <div className="flex items-center gap-2.5 tabular-nums">
-                            {price > 0 && (
-                              <span className="text-[11px] text-[#9ca3af]">${price.toFixed(2)}</span>
-                            )}
-                            <span className={`text-[12px] font-semibold ${colorClass} min-w-[55px] text-right`}>
+                          className="ds-card ds-card--interactive"
+                          style={{ padding: "8px 10px", display: "flex", alignItems: "center", gap: "var(--ds-space-2)", textAlign: "left", borderRadius: "var(--ds-radius-sm)" }}>
+                          <div className="ds-tickercard__logo" ref={(el) => {
+                            if (el && !el.dataset.dsInit && window.DS) {
+                              el.dataset.dsInit = "1";
+                              try { el.replaceWith(window.DS.tickerLogo(sym, { size: 22 })); } catch (_) {}
+                            }
+                          }} style={{ width: 22, height: 22 }}>{String(sym).slice(0,2)}</div>
+                          <span className="ds-tickercard__symbol" style={{ fontSize: 13 }}>{sym}</span>
+                          <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "var(--ds-space-2)" }}>
+                            {price > 0 && <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: 11, color: "var(--ds-text-muted)" }}>${price.toFixed(2)}</span>}
+                            <span className={`ds-chip ds-chip--sm ds-chip--${dir}`} style={{ fontSize: 11, minWidth: 60, justifyContent: "center" }}>
                               {pct >= 0 ? "+" : ""}{pct.toFixed(2)}%
                             </span>
-                          </div>
+                          </span>
                         </button>
                       );
                     };
-                    const moverTable = (label, badgeCls, gainers, losers, isGain, pctKey, priceKey) => (
-                      <div className="grid grid-cols-2 gap-x-3">
-                        {/* Gainers column */}
-                        <div>
-                          <div className="flex items-center gap-1.5 px-1 mb-0.5">
-                            <span className="text-[9px] uppercase tracking-wider text-emerald-400 font-bold">▲ Gainers</span>
-                            <span className="text-[9px] text-[#6b7280] tabular-nums">{gainers.length}</span>
-                          </div>
-                          <div className="rounded-md overflow-hidden bg-white/[0.015] border border-white/[0.04]">
-                            {gainers.length > 0
-                              ? gainers.map((t, i) => moverRow(t, true, pctKey, priceKey, i))
-                              : <div className="px-2.5 py-1.5 text-[10px] text-[#6b7280]">No gainers in this session.</div>}
-                          </div>
+                    const MoverColumn = ({ title, items, isGain, pctKey, priceKey }) => (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "0 4px" }}>
+                          <span className="ds-caption" style={{ color: isGain ? "var(--ds-up)" : "var(--ds-dn)" }}>
+                            {isGain ? "▲ Gainers" : "▼ Losers"}
+                          </span>
+                          <span style={{ fontSize: 10, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" }}>{items.length}</span>
                         </div>
-                        {/* Losers column */}
-                        <div>
-                          <div className="flex items-center gap-1.5 px-1 mb-0.5">
-                            <span className="text-[9px] uppercase tracking-wider text-rose-400 font-bold">▼ Losers</span>
-                            <span className="text-[9px] text-[#6b7280] tabular-nums">{losers.length}</span>
-                          </div>
-                          <div className="rounded-md overflow-hidden bg-white/[0.015] border border-white/[0.04]">
-                            {losers.length > 0
-                              ? losers.map((t, i) => moverRow(t, false, pctKey, priceKey, i))
-                              : <div className="px-2.5 py-1.5 text-[10px] text-[#6b7280]">No losers in this session.</div>}
-                          </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          {items.length > 0
+                            ? items.map((t, i) => <MoverRow key={`${pctKey}-${title}-${i}`} t={t} isGain={isGain} pctKey={pctKey} priceKey={priceKey} idx={i} />)
+                            : <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--ds-text-faint)" }}>No movers in this session.</div>}
                         </div>
                       </div>
                     );
-                    /* V15 P0.7.44 — unified row pattern. Top Movers gets the same
-                       fixed-width left-label/content-right grid as the sections
-                       above. Session pill (RTH/EXT) sits in the label column. */
-                    const SessionRow = ({ pill, pillCls, sublabel, children }) => (
-                      <div className="flex items-start gap-3 py-1">
-                        <div className="w-32 shrink-0 pt-0.5">
-                          <div className="flex items-center gap-1.5">
-                            <span className={`px-1.5 py-px rounded text-[9px] font-bold tracking-wide border ${pillCls}`}>{pill}</span>
-                          </div>
-                          {sublabel && <div className="text-[8px] text-[#4b5563] mt-0.5">{sublabel}</div>}
-                        </div>
-                        <div className="flex-1 min-w-0">{children}</div>
+                    const MoverTable = ({ gainers, losers, pctKey, priceKey }) => (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--ds-space-3)" }}>
+                        <MoverColumn title="g" items={gainers} isGain={true} pctKey={pctKey} priceKey={priceKey} />
+                        <MoverColumn title="l" items={losers} isGain={false} pctKey={pctKey} priceKey={priceKey} />
                       </div>
                     );
                     return (
-                      <div className="mb-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-1.5">
-                        <SessionRow
-                          pill="RTH"
-                          pillCls="bg-cyan-500/15 text-cyan-400 border-cyan-500/30"
-                          sublabel="Regular Hours"
-                        >
-                          {moverTable("RTH", "bg-cyan-500/15 text-cyan-400 border-cyan-500/30", rthGainers, rthLosers, null, "_pct", "_price")}
-                        </SessionRow>
+                      <div className="mb-3" style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-2)" }}>
+                        <div className="ds-row">
+                          <div className="ds-row__label">
+                            <span className="ds-chip ds-chip--accent ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }}>RTH</span>
+                            <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", marginTop: 4 }}>Regular Hours</div>
+                          </div>
+                          <div className="ds-row__content" style={{ flexDirection: "column" }}>
+                            <MoverTable gainers={rthGainers} losers={rthLosers} pctKey="_pct" priceKey="_price" />
+                          </div>
+                        </div>
                         {hasEth && (
-                          <SessionRow
-                            pill="EXT"
-                            pillCls="bg-amber-500/15 text-amber-400 border-amber-500/30"
-                            sublabel="Extended Hours"
-                          >
-                            {moverTable("EXT", "bg-amber-500/15 text-amber-400 border-amber-500/30", ethGainers, ethLosers, null, "_ethPct", "_ethPrice")}
-                          </SessionRow>
+                          <div className="ds-row">
+                            <div className="ds-row__label">
+                              <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)", color: "var(--ds-warn)", borderColor: "var(--ds-warn)", background: "rgba(245,158,11,0.10)" }}>EXT</span>
+                              <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", marginTop: 4 }}>Extended Hours</div>
+                            </div>
+                            <div className="ds-row__content" style={{ flexDirection: "column" }}>
+                              <MoverTable gainers={ethGainers} losers={ethLosers} pctKey="_ethPct" priceKey="_ethPrice" />
+                            </div>
+                          </div>
                         )}
                       </div>
                     );
