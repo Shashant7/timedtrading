@@ -9514,15 +9514,29 @@ const DsCompactCard = React.memo(function DsCompactCard({
   const openTrade = tradeByTicker?.get?.(sym) || null;
   const hasOpen = openTrade && !openTrade.exit_ts;
   const tradeDir = hasOpen ? String(openTrade.direction || "").toUpperCase() : null;
-  const sparkPoints = (() => {
-    const arr = (t?.intraday_5m || t?.intraday || []).slice(-30).map(p => Number(p?.c ?? p)).filter(Number.isFinite);
-    if (arr.length >= 2) return arr;
-    const pc = Number(t?.prev_close ?? t?.pc) || price;
-    return [pc, price];
+  const isTTSel = typeof isTickerTTSelected === "function" ? isTickerTTSelected(sym) : false;
+  const earnings = typeof window !== "undefined" && window._ttEarningsMap ? window._ttEarningsMap[sym] : null;
+  const earnDays = earnings && Number.isFinite(earnings._daysAway) ? earnings._daysAway : null;
+  const earnLabel = earnDays === 0 ? "Today" : earnDays === 1 ? "Tomorrow" : earnDays != null && earnDays > 0 ? `${earnDays}d` : earnDays != null && earnDays < 0 ? "Past" : null;
+  const state = String(t?.state || "").toUpperCase();
+  const biasLabel = (() => {
+    if (tradeDir) return tradeDir;
+    if (state.startsWith("HTF_BULL")) return "BULL";
+    if (state.startsWith("HTF_BEAR")) return "BEAR";
+    if (state.includes("BULL")) return "BULL";
+    if (state.includes("BEAR")) return "BEAR";
+    return "NEUTRAL";
   })();
-  const sparkSvg = typeof window !== "undefined" && window.DS && Number.isFinite(price) ? window.DS.sparklineSvg(sparkPoints, {
+  const biasChipCls = (() => {
+    if (biasLabel === "LONG" || biasLabel === "BULL") return "ds-chip--up";
+    if (biasLabel === "SHORT" || biasLabel === "BEAR") return "ds-chip--dn";
+    return "ds-chip--solid";
+  })();
+  const cachedSpark = typeof window !== "undefined" && typeof window._dsEnsureSparkline === "function" ? window._dsEnsureSparkline(sym) : null;
+  const sparkPoints = cachedSpark && cachedSpark.length >= 2 ? cachedSpark : [price || 0, price || 0];
+  const sparkSvg = typeof window !== "undefined" && window.DS && Number.isFinite(price) && price > 0 ? window.DS.sparklineSvg(sparkPoints, {
     width: 280,
-    height: 50,
+    height: 44,
     direction: dir,
     strokeWidth: 1.4
   }) : "";
@@ -9553,14 +9567,155 @@ const DsCompactCard = React.memo(function DsCompactCard({
     };
     return null;
   })();
+  const progressBar = (() => {
+    if (!hasOpen) return null;
+    const ep = Number(openTrade.entry_price ?? openTrade.entryPrice) || null;
+    if (!ep) return null;
+    const isLong = tradeDir === "LONG";
+    const sl = Number(openTrade.sl ?? openTrade.stop_loss) || Number(t?.sl) || null;
+    const tpArrRaw = Array.isArray(openTrade.tpArray) ? openTrade.tpArray : Array.isArray(openTrade.tp_array) ? openTrade.tp_array : null;
+    const tps = (() => {
+      if (tpArrRaw && tpArrRaw.length > 0) {
+        return tpArrRaw.map(x => Number(x?.price ?? x)).filter(Number.isFinite);
+      }
+      const single = Number(openTrade.tp) || Number(t?.tp) || null;
+      return single ? [single] : [];
+    })();
+    const allPx = [ep, price, sl, ...tps].filter(p => Number.isFinite(p) && p > 0);
+    if (allPx.length < 2) return null;
+    const min = Math.min(...allPx);
+    const max = Math.max(...allPx);
+    const padding = (max - min) * 0.05 || 0.5;
+    const lo = min - padding;
+    const hi = max + padding;
+    const xPct = px => Math.max(0, Math.min(100, (px - lo) / (hi - lo) * 100));
+    const pnlPct = isLong ? (price - ep) / ep * 100 : (ep - price) / ep * 100;
+    const ticks = [];
+    if (sl) ticks.push({
+      px: sl,
+      label: "SL",
+      color: "var(--ds-dn)"
+    });
+    ticks.push({
+      px: ep,
+      label: "E",
+      color: "var(--ds-text-muted)"
+    });
+    tps.forEach((tp, i) => ticks.push({
+      px: tp,
+      label: `T${i + 1}`,
+      color: "var(--ds-up)"
+    }));
+    ticks.sort((a, b) => a.px - b.px);
+    const curX = xPct(price);
+    return React.createElement("div", {
+      style: {
+        marginTop: "var(--ds-space-2)",
+        zIndex: 2,
+        position: "relative"
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        fontSize: 9,
+        color: "var(--ds-text-muted)",
+        marginBottom: 4,
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, React.createElement("span", {
+      style: {
+        textTransform: "uppercase",
+        letterSpacing: "0.16em",
+        fontWeight: 700
+      }
+    }, "Position"), React.createElement("span", {
+      style: {
+        color: pnlPct >= 0 ? "var(--ds-up)" : "var(--ds-dn)",
+        fontWeight: 700
+      }
+    }, pnlPct >= 0 ? "+" : "", pnlPct.toFixed(2), "%")), React.createElement("div", {
+      style: {
+        position: "relative",
+        height: 6,
+        background: "var(--ds-bg-glass-hi)",
+        borderRadius: 3,
+        overflow: "visible"
+      }
+    }, (() => {
+      const epX = xPct(ep);
+      const fillStart = Math.min(epX, curX);
+      const fillW = Math.abs(curX - epX);
+      const fillBg = pnlPct >= 0 ? "var(--ds-up-bg)" : "var(--ds-dn-bg)";
+      return React.createElement("div", {
+        style: {
+          position: "absolute",
+          left: `${fillStart}%`,
+          width: `${fillW}%`,
+          top: 0,
+          bottom: 0,
+          background: fillBg,
+          borderRadius: 3
+        }
+      });
+    })(), ticks.map((tick, i) => React.createElement("div", {
+      key: `tick-${i}`,
+      style: {
+        position: "absolute",
+        left: `${xPct(tick.px)}%`,
+        top: -2,
+        bottom: -2,
+        width: 2,
+        background: tick.color,
+        transform: "translateX(-1px)"
+      }
+    })), React.createElement("div", {
+      style: {
+        position: "absolute",
+        left: `${curX}%`,
+        top: "50%",
+        transform: "translate(-50%, -50%)",
+        width: 10,
+        height: 10,
+        borderRadius: "50%",
+        background: "var(--ds-accent)",
+        boxShadow: "0 0 0 2px var(--ds-bg-surface), 0 0 0 3px var(--ds-accent-glow)"
+      }
+    })), React.createElement("div", {
+      style: {
+        position: "relative",
+        height: 12,
+        marginTop: 2,
+        fontFamily: "var(--tt-font-mono)",
+        fontSize: 8,
+        color: "var(--ds-text-muted)"
+      }
+    }, ticks.map((tick, i) => React.createElement("span", {
+      key: `lbl-${i}`,
+      style: {
+        position: "absolute",
+        left: `${xPct(tick.px)}%`,
+        transform: "translateX(-50%)",
+        color: tick.color,
+        fontWeight: 700,
+        whiteSpace: "nowrap"
+      }
+    }, tick.label))));
+  })();
+  const cardStyle = {
+    width: 280,
+    textAlign: "left",
+    padding: "var(--ds-space-3)",
+    ...(isTTSel ? {
+      borderColor: "var(--ds-accent-dim)",
+      boxShadow: "inset 0 0 0 1px rgba(245,194,92,0.18)"
+    } : {})
+  };
   return React.createElement("button", {
     onClick: () => onSelectTicker && onSelectTicker(sym),
     className: "ds-tickercard",
-    style: {
-      width: 280,
-      textAlign: "left",
-      padding: "var(--ds-space-3)"
-    }
+    style: cardStyle
   }, React.createElement("div", {
     className: "ds-tickercard__head"
   }, React.createElement("div", {
@@ -9584,13 +9739,32 @@ const DsCompactCard = React.memo(function DsCompactCard({
     style: {
       fontSize: 13
     }
-  }, sym), tradeDir && React.createElement("span", {
-    className: `ds-chip ds-chip--sm ${tradeDir === "LONG" ? "ds-chip--up" : "ds-chip--dn"}`,
+  }, sym), React.createElement("span", {
+    className: `ds-chip ds-chip--sm ${biasChipCls}`,
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      marginLeft: 4
+    },
+    title: hasOpen ? "Active trade direction" : "Bias"
+  }, biasLabel), isTTSel && React.createElement("span", {
+    title: "TT Selected",
+    style: {
+      width: 6,
+      height: 6,
+      borderRadius: "50%",
+      background: "var(--ds-accent)",
+      boxShadow: "0 0 0 2px rgba(245,194,92,0.20)",
+      marginLeft: 4,
+      flexShrink: 0
+    }
+  }), earnLabel && React.createElement("span", {
+    className: "ds-chip ds-chip--sm ds-chip--accent",
+    title: `Earnings ${earnings.date} ${earnings.hour || ""}`,
     style: {
       fontFamily: "var(--tt-font-mono)",
       marginLeft: 4
     }
-  }, tradeDir), stageChip && React.createElement("span", {
+  }, "EPS ", earnLabel), stageChip && React.createElement("span", {
     className: `ds-chip ds-chip--sm ${stageChip.cls}`,
     style: {
       marginLeft: "auto"
@@ -9605,7 +9779,7 @@ const DsCompactCard = React.memo(function DsCompactCard({
     style: {
       fontSize: 12
     }
-  }, dir === "up" ? "▲" : dir === "dn" ? "▼" : "◆", " ", dayPct >= 0 ? "+" : "", dayPct.toFixed(2), "%"), sparkSvg && React.createElement("div", {
+  }, dir === "up" ? "▲" : dir === "dn" ? "▼" : "◆", " ", dayPct >= 0 ? "+" : "", dayPct.toFixed(2), "%"), progressBar, sparkSvg && React.createElement("div", {
     className: "ds-tickercard__spark",
     dangerouslySetInnerHTML: {
       __html: sparkSvg
@@ -14026,6 +14200,10 @@ function App() {
     }
     return null;
   }, [sparklineCache, fetchSparkline]);
+  React.useEffect(() => {
+    window._dsEnsureSparkline = ensureSparkline;
+    window._dsSparklineCache = sparklineCache;
+  }, [ensureSparkline, sparklineCache]);
   React.useEffect(() => {
     const interval = setInterval(() => {
       const symbols = Object.keys(sparklineCache);

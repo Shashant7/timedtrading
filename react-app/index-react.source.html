@@ -12219,6 +12219,13 @@
        * Per user: cards should match the rest of the app design language; no
        * emojis (right rail holds detail). Logo + symbol + price + change
        * sparkline + 1-2 essential signal chips.
+       *
+       * Round 2 (2026-05-01) per user feedback:
+       *  - 1H TF sparkline (real data, same as Market Pulse)
+       *  - Active-trade progress bar with SL / Entry / Current / TP1 / TP2 / TP3 milestones
+       *  - TT-Selected highlight (subtle gold accent border)
+       *  - Earnings event subtle badge
+       *  - Bias chip: Bullish / Bearish / Neutral when no trade; LONG / SHORT when in trade
        */
       const DsCompactCard = React.memo(function DsCompactCard({ t, onSelectTicker, tradeByTicker }) {
         const sym = String(t?.ticker || "").toUpperCase();
@@ -12233,17 +12240,44 @@
         const stage = String(t?.kanban_stage || "").toLowerCase();
         const openTrade = tradeByTicker?.get?.(sym) || null;
         const hasOpen = openTrade && !openTrade.exit_ts;
-        // Bias label for the trade direction
         const tradeDir = hasOpen ? String(openTrade.direction || "").toUpperCase() : null;
-        const sparkPoints = (() => {
-          const arr = (t?.intraday_5m || t?.intraday || []).slice(-30).map(p => Number(p?.c ?? p)).filter(Number.isFinite);
-          if (arr.length >= 2) return arr;
-          const pc = Number(t?.prev_close ?? t?.pc) || price;
-          return [pc, price];
+
+        /* V2.1 round 2 — TT Selected check */
+        const isTTSel = (typeof isTickerTTSelected === "function") ? isTickerTTSelected(sym) : false;
+
+        /* V2.1 round 2 — earnings within 7 days */
+        const earnings = (typeof window !== "undefined" && window._ttEarningsMap) ? window._ttEarningsMap[sym] : null;
+        const earnDays = earnings && Number.isFinite(earnings._daysAway) ? earnings._daysAway : null;
+        const earnLabel = earnDays === 0 ? "Today" : earnDays === 1 ? "Tomorrow" : earnDays != null && earnDays > 0 ? `${earnDays}d` : earnDays != null && earnDays < 0 ? "Past" : null;
+
+        /* V2.1 round 2 — bias label.
+           Trade direction wins; otherwise derive from state. */
+        const state = String(t?.state || "").toUpperCase();
+        const biasLabel = (() => {
+          if (tradeDir) return tradeDir;
+          if (state.startsWith("HTF_BULL")) return "BULL";
+          if (state.startsWith("HTF_BEAR")) return "BEAR";
+          if (state.includes("BULL")) return "BULL";
+          if (state.includes("BEAR")) return "BEAR";
+          return "NEUTRAL";
         })();
-        const sparkSvg = (typeof window !== "undefined" && window.DS && Number.isFinite(price))
-          ? window.DS.sparklineSvg(sparkPoints, { width: 280, height: 50, direction: dir, strokeWidth: 1.4 })
+        const biasChipCls = (() => {
+          if (biasLabel === "LONG" || biasLabel === "BULL") return "ds-chip--up";
+          if (biasLabel === "SHORT" || biasLabel === "BEAR") return "ds-chip--dn";
+          return "ds-chip--solid";
+        })();
+
+        /* V2.1 round 2 — 1H sparkline via shared cache */
+        const cachedSpark = (typeof window !== "undefined" && typeof window._dsEnsureSparkline === "function")
+          ? window._dsEnsureSparkline(sym)
+          : null;
+        const sparkPoints = (cachedSpark && cachedSpark.length >= 2)
+          ? cachedSpark
+          : [price || 0, price || 0]; // flat line while loading; no fake jagged synth
+        const sparkSvg = (typeof window !== "undefined" && window.DS && Number.isFinite(price) && price > 0)
+          ? window.DS.sparklineSvg(sparkPoints, { width: 280, height: 44, direction: dir, strokeWidth: 1.4 })
           : "";
+
         const stageChip = (() => {
           if (stage === "trim") return { label: "Trim", cls: "ds-chip--accent" };
           if (stage === "defend") return { label: "Defend", cls: "ds-chip--dn" };
@@ -12253,11 +12287,130 @@
           if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") return { label: "Setup", cls: "" };
           return null;
         })();
+
+        /* V2.1 round 2 — active-trade progress bar.
+           Plot SL / Entry / Current / TP1 / TP2 / TP3 on a horizontal axis with
+           current-price marker. */
+        const progressBar = (() => {
+          if (!hasOpen) return null;
+          const ep = Number(openTrade.entry_price ?? openTrade.entryPrice) || null;
+          if (!ep) return null;
+          const isLong = tradeDir === "LONG";
+          const sl = Number(openTrade.sl ?? openTrade.stop_loss) || Number(t?.sl) || null;
+          // TP array: prefer trade.tp_array; fall back to single tp
+          const tpArrRaw = Array.isArray(openTrade.tpArray) ? openTrade.tpArray
+                         : Array.isArray(openTrade.tp_array) ? openTrade.tp_array
+                         : null;
+          const tps = (() => {
+            if (tpArrRaw && tpArrRaw.length > 0) {
+              return tpArrRaw.map(x => Number(x?.price ?? x)).filter(Number.isFinite);
+            }
+            const single = Number(openTrade.tp) || Number(t?.tp) || null;
+            return single ? [single] : [];
+          })();
+          // Determine domain: include all known levels + current price
+          const allPx = [ep, price, sl, ...tps].filter(p => Number.isFinite(p) && p > 0);
+          if (allPx.length < 2) return null;
+          const min = Math.min(...allPx);
+          const max = Math.max(...allPx);
+          const padding = (max - min) * 0.05 || 0.5;
+          const lo = min - padding;
+          const hi = max + padding;
+          const xPct = (px) => Math.max(0, Math.min(100, ((px - lo) / (hi - lo)) * 100));
+          // Compute realized pnl%
+          const pnlPct = isLong ? ((price - ep) / ep * 100) : ((ep - price) / ep * 100);
+          const ticks = [];
+          if (sl)  ticks.push({ px: sl, label: "SL", color: "var(--ds-dn)" });
+          ticks.push({ px: ep, label: "E", color: "var(--ds-text-muted)" });
+          tps.forEach((tp, i) => ticks.push({ px: tp, label: `T${i + 1}`, color: "var(--ds-up)" }));
+          // Sort by price asc
+          ticks.sort((a, b) => a.px - b.px);
+          const curX = xPct(price);
+          return (
+            <div style={{ marginTop: "var(--ds-space-2)", zIndex: 2, position: "relative" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 9, color: "var(--ds-text-muted)", marginBottom: 4, fontFamily: "var(--tt-font-mono)" }}>
+                <span style={{ textTransform: "uppercase", letterSpacing: "0.16em", fontWeight: 700 }}>Position</span>
+                <span style={{ color: pnlPct >= 0 ? "var(--ds-up)" : "var(--ds-dn)", fontWeight: 700 }}>{pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%</span>
+              </div>
+              {/* Track */}
+              <div style={{
+                position: "relative",
+                height: 6,
+                background: "var(--ds-bg-glass-hi)",
+                borderRadius: 3,
+                overflow: "visible",
+              }}>
+                {/* Fill from entry to current (gold for in-the-money, dn-tinted otherwise) */}
+                {(() => {
+                  const epX = xPct(ep);
+                  const fillStart = Math.min(epX, curX);
+                  const fillW = Math.abs(curX - epX);
+                  const fillBg = pnlPct >= 0 ? "var(--ds-up-bg)" : "var(--ds-dn-bg)";
+                  return (
+                    <div style={{
+                      position: "absolute",
+                      left: `${fillStart}%`,
+                      width: `${fillW}%`,
+                      top: 0, bottom: 0,
+                      background: fillBg,
+                      borderRadius: 3,
+                    }} />
+                  );
+                })()}
+                {/* Tick marks for SL / E / Tn */}
+                {ticks.map((tick, i) => (
+                  <div key={`tick-${i}`} style={{
+                    position: "absolute",
+                    left: `${xPct(tick.px)}%`,
+                    top: -2, bottom: -2,
+                    width: 2,
+                    background: tick.color,
+                    transform: "translateX(-1px)",
+                  }} />
+                ))}
+                {/* Current-price dot */}
+                <div style={{
+                  position: "absolute",
+                  left: `${curX}%`,
+                  top: "50%",
+                  transform: "translate(-50%, -50%)",
+                  width: 10,
+                  height: 10,
+                  borderRadius: "50%",
+                  background: "var(--ds-accent)",
+                  boxShadow: "0 0 0 2px var(--ds-bg-surface), 0 0 0 3px var(--ds-accent-glow)",
+                }} />
+              </div>
+              {/* Labels under track */}
+              <div style={{ position: "relative", height: 12, marginTop: 2, fontFamily: "var(--tt-font-mono)", fontSize: 8, color: "var(--ds-text-muted)" }}>
+                {ticks.map((tick, i) => (
+                  <span key={`lbl-${i}`} style={{
+                    position: "absolute",
+                    left: `${xPct(tick.px)}%`,
+                    transform: "translateX(-50%)",
+                    color: tick.color,
+                    fontWeight: 700,
+                    whiteSpace: "nowrap",
+                  }}>{tick.label}</span>
+                ))}
+              </div>
+            </div>
+          );
+        })();
+
+        /* V2.1 round 2 — TT Selected card border treatment (subtle gold accent) */
+        const cardStyle = {
+          width: 280,
+          textAlign: "left",
+          padding: "var(--ds-space-3)",
+          ...(isTTSel ? { borderColor: "var(--ds-accent-dim)", boxShadow: "inset 0 0 0 1px rgba(245,194,92,0.18)" } : {}),
+        };
+
         return (
           <button
             onClick={() => onSelectTicker && onSelectTicker(sym)}
             className="ds-tickercard"
-            style={{ width: 280, textAlign: "left", padding: "var(--ds-space-3)" }}>
+            style={cardStyle}>
             <div className="ds-tickercard__head">
               <div className="ds-tickercard__logo" ref={(el) => {
                 if (el && !el.dataset.dsInit && window.DS) {
@@ -12266,8 +12419,24 @@
                 }
               }} style={{ width: 22, height: 22 }}>{sym.slice(0, 2)}</div>
               <span className="ds-tickercard__symbol" style={{ fontSize: 13 }}>{sym}</span>
-              {tradeDir && (
-                <span className={`ds-chip ds-chip--sm ${tradeDir === "LONG" ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)", marginLeft: 4 }}>{tradeDir}</span>
+              {/* Bias / direction chip */}
+              <span className={`ds-chip ds-chip--sm ${biasChipCls}`} style={{ fontFamily: "var(--tt-font-mono)", marginLeft: 4 }} title={hasOpen ? "Active trade direction" : "Bias"}>
+                {biasLabel}
+              </span>
+              {/* TT Selected subtle dot */}
+              {isTTSel && (
+                <span title="TT Selected" style={{
+                  width: 6, height: 6, borderRadius: "50%",
+                  background: "var(--ds-accent)",
+                  boxShadow: "0 0 0 2px rgba(245,194,92,0.20)",
+                  marginLeft: 4, flexShrink: 0,
+                }} />
+              )}
+              {/* Earnings badge */}
+              {earnLabel && (
+                <span className="ds-chip ds-chip--sm ds-chip--accent" title={`Earnings ${earnings.date} ${earnings.hour || ""}`} style={{ fontFamily: "var(--tt-font-mono)", marginLeft: 4 }}>
+                  EPS {earnLabel}
+                </span>
               )}
               {stageChip && (
                 <span className={`ds-chip ds-chip--sm ${stageChip.cls}`} style={{ marginLeft: "auto" }}>{stageChip.label}</span>
@@ -12279,6 +12448,8 @@
                 {dir === "up" ? "▲" : dir === "dn" ? "▼" : "◆"} {dayPct >= 0 ? "+" : ""}{dayPct.toFixed(2)}%
               </div>
             )}
+            {/* Active-trade progress bar (only when in trade) */}
+            {progressBar}
             {/* Sparkline behind text wash */}
             {sparkSvg && <div className="ds-tickercard__spark" dangerouslySetInnerHTML={{ __html: sparkSvg }} />}
             {/* Bottom signal row: rank · conviction tier · RR */}
@@ -17174,9 +17345,13 @@
         const { wsConnected, wsLastMessage } = useWebSocket(data, setTickerData);
         const { priceLastUpdated } = usePriceFeed(data, setTickerData);
 
-        /* V2.1 (2026-05-01) — 1H sparkline cache for Market Pulse tiles.
-           Per user: "For Sparklines, we use the 1 hour TF". Fetches /timed/candles?tf=60
-           for the priority symbols once on mount, refreshes every 5 minutes. */
+        /* V2.1 (2026-05-01) — 1H sparkline cache for Market Pulse tiles AND
+           Kanban / Viewport DsCompactCards.
+           Per user: "For Sparklines, we use the 1 hour TF".
+           Per user (round 2): Kanban Cards have the same issue \u2014 they need 1H TF too.
+           Fetches /timed/candles?tf=60 once per symbol, refreshes every 5 min.
+           Exposed on window so the DsCompactCard render path (also factory-ish)
+           can use it without prop-drilling through React.memo boundaries. */
         const [sparklineCache, setSparklineCache] = useState({});
         const fetchSparkline = React.useCallback(async (sym) => {
           try {
@@ -17204,6 +17379,12 @@
           }
           return null;
         }, [sparklineCache, fetchSparkline]);
+        // V2.1 (2026-05-01): expose to global so DsCompactCard (rendered inside
+        // memoized lanes that don't get the App-scope hook) can read the cache.
+        React.useEffect(() => {
+          window._dsEnsureSparkline = ensureSparkline;
+          window._dsSparklineCache = sparklineCache;
+        }, [ensureSparkline, sparklineCache]);
         // Refresh priority sparklines every 5 minutes
         React.useEffect(() => {
           const interval = setInterval(() => {
