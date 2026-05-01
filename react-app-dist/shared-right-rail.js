@@ -781,7 +781,13 @@
           candleSeriesRef.current = null;
           overlaySeriesRef.current = {};
         };
-      }, [mapped, indicatorData, chartTf, LWC, propHeight, propTicker]);
+      /* V2.1 round 3 (2026-05-01) — propTicker dropped from deps.
+         The full ticker object identity changes on every dashboard refresh
+         (every ~1s), so including it here destroyed and recreated the chart
+         on every poll → visible flicker. The chart only needs propTicker for
+         _rrFetchChartLevels which is keyed by ticker.symbol; we drive that
+         from a separate effect that depends on the symbol (stable). */
+      }, [mapped, indicatorData, chartTf, LWC, propHeight, propTicker?.ticker]);
 
       if (!LWC) {
         return React.createElement("div", { className: "text-xs text-[#6b7280]" }, "Charts library not loaded.");
@@ -1493,7 +1499,12 @@
           const sym = String(tickerSymbol || "")
             .trim()
             .toUpperCase();
-          if (railTab !== "ANALYSIS" || !sym) return;
+          /* V2.1 round 3 (2026-05-01) — Also fetch when SETUP tab is active.
+             The v2 RR renders the chart inside the Setup tab; without this
+             the chart panel was empty / stale because the legacy guard only
+             fired on the ANALYSIS tab. */
+          if (railTab !== "ANALYSIS" && railTab !== "SETUP") return;
+          if (!sym) return;
 
           let cancelled = false;
           const run = async () => {
@@ -2019,9 +2030,28 @@
             <>
               <div className="w-full h-full flex flex-col" style={{ background: "var(--ds-bg-canvas)", borderRadius: "var(--ds-radius-lg)", border: "1px solid var(--ds-stroke)" }}>
                 {/* ─── Sticky header ─────────────────────────────────── */}
+                {/* V2.1 round 3 (2026-05-01) — Mirror the CompactCard:
+                    logo + symbol + bias chip + TT-Selected dot + EPS badge +
+                    stage chip. RR is the same anatomy as the card with
+                    complementary detail below. */}
+                {(() => {
+                  // Reuse the same helpers as DsCompactCard
+                  const isTTSel = (typeof window !== "undefined" && typeof window.isTickerTTSelected === "function") ? window.isTickerTTSelected(tickerSymbol) : false;
+                  const earnings = (typeof window !== "undefined" && window._ttEarningsMap) ? window._ttEarningsMap[tickerSymbol] : null;
+                  const earnDays = earnings && Number.isFinite(earnings._daysAway) ? earnings._daysAway : null;
+                  const earnLabel = earnDays === 0 ? "Today" : earnDays === 1 ? "Tomorrow" : earnDays != null && earnDays > 0 ? `${earnDays}d` : null;
+                  const stage = String(ticker?.kanban_stage || "").toLowerCase();
+                  const stageChip = stage === "trim" ? { label: "Trim", cls: "ds-chip--accent" }
+                                   : stage === "defend" ? { label: "Defend", cls: "ds-chip--dn" }
+                                   : stage === "exit" ? { label: "Exit", cls: "ds-chip--dn" }
+                                   : (stage === "enter" || stage === "enter_now" || stage === "just_flipped") ? { label: "Enter", cls: "ds-chip--accent" }
+                                   : (stage === "hold" || stage === "active" || stage === "just_entered") ? { label: "Hold", cls: "ds-chip--up" }
+                                   : (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") ? { label: "Setup", cls: "" }
+                                   : null;
+                  return (
                 <div className="sticky top-0 z-30" style={{ background: "var(--ds-bg-canvas)", padding: "var(--ds-space-3) var(--ds-space-4)", borderBottom: "1px solid var(--ds-stroke)" }}>
                   <div className="flex items-center justify-between mb-2" style={{ gap: "var(--ds-space-2)" }}>
-                    <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0" style={{ flexWrap: "wrap" }}>
                       <div className="ds-tickercard__logo" style={{ width: 28, height: 28 }} ref={(el) => {
                         if (el && !el.dataset.dsInit && window.DS) {
                           el.dataset.dsInit = "1";
@@ -2029,7 +2059,23 @@
                         }
                       }}>{tickerSymbol.slice(0,2)}</div>
                       <h3 style={{ fontSize: "var(--ds-fs-h2)", fontWeight: 700, color: "var(--ds-text-display)", letterSpacing: "-0.01em", margin: 0, fontFamily: "var(--tt-font-mono)" }}>{tickerSymbol}</h3>
-                      {v2Dir && <span className={`ds-chip ds-chip--sm ${v2DirChip}`}>{v2Dir}</span>}
+                      {v2Dir && <span className={`ds-chip ds-chip--sm ${v2DirChip}`} title={trade ? "Active trade direction" : "Bias"}>{v2Dir}</span>}
+                      {isTTSel && (
+                        <span title="TT Selected" style={{
+                          width: 6, height: 6, borderRadius: "50%",
+                          background: "var(--ds-accent)",
+                          boxShadow: "0 0 0 2px rgba(245,194,92,0.20)",
+                          flexShrink: 0,
+                        }} />
+                      )}
+                      {earnLabel && (
+                        <span className="ds-chip ds-chip--sm ds-chip--accent" title={`Earnings ${earnings?.date || ""} ${earnings?.hour || ""}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
+                          EPS {earnLabel}
+                        </span>
+                      )}
+                      {stageChip && (
+                        <span className={`ds-chip ds-chip--sm ${stageChip.cls}`}>{stageChip.label}</span>
+                      )}
                     </div>
                     <div className="flex items-center gap-1">
                       <button className="ds-chip ds-chip--sm" onClick={() => { try { navigator.clipboard.writeText(window.location.origin + "/?ticker=" + tickerSymbol); } catch (_) {} }} title="Copy share link">↗</button>
@@ -2056,46 +2102,88 @@
                     ))}
                   </div>
                 </div>
+                  );
+                })()}
 
                 {/* ─── Scrollable body ───────────────────────────────── */}
                 <div className="flex-1 overflow-y-auto" style={{ padding: "var(--ds-space-4)" }}>
-                  {/* SNAPSHOT TAB */}
+                  {/* SNAPSHOT TAB
+                      V2.1 round 3 (2026-05-01) — Reorganized per user feedback:
+                       1. Today (regime/state/stage chips)
+                       2. Model Guidance (action + thesis up top, with rank reconciled to header)
+                       3. Position (only when open trade)
+                       4. Conviction (Rank/Score/Conviction with tooltips)
+                       5. Spider Chart (signal radar)
+                      Removed the redundant hero ticker card — the sticky header
+                      already shows logo / symbol / price / day-change. */}
                   {v2RailTab === "SNAPSHOT" && (
                     <>
-                      {/* Hero — symbol with price + sparkline wash */}
-                      <div className="ds-tickercard ds-tickercard--hero" style={{ marginBottom: "var(--ds-space-3)" }}>
-                        <div className="ds-tickercard__head">
-                          <span className="ds-tickercard__symbol">{tickerSymbol}</span>
-                          {(latestTicker?.context?.name || ticker?.context?.name) && (
-                            <span className="ds-tickercard__sub" style={{ marginLeft: 0 }}>{(latestTicker?.context?.name || ticker?.context?.name).slice(0, 32)}</span>
+                      {/* Today panel — at-a-glance regime + state + stage */}
+                      {(ticker?.regime_class || ticker?.state || ticker?.kanban_stage) && (
+                        <Panel title="Today">
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
+                            {ticker?.regime_class && <span className="ds-chip ds-chip--sm" title="Market regime classification">{String(ticker.regime_class).replace(/_/g, " ")}</span>}
+                            {ticker?.state && <span className="ds-chip ds-chip--sm ds-chip--solid" title="HTF state">{String(ticker.state).replace(/_/g, " ")}</span>}
+                            {ticker?.kanban_stage && <span className="ds-chip ds-chip--sm ds-chip--accent" title="Active management stage">{String(ticker.kanban_stage).replace(/_/g, " ")}</span>}
+                          </div>
+                        </Panel>
+                      )}
+
+                      {/* Model Guidance — moved to top of snapshot.
+                          Header surfaces R{rank} so it reconciles with the
+                          Conviction panel below (single source of truth). */}
+                      {predictionContract && (
+                        <Panel title="Model Guidance" action={
+                          <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                            {v2Rank != null && <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }} title="Rank vs all eligible tickers">R{v2Rank}</span>}
+                            {predictionContract?.action_label && <span className="ds-chip ds-chip--sm ds-chip--accent">{String(predictionContract.action_label).toUpperCase()}</span>}
+                          </div>
+                        }>
+                          {predictionContract?.thesis && (
+                            <p style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", lineHeight: "var(--tt-lh-relaxed)", margin: 0 }}>{predictionContract.thesis}</p>
                           )}
-                        </div>
-                        <div className="ds-tickercard__price">${v2Price.toFixed(2)}</div>
-                        {Number.isFinite(v2DayPct) && (
-                          <div className={`ds-tickercard__change ds-tickercard__change--${v2SparkDir}`}>
-                            {v2SparkDir === "up" ? "▲" : v2SparkDir === "dn" ? "▼" : "◆"} {v2DayPct >= 0 ? "+" : ""}{v2DayPct.toFixed(2)}%
-                          </div>
-                        )}
-                        {v2SparkSvg && <div className="ds-tickercard__spark" dangerouslySetInnerHTML={{ __html: v2SparkSvg }} />}
-                      </div>
+                          {predictionContract?.why_now && (
+                            <div style={{ marginTop: "var(--ds-space-3)" }}>
+                              <div className="ds-caption" style={{ marginBottom: "var(--ds-space-1)" }}>Why now</div>
+                              <p style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)", lineHeight: "var(--tt-lh-relaxed)", margin: 0 }}>{predictionContract.why_now}</p>
+                            </div>
+                          )}
+                          {Array.isArray(predictionContract?.supporting) && predictionContract.supporting.length > 0 && (
+                            <div style={{ marginTop: "var(--ds-space-3)", display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
+                              {predictionContract.supporting.slice(0, 6).map((s, i) => (
+                                <span key={`sup-${i}`} className="ds-chip ds-chip--sm ds-chip--up">+ {s}</span>
+                              ))}
+                            </div>
+                          )}
+                          {Array.isArray(predictionContract?.invalidation) && predictionContract.invalidation.length > 0 && (
+                            <div style={{ marginTop: "var(--ds-space-2)", display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
+                              {predictionContract.invalidation.slice(0, 4).map((s, i) => (
+                                <span key={`inv-${i}`} className="ds-chip ds-chip--sm ds-chip--dn">! {s}</span>
+                              ))}
+                            </div>
+                          )}
+                        </Panel>
+                      )}
 
-                      {/* ── Spider Chart panel — Inspiration 3, Signal Radar ── */}
-                      {window.TickerSpiderChartFactory && (() => {
-                        const SpiderC = window.TickerSpiderChartFactory({ React });
-                        return (
-                          <div style={{ marginBottom: "var(--ds-space-3)" }}>
-                            <SpiderC ticker={ticker} direction={v2Dir} compact={true} size={240} showLegend={true} />
-                          </div>
-                        );
-                      })()}
-
-                      {/* Conviction panel */}
+                      {/* Conviction panel — with tooltips on each metric */}
                       {(v2Rank || v2Score || v2Conv) && (
                         <Panel title="Conviction">
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--ds-space-2)" }}>
-                            {v2Rank != null && <Metric label="Rank" value={v2Rank} />}
-                            {v2Score != null && <Metric label="Score" value={Math.round(v2Score)} />}
-                            {v2Conv != null && <Metric label="Conviction" value={Math.round(v2Conv)} delta={v2Tier || null} />}
+                            {v2Rank != null && (
+                              <div title="RANK — position vs all eligible tickers, lower is better. R1 = top idea right now.">
+                                <Metric label="Rank" value={`R${v2Rank}`} />
+                              </div>
+                            )}
+                            {v2Score != null && (
+                              <div title="SCORE — composite alignment score (0–200) combining LTF momentum, HTF structure, RVol, fuel and divergence.">
+                                <Metric label="Score" value={Math.round(v2Score)} />
+                              </div>
+                            )}
+                            {v2Conv != null && (
+                              <div title="CONVICTION — engine confidence in the active setup (0–100). Tier A is highest conviction; Tier C is lowest.">
+                                <Metric label="Conviction" value={Math.round(v2Conv)} delta={v2Tier || null} />
+                              </div>
+                            )}
                           </div>
                           {/* Score Breakdown — accordion (uses calculateScoreBreakdown if available) */}
                           {typeof window !== "undefined" && typeof window.calculateScoreBreakdown === "function" && (() => {
@@ -2196,45 +2284,17 @@
                         </Panel>
                       )}
 
-                      {/* Model Guidance — single panel */}
-                      {predictionContract && (
-                        <Panel title="Model Guidance" action={predictionContract?.action_label && <span className="ds-chip ds-chip--sm ds-chip--accent">{String(predictionContract.action_label).toUpperCase()}</span>}>
-                          {predictionContract?.thesis && (
-                            <p style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", lineHeight: "var(--tt-lh-relaxed)", margin: 0 }}>{predictionContract.thesis}</p>
-                          )}
-                          {predictionContract?.why_now && (
-                            <div style={{ marginTop: "var(--ds-space-3)" }}>
-                              <div className="ds-caption" style={{ marginBottom: "var(--ds-space-1)" }}>Why now</div>
-                              <p style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)", lineHeight: "var(--tt-lh-relaxed)", margin: 0 }}>{predictionContract.why_now}</p>
-                            </div>
-                          )}
-                          {Array.isArray(predictionContract?.supporting) && predictionContract.supporting.length > 0 && (
-                            <div style={{ marginTop: "var(--ds-space-3)", display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
-                              {predictionContract.supporting.slice(0, 6).map((s, i) => (
-                                <span key={`sup-${i}`} className="ds-chip ds-chip--sm ds-chip--up">+ {s}</span>
-                              ))}
-                            </div>
-                          )}
-                          {Array.isArray(predictionContract?.invalidation) && predictionContract.invalidation.length > 0 && (
-                            <div style={{ marginTop: "var(--ds-space-2)", display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
-                              {predictionContract.invalidation.slice(0, 4).map((s, i) => (
-                                <span key={`inv-${i}`} className="ds-chip ds-chip--sm ds-chip--dn">! {s}</span>
-                              ))}
-                            </div>
-                          )}
-                        </Panel>
-                      )}
-
-                      {/* Today panel — regime + state + simple stats */}
-                      {(ticker?.regime_class || ticker?.state) && (
-                        <Panel title="Today">
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
-                            {ticker?.regime_class && <span className="ds-chip ds-chip--sm">{String(ticker.regime_class).replace(/_/g, " ")}</span>}
-                            {ticker?.state && <span className="ds-chip ds-chip--sm ds-chip--solid">{String(ticker.state).replace(/_/g, " ")}</span>}
-                            {ticker?.kanban_stage && <span className="ds-chip ds-chip--sm ds-chip--accent">{String(ticker.kanban_stage).replace(/_/g, " ")}</span>}
+                      {/* Spider Chart — Signal Radar (moved to bottom of Snapshot
+                          per user feedback: action / position / conviction first,
+                          deep diagnostic last). */}
+                      {window.TickerSpiderChartFactory && (() => {
+                        const SpiderC = window.TickerSpiderChartFactory({ React });
+                        return (
+                          <div style={{ marginBottom: "var(--ds-space-3)" }}>
+                            <SpiderC ticker={ticker} direction={v2Dir} compact={true} size={240} showLegend={true} />
                           </div>
-                        </Panel>
-                      )}
+                        );
+                      })()}
                     </>
                   )}
 
@@ -2256,13 +2316,15 @@
                       {chartCandles && chartCandles.length >= 2 && (
                         <Panel title="Chart" action={
                           <div className="ds-chipgroup" style={{ padding: 2 }}>
-                            {["10", "30", "60", "240", "D"].map((tf) => (
+                            {/* V2.1 round 3 (2026-05-01) — Drop 10m, use 15m as
+                                leading LTF (matches engine's leadingLtf). */}
+                            {["15", "30", "60", "240", "D"].map((tf) => (
                               <button
                                 key={`ctf-${tf}`}
                                 onClick={() => setChartTf(tf)}
                                 className={`ds-chipgroup__item ${chartTf === tf ? "ds-chipgroup__item--active" : ""}`}
                                 style={{ padding: "3px 8px", fontSize: 10 }}
-                              >{tf === "D" ? "D" : `${tf}m`}</button>
+                              >{tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`}</button>
                             ))}
                           </div>
                         }>
@@ -2389,36 +2451,121 @@
                   {/* TECHNICALS TAB */}
                   {v2RailTab === "TECHNICALS" && (
                     <>
-                      {/* Multi-TF stack — full table with EMA / ATR / RSI / Squeeze / Phase / VWAP */}
-                      {ticker?.tf_tech && (
-                        <Panel title="Multi-TF Stack">
+                      {/* Multi-TF stack — full table with RSI / ATR% / Squeeze / Phase / State.
+                          V2.1 round 3 (2026-05-01) — Field paths fixed:
+                            t.rsi.r5  (not t.rsi)
+                            t.sq.r/s/c (not sq.release/on)
+                            t.ph.v   (not t.ph)
+                            t.ema.stack (signed, +/-)
+                          ATR% derived: prefer ticker-level atr_d_pct or atr_d/price.
+                          Also drops 10m row (per user — 15m is the leading LTF). */}
+                      {ticker?.tf_tech && (() => {
+                        // Build a quick "insight" line above the table —
+                        // explains what's actionable from the stack.
+                        const tfm = ticker.tf_tech || {};
+                        const dirSign = (() => {
+                          const s = String(ticker?.state || "").toUpperCase();
+                          if (s.startsWith("HTF_BULL")) return 1;
+                          if (s.startsWith("HTF_BEAR")) return -1;
+                          const t30 = Number(tfm["30"]?.stDir);
+                          const t1h = Number(tfm["1H"]?.stDir || tfm["60"]?.stDir);
+                          const tdy = Number(tfm.D?.stDir);
+                          const sum = (t30||0)+(t1h||0)+(tdy||0);
+                          return sum > 0 ? 1 : sum < 0 ? -1 : 0;
+                        })();
+                        const dirLabel = dirSign === 1 ? "LONG" : dirSign === -1 ? "SHORT" : "MIX";
+                        let aligned = 0, opposed = 0, present = 0;
+                        for (const k of ["15","30","1H","4H","D"]) {
+                          const r = tfm[k] || tfm[`${k}m`] || (k === "1H" ? tfm["60"] : null) || (k === "4H" ? tfm["240"] : null);
+                          if (!r) continue;
+                          const stack = Number(r?.ema?.stack);
+                          if (!Number.isFinite(stack) || stack === 0) continue;
+                          present += 1;
+                          if (dirSign !== 0 && Math.sign(stack) === dirSign) aligned += 1;
+                          else if (dirSign !== 0 && Math.sign(stack) === -dirSign) opposed += 1;
+                        }
+                        // Squeeze surface
+                        let sqLine = null;
+                        for (const k of ["15","30","1H","60","4H","240","D"]) {
+                          const r = tfm[k]; const sq = r?.sq;
+                          if (!sq) continue;
+                          if (sq.r) { sqLine = `Squeeze RELEASE on ${k}`; break; }
+                        }
+                        if (!sqLine) {
+                          for (const k of ["15","30","1H","60","4H","240","D"]) {
+                            const r = tfm[k]; const sq = r?.sq;
+                            if (!sq) continue;
+                            if (sq.s) { sqLine = `Squeeze ON ${k}`; break; }
+                            if (sq.c) { sqLine = `Compressed on ${k}`; break; }
+                          }
+                        }
+                        const insight = (() => {
+                          if (present === 0) return "Multi-TF data loading…";
+                          const pct = Math.round((aligned / Math.max(1, present)) * 100);
+                          const txt = aligned >= 4 ? `Strongly aligned ${dirLabel} (${aligned}/${present})`
+                                    : aligned >= 3 ? `Mostly aligned ${dirLabel} (${aligned}/${present})`
+                                    : opposed >= 3 ? `Conflicted — ${opposed}/${present} against ${dirLabel}`
+                                    : `Mixed structure (${aligned}↑ / ${opposed}↓ vs ${dirLabel})`;
+                          return sqLine ? `${txt} · ${sqLine}` : txt;
+                        })();
+                        return (
+                        <Panel title="Multi-TF Stack" action={<span className={`ds-chip ds-chip--sm ${aligned >= 4 ? "ds-chip--up" : opposed >= 3 ? "ds-chip--dn" : "ds-chip--accent"}`}>{aligned}/{present || "?"}</span>}>
+                          <p style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", margin: "0 0 var(--ds-space-2) 0", lineHeight: 1.5 }}>{insight}</p>
                           <div style={{ display: "grid", gridTemplateColumns: "50px repeat(5, 1fr)", gap: "var(--ds-space-1)", fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-meta)" }}>
                             <div className="ds-caption">TF</div>
                             <div className="ds-caption" style={{ textAlign: "right" }}>RSI</div>
                             <div className="ds-caption" style={{ textAlign: "right" }}>ATR%</div>
                             <div className="ds-caption" style={{ textAlign: "right" }}>SQ</div>
                             <div className="ds-caption" style={{ textAlign: "right" }}>Phase</div>
-                            <div className="ds-caption" style={{ textAlign: "right" }}>State</div>
-                            {["10","30","1H","4H","D"].map((tf) => {
-                              const t = ticker.tf_tech?.[tf] || ticker.tf_tech?.[`${tf}m`];
-                              if (!t) return null;
-                              const sq = t.sq || {};
+                            <div className="ds-caption" style={{ textAlign: "right" }}>Stack</div>
+                            {[["15","15"],["30","30"],["1H","1H"],["4H","4H"],["D","D"]].map(([tfDisp, tfKey]) => {
+                              const tfRow = ticker.tf_tech?.[tfKey]
+                                || ticker.tf_tech?.[`${tfKey}m`]
+                                || (tfKey === "1H" ? ticker.tf_tech?.["60"] : null)
+                                || (tfKey === "4H" ? ticker.tf_tech?.["240"] : null);
+                              if (!tfRow) {
+                                return (
+                                  <React.Fragment key={`tf-${tfDisp}`}>
+                                    <div style={{ color: "var(--ds-text-muted)" }}>{tfDisp}</div>
+                                    <div style={{ textAlign: "right", color: "var(--ds-text-faint)" }}>—</div>
+                                    <div style={{ textAlign: "right", color: "var(--ds-text-faint)" }}>—</div>
+                                    <div style={{ textAlign: "right", color: "var(--ds-text-faint)" }}>—</div>
+                                    <div style={{ textAlign: "right", color: "var(--ds-text-faint)" }}>—</div>
+                                    <div style={{ textAlign: "right", color: "var(--ds-text-faint)" }}>—</div>
+                                  </React.Fragment>
+                                );
+                              }
+                              const sq = tfRow.sq || {};
+                              const rsiVal = Number(tfRow?.rsi?.r5);
+                              const phVal  = Number(tfRow?.ph?.v);
+                              const stack  = Number(tfRow?.ema?.stack);
+                              // ATR%: per-TF if available, else fall back to ticker-level atr_d_pct
+                              const atrPctTf = Number(tfRow?.atr_pct);
+                              const atrPctFallback = Number(ticker?.atr_d_pct ?? ticker?.atr_pct_d ?? (Number(ticker?.atr_d) && Number(ticker?.price) ? (Number(ticker.atr_d) / Number(ticker.price) * 100) : NaN));
+                              const atrPct = Number.isFinite(atrPctTf) ? atrPctTf : atrPctFallback;
+                              const sqLabel = sq.r ? "RLS" : sq.s ? "ON" : sq.c ? "CMP" : "—";
+                              const sqColor = sq.r ? "var(--ds-accent)" : sq.s ? "#facc15" : sq.c ? "var(--ds-text-muted)" : "var(--ds-text-faint)";
+                              const stackTxt = Number.isFinite(stack) && stack !== 0
+                                ? (stack >= 4 ? "BULL" : stack <= -4 ? "BEAR" : stack > 0 ? "+lean" : "-lean")
+                                : "MIX";
+                              const stackColor = Number.isFinite(stack) && stack >= 4 ? "var(--ds-up)"
+                                              : Number.isFinite(stack) && stack <= -4 ? "var(--ds-dn)"
+                                              : "var(--ds-text-muted)";
                               return (
-                                <React.Fragment key={`tf-${tf}`}>
-                                  <div style={{ color: "var(--ds-text-muted)" }}>{tf}</div>
-                                  <div style={{ textAlign: "right", color: t.rsi >= 70 ? "var(--ds-up)" : t.rsi <= 30 ? "var(--ds-dn)" : "var(--ds-text-display)" }}>{Number(t.rsi || 0).toFixed(1)}</div>
-                                  <div style={{ textAlign: "right", color: "var(--ds-text-display)" }}>{Number(t.atr_pct || 0).toFixed(2)}</div>
-                                  <div style={{ textAlign: "right", color: sq.release ? "var(--ds-accent)" : sq.on ? "var(--ds-warn)" : "var(--ds-text-faint)" }}>{sq.release ? "RLS" : sq.on ? "ON" : "—"}</div>
-                                  <div style={{ textAlign: "right", color: "var(--ds-text-display)" }}>{Number(t.ph || 0).toFixed(0)}</div>
-                                  <div style={{ textAlign: "right", color: t.bull_stack ? "var(--ds-up)" : t.bear_stack ? "var(--ds-dn)" : "var(--ds-text-muted)" }}>
-                                    {t.bull_stack ? "BULL" : t.bear_stack ? "BEAR" : "MIX"}
-                                  </div>
+                                <React.Fragment key={`tf-${tfDisp}`}>
+                                  <div style={{ color: "var(--ds-text-muted)" }}>{tfDisp}</div>
+                                  <div style={{ textAlign: "right", color: Number.isFinite(rsiVal) ? (rsiVal >= 70 ? "var(--ds-up)" : rsiVal <= 30 ? "var(--ds-dn)" : "var(--ds-text-display)") : "var(--ds-text-faint)" }}>{Number.isFinite(rsiVal) ? rsiVal.toFixed(1) : "—"}</div>
+                                  <div style={{ textAlign: "right", color: Number.isFinite(atrPct) ? "var(--ds-text-display)" : "var(--ds-text-faint)" }}>{Number.isFinite(atrPct) ? atrPct.toFixed(2) : "—"}</div>
+                                  <div style={{ textAlign: "right", color: sqColor }}>{sqLabel}</div>
+                                  <div style={{ textAlign: "right", color: Number.isFinite(phVal) ? "var(--ds-text-display)" : "var(--ds-text-faint)" }}>{Number.isFinite(phVal) ? phVal.toFixed(0) : "—"}</div>
+                                  <div style={{ textAlign: "right", color: stackColor }}>{stackTxt}</div>
                                 </React.Fragment>
                               );
                             })}
                           </div>
                         </Panel>
-                      )}
+                        );
+                      })()}
 
                       {/* RSI + Divergence panel */}
                       {ticker?.rsi != null && (

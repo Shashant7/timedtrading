@@ -230,22 +230,35 @@
   }
 
   // Event risk — inverse of earnings proximity + macro severity.
+  // V2.1 round 3 (2026-05-01) — Previously this returned 10 for nearly every
+  // ticker because the per-ticker payload doesn't include days_to_earnings.
+  // Now we also consult the global window._ttEarningsMap (built once in App
+  // from /timed/earnings/upcoming) so the score reflects real EPS proximity.
   function scoreEvent(ticker) {
-    const daysToEarn = numFrom(
+    let daysToEarn = numFrom(
       ticker?.days_to_earnings,
       ticker?.earnings_days_until,
       ticker?.earnings_countdown_days,
       ticker?.__earnings_days,
     );
+    if (daysToEarn == null && typeof window !== "undefined" && window._ttEarningsMap) {
+      const sym = String(ticker?.ticker || ticker?.symbol || "").toUpperCase();
+      const evt = sym && window._ttEarningsMap[sym];
+      if (evt && Number.isFinite(evt._daysAway)) daysToEarn = evt._daysAway;
+    }
     const macro = ticker?.event_risk || ticker?._event_risk || ticker?.__eventRiskProfile;
     const macroSeverity = String(macro?.severity || "").toLowerCase();
     const macroHours = numFrom(macro?.hoursToEvent);
-    let base = 10;
+    /* If we have NO event signal at all, return 7 instead of 10 — the
+       neutral "we don't know of an event" stance, not "definitely safe". */
+    let base = (daysToEarn == null && !macroSeverity) ? 7 : 10;
     if (daysToEarn != null) {
-      if (daysToEarn >= 0 && daysToEarn <= 1) base = 2;
-      else if (daysToEarn <= 3) base = 4;
-      else if (daysToEarn <= 7) base = 6;
-      else if (daysToEarn <= 14) base = 8;
+      if (daysToEarn >= 0 && daysToEarn <= 1) base = 1;
+      else if (daysToEarn <= 3) base = 3;
+      else if (daysToEarn <= 7) base = 5;
+      else if (daysToEarn <= 14) base = 7;
+      else if (daysToEarn <= 30) base = 9;
+      else base = 10;
     }
     if (macroSeverity === "high") base = Math.min(base, 3);
     else if (macroSeverity === "medium") base = Math.min(base, 5);
