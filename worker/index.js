@@ -16405,8 +16405,17 @@ async function processTradeSimulation(
         const _curPnlPct = _isLongMfe
           ? ((pxNow - _entryPxMfe) / _entryPxMfe) * 100
           : ((_entryPxMfe - pxNow) / _entryPxMfe) * 100;
-        const prevMfe = Number(openTrade.maxFavorableExcursion) || 0;
-        const prevMae = Number(openTrade.maxAdverseExcursion) || 0;
+        /* V15 P0.7.46 (2026-05-01) — initialize MFE/MAE to 0 on first observation
+           so trades that close on the entry bar still have non-NULL values (was
+           leaving NULL on ~7% of canonical-run trades). Prior code returned 0
+           via `Number(undefined) || 0` for the comparison, but never wrote the
+           zero back — so same-bar exits never persisted MFE/MAE. */
+        const prevMfe = openTrade.maxFavorableExcursion != null
+          ? Number(openTrade.maxFavorableExcursion) : 0;
+        const prevMae = openTrade.maxAdverseExcursion != null
+          ? Number(openTrade.maxAdverseExcursion) : 0;
+        if (openTrade.maxFavorableExcursion == null) openTrade.maxFavorableExcursion = 0;
+        if (openTrade.maxAdverseExcursion == null) openTrade.maxAdverseExcursion = 0;
         if (_curPnlPct > prevMfe) openTrade.maxFavorableExcursion = Math.round(_curPnlPct * 10000) / 10000;
         if (_curPnlPct < prevMae) openTrade.maxAdverseExcursion = Math.round(_curPnlPct * 10000) / 10000;
       }
@@ -19674,6 +19683,10 @@ async function processTradeSimulation(
               trimmedPct: 0,
               history: [ev],
               notional: notional,
+              /* V15 P0.7.46 (2026-05-01) — initialize MFE/MAE to 0 at creation
+                 so they are never NULL even on same-bar entry-and-exit trades. */
+              maxFavorableExcursion: 0,
+              maxAdverseExcursion: 0,
               confidence: confidence,
               confidenceBreakdown: confidenceBreakdown,
               sizing: {
