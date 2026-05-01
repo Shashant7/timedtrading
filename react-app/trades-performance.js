@@ -242,17 +242,19 @@
       const redDays = cells.filter(c => c.n > 0 && c.pnl < 0).length;
       const totalPnl = cells.reduce((sum, c) => sum + (c.pnl || 0), 0);
 
-      return React.createElement("div", { className: "mt-4" },
-        React.createElement("div", { className: "flex items-center justify-between mb-2" },
-          React.createElement("h3", { className: "text-[10px] uppercase tracking-wider text-[#6b7280] font-semibold" },
+      return React.createElement("div", null,
+        React.createElement("div", { className: "ds-glass__head" },
+          React.createElement("div", { className: "ds-glass__title" },
             `P&L Calendar — last ${days} days`),
-          React.createElement("div", { className: "text-[11px] text-[#9ca3af] tabular-nums" },
-            `${totalDays} active · `,
-            React.createElement("span", { className: "text-emerald-400 font-semibold" }, `${greenDays} green`),
-            ` · `,
-            React.createElement("span", { className: "text-rose-400 font-semibold" }, `${redDays} red`),
-            ` · total `,
-            React.createElement("span", { className: totalPnl >= 0 ? "text-emerald-400 font-semibold" : "text-rose-400 font-semibold" }, fmtPnl(totalPnl))
+          React.createElement("div", {
+            style: { fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", display: "flex", gap: "var(--ds-space-2)", alignItems: "center" },
+          },
+            React.createElement("span", null, `${totalDays} active`),
+            React.createElement("span", { className: "ds-chip ds-chip--up ds-chip--sm" }, `${greenDays} green`),
+            React.createElement("span", { className: "ds-chip ds-chip--dn ds-chip--sm" }, `${redDays} red`),
+            React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${totalPnl >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
+            }, fmtPnl(totalPnl))
           )
         ),
         React.createElement("div", { className: "flex gap-1" },
@@ -307,42 +309,61 @@
       const totalPnlUsd = closed.reduce((s, t) => s + (Number(t?.pnl) || 0), 0);
       const overallWr = closed.length > 0 ? (totalWins / closed.length) * 100 : 0;
 
-      return React.createElement("div", { className: "space-y-6" },
-        // Top-line summary stripe
-        React.createElement("div", {
-          className: "grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-lg",
-          style: { background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }
+      /* V2 (2026-05-01) — DS metric tile pattern. Each KPI uses
+         ds-metric + delta chip (semantic up/dn/accent). */
+      const wrDelta = overallWr >= 65 ? "Strong" : overallWr >= 50 ? "OK" : "Low";
+      const wrDeltaClass = overallWr >= 65 ? "up" : overallWr >= 50 ? "accent" : "dn";
+      const pnlDeltaClass = totalPnlPct >= 0 ? "up" : "dn";
+
+      return React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "var(--ds-space-5)" } },
+        // Top-line summary — ds-metric grid in a ds-card
+        React.createElement("div", { className: "ds-card",
+          style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "var(--ds-space-3)" }
         },
-          React.createElement("div", null,
-            React.createElement("div", { className: "text-[10px] uppercase tracking-wider text-[#6b7280] mb-1" }, "Closed Trades"),
-            React.createElement("div", { className: "text-2xl font-bold text-white tabular-nums" }, closed.length)
+          React.createElement("div", { className: "ds-metric" },
+            React.createElement("div", { className: "ds-metric__label" }, "Closed Trades"),
+            React.createElement("div", { className: "ds-metric__row" },
+              React.createElement("div", { className: "ds-metric__value" }, closed.length)
+            )
           ),
-          React.createElement("div", null,
-            React.createElement("div", { className: "text-[10px] uppercase tracking-wider text-[#6b7280] mb-1" }, "Win Rate"),
-            React.createElement("div", { className: `text-2xl font-bold tabular-nums ${overallWr >= 65 ? "text-emerald-400" : overallWr >= 50 ? "text-sky-400" : "text-amber-400"}` },
-              `${overallWr.toFixed(1)}%`)
+          React.createElement("div", { className: "ds-metric" },
+            React.createElement("div", { className: "ds-metric__label" }, "Win Rate"),
+            React.createElement("div", { className: "ds-metric__row" },
+              React.createElement("div", { className: "ds-metric__value" }, `${overallWr.toFixed(1)}%`),
+              React.createElement("div", { className: `ds-metric__delta ds-metric__delta--${wrDeltaClass}` }, wrDelta)
+            )
           ),
-          React.createElement("div", null,
-            React.createElement("div", { className: "text-[10px] uppercase tracking-wider text-[#6b7280] mb-1" }, "Total PnL %"),
-            React.createElement("div", { className: `text-2xl font-bold tabular-nums ${totalPnlPct >= 0 ? "text-emerald-400" : "text-rose-400"}` },
-              fmtPnl(totalPnlPct))
+          React.createElement("div", { className: "ds-metric" },
+            React.createElement("div", { className: "ds-metric__label" }, "Total PnL %"),
+            React.createElement("div", { className: "ds-metric__row" },
+              React.createElement("div", {
+                className: "ds-metric__value",
+                style: { color: totalPnlPct >= 0 ? "var(--ds-up)" : "var(--ds-dn)" },
+              }, fmtPnl(totalPnlPct))
+            )
           ),
-          React.createElement("div", null,
-            React.createElement("div", { className: "text-[10px] uppercase tracking-wider text-[#6b7280] mb-1" }, "Total PnL $"),
-            React.createElement("div", { className: `text-2xl font-bold tabular-nums ${totalPnlUsd >= 0 ? "text-emerald-400" : "text-rose-400"}` },
-              fmtUsd(totalPnlUsd))
+          React.createElement("div", { className: "ds-metric" },
+            React.createElement("div", { className: "ds-metric__label" }, "Total PnL $"),
+            React.createElement("div", { className: "ds-metric__row" },
+              React.createElement("div", {
+                className: "ds-metric__value",
+                style: { color: totalPnlUsd >= 0 ? "var(--ds-up)" : "var(--ds-dn)" },
+              }, fmtUsd(totalPnlUsd))
+            )
           )
         ),
 
-        // Monthly performance table
-        React.createElement("div", null,
-          React.createElement("h2", { className: "text-[14px] font-semibold text-white mb-3" }, "Monthly Performance"),
+        // Monthly performance table inside ds-glass panel
+        React.createElement("div", { className: "ds-glass" },
+          React.createElement("div", { className: "ds-glass__head" },
+            React.createElement("div", { className: "ds-glass__title" }, "Monthly Performance")
+          ),
           React.createElement(MonthlyPerformanceTable, { months }),
           React.createElement(SetupBreakdown, { months })
         ),
 
-        // P&L Calendar
-        React.createElement("div", null,
+        // P&L Calendar inside ds-glass panel
+        React.createElement("div", { className: "ds-glass" },
           React.createElement(PnlCalendar, { trades: closed, days: 90 })
         )
       );
