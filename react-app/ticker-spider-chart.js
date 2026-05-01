@@ -301,13 +301,15 @@
     };
   }
 
-  // ── Native SVG radar (no Recharts dep — keeps bundle light and works
-  // everywhere: Active Trader, Investor Mode, Trade Autopsy, Daily Brief).
+  /* V2 spider (2026-05-01) — Inspiration 3 styling.
+     Single solid muted-purple-gray fill, only the outer pentagon edge
+     drawn (no concentric rings), label-only at each vertex, uppercase
+     tracked caption styling. Center: big avg score in JBM. */
   function SpiderSvg({ scores, size, compact, title, dir }) {
     const React = window.React;
     const cx = size / 2;
     const cy = size / 2;
-    const radius = (size / 2) - (compact ? 26 : 34);
+    const radius = (size / 2) - (compact ? 28 : 36);
     const dims = DIMENSIONS;
     const n = dims.length;
     const angleFor = (i) => (-Math.PI / 2) + (i * 2 * Math.PI) / n;
@@ -316,15 +318,19 @@
       const a = angleFor(i);
       return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
     };
-    const rings = [0.25, 0.5, 0.75, 1];
     const pts = dims.map((d, i) => point(scores[d.key] ?? 5, i));
     const polyPoints = pts.map(p => p.join(",")).join(" ");
+    const outerPts = dims.map((_, i) => point(10, i));
+    const outerPoly = outerPts.map(p => p.join(",")).join(" ");
 
     const avg = dims.reduce((s, d) => s + (scores[d.key] ?? 5), 0) / dims.length;
-    const dirColor = dir === "SHORT" ? "#f87171" : "#34d399";
-    const dirFill = dir === "SHORT" ? "rgba(248,113,113,0.22)" : "rgba(52,211,153,0.22)";
+    /* v2 fill: muted violet-grey (Inspiration 3) for both directions; the
+       direction is communicated via the chip in the panel header, not via
+       chart fill color — keeps the eye on the SHAPE not the COLOR. */
+    const dataFill = "rgba(167, 139, 250, 0.20)";
+    const dataStroke = "rgba(167, 139, 250, 0.55)";
     const labelFs = compact ? 9 : 10;
-    const valueFs = compact ? 8 : 9;
+    const labelTracking = "0.16em";
 
     return React.createElement("svg", {
       width: size,
@@ -332,74 +338,75 @@
       viewBox: `0 0 ${size} ${size}`,
       role: "img",
       "aria-label": title || "Ticker score radar",
+      style: { display: "block" },
     },
       React.createElement("g", null,
-        rings.map((r, i) => React.createElement("circle", {
-          key: `ring-${i}`, cx, cy,
-          r: radius * r,
+        // Outer pentagon edge (only ring drawn — Inspiration 3 minimalism)
+        React.createElement("polygon", {
+          points: outerPoly,
           fill: "none",
-          stroke: i === rings.length - 1 ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.07)",
-          strokeWidth: i === rings.length - 1 ? 1 : 0.6,
-          strokeDasharray: i === rings.length - 1 ? "" : "3 3",
-        })),
+          stroke: "rgba(255,255,255,0.14)",
+          strokeWidth: 1,
+          strokeLinejoin: "round",
+        }),
+        // Spokes — very faint
         dims.map((d, i) => {
-          const [x2, y2] = point(10, i);
+          const [x2, y2] = outerPts[i];
           return React.createElement("line", {
             key: `spoke-${d.key}`,
             x1: cx, y1: cy, x2, y2,
-            stroke: "rgba(255,255,255,0.06)",
-            strokeWidth: 0.6,
+            stroke: "rgba(255,255,255,0.04)",
+            strokeWidth: 1,
           });
         }),
+        // Data polygon — single solid fill
         React.createElement("polygon", {
           points: polyPoints,
-          fill: dirFill,
-          stroke: dirColor,
-          strokeWidth: 1.4,
+          fill: dataFill,
+          stroke: dataStroke,
+          strokeWidth: 1.5,
           strokeLinejoin: "round",
         }),
+        // Vertex dots
         pts.map((p, i) => React.createElement("circle", {
-          key: `pt-${i}`, cx: p[0], cy: p[1], r: compact ? 1.8 : 2.4,
-          fill: dirColor,
+          key: `pt-${i}`, cx: p[0], cy: p[1], r: compact ? 2 : 2.5,
+          fill: dataStroke,
         })),
+        // Vertex labels — caption type, no values (less visual noise)
         dims.map((d, i) => {
-          const [lx, ly] = point(12.5, i);
-          const s = scores[d.key] ?? 5;
-          const v = Number.isFinite(s) ? s.toFixed(1) : "—";
+          const [lx, ly] = point(13, i);
           const anchor = Math.abs(lx - cx) < 6 ? "middle" : (lx > cx ? "start" : "end");
-          return React.createElement("g", { key: `lbl-${d.key}` },
-            React.createElement("text", {
-              x: lx, y: ly,
-              fontSize: labelFs,
-              fontWeight: 600,
-              fill: "#d1d5db",
-              textAnchor: anchor,
-              dominantBaseline: "middle",
-            }, d.label),
-            React.createElement("text", {
-              x: lx,
-              y: ly + labelFs + 1,
-              fontSize: valueFs,
-              fill: "#9ca3af",
-              textAnchor: anchor,
-              dominantBaseline: "middle",
-            }, v),
-          );
+          return React.createElement("text", {
+            key: `lbl-${d.key}`,
+            x: lx, y: ly,
+            fontSize: labelFs,
+            fontWeight: 700,
+            fontFamily: "var(--tt-font-ui)",
+            fill: "#8C92A0",
+            textAnchor: anchor,
+            dominantBaseline: "middle",
+            letterSpacing: labelTracking,
+            style: { textTransform: "uppercase" },
+          }, d.label.toUpperCase());
         }),
+        // Center: hero avg score in JBM
         React.createElement("text", {
-          x: cx, y: cy - (compact ? 5 : 7),
-          fontSize: compact ? 16 : 20,
-          fontWeight: 700,
-          fill: "#f9fafb",
+          x: cx, y: cy - (compact ? 4 : 6),
+          fontSize: compact ? 22 : 28,
+          fontWeight: 600,
+          fontFamily: "var(--tt-font-mono)",
+          fill: "#F4F5F7",
           textAnchor: "middle",
+          letterSpacing: "-0.02em",
         }, avg.toFixed(1)),
         React.createElement("text", {
-          x: cx, y: cy + (compact ? 10 : 12),
+          x: cx, y: cy + (compact ? 12 : 16),
           fontSize: compact ? 8 : 9,
-          fontWeight: 500,
-          fill: "#6b7280",
+          fontWeight: 700,
+          fontFamily: "var(--tt-font-ui)",
+          fill: "#5C6270",
           textAnchor: "middle",
-          letterSpacing: "0.12em",
+          letterSpacing: "0.18em",
         }, (dir || "LONG") + " SCORE"),
       ),
     );
@@ -423,40 +430,61 @@
       const dir = scores._direction;
       const avg = DIMENSIONS.reduce((s, d) => s + (scores[d.key] ?? 5), 0) / DIMENSIONS.length;
       const header = avg >= 7.5 ? "Strong setup" : avg >= 6 ? "Constructive" : avg >= 4 ? "Mixed" : "Weak";
-      const headerColor = avg >= 7.5 ? "text-emerald-300" : avg >= 6 ? "text-sky-300" : avg >= 4 ? "text-amber-300" : "text-rose-300";
+      /* v2 (2026-05-01) — header chip uses gold accent / direction semantic */
+      const headerChipClass = avg >= 7.5 ? "ds-chip ds-chip--up"
+                              : avg >= 6 ? "ds-chip ds-chip--accent"
+                              : avg >= 4 ? "ds-chip"
+                              : "ds-chip ds-chip--dn";
 
       return React.createElement("div", {
-        className: "rounded-xl border border-white/[0.08] bg-white/[0.02] p-3",
+        className: "ds-glass",
       },
-        React.createElement("div", { className: "flex items-start justify-between mb-2 gap-2" },
-          React.createElement("div", null,
-            React.createElement("div", {
-              className: "text-[10px] uppercase tracking-[0.16em] text-[#6b7280]",
-            }, "Signal Radar"),
-            React.createElement("div", {
-              className: `mt-0.5 text-xs font-semibold ${headerColor}`,
-            }, header, " — ", dir),
+        React.createElement("div", { className: "ds-glass__head" },
+          React.createElement("div", { className: "ds-glass__title" }, "Signal Radar"),
+          React.createElement("span", { className: `${headerChipClass} ds-chip--sm`, title: `Avg score ${avg.toFixed(1)} / 10` },
+            header, " · ", dir,
           ),
-          showLegend && React.createElement("div", {
-            className: "text-[9px] text-[#6b7280] text-right leading-tight",
-          }, "Scale 0-10", React.createElement("br"), "Direction-aware"),
         ),
-        React.createElement("div", { className: "flex justify-center" },
+        React.createElement("div", { style: { display: "flex", justifyContent: "center" } },
           React.createElement(SpiderSvg, { scores, size, compact, dir, title: `${ticker.ticker || ""} signal radar` }),
         ),
         showLegend && React.createElement("div", {
-          className: "mt-2 grid grid-cols-3 gap-1 text-[9px]",
+          style: {
+            marginTop: "var(--ds-space-3)",
+            display: "grid",
+            gridTemplateColumns: "repeat(3, 1fr)",
+            gap: "var(--ds-space-1)",
+          },
         },
           DIMENSIONS.map((d) => {
             const v = scores[d.key] ?? 5;
-            const color = v >= 7.5 ? "text-emerald-300" : v >= 5 ? "text-slate-300" : v >= 3 ? "text-amber-300" : "text-rose-300";
+            const color = v >= 7.5 ? "var(--ds-up)"
+                          : v >= 5 ? "var(--ds-text-display)"
+                          : v >= 3 ? "var(--ds-accent)"
+                          : "var(--ds-dn)";
             return React.createElement("div", {
               key: d.key,
-              className: "flex items-center justify-between gap-1 px-1.5 py-0.5 rounded bg-white/[0.03] border border-white/[0.04]",
+              style: {
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 4,
+                padding: "4px 8px",
+                borderRadius: "var(--ds-radius-xs)",
+                background: "var(--ds-bg-glass)",
+                fontSize: "var(--ds-fs-meta)",
+              },
               title: d.hint,
             },
-              React.createElement("span", { className: "text-[#6b7280]" }, d.label),
-              React.createElement("span", { className: `tabular-nums font-semibold ${color}` }, v.toFixed(1)),
+              React.createElement("span", { style: { color: "var(--ds-text-muted)" } }, d.label),
+              React.createElement("span", {
+                style: {
+                  fontFamily: "var(--tt-font-mono)",
+                  fontWeight: 600,
+                  color,
+                  fontVariantNumeric: "tabular-nums",
+                },
+              }, v.toFixed(1)),
             );
           }),
         ),
