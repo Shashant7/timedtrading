@@ -10085,20 +10085,58 @@ function StatusStrip({
   const topOpp = React.useMemo(() => {
     if (!Array.isArray(allTickersWithRanks) || allTickersWithRanks.length === 0) return null;
     const openSet = new Set((Array.isArray(trades) ? trades : []).filter(tr => !tr?.exit_ts && !tr?.exit_timestamp).map(tr => String(tr?.ticker || "").toUpperCase()));
-    for (const t of allTickersWithRanks) {
+    const eligible = allTickersWithRanks.filter(t => {
       const sym = String(t?.ticker || "").toUpperCase();
-      if (!sym) continue;
-      if (openSet.has(sym)) continue;
       const rank = Number(t?.rank);
-      if (!Number.isFinite(rank) || rank <= 0) continue;
+      return sym && !openSet.has(sym) && Number.isFinite(rank) && rank > 0;
+    });
+    if (eligible.length === 0) return null;
+    const sqRelease = eligible.find(t => t?.flags?.sq30_release === true);
+    if (sqRelease) {
       return {
-        ticker: sym,
-        rank,
-        dir: t?.direction || t?.consensus_direction || "—",
-        setup: t?.setup_name || t?.entry_path || "—"
+        ticker: String(sqRelease.ticker).toUpperCase(),
+        rank: Number(sqRelease.rank),
+        dir: sqRelease.direction || sqRelease.consensus_direction || "—",
+        setup: sqRelease.setup_name || sqRelease.entry_path || "—",
+        kind: "Squeeze Release",
+        tip: "30-min squeeze just released — explosive move likely. Top-ranked candidate not already in a trade."
       };
     }
-    return null;
+    const oneHrAgo = Date.now() - 60 * 60 * 1000;
+    const justFlipped = eligible.find(t => {
+      const flipTs = Number(t?.last_state_change_ts || t?.flip_ts || 0);
+      return flipTs > oneHrAgo;
+    });
+    if (justFlipped) {
+      return {
+        ticker: String(justFlipped.ticker).toUpperCase(),
+        rank: Number(justFlipped.rank),
+        dir: justFlipped.direction || justFlipped.consensus_direction || "—",
+        setup: justFlipped.setup_name || justFlipped.entry_path || "—",
+        kind: "Just Flipped",
+        tip: "State changed within the last hour — fresh idea. Top-ranked candidate not already in a trade."
+      };
+    }
+    const momentumElite = eligible.find(t => t?.flags?.momentum_elite === true);
+    if (momentumElite) {
+      return {
+        ticker: String(momentumElite.ticker).toUpperCase(),
+        rank: Number(momentumElite.rank),
+        dir: momentumElite.direction || momentumElite.consensus_direction || "—",
+        setup: momentumElite.setup_name || momentumElite.entry_path || "—",
+        kind: "Momentum Elite",
+        tip: "Multi-TF momentum aligned and accelerating. Top-ranked candidate not already in a trade."
+      };
+    }
+    const t = eligible[0];
+    return {
+      ticker: String(t.ticker).toUpperCase(),
+      rank: Number(t.rank),
+      dir: t.direction || t.consensus_direction || "—",
+      setup: t.setup_name || t.entry_path || "—",
+      kind: "Top Rank",
+      tip: "Highest-ranked ticker not already in an open trade. Rotates as new signals emerge."
+    };
   }, [allTickersWithRanks, trades]);
   const toneCls = tone => {
     switch (tone) {
@@ -10298,14 +10336,14 @@ function StatusStrip({
       padding: "6px 14px",
       borderRight: "1px solid var(--tt-border-weak)"
     },
-    title: `Best current opportunity — click to open ${topOpp.ticker}`
+    title: topOpp.tip || `Best current opportunity — click to open ${topOpp.ticker}`
   }, React.createElement("div", {
     className: "tt-label",
     style: {
       fontSize: 9,
       marginBottom: 2
     }
-  }, "Top Signal"), React.createElement("div", {
+  }, topOpp.kind || "Top Signal"), React.createElement("div", {
     style: {
       fontSize: 12,
       lineHeight: 1.2
@@ -16842,24 +16880,40 @@ function App() {
         className: "ds-chip__count"
       }, chip.count));
     };
-    const renderGroup = (groupKey, groupChips, accentClass) => {
-      if (!groupChips || groupChips.length === 0) return null;
-      return React.createElement(React.Fragment, {
-        key: `grp-${groupKey}`
+    const focusBucket = [];
+    if (focus) focusBucket.push(focus);
+    for (const c of now) focusBucket.push(c);
+    for (const c of setups) focusBucket.push(c);
+    const Section = ({
+      label,
+      items,
+      accent
+    }) => {
+      if (!items || items.length === 0) return null;
+      return React.createElement("div", {
+        className: "ds-glass",
+        style: {
+          padding: "var(--ds-space-2) var(--ds-space-3)",
+          flex: "1 1 0",
+          minWidth: 0
+        }
+      }, React.createElement("div", {
+        style: {
+          display: "flex",
+          alignItems: "center",
+          flexWrap: "nowrap",
+          gap: 4,
+          overflowX: "auto"
+        },
+        className: "scrollbar-hide"
       }, React.createElement("span", {
         className: "ds-caption",
         style: {
-          color: accentClass || "var(--ds-text-faint)",
-          marginLeft: 4,
-          marginRight: 4
+          color: accent,
+          marginRight: 6,
+          flexShrink: 0
         }
-      }, groupKey), groupChips.map(c => renderChip(c, false)), React.createElement("span", {
-        style: {
-          color: "var(--ds-text-faint)",
-          margin: "0 6px",
-          opacity: 0.5
-        }
-      }, "\xB7"));
+      }, label), items.map(c => renderChip(c, false))));
     };
     return React.createElement("div", {
       className: "mb-2",
@@ -16869,63 +16923,43 @@ function App() {
         gap: "var(--ds-space-1)"
       }
     }, React.createElement("div", {
-      className: "ds-glass",
-      style: {
-        padding: "var(--ds-space-2) var(--ds-space-3)"
-      }
-    }, React.createElement("div", {
       style: {
         display: "flex",
-        alignItems: "center",
-        flexWrap: "nowrap",
-        gap: 4,
-        overflowX: "auto",
-        paddingBottom: 2
-      },
-      className: "scrollbar-hide"
-    }, focus && React.createElement(React.Fragment, null, React.createElement("span", {
-      className: "ds-caption",
-      style: {
-        color: "var(--ds-accent)",
-        marginRight: 4
+        gap: "var(--ds-space-1)"
       }
-    }, "Focus"), renderChip(focus, false), React.createElement("span", {
+    }, React.createElement(Section, {
+      label: "Focus",
+      items: focusBucket,
+      accent: "var(--ds-accent)"
+    }), React.createElement(Section, {
+      label: "Momentum",
+      items: momentum,
+      accent: "var(--ds-warn)"
+    })), React.createElement("div", {
       style: {
-        color: "var(--ds-text-faint)",
-        margin: "0 6px",
-        opacity: 0.5
+        display: "flex",
+        gap: "var(--ds-space-1)"
       }
-    }, "\xB7")), renderGroup("Now", now, "var(--ds-warn)"), renderGroup("Setups", setups, "var(--ds-up)"), renderGroup("Momentum", momentum, "var(--ds-accent)"), renderGroup("Structure", structure, "var(--ds-violet)"), activeInsight && React.createElement("button", {
+    }, React.createElement(Section, {
+      label: "Structure",
+      items: structure,
+      accent: "var(--ds-violet)"
+    }), React.createElement(Section, {
+      label: "Context",
+      items: context,
+      accent: "var(--ds-text-muted)"
+    })), activeInsight && React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "flex-end"
+      }
+    }, React.createElement("button", {
       onClick: () => {
         setActiveInsight(null);
         setActiveSubInsight(null);
       },
-      className: "ds-chip ds-chip--sm",
-      style: {
-        marginLeft: "auto",
-        flexShrink: 0
-      }
-    }, "\u2715 Clear"))), context.length > 0 && React.createElement("div", {
-      className: "ds-glass",
-      style: {
-        padding: "var(--ds-space-2) var(--ds-space-3)"
-      }
-    }, React.createElement("div", {
-      style: {
-        display: "flex",
-        alignItems: "center",
-        flexWrap: "nowrap",
-        gap: 4,
-        overflowX: "auto"
-      },
-      className: "scrollbar-hide"
-    }, React.createElement("span", {
-      className: "ds-caption",
-      style: {
-        color: "var(--ds-text-muted)",
-        marginRight: 4
-      }
-    }, "Context"), context.map(c => renderChip(c, false)))), activeInsight === "sp_sectors" && sectorSubs.length > 0 && React.createElement("div", {
+      className: "ds-chip ds-chip--sm"
+    }, "\u2715 Clear filter")), activeInsight === "sp_sectors" && sectorSubs.length > 0 && React.createElement("div", {
       className: "ds-glass",
       style: {
         padding: "var(--ds-space-2) var(--ds-space-3)",

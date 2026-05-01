@@ -20,91 +20,163 @@
     return React.createElement("span", { className: `text-[10px] font-bold uppercase tracking-wider ${colors[regime] || colors.CAUTIOUS}`, title: regime }, friendly[regime] || regime);
   }
 
+  /* V2.1 round 5 (2026-05-01) — InvestorCard rewritten in v2 design
+     language so Investor Mode reads like the Active Trader cards.
+     Uses ds-tickercard / ds-chip / ds-caption / JBM mono numerals.
+     Preserves the investor-specific data: Score, RS rank, 1M/3M %,
+     stage label, BUY ZONE / RS HIGH badges. Logo + monogram + 1H spark
+     borrowed from window.DS just like DsCompactCard. */
   function InvestorCard({ t, onSelect, selectedTicker, savedTickers, toggleSavedTicker }) {
-    const SparklineBg = window.TimedSparkline;
     const sym = String(t?.ticker || "").toUpperCase();
     const stage = t.stage || "research_avoid";
     const score = Number(t.score) || 0;
-    const scoreCls = score >= 70 ? "text-[#e5e7eb]" : score >= 50 ? "text-[#9ca3af]" : "text-[#6b7280]";
     const _dc = getDailyChange(t);
-    const dayPct = _dc?.dayPct;
-    const dayChg = _dc?.dayChg;
-    const price = t.price != null && Number.isFinite(t.price) ? t.price : null;
+    const dayPct = Number.isFinite(_dc?.dayPct) ? Number(_dc.dayPct) : null;
+    const price = Number.isFinite(Number(t.price)) ? Number(t.price) : null;
     const isSelected = selectedTicker === sym;
-    const cardBgImage = "none";
-    const accentColor = "#4b5563";
-    const stageLabels = { accumulate: "Accum", core_hold: "Core", watch: "Watch", reduce: "Reduce", research_on_watch: "On Watch", research_low: "Low Conv", research_avoid: "Avoid", research: "Research", exited: "Exited" };
+    const isSaved = !!(savedTickers && savedTickers.has && savedTickers.has(sym));
 
-    return React.createElement("div", {
-      key: sym,
-      role: "button",
-      tabIndex: 0,
+    const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
+
+    /* Stage chip mapping — colors hint at action */
+    const stageChip = (() => {
+      if (stage === "accumulate")        return { label: "Accumulate", cls: "ds-chip--up" };
+      if (stage === "core_hold")         return { label: "Core Hold", cls: "ds-chip--accent" };
+      if (stage === "watch")             return { label: "Watch", cls: "ds-chip--solid" };
+      if (stage === "reduce")            return { label: "Reduce", cls: "ds-chip--dn" };
+      if (stage === "research_on_watch") return { label: "On Radar", cls: "ds-chip--solid" };
+      if (stage === "research_low")      return { label: "Low Conv", cls: "ds-chip--solid" };
+      if (stage === "research_avoid")    return { label: "Caution", cls: "ds-chip--dn" };
+      if (stage === "exited")            return { label: "Exited", cls: "ds-chip--solid" };
+      return null;
+    })();
+
+    /* 1H sparkline: same shared cache the Active Trader cards use. */
+    const cachedSpark = (typeof window !== "undefined" && typeof window._dsEnsureSparkline === "function")
+      ? window._dsEnsureSparkline(sym) : null;
+    const sparkPoints = (cachedSpark && cachedSpark.length >= 2)
+      ? cachedSpark
+      : (Array.isArray(t._sparkline) && t._sparkline.length >= 2 ? t._sparkline : [price || 0, price || 0]);
+    const sparkSvg = (typeof window !== "undefined" && window.DS && Number.isFinite(price) && price > 0)
+      ? window.DS.sparklineSvg(sparkPoints, { width: 280, height: 44, direction: dir, strokeWidth: 1.4 })
+      : "";
+
+    /* TT Selected highlight — same gold accent as DsCompactCard. */
+    const isTTSel = (typeof window !== "undefined" && typeof window.isTickerTTSelected === "function")
+      ? window.isTickerTTSelected(sym) : false;
+
+    /* Earnings badge — same lookup as DsCompactCard. */
+    const earnings = (typeof window !== "undefined" && window._ttEarningsMap) ? window._ttEarningsMap[sym] : null;
+    const earnDays = earnings && Number.isFinite(earnings._daysAway) ? earnings._daysAway : null;
+    const earnLabel = earnDays === 0 ? "Today" : earnDays === 1 ? "Tomorrow"
+                    : earnDays != null && earnDays > 0 ? `${earnDays}d` : null;
+
+    const cardStyle = {
+      width: 280,
+      textAlign: "left",
+      padding: "var(--ds-space-3)",
+      ...(isSelected ? { borderColor: "var(--ds-text-display)", boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.2)" } : {}),
+      ...(isTTSel && !isSelected ? { borderColor: "var(--ds-accent-dim)", boxShadow: "inset 0 0 0 1px rgba(245,194,92,0.18)" } : {}),
+    };
+
+    return React.createElement("button", {
       onClick: () => onSelect && onSelect(sym),
       onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect && onSelect(sym); } },
-      className: `w-full text-left rounded-lg cursor-pointer hover:brightness-110 relative overflow-hidden border flex flex-col transition-all ${isSelected ? "border-white/30 bg-white/[0.08]" : "border-white/[0.08]"}`,
-      style: { backgroundImage: cardBgImage, boxShadow: "0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12)", height: "142px" },
+      className: "ds-tickercard",
+      style: cardStyle,
     },
-      React.createElement("div", { className: "absolute left-0 top-0 bottom-0 w-[3px] rounded-l-lg", style: { background: accentColor, boxShadow: `0 0 6px ${accentColor}66` } }),
-      SparklineBg && t._sparkline && t._sparkline.length >= 3 && React.createElement("div", { className: "absolute inset-0 pointer-events-none", style: { zIndex: 0 } },
-        React.createElement(SparklineBg, { data: (() => {
-          const lp = Number(t._live_price || t.price);
-          const sp = t._sparkline;
-          if (lp > 0 && sp.length > 0 && Math.abs(lp - sp[sp.length - 1]) / sp[sp.length - 1] > 0.005) return [...sp, lp];
-          return sp;
-        })(), width: 200, height: 142, bgMode: true }),
+      React.createElement("div", { className: "ds-tickercard__head" },
+        React.createElement("div", {
+          className: "ds-tickercard__logo",
+          style: { width: 22, height: 22 },
+          ref: (el) => {
+            if (el && !el.dataset.dsInit && window.DS) {
+              el.dataset.dsInit = "1";
+              try { el.replaceWith(window.DS.tickerLogo(sym, { size: 22 })); } catch (_) {}
+            }
+          },
+        }, sym.slice(0, 2)),
+        React.createElement("span", { className: "ds-tickercard__symbol", style: { fontSize: 13 } }, sym),
+        // RS HIGH badge — investor-specific signal, gold accent
+        t.rs?.rsNewHigh3m && React.createElement("span", {
+          className: "ds-chip ds-chip--sm ds-chip--accent",
+          style: { fontFamily: "var(--tt-font-mono)", marginLeft: 4 },
+          title: "Relative strength made a new 3-month high",
+        }, "RS HI"),
+        // BUY ZONE badge — accumulate condition
+        t.accumZone?.inZone && React.createElement("span", {
+          className: "ds-chip ds-chip--sm ds-chip--up",
+          style: { fontFamily: "var(--tt-font-mono)", marginLeft: 4 },
+          title: "Price in favorable accumulation zone",
+        }, "BUY"),
+        // TT Selected dot
+        isTTSel && React.createElement("span", {
+          title: "TT Selected",
+          style: {
+            width: 6, height: 6, borderRadius: "50%",
+            background: "var(--ds-accent)",
+            boxShadow: "0 0 0 2px rgba(245,194,92,0.20)",
+            marginLeft: 4, flexShrink: 0,
+          },
+        }),
+        // Earnings badge
+        earnLabel && React.createElement("span", {
+          className: "ds-chip ds-chip--sm ds-chip--accent",
+          style: { fontFamily: "var(--tt-font-mono)", marginLeft: 4 },
+          title: `Earnings ${earnings?.date || ""} ${earnings?.hour || ""}`,
+        }, `EPS ${earnLabel}`),
+        // Stage chip — action-oriented
+        stageChip && React.createElement("span", {
+          className: `ds-chip ds-chip--sm ${stageChip.cls}`,
+          style: { marginLeft: "auto" },
+        }, stageChip.label),
+        // Save toggle
+        toggleSavedTicker && React.createElement("button", {
+          onClick: (e) => { e.preventDefault(); e.stopPropagation(); toggleSavedTicker(sym); },
+          className: "ds-chip ds-chip--sm",
+          style: {
+            marginLeft: stageChip ? 4 : "auto",
+            padding: "0 6px",
+            height: 18,
+            color: isSaved ? "var(--ds-accent)" : "var(--ds-text-muted)",
+            background: isSaved ? "var(--ds-accent-dim)" : "transparent",
+            borderColor: isSaved ? "var(--ds-accent)" : "var(--ds-stroke)",
+          },
+          title: isSaved ? "Saved \u2014 click to unsave" : "Save ticker",
+          "aria-label": isSaved ? "Unsave ticker" : "Save ticker",
+        }, isSaved ? "\u2605" : "\u2606"),
       ),
-      React.createElement("div", { className: "relative flex flex-col flex-1 min-h-0", style: { zIndex: 1 } },
-        React.createElement("div", { className: "absolute inset-0 pointer-events-none rounded-lg", style: { background: "linear-gradient(to bottom, rgba(0,0,0,0.30) 0%, rgba(0,0,0,0.05) 45%, rgba(0,0,0,0.40) 100%)" } }),
-
-        React.createElement("div", { className: "relative flex items-center justify-between px-2 pt-1.5 pb-0", style: { zIndex: 1 } },
-          React.createElement("div", { className: "flex items-center gap-1.5 min-w-0" },
-            toggleSavedTicker && React.createElement("button", {
-              onClick: (e) => { e.stopPropagation(); toggleSavedTicker(sym); },
-              className: `shrink-0 text-[13px] hover:scale-110 transition-transform ${savedTickers?.has(sym) ? "text-amber-400" : "text-[#4b5563] hover:text-amber-300"}`,
-              title: savedTickers?.has(sym) ? "Remove from Saved" : "Add to Saved",
-            }, savedTickers?.has(sym) ? "\u2605" : "\u2606"),
-            React.createElement("div", { className: "flex flex-col min-w-0 shrink" },
-              React.createElement("span", { className: "text-[13px] font-bold text-white shrink-0", style: { textShadow: "0 1px 3px rgba(0,0,0,0.8)" } }, sym),
-              t.companyName && React.createElement("span", { className: "text-[9px] text-[#9ca3af] truncate", title: t.companyName }, t.companyName),
-            ),
-            
-            t._optimistic_pending && React.createElement("span", { className: "inline-flex items-center gap-1 px-1.5 py-px rounded text-[8px] font-bold shrink-0 tracking-wide border border-cyan-500/40 bg-cyan-500/10 text-cyan-300" },
-              React.createElement("span", { className: "inline-block w-1.5 h-1.5 rounded-full bg-cyan-300 animate-pulse" }),
-              "Loading",
-            ),
-          ),
-          React.createElement("div", { className: "flex flex-col items-end shrink-0 ml-1" },
-            price != null && React.createElement("span", { className: "text-white font-bold text-[13px] tabular-nums leading-tight", style: { textShadow: "0 1px 3px rgba(0,0,0,0.8)" } }, `$${price.toFixed(2)}`),
-            (dayPct != null && Number.isFinite(dayPct)) && React.createElement("span", {
-              className: "text-[11px] font-bold tabular-nums leading-tight",
-              style: { color: dayPct >= 0 ? (Math.abs(dayPct) >= 3 ? "#4ade80" : "#00e676") : (Math.abs(dayPct) >= 3 ? "#fb7185" : "#f87171"), textShadow: "0 1px 4px rgba(0,0,0,0.7)" },
-            }, `${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%${Number.isFinite(dayChg) ? ` (${dayChg >= 0 ? "+" : "-"}$${Math.abs(dayChg).toFixed(2)})` : ""}`),
-          ),
-        ),
-
-        React.createElement("div", { className: "relative flex items-center justify-between px-2 py-0.5", style: { zIndex: 1 } },
-          React.createElement("div", { className: "flex items-center gap-1.5 text-[10px] font-medium text-[#8b95a5]" },
-            React.createElement("span", null, "Score ", React.createElement("span", { className: `font-bold tabular-nums ${scoreCls}` }, Number.isFinite(score) ? score : "\u2014")),
-            t.rsRank != null && React.createElement("span", null, "RS ", React.createElement("span", { className: "font-bold tabular-nums text-white" }, `${t.rsRank}%`)),
-          ),
-          React.createElement("div", { className: "flex items-center gap-1" },
-            t.accumZone?.inZone && React.createElement("span", { className: "text-[9px] font-bold text-[#00e676] bg-[#00c853]/15 px-1.5 py-px rounded border border-[#00c853]/30" }, "BUY ZONE"),
-            t.rs?.rsNewHigh3m && React.createElement("span", { className: "text-[9px] font-bold text-sky-400 bg-sky-500/15 px-1.5 py-px rounded border border-sky-500/30" }, "RS HIGH"),
-          ),
-        ),
-
-        React.createElement("div", { className: "relative flex items-center justify-between px-2 py-0.5 text-[9px]", style: { zIndex: 1 } },
-          React.createElement("div", { className: "flex items-center gap-1" },
-            t.rs?.rs1m != null && React.createElement("span", { className: `font-semibold tabular-nums ${t.rs.rs1m >= 0 ? "text-[#00e676]" : "text-rose-400"}` }, `1M:${t.rs.rs1m >= 0 ? "+" : ""}${Number(t.rs.rs1m).toFixed(1)}%`),
-            t.rs?.rs3m != null && React.createElement("span", { className: `font-semibold tabular-nums ${t.rs.rs3m >= 0 ? "text-[#00e676]" : "text-rose-400"}` }, `3M:${t.rs.rs3m >= 0 ? "+" : ""}${Number(t.rs.rs3m).toFixed(1)}%`),
-          ),
-          stage === "accumulate" && React.createElement("span", { className: "text-[8px] text-[#6b7280] font-semibold uppercase tracking-wider" }, "Consider buying"),
-          stage === "reduce" && React.createElement("span", { className: "text-[8px] text-[#6b7280] font-semibold uppercase tracking-wider" }, "Consider trimming"),
-          stage === "research_on_watch" && React.createElement("span", { className: "text-[8px] text-[#4b5563] font-semibold uppercase tracking-wider" }, "On radar"),
-          stage === "research_avoid" && React.createElement("span", { className: "text-[8px] text-[#374151] font-semibold uppercase tracking-wider" }, "Caution"),
-        ),
-
-        
+      React.createElement("div", { className: "ds-tickercard__price", style: { fontSize: 18 } },
+        Number.isFinite(price) ? `$${price.toFixed(2)}` : "\u2014"),
+      dayPct != null && React.createElement("div", {
+        className: `ds-tickercard__change ds-tickercard__change--${dir}`,
+        style: { fontSize: 12 },
+      }, `${dir === "up" ? "\u25B2" : dir === "dn" ? "\u25BC" : "\u25C6"} ${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`),
+      sparkSvg && React.createElement("div", { className: "ds-tickercard__spark", dangerouslySetInnerHTML: { __html: sparkSvg } }),
+      // Bottom signal row — Score · RS · 1M · 3M
+      React.createElement("div", {
+        style: { display: "flex", alignItems: "center", gap: "var(--ds-space-1)", marginTop: "var(--ds-space-2)", flexWrap: "wrap", zIndex: 2, position: "relative" },
+      },
+        Number.isFinite(score) && score > 0 && React.createElement("span", {
+          className: `ds-chip ds-chip--sm ${score >= 70 ? "ds-chip--up" : score >= 50 ? "ds-chip--accent" : ""}`,
+          style: { fontFamily: "var(--tt-font-mono)" },
+          title: "Composite investor score (0-100)",
+        }, `S${Math.round(score)}`),
+        t.rsRank != null && React.createElement("span", {
+          className: `ds-chip ds-chip--sm ${Number(t.rsRank) >= 80 ? "ds-chip--up" : Number(t.rsRank) >= 50 ? "" : "ds-chip--solid"}`,
+          style: { fontFamily: "var(--tt-font-mono)" },
+          title: "Relative strength percentile (vs universe)",
+        }, `RS ${t.rsRank}`),
+        t.rs?.rs1m != null && React.createElement("span", {
+          className: `ds-chip ds-chip--sm ${Number(t.rs.rs1m) >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
+          style: { fontFamily: "var(--tt-font-mono)" },
+          title: "1-month return vs SPY",
+        }, `1M ${Number(t.rs.rs1m) >= 0 ? "+" : ""}${Number(t.rs.rs1m).toFixed(1)}%`),
+        t.rs?.rs3m != null && React.createElement("span", {
+          className: `ds-chip ds-chip--sm ${Number(t.rs.rs3m) >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
+          style: { fontFamily: "var(--tt-font-mono)" },
+          title: "3-month return vs SPY",
+        }, `3M ${Number(t.rs.rs3m) >= 0 ? "+" : ""}${Number(t.rs.rs3m).toFixed(1)}%`),
       ),
     );
   }
@@ -170,8 +242,16 @@
         }
     const renderCard = (t) => React.createElement(InvestorCard, { key: t.ticker, t, onSelect, selectedTicker, savedTickers: savedTickers || new Set(), toggleSavedTicker });
 
+    /* V2.1 round 5 (2026-05-01) — Per user: "nothing is ever in any
+       other lanes". Hide lanes that have zero tickers so the layout
+       focuses on the actionable rows. Always-show core_hold + accumulate
+       + reduce + watch (the "decision-making" lanes); collapse the
+       research_* lanes when empty. */
+    const ALWAYS_SHOW = new Set(["accumulate", "core_hold", "watch", "reduce"]);
+    const visibleStages = stages.filter(s => ALWAYS_SHOW.has(s) || grouped[s].length > 0);
+
     return React.createElement("div", { className: "flex-1 overflow-y-auto space-y-1 min-h-0", "data-coachmark": "action-board" },
-      ...stages.map(stage =>
+      ...visibleStages.map(stage =>
         React.createElement(InvestorKanbanColumn, {
           key: stage,
           laneKey: stage,
@@ -387,6 +467,54 @@
 
     const actionCount = useMemo(() => allTickers.filter(t => t.stage && !t.stage.startsWith("research_")).length, [allTickers]);
 
+    /* V2.1 round 5 (2026-05-01) — Investor narrative.
+       Per user: "we need to provide some additional narrative, much like the
+       Daily Brief". Builds a short, plain-language paragraph from
+       MarketHealth + lane counts + top-conviction names so users get
+       context without having to read the chart. */
+    const narrative = useMemo(() => {
+      if (!allTickers.length) return null;
+      const counts = { accumulate: 0, core_hold: 0, watch: 0, reduce: 0, research_on_watch: 0, research_low: 0, research_avoid: 0 };
+      const buyZone = [];
+      const rsHigh = [];
+      for (const t of allTickers) {
+        const s = String(t.stage || "research_avoid");
+        if (counts[s] != null) counts[s] += 1;
+        if (t.accumZone?.inZone) buyZone.push(t.ticker);
+        if (t.rs?.rsNewHigh3m) rsHigh.push(t.ticker);
+      }
+      const regimeWord = health?.regime === "RISK_ON" ? "bullish"
+                       : health?.regime === "RISK_OFF" ? "bearish"
+                       : "cautious";
+      const score = Number(health?.score);
+      const breadthPct = Number(health?.breadth?.pctAboveD200);
+      const lines = [];
+      lines.push(
+        `Market is ${regimeWord}${Number.isFinite(score) ? ` (Health ${Math.round(score)}/100)` : ""}` +
+        `${Number.isFinite(breadthPct) ? `, with ${Math.round(breadthPct)}% of stocks above their 200-day MA` : ""}.`
+      );
+      const actionable = counts.accumulate + counts.reduce;
+      if (actionable > 0) {
+        const acc = counts.accumulate, red = counts.reduce;
+        lines.push(
+          `${actionable} name${actionable === 1 ? " is" : "s are"} actionable — ` +
+          `${acc} to accumulate, ${red} to reduce.`
+        );
+      } else {
+        lines.push(`No accumulate / reduce signals firing right now — system suggests holding existing core positions and waiting for setups.`);
+      }
+      if (buyZone.length > 0) {
+        lines.push(`In the buy zone: ${buyZone.slice(0, 6).join(", ")}${buyZone.length > 6 ? "…" : ""}.`);
+      }
+      if (rsHigh.length > 0) {
+        lines.push(`Relative strength making fresh 3-month highs: ${rsHigh.slice(0, 6).join(", ")}${rsHigh.length > 6 ? "…" : ""}.`);
+      }
+      if (counts.core_hold > 0) {
+        lines.push(`${counts.core_hold} core positions remain on the hold list — trend and strength still constructive.`);
+      }
+      return lines.join(" ");
+    }, [allTickers, health]);
+
     return React.createElement("div", { className: "space-y-4" },
       React.createElement("div", { className: "flex items-center justify-between" },
         React.createElement("h2", { className: "text-sm font-semibold text-white" },
@@ -395,10 +523,29 @@
         ),
         React.createElement("button", {
           onClick: fetchData,
-          className: "px-3 py-1 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] border border-white/[0.06] transition-all",
-        }, loading ? "Loading…" : "↻ Refresh"),
+          className: "ds-chip ds-chip--sm",
+          style: { fontFamily: "var(--tt-font-mono)" },
+        }, loading ? "Loading\u2026" : "\u21BB Refresh"),
       ),
       React.createElement(MarketHealthBar, { health, loading }),
+      /* Narrative panel — Daily-Brief-style commentary above the lanes */
+      narrative && React.createElement("div", {
+        className: "ds-glass",
+        style: { padding: "var(--ds-space-3) var(--ds-space-4)" },
+      },
+        React.createElement("div", {
+          className: "ds-caption",
+          style: { marginBottom: "var(--ds-space-2)", color: "var(--ds-accent)" },
+        }, "Investor Brief"),
+        React.createElement("p", {
+          style: {
+            margin: 0,
+            fontSize: "var(--ds-fs-body)",
+            lineHeight: 1.6,
+            color: "var(--ds-text-body)",
+          },
+        }, narrative),
+      ),
       allTickers.length > 0
         ? React.createElement(ActionKanban, {
             tickers: allTickers,
