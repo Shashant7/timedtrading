@@ -3538,7 +3538,6 @@ function BubbleChart({
 }) {
   const displayTickers = React.useMemo(() => {
     const list = Array.isArray(tickers) ? tickers : [];
-    if (activeInsightTickers && activeInsightTickers.size > 0) return list;
     if (!selectedTicker) return list;
     const sym = String(selectedTicker).toUpperCase();
     const solo = list.filter(t => String(t?.ticker || "").toUpperCase() === sym);
@@ -9532,7 +9531,8 @@ const DsCompactCard = React.memo(function DsCompactCard({
   })();
   const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
   const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
-  const rank = Number(t?.rank) || null;
+  const rank = Number(t?.rank_position ?? t?.rp) || null;
+  const score = Number(t?.score ?? t?.rank) || null;
   const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
   const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
   const rr = Number(t?.rr) || null;
@@ -9875,12 +9875,18 @@ const DsCompactCard = React.memo(function DsCompactCard({
         position: "relative"
       }
     }, rank != null && React.createElement("span", {
-      className: "ds-chip ds-chip--sm",
+      className: `ds-chip ds-chip--sm ${rank <= 10 ? "ds-chip--up" : rank <= 30 ? "ds-chip--accent" : ""}`,
       style: {
         fontFamily: "var(--tt-font-mono)"
       },
-      title: "Rank"
-    }, "R", rank), conv != null && React.createElement("span", {
+      title: `Rank position: ${rank} of all eligible tickers (1 = best). The viewport is sorted by this.`
+    }, "R", rank), score != null && React.createElement("span", {
+      className: `ds-chip ds-chip--sm ${score >= 100 ? "ds-chip--up" : score >= 75 ? "ds-chip--accent" : ""}`,
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: `Score: ${Math.round(score)} (composite alignment score, higher = better). Rank is derived from this.`
+    }, "S", Math.round(score)), conv != null && React.createElement("span", {
       className: `ds-chip ds-chip--sm ${tier === "A" ? "ds-chip--up" : tier === "B" ? "ds-chip--accent" : "ds-chip--solid"}`,
       style: {
         fontFamily: "var(--tt-font-mono)"
@@ -16901,12 +16907,13 @@ function App() {
         className: "ds-glass",
         style: {
           padding: "var(--ds-space-2) var(--ds-space-3)",
-          flex: "1 1 0",
+          margin: 0,
+          marginTop: 0,
           minWidth: 0,
-          minHeight: 44,
+          height: "100%",
           display: "flex",
           alignItems: "center",
-          opacity: empty ? 0.45 : 1
+          opacity: empty ? 0.55 : 1
         }
       }, React.createElement("div", {
         style: {
@@ -16935,15 +16942,10 @@ function App() {
     return React.createElement("div", {
       className: "mb-2",
       style: {
-        display: "flex",
-        flexDirection: "column",
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gridAutoRows: "44px",
         gap: "var(--ds-space-1)"
-      }
-    }, React.createElement("div", {
-      style: {
-        display: "flex",
-        gap: "var(--ds-space-1)",
-        alignItems: "stretch"
       }
     }, React.createElement(Section, {
       label: "Focus",
@@ -16953,13 +16955,7 @@ function App() {
       label: "Momentum",
       items: momentum,
       accent: "var(--ds-warn)"
-    })), React.createElement("div", {
-      style: {
-        display: "flex",
-        gap: "var(--ds-space-1)",
-        alignItems: "stretch"
-      }
-    }, React.createElement(Section, {
+    }), React.createElement(Section, {
       label: "Structure",
       items: structure,
       accent: "var(--ds-violet)"
@@ -16967,10 +16963,11 @@ function App() {
       label: "Context",
       items: context,
       accent: "var(--ds-text-muted)"
-    })), activeInsight && React.createElement("div", {
+    }), activeInsight && React.createElement("div", {
       style: {
         display: "flex",
-        justifyContent: "flex-end"
+        justifyContent: "flex-end",
+        gridColumn: "1 / -1"
       }
     }, React.createElement("button", {
       onClick: () => {
@@ -16982,7 +16979,10 @@ function App() {
       className: "ds-glass",
       style: {
         padding: "var(--ds-space-2) var(--ds-space-3)",
-        background: "rgba(167,139,250,0.05)"
+        background: "rgba(167,139,250,0.05)",
+        gridColumn: "1 / -1",
+        margin: 0,
+        marginTop: 0
       }
     }, React.createElement("div", {
       style: {

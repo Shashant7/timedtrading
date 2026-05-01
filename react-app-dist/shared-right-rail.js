@@ -431,7 +431,23 @@
 
     // TradingView Lightweight Charts Sub-Component for Right Rail
     // ═══════════════════════════════════════════════════════════════════════
-    function LWChart({ candles: rawCandles, chartTf, overlays, onCrosshair, height: propHeight, priceLines: propPriceLines, markers: propMarkers, ticker: propTicker, hideOverlayToggles = false }) {
+    /* V2.1 round 7 (2026-05-01) — LWChart wrapped in React.memo with a
+       custom equality function. Without this, every parent render (e.g.
+       price poll, latestTicker fetch, sparkline cache update) propagated
+       through to the chart and triggered a full destroy + recreate
+       (the chart's own useEffect deps were stable, but React still
+       re-evaluated them on every render, and any non-stable identity in
+       props such as `ticker` would still fire). The custom comparator
+       only compares the props that visually matter:
+         - candles array reference
+         - chartTf string
+         - overlays object (toggle flag changes)
+         - propHeight number
+         - priceLines length + first/last price (cheap shallow check)
+         - hideOverlayToggles bool
+         - propTicker.ticker string
+       Returns true (skip render) if all match. */
+    function _LWChartImpl({ candles: rawCandles, chartTf, overlays, onCrosshair, height: propHeight, priceLines: propPriceLines, markers: propMarkers, ticker: propTicker, hideOverlayToggles = false }) {
       const containerRef = useRef(null);
       const chartInstanceRef = useRef(null);
       const candleSeriesRef = useRef(null);
@@ -897,6 +913,31 @@
         )
       );
     }
+
+    /* V2.1 round 7 — memoized LWChart. */
+    const LWChart = React.memo(_LWChartImpl, (prev, next) => {
+      if (prev.candles !== next.candles) return false;
+      if (prev.chartTf !== next.chartTf) return false;
+      if (prev.overlays !== next.overlays) return false;
+      if (prev.propHeight !== next.propHeight && prev.height !== next.height) return false;
+      if ((prev.hideOverlayToggles || false) !== (next.hideOverlayToggles || false)) return false;
+      const prevSym = prev.ticker?.ticker || "";
+      const nextSym = next.ticker?.ticker || "";
+      if (prevSym !== nextSym) return false;
+      // Cheap shallow check on priceLines: length + first/last price
+      const pa = Array.isArray(prev.priceLines) ? prev.priceLines : [];
+      const pn = Array.isArray(next.priceLines) ? next.priceLines : [];
+      if (pa.length !== pn.length) return false;
+      if (pa.length > 0) {
+        const first = (a, n) => Number(a[0]?.price) === Number(n[0]?.price);
+        const last  = (a, n) => Number(a[a.length-1]?.price) === Number(n[n.length-1]?.price);
+        if (!first(pa, pn) || !last(pa, pn)) return false;
+      }
+      const ma = Array.isArray(prev.markers) ? prev.markers : [];
+      const mn = Array.isArray(next.markers) ? next.markers : [];
+      if (ma.length !== mn.length) return false;
+      return true;
+    });
 
     // ── Full AutopsyChart (EMA clouds, SuperTrend, TD Seq, TF selector) ──
     function AutopsyChart({ ticker: rawTicker, entryPrice, exitPrice, entryTs, exitTs, trimTs, slPrice, tpPrices, height = 360, compact = false }) {
@@ -2039,8 +2080,14 @@
             </div>
           );
           // ── Conviction values ──────────────────────────────────────
-          const v2Rank = Number(ticker?.rank) || null;
-          const v2Score = Number((typeof rankScoreForTicker === "function" ? rankScoreForTicker(ticker) : 0) || ticker?.score) || null;
+          /* V2.1 round 7 (2026-05-01) — Rank must be the position
+             (1 = best), not the score. Worker emits both:
+               ticker.rank = score (0–200, higher better)
+               ticker.rank_position = position (1 = top of board)
+             Previously this used ticker.rank which displayed e.g. R99
+             for a top-ranked ticker. */
+          const v2Rank = Number(ticker?.rank_position ?? ticker?.rp) || null;
+          const v2Score = Number((typeof rankScoreForTicker === "function" ? rankScoreForTicker(ticker) : 0) || ticker?.score || ticker?.rank) || null;
           const v2Conv = Number(ticker?.focus_conviction_score
                                 ?? ticker?.__focus_conviction_score) || null;
           const v2Tier = String(ticker?.focus_tier ?? ticker?.__focus_tier ?? "").toUpperCase();
@@ -2561,13 +2608,45 @@
                         );
                       })()}
 
-                      {/* Risk & Targets — vertical price ladder */}
-                      {(ticker?.sl || ticker?.tp || ticker?.entry_price) && (() => {
+                      {/* Risk & Targets — vertical price ladder.
+                          V2.1 round 7 (2026-05-01) — Now surfaces ALL TP tiers
+                          (TP1 trim, TP2 exit, TP3 runner) from tpArray when
+                          available, plus any bonus levels (tp_max, tp_runner).
+                          Per user: "make sure the Take Profit level is correct,
+                          we should show any additional bonus levels if they
+                          are there". */}
+                      {(ticker?.sl || ticker?.tp || ticker?.tp_trim || ticker?.tp_exit || ticker?.entry_price) && (() => {
                         const entry = Number(ticker.entry_price) || 0;
-                        const sl = Number(ticker.sl) || 0;
-                        const tp = Number(ticker.tp) || 0;
+                        const sl = Number(ticker.sl ?? ticker.sl_dynamic ?? ticker.stop_loss) || 0;
                         const cur = v2Price || entry;
-                        const all = [entry, cur, sl, tp].filter(p => Number.isFinite(p) && p > 0);
+                        // Build TP levels: prefer tpArray (3-tier), fallback to tp_trim/tp_exit/tp
+                        const tpLevels = (() => {
+                          const out = [];
+                          const tpArr = Array.isArray(trade?.tpArray) && trade.tpArray.length > 0
+                            ? trade.tpArray
+                            : (Array.isArray(ticker?.tpArray) ? ticker.tpArray : []);
+                          if (tpArr.length > 0) {
+                            tpArr.forEach((tp, i) => {
+                              const px = Number(tp?.price ?? tp);
+                              if (Number.isFinite(px) && px > 0) {
+                                out.push({
+                                  label: tp?.tier || (i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`),
+                                  desc: tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner"),
+                                  px,
+                                });
+                              }
+                            });
+                          } else {
+                            const tp1 = Number(ticker?.tp_trim) || 0;
+                            const tp2 = Number(ticker?.tp_exit) || Number(ticker?.tp_target_price) || Number(ticker?.tp) || 0;
+                            const tpMax = Number(ticker?.tp_max) || Number(ticker?.tp_runner) || 0;
+                            if (tp1 > 0) out.push({ label: "TP1", desc: "Trim", px: tp1 });
+                            if (tp2 > 0 && tp2 !== tp1) out.push({ label: "TP2", desc: "Exit", px: tp2 });
+                            if (tpMax > 0 && tpMax !== tp1 && tpMax !== tp2) out.push({ label: "TP3", desc: "Runner / Bonus", px: tpMax });
+                          }
+                          return out;
+                        })();
+                        const all = [entry, cur, sl, ...tpLevels.map(t => t.px)].filter(p => Number.isFinite(p) && p > 0);
                         if (all.length < 2) return null;
                         const min = Math.min(...all);
                         const max = Math.max(...all);
@@ -2577,7 +2656,7 @@
                         const yFor = (px) => 100 - ((px - lo) / (hi - lo)) * 100;
                         const isLong = v2Dir === "LONG";
                         const levels = [
-                          tp ? { label: "Target", px: tp, color: "var(--ds-up)" } : null,
+                          ...tpLevels.map(tp => ({ label: tp.label, sub: tp.desc, px: tp.px, color: "var(--ds-up)" })),
                           cur ? { label: "Current", px: cur, color: "var(--ds-accent)", isCurrent: true } : null,
                           entry ? { label: "Entry", px: entry, color: "var(--ds-text-muted)" } : null,
                           sl ? { label: "Stop", px: sl, color: "var(--ds-dn)" } : null,
@@ -2608,6 +2687,9 @@
                                     }} />
                                     <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", textTransform: "uppercase", letterSpacing: "0.16em", fontWeight: 700, minWidth: 56 }}>{l.label}</span>
                                     <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: l.color, fontWeight: 600 }}>${l.px.toFixed(2)}</span>
+                                    {l.sub && (
+                                      <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", marginLeft: 6 }}>{l.sub}</span>
+                                    )}
                                     {l.isCurrent && entry && (() => {
                                       const pct = isLong ? ((cur - entry) / entry * 100) : ((entry - cur) / entry * 100);
                                       return (

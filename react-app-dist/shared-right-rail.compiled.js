@@ -676,7 +676,7 @@
         }
       })));
     }
-    function LWChart({
+    function _LWChartImpl({
       candles: rawCandles,
       chartTf,
       overlays,
@@ -1223,6 +1223,28 @@
         className: "text-[#555] text-[9px]"
       }, "scroll to zoom • drag to pan")));
     }
+    const LWChart = React.memo(_LWChartImpl, (prev, next) => {
+      if (prev.candles !== next.candles) return false;
+      if (prev.chartTf !== next.chartTf) return false;
+      if (prev.overlays !== next.overlays) return false;
+      if (prev.propHeight !== next.propHeight && prev.height !== next.height) return false;
+      if ((prev.hideOverlayToggles || false) !== (next.hideOverlayToggles || false)) return false;
+      const prevSym = prev.ticker?.ticker || "";
+      const nextSym = next.ticker?.ticker || "";
+      if (prevSym !== nextSym) return false;
+      const pa = Array.isArray(prev.priceLines) ? prev.priceLines : [];
+      const pn = Array.isArray(next.priceLines) ? next.priceLines : [];
+      if (pa.length !== pn.length) return false;
+      if (pa.length > 0) {
+        const first = (a, n) => Number(a[0]?.price) === Number(n[0]?.price);
+        const last = (a, n) => Number(a[a.length - 1]?.price) === Number(n[n.length - 1]?.price);
+        if (!first(pa, pn) || !last(pa, pn)) return false;
+      }
+      const ma = Array.isArray(prev.markers) ? prev.markers : [];
+      const mn = Array.isArray(next.markers) ? next.markers : [];
+      if (ma.length !== mn.length) return false;
+      return true;
+    });
     function AutopsyChart({
       ticker: rawTicker,
       entryPrice,
@@ -2636,8 +2658,8 @@
         }, title && React.createElement("div", {
           className: "ds-glass__title"
         }, title), action), children);
-        const v2Rank = Number(ticker?.rank) || null;
-        const v2Score = Number((typeof rankScoreForTicker === "function" ? rankScoreForTicker(ticker) : 0) || ticker?.score) || null;
+        const v2Rank = Number(ticker?.rank_position ?? ticker?.rp) || null;
+        const v2Score = Number((typeof rankScoreForTicker === "function" ? rankScoreForTicker(ticker) : 0) || ticker?.score || ticker?.rank) || null;
         const v2Conv = Number(ticker?.focus_conviction_score ?? ticker?.__focus_conviction_score) || null;
         const v2Tier = String(ticker?.focus_tier ?? ticker?.__focus_tier ?? "").toUpperCase();
         const v2Pos = (() => {
@@ -3319,12 +3341,47 @@
             height: 240,
             hideOverlayToggles: true
           })));
-        })(), (ticker?.sl || ticker?.tp || ticker?.entry_price) && (() => {
+        })(), (ticker?.sl || ticker?.tp || ticker?.tp_trim || ticker?.tp_exit || ticker?.entry_price) && (() => {
           const entry = Number(ticker.entry_price) || 0;
-          const sl = Number(ticker.sl) || 0;
-          const tp = Number(ticker.tp) || 0;
+          const sl = Number(ticker.sl ?? ticker.sl_dynamic ?? ticker.stop_loss) || 0;
           const cur = v2Price || entry;
-          const all = [entry, cur, sl, tp].filter(p => Number.isFinite(p) && p > 0);
+          const tpLevels = (() => {
+            const out = [];
+            const tpArr = Array.isArray(trade?.tpArray) && trade.tpArray.length > 0 ? trade.tpArray : Array.isArray(ticker?.tpArray) ? ticker.tpArray : [];
+            if (tpArr.length > 0) {
+              tpArr.forEach((tp, i) => {
+                const px = Number(tp?.price ?? tp);
+                if (Number.isFinite(px) && px > 0) {
+                  out.push({
+                    label: tp?.tier || (i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`),
+                    desc: tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner"),
+                    px
+                  });
+                }
+              });
+            } else {
+              const tp1 = Number(ticker?.tp_trim) || 0;
+              const tp2 = Number(ticker?.tp_exit) || Number(ticker?.tp_target_price) || Number(ticker?.tp) || 0;
+              const tpMax = Number(ticker?.tp_max) || Number(ticker?.tp_runner) || 0;
+              if (tp1 > 0) out.push({
+                label: "TP1",
+                desc: "Trim",
+                px: tp1
+              });
+              if (tp2 > 0 && tp2 !== tp1) out.push({
+                label: "TP2",
+                desc: "Exit",
+                px: tp2
+              });
+              if (tpMax > 0 && tpMax !== tp1 && tpMax !== tp2) out.push({
+                label: "TP3",
+                desc: "Runner / Bonus",
+                px: tpMax
+              });
+            }
+            return out;
+          })();
+          const all = [entry, cur, sl, ...tpLevels.map(t => t.px)].filter(p => Number.isFinite(p) && p > 0);
           if (all.length < 2) return null;
           const min = Math.min(...all);
           const max = Math.max(...all);
@@ -3333,11 +3390,12 @@
           const hi = max + padding;
           const yFor = px => 100 - (px - lo) / (hi - lo) * 100;
           const isLong = v2Dir === "LONG";
-          const levels = [tp ? {
-            label: "Target",
-            px: tp,
+          const levels = [...tpLevels.map(tp => ({
+            label: tp.label,
+            sub: tp.desc,
+            px: tp.px,
             color: "var(--ds-up)"
-          } : null, cur ? {
+          })), cur ? {
             label: "Current",
             px: cur,
             color: "var(--ds-accent)",
@@ -3404,7 +3462,13 @@
                 color: l.color,
                 fontWeight: 600
               }
-            }, "$", l.px.toFixed(2)), l.isCurrent && entry && (() => {
+            }, "$", l.px.toFixed(2)), l.sub && React.createElement("span", {
+              style: {
+                fontSize: "var(--ds-fs-caption)",
+                color: "var(--ds-text-faint)",
+                marginLeft: 6
+              }
+            }, l.sub), l.isCurrent && entry && (() => {
               const pct = isLong ? (cur - entry) / entry * 100 : (entry - cur) / entry * 100;
               return React.createElement("span", {
                 className: `ds-chip ds-chip--sm ${pct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,

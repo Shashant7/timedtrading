@@ -4834,12 +4834,17 @@
         layoutMode = "score",
       }) {
 
-        // When a ticker is selected, "solo" it (show only that bubble + journey).
-        // IMPORTANT: chart zoom should remain stable (domain is computed from the full loaded universe, not this filtered list).
+        /* V2.1 round 7 (2026-05-01) — When a ticker is SELECTED, solo it.
+           Per user: "When a ticker card is selected the bubble map should
+           only show that ticker's bubble and the journey, right now all
+           the bubbles also show up."
+           Previously we returned the full filtered universe whenever an
+           insight filter was active. Now selection always wins: if the
+           selected ticker is in scope, show ONLY it + journey trail.
+           The chart zoom domain is still computed from the full universe
+           (not displayTickers) so the bubble doesn't shift around. */
         const displayTickers = React.useMemo(() => {
           const list = Array.isArray(tickers) ? tickers : [];
-          // Insight/filter mode should show the whole matching set, not just the selected ticker.
-          if (activeInsightTickers && activeInsightTickers.size > 0) return list;
           if (!selectedTicker) return list;
           const sym = String(selectedTicker).toUpperCase();
           const solo = list.filter(
@@ -12272,7 +12277,13 @@
         const dc = (() => { try { return getDailyChange(t); } catch (_) { return null; } })();
         const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
         const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
-        const rank = Number(t?.rank) || null;
+        /* V2.1 round 7 (2026-05-01) — Card "R##" must display the rank
+           POSITION (1 = best), not the rank SCORE (0–200, higher = better).
+           Worker emits both: t.rank = score, t.rank_position = position.
+           Previously we showed t.rank which created the LULU paradox
+           where "R99" appeared at the TOP of the viewport. */
+        const rank = Number(t?.rank_position ?? t?.rp) || null;
+        const score = Number(t?.score ?? t?.rank) || null;
         const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
         const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
         const rr = Number(t?.rr) || null;
@@ -12544,7 +12555,20 @@
               ) : null;
               return (
                 <div style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-1)", marginTop: "var(--ds-space-2)", flexWrap: "wrap", zIndex: 2, position: "relative" }}>
-                  {rank != null && <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }} title="Rank">R{rank}</span>}
+                  {rank != null && (
+                    <span
+                      className={`ds-chip ds-chip--sm ${rank <= 10 ? "ds-chip--up" : rank <= 30 ? "ds-chip--accent" : ""}`}
+                      style={{ fontFamily: "var(--tt-font-mono)" }}
+                      title={`Rank position: ${rank} of all eligible tickers (1 = best). The viewport is sorted by this.`}
+                    >R{rank}</span>
+                  )}
+                  {score != null && (
+                    <span
+                      className={`ds-chip ds-chip--sm ${score >= 100 ? "ds-chip--up" : score >= 75 ? "ds-chip--accent" : ""}`}
+                      style={{ fontFamily: "var(--tt-font-mono)" }}
+                      title={`Score: ${Math.round(score)} (composite alignment score, higher = better). Rank is derived from this.`}
+                    >S{Math.round(score)}</span>
+                  )}
                   {conv != null && <span className={`ds-chip ds-chip--sm ${tier === "A" ? "ds-chip--up" : tier === "B" ? "ds-chip--accent" : "ds-chip--solid"}`} style={{ fontFamily: "var(--tt-font-mono)" }} title="Conviction tier">{tier || "C"}·{Math.round(conv)}</span>}
                   {rr != null && <span className={`ds-chip ds-chip--sm ${rr >= 2 ? "ds-chip--up" : rr >= 1.5 ? "ds-chip--accent" : ""}`} style={{ fontFamily: "var(--tt-font-mono)" }} title="Risk:Reward">{rr.toFixed(1)}R</span>}
                   {sqChip}
@@ -19856,23 +19880,25 @@
                           if (focus) focusBucket.push(focus);
                           for (const c of now)    focusBucket.push(c);
                           for (const c of setups) focusBucket.push(c);
-                          /* V2.1 round 6 (2026-05-01) — equal-height tiles.
-                             Per user: heights for Momentum and Context were
-                             off. align-items:stretch on the row plus a fixed
-                             minHeight on the tile + h:100% inner content
-                             keeps all 4 tiles visually identical regardless
-                             of how many chips each holds. */
+                          /* V2.1 round 7 (2026-05-01) — equal-height tiles via
+                             CSS Grid 2x2 with fixed cell height. Previous
+                             flexbox approach hit the .ds-glass + .ds-glass
+                             margin rule which misaligned tiles vertically.
+                             Grid guarantees identical row heights regardless
+                             of content, and we force the tile to the row
+                             height with height:100% + display:flex. */
                           const Section = ({ label, items, accent }) => {
                             const empty = !items || items.length === 0;
                             return (
                               <div className="ds-glass" style={{
                                 padding: "var(--ds-space-2) var(--ds-space-3)",
-                                flex: "1 1 0",
+                                margin: 0,           // override .ds-glass + .ds-glass margin
+                                marginTop: 0,        // override via grid sibling rule
                                 minWidth: 0,
-                                minHeight: 44,
+                                height: "100%",      // fill grid cell
                                 display: "flex",
                                 alignItems: "center",
-                                opacity: empty ? 0.45 : 1,
+                                opacity: empty ? 0.55 : 1,
                               }}>
                                 <div style={{
                                   display: "flex",
@@ -19891,20 +19917,19 @@
                             );
                           };
                           return (
-                            <div className="mb-2" style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-1)" }}>
-                              {/* Row 1: Focus | Momentum — equal-height tiles via align-items:stretch */}
-                              <div style={{ display: "flex", gap: "var(--ds-space-1)", alignItems: "stretch" }}>
-                                <Section label="Focus" items={focusBucket} accent="var(--ds-accent)" />
-                                <Section label="Momentum" items={momentum} accent="var(--ds-warn)" />
-                              </div>
-                              {/* Row 2: Structure | Context */}
-                              <div style={{ display: "flex", gap: "var(--ds-space-1)", alignItems: "stretch" }}>
-                                <Section label="Structure" items={structure} accent="var(--ds-violet)" />
-                                <Section label="Context" items={context} accent="var(--ds-text-muted)" />
-                              </div>
-                              {/* Active filter affordance + sector drill */}
+                            <div className="mb-2" style={{
+                              display: "grid",
+                              gridTemplateColumns: "1fr 1fr",
+                              gridAutoRows: "44px",
+                              gap: "var(--ds-space-1)",
+                            }}>
+                              <Section label="Focus" items={focusBucket} accent="var(--ds-accent)" />
+                              <Section label="Momentum" items={momentum} accent="var(--ds-warn)" />
+                              <Section label="Structure" items={structure} accent="var(--ds-violet)" />
+                              <Section label="Context" items={context} accent="var(--ds-text-muted)" />
+                              {/* Active filter affordance + sector drill — span both grid columns */}
                               {activeInsight && (
-                                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                                <div style={{ display: "flex", justifyContent: "flex-end", gridColumn: "1 / -1" }}>
                                   <button
                                     onClick={() => { setActiveInsight(null); setActiveSubInsight(null); }}
                                     className="ds-chip ds-chip--sm"
@@ -19912,7 +19937,7 @@
                                 </div>
                               )}
                               {activeInsight === "sp_sectors" && sectorSubs.length > 0 && (
-                                <div className="ds-glass" style={{ padding: "var(--ds-space-2) var(--ds-space-3)", background: "rgba(167,139,250,0.05)" }}>
+                                <div className="ds-glass" style={{ padding: "var(--ds-space-2) var(--ds-space-3)", background: "rgba(167,139,250,0.05)", gridColumn: "1 / -1", margin: 0, marginTop: 0 }}>
                                   <div style={{
                                     display: "flex",
                                     alignItems: "center",
