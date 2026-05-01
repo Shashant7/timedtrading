@@ -16103,8 +16103,10 @@ function App() {
       if (!Number.isFinite(pct)) return null;
       const sym = String(t?.ticker || "").toUpperCase();
       if (Math.abs(pct) > ABS_CAP(sym)) {
-        if (typeof console !== "undefined") {
-          console.warn(`[movers] dropped ${sym} dayPct=${pct.toFixed(2)}% (sanity cap ${ABS_CAP(sym)}%)`);
+        if (typeof window !== "undefined" && !window._ttMoversWarned?.has?.(sym)) {
+          if (!window._ttMoversWarned) window._ttMoversWarned = new Set();
+          window._ttMoversWarned.add(sym);
+          console.warn(`[movers] dropped ${sym} dayPct=${pct.toFixed(2)}% (sanity cap ${ABS_CAP(sym)}%) — feed appears stale, will retry silently`);
         }
         return null;
       }

@@ -2365,13 +2365,14 @@
                             - Indicator toggles (EMA21 / EMA48 / EMA200 / ST / TD)
                             - Expand-to-modal button (re-uses the legacy modal
                               already mounted further down in this file).
-                          Stability: priceLines and overlays are memoized so
-                          the LWChart useEffect doesn't tear down on every poll.
-                          (the parent already drops propTicker from its deps;
-                          here we also memoize priceLines to keep their
-                          identity stable when entry/sl/tp don't change.) */}
+                          Stability: LWChart's internal useEffect already
+                          excludes propPriceLines from its dependency array, so
+                          recomputing the lines array each render does not
+                          tear down the chart. (The previous round-4 attempt
+                          to memoize this with React.useMemo inside an IIFE
+                          was a Rules-of-Hooks violation \u2014 reverted.) */}
                       {chartCandles && chartCandles.length >= 2 && (() => {
-                        const stableLines = React.useMemo(() => {
+                        const buildLines = () => {
                           const lines = [];
                           const ep = Number(ticker?.entry_price);
                           const slPx = Number(ticker?.sl);
@@ -2380,7 +2381,7 @@
                           if (Number.isFinite(slPx) && slPx > 0) lines.push({ price: slPx, color: "rgba(244,63,94,0.7)", title: "Stop", lineStyle: 2 });
                           if (Number.isFinite(tpPx) && tpPx > 0) lines.push({ price: tpPx, color: "rgba(34,197,94,0.7)", title: "Target", lineStyle: 2 });
                           return lines;
-                        }, [ticker?.entry_price, ticker?.sl, ticker?.tp]);
+                        };
                         const indicatorBtn = (key, label, title) => {
                           const on = !!chartOverlays[key];
                           return (
@@ -2441,7 +2442,7 @@
                               candles: chartCandles,
                               chartTf,
                               overlays: chartOverlays,
-                              priceLines: stableLines,
+                              priceLines: buildLines(),
                               ticker,
                               height: 240,
                             })}

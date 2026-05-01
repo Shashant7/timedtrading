@@ -3124,7 +3124,7 @@
             alignSelf: "flex-start"
           }
         }, ticker.setup_grade))), chartCandles && chartCandles.length >= 2 && (() => {
-          const stableLines = React.useMemo(() => {
+          const buildLines = () => {
             const lines = [];
             const ep = Number(ticker?.entry_price);
             const slPx = Number(ticker?.sl);
@@ -3148,7 +3148,7 @@
               lineStyle: 2
             });
             return lines;
-          }, [ticker?.entry_price, ticker?.sl, ticker?.tp]);
+          };
           const indicatorBtn = (key, label, title) => {
             const on = !!chartOverlays[key];
             return React.createElement("button", {
@@ -3213,7 +3213,7 @@
             candles: chartCandles,
             chartTf,
             overlays: chartOverlays,
-            priceLines: stableLines,
+            priceLines: buildLines(),
             ticker,
             height: 240
           })));
