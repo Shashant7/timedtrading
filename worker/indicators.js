@@ -5460,8 +5460,11 @@ const ALL_TFS = ["M", "W", "D", "240", "60", "30", "15", "10"];
 // All timeframes we fetch from Alpaca for candle storage (5m dropped — swing focus)
 const CRON_FETCH_TFS = ["M", "W", "D", "240", "60", "30", "10"];
 
-// TD Sequential timeframes — computed on 7 TFs for chart overlays (5m dropped)
-const TD_SEQ_TFS = ["10", "30", "60", "240", "D", "W", "M"];
+// TD Sequential timeframes — computed on 8 TFs for chart overlays (5m dropped).
+// V15 P0.7.47 (2026-05-01) — Added "15" so the RR TD panel can show the
+// 15m count. The engine's leading LTF is 15m for many tickers; not having
+// it in TD made the panel show the less-actionable 10m count.
+const TD_SEQ_TFS = ["10", "15", "30", "60", "240", "D", "W", "M"];
 
 /**
  * Fetch historical bars from Alpaca for multiple symbols.

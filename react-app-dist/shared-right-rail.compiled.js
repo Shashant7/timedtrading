@@ -801,6 +801,7 @@
       useEffect(() => {
         if (!containerRef.current || !LWC || mapped.length < 2) return;
         const chartHeight = propHeight || 320;
+        const _isHtfChart = ["D", "W", "M"].includes(String(chartTf));
         const chart = LWC.createChart(containerRef.current, {
           width: containerRef.current.clientWidth,
           height: chartHeight,
@@ -809,46 +810,56 @@
               type: "solid",
               color: "#0b0e11"
             },
-            textColor: "#6b7280",
-            fontSize: 10
+            textColor: "#7c8493",
+            fontSize: 11
           },
           grid: {
             vertLines: {
-              color: "rgba(38,50,95,0.35)"
+              color: "rgba(38,50,95,0.20)"
             },
             horzLines: {
-              color: "rgba(38,50,95,0.35)"
+              color: "rgba(38,50,95,0.20)"
             }
           },
           crosshair: {
             mode: LWC.CrosshairMode.Normal,
             vertLine: {
-              color: "rgba(255,255,255,0.15)",
+              color: "rgba(255,255,255,0.12)",
               width: 1,
               style: 2,
               labelBackgroundColor: "#1e293b"
             },
             horzLine: {
-              color: "rgba(255,255,255,0.15)",
+              color: "rgba(255,255,255,0.12)",
               width: 1,
               style: 2,
               labelBackgroundColor: "#1e293b"
             }
           },
           rightPriceScale: {
-            borderColor: "rgba(38,50,95,0.5)",
+            borderColor: "rgba(38,50,95,0.3)",
             scaleMargins: {
-              top: 0.05,
-              bottom: 0.05
-            }
+              top: 0.08,
+              bottom: 0.08
+            },
+            autoScale: true,
+            minimumWidth: 70,
+            entireTextOnly: true
           },
           timeScale: {
-            borderColor: "rgba(38,50,95,0.5)",
-            timeVisible: !["D", "W", "M"].includes(String(chartTf)),
+            borderColor: "rgba(38,50,95,0.3)",
+            timeVisible: !_isHtfChart,
             secondsVisible: false,
+            rightOffset: 5,
+            barSpacing: String(chartTf) === "D" ? 12 : String(chartTf) === "60" ? 8 : 6,
             tickMarkFormatter: time => {
               try {
                 const d = new Date(time * 1000);
+                if (_isHtfChart) return d.toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  timeZone: "America/New_York"
+                });
                 return d.toLocaleTimeString("en-US", {
                   hour: "numeric",
                   minute: "2-digit",
@@ -860,13 +871,25 @@
             }
           },
           localization: {
+            priceFormatter: p => {
+              const sym = String(propTicker?.ticker || "").toUpperCase();
+              if (sym === "VX1!" || sym === "VIX") return p.toFixed(2);
+              return p.toFixed(2);
+            },
             timeFormatter: time => {
               try {
                 const d = new Date(time * 1000);
+                if (_isHtfChart) return d.toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                  timeZone: "America/New_York"
+                });
                 return d.toLocaleString("en-US", {
+                  month: "short",
+                  day: "numeric",
                   hour: "numeric",
                   minute: "2-digit",
-                  second: "2-digit",
                   timeZone: "America/New_York"
                 });
               } catch (_) {
@@ -880,12 +903,12 @@
         });
         chartInstanceRef.current = chart;
         const candleSeries = chart.addCandlestickSeries({
-          upColor: "#22c55e",
-          downColor: "#ef4444",
-          borderUpColor: "#22c55e",
-          borderDownColor: "#ef4444",
-          wickUpColor: "#22c55e",
-          wickDownColor: "#ef4444"
+          upColor: "#26a69a",
+          downColor: "#ef5350",
+          borderUpColor: "#26a69a",
+          borderDownColor: "#ef5350",
+          wickUpColor: "#26a69a",
+          wickDownColor: "#ef5350"
         });
         candleSeries.setData(mapped);
         candleSeriesRef.current = candleSeries;
@@ -1875,6 +1898,8 @@
       effectiveStage = null,
       earningsMap = null,
       addingTicker = null,
+      savedTickers = null,
+      toggleSavedTicker = null,
       openAutopsyForTrade = null,
       modalOnly = false
     }) {
@@ -2733,7 +2758,20 @@
             className: `ds-chip ds-chip--sm ${stageChip.cls}`
           }, stageChip.label)), React.createElement("div", {
             className: "flex items-center gap-1"
-          }, React.createElement("button", {
+          }, toggleSavedTicker && (() => {
+            const isSavedRR = !!(savedTickers && savedTickers.has && savedTickers.has(tickerSymbol));
+            return React.createElement("button", {
+              className: "ds-chip ds-chip--sm",
+              onClick: () => toggleSavedTicker(tickerSymbol),
+              title: isSavedRR ? "Saved \u2014 click to unsave" : "Save ticker",
+              "aria-label": isSavedRR ? "Unsave ticker" : "Save ticker",
+              style: {
+                color: isSavedRR ? "var(--ds-accent)" : "var(--ds-text-muted)",
+                background: isSavedRR ? "var(--ds-accent-dim)" : "transparent",
+                borderColor: isSavedRR ? "var(--ds-accent)" : "var(--ds-stroke)"
+              }
+            }, isSavedRR ? "★" : "☆");
+          })(), React.createElement("button", {
             className: "ds-chip ds-chip--sm",
             onClick: () => {
               try {
@@ -3085,55 +3123,101 @@
           style: {
             alignSelf: "flex-start"
           }
-        }, ticker.setup_grade))), chartCandles && chartCandles.length >= 2 && React.createElement(Panel, {
-          title: "Chart",
-          action: React.createElement("div", {
-            className: "ds-chipgroup",
-            style: {
-              padding: 2
-            }
-          }, ["15", "30", "60", "240", "D"].map(tf => React.createElement("button", {
-            key: `ctf-${tf}`,
-            onClick: () => setChartTf(tf),
-            className: `ds-chipgroup__item ${chartTf === tf ? "ds-chipgroup__item--active" : ""}`,
-            style: {
-              padding: "3px 8px",
-              fontSize: 10
-            }
-          }, tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`)))
-        }, React.createElement("div", {
-          style: {
-            height: 220
-          }
-        }, React.createElement(LWChart, {
-          candles: chartCandles,
-          chartTf,
-          overlays: chartOverlays,
-          priceLines: (() => {
+        }, ticker.setup_grade))), chartCandles && chartCandles.length >= 2 && (() => {
+          const stableLines = React.useMemo(() => {
             const lines = [];
-            if (ticker?.entry_price) lines.push({
-              price: Number(ticker.entry_price),
+            const ep = Number(ticker?.entry_price);
+            const slPx = Number(ticker?.sl);
+            const tpPx = Number(ticker?.tp);
+            if (Number.isFinite(ep) && ep > 0) lines.push({
+              price: ep,
               color: "rgba(245,194,92,0.65)",
               title: "Entry",
               lineStyle: 0
             });
-            if (ticker?.sl) lines.push({
-              price: Number(ticker.sl),
+            if (Number.isFinite(slPx) && slPx > 0) lines.push({
+              price: slPx,
               color: "rgba(244,63,94,0.7)",
               title: "Stop",
               lineStyle: 2
             });
-            if (ticker?.tp) lines.push({
-              price: Number(ticker.tp),
+            if (Number.isFinite(tpPx) && tpPx > 0) lines.push({
+              price: tpPx,
               color: "rgba(34,197,94,0.7)",
               title: "Target",
               lineStyle: 2
             });
             return lines;
-          })(),
-          ticker,
-          height: 220
-        }))), (ticker?.sl || ticker?.tp || ticker?.entry_price) && (() => {
+          }, [ticker?.entry_price, ticker?.sl, ticker?.tp]);
+          const indicatorBtn = (key, label, title) => {
+            const on = !!chartOverlays[key];
+            return React.createElement("button", {
+              key: `ind-${key}`,
+              onClick: () => setChartOverlays(prev => ({
+                ...prev,
+                [key]: !prev[key]
+              })),
+              className: "ds-chip ds-chip--sm",
+              title: title,
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                padding: "0 6px",
+                color: on ? "var(--ds-accent)" : "var(--ds-text-muted)",
+                background: on ? "var(--ds-accent-dim)" : "transparent",
+                borderColor: on ? "var(--ds-accent)" : "var(--ds-stroke)"
+              }
+            }, label);
+          };
+          return React.createElement(Panel, {
+            title: "Chart",
+            action: React.createElement("div", {
+              style: {
+                display: "flex",
+                alignItems: "center",
+                gap: 6
+              }
+            }, React.createElement("div", {
+              className: "ds-chipgroup",
+              style: {
+                padding: 2
+              }
+            }, ["15", "30", "60", "240", "D"].map(tf => React.createElement("button", {
+              key: `ctf-${tf}`,
+              onClick: () => setChartTf(tf),
+              className: `ds-chipgroup__item ${chartTf === tf ? "ds-chipgroup__item--active" : ""}`,
+              style: {
+                padding: "3px 8px",
+                fontSize: 10
+              }
+            }, tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`))), React.createElement("button", {
+              className: "ds-chip ds-chip--sm",
+              onClick: () => setChartExpanded(true),
+              title: "Expand chart",
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                padding: "0 8px"
+              }
+            }, "\u2922"))
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 4,
+              marginBottom: "var(--ds-space-2)"
+            }
+          }, indicatorBtn("ema21", "EMA21", "21-period EMA"), indicatorBtn("ema48", "EMA48", "48-period EMA"), indicatorBtn("ema200", "EMA200", "200-period EMA"), indicatorBtn("supertrend", "ST", "SuperTrend (10, 3)"), indicatorBtn("tdSequential", "TD", "TD Sequential markers")), React.createElement("div", {
+            style: {
+              height: 240
+            }
+          }, React.createElement(LWChart, {
+            candles: chartCandles,
+            chartTf,
+            overlays: chartOverlays,
+            priceLines: stableLines,
+            ticker,
+            height: 240
+          })));
+        })(), (ticker?.sl || ticker?.tp || ticker?.entry_price) && (() => {
           const entry = Number(ticker.entry_price) || 0;
           const sl = Number(ticker.sl) || 0;
           const tp = Number(ticker.tp) || 0;
@@ -3541,39 +3625,107 @@
           className: "ds-chip ds-chip--sm ds-chip--up"
         }, "Phase Bull Div"), ticker.phase_divergence?.bear && React.createElement("span", {
           className: "ds-chip ds-chip--sm ds-chip--dn"
-        }, "Phase Bear Div"))), ticker?.td_sequential && React.createElement(Panel, {
-          title: "TD Sequential"
-        }, React.createElement("div", {
-          style: {
-            display: "grid",
-            gridTemplateColumns: "repeat(2, 1fr)",
-            gap: "var(--ds-space-1)"
-          }
-        }, Object.entries(ticker.td_sequential.per_tf || {}).slice(0, 6).map(([tf, d]) => React.createElement("div", {
-          key: `td-${tf}`,
-          style: {
-            display: "flex",
-            justifyContent: "space-between",
-            padding: "4px 8px",
-            background: "var(--ds-bg-glass)",
-            borderRadius: "var(--ds-radius-xs)",
-            fontSize: "var(--ds-fs-meta)",
-            fontFamily: "var(--tt-font-mono)"
-          }
-        }, React.createElement("span", {
-          style: {
-            color: "var(--ds-text-muted)"
-          }
-        }, tf), React.createElement("span", null, React.createElement("span", {
-          style: {
-            color: "var(--ds-up)",
-            marginRight: 6
-          }
-        }, "\u2191", d.bull_prep || 0), React.createElement("span", {
-          style: {
-            color: "var(--ds-dn)"
-          }
-        }, "\u2193", d.bear_prep || 0)))))), (ticker?.daily_ema_cloud || ticker?.fourh_ema_cloud || ticker?.oneh_ema_cloud) && React.createElement(Panel, {
+        }, "Phase Bear Div"))), ticker?.td_sequential && (() => {
+          const perTf = ticker.td_sequential.per_tf || {};
+          const TF_DISPLAY = [["15", "15m"], ["30", "30m"], ["60", "1H"], ["240", "4H"], ["D", "D"], ["W", "W"]];
+          const rows = TF_DISPLAY.map(([key, label]) => {
+            const d = perTf[key] || {};
+            const bull = Number(d.bullish_prep_count ?? d.bull_prep) || 0;
+            const bear = Number(d.bearish_prep_count ?? d.bear_prep) || 0;
+            const td9b = !!d.td9_bullish,
+              td9s = !!d.td9_bearish;
+            const td13b = !!d.td13_bullish,
+              td13s = !!d.td13_bearish;
+            return {
+              key,
+              label,
+              bull,
+              bear,
+              td9b,
+              td9s,
+              td13b,
+              td13s
+            };
+          });
+          const peak = rows.reduce((p, r) => {
+            const m = Math.max(r.bull, r.bear);
+            if (m > p.m) return {
+              m,
+              side: r.bull >= r.bear ? "bull" : "bear",
+              tf: r.label
+            };
+            return p;
+          }, {
+            m: 0,
+            side: null,
+            tf: null
+          });
+          const insight = peak.m === 0 ? "No active TD count yet — fresh trend." : peak.m >= 9 ? `TD${peak.m} ${peak.side === "bull" ? "exhaustion HIGH" : "exhaustion LOW"} on ${peak.tf} — reversal watch.` : peak.m >= 7 ? `TD${peak.m} approaching exhaustion on ${peak.tf} (${peak.side}).` : `TD${peak.m} on ${peak.tf} (${peak.side}).`;
+          return React.createElement(Panel, {
+            title: "TD Sequential",
+            action: peak.m >= 7 && React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${peak.m >= 9 ? "ds-chip--accent" : ""}`,
+              style: {
+                fontFamily: "var(--tt-font-mono)"
+              }
+            }, "TD", peak.m, " ", peak.tf)
+          }, React.createElement("p", {
+            style: {
+              fontSize: "var(--ds-fs-meta)",
+              color: "var(--ds-text-muted)",
+              margin: "0 0 var(--ds-space-2) 0",
+              lineHeight: 1.5
+            }
+          }, insight), React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "repeat(2, 1fr)",
+              gap: "var(--ds-space-1)"
+            }
+          }, rows.map(r => React.createElement("div", {
+            key: `td-${r.key}`,
+            style: {
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "6px 10px",
+              background: "var(--ds-bg-glass)",
+              borderRadius: "var(--ds-radius-xs)",
+              fontSize: "var(--ds-fs-meta)",
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, React.createElement("span", {
+            style: {
+              color: "var(--ds-text-muted)"
+            }
+          }, r.label), React.createElement("span", {
+            style: {
+              display: "flex",
+              alignItems: "center",
+              gap: 6
+            }
+          }, (r.td13b || r.td13s) && React.createElement("span", {
+            className: `ds-chip ds-chip--sm ${r.td13b ? "ds-chip--up" : "ds-chip--dn"}`,
+            style: {
+              padding: "0 4px",
+              fontSize: 9
+            }
+          }, "13"), (r.td9b || r.td9s) && !(r.td13b || r.td13s) && React.createElement("span", {
+            className: `ds-chip ds-chip--sm ${r.td9b ? "ds-chip--up" : "ds-chip--dn"}`,
+            style: {
+              padding: "0 4px",
+              fontSize: 9
+            }
+          }, "9"), React.createElement("span", {
+            style: {
+              color: r.bull >= 7 ? "var(--ds-accent)" : "var(--ds-up)"
+            }
+          }, "\u2191", r.bull), React.createElement("span", {
+            style: {
+              color: r.bear >= 7 ? "var(--ds-accent)" : "var(--ds-dn)"
+            }
+          }, "\u2193", r.bear))))));
+        })(), (ticker?.daily_ema_cloud || ticker?.fourh_ema_cloud || ticker?.oneh_ema_cloud) && React.createElement(Panel, {
           title: "EMA Clouds"
         }, React.createElement("div", {
           style: {

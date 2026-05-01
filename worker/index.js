@@ -19790,7 +19790,9 @@ async function processTradeSimulation(
                       const _td = tickerData?.td_sequential?.per_tf;
                       if (!_td || typeof _td !== "object") return null;
                       const out = {};
-                      for (const tf of ["10","30","60","240","D","W"]) {
+                      // V15 P0.7.47 (2026-05-01) — include "15" (now computed
+                      // by indicators.js so the RR TD panel can use it).
+                      for (const tf of ["10","15","30","60","240","D","W"]) {
                         const r = _td[tf];
                         if (!r) continue;
                         out[tf] = {

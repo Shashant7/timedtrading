@@ -96,6 +96,12 @@
     const hue = Math.abs(hash) % 360;
     return `hsl(${hue}, 35%, 28%)`;
   }
+  /* V2.1 round 4 (2026-05-01) — Some ETF logos (SPY, QQQ, IWM, USO, GLD,
+     etc.) are delivered by eodhd as transparent PNGs whose foreground is
+     dark — they vanish on the dark canvas. Wrap the img in a white plate
+     so transparent logos show their detail. Logos that already ship with
+     their own background (most equities) just look like a solid disc,
+     which is fine. */
   function tickerLogo(symbol, opts = {}) {
     const { size = 24 } = opts;
     const url = tickerLogoUrl(symbol);
@@ -115,7 +121,13 @@
       img.style.height = '100%';
       img.style.borderRadius = '50%';
       img.style.objectFit = 'cover';
-      img.onload = () => { el.textContent = ''; el.appendChild(img); };
+      img.onload = () => {
+        el.textContent = '';
+        // Light plate behind the img so transparent-PNG logos remain visible.
+        el.style.background = '#ffffff';
+        el.style.padding = '0';
+        el.appendChild(img);
+      };
       img.onerror = () => { /* keep monogram */ };
     }
     return el;

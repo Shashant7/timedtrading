@@ -12262,8 +12262,12 @@
        *  - Earnings event subtle badge
        *  - Bias chip: Bullish / Bearish / Neutral when no trade; LONG / SHORT when in trade
        */
-      const DsCompactCard = React.memo(function DsCompactCard({ t, onSelectTicker, tradeByTicker }) {
+      const DsCompactCard = React.memo(function DsCompactCard({ t, onSelectTicker, tradeByTicker, savedTickers, toggleSavedTicker }) {
         const sym = String(t?.ticker || "").toUpperCase();
+        /* V2.1 round 4 (2026-05-01) — Save (star) toggle on cards.
+           User: "Add the option to Save a Ticker on the Cards and the
+           Right Rail." */
+        const isSaved = !!(savedTickers && savedTickers.has && savedTickers.has(sym));
         const price = Number(t?.price ?? t?.close);
         const dc = (() => { try { return getDailyChange(t); } catch (_) { return null; } })();
         const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
@@ -12482,6 +12486,23 @@
               {stageChip && (
                 <span className={`ds-chip ds-chip--sm ${stageChip.cls}`} style={{ marginLeft: "auto" }}>{stageChip.label}</span>
               )}
+              {/* V2.1 round 4 (2026-05-01) — Save / star toggle. */}
+              {toggleSavedTicker && (
+                <button
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleSavedTicker(sym); }}
+                  className="ds-chip ds-chip--sm"
+                  style={{
+                    marginLeft: stageChip ? 4 : "auto",
+                    padding: "0 6px",
+                    height: 18,
+                    color: isSaved ? "var(--ds-accent)" : "var(--ds-text-muted)",
+                    background: isSaved ? "var(--ds-accent-dim)" : "transparent",
+                    borderColor: isSaved ? "var(--ds-accent)" : "var(--ds-stroke)",
+                  }}
+                  title={isSaved ? "Saved — click to unsave" : "Save ticker"}
+                  aria-label={isSaved ? "Unsave ticker" : "Save ticker"}
+                >{isSaved ? "★" : "☆"}</button>
+              )}
             </div>
             <div className="ds-tickercard__price" style={{ fontSize: 18 }}>{Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"}</div>
             {dayPct != null && (
@@ -12539,7 +12560,7 @@
            kept available for fallback by setting window._dsV2CardsEnabled = false */
         const useV2 = (typeof window !== "undefined" && window._dsV2CardsEnabled !== false);
         if (useV2) {
-          return <DsCompactCard t={t} onSelectTicker={onSelectTicker} tradeByTicker={tradeByTicker} />;
+          return <DsCompactCard t={t} onSelectTicker={onSelectTicker} tradeByTicker={tradeByTicker} savedTickers={savedTickers} toggleSavedTicker={toggleSavedTicker} />;
         }
         return <CompactCard t={t} onSelectTicker={onSelectTicker} savedTickers={savedTickers} toggleSavedTicker={toggleSavedTicker} tradeByTicker={tradeByTicker} addingTicker={addingTicker} />;
       }
@@ -13101,10 +13122,11 @@
         // Use kanban stage counts when no live trigger flags, otherwise use early movers count
         const kanbanCount = hasEarlyMovers ? earlyMoversCount : kanbanActiveCount;
 
-        // Show panel if we have early movers, kanban data, or active positions
-        if (!hasEarlyMovers && !hasKanbanData && activePositionsCount === 0) {
-          return null;
-        }
+        /* V2.1 round 4 (2026-05-01) — Account Summary should ALWAYS render
+           regardless of whether there are early movers / active positions /
+           kanban data, because it carries Account / Realized / Open / Open P&L
+           which the user expects to see at all times. The previous early-return
+           caused the entire row to disappear in quiet markets. */
 
         // Daily activity summary (entries + exits today)
         const todayLocal = (() => {
@@ -17121,6 +17143,9 @@
         earningsMap = null,
         dashboardMode = "trader",
         addingTicker = null,
+        /* V2.1 round 4 (2026-05-01) — pass through to RR for Save toggle */
+        savedTickers = null,
+        toggleSavedTicker = null,
       }) => {
         if (!selectedTicker) return null;
 
@@ -17244,6 +17269,8 @@
               earningsMap={earningsMap}
               initialRailTab={initialRailTab}
               addingTicker={addingTicker}
+              savedTickers={savedTickers}
+              toggleSavedTicker={toggleSavedTicker}
             />
           );
 
@@ -19058,12 +19085,27 @@
                         )}
                       </div>
                     );
+                    /* V2.1 round 4 (2026-05-01) — sanity-guard the day-change.
+                       User reported SPX showing -98.72% from a stale TradingView
+                       webhook snapshot. Any reading outside ±50% for non-crypto
+                       or ±200% for crypto is treated as a feed glitch and the
+                       ticker is excluded from the movers row.
+                       (real intraday moves >50% are extraordinarily rare and
+                       always come with halts.) */
+                    const ABS_CAP = (sym) => CRYPTO_24H.has(sym) ? 200 : 50;
                     const rthArr = allArr.map(t => {
                       const px = Number(t?.price ?? t?.close);
                       if (!Number.isFinite(px) || px <= 0) return null;
                       const dc = getDailyChange(t);
                       const pct = dc?.dayPct;
                       if (!Number.isFinite(pct)) return null;
+                      const sym = String(t?.ticker || "").toUpperCase();
+                      if (Math.abs(pct) > ABS_CAP(sym)) {
+                        if (typeof console !== "undefined") {
+                          console.warn(`[movers] dropped ${sym} dayPct=${pct.toFixed(2)}% (sanity cap ${ABS_CAP(sym)}%)`);
+                        }
+                        return null;
+                      }
                       return { ...t, _pct: pct, _price: px };
                     }).filter(Boolean);
                     const rthSorted = [...rthArr].sort((a, b) => b._pct - a._pct);
@@ -19073,6 +19115,9 @@
                     const ethArr = _moversMarketOpen ? [] : allArr.filter(t => !CRYPTO_24H.has(t?.ticker)).map(t => {
                       const pct = Number(t?._ah_change_pct);
                       if (!Number.isFinite(pct) || pct === 0) return null;
+                      const sym = String(t?.ticker || "").toUpperCase();
+                      // V2.1 round 4 — same ±50% sanity cap on extended-hours moves.
+                      if (Math.abs(pct) > ABS_CAP(sym)) return null;
                       const px = Number(t?._ah_price) || Number(t?.price ?? t?.close) || 0;
                       return { ...t, _ethPct: pct, _ethPrice: px };
                     }).filter(Boolean);
@@ -19307,17 +19352,37 @@
                           >
                             ⭐ Saved{savedTickers.size > 0 ? ` (${savedTickers.size})` : ""}
                           </button>
-                          <button
-                            onClick={() => handleFilterChange({ group: effectiveFilters.group === "TT_SELECTED" ? "ALL" : "TT_SELECTED" })}
-                            className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors whitespace-nowrap ${
-                              effectiveFilters.group === "TT_SELECTED"
-                                ? "bg-violet-500/20 border-violet-500/40 text-violet-300"
-                                : "bg-white/[0.02] border-white/[0.06] text-[#6b7280] hover:text-violet-300 hover:bg-violet-500/10"
-                            }`}
-                            title="Show TT Selected tickers"
-                          >
-                            TT Selected
-                          </button>
+                          {/* V2.1 round 4 (2026-05-01) — TT Selected pill with
+                              a TT-styled monogram (matching the gold-dot
+                              indicator on cards) and the count of currently
+                              loaded TT-Selected tickers, so the pill looks
+                              and reads consistently with the badge on cards. */}
+                          {(() => {
+                            const ttCount = (Array.isArray(tickers) ? tickers : []).filter(
+                              (t) => isTickerTTSelected(t?.ticker)
+                            ).length;
+                            const isActive = effectiveFilters.group === "TT_SELECTED";
+                            return (
+                              <button
+                                onClick={() => handleFilterChange({ group: isActive ? "ALL" : "TT_SELECTED" })}
+                                className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors whitespace-nowrap inline-flex items-center gap-1.5 ${
+                                  isActive
+                                    ? "bg-amber-500/20 border-amber-500/40 text-amber-200"
+                                    : "bg-white/[0.02] border-white/[0.06] text-[#6b7280] hover:text-amber-200 hover:bg-amber-500/10"
+                                }`}
+                                title="Show TT Selected tickers (Fundstrat Direct picks)"
+                              >
+                                <span style={{
+                                  width: 6, height: 6, borderRadius: "50%",
+                                  background: "var(--ds-accent)",
+                                  boxShadow: "0 0 0 2px rgba(245,194,92,0.20)",
+                                  flexShrink: 0,
+                                  display: "inline-block",
+                                }} />
+                                TT Selected{ttCount > 0 ? ` (${ttCount})` : ""}
+                              </button>
+                            );
+                          })()}
                           {(dashboardMode === "investor" || effectiveFilters.group === "INVESTOR_ACTIONABLE") && (
                             <button
                               onClick={() => handleFilterChange({ group: effectiveFilters.group === "INVESTOR_ACTIONABLE" ? "ALL" : "INVESTOR_ACTIONABLE" })}
@@ -19915,6 +19980,8 @@
                             earningsMap={earningsMap}
                             dashboardMode={dashboardMode}
                             addingTicker={userTickers.addingTicker}
+                            savedTickers={savedTickers}
+                            toggleSavedTicker={toggleSavedTicker}
                           />
                         </div>
                       </>
