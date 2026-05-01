@@ -1936,6 +1936,317 @@
           }
         })();
 
+        /* ═══════════════════════════════════════════════════════════════
+         * V2 RIGHT RAIL (2026-05-01)
+         *
+         * Restructured per tasks/right-rail-v2-spec-2026-05-01.md:
+         * - 50 sections collapsed to ~16 panels across 4 tabs
+         * - All panels use ds-glass surface + ds-metric / ds-card primitives
+         * - Removed 3 dead `{false && ...}` blocks
+         * - Eliminated duplicate Investor/Analysis Model Guidance
+         * - Cohesive with the rest of the v2 surfaces (gold accent, JBM nums)
+         *
+         * Toggle: window._dsV2RailEnabled = false to fall back to legacy
+         * ════════════════════════════════════════════════════════════════ */
+        const v2Enabled = (typeof window !== "undefined" && window._dsV2RailEnabled !== false);
+        if (v2Enabled && !modalOnly) {
+          // Compute the v2 layout view-model from the same data the legacy renderer uses
+          const v2Dir = String(
+            (predictionContract?.direction || ticker?.position_direction || trade?.direction
+             || (String(ticker?.state || "").startsWith("HTF_BULL") ? "LONG"
+                 : String(ticker?.state || "").startsWith("HTF_BEAR") ? "SHORT" : ""))
+          ).toUpperCase();
+          const v2Price = Number(latestTicker?.price ?? ticker?.price) || 0;
+          const v2DayChange = (() => {
+            const src = latestTicker || ticker;
+            if (!src) return null;
+            try { return getDailyChange(src); } catch (_) { return null; }
+          })();
+          const v2DayPct = Number(v2DayChange?.dayPct);
+          const v2Spark = (() => {
+            const arr = (ticker?.intraday_5m || ticker?.intraday || []).slice(-50).map(p => Number(p?.c ?? p)).filter(Number.isFinite);
+            if (arr.length >= 2) return arr;
+            const pc = Number(latestTicker?.prev_close ?? ticker?.prev_close ?? ticker?.pc) || v2Price;
+            return [pc, v2Price];
+          })();
+          const v2DirChip = v2Dir === "LONG" ? "ds-chip--up" : v2Dir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
+          const v2RailTab = ["SNAPSHOT","SETUP","TECHNICALS","HISTORY"].includes(railTab) ? railTab : "SNAPSHOT";
+          // ds-metric helpers
+          const Metric = ({ label, value, delta, deltaClass = "accent" }) => (
+            <div className="ds-metric">
+              <div className="ds-metric__label">{label}</div>
+              <div className="ds-metric__row">
+                <div className="ds-metric__value">{value}</div>
+                {delta != null && delta !== "" && (
+                  <div className={`ds-metric__delta ds-metric__delta--${deltaClass}`}>{delta}</div>
+                )}
+              </div>
+            </div>
+          );
+          const Panel = ({ title, action, children }) => (
+            <div className="ds-glass" style={{ marginBottom: "var(--ds-space-3)" }}>
+              {(title || action) && (
+                <div className="ds-glass__head">
+                  {title && <div className="ds-glass__title">{title}</div>}
+                  {action}
+                </div>
+              )}
+              {children}
+            </div>
+          );
+          // ── Conviction values ──────────────────────────────────────
+          const v2Rank = Number(ticker?.rank) || null;
+          const v2Score = Number((typeof rankScoreForTicker === "function" ? rankScoreForTicker(ticker) : 0) || ticker?.score) || null;
+          const v2Conv = Number(ticker?.focus_conviction_score
+                                ?? ticker?.__focus_conviction_score) || null;
+          const v2Tier = String(ticker?.focus_tier ?? ticker?.__focus_tier ?? "").toUpperCase();
+          // ── Position values ────────────────────────────────────────
+          const v2Pos = (() => {
+            if (!trade) return null;
+            const ep = Number(trade.entry_price ?? trade.entryPrice) || null;
+            if (!ep) return null;
+            const cur = v2Price || ep;
+            const isLong = String(trade.direction || "LONG").toUpperCase() === "LONG";
+            const pnlPct = isLong ? ((cur - ep) / ep * 100) : ((ep - cur) / ep * 100);
+            return { entry: ep, current: cur, pnlPct, sl: Number(trade.sl) || null, tp: Number(trade.tp) || null };
+          })();
+          // ── Sparkline SVG ──────────────────────────────────────────
+          const v2SparkDir = v2DayPct > 0.05 ? "up" : v2DayPct < -0.05 ? "dn" : "flat";
+          const v2SparkSvg = (typeof window !== "undefined" && window.DS)
+            ? window.DS.sparklineSvg(v2Spark, { width: 320, height: 60, direction: v2SparkDir, strokeWidth: 1.5 })
+            : "";
+          return (
+            <>
+              <div className="w-full h-full flex flex-col" style={{ background: "var(--ds-bg-canvas)", borderRadius: "var(--ds-radius-lg)", border: "1px solid var(--ds-stroke)" }}>
+                {/* ─── Sticky header ─────────────────────────────────── */}
+                <div className="sticky top-0 z-30" style={{ background: "var(--ds-bg-canvas)", padding: "var(--ds-space-3) var(--ds-space-4)", borderBottom: "1px solid var(--ds-stroke)" }}>
+                  <div className="flex items-center justify-between mb-2" style={{ gap: "var(--ds-space-2)" }}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="ds-tickercard__logo" style={{ width: 28, height: 28 }} ref={(el) => {
+                        if (el && !el.dataset.dsInit && window.DS) {
+                          el.dataset.dsInit = "1";
+                          try { el.replaceWith(window.DS.tickerLogo(tickerSymbol, { size: 28 })); } catch (_) {}
+                        }
+                      }}>{tickerSymbol.slice(0,2)}</div>
+                      <h3 style={{ fontSize: "var(--ds-fs-h2)", fontWeight: 700, color: "var(--ds-text-display)", letterSpacing: "-0.01em", margin: 0, fontFamily: "var(--tt-font-mono)" }}>{tickerSymbol}</h3>
+                      {v2Dir && <span className={`ds-chip ds-chip--sm ${v2DirChip}`}>{v2Dir}</span>}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button className="ds-chip ds-chip--sm" onClick={() => { try { navigator.clipboard.writeText(window.location.origin + "/?ticker=" + tickerSymbol); } catch (_) {} }} title="Copy share link">↗</button>
+                      <button className="ds-chip ds-chip--sm" onClick={onClose} title="Close">✕</button>
+                    </div>
+                  </div>
+                  {/* Live price strip */}
+                  {v2Price > 0 && (
+                    <div className="flex items-baseline gap-3" style={{ marginBottom: "var(--ds-space-3)" }}>
+                      <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-hero)", fontWeight: 600, color: "var(--ds-text-display)", letterSpacing: "-0.01em" }}>${v2Price.toFixed(2)}</span>
+                      {Number.isFinite(v2DayPct) && (
+                        <span className={`ds-chip ds-chip--sm ds-chip--${v2SparkDir === "flat" ? "solid" : v2SparkDir}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
+                          {v2DayPct >= 0 ? "▲ +" : "▼ "}{v2DayPct.toFixed(2)}%
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {/* Tab nav */}
+                  <div className="ds-tab" role="tablist" style={{ width: "100%" }}>
+                    {[["SNAPSHOT","Snapshot"],["SETUP","Setup"],["TECHNICALS","Technicals"],["HISTORY","History"]].map(([key, label]) => (
+                      <button key={key} className={`ds-tab__item ${v2RailTab === key ? "ds-tab__item--active" : ""}`} onClick={() => setRailTab(key)} style={{ flex: 1, justifyContent: "center", padding: "6px 12px" }}>
+                        <span>{label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* ─── Scrollable body ───────────────────────────────── */}
+                <div className="flex-1 overflow-y-auto" style={{ padding: "var(--ds-space-4)" }}>
+                  {/* SNAPSHOT TAB */}
+                  {v2RailTab === "SNAPSHOT" && (
+                    <>
+                      {/* Hero — symbol with price + sparkline wash */}
+                      <div className="ds-tickercard ds-tickercard--hero" style={{ marginBottom: "var(--ds-space-3)" }}>
+                        <div className="ds-tickercard__head">
+                          <span className="ds-tickercard__symbol">{tickerSymbol}</span>
+                          {(latestTicker?.context?.name || ticker?.context?.name) && (
+                            <span className="ds-tickercard__sub" style={{ marginLeft: 0 }}>{(latestTicker?.context?.name || ticker?.context?.name).slice(0, 32)}</span>
+                          )}
+                        </div>
+                        <div className="ds-tickercard__price">${v2Price.toFixed(2)}</div>
+                        {Number.isFinite(v2DayPct) && (
+                          <div className={`ds-tickercard__change ds-tickercard__change--${v2SparkDir}`}>
+                            {v2SparkDir === "up" ? "▲" : v2SparkDir === "dn" ? "▼" : "◆"} {v2DayPct >= 0 ? "+" : ""}{v2DayPct.toFixed(2)}%
+                          </div>
+                        )}
+                        {v2SparkSvg && <div className="ds-tickercard__spark" dangerouslySetInnerHTML={{ __html: v2SparkSvg }} />}
+                      </div>
+
+                      {/* Conviction panel */}
+                      {(v2Rank || v2Score || v2Conv) && (
+                        <Panel title="Conviction">
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--ds-space-2)" }}>
+                            {v2Rank != null && <Metric label="Rank" value={v2Rank} />}
+                            {v2Score != null && <Metric label="Score" value={Math.round(v2Score)} />}
+                            {v2Conv != null && <Metric label="Conviction" value={Math.round(v2Conv)} delta={v2Tier || null} />}
+                          </div>
+                        </Panel>
+                      )}
+
+                      {/* Position panel — only when open trade exists */}
+                      {v2Pos && (
+                        <Panel title="Position" action={<span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }}>{trade?.direction || v2Dir}</span>}>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "var(--ds-space-2)" }}>
+                            <Metric label="Entry" value={`$${v2Pos.entry.toFixed(2)}`} />
+                            <Metric label="Current" value={`$${v2Pos.current.toFixed(2)}`} />
+                            <Metric label="P&L" value={`${v2Pos.pnlPct >= 0 ? "+" : ""}${v2Pos.pnlPct.toFixed(2)}%`} delta={v2Pos.pnlPct >= 0 ? "Up" : "Down"} deltaClass={v2Pos.pnlPct >= 0 ? "up" : "dn"} />
+                            {v2Pos.sl && <Metric label="Stop" value={`$${v2Pos.sl.toFixed(2)}`} />}
+                            {v2Pos.tp && <Metric label="Target" value={`$${v2Pos.tp.toFixed(2)}`} />}
+                          </div>
+                        </Panel>
+                      )}
+
+                      {/* Model Guidance — single panel, eliminates dup */}
+                      {predictionContract && (
+                        <Panel title="Model Guidance" action={predictionContract?.action_label && <span className="ds-chip ds-chip--sm ds-chip--accent">{String(predictionContract.action_label).toUpperCase()}</span>}>
+                          {predictionContract?.thesis && (
+                            <p style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", lineHeight: "var(--tt-lh-relaxed)", margin: 0 }}>{predictionContract.thesis}</p>
+                          )}
+                          {predictionContract?.why_now && (
+                            <div style={{ marginTop: "var(--ds-space-3)" }}>
+                              <div className="ds-caption" style={{ marginBottom: "var(--ds-space-1)" }}>Why now</div>
+                              <p style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)", lineHeight: "var(--tt-lh-relaxed)", margin: 0 }}>{predictionContract.why_now}</p>
+                            </div>
+                          )}
+                          {Array.isArray(predictionContract?.supporting) && predictionContract.supporting.length > 0 && (
+                            <div style={{ marginTop: "var(--ds-space-3)", display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
+                              {predictionContract.supporting.slice(0, 6).map((s, i) => (
+                                <span key={`sup-${i}`} className="ds-chip ds-chip--sm ds-chip--up">+ {s}</span>
+                              ))}
+                            </div>
+                          )}
+                          {Array.isArray(predictionContract?.invalidation) && predictionContract.invalidation.length > 0 && (
+                            <div style={{ marginTop: "var(--ds-space-2)", display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
+                              {predictionContract.invalidation.slice(0, 4).map((s, i) => (
+                                <span key={`inv-${i}`} className="ds-chip ds-chip--sm ds-chip--dn">! {s}</span>
+                              ))}
+                            </div>
+                          )}
+                        </Panel>
+                      )}
+
+                      {/* Today panel — regime + state + simple stats */}
+                      {(ticker?.regime_class || ticker?.state) && (
+                        <Panel title="Today">
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
+                            {ticker?.regime_class && <span className="ds-chip ds-chip--sm">{String(ticker.regime_class).replace(/_/g, " ")}</span>}
+                            {ticker?.state && <span className="ds-chip ds-chip--sm ds-chip--solid">{String(ticker.state).replace(/_/g, " ")}</span>}
+                            {ticker?.kanban_stage && <span className="ds-chip ds-chip--sm ds-chip--accent">{String(ticker.kanban_stage).replace(/_/g, " ")}</span>}
+                          </div>
+                        </Panel>
+                      )}
+                    </>
+                  )}
+
+                  {/* SETUP TAB */}
+                  {v2RailTab === "SETUP" && (
+                    <>
+                      {(ticker?.entry_path || ticker?.setup_name) && (
+                        <Panel title="Setup">
+                          <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-1)" }}>
+                            <div style={{ fontSize: "var(--ds-fs-emph)", color: "var(--ds-text-display)", fontWeight: 600 }}>
+                              {ticker?.setup_name || ticker?.entry_path || "—"}
+                            </div>
+                            {ticker?.setup_grade && <span className="ds-chip ds-chip--sm ds-chip--accent" style={{ alignSelf: "flex-start" }}>{ticker.setup_grade}</span>}
+                          </div>
+                        </Panel>
+                      )}
+                      {/* Risk & Targets */}
+                      {(ticker?.sl || ticker?.tp || ticker?.rr) && (
+                        <Panel title="Risk & Targets">
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "var(--ds-space-2)" }}>
+                            {ticker?.entry_price && <Metric label="Entry" value={`$${Number(ticker.entry_price).toFixed(2)}`} />}
+                            {ticker?.sl && <Metric label="Stop" value={`$${Number(ticker.sl).toFixed(2)}`} deltaClass="dn" />}
+                            {ticker?.tp && <Metric label="Target" value={`$${Number(ticker.tp).toFixed(2)}`} deltaClass="up" />}
+                            {ticker?.rr && <Metric label="R:R" value={`${Number(ticker.rr).toFixed(2)}`} delta={Number(ticker.rr) >= 2 ? "Strong" : "OK"} deltaClass={Number(ticker.rr) >= 2 ? "up" : "accent"} />}
+                          </div>
+                        </Panel>
+                      )}
+                      {/* Profile */}
+                      {ticker?._ticker_profile && (
+                        <Panel title="Profile">
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
+                            {ticker._ticker_profile.behavior_type && <span className="ds-chip ds-chip--sm ds-chip--solid">{String(ticker._ticker_profile.behavior_type).replace(/_/g, " ")}</span>}
+                            {ticker._ticker_profile.atr_pct_p50 != null && <span className="ds-chip ds-chip--sm">ATR p50: {Number(ticker._ticker_profile.atr_pct_p50).toFixed(2)}%</span>}
+                            {ticker._ticker_profile.trend_persistence != null && <span className="ds-chip ds-chip--sm">Persistence: {Number(ticker._ticker_profile.trend_persistence).toFixed(2)}</span>}
+                          </div>
+                        </Panel>
+                      )}
+                    </>
+                  )}
+
+                  {/* TECHNICALS TAB */}
+                  {v2RailTab === "TECHNICALS" && (
+                    <>
+                      {/* Multi-TF stack — quick view */}
+                      {ticker?.tf_tech && (
+                        <Panel title="Multi-TF Stack">
+                          <div style={{ display: "grid", gridTemplateColumns: "60px repeat(3, 1fr)", gap: "var(--ds-space-1)", fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-meta)" }}>
+                            <div className="ds-caption">TF</div>
+                            <div className="ds-caption" style={{ textAlign: "right" }}>RSI</div>
+                            <div className="ds-caption" style={{ textAlign: "right" }}>ATR%</div>
+                            <div className="ds-caption" style={{ textAlign: "right" }}>State</div>
+                            {["10","30","1H","4H","D"].map((tf) => {
+                              const t = ticker.tf_tech?.[tf] || ticker.tf_tech?.[`${tf}m`];
+                              if (!t) return null;
+                              return (
+                                <React.Fragment key={`tf-${tf}`}>
+                                  <div style={{ color: "var(--ds-text-muted)" }}>{tf}</div>
+                                  <div style={{ textAlign: "right", color: "var(--ds-text-display)" }}>{Number(t.rsi || 0).toFixed(1)}</div>
+                                  <div style={{ textAlign: "right", color: "var(--ds-text-display)" }}>{Number(t.atr_pct || 0).toFixed(2)}</div>
+                                  <div style={{ textAlign: "right", color: t.bull_stack ? "var(--ds-up)" : t.bear_stack ? "var(--ds-dn)" : "var(--ds-text-muted)" }}>
+                                    {t.bull_stack ? "BULL" : t.bear_stack ? "BEAR" : "MIX"}
+                                  </div>
+                                </React.Fragment>
+                              );
+                            })}
+                          </div>
+                        </Panel>
+                      )}
+                      {/* TD Sequential */}
+                      {ticker?.td_sequential && (
+                        <Panel title="TD Sequential">
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
+                            {Object.entries(ticker.td_sequential.per_tf || {}).slice(0, 4).map(([tf, d]) => (
+                              <span key={`td-${tf}`} className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }}>
+                                {tf}: bull {d.bull_prep || 0} / bear {d.bear_prep || 0}
+                              </span>
+                            ))}
+                          </div>
+                        </Panel>
+                      )}
+                    </>
+                  )}
+
+                  {/* HISTORY TAB */}
+                  {v2RailTab === "HISTORY" && (
+                    <>
+                      <Panel title="Trade Ledger">
+                        <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)" }}>
+                          {ledgerTrades.length > 0 ? `${ledgerTrades.length} trade${ledgerTrades.length === 1 ? "" : "s"} on this ticker` : "No prior trades on this ticker"}
+                        </div>
+                      </Panel>
+                    </>
+                  )}
+                </div>
+                {/* ─── Footer ───────────────────────────────────────── */}
+                <div style={{ borderTop: "1px solid var(--ds-stroke)", padding: "var(--ds-space-3) var(--ds-space-4)" }}>
+                  <a href={`https://www.tradingview.com/symbols/${tickerSymbol}/`} target="_blank" rel="noopener noreferrer" className="ds-chip ds-chip--sm" style={{ display: "inline-flex" }}>
+                    Open in TradingView ↗
+                  </a>
+                </div>
+              </div>
+            </>
+          );
+        }
+
         return (
           <>
           <div className="w-full h-full flex flex-col" style={modalOnly ? { position: "absolute", width: 1, height: 1, overflow: "hidden", opacity: 0, pointerEvents: "none" } : undefined}>
