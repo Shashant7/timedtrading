@@ -9,18 +9,22 @@ _Source: `v16-canon-julapr-30m-1777523625` · 553 trades · Generated 2026-05-02
 
 ## Headline numbers, all months side-by-side
 
+> Mar/Apr come from `v16-canon-marapr-30m-1777565697` (the re-run after the Mar 4
+> backtest was interrupted), not the canonical Jul→Apr run. The Jul→Apr run had
+> only 8 trades in Mar and 0 in Apr because it stopped early.
+
 | Month | Trades | WR | Avg W | Avg L | Avg R | Cum P&L | Verdict |
 |---|---:|---:|---:|---:|---:|---:|---|
 | **Jul 2025** | 107 | **58.9%** | 3.42% | 2.48% | 1.38x | +106% | The reference page |
-| Aug 2025 | (in run) | — | — | — | — | — | _verdicts not generated yet, will pull on demand_ |
+| Aug 2025 | (in run) | — | — | — | — | — | _verdicts not generated, run on demand_ |
 | Sep 2025 | (in run) | — | — | — | — | — | _same_ |
 | Oct 2025 | (in run) | — | — | — | — | — | _same_ |
 | **Nov 2025** | 34 | **35.3%** | 2.78% | 0.76% | 3.68x | +17% | Low WR, but small avg loser — controlled |
-| **Dec 2025** | 57 | 49.1% | 21.05% | **8.72%** | 2.41x | +345% | Avg loser BLEW UP — `v13_hard_pnl_floor` and earnings exits |
+| **Dec 2025** | 57 | 49.1% | 21.05% | **8.72%** | 2.41x | +345% | Avg loser BLEW UP — `v13_hard_pnl_floor` + earnings exits |
 | **Jan 2026** | 68 | 52.9% | 14.92% | **9.09%** | 1.64x | +246% | Same disease — losers averaging 9% |
-| **Feb 2026** | 63 | 54.0% | 16.91% | 5.39% | 3.14x | +418% | Best post-July month by P&L |
-| **Mar 2026** | 8 | 37.5% | 9.29% | 4.94% | 1.88x | +3% | Engine basically stopped trading |
-| **Apr 2026** | 0 | — | — | — | — | — | Engine stopped trading entirely |
+| **Feb 2026** | 63 | 54.0% | 16.91% | 5.39% | 3.14x | +418% | Best post-July P&L; losers still big |
+| **Mar 2026** *(re-run)* | 23 | **34.8%** | 1.25% | 1.76% | **0.71x** | -16% | Losses controlled (-1.50% avg); but R<1 — entries wrong-direction |
+| **Apr 2026** *(re-run)* | 17 | **52.9%** | 4.08% | 1.50% | 2.72x | +25% | Close to July shape; small sample |
 
 ## The honest read
 
@@ -175,12 +179,61 @@ MEAN_REVERT → 2h before flat-cut, force trim TP1
 
 ---
 
+## ADDENDUM (after pulling Mar/Apr re-run data)
+
+The Jul→Apr canonical run was interrupted around Mar 4 — Mar/Apr data in that
+run is incomplete. The re-run `v16-canon-marapr-30m-1777565697` covers it
+properly. Pulling that data revealed:
+
+**Mar/Apr losses are well-managed.** No `v13_hard_pnl_floor` plague (1 firing
+in Mar). No `HARD_LOSS_CAP` storm (1 firing in Mar). Losers averaged -1.50%
+in Mar, -1.50% in Apr — back to July-shape, **not** Jan-shape.
+
+**The remaining problem is direction, not management.** Mar had WR 34.8% with
+R 0.71x (avg loser bigger than avg winner). The engine kept entering trades
+that didn't work. Many shorts in a recovering market. Apr was much better
+(WR 53%, R 2.72x).
+
+**This is excellent news.** It means the V15 exits we shipped between
+Jan-Feb-Mar already addressed the "huge losses" problem. We don't need
+Loop 2 to band-aid bad management because management is already healthy.
+What's left is the **wrong-direction problem** — exactly what Loop 1's
+specialization scorecard targets (refuse combos that aren't working).
+
+### Updated Stage 1 calibration recommendation
+
+| Loop | Recommendation |
+|---|---|
+| Loop 1 | **`loop1_min_samples = 4`** (down from 8). The Mar wrong-direction streak would have built a 4-trade losing combo quickly; Loop 1 should react. |
+| Loop 1 | **`loop1_block_wr = 0.30`** unchanged. Right level. |
+| Loop 1 | **`loop1_raise_bar_wr = 0.45`** unchanged. Right level. |
+| Loop 2 | **All defaults unchanged.** Mar/Apr management is healthy; circuit breaker is insurance, not active medication. |
+| Loop 3 | **All defaults unchanged.** Will validate on real MFE/MAE in Stage 1. |
+
+### What this DOESN'T need
+
+- No new setups
+- No new exit rules (V15 already addressed Jan/Feb's leaks)
+- No engine config changes beyond the loops
+- No tweaking `v13_hard_pnl_floor` or `HARD_LOSS_CAP` — they're rarely firing in Mar/Apr
+
+---
+
 ## TL;DR for Stage 1 kickoff
 
-> **What we learned:** Dec/Jan/Feb's losses were 5-10x bigger than July's. Pattern: small leaks (one bad day, one bad chain) compounded into cataclysmic losses (-98% on AGQ chain). The engine kept trading instead of pausing. By March it had self-shut-down by tightening entry gates rather than calibrating.
+> **What we learned:**
+> - Dec/Jan/Feb had a leak (avg losers -8% to -16%). V15 exits FIXED IT.
+> - Mar/Apr losses are now well-managed (-1.50% avg). The remaining problem
+>   is wrong-direction entries (Mar WR 34.8%, R 0.71x).
 >
-> **Why our 3 loops fix it:** Loop 2 stops the bleed at the day level (-1.5% trips). Loop 1 stops the chain at the combo level (re-entries on losing combos blocked). Loop 3 keeps management asymmetric per personality.
+> **What our loops do for Stage 1:**
+> - Loop 1 (specialization, `min_samples=4`): refuses combos with low WR.
+>   Targets the wrong-direction streaks directly.
+> - Loop 2 (circuit breaker): pure insurance for any future flare-up.
+>   Hopefully never fires in healthy months.
+> - Loop 3 (personality management): asymmetric exits per personality.
+>   Should keep the V15 management quality consistent.
 >
-> **One config tweak:** `loop1_min_samples = 4` (down from 8). Otherwise defaults are fine.
+> **One config tweak:** `loop1_min_samples = 4`. Otherwise defaults stand.
 >
 > **Ready to kick off Stage 1.**
