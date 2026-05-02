@@ -2308,6 +2308,52 @@ function RunsTab({ isAdmin }) {
     }
     setPromotingRunId("");
   };
+
+  /* Phase C — Stage 0a (2026-05-02) — Promote a backtest run to the Trades
+     page dataset. This is the "see what we built" surface: the Trades page
+     reads from /timed/trades?source=promoted, which serves the active
+     promoted_trades dataset. After each monthly walk-forward backtest, the
+     user clicks this button on that month's run; the backtest's trades are
+     copied into a new active promoted_trades dataset; refresh the Trades
+     page and that month is visible.
+     Distinct from Promote Live (which flips the engine config). */
+  const [promotingTradesRunId, setPromotingTradesRunId] = useState("");
+  const promoteRunToTrades = async (runId) => {
+    if (!isAdmin) return;
+    if (!runId) return;
+    setPromotingTradesRunId(runId);
+    setMessage(null);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/timed/admin/promoted-trades/promote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          run_id: runId,
+          // dataset_id auto-derived from run_id; activate makes it the dataset that the Trades page reads.
+          activate: true,
+          promoted_by: "admin-ui",
+        }),
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!data?.ok) {
+        if (data?.error === "dataset_id_exists") {
+          setError(`That run is already promoted to the Trades page (dataset already exists). Use 'Trades archive' to manage older datasets.`);
+        } else if (data?.error === "run_has_no_archived_trades") {
+          setError("This run has no archived trades. Wait for it to finalize, then try again.");
+        } else {
+          setError(data?.error || "Failed to promote to Trades page");
+        }
+      } else {
+        const cnt = data?.trade_count != null ? `${data.trade_count} trades` : "trades";
+        setMessage(`Promoted to Trades page: ${runId} (${cnt}). Refresh the Trades page to view.`);
+      }
+    } catch (e) {
+      setError(String(e || "Failed to promote to Trades page"));
+    }
+    setPromotingTradesRunId("");
+  };
   const validateSentinels = async (run) => {
     const runId = String(run?.run_id || "").trim();
     if (!isAdmin || !runId) return;
@@ -3485,6 +3531,15 @@ function RunsTab({ isAdmin }) {
                               onClick={() => promoteRun(runId)}
                             >
                               {isLive ? "Live" : (promotingRunId === runId ? "Promoting..." : "Promote Live")}
+                            </button>
+                            {/* Phase C — Stage 0a — Promote to Trades page */}
+                            <button
+                              className="run-action-btn run-action-btn-primary"
+                              disabled={promotingTradesRunId === runId}
+                              onClick={() => promoteRunToTrades(runId)}
+                              title="Copy this run's trades into the active promoted_trades dataset so the Trades page reflects it."
+                            >
+                              {promotingTradesRunId === runId ? "Promoting..." : "Promote → Trades"}
                             </button>
                             <button
                               className="run-action-btn run-action-btn-muted"
