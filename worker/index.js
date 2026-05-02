@@ -63395,9 +63395,44 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                   dv: snap.dailyVolume || prev.dv || 0,
                   t: snap.trade_ts || Date.now(),
-                  ahp: extDc !== 0 ? extP : (_marketClosed ? prev.ahp : undefined),
-                  ahdc: extDc !== 0 ? extDc : (_marketClosed ? prev.ahdc : undefined),
-                  ahdp: extDc !== 0 ? extDp : (_marketClosed ? prev.ahdp : undefined),
+                  /* Phase C — Stage 0.5 (2026-05-02) — Invalidate stale AH cache
+                     when the regular-session price has moved past the cached
+                     AH price. Bug: TWLO ahdp cached as +18.59% when AH was
+                     175 vs prev close 148; later the regular close moved to
+                     183 (above the AH 175), but the cached ahdp still showed
+                     +18.59% — wrong direction. The cache only makes sense when
+                     ahp is NEWER than the regular-session p. We invalidate
+                     when |p - ahp| / p > 1.5% (price moved past AH range). */
+                  ahp: (() => {
+                    if (extDc !== 0) return extP;
+                    if (!_marketClosed) return undefined;
+                    const _prevAhp = Number(prev.ahp);
+                    if (Number.isFinite(_prevAhp) && _prevAhp > 0 && displayPrice > 0
+                        && Math.abs(displayPrice - _prevAhp) / displayPrice > 0.015) {
+                      return undefined; // stale — drop it
+                    }
+                    return prev.ahp;
+                  })(),
+                  ahdc: (() => {
+                    if (extDc !== 0) return extDc;
+                    if (!_marketClosed) return undefined;
+                    const _prevAhp = Number(prev.ahp);
+                    if (Number.isFinite(_prevAhp) && _prevAhp > 0 && displayPrice > 0
+                        && Math.abs(displayPrice - _prevAhp) / displayPrice > 0.015) {
+                      return undefined;
+                    }
+                    return prev.ahdc;
+                  })(),
+                  ahdp: (() => {
+                    if (extDc !== 0) return extDp;
+                    if (!_marketClosed) return undefined;
+                    const _prevAhp = Number(prev.ahp);
+                    if (Number.isFinite(_prevAhp) && _prevAhp > 0 && displayPrice > 0
+                        && Math.abs(displayPrice - _prevAhp) / displayPrice > 0.015) {
+                      return undefined;
+                    }
+                    return prev.ahdp;
+                  })(),
                 };
                 restCount++;
               }
@@ -63611,6 +63646,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 if (Number.isFinite(prev.dc) && prev.dc !== 0) { keepDc = prev.dc; keepDp = prev.dp; }
                 else if (keepPc > 0 && displayPrice > 0) { keepDc = Math.round((displayPrice - keepPc) * 100) / 100; keepDp = Math.round(((displayPrice - keepPc) / keepPc) * 10000) / 100; }
               }
+              /* Phase C — Stage 0.5 (2026-05-02) — Stale-AH cache invalidation
+                 (same fix as the lightweight-feed path above). */
+              const _ahStale = (() => {
+                if (!_marketClosed) return false;
+                const _prevAhp = Number(prev.ahp);
+                if (!Number.isFinite(_prevAhp) || _prevAhp <= 0 || displayPrice <= 0) return false;
+                return Math.abs(displayPrice - _prevAhp) / displayPrice > 0.015;
+              })();
               prices[sym] = {
                 ...prev,
                 p: Math.round(displayPrice * 100) / 100,
@@ -63621,9 +63664,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                 dv: snap.dailyVolume || prev.dv || 0,
                 t: snap.trade_ts || Date.now(),
-                ahp: extDc !== 0 ? extP : (_marketClosed ? prev.ahp : undefined),
-                ahdc: extDc !== 0 ? extDc : (_marketClosed ? prev.ahdc : undefined),
-                ahdp: extDc !== 0 ? extDp : (_marketClosed ? prev.ahdp : undefined),
+                ahp: extDc !== 0 ? extP : (_marketClosed && !_ahStale ? prev.ahp : undefined),
+                ahdc: extDc !== 0 ? extDc : (_marketClosed && !_ahStale ? prev.ahdc : undefined),
+                ahdp: extDc !== 0 ? extDp : (_marketClosed && !_ahStale ? prev.ahdp : undefined),
               };
               restFallbackCount++;
             }

@@ -12283,7 +12283,19 @@
            Previously we showed t.rank which created the LULU paradox
            where "R99" appeared at the TOP of the viewport. */
         const rank = Number(t?.rank_position ?? t?.rp) || null;
-        const score = Number(t?.score ?? t?.rank) || null;
+        /* Phase C — Stage 0.5 (2026-05-02) — Use rankScoreForTicker so the
+           card's S{n} and the RR's Score panel match. The bare t.score field
+           is a SNAPSHOT from worker emit-time; rankScoreForTicker computes
+           dynamically at render-time and the RR uses that. They drifted apart
+           (e.g. GDX card S93 vs RR Score 132). Single source of truth. */
+        const score = (() => {
+          try {
+            const dyn = typeof rankScoreForTicker === "function" ? Number(rankScoreForTicker(t)) : NaN;
+            if (Number.isFinite(dyn) && dyn !== 0) return Math.round(dyn);
+          } catch (_) {}
+          const fallback = Number(t?.score ?? t?.rank);
+          return Number.isFinite(fallback) && fallback !== 0 ? Math.round(fallback) : null;
+        })();
         const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
         const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
         const rr = Number(t?.rr) || null;
@@ -18899,7 +18911,43 @@
                         return true;
                       });
                     })();
-                    const earningItems = (Array.isArray(earningsEvents) ? earningsEvents : []).slice(0, 50);
+                    /* Phase C — Stage 0.5 (2026-05-02) — Earnings sort + day grouping.
+                       User: "Should be sorted by Date, Time, Ticker Name. Can we
+                       create better separation between days?" Sort by date asc,
+                       then hour (BMO < DMH < AMC), then symbol asc. Group into
+                       per-day buckets with a small day-header chip between groups
+                       so the user can scan day by day. */
+                    const HOUR_ORDER = (h) => {
+                      const hl = String(h || "").toLowerCase();
+                      if (hl.startsWith("bmo") || hl.includes("before")) return 0;
+                      if (hl.startsWith("dmh") || hl.includes("during")) return 1;
+                      if (hl.startsWith("amc") || hl.includes("after")) return 2;
+                      return 3;
+                    };
+                    const earningsAll = (Array.isArray(earningsEvents) ? earningsEvents : []).slice();
+                    earningsAll.sort((a, b) => {
+                      const da = String(a?.date || "");
+                      const db = String(b?.date || "");
+                      if (da !== db) return da.localeCompare(db);
+                      const ha = HOUR_ORDER(a?.hour);
+                      const hb = HOUR_ORDER(b?.hour);
+                      if (ha !== hb) return ha - hb;
+                      return String(a?.symbol || "").localeCompare(String(b?.symbol || ""));
+                    });
+                    const earningItems = earningsAll.slice(0, 50);
+                    // Group by date for the per-day separator render.
+                    const earningsByDay = (() => {
+                      const out = [];
+                      let curr = null;
+                      for (const e of earningItems) {
+                        if (!curr || curr.date !== e.date) {
+                          curr = { date: e.date, items: [] };
+                          out.push(curr);
+                        }
+                        curr.items.push(e);
+                      }
+                      return out;
+                    })();
                     if (macroItems.length === 0 && earningItems.length === 0) return null;
                     return (
                       <div className="mb-2" style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-1)" }}>
@@ -18932,33 +18980,52 @@
                             <div className="ds-row__label">
                               <div className="ds-caption">Earnings</div>
                               <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", marginTop: 2, fontVariantNumeric: "tabular-nums" }}>
-                                {earningItems.length} on deck
+                                {earningItems.length} on deck · sorted by date, time, ticker
                               </div>
                             </div>
-                            <div className="ds-row__content">
-                              {earningItems.map((e, i) => {
-                                const beatMiss = e.epsActual != null && e.epsEstimate != null
-                                  ? (e.epsActual >= e.epsEstimate ? "Beat" : "Miss")
-                                  : null;
-                                const chipCls = beatMiss === "Beat" ? "ds-chip ds-chip--sm ds-chip--up"
-                                              : beatMiss === "Miss" ? "ds-chip ds-chip--sm ds-chip--dn"
-                                              : e.date === todayStr ? "ds-chip ds-chip--sm ds-chip--accent"
-                                              : "ds-chip ds-chip--sm ds-chip--solid";
-                                return (
-                                  <button
-                                    key={`ev-${i}`}
-                                    onClick={() => handleTickerSelect(e.symbol)}
-                                    className={chipCls}
-                                    style={{ fontFamily: "var(--tt-font-mono)", textAlign: "left" }}
-                                    title={`${e.symbol} earnings${e.hour ? ` (${formatHour(e.hour)})` : ""}`}
+                            <div className="ds-row__content" style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-1)" }}>
+                              {earningsByDay.map((day, di) => (
+                                <div key={`eday-${day.date}`} style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+                                  {/* Per-day separator chip — first column of the row */}
+                                  <span
+                                    className="ds-chip ds-chip--sm"
+                                    style={{
+                                      fontFamily: "var(--tt-font-mono)",
+                                      fontWeight: 700,
+                                      letterSpacing: "0.08em",
+                                      color: day.date === todayStr ? "var(--ds-accent)" : "var(--ds-text-display)",
+                                      borderColor: day.date === todayStr ? "var(--ds-accent)" : "var(--ds-stroke)",
+                                      background: day.date === todayStr ? "var(--ds-accent-dim)" : "var(--ds-bg-glass-hi)",
+                                      minWidth: 80,
+                                      justifyContent: "center",
+                                    }}
                                   >
-                                    <span style={{ fontWeight: 700 }}>{e.symbol}</span>
-                                    <span style={{ color: "var(--ds-text-muted)", fontWeight: 500 }}>{formatDayLabel(e.date)}</span>
-                                    {formatHour(e.hour) && <span style={{ color: "var(--ds-text-faint)", fontWeight: 500 }}>{formatHour(e.hour)}</span>}
-                                    {beatMiss && <span style={{ fontWeight: 700 }}>{beatMiss}</span>}
-                                  </button>
-                                );
-                              })}
+                                    {formatDayLabel(day.date)} · {day.items.length}
+                                  </span>
+                                  {day.items.map((e, i) => {
+                                    const beatMiss = e.epsActual != null && e.epsEstimate != null
+                                      ? (e.epsActual >= e.epsEstimate ? "Beat" : "Miss")
+                                      : null;
+                                    const chipCls = beatMiss === "Beat" ? "ds-chip ds-chip--sm ds-chip--up"
+                                                  : beatMiss === "Miss" ? "ds-chip ds-chip--sm ds-chip--dn"
+                                                  : e.date === todayStr ? "ds-chip ds-chip--sm ds-chip--accent"
+                                                  : "ds-chip ds-chip--sm ds-chip--solid";
+                                    return (
+                                      <button
+                                        key={`ev-${di}-${i}`}
+                                        onClick={() => handleTickerSelect(e.symbol)}
+                                        className={chipCls}
+                                        style={{ fontFamily: "var(--tt-font-mono)", textAlign: "left" }}
+                                        title={`${e.symbol} earnings${e.hour ? ` (${formatHour(e.hour)})` : ""}`}
+                                      >
+                                        <span style={{ fontWeight: 700 }}>{e.symbol}</span>
+                                        {formatHour(e.hour) && <span style={{ color: "var(--ds-text-faint)", fontWeight: 500 }}>{formatHour(e.hour)}</span>}
+                                        {beatMiss && <span style={{ fontWeight: 700 }}>{beatMiss}</span>}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              ))}
                             </div>
                           </div>
                         )}
@@ -19344,13 +19411,17 @@
                     </div>
                   </div>
 
-                  {/* ═══ 5. SEARCH + ACTIONS ═══ */}
-                  <div className="mb-4 rounded-2xl border border-white/[0.08] bg-white/[0.025] p-3 shadow-[0_12px_32px_rgba(0,0,0,0.2)]" data-coachmark="search-filter">
+                  {/* ═══ 5. SEARCH + ACTIONS ═══
+                       Phase C — Stage 0.5 (2026-05-02) — Aligned to v2 design
+                       language: ds-glass shell + ds-tokens for surface/border/
+                       padding so it matches Bubble Map filter tiles + RTH/EXT
+                       rows. Was: rounded-2xl + raw white/[0.08] borders. */}
+                  <div className="ds-glass mb-4" style={{ padding: "var(--ds-space-3)" }} data-coachmark="search-filter">
                     <div className="flex flex-col gap-3">
                       <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
                         <div className="flex-1 min-w-0">
                           <div className="relative max-w-[480px]">
-                        <svg className="absolute left-3 top-1/2 pointer-events-none" style={{transform:"translateY(-50%)"}} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        <svg className="absolute left-3 top-1/2 pointer-events-none" style={{transform:"translateY(-50%)"}} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ds-text-faint)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                         <input
                           type="text"
                           placeholder="Search tickers (e.g. AAPL, MSFT, TSLA)"
@@ -19364,7 +19435,22 @@
                               handleFilterChange({ tickerFilter: "" });
                             }
                           }}
-                          className="w-full pl-9 pr-8 py-1.5 bg-white/[0.03] border border-white/[0.08] rounded-2xl text-white text-sm placeholder-[#6b7280] focus:border-white/[0.15] focus:outline-none transition-colors"
+                          style={{
+                            width: "100%",
+                            paddingLeft: 36,
+                            paddingRight: 32,
+                            paddingTop: 6,
+                            paddingBottom: 6,
+                            background: "var(--ds-bg-glass-hi)",
+                            border: "1px solid var(--ds-stroke)",
+                            borderRadius: "var(--ds-radius)",
+                            color: "var(--ds-text-display)",
+                            fontSize: "var(--ds-fs-body)",
+                            outline: "none",
+                            transition: "border-color 120ms",
+                          }}
+                          onFocus={(e) => { e.target.style.borderColor = "var(--ds-stroke-hi)"; }}
+                          onBlur={(e) => { e.target.style.borderColor = "var(--ds-stroke)"; }}
                         />
                         {filters.search && (
                           <button
