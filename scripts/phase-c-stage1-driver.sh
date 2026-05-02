@@ -84,18 +84,27 @@ run_leg() {
   local end_date="$2"
   local label="$3"
   local resume_flag="$4"     # "" or "--resume"
+  local finalize_flag="$5"   # "" (skip finalize) or "--allow-finalize" (let it close all)
 
-  log "=== LEG $label  $start_date → $end_date  ${resume_flag:-fresh} ==="
+  # Phase C — Stage 1 (2026-05-02): every leg EXCEPT the final one
+  # passes --no-finalize so open positions persist across month boundaries.
+  # Only the final May leg gets the full close+finalize treatment.
+  local no_finalize_flag="--no-finalize"
+  [[ "$finalize_flag" == "--allow-finalize" ]] && no_finalize_flag=""
+
+  log "=== LEG $label  $start_date → $end_date  ${resume_flag:-fresh}  ${no_finalize_flag:-FINAL+finalize} ==="
   local leg_log="$ARTIFACT_ROOT/leg-$label.log"
 
-  TIMED_API_KEY="$TIMED_API_KEY" bash scripts/continuous-slice.sh \
+  TIMED_API_KEY="$TIMED_API_KEY" \
+  INTERVAL_MINUTES="$INTERVAL_MIN" \
+  bash scripts/continuous-slice.sh \
     --start="$start_date" \
     --end="$end_date" \
     --run-id="$RUN_ID" \
     --tickers="@$UNIVERSE_FILE" \
-    --interval-minutes="$INTERVAL_MIN" \
     --watchdog-seconds="$WATCHDOG_SECONDS" \
     $resume_flag \
+    $no_finalize_flag \
     > "$leg_log" 2>&1 || {
       log "LEG $label exited non-zero — see $leg_log"
       return 1
@@ -128,17 +137,21 @@ log "  universe=$UNIVERSE_FILE ($(wc -l < $UNIVERSE_FILE) tickers)"
 log "  interval_min=$INTERVAL_MIN ticker_batch=$TICKER_BATCH"
 log "  legs=${#LEGS[@]}"
 
+LAST_IDX=$((${#LEGS[@]} - 1))
 for i in "${!LEGS[@]}"; do
   IFS=':' read -r start_date end_date label <<< "${LEGS[$i]}"
   month_yyyy_mm="${start_date:0:7}"
   resume_flag=""
   [[ $i -gt 0 ]] && resume_flag="--resume"
+  # Final leg gets full finalize (closes any still-open positions, marks run completed).
+  finalize_flag=""
+  [[ $i -eq $LAST_IDX ]] && finalize_flag="--allow-finalize"
 
-  run_leg "$start_date" "$end_date" "$label" "$resume_flag"
+  run_leg "$start_date" "$end_date" "$label" "$resume_flag" "$finalize_flag"
   generate_verdict "$month_yyyy_mm"
 
   # Don't pause after the final leg
-  if [[ $i -lt $((${#LEGS[@]} - 1)) ]]; then
+  if [[ $i -lt $LAST_IDX ]]; then
     next_label="${LEGS[$((i+1))]}"
     next_month="${next_label:0:7}"
     wait_for_go "$next_month"

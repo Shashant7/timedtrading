@@ -53,6 +53,10 @@ TICKERS_SPEC="tier1-tier2"
 WATCHDOG_SECONDS=420
 RESUME=false
 BLOCK_CHAIN=true
+# Phase C — Stage 1 (2026-05-02): when set, skip close-replay-positions + runs/finalize.
+# Used by the monthly walk-forward driver to keep open positions alive across
+# month boundaries; only the final May leg sets this to false.
+NO_FINALIZE=false
 
 for arg in "$@"; do
   case "$arg" in
@@ -63,6 +67,7 @@ for arg in "$@"; do
     --watchdog-seconds=*) WATCHDOG_SECONDS="${arg#*=}" ;;
     --resume) RESUME=true ;;
     --no-block-chain) BLOCK_CHAIN=false ;;
+    --no-finalize) NO_FINALIZE=true ;;
     *) echo "Unknown flag: $arg" >&2; exit 2 ;;
   esac
 done
@@ -341,6 +346,23 @@ read_checkpoint() {
 }
 
 finalize() {
+  if $NO_FINALIZE; then
+    log "Skipping finalize (--no-finalize set). Open positions preserved for the next leg."
+    # Still snapshot trades.json so the per-leg verdict generator can read this leg's data.
+    timeout 120 curl -sS -m 120 "$API_BASE/timed/admin/runs/trades?run_id=$RUN_ID&key=$API_KEY" \
+      | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+trades = d.get('trades') or []
+out = {'run_id': '$RUN_ID', 'trades': trades}
+print(json.dumps(out))" > "${ARTIFACT_DIR}/trades.json" 2>/dev/null || true
+    if [[ -s "${ARTIFACT_DIR}/trades.json" ]]; then
+      local n=$(python3 -c "import json; print(len(json.load(open('${ARTIFACT_DIR}/trades.json'))['trades']))" 2>/dev/null || echo "?")
+      log "Saved ${n} trades to ${ARTIFACT_DIR}/trades.json (run remains 'running')"
+    fi
+    return 0
+  fi
+
   log "Closing replay positions at $END_DATE"
   timeout 180 curl -sS -m 120 -X POST \
     "$API_BASE/timed/admin/close-replay-positions?date=$END_DATE&runId=$RUN_ID&key=$API_KEY" \
