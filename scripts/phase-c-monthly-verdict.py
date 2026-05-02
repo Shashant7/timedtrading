@@ -88,16 +88,31 @@ def _api_key() -> str:
 
 
 def fetch_trades_for_run(run_id: str) -> list[dict]:
-    """All trades from a backtest_run_trades archive, full row."""
-    qs = urllib.parse.urlencode({"run_id": run_id, "key": _api_key()})
-    url = f"{WORKER_BASE}/timed/admin/backtests/run-trades?{qs}"
-    req = urllib.request.Request(url, headers={"User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=120) as r:
-        body = r.read().decode("utf-8")
-    data = json.loads(body)
-    if not data.get("ok"):
-        raise RuntimeError(f"run-trades failed: {data.get('error')}")
-    return data.get("trades") or []
+    """All trades from a backtest_run_trades archive, full row.
+
+    Tries the new /admin/backtests/run-trades endpoint first (PR #62);
+    falls back to the existing /admin/runs/trades endpoint which is
+    already live and returns the same row shape.
+    """
+    paths = [
+        "/timed/admin/backtests/run-trades",
+        "/timed/admin/runs/trades",
+    ]
+    last_err = None
+    for path in paths:
+        qs = urllib.parse.urlencode({"run_id": run_id, "key": _api_key(), "limit": 20000})
+        url = f"{WORKER_BASE}{path}?{qs}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": UA})
+            with urllib.request.urlopen(req, timeout=120) as r:
+                body = r.read().decode("utf-8")
+            data = json.loads(body)
+            if data.get("ok") and isinstance(data.get("trades"), list):
+                return data["trades"]
+            last_err = data.get("error") or "unknown"
+        except Exception as e:
+            last_err = str(e)
+    raise RuntimeError(f"no run-trades endpoint succeeded for {run_id}: {last_err}")
 
 
 def fetch_trades_promoted() -> list[dict]:
