@@ -3114,6 +3114,44 @@ function RunsTab({
     }
     setPromotingRunId("");
   };
+  const [promotingTradesRunId, setPromotingTradesRunId] = useState("");
+  const promoteRunToTrades = async runId => {
+    if (!isAdmin) return;
+    if (!runId) return;
+    setPromotingTradesRunId(runId);
+    setMessage(null);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/timed/admin/promoted-trades/promote`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          run_id: runId,
+          activate: true,
+          promoted_by: "admin-ui"
+        }),
+        credentials: "include"
+      });
+      const data = await res.json();
+      if (!data?.ok) {
+        if (data?.error === "dataset_id_exists") {
+          setError(`That run is already promoted to the Trades page (dataset already exists). Use 'Trades archive' to manage older datasets.`);
+        } else if (data?.error === "run_has_no_archived_trades") {
+          setError("This run has no archived trades. Wait for it to finalize, then try again.");
+        } else {
+          setError(data?.error || "Failed to promote to Trades page");
+        }
+      } else {
+        const cnt = data?.trade_count != null ? `${data.trade_count} trades` : "trades";
+        setMessage(`Promoted to Trades page: ${runId} (${cnt}). Refresh the Trades page to view.`);
+      }
+    } catch (e) {
+      setError(String(e || "Failed to promote to Trades page"));
+    }
+    setPromotingTradesRunId("");
+  };
   const validateSentinels = async run => {
     const runId = String(run?.run_id || "").trim();
     if (!isAdmin || !runId) return;
@@ -4605,6 +4643,11 @@ function RunsTab({
       disabled: isLive || promotingRunId === runId,
       onClick: () => promoteRun(runId)
     }, isLive ? "Live" : promotingRunId === runId ? "Promoting..." : "Promote Live"), React.createElement("button", {
+      className: "run-action-btn run-action-btn-primary",
+      disabled: promotingTradesRunId === runId,
+      onClick: () => promoteRunToTrades(runId),
+      title: "Copy this run's trades into the active promoted_trades dataset so the Trades page reflects it."
+    }, promotingTradesRunId === runId ? "Promoting..." : "Promote → Trades"), React.createElement("button", {
       className: "run-action-btn run-action-btn-muted",
       disabled: archivingRunId === runId || isLive,
       onClick: () => archiveRun(r)

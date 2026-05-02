@@ -9532,7 +9532,14 @@ const DsCompactCard = React.memo(function DsCompactCard({
   const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
   const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
   const rank = Number(t?.rank_position ?? t?.rp) || null;
-  const score = Number(t?.score ?? t?.rank) || null;
+  const score = (() => {
+    try {
+      const dyn = typeof rankScoreForTicker === "function" ? Number(rankScoreForTicker(t)) : NaN;
+      if (Number.isFinite(dyn) && dyn !== 0) return Math.round(dyn);
+    } catch (_) {}
+    const fallback = Number(t?.score ?? t?.rank);
+    return Number.isFinite(fallback) && fallback !== 0 ? Math.round(fallback) : null;
+  })();
   const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
   const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
   const rr = Number(t?.rr) || null;
@@ -15795,7 +15802,39 @@ function App() {
         return true;
       });
     })();
-    const earningItems = (Array.isArray(earningsEvents) ? earningsEvents : []).slice(0, 50);
+    const HOUR_ORDER = h => {
+      const hl = String(h || "").toLowerCase();
+      if (hl.startsWith("bmo") || hl.includes("before")) return 0;
+      if (hl.startsWith("dmh") || hl.includes("during")) return 1;
+      if (hl.startsWith("amc") || hl.includes("after")) return 2;
+      return 3;
+    };
+    const earningsAll = (Array.isArray(earningsEvents) ? earningsEvents : []).slice();
+    earningsAll.sort((a, b) => {
+      const da = String(a?.date || "");
+      const db = String(b?.date || "");
+      if (da !== db) return da.localeCompare(db);
+      const ha = HOUR_ORDER(a?.hour);
+      const hb = HOUR_ORDER(b?.hour);
+      if (ha !== hb) return ha - hb;
+      return String(a?.symbol || "").localeCompare(String(b?.symbol || ""));
+    });
+    const earningItems = earningsAll.slice(0, 50);
+    const earningsByDay = (() => {
+      const out = [];
+      let curr = null;
+      for (const e of earningItems) {
+        if (!curr || curr.date !== e.date) {
+          curr = {
+            date: e.date,
+            items: []
+          };
+          out.push(curr);
+        }
+        curr.items.push(e);
+      }
+      return out;
+    })();
     if (macroItems.length === 0 && earningItems.length === 0) return null;
     return React.createElement("div", {
       className: "mb-2",
@@ -15859,13 +15898,38 @@ function App() {
         marginTop: 2,
         fontVariantNumeric: "tabular-nums"
       }
-    }, earningItems.length, " on deck")), React.createElement("div", {
-      className: "ds-row__content"
-    }, earningItems.map((e, i) => {
+    }, earningItems.length, " on deck \xB7 sorted by date, time, ticker")), React.createElement("div", {
+      className: "ds-row__content",
+      style: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--ds-space-1)"
+      }
+    }, earningsByDay.map((day, di) => React.createElement("div", {
+      key: `eday-${day.date}`,
+      style: {
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 4,
+        alignItems: "center"
+      }
+    }, React.createElement("span", {
+      className: "ds-chip ds-chip--sm",
+      style: {
+        fontFamily: "var(--tt-font-mono)",
+        fontWeight: 700,
+        letterSpacing: "0.08em",
+        color: day.date === todayStr ? "var(--ds-accent)" : "var(--ds-text-display)",
+        borderColor: day.date === todayStr ? "var(--ds-accent)" : "var(--ds-stroke)",
+        background: day.date === todayStr ? "var(--ds-accent-dim)" : "var(--ds-bg-glass-hi)",
+        minWidth: 80,
+        justifyContent: "center"
+      }
+    }, formatDayLabel(day.date), " \xB7 ", day.items.length), day.items.map((e, i) => {
       const beatMiss = e.epsActual != null && e.epsEstimate != null ? e.epsActual >= e.epsEstimate ? "Beat" : "Miss" : null;
       const chipCls = beatMiss === "Beat" ? "ds-chip ds-chip--sm ds-chip--up" : beatMiss === "Miss" ? "ds-chip ds-chip--sm ds-chip--dn" : e.date === todayStr ? "ds-chip ds-chip--sm ds-chip--accent" : "ds-chip ds-chip--sm ds-chip--solid";
       return React.createElement("button", {
-        key: `ev-${i}`,
+        key: `ev-${di}-${i}`,
         onClick: () => handleTickerSelect(e.symbol),
         className: chipCls,
         style: {
@@ -15877,12 +15941,7 @@ function App() {
         style: {
           fontWeight: 700
         }
-      }, e.symbol), React.createElement("span", {
-        style: {
-          color: "var(--ds-text-muted)",
-          fontWeight: 500
-        }
-      }, formatDayLabel(e.date)), formatHour(e.hour) && React.createElement("span", {
+      }, e.symbol), formatHour(e.hour) && React.createElement("span", {
         style: {
           color: "var(--ds-text-faint)",
           fontWeight: 500
@@ -15892,7 +15951,7 @@ function App() {
           fontWeight: 700
         }
       }, beatMiss));
-    }))));
+    }))))));
   })(), window._ttIsPro && (() => {
     const allData = data && typeof data === "object" ? data : {};
     const intensityAlpha = absPct => {
@@ -16393,7 +16452,10 @@ function App() {
   })), React.createElement("span", null, "All"), Array.isArray(tickers) && tickers.length > 0 && React.createElement("span", {
     className: "ds-tab__count"
   }, tickers.length)))), React.createElement("div", {
-    className: "mb-4 rounded-2xl border border-white/[0.08] bg-white/[0.025] p-3 shadow-[0_12px_32px_rgba(0,0,0,0.2)]",
+    className: "ds-glass mb-4",
+    style: {
+      padding: "var(--ds-space-3)"
+    },
     "data-coachmark": "search-filter"
   }, React.createElement("div", {
     className: "flex flex-col gap-3"
@@ -16412,7 +16474,7 @@ function App() {
     height: "14",
     viewBox: "0 0 24 24",
     fill: "none",
-    stroke: "#6b7280",
+    stroke: "var(--ds-text-faint)",
     strokeWidth: "2.5",
     strokeLinecap: "round",
     strokeLinejoin: "round"
@@ -16444,7 +16506,26 @@ function App() {
         });
       }
     },
-    className: "w-full pl-9 pr-8 py-1.5 bg-white/[0.03] border border-white/[0.08] rounded-2xl text-white text-sm placeholder-[#6b7280] focus:border-white/[0.15] focus:outline-none transition-colors"
+    style: {
+      width: "100%",
+      paddingLeft: 36,
+      paddingRight: 32,
+      paddingTop: 6,
+      paddingBottom: 6,
+      background: "var(--ds-bg-glass-hi)",
+      border: "1px solid var(--ds-stroke)",
+      borderRadius: "var(--ds-radius)",
+      color: "var(--ds-text-display)",
+      fontSize: "var(--ds-fs-body)",
+      outline: "none",
+      transition: "border-color 120ms"
+    },
+    onFocus: e => {
+      e.target.style.borderColor = "var(--ds-stroke-hi)";
+    },
+    onBlur: e => {
+      e.target.style.borderColor = "var(--ds-stroke)";
+    }
   }), filters.search && React.createElement("button", {
     onClick: () => {
       handleFilterChange({

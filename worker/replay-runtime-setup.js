@@ -353,6 +353,25 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_trim_runner_time_cap_days",
   "deep_audit_mfe_persist_on_open",
   "golden_julaug_reference_run_id", "live_config_run_id", "member_ticker_list", "consensus_signal_weights", "consensus_tf_weights", "scoring_weight_adj",
+  // ─────────────────────────────────────────────────────────────────────
+  // Phase C — Stage 0c/0d/0e (2026-05-02) — Three self-adapting loops
+  // Each loop has a master enable flag plus tunable thresholds. Default
+  // OFF in code; turned ON for the Phase C walk-forward backtest via
+  // scripts/v15-activate.sh.
+  // ─────────────────────────────────────────────────────────────────────
+  // Loop 1 — Specialization scorecard
+  "loop1_specialization_enabled",
+  "loop1_min_samples",        // min samples before any judgment (default 8)
+  "loop1_raise_bar_wr",       // <X WR → raise the bar (default 0.45)
+  "loop1_block_wr",           // <X WR → block the combo entirely (default 0.30)
+  "loop1_raise_bar_lift",     // additional rank-points required when bar raised (default 20)
+  // Loop 2 — Circuit breaker
+  "loop2_circuit_breaker_enabled",
+  "loop2_breaker_wr",         // last-10 WR < X → trip (default 0.30)
+  "loop2_breaker_day_pnl",    // today PnL < X% → trip (default -1.5)
+  "loop2_breaker_consec_loss",// X consecutive losses → trip (default 4)
+  // Loop 3 — Personality-aware management
+  "loop3_personality_management_enabled",
 ];
 
 const REPLAY_CFG_KEYS = [

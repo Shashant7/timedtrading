@@ -91,6 +91,11 @@ import {
 } from "./indicators.js";
 import { createExecutionAdapter } from "./execution.js";
 import * as DataProvider from "./data-provider.js";
+/* Phase C — Stage 0c/0d/0e (2026-05-02) — Self-adapting loops.
+   All three loops live in worker/phase-c-loops.js. They are imported here
+   and wired into the existing entry/exit pipeline. Each loop is gated by
+   its own DA flag so it can be killed independently. Default: OFF in code. */
+import * as PhaseCLoops from "./phase-c-loops.js";
 import { tdFetchEarningsCalendar, tdFetchTickerEarnings, tdFetchTimeSeries, tdSearchSymbol, toTdSymbol, aggregate5mTo10m } from "./twelvedata.js";
 import { onboardTicker, loadTickerProfile, loadSectorProfile, mergeProfileWeights } from "./onboard-ticker.js";
 import {
@@ -802,6 +807,7 @@ const ROUTES = [
   ["GET", "/timed/admin/runs/validations", "GET /timed/admin/runs/validations"],
   ["GET", "/timed/admin/runs/direction-accuracy", "GET /timed/admin/runs/direction-accuracy"],
   ["GET", "/timed/admin/runs/trade-events", "GET /timed/admin/runs/trade-events"],
+  ["GET", "/timed/admin/backtests/run-trades", "GET /timed/admin/backtests/run-trades"],
   ["POST", "/timed/admin/run-lifecycle", "POST /timed/admin/run-lifecycle"],
   ["POST", "/timed/admin/model-resolve", "POST /timed/admin/model-resolve"],
   ["POST", "/timed/admin/model-retro", "POST /timed/admin/model-retro"],
@@ -3871,6 +3877,68 @@ function _applyContextGates(d, inferredSide, asOfTs, leadingLtfLabel) {
         return { qualifies: false, reason: "ctx_choppy_rank_floor", rank: tickerRank, floor: choppyRankFloor, regime: regimeClass };
       }
     }
+  }
+
+  /* Phase C — Stage 0c/0d (2026-05-02) — Loop 1 + Loop 2 entry consults.
+     Read SYNC from pre-loaded state on d._env. The state is populated by
+     `phaseCLoadEntryState()` BEFORE this function runs. If the state is
+     missing or the loop is disabled, treat as "allow" (never block on
+     missing state). Loop event is recorded on d.__phase_c_loop_events for
+     downstream entry_signals capture. */
+  try {
+    const loop1State = d?._env?._loop1AdvisoryByCombo;
+    const loop2State = d?._env?._loop2Pause;
+    const phaseCEvents = (d.__phase_c_loop_events ||= []);
+
+    // Loop 2 first — it's a hard global circuit breaker
+    if (loop2State?.paused) {
+      phaseCEvents.push({ loop: 2, action: "block", reason: loop2State.reason });
+      return { qualifies: false, reason: "phase_c_loop2_breaker", breaker_reason: loop2State.reason };
+    }
+
+    // Loop 1 — combo-specific scorecard
+    if (loop1State) {
+      const setup = String(d?.entry_path || d?.setup_name || "?");
+      const regime = String(d?.regime_class || "?");
+      const personality = String(d?.execution_profile?.personality || d?._ticker_profile?.behavior_type || "?");
+      const sideKey = inferredSide === "SHORT" ? "S" : "L";
+      const safe = (s) => String(s || "unknown").toLowerCase().replace(/[^a-z0-9_]/g, "_");
+      const comboKey = `${safe(setup)}:${safe(regime)}:${safe(personality)}:${sideKey}`;
+      const advisory = loop1State[comboKey];
+      if (advisory?.decision === "block") {
+        phaseCEvents.push({ loop: 1, action: "block", combo: comboKey, wr: advisory.wr, samples: advisory.samples });
+        return {
+          qualifies: false,
+          reason: "phase_c_loop1_combo_blocked",
+          combo: comboKey,
+          wr: advisory.wr,
+          samples: advisory.samples,
+        };
+      }
+      if (advisory?.decision === "raise_bar") {
+        // Raise the bar by requiring a higher rank threshold for this combo.
+        // Default lift = 20 score-points; configurable via DA flag.
+        const liftPts = Number(daCfg.loop1_raise_bar_lift) || 20;
+        const tickerRank = Number(d?.score ?? d?.rank) || 0;
+        const lifted = (Number(daCfg.deep_audit_min_rank_for_promotion) || 0) + liftPts;
+        if (tickerRank < lifted) {
+          phaseCEvents.push({ loop: 1, action: "raise_bar_block", combo: comboKey, wr: advisory.wr, samples: advisory.samples, lift: liftPts });
+          return {
+            qualifies: false,
+            reason: "phase_c_loop1_raised_bar",
+            combo: comboKey,
+            wr: advisory.wr,
+            samples: advisory.samples,
+            required_rank: lifted,
+            actual_rank: tickerRank,
+          };
+        }
+        phaseCEvents.push({ loop: 1, action: "raise_bar_passed", combo: comboKey, wr: advisory.wr });
+      }
+    }
+  } catch (e) {
+    // Never block the engine on a loop bug; record + continue.
+    console.warn(`[phase-c] entry-gate error: ${String(e?.message || e).slice(0, 200)}`);
   }
 
   return null;
@@ -7507,6 +7575,29 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
             }
           }
 
+          /* Phase C — Stage 0e (2026-05-02) — Loop 3 personality consult.
+             SLOW_GRINDER and PULLBACK_PLAYER need more time before being
+             considered "dead money". If Loop 3 says no flat-cut, treat
+             same as runner-protect (skip the fast-cut tiers below). */
+          let _loop3SkipFastCut = false;
+          try {
+            const _l3DaCfg = tickerData?._env?._deepAuditConfig || {};
+            if (String(_l3DaCfg.loop3_personality_management_enabled ?? "false") === "true") {
+              const _l3Pers = openPosition?.entrySignals?.personality
+                            || openPosition?.entry_signals?.personality
+                            || tickerData?.execution_profile?.personality;
+              const _l3AgeMin = Math.max(0, _agH * 60);
+              const _l3Decision = PhaseCLoops.loop3ShouldCutFlat(_l3DaCfg, _l3Pers, _l3AgeMin, _mfeAbs);
+              if (!_l3Decision.cut && _l3AgeMin < (_l3Decision.profile?.flat_cut_min_age_minutes || 0)) {
+                _loop3SkipFastCut = true;
+              }
+              // Record event to entry_signals.loop_events for the verdict to audit.
+              if (Array.isArray(openPosition?.entrySignals?.loop_events) && _l3Decision.loop_event) {
+                openPosition.entrySignals.loop_events.push(_l3Decision.loop_event);
+              }
+            }
+          } catch (_) { /* never block close path on a loop bug */ }
+
           // Tier 0 (V12): immediate disaster — older than min_age_hours,
           // pnl already red past _p1MaxMaePct, zero MFE. Precision ETFs
           // skip this entirely (they get their own min_hold guard).
@@ -7515,27 +7606,29 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           // V15 P0.7.27 (2026-04-30): runner-protect-active also skips
           // (healthy trade with no adverse div / TD threat / structure
           // intact deserves more time to develop).
-          if (!_isPrecisionETF && !tickerData?.__v12_winner_protect_active && !_runnerProtectActive &&
+          // Phase C — Stage 0e — Loop 3 personality also skips when the
+          // ticker's personality wants more breathing room.
+          if (!_isPrecisionETF && !tickerData?.__v12_winner_protect_active && !_runnerProtectActive && !_loop3SkipFastCut &&
               _agH >= _p1MinAgeHours && _agH < 8 && pnlPct <= -1.0 && _mfeAbs < 0.3 && _maeAbs >= _p1MaxMaePct) {
             tickerData.__exit_reason = "phase_i_mfe_fast_cut_zero_mfe";
             tickerData.__exit_family = "safety";
             return "exit";
           }
           // Tier 1: fastest — no commitment within 2-4h, already in red
-          if (_agH >= 2 && _agH < 4 && pnlPct <= -0.8 && _mfeAbs < 0.3) {
+          if (!_loop3SkipFastCut && _agH >= 2 && _agH < 4 && pnlPct <= -0.8 && _mfeAbs < 0.3) {
             tickerData.__exit_reason = "phase_i_mfe_fast_cut_2h";
             tickerData.__exit_family = "safety";
             return "exit";
           }
           // Tier 2: 4h checkpoint (now overlaps with Tier 0 at >=4 <8, either
           // wins on pnl/MFE criteria; no boundary gap)
-          if (_agH >= 4 && _agH < 8 && pnlPct <= -1.5 && _mfeAbs < 0.5) {
+          if (!_loop3SkipFastCut && _agH >= 4 && _agH < 8 && pnlPct <= -1.5 && _mfeAbs < 0.5) {
             tickerData.__exit_reason = "phase_i_mfe_cut_4h";
             tickerData.__exit_family = "safety";
             return "exit";
           }
           // Tier 3: 8h — sustained underwater, no rally
-          if (_agH >= 8 && _agH < 24 && pnlPct <= -2.0 && _mfeAbs < 0.8) {
+          if (!_loop3SkipFastCut && _agH >= 8 && _agH < 24 && pnlPct <= -2.0 && _mfeAbs < 0.8) {
             tickerData.__exit_reason = "phase_i_mfe_cut_8h";
             tickerData.__exit_family = "safety";
             return "exit";
@@ -15138,6 +15231,25 @@ async function processTradeSimulation(
         trade.exit_flags = _ef;
       } catch (_) {}
 
+      /* Phase C — Stage 0c (2026-05-02) — Loop 1 outcome record.
+         Update the (setup × regime × personality × side) scorecard with
+         this trade's outcome. The next entry that hits this same combo
+         will see the updated last-20 WR. Best-effort: never block close. */
+      try {
+        const _daCfg = env?._deepAuditConfig || {};
+        if (String(_daCfg.loop1_specialization_enabled ?? "false") === "true") {
+          const _es = trade.entrySignals || trade.entry_signals || {};
+          await PhaseCLoops.loop1RecordOutcome(KV, {
+            setup: trade.entryPath || trade.entry_path || trade.setup_name || "?",
+            regime: _es.regime_class || tickerData?.regime_class || "?",
+            personality: _es.personality || tickerData?.execution_profile?.personality || "?",
+            side: trade.direction || "?",
+          }, trade.status);
+        }
+      } catch (e) {
+        console.warn("[phase-c] loop1 record failed:", String(e?.message || e).slice(0, 200));
+      }
+
       // Capture full signal snapshot at exit for autopsy comparison.
       // This must complete before finalize/archive so Trade Autopsy does not lose the exit context.
       try {
@@ -19638,6 +19750,18 @@ async function processTradeSimulation(
                     || tickerData?.execution_profile?.personality
                     || ""
                   ).toUpperCase() || null,
+                  // Phase C — Stage 0c (2026-05-02) — Regime class snapshot
+                  // for Loop 1 scorecard updates after the trade closes.
+                  regime_class: tickerData?.regime_class || null,
+                  // Phase C — Stage 0c/0d/0e — Loop event log captured at
+                  // entry. Each event has shape { loop, action, ... }.
+                  // The loops record into d.__phase_c_loop_events earlier
+                  // in the qualify pipeline; we copy that array here so
+                  // it persists in entry_signals_json for the verdict
+                  // generator to audit.
+                  loop_events: Array.isArray(tickerData?.__phase_c_loop_events)
+                    ? tickerData.__phase_c_loop_events.slice(0, 10)
+                    : [],
                 };
               })(),
               sectorAtEntry: (() => {
@@ -49509,6 +49633,33 @@ export default {
         }
       }
 
+      /* Phase C — Stage 0b (2026-05-02) — All trades for a backtest run.
+         Returns the full backtest_run_trades rows for a run id, including
+         the entry_signals_json + rank_trace_json + sector columns that
+         the monthly-verdict script needs to do its forensic break-down.
+         Read-only, admin-gated. */
+      if (routeKey === "GET /timed/admin/backtests/run-trades") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        try {
+          const runId = String(url.searchParams.get("run_id") || "").trim();
+          if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+          const limit = Math.min(Number(url.searchParams.get("limit")) || 5000, 20000);
+          const rows = (await db.prepare(
+            `SELECT * FROM backtest_run_trades
+              WHERE run_id = ?1
+              ORDER BY entry_ts ASC
+              LIMIT ?2`
+          ).bind(runId, limit).all())?.results || [];
+          return sendJSON({ ok: true, run_id: runId, count: rows.length, trades: rows }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // GET /timed/admin/runs/trade-events?run_id=...
       // Returns trade_events rows scoped to a run by joining on trade_id in backtest_run_trades.
       // Event types: ENTRY / TRIM / EXIT / SCALE_IN / ENTRY_CORRECTION / DEFEND.
@@ -62627,6 +62778,63 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       if (_isWeekday && (_utcH === 20 || _utcH === 21) && _utcM === 30)    vc.add("30 21 * * 1-5");
     }
     if (_isHourly) {
+      /* Phase C — Stage 0d (2026-05-02) — Loop 2 pulse + breaker.
+         Runs every hour during the trading day. Computes the pulse from
+         the most recent N closed trades and decides whether to trip the
+         breaker. Pause flag has 18h TTL so it auto-clears overnight. */
+      if (_isWeekday && _utcH >= 13 && _utcH <= 21) {
+        try {
+          // Load DA config inline (the per-cycle scoring path loads it later
+          // but the pulse fires before scoring).
+          let _daCfg = env._deepAuditConfig || {};
+          if (Object.keys(_daCfg).length === 0 && env?.DB) {
+            try {
+              const daRows = (await env.DB.prepare(
+                `SELECT config_key, config_value FROM model_config WHERE config_key LIKE 'loop%'`
+              ).all())?.results || [];
+              const cfg = {};
+              for (const r of daRows) {
+                try { cfg[r.config_key] = JSON.parse(r.config_value); } catch { cfg[r.config_key] = r.config_value; }
+              }
+              _daCfg = cfg;
+            } catch (_) {}
+          }
+          if (String(_daCfg.loop2_circuit_breaker_enabled ?? "false") === "true") {
+            const KV = env?.KV_TIMED || env?.KV;
+            if (KV && env?.DB) {
+              const recentRows = (await env.DB.prepare(
+                `SELECT ticker, direction, status, exit_ts, pnl_pct
+                   FROM trades
+                  WHERE status IN ('WIN','LOSS','FLAT')
+                  ORDER BY exit_ts DESC
+                  LIMIT 30`
+              ).all())?.results || [];
+              const pulse = PhaseCLoops.loop2ComputePulse(recentRows, { window: 10 });
+              const evalRes = PhaseCLoops.loop2EvaluatePulse(pulse, _daCfg);
+              await PhaseCLoops.loop2WritePulse(KV, pulse, evalRes, _daCfg);
+              if (evalRes.trip) {
+                console.warn(`[phase-c] LOOP 2 BREAKER TRIPPED — reason: ${evalRes.reason}`);
+                try {
+                  await notifyDiscord(env, {
+                    title: "Phase C — Engine Paused",
+                    description: `Loop 2 circuit breaker tripped: \`${evalRes.reason}\`.\nNew entries blocked until next session open. Open trades are unaffected.`,
+                    color: 0xfb923c,
+                    fields: [
+                      { name: "Last 10 WR", value: pulse.last10_wr != null ? `${(pulse.last10_wr * 100).toFixed(0)}%` : "n/a", inline: true },
+                      { name: "Today P&L", value: `${pulse.today_pnl_pct.toFixed(2)}%`, inline: true },
+                      { name: "Consec Losses", value: String(pulse.consec_losses), inline: true },
+                    ],
+                  }).catch(() => {});
+                } catch (_) {}
+              } else {
+                console.log(`[phase-c] loop 2 pulse — wr=${pulse.last10_wr != null ? (pulse.last10_wr*100).toFixed(0)+"%" : "n/a"} todayPnl=${pulse.today_pnl_pct.toFixed(2)}% consec=${pulse.consec_losses}`);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("[phase-c] loop2 hourly pulse failed:", String(e?.message || e).slice(0, 200));
+        }
+      }
       // DST-safe: fire on both EST and EDT UTC hours; ET sanity checks in handlers deduplicate
       if (_isWeekday && _utcH >= 13 && _utcH <= 21)                vc.add("0 14-21 * * 1-5");
       if (_utcDay === 6 && (_utcH === 14 || _utcH === 15))         vc.add("0 15 * * 6");
@@ -63187,9 +63395,44 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                   dv: snap.dailyVolume || prev.dv || 0,
                   t: snap.trade_ts || Date.now(),
-                  ahp: extDc !== 0 ? extP : (_marketClosed ? prev.ahp : undefined),
-                  ahdc: extDc !== 0 ? extDc : (_marketClosed ? prev.ahdc : undefined),
-                  ahdp: extDc !== 0 ? extDp : (_marketClosed ? prev.ahdp : undefined),
+                  /* Phase C — Stage 0.5 (2026-05-02) — Invalidate stale AH cache
+                     when the regular-session price has moved past the cached
+                     AH price. Bug: TWLO ahdp cached as +18.59% when AH was
+                     175 vs prev close 148; later the regular close moved to
+                     183 (above the AH 175), but the cached ahdp still showed
+                     +18.59% — wrong direction. The cache only makes sense when
+                     ahp is NEWER than the regular-session p. We invalidate
+                     when |p - ahp| / p > 1.5% (price moved past AH range). */
+                  ahp: (() => {
+                    if (extDc !== 0) return extP;
+                    if (!_marketClosed) return undefined;
+                    const _prevAhp = Number(prev.ahp);
+                    if (Number.isFinite(_prevAhp) && _prevAhp > 0 && displayPrice > 0
+                        && Math.abs(displayPrice - _prevAhp) / displayPrice > 0.015) {
+                      return undefined; // stale — drop it
+                    }
+                    return prev.ahp;
+                  })(),
+                  ahdc: (() => {
+                    if (extDc !== 0) return extDc;
+                    if (!_marketClosed) return undefined;
+                    const _prevAhp = Number(prev.ahp);
+                    if (Number.isFinite(_prevAhp) && _prevAhp > 0 && displayPrice > 0
+                        && Math.abs(displayPrice - _prevAhp) / displayPrice > 0.015) {
+                      return undefined;
+                    }
+                    return prev.ahdc;
+                  })(),
+                  ahdp: (() => {
+                    if (extDc !== 0) return extDp;
+                    if (!_marketClosed) return undefined;
+                    const _prevAhp = Number(prev.ahp);
+                    if (Number.isFinite(_prevAhp) && _prevAhp > 0 && displayPrice > 0
+                        && Math.abs(displayPrice - _prevAhp) / displayPrice > 0.015) {
+                      return undefined;
+                    }
+                    return prev.ahdp;
+                  })(),
                 };
                 restCount++;
               }
@@ -63403,6 +63646,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 if (Number.isFinite(prev.dc) && prev.dc !== 0) { keepDc = prev.dc; keepDp = prev.dp; }
                 else if (keepPc > 0 && displayPrice > 0) { keepDc = Math.round((displayPrice - keepPc) * 100) / 100; keepDp = Math.round(((displayPrice - keepPc) / keepPc) * 10000) / 100; }
               }
+              /* Phase C — Stage 0.5 (2026-05-02) — Stale-AH cache invalidation
+                 (same fix as the lightweight-feed path above). */
+              const _ahStale = (() => {
+                if (!_marketClosed) return false;
+                const _prevAhp = Number(prev.ahp);
+                if (!Number.isFinite(_prevAhp) || _prevAhp <= 0 || displayPrice <= 0) return false;
+                return Math.abs(displayPrice - _prevAhp) / displayPrice > 0.015;
+              })();
               prices[sym] = {
                 ...prev,
                 p: Math.round(displayPrice * 100) / 100,
@@ -63413,9 +63664,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                 dv: snap.dailyVolume || prev.dv || 0,
                 t: snap.trade_ts || Date.now(),
-                ahp: extDc !== 0 ? extP : (_marketClosed ? prev.ahp : undefined),
-                ahdc: extDc !== 0 ? extDc : (_marketClosed ? prev.ahdc : undefined),
-                ahdp: extDc !== 0 ? extDp : (_marketClosed ? prev.ahdp : undefined),
+                ahp: extDc !== 0 ? extP : (_marketClosed && !_ahStale ? prev.ahp : undefined),
+                ahdc: extDc !== 0 ? extDc : (_marketClosed && !_ahStale ? prev.ahdc : undefined),
+                ahdp: extDc !== 0 ? extDp : (_marketClosed && !_ahStale ? prev.ahdp : undefined),
               };
               restFallbackCount++;
             }
@@ -63991,6 +64242,36 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           env._marketInternals = null;
         }
 
+        /* Phase C — Stage 0c/0d (2026-05-02) — Pre-load loop state.
+           ONE KV read per cycle for Loop 1 (master scorecards map).
+           ONE KV read per cycle for Loop 2 (pause flag).
+           The sync entry-gate consults env._loop1AdvisoryByCombo and
+           env._loop2Pause without needing additional async work. */
+        try {
+          if (String(env._deepAuditConfig?.loop2_circuit_breaker_enabled ?? "false") === "true") {
+            env._loop2Pause = await PhaseCLoops.loop2ReadPause(KV);
+          } else {
+            env._loop2Pause = { paused: false };
+          }
+        } catch (e) {
+          env._loop2Pause = { paused: false };
+          console.warn("[phase-c] loop2 pause load failed:", String(e?.message || e).slice(0, 200));
+        }
+        try {
+          if (String(env._deepAuditConfig?.loop1_specialization_enabled ?? "false") === "true") {
+            const allScorecards = await PhaseCLoops.loop1ReadAllScorecards(KV);
+            env._loop1AdvisoryByCombo = PhaseCLoops.loop1ComputeAdvisoryMap(allScorecards, env._deepAuditConfig);
+            env._loop1ScorecardsCount = Object.keys(allScorecards).length;
+          } else {
+            env._loop1AdvisoryByCombo = {};
+            env._loop1ScorecardsCount = 0;
+          }
+        } catch (e) {
+          env._loop1AdvisoryByCombo = {};
+          env._loop1ScorecardsCount = 0;
+          console.warn("[phase-c] loop1 scorecards load failed:", String(e?.message || e).slice(0, 200));
+        }
+
         // Priority: open positions first, then everything else
         const tickersToScore = [];
         for (const t of openTickerSet) {
@@ -64105,6 +64386,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               _managementEngine: env.MANAGEMENT_ENGINE || "tt_core",
               _ripsterTuneV2: env.RIPSTER_TUNE_V2 || "true",
               _ripsterExitDebounceBars: env.TT_EXIT_DEBOUNCE_BARS || "3",
+              /* Phase C — Stage 0c/0d propagated state. */
+              _loop1AdvisoryByCombo: env._loop1AdvisoryByCombo || {},
+              _loop2Pause: env._loop2Pause || { paused: false },
             };
             if (env._currentVix != null) result._vix = env._currentVix;
 

@@ -132,6 +132,18 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_stagnant_low_mae_threshold_pct", "value": "0.75" },
     { "key": "deep_audit_stagnant_squeeze_deferral_enabled", "value": "true" },
 
+    { "_comment": "Phase C — Stage 0 — Three self-adapting loops. Default OFF.", "key": "_phase_c_marker", "value": "stage0" },
+    { "key": "loop1_specialization_enabled", "value": "false" },
+    { "key": "loop1_min_samples", "value": "8" },
+    { "key": "loop1_raise_bar_wr", "value": "0.45" },
+    { "key": "loop1_block_wr", "value": "0.30" },
+    { "key": "loop1_raise_bar_lift", "value": "20" },
+    { "key": "loop2_circuit_breaker_enabled", "value": "false" },
+    { "key": "loop2_breaker_wr", "value": "0.30" },
+    { "key": "loop2_breaker_day_pnl", "value": "-1.5" },
+    { "key": "loop2_breaker_consec_loss", "value": "4" },
+    { "key": "loop3_personality_management_enabled", "value": "false" },
+
     { "key": "deep_audit_eod_defer_on_cloud_hold", "value": "true" },
     { "key": "deep_audit_eod_low_mae_defer_pct", "value": "1.5" },
 
