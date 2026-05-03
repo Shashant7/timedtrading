@@ -3156,6 +3156,15 @@ function RunsTab({
     progressWriteEvery: 4
   });
   const [showLaunchDrawer, setShowLaunchDrawer] = useState(false);
+  const [openMenuRunId, setOpenMenuRunId] = useState(null);
+  useEffect(() => {
+    if (!openMenuRunId) return;
+    const handler = e => {
+      if (!e.target?.closest?.(".si-menu")) setOpenMenuRunId(null);
+    };
+    window.addEventListener("click", handler);
+    return () => window.removeEventListener("click", handler);
+  }, [openMenuRunId]);
   const fmtNum = n => {
     const v = Number(n);
     return Number.isFinite(v) ? v.toLocaleString() : "—";
@@ -3940,319 +3949,212 @@ function RunsTab({
   }, message), error && React.createElement("div", {
     className: "p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300"
   }, error), React.createElement("div", {
-    className: "card runs-shell overflow-hidden"
-  }, React.createElement("div", {
-    className: "px-5 py-4 border-b border-white/[0.06]"
-  }, React.createElement("div", {
-    className: "flex flex-wrap items-start justify-between gap-4"
-  }, React.createElement("div", null, React.createElement("div", {
-    className: "text-[10px] uppercase tracking-[0.18em] text-slate-500 mb-1"
-  }, "Remote Operations"), React.createElement("h3", {
-    className: "text-base font-semibold text-white"
-  }, "Backtest Operations Console"), React.createElement("p", {
-    className: "text-[11px] text-slate-500 mt-1.5 max-w-3xl"
-  }, "Launch, monitor, and inspect coordinated cloud backtests from the `Runs` screen. This console now talks directly to the `BacktestRunner` coordinator for start, cancel, status, and logs.")), React.createElement("div", {
-    className: "flex flex-wrap items-center gap-2"
+    className: "si-banner",
+    style: {
+      borderLeftColor: runnerHealth.cls === "run-pill-active" ? "var(--ds-accent)" : runnerHealth.cls === "run-pill-status" ? "var(--ds-dn)" : "var(--ds-up)"
+    }
   }, React.createElement("span", {
-    className: `run-pill ${runnerHealth.cls}`
-  }, runnerHealth.label), React.createElement("button", {
-    className: "run-action-btn run-action-btn-muted",
+    className: `si-pill ${runnerHealth.cls === "run-pill-active" ? "si-pill--warn si-pill--pulse" : runnerHealth.cls === "run-pill-status" ? "si-pill--danger" : "si-pill--ok"}`
+  }, React.createElement("span", {
+    className: "si-pill__dot"
+  }), "Runner \xB7 ", runnerHealth.label), React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 200
+    }
+  }, React.createElement("div", {
+    className: "si-card__eyebrow"
+  }, "Backtest Operations"), React.createElement("div", {
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      color: "var(--ds-text-display)",
+      fontSize: "var(--ds-fs-body)",
+      fontWeight: 600,
+      marginTop: 2
+    }
+  }, activeRun?.label || activeRun?.run_id || (validationBusy ? "Validation runner active" : "No run in flight")), React.createElement("div", {
+    style: {
+      fontSize: "var(--ds-fs-meta)",
+      color: "var(--ds-text-muted)",
+      marginTop: 2
+    }
+  }, activePhaseLabel || runnerHealth.detail, lockInfo?.locked ? ` · Lock active: ${lockInfo.lock || "yes"}` : " · Lock idle")), React.createElement("div", {
+    style: {
+      textAlign: "right"
+    }
+  }, liveSummary && React.createElement(React.Fragment, null, React.createElement("div", {
+    className: "si-card__eyebrow"
+  }, "Live baseline"), React.createElement("div", {
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      color: Number(liveSummary?.pnl?.realized || 0) >= 0 ? "var(--ds-up)" : "var(--ds-dn)",
+      fontWeight: 600,
+      fontSize: "var(--ds-fs-body)"
+    }
+  }, fmtMoney(liveSummary?.pnl?.realized)), React.createElement("div", {
+    style: {
+      fontSize: "var(--ds-fs-caption)",
+      color: "var(--ds-text-muted)"
+    }
+  }, fmtNum(liveSummary?.trades?.total), "t \xB7 ", fmtPct(liveSummary?.trades?.win_rate)))), React.createElement("div", {
+    className: "flex flex-wrap items-center gap-2"
+  }, React.createElement("button", {
+    className: "si-action",
     onClick: fetchRuns,
     disabled: loading
-  }, "Refresh State"), isAdmin ? validationBusy ? React.createElement("button", {
-    className: "run-action-btn run-action-btn-danger",
+  }, "Refresh"), isAdmin ? validationBusy ? React.createElement("button", {
+    className: "si-action si-action--danger",
     onClick: requestStopValidation
   }, "Stop Run") : React.createElement("button", {
-    className: "run-action-btn run-action-btn-primary",
+    className: "si-action si-action--primary",
     onClick: () => setShowLaunchDrawer(true)
   }, "New Run") : null)), React.createElement("div", {
-    className: "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mt-4"
+    className: "si-card"
   }, React.createElement("div", {
-    className: "runs-metric-card"
-  }, React.createElement("div", {
-    className: "runs-metric-label"
-  }, "Runner Health"), React.createElement("div", {
-    className: "runs-metric-value"
-  }, runnerHealth.label), React.createElement("div", {
-    className: "text-[10px] text-slate-500 mt-1"
-  }, runnerHealth.detail)), React.createElement("div", {
-    className: "runs-metric-card"
-  }, React.createElement("div", {
-    className: "runs-metric-label"
-  }, "Replay Lock"), React.createElement("div", {
-    className: "runs-metric-value"
-  }, lockInfo?.locked ? "Active" : "Idle"), React.createElement("div", {
-    className: "text-[10px] text-slate-500 mt-1 break-all"
-  }, lockInfo?.lock || "No active lock")), React.createElement("div", {
-    className: "runs-metric-card"
-  }, React.createElement("div", {
-    className: "runs-metric-label"
-  }, "Active Run"), React.createElement("div", {
-    className: "runs-metric-value font-mono break-all"
-  }, activeRun?.run_id || validationRunId || "—"), React.createElement("div", {
-    className: "text-[10px] text-slate-500 mt-1"
-  }, activePhaseLabel)), React.createElement("div", {
-    className: "runs-metric-card"
-  }, React.createElement("div", {
-    className: "runs-metric-label"
-  }, "Live Baseline"), liveSummary ? React.createElement(React.Fragment, null, React.createElement("div", {
-    className: "runs-metric-value"
-  }, fmtMoney(liveSummary?.pnl?.realized)), React.createElement("div", {
-    className: "text-[10px] text-slate-500 mt-1"
-  }, fmtNum(liveSummary?.trades?.total), " trades \xB7 ", fmtPct(liveSummary?.trades?.win_rate))) : React.createElement(React.Fragment, null, React.createElement("div", {
-    className: "runs-metric-value"
-  }, "\u2014"), React.createElement("div", {
-    className: "text-[10px] text-slate-500 mt-1"
-  }, "No live baseline selected"))))), React.createElement("div", {
-    className: "grid grid-cols-1 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.95fr)] gap-4 p-5"
-  }, React.createElement("div", {
-    className: "space-y-4"
-  }, React.createElement("div", {
-    className: "rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4"
-  }, React.createElement("div", {
-    className: "flex flex-wrap items-start justify-between gap-3"
+    className: "si-card__head"
   }, React.createElement("div", null, React.createElement("div", {
-    className: "text-[10px] uppercase tracking-[0.12em] text-slate-500"
-  }, "Active Run Console"), React.createElement("h4", {
-    className: "text-sm font-semibold text-white mt-1"
-  }, activeRun?.label || activeRun?.run_id || (validationBusy ? "Validation runner active" : "No run in flight")), React.createElement("p", {
-    className: "text-[11px] text-slate-500 mt-1"
-  }, activeRun ? `${activeRun.start_date || "—"} → ${activeRun.end_date || "—"}` : "When a run is active, this panel shows phase, progress, and the operator contract for the job.")), React.createElement("div", {
-    className: "flex flex-wrap items-center gap-2"
+    className: "si-card__eyebrow"
+  }, "Active Run Console"), React.createElement("div", {
+    className: "si-card__title"
+  }, activeRun?.label || activeRun?.run_id || (validationBusy ? "Validation runner active" : "No run in flight")), activeRun && React.createElement("div", {
+    className: "si-card__subtitle"
+  }, activeRun.start_date || "—", " \u2192 ", activeRun.end_date || "—")), React.createElement("div", {
+    className: "flex items-center gap-2"
   }, activeRun?.run_id ? React.createElement("button", {
-    className: "run-action-btn run-action-btn-muted",
+    className: "si-action",
     onClick: () => viewRunDetails(activeRun.run_id)
-  }, "View Details") : null, isAdmin && !validationBusy ? React.createElement("button", {
-    className: "run-action-btn run-action-btn-primary",
+  }, "Details") : null, isAdmin && !validationBusy ? React.createElement("button", {
+    className: "si-action si-action--primary",
     onClick: () => setShowLaunchDrawer(true)
-  }, "Launch Drawer") : null)), React.createElement("div", {
-    className: "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mt-4"
+  }, "Launch Drawer") : null)), activeProgress ? React.createElement("div", {
+    className: "space-y-3"
   }, React.createElement("div", {
-    className: "runs-metric-card"
-  }, React.createElement("div", {
-    className: "runs-metric-label"
-  }, "Phase"), React.createElement("div", {
-    className: "runs-metric-value"
-  }, activePhaseLabel), React.createElement("div", {
-    className: "text-[10px] text-slate-500 mt-1"
-  }, activeRun?.status ? humanizeStatus(activeRun.status) : "Awaiting work")), React.createElement("div", {
-    className: "runs-metric-card"
-  }, React.createElement("div", {
-    className: "runs-metric-label"
-  }, "Trades / Win Rate"), React.createElement("div", {
-    className: "runs-metric-value"
-  }, fmtNum(activeRun?.trades?.total ?? activeRun?.total_trades), " / ", fmtPct(activeRun?.trades?.win_rate ?? activeRun?.win_rate)), React.createElement("div", {
-    className: "text-[10px] text-slate-500 mt-1"
-  }, "Run-scoped metrics")), React.createElement("div", {
-    className: "runs-metric-card"
-  }, React.createElement("div", {
-    className: "runs-metric-label"
-  }, "P&L"), React.createElement("div", {
-    className: `runs-metric-value ${Number(activeRun?.pnl?.realized ?? activeRun?.realized_pnl ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`
-  }, fmtMoney(activeRun?.pnl?.realized ?? activeRun?.realized_pnl)), React.createElement("div", {
-    className: "text-[10px] text-slate-500 mt-1"
-  }, "Realized archive view")), React.createElement("div", {
-    className: "runs-metric-card"
-  }, React.createElement("div", {
-    className: "runs-metric-label"
-  }, "Universe / Batch"), React.createElement("div", {
-    className: "runs-metric-value"
-  }, fmtNum(activeRun?.ticker_universe_count), " / ", fmtNum(activeRun?.ticker_batch)), React.createElement("div", {
-    className: "text-[10px] text-slate-500 mt-1"
-  }, "Ticker universe / batch size"))), activeProgress ? React.createElement("div", {
-    className: "mt-4 p-4 rounded-xl bg-slate-950/40 border border-white/[0.06]"
-  }, React.createElement("div", {
-    className: "flex flex-wrap items-center justify-between gap-3"
+    className: "flex items-center justify-between"
   }, React.createElement("div", null, React.createElement("div", {
-    className: "text-[10px] uppercase tracking-[0.12em] text-slate-500"
-  }, "Replay Progress"), React.createElement("div", {
-    className: "text-sm text-white font-semibold mt-1"
-  }, activeProgress.mode === "interval" ? `${activeProgress.date} · interval ${activeProgress.intervalIndex || 1}/${activeProgress.totalIntervals || 1}` : `${activeProgress.date} · batch ${activeProgress.batchIndex || 1}`)), React.createElement("div", {
-    className: "text-right"
-  }, React.createElement("div", {
-    className: "text-[10px] uppercase tracking-[0.12em] text-slate-500"
-  }, "Steps"), React.createElement("div", {
-    className: "text-sm text-slate-200 font-semibold mt-1"
-  }, fmtNum(activeProgress.completedSteps), "/", fmtNum(activeProgress.totalSteps)))), React.createElement("div", {
-    className: "meter-bar mt-3"
-  }, React.createElement("div", {
-    className: "meter-fill bg-emerald-400",
+    className: "si-card__eyebrow"
+  }, "Replay progress"), React.createElement("div", {
     style: {
-      width: `${Math.max(0, Math.min(100, (activeProgress.completedSteps || 0) / Math.max(1, activeProgress.totalSteps || 1) * 100))}%`
+      fontSize: "var(--ds-fs-emph)",
+      color: "var(--ds-text-display)",
+      fontWeight: 600,
+      fontFamily: "var(--tt-font-mono)"
     }
-  })), React.createElement("div", {
-    className: "grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 text-[11px]"
-  }, React.createElement("div", null, React.createElement("span", {
-    className: "text-slate-500"
-  }, "Day"), React.createElement("div", {
-    className: "text-slate-200 mt-1"
-  }, fmtNum(activeProgress.dayIndex), "/", fmtNum(activeProgress.totalDays))), React.createElement("div", null, React.createElement("span", {
-    className: "text-slate-500"
-  }, "Scored"), React.createElement("div", {
-    className: "text-slate-200 mt-1"
-  }, fmtNum(activeProgress.scored))), React.createElement("div", null, React.createElement("span", {
-    className: "text-slate-500"
-  }, "Trades"), React.createElement("div", {
-    className: "text-slate-200 mt-1"
-  }, fmtNum(activeProgress.trades))), React.createElement("div", null, React.createElement("span", {
-    className: "text-slate-500"
-  }, "Mode"), React.createElement("div", {
-    className: "text-slate-200 mt-1"
-  }, activeProgress.mode === "interval" ? "Interval" : "Candle")))) : React.createElement("div", {
-    className: "mt-4 rounded-xl border border-dashed border-white/[0.08] bg-slate-950/25 p-4 text-[11px] text-slate-500"
-  }, "No active step telemetry yet. Once a run starts, the console will stream phase, step count, scored rows, and trade creation activity here.")), React.createElement("div", {
-    className: "grid grid-cols-1 xl:grid-cols-2 gap-4"
+  }, activeProgress.date || "—")), React.createElement("div", {
+    style: {
+      textAlign: "right",
+      fontFamily: "var(--tt-font-mono)"
+    }
   }, React.createElement("div", {
-    className: "rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4"
+    style: {
+      color: "var(--ds-text-display)",
+      fontSize: "var(--ds-fs-emph)",
+      fontWeight: 600
+    }
+  }, fmtNum(activeProgress.dayIndex || activeProgress.completedSteps), "/", fmtNum(activeProgress.totalDays || activeProgress.totalSteps)), React.createElement("div", {
+    style: {
+      fontSize: "var(--ds-fs-meta)",
+      color: "var(--ds-text-muted)"
+    }
+  }, activeProgress.scored ? `scored ${fmtNum(activeProgress.scored)}` : "", activeProgress.trades ? ` · ${fmtNum(activeProgress.trades)} trades` : ""))), React.createElement("div", {
+    className: "si-progress"
   }, React.createElement("div", {
-    className: "flex items-start justify-between gap-3"
+    className: "si-progress__fill si-progress__fill--up",
+    style: {
+      width: `${Math.max(0, Math.min(100, (activeProgress.completedSteps || activeProgress.dayIndex || 0) / Math.max(1, activeProgress.totalSteps || activeProgress.totalDays || 1) * 100))}%`
+    }
+  }))) : React.createElement("div", {
+    style: {
+      color: "var(--ds-text-muted)",
+      fontSize: "var(--ds-fs-body)"
+    }
+  }, "No active step telemetry. Launch a run to see live progress."), window.__siEngineSnapshot?.recent_trades?.length > 0 && activeRun?.run_id === window.__siEngineSnapshot?.run_id && React.createElement("div", {
+    style: {
+      marginTop: "var(--ds-space-3)"
+    }
+  }, React.createElement("div", {
+    className: "si-card__eyebrow",
+    style: {
+      marginBottom: "6px"
+    }
+  }, "Last 5 trades created"), React.createElement("div", {
+    className: "space-y-1"
+  }, window.__siEngineSnapshot.recent_trades.slice(0, 5).map(t => React.createElement("div", {
+    className: "si-trade-row",
+    key: t.trade_id
   }, React.createElement("div", null, React.createElement("div", {
-    className: "text-[10px] uppercase tracking-[0.12em] text-slate-500"
-  }, "Queue / Job History"), React.createElement("h4", {
-    className: "text-sm font-semibold text-white mt-1"
-  }, "Queued And Running Jobs")), React.createElement("div", {
-    className: "text-[10px] text-slate-500"
-  }, queuedRuns.length, " visible")), React.createElement("div", {
-    className: "mt-4 space-y-2"
-  }, queuedRuns.length ? queuedRuns.map(run => {
-    const descMeta = getRunDescriptionMeta(run);
+    className: "si-trade-row__ticker"
+  }, t.ticker, " ", React.createElement("span", {
+    style: {
+      color: t.direction === "LONG" ? "var(--ds-up)" : "var(--ds-dn)",
+      fontSize: "var(--ds-fs-caption)",
+      marginLeft: 6
+    }
+  }, t.direction)), React.createElement("div", {
+    className: "si-trade-row__meta"
+  }, t.exit_reason || "(open)")), React.createElement("div", {
+    className: "si-trade-row__pct"
+  }, fmtPctVal(t.pnl_pct, 2)), React.createElement("div", {
+    className: `si-trade-row__pnl ${t.pnl >= 0 ? "si-trade-row__pnl--up" : "si-trade-row__pnl--dn"}`
+  }, fmtMoneyDelta(t.pnl)))))), (queuedRuns.length > 0 || recentCompletedRuns.length > 0) && React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-2 gap-3 mt-4"
+  }, queuedRuns.length > 0 && React.createElement("div", null, React.createElement("div", {
+    className: "si-card__eyebrow",
+    style: {
+      marginBottom: 6
+    }
+  }, "Queued / running"), React.createElement("div", {
+    className: "space-y-1.5"
+  }, queuedRuns.slice(0, 3).map(run => React.createElement("button", {
+    key: run.run_id,
+    className: "si-trade-row",
+    style: {
+      width: "100%",
+      textAlign: "left",
+      cursor: "pointer",
+      border: "none"
+    },
+    onClick: () => viewRunDetails(run.run_id)
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "si-trade-row__ticker",
+    style: {
+      fontSize: "var(--ds-fs-meta)"
+    }
+  }, run.label || shortRunId(run.run_id)), React.createElement("div", {
+    className: "si-trade-row__meta"
+  }, run.start_date, " \u2192 ", run.end_date)), React.createElement("span", {
+    className: "si-pill si-pill--warn"
+  }, humanizeStatus(run.status) || "queued"), React.createElement("div", {
+    className: "si-trade-row__pnl"
+  }, fmtNum(run?.trades?.total ?? run?.total_trades), "t"))))), recentCompletedRuns.length > 0 && React.createElement("div", null, React.createElement("div", {
+    className: "si-card__eyebrow",
+    style: {
+      marginBottom: 6
+    }
+  }, "Recently completed"), React.createElement("div", {
+    className: "space-y-1.5"
+  }, recentCompletedRuns.slice(0, 3).map(run => {
+    const pnl = Number(run?.pnl?.realized ?? run?.realized_pnl ?? 0);
     return React.createElement("button", {
       key: run.run_id,
-      className: "w-full text-left rounded-xl border border-white/[0.06] bg-slate-950/35 p-3 hover:border-white/[0.12] transition-colors",
+      className: "si-trade-row",
+      style: {
+        width: "100%",
+        textAlign: "left",
+        cursor: "pointer",
+        border: "none"
+      },
       onClick: () => viewRunDetails(run.run_id)
-    }, React.createElement("div", {
-      className: "flex items-start justify-between gap-3"
-    }, React.createElement("div", {
-      className: "min-w-0"
-    }, React.createElement("div", {
-      className: "text-[11px] text-white font-medium truncate"
+    }, React.createElement("div", null, React.createElement("div", {
+      className: "si-trade-row__ticker",
+      style: {
+        fontSize: "var(--ds-fs-meta)"
+      }
     }, run.label || shortRunId(run.run_id)), React.createElement("div", {
-      className: "text-[10px] text-slate-500 font-mono truncate mt-1"
-    }, run.run_id)), React.createElement("span", {
-      className: "run-pill run-pill-status"
-    }, humanizeStatus(run.status) || "running")), React.createElement("div", {
-      className: "text-[10px] text-slate-500 mt-2 truncate"
-    }, descMeta.displayDescription), React.createElement("div", {
-      className: "flex flex-wrap items-center gap-3 mt-2 text-[10px] text-slate-400"
-    }, React.createElement("span", null, run.start_date || "—", " \u2192 ", run.end_date || "—"), React.createElement("span", null, fmtNum(run?.trades?.total ?? run?.total_trades), " trades"), React.createElement("span", null, fmtMoney(run?.pnl?.realized ?? run?.realized_pnl))));
-  }) : React.createElement("div", {
-    className: "rounded-xl border border-dashed border-white/[0.08] p-4 text-[11px] text-slate-500"
-  }, "No queued or running jobs in the registry right now."))), React.createElement("div", {
-    className: "rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4"
-  }, React.createElement("div", {
-    className: "flex items-start justify-between gap-3"
-  }, React.createElement("div", null, React.createElement("div", {
-    className: "text-[10px] uppercase tracking-[0.12em] text-slate-500"
-  }, "Baseline + Recent"), React.createElement("h4", {
-    className: "text-sm font-semibold text-white mt-1"
-  }, "Recent Completed Runs")), React.createElement("div", {
-    className: "text-[10px] text-slate-500"
-  }, recentCompletedRuns.length, " visible")), liveSummary ? React.createElement("div", {
-    className: "mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3"
-  }, React.createElement("div", {
-    className: "flex items-center justify-between gap-3"
-  }, React.createElement("div", null, React.createElement("div", {
-    className: "text-[10px] uppercase tracking-[0.12em] text-emerald-300/80"
-  }, "Live Baseline"), React.createElement("div", {
-    className: "text-sm text-white font-semibold mt-1"
-  }, liveSummary.label || shortRunId(liveSummary.run_id))), React.createElement("button", {
-    className: "run-action-btn run-action-btn-muted",
-    onClick: () => liveSummary?.run_id && viewRunDetails(liveSummary.run_id)
-  }, "Inspect")), React.createElement("div", {
-    className: "grid grid-cols-2 gap-3 mt-3 text-[11px]"
-  }, React.createElement("div", null, React.createElement("span", {
-    className: "text-slate-500"
-  }, "Window"), React.createElement("div", {
-    className: "text-slate-200 mt-1"
-  }, liveSummary.start_date || "—", " \u2192 ", liveSummary.end_date || "—")), React.createElement("div", null, React.createElement("span", {
-    className: "text-slate-500"
-  }, "Trades"), React.createElement("div", {
-    className: "text-slate-200 mt-1"
-  }, fmtNum(liveSummary?.trades?.total), " / ", fmtPct(liveSummary?.trades?.win_rate))))) : null, React.createElement("div", {
-    className: "mt-4 space-y-2"
-  }, recentCompletedRuns.length ? recentCompletedRuns.map(run => React.createElement("button", {
-    key: run.run_id,
-    className: "w-full text-left rounded-xl border border-white/[0.06] bg-slate-950/35 p-3 hover:border-white/[0.12] transition-colors",
-    onClick: () => viewRunDetails(run.run_id)
-  }, React.createElement("div", {
-    className: "flex items-start justify-between gap-3"
-  }, React.createElement("div", {
-    className: "min-w-0"
-  }, React.createElement("div", {
-    className: "text-[11px] text-white font-medium truncate"
-  }, run.label || shortRunId(run.run_id)), React.createElement("div", {
-    className: "text-[10px] text-slate-500 mt-1"
-  }, run.start_date || "—", " \u2192 ", run.end_date || "—")), React.createElement("div", {
-    className: `text-[11px] font-semibold ${Number(run?.pnl?.realized ?? run?.realized_pnl ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`
-  }, fmtMoney(run?.pnl?.realized ?? run?.realized_pnl))), React.createElement("div", {
-    className: "flex flex-wrap items-center gap-3 mt-2 text-[10px] text-slate-400"
-  }, React.createElement("span", null, fmtNum(run?.trades?.total ?? run?.total_trades), " trades"), React.createElement("span", null, fmtPct(run?.trades?.win_rate ?? run?.win_rate), " win rate"), React.createElement("span", null, fmtRunDate(run?.started_at ?? run?.created_at))))) : React.createElement("div", {
-    className: "rounded-xl border border-dashed border-white/[0.08] p-4 text-[11px] text-slate-500"
-  }, "No completed runs are available yet."))))), React.createElement("div", {
-    className: "space-y-4"
-  }, React.createElement("div", {
-    className: "rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4"
-  }, React.createElement("div", {
-    className: "flex items-start justify-between gap-3"
-  }, React.createElement("div", null, React.createElement("div", {
-    className: "text-[10px] uppercase tracking-[0.12em] text-slate-500"
-  }, "Recent Logs Panel"), React.createElement("h4", {
-    className: "text-sm font-semibold text-white mt-1"
-  }, "Operator Feed")), React.createElement("div", {
-    className: "text-[10px] text-slate-500"
-  }, remoteLogLines.length, " lines")), React.createElement("pre", {
-    className: "mt-4 bg-slate-950/70 border border-white/[0.06] rounded-xl p-3 text-[11px] text-slate-300 overflow-auto max-h-[420px] whitespace-pre-wrap"
-  }, remoteLogLines.join("\n"))), React.createElement("div", {
-    className: "rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4"
-  }, React.createElement("div", {
-    className: "text-[10px] uppercase tracking-[0.12em] text-slate-500"
-  }, "Launch Contract"), React.createElement("h4", {
-    className: "text-sm font-semibold text-white mt-1"
-  }, "Next Run Snapshot"), React.createElement("div", {
-    className: "grid grid-cols-2 gap-3 mt-4 text-[11px]"
-  }, React.createElement("div", {
-    className: "runs-metric-card"
-  }, React.createElement("div", {
-    className: "runs-metric-label"
-  }, "Window"), React.createElement("div", {
-    className: "runs-metric-value"
-  }, validationForm.startDate || "—", " \u2192 ", validationForm.endDate || "—"), React.createElement("div", {
-    className: "text-[10px] text-slate-500 mt-1"
-  }, contractSummary.sessionCount, " weekday sessions")), React.createElement("div", {
-    className: "runs-metric-card"
-  }, React.createElement("div", {
-    className: "runs-metric-label"
-  }, "Mode"), React.createElement("div", {
-    className: "runs-metric-value"
-  }, contractSummary.mode), React.createElement("div", {
-    className: "text-[10px] text-slate-500 mt-1"
-  }, Number(validationForm.intervalMinutes) || 5, " minute cadence")), React.createElement("div", {
-    className: "runs-metric-card"
-  }, React.createElement("div", {
-    className: "runs-metric-label"
-  }, "Config Source"), React.createElement("div", {
-    className: "runs-metric-value"
-  }, contractSummary.configLabel), React.createElement("div", {
-    className: "text-[10px] text-slate-500 mt-1"
-  }, validationForm.configSource === "run" ? "Pinned archive snapshot" : "Current live model_config")), React.createElement("div", {
-    className: "runs-metric-card"
-  }, React.createElement("div", {
-    className: "runs-metric-label"
-  }, "Ticker Scope"), React.createElement("div", {
-    className: "runs-metric-value"
-  }, contractSummary.tickerCount ? `${fmtNum(contractSummary.tickerCount)} tickers` : "Full universe"), React.createElement("div", {
-    className: "text-[10px] text-slate-500 mt-1"
-  }, validationForm.tickers ? "Manual filter applied" : "Uses registry/live universe count"))), isAdmin ? React.createElement("div", {
-    className: "mt-4 flex flex-wrap gap-2"
-  }, React.createElement("button", {
-    className: "run-action-btn run-action-btn-primary",
-    onClick: () => setShowLaunchDrawer(true)
-  }, "Open Launch Drawer"), !validationBusy ? React.createElement("button", {
-    className: "run-action-btn run-action-btn-muted",
-    onClick: startValidationRun
-  }, "Start With Current Settings") : null) : React.createElement("div", {
-    className: "mt-4 text-[11px] text-slate-500"
-  }, "Run launch controls are admin-only."))))), showLaunchDrawer && isAdmin && React.createElement("div", {
+      className: "si-trade-row__meta"
+    }, fmtRunDate(run?.started_at ?? run?.created_at), " \xB7 ", fmtPct(run?.trades?.win_rate ?? run?.win_rate))), React.createElement("div", null), React.createElement("div", {
+      className: `si-trade-row__pnl ${pnl >= 0 ? "si-trade-row__pnl--up" : "si-trade-row__pnl--dn"}`
+    }, fmtMoney(pnl)));
+  }))))), showLaunchDrawer && isAdmin && React.createElement("div", {
     className: "fixed inset-0 z-50 bg-black/70 backdrop-blur-sm",
     onClick: () => setShowLaunchDrawer(false)
   }, React.createElement("div", {
@@ -4928,33 +4830,52 @@ function RunsTab({
     }, fmtPct(avgLossPct))), React.createElement("td", {
       className: "px-3 py-3 text-slate-300 min-w-[170px]"
     }, renderTokens(classTop)), React.createElement("td", {
-      className: "px-3 py-3 sticky right-0 bg-[rgba(11,14,17,0.985)] shadow-[-6px_0_12px_rgba(0,0,0,0.28)] z-10 min-w-[220px]"
+      className: "px-3 py-3 sticky right-0 bg-[rgba(11,14,17,0.985)] shadow-[-6px_0_12px_rgba(0,0,0,0.28)] z-10 min-w-[140px]"
     }, isAdmin ? React.createElement("div", {
-      className: "flex flex-wrap items-center gap-2"
+      className: "flex flex-nowrap items-center gap-2"
     }, React.createElement("button", {
-      className: "run-action-btn run-action-btn-warn",
-      disabled: finalizingRunId === runId,
-      onClick: () => finalizeRun(r)
-    }, finalizingRunId === runId ? "Refreshing..." : "Refresh Metrics"), React.createElement("button", {
-      className: "run-action-btn run-action-btn-muted",
-      onClick: () => viewRunDetails(runId)
-    }, "Details"), autopsyUrl && autopsyUrl !== "#" ? React.createElement("a", {
-      className: "run-action-btn run-action-btn-info",
+      className: "si-action",
+      onClick: () => viewRunDetails(runId),
       style: {
+        padding: "5px 10px"
+      }
+    }, "Details"), autopsyUrl && autopsyUrl !== "#" ? React.createElement("a", {
+      className: "si-action",
+      style: {
+        padding: "5px 10px",
         textDecoration: "none"
       },
       href: autopsyUrl
-    }, "Autopsy") : null, React.createElement("button", {
-      className: "run-action-btn run-action-btn-muted",
+    }, "Autopsy") : null, React.createElement("div", {
+      className: "si-menu",
+      onClick: e => e.stopPropagation()
+    }, React.createElement("button", {
+      className: "si-menu__trigger",
+      onClick: () => setOpenMenuRunId(openMenuRunId === runId ? null : runId)
+    }, "\u22EF"), openMenuRunId === runId && React.createElement("div", {
+      className: "si-menu__panel"
+    }, React.createElement("button", {
+      className: "si-menu__item",
+      disabled: finalizingRunId === runId,
+      onClick: () => {
+        finalizeRun(r);
+        setOpenMenuRunId(null);
+      }
+    }, finalizingRunId === runId ? "Refreshing…" : "Refresh metrics"), React.createElement("button", {
+      className: "si-menu__item",
       onClick: () => {
         if (compareRuns?.length === 1 && compareRuns[0]?.run_id === runId) setCompareRuns(null);else if (compareRuns?.length === 1) setCompareRuns([compareRuns[0], r]);else setCompareRuns([r]);
+        setOpenMenuRunId(null);
       }
-    }, compareRuns?.length === 1 && compareRuns[0]?.run_id === runId ? "Cancel Compare" : "Compare"), React.createElement("button", {
-      className: "run-action-btn run-action-btn-info",
+    }, compareRuns?.length === 1 && compareRuns[0]?.run_id === runId ? "Cancel compare" : "Compare with…"), React.createElement("button", {
+      className: "si-menu__item",
       disabled: validatingSentinelRunId === runId,
-      onClick: () => validateSentinels(r)
-    }, validatingSentinelRunId === runId ? "Validating..." : "Validate Sentinels"), isProtected ? React.createElement("button", {
-      className: "run-action-btn run-action-btn-primary",
+      onClick: () => {
+        validateSentinels(r);
+        setOpenMenuRunId(null);
+      }
+    }, validatingSentinelRunId === runId ? "Validating…" : "Validate sentinels"), isProtected && React.createElement("button", {
+      className: "si-menu__item",
       onClick: () => {
         setVariantRunId(runId);
         setVariantData(null);
@@ -4982,25 +4903,44 @@ function RunsTab({
             } : null);
           }
         });
+        setOpenMenuRunId(null);
       }
-    }, "Create Variant") : null, React.createElement("button", {
-      className: `run-action-btn ${isLive ? "run-action-btn-success" : "run-action-btn-primary"}`,
+    }, "Create variant"), React.createElement("button", {
+      className: "si-menu__item",
       disabled: isLive || promotingRunId === runId,
-      onClick: () => promoteRun(runId)
-    }, isLive ? "Live" : promotingRunId === runId ? "Promoting..." : "Promote Live"), React.createElement("button", {
-      className: "run-action-btn run-action-btn-primary",
+      onClick: () => {
+        promoteRun(runId);
+        setOpenMenuRunId(null);
+      }
+    }, isLive ? "✓ Live" : promotingRunId === runId ? "Promoting…" : "Promote to live"), React.createElement("button", {
+      className: "si-menu__item",
       disabled: promotingTradesRunId === runId,
-      onClick: () => promoteRunToTrades(runId),
-      title: "Copy this run's trades into the active promoted_trades dataset so the Trades page reflects it."
-    }, promotingTradesRunId === runId ? "Promoting..." : "Promote → Trades"), React.createElement("button", {
-      className: "run-action-btn run-action-btn-muted",
+      onClick: () => {
+        promoteRunToTrades(runId);
+        setOpenMenuRunId(null);
+      },
+      title: "Copy this run's trades into the active promoted_trades dataset."
+    }, promotingTradesRunId === runId ? "Promoting…" : "Promote → Trades page"), React.createElement("div", {
+      style: {
+        height: 1,
+        background: "var(--ds-stroke)",
+        margin: "4px 0"
+      }
+    }), React.createElement("button", {
+      className: "si-menu__item",
       disabled: archivingRunId === runId || isLive,
-      onClick: () => archiveRun(r)
-    }, archivingRunId === runId ? "Archiving..." : "Archive"), React.createElement("button", {
-      className: "run-action-btn run-action-btn-danger",
+      onClick: () => {
+        archiveRun(r);
+        setOpenMenuRunId(null);
+      }
+    }, archivingRunId === runId ? "Archiving…" : "Archive run"), React.createElement("button", {
+      className: "si-menu__item si-menu__item--danger",
       disabled: deletingRunId === runId || isLive || isProtected,
-      onClick: () => deleteRun(r)
-    }, deletingRunId === runId ? "Deleting..." : "Delete Run")) : React.createElement("span", {
+      onClick: () => {
+        deleteRun(r);
+        setOpenMenuRunId(null);
+      }
+    }, deletingRunId === runId ? "Deleting…" : "Delete run")))) : React.createElement("span", {
       className: "text-slate-500"
     }, "Admin only")));
   }))))), compareRuns?.length === 2 && React.createElement("div", {
@@ -6019,6 +5959,7 @@ function App() {
         setEngineSnapshot(data);
         setEngineLastFetched(Date.now());
         setEngineError(null);
+        if (typeof window !== "undefined") window.__siEngineSnapshot = data;
       } else {
         setEngineError(data?.error || "engine_snapshot_failed");
       }

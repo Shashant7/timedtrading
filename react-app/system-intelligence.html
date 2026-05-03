@@ -2492,6 +2492,16 @@ function RunsTab({ isAdmin }) {
     progressWriteEvery: 4,
   });
   const [showLaunchDrawer, setShowLaunchDrawer] = useState(false);
+  // P1 — per-row action menu (one open at a time)
+  const [openMenuRunId, setOpenMenuRunId] = useState(null);
+  useEffect(() => {
+    if (!openMenuRunId) return;
+    const handler = (e) => {
+      if (!e.target?.closest?.(".si-menu")) setOpenMenuRunId(null);
+    };
+    window.addEventListener("click", handler);
+    return () => window.removeEventListener("click", handler);
+  }, [openMenuRunId]);
 
   const fmtNum = (n) => {
     const v = Number(n);
@@ -3206,310 +3216,167 @@ function RunsTab({ isAdmin }) {
     <div className="space-y-4">
       {message && <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300">{message}</div>}
       {error && <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300">{error}</div>}
-      <div className="card runs-shell overflow-hidden">
-        <div className="px-5 py-4 border-b border-white/[0.06]">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500 mb-1">Remote Operations</div>
-              <h3 className="text-base font-semibold text-white">Backtest Operations Console</h3>
-              <p className="text-[11px] text-slate-500 mt-1.5 max-w-3xl">
-                Launch, monitor, and inspect coordinated cloud backtests from the `Runs` screen. This console now talks directly to the `BacktestRunner` coordinator for start, cancel, status, and logs.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className={`run-pill ${runnerHealth.cls}`}>{runnerHealth.label}</span>
-              <button className="run-action-btn run-action-btn-muted" onClick={fetchRuns} disabled={loading}>
-                Refresh State
-              </button>
-              {isAdmin ? (
-                validationBusy ? (
-                  <button className="run-action-btn run-action-btn-danger" onClick={requestStopValidation}>
-                    Stop Run
-                  </button>
-                ) : (
-                  <button className="run-action-btn run-action-btn-primary" onClick={() => setShowLaunchDrawer(true)}>
-                    New Run
-                  </button>
-                )
-              ) : null}
-            </div>
+      {/* P1 — Single status banner replaces the 4-card KPI strip + 2-column grid + Operator Feed.
+          Active Run console is kept (it's the actual operator surface) but trimmed. */}
+      <div className="si-banner" style={{borderLeftColor: runnerHealth.cls === "run-pill-active" ? "var(--ds-accent)" : runnerHealth.cls === "run-pill-status" ? "var(--ds-dn)" : "var(--ds-up)"}}>
+        <span className={`si-pill ${runnerHealth.cls === "run-pill-active" ? "si-pill--warn si-pill--pulse" : runnerHealth.cls === "run-pill-status" ? "si-pill--danger" : "si-pill--ok"}`}>
+          <span className="si-pill__dot" />Runner · {runnerHealth.label}
+        </span>
+        <div style={{flex:1, minWidth:200}}>
+          <div className="si-card__eyebrow">Backtest Operations</div>
+          <div style={{fontFamily:"var(--tt-font-mono)", color:"var(--ds-text-display)", fontSize:"var(--ds-fs-body)", fontWeight:600, marginTop:2}}>
+            {activeRun?.label || activeRun?.run_id || (validationBusy ? "Validation runner active" : "No run in flight")}
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mt-4">
-            <div className="runs-metric-card">
-              <div className="runs-metric-label">Runner Health</div>
-              <div className="runs-metric-value">{runnerHealth.label}</div>
-              <div className="text-[10px] text-slate-500 mt-1">{runnerHealth.detail}</div>
-            </div>
-            <div className="runs-metric-card">
-              <div className="runs-metric-label">Replay Lock</div>
-              <div className="runs-metric-value">{lockInfo?.locked ? "Active" : "Idle"}</div>
-              <div className="text-[10px] text-slate-500 mt-1 break-all">{lockInfo?.lock || "No active lock"}</div>
-            </div>
-            <div className="runs-metric-card">
-              <div className="runs-metric-label">Active Run</div>
-              <div className="runs-metric-value font-mono break-all">{activeRun?.run_id || validationRunId || "—"}</div>
-              <div className="text-[10px] text-slate-500 mt-1">{activePhaseLabel}</div>
-            </div>
-            <div className="runs-metric-card">
-              <div className="runs-metric-label">Live Baseline</div>
-              {liveSummary ? (
-                <>
-                  <div className="runs-metric-value">{fmtMoney(liveSummary?.pnl?.realized)}</div>
-                  <div className="text-[10px] text-slate-500 mt-1">{fmtNum(liveSummary?.trades?.total)} trades · {fmtPct(liveSummary?.trades?.win_rate)}</div>
-                </>
-              ) : (
-                <>
-                  <div className="runs-metric-value">—</div>
-                  <div className="text-[10px] text-slate-500 mt-1">No live baseline selected</div>
-                </>
-              )}
-            </div>
+          <div style={{fontSize:"var(--ds-fs-meta)", color:"var(--ds-text-muted)", marginTop:2}}>
+            {activePhaseLabel || runnerHealth.detail}
+            {lockInfo?.locked ? ` · Lock active: ${lockInfo.lock || "yes"}` : " · Lock idle"}
           </div>
         </div>
-
-        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.95fr)] gap-4 p-5">
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="text-[10px] uppercase tracking-[0.12em] text-slate-500">Active Run Console</div>
-                  <h4 className="text-sm font-semibold text-white mt-1">
-                    {activeRun?.label || activeRun?.run_id || (validationBusy ? "Validation runner active" : "No run in flight")}
-                  </h4>
-                  <p className="text-[11px] text-slate-500 mt-1">
-                    {activeRun
-                      ? `${activeRun.start_date || "—"} → ${activeRun.end_date || "—"}`
-                      : "When a run is active, this panel shows phase, progress, and the operator contract for the job."}
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {activeRun?.run_id ? (
-                    <button className="run-action-btn run-action-btn-muted" onClick={() => viewRunDetails(activeRun.run_id)}>
-                      View Details
-                    </button>
-                  ) : null}
-                  {isAdmin && !validationBusy ? (
-                    <button className="run-action-btn run-action-btn-primary" onClick={() => setShowLaunchDrawer(true)}>
-                      Launch Drawer
-                    </button>
-                  ) : null}
-                </div>
+        <div style={{textAlign:"right"}}>
+          {liveSummary && (
+            <>
+              <div className="si-card__eyebrow">Live baseline</div>
+              <div style={{fontFamily:"var(--tt-font-mono)", color: Number(liveSummary?.pnl?.realized || 0) >= 0 ? "var(--ds-up)" : "var(--ds-dn)", fontWeight:600, fontSize:"var(--ds-fs-body)"}}>
+                {fmtMoney(liveSummary?.pnl?.realized)}
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mt-4">
-                <div className="runs-metric-card">
-                  <div className="runs-metric-label">Phase</div>
-                  <div className="runs-metric-value">{activePhaseLabel}</div>
-                  <div className="text-[10px] text-slate-500 mt-1">{activeRun?.status ? humanizeStatus(activeRun.status) : "Awaiting work"}</div>
-                </div>
-                <div className="runs-metric-card">
-                  <div className="runs-metric-label">Trades / Win Rate</div>
-                  <div className="runs-metric-value">{fmtNum(activeRun?.trades?.total ?? activeRun?.total_trades)} / {fmtPct(activeRun?.trades?.win_rate ?? activeRun?.win_rate)}</div>
-                  <div className="text-[10px] text-slate-500 mt-1">Run-scoped metrics</div>
-                </div>
-                <div className="runs-metric-card">
-                  <div className="runs-metric-label">P&amp;L</div>
-                  <div className={`runs-metric-value ${Number(activeRun?.pnl?.realized ?? activeRun?.realized_pnl ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                    {fmtMoney(activeRun?.pnl?.realized ?? activeRun?.realized_pnl)}
-                  </div>
-                  <div className="text-[10px] text-slate-500 mt-1">Realized archive view</div>
-                </div>
-                <div className="runs-metric-card">
-                  <div className="runs-metric-label">Universe / Batch</div>
-                  <div className="runs-metric-value">{fmtNum(activeRun?.ticker_universe_count)} / {fmtNum(activeRun?.ticker_batch)}</div>
-                  <div className="text-[10px] text-slate-500 mt-1">Ticker universe / batch size</div>
-                </div>
+              <div style={{fontSize:"var(--ds-fs-caption)", color:"var(--ds-text-muted)"}}>
+                {fmtNum(liveSummary?.trades?.total)}t · {fmtPct(liveSummary?.trades?.win_rate)}
               </div>
-
-              {activeProgress ? (
-                <div className="mt-4 p-4 rounded-xl bg-slate-950/40 border border-white/[0.06]">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <div className="text-[10px] uppercase tracking-[0.12em] text-slate-500">Replay Progress</div>
-                      <div className="text-sm text-white font-semibold mt-1">
-                        {activeProgress.mode === "interval"
-                          ? `${activeProgress.date} · interval ${activeProgress.intervalIndex || 1}/${activeProgress.totalIntervals || 1}`
-                          : `${activeProgress.date} · batch ${activeProgress.batchIndex || 1}`}
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-[10px] uppercase tracking-[0.12em] text-slate-500">Steps</div>
-                      <div className="text-sm text-slate-200 font-semibold mt-1">
-                        {fmtNum(activeProgress.completedSteps)}/{fmtNum(activeProgress.totalSteps)}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="meter-bar mt-3">
-                    <div className="meter-fill bg-emerald-400" style={{ width: `${Math.max(0, Math.min(100, ((activeProgress.completedSteps || 0) / Math.max(1, activeProgress.totalSteps || 1)) * 100))}%` }} />
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 text-[11px]">
-                    <div><span className="text-slate-500">Day</span><div className="text-slate-200 mt-1">{fmtNum(activeProgress.dayIndex)}/{fmtNum(activeProgress.totalDays)}</div></div>
-                    <div><span className="text-slate-500">Scored</span><div className="text-slate-200 mt-1">{fmtNum(activeProgress.scored)}</div></div>
-                    <div><span className="text-slate-500">Trades</span><div className="text-slate-200 mt-1">{fmtNum(activeProgress.trades)}</div></div>
-                    <div><span className="text-slate-500">Mode</span><div className="text-slate-200 mt-1">{activeProgress.mode === "interval" ? "Interval" : "Candle"}</div></div>
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-4 rounded-xl border border-dashed border-white/[0.08] bg-slate-950/25 p-4 text-[11px] text-slate-500">
-                  No active step telemetry yet. Once a run starts, the console will stream phase, step count, scored rows, and trade creation activity here.
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-              <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-[10px] uppercase tracking-[0.12em] text-slate-500">Queue / Job History</div>
-                    <h4 className="text-sm font-semibold text-white mt-1">Queued And Running Jobs</h4>
-                  </div>
-                  <div className="text-[10px] text-slate-500">{queuedRuns.length} visible</div>
-                </div>
-                <div className="mt-4 space-y-2">
-                  {queuedRuns.length ? queuedRuns.map((run) => {
-                    const descMeta = getRunDescriptionMeta(run);
-                    return (
-                      <button
-                        key={run.run_id}
-                        className="w-full text-left rounded-xl border border-white/[0.06] bg-slate-950/35 p-3 hover:border-white/[0.12] transition-colors"
-                        onClick={() => viewRunDetails(run.run_id)}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="text-[11px] text-white font-medium truncate">{run.label || shortRunId(run.run_id)}</div>
-                            <div className="text-[10px] text-slate-500 font-mono truncate mt-1">{run.run_id}</div>
-                          </div>
-                          <span className="run-pill run-pill-status">{humanizeStatus(run.status) || "running"}</span>
-                        </div>
-                        <div className="text-[10px] text-slate-500 mt-2 truncate">{descMeta.displayDescription}</div>
-                        <div className="flex flex-wrap items-center gap-3 mt-2 text-[10px] text-slate-400">
-                          <span>{run.start_date || "—"} → {run.end_date || "—"}</span>
-                          <span>{fmtNum(run?.trades?.total ?? run?.total_trades)} trades</span>
-                          <span>{fmtMoney(run?.pnl?.realized ?? run?.realized_pnl)}</span>
-                        </div>
-                      </button>
-                    );
-                  }) : (
-                    <div className="rounded-xl border border-dashed border-white/[0.08] p-4 text-[11px] text-slate-500">
-                      No queued or running jobs in the registry right now.
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-[10px] uppercase tracking-[0.12em] text-slate-500">Baseline + Recent</div>
-                    <h4 className="text-sm font-semibold text-white mt-1">Recent Completed Runs</h4>
-                  </div>
-                  <div className="text-[10px] text-slate-500">{recentCompletedRuns.length} visible</div>
-                </div>
-                {liveSummary ? (
-                  <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="text-[10px] uppercase tracking-[0.12em] text-emerald-300/80">Live Baseline</div>
-                        <div className="text-sm text-white font-semibold mt-1">{liveSummary.label || shortRunId(liveSummary.run_id)}</div>
-                      </div>
-                      <button className="run-action-btn run-action-btn-muted" onClick={() => liveSummary?.run_id && viewRunDetails(liveSummary.run_id)}>
-                        Inspect
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3 mt-3 text-[11px]">
-                      <div><span className="text-slate-500">Window</span><div className="text-slate-200 mt-1">{liveSummary.start_date || "—"} → {liveSummary.end_date || "—"}</div></div>
-                      <div><span className="text-slate-500">Trades</span><div className="text-slate-200 mt-1">{fmtNum(liveSummary?.trades?.total)} / {fmtPct(liveSummary?.trades?.win_rate)}</div></div>
-                    </div>
-                  </div>
-                ) : null}
-                <div className="mt-4 space-y-2">
-                  {recentCompletedRuns.length ? recentCompletedRuns.map((run) => (
-                    <button
-                      key={run.run_id}
-                      className="w-full text-left rounded-xl border border-white/[0.06] bg-slate-950/35 p-3 hover:border-white/[0.12] transition-colors"
-                      onClick={() => viewRunDetails(run.run_id)}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="text-[11px] text-white font-medium truncate">{run.label || shortRunId(run.run_id)}</div>
-                          <div className="text-[10px] text-slate-500 mt-1">{run.start_date || "—"} → {run.end_date || "—"}</div>
-                        </div>
-                        <div className={`text-[11px] font-semibold ${Number(run?.pnl?.realized ?? run?.realized_pnl ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                          {fmtMoney(run?.pnl?.realized ?? run?.realized_pnl)}
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-3 mt-2 text-[10px] text-slate-400">
-                        <span>{fmtNum(run?.trades?.total ?? run?.total_trades)} trades</span>
-                        <span>{fmtPct(run?.trades?.win_rate ?? run?.win_rate)} win rate</span>
-                        <span>{fmtRunDate(run?.started_at ?? run?.created_at)}</span>
-                      </div>
-                    </button>
-                  )) : (
-                    <div className="rounded-xl border border-dashed border-white/[0.08] p-4 text-[11px] text-slate-500">
-                      No completed runs are available yet.
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-[10px] uppercase tracking-[0.12em] text-slate-500">Recent Logs Panel</div>
-                  <h4 className="text-sm font-semibold text-white mt-1">Operator Feed</h4>
-                </div>
-                <div className="text-[10px] text-slate-500">{remoteLogLines.length} lines</div>
-              </div>
-              <pre className="mt-4 bg-slate-950/70 border border-white/[0.06] rounded-xl p-3 text-[11px] text-slate-300 overflow-auto max-h-[420px] whitespace-pre-wrap">{remoteLogLines.join("\n")}</pre>
-            </div>
-
-            <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4">
-              <div className="text-[10px] uppercase tracking-[0.12em] text-slate-500">Launch Contract</div>
-              <h4 className="text-sm font-semibold text-white mt-1">Next Run Snapshot</h4>
-              <div className="grid grid-cols-2 gap-3 mt-4 text-[11px]">
-                <div className="runs-metric-card">
-                  <div className="runs-metric-label">Window</div>
-                  <div className="runs-metric-value">{validationForm.startDate || "—"} → {validationForm.endDate || "—"}</div>
-                  <div className="text-[10px] text-slate-500 mt-1">{contractSummary.sessionCount} weekday sessions</div>
-                </div>
-                <div className="runs-metric-card">
-                  <div className="runs-metric-label">Mode</div>
-                  <div className="runs-metric-value">{contractSummary.mode}</div>
-                  <div className="text-[10px] text-slate-500 mt-1">{Number(validationForm.intervalMinutes) || 5} minute cadence</div>
-                </div>
-                <div className="runs-metric-card">
-                  <div className="runs-metric-label">Config Source</div>
-                  <div className="runs-metric-value">{contractSummary.configLabel}</div>
-                  <div className="text-[10px] text-slate-500 mt-1">{validationForm.configSource === "run" ? "Pinned archive snapshot" : "Current live model_config"}</div>
-                </div>
-                <div className="runs-metric-card">
-                  <div className="runs-metric-label">Ticker Scope</div>
-                  <div className="runs-metric-value">{contractSummary.tickerCount ? `${fmtNum(contractSummary.tickerCount)} tickers` : "Full universe"}</div>
-                  <div className="text-[10px] text-slate-500 mt-1">{validationForm.tickers ? "Manual filter applied" : "Uses registry/live universe count"}</div>
-                </div>
-              </div>
-              {isAdmin ? (
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button className="run-action-btn run-action-btn-primary" onClick={() => setShowLaunchDrawer(true)}>
-                    Open Launch Drawer
-                  </button>
-                  {!validationBusy ? (
-                    <button className="run-action-btn run-action-btn-muted" onClick={startValidationRun}>
-                      Start With Current Settings
-                    </button>
-                  ) : null}
-                </div>
-              ) : (
-                <div className="mt-4 text-[11px] text-slate-500">Run launch controls are admin-only.</div>
-              )}
-            </div>
-          </div>
+            </>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button className="si-action" onClick={fetchRuns} disabled={loading}>
+            Refresh
+          </button>
+          {isAdmin ? (
+            validationBusy ? (
+              <button className="si-action si-action--danger" onClick={requestStopValidation}>
+                Stop Run
+              </button>
+            ) : (
+              <button className="si-action si-action--primary" onClick={() => setShowLaunchDrawer(true)}>
+                New Run
+              </button>
+            )
+          ) : null}
         </div>
       </div>
+
+      {/* Active Run Console — kept (this is the actual operator surface) but trimmed:
+          progress + recent activity, no Operator Feed (info already in active console). */}
+      <div className="si-card">
+        <div className="si-card__head">
+          <div>
+            <div className="si-card__eyebrow">Active Run Console</div>
+            <div className="si-card__title">
+              {activeRun?.label || activeRun?.run_id || (validationBusy ? "Validation runner active" : "No run in flight")}
+            </div>
+            {activeRun && (
+              <div className="si-card__subtitle">{activeRun.start_date || "—"} → {activeRun.end_date || "—"}</div>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {activeRun?.run_id ? (
+              <button className="si-action" onClick={() => viewRunDetails(activeRun.run_id)}>Details</button>
+            ) : null}
+            {isAdmin && !validationBusy ? (
+              <button className="si-action si-action--primary" onClick={() => setShowLaunchDrawer(true)}>Launch Drawer</button>
+            ) : null}
+          </div>
+        </div>
+
+        {activeProgress ? (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="si-card__eyebrow">Replay progress</div>
+                <div style={{fontSize:"var(--ds-fs-emph)", color:"var(--ds-text-display)", fontWeight:600, fontFamily:"var(--tt-font-mono)"}}>
+                  {activeProgress.date || "—"}
+                </div>
+              </div>
+              <div style={{textAlign:"right", fontFamily:"var(--tt-font-mono)"}}>
+                <div style={{color:"var(--ds-text-display)", fontSize:"var(--ds-fs-emph)", fontWeight:600}}>
+                  {fmtNum(activeProgress.dayIndex || activeProgress.completedSteps)}/{fmtNum(activeProgress.totalDays || activeProgress.totalSteps)}
+                </div>
+                <div style={{fontSize:"var(--ds-fs-meta)", color:"var(--ds-text-muted)"}}>
+                  {activeProgress.scored ? `scored ${fmtNum(activeProgress.scored)}` : ""}
+                  {activeProgress.trades ? ` · ${fmtNum(activeProgress.trades)} trades` : ""}
+                </div>
+              </div>
+            </div>
+            <div className="si-progress">
+              <div className="si-progress__fill si-progress__fill--up" style={{width:`${Math.max(0, Math.min(100, ((activeProgress.completedSteps || activeProgress.dayIndex || 0) / Math.max(1, activeProgress.totalSteps || activeProgress.totalDays || 1)) * 100))}%`}} />
+            </div>
+          </div>
+        ) : (
+          <div style={{color:"var(--ds-text-muted)", fontSize:"var(--ds-fs-body)"}}>No active step telemetry. Launch a run to see live progress.</div>
+        )}
+
+        {/* Last 5 trades for the active run — pulls from the `recent_trades` we already
+            stream into the Engine snapshot, no extra fetch. */}
+        {window.__siEngineSnapshot?.recent_trades?.length > 0 && activeRun?.run_id === window.__siEngineSnapshot?.run_id && (
+          <div style={{marginTop:"var(--ds-space-3)"}}>
+            <div className="si-card__eyebrow" style={{marginBottom:"6px"}}>Last 5 trades created</div>
+            <div className="space-y-1">
+              {window.__siEngineSnapshot.recent_trades.slice(0, 5).map((t) => (
+                <div className="si-trade-row" key={t.trade_id}>
+                  <div>
+                    <div className="si-trade-row__ticker">{t.ticker} <span style={{color:t.direction === "LONG" ? "var(--ds-up)" : "var(--ds-dn)", fontSize:"var(--ds-fs-caption)", marginLeft:6}}>{t.direction}</span></div>
+                    <div className="si-trade-row__meta">{t.exit_reason || "(open)"}</div>
+                  </div>
+                  <div className="si-trade-row__pct">{fmtPctVal(t.pnl_pct, 2)}</div>
+                  <div className={`si-trade-row__pnl ${t.pnl >= 0 ? "si-trade-row__pnl--up" : "si-trade-row__pnl--dn"}`}>{fmtMoneyDelta(t.pnl)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Queue + recent completed — kept compact. */}
+        {(queuedRuns.length > 0 || recentCompletedRuns.length > 0) && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+            {queuedRuns.length > 0 && (
+              <div>
+                <div className="si-card__eyebrow" style={{marginBottom:6}}>Queued / running</div>
+                <div className="space-y-1.5">
+                  {queuedRuns.slice(0, 3).map((run) => (
+                    <button key={run.run_id} className="si-trade-row" style={{width:"100%", textAlign:"left", cursor:"pointer", border:"none"}} onClick={() => viewRunDetails(run.run_id)}>
+                      <div>
+                        <div className="si-trade-row__ticker" style={{fontSize:"var(--ds-fs-meta)"}}>{run.label || shortRunId(run.run_id)}</div>
+                        <div className="si-trade-row__meta">{run.start_date} → {run.end_date}</div>
+                      </div>
+                      <span className="si-pill si-pill--warn">{humanizeStatus(run.status) || "queued"}</span>
+                      <div className="si-trade-row__pnl">{fmtNum(run?.trades?.total ?? run?.total_trades)}t</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {recentCompletedRuns.length > 0 && (
+              <div>
+                <div className="si-card__eyebrow" style={{marginBottom:6}}>Recently completed</div>
+                <div className="space-y-1.5">
+                  {recentCompletedRuns.slice(0, 3).map((run) => {
+                    const pnl = Number(run?.pnl?.realized ?? run?.realized_pnl ?? 0);
+                    return (
+                      <button key={run.run_id} className="si-trade-row" style={{width:"100%", textAlign:"left", cursor:"pointer", border:"none"}} onClick={() => viewRunDetails(run.run_id)}>
+                        <div>
+                          <div className="si-trade-row__ticker" style={{fontSize:"var(--ds-fs-meta)"}}>{run.label || shortRunId(run.run_id)}</div>
+                          <div className="si-trade-row__meta">{fmtRunDate(run?.started_at ?? run?.created_at)} · {fmtPct(run?.trades?.win_rate ?? run?.win_rate)}</div>
+                        </div>
+                        <div></div>
+                        <div className={`si-trade-row__pnl ${pnl >= 0 ? "si-trade-row__pnl--up" : "si-trade-row__pnl--dn"}`}>{fmtMoney(pnl)}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
 
       {showLaunchDrawer && isAdmin && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm" onClick={() => setShowLaunchDrawer(false)}>
@@ -3910,105 +3777,71 @@ function RunsTab({ isAdmin }) {
                       <td className="px-3 py-3 text-slate-300 min-w-[170px]">
                         {renderTokens(classTop)}
                       </td>
-                      <td className="px-3 py-3 sticky right-0 bg-[rgba(11,14,17,0.985)] shadow-[-6px_0_12px_rgba(0,0,0,0.28)] z-10 min-w-[220px]">
+                      <td className="px-3 py-3 sticky right-0 bg-[rgba(11,14,17,0.985)] shadow-[-6px_0_12px_rgba(0,0,0,0.28)] z-10 min-w-[140px]">
                         {isAdmin ? (
-                          <div className="flex flex-wrap items-center gap-2">
-                            <button
-                              className="run-action-btn run-action-btn-warn"
-                              disabled={finalizingRunId === runId}
-                              onClick={() => finalizeRun(r)}
-                            >
-                              {finalizingRunId === runId ? "Refreshing..." : "Refresh Metrics"}
-                            </button>
-                            <button
-                              className="run-action-btn run-action-btn-muted"
-                              onClick={() => viewRunDetails(runId)}
-                            >
-                              Details
-                            </button>
+                          <div className="flex flex-nowrap items-center gap-2">
+                            {/* Default visible action: Details (most-requested) */}
+                            <button className="si-action" onClick={() => viewRunDetails(runId)} style={{padding:"5px 10px"}}>Details</button>
+                            {/* Secondary visible: Autopsy if available */}
                             {autopsyUrl && autopsyUrl !== "#" ? (
-                              <a
-                                className="run-action-btn run-action-btn-info"
-                                style={{ textDecoration: "none" }}
-                                href={autopsyUrl}
-                              >
-                                Autopsy
-                              </a>
+                              <a className="si-action" style={{padding:"5px 10px", textDecoration:"none"}} href={autopsyUrl}>Autopsy</a>
                             ) : null}
-                            <button
-                              className="run-action-btn run-action-btn-muted"
-                              onClick={() => {
-                                if (compareRuns?.length === 1 && compareRuns[0]?.run_id === runId) setCompareRuns(null);
-                                else if (compareRuns?.length === 1) setCompareRuns([compareRuns[0], r]);
-                                else setCompareRuns([r]);
-                              }}
-                            >
-                              {compareRuns?.length === 1 && compareRuns[0]?.run_id === runId ? "Cancel Compare" : "Compare"}
-                            </button>
-                            <button
-                              className="run-action-btn run-action-btn-info"
-                              disabled={validatingSentinelRunId === runId}
-                              onClick={() => validateSentinels(r)}
-                            >
-                              {validatingSentinelRunId === runId ? "Validating..." : "Validate Sentinels"}
-                            </button>
-                            {isProtected ? (
-                              <button
-                                className="run-action-btn run-action-btn-primary"
-                                onClick={() => {
-                                  setVariantRunId(runId);
-                                  setVariantData(null);
-                                  setLiveConfigData(null);
-                                  Promise.all([
-                                    fetch(`${API_BASE}/timed/admin/runs/detail?run_id=${encodeURIComponent(runId)}`, { credentials: "include" }).then(x => x.json()),
-                                    fetch(`${API_BASE}/timed/admin/runs/live`, { credentials: "include" }).then(x => x.json()),
-                                  ]).then(([detailRes, liveRes]) => {
-                                    if (detailRes?.ok) {
-                                      setVariantData(detailRes);
-                                      setVariantOverrides({ ...(detailRes?.rule_snapshot?.env_flags || {}) });
-                                    }
-                                    const liveRun = liveRes?.run || liveRes?.read_model?.run || liveRes?.live || null;
-                                    if (liveRes?.ok && liveRun) {
-                                      let snap = null;
-                                      try { snap = JSON.parse(liveRun.snapshot_json || "null"); } catch (_) {}
-                                      setLiveConfigData(snap?.env_flags ? { env_flags: snap.env_flags, run_id: liveRun.run_id } : null);
-                                    }
-                                  });
-                                }}
-                              >
-                                Create Variant
-                              </button>
-                            ) : null}
-                            <button
-                              className={`run-action-btn ${isLive ? "run-action-btn-success" : "run-action-btn-primary"}`}
-                              disabled={isLive || promotingRunId === runId}
-                              onClick={() => promoteRun(runId)}
-                            >
-                              {isLive ? "Live" : (promotingRunId === runId ? "Promoting..." : "Promote Live")}
-                            </button>
-                            {/* Phase C — Stage 0a — Promote to Trades page */}
-                            <button
-                              className="run-action-btn run-action-btn-primary"
-                              disabled={promotingTradesRunId === runId}
-                              onClick={() => promoteRunToTrades(runId)}
-                              title="Copy this run's trades into the active promoted_trades dataset so the Trades page reflects it."
-                            >
-                              {promotingTradesRunId === runId ? "Promoting..." : "Promote → Trades"}
-                            </button>
-                            <button
-                              className="run-action-btn run-action-btn-muted"
-                              disabled={archivingRunId === runId || isLive}
-                              onClick={() => archiveRun(r)}
-                            >
-                              {archivingRunId === runId ? "Archiving..." : "Archive"}
-                            </button>
-                            <button
-                              className="run-action-btn run-action-btn-danger"
-                              disabled={deletingRunId === runId || isLive || isProtected}
-                              onClick={() => deleteRun(r)}
-                            >
-                              {deletingRunId === runId ? "Deleting..." : "Delete Run"}
-                            </button>
+                            {/* Everything else under "…" menu (P1 cleanup) */}
+                            <div className="si-menu" onClick={(e) => e.stopPropagation()}>
+                              <button className="si-menu__trigger" onClick={() => setOpenMenuRunId(openMenuRunId === runId ? null : runId)}>⋯</button>
+                              {openMenuRunId === runId && (
+                                <div className="si-menu__panel">
+                                  <button className="si-menu__item" disabled={finalizingRunId === runId} onClick={() => { finalizeRun(r); setOpenMenuRunId(null); }}>
+                                    {finalizingRunId === runId ? "Refreshing…" : "Refresh metrics"}
+                                  </button>
+                                  <button className="si-menu__item" onClick={() => {
+                                    if (compareRuns?.length === 1 && compareRuns[0]?.run_id === runId) setCompareRuns(null);
+                                    else if (compareRuns?.length === 1) setCompareRuns([compareRuns[0], r]);
+                                    else setCompareRuns([r]);
+                                    setOpenMenuRunId(null);
+                                  }}>
+                                    {compareRuns?.length === 1 && compareRuns[0]?.run_id === runId ? "Cancel compare" : "Compare with…"}
+                                  </button>
+                                  <button className="si-menu__item" disabled={validatingSentinelRunId === runId} onClick={() => { validateSentinels(r); setOpenMenuRunId(null); }}>
+                                    {validatingSentinelRunId === runId ? "Validating…" : "Validate sentinels"}
+                                  </button>
+                                  {isProtected && (
+                                    <button className="si-menu__item" onClick={() => {
+                                      setVariantRunId(runId); setVariantData(null); setLiveConfigData(null);
+                                      Promise.all([
+                                        fetch(`${API_BASE}/timed/admin/runs/detail?run_id=${encodeURIComponent(runId)}`, { credentials: "include" }).then(x => x.json()),
+                                        fetch(`${API_BASE}/timed/admin/runs/live`, { credentials: "include" }).then(x => x.json()),
+                                      ]).then(([detailRes, liveRes]) => {
+                                        if (detailRes?.ok) {
+                                          setVariantData(detailRes);
+                                          setVariantOverrides({ ...(detailRes?.rule_snapshot?.env_flags || {}) });
+                                        }
+                                        const liveRun = liveRes?.run || liveRes?.read_model?.run || liveRes?.live || null;
+                                        if (liveRes?.ok && liveRun) {
+                                          let snap = null;
+                                          try { snap = JSON.parse(liveRun.snapshot_json || "null"); } catch (_) {}
+                                          setLiveConfigData(snap?.env_flags ? { env_flags: snap.env_flags, run_id: liveRun.run_id } : null);
+                                        }
+                                      });
+                                      setOpenMenuRunId(null);
+                                    }}>Create variant</button>
+                                  )}
+                                  <button className="si-menu__item" disabled={isLive || promotingRunId === runId} onClick={() => { promoteRun(runId); setOpenMenuRunId(null); }}>
+                                    {isLive ? "✓ Live" : (promotingRunId === runId ? "Promoting…" : "Promote to live")}
+                                  </button>
+                                  <button className="si-menu__item" disabled={promotingTradesRunId === runId} onClick={() => { promoteRunToTrades(runId); setOpenMenuRunId(null); }} title="Copy this run's trades into the active promoted_trades dataset.">
+                                    {promotingTradesRunId === runId ? "Promoting…" : "Promote → Trades page"}
+                                  </button>
+                                  <div style={{height:1, background:"var(--ds-stroke)", margin:"4px 0"}} />
+                                  <button className="si-menu__item" disabled={archivingRunId === runId || isLive} onClick={() => { archiveRun(r); setOpenMenuRunId(null); }}>
+                                    {archivingRunId === runId ? "Archiving…" : "Archive run"}
+                                  </button>
+                                  <button className="si-menu__item si-menu__item--danger" disabled={deletingRunId === runId || isLive || isProtected} onClick={() => { deleteRun(r); setOpenMenuRunId(null); }}>
+                                    {deletingRunId === runId ? "Deleting…" : "Delete run"}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         ) : (
                           <span className="text-slate-500">Admin only</span>
@@ -4792,6 +4625,11 @@ function App() {
         setEngineSnapshot(data);
         setEngineLastFetched(Date.now());
         setEngineError(null);
+        // Side-channel mirror so RunsTab can read the latest 5 trades for the
+        // active run without triggering its own fetch (the RunsTab already
+        // polls /timed/admin/runs every 5 s and we don't want a second fetch
+        // on top — easier to just read from window).
+        if (typeof window !== "undefined") window.__siEngineSnapshot = data;
       } else {
         setEngineError(data?.error || "engine_snapshot_failed");
       }
