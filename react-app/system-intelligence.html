@@ -251,6 +251,159 @@
         z-index: 50;
       }
       .si-tip:hover::after { opacity: 1; }
+
+      /* ── v2 Analysis tab additions (2026-05-03) ──────────────────────
+         Extra surfaces used by the Analysis tab: dense KPI tile, mini
+         stat (label/value column), section heading, segmented sub-tabs,
+         data table, semantic verdict pills, and bordered cards used for
+         strengths/issues/direction. All compose from --ds-* tokens so
+         the Analysis tab inherits the same gold-on-graphite v2 palette
+         as Engine + Runs. */
+
+      .si-kpi--dense {
+        min-height: 78px;
+        padding: var(--ds-space-3) var(--ds-space-4);
+        gap: 4px;
+      }
+      .si-kpi--dense .si-kpi__value { font-size: 20px; }
+
+      .si-mini-stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+      .si-mini-stat__label { font-family: var(--tt-font-ui); font-size: var(--ds-fs-caption); font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: var(--ds-text-muted); }
+      .si-mini-stat__value { font-family: var(--tt-font-mono); font-size: var(--ds-fs-emph); font-weight: 600; color: var(--ds-text-display); font-variant-numeric: tabular-nums; line-height: 1.1; }
+      .si-mini-stat__value--up { color: var(--ds-up); }
+      .si-mini-stat__value--dn { color: var(--ds-dn); }
+      .si-mini-stat__value--accent { color: var(--ds-accent); }
+
+      .si-section-head {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: var(--ds-space-3); margin-bottom: var(--ds-space-3);
+      }
+      .si-section-head__title { font-size: var(--ds-fs-emph); font-weight: 600; color: var(--ds-text-display); letter-spacing: -0.005em; }
+      .si-section-head__subtitle { font-size: var(--ds-fs-meta); color: var(--ds-text-muted); margin-top: 2px; }
+
+      .si-subtabs {
+        display: inline-flex; gap: 2px;
+        background: var(--ds-bg-glass);
+        border: 1px solid var(--ds-stroke);
+        border-radius: 10px; padding: 3px;
+        margin-bottom: var(--ds-space-4);
+        overflow-x: auto; max-width: 100%;
+      }
+      .si-subtabs__item {
+        flex: 0 0 auto;
+        padding: 6px 12px; border-radius: 8px;
+        font-family: var(--tt-font-ui); font-size: var(--ds-fs-meta); font-weight: 600;
+        color: var(--ds-text-muted); cursor: pointer;
+        background: transparent; border: none; white-space: nowrap;
+        transition: background var(--ds-dur-fast), color var(--ds-dur-fast);
+        letter-spacing: 0.02em;
+      }
+      .si-subtabs__item:hover { color: var(--ds-text-body); background: var(--ds-bg-glass-hi); }
+      .si-subtabs__item--active { background: var(--ds-accent-dim); color: var(--ds-accent); }
+
+      .si-table-wrap {
+        background: var(--ds-bg-glass);
+        border: 1px solid var(--ds-stroke);
+        border-radius: var(--ds-radius);
+        overflow: hidden;
+      }
+      .si-table-wrap--scroll { max-height: 520px; overflow-y: auto; overflow-x: auto; }
+      .si-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--ds-fs-meta); }
+      .si-table thead th {
+        font-family: var(--tt-font-ui); font-size: var(--ds-fs-caption); font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.12em; color: var(--ds-text-muted);
+        padding: 10px 12px; text-align: left;
+        border-bottom: 1px solid var(--ds-stroke);
+        background: var(--ds-bg-surface);
+        position: sticky; top: 0; z-index: 1;
+      }
+      .si-table thead th.si-th--right { text-align: right; }
+      .si-table thead th.si-th--center { text-align: center; }
+      .si-table tbody td {
+        padding: 8px 12px; vertical-align: middle;
+        border-top: 1px solid var(--ds-stroke-soft);
+        color: var(--ds-text-body);
+      }
+      .si-table tbody td.si-td--right { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--tt-font-mono); }
+      .si-table tbody td.si-td--center { text-align: center; }
+      .si-table tbody td.si-td--mono { font-family: var(--tt-font-mono); }
+      .si-table tbody tr:hover td { background: var(--ds-bg-glass); }
+      .si-table tbody tr:hover td:first-child { background: var(--ds-accent-dim); }
+      .si-td--up { color: var(--ds-up); }
+      .si-td--dn { color: var(--ds-dn); }
+
+      /* Semantic verdict / grade chip — used for STAR/GOOD/OK/BAD/TOXIC,
+         BOOST/KEEP/RESTRICT/DISABLE, EDGE/STRONG/NEUTRAL/WEAK/TOXIC,
+         HIGH/MEDIUM/LOW recommendation confidence, etc. */
+      .si-grade {
+        display: inline-flex; align-items: center;
+        padding: 3px 8px; border-radius: 6px;
+        font-family: var(--tt-font-ui); font-size: var(--ds-fs-caption);
+        font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+        border: 1px solid transparent; line-height: 1;
+        white-space: nowrap;
+      }
+      .si-grade--star    { color: #FFD27A; background: rgba(245,194,92,0.18); border-color: rgba(245,194,92,0.32); }
+      .si-grade--good    { color: var(--ds-up); background: var(--ds-up-bg); border-color: rgba(34,197,94,0.28); }
+      .si-grade--ok      { color: var(--ds-text-body); background: var(--ds-bg-glass-hi); border-color: var(--ds-stroke); }
+      .si-grade--bad     { color: var(--ds-warn); background: rgba(245,158,11,0.14); border-color: rgba(245,158,11,0.28); }
+      .si-grade--toxic   { color: var(--ds-dn); background: var(--ds-dn-bg); border-color: rgba(244,63,94,0.32); }
+      .si-grade--info    { color: var(--ds-info); background: rgba(96,165,250,0.12); border-color: rgba(96,165,250,0.28); }
+      .si-grade--violet  { color: var(--ds-violet); background: rgba(167,139,250,0.12); border-color: rgba(167,139,250,0.28); }
+
+      /* Bordered semantic card — used for direction (long/short),
+         strengths (green), issues (red), recommendations (amber). */
+      .si-edge-card {
+        background: var(--ds-bg-surface);
+        border: 1px solid var(--ds-stroke);
+        border-radius: var(--ds-radius);
+        padding: var(--ds-space-4);
+        position: relative;
+      }
+      .si-edge-card--up      { border-left: 3px solid var(--ds-up); }
+      .si-edge-card--dn      { border-left: 3px solid var(--ds-dn); }
+      .si-edge-card--warn    { border-left: 3px solid var(--ds-warn); }
+      .si-edge-card--accent  { border-left: 3px solid var(--ds-accent); }
+      .si-edge-card--info    { border-left: 3px solid var(--ds-info); }
+      .si-edge-card--violet  { border-left: 3px solid var(--ds-violet); }
+
+      /* Time-of-day / hour cell — color-tinted micro card */
+      .si-hour-cell {
+        background: var(--ds-bg-glass);
+        border: 1px solid var(--ds-stroke);
+        border-radius: 10px;
+        padding: 8px 10px;
+        display: flex; flex-direction: column; gap: 2px;
+      }
+      .si-hour-cell--up { background: var(--ds-up-bg); border-color: rgba(34,197,94,0.22); }
+      .si-hour-cell--dn { background: var(--ds-dn-bg); border-color: rgba(244,63,94,0.22); }
+      .si-hour-cell__time { font-family: var(--tt-font-ui); font-size: var(--ds-fs-caption); color: var(--ds-text-muted); font-weight: 700; letter-spacing: 0.08em; }
+      .si-hour-cell__pnl { font-family: var(--tt-font-mono); font-size: var(--ds-fs-body); font-weight: 600; }
+      .si-hour-cell__pnl--up { color: var(--ds-up); }
+      .si-hour-cell__pnl--dn { color: var(--ds-dn); }
+      .si-hour-cell__meta { font-family: var(--tt-font-mono); font-size: var(--ds-fs-caption); color: var(--ds-text-muted); }
+
+      /* Inline class-count tile (used for Trade Classification) */
+      .si-class-tile {
+        background: var(--ds-bg-glass);
+        border: 1px solid var(--ds-stroke);
+        border-radius: 10px;
+        padding: var(--ds-space-3);
+        text-align: center;
+        display: flex; flex-direction: column; gap: 4px;
+      }
+      .si-class-tile__count { font-family: var(--tt-font-mono); font-size: 22px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+      .si-class-tile__label { font-family: var(--tt-font-ui); font-size: var(--ds-fs-caption); color: var(--ds-text-muted); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; }
+
+      /* Strengths / issues item rows */
+      .si-finding {
+        padding: 8px 10px; border-radius: 8px;
+        background: var(--ds-bg-glass);
+        border: 1px solid var(--ds-stroke-soft);
+      }
+      .si-finding + .si-finding { margin-top: 6px; }
+      .si-finding__title { font-size: var(--ds-fs-body); font-weight: 600; color: var(--ds-text-display); }
+      .si-finding__detail { font-size: var(--ds-fs-meta); color: var(--ds-text-muted); margin-top: 2px; line-height: 1.45; }
     </style>
   </head>
   <body>
@@ -928,34 +1081,53 @@ function SystemHealthCard({ health }) {
   if (!health) return null;
   const o = health.overall;
   return (
-    <div className="card p-5">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-white">System Health (SQN)</h3>
+    <div className="si-card">
+      <div className="si-card__head">
+        <div>
+          <div className="si-card__eyebrow">System Health</div>
+          <div className="si-card__title">SQN scorecard</div>
+        </div>
         <SQNBadge sqn={o.sqn} />
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
-        <div><div className="text-[10px] text-slate-500 uppercase">Trades</div><div className="text-lg font-bold">{o.n}</div></div>
-        <div><div className="text-[10px] text-slate-500 uppercase">Win Rate</div><div className="text-lg font-bold">{o.win_rate}%</div></div>
-        <div><div className="text-[10px] text-slate-500 uppercase">Expectancy</div><div className={`text-lg font-bold ${o.expectancy >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{o.expectancy}</div></div>
-        <div><div className="text-[10px] text-slate-500 uppercase">Avg R</div><div className={`text-lg font-bold ${o.avg_r >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{o.avg_r}</div></div>
-        <div><div className="text-[10px] text-slate-500 uppercase">Profit Factor</div><div className="text-lg font-bold">{o.profit_factor}</div></div>
-        <div><div className="text-[10px] text-slate-500 uppercase">SQN</div><div className="text-lg font-bold">{o.sqn}</div></div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+        {[
+          ["Trades", o.n, ""],
+          ["Win Rate", `${o.win_rate}%`, o.win_rate >= 50 ? "si-mini-stat__value--up" : "si-mini-stat__value--dn"],
+          ["Expectancy", o.expectancy, o.expectancy >= 0 ? "si-mini-stat__value--up" : "si-mini-stat__value--dn"],
+          ["Avg R", o.avg_r, o.avg_r >= 0 ? "si-mini-stat__value--up" : "si-mini-stat__value--dn"],
+          ["Profit Factor", o.profit_factor, ""],
+          ["SQN", o.sqn, o.sqn >= 2 ? "si-mini-stat__value--up" : o.sqn >= 1 ? "si-mini-stat__value--accent" : "si-mini-stat__value--dn"],
+        ].map(([l, v, cls]) => (
+          <div key={l} className="si-mini-stat">
+            <div className="si-mini-stat__label">{l}</div>
+            <div className={`si-mini-stat__value ${cls || ""}`}>{v ?? "—"}</div>
+          </div>
+        ))}
       </div>
       {health.by_regime && Object.keys(health.by_regime).length > 0 && (
         <div>
-          <div className="text-xs text-slate-400 mb-2 font-medium">By Regime</div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs"><thead><tr className="text-slate-500 border-b border-white/[0.05]">
-              <th className="text-left py-1.5 pr-3 font-medium">Regime</th><th className="text-right px-2 font-medium">N</th><th className="text-right px-2 font-medium">Win%</th><th className="text-right px-2 font-medium">Exp</th><th className="text-right pl-2 font-medium">SQN</th>
-            </tr></thead><tbody>
-              {Object.entries(health.by_regime).map(([r, d]) => (
-                <tr key={r} className="border-b border-white/[0.03]">
-                  <td className="py-1.5 pr-3 text-slate-300">{r}</td><td className="text-right px-2">{d.n}</td><td className="text-right px-2">{d.win_rate}%</td>
-                  <td className={`text-right px-2 ${d.expectancy >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{d.expectancy}</td>
-                  <td className="text-right pl-2"><SQNBadge sqn={d.sqn} /></td>
-                </tr>
-              ))}
-            </tbody></table>
+          <div className="si-card__eyebrow" style={{marginBottom:"var(--ds-space-2)"}}>By Regime</div>
+          <div className="si-table-wrap">
+            <table className="si-table">
+              <thead><tr>
+                <th>Regime</th>
+                <th className="si-th--right">N</th>
+                <th className="si-th--right">Win%</th>
+                <th className="si-th--right">Exp</th>
+                <th className="si-th--right">SQN</th>
+              </tr></thead>
+              <tbody>
+                {Object.entries(health.by_regime).map(([r, d]) => (
+                  <tr key={r}>
+                    <td style={{color:"var(--ds-text-display)", fontWeight:600}}>{r}</td>
+                    <td className="si-td--right">{d.n}</td>
+                    <td className="si-td--right">{d.win_rate}%</td>
+                    <td className={`si-td--right ${d.expectancy >= 0 ? "si-td--up" : "si-td--dn"}`}>{d.expectancy}</td>
+                    <td className="si-td--right"><SQNBadge sqn={d.sqn} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
@@ -965,25 +1137,49 @@ function SystemHealthCard({ health }) {
 function EntryPathsCard({ paths }) {
   if (!paths) return null;
   const sorted = Object.entries(paths).sort((a, b) => (b[1].n || 0) - (a[1].n || 0));
+  const actionGrade = (a) => {
+    const k = String(a || "").toUpperCase();
+    if (k === "BOOST") return "si-grade--star";
+    if (k === "KEEP") return "si-grade--good";
+    if (k === "RESTRICT") return "si-grade--bad";
+    if (k === "DISABLE") return "si-grade--toxic";
+    return "si-grade--ok";
+  };
   return (
-    <div className="card p-5">
-      <h3 className="text-sm font-semibold text-white mb-3">Entry Path Performance</h3>
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs"><thead><tr className="text-slate-500 border-b border-white/[0.05]">
-          <th className="text-left py-1.5 font-medium">Path</th><th className="text-right px-2 font-medium">N</th><th className="text-right px-2 font-medium">Win%</th>
-          <th className="text-right px-2 font-medium">Exp</th><th className="text-right px-2 font-medium">SQN</th><th className="text-right px-2 font-medium">MFE(ATR)</th>
-          <th className="text-right px-2 font-medium">Kelly%</th><th className="text-right pl-2 font-medium">Action</th>
-        </tr></thead><tbody>
-          {sorted.map(([path, d]) => (
-            <tr key={path} className="border-b border-white/[0.03]">
-              <td className="py-1.5 font-mono text-slate-300">{path}</td><td className="text-right px-2">{d.n}</td><td className="text-right px-2">{d.win_rate}%</td>
-              <td className={`text-right px-2 ${d.expectancy >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{d.expectancy}</td>
-              <td className="text-right px-2">{d.sqn?.toFixed(2)}</td><td className="text-right px-2">{d.avg_mfe_atr?.toFixed(2)}</td>
-              <td className="text-right px-2">{d.half_kelly_pct?.toFixed(1)}%</td>
-              <td className="text-right pl-2"><span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${d.action === "BOOST" ? "badge-good" : d.action === "DISABLE" ? "badge-bad" : d.action === "RESTRICT" ? "badge-warn" : "badge-info"}`}>{d.action}</span></td>
-            </tr>
-          ))}
-        </tbody></table>
+    <div className="si-card">
+      <div className="si-card__head">
+        <div>
+          <div className="si-card__eyebrow">Entry Paths</div>
+          <div className="si-card__title">Per-path performance</div>
+        </div>
+      </div>
+      <div className="si-table-wrap">
+        <table className="si-table">
+          <thead><tr>
+            <th>Path</th>
+            <th className="si-th--right">N</th>
+            <th className="si-th--right">Win%</th>
+            <th className="si-th--right">Exp</th>
+            <th className="si-th--right">SQN</th>
+            <th className="si-th--right">MFE(ATR)</th>
+            <th className="si-th--right">Kelly%</th>
+            <th className="si-th--center">Action</th>
+          </tr></thead>
+          <tbody>
+            {sorted.map(([path, d]) => (
+              <tr key={path}>
+                <td className="si-td--mono" style={{color:"var(--ds-text-display)", fontWeight:600}}>{formatPath(path)}</td>
+                <td className="si-td--right">{d.n}</td>
+                <td className="si-td--right">{d.win_rate}%</td>
+                <td className={`si-td--right ${d.expectancy >= 0 ? "si-td--up" : "si-td--dn"}`}>{d.expectancy}</td>
+                <td className="si-td--right">{d.sqn?.toFixed(2)}</td>
+                <td className="si-td--right">{d.avg_mfe_atr?.toFixed(2)}</td>
+                <td className="si-td--right">{d.half_kelly_pct?.toFixed(1)}%</td>
+                <td className="si-td--center"><span className={`si-grade ${actionGrade(d.action)}`}>{d.action}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -992,33 +1188,43 @@ function SignalICCard({ ic }) {
   if (!ic) return null;
   const data = Object.entries(ic).map(([k, v]) => ({ label: k, value: v.ic != null ? Number(v.ic.toFixed(3)) : 0 })).sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
   return (
-    <div className="card p-5">
-      <h3 className="text-sm font-semibold text-white mb-3">Signal Information Coefficient</h3>
-      <BarChart data={data} colorFn={v => Math.abs(v) > 0.10 ? "#10b981" : Math.abs(v) > 0.05 ? "#fbbf24" : "#6b7280"} />
-      <div className="mt-3 text-[10px] text-slate-500">|IC| &gt; 0.10 = strong, &gt; 0.05 = useful, near 0 = noise</div>
+    <div className="si-card">
+      <div className="si-card__head">
+        <div>
+          <div className="si-card__eyebrow">Signal Importance</div>
+          <div className="si-card__title">Information Coefficient</div>
+        </div>
+      </div>
+      <BarChart data={data} colorFn={v => Math.abs(v) > 0.10 ? "#22C55E" : Math.abs(v) > 0.05 ? "#F5C25C" : "#5C6270"} />
+      <div className="mt-3" style={{fontSize:"var(--ds-fs-caption)", color:"var(--ds-text-faint)"}}>|IC| &gt; 0.10 = strong, &gt; 0.05 = useful, near 0 = noise</div>
     </div>
   );
 }
 function SLTPCard({ sltp }) {
   if (!sltp) return null;
   return (
-    <div className="card p-5">
-      <h3 className="text-sm font-semibold text-white mb-3">SL/TP Calibration</h3>
+    <div className="si-card">
+      <div className="si-card__head">
+        <div>
+          <div className="si-card__eyebrow">SL / TP Calibration</div>
+          <div className="si-card__title">ATR percentile bands</div>
+        </div>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <div className="text-xs text-slate-400 font-medium mb-2">Stop Loss (Winner MAE in ATR)</div>
-          <div className="space-y-1 text-xs">
-            <div className="flex justify-between"><span className="text-slate-400">P50</span><span>{sltp.winner_mae?.p50?.toFixed(2)}</span></div>
-            <div className="flex justify-between font-medium"><span className="text-amber-400">P75 (recommended)</span><span>{sltp.winner_mae?.p75?.toFixed(2)}</span></div>
-            <div className="flex justify-between"><span className="text-slate-400">P90</span><span>{sltp.winner_mae?.p90?.toFixed(2)}</span></div>
+          <div className="si-card__eyebrow" style={{marginBottom:"var(--ds-space-2)"}}>Stop Loss (Winner MAE in ATR)</div>
+          <div className="space-y-1" style={{fontSize:"var(--ds-fs-meta)"}}>
+            <div className="flex justify-between"><span style={{color:"var(--ds-text-muted)"}}>P50</span><span style={{fontFamily:"var(--tt-font-mono)", color:"var(--ds-text-body)"}}>{sltp.winner_mae?.p50?.toFixed(2)}</span></div>
+            <div className="flex justify-between" style={{fontWeight:600}}><span style={{color:"var(--ds-accent)"}}>P75 (recommended)</span><span style={{fontFamily:"var(--tt-font-mono)", color:"var(--ds-accent)"}}>{sltp.winner_mae?.p75?.toFixed(2)}</span></div>
+            <div className="flex justify-between"><span style={{color:"var(--ds-text-muted)"}}>P90</span><span style={{fontFamily:"var(--tt-font-mono)", color:"var(--ds-text-body)"}}>{sltp.winner_mae?.p90?.toFixed(2)}</span></div>
           </div>
         </div>
         <div>
-          <div className="text-xs text-slate-400 font-medium mb-2">Take Profit (Trade MFE in ATR)</div>
-          <div className="space-y-1 text-xs">
-            <div className="flex justify-between"><span className="text-slate-400">Trim (P50)</span><span>{sltp.trade_mfe?.p50?.toFixed(2)}</span></div>
-            <div className="flex justify-between"><span className="text-slate-400">Exit (P75)</span><span>{sltp.trade_mfe?.p75?.toFixed(2)}</span></div>
-            <div className="flex justify-between"><span className="text-slate-400">Runner (P90)</span><span>{sltp.trade_mfe?.p90?.toFixed(2)}</span></div>
+          <div className="si-card__eyebrow" style={{marginBottom:"var(--ds-space-2)"}}>Take Profit (Trade MFE in ATR)</div>
+          <div className="space-y-1" style={{fontSize:"var(--ds-fs-meta)"}}>
+            <div className="flex justify-between"><span style={{color:"var(--ds-text-muted)"}}>Trim (P50)</span><span style={{fontFamily:"var(--tt-font-mono)", color:"var(--ds-text-body)"}}>{sltp.trade_mfe?.p50?.toFixed(2)}</span></div>
+            <div className="flex justify-between"><span style={{color:"var(--ds-text-muted)"}}>Exit (P75)</span><span style={{fontFamily:"var(--tt-font-mono)", color:"var(--ds-text-body)"}}>{sltp.trade_mfe?.p75?.toFixed(2)}</span></div>
+            <div className="flex justify-between"><span style={{color:"var(--ds-text-muted)"}}>Runner (P90)</span><span style={{fontFamily:"var(--tt-font-mono)", color:"var(--ds-text-body)"}}>{sltp.trade_mfe?.p90?.toFixed(2)}</span></div>
           </div>
         </div>
       </div>
@@ -1030,10 +1236,15 @@ function RankCard({ rank }) {
   const deciles = rank.deciles || {};
   const data = Object.entries(deciles).map(([k, v]) => ({ label: k, value: v.sqn || 0 }));
   return (
-    <div className="card p-5">
-      <h3 className="text-sm font-semibold text-white mb-3">Rank Threshold Optimization</h3>
+    <div className="si-card">
+      <div className="si-card__head">
+        <div>
+          <div className="si-card__eyebrow">Rank Threshold</div>
+          <div className="si-card__title">Optimization by decile</div>
+        </div>
+      </div>
       <BarChart data={data} />
-      <div className="mt-3 text-xs text-slate-400">Best cutoff: <span className="text-white font-semibold">{rank.best_cutoff}</span> (SQN {rank.best_sqn?.toFixed(2)})</div>
+      <div className="mt-3" style={{fontSize:"var(--ds-fs-meta)", color:"var(--ds-text-muted)"}}>Best cutoff: <span style={{color:"var(--ds-text-display)", fontWeight:600, fontFamily:"var(--tt-font-mono)"}}>{rank.best_cutoff}</span> <span style={{color:"var(--ds-text-faint)"}}>(SQN {rank.best_sqn?.toFixed(2)})</span></div>
     </div>
   );
 }
@@ -1041,30 +1252,50 @@ function WFOCard({ wfo }) {
   if (!wfo) return null;
   const pass = wfo.verdict === "PASS";
   return (
-    <div className="card p-5">
-      <h3 className="text-sm font-semibold text-white mb-3">Walk-Forward Validation</h3>
-      <div className="grid grid-cols-3 gap-4 text-center mb-3">
-        <div><div className="text-[10px] text-slate-500 uppercase">In-Sample SQN</div><div className="text-lg font-bold">{wfo.in_sample_sqn?.toFixed(2)}</div></div>
-        <div><div className="text-[10px] text-slate-500 uppercase">Out-Sample SQN</div><div className="text-lg font-bold">{wfo.out_sample_sqn?.toFixed(2)}</div></div>
-        <div><div className="text-[10px] text-slate-500 uppercase">Degradation</div><div className="text-lg font-bold">{wfo.degradation_pct?.toFixed(1)}%</div></div>
+    <div className="si-card">
+      <div className="si-card__head">
+        <div>
+          <div className="si-card__eyebrow">Walk-Forward</div>
+          <div className="si-card__title">In-sample vs out-of-sample</div>
+        </div>
       </div>
-      <div className="text-center"><span className={`px-3 py-1 rounded-full text-xs font-semibold ${pass ? "badge-good" : "badge-warn"}`}>{wfo.verdict}</span></div>
+      <div className="grid grid-cols-3 gap-3 mb-3">
+        {[
+          ["In-Sample SQN", wfo.in_sample_sqn?.toFixed(2), ""],
+          ["Out-Sample SQN", wfo.out_sample_sqn?.toFixed(2), ""],
+          ["Degradation", `${wfo.degradation_pct?.toFixed(1)}%`, (wfo.degradation_pct || 0) > 30 ? "si-mini-stat__value--dn" : ""],
+        ].map(([l, v, cls]) => (
+          <div key={l} className="si-mini-stat">
+            <div className="si-mini-stat__label">{l}</div>
+            <div className={`si-mini-stat__value ${cls || ""}`}>{v ?? "—"}</div>
+          </div>
+        ))}
+      </div>
+      <div><span className={`si-grade ${pass ? "si-grade--good" : "si-grade--bad"}`}>{wfo.verdict}</span></div>
     </div>
   );
 }
 function MissedOpCard({ missed }) {
   if (!missed) return null;
   return (
-    <div className="card p-5">
-      <h3 className="text-sm font-semibold text-white mb-3">Missed Opportunities</h3>
-      <div className="text-xs text-slate-400 mb-3">{missed.count} missed out of {missed.total_moves} total moves</div>
+    <div className="si-card">
+      <div className="si-card__head">
+        <div>
+          <div className="si-card__eyebrow">Missed Opportunities</div>
+          <div className="si-card__title">Trades not taken</div>
+        </div>
+      </div>
+      <div style={{fontSize:"var(--ds-fs-meta)", color:"var(--ds-text-muted)", marginBottom:"var(--ds-space-3)"}}>
+        <span style={{fontFamily:"var(--tt-font-mono)", color:"var(--ds-text-display)", fontWeight:600}}>{missed.count}</span> missed out of <span style={{fontFamily:"var(--tt-font-mono)", color:"var(--ds-text-body)"}}>{missed.total_moves}</span> total moves
+      </div>
       {missed.common_signals && Object.keys(missed.common_signals).length > 0 && (
         <div>
-          <div className="text-xs text-slate-400 font-medium mb-2">Common signals at missed moves</div>
+          <div className="si-card__eyebrow" style={{marginBottom:"var(--ds-space-2)"}}>Common signals at missed moves</div>
           <div className="space-y-1">
             {Object.entries(missed.common_signals).sort((a,b) => b[1] - a[1]).slice(0,8).map(([sig, count]) => (
-              <div key={sig} className="flex items-center justify-between text-xs">
-                <span className="text-slate-300">{sig}</span><span className="text-slate-400">{count}x</span>
+              <div key={sig} className="flex items-center justify-between" style={{fontSize:"var(--ds-fs-meta)"}}>
+                <span style={{color:"var(--ds-text-body)"}}>{sig}</span>
+                <span style={{color:"var(--ds-text-muted)", fontFamily:"var(--tt-font-mono)"}}>{count}x</span>
               </div>
             ))}
           </div>
@@ -1076,73 +1307,82 @@ function MissedOpCard({ missed }) {
 function SameTickerRepeatsCard({ data }) {
   if (!data || data.cluster_count === 0) {
     return (
-      <div className="card p-5">
-        <h3 className="text-sm font-semibold text-amber-200/90 mb-2">Same-ticker repeat trades</h3>
-        <p className="text-xs text-slate-500">No clusters of same ticker, same direction, re-entered within {data?.window_days ?? 10} days. Either no repeat trades in the sample or re-entries are spaced farther apart.</p>
+      <div className="si-card">
+        <div className="si-card__head">
+          <div>
+            <div className="si-card__eyebrow" style={{color:"var(--ds-accent)"}}>Same-Ticker Repeats</div>
+            <div className="si-card__title">No clusters detected</div>
+          </div>
+        </div>
+        <p style={{fontSize:"var(--ds-fs-meta)", color:"var(--ds-text-muted)", margin:0}}>
+          No clusters of same ticker, same direction, re-entered within {data?.window_days ?? 10} days. Either no repeat trades in the sample or re-entries are spaced farther apart.
+        </p>
       </div>
     );
   }
   const clusters = data.clusters || [];
   return (
-    <div className="card p-5">
-      <h3 className="text-sm font-semibold text-amber-200/90 mb-2">Same-ticker repeat trades (within {data.window_days} days)</h3>
-      <p className="text-xs text-slate-400 mb-3">
-        Trades on the same ticker in the same direction, re-entered within a short window. This can indicate: aligning with oscillation (good), getting faked out and re-entering (bad), or exiting too early and leaving money on the table.
-      </p>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4 text-center">
-        <div className="p-2 rounded bg-white/[0.03] border border-white/[0.06]">
-          <div className="text-[10px] text-slate-500 uppercase">Clusters</div>
-          <div className="text-lg font-bold text-white">{data.cluster_count}</div>
-        </div>
-        <div className="p-2 rounded bg-white/[0.03] border border-white/[0.06]">
-          <div className="text-[10px] text-slate-500 uppercase">Trades in clusters</div>
-          <div className="text-lg font-bold text-white">{data.total_trades_in_clusters}</div>
-        </div>
-        <div className="p-2 rounded bg-white/[0.03] border border-white/[0.06]">
-          <div className="text-[10px] text-slate-500 uppercase">Total P&amp;L (repeats)</div>
-          <div className={`text-lg font-bold ${data.total_pnl_pct_from_repeats >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
-            {data.total_pnl_pct_from_repeats >= 0 ? "+" : ""}{data.total_pnl_pct_from_repeats}%
+    <div className="si-card">
+      <div className="si-card__head">
+        <div>
+          <div className="si-card__eyebrow" style={{color:"var(--ds-accent)"}}>Same-Ticker Repeats</div>
+          <div className="si-card__title">Within {data.window_days} days</div>
+          <div className="si-card__subtitle">
+            Trades on the same ticker / same direction re-entered in a short window. Can mean aligning with oscillation (good), getting faked out (bad), or exiting too early.
           </div>
         </div>
-        <div className="p-2 rounded bg-white/[0.03] border border-white/[0.06]">
-          <div className="text-[10px] text-slate-500 uppercase">Avg capture vs MFE</div>
-          <div className="text-lg font-bold text-slate-300">{data.avg_capture_ratio != null ? (data.avg_capture_ratio * 100).toFixed(0) + "%" : "—"}</div>
-        </div>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        {[
+          ["Clusters", data.cluster_count, ""],
+          ["Trades in clusters", data.total_trades_in_clusters, ""],
+          ["Total P&L (repeats)", `${data.total_pnl_pct_from_repeats >= 0 ? "+" : ""}${data.total_pnl_pct_from_repeats}%`, data.total_pnl_pct_from_repeats >= 0 ? "si-mini-stat__value--up" : "si-mini-stat__value--dn"],
+          ["Avg capture vs MFE", data.avg_capture_ratio != null ? (data.avg_capture_ratio * 100).toFixed(0) + "%" : "—", ""],
+        ].map(([l, v, cls]) => (
+          <div key={l} className="si-mini-stat" style={{padding:"var(--ds-space-3)", background:"var(--ds-bg-glass)", border:"1px solid var(--ds-stroke)", borderRadius:10}}>
+            <div className="si-mini-stat__label">{l}</div>
+            <div className={`si-mini-stat__value ${cls || ""}`}>{v ?? "—"}</div>
+          </div>
+        ))}
       </div>
       {data.interpretation && data.interpretation.length > 0 && (
-        <div className="mb-4 p-3 rounded bg-amber-500/10 border border-amber-500/20">
-          <div className="text-xs font-medium text-amber-300 mb-1">What we can learn</div>
-          <ul className="list-disc list-inside text-xs text-slate-400 space-y-0.5">
-            {data.interpretation.map((line, i) => <li key={i}>{line}</li>)}
+        <div className="si-edge-card si-edge-card--accent" style={{marginBottom:"var(--ds-space-3)"}}>
+          <div className="si-card__eyebrow" style={{color:"var(--ds-accent)", marginBottom:"var(--ds-space-2)"}}>What we can learn</div>
+          <ul style={{listStyle:"disc", paddingLeft:"1.25rem", margin:0, fontSize:"var(--ds-fs-meta)", color:"var(--ds-text-muted)"}}>
+            {data.interpretation.map((line, i) => <li key={i} style={{marginTop:2}}>{line}</li>)}
           </ul>
         </div>
       )}
-      {data.recommendation && <p className="text-xs text-slate-400 mb-3 pl-2 border-l-2 border-amber-500/30">{data.recommendation}</p>}
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead><tr className="text-slate-500 border-b border-white/[0.05]">
-            <th className="text-left py-1.5 font-medium">Ticker</th>
-            <th className="text-left py-1.5 font-medium">Dir</th>
-            <th className="text-right px-2 font-medium">N</th>
-            <th className="text-right px-2 font-medium">Total P&amp;L%</th>
-            <th className="text-right px-2 font-medium">Win%</th>
-            <th className="text-right px-2 font-medium">Pattern</th>
-            <th className="text-right px-2 font-medium">Avg gap (d)</th>
-            <th className="text-right px-2 font-medium">MFE vs realized</th>
-            <th className="text-right pl-2 font-medium">SL before MFE</th>
+      {data.recommendation && (
+        <div style={{padding:"var(--ds-space-3) var(--ds-space-3) var(--ds-space-3) var(--ds-space-4)", borderLeft:"3px solid var(--ds-accent)", marginBottom:"var(--ds-space-3)"}}>
+          <p style={{fontSize:"var(--ds-fs-meta)", color:"var(--ds-text-body)", margin:0}}>{data.recommendation}</p>
+        </div>
+      )}
+      <div className="si-table-wrap">
+        <table className="si-table">
+          <thead><tr>
+            <th>Ticker</th>
+            <th>Dir</th>
+            <th className="si-th--right">N</th>
+            <th className="si-th--right">Total P&L%</th>
+            <th className="si-th--right">Win%</th>
+            <th className="si-th--right">Pattern</th>
+            <th className="si-th--right">Avg gap (d)</th>
+            <th className="si-th--right">MFE vs realized</th>
+            <th className="si-th--right">SL before MFE</th>
           </tr></thead>
           <tbody>
             {clusters.map((c, i) => (
-              <tr key={i} className="border-b border-white/[0.03]">
-                <td className="py-1.5 font-mono text-slate-300">{c.ticker}</td>
-                <td className="py-1.5 text-slate-400">{c.direction}</td>
-                <td className="text-right px-2">{c.n_trades}</td>
-                <td className={`text-right px-2 font-medium ${(c.total_pnl_pct || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{c.total_pnl_pct != null ? (c.total_pnl_pct >= 0 ? "+" : "") + c.total_pnl_pct + "%" : "—"}</td>
-                <td className="text-right px-2">{c.win_rate_pct != null ? c.win_rate_pct + "%" : "—"}</td>
-                <td className="text-right px-2 font-mono text-[10px] text-slate-500">{c.pattern || "—"}</td>
-                <td className="text-right px-2">{c.avg_gap_days != null ? c.avg_gap_days : "—"}</td>
-                <td className="text-right px-2">{c.mfe_vs_realized != null ? (c.mfe_vs_realized * 100).toFixed(0) + "%" : "—"}</td>
-                <td className="text-right pl-2">{c.sl_hit_before_mfe_count ?? "—"}</td>
+              <tr key={i}>
+                <td className="si-td--mono" style={{color:"var(--ds-text-display)", fontWeight:700}}>{c.ticker}</td>
+                <td style={{color:"var(--ds-text-muted)"}}>{c.direction}</td>
+                <td className="si-td--right">{c.n_trades}</td>
+                <td className={`si-td--right ${(c.total_pnl_pct || 0) >= 0 ? "si-td--up" : "si-td--dn"}`}>{c.total_pnl_pct != null ? (c.total_pnl_pct >= 0 ? "+" : "") + c.total_pnl_pct + "%" : "—"}</td>
+                <td className="si-td--right">{c.win_rate_pct != null ? c.win_rate_pct + "%" : "—"}</td>
+                <td className="si-td--right" style={{color:"var(--ds-text-faint)", fontSize:"var(--ds-fs-caption)"}}>{c.pattern || "—"}</td>
+                <td className="si-td--right">{c.avg_gap_days != null ? c.avg_gap_days : "—"}</td>
+                <td className="si-td--right">{c.mfe_vs_realized != null ? (c.mfe_vs_realized * 100).toFixed(0) + "%" : "—"}</td>
+                <td className="si-td--right">{c.sl_hit_before_mfe_count ?? "—"}</td>
               </tr>
             ))}
           </tbody>
@@ -1154,24 +1394,36 @@ function SameTickerRepeatsCard({ data }) {
 function PositionSizingCard({ sizing }) {
   if (!sizing) return null;
   return (
-    <div className="card p-5">
-      <h3 className="text-sm font-semibold text-white mb-3">Position Sizing (Kelly)</h3>
-      <div className="grid grid-cols-3 gap-4 text-center">
-        <div><div className="text-[10px] text-slate-500 uppercase">Full Kelly</div><div className="text-lg font-bold">{sizing.kelly_full_pct?.toFixed(1)}%</div></div>
-        <div><div className="text-[10px] text-slate-500 uppercase">Half Kelly</div><div className="text-lg font-bold text-emerald-400">{sizing.half_kelly_pct?.toFixed(1)}%</div></div>
-        <div><div className="text-[10px] text-slate-500 uppercase">Current</div><div className="text-lg font-bold">{sizing.current_sizing_pct || "5-7%"}</div></div>
+    <div className="si-card">
+      <div className="si-card__head">
+        <div>
+          <div className="si-card__eyebrow">Position Sizing</div>
+          <div className="si-card__title">Kelly criterion</div>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          ["Full Kelly", `${sizing.kelly_full_pct?.toFixed(1)}%`, ""],
+          ["Half Kelly", `${sizing.half_kelly_pct?.toFixed(1)}%`, "si-mini-stat__value--up"],
+          ["Current", sizing.current_sizing_pct || "5-7%", "si-mini-stat__value--accent"],
+        ].map(([l, v, cls]) => (
+          <div key={l} className="si-mini-stat">
+            <div className="si-mini-stat__label">{l}</div>
+            <div className={`si-mini-stat__value ${cls || ""}`}>{v}</div>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
 function ProfilesCard({ profiles }) {
-  if (!profiles) return <div className="card p-5 text-center text-slate-500 text-xs">No profile data. Run calibration to generate winner/loser profiles.</div>;
+  if (!profiles) return <div className="si-card" style={{textAlign:"center", color:"var(--ds-text-muted)", fontSize:"var(--ds-fs-meta)"}}>No profile data. Run calibration to generate winner/loser profiles.</div>;
   const types = ["winner_move", "winner_trade", "loser_trade"];
   const typeLabels = { winner_move: "Winner Moves (Historical)", winner_trade: "Winner Trades", loser_trade: "Loser Trades" };
-  const typeColors = { winner_move: "text-blue-400", winner_trade: "text-emerald-400", loser_trade: "text-rose-400" };
+  const typeAccents = { winner_move: "var(--ds-info)", winner_trade: "var(--ds-up)", loser_trade: "var(--ds-dn)" };
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       {types.map(type => {
         const items = (profiles.winner_move && Array.isArray(profiles[type === "winner_move" ? "winner_move" : type === "winner_trade" ? "winner_trade" : "loser_trade"])) 
           ? profiles[type === "winner_move" ? "winner_move" : type === "winner_trade" ? "winner_trade" : "loser_trade"]
@@ -1179,33 +1431,46 @@ function ProfilesCard({ profiles }) {
         const filtered = items.filter(p => p.entry_state !== "ALL");
         if (!filtered.length) return null;
         return (
-          <div key={type} className="card p-5">
-            <h3 className={`text-sm font-semibold mb-3 ${typeColors[type]}`}>{typeLabels[type]}</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs"><thead><tr className="text-slate-500 border-b border-white/[0.05]">
-                <th className="text-left py-1.5 font-medium">State</th><th className="text-right px-2 font-medium">N</th>
-                <th className="text-right px-2 font-medium">Win%</th><th className="text-right px-2 font-medium">Exp</th>
-                <th className="text-right px-2 font-medium">Avg R</th><th className="text-right px-2 font-medium">Rank(p50)</th>
-                <th className="text-right px-2 font-medium">HTF(p50)</th><th className="text-right px-2 font-medium">Comp(p75)</th>
-                <th className="text-right px-2 font-medium">VIX(p50)</th><th className="text-right px-2 font-medium">ATR</th>
-                <th className="text-right pl-2 font-medium">Days</th>
-              </tr></thead><tbody>
-                {filtered.map((p, i) => (
-                  <tr key={i} className="border-b border-white/[0.03]">
-                    <td className="py-1.5 font-mono text-slate-300 text-[10px]">{(p.entry_state || "").replace(/HTF_/g, "").replace(/LTF_/g, "")}</td>
-                    <td className="text-right px-2">{p.sample_count}</td>
-                    <td className={`text-right px-2 ${p.win_rate >= 50 ? "text-emerald-400" : "text-rose-400"}`}>{p.win_rate}%</td>
-                    <td className={`text-right px-2 ${(p.expectancy || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{p.expectancy}</td>
-                    <td className="text-right px-2">{p.avg_r}</td>
-                    <td className="text-right px-2">{p.rank_p50 > 0 ? Math.round(p.rank_p50) : "—"}</td>
-                    <td className="text-right px-2">{p.htf_score_p50 ? Math.round(p.htf_score_p50) : "—"}</td>
-                    <td className="text-right px-2">{p.completion_p75 > 0 ? Math.round(p.completion_p75 * 100) + "%" : "—"}</td>
-                    <td className="text-right px-2">{p.vix_p50 > 0 ? p.vix_p50.toFixed(0) : "—"}</td>
-                    <td className="text-right px-2">{p.avg_move_atr || "—"}</td>
-                    <td className="text-right pl-2">{p.avg_duration_days || "—"}</td>
-                  </tr>
-                ))}
-              </tbody></table>
+          <div key={type} className="si-card">
+            <div className="si-card__head">
+              <div>
+                <div className="si-card__eyebrow" style={{color: typeAccents[type]}}>Profiles</div>
+                <div className="si-card__title">{typeLabels[type]}</div>
+              </div>
+            </div>
+            <div className="si-table-wrap">
+              <table className="si-table">
+                <thead><tr>
+                  <th>State</th>
+                  <th className="si-th--right">N</th>
+                  <th className="si-th--right">Win%</th>
+                  <th className="si-th--right">Exp</th>
+                  <th className="si-th--right">Avg R</th>
+                  <th className="si-th--right">Rank(p50)</th>
+                  <th className="si-th--right">HTF(p50)</th>
+                  <th className="si-th--right">Comp(p75)</th>
+                  <th className="si-th--right">VIX(p50)</th>
+                  <th className="si-th--right">ATR</th>
+                  <th className="si-th--right">Days</th>
+                </tr></thead>
+                <tbody>
+                  {filtered.map((p, i) => (
+                    <tr key={i}>
+                      <td className="si-td--mono" style={{fontSize:"var(--ds-fs-caption)", color:"var(--ds-text-body)"}}>{(p.entry_state || "").replace(/HTF_/g, "").replace(/LTF_/g, "")}</td>
+                      <td className="si-td--right">{p.sample_count}</td>
+                      <td className={`si-td--right ${p.win_rate >= 50 ? "si-td--up" : "si-td--dn"}`}>{p.win_rate}%</td>
+                      <td className={`si-td--right ${(p.expectancy || 0) >= 0 ? "si-td--up" : "si-td--dn"}`}>{p.expectancy}</td>
+                      <td className="si-td--right">{p.avg_r}</td>
+                      <td className="si-td--right">{p.rank_p50 > 0 ? Math.round(p.rank_p50) : "—"}</td>
+                      <td className="si-td--right">{p.htf_score_p50 ? Math.round(p.htf_score_p50) : "—"}</td>
+                      <td className="si-td--right">{p.completion_p75 > 0 ? Math.round(p.completion_p75 * 100) + "%" : "—"}</td>
+                      <td className="si-td--right">{p.vix_p50 > 0 ? p.vix_p50.toFixed(0) : "—"}</td>
+                      <td className="si-td--right">{p.avg_move_atr || "—"}</td>
+                      <td className="si-td--right">{p.avg_duration_days || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         );
@@ -1214,25 +1479,30 @@ function ProfilesCard({ profiles }) {
   );
 }
 function VIXRegimeCard({ vixBuckets }) {
-  if (!vixBuckets || !Object.keys(vixBuckets).length) return <div className="card p-5 text-center text-slate-500 text-xs">No VIX regime data. Run calibration with VIX candle data available.</div>;
+  if (!vixBuckets || !Object.keys(vixBuckets).length) return <div className="si-card" style={{textAlign:"center", color:"var(--ds-text-muted)", fontSize:"var(--ds-fs-meta)"}}>No VIX regime data. Run calibration with VIX candle data available.</div>;
   const order = ["low", "medium", "high", "extreme"];
   const labels = { low: "Low (<15)", medium: "Medium (15–22)", high: "High (22–30)", extreme: "Extreme (30+)" };
-  const colors = { low: "border-emerald-500/30", medium: "border-blue-500/30", high: "border-amber-500/30", extreme: "border-rose-500/30" };
+  const accent = { low: "si-edge-card--up", medium: "si-edge-card--info", high: "si-edge-card--warn", extreme: "si-edge-card--dn" };
   return (
-    <div className="card p-5">
-      <h3 className="text-sm font-semibold text-white mb-3">Performance by VIX Regime</h3>
+    <div className="si-card">
+      <div className="si-card__head">
+        <div>
+          <div className="si-card__eyebrow">Market Context</div>
+          <div className="si-card__title">Performance by VIX regime</div>
+        </div>
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {order.filter(b => vixBuckets[b]).map(bucket => {
           const m = vixBuckets[bucket];
           return (
-            <div key={bucket} className={`p-4 rounded-lg bg-white/[0.02] border ${colors[bucket]}`}>
-              <div className="text-xs font-semibold text-white mb-2">{labels[bucket]}</div>
-              <div className="space-y-1 text-xs">
-                <div className="flex justify-between"><span className="text-slate-400">Trades</span><span className="text-white font-medium">{m.n || 0}</span></div>
-                <div className="flex justify-between"><span className="text-slate-400">Win Rate</span><span className={`font-medium ${(m.win_rate || 0) >= 50 ? "text-emerald-400" : "text-rose-400"}`}>{m.win_rate || 0}%</span></div>
-                <div className="flex justify-between"><span className="text-slate-400">Expectancy</span><span className={`font-medium ${(m.expectancy || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{m.expectancy || 0}</span></div>
-                <div className="flex justify-between"><span className="text-slate-400">SQN</span><span className="text-white font-medium">{m.sqn?.toFixed(2) || "—"}</span></div>
-                <div className="flex justify-between"><span className="text-slate-400">Avg R</span><span className={`font-medium ${(m.avg_r || 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{m.avg_r || "—"}</span></div>
+            <div key={bucket} className={`si-edge-card ${accent[bucket] || ""}`}>
+              <div style={{fontSize:"var(--ds-fs-body)", fontWeight:600, color:"var(--ds-text-display)", marginBottom:"var(--ds-space-2)"}}>{labels[bucket]}</div>
+              <div className="space-y-1" style={{fontSize:"var(--ds-fs-meta)"}}>
+                <div className="flex justify-between"><span style={{color:"var(--ds-text-muted)"}}>Trades</span><span style={{color:"var(--ds-text-display)", fontFamily:"var(--tt-font-mono)", fontWeight:600}}>{m.n || 0}</span></div>
+                <div className="flex justify-between"><span style={{color:"var(--ds-text-muted)"}}>Win Rate</span><span style={{color: (m.win_rate || 0) >= 50 ? "var(--ds-up)" : "var(--ds-dn)", fontFamily:"var(--tt-font-mono)", fontWeight:600}}>{m.win_rate || 0}%</span></div>
+                <div className="flex justify-between"><span style={{color:"var(--ds-text-muted)"}}>Expectancy</span><span style={{color: (m.expectancy || 0) >= 0 ? "var(--ds-up)" : "var(--ds-dn)", fontFamily:"var(--tt-font-mono)", fontWeight:600}}>{m.expectancy || 0}</span></div>
+                <div className="flex justify-between"><span style={{color:"var(--ds-text-muted)"}}>SQN</span><span style={{color:"var(--ds-text-display)", fontFamily:"var(--tt-font-mono)", fontWeight:600}}>{m.sqn?.toFixed(2) || "—"}</span></div>
+                <div className="flex justify-between"><span style={{color:"var(--ds-text-muted)"}}>Avg R</span><span style={{color: (m.avg_r || 0) >= 0 ? "var(--ds-up)" : "var(--ds-dn)", fontFamily:"var(--tt-font-mono)", fontWeight:600}}>{m.avg_r || "—"}</span></div>
               </div>
             </div>
           );
@@ -1266,17 +1536,24 @@ function AnalysisSummary({ report, recs }) {
   const slAtr = sltp.recommended_sl_atr;
   const captureRatio = moveMfe && tpTrim ? Math.round((tpTrim / moveMfe) * 100) : null;
 
+  const sqnColorVar = o.sqn >= 3 ? "var(--ds-up)" : o.sqn >= 1.5 ? "var(--ds-accent)" : "var(--ds-dn)";
+
   return (
-    <div className="card p-5 mb-4 border-l-4 border-blue-500/40">
-      <h3 className="text-sm font-semibold text-blue-300 mb-3">Analysis Summary</h3>
-      <div className="space-y-3 text-xs text-slate-300 leading-relaxed">
+    <div className="si-card si-edge-card--info" style={{borderLeft:"3px solid var(--ds-info)", marginBottom:"var(--ds-space-4)"}}>
+      <div className="si-card__head">
+        <div>
+          <div className="si-card__eyebrow" style={{color:"var(--ds-info)"}}>Analysis Summary</div>
+          <div className="si-card__title">Plain-language verdict</div>
+        </div>
+      </div>
+      <div className="space-y-3" style={{fontSize:"var(--ds-fs-meta)", color:"var(--ds-text-body)", lineHeight:1.55}}>
         {/* Overall Grade */}
-        <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-slate-400 font-medium">System Grade:</span>
-            <span className={`font-bold ${sqnColor}`}>{sqnGrade} (SQN {o.sqn})</span>
+        <div className="si-finding">
+          <div className="flex items-center gap-2" style={{marginBottom:4}}>
+            <span style={{color:"var(--ds-text-muted)", fontWeight:600}}>System Grade:</span>
+            <span style={{fontWeight:700, color:sqnColorVar}}>{sqnGrade} (SQN {o.sqn})</span>
           </div>
-          <p className="text-slate-400">
+          <p style={{color:"var(--ds-text-muted)", margin:0}}>
             {o.n} trades analyzed. Win rate {o.win_rate}%, profit factor {o.profit_factor}, expectancy {o.expectancy >= 0 ? "+" : ""}{o.expectancy} per trade.
             {o.sqn < 0 && " The system is currently losing money overall."}
             {o.sqn >= 0 && o.sqn < 1.5 && " The system is near break-even but has no reliable edge yet."}
@@ -1288,41 +1565,41 @@ function AnalysisSummary({ report, recs }) {
 
         {/* Walk-Forward */}
         {wfo?.verdict && (
-          <div className={`p-3 rounded-lg border ${wfo.verdict === "WARNING" ? "bg-amber-500/5 border-amber-500/20" : wfo.verdict === "FAIL" ? "bg-rose-500/5 border-rose-500/20" : "bg-emerald-500/5 border-emerald-500/20"}`}>
-            <span className="font-medium text-slate-400">Walk-Forward Test: </span>
-            <span className={wfo.verdict === "PASS" ? "text-emerald-400" : wfo.verdict === "WARNING" ? "text-amber-400" : "text-rose-400"}>{wfo.verdict}</span>
+          <div className={`si-edge-card ${wfo.verdict === "WARNING" ? "si-edge-card--warn" : wfo.verdict === "FAIL" ? "si-edge-card--dn" : "si-edge-card--up"}`} style={{padding:"var(--ds-space-3)"}}>
+            <span style={{fontWeight:600, color:"var(--ds-text-muted)"}}>Walk-Forward Test: </span>
+            <span style={{color: wfo.verdict === "PASS" ? "var(--ds-up)" : wfo.verdict === "WARNING" ? "var(--ds-accent)" : "var(--ds-dn)", fontWeight:700}}>{wfo.verdict}</span>
             {wfo.in_sample_sqn != null && wfo.out_sample_sqn != null && (
-              <span className="text-slate-400"> — In-sample SQN {wfo.in_sample_sqn}, out-of-sample SQN {wfo.out_sample_sqn}.</span>
+              <span style={{color:"var(--ds-text-muted)"}}> — In-sample SQN {wfo.in_sample_sqn}, out-of-sample SQN {wfo.out_sample_sqn}.</span>
             )}
-            {wfo.verdict === "WARNING" && <p className="text-slate-400 mt-1">The system performed worse on recent trades than older ones. This suggests the model may not be adapting to current market conditions.</p>}
+            {wfo.verdict === "WARNING" && <p style={{color:"var(--ds-text-muted)", margin:"4px 0 0 0"}}>The system performed worse on recent trades than older ones. This suggests the model may not be adapting to current market conditions.</p>}
           </div>
         )}
 
         {/* Best / Worst Entry States */}
         {(bestPaths.length > 0 || worstPaths.length > 0) && (
-          <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
-            <div className="font-medium text-slate-400 mb-2">Entry State Performance</div>
+          <div className="si-finding">
+            <div style={{fontWeight:600, color:"var(--ds-text-muted)", marginBottom:"var(--ds-space-2)"}}>Entry State Performance</div>
             {bestPaths.length > 0 && (
-              <div className="mb-2">
-                <span className="text-emerald-400 font-medium">Working: </span>
+              <div style={{marginBottom:"var(--ds-space-2)"}}>
+                <span style={{color:"var(--ds-up)", fontWeight:600}}>Working: </span>
                 {bestPaths.map(([state, v]) => (
                   <span key={state} className="inline-block mr-2">
-                    <span className="text-slate-300">{state.replace(/HTF_|LTF_/g, "").replace(/_/g, " ")}</span>
-                    <span className="text-emerald-400/70 ml-1">({v.n}t, {v.win_rate}% WR, PF {v.profit_factor})</span>
+                    <span style={{color:"var(--ds-text-body)"}}>{state.replace(/HTF_|LTF_/g, "").replace(/_/g, " ")}</span>
+                    <span style={{color:"var(--ds-up)", opacity:0.7, marginLeft:4}}>({v.n}t, {v.win_rate}% WR, PF {v.profit_factor})</span>
                   </span>
                 ))}
               </div>
             )}
             {worstPaths.length > 0 && (
               <div>
-                <span className="text-rose-400 font-medium">Losing money: </span>
+                <span style={{color:"var(--ds-dn)", fontWeight:600}}>Losing money: </span>
                 {worstPaths.map(([state, v]) => (
                   <span key={state} className="inline-block mr-2">
-                    <span className="text-slate-300">{state.replace(/HTF_|LTF_/g, "").replace(/_/g, " ")}</span>
-                    <span className="text-rose-400/70 ml-1">({v.n}t, {v.win_rate}% WR, PF {v.profit_factor})</span>
+                    <span style={{color:"var(--ds-text-body)"}}>{state.replace(/HTF_|LTF_/g, "").replace(/_/g, " ")}</span>
+                    <span style={{color:"var(--ds-dn)", opacity:0.7, marginLeft:4}}>({v.n}t, {v.win_rate}% WR, PF {v.profit_factor})</span>
                   </span>
                 ))}
-                <p className="text-slate-400 mt-1">Consider disabling or heavily filtering entries in these states.</p>
+                <p style={{color:"var(--ds-text-muted)", margin:"4px 0 0 0"}}>Consider disabling or heavily filtering entries in these states.</p>
               </div>
             )}
           </div>
@@ -1330,17 +1607,17 @@ function AnalysisSummary({ report, recs }) {
 
         {/* Manual feedback (Trade Autopsy) */}
         {(classifications.manual_bad_trade_count > 0 || manualNotesCount > 0) && (
-          <div className="p-3 rounded-lg bg-teal-500/5 border border-teal-500/20">
-            <div className="font-medium text-teal-300 mb-1">Manual feedback (Trade Autopsy)</div>
-            <p className="text-slate-400">
+          <div className="si-edge-card si-edge-card--info" style={{padding:"var(--ds-space-3)"}}>
+            <div style={{fontWeight:600, color:"var(--ds-info)", marginBottom:4}}>Manual feedback (Trade Autopsy)</div>
+            <p style={{color:"var(--ds-text-muted)", margin:0}}>
               {classifications.manual_bad_trade_count > 0 && <span>{classifications.manual_bad_trade_count} trades tagged as Bad Trade (excluded from metrics). </span>}
               {manualNotesCount > 0 && <span>{manualNotesCount} trades include notes — used alongside classifications for learning and calibration.</span>}
             </p>
             {manualNotesCount > 0 && manualNotes.slice(0, 5).map((row, i) => (
-              <div key={row.trade_id || i} className="mt-1.5 pl-2 border-l-2 border-teal-500/30 text-slate-400 text-[11px]">
-                <span className="text-slate-300 font-medium">{row.ticker}</span>
-                {row.classification && <span className="ml-1 text-teal-400/80">{row.classification}</span>}
-                <span className="block text-slate-500 truncate max-w-md" title={row.notes}>{row.notes}</span>
+              <div key={row.trade_id || i} style={{marginTop:6, paddingLeft:8, borderLeft:"2px solid rgba(96,165,250,0.4)", color:"var(--ds-text-muted)", fontSize:"var(--ds-fs-caption)"}}>
+                <span style={{color:"var(--ds-text-body)", fontWeight:600}}>{row.ticker}</span>
+                {row.classification && <span style={{marginLeft:4, color:"var(--ds-info)", opacity:0.8}}>{row.classification}</span>}
+                <span style={{display:"block", color:"var(--ds-text-faint)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:"30rem"}} title={row.notes}>{row.notes}</span>
               </div>
             ))}
           </div>
@@ -1348,32 +1625,32 @@ function AnalysisSummary({ report, recs }) {
 
         {/* Same-ticker repeat trades (re-entries within short window) */}
         {report.same_ticker_repeat_analysis && report.same_ticker_repeat_analysis.cluster_count > 0 && (
-          <div className="p-3 rounded-lg bg-amber-500/5 border border-amber-500/20">
-            <div className="font-medium text-amber-300 mb-1">Same-ticker repeat trades (within {report.same_ticker_repeat_analysis.window_days} days)</div>
-            <p className="text-slate-400 mb-1">
-              {report.same_ticker_repeat_analysis.cluster_count} clusters ({report.same_ticker_repeat_analysis.total_trades_in_clusters} trades) — same ticker, same direction, re-entered within a short window. Total P&amp;L from repeats:{" "}
-              <span className={report.same_ticker_repeat_analysis.total_pnl_pct_from_repeats >= 0 ? "text-emerald-400" : "text-rose-400"}>
+          <div className="si-edge-card si-edge-card--warn" style={{padding:"var(--ds-space-3)"}}>
+            <div style={{fontWeight:600, color:"var(--ds-accent)", marginBottom:4}}>Same-ticker repeat trades (within {report.same_ticker_repeat_analysis.window_days} days)</div>
+            <p style={{color:"var(--ds-text-muted)", margin:"0 0 4px 0"}}>
+              {report.same_ticker_repeat_analysis.cluster_count} clusters ({report.same_ticker_repeat_analysis.total_trades_in_clusters} trades) — same ticker, same direction, re-entered within a short window. Total P&L from repeats:{" "}
+              <span style={{color: report.same_ticker_repeat_analysis.total_pnl_pct_from_repeats >= 0 ? "var(--ds-up)" : "var(--ds-dn)", fontWeight:600}}>
                 {report.same_ticker_repeat_analysis.total_pnl_pct_from_repeats >= 0 ? "+" : ""}{report.same_ticker_repeat_analysis.total_pnl_pct_from_repeats}%
               </span>
               {report.same_ticker_repeat_analysis.avg_capture_ratio != null && (
-                <span className="text-slate-500"> · Avg capture vs MFE: {(report.same_ticker_repeat_analysis.avg_capture_ratio * 100).toFixed(0)}%</span>
+                <span style={{color:"var(--ds-text-faint)"}}> · Avg capture vs MFE: {(report.same_ticker_repeat_analysis.avg_capture_ratio * 100).toFixed(0)}%</span>
               )}
               {report.same_ticker_repeat_analysis.sl_before_mfe_count > 0 && (
-                <span className="text-slate-500"> · SL hit before MFE: {report.same_ticker_repeat_analysis.sl_before_mfe_count} times</span>
+                <span style={{color:"var(--ds-text-faint)"}}> · SL hit before MFE: {report.same_ticker_repeat_analysis.sl_before_mfe_count} times</span>
               )}
             </p>
             {report.same_ticker_repeat_analysis.interpretation && report.same_ticker_repeat_analysis.interpretation.length > 0 && (
-              <ul className="list-disc list-inside text-slate-400 text-[11px] space-y-0.5 mt-1">
+              <ul style={{listStyle:"disc", paddingLeft:"1.25rem", color:"var(--ds-text-muted)", fontSize:"var(--ds-fs-caption)", margin:"4px 0 0 0"}}>
                 {report.same_ticker_repeat_analysis.interpretation.map((line, i) => (
-                  <li key={i}>{line}</li>
+                  <li key={i} style={{marginTop:2}}>{line}</li>
                 ))}
               </ul>
             )}
             {report.same_ticker_repeat_analysis.clusters && report.same_ticker_repeat_analysis.clusters.length > 0 && (
-              <div className="mt-2 text-[10px] text-slate-500">
+              <div style={{marginTop:"var(--ds-space-2)", fontSize:"var(--ds-fs-caption)", color:"var(--ds-text-faint)"}}>
                 Sample: {report.same_ticker_repeat_analysis.clusters.slice(0, 5).map(c => (
                   <span key={`${c.ticker}-${c.direction}-${c.trade_ids?.[0]}`} className="inline-block mr-2">
-                    <span className="text-slate-300">{c.ticker}</span> {c.direction} {c.n_trades}t <span className={c.total_pnl_pct >= 0 ? "text-emerald-500" : "text-rose-500"}>{c.total_pnl_pct}%</span> [{c.pattern}]
+                    <span style={{color:"var(--ds-text-body)"}}>{c.ticker}</span> {c.direction} {c.n_trades}t <span style={{color: c.total_pnl_pct >= 0 ? "var(--ds-up)" : "var(--ds-dn)"}}>{c.total_pnl_pct}%</span> [{c.pattern}]
                   </span>
                 ))}
               </div>
@@ -1383,12 +1660,12 @@ function AnalysisSummary({ report, recs }) {
 
         {/* SL/TP Diagnosis */}
         {slAtr != null && moveMfe != null && (
-          <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
-            <div className="font-medium text-slate-400 mb-1">Stop Loss &amp; Take Profit</div>
-            <p className="text-slate-400">
-              Current SL recommendation: <span className="text-white font-medium">{slAtr} ATR</span>.
-              Median market move: <span className="text-white font-medium">{moveMfe} ATR</span>.
-              {captureRatio && <> TP trim at {tpTrim} ATR captures only <span className={captureRatio < 30 ? "text-rose-400 font-medium" : "text-white"}>{captureRatio}%</span> of the average move.</>}
+          <div className="si-finding">
+            <div style={{fontWeight:600, color:"var(--ds-text-muted)", marginBottom:4}}>Stop Loss &amp; Take Profit</div>
+            <p style={{color:"var(--ds-text-muted)", margin:0}}>
+              Current SL recommendation: <span style={{color:"var(--ds-text-display)", fontWeight:600, fontFamily:"var(--tt-font-mono)"}}>{slAtr} ATR</span>.
+              Median market move: <span style={{color:"var(--ds-text-display)", fontWeight:600, fontFamily:"var(--tt-font-mono)"}}>{moveMfe} ATR</span>.
+              {captureRatio && <> TP trim at {tpTrim} ATR captures only <span style={{color: captureRatio < 30 ? "var(--ds-dn)" : "var(--ds-text-display)", fontWeight:600, fontFamily:"var(--tt-font-mono)"}}>{captureRatio}%</span> of the average move.</>}
               {slAtr < 0.5 && " Stops may be too tight — normal price noise is likely triggering exits before the trade has time to work."}
             </p>
           </div>
@@ -1396,18 +1673,18 @@ function AnalysisSummary({ report, recs }) {
 
         {/* Key Actions */}
         {recs && (
-          <div className="p-3 rounded-lg bg-purple-500/5 border border-purple-500/20">
-            <div className="font-medium text-purple-300 mb-2">Recommended Actions</div>
-            <ul className="space-y-1 text-slate-400">
+          <div className="si-edge-card si-edge-card--violet" style={{padding:"var(--ds-space-3)"}}>
+            <div style={{fontWeight:600, color:"var(--ds-violet)", marginBottom:"var(--ds-space-2)"}}>Recommended Actions</div>
+            <ul className="space-y-1" style={{color:"var(--ds-text-muted)", margin:0, paddingLeft:"1rem", listStyle:"disc"}}>
               {recs.path_adjustments && Object.entries(recs.path_adjustments).filter(([, v]) => v.action === "DISABLE").map(([state]) => (
-                <li key={state}>Disable entries in <span className="text-white">{state.replace(/HTF_|LTF_/g, "").replace(/_/g, " ")}</span> — negative expectancy</li>
+                <li key={state}>Disable entries in <span style={{color:"var(--ds-text-display)"}}>{state.replace(/HTF_|LTF_/g, "").replace(/_/g, " ")}</span> — negative expectancy</li>
               ))}
               {Object.entries(paths).filter(([, v]) => v.action === "BOOST" && v.n >= 3).map(([state]) => (
-                <li key={state}>Increase allocation to <span className="text-emerald-400">{state.replace(/HTF_|LTF_/g, "").replace(/_/g, " ")}</span> — positive edge</li>
+                <li key={state}>Increase allocation to <span style={{color:"var(--ds-up)"}}>{state.replace(/HTF_|LTF_/g, "").replace(/_/g, " ")}</span> — positive edge</li>
               ))}
-              {recs.sl_atr != null && <li>Set stop loss to <span className="text-white">{recs.sl_atr} ATR</span></li>}
-              {recs.tp_tiers && <li>TP tiers: trim at <span className="text-white">{recs.tp_tiers.trim}</span>, exit at <span className="text-white">{recs.tp_tiers.exit}</span>, runner at <span className="text-white">{recs.tp_tiers.runner} ATR</span></li>}
-              {recs.same_ticker_repeat_recommendation && <li className="text-amber-200/90">Same-ticker repeats: {recs.same_ticker_repeat_recommendation}</li>}
+              {recs.sl_atr != null && <li>Set stop loss to <span style={{color:"var(--ds-text-display)", fontFamily:"var(--tt-font-mono)"}}>{recs.sl_atr} ATR</span></li>}
+              {recs.tp_tiers && <li>TP tiers: trim at <span style={{color:"var(--ds-text-display)", fontFamily:"var(--tt-font-mono)"}}>{recs.tp_tiers.trim}</span>, exit at <span style={{color:"var(--ds-text-display)", fontFamily:"var(--tt-font-mono)"}}>{recs.tp_tiers.exit}</span>, runner at <span style={{color:"var(--ds-text-display)", fontFamily:"var(--tt-font-mono)"}}>{recs.tp_tiers.runner} ATR</span></li>}
+              {recs.same_ticker_repeat_recommendation && <li style={{color:"var(--ds-accent)"}}>Same-ticker repeats: {recs.same_ticker_repeat_recommendation}</li>}
               {report.hindsight_oracle?.recommendations?.map((rec, i) => <li key={`oracle-${i}`}>{rec.message}</li>)}
             </ul>
           </div>
@@ -1419,7 +1696,12 @@ function AnalysisSummary({ report, recs }) {
 
 function CalibrationTab({ report, recs, reportId, onApply, applying, appliedMsg }) {
   const [sub, setSub] = useState("health");
-  if (!report) return <div className="card p-12 text-center text-slate-400 text-sm">No calibration report. Run a calibration first.</div>;
+  if (!report) return (
+    <div className="si-card" style={{padding:"var(--ds-space-7)", textAlign:"center"}}>
+      <div className="si-card__title" style={{marginBottom:6}}>No calibration report</div>
+      <div className="si-card__subtitle">Run a calibration first to populate this view.</div>
+    </div>
+  );
   const subs = [
     { id: "health", label: "Health & Apply" },
     { id: "entries", label: "Entry Paths & Profiles" },
@@ -1430,38 +1712,49 @@ function CalibrationTab({ report, recs, reportId, onApply, applying, appliedMsg 
   ];
   return (
     <div>
-      <div className="flex gap-1 border-b border-white/[0.06] mb-4 overflow-x-auto">
+      <div className="si-subtabs">
         {subs.map(t => (
-          <button key={t.id} onClick={() => setSub(t.id)} className={`px-3 py-1.5 text-[11px] font-medium whitespace-nowrap ${sub === t.id ? "tab-active" : "tab-inactive"}`}>{t.label}</button>
+          <button key={t.id} onClick={() => setSub(t.id)} className={`si-subtabs__item ${sub === t.id ? "si-subtabs__item--active" : ""}`}>{t.label}</button>
         ))}
       </div>
       {sub === "health" && (
-        <div>
+        <div className="space-y-4">
           <AnalysisSummary report={report} recs={recs} />
           <SystemHealthCard health={report.system_health} />
           {recs && (
-            <div className="card p-5 mt-4">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-white">Apply Recommendations</h3>
-                <button className="btn btn-apply text-xs" onClick={() => onApply(reportId)} disabled={applying}>{applying ? "Applying..." : "Apply All"}</button>
+            <div className="si-card">
+              <div className="si-card__head">
+                <div>
+                  <div className="si-card__eyebrow">Apply Recommendations</div>
+                  <div className="si-card__title">Push calibration into the live engine</div>
+                </div>
+                <button className="si-action si-action--primary" onClick={() => onApply(reportId)} disabled={applying}>{applying ? "Applying…" : "Apply All"}</button>
               </div>
-              {appliedMsg && <div className="mb-3 p-2 rounded bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300">{appliedMsg}</div>}
-              {report.wfo_summary?.verdict === "WARNING" && <div className="mb-3 p-2 rounded bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300">WFO verdict is WARNING — apply with caution.</div>}
-              <div className="space-y-2 text-xs">
-                {recs.sl_atr != null && <div className="flex justify-between"><span className="text-slate-400">SL (ATR)</span><span className="text-white font-medium">{recs.sl_atr}</span></div>}
-                {recs.tp_tiers && <div className="flex justify-between"><span className="text-slate-400">TP Tiers</span><span className="text-white font-medium">Trim {recs.tp_tiers.trim}, Exit {recs.tp_tiers.exit}, Runner {recs.tp_tiers.runner}</span></div>}
-                {recs.rank_threshold != null && <div className="flex justify-between"><span className="text-slate-400">Rank Min</span><span className="text-white font-medium">{recs.rank_threshold}</span></div>}
+              {appliedMsg && (
+                <div className="si-banner si-banner--ok" style={{marginBottom:"var(--ds-space-3)"}}>
+                  <span style={{color:"var(--ds-up)", fontSize:"var(--ds-fs-meta)"}}>{appliedMsg}</span>
+                </div>
+              )}
+              {report.wfo_summary?.verdict === "WARNING" && (
+                <div className="si-banner si-banner--warn" style={{marginBottom:"var(--ds-space-3)"}}>
+                  <span style={{color:"var(--ds-accent)", fontSize:"var(--ds-fs-meta)"}}>WFO verdict is WARNING — apply with caution.</span>
+                </div>
+              )}
+              <div className="space-y-2" style={{fontSize:"var(--ds-fs-meta)"}}>
+                {recs.sl_atr != null && <div className="flex justify-between"><span style={{color:"var(--ds-text-muted)"}}>SL (ATR)</span><span style={{color:"var(--ds-text-display)", fontWeight:600, fontFamily:"var(--tt-font-mono)"}}>{recs.sl_atr}</span></div>}
+                {recs.tp_tiers && <div className="flex justify-between"><span style={{color:"var(--ds-text-muted)"}}>TP Tiers</span><span style={{color:"var(--ds-text-display)", fontWeight:600, fontFamily:"var(--tt-font-mono)"}}>Trim {recs.tp_tiers.trim}, Exit {recs.tp_tiers.exit}, Runner {recs.tp_tiers.runner}</span></div>}
+                {recs.rank_threshold != null && <div className="flex justify-between"><span style={{color:"var(--ds-text-muted)"}}>Rank Min</span><span style={{color:"var(--ds-text-display)", fontWeight:600, fontFamily:"var(--tt-font-mono)"}}>{recs.rank_threshold}</span></div>}
               </div>
               {(recs.adaptive_entry_gates || recs.adaptive_regime_gates || recs.adaptive_sl_tp) && (
-                <div className="mt-4 pt-3 border-t border-white/[0.06]">
-                  <div className="text-[11px] font-semibold text-purple-400 mb-2">Adaptive Learning Parameters</div>
-                  <div className="space-y-1.5 text-[10px]">
-                    {recs.adaptive_entry_gates && <div className="flex justify-between"><span className="text-slate-400">Entry Gates</span><span className="text-white">{Object.keys(recs.adaptive_entry_gates).filter(k => k !== "_default").length} state-specific gates</span></div>}
-                    {recs.adaptive_regime_gates && <div className="flex justify-between"><span className="text-slate-400">VIX Regime Gates</span><span className="text-white">{Object.keys(recs.adaptive_regime_gates).length} regime rules</span></div>}
-                    {recs.adaptive_rank_weights && <div className="flex justify-between"><span className="text-slate-400">Rank Weights</span><span className="text-white">Dynamic scoring adjustments</span></div>}
-                    {recs.adaptive_sl_tp && <div className="flex justify-between"><span className="text-slate-400">SL/TP per State</span><span className="text-white">{Object.keys(recs.adaptive_sl_tp).filter(k => k !== "_default").length} state profiles</span></div>}
+                <div style={{marginTop:"var(--ds-space-4)", paddingTop:"var(--ds-space-3)", borderTop:"1px solid var(--ds-stroke)"}}>
+                  <div className="si-card__eyebrow" style={{color:"var(--ds-violet)", marginBottom:"var(--ds-space-2)"}}>Adaptive Learning Parameters</div>
+                  <div className="space-y-1" style={{fontSize:"var(--ds-fs-caption)"}}>
+                    {recs.adaptive_entry_gates && <div className="flex justify-between"><span style={{color:"var(--ds-text-muted)"}}>Entry Gates</span><span style={{color:"var(--ds-text-display)"}}>{Object.keys(recs.adaptive_entry_gates).filter(k => k !== "_default").length} state-specific gates</span></div>}
+                    {recs.adaptive_regime_gates && <div className="flex justify-between"><span style={{color:"var(--ds-text-muted)"}}>VIX Regime Gates</span><span style={{color:"var(--ds-text-display)"}}>{Object.keys(recs.adaptive_regime_gates).length} regime rules</span></div>}
+                    {recs.adaptive_rank_weights && <div className="flex justify-between"><span style={{color:"var(--ds-text-muted)"}}>Rank Weights</span><span style={{color:"var(--ds-text-display)"}}>Dynamic scoring adjustments</span></div>}
+                    {recs.adaptive_sl_tp && <div className="flex justify-between"><span style={{color:"var(--ds-text-muted)"}}>SL/TP per State</span><span style={{color:"var(--ds-text-display)"}}>{Object.keys(recs.adaptive_sl_tp).filter(k => k !== "_default").length} state profiles</span></div>}
                   </div>
-                  <p className="text-[9px] text-slate-500 mt-2">Click "Apply All" to write these adaptive parameters into the live scoring engine.</p>
+                  <p style={{fontSize:"var(--ds-fs-caption)", color:"var(--ds-text-faint)", marginTop:"var(--ds-space-2)"}}>Click "Apply All" to write these adaptive parameters into the live scoring engine.</p>
                 </div>
               )}
             </div>
@@ -1469,91 +1762,145 @@ function CalibrationTab({ report, recs, reportId, onApply, applying, appliedMsg 
         </div>
       )}
       {sub === "entries" && (
-        <div className="space-y-6">
-          <div>
-            <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">Entry Paths <span className="text-[10px] text-slate-500 font-normal">How we enter trades</span></h3>
-            <EntryPathsCard paths={report.entry_paths} />
+        <div className="space-y-4">
+          <div className="si-section-head">
+            <div>
+              <div className="si-section-head__title">Entry Paths</div>
+              <div className="si-section-head__subtitle">How we enter trades</div>
+            </div>
           </div>
-          <div className="border-t border-white/[0.06] pt-5">
-            <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">Profiles <span className="text-[10px] text-slate-500 font-normal">State-specific performance profiles</span></h3>
-            <ProfilesCard profiles={report.profiles || []} />
+          <EntryPathsCard paths={report.entry_paths} />
+          <div className="si-section-head" style={{marginTop:"var(--ds-space-5)"}}>
+            <div>
+              <div className="si-section-head__title">Profiles</div>
+              <div className="si-section-head__subtitle">State-specific performance profiles</div>
+            </div>
           </div>
+          <ProfilesCard profiles={report.profiles || []} />
         </div>
       )}
       {sub === "models" && (
-        <div className="space-y-6">
+        <div className="space-y-4">
           {report.hindsight_oracle && (
-            <div className="card p-5">
-              <h3 className="text-sm font-semibold text-amber-200/90 mb-2">Hindsight Oracle (5m perfect entry/exit)</h3>
-              <p className="text-xs text-slate-500 mb-3">Qualifying moves: {report.hindsight_oracle.qualifying_moves} | Fingerprints: {report.hindsight_oracle.fingerprints_count}</p>
+            <div className="si-card">
+              <div className="si-card__head">
+                <div>
+                  <div className="si-card__eyebrow" style={{color:"var(--ds-accent)"}}>Hindsight Oracle</div>
+                  <div className="si-card__title">5m perfect entry/exit study</div>
+                  <div className="si-card__subtitle">Qualifying moves: {report.hindsight_oracle.qualifying_moves} · Fingerprints: {report.hindsight_oracle.fingerprints_count}</div>
+                </div>
+              </div>
               {report.hindsight_oracle.golden_profiles && Object.keys(report.hindsight_oracle.golden_profiles).length > 0 && (
-                <div className="mb-4">
-                  <h4 className="text-xs font-semibold text-slate-400 mb-2">Golden profiles by state</h4>
-                  <div className="overflow-x-auto"><table className="w-full text-xs"><thead><tr className="text-slate-500 border-b border-white/[0.05]">
-                    <th className="text-left py-1.5 font-medium">State</th><th className="text-right px-2 font-medium">N</th><th className="text-right px-2 font-medium">Squeeze%</th><th className="text-right px-2 font-medium">EMA%</th><th className="text-right px-2 font-medium">ST%</th><th className="text-right px-2 font-medium">HTF med</th><th className="text-right pl-2 font-medium">Avg ATR</th>
-                  </tr></thead><tbody>
-                    {Object.entries(report.hindsight_oracle.golden_profiles).map(([state, g]) => (
-                      <tr key={state} className="border-b border-white/[0.03]">
-                        <td className="py-1.5 font-mono text-slate-300">{state.replace(/HTF_|LTF_/g, "").replace(/_/g, " ")}</td>
-                        <td className="text-right px-2">{g.sample_count}</td><td className="text-right px-2">{g.squeeze_release_pct}%</td><td className="text-right px-2">{g.ema_cross_pct}%</td><td className="text-right px-2">{g.st_flip_pct}%</td><td className="text-right px-2">{g.htf_score_median}</td><td className="text-right pl-2">{g.avg_move_atr}</td>
-                      </tr>
-                    ))}
-                  </tbody></table></div>
+                <div style={{marginBottom:"var(--ds-space-4)"}}>
+                  <div className="si-card__eyebrow" style={{marginBottom:"var(--ds-space-2)"}}>Golden profiles by state</div>
+                  <div className="si-table-wrap">
+                    <table className="si-table">
+                      <thead><tr>
+                        <th>State</th>
+                        <th className="si-th--right">N</th>
+                        <th className="si-th--right">Squeeze%</th>
+                        <th className="si-th--right">EMA%</th>
+                        <th className="si-th--right">ST%</th>
+                        <th className="si-th--right">HTF med</th>
+                        <th className="si-th--right">Avg ATR</th>
+                      </tr></thead>
+                      <tbody>
+                        {Object.entries(report.hindsight_oracle.golden_profiles).map(([state, g]) => (
+                          <tr key={state}>
+                            <td className="si-td--mono" style={{color:"var(--ds-text-body)"}}>{state.replace(/HTF_|LTF_/g, "").replace(/_/g, " ")}</td>
+                            <td className="si-td--right">{g.sample_count}</td>
+                            <td className="si-td--right">{g.squeeze_release_pct}%</td>
+                            <td className="si-td--right">{g.ema_cross_pct}%</td>
+                            <td className="si-td--right">{g.st_flip_pct}%</td>
+                            <td className="si-td--right">{g.htf_score_median}</td>
+                            <td className="si-td--right">{g.avg_move_atr}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
               {report.hindsight_oracle.recommendations?.length > 0 && (
-                <div><h4 className="text-xs font-semibold text-slate-400 mb-2">Recommendations</h4>
-                  <ul className="space-y-1.5">{report.hindsight_oracle.recommendations.map((rec, i) => (
-                    <li key={i} className="text-xs text-slate-300 pl-2 border-l-2 border-amber-500/30">{rec.message}</li>
-                  ))}</ul>
+                <div>
+                  <div className="si-card__eyebrow" style={{marginBottom:"var(--ds-space-2)"}}>Recommendations</div>
+                  <ul style={{listStyle:"none", padding:0, margin:0}}>
+                    {report.hindsight_oracle.recommendations.map((rec, i) => (
+                      <li key={i} style={{fontSize:"var(--ds-fs-meta)", color:"var(--ds-text-body)", paddingLeft:"var(--ds-space-3)", borderLeft:"2px solid rgba(245,194,92,0.3)", marginTop:6}}>{rec.message}</li>
+                    ))}
+                  </ul>
                 </div>
               )}
             </div>
           )}
-          <div className="border-t border-white/[0.06] pt-5">
-            <h3 className="text-sm font-semibold text-white mb-3">Signal Importance (IC)</h3>
-            <SignalICCard ic={report.signal_ic} />
+          <div className="si-section-head" style={{marginTop:"var(--ds-space-4)"}}>
+            <div>
+              <div className="si-section-head__title">Signal Importance (IC)</div>
+              <div className="si-section-head__subtitle">Information Coefficient by signal</div>
+            </div>
           </div>
+          <SignalICCard ic={report.signal_ic} />
         </div>
       )}
       {sub === "risk" && (
-        <div className="space-y-6">
-          <div>
-            <h3 className="text-sm font-semibold text-white mb-3">Stop Loss & Take Profit Calibration</h3>
-            <SLTPCard sltp={report.sl_tp_calibration} />
+        <div className="space-y-4">
+          <div className="si-section-head">
+            <div>
+              <div className="si-section-head__title">Stop Loss & Take Profit Calibration</div>
+              <div className="si-section-head__subtitle">ATR percentile bands derived from historical winners and losers</div>
+            </div>
           </div>
-          <div className="border-t border-white/[0.06] pt-5">
-            <h3 className="text-sm font-semibold text-white mb-3">Rank Optimization</h3>
-            <RankCard rank={report.rank_optimization} />
+          <SLTPCard sltp={report.sl_tp_calibration} />
+          <div className="si-section-head" style={{marginTop:"var(--ds-space-5)"}}>
+            <div>
+              <div className="si-section-head__title">Rank Optimization</div>
+              <div className="si-section-head__subtitle">Best rank cutoff by SQN</div>
+            </div>
           </div>
-          <div className="border-t border-white/[0.06] pt-5">
-            <h3 className="text-sm font-semibold text-white mb-3">Position Sizing</h3>
-            <PositionSizingCard sizing={report.position_sizing} />
+          <RankCard rank={report.rank_optimization} />
+          <div className="si-section-head" style={{marginTop:"var(--ds-space-5)"}}>
+            <div>
+              <div className="si-section-head__title">Position Sizing</div>
+              <div className="si-section-head__subtitle">Kelly-derived sizing recommendation</div>
+            </div>
           </div>
+          <PositionSizingCard sizing={report.position_sizing} />
         </div>
       )}
       {sub === "context" && (
-        <div className="space-y-6">
-          <div>
-            <h3 className="text-sm font-semibold text-white mb-3">VIX Regime Performance</h3>
-            <VIXRegimeCard vixBuckets={report.vix_buckets} />
+        <div className="space-y-4">
+          <div className="si-section-head">
+            <div>
+              <div className="si-section-head__title">VIX Regime Performance</div>
+              <div className="si-section-head__subtitle">P&L distribution by volatility regime</div>
+            </div>
           </div>
-          <div className="border-t border-white/[0.06] pt-5">
-            <h3 className="text-sm font-semibold text-white mb-3">Walk-Forward Optimization</h3>
-            <WFOCard wfo={report.wfo_summary} />
+          <VIXRegimeCard vixBuckets={report.vix_buckets} />
+          <div className="si-section-head" style={{marginTop:"var(--ds-space-5)"}}>
+            <div>
+              <div className="si-section-head__title">Walk-Forward Optimization</div>
+              <div className="si-section-head__subtitle">In-sample vs out-of-sample stability</div>
+            </div>
           </div>
+          <WFOCard wfo={report.wfo_summary} />
         </div>
       )}
       {sub === "quality" && (
-        <div className="space-y-6">
-          <div>
-            <h3 className="text-sm font-semibold text-white mb-3">Same-Ticker Repeat Trades</h3>
-            <SameTickerRepeatsCard data={report.same_ticker_repeat_analysis} />
+        <div className="space-y-4">
+          <div className="si-section-head">
+            <div>
+              <div className="si-section-head__title">Same-Ticker Repeat Trades</div>
+              <div className="si-section-head__subtitle">Re-entry behavior within short windows</div>
+            </div>
           </div>
-          <div className="border-t border-white/[0.06] pt-5">
-            <h3 className="text-sm font-semibold text-white mb-3">Missed Opportunities</h3>
-            <MissedOpCard missed={report.missed_opportunities} />
+          <SameTickerRepeatsCard data={report.same_ticker_repeat_analysis} />
+          <div className="si-section-head" style={{marginTop:"var(--ds-space-5)"}}>
+            <div>
+              <div className="si-section-head__title">Missed Opportunities</div>
+              <div className="si-section-head__subtitle">Moves that qualified but were not entered</div>
+            </div>
           </div>
+          <MissedOpCard missed={report.missed_opportunities} />
         </div>
       )}
     </div>
@@ -2121,24 +2468,33 @@ function DeepAuditTab() {
 
   const pct = (v) => v != null ? `${v}%` : "—";
   const signPct = (v) => v != null ? (v >= 0 ? `+${v}%` : `${v}%`) : "—";
-  const cardCls = "rounded-lg border p-3";
-  const cardStyle = (positive) => ({ background: "rgba(255,255,255,0.02)", borderColor: positive ? "rgba(16,185,129,0.2)" : "rgba(239,68,68,0.2)" });
+  // Verdict / grade → semantic chip variant. Used by exits/tickers/paths/recs.
+  const verdictGrade = (v) => {
+    const k = String(v || "").toUpperCase();
+    if (k === "STAR" || k === "EDGE" || k === "BOOST" || k === "HIGH") return "si-grade--star";
+    if (k === "GOOD" || k === "STRONG" || k === "KEEP") return "si-grade--good";
+    if (k === "OK" || k === "NEUTRAL" || k === "MEDIUM") return "si-grade--ok";
+    if (k === "BAD" || k === "WEAK" || k === "RESTRICT" || k === "LOW") return "si-grade--bad";
+    if (k === "TOXIC" || k === "DISABLE") return "si-grade--toxic";
+    return "si-grade--ok";
+  };
 
   if (loading) return (
     <div className="flex items-center justify-center py-20">
-      <div className="w-6 h-6 border-2 border-white/20 border-t-emerald-500 rounded-full" style={{animation:"spin 0.7s linear infinite"}} />
-      <span className="ml-3 text-sm text-slate-400">Running deep audit...</span>
+      <div className="w-6 h-6 border-2 border-white/20 border-t-[var(--ds-accent)] rounded-full" style={{animation:"spin 0.7s linear infinite", borderTopColor:"var(--ds-accent)"}} />
+      <span className="ml-3" style={{fontSize:"var(--ds-fs-body)", color:"var(--ds-text-muted)"}}>Running deep audit…</span>
     </div>
   );
 
   if (error) return (
-    <div className="p-4 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-300 text-sm">
-      <p className="font-medium">Deep Audit Error</p><p className="mt-1">{error}</p>
-      <button className="mt-2 px-3 py-1 rounded bg-rose-500/20 text-xs" onClick={runAudit}>Retry</button>
+    <div className="si-card" style={{borderLeft:"3px solid var(--ds-dn)"}}>
+      <div className="si-card__title">Deep Audit Error</div>
+      <div className="si-card__subtitle" style={{color:"var(--ds-dn)"}}>{error}</div>
+      <button className="si-action mt-3" onClick={runAudit}>Retry</button>
     </div>
   );
 
-  if (!audit) return <div className="text-center py-10 text-slate-400 text-sm">Click "Run Audit" to start</div>;
+  if (!audit) return <div className="text-center py-10" style={{color:"var(--ds-text-muted)", fontSize:"var(--ds-fs-body)"}}>Click "Run Audit" to start</div>;
 
   const subTabs = [
     { id: "summary", label: "Executive Summary" },
@@ -2152,87 +2508,106 @@ function DeepAuditTab() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-base font-semibold text-white">Deep System Audit</h2>
-          <p className="text-[11px] text-slate-400">{audit.trade_count} closed trades analyzed at {new Date(audit.generated_at).toLocaleString()}</p>
+      {/* Audit header — banner-style, mirrors Engine tab */}
+      <div className="si-banner" style={{marginBottom: "var(--ds-space-4)"}}>
+        <div style={{flex:1, minWidth:200}}>
+          <div className="si-card__eyebrow">Deep System Audit</div>
+          <div className="si-card__title">{audit.trade_count} closed trades analyzed</div>
+          <div className="si-card__subtitle">Generated {new Date(audit.generated_at).toLocaleString()}</div>
         </div>
-        <div className="flex gap-2">
-          <button className="px-3 py-1.5 rounded text-xs font-medium bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10" onClick={runAudit}>Refresh</button>
-          {audit.recommendations?.length > 0 && (
-            <button className="px-3 py-1.5 rounded text-xs font-medium bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25"
-              onClick={applyTopRecs} disabled={applying}>
-              {applying ? "Applying..." : `Apply Top ${Math.min(3, audit.recommendations.length)} Recs`}
-            </button>
-          )}
-        </div>
+        <button className="si-action" onClick={runAudit}>Refresh</button>
+        {audit.recommendations?.length > 0 && (
+          <button className="si-action si-action--primary" onClick={applyTopRecs} disabled={applying}>
+            {applying ? "Applying…" : `Apply Top ${Math.min(3, audit.recommendations.length)} Recs`}
+          </button>
+        )}
       </div>
-      {appliedMsg && <div className="mb-3 p-2 rounded text-xs bg-emerald-500/10 border border-emerald-500/20 text-emerald-300">{appliedMsg}</div>}
+      {appliedMsg && (
+        <div className="si-banner si-banner--ok" style={{marginBottom: "var(--ds-space-4)"}}>
+          <span style={{color:"var(--ds-up)", fontSize:"var(--ds-fs-body)", fontWeight:600}}>{appliedMsg}</span>
+        </div>
+      )}
 
-      <div className="flex gap-1 border-b border-white/[0.06] mb-4 overflow-x-auto">
+      <div className="si-subtabs">
         {subTabs.map(t => (
-          <button key={t.id} onClick={() => setSubTab(t.id)} className={`px-3 py-1.5 text-[11px] font-medium whitespace-nowrap ${subTab === t.id ? "tab-active" : "tab-inactive"}`}>{t.label}</button>
+          <button key={t.id} onClick={() => setSubTab(t.id)} className={`si-subtabs__item ${subTab === t.id ? "si-subtabs__item--active" : ""}`}>{t.label}</button>
         ))}
       </div>
 
       {/* ── Executive Summary ── */}
       {subTab === "summary" && (
         <div className="space-y-4">
-          {/* Overall Metrics */}
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
+          {/* Overall KPIs (use the same KpiTile shell as Engine, dense variant) */}
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
             {[
-              ["Trades", audit.overall.n],
-              ["Win Rate", pct(audit.overall.win_rate)],
-              ["Expectancy", signPct(audit.overall.expectancy)],
-              ["SQN", audit.overall.sqn],
-              ["Profit Factor", audit.overall.profit_factor],
-              ["Max DD", `-${audit.drawdown_analysis.max_drawdown_pct}%`],
-              ["Max Consec L", audit.drawdown_analysis.max_consecutive_losses],
-            ].map(([label, val]) => (
-              <div key={label} className={cardCls} style={{background:"rgba(255,255,255,0.02)", borderColor:"rgba(255,255,255,0.06)"}}>
-                <div className="text-[10px] text-slate-500 uppercase">{label}</div>
-                <div className="text-sm font-bold text-white mt-0.5">{val}</div>
+              ["Trades", audit.overall.n, null, ""],
+              ["Win Rate", pct(audit.overall.win_rate), null, audit.overall.win_rate >= 50 ? "si-kpi__value--up" : "si-kpi__value--dn"],
+              ["Expectancy", signPct(audit.overall.expectancy), null, audit.overall.expectancy >= 0 ? "si-kpi__value--up" : "si-kpi__value--dn"],
+              ["SQN", audit.overall.sqn, null, audit.overall.sqn >= 2 ? "si-kpi__value--up" : audit.overall.sqn >= 1 ? "si-kpi__value--accent" : "si-kpi__value--dn"],
+              ["Profit Factor", audit.overall.profit_factor, null, (audit.overall.profit_factor || 0) >= 1.4 ? "si-kpi__value--up" : (audit.overall.profit_factor || 0) >= 1.0 ? "si-kpi__value--accent" : "si-kpi__value--dn"],
+              ["Max DD", `-${audit.drawdown_analysis.max_drawdown_pct}%`, null, "si-kpi__value--dn"],
+              ["Max Consec L", audit.drawdown_analysis.max_consecutive_losses, null, ""],
+            ].map(([label, val, sub, valueClass]) => (
+              <div key={label} className="si-kpi si-kpi--dense">
+                <div className="si-kpi__label">{label}</div>
+                <div className={`si-kpi__value ${valueClass || ""}`}>{val ?? "—"}</div>
+                {sub && <div className="si-kpi__sub">{sub}</div>}
               </div>
             ))}
           </div>
 
-          {/* Classification */}
-          <div className={cardCls} style={{background:"rgba(255,255,255,0.02)", borderColor:"rgba(255,255,255,0.06)"}}>
-            <h3 className="text-xs font-medium text-slate-400 mb-2">Trade Classification</h3>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+          {/* Trade Classification */}
+          <div className="si-card">
+            <div className="si-card__head">
+              <div>
+                <div className="si-card__eyebrow">Trade Classification</div>
+                <div className="si-card__title">How each trade played out</div>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               {Object.entries(audit.classification_breakdown || {}).map(([cls, count]) => {
-                const colors = { optimal: "text-emerald-400", left_money: "text-amber-400", bad_entry: "text-rose-400", gave_back: "text-orange-400", noise_trade: "text-slate-400" };
+                const colorMap = { optimal: "var(--ds-up)", left_money: "var(--ds-warn)", bad_entry: "var(--ds-dn)", gave_back: "#FB923C", noise_trade: "var(--ds-text-muted)" };
                 return (
-                  <div key={cls} className="text-center">
-                    <div className={`text-lg font-bold ${colors[cls] || "text-white"}`}>{count}</div>
-                    <div className="text-[10px] text-slate-500">{cls.replace(/_/g, " ")}</div>
+                  <div key={cls} className="si-class-tile">
+                    <div className="si-class-tile__count" style={{color: colorMap[cls] || "var(--ds-text-display)"}}>{count}</div>
+                    <div className="si-class-tile__label">{cls.replace(/_/g, " ")}</div>
                   </div>
                 );
               })}
             </div>
           </div>
 
-          {/* Strengths & Issues side by side */}
+          {/* Strengths & Issues */}
           <div className="grid md:grid-cols-2 gap-3">
-            <div className={cardCls} style={{background:"rgba(16,185,129,0.04)", borderColor:"rgba(16,185,129,0.15)"}}>
-              <h3 className="text-xs font-medium text-emerald-400 mb-2">Strengths</h3>
+            <div className="si-edge-card si-edge-card--up">
+              <div className="si-card__head">
+                <div>
+                  <div className="si-card__eyebrow" style={{color:"var(--ds-up)"}}>Strengths</div>
+                  <div className="si-card__title">What's working</div>
+                </div>
+              </div>
               {(audit.strengths || []).map((s, i) => (
-                <div key={i} className="mb-1.5">
-                  <div className="text-[12px] font-medium text-white">{s.label}</div>
-                  <div className="text-[11px] text-slate-400">{s.detail}</div>
+                <div key={i} className="si-finding">
+                  <div className="si-finding__title">{s.label}</div>
+                  <div className="si-finding__detail">{s.detail}</div>
                 </div>
               ))}
-              {(!audit.strengths || audit.strengths.length === 0) && <div className="text-xs text-slate-500">No notable strengths detected</div>}
+              {(!audit.strengths || audit.strengths.length === 0) && <div style={{fontSize:"var(--ds-fs-meta)", color:"var(--ds-text-muted)"}}>No notable strengths detected</div>}
             </div>
-            <div className={cardCls} style={{background:"rgba(239,68,68,0.04)", borderColor:"rgba(239,68,68,0.15)"}}>
-              <h3 className="text-xs font-medium text-rose-400 mb-2">Issues</h3>
+            <div className="si-edge-card si-edge-card--dn">
+              <div className="si-card__head">
+                <div>
+                  <div className="si-card__eyebrow" style={{color:"var(--ds-dn)"}}>Issues</div>
+                  <div className="si-card__title">What's hurting performance</div>
+                </div>
+              </div>
               {(audit.issues || []).map((s, i) => (
-                <div key={i} className="mb-1.5">
-                  <div className="text-[12px] font-medium text-white">{s.label}</div>
-                  <div className="text-[11px] text-slate-400">{s.detail}</div>
+                <div key={i} className="si-finding">
+                  <div className="si-finding__title">{s.label}</div>
+                  <div className="si-finding__detail">{s.detail}</div>
                 </div>
               ))}
-              {(!audit.issues || audit.issues.length === 0) && <div className="text-xs text-slate-500">No critical issues detected</div>}
+              {(!audit.issues || audit.issues.length === 0) && <div style={{fontSize:"var(--ds-fs-meta)", color:"var(--ds-text-muted)"}}>No critical issues detected</div>}
             </div>
           </div>
         </div>
@@ -2246,22 +2621,35 @@ function DeepAuditTab() {
             if (!d) return null;
             const isGood = d.expectancy >= 0;
             return (
-              <div key={dir} className={cardCls} style={cardStyle(isGood)}>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className={`text-sm font-bold ${isGood ? "text-emerald-400" : "text-rose-400"}`}>{dir}</span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded" style={{background: isGood ? "rgba(16,185,129,0.15)" : "rgba(239,68,68,0.15)", color: isGood ? "#34d399" : "#fca5a5"}}>{d.n} trades</span>
+              <div key={dir} className={`si-edge-card ${isGood ? "si-edge-card--up" : "si-edge-card--dn"}`}>
+                <div className="flex items-center gap-2 mb-3">
+                  <span style={{fontSize:"var(--ds-fs-emph)", fontWeight:600, color: isGood ? "var(--ds-up)" : "var(--ds-dn)", letterSpacing:"0.04em"}}>{dir}</span>
+                  <span className={`si-grade ${isGood ? "si-grade--good" : "si-grade--toxic"}`}>{d.n} trades</span>
                 </div>
-                <div className="grid grid-cols-3 md:grid-cols-6 gap-3 text-center">
-                  {[["Win Rate", pct(d.win_rate)], ["Expectancy", signPct(d.expectancy)], ["SQN", d.sqn], ["Avg P&L", signPct(d.avg_pnl_pct)], ["PF", d.profit_factor], ["Total P&L", signPct(d.total_pnl_pct)]].map(([l,v]) => (
-                    <div key={l}><div className="text-[10px] text-slate-500">{l}</div><div className="text-xs font-semibold text-white">{v}</div></div>
+                <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+                  {[
+                    ["Win Rate", pct(d.win_rate), d.win_rate >= 50 ? "si-mini-stat__value--up" : "si-mini-stat__value--dn"],
+                    ["Expectancy", signPct(d.expectancy), d.expectancy >= 0 ? "si-mini-stat__value--up" : "si-mini-stat__value--dn"],
+                    ["SQN", d.sqn, ""],
+                    ["Avg P&L", signPct(d.avg_pnl_pct), d.avg_pnl_pct >= 0 ? "si-mini-stat__value--up" : "si-mini-stat__value--dn"],
+                    ["PF", d.profit_factor, ""],
+                    ["Total P&L", signPct(d.total_pnl_pct), d.total_pnl_pct >= 0 ? "si-mini-stat__value--up" : "si-mini-stat__value--dn"],
+                  ].map(([l, v, cls]) => (
+                    <div key={l} className="si-mini-stat">
+                      <div className="si-mini-stat__label">{l}</div>
+                      <div className={`si-mini-stat__value ${cls || ""}`}>{v ?? "—"}</div>
+                    </div>
                   ))}
                 </div>
               </div>
             );
           })}
           {audit.direction_analysis?.verdict === "RESTRICT_SHORT" && (
-            <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs">
-              Recommendation: SHORT trades are net-negative. Restrict to high-conviction only (rank &gt;= 80).
+            <div className="si-banner si-banner--warn">
+              <span style={{color:"var(--ds-accent)", fontSize:"var(--ds-fs-body)", fontWeight:600}}>Recommendation:</span>
+              <span style={{color:"var(--ds-text-body)", fontSize:"var(--ds-fs-body)"}}>
+                SHORT trades are net-negative. Restrict to high-conviction only (rank ≥ 80).
+              </span>
             </div>
           )}
         </div>
@@ -2269,32 +2657,29 @@ function DeepAuditTab() {
 
       {/* ── Exit Reasons ── */}
       {subTab === "exits" && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-[11px]">
-            <thead><tr className="text-slate-500 border-b border-white/[0.06]">
-              <th className="py-2 text-left font-medium">Exit Reason</th>
-              <th className="py-2 text-right font-medium">Count</th>
-              <th className="py-2 text-right font-medium">Win Rate</th>
-              <th className="py-2 text-right font-medium">Avg P&L</th>
-              <th className="py-2 text-right font-medium">Total P&L</th>
-              <th className="py-2 text-right font-medium">SQN</th>
-              <th className="py-2 text-center font-medium">Verdict</th>
+        <div className="si-table-wrap">
+          <table className="si-table">
+            <thead><tr>
+              <th>Exit Reason</th>
+              <th className="si-th--right">Count</th>
+              <th className="si-th--right">Win Rate</th>
+              <th className="si-th--right">Avg P&L</th>
+              <th className="si-th--right">Total P&L</th>
+              <th className="si-th--right">SQN</th>
+              <th className="si-th--center">Verdict</th>
             </tr></thead>
             <tbody>
-              {Object.entries(audit.exit_reason_audit || {}).sort((a, b) => b[1].n - a[1].n).map(([reason, d]) => {
-                const colors = { STAR: "text-emerald-400 bg-emerald-500/10", GOOD: "text-emerald-300 bg-emerald-500/5", OK: "text-slate-300 bg-white/5", BAD: "text-amber-400 bg-amber-500/10", TOXIC: "text-rose-400 bg-rose-500/10" };
-                return (
-                  <tr key={reason} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
-                    <td className="py-1.5 text-white font-medium max-w-[200px] truncate" title={reason}>{reason}</td>
-                    <td className="py-1.5 text-right text-slate-300">{d.n}</td>
-                    <td className="py-1.5 text-right text-slate-300">{pct(d.win_rate)}</td>
-                    <td className={`py-1.5 text-right font-semibold ${d.avg_pnl_pct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{signPct(d.avg_pnl_pct)}</td>
-                    <td className={`py-1.5 text-right ${d.total_pnl_pct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{signPct(d.total_pnl_pct)}</td>
-                    <td className="py-1.5 text-right text-slate-300">{d.sqn}</td>
-                    <td className="py-1.5 text-center"><span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${colors[d.verdict] || colors.OK}`}>{d.verdict}</span></td>
-                  </tr>
-                );
-              })}
+              {Object.entries(audit.exit_reason_audit || {}).sort((a, b) => b[1].n - a[1].n).map(([reason, d]) => (
+                <tr key={reason}>
+                  <td className="si-td--mono" style={{color:"var(--ds-text-display)", fontWeight:600, maxWidth:240, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}} title={reason}>{reason}</td>
+                  <td className="si-td--right">{d.n}</td>
+                  <td className="si-td--right">{pct(d.win_rate)}</td>
+                  <td className={`si-td--right ${d.avg_pnl_pct >= 0 ? "si-td--up" : "si-td--dn"}`}>{signPct(d.avg_pnl_pct)}</td>
+                  <td className={`si-td--right ${d.total_pnl_pct >= 0 ? "si-td--up" : "si-td--dn"}`}>{signPct(d.total_pnl_pct)}</td>
+                  <td className="si-td--right">{d.sqn}</td>
+                  <td className="si-td--center"><span className={`si-grade ${verdictGrade(d.verdict)}`}>{d.verdict}</span></td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -2304,43 +2689,42 @@ function DeepAuditTab() {
       {subTab === "tickers" && (
         <div>
           {audit.toxic_tickers?.length > 0 && (
-            <div className="mb-3 p-2 rounded bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300">
-              <span className="font-medium">Toxic ({audit.toxic_tickers.length}):</span> {audit.toxic_tickers.join(", ")}
+            <div className="si-banner si-banner--danger" style={{marginBottom: "var(--ds-space-3)"}}>
+              <span style={{color:"var(--ds-dn)", fontWeight:700, letterSpacing:"0.06em", textTransform:"uppercase", fontSize:"var(--ds-fs-caption)"}}>Toxic ({audit.toxic_tickers.length})</span>
+              <span style={{color:"var(--ds-text-body)", fontSize:"var(--ds-fs-meta)", fontFamily:"var(--tt-font-mono)"}}>{audit.toxic_tickers.join(", ")}</span>
             </div>
           )}
           {audit.edge_tickers?.length > 0 && (
-            <div className="mb-3 p-2 rounded bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300">
-              <span className="font-medium">Edge ({audit.edge_tickers.length}):</span> {audit.edge_tickers.join(", ")}
+            <div className="si-banner si-banner--ok" style={{marginBottom: "var(--ds-space-3)"}}>
+              <span style={{color:"var(--ds-up)", fontWeight:700, letterSpacing:"0.06em", textTransform:"uppercase", fontSize:"var(--ds-fs-caption)"}}>Edge ({audit.edge_tickers.length})</span>
+              <span style={{color:"var(--ds-text-body)", fontSize:"var(--ds-fs-meta)", fontFamily:"var(--tt-font-mono)"}}>{audit.edge_tickers.join(", ")}</span>
             </div>
           )}
-          <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
-            <table className="w-full text-[11px]">
-              <thead className="sticky top-0 bg-[#0f1117]"><tr className="text-slate-500 border-b border-white/[0.06]">
-                <th className="py-2 text-left font-medium">Ticker</th>
-                <th className="py-2 text-right font-medium">N</th>
-                <th className="py-2 text-right font-medium">WR</th>
-                <th className="py-2 text-right font-medium">Avg P&L</th>
-                <th className="py-2 text-right font-medium">SQN</th>
-                <th className="py-2 text-right font-medium">MFE</th>
-                <th className="py-2 text-right font-medium">MAE</th>
-                <th className="py-2 text-center font-medium">Grade</th>
+          <div className="si-table-wrap si-table-wrap--scroll">
+            <table className="si-table">
+              <thead><tr>
+                <th>Ticker</th>
+                <th className="si-th--right">N</th>
+                <th className="si-th--right">WR</th>
+                <th className="si-th--right">Avg P&L</th>
+                <th className="si-th--right">SQN</th>
+                <th className="si-th--right">MFE</th>
+                <th className="si-th--right">MAE</th>
+                <th className="si-th--center">Grade</th>
               </tr></thead>
               <tbody>
-                {Object.entries(audit.ticker_profiles || {}).sort((a, b) => b[1].total_pnl_pct - a[1].total_pnl_pct).map(([ticker, d]) => {
-                  const gradeColors = { EDGE: "text-emerald-400 bg-emerald-500/10", STRONG: "text-emerald-300 bg-emerald-500/5", NEUTRAL: "text-slate-300 bg-white/5", WEAK: "text-amber-400 bg-amber-500/10", TOXIC: "text-rose-400 bg-rose-500/10" };
-                  return (
-                    <tr key={ticker} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
-                      <td className="py-1.5 text-white font-medium">{ticker}</td>
-                      <td className="py-1.5 text-right text-slate-300">{d.n}</td>
-                      <td className="py-1.5 text-right text-slate-300">{pct(d.win_rate)}</td>
-                      <td className={`py-1.5 text-right font-semibold ${d.avg_pnl_pct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{signPct(d.avg_pnl_pct)}</td>
-                      <td className="py-1.5 text-right text-slate-300">{d.sqn}</td>
-                      <td className="py-1.5 text-right text-slate-300">{pct(d.avg_mfe_pct)}</td>
-                      <td className="py-1.5 text-right text-slate-300">{pct(d.avg_mae_pct)}</td>
-                      <td className="py-1.5 text-center"><span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${gradeColors[d.grade] || gradeColors.NEUTRAL}`}>{d.grade}</span></td>
-                    </tr>
-                  );
-                })}
+                {Object.entries(audit.ticker_profiles || {}).sort((a, b) => b[1].total_pnl_pct - a[1].total_pnl_pct).map(([ticker, d]) => (
+                  <tr key={ticker}>
+                    <td className="si-td--mono" style={{color:"var(--ds-text-display)", fontWeight:700}}>{ticker}</td>
+                    <td className="si-td--right">{d.n}</td>
+                    <td className="si-td--right">{pct(d.win_rate)}</td>
+                    <td className={`si-td--right ${d.avg_pnl_pct >= 0 ? "si-td--up" : "si-td--dn"}`}>{signPct(d.avg_pnl_pct)}</td>
+                    <td className="si-td--right">{d.sqn}</td>
+                    <td className="si-td--right">{pct(d.avg_mfe_pct)}</td>
+                    <td className="si-td--right">{pct(d.avg_mae_pct)}</td>
+                    <td className="si-td--center"><span className={`si-grade ${verdictGrade(d.grade)}`}>{d.grade}</span></td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -2349,73 +2733,98 @@ function DeepAuditTab() {
 
       {/* ── Entry Paths ── */}
       {subTab === "paths" && (
-        <div className="space-y-3">
-          {Object.entries(audit.entry_paths || {}).sort((a, b) => b[1].n - a[1].n).map(([path, d]) => {
-            const actionColors = { KEEP: "text-slate-300 bg-white/5", BOOST: "text-emerald-400 bg-emerald-500/10", RESTRICT: "text-amber-400 bg-amber-500/10", DISABLE: "text-rose-400 bg-rose-500/10" };
-            return (
-              <div key={path} className={cardCls} style={{background:"rgba(255,255,255,0.02)", borderColor:"rgba(255,255,255,0.06)"}}>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-semibold text-white">{formatPath(path)}</span>
-                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${actionColors[d.action] || actionColors.KEEP}`}>{d.action}</span>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {Object.entries(audit.entry_paths || {}).sort((a, b) => b[1].n - a[1].n).map(([path, d]) => (
+            <div key={path} className="si-card">
+              <div className="si-card__head">
+                <div>
+                  <div className="si-card__eyebrow">Entry Path</div>
+                  <div className="si-card__title">{formatPath(path)}</div>
                 </div>
-                <div className="grid grid-cols-3 md:grid-cols-6 gap-2 text-center text-[11px]">
-                  {[["N", d.n], ["WR", pct(d.win_rate)], ["Exp", signPct(d.expectancy)], ["SQN", d.sqn], ["PF", d.profit_factor], ["Total", signPct(d.total_pnl_pct)]].map(([l,v]) => (
-                    <div key={l}><div className="text-[10px] text-slate-500">{l}</div><div className="text-xs text-white">{v}</div></div>
-                  ))}
-                </div>
+                <span className={`si-grade ${verdictGrade(d.action)}`}>{d.action}</span>
               </div>
-            );
-          })}
+              <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+                {[
+                  ["N", d.n, ""],
+                  ["WR", pct(d.win_rate), d.win_rate >= 50 ? "si-mini-stat__value--up" : "si-mini-stat__value--dn"],
+                  ["Exp", signPct(d.expectancy), d.expectancy >= 0 ? "si-mini-stat__value--up" : "si-mini-stat__value--dn"],
+                  ["SQN", d.sqn, ""],
+                  ["PF", d.profit_factor, ""],
+                  ["Total", signPct(d.total_pnl_pct), d.total_pnl_pct >= 0 ? "si-mini-stat__value--up" : "si-mini-stat__value--dn"],
+                ].map(([l, v, cls]) => (
+                  <div key={l} className="si-mini-stat">
+                    <div className="si-mini-stat__label">{l}</div>
+                    <div className={`si-mini-stat__value ${cls || ""}`}>{v ?? "—"}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
       {/* ── Time & Hold ── */}
       {subTab === "time" && (
         <div className="space-y-4">
-          <div>
-            <h3 className="text-xs font-medium text-slate-400 mb-2">Time of Day (ET)</h3>
+          <div className="si-card">
+            <div className="si-card__head">
+              <div>
+                <div className="si-card__eyebrow">Time of Day (ET)</div>
+                <div className="si-card__title">Hourly P&L distribution</div>
+              </div>
+            </div>
             <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
               {Object.entries(audit.time_of_day || {}).sort((a, b) => Number(a[0]) - Number(b[0])).map(([h, d]) => (
-                <div key={h} className={cardCls} style={{background: d.avg_pnl_pct >= 0 ? "rgba(16,185,129,0.05)" : "rgba(239,68,68,0.05)", borderColor: d.avg_pnl_pct >= 0 ? "rgba(16,185,129,0.15)" : "rgba(239,68,68,0.15)"}}>
-                  <div className="text-[10px] text-slate-500">{h}:00</div>
-                  <div className={`text-xs font-bold ${d.avg_pnl_pct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{signPct(d.avg_pnl_pct)}</div>
-                  <div className="text-[10px] text-slate-500">{d.n}t / {pct(d.win_rate)}</div>
+                <div key={h} className={`si-hour-cell ${d.avg_pnl_pct >= 0 ? "si-hour-cell--up" : "si-hour-cell--dn"}`}>
+                  <div className="si-hour-cell__time">{h}:00</div>
+                  <div className={`si-hour-cell__pnl ${d.avg_pnl_pct >= 0 ? "si-hour-cell__pnl--up" : "si-hour-cell__pnl--dn"}`}>{signPct(d.avg_pnl_pct)}</div>
+                  <div className="si-hour-cell__meta">{d.n}t · {pct(d.win_rate)}</div>
                 </div>
               ))}
             </div>
           </div>
-          <div>
-            <h3 className="text-xs font-medium text-slate-400 mb-2">Hold Time Buckets</h3>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+          <div className="si-card">
+            <div className="si-card__head">
+              <div>
+                <div className="si-card__eyebrow">Hold Time Buckets</div>
+                <div className="si-card__title">P&L by trade duration</div>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
               {Object.entries(audit.hold_time_analysis || {}).map(([bucket, d]) => (
-                <div key={bucket} className={cardCls} style={{background:"rgba(255,255,255,0.02)", borderColor:"rgba(255,255,255,0.06)"}}>
-                  <div className="text-[10px] text-slate-500 font-medium">{bucket}</div>
-                  <div className={`text-sm font-bold ${d.avg_pnl_pct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{signPct(d.avg_pnl_pct)}</div>
-                  <div className="text-[10px] text-slate-400">{d.n} trades / {pct(d.win_rate)} WR</div>
+                <div key={bucket} className="si-mini-stat" style={{padding:"var(--ds-space-3)", background:"var(--ds-bg-glass)", border:"1px solid var(--ds-stroke)", borderRadius:10}}>
+                  <div className="si-mini-stat__label">{bucket}</div>
+                  <div className={`si-mini-stat__value ${d.avg_pnl_pct >= 0 ? "si-mini-stat__value--up" : "si-mini-stat__value--dn"}`}>{signPct(d.avg_pnl_pct)}</div>
+                  <div style={{fontSize:"var(--ds-fs-caption)", color:"var(--ds-text-muted)", fontFamily:"var(--tt-font-mono)"}}>{d.n}t · {pct(d.win_rate)} WR</div>
                 </div>
               ))}
             </div>
           </div>
           {audit.sector_analysis && (
-            <div>
-              <h3 className="text-xs font-medium text-slate-400 mb-2">Sector Performance</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-[11px]">
-                  <thead><tr className="text-slate-500 border-b border-white/[0.06]">
-                    <th className="py-1.5 text-left font-medium">Sector</th>
-                    <th className="py-1.5 text-right font-medium">N</th>
-                    <th className="py-1.5 text-right font-medium">WR</th>
-                    <th className="py-1.5 text-right font-medium">Avg P&L</th>
-                    <th className="py-1.5 text-right font-medium">SQN</th>
+            <div className="si-card">
+              <div className="si-card__head">
+                <div>
+                  <div className="si-card__eyebrow">Sector Performance</div>
+                  <div className="si-card__title">P&L by GICS sector</div>
+                </div>
+              </div>
+              <div className="si-table-wrap">
+                <table className="si-table">
+                  <thead><tr>
+                    <th>Sector</th>
+                    <th className="si-th--right">N</th>
+                    <th className="si-th--right">WR</th>
+                    <th className="si-th--right">Avg P&L</th>
+                    <th className="si-th--right">SQN</th>
                   </tr></thead>
                   <tbody>
                     {Object.entries(audit.sector_analysis).sort((a, b) => b[1].n - a[1].n).map(([sec, d]) => (
-                      <tr key={sec} className="border-b border-white/[0.03]">
-                        <td className="py-1.5 text-white">{sec}</td>
-                        <td className="py-1.5 text-right text-slate-300">{d.n}</td>
-                        <td className="py-1.5 text-right">{pct(d.win_rate)}</td>
-                        <td className={`py-1.5 text-right font-semibold ${d.avg_pnl_pct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{signPct(d.avg_pnl_pct)}</td>
-                        <td className="py-1.5 text-right text-slate-300">{d.sqn}</td>
+                      <tr key={sec}>
+                        <td style={{color:"var(--ds-text-display)", fontWeight:600}}>{sec}</td>
+                        <td className="si-td--right">{d.n}</td>
+                        <td className="si-td--right">{pct(d.win_rate)}</td>
+                        <td className={`si-td--right ${d.avg_pnl_pct >= 0 ? "si-td--up" : "si-td--dn"}`}>{signPct(d.avg_pnl_pct)}</td>
+                        <td className="si-td--right">{d.sqn}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -2429,20 +2838,23 @@ function DeepAuditTab() {
       {/* ── Recommendations ── */}
       {subTab === "recs" && (
         <div className="space-y-3">
-          {(audit.recommendations || []).length === 0 && <div className="text-sm text-slate-400 text-center py-10">No recommendations generated</div>}
+          {(audit.recommendations || []).length === 0 && <div className="text-center py-10" style={{color:"var(--ds-text-muted)", fontSize:"var(--ds-fs-body)"}}>No recommendations generated</div>}
           {(audit.recommendations || []).map((r, i) => (
-            <div key={r.id} className={cardCls} style={{background:"rgba(255,255,255,0.02)", borderColor: i < 3 ? "rgba(16,185,129,0.2)" : "rgba(255,255,255,0.06)"}}>
-              <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold text-slate-500">#{i + 1}</span>
-                  <span className="text-xs font-semibold text-white">{r.title}</span>
+            <div key={r.id} className={`si-card ${i < 3 ? "si-edge-card--accent" : ""}`} style={i < 3 ? {borderLeft: "3px solid var(--ds-accent)"} : {}}>
+              <div className="si-card__head">
+                <div className="flex items-center gap-3">
+                  <span style={{fontFamily:"var(--tt-font-mono)", fontSize:"var(--ds-fs-caption)", fontWeight:700, color:"var(--ds-text-muted)", letterSpacing:"0.1em"}}>#{i + 1}</span>
+                  <div>
+                    <div className="si-card__eyebrow">Recommendation</div>
+                    <div className="si-card__title">{r.title}</div>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${r.confidence === "HIGH" ? "text-emerald-400 bg-emerald-500/10" : r.confidence === "MEDIUM" ? "text-amber-400 bg-amber-500/10" : "text-slate-300 bg-white/5"}`}>{r.confidence}</span>
-                  <span className="text-xs font-bold text-emerald-400">+{r.impact_pct}% pts</span>
+                  <span className={`si-grade ${verdictGrade(r.confidence)}`}>{r.confidence}</span>
+                  <span style={{fontFamily:"var(--tt-font-mono)", fontSize:"var(--ds-fs-body)", fontWeight:600, color:"var(--ds-up)"}}>+{r.impact_pct}% pts</span>
                 </div>
               </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">{r.detail}</p>
+              <p style={{fontSize:"var(--ds-fs-meta)", color:"var(--ds-text-muted)", lineHeight:1.55, margin:0}}>{r.detail}</p>
             </div>
           ))}
         </div>
@@ -2458,11 +2870,11 @@ function UnifiedAnalysisTab({ report, recs, reportId, onApply, applying, applied
   const [section, setSection] = useState("live");
   return (
     <div>
-      <div className="flex gap-1 mb-5">
-        <button onClick={() => setSection("live")} className={`px-4 py-2 text-xs font-semibold rounded-lg transition-all ${section === "live" ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30" : "bg-white/[0.03] text-slate-400 border border-white/[0.06] hover:bg-white/[0.06]"}`}>
+      <div className="si-subtabs">
+        <button onClick={() => setSection("live")} className={`si-subtabs__item ${section === "live" ? "si-subtabs__item--active" : ""}`}>
           Live Audit
         </button>
-        <button onClick={() => setSection("calibration")} className={`px-4 py-2 text-xs font-semibold rounded-lg transition-all ${section === "calibration" ? "bg-indigo-500/15 text-indigo-300 border border-indigo-500/30" : "bg-white/[0.03] text-slate-400 border border-white/[0.06] hover:bg-white/[0.06]"}`}>
+        <button onClick={() => setSection("calibration")} className={`si-subtabs__item ${section === "calibration" ? "si-subtabs__item--active" : ""}`}>
           Calibration Report
         </button>
       </div>

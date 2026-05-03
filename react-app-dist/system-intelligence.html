@@ -245,10 +245,163 @@
         z-index: 50;
       }
       .si-tip:hover::after { opacity: 1; }
+
+      /* ── v2 Analysis tab additions (2026-05-03) ──────────────────────
+         Extra surfaces used by the Analysis tab: dense KPI tile, mini
+         stat (label/value column), section heading, segmented sub-tabs,
+         data table, semantic verdict pills, and bordered cards used for
+         strengths/issues/direction. All compose from --ds-* tokens so
+         the Analysis tab inherits the same gold-on-graphite v2 palette
+         as Engine + Runs. */
+
+      .si-kpi--dense {
+        min-height: 78px;
+        padding: var(--ds-space-3) var(--ds-space-4);
+        gap: 4px;
+      }
+      .si-kpi--dense .si-kpi__value { font-size: 20px; }
+
+      .si-mini-stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+      .si-mini-stat__label { font-family: var(--tt-font-ui); font-size: var(--ds-fs-caption); font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: var(--ds-text-muted); }
+      .si-mini-stat__value { font-family: var(--tt-font-mono); font-size: var(--ds-fs-emph); font-weight: 600; color: var(--ds-text-display); font-variant-numeric: tabular-nums; line-height: 1.1; }
+      .si-mini-stat__value--up { color: var(--ds-up); }
+      .si-mini-stat__value--dn { color: var(--ds-dn); }
+      .si-mini-stat__value--accent { color: var(--ds-accent); }
+
+      .si-section-head {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: var(--ds-space-3); margin-bottom: var(--ds-space-3);
+      }
+      .si-section-head__title { font-size: var(--ds-fs-emph); font-weight: 600; color: var(--ds-text-display); letter-spacing: -0.005em; }
+      .si-section-head__subtitle { font-size: var(--ds-fs-meta); color: var(--ds-text-muted); margin-top: 2px; }
+
+      .si-subtabs {
+        display: inline-flex; gap: 2px;
+        background: var(--ds-bg-glass);
+        border: 1px solid var(--ds-stroke);
+        border-radius: 10px; padding: 3px;
+        margin-bottom: var(--ds-space-4);
+        overflow-x: auto; max-width: 100%;
+      }
+      .si-subtabs__item {
+        flex: 0 0 auto;
+        padding: 6px 12px; border-radius: 8px;
+        font-family: var(--tt-font-ui); font-size: var(--ds-fs-meta); font-weight: 600;
+        color: var(--ds-text-muted); cursor: pointer;
+        background: transparent; border: none; white-space: nowrap;
+        transition: background var(--ds-dur-fast), color var(--ds-dur-fast);
+        letter-spacing: 0.02em;
+      }
+      .si-subtabs__item:hover { color: var(--ds-text-body); background: var(--ds-bg-glass-hi); }
+      .si-subtabs__item--active { background: var(--ds-accent-dim); color: var(--ds-accent); }
+
+      .si-table-wrap {
+        background: var(--ds-bg-glass);
+        border: 1px solid var(--ds-stroke);
+        border-radius: var(--ds-radius);
+        overflow: hidden;
+      }
+      .si-table-wrap--scroll { max-height: 520px; overflow-y: auto; overflow-x: auto; }
+      .si-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--ds-fs-meta); }
+      .si-table thead th {
+        font-family: var(--tt-font-ui); font-size: var(--ds-fs-caption); font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.12em; color: var(--ds-text-muted);
+        padding: 10px 12px; text-align: left;
+        border-bottom: 1px solid var(--ds-stroke);
+        background: var(--ds-bg-surface);
+        position: sticky; top: 0; z-index: 1;
+      }
+      .si-table thead th.si-th--right { text-align: right; }
+      .si-table thead th.si-th--center { text-align: center; }
+      .si-table tbody td {
+        padding: 8px 12px; vertical-align: middle;
+        border-top: 1px solid var(--ds-stroke-soft);
+        color: var(--ds-text-body);
+      }
+      .si-table tbody td.si-td--right { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--tt-font-mono); }
+      .si-table tbody td.si-td--center { text-align: center; }
+      .si-table tbody td.si-td--mono { font-family: var(--tt-font-mono); }
+      .si-table tbody tr:hover td { background: var(--ds-bg-glass); }
+      .si-table tbody tr:hover td:first-child { background: var(--ds-accent-dim); }
+      .si-td--up { color: var(--ds-up); }
+      .si-td--dn { color: var(--ds-dn); }
+
+      /* Semantic verdict / grade chip — used for STAR/GOOD/OK/BAD/TOXIC,
+         BOOST/KEEP/RESTRICT/DISABLE, EDGE/STRONG/NEUTRAL/WEAK/TOXIC,
+         HIGH/MEDIUM/LOW recommendation confidence, etc. */
+      .si-grade {
+        display: inline-flex; align-items: center;
+        padding: 3px 8px; border-radius: 6px;
+        font-family: var(--tt-font-ui); font-size: var(--ds-fs-caption);
+        font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+        border: 1px solid transparent; line-height: 1;
+        white-space: nowrap;
+      }
+      .si-grade--star    { color: #FFD27A; background: rgba(245,194,92,0.18); border-color: rgba(245,194,92,0.32); }
+      .si-grade--good    { color: var(--ds-up); background: var(--ds-up-bg); border-color: rgba(34,197,94,0.28); }
+      .si-grade--ok      { color: var(--ds-text-body); background: var(--ds-bg-glass-hi); border-color: var(--ds-stroke); }
+      .si-grade--bad     { color: var(--ds-warn); background: rgba(245,158,11,0.14); border-color: rgba(245,158,11,0.28); }
+      .si-grade--toxic   { color: var(--ds-dn); background: var(--ds-dn-bg); border-color: rgba(244,63,94,0.32); }
+      .si-grade--info    { color: var(--ds-info); background: rgba(96,165,250,0.12); border-color: rgba(96,165,250,0.28); }
+      .si-grade--violet  { color: var(--ds-violet); background: rgba(167,139,250,0.12); border-color: rgba(167,139,250,0.28); }
+
+      /* Bordered semantic card — used for direction (long/short),
+         strengths (green), issues (red), recommendations (amber). */
+      .si-edge-card {
+        background: var(--ds-bg-surface);
+        border: 1px solid var(--ds-stroke);
+        border-radius: var(--ds-radius);
+        padding: var(--ds-space-4);
+        position: relative;
+      }
+      .si-edge-card--up      { border-left: 3px solid var(--ds-up); }
+      .si-edge-card--dn      { border-left: 3px solid var(--ds-dn); }
+      .si-edge-card--warn    { border-left: 3px solid var(--ds-warn); }
+      .si-edge-card--accent  { border-left: 3px solid var(--ds-accent); }
+      .si-edge-card--info    { border-left: 3px solid var(--ds-info); }
+      .si-edge-card--violet  { border-left: 3px solid var(--ds-violet); }
+
+      /* Time-of-day / hour cell — color-tinted micro card */
+      .si-hour-cell {
+        background: var(--ds-bg-glass);
+        border: 1px solid var(--ds-stroke);
+        border-radius: 10px;
+        padding: 8px 10px;
+        display: flex; flex-direction: column; gap: 2px;
+      }
+      .si-hour-cell--up { background: var(--ds-up-bg); border-color: rgba(34,197,94,0.22); }
+      .si-hour-cell--dn { background: var(--ds-dn-bg); border-color: rgba(244,63,94,0.22); }
+      .si-hour-cell__time { font-family: var(--tt-font-ui); font-size: var(--ds-fs-caption); color: var(--ds-text-muted); font-weight: 700; letter-spacing: 0.08em; }
+      .si-hour-cell__pnl { font-family: var(--tt-font-mono); font-size: var(--ds-fs-body); font-weight: 600; }
+      .si-hour-cell__pnl--up { color: var(--ds-up); }
+      .si-hour-cell__pnl--dn { color: var(--ds-dn); }
+      .si-hour-cell__meta { font-family: var(--tt-font-mono); font-size: var(--ds-fs-caption); color: var(--ds-text-muted); }
+
+      /* Inline class-count tile (used for Trade Classification) */
+      .si-class-tile {
+        background: var(--ds-bg-glass);
+        border: 1px solid var(--ds-stroke);
+        border-radius: 10px;
+        padding: var(--ds-space-3);
+        text-align: center;
+        display: flex; flex-direction: column; gap: 4px;
+      }
+      .si-class-tile__count { font-family: var(--tt-font-mono); font-size: 22px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+      .si-class-tile__label { font-family: var(--tt-font-ui); font-size: var(--ds-fs-caption); color: var(--ds-text-muted); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; }
+
+      /* Strengths / issues item rows */
+      .si-finding {
+        padding: 8px 10px; border-radius: 8px;
+        background: var(--ds-bg-glass);
+        border: 1px solid var(--ds-stroke-soft);
+      }
+      .si-finding + .si-finding { margin-top: 6px; }
+      .si-finding__title { font-size: var(--ds-fs-body); font-weight: 600; color: var(--ds-text-display); }
+      .si-finding__detail { font-size: var(--ds-fs-meta); color: var(--ds-text-muted); margin-top: 2px; line-height: 1.45; }
     </style>
   </head>
   <body>
     <div id="root"></div>
-    <script src="system-intelligence.compiled.00527df6f3.js"></script>
+    <script src="system-intelligence.compiled.3116efd830.js"></script>
   </body>
 </html>
