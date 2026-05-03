@@ -390,6 +390,10 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_volatility_expansion_floor_delta",         // default 5
   // V15 P0.7.52 (2026-05-03) — big-winner extension levers (analysis #1, #2)
   "deep_audit_mfe_decay_giveback_pct_max_volrunner_gap_long",  // default 0.75 (vs 0.60 base)
+  // V15 P0.7.53 (2026-05-03) — extend lever 1 cohort relax to PROFIT_GIVEBACK + SMART_RUNNER
+  "deep_audit_profit_giveback_pct_max_volrunner_gap_long",     // default 0.85 (vs 0.70 base)
+  "deep_audit_profit_giveback_min_mfe_volrunner_gap_long",     // default 5.0 (vs 3.0 base)
+  "deep_audit_smart_runner_volrunner_gap_long_defer_pnl_floor",// default -0.5 (vs >0 base)
 ];
 
 const REPLAY_CFG_KEYS = [

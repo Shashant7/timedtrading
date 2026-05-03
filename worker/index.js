@@ -17375,6 +17375,25 @@ async function processTradeSimulation(
           _gbMinMfe = Math.min(_gbMinMfe, 1.25);
           _gbGivebackRatio = Math.max(_gbGivebackRatio, 0.75);
         }
+        /* V15 P0.7.53 (2026-05-03) — cohort-scoped giveback relax for the
+           workhorse cohort (`tt_gap_reversal_long × VOLATILE_RUNNER × LONG`).
+           August Aug-window data showed PROFIT_GIVEBACK_STAGE_HOLD and the
+           parent PROFIT_GIVEBACK rule cut 5+ workhorse trades at 5-25%
+           capture (NVDA, APP, AEHR×2, IREN, ALB). Lever 1's mfe_decay_*
+           relax fired only ONCE in August, so the previous patch left this
+           cohort's main bleed unaddressed. Same DA flag pattern as P0.7.52:
+           cohort-only override of givebackRatio (default 0.7 → 0.85) and
+           minMfe floor (default 3.0 → 5.0). The required-3.0% MFE floor
+           prevents premature triggering; the 0.85 retention requirement
+           lets runners give back up to 85% before this rule fires. */
+        if (_gbDir === "LONG"
+            && _gbPath === "tt_gap_reversal_long"
+            && _gbVolatileRunner) {
+          const _gbCohortGiveback = Number(tickerData?._env?._deepAuditConfig?.deep_audit_profit_giveback_pct_max_volrunner_gap_long);
+          const _gbCohortMinMfe = Number(tickerData?._env?._deepAuditConfig?.deep_audit_profit_giveback_min_mfe_volrunner_gap_long);
+          _gbGivebackRatio = Math.max(_gbGivebackRatio, Number.isFinite(_gbCohortGiveback) ? _gbCohortGiveback : 0.85);
+          _gbMinMfe = Math.max(_gbMinMfe, Number.isFinite(_gbCohortMinMfe) ? _gbCohortMinMfe : 5.0);
+        }
         if (_gbMfePct >= _gbMinMfe) {
           const _gbProtectionStage = _getProtectionStage();
           const _gbEntry = Number(openTrade.entryPrice);
@@ -17874,7 +17893,22 @@ async function processTradeSimulation(
             : _srePnlPct;
           const _sreDeferPnlGate = _sreTotalTradePnlPct > 0;
 
-          const _sreCanDeferSafetyNet = !_sreCancelDeferral && !_sreTrimThenReassessCloudBreak && _sreDeferPnlGate && (
+          /* V15 P0.7.53 (2026-05-03) — cohort-scoped SMART_RUNNER deferral.
+             Workhorse cohort (`tt_gap_reversal_long × VOLATILE_RUNNER × LONG`)
+             gets a more permissive deferral: total trade PnL doesn't need to
+             be positive, just at least -0.5% (we're willing to risk a small
+             continued bleed for the chance to ride the runner further).
+             Aug data: KTOS at 7.8% capture, AEHR ×2 at 5-15% cap, IREN at
+             5.6% — all in this cohort. Knob: deep_audit_smart_runner_volrunner_gap_long_defer_pnl_floor */
+          const _sreEntryPath = String(openTrade?.entryPath || openTrade?.entry_path || "").toLowerCase();
+          const _sreIsVolRunnerGapLong = isLong && _sreEntryPath === "tt_gap_reversal_long" && _srePersonality === "VOLATILE_RUNNER";
+          const _sreCohortPnlFloor = Number(tickerData?._env?._deepAuditConfig?.deep_audit_smart_runner_volrunner_gap_long_defer_pnl_floor);
+          const _sreCohortFloor = Number.isFinite(_sreCohortPnlFloor) ? _sreCohortPnlFloor : -0.5;
+          const _sreDeferPnlGateCohort = _sreIsVolRunnerGapLong
+            ? _sreTotalTradePnlPct >= _sreCohortFloor
+            : _sreDeferPnlGate;
+
+          const _sreCanDeferSafetyNet = !_sreCancelDeferral && !_sreTrimThenReassessCloudBreak && _sreDeferPnlGateCohort && (
             _peakLockCloudHolding ||
             (_sreCloudAligned && _sreTH.htfIntact) ||
             _sreTH.htfIntact ||
@@ -41420,26 +41454,82 @@ export default {
           // Mirrors the methodology in tradingview/PERatioAnalyzer.txt and
           // tradingview/PricevsEarnings.txt that the user shared as reference.
           //
-          // Three valuation lines (we report all three so the UI can show a
-          // range, not just a single point):
-          //   1. forward_pe_x_forward_eps  — analyst forward expectation
-          //   2. growth_adjusted_peg       — PEG=1.0 framework with caps
-          //   3. conservative              — historical median-style floor
-          //
-          // The "headline" fair_value_price is the blend (median of the three
-          // when at least 2 methods have data; else whichever single method
-          // produced a value).
+          // CRITICAL FIX (post-GOOGL bug, 2026-05-03): single-quarter EPS YoY
+          // can spike to 80%+ (one-off comparison artifact); using that as if
+          // it were sustained projects unrealistic forward EPS and Fair Value
+          // (e.g. GOOGL at $385 with 81% Q-YoY → forward $642 implies +67%
+          // upside, which is not credible for a mega-cap). We now smooth
+          // growth across the trailing 4 quarters' YoY surprises and cap the
+          // applied growth at ±25% for forward projection, ±50% for the PEG
+          // P/E lookup. The conservative method is also re-anchored to a
+          // sane minimum P/E (12, not the prior min(peTtm,18)×0.85 which
+          // floored most growth stocks below their own intrinsic value).
           const dilutedEpsTtm = num(incomeStmt.diluted_eps_ttm);
+
+          // Smoothed EPS growth — match each "real quarterly" earnings row
+          // (eps_actual ≥ 0.5 to filter out non-quarterly interim filings)
+          // to the same quarter in the prior year by exact month, compute
+          // YoY % growth, then take the median of the last 4-6 such matches.
+          //
+          // Without month-matching we got hit by bogus filings (e.g. GOOGL
+          // 2026-04-17 $0.15 likely a dividend or interim filing, not real
+          // EPS) and an i vs i+4 offset that misaligned quarters.
+          const smoothedEpsGrowthPct = (() => {
+            const realQuarters = past.filter((p) => {
+              const v = num(p?.eps_actual);
+              return v != null && Math.abs(v) >= 0.5 && p?.date;
+            });
+            const yoyRates = [];
+            for (let i = 0; i < realQuarters.length; i++) {
+              const cur = realQuarters[i];
+              const curDate = new Date(cur.date);
+              if (isNaN(curDate.getTime())) continue;
+              // Find the same calendar month exactly 1 year earlier (±1 month tolerance)
+              const targetYear = curDate.getUTCFullYear() - 1;
+              const targetMonth = curDate.getUTCMonth();
+              const prior = realQuarters.slice(i + 1).find((p) => {
+                const d = new Date(p.date);
+                return d.getUTCFullYear() === targetYear && Math.abs(d.getUTCMonth() - targetMonth) <= 1;
+              });
+              if (!prior) continue;
+              const curEps = num(cur.eps_actual);
+              const priorEps = num(prior.eps_actual);
+              if (priorEps == null || priorEps === 0) continue;
+              const g = ((curEps - priorEps) / Math.abs(priorEps)) * 100;
+              if (Math.abs(g) <= 300) yoyRates.push(g);
+            }
+            if (yoyRates.length >= 2) {
+              const sorted = [...yoyRates].sort((a, b) => a - b);
+              // Use median for robustness to one-off spikes (e.g. GOOGL
+              // 2026-04-29 saw +2738% YoY due to comparison artifact).
+              return sorted[Math.floor(sorted.length / 2)];
+            }
+            return epsGrowthPct;
+          })();
+
+          // Forward EPS — use analyst sum if available (most accurate),
+          // otherwise project TTM × (1 + clamp(growth, ±25%)).
           let fwdEpsImplied = null;
+          let fwdEpsBasis = null;
           if (upcoming.length >= 4) {
             const next4 = upcoming.slice(-4).map((e) => num(e.eps_estimate)).filter((v) => v != null);
-            if (next4.length === 4) fwdEpsImplied = next4.reduce((s, v) => s + v, 0);
+            if (next4.length === 4) {
+              fwdEpsImplied = next4.reduce((s, v) => s + v, 0);
+              fwdEpsBasis = "analyst_next_4q_sum";
+            }
           }
-          if (fwdEpsImplied == null && dilutedEpsTtm != null && epsGrowthPct != null) {
-            fwdEpsImplied = dilutedEpsTtm * (1 + Math.max(-0.5, Math.min(2.0, epsGrowthPct / 100)));
+          if (fwdEpsImplied == null && dilutedEpsTtm != null && smoothedEpsGrowthPct != null) {
+            // Cap forward growth projection at ±25% — even hot growth stocks
+            // mean-revert. Beyond 25% we defer to the analyst forward P/E.
+            const cappedGrowth = Math.max(-25, Math.min(25, smoothedEpsGrowthPct));
+            fwdEpsImplied = dilutedEpsTtm * (1 + cappedGrowth / 100);
+            fwdEpsBasis = `ttm_eps_x_smoothed_growth_${cappedGrowth.toFixed(0)}pct`;
           }
 
           // Method 1 — Forward P/E × forward EPS
+          // Reflects what analysts collectively expect. Use peForward (which is
+          // a reported analyst figure) when available; this is the most defensible
+          // because it sidesteps our growth-projection assumptions entirely.
           let fvForward = null;
           if (peForward != null && fwdEpsImplied != null && fwdEpsImplied > 0) {
             fvForward = peForward * fwdEpsImplied;
@@ -41447,27 +41537,34 @@ export default {
 
           // Method 2 — Growth-Adjusted PEG (per PricevsEarnings.txt)
           //   Fair P/E = growth_rate_pct × target_PEG (default PEG=1.0)
-          //   Cap between historical avg P/E (or 15 fallback) and 40 ("max growth P/E").
-          //   Apply to TTM EPS to get fair value price.
+          //   We cap the input growth at 50% (so PEG-justified P/E max-out
+          //   matches the user's indicator's 40 cap rather than running wild).
+          //   Applied to TTM EPS.
           let fvGrowthPeg = null;
           let growthAdjustedPe = null;
-          if (epsGrowthPct != null && epsGrowthPct > 0 && dilutedEpsTtm != null && dilutedEpsTtm > 0) {
+          if (smoothedEpsGrowthPct != null && smoothedEpsGrowthPct > 0 && dilutedEpsTtm != null && dilutedEpsTtm > 0) {
             const targetPeg = 1.0;
+            const cappedGrowthForPe = Math.min(50, smoothedEpsGrowthPct);
+            const rawPe = cappedGrowthForPe * targetPeg;
+            // Floor at TTM P/E × 0.85 (don't say a stock is fair-valued at less
+            // than its current trailing P/E unless growth genuinely warrants it),
+            // ceiling at 40.
             const minPe = peTtm != null && peTtm > 0 ? Math.max(15, peTtm * 0.85) : 15;
             const maxPe = 40;
-            const rawPe = epsGrowthPct * targetPeg;
             growthAdjustedPe = Math.max(minPe, Math.min(rawPe, maxPe));
             fvGrowthPeg = dilutedEpsTtm * growthAdjustedPe;
           }
 
-          // Method 3 — Conservative (Historical median-style × 0.85)
-          //   We don't have 5-year P/E history per the indicator, so we
-          //   approximate "median × 0.85" with `min(peTtm, 15) × 0.85` —
-          //   gives us a "bargain territory" floor that's anchored to the
-          //   ticker's own current valuation rather than a market constant.
+          // Method 3 — Conservative (TTM P/E × 0.80, floored at 12)
+          //   This is the "bargain territory" line — not a fair value, more like
+          //   the price at which a long-term value buyer would step in. Re-anchored
+          //   to the ticker's current trailing P/E (not arbitrary 18) since growth
+          //   stocks legitimately trade at higher trailing P/Es; previously the
+          //   min(peTtm, 18) × 0.85 collapsed GOOGL conservative to $200 vs $385
+          //   actual, which over-stated the discount.
           let fvConservative = null;
           if (peTtm != null && peTtm > 0 && dilutedEpsTtm != null && dilutedEpsTtm > 0) {
-            const conservativePe = Math.min(peTtm, 18) * 0.85;
+            const conservativePe = Math.max(12, peTtm * 0.80);
             fvConservative = dilutedEpsTtm * conservativePe;
           }
 
@@ -41542,6 +41639,9 @@ export default {
                 growth_peg: fvGrowthPeg != null ? Number(fvGrowthPeg.toFixed(2)) : null,
                 conservative: fvConservative != null ? Number(fvConservative.toFixed(2)) : null,
                 growth_adjusted_pe: growthAdjustedPe != null ? Number(growthAdjustedPe.toFixed(2)) : null,
+                fwd_eps_implied: fwdEpsImplied != null ? Number(fwdEpsImplied.toFixed(2)) : null,
+                fwd_eps_basis: fwdEpsBasis,
+                smoothed_growth_pct: smoothedEpsGrowthPct != null ? Number(smoothedEpsGrowthPct.toFixed(2)) : null,
               },
               current_price: currentPrice,
             },

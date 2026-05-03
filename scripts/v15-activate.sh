@@ -137,6 +137,10 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_winner_protect_big_mfe_lock_pct", "value": "0.55" },
     { "key": "deep_audit_mfe_decay_giveback_pct_max_volrunner_gap_long", "value": "0.75" },
 
+    { "_comment": "V15 P0.7.53 — extend lever 1 to PROFIT_GIVEBACK + SMART_RUNNER (Aug autopsy).", "key": "deep_audit_profit_giveback_pct_max_volrunner_gap_long", "value": "0.85" },
+    { "key": "deep_audit_profit_giveback_min_mfe_volrunner_gap_long", "value": "5.0" },
+    { "key": "deep_audit_smart_runner_volrunner_gap_long_defer_pnl_floor", "value": "-0.5" },
+
     { "_comment": "V15 P0.7.51 — universe-benchmark calibration knobs.", "key": "deep_audit_hard_fuse_default_rsi1h", "value": "85" },
     { "key": "deep_audit_hard_fuse_default_rsi4h", "value": "80" },
     { "key": "deep_audit_hard_fuse_volrunner_gap_long_rsi1h", "value": "88" },

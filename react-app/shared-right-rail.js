@@ -3355,7 +3355,20 @@
                     };
 
                     return (
-                      <>
+                      <div className="ds-fundamentals-tab" style={{
+                        // Compact-density wrapper. Shrinks all metric values
+                        // and chips inside this tab specifically without
+                        // affecting Snapshot / Setup / Technicals where the
+                        // bigger numerals are appropriate. Per user feedback:
+                        // current Tenet-style font sizes were too large.
+                        "--ds-fs-h2": "16px",
+                        "--ds-fs-h3": "14px",
+                        "--ds-fs-md": "13px",
+                        "--ds-fs-meta": "11px",
+                        "--ds-fs-caption": "10px",
+                        "--ds-fs-eyebrow": "9px",
+                        "--ds-space-3": "10px",
+                      }}>
                         {/* Header strip — sector / industry / market cap / cash-rich */}
                         <Panel title={prof.name || tickerSymbol} action={
                           <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }}>
@@ -3407,12 +3420,12 @@
                                 <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: 9, color: "var(--ds-text-faint)" }} title="Fair value basis">{val.fair_value_basis || "—"}</span>
                               </div>
                               <div style={{ display: "flex", alignItems: "baseline", gap: "var(--ds-space-2)", flexWrap: "wrap" }}>
-                                <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-h2)", fontWeight: 700, color: fairColor }}>${fmtNum(val.fair_value_price, 2)}</span>
+                                <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-md)", fontWeight: 700, color: fairColor }}>${fmtNum(val.fair_value_price, 2)}</span>
                                 {val.current_price != null && (
-                                  <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)" }}>vs current ${fmtNum(val.current_price, 2)}</span>
+                                  <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)" }}>vs ${fmtNum(val.current_price, 2)}</span>
                                 )}
                                 {val.fair_value_premium_pct != null && (
-                                  <span className="ds-chip ds-chip--sm" style={{ color: fairColor, background: "transparent", border: `1px solid ${fairColor}`, fontFamily: "var(--tt-font-mono)" }}>
+                                  <span style={{ color: fairColor, fontFamily: "var(--tt-font-mono)", fontSize: 10, fontWeight: 600 }}>
                                     {val.fair_value_premium_pct >= 0 ? "+" : ""}{val.fair_value_premium_pct.toFixed(1)}%
                                   </span>
                                 )}
@@ -3451,33 +3464,33 @@
                           )}
                         </Panel>
 
-                        {/* Growth banners — EPS + Rev growth with EXPLODING chips */}
+                        {/* Growth — single compact row instead of chunky banners */}
                         {(grw.eps_growth_pct != null || grw.rev_growth_pct != null) && (
                           <Panel title="Growth (Q YoY)">
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--ds-space-2)" }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "var(--ds-space-2)" }}>
                               {grw.eps_growth_pct != null && (
-                                <div style={{ padding: "var(--ds-space-3)", background: "var(--ds-bg-glass)", borderRadius: "var(--ds-radius-xs)" }}>
-                                  <div className="ds-caption" style={{ color: "var(--ds-text-muted)", marginBottom: 4 }}>EPS GROWTH</div>
-                                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-                                    <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-h3)", fontWeight: 700, color: grw.eps_growth_pct >= 0 ? "var(--ds-up)" : "var(--ds-dn)" }}>
-                                      {fmtPctSigned(grw.eps_growth_pct)}
-                                    </span>
+                                <div>
+                                  <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 6 }}>
+                                    <span className="ds-caption" style={{ color: "var(--ds-text-muted)" }}>EPS</span>
                                     {epsChip && (
-                                      <span style={{ color: epsChip.color, background: epsChip.bg, border: `1px solid ${epsChip.border}`, padding: "1px 6px", borderRadius: 3, fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, letterSpacing: "0.12em" }}>{epsChip.label}</span>
+                                      <span style={{ color: epsChip.color, fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 600, letterSpacing: "0.10em" }}>{epsChip.label}</span>
                                     )}
+                                  </div>
+                                  <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-md)", fontWeight: 600, color: grw.eps_growth_pct >= 0 ? "var(--ds-up)" : "var(--ds-dn)" }}>
+                                    {fmtPctSigned(grw.eps_growth_pct)}
                                   </div>
                                 </div>
                               )}
                               {grw.rev_growth_pct != null && (
-                                <div style={{ padding: "var(--ds-space-3)", background: "var(--ds-bg-glass)", borderRadius: "var(--ds-radius-xs)" }}>
-                                  <div className="ds-caption" style={{ color: "var(--ds-text-muted)", marginBottom: 4 }}>REV GROWTH</div>
-                                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-                                    <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-h3)", fontWeight: 700, color: grw.rev_growth_pct >= 0 ? "var(--ds-up)" : "var(--ds-dn)" }}>
-                                      {fmtPctSigned(grw.rev_growth_pct)}
-                                    </span>
+                                <div>
+                                  <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 6 }}>
+                                    <span className="ds-caption" style={{ color: "var(--ds-text-muted)" }}>REVENUE</span>
                                     {revChip && (
-                                      <span style={{ color: revChip.color, background: revChip.bg, border: `1px solid ${revChip.border}`, padding: "1px 6px", borderRadius: 3, fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, letterSpacing: "0.12em" }}>{revChip.label}</span>
+                                      <span style={{ color: revChip.color, fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 600, letterSpacing: "0.10em" }}>{revChip.label}</span>
                                     )}
+                                  </div>
+                                  <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-md)", fontWeight: 600, color: grw.rev_growth_pct >= 0 ? "var(--ds-up)" : "var(--ds-dn)" }}>
+                                    {fmtPctSigned(grw.rev_growth_pct)}
                                   </div>
                                 </div>
                               )}
@@ -3597,7 +3610,7 @@
                         <div style={{ marginTop: "var(--ds-space-2)", padding: "var(--ds-space-2)", textAlign: "center", color: "var(--ds-text-faint)", fontSize: 9, fontFamily: "var(--tt-font-mono)", letterSpacing: "0.12em" }}>
                           DATA · TWELVEDATA · CACHED 6H · FETCHED {new Date(F.as_of || Date.now()).toLocaleTimeString()}
                         </div>
-                      </>
+                      </div>
                     );
                   })()}
 
