@@ -806,6 +806,13 @@ const ROUTES = [
   ["POST", "/timed/admin/runs/update", "POST /timed/admin/runs/update"],
   ["POST", "/timed/admin/runs/delete", "POST /timed/admin/runs/delete"],
   ["POST", "/timed/admin/runs/config-patch", "POST /timed/admin/runs/config-patch"],
+  // System Intelligence revamp (2026-05-03) — endpoints owned by the
+  // `/system-intelligence.html` page so the operator never has to drop
+  // to a shell to re-run analysis or compute the next calibration deltas.
+  // See tasks/system-intelligence-revamp/audit.md for the surface map.
+  ["GET", "/timed/admin/system-intelligence/engine-snapshot", "GET /timed/admin/system-intelligence/engine-snapshot"],
+  ["POST", "/timed/admin/system-intelligence/run-analysis", "POST /timed/admin/system-intelligence/run-analysis"],
+  ["POST", "/timed/admin/system-intelligence/calibrate", "POST /timed/admin/system-intelligence/calibrate"],
   ["GET", "/timed/admin/runs", "GET /timed/admin/runs"],
   ["GET", "/timed/admin/runs/live", "GET /timed/admin/runs/live"],
   ["GET", "/timed/admin/runs/detail", "GET /timed/admin/runs/detail"],
@@ -49541,6 +49548,411 @@ export default {
             applied.push({ key, value });
           }
           return sendJSON({ ok: true, run_id: runId, applied }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ── System Intelligence revamp (2026-05-03) ──
+      // GET /timed/admin/system-intelligence/engine-snapshot[?run_id=...]
+      // One call returns everything the new Engine tab needs: the active
+      // run id, run-scoped KPIs (trades, WR, expectancy, R, Sharpe, max
+      // DD, net $), top-5 winners + bottom-5 losers (by realized $),
+      // engine health verdict (green/yellow/red) and Loop 2 pause state.
+      // No reliance on stale calibration generations; this is pulled
+      // direct from `backtest_run_trades` for the in-flight run.
+      if (routeKey === "GET /timed/admin/system-intelligence/engine-snapshot") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        try {
+          let runId = String(url.searchParams.get("run_id") || "").trim();
+          let activeRun = null;
+          let activeSource = null;
+          if (!runId) {
+            const activeState = await loadActiveRunState(db, KV);
+            runId = activeState.activeRunId || activeState.live?.run_id || null;
+            activeRun = activeState.active || activeState.live || null;
+            activeSource = activeState.activeSource || null;
+          } else {
+            try {
+              activeRun = await db.prepare(
+                `SELECT r.*, m.total_trades, m.wins, m.losses, m.win_rate, m.realized_pnl, m.realized_pnl_pct
+                   FROM backtest_runs r LEFT JOIN backtest_run_metrics m ON r.run_id = m.run_id
+                  WHERE r.run_id = ?1`
+              ).bind(runId).first();
+            } catch {}
+          }
+          if (!runId) return sendJSON({ ok: false, error: "no_active_run" }, 200, corsHeaders(env, req));
+
+          // Pull every trade row for the run. 20 k cap mirrors run-trades.
+          const limit = Math.min(Number(url.searchParams.get("limit")) || 5000, 20000);
+          let trades = [];
+          try {
+            trades = (await db.prepare(
+              `SELECT trade_id, ticker, direction, entry_ts, entry_price, exit_ts, exit_price,
+                      status, exit_reason, pnl, pnl_pct, max_favorable_excursion, max_adverse_excursion,
+                      setup_grade, setup_name, entry_path
+                 FROM backtest_run_trades WHERE run_id = ?1
+                ORDER BY entry_ts ASC LIMIT ?2`
+            ).bind(runId, limit).all())?.results || [];
+          } catch {}
+
+          const closed = trades.filter(t => t.exit_ts && Number.isFinite(Number(t.pnl)));
+          const wins = closed.filter(t => Number(t.pnl) > 0);
+          const losses = closed.filter(t => Number(t.pnl) < 0);
+          const breakevens = closed.filter(t => Number(t.pnl) === 0);
+          const realized = closed.reduce((s, t) => s + Number(t.pnl || 0), 0);
+          const grossProfit = wins.reduce((s, t) => s + Number(t.pnl || 0), 0);
+          const grossLoss = Math.abs(losses.reduce((s, t) => s + Number(t.pnl || 0), 0));
+          const winRate = closed.length ? (wins.length / closed.length) * 100 : 0;
+          const avgWin = wins.length ? grossProfit / wins.length : 0;
+          const avgLoss = losses.length ? grossLoss / losses.length : 0;
+          const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? Infinity : 0);
+          const expectancy = closed.length ? realized / closed.length : 0;
+          // R metric: pnl_pct (per-trade %) → mean / stdev
+          const pcts = closed.map(t => Number(t.pnl_pct || 0));
+          const meanR = pcts.length ? pcts.reduce((s, v) => s + v, 0) / pcts.length : 0;
+          const variance = pcts.length ? pcts.reduce((s, v) => s + Math.pow(v - meanR, 2), 0) / pcts.length : 0;
+          const stdR = Math.sqrt(variance);
+          const sqn = stdR > 0 && pcts.length ? (meanR / stdR) * Math.sqrt(pcts.length) : 0;
+          // Sharpe-ish: scaled mean R / stdev (no risk-free, simple ratio).
+          const sharpe = stdR > 0 ? meanR / stdR : 0;
+          // Max DD: walk realized P&L curve.
+          let peak = 0, dd = 0, maxDD = 0;
+          let runningPnl = 0;
+          const sorted = closed.slice().sort((a, b) => Number(a.exit_ts) - Number(b.exit_ts));
+          for (const t of sorted) {
+            runningPnl += Number(t.pnl || 0);
+            if (runningPnl > peak) peak = runningPnl;
+            dd = peak - runningPnl;
+            if (dd > maxDD) maxDD = dd;
+          }
+          // Consecutive losses (latest streak working backwards).
+          let consecLosses = 0;
+          for (let i = sorted.length - 1; i >= 0; i--) {
+            if (Number(sorted[i].pnl) < 0) consecLosses++;
+            else break;
+          }
+          // Top winners / bottom losers by $ amount.
+          const winnersByDollar = closed.slice().sort((a, b) => Number(b.pnl) - Number(a.pnl)).slice(0, 5).map(t => ({
+            trade_id: t.trade_id, ticker: t.ticker, direction: t.direction,
+            entry_ts: t.entry_ts, exit_ts: t.exit_ts, pnl: Number(t.pnl) || 0,
+            pnl_pct: Number(t.pnl_pct) || 0, exit_reason: t.exit_reason || "", setup_grade: t.setup_grade || "",
+          }));
+          const losersByDollar = closed.slice().sort((a, b) => Number(a.pnl) - Number(b.pnl)).slice(0, 5).map(t => ({
+            trade_id: t.trade_id, ticker: t.ticker, direction: t.direction,
+            entry_ts: t.entry_ts, exit_ts: t.exit_ts, pnl: Number(t.pnl) || 0,
+            pnl_pct: Number(t.pnl_pct) || 0, exit_reason: t.exit_reason || "", setup_grade: t.setup_grade || "",
+          }));
+          // Recent trades (last 10).
+          const recent = sorted.slice(-10).reverse().map(t => ({
+            trade_id: t.trade_id, ticker: t.ticker, direction: t.direction,
+            entry_ts: t.entry_ts, exit_ts: t.exit_ts, pnl: Number(t.pnl) || 0,
+            pnl_pct: Number(t.pnl_pct) || 0, exit_reason: t.exit_reason || "",
+          }));
+
+          // Engine health verdict — start ok, downgrade based on signals.
+          // Pull Loop 2 pause flag via model_config (kvKey loop2 pause).
+          let loop2Paused = false;
+          let loop2Reason = null;
+          try {
+            const cfg = await db.prepare(
+              `SELECT key, value FROM model_config WHERE key IN ('loop2_pause_active', 'loop2_pause_reason', 'loop2_circuit_breaker_paused')`
+            ).all();
+            for (const row of (cfg?.results || [])) {
+              if ((row.key === "loop2_pause_active" || row.key === "loop2_circuit_breaker_paused") && String(row.value).toLowerCase() === "true") loop2Paused = true;
+              if (row.key === "loop2_pause_reason") loop2Reason = row.value;
+            }
+          } catch {}
+          // Health logic:
+          //   red    – Loop 2 paused, OR consecutive losses ≥ 6, OR WR<35%
+          //   yellow – consecutive losses ≥ 3, OR WR < 45%, OR PF < 1.0
+          //   green  – none of the above
+          let healthLabel = "Healthy";
+          let healthLevel = "ok";
+          let healthDetails = [];
+          if (loop2Paused) {
+            healthLabel = "Loop 2 Paused"; healthLevel = "danger"; healthDetails.push(loop2Reason || "Circuit breaker active");
+          } else if (consecLosses >= 6 || (closed.length >= 20 && winRate < 35)) {
+            healthLabel = "At Risk"; healthLevel = "danger";
+            if (consecLosses >= 6) healthDetails.push(`${consecLosses} losses in a row`);
+            if (winRate < 35) healthDetails.push(`WR ${winRate.toFixed(1)}%`);
+          } else if (consecLosses >= 3 || (closed.length >= 20 && winRate < 45) || (closed.length >= 20 && profitFactor < 1.0)) {
+            healthLabel = "Caution"; healthLevel = "warn";
+            if (consecLosses >= 3) healthDetails.push(`${consecLosses} losses in a row`);
+            if (winRate < 45) healthDetails.push(`WR ${winRate.toFixed(1)}%`);
+            if (profitFactor < 1.0) healthDetails.push(`PF ${profitFactor.toFixed(2)}`);
+          } else {
+            healthDetails.push(`${closed.length} closed`);
+            healthDetails.push(`WR ${winRate.toFixed(1)}%`);
+          }
+
+          // Sim progress for active leg.
+          let simProgress = null;
+          if (activeRun?.start_date && activeRun?.end_date) {
+            const start = new Date(`${activeRun.start_date}T00:00:00Z`).getTime();
+            const end = new Date(`${activeRun.end_date}T23:59:59Z`).getTime();
+            // Latest entry_ts in trades is best proxy for "current sim date"
+            const latestEntry = sorted.length ? Number(sorted[sorted.length - 1].exit_ts || sorted[sorted.length - 1].entry_ts) : null;
+            const cur = latestEntry || start;
+            const totalDays = Math.max(1, Math.round((end - start) / 86400000));
+            const elapsedDays = Math.max(0, Math.min(totalDays, Math.round((cur - start) / 86400000)));
+            simProgress = {
+              start_date: activeRun.start_date,
+              end_date: activeRun.end_date,
+              current_sim_ts: cur,
+              current_sim_date: new Date(cur).toISOString().slice(0, 10),
+              total_days: totalDays,
+              elapsed_days: elapsedDays,
+              pct: Math.round((elapsedDays / totalDays) * 1000) / 10,
+            };
+          }
+
+          return sendJSON({
+            ok: true,
+            run_id: runId,
+            run_label: activeRun?.label || null,
+            run_status: activeRun?.status || null,
+            run_description: activeRun?.description || null,
+            active_source: activeSource,
+            generated_at: Date.now(),
+            kpis: {
+              trades_total: trades.length,
+              trades_closed: closed.length,
+              wins: wins.length,
+              losses: losses.length,
+              breakevens: breakevens.length,
+              win_rate: Number(winRate.toFixed(2)),
+              avg_win: Number(avgWin.toFixed(2)),
+              avg_loss: Number(avgLoss.toFixed(2)),
+              expectancy: Number(expectancy.toFixed(2)),
+              avg_r: Number(meanR.toFixed(3)),
+              std_r: Number(stdR.toFixed(3)),
+              sharpe: Number(sharpe.toFixed(3)),
+              sqn: Number(sqn.toFixed(2)),
+              profit_factor: profitFactor === Infinity ? null : Number(profitFactor.toFixed(2)),
+              realized_pnl: Number(realized.toFixed(2)),
+              max_drawdown: Number(maxDD.toFixed(2)),
+              max_drawdown_pct: peak > 0 ? Number(((maxDD / peak) * 100).toFixed(2)) : 0,
+              consec_losses: consecLosses,
+            },
+            health: {
+              label: healthLabel,
+              level: healthLevel,
+              details: healthDetails,
+              loop2_paused: loop2Paused,
+              loop2_reason: loop2Reason,
+            },
+            sim_progress: simProgress,
+            top_winners: winnersByDollar,
+            top_losers: losersByDollar,
+            recent_trades: recent,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/system-intelligence/run-analysis?run_id=...
+      // Wraps `runCalibrationAnalysis` so the operator can fire the
+      // analysis pipeline from the page (no local `node scripts/calibrate.js`
+      // required). Always `diagnostic_only` — never auto-applies; the
+      // proposed deltas surface in the UI for an explicit Apply click.
+      if (routeKey === "POST /timed/admin/system-intelligence/run-analysis") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          const body = await req.json().catch(() => ({}));
+          const runIdParam = String(url.searchParams.get("run_id") || body?.run_id || "").trim();
+          await d1EnsureCalibrationSchema(env);
+          await d1EnsureLearningSchema(env);
+          if (KV) writeCalibrationStatus(KV, "running_analysis", "Analysis triggered from System Intelligence page", { started_at: Date.now(), step: 4, scope_id: runIdParam || "default", scope_kind: runIdParam ? "run" : "legacy", diagnostic_only: true });
+          const report = await runCalibrationAnalysis(env, {
+            scopeId: runIdParam || "default",
+            sourceRunId: runIdParam || null,
+            scopeKind: runIdParam ? "run" : "legacy",
+            diagnosticOnly: true,
+          });
+          if (KV) {
+            writeCalibrationStatus(KV, "done", `Done! Report ${report?.report_id || "?"}.`, {
+              started_at: Date.now(), step: 5,
+              report_id: report?.report_id || null,
+              scope_id: runIdParam || "default",
+              scope_kind: runIdParam ? "run" : "legacy",
+              source_run_id: runIdParam || null,
+              diagnostic_only: true,
+            });
+            await KV.delete("timed:calibration:requested").catch(() => {});
+          }
+          return sendJSON({ ok: true, report }, 200, corsHeaders(env, req));
+        } catch (e) {
+          console.error("[SYSTEM INTELLIGENCE] run-analysis error:", e);
+          if (KV) writeCalibrationStatus(KV, "error", `Error: ${String(e?.message || e).slice(0, 200)}`, { started_at: Date.now() });
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/system-intelligence/calibrate?run_id=...
+      // Returns proposed DA flag deltas based on the active run's trades.
+      // Five rule-based proposals (no ML — keep it deterministic):
+      //   1. If a setup × direction combo at <30% WR with ≥5 samples →
+      //      propose `block_<setup>_<direction>=true`.
+      //   2. If a setup × direction combo at >70% WR with ≥10 samples →
+      //      propose `prefer_<setup>_<direction>=true`.
+      //   3. If a ticker has < -2.5R cumulative across ≥3 trades →
+      //      propose adding to `ticker_blocklist`.
+      //   4. If `consec_losses >= 5` → propose `loop2_circuit_breaker_paused=true`.
+      //   5. If overall WR ≥ 60% & PF ≥ 1.6 with ≥30 trades →
+      //      propose `risk_dial_up_amount=0.0025` (gradual sizing-up).
+      // Returns deltas as JSON; nothing is applied until the operator
+      // clicks "Apply" per delta against `/timed/admin/runs/config-patch`
+      // (or `/timed/admin/model-config` for the live engine).
+      if (routeKey === "POST /timed/admin/system-intelligence/calibrate") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        try {
+          let runId = String(url.searchParams.get("run_id") || "").trim();
+          if (!runId) {
+            const activeState = await loadActiveRunState(db, KV);
+            runId = activeState.activeRunId || activeState.live?.run_id || null;
+          }
+          if (!runId) return sendJSON({ ok: false, error: "no_active_run" }, 400, corsHeaders(env, req));
+          const trades = (await db.prepare(
+            `SELECT trade_id, ticker, direction, entry_path, setup_grade, status, pnl, pnl_pct, exit_ts
+               FROM backtest_run_trades WHERE run_id = ?1
+              ORDER BY entry_ts ASC LIMIT 20000`
+          ).bind(runId).all())?.results || [];
+          const closed = trades.filter(t => t.exit_ts && Number.isFinite(Number(t.pnl)));
+          const proposals = [];
+
+          // Rule 1 + 2: setup × direction WR.
+          const comboMap = new Map();
+          for (const t of closed) {
+            const key = `${(t.entry_path || "unknown")}|${t.direction || "?"}`;
+            if (!comboMap.has(key)) comboMap.set(key, { wins: 0, total: 0, pnl: 0 });
+            const m = comboMap.get(key);
+            m.total++;
+            if (Number(t.pnl) > 0) m.wins++;
+            m.pnl += Number(t.pnl || 0);
+          }
+          for (const [key, m] of comboMap.entries()) {
+            const wr = m.total > 0 ? (m.wins / m.total) * 100 : 0;
+            const [path, dir] = key.split("|");
+            if (m.total >= 5 && wr < 30) {
+              proposals.push({
+                id: `block-${path}-${dir}`,
+                rule: "weak_combo_block",
+                title: `Block ${path} (${dir})`,
+                detail: `${m.total} trades at ${wr.toFixed(1)}% WR — net $${m.pnl.toFixed(0)}. Block this combo on the active run.`,
+                impact: "high",
+                target: "run", // applies to backtest_run_config
+                config: {
+                  key: `block_${path}_${dir.toLowerCase()}`,
+                  value: "true",
+                },
+              });
+            } else if (m.total >= 10 && wr > 70) {
+              proposals.push({
+                id: `prefer-${path}-${dir}`,
+                rule: "strong_combo_prefer",
+                title: `Prefer ${path} (${dir})`,
+                detail: `${m.total} trades at ${wr.toFixed(1)}% WR, +$${m.pnl.toFixed(0)} net. Promote this combo with a rank boost.`,
+                impact: "medium",
+                target: "run",
+                config: {
+                  key: `prefer_${path}_${dir.toLowerCase()}`,
+                  value: "true",
+                },
+              });
+            }
+          }
+
+          // Rule 3: ticker blocklist for chronic losers.
+          const tickerMap = new Map();
+          for (const t of closed) {
+            if (!t.ticker) continue;
+            if (!tickerMap.has(t.ticker)) tickerMap.set(t.ticker, { trades: 0, r: 0, pnl: 0 });
+            const m = tickerMap.get(t.ticker);
+            m.trades++;
+            m.r += Number(t.pnl_pct || 0);
+            m.pnl += Number(t.pnl || 0);
+          }
+          for (const [ticker, m] of tickerMap.entries()) {
+            if (m.trades >= 3 && m.r < -2.5) {
+              proposals.push({
+                id: `blocklist-${ticker}`,
+                rule: "ticker_blocklist",
+                title: `Add ${ticker} to ticker blocklist`,
+                detail: `${m.trades} trades, cumulative R ${m.r.toFixed(2)}, net $${m.pnl.toFixed(0)}. Block from new entries on the active run.`,
+                impact: "medium",
+                target: "run",
+                config: {
+                  key: `ticker_blocklist_${ticker.toLowerCase()}`,
+                  value: "true",
+                },
+              });
+            }
+          }
+
+          // Rule 4: loop 2 pause if consecutive losses ≥ 5.
+          const sorted = closed.slice().sort((a, b) => Number(a.exit_ts) - Number(b.exit_ts));
+          let consec = 0;
+          for (let i = sorted.length - 1; i >= 0; i--) {
+            if (Number(sorted[i].pnl) < 0) consec++; else break;
+          }
+          if (consec >= 5) {
+            proposals.push({
+              id: `loop2-pause`,
+              rule: "loop2_circuit_breaker",
+              title: `Pause Loop 2 (${consec} losses in a row)`,
+              detail: `Latest streak: ${consec} consecutive losers. Activate Loop 2 circuit breaker until manual review.`,
+              impact: "high",
+              target: "live", // applies to model_config
+              config: {
+                key: "loop2_circuit_breaker_paused",
+                value: "true",
+              },
+            });
+          }
+
+          // Rule 5: confident size-up.
+          const wins = closed.filter(t => Number(t.pnl) > 0);
+          const losses = closed.filter(t => Number(t.pnl) < 0);
+          const grossProfit = wins.reduce((s, t) => s + Number(t.pnl), 0);
+          const grossLoss = Math.abs(losses.reduce((s, t) => s + Number(t.pnl), 0));
+          const wr = closed.length ? (wins.length / closed.length) * 100 : 0;
+          const pf = grossLoss > 0 ? grossProfit / grossLoss : 0;
+          if (closed.length >= 30 && wr >= 60 && pf >= 1.6) {
+            proposals.push({
+              id: `size-up-prime`,
+              rule: "confident_size_up",
+              title: `Increase Prime tier risk by 0.25%`,
+              detail: `${closed.length} closed at ${wr.toFixed(1)}% WR / PF ${pf.toFixed(2)}. Edge is real — bump Prime tier risk one notch.`,
+              impact: "low",
+              target: "live",
+              config: {
+                key: "tier_risk_prime_bump",
+                value: "0.0025",
+              },
+            });
+          }
+
+          return sendJSON({
+            ok: true,
+            run_id: runId,
+            generated_at: Date.now(),
+            sample: { closed: closed.length, total: trades.length },
+            proposals,
+            note: "Proposals are NOT applied. Click Apply per row to push to backtest_run_config (run target) or model_config (live target).",
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }

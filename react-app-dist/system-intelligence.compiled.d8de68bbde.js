@@ -380,6 +380,348 @@ function BarChart({
     className: "text-[10px] text-slate-300 w-10 text-right"
   }, d.value))));
 }
+function fmtMoneyDelta(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  const sign = n >= 0 ? "+" : "-";
+  return `${sign}$${Math.abs(n).toLocaleString("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  })}`;
+}
+function fmtPctVal(v, digits = 1) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  return `${n.toFixed(digits)}%`;
+}
+function fmtNum2(v, digits = 2) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  return n.toFixed(digits);
+}
+function timeAgo(ms) {
+  const v = Number(ms);
+  if (!Number.isFinite(v) || v <= 0) return "—";
+  const diff = Date.now() - v;
+  if (diff < 60000) return "just now";
+  if (diff < 3600000) return `${Math.round(diff / 60000)}m ago`;
+  if (diff < 86400000) return `${Math.round(diff / 3600000)}h ago`;
+  return `${Math.round(diff / 86400000)}d ago`;
+}
+function HealthPill({
+  health
+}) {
+  if (!health) return null;
+  const cls = health.level === "danger" ? "si-pill--danger" : health.level === "warn" ? "si-pill--warn" : "si-pill--ok";
+  return React.createElement("span", {
+    className: `si-pill ${cls} si-pill--pulse`,
+    title: (health.details || []).join(" · ")
+  }, React.createElement("span", {
+    className: "si-pill__dot"
+  }), React.createElement("span", null, "Engine: ", health.label));
+}
+function KpiTile({
+  label,
+  value,
+  suffix,
+  sub,
+  valueClass,
+  hint
+}) {
+  return React.createElement("div", {
+    className: "si-kpi",
+    title: hint || ""
+  }, React.createElement("div", {
+    className: "si-kpi__label"
+  }, label), React.createElement("div", null, React.createElement("span", {
+    className: `si-kpi__value ${valueClass || ""}`
+  }, value), suffix && React.createElement("span", {
+    className: "si-kpi__suffix"
+  }, suffix)), sub && React.createElement("div", {
+    className: "si-kpi__sub"
+  }, sub));
+}
+function EngineTab({
+  snapshot,
+  onRefresh,
+  refreshing,
+  lastFetched,
+  error
+}) {
+  if (!snapshot && !error) {
+    return React.createElement("div", {
+      className: "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3"
+    }, Array.from({
+      length: 6
+    }).map((_, i) => React.createElement("div", {
+      key: i,
+      className: "ds-skeleton ds-skeleton--tile"
+    })));
+  }
+  if (error) {
+    return React.createElement("div", {
+      className: "si-card",
+      style: {
+        borderLeft: "3px solid var(--ds-dn)"
+      }
+    }, React.createElement("div", {
+      className: "si-card__title"
+    }, "Engine snapshot unavailable"), React.createElement("div", {
+      className: "si-card__subtitle",
+      style: {
+        color: "var(--ds-dn)"
+      }
+    }, error), React.createElement("button", {
+      className: "si-action mt-3",
+      onClick: onRefresh
+    }, "Retry"));
+  }
+  const k = snapshot.kpis || {};
+  const sim = snapshot.sim_progress;
+  const winners = snapshot.top_winners || [];
+  const losers = snapshot.top_losers || [];
+  const recent = snapshot.recent_trades || [];
+  const fmtSimDate = d => {
+    if (!d) return "—";
+    try {
+      return new Date(d).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric"
+      });
+    } catch {
+      return d;
+    }
+  };
+  return React.createElement("div", {
+    className: "space-y-5"
+  }, React.createElement("div", {
+    className: `si-banner ${snapshot.health?.level === "danger" ? "si-banner--danger" : snapshot.health?.level === "warn" ? "si-banner--warn" : "si-banner--ok"}`
+  }, React.createElement(HealthPill, {
+    health: snapshot.health
+  }), React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 200
+    }
+  }, React.createElement("div", {
+    style: {
+      fontSize: "var(--ds-fs-meta)",
+      color: "var(--ds-text-muted)",
+      textTransform: "uppercase",
+      letterSpacing: "0.14em",
+      fontWeight: 700
+    }
+  }, "Active Run \xB7 ", snapshot.run_status || "—"), React.createElement("div", {
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      color: "var(--ds-text-display)",
+      fontSize: "var(--ds-fs-body)",
+      fontWeight: 600,
+      marginTop: 2
+    }
+  }, snapshot.run_label || snapshot.run_id || "—"), snapshot.run_description && React.createElement("div", {
+    style: {
+      fontSize: "var(--ds-fs-meta)",
+      color: "var(--ds-text-muted)",
+      marginTop: 2
+    }
+  }, snapshot.run_description)), React.createElement("div", {
+    style: {
+      textAlign: "right"
+    }
+  }, React.createElement("div", {
+    style: {
+      fontSize: "var(--ds-fs-caption)",
+      color: "var(--ds-text-muted)",
+      letterSpacing: "0.12em",
+      textTransform: "uppercase",
+      fontWeight: 700
+    }
+  }, "Refreshed"), React.createElement("div", {
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      color: "var(--ds-text-body)",
+      fontSize: "var(--ds-fs-meta)"
+    }
+  }, timeAgo(lastFetched))), React.createElement("button", {
+    className: "si-action",
+    onClick: onRefresh,
+    disabled: refreshing
+  }, refreshing ? "Refreshing…" : "Refresh")), sim && React.createElement("div", {
+    className: "si-card"
+  }, React.createElement("div", {
+    className: "flex items-center justify-between mb-2"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "si-card__eyebrow"
+  }, "Sim Progress"), React.createElement("div", {
+    className: "si-card__title"
+  }, fmtSimDate(sim.current_sim_date), " ", React.createElement("span", {
+    style: {
+      color: "var(--ds-text-muted)",
+      fontWeight: 400,
+      fontSize: "var(--ds-fs-body)"
+    }
+  }, "of ", fmtSimDate(sim.end_date)))), React.createElement("div", {
+    style: {
+      textAlign: "right"
+    }
+  }, React.createElement("div", {
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      color: "var(--ds-text-display)",
+      fontSize: "var(--ds-fs-emph)",
+      fontWeight: 600
+    }
+  }, sim.pct, "%"), React.createElement("div", {
+    style: {
+      fontSize: "var(--ds-fs-meta)",
+      color: "var(--ds-text-muted)"
+    }
+  }, "day ", sim.elapsed_days, "/", sim.total_days))), React.createElement("div", {
+    className: "si-progress"
+  }, React.createElement("div", {
+    className: "si-progress__fill si-progress__fill--up",
+    style: {
+      width: `${sim.pct}%`
+    }
+  }))), React.createElement("div", {
+    className: "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3"
+  }, React.createElement(KpiTile, {
+    label: "Net P&L",
+    value: fmtMoneyDelta(k.realized_pnl),
+    valueClass: k.realized_pnl >= 0 ? "si-kpi__value--up" : "si-kpi__value--dn",
+    sub: `${k.trades_closed || 0} closed`,
+    hint: "Sum of realized P&L for all closed trades on the active run."
+  }), React.createElement(KpiTile, {
+    label: "Win Rate",
+    value: fmtPctVal(k.win_rate, 1).replace("%", ""),
+    suffix: "%",
+    valueClass: k.win_rate >= 50 ? "si-kpi__value--up" : "si-kpi__value--dn",
+    sub: `${k.wins || 0}W · ${k.losses || 0}L`,
+    hint: "% of closed trades with pnl > 0."
+  }), React.createElement(KpiTile, {
+    label: "Profit Factor",
+    value: k.profit_factor != null ? fmtNum2(k.profit_factor, 2) : "∞",
+    valueClass: (k.profit_factor || 0) >= 1.4 ? "si-kpi__value--up" : (k.profit_factor || 0) >= 1.0 ? "si-kpi__value--accent" : "si-kpi__value--dn",
+    sub: "gross W / gross L",
+    hint: "Gross profits divided by gross losses."
+  }), React.createElement(KpiTile, {
+    label: "SQN",
+    value: fmtNum2(k.sqn, 2),
+    valueClass: k.sqn >= 2 ? "si-kpi__value--up" : k.sqn >= 1 ? "si-kpi__value--accent" : "si-kpi__value--dn",
+    sub: "van Tharp",
+    hint: "System Quality Number \u2014 (mean R / std R) \xD7 \u221AN. \u22652 is good."
+  }), React.createElement(KpiTile, {
+    label: "Avg R",
+    value: fmtNum2(k.avg_r, 2),
+    suffix: "%",
+    valueClass: k.avg_r >= 0 ? "si-kpi__value--up" : "si-kpi__value--dn",
+    sub: `σ ${fmtNum2(k.std_r, 2)}%`,
+    hint: "Average per-trade return percent."
+  }), React.createElement(KpiTile, {
+    label: "Max DD",
+    value: fmtMoneyDelta(-Math.abs(k.max_drawdown)),
+    valueClass: "si-kpi__value--dn",
+    sub: `${fmtPctVal(k.max_drawdown_pct, 1)} from peak`,
+    hint: "Largest peak-to-trough drawdown of the realized P&L curve."
+  })), React.createElement("div", {
+    className: "grid grid-cols-1 lg:grid-cols-2 gap-4"
+  }, React.createElement("div", {
+    className: "si-card"
+  }, React.createElement("div", {
+    className: "si-card__head"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "si-card__eyebrow"
+  }, "Top winners (run)"), React.createElement("div", {
+    className: "si-card__title"
+  }, "Top 5 by $")), React.createElement("a", {
+    className: "si-action",
+    href: `trade-autopsy.html?run_id=${encodeURIComponent(snapshot.run_id)}&filter=winners`
+  }, "All")), winners.length === 0 ? React.createElement("div", {
+    style: {
+      color: "var(--ds-text-muted)",
+      fontSize: "var(--ds-fs-body)"
+    }
+  }, "No closed trades yet.") : winners.map(t => React.createElement("div", {
+    className: "si-trade-row",
+    key: t.trade_id
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "si-trade-row__ticker"
+  }, t.ticker, " ", React.createElement("span", {
+    style: {
+      color: t.direction === "LONG" ? "var(--ds-up)" : "var(--ds-dn)",
+      fontSize: "var(--ds-fs-caption)",
+      marginLeft: 6
+    }
+  }, t.direction)), React.createElement("div", {
+    className: "si-trade-row__meta"
+  }, t.exit_reason || "—", " \xB7 ", t.setup_grade || "—")), React.createElement("div", {
+    className: "si-trade-row__pct"
+  }, fmtPctVal(t.pnl_pct, 2)), React.createElement("div", {
+    className: "si-trade-row__pnl si-trade-row__pnl--up"
+  }, fmtMoneyDelta(t.pnl))))), React.createElement("div", {
+    className: "si-card"
+  }, React.createElement("div", {
+    className: "si-card__head"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "si-card__eyebrow"
+  }, "Bottom losers (run)"), React.createElement("div", {
+    className: "si-card__title"
+  }, "Bottom 5 by $")), React.createElement("a", {
+    className: "si-action",
+    href: `trade-autopsy.html?run_id=${encodeURIComponent(snapshot.run_id)}&filter=losers`
+  }, "All")), losers.length === 0 ? React.createElement("div", {
+    style: {
+      color: "var(--ds-text-muted)",
+      fontSize: "var(--ds-fs-body)"
+    }
+  }, "No closed trades yet.") : losers.map(t => React.createElement("div", {
+    className: "si-trade-row",
+    key: t.trade_id
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "si-trade-row__ticker"
+  }, t.ticker, " ", React.createElement("span", {
+    style: {
+      color: t.direction === "LONG" ? "var(--ds-up)" : "var(--ds-dn)",
+      fontSize: "var(--ds-fs-caption)",
+      marginLeft: 6
+    }
+  }, t.direction)), React.createElement("div", {
+    className: "si-trade-row__meta"
+  }, t.exit_reason || "—", " \xB7 ", t.setup_grade || "—")), React.createElement("div", {
+    className: "si-trade-row__pct"
+  }, fmtPctVal(t.pnl_pct, 2)), React.createElement("div", {
+    className: "si-trade-row__pnl si-trade-row__pnl--dn"
+  }, fmtMoneyDelta(t.pnl)))))), recent.length > 0 && React.createElement("div", {
+    className: "si-card"
+  }, React.createElement("div", {
+    className: "si-card__head"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "si-card__eyebrow"
+  }, "Latest activity"), React.createElement("div", {
+    className: "si-card__title"
+  }, "Last 10 trades"))), React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-2 gap-2"
+  }, recent.map(t => React.createElement("div", {
+    className: "si-trade-row",
+    key: t.trade_id
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "si-trade-row__ticker"
+  }, t.ticker, " ", React.createElement("span", {
+    style: {
+      color: t.direction === "LONG" ? "var(--ds-up)" : "var(--ds-dn)",
+      fontSize: "var(--ds-fs-caption)",
+      marginLeft: 6
+    }
+  }, t.direction)), React.createElement("div", {
+    className: "si-trade-row__meta"
+  }, t.exit_reason || "—")), React.createElement("div", {
+    className: "si-trade-row__pct"
+  }, fmtPctVal(t.pnl_pct, 2)), React.createElement("div", {
+    className: `si-trade-row__pnl ${t.pnl >= 0 ? "si-trade-row__pnl--up" : "si-trade-row__pnl--dn"}`
+  }, fmtMoneyDelta(t.pnl)))))));
+}
 function DashboardTab({
   dashboard
 }) {
@@ -2966,8 +3308,8 @@ function RunsTab({
       className: "run-token"
     }, k, ":", v)));
   };
-  const fetchRuns = useCallback(async () => {
-    setLoading(true);
+  const fetchRuns = useCallback(async (opts = {}) => {
+    if (!opts?.silent) setLoading(true);
     setError(null);
     try {
       const includeArchived = showArchived ? "1" : "0";
@@ -3049,7 +3391,10 @@ function RunsTab({
   useEffect(() => {
     fetchRuns();
     const timer = setInterval(() => {
-      fetchRuns();
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      fetchRuns({
+        silent: true
+      });
     }, 5000);
     return () => clearInterval(timer);
   }, [fetchRuns]);
@@ -5507,14 +5852,124 @@ function TradeGradingTab() {
     className: "text-xs text-slate-500"
   }, "No graded trades yet. Grade statistics will appear here once trades are taken with the grading system active.")));
 }
+function AnalysisAutomationBar({
+  isAdmin,
+  snapshot,
+  proposals,
+  proposalsLoading,
+  proposalApplying,
+  proposalApplied,
+  onRunAnalysis,
+  running,
+  onLoadProposals,
+  onApplyProposal
+}) {
+  const runId = snapshot?.run_id;
+  return React.createElement("div", {
+    className: "space-y-4"
+  }, React.createElement("div", {
+    className: "si-banner"
+  }, React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 200
+    }
+  }, React.createElement("div", {
+    className: "si-card__eyebrow"
+  }, "Analysis automation"), React.createElement("div", {
+    className: "si-card__title"
+  }, "Refresh insights without leaving the page"), React.createElement("div", {
+    className: "si-card__subtitle"
+  }, "Auto-refresh every 60 s while a run is active. Click ", React.createElement("span", {
+    style: {
+      color: "var(--ds-accent)"
+    }
+  }, "Run Analysis"), " to re-run the calibration pipeline server-side, or ", React.createElement("span", {
+    style: {
+      color: "var(--ds-accent)"
+    }
+  }, "Propose Calibration"), " to compute rule-based DA flag deltas from the active run.")), isAdmin && React.createElement(React.Fragment, null, React.createElement("button", {
+    className: "si-action si-action--primary",
+    onClick: onRunAnalysis,
+    disabled: running
+  }, running ? "Running…" : "Run Analysis"), React.createElement("button", {
+    className: "si-action si-action--primary",
+    onClick: onLoadProposals,
+    disabled: proposalsLoading
+  }, proposalsLoading ? "Computing…" : "Propose Calibration"))), proposals && React.createElement("div", {
+    className: "si-card"
+  }, React.createElement("div", {
+    className: "si-card__head"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "si-card__eyebrow"
+  }, "Proposed calibration"), React.createElement("div", {
+    className: "si-card__title"
+  }, proposals.proposals?.length || 0, " suggestion", (proposals.proposals?.length || 0) === 1 ? "" : "s"), React.createElement("div", {
+    className: "si-card__subtitle"
+  }, "Computed from ", proposals.sample?.closed, " closed trades on ", React.createElement("span", {
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      color: "var(--ds-text-body)"
+    }
+  }, proposals.run_id), ". Nothing is applied until you click Apply per row.")), React.createElement("button", {
+    className: "si-action",
+    onClick: onLoadProposals,
+    disabled: proposalsLoading
+  }, proposalsLoading ? "Recomputing…" : "Re-compute")), (proposals.proposals?.length || 0) === 0 ? React.createElement("div", {
+    style: {
+      color: "var(--ds-text-muted)",
+      fontSize: "var(--ds-fs-body)"
+    }
+  }, "No actionable proposals right now \u2014 the engine is performing within thresholds.") : React.createElement("div", {
+    className: "space-y-2"
+  }, proposals.proposals.map(p => {
+    const applied = proposalApplied[p.id];
+    const applying = !!proposalApplying[p.id];
+    const cls = p.impact === "high" ? "si-proposal--high" : p.impact === "medium" ? "si-proposal--medium" : "si-proposal--low";
+    return React.createElement("div", {
+      key: p.id,
+      className: `si-proposal ${cls}`
+    }, React.createElement("div", {
+      style: {
+        flex: 1,
+        minWidth: 0
+      }
+    }, React.createElement("div", {
+      className: "si-proposal__title"
+    }, p.title), React.createElement("div", {
+      className: "si-proposal__detail"
+    }, p.detail), React.createElement("div", {
+      className: "si-proposal__config"
+    }, p.target, " \xB7 ", p.config?.key, " = ", String(p.config?.value))), applied === "applied" ? React.createElement("span", {
+      className: "si-pill si-pill--ok"
+    }, React.createElement("span", {
+      className: "si-pill__dot"
+    }), "Applied") : applied ? React.createElement("span", {
+      className: "si-pill si-pill--danger",
+      title: applied
+    }, "Failed") : React.createElement("button", {
+      className: "si-action si-action--primary",
+      disabled: applying || !isAdmin,
+      onClick: () => onApplyProposal(p)
+    }, applying ? "Applying…" : `Apply to ${p.target}`));
+  }))));
+}
 function App() {
   const [tab, setTab] = useState(() => {
     try {
       const params = new URLSearchParams(window.location.search);
       const candidate = params.get("tab");
-      return candidate || "dashboard";
+      const legacyMap = {
+        dashboard: "engine",
+        moves: "discovery",
+        patterns: "discovery",
+        history: "analysis",
+        grading: "engine"
+      };
+      const resolved = legacyMap[candidate] || candidate || "engine";
+      return resolved;
     } catch (_) {
-      return "dashboard";
+      return "engine";
     }
   });
   const [dashboard, setDashboard] = useState(null);
@@ -5525,6 +5980,14 @@ function App() {
   const [reportId, setReportId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [moveLoading, setMoveLoading] = useState(true);
+  const [engineSnapshot, setEngineSnapshot] = useState(null);
+  const [engineLastFetched, setEngineLastFetched] = useState(0);
+  const [engineRefreshing, setEngineRefreshing] = useState(false);
+  const [engineError, setEngineError] = useState(null);
+  const [proposals, setProposals] = useState(null);
+  const [proposalsLoading, setProposalsLoading] = useState(false);
+  const [proposalApplying, setProposalApplying] = useState({});
+  const [proposalApplied, setProposalApplied] = useState({});
   const [running, setRunning] = useState(false);
   const [queued, setQueued] = useState(false);
   const [progress, setProgress] = useState(null);
@@ -5545,13 +6008,120 @@ function App() {
     document.body.setAttribute("data-user-role", admin ? "admin" : session?.role || "");
     setIsAdmin(admin);
   }, []);
+  const fetchEngineSnapshot = useCallback(async (silent = false) => {
+    if (!silent) setEngineRefreshing(true);
+    try {
+      const res = await fetch(`${API_BASE}/timed/admin/system-intelligence/engine-snapshot`, {
+        credentials: "include"
+      });
+      const data = await res.json();
+      if (data?.ok) {
+        setEngineSnapshot(data);
+        setEngineLastFetched(Date.now());
+        setEngineError(null);
+      } else {
+        setEngineError(data?.error || "engine_snapshot_failed");
+      }
+    } catch (e) {
+      setEngineError(String(e?.message || e));
+    }
+    if (!silent) setEngineRefreshing(false);
+  }, []);
+  const fetchProposals = useCallback(async () => {
+    setProposalsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/timed/admin/system-intelligence/calibrate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: "{}",
+        credentials: "include"
+      });
+      const data = await res.json();
+      if (data?.ok) {
+        setProposals(data);
+        setProposalApplied({});
+      } else {
+        setError(data?.error || "calibrate_failed");
+      }
+    } catch (e) {
+      setError(String(e?.message || e));
+    }
+    setProposalsLoading(false);
+  }, []);
+  const applyProposal = useCallback(async proposal => {
+    if (!proposal?.config?.key) return;
+    setProposalApplying(prev => ({
+      ...prev,
+      [proposal.id]: true
+    }));
+    try {
+      let res, data;
+      if (proposal.target === "live") {
+        res = await fetch(`${API_BASE}/timed/admin/model-config`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            updates: [{
+              key: proposal.config.key,
+              value: proposal.config.value,
+              description: `System Intelligence proposal · ${proposal.title}`
+            }]
+          }),
+          credentials: "include"
+        });
+        data = await res.json();
+      } else {
+        const runId = engineSnapshot?.run_id || proposals?.run_id;
+        if (!runId) throw new Error("no_run_id");
+        res = await fetch(`${API_BASE}/timed/admin/runs/config-patch`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            run_id: runId,
+            updates: [{
+              key: proposal.config.key,
+              value: proposal.config.value
+            }]
+          }),
+          credentials: "include"
+        });
+        data = await res.json();
+      }
+      if (data?.ok) {
+        setProposalApplied(prev => ({
+          ...prev,
+          [proposal.id]: "applied"
+        }));
+      } else {
+        setProposalApplied(prev => ({
+          ...prev,
+          [proposal.id]: data?.error || "failed"
+        }));
+      }
+    } catch (e) {
+      setProposalApplied(prev => ({
+        ...prev,
+        [proposal.id]: String(e?.message || e)
+      }));
+    }
+    setProposalApplying(prev => ({
+      ...prev,
+      [proposal.id]: false
+    }));
+  }, [engineSnapshot, proposals]);
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     setMoveLoading(true);
     setMoveError(null);
     try {
-      const [dashRes, reportRes, moveRes] = await Promise.all([fetch(`${API_BASE}/timed/system/dashboard`, {
+      const [dashRes, reportRes, moveRes, _eng] = await Promise.all([fetch(`${API_BASE}/timed/system/dashboard`, {
         credentials: "include"
       }).then(r => r.json()).catch(() => null), fetch(`${API_BASE}/timed/calibration/report`, {
         credentials: "include"
@@ -5563,7 +6133,7 @@ function App() {
       }).catch(e => ({
         ok: false,
         error: String(e?.message || e)
-      }))]);
+      })), fetchEngineSnapshot(true)]);
       if (dashRes?.ok) setDashboard(dashRes);
       if (reportRes?.ok) {
         setReport(reportRes.report);
@@ -5755,8 +6325,8 @@ function App() {
     } catch (_) {}
   };
   const tabs = [{
-    id: "dashboard",
-    label: "Dashboard"
+    id: "engine",
+    label: "Engine"
   }, {
     id: "analysis",
     label: "Analysis"
@@ -5764,106 +6334,132 @@ function App() {
     id: "runs",
     label: "Runs"
   }] : []), {
-    id: "moves",
-    label: "Move Discovery"
-  }, {
-    id: "patterns",
-    label: "Patterns & Learning"
-  }, {
-    id: "history",
-    label: "History"
-  }, ...(isAdmin ? [{
-    id: "grading",
-    label: "Trade Grading"
-  }] : [])];
+    id: "discovery",
+    label: "Discovery"
+  }];
+  useEffect(() => {
+    if (tab !== "engine" && tab !== "analysis") return;
+    fetchEngineSnapshot(true);
+    const id = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      fetchEngineSnapshot(true);
+    }, 30000);
+    return () => clearInterval(id);
+  }, [tab, fetchEngineSnapshot]);
   return React.createElement("div", {
     className: "min-h-screen pb-16"
   }, React.createElement(NavHeader, null), React.createElement("div", {
     className: "max-w-[1520px] mx-auto px-4 py-6"
   }, React.createElement("div", {
-    className: "flex items-center justify-between mb-6"
+    className: "flex items-end justify-between mb-5 gap-3 flex-wrap"
   }, React.createElement("div", null, React.createElement("h1", {
-    className: "text-xl font-bold text-white tracking-tight"
+    style: {
+      fontSize: "24px",
+      fontWeight: 600,
+      color: "var(--ds-text-display)",
+      letterSpacing: "-0.02em",
+      margin: 0
+    }
   }, "System Intelligence"), React.createElement("p", {
-    className: "text-xs text-slate-400 mt-1.5"
-  }, "Calibration, model performance, and experiment workflow")), isAdmin && React.createElement("div", {
+    style: {
+      fontSize: "var(--ds-fs-meta)",
+      color: "var(--ds-text-muted)",
+      marginTop: 6
+    }
+  }, "Live engine health, calibration, and experiment workflow.")), isAdmin && React.createElement("div", {
     className: "flex items-center gap-2"
   }, React.createElement("button", {
-    className: "btn btn-primary text-xs",
+    className: "si-action si-action--primary",
     onClick: handleRun,
     disabled: running
-  }, running ? React.createElement("span", {
-    className: "flex items-center gap-1.5"
-  }, React.createElement("span", {
-    className: "w-3 h-3 border-2 border-white/30 border-t-white rounded-full",
-    style: {
-      animation: "spin 0.7s linear infinite"
-    }
-  }), "Analyzing...") : "Run Analysis"), React.createElement("button", {
-    className: "btn text-xs",
-    style: {
-      background: "rgba(239,68,68,0.15)",
-      color: "#fca5a5",
-      border: "1px solid rgba(239,68,68,0.25)"
-    },
+  }, running ? "Analyzing…" : "Run Analysis"), React.createElement("button", {
+    className: "si-action si-action--danger",
     onClick: handleReset,
     disabled: resetting
-  }, resetting ? React.createElement("span", {
-    className: "flex items-center gap-1.5"
-  }, React.createElement("span", {
-    className: "w-3 h-3 border-2 border-rose-400/30 border-t-rose-400 rounded-full",
-    style: {
-      animation: "spin 0.7s linear infinite"
-    }
-  }), "Resetting...") : "Reset Account"))), isAdmin && React.createElement("div", {
-    className: "mb-4 p-4 rounded-xl border text-xs",
-    style: {
-      background: "rgba(99,102,241,0.05)",
-      borderColor: "rgba(99,102,241,0.15)"
-    }
-  }, React.createElement("p", {
-    className: "text-indigo-300/90 font-medium mb-1.5"
-  }, "Local Calibration Pipeline"), React.createElement("p", {
-    className: "text-slate-400 leading-relaxed"
-  }, "Full calibration (harvest + autopsy) runs locally. Upload data, then click ", React.createElement("span", {
-    className: "text-white font-medium"
-  }, "Run Analysis"), " to build profiles."), React.createElement("code", {
-    className: "inline-block mt-2 text-[11px] text-slate-500 bg-white/[0.06] rounded-md px-2.5 py-1 font-mono"
-  }, "node scripts/calibrate.js")), error && React.createElement("div", {
+  }, resetting ? "Resetting…" : "Reset Account"))), error && React.createElement("div", {
     className: "mb-4 p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-sm text-rose-300"
   }, error), resetMsg && React.createElement("div", {
     className: "mb-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-sm text-emerald-300"
   }, resetMsg), React.createElement("div", {
-    className: "flex gap-1 border-b border-white/[0.06] mb-5 overflow-x-auto"
+    className: "si-tabbar overflow-x-auto"
   }, tabs.map(t => React.createElement("button", {
     key: t.id,
     onClick: () => setTab(t.id),
-    className: `px-4 py-2 text-xs font-medium whitespace-nowrap ${tab === t.id ? "tab-active" : "tab-inactive"}`
-  }, t.label))), loading && tab === "dashboard" ? React.createElement("div", {
+    className: `si-tabbar__item ${tab === t.id ? "si-tabbar__item--active" : ""}`
+  }, t.label))), loading && tab === "engine" && !engineSnapshot ? React.createElement("div", {
     className: "flex items-center justify-center py-20"
   }, React.createElement("div", {
     className: "w-6 h-6 border-2 border-white/20 border-t-emerald-500 rounded-full",
     style: {
       animation: "spin 0.7s linear infinite"
     }
-  })) : React.createElement(React.Fragment, null, tab === "dashboard" && React.createElement(DashboardTab, {
+  })) : React.createElement(React.Fragment, null, tab === "engine" && React.createElement("div", {
+    className: "space-y-5"
+  }, React.createElement(EngineTab, {
+    snapshot: engineSnapshot,
+    onRefresh: () => fetchEngineSnapshot(false),
+    refreshing: engineRefreshing,
+    lastFetched: engineLastFetched,
+    error: engineError
+  }), isAdmin && React.createElement(TradeGradingTab, null), React.createElement("details", {
+    className: "si-card si-card--glass"
+  }, React.createElement("summary", {
+    style: {
+      cursor: "pointer",
+      color: "var(--ds-text-muted)",
+      fontSize: "var(--ds-fs-meta)",
+      textTransform: "uppercase",
+      letterSpacing: "0.14em",
+      fontWeight: 700
+    }
+  }, "Show legacy calibration digest (Generation summary, Adaptations, VIX regime)"), React.createElement("div", {
+    className: "mt-4"
+  }, React.createElement(DashboardTab, {
     dashboard: dashboard
-  }), tab === "analysis" && React.createElement(UnifiedAnalysisTab, {
+  })))), tab === "analysis" && React.createElement("div", {
+    className: "space-y-5"
+  }, React.createElement(AnalysisAutomationBar, {
+    isAdmin: isAdmin,
+    snapshot: engineSnapshot,
+    proposals: proposals,
+    proposalsLoading: proposalsLoading,
+    proposalApplying: proposalApplying,
+    proposalApplied: proposalApplied,
+    onRunAnalysis: handleRun,
+    running: running,
+    onLoadProposals: fetchProposals,
+    onApplyProposal: applyProposal
+  }), React.createElement(UnifiedAnalysisTab, {
     report: report,
     recs: recs,
     reportId: reportId,
     onApply: handleApply,
     applying: applying,
     appliedMsg: appliedMsg
-  }), tab === "runs" && React.createElement(RunsTab, {
+  }), React.createElement("details", {
+    className: "si-card si-card--glass"
+  }, React.createElement("summary", {
+    style: {
+      cursor: "pointer",
+      color: "var(--ds-text-muted)",
+      fontSize: "var(--ds-fs-meta)",
+      textTransform: "uppercase",
+      letterSpacing: "0.14em",
+      fontWeight: 700
+    }
+  }, "Show calibration history (past generations)"), React.createElement("div", {
+    className: "mt-4"
+  }, React.createElement(HistoryTab, {
+    onViewReport: handleViewReport
+  })))), tab === "runs" && React.createElement(RunsTab, {
     isAdmin: isAdmin
-  }), tab === "moves" && React.createElement(MoveDiscoveryTab, {
+  }), tab === "discovery" && React.createElement("div", {
+    className: "space-y-5"
+  }, React.createElement(MoveDiscoveryTab, {
     report: moveReport,
     loading: moveLoading,
     error: moveError
-  }), tab === "patterns" && React.createElement(PatternsTab, null), tab === "history" && React.createElement(HistoryTab, {
-    onViewReport: handleViewReport
-  }), tab === "grading" && isAdmin && React.createElement(TradeGradingTab, null))));
+  }), React.createElement(PatternsTab, null)))));
 }
 const _AuthGate = window.TimedAuthGate;
 const siApp = _AuthGate ? React.createElement(_AuthGate, {

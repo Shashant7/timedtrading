@@ -13,6 +13,7 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="ds-components.js?v=20260503a"></script>
     <script src="auth-gate.js?v=20260220a"></script>
     <script>
       tailwind.config = {
@@ -69,6 +70,187 @@
       .run-action-btn-muted { background: rgba(100,116,139,0.15); color: #cbd5e1; border-color: rgba(100,116,139,0.28); }
       .run-action-btn-danger { background: rgba(239,68,68,0.12); color: #fca5a5; border-color: rgba(239,68,68,0.2); }
       body:not([data-user-role="admin"]) [data-admin-only] { display: none !important; }
+
+      /* ── v2 design system — System Intelligence revamp (2026-05-03) ── */
+      .si-card {
+        background: var(--ds-bg-surface);
+        border: 1px solid var(--ds-stroke);
+        border-radius: var(--ds-radius);
+        padding: var(--ds-space-4);
+      }
+      .si-card--glass {
+        background: var(--ds-bg-glass);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+      }
+      .si-card__head {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: var(--ds-space-3); margin-bottom: var(--ds-space-3);
+      }
+      .si-card__eyebrow {
+        font-family: var(--tt-font-ui); font-size: var(--ds-fs-caption);
+        font-weight: 700; text-transform: uppercase; letter-spacing: 0.16em;
+        color: var(--ds-text-muted);
+      }
+      .si-card__title { font-size: var(--ds-fs-emph); font-weight: 600; color: var(--ds-text-display); }
+      .si-card__subtitle { font-size: var(--ds-fs-meta); color: var(--ds-text-muted); margin-top: 2px; }
+
+      .si-kpi {
+        background: var(--ds-bg-surface);
+        border: 1px solid var(--ds-stroke);
+        border-radius: var(--ds-radius);
+        padding: var(--ds-space-4);
+        display: flex; flex-direction: column; gap: 6px;
+        min-height: 92px;
+      }
+      .si-kpi__label { font-family: var(--tt-font-ui); font-size: var(--ds-fs-caption); font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: var(--ds-text-muted); }
+      .si-kpi__value { font-family: var(--tt-font-mono); font-size: 26px; font-weight: 600; line-height: 1; color: var(--ds-text-display); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+      .si-kpi__suffix { font-family: var(--tt-font-mono); font-size: var(--ds-fs-meta); color: var(--ds-text-muted); margin-left: 4px; }
+      .si-kpi__sub { font-size: var(--ds-fs-meta); color: var(--ds-text-muted); }
+      .si-kpi__value--up { color: var(--ds-up); }
+      .si-kpi__value--dn { color: var(--ds-dn); }
+      .si-kpi__value--accent { color: var(--ds-accent); }
+
+      .si-pill {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 6px 12px; border-radius: 999px;
+        font-family: var(--tt-font-ui); font-weight: 600;
+        font-size: var(--ds-fs-meta);
+        line-height: 1; white-space: nowrap;
+      }
+      .si-pill--ok { background: var(--ds-up-bg); color: var(--ds-up); border: 1px solid rgba(34,197,94,0.3); }
+      .si-pill--warn { background: var(--ds-accent-dim); color: var(--ds-accent); border: 1px solid rgba(245,194,92,0.3); }
+      .si-pill--danger { background: var(--ds-dn-bg); color: var(--ds-dn); border: 1px solid rgba(244,63,94,0.3); }
+      .si-pill--muted { background: var(--ds-bg-glass); color: var(--ds-text-muted); border: 1px solid var(--ds-stroke); }
+      .si-pill__dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; opacity: 0.85; }
+      .si-pill--pulse .si-pill__dot { animation: si-pulse 2.4s var(--ds-ease-out) infinite; }
+      @keyframes si-pulse { 0%,100%{opacity:0.4;} 50%{opacity:1;} }
+
+      .si-trade-row {
+        display: grid; grid-template-columns: minmax(0,1fr) auto auto;
+        gap: var(--ds-space-3); align-items: center;
+        padding: 8px 12px; border-radius: 10px;
+        background: var(--ds-bg-glass); border: 1px solid var(--ds-stroke-soft);
+      }
+      .si-trade-row + .si-trade-row { margin-top: 6px; }
+      .si-trade-row__ticker { font-family: var(--tt-font-mono); font-weight: 700; color: var(--ds-text-display); font-size: var(--ds-fs-body); }
+      .si-trade-row__meta { font-size: var(--ds-fs-meta); color: var(--ds-text-muted); }
+      .si-trade-row__pnl { font-family: var(--tt-font-mono); font-weight: 600; font-variant-numeric: tabular-nums; font-size: var(--ds-fs-body); }
+      .si-trade-row__pnl--up { color: var(--ds-up); }
+      .si-trade-row__pnl--dn { color: var(--ds-dn); }
+      .si-trade-row__pct { font-family: var(--tt-font-mono); font-size: var(--ds-fs-meta); color: var(--ds-text-muted); }
+
+      .si-progress {
+        height: 4px; border-radius: 2px;
+        background: var(--ds-stroke); overflow: hidden;
+      }
+      .si-progress__fill {
+        height: 100%; border-radius: 2px;
+        background: var(--ds-accent);
+        transition: width 0.5s var(--ds-ease-out);
+      }
+      .si-progress__fill--up { background: var(--ds-up); }
+
+      .si-banner {
+        padding: var(--ds-space-3) var(--ds-space-4);
+        border-radius: var(--ds-radius);
+        background: var(--ds-bg-glass);
+        border: 1px solid var(--ds-stroke);
+        display: flex; align-items: center; gap: var(--ds-space-3);
+        flex-wrap: wrap;
+      }
+      .si-banner--ok { border-left: 3px solid var(--ds-up); }
+      .si-banner--warn { border-left: 3px solid var(--ds-accent); }
+      .si-banner--danger { border-left: 3px solid var(--ds-dn); }
+
+      .si-tabbar {
+        display: flex; gap: 4px;
+        background: var(--ds-bg-glass);
+        border: 1px solid var(--ds-stroke);
+        border-radius: 12px;
+        padding: 4px;
+        margin-bottom: var(--ds-space-4);
+      }
+      .si-tabbar__item {
+        flex: 0 0 auto;
+        padding: 8px 16px; border-radius: 9px;
+        font-family: var(--tt-font-ui); font-size: var(--ds-fs-body); font-weight: 600;
+        color: var(--ds-text-muted); cursor: pointer;
+        background: transparent; border: none;
+        transition: background var(--ds-dur-fast), color var(--ds-dur-fast);
+        white-space: nowrap;
+      }
+      .si-tabbar__item:hover { color: var(--ds-text-body); }
+      .si-tabbar__item--active { background: var(--ds-accent-dim); color: var(--ds-accent); }
+
+      .si-action {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 7px 14px; border-radius: 10px;
+        font-family: var(--tt-font-ui); font-size: var(--ds-fs-body); font-weight: 600;
+        cursor: pointer; transition: background var(--ds-dur-fast), border-color var(--ds-dur-fast);
+        background: var(--ds-bg-glass); border: 1px solid var(--ds-stroke);
+        color: var(--ds-text-body);
+      }
+      .si-action:hover { background: var(--ds-bg-glass-hi); border-color: var(--ds-stroke-hi); }
+      .si-action--primary { background: var(--ds-accent-dim); border-color: rgba(245,194,92,0.4); color: var(--ds-accent); }
+      .si-action--primary:hover { background: rgba(245,194,92,0.22); border-color: var(--ds-accent); }
+      .si-action--danger { color: var(--ds-dn); border-color: rgba(244,63,94,0.3); background: var(--ds-dn-bg); }
+      .si-action:disabled { opacity: 0.45; cursor: not-allowed; }
+
+      .si-menu {
+        position: relative; display: inline-block;
+      }
+      .si-menu__trigger {
+        background: transparent; border: 1px solid var(--ds-stroke);
+        color: var(--ds-text-muted); border-radius: 8px;
+        padding: 4px 10px; font-size: var(--ds-fs-body); cursor: pointer;
+        font-weight: 700;
+      }
+      .si-menu__trigger:hover { background: var(--ds-bg-glass-hi); color: var(--ds-text-body); }
+      .si-menu__panel {
+        position: absolute; right: 0; top: calc(100% + 4px);
+        background: var(--ds-bg-surface-hi); border: 1px solid var(--ds-stroke-hi);
+        border-radius: 10px; padding: 6px; min-width: 200px;
+        box-shadow: var(--ds-shadow-pop); z-index: 30;
+      }
+      .si-menu__item {
+        display: block; width: 100%; padding: 7px 10px; border-radius: 6px;
+        font-size: var(--ds-fs-body); color: var(--ds-text-body);
+        text-align: left; background: transparent; border: none; cursor: pointer;
+      }
+      .si-menu__item:hover { background: var(--ds-bg-glass); }
+      .si-menu__item--danger { color: var(--ds-dn); }
+
+      .si-proposal {
+        padding: var(--ds-space-3); border-radius: 10px;
+        background: var(--ds-bg-glass);
+        border: 1px solid var(--ds-stroke);
+        display: flex; align-items: center; justify-content: space-between;
+        gap: var(--ds-space-3); flex-wrap: wrap;
+      }
+      .si-proposal--high { border-left: 3px solid var(--ds-dn); }
+      .si-proposal--medium { border-left: 3px solid var(--ds-accent); }
+      .si-proposal--low { border-left: 3px solid var(--ds-up); }
+      .si-proposal__title { font-weight: 600; color: var(--ds-text-display); font-size: var(--ds-fs-body); }
+      .si-proposal__detail { font-size: var(--ds-fs-meta); color: var(--ds-text-muted); margin-top: 2px; max-width: 56ch; }
+      .si-proposal__config { font-family: var(--tt-font-mono); font-size: var(--ds-fs-caption); color: var(--ds-text-faint); margin-top: 4px; }
+
+      .si-tip {
+        position: relative; cursor: help;
+        border-bottom: 1px dotted var(--ds-text-muted);
+      }
+      .si-tip::after {
+        content: attr(data-tip);
+        position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+        background: var(--ds-bg-surface-hi); color: var(--ds-text-body);
+        border: 1px solid var(--ds-stroke-hi); border-radius: 8px;
+        padding: 6px 10px; font-size: var(--ds-fs-meta); font-weight: 400;
+        white-space: normal; min-width: 220px; max-width: 320px;
+        box-shadow: var(--ds-shadow-pop);
+        opacity: 0; pointer-events: none; transition: opacity var(--ds-dur-fast);
+        z-index: 50;
+      }
+      .si-tip:hover::after { opacity: 1; }
     </style>
   </head>
   <body>
@@ -209,7 +391,269 @@ function BarChart({ data, maxVal, colorFn }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// TAB: Dashboard
+// TAB: Engine (v2 dashboard — System Intelligence revamp 2026-05-03)
+// Pulls live KPIs from the active backtest run via the new
+// `/timed/admin/system-intelligence/engine-snapshot` endpoint. This
+// replaces the stale Generation #22 numbers that the old Dashboard
+// surfaced — operators land here and immediately see (1) the engine
+// health pill, (2) live run KPIs, (3) top winners + bottom losers, and
+// (4) sim-day progress for the in-flight leg.
+// ═══════════════════════════════════════════════════════════════
+function fmtMoneyDelta(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  const sign = n >= 0 ? "+" : "-";
+  return `${sign}$${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+}
+function fmtPctVal(v, digits = 1) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  return `${n.toFixed(digits)}%`;
+}
+function fmtNum2(v, digits = 2) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  return n.toFixed(digits);
+}
+function timeAgo(ms) {
+  const v = Number(ms);
+  if (!Number.isFinite(v) || v <= 0) return "—";
+  const diff = Date.now() - v;
+  if (diff < 60000) return "just now";
+  if (diff < 3600000) return `${Math.round(diff / 60000)}m ago`;
+  if (diff < 86400000) return `${Math.round(diff / 3600000)}h ago`;
+  return `${Math.round(diff / 86400000)}d ago`;
+}
+
+function HealthPill({ health }) {
+  if (!health) return null;
+  const cls = health.level === "danger" ? "si-pill--danger" : health.level === "warn" ? "si-pill--warn" : "si-pill--ok";
+  return (
+    <span className={`si-pill ${cls} si-pill--pulse`} title={(health.details || []).join(" · ")}>
+      <span className="si-pill__dot" />
+      <span>Engine: {health.label}</span>
+    </span>
+  );
+}
+
+function KpiTile({ label, value, suffix, sub, valueClass, hint }) {
+  return (
+    <div className="si-kpi" title={hint || ""}>
+      <div className="si-kpi__label">{label}</div>
+      <div>
+        <span className={`si-kpi__value ${valueClass || ""}`}>{value}</span>
+        {suffix && <span className="si-kpi__suffix">{suffix}</span>}
+      </div>
+      {sub && <div className="si-kpi__sub">{sub}</div>}
+    </div>
+  );
+}
+
+function EngineTab({ snapshot, onRefresh, refreshing, lastFetched, error }) {
+  if (!snapshot && !error) {
+    return (
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        {Array.from({ length: 6 }).map((_, i) => <div key={i} className="ds-skeleton ds-skeleton--tile" />)}
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="si-card" style={{borderLeft:"3px solid var(--ds-dn)"}}>
+        <div className="si-card__title">Engine snapshot unavailable</div>
+        <div className="si-card__subtitle" style={{color:"var(--ds-dn)"}}>{error}</div>
+        <button className="si-action mt-3" onClick={onRefresh}>Retry</button>
+      </div>
+    );
+  }
+  const k = snapshot.kpis || {};
+  const sim = snapshot.sim_progress;
+  const winners = snapshot.top_winners || [];
+  const losers = snapshot.top_losers || [];
+  const recent = snapshot.recent_trades || [];
+  const fmtSimDate = (d) => {
+    if (!d) return "—";
+    try { return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); }
+    catch { return d; }
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Active-run banner */}
+      <div className={`si-banner ${snapshot.health?.level === "danger" ? "si-banner--danger" : snapshot.health?.level === "warn" ? "si-banner--warn" : "si-banner--ok"}`}>
+        <HealthPill health={snapshot.health} />
+        <div style={{flex:1, minWidth:200}}>
+          <div style={{fontSize:"var(--ds-fs-meta)", color:"var(--ds-text-muted)", textTransform:"uppercase", letterSpacing:"0.14em", fontWeight:700}}>
+            Active Run · {snapshot.run_status || "—"}
+          </div>
+          <div style={{fontFamily:"var(--tt-font-mono)", color:"var(--ds-text-display)", fontSize:"var(--ds-fs-body)", fontWeight:600, marginTop:2}}>
+            {snapshot.run_label || snapshot.run_id || "—"}
+          </div>
+          {snapshot.run_description && (
+            <div style={{fontSize:"var(--ds-fs-meta)", color:"var(--ds-text-muted)", marginTop:2}}>{snapshot.run_description}</div>
+          )}
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:"var(--ds-fs-caption)", color:"var(--ds-text-muted)", letterSpacing:"0.12em", textTransform:"uppercase", fontWeight:700}}>
+            Refreshed
+          </div>
+          <div style={{fontFamily:"var(--tt-font-mono)", color:"var(--ds-text-body)", fontSize:"var(--ds-fs-meta)"}}>
+            {timeAgo(lastFetched)}
+          </div>
+        </div>
+        <button className="si-action" onClick={onRefresh} disabled={refreshing}>
+          {refreshing ? "Refreshing…" : "Refresh"}
+        </button>
+      </div>
+
+      {/* Sim progress */}
+      {sim && (
+        <div className="si-card">
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <div className="si-card__eyebrow">Sim Progress</div>
+              <div className="si-card__title">
+                {fmtSimDate(sim.current_sim_date)} <span style={{color:"var(--ds-text-muted)", fontWeight:400, fontSize:"var(--ds-fs-body)"}}>of {fmtSimDate(sim.end_date)}</span>
+              </div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontFamily:"var(--tt-font-mono)", color:"var(--ds-text-display)", fontSize:"var(--ds-fs-emph)", fontWeight:600}}>{sim.pct}%</div>
+              <div style={{fontSize:"var(--ds-fs-meta)", color:"var(--ds-text-muted)"}}>day {sim.elapsed_days}/{sim.total_days}</div>
+            </div>
+          </div>
+          <div className="si-progress">
+            <div className="si-progress__fill si-progress__fill--up" style={{width:`${sim.pct}%`}} />
+          </div>
+        </div>
+      )}
+
+      {/* KPIs */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <KpiTile
+          label="Net P&L"
+          value={fmtMoneyDelta(k.realized_pnl)}
+          valueClass={k.realized_pnl >= 0 ? "si-kpi__value--up" : "si-kpi__value--dn"}
+          sub={`${k.trades_closed || 0} closed`}
+          hint="Sum of realized P&L for all closed trades on the active run."
+        />
+        <KpiTile
+          label="Win Rate"
+          value={fmtPctVal(k.win_rate, 1).replace("%", "")}
+          suffix="%"
+          valueClass={k.win_rate >= 50 ? "si-kpi__value--up" : "si-kpi__value--dn"}
+          sub={`${k.wins || 0}W · ${k.losses || 0}L`}
+          hint="% of closed trades with pnl > 0."
+        />
+        <KpiTile
+          label="Profit Factor"
+          value={k.profit_factor != null ? fmtNum2(k.profit_factor, 2) : "∞"}
+          valueClass={(k.profit_factor || 0) >= 1.4 ? "si-kpi__value--up" : (k.profit_factor || 0) >= 1.0 ? "si-kpi__value--accent" : "si-kpi__value--dn"}
+          sub="gross W / gross L"
+          hint="Gross profits divided by gross losses."
+        />
+        <KpiTile
+          label="SQN"
+          value={fmtNum2(k.sqn, 2)}
+          valueClass={k.sqn >= 2 ? "si-kpi__value--up" : k.sqn >= 1 ? "si-kpi__value--accent" : "si-kpi__value--dn"}
+          sub="van Tharp"
+          hint="System Quality Number — (mean R / std R) × √N. ≥2 is good."
+        />
+        <KpiTile
+          label="Avg R"
+          value={fmtNum2(k.avg_r, 2)}
+          suffix="%"
+          valueClass={k.avg_r >= 0 ? "si-kpi__value--up" : "si-kpi__value--dn"}
+          sub={`σ ${fmtNum2(k.std_r, 2)}%`}
+          hint="Average per-trade return percent."
+        />
+        <KpiTile
+          label="Max DD"
+          value={fmtMoneyDelta(-Math.abs(k.max_drawdown))}
+          valueClass="si-kpi__value--dn"
+          sub={`${fmtPctVal(k.max_drawdown_pct, 1)} from peak`}
+          hint="Largest peak-to-trough drawdown of the realized P&L curve."
+        />
+      </div>
+
+      {/* Winners / Losers */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="si-card">
+          <div className="si-card__head">
+            <div>
+              <div className="si-card__eyebrow">Top winners (run)</div>
+              <div className="si-card__title">Top 5 by $</div>
+            </div>
+            <a className="si-action" href={`trade-autopsy.html?run_id=${encodeURIComponent(snapshot.run_id)}&filter=winners`}>
+              All
+            </a>
+          </div>
+          {winners.length === 0 ? (
+            <div style={{color:"var(--ds-text-muted)", fontSize:"var(--ds-fs-body)"}}>No closed trades yet.</div>
+          ) : winners.map((t) => (
+            <div className="si-trade-row" key={t.trade_id}>
+              <div>
+                <div className="si-trade-row__ticker">{t.ticker} <span style={{color:t.direction === "LONG" ? "var(--ds-up)" : "var(--ds-dn)", fontSize:"var(--ds-fs-caption)", marginLeft:6}}>{t.direction}</span></div>
+                <div className="si-trade-row__meta">{t.exit_reason || "—"} · {t.setup_grade || "—"}</div>
+              </div>
+              <div className="si-trade-row__pct">{fmtPctVal(t.pnl_pct, 2)}</div>
+              <div className="si-trade-row__pnl si-trade-row__pnl--up">{fmtMoneyDelta(t.pnl)}</div>
+            </div>
+          ))}
+        </div>
+        <div className="si-card">
+          <div className="si-card__head">
+            <div>
+              <div className="si-card__eyebrow">Bottom losers (run)</div>
+              <div className="si-card__title">Bottom 5 by $</div>
+            </div>
+            <a className="si-action" href={`trade-autopsy.html?run_id=${encodeURIComponent(snapshot.run_id)}&filter=losers`}>
+              All
+            </a>
+          </div>
+          {losers.length === 0 ? (
+            <div style={{color:"var(--ds-text-muted)", fontSize:"var(--ds-fs-body)"}}>No closed trades yet.</div>
+          ) : losers.map((t) => (
+            <div className="si-trade-row" key={t.trade_id}>
+              <div>
+                <div className="si-trade-row__ticker">{t.ticker} <span style={{color:t.direction === "LONG" ? "var(--ds-up)" : "var(--ds-dn)", fontSize:"var(--ds-fs-caption)", marginLeft:6}}>{t.direction}</span></div>
+                <div className="si-trade-row__meta">{t.exit_reason || "—"} · {t.setup_grade || "—"}</div>
+              </div>
+              <div className="si-trade-row__pct">{fmtPctVal(t.pnl_pct, 2)}</div>
+              <div className="si-trade-row__pnl si-trade-row__pnl--dn">{fmtMoneyDelta(t.pnl)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Recent trades */}
+      {recent.length > 0 && (
+        <div className="si-card">
+          <div className="si-card__head">
+            <div>
+              <div className="si-card__eyebrow">Latest activity</div>
+              <div className="si-card__title">Last 10 trades</div>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {recent.map((t) => (
+              <div className="si-trade-row" key={t.trade_id}>
+                <div>
+                  <div className="si-trade-row__ticker">{t.ticker} <span style={{color:t.direction === "LONG" ? "var(--ds-up)" : "var(--ds-dn)", fontSize:"var(--ds-fs-caption)", marginLeft:6}}>{t.direction}</span></div>
+                  <div className="si-trade-row__meta">{t.exit_reason || "—"}</div>
+                </div>
+                <div className="si-trade-row__pct">{fmtPctVal(t.pnl_pct, 2)}</div>
+                <div className={`si-trade-row__pnl ${t.pnl >= 0 ? "si-trade-row__pnl--up" : "si-trade-row__pnl--dn"}`}>{fmtMoneyDelta(t.pnl)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TAB: Dashboard (legacy — kept for the History → load-old-report flow)
 // ═══════════════════════════════════════════════════════════════
 function DashboardTab({ dashboard }) {
   if (!dashboard) return <div className="text-slate-500 text-sm py-8 text-center">Loading dashboard...</div>;
@@ -4208,6 +4652,81 @@ function TradeGradingTab() {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// AnalysisAutomationBar — P2: Run Analysis from page + apply
+// proposed calibration deltas without dropping to a shell.
+// ═══════════════════════════════════════════════════════════════
+function AnalysisAutomationBar({ isAdmin, snapshot, proposals, proposalsLoading, proposalApplying, proposalApplied, onRunAnalysis, running, onLoadProposals, onApplyProposal }) {
+  const runId = snapshot?.run_id;
+  return (
+    <div className="space-y-4">
+      <div className="si-banner">
+        <div style={{flex:1, minWidth:200}}>
+          <div className="si-card__eyebrow">Analysis automation</div>
+          <div className="si-card__title">Refresh insights without leaving the page</div>
+          <div className="si-card__subtitle">
+            Auto-refresh every 60 s while a run is active. Click <span style={{color:"var(--ds-accent)"}}>Run Analysis</span> to re-run the calibration pipeline server-side, or <span style={{color:"var(--ds-accent)"}}>Propose Calibration</span> to compute rule-based DA flag deltas from the active run.
+          </div>
+        </div>
+        {isAdmin && (
+          <>
+            <button className="si-action si-action--primary" onClick={onRunAnalysis} disabled={running}>
+              {running ? "Running…" : "Run Analysis"}
+            </button>
+            <button className="si-action si-action--primary" onClick={onLoadProposals} disabled={proposalsLoading}>
+              {proposalsLoading ? "Computing…" : "Propose Calibration"}
+            </button>
+          </>
+        )}
+      </div>
+
+      {proposals && (
+        <div className="si-card">
+          <div className="si-card__head">
+            <div>
+              <div className="si-card__eyebrow">Proposed calibration</div>
+              <div className="si-card__title">{proposals.proposals?.length || 0} suggestion{(proposals.proposals?.length || 0) === 1 ? "" : "s"}</div>
+              <div className="si-card__subtitle">Computed from {proposals.sample?.closed} closed trades on <span style={{fontFamily:"var(--tt-font-mono)", color:"var(--ds-text-body)"}}>{proposals.run_id}</span>. Nothing is applied until you click Apply per row.</div>
+            </div>
+            <button className="si-action" onClick={onLoadProposals} disabled={proposalsLoading}>
+              {proposalsLoading ? "Recomputing…" : "Re-compute"}
+            </button>
+          </div>
+          {(proposals.proposals?.length || 0) === 0 ? (
+            <div style={{color:"var(--ds-text-muted)", fontSize:"var(--ds-fs-body)"}}>No actionable proposals right now — the engine is performing within thresholds.</div>
+          ) : (
+            <div className="space-y-2">
+              {proposals.proposals.map((p) => {
+                const applied = proposalApplied[p.id];
+                const applying = !!proposalApplying[p.id];
+                const cls = p.impact === "high" ? "si-proposal--high" : p.impact === "medium" ? "si-proposal--medium" : "si-proposal--low";
+                return (
+                  <div key={p.id} className={`si-proposal ${cls}`}>
+                    <div style={{flex:1, minWidth:0}}>
+                      <div className="si-proposal__title">{p.title}</div>
+                      <div className="si-proposal__detail">{p.detail}</div>
+                      <div className="si-proposal__config">{p.target} · {p.config?.key} = {String(p.config?.value)}</div>
+                    </div>
+                    {applied === "applied" ? (
+                      <span className="si-pill si-pill--ok"><span className="si-pill__dot" />Applied</span>
+                    ) : applied ? (
+                      <span className="si-pill si-pill--danger" title={applied}>Failed</span>
+                    ) : (
+                      <button className="si-action si-action--primary" disabled={applying || !isAdmin} onClick={() => onApplyProposal(p)}>
+                        {applying ? "Applying…" : `Apply to ${p.target}`}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
 // MAIN APP
 // ═══════════════════════════════════════════════════════════════
 function App() {
@@ -4215,9 +4734,12 @@ function App() {
     try {
       const params = new URLSearchParams(window.location.search);
       const candidate = params.get("tab");
-      return candidate || "dashboard";
+      // Legacy → new tab-id map (retains old shareable links).
+      const legacyMap = { dashboard: "engine", moves: "discovery", patterns: "discovery", history: "analysis", grading: "engine" };
+      const resolved = legacyMap[candidate] || candidate || "engine";
+      return resolved;
     } catch (_) {
-      return "dashboard";
+      return "engine";
     }
   });
   const [dashboard, setDashboard] = useState(null);
@@ -4228,6 +4750,17 @@ function App() {
   const [reportId, setReportId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [moveLoading, setMoveLoading] = useState(true);
+  // Engine snapshot — live KPIs from the active backtest run.
+  // Polled every 30 s while the Engine tab is visible.
+  const [engineSnapshot, setEngineSnapshot] = useState(null);
+  const [engineLastFetched, setEngineLastFetched] = useState(0);
+  const [engineRefreshing, setEngineRefreshing] = useState(false);
+  const [engineError, setEngineError] = useState(null);
+  // Calibration proposals (POST /timed/admin/system-intelligence/calibrate)
+  const [proposals, setProposals] = useState(null);
+  const [proposalsLoading, setProposalsLoading] = useState(false);
+  const [proposalApplying, setProposalApplying] = useState({});
+  const [proposalApplied, setProposalApplied] = useState({});
   const [running, setRunning] = useState(false);
   const [queued, setQueued] = useState(false);
   const [progress, setProgress] = useState(null);
@@ -4250,19 +4783,95 @@ function App() {
     setIsAdmin(admin);
   }, []);
 
+  const fetchEngineSnapshot = useCallback(async (silent = false) => {
+    if (!silent) setEngineRefreshing(true);
+    try {
+      const res = await fetch(`${API_BASE}/timed/admin/system-intelligence/engine-snapshot`, { credentials: "include" });
+      const data = await res.json();
+      if (data?.ok) {
+        setEngineSnapshot(data);
+        setEngineLastFetched(Date.now());
+        setEngineError(null);
+      } else {
+        setEngineError(data?.error || "engine_snapshot_failed");
+      }
+    } catch (e) {
+      setEngineError(String(e?.message || e));
+    }
+    if (!silent) setEngineRefreshing(false);
+  }, []);
+
+  const fetchProposals = useCallback(async () => {
+    setProposalsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/timed/admin/system-intelligence/calibrate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (data?.ok) {
+        setProposals(data);
+        setProposalApplied({});
+      } else {
+        setError(data?.error || "calibrate_failed");
+      }
+    } catch (e) {
+      setError(String(e?.message || e));
+    }
+    setProposalsLoading(false);
+  }, []);
+
+  const applyProposal = useCallback(async (proposal) => {
+    if (!proposal?.config?.key) return;
+    setProposalApplying((prev) => ({ ...prev, [proposal.id]: true }));
+    try {
+      let res, data;
+      if (proposal.target === "live") {
+        res = await fetch(`${API_BASE}/timed/admin/model-config`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ updates: [{ key: proposal.config.key, value: proposal.config.value, description: `System Intelligence proposal · ${proposal.title}` }] }),
+          credentials: "include",
+        });
+        data = await res.json();
+      } else {
+        const runId = engineSnapshot?.run_id || proposals?.run_id;
+        if (!runId) throw new Error("no_run_id");
+        res = await fetch(`${API_BASE}/timed/admin/runs/config-patch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ run_id: runId, updates: [{ key: proposal.config.key, value: proposal.config.value }] }),
+          credentials: "include",
+        });
+        data = await res.json();
+      }
+      if (data?.ok) {
+        setProposalApplied((prev) => ({ ...prev, [proposal.id]: "applied" }));
+      } else {
+        setProposalApplied((prev) => ({ ...prev, [proposal.id]: data?.error || "failed" }));
+      }
+    } catch (e) {
+      setProposalApplied((prev) => ({ ...prev, [proposal.id]: String(e?.message || e) }));
+    }
+    setProposalApplying((prev) => ({ ...prev, [proposal.id]: false }));
+  }, [engineSnapshot, proposals]);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     setMoveLoading(true);
     setMoveError(null);
     try {
-      const [dashRes, reportRes, moveRes] = await Promise.all([
+      const [dashRes, reportRes, moveRes, _eng] = await Promise.all([
         fetch(`${API_BASE}/timed/system/dashboard`, { credentials: "include" }).then(r => r.json()).catch(() => null),
         fetch(`${API_BASE}/timed/calibration/report`, { credentials: "include" }).then(r => r.json()).catch(() => null),
         fetch(`${API_BASE}/timed/move-discovery`, { credentials: "include" }).then(async (r) => {
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           return r.json();
         }).catch((e) => ({ ok: false, error: String(e?.message || e) })),
+        fetchEngineSnapshot(true),
       ]);
       if (dashRes?.ok) setDashboard(dashRes);
       if (reportRes?.ok) {
@@ -4388,67 +4997,119 @@ function App() {
     } catch (_) {}
   };
 
+  // 4-tab IA (System Intelligence revamp 2026-05-03): Engine / Analysis /
+  // Runs / Discovery. The legacy Dashboard / Patterns / History / Grading
+  // surfaces are folded into Engine (live KPIs + risk tiers) and Analysis
+  // (calibration history + pattern library + context).
   const tabs = [
-    { id: "dashboard", label: "Dashboard" },
+    { id: "engine", label: "Engine" },
     { id: "analysis", label: "Analysis" },
     ...(isAdmin ? [{ id: "runs", label: "Runs" }] : []),
-    { id: "moves", label: "Move Discovery" },
-    { id: "patterns", label: "Patterns & Learning" },
-    { id: "history", label: "History" },
-    ...(isAdmin ? [{ id: "grading", label: "Trade Grading" }] : []),
+    { id: "discovery", label: "Discovery" },
   ];
+
+  // Poll engine snapshot every 30 s while the Engine or Analysis tab is
+  // active. The active backtest runs continuously, so the snapshot
+  // surface stays fresh without the operator having to refresh.
+  useEffect(() => {
+    if (tab !== "engine" && tab !== "analysis") return;
+    fetchEngineSnapshot(true);
+    const id = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      fetchEngineSnapshot(true);
+    }, 30000);
+    return () => clearInterval(id);
+  }, [tab, fetchEngineSnapshot]);
 
   return (
     <div className="min-h-screen pb-16">
       <NavHeader />
       <div className="max-w-[1520px] mx-auto px-4 py-6">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-end justify-between mb-5 gap-3 flex-wrap">
           <div>
-            <h1 className="text-xl font-bold text-white tracking-tight">System Intelligence</h1>
-            <p className="text-xs text-slate-400 mt-1.5">Calibration, model performance, and experiment workflow</p>
+            <h1 style={{fontSize:"24px", fontWeight:600, color:"var(--ds-text-display)", letterSpacing:"-0.02em", margin:0}}>System Intelligence</h1>
+            <p style={{fontSize:"var(--ds-fs-meta)", color:"var(--ds-text-muted)", marginTop:6}}>
+              Live engine health, calibration, and experiment workflow.
+            </p>
           </div>
           {isAdmin && (
             <div className="flex items-center gap-2">
-              <button className="btn btn-primary text-xs" onClick={handleRun} disabled={running}>
-                {running ? <span className="flex items-center gap-1.5"><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full" style={{animation:"spin 0.7s linear infinite"}} />Analyzing...</span> : "Run Analysis"}
+              <button className="si-action si-action--primary" onClick={handleRun} disabled={running}>
+                {running ? "Analyzing…" : "Run Analysis"}
               </button>
-              <button className="btn text-xs" style={{background:"rgba(239,68,68,0.15)", color:"#fca5a5", border:"1px solid rgba(239,68,68,0.25)"}} onClick={handleReset} disabled={resetting}>
-                {resetting ? <span className="flex items-center gap-1.5"><span className="w-3 h-3 border-2 border-rose-400/30 border-t-rose-400 rounded-full" style={{animation:"spin 0.7s linear infinite"}} />Resetting...</span> : "Reset Account"}
+              <button className="si-action si-action--danger" onClick={handleReset} disabled={resetting}>
+                {resetting ? "Resetting…" : "Reset Account"}
               </button>
             </div>
           )}
         </div>
 
-        {isAdmin && (
-          <div className="mb-4 p-4 rounded-xl border text-xs" style={{background:"rgba(99,102,241,0.05)", borderColor:"rgba(99,102,241,0.15)"}}>
-            <p className="text-indigo-300/90 font-medium mb-1.5">Local Calibration Pipeline</p>
-            <p className="text-slate-400 leading-relaxed">Full calibration (harvest + autopsy) runs locally. Upload data, then click <span className="text-white font-medium">Run Analysis</span> to build profiles.</p>
-            <code className="inline-block mt-2 text-[11px] text-slate-500 bg-white/[0.06] rounded-md px-2.5 py-1 font-mono">node scripts/calibrate.js</code>
-          </div>
-        )}
         {error && <div className="mb-4 p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-sm text-rose-300">{error}</div>}
         {resetMsg && <div className="mb-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-sm text-emerald-300">{resetMsg}</div>}
 
-        {/* Main tabs */}
-        <div className="flex gap-1 border-b border-white/[0.06] mb-5 overflow-x-auto">
+        {/* Main tabs (v2) */}
+        <div className="si-tabbar overflow-x-auto">
           {tabs.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)} className={`px-4 py-2 text-xs font-medium whitespace-nowrap ${tab === t.id ? "tab-active" : "tab-inactive"}`}>{t.label}</button>
+            <button key={t.id} onClick={() => setTab(t.id)} className={`si-tabbar__item ${tab === t.id ? "si-tabbar__item--active" : ""}`}>{t.label}</button>
           ))}
         </div>
 
-        {loading && tab === "dashboard" ? (
+        {loading && tab === "engine" && !engineSnapshot ? (
           <div className="flex items-center justify-center py-20">
             <div className="w-6 h-6 border-2 border-white/20 border-t-emerald-500 rounded-full" style={{animation:"spin 0.7s linear infinite"}} />
           </div>
         ) : (
           <>
-            {tab === "dashboard" && <DashboardTab dashboard={dashboard} />}
-            {tab === "analysis" && <UnifiedAnalysisTab report={report} recs={recs} reportId={reportId} onApply={handleApply} applying={applying} appliedMsg={appliedMsg} />}
+            {tab === "engine" && (
+              <div className="space-y-5">
+                <EngineTab snapshot={engineSnapshot} onRefresh={() => fetchEngineSnapshot(false)} refreshing={engineRefreshing} lastFetched={engineLastFetched} error={engineError} />
+                {/* Risk-tier mini surface — kept from legacy Trade Grading tab so admins can still adjust tier risk %. */}
+                {isAdmin && <TradeGradingTab />}
+                {/* Legacy aggregate Dashboard kept below the live KPIs as a "calibration generation digest"
+                    so the existing whats_working / proceed_with_caution / VIX regime tables stay reachable. */}
+                <details className="si-card si-card--glass">
+                  <summary style={{cursor:"pointer", color:"var(--ds-text-muted)", fontSize:"var(--ds-fs-meta)", textTransform:"uppercase", letterSpacing:"0.14em", fontWeight:700}}>
+                    Show legacy calibration digest (Generation summary, Adaptations, VIX regime)
+                  </summary>
+                  <div className="mt-4">
+                    <DashboardTab dashboard={dashboard} />
+                  </div>
+                </details>
+              </div>
+            )}
+            {tab === "analysis" && (
+              <div className="space-y-5">
+                {/* P2: Run Analysis CTA + Proposed Calibration panel. */}
+                <AnalysisAutomationBar
+                  isAdmin={isAdmin}
+                  snapshot={engineSnapshot}
+                  proposals={proposals}
+                  proposalsLoading={proposalsLoading}
+                  proposalApplying={proposalApplying}
+                  proposalApplied={proposalApplied}
+                  onRunAnalysis={handleRun}
+                  running={running}
+                  onLoadProposals={fetchProposals}
+                  onApplyProposal={applyProposal}
+                />
+                <UnifiedAnalysisTab report={report} recs={recs} reportId={reportId} onApply={handleApply} applying={applying} appliedMsg={appliedMsg} />
+                <details className="si-card si-card--glass">
+                  <summary style={{cursor:"pointer", color:"var(--ds-text-muted)", fontSize:"var(--ds-fs-meta)", textTransform:"uppercase", letterSpacing:"0.14em", fontWeight:700}}>
+                    Show calibration history (past generations)
+                  </summary>
+                  <div className="mt-4">
+                    <HistoryTab onViewReport={handleViewReport} />
+                  </div>
+                </details>
+              </div>
+            )}
             {tab === "runs" && <RunsTab isAdmin={isAdmin} />}
-            {tab === "moves" && <MoveDiscoveryTab report={moveReport} loading={moveLoading} error={moveError} />}
-            {tab === "patterns" && <PatternsTab />}
-            {tab === "history" && <HistoryTab onViewReport={handleViewReport} />}
-            {tab === "grading" && isAdmin && <TradeGradingTab />}
+            {tab === "discovery" && (
+              <div className="space-y-5">
+                <MoveDiscoveryTab report={moveReport} loading={moveLoading} error={moveError} />
+                <PatternsTab />
+              </div>
+            )}
           </>
         )}
       </div>
