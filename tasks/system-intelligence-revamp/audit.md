@@ -246,3 +246,28 @@ All new code uses v2 tokens (`--ds-*`):
 - Per-row action buttons: 9 → 1 default + "…" menu.
 - Operations Console: 4 KPI cards + 5 sub-panels → 1 status banner +
   the Active Run Console (kept).
+
+## What shipped (2026-05-03)
+
+| Phase | Commit(s) | Status |
+|---|---|---|
+| 1 — Audit | `dc15991` | ✅ |
+| 2 P0 — Engine tab live KPIs | `956dc6f` (+ `af87a18` fallback fix) | ✅ |
+| 2 P2 — Analysis automation | `956dc6f` | ✅ |
+| 2 P1 — Runs tab cleanup | `37c2c95` | ✅ |
+| 2 P3 — Move Discovery actionability | `295c636` | ✅ |
+| 2 P4 — Patterns & Learning hygiene | `295c636` | ✅ |
+| 3 — Calibration automation endpoint | `956dc6f` | ✅ |
+
+### New endpoints
+- `GET  /timed/admin/system-intelligence/engine-snapshot[?run_id]`
+- `POST /timed/admin/system-intelligence/run-analysis[?run_id]`
+- `POST /timed/admin/system-intelligence/calibrate[?run_id]`
+
+### Verified live (against `phase-c-stage1-jul2025-may2026`)
+- engine-snapshot: 173 trades / 156 closed, WR 59.6%, PF 2.58, net
+  $11,806, SQN 4.36, max DD $1,033 (8.6%), sim day 60/305 (Aug 29).
+  Health: green.
+- calibrate: 1 proposal — "Add CVNA to ticker blocklist" (3 trades,
+  cumulative R −4.18, net −$527). Targets `run` (writes to
+  `backtest_run_config`).
