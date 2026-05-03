@@ -3241,6 +3241,72 @@
                     const grw = F.growth || {};
                     const earn = F.earnings || {};
                     const pxs = F.price_summary || {};
+
+                    // ETF / non-equity guard: SPY, QQQ, IWM and similar have no
+                    // EPS, no earnings history, no PE ratio. Show a focused
+                    // "ETF / Index" view rather than 13 rows of "—".
+                    const _isEtf = (() => {
+                      const hasNoEarnings = !Array.isArray(earn.history) || earn.history.length === 0;
+                      const hasNoEps = val.pe_ttm == null && val.pe_forward == null;
+                      const indHint = String(prof.industry || "").toLowerCase();
+                      const etfishIndustry = !indHint || indHint.includes("etf") || indHint.includes("fund") || indHint.includes("trust");
+                      return hasNoEarnings && hasNoEps && etfishIndustry;
+                    })();
+
+                    if (_isEtf) {
+                      return (
+                        <Panel title="Fundamentals">
+                          <div style={{ padding: "var(--ds-space-3)", display: "flex", flexDirection: "column", gap: "var(--ds-space-3)" }}>
+                            <div className="ds-glass" style={{ padding: "var(--ds-space-3)", borderRadius: "var(--ds-radius-lg)" }}>
+                              <div style={{ fontSize: "var(--ds-fs-eyebrow)", color: "var(--ds-text-muted)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "var(--ds-space-2)" }}>{prof.exchange || "—"} · ETF / Fund</div>
+                              <div style={{ fontSize: "var(--ds-fs-md)", fontWeight: 600, color: "var(--ds-text)", marginBottom: "var(--ds-space-1)" }}>{prof.name || tickerSymbol}</div>
+                              <div style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)" }}>{prof.industry || "Exchange-Traded Fund"}{prof.sector ? ` · ${prof.sector}` : ""}</div>
+                            </div>
+                            <div className="ds-glass" style={{ padding: "var(--ds-space-3)", borderRadius: "var(--ds-radius-lg)" }}>
+                              <div style={{ fontSize: "var(--ds-fs-eyebrow)", color: "var(--ds-text-muted)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "var(--ds-space-2)" }}>Market Data</div>
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--ds-space-3)" }}>
+                                <div>
+                                  <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", marginBottom: 2 }}>Current Price</div>
+                                  <div style={{ fontSize: "var(--ds-fs-md)", fontWeight: 600, fontFamily: "var(--tt-font-mono)" }}>{val.current_price != null ? `$${Number(val.current_price).toFixed(2)}` : "—"}</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", marginBottom: 2 }}>AUM (Market Cap)</div>
+                                  <div style={{ fontSize: "var(--ds-fs-md)", fontWeight: 600, fontFamily: "var(--tt-font-mono)" }}>{fmtBigUsd(val.market_cap)}</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", marginBottom: 2 }}>52-Week Range</div>
+                                  <div style={{ fontSize: "var(--ds-fs-md)", fontWeight: 600, fontFamily: "var(--tt-font-mono)" }}>{pxs.fifty_two_week_low != null && pxs.fifty_two_week_high != null ? `$${Number(pxs.fifty_two_week_low).toFixed(2)} – $${Number(pxs.fifty_two_week_high).toFixed(2)}` : "—"}</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", marginBottom: 2 }}>52w Change</div>
+                                  <div style={{ fontSize: "var(--ds-fs-md)", fontWeight: 600, fontFamily: "var(--tt-font-mono)", color: pxs.fifty_two_week_change_pct >= 0 ? "var(--ds-up)" : "var(--ds-dn)" }}>{fmtPctSigned(pxs.fifty_two_week_change_pct)}</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", marginBottom: 2 }}>50-day MA</div>
+                                  <div style={{ fontSize: "var(--ds-fs-md)", fontWeight: 600, fontFamily: "var(--tt-font-mono)" }}>{pxs.day_50_ma != null ? `$${Number(pxs.day_50_ma).toFixed(2)}` : "—"}</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", marginBottom: 2 }}>200-day MA</div>
+                                  <div style={{ fontSize: "var(--ds-fs-md)", fontWeight: 600, fontFamily: "var(--tt-font-mono)" }}>{pxs.day_200_ma != null ? `$${Number(pxs.day_200_ma).toFixed(2)}` : "—"}</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", marginBottom: 2 }}>Beta</div>
+                                  <div style={{ fontSize: "var(--ds-fs-md)", fontWeight: 600, fontFamily: "var(--tt-font-mono)" }}>{pxs.beta != null ? Number(pxs.beta).toFixed(2) : "—"}</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", marginBottom: 2 }}>Avg Volume</div>
+                                  <div style={{ fontSize: "var(--ds-fs-md)", fontWeight: 600, fontFamily: "var(--tt-font-mono)" }}>{cap.shares_outstanding != null ? fmtBigNum(cap.shares_outstanding) : "—"}</div>
+                                </div>
+                              </div>
+                            </div>
+                            <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", textAlign: "center" }}>
+                              ETFs and index funds don't have EPS, P/E, or earnings history.<br/>For these instruments, use the Snapshot, Technicals, and History tabs.
+                            </div>
+                          </div>
+                        </Panel>
+                      );
+                    }
+
                     const epsChip = growthChip(grw.eps_growth_class);
                     const revChip = growthChip(grw.rev_growth_class);
                     const fairColor = val.fair_value_class === "discount" ? "var(--ds-up)"
@@ -3351,6 +3417,36 @@
                                   </span>
                                 )}
                               </div>
+                              {/* Show the three methods that fed the blend so the user
+                                  can sanity-check the headline. Methodology mirrors the
+                                  user's TradingView indicators (PERatioAnalyzer +
+                                  PricevsEarnings) — forward, growth-adjusted PEG, and
+                                  conservative floor. */}
+                              {val.fair_value_methods && (
+                                <div style={{ marginTop: "var(--ds-space-3)", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "var(--ds-space-2)", paddingTop: "var(--ds-space-2)", borderTop: "1px solid var(--ds-border-faint)" }}>
+                                  <div>
+                                    <div className="ds-caption" style={{ color: "var(--ds-text-muted)", fontSize: 9 }} title="Forward P/E × forward EPS estimate">FORWARD</div>
+                                    <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-meta)", fontWeight: 600, color: "var(--ds-text)" }}>
+                                      {val.fair_value_methods.forward != null ? `$${fmtNum(val.fair_value_methods.forward, 2)}` : "—"}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div className="ds-caption" style={{ color: "var(--ds-text-muted)", fontSize: 9 }} title="EPS × (growth_rate × PEG=1.0), capped at 40 P/E">PEG-ADJ</div>
+                                    <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-meta)", fontWeight: 600, color: "var(--ds-text)" }}>
+                                      {val.fair_value_methods.growth_peg != null ? `$${fmtNum(val.fair_value_methods.growth_peg, 2)}` : "—"}
+                                    </div>
+                                    {val.fair_value_methods.growth_adjusted_pe != null && (
+                                      <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: 9, color: "var(--ds-text-faint)" }}>{`@${val.fair_value_methods.growth_adjusted_pe.toFixed(0)}× P/E`}</div>
+                                    )}
+                                  </div>
+                                  <div>
+                                    <div className="ds-caption" style={{ color: "var(--ds-text-muted)", fontSize: 9 }} title="Conservative floor: TTM EPS × (TTM P/E ∧ 18) × 0.85">CONSERVATIVE</div>
+                                    <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-meta)", fontWeight: 600, color: "var(--ds-text)" }}>
+                                      {val.fair_value_methods.conservative != null ? `$${fmtNum(val.fair_value_methods.conservative, 2)}` : "—"}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )}
                         </Panel>

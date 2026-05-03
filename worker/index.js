@@ -41416,28 +41416,76 @@ export default {
             return avg >= 5;
           })();
 
-          // ── Fair Value (forward P/E × forward EPS estimate) ────────────
-          // forward_pe is already (price / forward_eps), so price = forward_pe * forward_eps.
-          // We can recover an implied forward EPS from diluted_eps_ttm × (forward_pe / trailing_pe ratio
-          // is unstable). Cleaner: use sector median P/E if known. For now, use the
-          // analyst-derived forward EPS we get from earnings (next 4 quarters EPS est sum)
-          // when available, otherwise ttm EPS.
+          // ── Fair Value — multi-method blend ────────────────────────────
+          // Mirrors the methodology in tradingview/PERatioAnalyzer.txt and
+          // tradingview/PricevsEarnings.txt that the user shared as reference.
+          //
+          // Three valuation lines (we report all three so the UI can show a
+          // range, not just a single point):
+          //   1. forward_pe_x_forward_eps  — analyst forward expectation
+          //   2. growth_adjusted_peg       — PEG=1.0 framework with caps
+          //   3. conservative              — historical median-style floor
+          //
+          // The "headline" fair_value_price is the blend (median of the three
+          // when at least 2 methods have data; else whichever single method
+          // produced a value).
           const dilutedEpsTtm = num(incomeStmt.diluted_eps_ttm);
           let fwdEpsImplied = null;
-          // Sum of the next 4 quarter EPS estimates if we have them.
           if (upcoming.length >= 4) {
             const next4 = upcoming.slice(-4).map((e) => num(e.eps_estimate)).filter((v) => v != null);
             if (next4.length === 4) fwdEpsImplied = next4.reduce((s, v) => s + v, 0);
           }
-          // Fall back to TTM × growth-adjusted projection.
           if (fwdEpsImplied == null && dilutedEpsTtm != null && epsGrowthPct != null) {
             fwdEpsImplied = dilutedEpsTtm * (1 + Math.max(-0.5, Math.min(2.0, epsGrowthPct / 100)));
           }
+
+          // Method 1 — Forward P/E × forward EPS
+          let fvForward = null;
+          if (peForward != null && fwdEpsImplied != null && fwdEpsImplied > 0) {
+            fvForward = peForward * fwdEpsImplied;
+          }
+
+          // Method 2 — Growth-Adjusted PEG (per PricevsEarnings.txt)
+          //   Fair P/E = growth_rate_pct × target_PEG (default PEG=1.0)
+          //   Cap between historical avg P/E (or 15 fallback) and 40 ("max growth P/E").
+          //   Apply to TTM EPS to get fair value price.
+          let fvGrowthPeg = null;
+          let growthAdjustedPe = null;
+          if (epsGrowthPct != null && epsGrowthPct > 0 && dilutedEpsTtm != null && dilutedEpsTtm > 0) {
+            const targetPeg = 1.0;
+            const minPe = peTtm != null && peTtm > 0 ? Math.max(15, peTtm * 0.85) : 15;
+            const maxPe = 40;
+            const rawPe = epsGrowthPct * targetPeg;
+            growthAdjustedPe = Math.max(minPe, Math.min(rawPe, maxPe));
+            fvGrowthPeg = dilutedEpsTtm * growthAdjustedPe;
+          }
+
+          // Method 3 — Conservative (Historical median-style × 0.85)
+          //   We don't have 5-year P/E history per the indicator, so we
+          //   approximate "median × 0.85" with `min(peTtm, 15) × 0.85` —
+          //   gives us a "bargain territory" floor that's anchored to the
+          //   ticker's own current valuation rather than a market constant.
+          let fvConservative = null;
+          if (peTtm != null && peTtm > 0 && dilutedEpsTtm != null && dilutedEpsTtm > 0) {
+            const conservativePe = Math.min(peTtm, 18) * 0.85;
+            fvConservative = dilutedEpsTtm * conservativePe;
+          }
+
+          // Headline: median of available methods (more robust than any single one)
+          const fvCandidates = [fvForward, fvGrowthPeg, fvConservative].filter((v) => v != null && v > 0);
           let fairValuePrice = null;
           let fairValueBasis = null;
-          if (peForward != null && fwdEpsImplied != null && fwdEpsImplied > 0) {
-            fairValuePrice = peForward * fwdEpsImplied;
-            fairValueBasis = "forward_pe_x_forward_eps";
+          if (fvCandidates.length >= 2) {
+            const sorted = [...fvCandidates].sort((a, b) => a - b);
+            fairValuePrice = sorted.length === 3
+              ? sorted[1]
+              : (sorted[0] + sorted[1]) / 2;
+            fairValueBasis = "blend_median";
+          } else if (fvCandidates.length === 1) {
+            fairValuePrice = fvCandidates[0];
+            fairValueBasis = fvForward != null ? "forward_pe_x_forward_eps"
+              : fvGrowthPeg != null ? "growth_adjusted_peg"
+              : "conservative_floor";
           } else if (peTtm != null && dilutedEpsTtm != null && dilutedEpsTtm > 0) {
             fairValuePrice = peTtm * dilutedEpsTtm;
             fairValueBasis = "trailing_pe_x_ttm_eps";
@@ -41489,6 +41537,12 @@ export default {
               fair_value_basis: fairValueBasis,
               fair_value_class: fairValueClass,
               fair_value_premium_pct: fairValuePremiumPct != null ? Number(fairValuePremiumPct.toFixed(2)) : null,
+              fair_value_methods: {
+                forward: fvForward != null ? Number(fvForward.toFixed(2)) : null,
+                growth_peg: fvGrowthPeg != null ? Number(fvGrowthPeg.toFixed(2)) : null,
+                conservative: fvConservative != null ? Number(fvConservative.toFixed(2)) : null,
+                growth_adjusted_pe: growthAdjustedPe != null ? Number(growthAdjustedPe.toFixed(2)) : null,
+              },
               current_price: currentPrice,
             },
             capital_structure: {
