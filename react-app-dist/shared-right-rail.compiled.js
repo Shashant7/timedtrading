@@ -1946,6 +1946,16 @@
       const [predictionContract, setPredictionContract] = useState(null);
       const [predictionContractLoading, setPredictionContractLoading] = useState(false);
       const [predictionContractError, setPredictionContractError] = useState(null);
+      const [fundamentals, setFundamentals] = useState(null);
+      const [fundamentalsLoading, setFundamentalsLoading] = useState(false);
+      const [fundamentalsError, setFundamentalsError] = useState(null);
+      const fundamentalsCacheRef = useRef(new Map());
+      const fundamentalsSortRef = useRef({
+        key: "date",
+        dir: "desc"
+      });
+      const [fundamentalsSortKey, setFundamentalsSortKey] = useState("date");
+      const [fundamentalsSortDir, setFundamentalsSortDir] = useState("desc");
       const [chartTf, setChartTf] = useState("15");
       const [chartCandles, setChartCandles] = useState([]);
       const [chartLoading, setChartLoading] = useState(false);
@@ -2169,6 +2179,58 @@
           }
         };
         fetchInvestor();
+        return () => {
+          cancelled = true;
+        };
+      }, [railTab, tickerSymbol]);
+      useEffect(() => {
+        const sym = String(tickerSymbol || "").trim().toUpperCase();
+        if (!sym) {
+          setFundamentals(null);
+          setFundamentalsError(null);
+          setFundamentalsLoading(false);
+          return;
+        }
+        if (railTab !== "FUNDAMENTALS") return;
+        const cached = fundamentalsCacheRef.current.get(sym);
+        if (cached && Date.now() - cached.ts < 5 * 60 * 1000) {
+          setFundamentals(cached.data);
+          setFundamentalsError(null);
+          setFundamentalsLoading(false);
+          return;
+        }
+        let cancelled = false;
+        (async () => {
+          try {
+            setFundamentalsLoading(true);
+            setFundamentalsError(null);
+            const apiKey = typeof window !== "undefined" && window._ttApiKey ? window._ttApiKey : "";
+            const qs = new URLSearchParams({
+              ticker: sym
+            });
+            if (apiKey) qs.set("key", apiKey);
+            const res = await fetch(`${API_BASE}/timed/admin/fundamentals?${qs.toString()}`, {
+              cache: "no-store"
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            if (!json.ok) throw new Error(json.error || "fundamentals_failed");
+            if (!cancelled) {
+              fundamentalsCacheRef.current.set(sym, {
+                data: json,
+                ts: Date.now()
+              });
+              setFundamentals(json);
+            }
+          } catch (e) {
+            if (!cancelled) {
+              setFundamentals(null);
+              setFundamentalsError(String(e?.message || e));
+            }
+          } finally {
+            if (!cancelled) setFundamentalsLoading(false);
+          }
+        })();
         return () => {
           cancelled = true;
         };
@@ -2627,7 +2689,7 @@
           return [pc, v2Price];
         })();
         const v2DirChip = v2Dir === "LONG" ? "ds-chip--up" : v2Dir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
-        const v2RailTab = ["SNAPSHOT", "SETUP", "TECHNICALS", "HISTORY"].includes(railTab) ? railTab : "SNAPSHOT";
+        const v2RailTab = ["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY"].includes(railTab) ? railTab : "SNAPSHOT";
         const Metric = ({
           label,
           value,
@@ -2930,7 +2992,7 @@
             style: {
               width: "100%"
             }
-          }, [["SNAPSHOT", "Snapshot"], ["SETUP", "Setup"], ["TECHNICALS", "Technicals"], ["HISTORY", "History"]].map(([key, label]) => React.createElement("button", {
+          }, [["SNAPSHOT", "Snapshot"], ["SETUP", "Setup"], ["TECHNICALS", "Technicals"], ["FUNDAMENTALS", "Fundamentals"], ["HISTORY", "History"]].map(([key, label]) => React.createElement("button", {
             key: key,
             className: `ds-tab__item ${v2RailTab === key ? "ds-tab__item--active" : ""}`,
             onClick: () => setRailTab(key),
@@ -3999,7 +4061,14 @@
             className: `ds-chip ds-chip--sm ${cls}`
           }, String(status).toUpperCase()));
         }))), ticker?.fundamentals && (ticker.fundamentals.pe || ticker.fundamentals.peg || ticker.fundamentals.eps_growth) && React.createElement(Panel, {
-          title: "Fundamentals"
+          title: "Fundamentals",
+          action: React.createElement("button", {
+            className: "ds-chip ds-chip--sm",
+            onClick: () => setRailTab("FUNDAMENTALS"),
+            style: {
+              cursor: "pointer"
+            }
+          }, "Open Fundamentals \u2192")
         }, React.createElement("div", {
           style: {
             display: "grid",
@@ -4017,7 +4086,644 @@
           value: `${Number(ticker.fundamentals.eps_growth).toFixed(1)}%`,
           delta: Number(ticker.fundamentals.eps_growth) > 0 ? "Up" : "Dn",
           deltaClass: Number(ticker.fundamentals.eps_growth) > 0 ? "up" : "dn"
-        })))), v2RailTab === "HISTORY" && React.createElement(React.Fragment, null, React.createElement(Panel, {
+        })))), v2RailTab === "FUNDAMENTALS" && (() => {
+          const F = fundamentals;
+          const fmtBigUsd = n => {
+            if (!Number.isFinite(Number(n))) return "—";
+            const v = Math.abs(Number(n));
+            const sign = Number(n) < 0 ? "-" : "";
+            if (v >= 1e12) return `${sign}$${(v / 1e12).toFixed(2)}T`;
+            if (v >= 1e9) return `${sign}$${(v / 1e9).toFixed(2)}B`;
+            if (v >= 1e6) return `${sign}$${(v / 1e6).toFixed(2)}M`;
+            if (v >= 1e3) return `${sign}$${(v / 1e3).toFixed(2)}K`;
+            return `${sign}$${v.toFixed(2)}`;
+          };
+          const fmtBigNum = n => {
+            if (!Number.isFinite(Number(n))) return "—";
+            const v = Math.abs(Number(n));
+            const sign = Number(n) < 0 ? "-" : "";
+            if (v >= 1e9) return `${sign}${(v / 1e9).toFixed(2)}B`;
+            if (v >= 1e6) return `${sign}${(v / 1e6).toFixed(2)}M`;
+            if (v >= 1e3) return `${sign}${(v / 1e3).toFixed(2)}K`;
+            return `${sign}${v.toFixed(0)}`;
+          };
+          const fmtPctVal = (n, digits = 1) => Number.isFinite(Number(n)) ? `${Number(n).toFixed(digits)}%` : "—";
+          const fmtPctSigned = (n, digits = 1) => {
+            if (!Number.isFinite(Number(n))) return "—";
+            const v = Number(n);
+            return `${v >= 0 ? "+" : ""}${v.toFixed(digits)}%`;
+          };
+          const fmtNum = (n, digits = 2) => Number.isFinite(Number(n)) ? Number(n).toFixed(digits) : "—";
+          const fmtDate = s => {
+            if (!s) return "—";
+            const d = new Date(s);
+            if (isNaN(d.getTime())) return String(s);
+            return d.toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+              year: "numeric"
+            });
+          };
+          const growthChip = cls => {
+            switch (cls) {
+              case "explosive":
+                return {
+                  label: "EXPLOSIVE",
+                  color: "var(--ds-accent)",
+                  bg: "rgba(245,194,92,0.18)",
+                  border: "rgba(245,194,92,0.45)"
+                };
+              case "exploding":
+                return {
+                  label: "EXPLODING",
+                  color: "#fbbf24",
+                  bg: "rgba(251,191,36,0.14)",
+                  border: "rgba(251,191,36,0.40)"
+                };
+              case "strong":
+                return {
+                  label: "STRONG",
+                  color: "#34d399",
+                  bg: "rgba(52,211,153,0.14)",
+                  border: "rgba(52,211,153,0.40)"
+                };
+              case "positive":
+                return {
+                  label: "POSITIVE",
+                  color: "#86efac",
+                  bg: "rgba(134,239,172,0.10)",
+                  border: "rgba(134,239,172,0.30)"
+                };
+              case "declining":
+                return {
+                  label: "DECLINING",
+                  color: "#fb7185",
+                  bg: "rgba(251,113,133,0.14)",
+                  border: "rgba(251,113,133,0.40)"
+                };
+              default:
+                return null;
+            }
+          };
+          const resultChip = r => {
+            switch (r) {
+              case "beat_raise":
+                return {
+                  label: "Beat & Raise",
+                  cls: "ds-chip--up"
+                };
+              case "beat":
+                return {
+                  label: "Beat",
+                  cls: "ds-chip--up"
+                };
+              case "inline":
+                return {
+                  label: "In-line",
+                  cls: "ds-chip--solid"
+                };
+              case "miss":
+                return {
+                  label: "Miss",
+                  cls: "ds-chip--dn"
+                };
+              default:
+                return null;
+            }
+          };
+          if (fundamentalsLoading && !F) {
+            return React.createElement(Panel, {
+              title: "Fundamentals"
+            }, React.createElement("div", {
+              style: {
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "var(--ds-space-3)",
+                color: "var(--ds-text-muted)",
+                fontSize: "var(--ds-fs-meta)"
+              }
+            }, React.createElement("span", {
+              className: "loading-spinner loading-spinner-sm",
+              style: {
+                width: 14,
+                height: 14,
+                borderWidth: 2,
+                borderColor: "rgba(245,194,92,0.20)",
+                borderTopColor: "var(--ds-accent)"
+              }
+            }), "Loading fundamentals from TwelveData\u2026"));
+          }
+          if (fundamentalsError && !F) {
+            return React.createElement(Panel, {
+              title: "Fundamentals"
+            }, React.createElement("div", {
+              style: {
+                color: "var(--ds-dn)",
+                fontSize: "var(--ds-fs-meta)"
+              }
+            }, "Failed to load: ", fundamentalsError), React.createElement("div", {
+              style: {
+                marginTop: "var(--ds-space-2)",
+                color: "var(--ds-text-muted)",
+                fontSize: "var(--ds-fs-caption)"
+              }
+            }, "This endpoint requires admin access. Check your API key or sign in via Cloudflare Access."));
+          }
+          if (!F) {
+            return React.createElement(Panel, {
+              title: "Fundamentals"
+            }, React.createElement("div", {
+              style: {
+                color: "var(--ds-text-muted)",
+                fontSize: "var(--ds-fs-meta)"
+              }
+            }, "Fundamentals will load when you select this tab."));
+          }
+          const prof = F.profile || {};
+          const val = F.valuation || {};
+          const cap = F.capital_structure || {};
+          const grw = F.growth || {};
+          const earn = F.earnings || {};
+          const pxs = F.price_summary || {};
+          const epsChip = growthChip(grw.eps_growth_class);
+          const revChip = growthChip(grw.rev_growth_class);
+          const fairColor = val.fair_value_class === "discount" ? "var(--ds-up)" : val.fair_value_class === "premium" ? "var(--ds-dn)" : val.fair_value_class === "fair" ? "var(--ds-accent)" : "var(--ds-text-muted)";
+          const sortedHistory = (() => {
+            const rows = Array.isArray(earn.history) ? [...earn.history] : [];
+            const k = fundamentalsSortKey;
+            const dir = fundamentalsSortDir === "asc" ? 1 : -1;
+            rows.sort((a, b) => {
+              let va = a?.[k];
+              let vb = b?.[k];
+              if (k === "date") {
+                va = Date.parse(a?.date || "") || 0;
+                vb = Date.parse(b?.date || "") || 0;
+              }
+              const na = Number(va);
+              const nb = Number(vb);
+              if (Number.isFinite(na) && Number.isFinite(nb)) return (na - nb) * dir;
+              return String(va || "").localeCompare(String(vb || "")) * dir;
+            });
+            return rows;
+          })();
+          const sortHeader = (key, label, align = "right") => {
+            const isActive = fundamentalsSortKey === key;
+            const arrow = isActive ? fundamentalsSortDir === "asc" ? " ↑" : " ↓" : "";
+            return React.createElement("button", {
+              onClick: () => {
+                if (isActive) setFundamentalsSortDir(fundamentalsSortDir === "asc" ? "desc" : "asc");else {
+                  setFundamentalsSortKey(key);
+                  setFundamentalsSortDir(key === "date" ? "desc" : "desc");
+                }
+              },
+              className: "ds-caption",
+              style: {
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                padding: 0,
+                color: isActive ? "var(--ds-accent)" : "var(--ds-text-muted)",
+                textAlign: align,
+                width: "100%",
+                fontFamily: "var(--tt-font-mono)",
+                letterSpacing: "0.16em",
+                textTransform: "uppercase",
+                fontSize: 9
+              }
+            }, label, arrow);
+          };
+          return React.createElement(React.Fragment, null, React.createElement(Panel, {
+            title: prof.name || tickerSymbol,
+            action: React.createElement("span", {
+              className: "ds-chip ds-chip--sm",
+              style: {
+                fontFamily: "var(--tt-font-mono)"
+              }
+            }, F._cache === "hit" ? "CACHED" : "LIVE")
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "var(--ds-space-1)",
+              marginBottom: "var(--ds-space-2)"
+            }
+          }, prof.sector && React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            title: "Sector"
+          }, prof.sector), prof.industry && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--solid",
+            title: "Industry"
+          }, prof.industry), prof.exchange && React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            style: {
+              fontFamily: "var(--tt-font-mono)"
+            },
+            title: "Exchange"
+          }, prof.exchange), cap.cash_rich === true && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--up",
+            title: "Cash exceeds total debt"
+          }, "CASH RICH"), cap.cash_rich === false && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--dn",
+            title: "Total debt exceeds cash on hand"
+          }, "DEBT-HEAVY")), React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: "var(--ds-space-2)"
+            }
+          }, React.createElement(Metric, {
+            label: "Market Cap",
+            value: fmtBigUsd(val.market_cap)
+          }), React.createElement(Metric, {
+            label: "EV / EBITDA",
+            value: fmtNum(val.ev_to_ebitda, 1)
+          }), React.createElement(Metric, {
+            label: "Beta",
+            value: fmtNum(pxs.beta, 2)
+          }))), React.createElement(Panel, {
+            title: "Valuation",
+            action: val.fair_value_class && React.createElement("span", {
+              className: "ds-chip ds-chip--sm",
+              style: {
+                color: fairColor,
+                background: val.fair_value_class === "discount" ? "rgba(34,197,94,0.12)" : val.fair_value_class === "premium" ? "rgba(244,63,94,0.12)" : "rgba(245,194,92,0.12)",
+                border: `1px solid ${fairColor}`,
+                fontFamily: "var(--tt-font-mono)",
+                letterSpacing: "0.08em"
+              }
+            }, String(val.fair_value_class || "").toUpperCase())
+          }, React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: "var(--ds-space-2)"
+            }
+          }, React.createElement(Metric, {
+            label: "P/E (TTM)",
+            value: fmtNum(val.pe_ttm, 1)
+          }), React.createElement(Metric, {
+            label: "Forward P/E",
+            value: fmtNum(val.pe_forward, 1)
+          }), React.createElement(Metric, {
+            label: "P/S",
+            value: fmtNum(val.ps_ratio, 1)
+          }), React.createElement(Metric, {
+            label: "P/B",
+            value: fmtNum(val.pb_ratio, 2)
+          }), React.createElement(Metric, {
+            label: "PEG",
+            value: fmtNum(val.peg_ratio, 2)
+          }), React.createElement(Metric, {
+            label: "EV",
+            value: fmtBigUsd(val.enterprise_value)
+          })), val.fair_value_price != null && React.createElement("div", {
+            style: {
+              marginTop: "var(--ds-space-3)",
+              padding: "var(--ds-space-3)",
+              background: "var(--ds-bg-glass)",
+              borderRadius: "var(--ds-radius-xs)",
+              border: `1px solid ${fairColor}`
+            }
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 6
+            }
+          }, React.createElement("span", {
+            className: "ds-caption",
+            style: {
+              color: "var(--ds-text-muted)"
+            }
+          }, "FAIR VALUE"), React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: 9,
+              color: "var(--ds-text-faint)"
+            },
+            title: "Fair value basis"
+          }, val.fair_value_basis || "—")), React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "baseline",
+              gap: "var(--ds-space-2)",
+              flexWrap: "wrap"
+            }
+          }, React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-h2)",
+              fontWeight: 700,
+              color: fairColor
+            }
+          }, "$", fmtNum(val.fair_value_price, 2)), val.current_price != null && React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-meta)",
+              color: "var(--ds-text-muted)"
+            }
+          }, "vs current $", fmtNum(val.current_price, 2)), val.fair_value_premium_pct != null && React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            style: {
+              color: fairColor,
+              background: "transparent",
+              border: `1px solid ${fairColor}`,
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, val.fair_value_premium_pct >= 0 ? "+" : "", val.fair_value_premium_pct.toFixed(1), "%")))), (grw.eps_growth_pct != null || grw.rev_growth_pct != null) && React.createElement(Panel, {
+            title: "Growth (Q YoY)"
+          }, React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: "var(--ds-space-2)"
+            }
+          }, grw.eps_growth_pct != null && React.createElement("div", {
+            style: {
+              padding: "var(--ds-space-3)",
+              background: "var(--ds-bg-glass)",
+              borderRadius: "var(--ds-radius-xs)"
+            }
+          }, React.createElement("div", {
+            className: "ds-caption",
+            style: {
+              color: "var(--ds-text-muted)",
+              marginBottom: 4
+            }
+          }, "EPS GROWTH"), React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "baseline",
+              gap: 8,
+              flexWrap: "wrap"
+            }
+          }, React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-h3)",
+              fontWeight: 700,
+              color: grw.eps_growth_pct >= 0 ? "var(--ds-up)" : "var(--ds-dn)"
+            }
+          }, fmtPctSigned(grw.eps_growth_pct)), epsChip && React.createElement("span", {
+            style: {
+              color: epsChip.color,
+              background: epsChip.bg,
+              border: `1px solid ${epsChip.border}`,
+              padding: "1px 6px",
+              borderRadius: 3,
+              fontSize: 9,
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700,
+              letterSpacing: "0.12em"
+            }
+          }, epsChip.label))), grw.rev_growth_pct != null && React.createElement("div", {
+            style: {
+              padding: "var(--ds-space-3)",
+              background: "var(--ds-bg-glass)",
+              borderRadius: "var(--ds-radius-xs)"
+            }
+          }, React.createElement("div", {
+            className: "ds-caption",
+            style: {
+              color: "var(--ds-text-muted)",
+              marginBottom: 4
+            }
+          }, "REV GROWTH"), React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "baseline",
+              gap: 8,
+              flexWrap: "wrap"
+            }
+          }, React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-h3)",
+              fontWeight: 700,
+              color: grw.rev_growth_pct >= 0 ? "var(--ds-up)" : "var(--ds-dn)"
+            }
+          }, fmtPctSigned(grw.rev_growth_pct)), revChip && React.createElement("span", {
+            style: {
+              color: revChip.color,
+              background: revChip.bg,
+              border: `1px solid ${revChip.border}`,
+              padding: "1px 6px",
+              borderRadius: 3,
+              fontSize: 9,
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700,
+              letterSpacing: "0.12em"
+            }
+          }, revChip.label)))), (grw.gross_margin_pct != null || grw.profit_margin_pct != null || grw.roe_ttm_pct != null) && React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: "var(--ds-space-2)",
+              marginTop: "var(--ds-space-2)"
+            }
+          }, grw.gross_margin_pct != null && React.createElement(Metric, {
+            label: "Gross Mgn",
+            value: fmtPctVal(grw.gross_margin_pct)
+          }), grw.profit_margin_pct != null && React.createElement(Metric, {
+            label: "Net Mgn",
+            value: fmtPctVal(grw.profit_margin_pct)
+          }), grw.roe_ttm_pct != null && React.createElement(Metric, {
+            label: "ROE",
+            value: fmtPctVal(grw.roe_ttm_pct)
+          }))), React.createElement(Panel, {
+            title: "Capital Structure"
+          }, React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "repeat(2, 1fr)",
+              gap: "var(--ds-space-2)"
+            }
+          }, React.createElement(Metric, {
+            label: "Float",
+            value: fmtBigNum(cap.float)
+          }), React.createElement(Metric, {
+            label: "Short Float",
+            value: fmtPctVal(cap.short_float_pct),
+            delta: Number(cap.short_float_pct) >= 15 ? "Squeeze risk" : null,
+            deltaClass: Number(cap.short_float_pct) >= 15 ? "accent" : "muted"
+          }), React.createElement(Metric, {
+            label: "Total Debt",
+            value: fmtBigUsd(cap.total_debt)
+          }), React.createElement(Metric, {
+            label: "Total Cash",
+            value: fmtBigUsd(cap.total_cash)
+          }), React.createElement(Metric, {
+            label: "Free Cash Flow",
+            value: fmtBigUsd(cap.free_cash_flow_ttm)
+          }), React.createElement(Metric, {
+            label: "Operating CF",
+            value: fmtBigUsd(cap.operating_cash_flow_ttm)
+          })), (cap.insider_pct != null || cap.institution_pct != null) && React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "repeat(2, 1fr)",
+              gap: "var(--ds-space-2)",
+              marginTop: "var(--ds-space-2)"
+            }
+          }, cap.insider_pct != null && React.createElement(Metric, {
+            label: "Insider Hold",
+            value: fmtPctVal(cap.insider_pct, 2)
+          }), cap.institution_pct != null && React.createElement(Metric, {
+            label: "Institution",
+            value: fmtPctVal(cap.institution_pct, 1)
+          }))), React.createElement(Panel, {
+            title: "Next Earnings",
+            action: React.createElement("div", {
+              style: {
+                display: "flex",
+                gap: 4,
+                flexWrap: "wrap"
+              }
+            }, earn.estimates_up === true && React.createElement("span", {
+              className: "ds-chip ds-chip--sm ds-chip--up",
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                letterSpacing: "0.08em"
+              }
+            }, "ESTIMATES UP"), earn.guidance_higher === true && React.createElement("span", {
+              className: "ds-chip ds-chip--sm ds-chip--accent",
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                letterSpacing: "0.08em"
+              }
+            }, "GUIDANCE HIGHER"))
+          }, React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: "var(--ds-space-2)"
+            }
+          }, React.createElement(Metric, {
+            label: "Date",
+            value: fmtDate(earn.next_date),
+            delta: earn.next_time || null,
+            deltaClass: "muted"
+          }), React.createElement(Metric, {
+            label: "EPS Est",
+            value: fmtNum(earn.next_quarter_eps_est, 2),
+            delta: earn.next_quarter_eps_yoy_pct != null ? fmtPctSigned(earn.next_quarter_eps_yoy_pct, 1) : null,
+            deltaClass: Number(earn.next_quarter_eps_yoy_pct) >= 0 ? "up" : "dn"
+          }), React.createElement(Metric, {
+            label: "EPS (TTM)",
+            value: fmtNum(earn.eps_ttm, 2)
+          }))), Array.isArray(earn.history) && earn.history.length > 0 && React.createElement(Panel, {
+            title: "Earnings History",
+            action: React.createElement("span", {
+              className: "ds-chip ds-chip--sm"
+            }, earn.history.length, " qtr", earn.history.length === 1 ? "" : "s")
+          }, React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "minmax(70px, 1fr) 60px 60px 70px 70px 90px",
+              gap: "var(--ds-space-1)",
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-meta)"
+            }
+          }, sortHeader("date", "Date", "left"), sortHeader("eps_actual", "EPS Act"), sortHeader("eps_est", "Est"), sortHeader("surprise_pct", "Surp %"), sortHeader("eps_growth_pct", "Growth %"), React.createElement("div", {
+            className: "ds-caption",
+            style: {
+              textAlign: "right"
+            }
+          }, "Result"), sortedHistory.map((row, i) => {
+            const surpColor = row.surprise_pct == null ? "var(--ds-text-faint)" : row.surprise_pct >= 10 ? "var(--ds-up)" : row.surprise_pct >= 1 ? "#86efac" : row.surprise_pct <= -5 ? "var(--ds-dn)" : "var(--ds-text-muted)";
+            const growthColor = row.eps_growth_pct == null ? "var(--ds-text-faint)" : row.eps_growth_pct >= 100 ? "var(--ds-accent)" : row.eps_growth_pct >= 25 ? "var(--ds-up)" : row.eps_growth_pct >= 0 ? "#86efac" : "var(--ds-dn)";
+            const rChip = resultChip(row.result);
+            return React.createElement(React.Fragment, {
+              key: `er-${i}`
+            }, React.createElement("div", {
+              style: {
+                color: "var(--ds-text-muted)"
+              }
+            }, fmtDate(row.date)), React.createElement("div", {
+              style: {
+                textAlign: "right",
+                color: "var(--ds-text-display)"
+              }
+            }, fmtNum(row.eps_actual, 2)), React.createElement("div", {
+              style: {
+                textAlign: "right",
+                color: "var(--ds-text-faint)"
+              }
+            }, fmtNum(row.eps_est, 2)), React.createElement("div", {
+              style: {
+                textAlign: "right",
+                color: surpColor
+              }
+            }, row.surprise_pct != null ? fmtPctSigned(row.surprise_pct, 1) : "—"), React.createElement("div", {
+              style: {
+                textAlign: "right",
+                color: growthColor
+              }
+            }, row.eps_growth_pct != null ? fmtPctSigned(row.eps_growth_pct, 0) : "—"), React.createElement("div", {
+              style: {
+                textAlign: "right"
+              }
+            }, rChip ? React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${rChip.cls}`,
+              style: {
+                fontSize: 9
+              }
+            }, rChip.label) : React.createElement("span", {
+              style: {
+                color: "var(--ds-text-faint)"
+              }
+            }, "\u2014")));
+          }))), (pxs.fifty_two_week_low != null || pxs.fifty_two_week_high != null) && React.createElement(Panel, {
+            title: "52-Week & Moving Averages"
+          }, React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "repeat(2, 1fr)",
+              gap: "var(--ds-space-2)"
+            }
+          }, React.createElement(Metric, {
+            label: "52w Low",
+            value: pxs.fifty_two_week_low != null ? `$${fmtNum(pxs.fifty_two_week_low, 2)}` : "—"
+          }), React.createElement(Metric, {
+            label: "52w High",
+            value: pxs.fifty_two_week_high != null ? `$${fmtNum(pxs.fifty_two_week_high, 2)}` : "—"
+          }), React.createElement(Metric, {
+            label: "50-day MA",
+            value: pxs.day_50_ma != null ? `$${fmtNum(pxs.day_50_ma, 2)}` : "—"
+          }), React.createElement(Metric, {
+            label: "200-day MA",
+            value: pxs.day_200_ma != null ? `$${fmtNum(pxs.day_200_ma, 2)}` : "—"
+          })), pxs.fifty_two_week_change_pct != null && React.createElement("div", {
+            style: {
+              marginTop: "var(--ds-space-2)",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center"
+            }
+          }, React.createElement("span", {
+            className: "ds-caption",
+            style: {
+              color: "var(--ds-text-muted)"
+            }
+          }, "52W RETURN"), React.createElement("span", {
+            className: `ds-chip ds-chip--sm ${pxs.fifty_two_week_change_pct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
+            style: {
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, fmtPctSigned(pxs.fifty_two_week_change_pct)))), React.createElement("div", {
+            style: {
+              marginTop: "var(--ds-space-2)",
+              padding: "var(--ds-space-2)",
+              textAlign: "center",
+              color: "var(--ds-text-faint)",
+              fontSize: 9,
+              fontFamily: "var(--tt-font-mono)",
+              letterSpacing: "0.12em"
+            }
+          }, "DATA \xB7 TWELVEDATA \xB7 CACHED 6H \xB7 FETCHED ", new Date(F.as_of || Date.now()).toLocaleTimeString()));
+        })(), v2RailTab === "HISTORY" && React.createElement(React.Fragment, null, React.createElement(Panel, {
           title: "Trade Ledger",
           action: ledgerTrades.length > 0 && React.createElement("span", {
             className: "ds-chip ds-chip--sm"
