@@ -7358,11 +7358,19 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           tickerData?._env?._deepAuditConfig?.deep_audit_winner_protect_big_mfe_enabled ?? "true"
         ) === "true";
         if (_bigMfeEnabled && openPosition && isOpenTradeStatus(openPosition?.status)) {
+          /* V15 P0.7.52 (2026-05-03) — big-MFE protection lowered + tightened.
+             Top-10 MFE trades in Jul-Aug averaged MFE 18.0% with only 7.0%
+             pnl captured (38% capture). Threshold 15% never armed for the
+             8-14% MFE bucket (KTOS, GEV, AVAV, ANET, ALB, LITE) where every
+             fire today gives back >65%. New defaults: armed at 8% MFE
+             (catches the medium bucket), lock at 0.55 of peak (anchors SL
+             tighter so structural-flatten cascade can't fire). Both still
+             override-able via the same DA flags. */
           const _bigMfeThreshold = Number(
-            tickerData?._env?._deepAuditConfig?.deep_audit_winner_protect_big_mfe_threshold_pct ?? 15.0
+            tickerData?._env?._deepAuditConfig?.deep_audit_winner_protect_big_mfe_threshold_pct ?? 8.0
           );
           const _bigMfeLockPct = Math.max(0, Math.min(0.95, Number(
-            tickerData?._env?._deepAuditConfig?.deep_audit_winner_protect_big_mfe_lock_pct ?? 0.60
+            tickerData?._env?._deepAuditConfig?.deep_audit_winner_protect_big_mfe_lock_pct ?? 0.55
           )));
           if (_p3MfeAbs >= _bigMfeThreshold) {
             const _bigMfeEntryPx = Number(openPosition?.entryPrice || openPosition?.avgEntry);
@@ -8335,7 +8343,33 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
             const _mdPeakMinCfg = Number(tickerData?._env?._deepAuditConfig?.deep_audit_mfe_decay_peak_min);
             const _mdGivebackMaxCfg = Number(tickerData?._env?._deepAuditConfig?.deep_audit_mfe_decay_giveback_pct_max);
             const _mdPeakMin = Number.isFinite(_mdPeakMinCfg) ? _mdPeakMinCfg : 3.0;
-            const _mdGivebackMax = Number.isFinite(_mdGivebackMaxCfg) ? _mdGivebackMaxCfg : 0.6;
+            let _mdGivebackMax = Number.isFinite(_mdGivebackMaxCfg) ? _mdGivebackMaxCfg : 0.6;
+            /* V15 P0.7.52 (2026-05-03) — cohort-scoped giveback relax.
+               Universe-vs-system benchmark + Jul-Aug deep analysis showed
+               every top-15 MFE trade lives in `tt_gap_reversal_long ×
+               VOLATILE_RUNNER`, and three exit rules (this one,
+               PROFIT_GIVEBACK_STAGE_HOLD, SMART_RUNNER_SUPPORT_BREAK_CLOUD)
+               cap their average capture at 22-31%. The rule has ZERO losers
+               in Jul-Aug across 11 fires (n=11 W=11 L=0), so relaxing it
+               for the cohort cannot create losers — only lets the runner
+               run further. Default 0.60 unchanged for everything else. */
+            const _mdEntryPath = String(openPosition?.entryPath || openPosition?.entry_path || "").toLowerCase();
+            let _mdPersonality = String(openPosition?.personality || openPosition?.ticker_personality || "").toUpperCase();
+            if (!_mdPersonality) {
+              try {
+                let _mdEs = openPosition?.entrySignals || openPosition?.entry_signals;
+                if (!_mdEs && openPosition?.entry_signals_json) {
+                  _mdEs = JSON.parse(openPosition.entry_signals_json);
+                }
+                if (_mdEs?.personality) _mdPersonality = String(_mdEs.personality).toUpperCase();
+              } catch (_) {}
+            }
+            const _mdIsVolRunnerGapLong = direction === "LONG" && _mdEntryPath === "tt_gap_reversal_long" && _mdPersonality === "VOLATILE_RUNNER";
+            if (_mdIsVolRunnerGapLong) {
+              const _mdCohortCfg = Number(tickerData?._env?._deepAuditConfig?.deep_audit_mfe_decay_giveback_pct_max_volrunner_gap_long);
+              if (Number.isFinite(_mdCohortCfg)) _mdGivebackMax = _mdCohortCfg;
+              else _mdGivebackMax = 0.75;
+            }
             const _mdMfePct = Math.max(
               Number(openPosition?.maxFavorableExcursion ?? openPosition?.max_favorable_excursion ?? openPosition?.mfePct) || 0,
               Number(openPosition?.__tradeRef?.maxFavorableExcursion ?? openPosition?.__tradeRef?.max_favorable_excursion ?? openPosition?.__tradeRef?.mfePct) || 0,

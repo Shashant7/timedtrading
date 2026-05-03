@@ -388,6 +388,8 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_volatility_expansion_enabled",             // default off
   "deep_audit_volatility_expansion_atr_pct",             // default 4
   "deep_audit_volatility_expansion_floor_delta",         // default 5
+  // V15 P0.7.52 (2026-05-03) — big-winner extension levers (analysis #1, #2)
+  "deep_audit_mfe_decay_giveback_pct_max_volrunner_gap_long",  // default 0.75 (vs 0.60 base)
 ];
 
 const REPLAY_CFG_KEYS = [

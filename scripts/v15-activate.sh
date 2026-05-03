@@ -133,6 +133,10 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_stagnant_squeeze_deferral_enabled", "value": "true" },
 
     { "_comment": "Phase C — Stage 0 — Three self-adapting loops. Default OFF.", "key": "_phase_c_marker", "value": "stage0" },
+    { "_comment": "V15 P0.7.52 — big-winner extension (Jul-Aug analysis #1+#2).", "key": "deep_audit_winner_protect_big_mfe_threshold_pct", "value": "8.0" },
+    { "key": "deep_audit_winner_protect_big_mfe_lock_pct", "value": "0.55" },
+    { "key": "deep_audit_mfe_decay_giveback_pct_max_volrunner_gap_long", "value": "0.75" },
+
     { "_comment": "V15 P0.7.51 — universe-benchmark calibration knobs.", "key": "deep_audit_hard_fuse_default_rsi1h", "value": "85" },
     { "key": "deep_audit_hard_fuse_default_rsi4h", "value": "80" },
     { "key": "deep_audit_hard_fuse_volrunner_gap_long_rsi1h", "value": "88" },
