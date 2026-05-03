@@ -1573,6 +1573,8 @@ function PatternsTab() {
   const [profileFilter, setProfileFilter] = useState("");
   const [profileSort, setProfileSort] = useState("ticker");
   const [sub, setSub] = useState("patterns");
+  // P4 — default-hide 0-sample patterns (most patterns ship with N=0 until they fire).
+  const [showAllPatterns, setShowAllPatterns] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -1637,25 +1639,43 @@ function PatternsTab() {
 
       {sub === "patterns" && (
         <div className="card p-5">
-          <h3 className="text-sm font-semibold text-white mb-3">Active Patterns</h3>
-          {!patterns ? <p className="text-slate-500 text-xs">Loading...</p> : patterns.length === 0 ? <p className="text-slate-500 text-xs">No active patterns.</p> : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs"><thead><tr className="text-slate-500 border-b border-white/[0.05]">
-                <th className="text-left py-1.5 font-medium">Pattern</th><th className="text-right px-2 font-medium">Hit Rate</th>
-                <th className="text-right px-2 font-medium">Samples</th><th className="text-right px-2 font-medium">EV</th><th className="text-right pl-2 font-medium">Confidence</th>
-              </tr></thead><tbody>
-                {patterns.map((p, i) => (
-                  <tr key={i} className="border-b border-white/[0.03]">
-                    <td className="py-1.5 text-slate-300">{p.name || p.pattern_id}</td>
-                    <td className="text-right px-2">{(Number(p.hit_rate) * 100).toFixed(0)}%</td>
-                    <td className="text-right px-2">{p.sample_count}</td>
-                    <td className={`text-right px-2 ${Number(p.expected_value) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{Number(p.expected_value).toFixed(2)}</td>
-                    <td className="text-right pl-2">{(Number(p.confidence) * 100).toFixed(0)}%</td>
-                  </tr>
-                ))}
-              </tbody></table>
-            </div>
-          )}
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-white">Active Patterns</h3>
+            <label className="flex items-center gap-2 text-[11px] text-slate-400 cursor-pointer">
+              <input type="checkbox" checked={showAllPatterns} onChange={(e) => setShowAllPatterns(e.target.checked)} />
+              Show patterns with 0 samples
+            </label>
+          </div>
+          {!patterns ? <p className="text-slate-500 text-xs">Loading...</p> : patterns.length === 0 ? <p className="text-slate-500 text-xs">No active patterns.</p> : (() => {
+            const visible = showAllPatterns ? patterns : patterns.filter(p => Number(p.sample_count || 0) >= 20);
+            const hiddenCount = patterns.length - visible.length;
+            return (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs"><thead><tr className="text-slate-500 border-b border-white/[0.05]">
+                    <th className="text-left py-1.5 font-medium">Pattern</th><th className="text-right px-2 font-medium">Hit Rate</th>
+                    <th className="text-right px-2 font-medium">Samples</th><th className="text-right px-2 font-medium">EV</th><th className="text-right pl-2 font-medium">Confidence</th>
+                  </tr></thead><tbody>
+                    {visible.map((p, i) => (
+                      <tr key={i} className="border-b border-white/[0.03]">
+                        <td className="py-1.5 text-slate-300">{p.name || p.pattern_id}</td>
+                        <td className="text-right px-2">{(Number(p.hit_rate) * 100).toFixed(0)}%</td>
+                        <td className="text-right px-2">{p.sample_count}</td>
+                        <td className={`text-right px-2 ${Number(p.expected_value) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{Number(p.expected_value).toFixed(2)}</td>
+                        <td className="text-right pl-2">{(Number(p.confidence) * 100).toFixed(0)}%</td>
+                      </tr>
+                    ))}
+                  </tbody></table>
+                </div>
+                {hiddenCount > 0 && (
+                  <p className="text-[10px] text-slate-500 mt-2">{hiddenCount} pattern{hiddenCount === 1 ? "" : "s"} hidden (less than 20 samples). Toggle "Show patterns with 0 samples" to see them.</p>
+                )}
+                {visible.length === 0 && (
+                  <p className="text-xs text-slate-500 py-3 text-center">No patterns with ≥20 samples yet. Toggle the checkbox above to see all.</p>
+                )}
+              </>
+            );
+          })()}
         </div>
       )}
 
@@ -1728,6 +1748,20 @@ function PatternsTab() {
                 </div>
                 <div className="text-[10px] text-slate-500 sm:ml-auto">{marketRows.length || 0} market snapshots</div>
               </div>
+              {marketRows.length === 0 && sectorRows.length === 0 && (
+                /* P4 — explain the empty state. The /timed/system/context-history endpoint
+                   reads from market_context_daily / sector_context_daily, which are seeded
+                   by a one-shot script (scripts/seed-market-context.js). When empty, the
+                   pane previously showed nothing — now it points the operator at the fix. */
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs">
+                  <div className="text-amber-300 font-medium mb-1">No context snapshots yet</div>
+                  <p className="text-slate-400">
+                    The <code className="text-slate-200 font-mono">market_context_daily</code> table is empty. Backfill it locally with{" "}
+                    <code className="text-slate-200 font-mono">USE_D1=1 node scripts/seed-market-context.js --backfill 90</code>{" "}
+                    (90-day window). Once seeded, ticker-profile + regime mapping joins will pick up real historical breadth/regime/VIX context instead of falling back to reconstructed candles.
+                  </p>
+                </div>
+              )}
               {marketRows.length > 0 && (
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
@@ -4061,26 +4095,80 @@ function MoveDiscoveryTab({ report, loading, error }) {
     );
   }
 
+  // P3 — actionable Move Discovery. Each KPI links to either Trade Autopsy
+  // (filtered to that capture state) or a calibration knob. Diagnosis
+  // coverage 0 surfaces a "How to run diagnosis" CTA instead of a bare zero.
+  const generatedMs = report?.generated ? new Date(report.generated).getTime() : 0;
+  const isStale = generatedMs > 0 && (Date.now() - generatedMs) > 7 * 24 * 3600 * 1000;
+  const tipFor = (k) => ({
+    total: "Every >2 ATR, ≥3-day move detected on the universe in the analysis window.",
+    capture: "% of moves where we entered AND held — full + partial captures.",
+    missed: "% of moves we never entered. Top blocker shown in Miss Buckets.",
+    churn: "% of moves we entered but exited too early — see Churn tab for missed upside per ticker.",
+    diag: "How many missed moves were diagnosed by the bucketing pipeline. 0 means the diagnosis script hasn't run since the last move-discovery refresh.",
+  }[k]);
+
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-white">Move Discovery</h2>
-          <p className="text-xs text-slate-400 mt-1">
-            Capture analysis, churn review, and stable missed-move buckets in one place.
+          <h2 style={{fontSize:"var(--ds-fs-h2)", fontWeight:600, color:"var(--ds-text-display)", letterSpacing:"-0.01em"}}>Move Discovery</h2>
+          <p style={{fontSize:"var(--ds-fs-meta)", color:"var(--ds-text-muted)", marginTop:6}}>
+            Where we left money on the table — and the next knob to tune.
           </p>
         </div>
-        <div className="text-[11px] text-slate-500">
-          {report?.generated ? `Generated ${new Date(report.generated).toLocaleString()}` : "No generation time"}
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:"var(--ds-fs-meta)", color: isStale ? "var(--ds-accent)" : "var(--ds-text-muted)"}}>
+            {report?.generated ? `Generated ${new Date(report.generated).toLocaleString()}` : "No generation time"}
+            {isStale && <span style={{marginLeft:6, color:"var(--ds-accent)"}}>· stale</span>}
+          </div>
+          <div style={{fontSize:"var(--ds-fs-caption)", color:"var(--ds-text-faint)", marginTop:2}}>
+            <span title="USE_D1=1 node scripts/discover-moves.js --upload && USE_D1=1 node scripts/diagnose-missed-moves.js --upload">
+              Refresh: run <code style={{fontFamily:"var(--tt-font-mono)"}}>discover-moves.js --upload</code>
+            </span>
+          </div>
         </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <div className="card p-4"><div className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Total Moves</div><div className="mt-2 text-2xl font-semibold text-white">{summary.total_moves || 0}</div><div className="mt-1 text-xs text-slate-400">{summary.unique_tickers || 0} tickers</div></div>
-        <div className="card p-4"><div className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Capture Rate</div><div className="mt-2 text-2xl font-semibold text-emerald-400">{summary.capture_rate || 0}%</div><div className="mt-1 text-xs text-slate-400">{summary.full_capture || 0} full + {summary.partial_capture || 0} partial</div></div>
-        <div className="card p-4"><div className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Missed</div><div className="mt-2 text-2xl font-semibold text-rose-300">{summary.missed_rate || 0}%</div><div className="mt-1 text-xs text-slate-400">{summary.missed || 0} moves</div></div>
-        <div className="card p-4"><div className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Churned</div><div className="mt-2 text-2xl font-semibold text-amber-300">{summary.churn_rate || 0}%</div><div className="mt-1 text-xs text-slate-400">{summary.churned || 0} moves</div></div>
-        <div className="card p-4"><div className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Diagnosis Coverage</div><div className="mt-2 text-2xl font-semibold text-sky-300">{totalDiagnosed || 0}</div><div className="mt-1 text-xs text-slate-400">{diagnosis?.limit_applied ? `Limited to top ${diagnosis.limit_applied}` : "Full diagnosed set"}</div></div>
+        <a className="si-kpi" href="trade-autopsy.html" title={tipFor("total")} style={{textDecoration:"none"}}>
+          <div className="si-kpi__label si-tip" data-tip={tipFor("total")}>Total moves</div>
+          <div className="si-kpi__value">{summary.total_moves || 0}</div>
+          <div className="si-kpi__sub">{summary.unique_tickers || 0} tickers</div>
+        </a>
+        <a className="si-kpi" href="trade-autopsy.html?status=WIN" title={tipFor("capture")} style={{textDecoration:"none"}}>
+          <div className="si-kpi__label si-tip" data-tip={tipFor("capture")}>Capture rate</div>
+          <div className="si-kpi__value si-kpi__value--up">{summary.capture_rate || 0}<span className="si-kpi__suffix">%</span></div>
+          <div className="si-kpi__sub">{summary.full_capture || 0} full + {summary.partial_capture || 0} partial</div>
+        </a>
+        <a className="si-kpi" href="?tab=analysis" title={tipFor("missed")} style={{textDecoration:"none"}}>
+          <div className="si-kpi__label si-tip" data-tip={tipFor("missed")}>Missed</div>
+          <div className="si-kpi__value si-kpi__value--dn">{summary.missed_rate || 0}<span className="si-kpi__suffix">%</span></div>
+          <div className="si-kpi__sub">{summary.missed || 0} moves</div>
+        </a>
+        <a className="si-kpi" href="trade-autopsy.html?status=churn" title={tipFor("churn")} style={{textDecoration:"none"}}>
+          <div className="si-kpi__label si-tip" data-tip={tipFor("churn")}>Churned</div>
+          <div className="si-kpi__value si-kpi__value--accent">{summary.churn_rate || 0}<span className="si-kpi__suffix">%</span></div>
+          <div className="si-kpi__sub">{summary.churned || 0} moves</div>
+        </a>
+        <div className="si-kpi" title={tipFor("diag")}>
+          <div className="si-kpi__label si-tip" data-tip={tipFor("diag")}>Diagnosis coverage</div>
+          {totalDiagnosed > 0 ? (
+            <>
+              <div className="si-kpi__value">{totalDiagnosed}</div>
+              <div className="si-kpi__sub">{diagnosis?.limit_applied ? `Limited to top ${diagnosis.limit_applied}` : "Full diagnosed set"}</div>
+            </>
+          ) : (
+            <>
+              <div className="si-kpi__value si-kpi__value--accent" style={{fontSize:"18px"}}>Not run</div>
+              <div className="si-kpi__sub">
+                <span title="USE_D1=1 node scripts/diagnose-missed-moves.js --upload">
+                  Run <code style={{fontFamily:"var(--tt-font-mono)"}}>diagnose-missed-moves.js --upload</code>
+                </span>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="flex gap-1 border-b border-white/[0.06] overflow-x-auto">
@@ -4130,14 +4218,27 @@ function MoveDiscoveryTab({ report, loading, error }) {
               } else {
                 action = `Focus on the top miss bucket: ${topDriver?.key || "unknown"} (${topDriverPct}% of diagnosed misses).${captureRate < 5 ? " Capture rate is very low — consider broadening entry criteria." : ""}`;
               }
+              const ctaLabel = totalDiagnosed === 0 ? "Run diagnosis" : noTrailPct > 50 ? "Open Trade Autopsy" : lowRankCount > wrongStateCount ? "Tune rank gate" : wrongStateCount > 0 ? "Tune state gates" : "Open analysis";
+              const ctaHref = totalDiagnosed === 0 ? "#" : noTrailPct > 50 ? "trade-autopsy.html" : "?tab=analysis";
               return (
-                <div className="flex flex-col gap-2 text-sm text-slate-300">
+                <div className="flex flex-col gap-3 text-sm text-slate-300">
                   <div><span className="text-rose-300 font-medium">Miss drivers:</span> {breakdownEntries.slice(0, 3).map((item) => {
                     const pct = totalDiagnosed > 0 ? Math.round(item.count / totalDiagnosed * 100) : 0;
                     return `${item.key} (${pct}%)`;
                   }).join(", ") || "None yet"}</div>
                   <div><span className="text-amber-300 font-medium">Churn cost:</span> {summary.total_missed_upside_from_churn || 0}% missed upside</div>
                   <div><span className="text-sky-300 font-medium">Primary action:</span> {action}</div>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {totalDiagnosed === 0 ? (
+                      <span className="si-action si-action--primary" title="USE_D1=1 node scripts/diagnose-missed-moves.js --upload" style={{cursor:"help"}}>
+                        Run diagnosis (CLI)
+                      </span>
+                    ) : (
+                      <a className="si-action si-action--primary" href={ctaHref}>{ctaLabel}</a>
+                    )}
+                    <a className="si-action" href="trade-autopsy.html">Trade Autopsy</a>
+                    <a className="si-action" href="?tab=analysis">Calibration knobs</a>
+                  </div>
                 </div>
               );
             })()}
