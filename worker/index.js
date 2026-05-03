@@ -49576,7 +49576,22 @@ export default {
             runId = activeState.activeRunId || activeState.live?.run_id || null;
             activeRun = activeState.active || activeState.live || null;
             activeSource = activeState.activeSource || null;
-          } else {
+          }
+          if (!runId) {
+            // Fallback: pick the most recently updated 'running' or 'registered'
+            // run. Covers continuous-leg backtests that release the replay lock
+            // between sessions but are still in flight.
+            try {
+              const row = await db.prepare(
+                `SELECT r.*, m.total_trades, m.wins, m.losses, m.win_rate, m.realized_pnl, m.realized_pnl_pct
+                   FROM backtest_runs r LEFT JOIN backtest_run_metrics m ON r.run_id = m.run_id
+                  WHERE r.status IN ('running', 'registered')
+                  ORDER BY COALESCE(r.updated_at, r.created_at) DESC LIMIT 1`
+              ).first();
+              if (row) { runId = row.run_id; activeRun = row; activeSource = "fallback_running"; }
+            } catch {}
+          }
+          if (runId && !activeRun) {
             try {
               activeRun = await db.prepare(
                 `SELECT r.*, m.total_trades, m.wins, m.losses, m.win_rate, m.realized_pnl, m.realized_pnl_pct
@@ -49823,6 +49838,16 @@ export default {
           if (!runId) {
             const activeState = await loadActiveRunState(db, KV);
             runId = activeState.activeRunId || activeState.live?.run_id || null;
+          }
+          if (!runId) {
+            try {
+              const row = await db.prepare(
+                `SELECT run_id FROM backtest_runs
+                  WHERE status IN ('running', 'registered')
+                  ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 1`
+              ).first();
+              if (row?.run_id) runId = row.run_id;
+            } catch {}
           }
           if (!runId) return sendJSON({ ok: false, error: "no_active_run" }, 400, corsHeaders(env, req));
           const trades = (await db.prepare(
