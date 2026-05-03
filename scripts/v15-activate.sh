@@ -137,7 +137,7 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_hard_fuse_default_rsi4h", "value": "80" },
     { "key": "deep_audit_hard_fuse_volrunner_gap_long_rsi1h", "value": "88" },
     { "key": "deep_audit_hard_fuse_volrunner_gap_long_rsi4h", "value": "83" },
-    { "key": "deep_audit_volatility_expansion_enabled", "value": "true" },
+    { "_comment": "Volatility-expansion carve-out kept OFF — quality over quantity. Loosening the entry gate to chase missed movers also dilutes WR. HARD_FUSE split below already addresses the bigger problem (we cut runners too early).", "key": "deep_audit_volatility_expansion_enabled", "value": "false" },
     { "key": "deep_audit_volatility_expansion_atr_pct", "value": "4" },
     { "key": "deep_audit_volatility_expansion_floor_delta", "value": "5" },
 
