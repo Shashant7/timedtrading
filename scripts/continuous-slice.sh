@@ -57,6 +57,16 @@ BLOCK_CHAIN=true
 # Used by the monthly walk-forward driver to keep open positions alive across
 # month boundaries; only the final May leg sets this to false.
 NO_FINALIZE=false
+# Phase C — Stage 1 (2026-05-02): bug fix for resume legs.
+# `tradeMatchesReplayScope` in worker/index.js filters trades by manifest
+# startDate/endDate. If the manifest is registered with a NARROW per-leg
+# window (e.g. Jul 1-31), August trades on a --resume leg get filtered out
+# (their entry_ts > manifest endDate) and never persisted. Fix: register
+# the manifest with the FULL multi-leg span up front. The per-leg
+# --start/--end still controls which days the script loops through; only
+# the manifest scope changes.
+MANIFEST_START=""
+MANIFEST_END=""
 
 for arg in "$@"; do
   case "$arg" in
@@ -68,9 +78,15 @@ for arg in "$@"; do
     --resume) RESUME=true ;;
     --no-block-chain) BLOCK_CHAIN=false ;;
     --no-finalize) NO_FINALIZE=true ;;
+    --manifest-start=*) MANIFEST_START="${arg#*=}" ;;
+    --manifest-end=*) MANIFEST_END="${arg#*=}" ;;
     *) echo "Unknown flag: $arg" >&2; exit 2 ;;
   esac
 done
+
+# Default the manifest window to the per-leg window (single-leg compatibility).
+[[ -z "$MANIFEST_START" ]] && MANIFEST_START="$START_DATE"
+[[ -z "$MANIFEST_END"   ]] && MANIFEST_END="$END_DATE"
 
 [[ -z "$START_DATE" ]] && { echo "Missing --start=YYYY-MM-DD"; exit 2; }
 [[ -z "$END_DATE" ]] && { echo "Missing --end=YYYY-MM-DD"; exit 2; }
@@ -191,11 +207,15 @@ assert_lock_still_ours() {
 }
 
 register_run() {
+  # IMPORTANT: register the manifest with the FULL span (MANIFEST_START..END),
+  # NOT the per-leg --start/--end window. The worker uses manifest dates as
+  # a scope filter on trade persistence — too-narrow dates drop trades on
+  # later legs of a walk-forward.
   local payload
   payload=$(jq -nc \
     --arg run_id "$RUN_ID" \
-    --arg start_date "$START_DATE" \
-    --arg end_date "$END_DATE" \
+    --arg start_date "$MANIFEST_START" \
+    --arg end_date "$MANIFEST_END" \
     --arg label "$RUN_ID" \
     --argjson ticker_batch 24 \
     --argjson ticker_universe_count 24 \
@@ -215,7 +235,7 @@ register_run() {
     -H "Content-Type: application/json" -d "$payload")
   local ok=$(echo "$resp" | jq -r '.ok // false')
   if [[ "$ok" != "true" ]]; then log "ERROR: runs/register failed: $resp"; exit 5; fi
-  log "Registered run $RUN_ID"
+  log "Registered run $RUN_ID (manifest scope: $MANIFEST_START → $MANIFEST_END)"
 }
 
 reset_state() {
