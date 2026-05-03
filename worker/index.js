@@ -805,6 +805,7 @@ const ROUTES = [
   ["POST", "/timed/admin/runs/archive", "POST /timed/admin/runs/archive"],
   ["POST", "/timed/admin/runs/update", "POST /timed/admin/runs/update"],
   ["POST", "/timed/admin/runs/delete", "POST /timed/admin/runs/delete"],
+  ["POST", "/timed/admin/runs/config-patch", "POST /timed/admin/runs/config-patch"],
   ["GET", "/timed/admin/runs", "GET /timed/admin/runs"],
   ["GET", "/timed/admin/runs/live", "GET /timed/admin/runs/live"],
   ["GET", "/timed/admin/runs/detail", "GET /timed/admin/runs/detail"],
@@ -49445,6 +49446,39 @@ export default {
           try { await db.prepare(`DELETE FROM backtest_run_annotations WHERE run_id = ?1`).bind(rid).run(); } catch {}
           try { await db.prepare(`DELETE FROM backtest_run_config WHERE run_id = ?1`).bind(rid).run(); } catch {}
           return sendJSON({ ok: true }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // Patch the pinned config of an in-progress backtest run. Without this,
+      // mid-stream calibration tweaks only affect runs that re-pin from live
+      // model_config — the active walk-forward backtest keeps reading its
+      // original snapshot. Body: { run_id, updates: [{key, value}, ...] }.
+      // Each value is stored verbatim as TEXT (the loader JSON-parses
+      // opportunistically; pass numerics as quoted strings to preserve them).
+      if (routeKey === "POST /timed/admin/runs/config-patch") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const body = await req.json().catch(() => ({}));
+          const runId = String(body?.run_id || "").trim();
+          if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+          const updates = Array.isArray(body?.updates) ? body.updates : [];
+          if (updates.length === 0) return sendJSON({ ok: false, error: "no_updates" }, 400, corsHeaders(env, req));
+          const applied = [];
+          for (const u of updates) {
+            const key = String(u?.key || "").trim();
+            if (!key) continue;
+            const value = u?.value == null ? null : String(u.value);
+            await db.prepare(
+              `INSERT OR REPLACE INTO backtest_run_config (run_id, config_key, config_value) VALUES (?1, ?2, ?3)`
+            ).bind(runId, key, value).run();
+            applied.push({ key, value });
+          }
+          return sendJSON({ ok: true, run_id: runId, applied }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }

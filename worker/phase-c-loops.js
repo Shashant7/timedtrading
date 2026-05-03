@@ -155,6 +155,10 @@ const LOOP2_DEFAULT_BREAKER_CONSEC_LOSS = 4; // 4 consecutive losses → trip
  */
 function loop2ComputePulse(trades, opts = {}) {
   const window = Number(opts.window) || 10;
+  // `nowMs` lets the backtest replay anchor "today" to the simulated date
+  // instead of the wall-clock date. Live cron leaves it undefined so it
+  // continues to use real Date.now().
+  const nowMs = Number(opts.nowMs) || Date.now();
   const closed = (Array.isArray(trades) ? trades : [])
     .filter((t) => {
       const s = String(t.status || "").toUpperCase();
@@ -167,10 +171,12 @@ function loop2ComputePulse(trades, opts = {}) {
 
   // Today P&L: sum pnl_pct of trades that exited today (NY tz, but UTC date is fine for engine purposes)
   const todayBoundaryMs = (() => {
-    const d = new Date();
+    const d = new Date(nowMs);
     return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
   })();
-  const todayClosed = closed.filter((t) => Number(t.exit_ts || 0) >= todayBoundaryMs);
+  const todayClosed = closed.filter(
+    (t) => Number(t.exit_ts || 0) >= todayBoundaryMs && Number(t.exit_ts || 0) <= nowMs
+  );
   const todayPnl = todayClosed.reduce((s, t) => s + (Number(t.pnl_pct) || 0), 0);
 
   // Consecutive losses going back from most recent
@@ -186,7 +192,7 @@ function loop2ComputePulse(trades, opts = {}) {
     today_pnl_pct: todayPnl,
     today_n: todayClosed.length,
     consec_losses: consecLoss,
-    pulse_ts_ms: Date.now(),
+    pulse_ts_ms: nowMs,
   };
 }
 
@@ -213,11 +219,17 @@ function loop2EvaluatePulse(pulse, daCfg) {
 
 /**
  * Persist the pulse + (when tripped) the pause flag.
- * Pause auto-clears on next session open via TTL.
+ * Pause auto-clears on next session open via TTL (live) or via an
+ * explicit simulated-time check in `loop2ReadPause` (backtest).
+ *
+ * In backtest, `nowMs` is the simulated end-of-day timestamp so the
+ * `tripped_at_ms` is in simulated time, not wall clock. The reader uses
+ * the same nowMs to decide if the pause has expired (next session open).
  */
-async function loop2WritePulse(KV, pulse, evaluation, daCfg) {
+async function loop2WritePulse(KV, pulse, evaluation, daCfg, opts = {}) {
   if (!KV) return;
   if (String(daCfg?.loop2_circuit_breaker_enabled ?? "false") !== "true") return;
+  const nowMs = Number(opts.nowMs) || Date.now();
   try {
     await KV.put(LOOP2_PULSE_KEY, JSON.stringify({ ...pulse, ...evaluation }), {
       expirationTtl: 3 * 24 * 60 * 60, // 3 days, plenty for review
@@ -228,10 +240,10 @@ async function loop2WritePulse(KV, pulse, evaluation, daCfg) {
         JSON.stringify({
           paused: true,
           reason: evaluation.reason,
-          tripped_at_ms: Date.now(),
+          tripped_at_ms: nowMs,
           pulse,
         }),
-        { expirationTtl: 18 * 60 * 60 }, // 18h: covers overnight; auto-clear next morning
+        { expirationTtl: 18 * 60 * 60 }, // 18h: covers overnight; auto-clear next morning (live wall-clock)
       );
     }
   } catch (_) {}
@@ -240,12 +252,26 @@ async function loop2WritePulse(KV, pulse, evaluation, daCfg) {
 /**
  * Read the current pause state. Returns { paused, reason, tripped_at_ms }
  * or { paused: false } if no pause is active.
+ *
+ * In backtest, pass `nowMs` (the simulated current time). The pause is
+ * considered active for ~18 simulated hours after the trip, then this
+ * function returns { paused: false } even though the KV record still
+ * exists. Live cron leaves nowMs undefined and falls through to the
+ * 18h KV TTL.
  */
-async function loop2ReadPause(KV) {
+async function loop2ReadPause(KV, opts = {}) {
   if (!KV) return { paused: false };
   try {
     const raw = await KV.get(LOOP2_PAUSE_KEY, { type: "json" });
-    if (raw && raw.paused) return raw;
+    if (raw && raw.paused) {
+      const nowMs = Number(opts?.nowMs) || 0;
+      const trippedAt = Number(raw.tripped_at_ms) || 0;
+      // Backtest: clear after 18 simulated hours to mirror live TTL behavior.
+      if (nowMs > 0 && trippedAt > 0 && (nowMs - trippedAt) > 18 * 60 * 60 * 1000) {
+        return { paused: false, reason: "simulated_ttl_expired", tripped_at_ms: trippedAt };
+      }
+      return raw;
+    }
   } catch (_) {}
   return { paused: false };
 }
