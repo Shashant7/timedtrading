@@ -133,6 +133,14 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_stagnant_squeeze_deferral_enabled", "value": "true" },
 
     { "_comment": "Phase C — Stage 0 — Three self-adapting loops. Default OFF.", "key": "_phase_c_marker", "value": "stage0" },
+    { "_comment": "V15 P0.7.51 — universe-benchmark calibration knobs.", "key": "deep_audit_hard_fuse_default_rsi1h", "value": "85" },
+    { "key": "deep_audit_hard_fuse_default_rsi4h", "value": "80" },
+    { "key": "deep_audit_hard_fuse_volrunner_gap_long_rsi1h", "value": "88" },
+    { "key": "deep_audit_hard_fuse_volrunner_gap_long_rsi4h", "value": "83" },
+    { "key": "deep_audit_volatility_expansion_enabled", "value": "true" },
+    { "key": "deep_audit_volatility_expansion_atr_pct", "value": "4" },
+    { "key": "deep_audit_volatility_expansion_floor_delta", "value": "5" },
+
     { "_comment": "Loop 1 enabled for Phase C Stage 1 walk-forward. min_samples=3 lets bad combos (4-trade losing streaks) be flagged quickly per nov-apr-findings.md.", "key": "_phase_c_loops_marker", "value": "stage1" },
     { "key": "loop1_specialization_enabled", "value": "true" },
     { "key": "loop1_min_samples", "value": "3" },

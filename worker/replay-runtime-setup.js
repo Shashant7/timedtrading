@@ -372,6 +372,22 @@ export const REPLAY_DA_KEYS = [
   "loop2_breaker_consec_loss",// X consecutive losses → trip (default 4)
   // Loop 3 — Personality-aware management
   "loop3_personality_management_enabled",
+  // ─────────────────────────────────────────────────────────────────────
+  // V15 P0.7.51 (2026-05-03) — universe-benchmark-driven calibration knobs
+  //   1. Setup-aware HARD_FUSE_RSI_EXTREME thresholds (lets VOLATILE_RUNNER ×
+  //      Gap Reversal Long ride hot RSI without getting cut at the start
+  //      of a 50-80% move).
+  //   2. Volatility-expansion entry carve-out (lowers conviction floor by N
+  //      points when daily ATR/price > X% so high-vol movers like ASTS, IONQ,
+  //      ARRY, UUUU stop bouncing off the gate).
+  // ─────────────────────────────────────────────────────────────────────
+  "deep_audit_hard_fuse_default_rsi1h",                  // default 85
+  "deep_audit_hard_fuse_default_rsi4h",                  // default 80
+  "deep_audit_hard_fuse_volrunner_gap_long_rsi1h",       // default 88
+  "deep_audit_hard_fuse_volrunner_gap_long_rsi4h",       // default 83
+  "deep_audit_volatility_expansion_enabled",             // default off
+  "deep_audit_volatility_expansion_atr_pct",             // default 4
+  "deep_audit_volatility_expansion_floor_delta",         // default 5
 ];
 
 const REPLAY_CFG_KEYS = [
@@ -865,8 +881,53 @@ export async function loadReplayScopedTrades(args = {}) {
                 entry_path, max_favorable_excursion, max_adverse_excursion
          FROM trades WHERE run_id = ?1`
       ).bind(reconcileRunId).all();
-      console.log(`${logPrefix} D1 query returned: rows=${(liveRows||[]).length} run_id=${reconcileRunId}`);
-      if (liveRows && liveRows.length > 0) {
+
+      /* V15 P0.7.50 (2026-05-03) — orphan-rescue from archive table.
+         Previously the archive (backtest_run_trades) was ONLY consulted as a
+         last-resort fallback when both KV and live `trades` were empty. Silent
+         d1UpsertTrade failures during a leg meant rows landed in the archive
+         (via the parallel d1ArchiveRunTrade write) but never made it into the
+         live `trades` table. Subsequent legs reconciled from `trades` only,
+         so those orphaned trades never re-entered replayCtx.allTrades — MFE
+         stopped updating, exit rules stopped firing (gated on hasPosition),
+         and phase_i_duplicate_open could not match (engine re-entered the
+         same tickers). Fix: always read the archive for the run, union it
+         into the live merge basis by trade_id, and log the rescue count so
+         we can tell from the worker tail when it's firing. Cost: one extra
+         indexed SELECT per batch (~250 rows max for our run, dwarfed by the
+         per-batch trail-write workload). */
+      let archiveRows = [];
+      try {
+        const { results } = await db.prepare(
+          `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+                  exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
+                  trim_ts, trim_price, setup_name, setup_grade, risk_budget, shares, notional,
+                  entry_path, max_favorable_excursion, max_adverse_excursion
+             FROM backtest_run_trades WHERE run_id = ?1`
+        ).bind(reconcileRunId).all();
+        archiveRows = results || [];
+      } catch (e) {
+        console.warn(`${logPrefix} archive reconcile read failed: ${String(e?.message || e).slice(0, 200)}`);
+      }
+      const liveByTradeId = new Map();
+      for (const row of (liveRows || [])) {
+        const tid = String(row?.trade_id || "").trim();
+        if (tid) liveByTradeId.set(tid, row);
+      }
+      let archiveOnlyRescued = 0;
+      for (const row of archiveRows) {
+        const tid = String(row?.trade_id || "").trim();
+        if (!tid || liveByTradeId.has(tid)) continue;
+        liveByTradeId.set(tid, row);
+        archiveOnlyRescued++;
+      }
+      const reconciliationRows = [...liveByTradeId.values()];
+      if (archiveOnlyRescued > 0) {
+        console.warn(`${logPrefix} Rescued ${archiveOnlyRescued} archive-only trade(s) absent from live trades table (run=${reconcileRunId})`);
+      }
+
+      console.log(`${logPrefix} D1 query returned: live=${(liveRows||[]).length} archive=${archiveRows.length} merged=${reconciliationRows.length} run_id=${reconcileRunId}`);
+      if (reconciliationRows.length > 0) {
         const kvByTradeId = new Map();
         for (const t of allTrades) {
           const tid = String(t?.trade_id || t?.id || "").trim();
@@ -890,7 +951,7 @@ export async function loadReplayScopedTrades(args = {}) {
         // best value seen.
         const merged = [];
         const seen = new Set();
-        for (const row of liveRows) {
+        for (const row of reconciliationRows) {
           const tid = String(row?.trade_id || "").trim();
           if (!tid || seen.has(tid)) continue;
           seen.add(tid);
@@ -941,21 +1002,15 @@ export async function loadReplayScopedTrades(args = {}) {
           const s = String(t?.status || "").toUpperCase();
           return s === "OPEN" || s === "TP_HIT_TRIM" || !s;
         }).length;
-        console.log(`${logPrefix} Reconciled KV(${allTrades.length})/D1(${liveRows.length})->${merged.length} (open=${openCount})`);
+        console.log(`${logPrefix} Reconciled KV(${allTrades.length})/live(${(liveRows||[]).length})/archive(${archiveRows.length})->${merged.length} (open=${openCount}, rescued=${archiveOnlyRescued})`);
         allTrades = merged;
-      } else if (!allTrades || allTrades.length === 0) {
-        // Last-resort fallback: try the archive table for legacy runs.
-        const { results: archiveRows } = await db.prepare(
-          `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
-                  exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
-                  trim_ts, trim_price, setup_name, setup_grade, risk_budget, shares, notional
-           FROM backtest_run_trades WHERE run_id = ?1`
-        ).bind(reconcileRunId).all();
-        if (archiveRows && archiveRows.length > 0) {
-          allTrades = archiveRows.map((row) => mapArchivedReplayTrade(row, reconcileRunId));
-          console.log(`${logPrefix} Restored ${allTrades.length} trades from archive for run ${reconcileRunId}`);
-        }
       }
+      // Note: the explicit archive-only fallback (gated on
+      // `liveRows.length === 0 && allTrades.length === 0`) is no longer
+      // needed — the union above already includes archive rows on every
+      // batch. If both tables are empty, reconciliationRows.length === 0
+      // and we leave KV alone (consistent with prior behavior for that
+      // edge case).
       // Persist reconciled state back to KV so downstream reads see fresh data.
       if (allTrades && allTrades.length > 0) {
         await kvPutJSON(KV, replayTradesKey, allTrades);

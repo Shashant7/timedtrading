@@ -4100,8 +4100,8 @@ function qualifiesForEnter(d, asOfTs = null) {
           _focusDaCfg.deep_audit_focus_stack_carveout_enabled ?? "true"
         ) === "true";
         if (_stackCarveOutEnabled && _focusConv?.breakdown) {
-          const _carveState = String(tickerData?.state || "").toUpperCase();
-          const _carveDs = tickerData?.daily_structure || {};
+          const _carveState = String(d?.state || "").toUpperCase();
+          const _carveDs = d?.daily_structure || {};
           const _carveBullStack = _carveDs?.bull_stack === true;
           const _carveBearStack = _carveDs?.bear_stack === true;
           const _carveLongStacked =
@@ -4118,6 +4118,40 @@ function qualifiesForEnter(d, asOfTs = null) {
             );
             _entryMinConv = Math.max(70, _entryMinConv - _carveDelta);
           }
+        }
+
+        /* V15 P0.7.51 (2026-05-03) — volatility-expansion entry carve-out.
+           The universe-vs-system benchmark showed 83 of 238 universe tickers
+           were never traded in Jul-Sep, leaving 6,683% of move on the table.
+           The pattern: high-volatility movers (ASTS, IONQ, ARRY, UUUU, NBIS,
+           RKLB, HIMS, MP, …) consistently price-bounced off the conviction
+           floor. Knob: when daily ATR/price > deep_audit_volatility_expansion_atr_pct
+           (default 4%), lower the conviction floor by deep_audit_volatility_expansion_floor_delta
+           (default 5). Holds the same min-floor rails (≥70) so we never go
+           below the absolute safety threshold even in compounding carve-outs. */
+        const _volExpansionEnabled = String(_focusDaCfg.deep_audit_volatility_expansion_enabled ?? "false") === "true";
+        if (_volExpansionEnabled) {
+          try {
+            const _atrD = Number(d?.tf_tech?.D?.atr?.atr ?? d?.tf_tech?.D?.atr?.value ?? 0);
+            const _pxD = Number(d?.last_price ?? d?.tf_tech?.D?.close ?? 0);
+            if (_atrD > 0 && _pxD > 0) {
+              const _atrPct = (_atrD / _pxD) * 100;
+              const _atrThreshPct = Number(_focusDaCfg.deep_audit_volatility_expansion_atr_pct ?? 4);
+              if (_atrPct >= _atrThreshPct) {
+                const _volDelta = Number(_focusDaCfg.deep_audit_volatility_expansion_floor_delta ?? 5);
+                const _origFloor = _entryMinConv;
+                _entryMinConv = Math.max(70, _entryMinConv - _volDelta);
+                if (d?.__rank_trace && _entryMinConv < _origFloor) {
+                  d.__rank_trace.volatility_expansion_carveout = {
+                    atr_pct: Math.round(_atrPct * 100) / 100,
+                    threshold_pct: _atrThreshPct,
+                    floor_delta: _volDelta,
+                    floor_after: _entryMinConv,
+                  };
+                }
+              }
+            }
+          } catch (_e) { /* swallow — defensive */ }
         }
         if (_focusConv.score < _entryMinConv) {
           return {
@@ -16482,8 +16516,36 @@ async function processTradeSimulation(
       const rsi1H = tickerData?.tf_tech?.["1H"]?.rsi?.r5 ?? 50;
       const rsi4H = tickerData?.tf_tech?.["4H"]?.rsi?.r5 ?? 50;
 
+      /* V15 P0.7.51 (2026-05-03) — setup-aware HARD FUSE thresholds.
+         The universe-vs-system benchmark (tasks/phase-c/universe-benchmark/
+         comparison.md) showed `HARD_FUSE_RSI_EXTREME` was the dominant exit
+         reason on `VOLATILE_RUNNER × TT Tt Gap Reversal Long` mismanaged
+         winners — these tickers (SNDK +82% oracle / 7% captured, BE +63% /
+         -2%, RDDT +59% / 16%, …) regularly run hot RSI for many bars while
+         the trend continues. Default 85/80 thresholds cut them at the
+         start of the move. We raise the bar to 88/83 only for that combo
+         (entry_path = tt_gap_reversal_long AND personality VOLATILE_RUNNER).
+         All other setups keep 85/80, which still protects the 114 'edge'
+         wins (Σ +268% pnl) on PULLBACK_PLAYER × N_TEST and similar. Knobs
+         are exposed via DA so we can tune per leg without redeploying. */
+      let _es = openTrade?.entrySignals || openTrade?.entry_signals || null;
+      if (!_es && openTrade?.entry_signals_json) {
+        try { _es = JSON.parse(openTrade.entry_signals_json); } catch (_) { _es = null; }
+      }
+      _es = _es || {};
+      const _entryPath = String(openTrade?.entry_path || openTrade?.setup_name || "").toLowerCase();
+      const _personality = String(_es?.personality || openTrade?.personality || "").toUpperCase();
+      const _isVolRunnerGapLong = isLong && _entryPath === "tt_gap_reversal_long" && _personality === "VOLATILE_RUNNER";
+      const _hardFuseDaCfg = tickerData?._env?._deepAuditConfig || {};
+      const _hardLongRsi1 = _isVolRunnerGapLong
+        ? (Number(_hardFuseDaCfg.deep_audit_hard_fuse_volrunner_gap_long_rsi1h) || 88)
+        : (Number(_hardFuseDaCfg.deep_audit_hard_fuse_default_rsi1h) || 85);
+      const _hardLongRsi4 = _isVolRunnerGapLong
+        ? (Number(_hardFuseDaCfg.deep_audit_hard_fuse_volrunner_gap_long_rsi4h) || 83)
+        : (Number(_hardFuseDaCfg.deep_audit_hard_fuse_default_rsi4h) || 80);
+
       // Phase 4a: HARD FUSE — double confirmation extreme RSI
-      const hardFuseLong = isLong && rsi1H >= 85 && rsi4H >= 80;
+      const hardFuseLong = isLong && rsi1H >= _hardLongRsi1 && rsi4H >= _hardLongRsi4;
       const hardFuseShort = !isLong && rsi1H <= 15 && rsi4H <= 20;
 
       if (hardFuseLong || hardFuseShort) {
