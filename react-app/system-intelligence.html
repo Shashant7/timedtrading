@@ -2176,8 +2176,12 @@ function RunsTab({ isAdmin }) {
     );
   };
 
-  const fetchRuns = useCallback(async () => {
-    setLoading(true);
+  const fetchRuns = useCallback(async (opts = {}) => {
+    // Skip the loading spinner for background polls so the table doesn't
+    // re-mount and snap the user back to the top of the page mid-scroll.
+    // Only the initial mount and explicit user-triggered refreshes set the
+    // spinner (opts.silent !== true).
+    if (!opts?.silent) setLoading(true);
     setError(null);
     try {
       const includeArchived = showArchived ? "1" : "0";
@@ -2249,8 +2253,14 @@ function RunsTab({ isAdmin }) {
   }, [showArchived]);
 
   useEffect(() => {
-    fetchRuns();
-    const timer = setInterval(() => { fetchRuns(); }, 5000);
+    fetchRuns(); // initial load shows the spinner
+    const timer = setInterval(() => {
+      // Background polls update the data without re-mounting the list, so
+      // the user's scroll position is preserved. Skip while the page is
+      // backgrounded to avoid wasting fetches.
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      fetchRuns({ silent: true });
+    }, 5000);
     return () => clearInterval(timer);
   }, [fetchRuns]);
 

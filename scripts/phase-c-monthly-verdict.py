@@ -281,17 +281,34 @@ def section_headline(trades: list[dict], all_run_trades: list[dict] | None = Non
 # ─────────────────────────────────────────────────────────────────────
 # Equity curve helpers (dollar-based account view)
 # ─────────────────────────────────────────────────────────────────────
+#
+# CORRECT MODEL: each trade has a fixed-ish notional (sizing engine targets
+# ~$10-15K per trade given current rules). The trade record carries the
+# actual `pnl` (dollars), `notional`, and `pnl_pct` directly, so we use
+# those exact values rather than compounding a fictional bankroll.
+#
+# Starting equity is shown as a reference only ($100K) so you can read
+# month-end balance as a running tally of realized P&L on top of that.
 
-# Bankroll model assumed for verdicts.
-START_EQUITY = 100_000  # $100K starting account
+START_EQUITY = 100_000  # reference starting account
+
+def _trade_dollars(trade: dict) -> float:
+    """Return realized P&L in dollars from the trade record."""
+    pnl = trade.get("pnl")
+    if pnl is None:
+        pnl = trade.get("pnlDollars")
+    try:
+        return float(pnl) if pnl is not None else 0.0
+    except Exception:
+        return 0.0
+
 
 def _equity_curve_for_month(all_trades: list[dict], month_trades: list[dict]) -> list[str]:
-    """Build a dollar-based equity table that shows starting balance,
-    end balance, net $ P&L, and best/worst $ trade for the verdict month.
+    """Build a $-based equity table showing starting balance, end balance,
+    net $ P&L, and best/worst $ trade for the verdict month.
 
-    Walks every closed trade in the run from the beginning so the start
-    balance is correct (i.e. accounts for compounding from prior months).
-    Each trade compounds 1% of current equity (matches our risk model).
+    Equity = $100K starting + cumulative realized P&L (uses actual `pnl`
+    field on each trade — does NOT re-derive from pnl_pct against equity).
     """
     closed_all = [t for t in all_trades if is_closed(t) and t.get("exit_ts")]
     closed_all.sort(key=lambda t: int(t.get("exit_ts") or 0))
@@ -301,6 +318,10 @@ def _equity_curve_for_month(all_trades: list[dict], month_trades: list[dict]) ->
     peak = eq
     max_dd_dollars = 0.0
     max_dd_pct = 0.0
+    peak_date = None
+    trough_date = None
+    cur_trough_after_peak = eq
+    cur_trough_date = None
 
     month_start_eq = None
     month_end_eq = None
@@ -308,73 +329,105 @@ def _equity_curve_for_month(all_trades: list[dict], month_trades: list[dict]) ->
     worst = (None, float("inf"))
     win_dollars = 0.0
     loss_dollars = 0.0
-    day_pnl = {}
+    win_count = 0
+    loss_count = 0
+    flat_count = 0
+    day_pnl: dict[str, float] = {}
+    day_trades: dict[str, int] = {}
+    notional_samples: list[float] = []
 
     for t in closed_all:
         is_in_month = id(t) in month_ids
         if is_in_month and month_start_eq is None:
             month_start_eq = eq
-        pct = float(t.get("pnl_pct") or t.get("pnlPct") or 0)
-        pnl_dollars = eq * (pct / 100.0)
-        eq += pnl_dollars
+        pnl_d = _trade_dollars(t)
+        eq += pnl_d
+        try:
+            day_key = datetime.fromtimestamp(int(t["exit_ts"]) / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+        except Exception:
+            day_key = "?"
         if eq > peak:
             peak = eq
+            peak_date = day_key
+            cur_trough_after_peak = eq
+            cur_trough_date = day_key
+        if eq < cur_trough_after_peak:
+            cur_trough_after_peak = eq
+            cur_trough_date = day_key
         dd = peak - eq
         if dd > max_dd_dollars:
             max_dd_dollars = dd
             max_dd_pct = (dd / peak * 100.0) if peak else 0.0
+            trough_date = day_key
         if is_in_month:
             month_end_eq = eq
-            if pnl_dollars > best[1]:
-                best = (t, pnl_dollars)
-            if pnl_dollars < worst[1]:
-                worst = (t, pnl_dollars)
-            if pnl_dollars > 0:
-                win_dollars += pnl_dollars
-            elif pnl_dollars < 0:
-                loss_dollars += pnl_dollars
             try:
-                day_key = datetime.fromtimestamp(int(t["exit_ts"]) / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+                notional_samples.append(float(t.get("notional") or 0))
             except Exception:
-                day_key = "?"
-            day_pnl[day_key] = day_pnl.get(day_key, 0.0) + pnl_dollars
+                pass
+            if pnl_d > best[1]:
+                best = (t, pnl_d)
+            if pnl_d < worst[1]:
+                worst = (t, pnl_d)
+            status = str(t.get("status") or "").upper()
+            if status == "WIN":
+                win_count += 1
+                win_dollars += max(pnl_d, 0)
+            elif status == "LOSS":
+                loss_count += 1
+                loss_dollars += min(pnl_d, 0)
+            else:
+                flat_count += 1
+                if pnl_d > 0:
+                    win_dollars += pnl_d
+                elif pnl_d < 0:
+                    loss_dollars += pnl_d
+            day_pnl[day_key] = day_pnl.get(day_key, 0.0) + pnl_d
+            day_trades[day_key] = day_trades.get(day_key, 0) + 1
 
     if month_start_eq is None:
         return ["", "_No closed trades in window for equity curve._", ""]
 
     net_dollars = month_end_eq - month_start_eq
-    net_pct = (month_end_eq / month_start_eq - 1) * 100 if month_start_eq else 0
+    avg_notional = (sum(notional_samples) / len(notional_samples)) if notional_samples else 0.0
+    net_pct_of_start = (net_dollars / month_start_eq) * 100 if month_start_eq else 0.0
     best_t, best_d = best
     worst_t, worst_d = worst
 
     lines = [
-        f"### Account equity ($100K starting bankroll, 1% notional per trade)",
+        f"### Account equity (start ${START_EQUITY:,.0f} reference, ~${avg_notional:,.0f} avg notional/trade)",
+        "",
+        f"_Each trade uses its actual recorded P&L (`trade.pnl` field) — not derived from %._",
         "",
         f"| Metric | Value |",
         f"|---|---|",
-        f"| **Start balance** (1st trade of month) | **${month_start_eq:,.0f}** |",
-        f"| **End balance** (last trade of month) | **${month_end_eq:,.0f}** |",
-        f"| **Net $ P&L** | **${net_dollars:+,.0f}**  ({net_pct:+.2f}% of start balance) |",
-        f"| Total winning $ | +${win_dollars:,.0f} |",
-        f"| Total losing $ | -${abs(loss_dollars):,.0f} |",
+        f"| **Start balance** (entering this month) | **${month_start_eq:,.0f}** |",
+        f"| **End balance** (after last trade closed) | **${month_end_eq:,.0f}** |",
+        f"| **Net $ P&L for the month** | **${net_dollars:+,.0f}**  ({net_pct_of_start:+.2f}% of start balance) |",
+        f"| Sum of winning $ | +${win_dollars:,.0f}  ({win_count} wins) |",
+        f"| Sum of losing $ | -${abs(loss_dollars):,.0f}  ({loss_count} losses) |",
     ]
-    if best_t is not None:
+    if best_t is not None and best_d > float("-inf"):
         lines.append(f"| Biggest winner | **{best_t.get('ticker','?')}** +${best_d:,.0f} ({float(best_t.get('pnl_pct') or 0):+.2f}%) |")
-    if worst_t is not None:
+    if worst_t is not None and worst_d < float("inf"):
         lines.append(f"| Biggest loser | **{worst_t.get('ticker','?')}** -${abs(worst_d):,.0f} ({float(worst_t.get('pnl_pct') or 0):+.2f}%) |")
-    lines.append(f"| Run-to-date peak | ${peak:,.0f} |")
-    lines.append(f"| Run-to-date max DD | -${max_dd_dollars:,.0f} ({max_dd_pct:.2f}%) |")
+    lines.append(f"| Run-to-date peak | ${peak:,.0f}{f' (on {peak_date})' if peak_date else ''} |")
+    lines.append(f"| Run-to-date max DD | -${max_dd_dollars:,.0f} ({max_dd_pct:.2f}%){f' (trough on {trough_date})' if trough_date else ''} |")
     lines.append("")
 
     if day_pnl:
+        # Running balance day-by-day
+        running = month_start_eq
         lines.extend([
             "### Day-by-day P&L (this month)",
             "",
-            "| Date | Day P&L $ |",
-            "|---|---:|",
+            "| Date | # Trades | Day P&L $ | End-of-day Balance |",
+            "|---|---:|---:|---:|",
         ])
         for d in sorted(day_pnl):
-            lines.append(f"| {d} | ${day_pnl[d]:+,.0f} |")
+            running += day_pnl[d]
+            tag = " 🔴" if day_pnl[d] < 0 else (" 🟢" if day_pnl[d] > 0 else "")
+            lines.append(f"| {d} | {day_trades.get(d,0)} | ${day_pnl[d]:+,.0f}{tag} | ${running:,.0f} |")
         lines.append("")
 
     return lines

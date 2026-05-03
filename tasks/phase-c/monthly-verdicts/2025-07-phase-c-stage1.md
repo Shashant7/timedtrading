@@ -1,6 +1,6 @@
 # Phase C — Monthly Verdict · 2025-07
 
-_Source: `phase-c-stage1-jul2025-may2026` · Trades in window: **103** · Generated 2026-05-03 11:54 UTC_
+_Source: `phase-c-stage1-jul2025-may2026` · Trades in window: **103** · Generated 2026-05-03 12:22 UTC_
 
 > Read this alongside the previous month's verdict. The point is **trajectory** —
 > are we drifting toward July or away from it?
@@ -14,44 +14,46 @@ _Source: `phase-c-stage1-jul2025-may2026` · Trades in window: **103** · Genera
 - **Sharpe (annualized, daily-pct proxy): 4.32.** Target 1.50 — PASS.
 - **Cumulative P&L (sum of pct): +96.47%.**
 
-### Account equity ($100K starting bankroll, 1% notional per trade)
+### Account equity (start $100,000 reference, ~$10,104 avg notional/trade)
+
+_Each trade uses its actual recorded P&L (`trade.pnl` field) — not derived from %._
 
 | Metric | Value |
 |---|---|
-| **Start balance** (1st trade of month) | **$100,000** |
-| **End balance** (last trade of month) | **$246,715** |
-| **Net $ P&L** | **$+146,715**  (+146.71% of start balance) |
-| Total winning $ | +$243,443 |
-| Total losing $ | -$96,728 |
-| Biggest winner | **AEHR** +$39,994 (+21.18%) |
-| Biggest loser | **ORCL** -$12,378 (-5.17%) |
-| Run-to-date peak | $341,722 |
-| Run-to-date max DD | -$52,677 (15.42%) |
+| **Start balance** (entering this month) | **$100,000** |
+| **End balance** (after last trade closed) | **$110,306** |
+| **Net $ P&L for the month** | **$+10,306**  (+10.31% of start balance) |
+| Sum of winning $ | +$16,640  (56 wins) |
+| Sum of losing $ | -$6,334  (46 losses) |
+| Biggest winner | **AEHR** +$2,462 (+21.18%) |
+| Biggest loser | **ORCL** -$621 (-5.17%) |
+| Run-to-date peak | $113,047 (on 2025-08-19) |
+| Run-to-date max DD | -$1,990 (1.76%) (trough on 2025-08-22) |
 
 ### Day-by-day P&L (this month)
 
-| Date | Day P&L $ |
-|---|---:|
-| 2025-07-02 | $-6,149 |
-| 2025-07-03 | $+4,395 |
-| 2025-07-07 | $+1,993 |
-| 2025-07-08 | $+874 |
-| 2025-07-09 | $-580 |
-| 2025-07-10 | $-8,969 |
-| 2025-07-11 | $+7,745 |
-| 2025-07-14 | $+4,162 |
-| 2025-07-15 | $+32,265 |
-| 2025-07-16 | $+3,666 |
-| 2025-07-17 | $+1,376 |
-| 2025-07-18 | $-1,078 |
-| 2025-07-22 | $+10,955 |
-| 2025-07-23 | $+17,773 |
-| 2025-07-24 | $+228 |
-| 2025-07-25 | $+13,755 |
-| 2025-07-28 | $+46,686 |
-| 2025-07-29 | $-3,651 |
-| 2025-07-30 | $+3,956 |
-| 2025-08-01 | $+17,312 |
+| Date | # Trades | Day P&L $ | End-of-day Balance |
+|---|---:|---:|---:|
+| 2025-07-02 | 3 | $-752 🔴 | $99,248 |
+| 2025-07-03 | 2 | $+371 🟢 | $99,618 |
+| 2025-07-07 | 2 | $+99 🟢 | $99,718 |
+| 2025-07-08 | 5 | $+87 🟢 | $99,805 |
+| 2025-07-09 | 1 | $-46 🔴 | $99,759 |
+| 2025-07-10 | 6 | $-946 🔴 | $98,813 |
+| 2025-07-11 | 5 | $+981 🟢 | $99,794 |
+| 2025-07-14 | 2 | $+433 🟢 | $100,227 |
+| 2025-07-15 | 8 | $+2,941 🟢 | $103,168 |
+| 2025-07-16 | 9 | $+178 🟢 | $103,346 |
+| 2025-07-17 | 1 | $+119 🟢 | $103,465 |
+| 2025-07-18 | 4 | $-34 🔴 | $103,431 |
+| 2025-07-22 | 14 | $+993 🟢 | $104,424 |
+| 2025-07-23 | 4 | $+1,122 🟢 | $105,546 |
+| 2025-07-24 | 1 | $+11 🟢 | $105,558 |
+| 2025-07-25 | 6 | $+1,060 🟢 | $106,618 |
+| 2025-07-28 | 8 | $+2,920 🟢 | $109,538 |
+| 2025-07-29 | 6 | $-248 🔴 | $109,290 |
+| 2025-07-30 | 4 | $+137 🟢 | $109,428 |
+| 2025-08-01 | 11 | $+878 🟢 | $110,306 |
 
 ## 2 · The Proud (top winners)
 

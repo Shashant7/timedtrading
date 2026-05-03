@@ -1732,7 +1732,11 @@
         const reviewableRuns = useMemo(
           () => (availableRuns || []).filter(r => {
             const status = String(r?.status || "").trim().toLowerCase();
-            if (status !== "completed") return false;
+            // Show completed runs AND in-progress runs that have trades.
+            // Walk-forward backtests stay in 'running' state across multiple
+            // monthly legs (we use --no-finalize to preserve open positions),
+            // but they have hundreds of closed trades you'd want to inspect.
+            if (status !== "completed" && status !== "running" && status !== "queued") return false;
             const totalTrades = Number(r?.total_trades || 0);
             const closedTrades = Number(r?.closed_trades || 0);
             const openTrades = Number(r?.open_trades || 0);
@@ -1763,7 +1767,13 @@
           return runLabelMap.get(key) || "";
         }, [runLabelMap]);
         const runMeta = useMemo(() => ({
-          runs: reviewableRuns.map(r => ({ runId: String(r.run_id || "").trim(), label: r.label || null, startDate: r.start_date || null, endDate: r.end_date || null })),
+          runs: reviewableRuns.map(r => ({
+            runId: String(r.run_id || "").trim(),
+            label: r.label || null,
+            startDate: r.start_date || null,
+            endDate: r.end_date || null,
+            status: String(r?.status || "").trim().toLowerCase(),
+          })),
           latestRunId: reviewableRuns.length ? String(reviewableRuns[0].run_id || "").trim() : "",
           liveRunId: liveRun ? String(liveRun.run_id || "").trim() : "",
           liveRunLabel: liveRun?.label || null,
@@ -1888,8 +1898,10 @@
           }
         }, [tradesUrl, activeRunTruth]);
 
-        const refreshAll = useCallback(async () => {
-          setLoading(true);
+        const refreshAll = useCallback(async (opts = {}) => {
+          // Background polls (auto-refresh) skip the loading spinner so the
+          // table doesn't re-mount and snap the user back to the top.
+          if (!opts?.silent) setLoading(true);
           setError(null);
           try {
             const [runs, liveTruthRes] = await Promise.all([refreshRuns(), refreshActiveRunTruth()]);
@@ -1986,7 +1998,10 @@
 
         useEffect(() => {
           if (filterRunId !== RUN_FILTER_LIVE || !autoRefreshEnabled) return;
-          const iv = setInterval(() => { refreshAll(); }, 15_000);
+          const iv = setInterval(() => {
+            if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+            refreshAll({ silent: true });
+          }, 15_000);
           return () => clearInterval(iv);
         }, [autoRefreshEnabled, filterRunId, refreshAll]);
 
@@ -2158,9 +2173,12 @@
                     <option value={RUN_FILTER_LATEST}>Latest run</option>
                     <option value={RUN_FILTER_LIVE}>Live replay{runMeta.liveRunId ? ` · ${runMeta.liveRunLabel || runMeta.liveRunId}` : ""}</option>
                     <option value="">All runs</option>
-                    {runMeta.runs.map(r => (
-                      <option key={r.runId} value={r.runId}>{r.label ? `${r.label} (${r.startDate || ""}→${r.endDate || ""})` : r.runId}</option>
-                    ))}
+                    {runMeta.runs.map(r => {
+                      const inProgress = r.status === "running" || r.status === "queued";
+                      const tag = inProgress ? " · in progress" : "";
+                      const display = r.label ? `${r.label} (${r.startDate || ""}→${r.endDate || ""})${tag}` : `${r.runId}${tag}`;
+                      return <option key={r.runId} value={r.runId}>{display}</option>;
+                    })}
                   </select>
                   {trades.length > 0 && (
                     <>
