@@ -13,6 +13,8 @@ export function createCandleReplayStep(deps = {}) {
     kvPutJSON,
     d1GetCandlesAllTfs,
     kvGetJSON,
+    /* Phase C — Stage 1 (2026-05-03) */
+    PhaseCLoops,
     d1EnsureBacktestRunsSchema,
     sanitizeReplayTradesForScope,
     loadReplayScopedTrades,
@@ -184,6 +186,30 @@ export function createCandleReplayStep(deps = {}) {
     env._calibratedSlAtr = replayCalibratedSlAtr;
     env._calibratedRankMin = replayCalibratedRankMin;
     env._deepAuditConfig = replayEnv._deepAuditConfig;
+
+    /* Phase C — Stage 1 (2026-05-03) — Pre-fetch Loop 1 + Loop 2 state once
+       per batch and stamp it on replayEnv so the per-ticker scoring loop
+       can read it sync. Mirrors the live cron path in worker/index.js. */
+    const _phaseCDaCfg = replayEnv?._deepAuditConfig || env?._deepAuditConfig || {};
+    try {
+      if (PhaseCLoops && String(_phaseCDaCfg.loop2_circuit_breaker_enabled ?? "false") === "true") {
+        replayEnv._loop2Pause = await PhaseCLoops.loop2ReadPause(KV);
+      } else {
+        replayEnv._loop2Pause = { paused: false };
+      }
+    } catch (_) {
+      replayEnv._loop2Pause = { paused: false };
+    }
+    try {
+      if (PhaseCLoops && String(_phaseCDaCfg.loop1_specialization_enabled ?? "false") === "true") {
+        const _scorecards = await PhaseCLoops.loop1ReadAllScorecards(KV);
+        replayEnv._loop1AdvisoryByCombo = PhaseCLoops.loop1ComputeAdvisoryMap(_scorecards, _phaseCDaCfg);
+      } else {
+        replayEnv._loop1AdvisoryByCombo = {};
+      }
+    } catch (_) {
+      replayEnv._loop1AdvisoryByCombo = {};
+    }
 
     return executeCandleReplayBatches({
       env,
