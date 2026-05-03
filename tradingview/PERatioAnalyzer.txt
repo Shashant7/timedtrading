@@ -1,0 +1,188 @@
+//@version=6
+indicator("P/E Ratio Analyzer - 5 Year Historical", overlay=false, max_bars_back=5000)
+
+// ==================== INPUTS ====================
+lengthSmooth = input.int(20, "P/E Smoothing Period", minval=1, maxval=200)
+lengthHistorical = input.int(1260, "Historical Lookback (bars)", minval=252, maxval=5000, tooltip="Default 1260 ≈ 5 years of trading days")
+showPercentiles = input.bool(true, "Show Percentile Bands")
+showAverage = input.bool(true, "Show Historical Average")
+showCurrent = input.bool(true, "Show Current P/E")
+alertThreshold = input.float(20, "Low P/E Alert Threshold", minval=0)
+
+// Color inputs
+colorCurrent = input.color(color.new(#2962FF, 0), "Current P/E Color")
+colorSmooth = input.color(color.new(#FF6D00, 0), "Smoothed P/E Color")
+colorAvg = input.color(color.new(#00897B, 0), "Historical Average Color")
+colorLow = input.color(color.new(#43A047, 30), "Low P/E Zone")
+colorHigh = input.color(color.new(#E53935, 30), "High P/E Zone")
+
+// ==================== CALCULATIONS ====================
+
+// Get EPS data (TTM - Trailing Twelve Months)
+eps = request.financial(syminfo.tickerid, "EARNINGS_PER_SHARE_DILUTED", "TTM")
+
+// Calculate P/E Ratio
+// Only calculate if EPS is positive and greater than 0
+peRatio = na(eps) or eps <= 0 ? na : close / eps
+
+// Smoothed P/E using SMA
+peSmooth = ta.sma(peRatio, lengthSmooth)
+
+// Historical Statistics (5-year lookback)
+var float[] peHistory = array.new_float(0)
+
+// Collect valid P/E values for historical analysis
+if not na(peRatio) and peRatio > 0 and peRatio < 1000 // Filter extreme outliers
+    array.push(peHistory, peRatio)
+    // Keep array size manageable
+    if array.size(peHistory) > lengthHistorical
+        array.shift(peHistory)
+
+// Calculate historical statistics
+histAvg = array.size(peHistory) > 0 ? array.avg(peHistory) : na
+histMedian = array.size(peHistory) > 0 ? array.median(peHistory) : na
+
+// Calculate percentiles
+var float p25 = na
+var float p75 = na
+var float p10 = na
+var float p90 = na
+
+if array.size(peHistory) > 20
+    sortedPE = array.copy(peHistory)
+    array.sort(sortedPE)
+    size = array.size(sortedPE)
+    
+    p10 := array.get(sortedPE, math.floor(size * 0.10))
+    p25 := array.get(sortedPE, math.floor(size * 0.25))
+    p75 := array.get(sortedPE, math.floor(size * 0.75))
+    p90 := array.get(sortedPE, math.floor(size * 0.90))
+
+// ==================== VALUATION SIGNALS ====================
+
+// Determine valuation zones
+isUndervalued = not na(peRatio) and not na(histAvg) and peRatio < histAvg * 0.85
+isOvervalued = not na(peRatio) and not na(histAvg) and peRatio > histAvg * 1.15
+isNeutral = not isUndervalued and not isOvervalued
+
+// ==================== PLOTS ====================
+
+// Plot current P/E
+plot(showCurrent ? peRatio : na, "Current P/E", color=colorCurrent, linewidth=1, style=plot.style_line)
+
+// Plot smoothed P/E
+plot(peSmooth, "Smoothed P/E", color=colorSmooth, linewidth=2, style=plot.style_line)
+
+// Plot historical average
+plot(showAverage ? histAvg : na, "5Y Average P/E", color=colorAvg, linewidth=2, style=plot.style_line)
+
+// Plot percentile bands
+p90Line = plot(showPercentiles ? p90 : na, "90th Percentile", color=color.new(color.red, 60), linewidth=1, style=plot.style_stepline)
+p75Line = plot(showPercentiles ? p75 : na, "75th Percentile", color=color.new(color.orange, 70), linewidth=1, style=plot.style_stepline)
+p25Line = plot(showPercentiles ? p25 : na, "25th Percentile", color=color.new(color.green, 70), linewidth=1, style=plot.style_stepline)
+p10Line = plot(showPercentiles ? p10 : na, "10th Percentile", color=color.new(color.green, 60), linewidth=1, style=plot.style_stepline)
+
+// Fill between percentiles
+fill(p75Line, p90Line, color=colorHigh, title="High Valuation Zone")
+fill(p10Line, p25Line, color=colorLow, title="Low Valuation Zone")
+
+// Background color for current valuation
+bgcolor(isUndervalued ? color.new(color.green, 92) : isOvervalued ? color.new(color.red, 92) : na, title="Valuation Background")
+
+// ==================== REFERENCE LINES ====================
+
+hline(15, "Typical Low P/E", color=color.new(color.green, 70), linestyle=hline.style_dotted)
+hline(25, "Typical High P/E", color=color.new(color.red, 70), linestyle=hline.style_dotted)
+hline(0, "Zero Line", color=color.gray, linestyle=hline.style_solid)
+
+// ==================== TABLE WITH STATISTICS ====================
+
+var table statsTable = table.new(position.top_right, 2, 8, border_width=1)
+
+if barstate.islast
+    // Clear previous content
+    table.clear(statsTable, 0, 0, 1, 7)
+    
+    // Header
+    table.cell(statsTable, 0, 0, "Metric", text_color=color.white, bgcolor=color.gray, text_size=size.small)
+    table.cell(statsTable, 1, 0, "Value", text_color=color.white, bgcolor=color.gray, text_size=size.small)
+    
+    // Current P/E
+    currentPEText = na(peRatio) ? "N/A" : str.tostring(peRatio, "#.##")
+    table.cell(statsTable, 0, 1, "Current P/E", text_color=color.white, bgcolor=color.new(color.blue, 50), text_size=size.small)
+    table.cell(statsTable, 1, 1, currentPEText, text_color=color.white, bgcolor=color.new(color.blue, 70), text_size=size.small)
+    
+    // Smoothed P/E
+    smoothPEText = na(peSmooth) ? "N/A" : str.tostring(peSmooth, "#.##")
+    table.cell(statsTable, 0, 2, "Smoothed P/E", text_color=color.white, bgcolor=color.new(color.orange, 50), text_size=size.small)
+    table.cell(statsTable, 1, 2, smoothPEText, text_color=color.white, bgcolor=color.new(color.orange, 70), text_size=size.small)
+    
+    // 5Y Average
+    avgText = na(histAvg) ? "N/A" : str.tostring(histAvg, "#.##")
+    table.cell(statsTable, 0, 3, "5Y Average", text_color=color.white, bgcolor=color.new(color.teal, 50), text_size=size.small)
+    table.cell(statsTable, 1, 3, avgText, text_color=color.white, bgcolor=color.new(color.teal, 70), text_size=size.small)
+    
+    // Median
+    medianText = na(histMedian) ? "N/A" : str.tostring(histMedian, "#.##")
+    table.cell(statsTable, 0, 4, "Median", text_color=color.white, bgcolor=color.new(color.teal, 50), text_size=size.small)
+    table.cell(statsTable, 1, 4, medianText, text_color=color.white, bgcolor=color.new(color.teal, 70), text_size=size.small)
+    
+    // Percentile position
+    percentilePos = (na(peRatio) or na(histAvg) ? "N/A" : 
+                     peRatio < p25 ? "Bottom 25%" :
+                     peRatio < histMedian ? "Below Median" :
+                     peRatio < p75 ? "Above Median" :
+                     "Top 25%")
+    
+    percentileColor = (percentilePos == "Bottom 25%" ? color.green :
+                       percentilePos == "Below Median" ? color.new(color.green, 30) :
+                       percentilePos == "Above Median" ? color.new(color.red, 30) :
+                       percentilePos == "Top 25%" ? color.red : color.gray)
+    
+    table.cell(statsTable, 0, 5, "Position", text_color=color.white, bgcolor=color.new(color.gray, 50), text_size=size.small)
+    table.cell(statsTable, 1, 5, percentilePos, text_color=color.white, bgcolor=color.new(percentileColor, 50), text_size=size.small)
+    
+    // Valuation signal
+    valuationText = isUndervalued ? "UNDERVALUED" : isOvervalued ? "OVERVALUED" : "NEUTRAL"
+    valuationColor = isUndervalued ? color.green : isOvervalued ? color.red : color.gray
+    
+    table.cell(statsTable, 0, 6, "Signal", text_color=color.white, bgcolor=color.new(color.gray, 50), text_size=size.small)
+    table.cell(statsTable, 1, 6, valuationText, text_color=color.white, bgcolor=color.new(valuationColor, 30), text_size=size.small, text_font_family=font.family_monospace)
+    
+    // Current EPS
+    epsText = na(eps) ? "N/A" : str.tostring(eps, "#.##")
+    table.cell(statsTable, 0, 7, "Current EPS", text_color=color.white, bgcolor=color.new(color.gray, 50), text_size=size.small)
+    table.cell(statsTable, 1, 7, epsText, text_color=color.white, bgcolor=color.new(color.gray, 70), text_size=size.small)
+
+// ==================== ALERTS ====================
+
+// Alert when P/E crosses below threshold (potential buying opportunity)
+alertcondition(ta.crossunder(peSmooth, alertThreshold), 
+     title="P/E Below Threshold", 
+     message="{{ticker}} P/E ratio crossed below threshold")
+
+// Alert when entering undervalued zone
+alertcondition(ta.crossunder(peRatio, histAvg * 0.85), 
+     title="Entered Undervalued Zone", 
+     message="{{ticker}} entered undervalued zone - Current P/E below 5Y average")
+
+// Alert when entering overvalued zone
+alertcondition(ta.crossover(peRatio, histAvg * 1.15), 
+     title="Entered Overvalued Zone", 
+     message="{{ticker}} entered overvalued zone - Current P/E above 5Y average")
+
+// ==================== LABELS ====================
+
+// Add label on last bar showing valuation status
+if barstate.islast and not na(peRatio)
+    labelText = (isUndervalued ? "📉 Potentially Undervalued\nP/E: " + str.tostring(peRatio, "#.##") + " vs Avg: " + str.tostring(histAvg, "#.##") : 
+                 isOvervalued ? "📈 Potentially Overvalued\nP/E: " + str.tostring(peRatio, "#.##") + " vs Avg: " + str.tostring(histAvg, "#.##") : 
+                 "➡️ Neutral Valuation\nP/E: " + str.tostring(peRatio, "#.##"))
+    
+    labelColor = isUndervalued ? color.green : isOvervalued ? color.red : color.gray
+    
+    label.new(bar_index, peRatio, labelText, 
+         style=label.style_label_left, 
+         color=color.new(labelColor, 20), 
+         textcolor=color.white,
+         size=size.normal)
