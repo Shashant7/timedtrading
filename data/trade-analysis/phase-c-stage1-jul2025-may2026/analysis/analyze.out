@@ -1,0 +1,270 @@
+/workspace/data/trade-analysis/phase-c-stage1-jul2025-may2026/analysis/analyze.py:47: DeprecationWarning: datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(timestamp, datetime.UTC).
+  ym = dt.datetime.utcfromtimestamp(t["entry_ts"]/1000).strftime("%Y-%m")
+
+================================================================================
+Overall stats
+================================================================================
+  2025-07: closed= 92  W= 61  L= 31  WR= 66.3%  Net=$+10,230
+  2025-08: closed= 64  W= 32  L= 32  WR= 50.0%  Net=$+1,577
+
+================================================================================
+A. Big-winner extension — Top 10 by MFE
+================================================================================
+rank ticker side  setup                  pers             regime           MFE%   pnl%  cap% exit_reason                        
+   1 JOBY   LONG  tt_gap_reversal_long   VOLATILE_RUNNER  TRENDING        33.46  12.37   37% TP_FULL                            
+   2 ASTS   LONG  tt_gap_reversal_long   VOLATILE_RUNNER  TRENDING        22.02   6.03   27% peak_lock_ema12_deep_break         
+   3 IREN   LONG  tt_gap_reversal_long   VOLATILE_RUNNER  TRENDING        21.70  10.21   47% sl_breached                        
+   4 ETHA   LONG  tt_gap_reversal_long   VOLATILE_RUNNER  TRENDING        18.55   9.53   51% HARD_FUSE_RSI_EXTREME              
+   5 AGQ    LONG  tt_gap_reversal_long   VOLATILE_RUNNER  TRENDING        16.00   7.46   47% sl_breached                        
+   6 BE     LONG  tt_gap_reversal_long   VOLATILE_RUNNER  TRENDING        15.41   6.03   39% ST_FLIP_4H_CLOSE                   
+   7 RBLX   LONG  tt_gap_reversal_long   VOLATILE_RUNNER  TRENDING        14.07   4.84   34% sl_breached                        
+   8 AMD    LONG  tt_gap_reversal_long   VOLATILE_RUNNER  TRENDING        13.71   6.74   49% mfe_decay_structural_flatten       
+   9 IESC   LONG  tt_gap_reversal_long   VOLATILE_RUNNER  TRANSITIONAL    12.77   5.81   45% TP_FULL                            
+  10 ANET   LONG  tt_gap_reversal_long   VOLATILE_RUNNER  TRENDING        12.32   2.88   23% mfe_decay_structural_flatten       
+  11 KTOS   LONG  tt_gap_reversal_long   VOLATILE_RUNNER  TRENDING        11.48   0.90    8% SMART_RUNNER_SUPPORT_BREAK_CLOUD   
+  12 APLD   LONG  tt_gap_reversal_long   VOLATILE_RUNNER  TRANSITIONAL    11.25   3.52   31% mfe_decay_structural_flatten       
+  13 APLD   LONG  tt_gap_reversal_long   VOLATILE_RUNNER  TRANSITIONAL     9.50   1.91   20% PROFIT_GIVEBACK_STAGE_HOLD         
+  14 ALB    LONG  tt_gap_reversal_long   VOLATILE_RUNNER  TRENDING         9.39   2.20   23% mfe_decay_structural_flatten       
+  15 GOOGL  LONG  tt_n_test_support      PULLBACK_PLAYER  TRANSITIONAL     9.35   5.01   54% TP_FULL                            
+
+--- Trades with MFE >= 5%: exit-reason breakdown + giveback ---
+Total trades MFE>=5%: 46
+exit_reason                               n  avg_MFE  avg_pnl  avg_cap%  avg_giveback%
+mfe_decay_structural_flatten             10     8.98     2.80       31%            69%
+PROFIT_GIVEBACK_STAGE_HOLD                9     7.27     1.54       22%            78%
+peak_lock_ema12_deep_break                6     9.71     2.77       29%            71%
+sl_breached                               5    12.64     5.84       49%            51%
+TP_FULL                                   5    13.99     6.15       49%            51%
+SMART_RUNNER_SUPPORT_BREAK_CLOUD          4     8.33     1.04       14%            86%
+ST_FLIP_4H_CLOSE                          2    10.87     4.28       40%            60%
+PROFIT_GIVEBACK                           2     5.15     1.55       30%            70%
+atr_week_618_full_exit                    1     7.63     1.98       26%            74%
+HARD_FUSE_RSI_EXTREME                     1    18.55     9.53       51%            49%
+SOFT_FUSE_RSI_CONFIRMED                   1     7.95     5.11       64%            36%
+
+--- Watch-list exit reasons on MFE>=5% trades ---
+  mfe_decay_structural_flatten           n=10  avg_MFE= 8.98%  avg_pnl= 2.80%  avg_cap=  31%  giveback=  69%
+  peak_lock_ema12_deep_break             n= 6  avg_MFE= 9.71%  avg_pnl= 2.77%  avg_cap=  29%  giveback=  71%
+  PROFIT_GIVEBACK_STAGE_HOLD             n= 9  avg_MFE= 7.27%  avg_pnl= 1.54%  avg_cap=  22%  giveback=  78%
+  atr_week_618_full_exit                 n= 1  avg_MFE= 7.63%  avg_pnl= 1.98%  avg_cap=  26%  giveback=  74%
+  ST_FLIP_4H_CLOSE                       n= 2  avg_MFE=10.87%  avg_pnl= 4.28%  avg_cap=  40%  giveback=  60%
+  sl_breached                            n= 5  avg_MFE=12.64%  avg_pnl= 5.84%  avg_cap=  49%  giveback=  51%
+  TP_FULL                                n= 5  avg_MFE=13.99%  avg_pnl= 6.15%  avg_cap=  49%  giveback=  51%
+  SMART_RUNNER_SUPPORT_BREAK_CLOUD       n= 4  avg_MFE= 8.33%  avg_pnl= 1.04%  avg_cap=  14%  giveback=  86%
+  HARD_FUSE_RSI_EXTREME                  n= 1  avg_MFE=18.55%  avg_pnl= 9.53%  avg_cap=  51%  giveback=  49%
+  SOFT_FUSE_RSI_CONFIRMED                n= 1  avg_MFE= 7.95%  avg_pnl= 5.11%  avg_cap=  64%  giveback=  36%
+
+--- entry_path × personality combos, MFE>=5% trades only ---
+  tt_gap_reversal_long   × VOLATILE_RUNNER  n=32  avg_cap=  32%  top_exits=mfe_decay_structural_flatten(7), peak_lock_ema12_deep_break(5), sl_breached(4)
+  tt_gap_reversal_long   × PULLBACK_PLAYER  n= 6  avg_cap=  35%  top_exits=mfe_decay_structural_flatten(2), PROFIT_GIVEBACK_STAGE_HOLD(2), ST_FLIP_4H_CLOSE(1)
+  tt_pullback            × PULLBACK_PLAYER  n= 2  avg_cap=  40%  top_exits=mfe_decay_structural_flatten(1), TP_FULL(1)
+  tt_pullback            × VOLATILE_RUNNER  n= 2  avg_cap=  27%  top_exits=PROFIT_GIVEBACK_STAGE_HOLD(2)
+
+--- Trades with >40% MFE giveback (MFE>=3%) ---
+Total winners giving back >=40% of MFE: 63
+   gb% ticker   MFE%   pnl% setup                  pers             exit_reason                        
+   98% WDC      4.84   0.07 tt_gap_reversal_long   VOLATILE_RUNNER  max_loss_time_scaled               
+   96% CLS      3.39   0.14 tt_gap_reversal_long   VOLATILE_RUNNER  PROFIT_GIVEBACK_STAGE_HOLD         
+   96% CLS      4.48   0.20 tt_gap_reversal_long   VOLATILE_RUNNER  PROFIT_GIVEBACK_COOLING_HOLD       
+   94% IREN     4.15   0.23 tt_gap_reversal_long   VOLATILE_RUNNER  PROFIT_GIVEBACK_STAGE_HOLD         
+   94% AMD      3.58   0.21 tt_gap_reversal_long   VOLATILE_RUNNER  PROFIT_GIVEBACK_STAGE_HOLD         
+   93% AEHR     7.70   0.55 tt_gap_reversal_long   VOLATILE_RUNNER  PROFIT_GIVEBACK_STAGE_HOLD         
+   92% GLXY     8.86   0.69 tt_gap_reversal_long   VOLATILE_RUNNER  PROFIT_GIVEBACK_STAGE_HOLD         
+   92% KTOS    11.48   0.90 tt_gap_reversal_long   VOLATILE_RUNNER  SMART_RUNNER_SUPPORT_BREAK_CLOUD   
+   84% AVAV     8.77   1.38 tt_gap_reversal_long   VOLATILE_RUNNER  peak_lock_ema12_deep_break         
+   84% NVDA     3.07   0.51 tt_ath_breakout        VOLATILE_RUNNER  PROFIT_GIVEBACK_STAGE_HOLD         
+   82% ALB      5.39   0.98 tt_gap_reversal_long   VOLATILE_RUNNER  PROFIT_GIVEBACK_STAGE_HOLD         
+   81% FIX      5.04   0.96 tt_gap_reversal_long   VOLATILE_RUNNER  PROFIT_GIVEBACK                    
+   81% GEV      7.73   1.49 tt_gap_reversal_long   VOLATILE_RUNNER  mfe_decay_structural_flatten       
+   80% APLD     9.50   1.91 tt_gap_reversal_long   VOLATILE_RUNNER  PROFIT_GIVEBACK_STAGE_HOLD         
+   80% LITE     8.92   1.81 tt_gap_reversal_long   VOLATILE_RUNNER  mfe_decay_structural_flatten       
+   79% ORCL     6.55   1.40 tt_gap_reversal_long   PULLBACK_PLAYER  PROFIT_GIVEBACK_STAGE_HOLD         
+   77% ANET    12.32   2.88 tt_gap_reversal_long   VOLATILE_RUNNER  mfe_decay_structural_flatten       
+   77% ALB      9.39   2.20 tt_gap_reversal_long   VOLATILE_RUNNER  mfe_decay_structural_flatten       
+   76% H        5.08   1.22 tt_gap_reversal_long   PULLBACK_PLAYER  mfe_decay_structural_flatten       
+   74% IBP      7.63   1.98 tt_gap_reversal_long   VOLATILE_RUNNER  atr_week_618_full_exit             
+
+================================================================================
+B. Loser deepening — Worst 10 by $ loss
+================================================================================
+rank ticker side  setup                  pers             regime               pnl$    pnl%   MFE% flags                                                       
+/workspace/data/trade-analysis/phase-c-stage1-jul2025-may2026/analysis/analyze.py:297: DeprecationWarning: datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(timestamp, datetime.UTC).
+  ymd = dt.datetime.utcfromtimestamp(t["entry_ts"]/1000).strftime("%Y-%m-%d")
+   1 INTC   LONG  tt_gap_reversal_long   VOLATILE_RUNNER  TRENDING          -387.94   -3.23   0.42 pdz_d:premium_approach                                      
+   2 CVNA   LONG  tt_gap_reversal_long   VOLATILE_RUNNER  TRANSITIONAL      -369.34   -2.51   0.00 APdiv,pdz_d:discount_approach                               
+   3 MDB    LONG  tt_gap_reversal_long   VOLATILE_RUNNER  TRANSITIONAL      -360.11   -4.01   0.86 pdz_d:premium_approach                                      
+   4 CSX    LONG  tt_pullback            PULLBACK_PLAYER  TRENDING          -355.94   -2.75   0.35 APdiv,ARdiv,F4sev,pdz_d:premium_approach                    
+   5 ALB    LONG  tt_gap_reversal_long   VOLATILE_RUNNER  TRANSITIONAL      -323.13   -3.46   0.00 pdz_d:premium_approach                                      
+   6 SN     LONG  tt_gap_reversal_long   VOLATILE_RUNNER  TRANSITIONAL      -308.49   -3.07   0.75 pdz_d:premium_approach                                      
+   7 NVDA   LONG  tt_n_test_support      VOLATILE_RUNNER  TRENDING          -268.43   -2.01   0.32 pdz_d:premium_approach                                      
+   8 EME    LONG  tt_range_reversal_long PULLBACK_PLAYER  TRENDING          -246.64   -1.87   0.96 APdiv,ARdiv,F4sev,pdz_d:premium_approach                    
+   9 STX    LONG  tt_gap_reversal_long   VOLATILE_RUNNER  TRENDING          -230.59   -2.59   0.81 APdiv,pdz_d:premium                                         
+  10 JD     SHORT tt_n_test_resistance   VOLATILE_RUNNER  TRENDING          -207.76   -1.57   0.00 pdz_d:discount_approach                                     
+  11 ANET   LONG  tt_gap_reversal_long   VOLATILE_RUNNER  TRENDING          -197.73   -2.24   1.53 APdiv,ARdiv,F4sev,pdz_d:premium                             
+  12 HOOD   LONG  tt_gap_reversal_long   VOLATILE_RUNNER  TRANSITIONAL      -195.18   -1.97   2.17 pdz_d:premium_approach                                      
+  13 IBP    LONG  tt_gap_reversal_long   VOLATILE_RUNNER  TRANSITIONAL      -193.83   -3.04   0.47 APdiv,pdz_d:premium                                         
+  14 KWEB   LONG  tt_n_test_support      PULLBACK_PLAYER  TRENDING          -190.61   -1.59   0.47 APdiv,pdz_d:premium_approach                                
+  15 ALB    LONG  tt_gap_reversal_long   VOLATILE_RUNNER  TRENDING          -188.57   -1.69   0.50 APdiv,ARdiv,F4sev,pdz_d:premium_approach                    
+
+--- Single-flag entry-veto candidates (flag+side+setup → WR/loss-counts) ---
+flag                           side     n   W   L   WR%    pnl_sum$ avg_pnl_pct
+has_adverse_phase_div          LONG    74  42  32   57%     4427.89       0.71%
+has_adverse_phase_div          ALL     75  42  33   56%     4246.50       0.68%
+has_adverse_rsi_div            LONG    25  10  15   40%     1565.89       0.63%
+has_adverse_rsi_div            ALL     26  10  16   38%     1384.50       0.55%
+is_f4_severe                   LONG    18   7  11   39%       15.05       0.16%
+is_f4_severe                   ALL     19   7  12   37%     -166.34       0.08%
+
+--- Two-flag combinations (intersection) for entry veto ---
+  F4sev & APdiv                  LONG  n= 18  W= 7 L=11 WR=  39%  net=$  +15.05  avg_pnl%=+0.16%
+  F4sev & APdiv                  ALL   n= 19  W= 7 L=12 WR=  37%  net=$ -166.34  avg_pnl%=+0.08%
+  F4sev (alone)                  LONG  n= 18  W= 7 L=11 WR=  39%  net=$  +15.05  avg_pnl%=+0.16%
+  F4sev (alone)                  ALL   n= 19  W= 7 L=12 WR=  37%  net=$ -166.34  avg_pnl%=+0.08%
+
+--- Regime-class of all closed trades ---
+regime                  n   W   L   WR%        pnl$
+TRENDING              108  62  46   57%     8932.15
+TRANSITIONAL           42  26  16   62%     2297.95
+CHOPPY                  6   5   1   83%      576.41
+
+================================================================================
+C. Loop 1 effectiveness — combo scorecard
+================================================================================
+All combos with n>=3 trades, sorted by WR ascending (worst first):
+combo                                                                    n   W   L   WR%        pnl$
+tt_ath_breakout:trending:pullback_player:L                              10   3   7   30%     -324.32
+tt_range_reversal_long:transitional:volatile_runner:L                    3   1   2   33%     +424.60
+tt_range_reversal_long:trending:pullback_player:L                        3   1   2   33%     -343.30
+tt_ath_breakout:trending:volatile_runner:L                               4   2   2   50%      +58.98
+tt_gap_reversal_long:transitional:volatile_runner:L                     18   9   9   50%      -86.67
+tt_pullback:trending:pullback_player:L                                   6   3   3   50%     +131.87
+tt_gap_reversal_long:trending:pullback_player:L                         15   9   6   60%     +879.38
+tt_gap_reversal_long:choppy:volatile_runner:L                            3   2   1   67%     +197.67
+tt_pullback:trending:volatile_runner:L                                   3   2   1   67%     +370.79
+tt_gap_reversal_long:trending:volatile_runner:L                         49  33  16   67%    +7877.41
+tt_gap_reversal_long:transitional:pullback_player:L                      7   7   0  100%     +899.93
+tt_gap_reversal_long:trending:moderate:L                                 4   4   0  100%    +1176.08
+
+Combos with n=2 (under min_samples=3) but BOTH losses:
+  tt_n_test_support:trending:volatile_runner:L                           n=2 pnl=$-342.15
+
+================================================================================
+D. Loop 2 effectiveness — circuit breaker
+================================================================================
+Total loop-2 events captured in entry_signals: 177
+Reasons: {'today_pnl_-2.32': 70, 'consec_5': 86, 'wr_20': 3, 'today_pnl_-1.84': 3, 'today_pnl_-3.36': 6, 'today_pnl_-1.67': 9}
+
+Losing days (pnl<-$1500 or WR<30% with n>=3):
+  2025-08-18  n= 7 WR=  14% pnl=$-1305.44
+
+================================================================================
+E. PDZ usage — long entries by daily PDZ
+================================================================================
+side:pdz_d                             n   W   L   WR%        pnl$
+LONG:premium_approach                 90  54  36   60%     6965.99
+LONG:premium                          60  37  23   62%     5167.39
+LONG:discount_approach                 3   2   1   67%      172.55
+SHORT:discount_approach                3   0   3    0%     -499.41
+
+--- pdz_4h x side ---
+side:pdz_4h                            n   W   L   WR%        pnl$
+LONG:premium_approach                100  56  44   56%     7562.41
+LONG:premium                          46  33  13   72%     4233.69
+LONG:discount_approach                 6   4   2   67%      630.52
+SHORT:discount_approach                2   0   2    0%     -318.02
+
+================================================================================
+F. VWAP behavior — distance buckets
+================================================================================
+--- vwap.D.dist_pct buckets (LONG only) ---
+  [-100, -10)%  n=  2 W= 2 L= 0 WR= 100%  net=$  +227.84  avg_pnl%=+1.55%
+  [ -10,  -5)%  n=  3 W= 2 L= 1 WR=  67%  net=$  -155.36  avg_pnl%=-0.38%
+  [  -2,  +0)%  n=  5 W= 4 L= 1 WR=  80%  net=$  +973.40  avg_pnl%=+1.62%
+  [  +0,  +2)%  n=  3 W= 1 L= 2 WR=  33%  net=$   -45.48  avg_pnl%=+0.00%
+  [  +2,  +5)%  n=  5 W= 3 L= 2 WR=  60%  net=$  +469.09  avg_pnl%=+0.92%
+  [  +5, +10)%  n= 16 W= 9 L= 7 WR=  56%  net=$  +148.19  avg_pnl%=+0.23%
+  [ +10, +30)%  n= 47 W=28 L=19 WR=  60%  net=$ +2962.17  avg_pnl%=+0.74%
+  [ +30,+100)%  n= 65 W=39 L=26 WR=  60%  net=$ +6390.04  avg_pnl%=+1.06%
+--- vwap.D.dist_pct buckets (SHORT only) ---
+  [-100, -10)%  n=  1 W= 0 L= 1 WR=   0%  net=$  -207.76  avg_pnl%=-1.57%
+  [ -10,  -5)%  n=  1 W= 0 L= 1 WR=   0%  net=$  -110.26  avg_pnl%=-1.11%
+  [  -5,  -2)%  n=  1 W= 0 L= 1 WR=   0%  net=$  -181.39  avg_pnl%=-1.36%
+
+--- vwap.W.dist_pct buckets (LONG only) ---
+  [-100, -10)%  n= 10 W= 6 L= 4 WR=  60%  net=$  -177.93
+  [  -5,  +0)%  n=  1 W= 0 L= 1 WR=   0%  net=$  -142.67
+  [  +5, +10)%  n=  7 W= 4 L= 3 WR=  57%  net=$  +418.71
+/workspace/data/trade-analysis/phase-c-stage1-jul2025-may2026/analysis/analyze.py:406: DeprecationWarning: datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(timestamp, datetime.UTC).
+  d = dt.datetime.utcfromtimestamp(t["entry_ts"]/1000) - dt.timedelta(hours=4)
+/workspace/data/trade-analysis/phase-c-stage1-jul2025-may2026/analysis/analyze.py:440: DeprecationWarning: datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(timestamp, datetime.UTC).
+  july = [t for t in closed if dt.datetime.utcfromtimestamp(t["entry_ts"]/1000).month == 7]
+/workspace/data/trade-analysis/phase-c-stage1-jul2025-may2026/analysis/analyze.py:441: DeprecationWarning: datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(timestamp, datetime.UTC).
+  aug = [t for t in closed if dt.datetime.utcfromtimestamp(t["entry_ts"]/1000).month == 8]
+  [ +10, +30)%  n= 23 W=13 L=10 WR=  57%  net=$ +1481.12
+  [ +30,+100)%  n= 74 W=51 L=23 WR=  69%  net=$ +8389.80
+
+--- vwap.D.slope_5bar buckets (LONG only) ---
+  slope [-10.00,-0.10)  n=  4 W= 3 L= 1 WR=  75%  net=$   +41.32
+  slope [-0.10,+0.00)  n=  7 W= 6 L= 1 WR=  86%  net=$ +1143.20
+  slope [+0.00,+0.05)  n= 10 W= 4 L= 6 WR=  40%  net=$  -225.96
+  slope [+0.05,+0.10)  n= 10 W= 8 L= 2 WR=  80%  net=$ +1276.50
+  slope [+0.10,+0.20)  n= 46 W=24 L=22 WR=  52%  net=$ +1702.01
+  slope [+0.20,+0.50)  n= 45 W=24 L=21 WR=  53%  net=$ +1680.70
+  slope [+0.50,+5.00)  n= 31 W=24 L= 7 WR=  77%  net=$ +6688.17
+
+================================================================================
+G. Time-of-day / Day-of-week (NY tz approx via UTC-4 = EDT)
+================================================================================
+--- Hour-of-day (NY) ---
+  hour 09: n=  9 W= 8 L= 1 WR=  89% net=$ +1078.29
+  hour 10: n= 25 W=17 L= 8 WR=  68% net=$ +3669.01
+  hour 11: n= 31 W=21 L=10 WR=  68% net=$ +2627.65
+  hour 12: n= 30 W=11 L=19 WR=  37% net=$  +504.65
+  hour 13: n= 35 W=21 L=14 WR=  60% net=$ +2271.52
+  hour 14: n= 15 W=10 L= 5 WR=  67% net=$ +1241.42
+  hour 15: n= 11 W= 5 L= 6 WR=  45% net=$  +413.99
+
+--- Day-of-week ---
+  Monday     n= 39 W=17 L=22 WR=  44% net=$   +97.26
+  Tuesday    n= 45 W=34 L=11 WR=  76% net=$ +6602.23
+  Wednesday  n= 38 W=25 L=13 WR=  66% net=$ +2155.85
+  Thursday   n= 13 W= 7 L= 6 WR=  54% net=$ +1666.37
+  Friday     n= 21 W=10 L=11 WR=  48% net=$ +1284.81
+
+================================================================================
+Aug 2025 standalone — what changed vs July?
+================================================================================
+
+--- July (n=92) ---
+  PROFIT_GIVEBACK_STAGE_HOLD             n=12  W=11 L= 1  net=$ +1703.45
+  mfe_decay_structural_flatten           n=11  W=11 L= 0  net=$ +2404.49
+  TP_FULL                                n=10  W=10 L= 0  net=$ +3971.74
+  sl_breached                            n= 7  W= 5 L= 2  net=$ +2122.35
+  peak_lock_ema12_deep_break             n= 7  W= 7 L= 0  net=$ +1705.07
+  phase_i_mfe_fast_cut_zero_mfe          n= 7  W= 0 L= 7  net=$  -814.09
+  max_loss_time_scaled                   n= 6  W= 0 L= 6  net=$  -763.27
+  atr_week_618_full_exit                 n= 5  W= 5 L= 0  net=$  +652.00
+  max_loss                               n= 4  W= 0 L= 4  net=$ -1042.32
+  atr_day_adverse_382_cut                n= 4  W= 1 L= 3  net=$  -211.94
+  stagnant_no_commitment                 n= 3  W= 3 L= 0  net=$  +287.35
+  HARD_FUSE_RSI_EXTREME                  n= 3  W= 3 L= 0  net=$  +383.70
+  phase_i_mfe_cut_4h                     n= 3  W= 0 L= 3  net=$  -514.18
+  SMART_RUNNER_SUPPORT_BREAK_CLOUD       n= 3  W= 1 L= 2  net=$   +74.14
+  ST_FLIP_4H_CLOSE                       n= 2  W= 2 L= 0  net=$  +281.63
+
+--- August (n=64) ---
+  SMART_RUNNER_SUPPORT_BREAK_CLOUD       n= 9  W= 2 L= 7  net=$   +11.63
+  max_loss_time_scaled                   n= 7  W= 1 L= 6  net=$ -1356.14
+  PROFIT_GIVEBACK_STAGE_HOLD             n= 7  W= 4 L= 3  net=$  +253.33
+  ST_FLIP_4H_CLOSE                       n= 5  W= 5 L= 0  net=$  +888.98
+  phase_i_mfe_fast_cut_zero_mfe          n= 4  W= 0 L= 4  net=$  -620.11
+  SOFT_FUSE_RSI_CONFIRMED                n= 4  W= 4 L= 0  net=$  +686.04
+  TP_FULL                                n= 3  W= 3 L= 0  net=$  +541.80
+  peak_lock_ema12_deep_break             n= 3  W= 3 L= 0  net=$  +471.92
+  max_loss                               n= 3  W= 0 L= 3  net=$  -715.67
+  mfe_decay_structural_flatten           n= 2  W= 2 L= 0  net=$  +419.84
+  atr_day_adverse_382_cut                n= 2  W= 0 L= 2  net=$   -71.73
+  eod_trimmed_underwater_flatten         n= 2  W= 2 L= 0  net=$   +22.40
+  PROFIT_GIVEBACK                        n= 2  W= 2 L= 0  net=$  +366.15
+  HARD_FUSE_RSI_EXTREME                  n= 2  W= 2 L= 0  net=$  +922.94
+  phase_i_mfe_fast_cut_2h                n= 2  W= 0 L= 2  net=$  -221.30
