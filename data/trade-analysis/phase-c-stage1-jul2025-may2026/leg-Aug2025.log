@@ -1,53 +1,53 @@
-[2026-05-03T04:34:38Z] === continuous-slice: phase-c-stage1-jul2025-may2026 ===
-[2026-05-03T04:34:38Z]     range=2025-08-01..2025-08-31  trading_days=21
-[2026-05-03T04:34:38Z]     tickers(24)=AA,AAPL,ABT,ACN,AEHR,AGQ,AGYS,ALB,ALLY,AMD,AMGN,AMZN,ANET,APD,APLD,APP,AR,ARM,ARRY,ASTS,AU,AVAV,AVGO,AWI,AXON,AXP,AYI,B,BA,BABA,BE,BG,BK,BMNR,BRK-B,BTCUSD,BWXT,CARR,CAT,CCJ,CDNS,CELH,CL1!,CLS,COIN,COST,CRM,CRS,CRWD,CRWV,CSCO,CSX,CVNA,CVX,CW,DCI,DE,DELL,DIA,DINO,DKNG,DPZ,DTM,DY,ELF,EME,EMR,ENS,ES1!,ETHA,ETHUSD,ETN,EWBC,EXEL,EXPE,FIX,FLR,FN,FSLR,GC1!,GDX,GE,GEV,GILD,GLD,GLXY,GOLD,GOOGL,GRNY,GS,H,HALO,HII,HIMS,HL,HOOD,HUBS,IAU,IBB,IBP,IESC,IGV,INFL,INTC,INTU,IONQ,IOT,IREN,ISRG,ITT,IWM,J,JCI,JD,JOBY,JPM,KLAC,KO,KTOS,KWEB,LIT,LITE,LLY,LMND,LRCX,LRN,LSCC,LULU,MCD,MDB,META,MLI,MNST,MP,MRK,MSFT,MSTR,MTB,MTZ,MU,NBIS,NEU,NFLX,NKE,NOC,NQ1!,NVDA,NXT,OKE,ON,ORCL,P,PANW,PATH,PCI,PEGA,PH,PI,PKG,PLTR,PNC,PPG,PSTG,PWR,QLYS,QQQ,QXO,RBLX,RDDT,RGLD,RIOT,RKLB,RPG,RTX,RTY1!,SANM,SATS,SGI,SHOP,SI1!,SLV,SN,SNDK,SOFI,SOXL,SPGI,SPHB,SPOT,SPX,SPY,STRL,STX,SWK,TEM,TJX,TLN,TNA,TPL,TSLA,TSM,TT,TWLO,U,UHS,ULTA,UNH,UNP,UPS,US500,USO,UTHR,UUUU,VIXY,VMI,VRTX,VST,VX1!,WAL,WDC,WFRD,WM,WMT,WTS,XHB,XLB,XLC,XLE,XLF,XLI,XLK,XLP,XLRE,XLU,XLV,XLY,XOM,XYZ,YM1!
-[2026-05-03T04:34:38Z]     watchdog=600s  resume=true  block_chain=true
-[2026-05-03T04:34:38Z] Resuming after last completed day 2025-07-31
-[2026-05-03T04:34:38Z] Acquired replay lock: continuous_phase-c-stage1-jul2025-may2026@2026-05-03T04:34:38.526Z
-[2026-05-03T04:34:38Z] >>> day 1/21  2025-08-01
-[2026-05-03T04:38:03Z] day 2025-08-01 ok {"scored":3318,"trades":0,"blocked_bars":3290} (205s, batches=20)
-[2026-05-03T04:38:03Z] >>> day 2/21  2025-08-04
-[2026-05-03T04:41:21Z] day 2025-08-04 ok {"scored":3318,"trades":16,"blocked_bars":3163} (197s, batches=20)
-[2026-05-03T04:41:21Z] >>> day 3/21  2025-08-05
-[2026-05-03T04:44:36Z] day 2025-08-05 ok {"scored":3318,"trades":2,"blocked_bars":3123} (195s, batches=20)
-[2026-05-03T04:44:36Z] >>> day 4/21  2025-08-06
-[2026-05-03T04:47:47Z] day 2025-08-06 ok {"scored":3318,"trades":0,"blocked_bars":3154} (191s, batches=20)
-[2026-05-03T04:47:47Z] >>> day 5/21  2025-08-07
-[2026-05-03T04:50:58Z] day 2025-08-07 ok {"scored":3318,"trades":1,"blocked_bars":3205} (191s, batches=20)
-[2026-05-03T04:50:58Z] >>> day 6/21  2025-08-08
-[2026-05-03T04:54:07Z] day 2025-08-08 ok {"scored":3318,"trades":1,"blocked_bars":3212} (189s, batches=20)
-[2026-05-03T04:54:07Z] >>> day 7/21  2025-08-11
-[2026-05-03T04:57:16Z] day 2025-08-11 ok {"scored":3318,"trades":1,"blocked_bars":3217} (189s, batches=20)
-[2026-05-03T04:57:16Z] >>> day 8/21  2025-08-12
-[2026-05-03T05:00:28Z] day 2025-08-12 ok {"scored":3318,"trades":10,"blocked_bars":3174} (192s, batches=20)
-[2026-05-03T05:00:28Z] >>> day 9/21  2025-08-13
-[2026-05-03T05:03:44Z] day 2025-08-13 ok {"scored":3318,"trades":2,"blocked_bars":3132} (196s, batches=20)
-[2026-05-03T05:03:44Z] >>> day 10/21  2025-08-14
-[2026-05-03T05:06:55Z] day 2025-08-14 ok {"scored":3318,"trades":0,"blocked_bars":3198} (191s, batches=20)
-[2026-05-03T05:06:55Z] >>> day 11/21  2025-08-15
-[2026-05-03T05:10:05Z] day 2025-08-15 ok {"scored":3318,"trades":2,"blocked_bars":3218} (190s, batches=20)
-[2026-05-03T05:10:05Z] >>> day 12/21  2025-08-18
-[2026-05-03T05:13:22Z] day 2025-08-18 ok {"scored":3318,"trades":9,"blocked_bars":3139} (197s, batches=20)
-[2026-05-03T05:13:22Z] >>> day 13/21  2025-08-19
-[2026-05-03T05:16:36Z] day 2025-08-19 ok {"scored":3318,"trades":1,"blocked_bars":3181} (194s, batches=20)
-[2026-05-03T05:16:36Z] >>> day 14/21  2025-08-20
-[2026-05-03T05:19:51Z] day 2025-08-20 ok {"scored":3318,"trades":0,"blocked_bars":3253} (195s, batches=20)
-[2026-05-03T05:19:51Z] >>> day 15/21  2025-08-21
-[2026-05-03T05:22:59Z] day 2025-08-21 ok {"scored":3318,"trades":3,"blocked_bars":3245} (188s, batches=20)
-[2026-05-03T05:22:59Z] >>> day 16/21  2025-08-22
-[2026-05-03T05:26:10Z] day 2025-08-22 ok {"scored":3318,"trades":2,"blocked_bars":3188} (191s, batches=20)
-[2026-05-03T05:26:10Z] >>> day 17/21  2025-08-25
-[2026-05-03T05:29:27Z] day 2025-08-25 ok {"scored":3318,"trades":10,"blocked_bars":3143} (197s, batches=20)
-[2026-05-03T05:29:27Z] >>> day 18/21  2025-08-26
-[2026-05-03T05:32:43Z] day 2025-08-26 ok {"scored":3318,"trades":6,"blocked_bars":3041} (196s, batches=20)
-[2026-05-03T05:32:43Z] >>> day 19/21  2025-08-27
-[2026-05-03T05:36:01Z] day 2025-08-27 ok {"scored":3318,"trades":7,"blocked_bars":2990} (197s, batches=20)
-[2026-05-03T05:36:01Z] >>> day 20/21  2025-08-28
-[2026-05-03T05:39:27Z] day 2025-08-28 ok {"scored":3318,"trades":1,"blocked_bars":2994} (206s, batches=20)
-[2026-05-03T05:39:27Z] >>> day 21/21  2025-08-29
-[2026-05-03T05:42:51Z] day 2025-08-29 ok {"scored":3318,"trades":1,"blocked_bars":3053} (204s, batches=20)
-[2026-05-03T05:42:51Z] === All 21 trading days processed; finalizing ===
-[2026-05-03T05:42:51Z] Skipping finalize (--no-finalize set). Open positions preserved for the next leg.
-[2026-05-03T05:42:51Z] Saved 175 trades to /workspace/data/trade-analysis/phase-c-stage1-jul2025-may2026/trades.json (run remains 'running')
-[2026-05-03T05:42:51Z] === continuous-slice complete: phase-c-stage1-jul2025-may2026 ===
-[2026-05-03T05:42:52Z] Released replay lock
+[2026-05-03T16:48:22Z] === continuous-slice: phase-c-stage1-jul2025-may2026 ===
+[2026-05-03T16:48:22Z]     range=2025-08-01..2025-08-31  trading_days=21
+[2026-05-03T16:48:22Z]     tickers(24)=AA,AAPL,ABT,ACN,AEHR,AGQ,AGYS,ALB,ALLY,AMD,AMGN,AMZN,ANET,APD,APLD,APP,AR,ARM,ARRY,ASTS,AU,AVAV,AVGO,AWI,AXON,AXP,AYI,B,BA,BABA,BE,BG,BK,BMNR,BRK-B,BTCUSD,BWXT,CARR,CAT,CCJ,CDNS,CELH,CL1!,CLS,COIN,COST,CRM,CRS,CRWD,CRWV,CSCO,CSX,CVNA,CVX,CW,DCI,DE,DELL,DIA,DINO,DKNG,DPZ,DTM,DY,ELF,EME,EMR,ENS,ES1!,ETHA,ETHUSD,ETN,EWBC,EXEL,EXPE,FIX,FLR,FN,FSLR,GC1!,GDX,GE,GEV,GILD,GLD,GLXY,GOLD,GOOGL,GRNY,GS,H,HALO,HII,HIMS,HL,HOOD,HUBS,IAU,IBB,IBP,IESC,IGV,INFL,INTC,INTU,IONQ,IOT,IREN,ISRG,ITT,IWM,J,JCI,JD,JOBY,JPM,KLAC,KO,KTOS,KWEB,LIT,LITE,LLY,LMND,LRCX,LRN,LSCC,LULU,MCD,MDB,META,MLI,MNST,MP,MRK,MSFT,MSTR,MTB,MTZ,MU,NBIS,NEU,NFLX,NKE,NOC,NQ1!,NVDA,NXT,OKE,ON,ORCL,P,PANW,PATH,PCI,PEGA,PH,PI,PKG,PLTR,PNC,PPG,PSTG,PWR,QLYS,QQQ,QXO,RBLX,RDDT,RGLD,RIOT,RKLB,RPG,RTX,RTY1!,SANM,SATS,SGI,SHOP,SI1!,SLV,SN,SNDK,SOFI,SOXL,SPGI,SPHB,SPOT,SPX,SPY,STRL,STX,SWK,TEM,TJX,TLN,TNA,TPL,TSLA,TSM,TT,TWLO,U,UHS,ULTA,UNH,UNP,UPS,US500,USO,UTHR,UUUU,VIXY,VMI,VRTX,VST,VX1!,WAL,WDC,WFRD,WM,WMT,WTS,XHB,XLB,XLC,XLE,XLF,XLI,XLK,XLP,XLRE,XLU,XLV,XLY,XOM,XYZ,YM1!
+[2026-05-03T16:48:22Z]     watchdog=600s  resume=true  block_chain=true
+[2026-05-03T16:48:22Z] Resuming after last completed day 2025-07-31
+[2026-05-03T16:48:22Z] Acquired replay lock: continuous_phase-c-stage1-jul2025-may2026@2026-05-03T16:48:22.254Z
+[2026-05-03T16:48:22Z] >>> day 1/21  2025-08-01
+[2026-05-03T16:52:17Z] day 2025-08-01 ok {"scored":3318,"trades":0,"blocked_bars":3278} (235s, batches=20)
+[2026-05-03T16:52:17Z] >>> day 2/21  2025-08-04
+[2026-05-03T16:55:43Z] day 2025-08-04 ok {"scored":3318,"trades":12,"blocked_bars":3189} (205s, batches=20)
+[2026-05-03T16:55:43Z] >>> day 3/21  2025-08-05
+[2026-05-03T16:59:16Z] day 2025-08-05 ok {"scored":3318,"trades":0,"blocked_bars":3198} (213s, batches=20)
+[2026-05-03T16:59:16Z] >>> day 4/21  2025-08-06
+[2026-05-03T17:02:53Z] day 2025-08-06 ok {"scored":3318,"trades":6,"blocked_bars":3180} (217s, batches=20)
+[2026-05-03T17:02:53Z] >>> day 5/21  2025-08-07
+[2026-05-03T17:06:29Z] day 2025-08-07 ok {"scored":3318,"trades":0,"blocked_bars":3217} (216s, batches=20)
+[2026-05-03T17:06:29Z] >>> day 6/21  2025-08-08
+[2026-05-03T17:10:09Z] day 2025-08-08 ok {"scored":3318,"trades":11,"blocked_bars":3130} (219s, batches=20)
+[2026-05-03T17:10:09Z] >>> day 7/21  2025-08-11
+[2026-05-03T17:13:46Z] day 2025-08-11 ok {"scored":3318,"trades":2,"blocked_bars":3089} (216s, batches=20)
+[2026-05-03T17:13:46Z] >>> day 8/21  2025-08-12
+[2026-05-03T17:17:22Z] day 2025-08-12 ok {"scored":3318,"trades":9,"blocked_bars":3035} (216s, batches=20)
+[2026-05-03T17:17:22Z] >>> day 9/21  2025-08-13
+[2026-05-03T17:20:53Z] day 2025-08-13 ok {"scored":3318,"trades":1,"blocked_bars":3068} (211s, batches=20)
+[2026-05-03T17:20:53Z] >>> day 10/21  2025-08-14
+[2026-05-03T17:24:16Z] day 2025-08-14 ok {"scored":3318,"trades":0,"blocked_bars":3128} (203s, batches=20)
+[2026-05-03T17:24:16Z] >>> day 11/21  2025-08-15
+[2026-05-03T17:27:41Z] day 2025-08-15 ok {"scored":3318,"trades":2,"blocked_bars":3161} (205s, batches=20)
+[2026-05-03T17:27:41Z] >>> day 12/21  2025-08-18
+[2026-05-03T17:31:10Z] day 2025-08-18 ok {"scored":3318,"trades":7,"blocked_bars":3095} (209s, batches=20)
+[2026-05-03T17:31:10Z] >>> day 13/21  2025-08-19
+[2026-05-03T17:34:52Z] day 2025-08-19 ok {"scored":3318,"trades":0,"blocked_bars":3178} (222s, batches=20)
+[2026-05-03T17:34:52Z] >>> day 14/21  2025-08-20
+[2026-05-03T17:38:23Z] day 2025-08-20 ok {"scored":3318,"trades":0,"blocked_bars":3251} (211s, batches=20)
+[2026-05-03T17:38:23Z] >>> day 15/21  2025-08-21
+[2026-05-03T17:41:44Z] day 2025-08-21 ok {"scored":3318,"trades":3,"blocked_bars":3257} (201s, batches=20)
+[2026-05-03T17:41:44Z] >>> day 16/21  2025-08-22
+[2026-05-03T17:45:13Z] day 2025-08-22 ok {"scored":3318,"trades":2,"blocked_bars":3201} (209s, batches=20)
+[2026-05-03T17:45:13Z] >>> day 17/21  2025-08-25
+[2026-05-03T17:48:49Z] day 2025-08-25 ok {"scored":3318,"trades":11,"blocked_bars":3146} (216s, batches=20)
+[2026-05-03T17:48:49Z] >>> day 18/21  2025-08-26
+[2026-05-03T17:52:17Z] day 2025-08-26 ok {"scored":3318,"trades":6,"blocked_bars":3040} (208s, batches=20)
+[2026-05-03T17:52:17Z] >>> day 19/21  2025-08-27
+[2026-05-03T17:56:02Z] day 2025-08-27 ok {"scored":3318,"trades":7,"blocked_bars":2990} (225s, batches=20)
+[2026-05-03T17:56:02Z] >>> day 20/21  2025-08-28
+[2026-05-03T17:59:47Z] day 2025-08-28 ok {"scored":3318,"trades":1,"blocked_bars":2996} (225s, batches=20)
+[2026-05-03T17:59:47Z] >>> day 21/21  2025-08-29
+[2026-05-03T18:03:33Z] day 2025-08-29 ok {"scored":3318,"trades":1,"blocked_bars":3055} (226s, batches=20)
+[2026-05-03T18:03:33Z] === All 21 trading days processed; finalizing ===
+[2026-05-03T18:03:33Z] Skipping finalize (--no-finalize set). Open positions preserved for the next leg.
+[2026-05-03T18:03:34Z] Saved 173 trades to /workspace/data/trade-analysis/phase-c-stage1-jul2025-may2026/trades.json (run remains 'running')
+[2026-05-03T18:03:34Z] === continuous-slice complete: phase-c-stage1-jul2025-may2026 ===
+[2026-05-03T18:03:34Z] Released replay lock
