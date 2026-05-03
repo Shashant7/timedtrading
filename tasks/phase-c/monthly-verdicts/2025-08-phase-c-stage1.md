@@ -1,18 +1,55 @@
 # Phase C — Monthly Verdict · 2025-08
 
-_Source: `phase-c-stage1-jul2025-may2026` · Trades in window: **75** · Generated 2026-05-03 05:44 UTC_
+_Source: `phase-c-stage1-jul2025-may2026` · Trades in window: **76** · Generated 2026-05-03 11:54 UTC_
 
 > Read this alongside the previous month's verdict. The point is **trajectory** —
 > are we drifting toward July or away from it?
 
 ## 1 · Headline
 
-- **58 closed trades.** 29W / 29L / 0 flat.
-- **Win rate: 50.0%.** Target 55% — MISS.
-- **Avg winner / Avg loser: 1.77x** (2.03% / 1.14%). Target 1.60x — PASS.
+- **59 closed trades.** 29W / 30L / 0 flat.
+- **Win rate: 49.2%.** Target 55% — MISS.
+- **Avg winner / Avg loser: 1.75x** (2.03% / 1.16%). Target 1.60x — PASS.
 - **Max drawdown (cum %): 18.49%.** Target ≤ 3.0% — MISS.
-- **Sharpe (annualized, daily-pct proxy): 3.05.** Target 1.50 — PASS.
-- **Cumulative P&L (sum of pct): +25.65%.**
+- **Sharpe (annualized, daily-pct proxy): 2.83.** Target 1.50 — PASS.
+- **Cumulative P&L (sum of pct): +24.10%.**
+
+### Account equity ($100K starting bankroll, 1% notional per trade)
+
+| Metric | Value |
+|---|---|
+| **Start balance** (1st trade of month) | **$246,715** |
+| **End balance** (last trade of month) | **$309,094** |
+| **Net $ P&L** | **$+62,379**  (+25.28% of start balance) |
+| Total winning $ | +$165,850 |
+| Total losing $ | -$103,471 |
+| Biggest winner | **RDDT** +$27,601 (+9.35%) |
+| Biggest loser | **ALB** -$11,541 (-3.46%) |
+| Run-to-date peak | $341,722 |
+| Run-to-date max DD | -$52,677 (15.42%) |
+
+### Day-by-day P&L (this month)
+
+| Date | Day P&L $ |
+|---|---:|
+| 2025-08-01 | $-3,826 |
+| 2025-08-05 | $-896 |
+| 2025-08-06 | $+5,132 |
+| 2025-08-07 | $+16,443 |
+| 2025-08-08 | $-756 |
+| 2025-08-11 | $+8,080 |
+| 2025-08-12 | $+1,461 |
+| 2025-08-13 | $+15,354 |
+| 2025-08-14 | $+5,068 |
+| 2025-08-15 | $+2,560 |
+| 2025-08-18 | $+26,941 |
+| 2025-08-19 | $-11,821 |
+| 2025-08-20 | $-18,287 |
+| 2025-08-21 | $+1,290 |
+| 2025-08-22 | $-4,414 |
+| 2025-08-27 | $+17,749 |
+| 2025-08-28 | $-9,991 |
+| 2025-08-29 | $+12,291 |
 
 ## 2 · The Proud (top winners)
 
@@ -64,6 +101,7 @@ Bottom-quartile setups by win-rate AND volume are candidates for the next calibr
 | `TT Tt Range Reversal Long` | 4 | 25% | +0.64% | +2.54% |
 | `TT Tt Pullback` | 4 | 50% | +0.23% | +0.91% |
 | `TT Tt Ath Breakout` | 4 | 25% | -0.16% | -0.65% |
+| `TT Confirmed Long` | 1 | 0% | -1.55% | -1.55% |
 | `TT Tt N Test Resistance` | 3 | 33% | -1.05% | -3.15% |
 | `TT Tt N Test Support` | 6 | 33% | -0.73% | -4.35% |
 
@@ -85,10 +123,10 @@ Worst-WR combos at top — these are the immediate Loop 1 candidates.
 
 Phase C self-adapting loops. Empty for any backtest run before the loops were enabled.
 
-- **Loop 3** — `flat_cut`: 464 times
+- **Loop 3** — `flat_cut`: 484 times
 
 **Loop 1 scorecard snapshot** (end-of-month, min_samples=3):
-- 🔴 BLOCK (5 combos): `tt_n_test_support:trending:pullback_player:L` (0W/3L), `tt_pullback:trending:pullback_player:L` (1W/5L), `tt_ath_breakout:trending:pullback_player:L` (1W/4L), `tt_range_reversal_long:trending:pullback_player:L` (1W/3L), `tt_gap_reversal_long:transitional:volatile_runner:L` (3W/8L)
+- 🔴 BLOCK (6 combos): `tt_n_test_support:trending:pullback_player:L` (0W/3L), `momentum_score:trending:pullback_player:L` (0W/4L), `tt_pullback:trending:pullback_player:L` (1W/5L), `tt_ath_breakout:trending:pullback_player:L` (1W/4L), `tt_range_reversal_long:trending:pullback_player:L` (1W/3L), `tt_gap_reversal_long:transitional:volatile_runner:L` (3W/8L)
 - 🟡 RAISE_BAR (5 combos): `tt_gap_reversal_long:trending:pullback_player:L` (3W/6L), `tt_ath_breakout:trending:volatile_runner:L` (1W/2L), `tt_range_reversal_long:transitional:volatile_runner:L` (1W/2L), `tt_pullback:trending:volatile_runner:L` (2W/3L), `tt_gap_reversal_long:choppy:volatile_runner:L` (2W/3L)
 - 🟢 ALLOW (>0.45 WR): 3 combos
 

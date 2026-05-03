@@ -232,7 +232,7 @@ def fmt_attr(a: dict) -> str:
 # ── Sections ────────────────────────────────────────────────────────────
 
 
-def section_headline(trades: list[dict]) -> list[str]:
+def section_headline(trades: list[dict], all_run_trades: list[dict] | None = None) -> list[str]:
     closed = [t for t in trades if is_closed(t)]
     if not closed:
         return ["**No closed trades in this month.**", ""]
@@ -255,6 +255,10 @@ def section_headline(trades: list[dict]) -> list[str]:
         max_dd = max(max_dd, peak - cum)
     sharpe = (statistics.mean(pnls) / statistics.pstdev(pnls)) * (252**0.5) if len(pnls) >= 2 and statistics.pstdev(pnls) > 0 else 0
 
+    # Dollar account curve: walk ALL trades from run start (compounding 1% notional/trade)
+    # so the dollar figures correctly show "what was the account at start/end of THIS month".
+    eq_lines = _equity_curve_for_month(all_run_trades or trades, trades)
+
     def stamp(value: float, target: float, *, higher_is_better: bool = True) -> str:
         ok = (value >= target) if higher_is_better else (value <= target)
         return "PASS" if ok else "MISS"
@@ -270,6 +274,109 @@ def section_headline(trades: list[dict]) -> list[str]:
         f"- **Cumulative P&L (sum of pct): {cum_pct:+.2f}%.**",
         "",
     ]
+    lines.extend(eq_lines)
+    return lines
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Equity curve helpers (dollar-based account view)
+# ─────────────────────────────────────────────────────────────────────
+
+# Bankroll model assumed for verdicts.
+START_EQUITY = 100_000  # $100K starting account
+
+def _equity_curve_for_month(all_trades: list[dict], month_trades: list[dict]) -> list[str]:
+    """Build a dollar-based equity table that shows starting balance,
+    end balance, net $ P&L, and best/worst $ trade for the verdict month.
+
+    Walks every closed trade in the run from the beginning so the start
+    balance is correct (i.e. accounts for compounding from prior months).
+    Each trade compounds 1% of current equity (matches our risk model).
+    """
+    closed_all = [t for t in all_trades if is_closed(t) and t.get("exit_ts")]
+    closed_all.sort(key=lambda t: int(t.get("exit_ts") or 0))
+    month_ids = {id(t) for t in month_trades if is_closed(t)}
+
+    eq = float(START_EQUITY)
+    peak = eq
+    max_dd_dollars = 0.0
+    max_dd_pct = 0.0
+
+    month_start_eq = None
+    month_end_eq = None
+    best = (None, float("-inf"))
+    worst = (None, float("inf"))
+    win_dollars = 0.0
+    loss_dollars = 0.0
+    day_pnl = {}
+
+    for t in closed_all:
+        is_in_month = id(t) in month_ids
+        if is_in_month and month_start_eq is None:
+            month_start_eq = eq
+        pct = float(t.get("pnl_pct") or t.get("pnlPct") or 0)
+        pnl_dollars = eq * (pct / 100.0)
+        eq += pnl_dollars
+        if eq > peak:
+            peak = eq
+        dd = peak - eq
+        if dd > max_dd_dollars:
+            max_dd_dollars = dd
+            max_dd_pct = (dd / peak * 100.0) if peak else 0.0
+        if is_in_month:
+            month_end_eq = eq
+            if pnl_dollars > best[1]:
+                best = (t, pnl_dollars)
+            if pnl_dollars < worst[1]:
+                worst = (t, pnl_dollars)
+            if pnl_dollars > 0:
+                win_dollars += pnl_dollars
+            elif pnl_dollars < 0:
+                loss_dollars += pnl_dollars
+            try:
+                day_key = datetime.fromtimestamp(int(t["exit_ts"]) / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+            except Exception:
+                day_key = "?"
+            day_pnl[day_key] = day_pnl.get(day_key, 0.0) + pnl_dollars
+
+    if month_start_eq is None:
+        return ["", "_No closed trades in window for equity curve._", ""]
+
+    net_dollars = month_end_eq - month_start_eq
+    net_pct = (month_end_eq / month_start_eq - 1) * 100 if month_start_eq else 0
+    best_t, best_d = best
+    worst_t, worst_d = worst
+
+    lines = [
+        f"### Account equity ($100K starting bankroll, 1% notional per trade)",
+        "",
+        f"| Metric | Value |",
+        f"|---|---|",
+        f"| **Start balance** (1st trade of month) | **${month_start_eq:,.0f}** |",
+        f"| **End balance** (last trade of month) | **${month_end_eq:,.0f}** |",
+        f"| **Net $ P&L** | **${net_dollars:+,.0f}**  ({net_pct:+.2f}% of start balance) |",
+        f"| Total winning $ | +${win_dollars:,.0f} |",
+        f"| Total losing $ | -${abs(loss_dollars):,.0f} |",
+    ]
+    if best_t is not None:
+        lines.append(f"| Biggest winner | **{best_t.get('ticker','?')}** +${best_d:,.0f} ({float(best_t.get('pnl_pct') or 0):+.2f}%) |")
+    if worst_t is not None:
+        lines.append(f"| Biggest loser | **{worst_t.get('ticker','?')}** -${abs(worst_d):,.0f} ({float(worst_t.get('pnl_pct') or 0):+.2f}%) |")
+    lines.append(f"| Run-to-date peak | ${peak:,.0f} |")
+    lines.append(f"| Run-to-date max DD | -${max_dd_dollars:,.0f} ({max_dd_pct:.2f}%) |")
+    lines.append("")
+
+    if day_pnl:
+        lines.extend([
+            "### Day-by-day P&L (this month)",
+            "",
+            "| Date | Day P&L $ |",
+            "|---|---:|",
+        ])
+        for d in sorted(day_pnl):
+            lines.append(f"| {d} | ${day_pnl[d]:+,.0f} |")
+        lines.append("")
+
     return lines
 
 
@@ -581,7 +688,7 @@ def main() -> int:
     out.append("> Read this alongside the previous month's verdict. The point is **trajectory** —")
     out.append("> are we drifting toward July or away from it?")
     out.append("")
-    out += section_headline(in_window)
+    out += section_headline(in_window, all_run_trades=trades)
     out += section_proud(in_window)
     out += section_disappointed(in_window)
     out += section_profit_giveback(in_window)
