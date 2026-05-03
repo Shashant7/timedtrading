@@ -454,6 +454,11 @@ def section_loop_log(trades: list[dict]) -> list[str]:
     """
     Loop firing log. Will be empty for pre-Phase-C runs (the loops emit a
     'phase_c_loop_event' record into entry_signals.loop_events when active).
+
+    Loop 1 BLOCK actions never create a trade (the entry is rejected before
+    the trade record exists), so the firing count from entry_signals
+    underrepresents Loop 1 activity. To get a fuller picture, we also fetch
+    the Loop 1 scorecard from KV and report current advisory state.
     """
     events = []
     for t in trades:
@@ -473,12 +478,46 @@ def section_loop_log(trades: list[dict]) -> list[str]:
         "",
     ]
     if not events:
-        lines.append("_No loop events recorded this month (loops not yet active or didn't fire)._")
+        lines.append("_No loop events recorded against trades this month._")
     else:
         loop_counts = Counter((e.get("loop"), e.get("action")) for e in events)
         for (loop, action), cnt in loop_counts.most_common():
             lines.append(f"- **Loop {loop}** — `{action}`: {cnt} times")
     lines.append("")
+
+    # Loop 1 advisory snapshot from KV (BLOCK actions don't show up above
+    # because the entry never created a trade). This is end-of-month state.
+    try:
+        url = f"{WORKER_BASE}/timed/admin/kv/get?k=phase-c:scorecards&key={urllib.parse.quote(_api_key())}"
+        req = urllib.request.Request(url, headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            sc = json.loads(r.read().decode("utf-8"))
+        cards = (sc or {}).get("value") or {}
+        if cards:
+            blocks, raises, allows = [], [], []
+            for combo, c in cards.items():
+                s = int(c.get("samples", 0) or 0)
+                w = int(c.get("wins", 0) or 0)
+                if s < 3:
+                    continue
+                wr = w / s if s else 0
+                row = (combo, s, wr, w, s - w)
+                if wr <= 0.30:
+                    blocks.append(row)
+                elif wr <= 0.45:
+                    raises.append(row)
+                else:
+                    allows.append(row)
+            blocks.sort(key=lambda r: r[2])
+            raises.sort(key=lambda r: r[2])
+            lines.append(f"**Loop 1 scorecard snapshot** (end-of-month, min_samples=3):")
+            lines.append(f"- 🔴 BLOCK ({len(blocks)} combos): " + (", ".join(f"`{c[0]}` ({c[3]}W/{c[4]}L)" for c in blocks[:10]) or "_none_"))
+            lines.append(f"- 🟡 RAISE_BAR ({len(raises)} combos): " + (", ".join(f"`{c[0]}` ({c[3]}W/{c[4]}L)" for c in raises[:10]) or "_none_"))
+            lines.append(f"- 🟢 ALLOW (>0.45 WR): {len(allows)} combos")
+            lines.append("")
+    except Exception as _e:
+        lines.append(f"_Loop 1 scorecard unavailable ({_e})_")
+        lines.append("")
     return lines
 
 
