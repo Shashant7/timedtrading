@@ -1732,11 +1732,16 @@
         const reviewableRuns = useMemo(
           () => (availableRuns || []).filter(r => {
             const status = String(r?.status || "").trim().toLowerCase();
-            // Show completed runs AND in-progress runs that have trades.
-            // Walk-forward backtests stay in 'running' state across multiple
-            // monthly legs (we use --no-finalize to preserve open positions),
-            // but they have hundreds of closed trades you'd want to inspect.
-            if (status !== "completed" && status !== "running" && status !== "queued") return false;
+            // Completed: require trade counts > 0 (existing behavior).
+            // Running/queued: surface them unconditionally because the
+            // trade-count metrics (total_trades, wins, losses, etc.) are
+            // only backfilled by runs/finalize. Walk-forward backtests
+            // run with --no-finalize so those fields stay null mid-run
+            // even though hundreds of trades are queryable in
+            // backtest_run_trades. Filtering them out by metric counts
+            // hid the very runs you most need to inspect.
+            if (status === "running" || status === "queued") return true;
+            if (status !== "completed") return false;
             const totalTrades = Number(r?.total_trades || 0);
             const closedTrades = Number(r?.closed_trades || 0);
             const openTrades = Number(r?.open_trades || 0);
