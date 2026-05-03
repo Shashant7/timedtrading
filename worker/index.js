@@ -96,7 +96,7 @@ import * as DataProvider from "./data-provider.js";
    and wired into the existing entry/exit pipeline. Each loop is gated by
    its own DA flag so it can be killed independently. Default: OFF in code. */
 import * as PhaseCLoops from "./phase-c-loops.js";
-import { tdFetchEarningsCalendar, tdFetchTickerEarnings, tdFetchTimeSeries, tdSearchSymbol, toTdSymbol, aggregate5mTo10m } from "./twelvedata.js";
+import { tdFetchEarningsCalendar, tdFetchTickerEarnings, tdFetchTimeSeries, tdSearchSymbol, toTdSymbol, aggregate5mTo10m, tdFetchProfile, tdFetchStatistics, tdFetchEarningsHistory } from "./twelvedata.js";
 import { onboardTicker, loadTickerProfile, loadSectorProfile, mergeProfileWeights } from "./onboard-ticker.js";
 import {
   loadCalendar,
@@ -828,6 +828,9 @@ const ROUTES = [
   ["POST", "/timed/admin/model-approve", "POST /timed/admin/model-approve"],
   ["GET", "/timed/admin/ai-cio/decisions", "GET /timed/admin/ai-cio/decisions"],
   ["GET", "/timed/admin/ai-cio/accuracy", "GET /timed/admin/ai-cio/accuracy"],
+  // ── Right Rail Fundamentals tab (TwelveData-backed, KV-cached 6h) ──
+  // Phase C tooling 2026-05-03 — Tenet-style fundamentals snapshot per ticker.
+  ["GET", "/timed/admin/fundamentals", "GET /timed/admin/fundamentals"],
   ["POST", "/timed/admin/backfill-market-events", "POST /timed/admin/backfill-market-events"],
   ["POST", "/timed/admin/market-events/bulk-seed", "POST /timed/admin/market-events/bulk-seed"],
   ["GET", "/timed/admin/market-events/coverage", "GET /timed/admin/market-events/coverage"],
@@ -41210,6 +41213,351 @@ export default {
           return sendJSON(result, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ─────────────────────────────────────────────────────────────────────
+      // GET /timed/admin/fundamentals?ticker=X
+      // Tenet-style fundamentals snapshot for the Right Rail Fundamentals tab.
+      // Source: TwelveData /profile + /statistics + /earnings (cached in KV).
+      // Cache: kv:timed:fundamentals_v2:<TICKER>, 6h TTL (fundamentals don't move
+      // intraday and TwelveData credits are precious — /statistics alone is 50).
+      // Pass &refresh=1 to bypass cache (admin-only). Pass &nocache=1 for the
+      // same effect.
+      // ─────────────────────────────────────────────────────────────────────
+      if (routeKey === "GET /timed/admin/fundamentals") {
+        try {
+          const authFail = await requireKeyOrAdmin(req, env);
+          if (authFail) return authFail;
+
+          const tickerRaw = url.searchParams.get("ticker") || url.searchParams.get("symbol") || "";
+          const ticker = String(tickerRaw).toUpperCase().trim();
+          if (!ticker || !/^[A-Z0-9._!-]{1,12}$/.test(ticker)) {
+            return sendJSON({ ok: false, error: "missing_or_invalid_ticker" }, 400, corsHeaders(env, req));
+          }
+
+          const refresh = url.searchParams.get("refresh") === "1" || url.searchParams.get("nocache") === "1";
+          const cacheKey = `timed:fundamentals_v2:${ticker}`;
+          const TTL_SECONDS = 6 * 60 * 60; // 6h
+
+          if (!refresh) {
+            const cached = await kvGetJSON(KV, cacheKey);
+            if (cached && cached.as_of && (Date.now() - cached.as_of) < TTL_SECONDS * 1000) {
+              return sendJSON(
+                { ok: true, ...cached, _cache: "hit" },
+                200,
+                { ...corsHeaders(env, req), "Cache-Control": "private, max-age=600" },
+              );
+            }
+          }
+
+          // Fetch all three endpoints in parallel. Each is graceful — a partial
+          // failure shouldn't blow up the whole snapshot.
+          const [profileRes, statsRes, earningsRes] = await Promise.allSettled([
+            tdFetchProfile(env, ticker),
+            tdFetchStatistics(env, ticker),
+            tdFetchEarningsHistory(env, ticker, 12),
+          ]);
+
+          const safe = (s) => (s && s.status === "fulfilled" && s.value && !s.value._error) ? s.value : null;
+          const profile = safe(profileRes);
+          const statsRaw = safe(statsRes);
+          const earningsRaw = safe(earningsRes);
+
+          const stats = statsRaw?.statistics || {};
+          const valuation = stats.valuations_metrics || {};
+          const financials = stats.financials || {};
+          const incomeStmt = financials.income_statement || {};
+          const balanceSheet = financials.balance_sheet || {};
+          const cashFlow = financials.cash_flow || {};
+          const stockStats = stats.stock_statistics || {};
+          const priceSummary = stats.stock_price_summary || {};
+
+          const num = (v) => {
+            const n = Number(v);
+            return Number.isFinite(n) ? n : null;
+          };
+
+          // ── Profile ─────────────────────────────────────────────────────
+          const sector = profile?.sector || statsRaw?.meta?.sector || null;
+          const industry = profile?.industry || null;
+          const exchange = profile?.exchange || statsRaw?.meta?.exchange || null;
+          const companyName = profile?.name || statsRaw?.meta?.name || null;
+
+          // ── Valuation ───────────────────────────────────────────────────
+          const peTtm = num(valuation.trailing_pe);
+          const peForward = num(valuation.forward_pe);
+          const psRatio = num(valuation.price_to_sales_ttm);
+          const pbRatio = num(valuation.price_to_book_mrq);
+          const pegRatio = num(valuation.peg_ratio);
+          const marketCap = num(valuation.market_capitalization);
+          const enterpriseValue = num(valuation.enterprise_value);
+          const evToEbitda = num(valuation.enterprise_to_ebitda);
+
+          // ── Capital structure ───────────────────────────────────────────
+          const float = num(stockStats.float_shares);
+          const sharesOutstanding = num(stockStats.shares_outstanding);
+          const sharesShort = num(stockStats.shares_short);
+          const shortPctOutstanding = num(stockStats.short_percent_of_shares_outstanding);
+          // TwelveData reports "short_percent_of_shares_outstanding" as a fraction
+          // (e.g. 0.0056 = 0.56%). Convert to a percentage for display.
+          const shortPctPct = shortPctOutstanding != null ? shortPctOutstanding * 100 : null;
+          // Short float % uses float (more reliable than outstanding for "real"
+          // short pressure). Approximate when not directly given.
+          const shortFloatPct = (sharesShort && float) ? (sharesShort / float) * 100 : shortPctPct;
+          const totalDebt = num(balanceSheet.total_debt_mrq);
+          const totalCash = num(balanceSheet.total_cash_mrq);
+          const fcfTtm = num(cashFlow.levered_free_cash_flow_ttm);
+          const operatingCashFlow = num(cashFlow.operating_cash_flow_ttm);
+          const cashRich = (totalCash != null && totalDebt != null) ? totalCash > totalDebt : null;
+
+          // ── Growth ──────────────────────────────────────────────────────
+          // TwelveData reports growth as a fraction (0.932 = 93.2%). Convert
+          // to percentage for display + classification.
+          const epsGrowthFrac = num(incomeStmt.quarterly_earnings_growth_yoy);
+          const revGrowthFrac = num(incomeStmt.quarterly_revenue_growth);
+          const epsGrowthPct = epsGrowthFrac != null ? epsGrowthFrac * 100 : null;
+          const revGrowthPct = revGrowthFrac != null ? revGrowthFrac * 100 : null;
+
+          const classifyGrowth = (pct) => {
+            if (pct == null) return "unknown";
+            if (pct > 100) return "explosive";
+            if (pct >= 50) return "exploding";
+            if (pct >= 25) return "strong";
+            if (pct >= 0) return "positive";
+            return "declining";
+          };
+          const epsGrowthClass = classifyGrowth(epsGrowthPct);
+          const revGrowthClass = classifyGrowth(revGrowthPct);
+
+          // ── Earnings history + next quarter projection ─────────────────
+          const earningsRows = Array.isArray(earningsRaw?.earnings) ? earningsRaw.earnings : [];
+          // Sort newest first.
+          const sortedEarnings = [...earningsRows].sort((a, b) => {
+            const da = Date.parse(a?.date || "") || 0;
+            const db = Date.parse(b?.date || "") || 0;
+            return db - da;
+          });
+
+          const todayMs = Date.now();
+          const upcoming = sortedEarnings.filter((e) => {
+            const ms = Date.parse(e?.date || "") || 0;
+            return ms > todayMs && (e.eps_actual == null || e.eps_actual === undefined);
+          });
+          const past = sortedEarnings.filter((e) => {
+            const ms = Date.parse(e?.date || "") || 0;
+            return ms <= todayMs || e.eps_actual != null;
+          });
+
+          // Next earnings: the closest upcoming row, else the last `period=next`-style record.
+          const nextEarnings = upcoming.length > 0 ? upcoming[upcoming.length - 1] : null;
+          // Estimate vs YoY same quarter from history (4 quarters back).
+          const nextEpsEst = nextEarnings ? num(nextEarnings.eps_estimate) : null;
+          const yoyEpsEst = (() => {
+            if (!nextEarnings || nextEpsEst == null || past.length < 4) return null;
+            // Find the same quarter prior year by month.
+            const nextDate = new Date(nextEarnings.date);
+            const targetYear = nextDate.getUTCFullYear() - 1;
+            const targetMonth = nextDate.getUTCMonth();
+            const prior = past.find((p) => {
+              const d = new Date(p.date);
+              return d.getUTCFullYear() === targetYear && d.getUTCMonth() === targetMonth;
+            });
+            const priorActual = prior ? num(prior.eps_actual) : null;
+            if (priorActual == null || priorActual === 0) return null;
+            return ((nextEpsEst - priorActual) / Math.abs(priorActual)) * 100;
+          })();
+
+          // History rows for the table — last 10 quarters, oldest→newest reversed
+          // so the table renders newest-first by default.
+          const history = past.slice(0, 10).map((row, idx) => {
+            const epsActual = num(row.eps_actual);
+            const epsEst = num(row.eps_estimate);
+            const surprisePct = num(row.surprise_prc);
+            // EPS YoY growth: this row vs the row 4 quarters back (if available).
+            const olderIdx = idx + 4;
+            const older = olderIdx < past.length ? past[olderIdx] : null;
+            const olderActual = older ? num(older.eps_actual) : null;
+            let epsGrowthPctRow = null;
+            if (epsActual != null && olderActual != null && olderActual !== 0) {
+              epsGrowthPctRow = ((epsActual - olderActual) / Math.abs(olderActual)) * 100;
+            }
+            // Result classification — beat/miss/inline + raise heuristic.
+            let result = null;
+            if (epsActual != null && epsEst != null) {
+              const diff = epsActual - epsEst;
+              const ref = Math.max(Math.abs(epsEst), 0.01);
+              const surprise = (diff / ref) * 100;
+              if (surprise >= 5 && epsGrowthPctRow != null && epsGrowthPctRow >= 25) result = "beat_raise";
+              else if (surprise >= 1) result = "beat";
+              else if (surprise <= -1) result = "miss";
+              else result = "inline";
+            }
+            return {
+              date: row.date || null,
+              time: row.time || null,
+              eps_actual: epsActual,
+              eps_est: epsEst,
+              surprise_pct: surprisePct,
+              eps_growth_pct: epsGrowthPctRow,
+              result,
+            };
+          });
+
+          // Estimates trending up if next quarter EPS est > most recent quarter EPS actual.
+          const lastActual = past.length > 0 ? num(past[0].eps_actual) : null;
+          const estimatesUp = (nextEpsEst != null && lastActual != null) ? nextEpsEst > lastActual : null;
+          // "Guidance higher" — heuristic: average of last two surprise %s ≥ +5 → company has been
+          // beating consistently, often correlates with raised guidance. Best-effort flag.
+          const guidanceHigher = (() => {
+            const surprises = past.slice(0, 2).map((p) => num(p.surprise_prc)).filter((v) => v != null);
+            if (surprises.length === 0) return null;
+            const avg = surprises.reduce((s, v) => s + v, 0) / surprises.length;
+            return avg >= 5;
+          })();
+
+          // ── Fair Value (forward P/E × forward EPS estimate) ────────────
+          // forward_pe is already (price / forward_eps), so price = forward_pe * forward_eps.
+          // We can recover an implied forward EPS from diluted_eps_ttm × (forward_pe / trailing_pe ratio
+          // is unstable). Cleaner: use sector median P/E if known. For now, use the
+          // analyst-derived forward EPS we get from earnings (next 4 quarters EPS est sum)
+          // when available, otherwise ttm EPS.
+          const dilutedEpsTtm = num(incomeStmt.diluted_eps_ttm);
+          let fwdEpsImplied = null;
+          // Sum of the next 4 quarter EPS estimates if we have them.
+          if (upcoming.length >= 4) {
+            const next4 = upcoming.slice(-4).map((e) => num(e.eps_estimate)).filter((v) => v != null);
+            if (next4.length === 4) fwdEpsImplied = next4.reduce((s, v) => s + v, 0);
+          }
+          // Fall back to TTM × growth-adjusted projection.
+          if (fwdEpsImplied == null && dilutedEpsTtm != null && epsGrowthPct != null) {
+            fwdEpsImplied = dilutedEpsTtm * (1 + Math.max(-0.5, Math.min(2.0, epsGrowthPct / 100)));
+          }
+          let fairValuePrice = null;
+          let fairValueBasis = null;
+          if (peForward != null && fwdEpsImplied != null && fwdEpsImplied > 0) {
+            fairValuePrice = peForward * fwdEpsImplied;
+            fairValueBasis = "forward_pe_x_forward_eps";
+          } else if (peTtm != null && dilutedEpsTtm != null && dilutedEpsTtm > 0) {
+            fairValuePrice = peTtm * dilutedEpsTtm;
+            fairValueBasis = "trailing_pe_x_ttm_eps";
+          }
+
+          // Pull the most recent live price from KV so we can report a
+          // premium/discount classification. Do not hard-fail if missing.
+          let currentPrice = null;
+          try {
+            const priceRow = await kvGetJSON(KV, "timed:prices");
+            const prices = priceRow?.prices || priceRow || {};
+            const px = prices?.[ticker]?.p;
+            if (Number.isFinite(Number(px))) currentPrice = Number(px);
+          } catch { /* non-fatal */ }
+
+          let fairValueClass = null;
+          let fairValuePremiumPct = null;
+          if (fairValuePrice != null && currentPrice != null && currentPrice > 0) {
+            fairValuePremiumPct = ((currentPrice - fairValuePrice) / fairValuePrice) * 100;
+            if (fairValuePremiumPct <= -10) fairValueClass = "discount";
+            else if (fairValuePremiumPct >= 10) fairValueClass = "premium";
+            else fairValueClass = "fair";
+          }
+
+          const out = {
+            ticker,
+            as_of: Date.now(),
+            source: "twelvedata",
+            profile: {
+              name: companyName,
+              sector,
+              industry,
+              exchange,
+              ceo: profile?.CEO || null,
+              employees: num(profile?.employees),
+              website: profile?.website || null,
+              description: profile?.description || null,
+            },
+            valuation: {
+              market_cap: marketCap,
+              enterprise_value: enterpriseValue,
+              pe_ttm: peTtm,
+              pe_forward: peForward,
+              ps_ratio: psRatio,
+              pb_ratio: pbRatio,
+              peg_ratio: pegRatio,
+              ev_to_ebitda: evToEbitda,
+              fair_value_price: fairValuePrice != null ? Number(fairValuePrice.toFixed(2)) : null,
+              fair_value_basis: fairValueBasis,
+              fair_value_class: fairValueClass,
+              fair_value_premium_pct: fairValuePremiumPct != null ? Number(fairValuePremiumPct.toFixed(2)) : null,
+              current_price: currentPrice,
+            },
+            capital_structure: {
+              shares_outstanding: sharesOutstanding,
+              float,
+              shares_short: sharesShort,
+              short_pct_outstanding: shortPctPct,
+              short_float_pct: shortFloatPct,
+              total_debt: totalDebt,
+              total_cash: totalCash,
+              free_cash_flow_ttm: fcfTtm,
+              operating_cash_flow_ttm: operatingCashFlow,
+              cash_rich: cashRich,
+              insider_pct: num(stockStats.percent_held_by_insiders) != null ? num(stockStats.percent_held_by_insiders) * 100 : null,
+              institution_pct: num(stockStats.percent_held_by_institutions) != null ? num(stockStats.percent_held_by_institutions) * 100 : null,
+            },
+            growth: {
+              eps_growth_pct: epsGrowthPct != null ? Number(epsGrowthPct.toFixed(2)) : null,
+              rev_growth_pct: revGrowthPct != null ? Number(revGrowthPct.toFixed(2)) : null,
+              eps_growth_class: epsGrowthClass,
+              rev_growth_class: revGrowthClass,
+              gross_margin_pct: num(financials.gross_margin),
+              profit_margin_pct: num(financials.profit_margin) != null ? num(financials.profit_margin) * 100 : null,
+              operating_margin_pct: num(financials.operating_margin) != null ? num(financials.operating_margin) * 100 : null,
+              roe_ttm_pct: num(financials.return_on_equity_ttm) != null ? num(financials.return_on_equity_ttm) * 100 : null,
+              roa_ttm_pct: num(financials.return_on_assets_ttm) != null ? num(financials.return_on_assets_ttm) * 100 : null,
+            },
+            earnings: {
+              next_date: nextEarnings?.date || null,
+              next_time: nextEarnings?.time || null,
+              next_quarter_eps_est: nextEpsEst,
+              next_quarter_eps_yoy_pct: yoyEpsEst != null ? Number(yoyEpsEst.toFixed(2)) : null,
+              estimates_up: estimatesUp,
+              guidance_higher: guidanceHigher,
+              eps_ttm: dilutedEpsTtm,
+              fiscal_year_ends: financials.fiscal_year_ends || null,
+              most_recent_quarter: financials.most_recent_quarter || null,
+              history,
+            },
+            price_summary: {
+              fifty_two_week_low: num(priceSummary.fifty_two_week_low),
+              fifty_two_week_high: num(priceSummary.fifty_two_week_high),
+              fifty_two_week_change_pct: num(priceSummary.fifty_two_week_change) != null ? num(priceSummary.fifty_two_week_change) * 100 : null,
+              beta: num(priceSummary.beta),
+              day_50_ma: num(priceSummary.day_50_ma),
+              day_200_ma: num(priceSummary.day_200_ma),
+            },
+            errors: {
+              profile: profileRes.status === "fulfilled" ? (profileRes.value?._error || null) : String(profileRes.reason).slice(0, 80),
+              statistics: statsRes.status === "fulfilled" ? (statsRes.value?._error || null) : String(statsRes.reason).slice(0, 80),
+              earnings: earningsRes.status === "fulfilled" ? (earningsRes.value?._error || null) : String(earningsRes.reason).slice(0, 80),
+            },
+          };
+
+          // Persist to KV for the next 6h. Best-effort.
+          try {
+            await kvPutJSON(KV, cacheKey, out, TTL_SECONDS);
+          } catch (kvErr) {
+            console.warn("[FUNDAMENTALS] KV write failed:", String(kvErr).slice(0, 120));
+          }
+
+          return sendJSON(
+            { ok: true, ...out, _cache: "miss" },
+            200,
+            { ...corsHeaders(env, req), "Cache-Control": "private, max-age=600" },
+          );
+        } catch (e) {
+          console.error("[FUNDAMENTALS] error:", String(e?.stack || e).slice(0, 400));
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
         }
       }
 
