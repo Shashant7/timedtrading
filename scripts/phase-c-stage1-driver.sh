@@ -100,6 +100,8 @@ run_leg() {
   bash scripts/continuous-slice.sh \
     --start="$start_date" \
     --end="$end_date" \
+    --manifest-start="2025-07-01" \
+    --manifest-end="2026-05-01" \
     --run-id="$RUN_ID" \
     --tickers="@$UNIVERSE_FILE" \
     --watchdog-seconds="$WATCHDOG_SECONDS" \
