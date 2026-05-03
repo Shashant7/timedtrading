@@ -323,6 +323,12 @@ export function getReplayExecutorRuntime() {
     clearReplayRunningMarker,
     runInvestorDailyReplay,
     snapshotBothPortfolios,
+    /* Phase C — Stage 1 (2026-05-03) — wire loops into replay path so the
+       backtest engine's entry gate sees Loop 1 advisories + Loop 2 pause
+       state, just like the live cron path does. Without this, the loops
+       silently no-op during replay because env._loop1AdvisoryByCombo and
+       env._loop2Pause are never populated. */
+    PhaseCLoops,
   });
 
   const runIntervalReplayStepImpl = createIntervalReplayStep({

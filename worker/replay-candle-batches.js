@@ -406,6 +406,10 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
               _monthlyCycle,
               _recentTickerTrades,
               _focusHistoryStats: replayCtx._focusHistoryStats,
+              /* Phase C — Stage 1 (2026-05-03) — pre-loaded loop state.
+                 Without these, the entry-gate consult silently no-ops. */
+              _loop1AdvisoryByCombo: replayEnv._loop1AdvisoryByCombo || {},
+              _loop2Pause: replayEnv._loop2Pause || { paused: false },
             };
           }
 
