@@ -35381,9 +35381,23 @@ async function buildTraderPredictionContract(env, ticker) {
          (above or below price) has fewer than 2 levels, fill in with
          ATR-based projections so the user always has reference points
          on both sides. Marked with kind="atr_projection" so the UI can
-         style them more subtly than tested levels. */
-      const aboveCount = dedup.filter((l) => l.role === "resistance").length;
-      const belowCount = dedup.filter((l) => l.role === "support").length;
+         style them more subtly than tested levels.
+         IMPORTANT: projections are appended AFTER the top-12 cap so they
+         can never be priced-out by stronger historical levels. The cap is
+         applied to the historical set first, then projections fill the
+         deficient side(s). This guarantees the user always sees both
+         sides on the ladder regardless of where price sits in history. */
+      // Apply the top-12 cap to the HISTORICAL levels first.
+      dedup.sort((a, b) => {
+        const sa = (a.weight || 5) - Math.log10(Math.abs(a.dist_pct) + 1);
+        const sb = (b.weight || 5) - Math.log10(Math.abs(b.dist_pct) + 1);
+        return sb - sa;
+      });
+      let top = dedup.slice(0, 12);
+
+      // Now check sidedness on the capped set and inject projections.
+      const aboveCount = top.filter((l) => l.role === "resistance").length;
+      const belowCount = top.filter((l) => l.role === "support").length;
       if (_atrDay > 0 && (aboveCount < 2 || belowCount < 2)) {
         const fibs = [
           { mult: 0.382, label: "+0.38× day ATR" },
@@ -35395,7 +35409,7 @@ async function buildTraderPredictionContract(env, ticker) {
           for (const { mult, label } of fibs) {
             const proj = px + mult * _atrDay;
             const distPct = Math.round(((proj - px) / px) * 100 * 100) / 100;
-            dedup.push({
+            top.push({
               price: Math.round(proj * 100) / 100,
               kind: "atr_projection",
               label,
@@ -35412,7 +35426,7 @@ async function buildTraderPredictionContract(env, ticker) {
             const proj = px - mult * _atrDay;
             if (proj <= 0) continue;
             const distPct = Math.round(((proj - px) / px) * 100 * 100) / 100;
-            dedup.push({
+            top.push({
               price: Math.round(proj * 100) / 100,
               kind: "atr_projection",
               label: label.replace("+", "−"),
@@ -35426,14 +35440,6 @@ async function buildTraderPredictionContract(env, ticker) {
         }
       }
 
-      // Keep the 12 most relevant: prioritize by combined (weight, proximity).
-      // Score = weight - log(distance) so high-weight + close-to-price wins.
-      dedup.sort((a, b) => {
-        const sa = (a.weight || 5) - Math.log10(Math.abs(a.dist_pct) + 1);
-        const sb = (b.weight || 5) - Math.log10(Math.abs(b.dist_pct) + 1);
-        return sb - sa;
-      });
-      const top = dedup.slice(0, 12);
       // Final sort highest-to-lowest price for display
       top.sort((a, b) => b.price - a.price);
       return top;
