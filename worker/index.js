@@ -6947,11 +6947,75 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       const _earlyPdzWindowMin = Number(tickerData?._env?._deepAuditConfig?.deep_audit_max_loss_pdz_window_min) || 390;
       const _earlyPdzToleranceActive = _earlyInFavorableZone && _earlyRegimeConfirms;
       const _earlyPdzWindowOpen = positionAgeMarketMin < _earlyPdzWindowMin;
-      const _earlyMaxLossPct = (_earlyPdzToleranceActive && _earlyPdzWindowOpen) ? _earlyPdzMaxLossPct : _earlyNormalMaxLossPct;
+      let _earlyMaxLossPct = (_earlyPdzToleranceActive && _earlyPdzWindowOpen) ? _earlyPdzMaxLossPct : _earlyNormalMaxLossPct;
+
+      /* V15 P0.7.55 (2026-05-04) — Momentum Buffer.
+         User SNDK Sep-18 case: stock was up 100%+ above daily VWAP, in
+         HTF_BULL_LTF_BULL state, bull_stack=true, EMAs in order, slope
+         rising — a textbook high-momentum runner. We entered at $102.41
+         and bailed at -3.53% same-day via max_loss without giving the
+         pullback the benefit of the doubt. The model captured all the
+         right structural strength signals; we just didn't USE them on
+         the SL side. Rule: when the trade is in our workhorse cohort
+         AND the entry-time momentum signals stack bullish, expand the
+         max-loss tolerance from -3% to -5% (cohort + momentum-only). */
+      const _momBufEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_momentum_buffer_enabled ?? "true") === "true";
+      let _momBufApplied = false;
+      let _momBufWhy = null;
+      if (_momBufEnabled) {
+        const _mbDir = direction;
+        const _mbEntryPath = String(openPosition?.entryPath || openPosition?.entry_path || "").toLowerCase();
+        let _mbPersonality = String(tickerData?.execution_profile?.personality || tickerData?.ticker_character?.personality || "").toUpperCase();
+        if (!_mbPersonality) {
+          try {
+            let _mbEs = openPosition?.entrySignals || openPosition?.entry_signals;
+            if (!_mbEs && openPosition?.entry_signals_json) _mbEs = JSON.parse(openPosition.entry_signals_json);
+            if (_mbEs?.personality) _mbPersonality = String(_mbEs.personality).toUpperCase();
+          } catch (_) {}
+        }
+        const _mbIsCohort = _mbDir === "LONG"
+          && _mbEntryPath === "tt_gap_reversal_long"
+          && _mbPersonality === "VOLATILE_RUNNER";
+        if (_mbIsCohort) {
+          // Read entry-time momentum context — prefer rank_trace_json setup_snapshot
+          // since live tickerData has the same fields by reference.
+          const _mbVwap = tickerData?.vwap || {};
+          const _mbVwapDDist = Number(_mbVwap?.D?.dist_pct) || 0;
+          const _mbVwapDSlope = Number(_mbVwap?.D?.slope_5bar) || 0;
+          const _mbBullStack = !!tickerData?.daily_structure?.bull_stack;
+          const _mbAboveE200 = !!tickerData?.daily_structure?.above_e200;
+          const _mbState = String(tickerData?.state || "").toUpperCase();
+          const _mbHtfBullLtfBull = _mbState.startsWith("HTF_BULL_LTF_BULL");
+          const _mbAdvDiv = !!tickerData?.__entry_divergence_summary?.adverse_phase
+            || !!tickerData?.__entry_divergence_summary?.adverse_rsi;
+          // 5 conditions; need 4+ to qualify for the buffer
+          const _mbSignals = [
+            _mbVwapDDist >= 30,        // price extended above daily VWAP (momentum)
+            _mbVwapDSlope > 0,         // VWAP still trending up
+            _mbBullStack,              // EMAs aligned bullish
+            _mbAboveE200,              // macro trend up
+            _mbHtfBullLtfBull,         // multi-TF aligned
+            !_mbAdvDiv,                // no adverse divergence at entry
+          ].filter(Boolean);
+          const _mbThreshold = Number(tickerData?._env?._deepAuditConfig?.deep_audit_momentum_buffer_min_signals) || 4;
+          if (_mbSignals.length >= _mbThreshold) {
+            const _mbBuffer = Number(tickerData?._env?._deepAuditConfig?.deep_audit_momentum_buffer_max_loss_pct) || -5.0;
+            _earlyMaxLossPct = Math.min(_earlyMaxLossPct, _mbBuffer); // expand (more negative)
+            _momBufApplied = true;
+            _momBufWhy = `mom_buffer:vwapD=${_mbVwapDDist.toFixed(0)}% slope=${_mbVwapDSlope.toFixed(2)} signals=${_mbSignals.length}`;
+            tickerData.__momentum_buffer_active = true;
+            tickerData.__momentum_buffer_signals = _mbSignals.length;
+          }
+        }
+      }
+
       if (pnlPct <= _earlyMaxLossPct) {
+        if (_momBufApplied) {
+          console.log(`[max_loss] ${tickerData?.ticker || "?"} fired at ${pnlPct.toFixed(2)}% despite momentum buffer expanding floor to ${_earlyMaxLossPct.toFixed(1)}% (${_momBufWhy})`);
+        }
         tickerData.__exit_reason = (_earlyPdzToleranceActive && !_earlyPdzWindowOpen)
           ? "max_loss_pdz_window_expired"
-          : "max_loss";
+          : (_momBufApplied ? "max_loss_momentum_buffered" : "max_loss");
         tickerData.__exit_family = "safety";
         return "exit";
       }
@@ -6974,15 +7038,22 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         const _tsMaxLossEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_time_scaled_max_loss_enabled ?? "true") === "true";
         if (_tsMaxLossEnabled && !_earlyPdzToleranceActive) {
           const _agMin = positionAgeMarketMin;
-          const _tsFloor4h = Number(tickerData?._env?._deepAuditConfig?.deep_audit_time_scaled_max_loss_4h_pct) || -2.5;
-          const _tsFloor12h = Number(tickerData?._env?._deepAuditConfig?.deep_audit_time_scaled_max_loss_12h_pct) || -2.0;
-          const _tsFloor24h = Number(tickerData?._env?._deepAuditConfig?.deep_audit_time_scaled_max_loss_24h_pct) || -1.5;
+          let _tsFloor4h = Number(tickerData?._env?._deepAuditConfig?.deep_audit_time_scaled_max_loss_4h_pct) || -2.5;
+          let _tsFloor12h = Number(tickerData?._env?._deepAuditConfig?.deep_audit_time_scaled_max_loss_12h_pct) || -2.0;
+          let _tsFloor24h = Number(tickerData?._env?._deepAuditConfig?.deep_audit_time_scaled_max_loss_24h_pct) || -1.5;
+          // V15 P0.7.55 — momentum buffer extends time-scaled floors too
+          if (_momBufApplied) {
+            const _mbTsExpand = Number(tickerData?._env?._deepAuditConfig?.deep_audit_momentum_buffer_time_scaled_expand_pct) || 1.0;
+            _tsFloor4h = Math.min(_tsFloor4h, _tsFloor4h - _mbTsExpand);
+            _tsFloor12h = Math.min(_tsFloor12h, _tsFloor12h - (_mbTsExpand * 0.6));
+            _tsFloor24h = Math.min(_tsFloor24h, _tsFloor24h - (_mbTsExpand * 0.3));
+          }
           let _tsCurrentFloor = null;
           if (_agMin >= 240 && _agMin < 720) _tsCurrentFloor = _tsFloor4h;
           else if (_agMin >= 720 && _agMin < 1440) _tsCurrentFloor = _tsFloor12h;
           else if (_agMin >= 1440) _tsCurrentFloor = _tsFloor24h;
           if (_tsCurrentFloor != null && pnlPct <= _tsCurrentFloor) {
-            tickerData.__exit_reason = "max_loss_time_scaled";
+            tickerData.__exit_reason = _momBufApplied ? "max_loss_time_scaled_momentum_buffered" : "max_loss_time_scaled";
             tickerData.__exit_family = "safety";
             return "exit";
           }

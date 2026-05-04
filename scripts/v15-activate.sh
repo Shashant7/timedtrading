@@ -141,6 +141,11 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_profit_giveback_min_mfe_volrunner_gap_long", "value": "5.0" },
     { "key": "deep_audit_smart_runner_volrunner_gap_long_defer_pnl_floor", "value": "-0.5" },
 
+    { "_comment": "V15 P0.7.55 — Momentum Buffer (SNDK Sep18 case): give VOLATILE_RUNNER x gap_reversal_long earned momentum credit on the SL side when 4+ of 6 momentum signals stack bullish at entry.", "key": "deep_audit_momentum_buffer_enabled", "value": "true" },
+    { "key": "deep_audit_momentum_buffer_min_signals", "value": "4" },
+    { "key": "deep_audit_momentum_buffer_max_loss_pct", "value": "-5.0" },
+    { "key": "deep_audit_momentum_buffer_time_scaled_expand_pct", "value": "1.0" },
+
     { "_comment": "V15 P0.7.51 — universe-benchmark calibration knobs.", "key": "deep_audit_hard_fuse_default_rsi1h", "value": "85" },
     { "key": "deep_audit_hard_fuse_default_rsi4h", "value": "80" },
     { "key": "deep_audit_hard_fuse_volrunner_gap_long_rsi1h", "value": "88" },
