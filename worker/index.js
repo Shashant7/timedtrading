@@ -6849,7 +6849,22 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       const _v13SafetyEnabled = String(
         tickerData?._env?._deepAuditConfig?.deep_audit_v13_safety_nets_enabled ?? "true"
       ) === "true";
-      if (_v13SafetyEnabled) {
+      // V15 P0.7.57 (2026-05-04) — Defense-in-depth against wall-clock
+      // force-closes during read-time evaluation of backtest trades.
+      // Root cause: classifyKanbanStage has many callers that don't pass
+      // asOfTs (read-time paths like /timed/all, /timed/prediction-contract,
+      // and possibly the live cron's queued-action path). When called
+      // without asOfTs, `now = Date.now()`, so V13 hard age/pnl evaluates
+      // a 9-month-old replay trade as "30 days expired", force-closes it
+      // at wall-clock time, and corrupts the run.
+      //
+      // Guard: if no asOfTs was passed AND the open trade has a non-null
+      // run_id (= it's a backtest trade, not live), short-circuit V13.
+      // Replay-engine callers ALWAYS pass asOfTs; only read-time / live-
+      // cron callers don't. Live trades have run_id=null so they still
+      // get V13 protection as intended.
+      const _v13IsBacktestRunReadTime = (asOfTs == null) && (openPosition?.run_id || openPosition?.runId);
+      if (_v13SafetyEnabled && !_v13IsBacktestRunReadTime) {
         // Safety 1: absolute pnl floor (V11 NXT went to -10%; should never happen)
         const _v13MaxPnlFloor = Number(
           tickerData?._env?._deepAuditConfig?.deep_audit_v13_max_pnl_floor_pct ?? -4.5
