@@ -2679,70 +2679,141 @@
                           swing high/low/equilibrium). Always renders if data
                           available, regardless of whether we have an active
                           trade or proposed entry. */}
+                      {/* V2.1 round 9 (2026-05-04) — Data-driven Key Levels.
+                          Now sourced from the upgraded prediction-contract
+                          `levels` array which prefers REAL price-action levels
+                          (52w high/low, swing pivots from D candles with touch
+                          counts, prior session range, PDZ swing structure)
+                          over derived projections (Saty fibs, EMAs).
+                          Presentation: split into Resistance (above current),
+                          Current price marker, Support (below). Each row has
+                          a strength bar (weight 1-10), color-coded kind chip,
+                          and tested-touch counter where applicable. */}
                       {Array.isArray(predictionContract?.levels) && predictionContract.levels.length > 0 && (() => {
                         const px = Number(v2Price) || Number(ticker?.price) || 0;
                         if (!(px > 0)) return null;
-                        const levels = [...predictionContract.levels];
-                        // Insert "Current" marker.
-                        levels.push({ price: px, label: "Current", family: "current", role: "at_price", dist_pct: 0 });
-                        levels.sort((a, b) => b.price - a.price);
-                        const familyColor = (f) => {
-                          switch (f) {
-                            case "saty_atr": return "var(--ds-text-muted)";
-                            case "saty_atr_week": return "#a78bfa";
-                            case "ema":      return "#60a5fa";
-                            case "ema_4h":   return "rgba(96,165,250,0.5)";
-                            case "pdz":      return "var(--ds-accent)";
-                            case "current":  return "#fbbf24";
-                            default: return "var(--ds-text-muted)";
-                          }
+                        const all = predictionContract.levels;
+                        const resistance = all.filter((l) => l.role === "resistance").sort((a, b) => a.price - b.price);
+                        const support = all.filter((l) => l.role === "support").sort((a, b) => b.price - a.price);
+
+                        const kindMeta = (kind) => {
+                          // Color + tier letter for the type chip
+                          if (kind === "year_high" || kind === "year_low") return { color: "#f87171", letter: "52W", desc: "52-week extreme" };
+                          if (kind === "swing_high" || kind === "swing_low") return { color: "#fbbf24", letter: "SW", desc: "Swing structure (D)" };
+                          if (kind === "swing_high_4h" || kind === "swing_low_4h") return { color: "#fcd34d", letter: "4H", desc: "Swing structure (4H)" };
+                          if (kind === "prior_session_high" || kind === "prior_session_low") return { color: "#a78bfa", letter: "PD", desc: "Prior day range" };
+                          if (kind === "pivot_high" || kind === "pivot_low") return { color: "#34d399", letter: "PV", desc: "Multi-tested pivot" };
+                          if (kind === "pdz_premium" || kind === "pdz_discount" || kind === "pdz_eq") return { color: "#60a5fa", letter: "PDZ", desc: "Premium/Discount/Equilibrium" };
+                          if (kind === "ema") return { color: "rgba(96,165,250,0.6)", letter: "EMA", desc: "Daily EMA magnet" };
+                          return { color: "var(--ds-text-muted)", letter: "—", desc: "Level" };
                         };
-                        return (
-                          <Panel title="Key Levels" action={<span className="ds-chip ds-chip--sm" style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)" }}>SATY · EMA · PDZ</span>}>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                              {levels.slice(0, 12).map((l, i) => {
-                                const isCur = l.family === "current";
-                                const isRes = l.role === "resistance";
-                                const isSup = l.role === "support";
-                                return (
-                                  <div key={`lvl-${i}-${l.price}`} style={{
-                                    display: "grid",
-                                    gridTemplateColumns: "10px 80px 1fr auto",
-                                    gap: "var(--ds-space-2)",
-                                    alignItems: "center",
-                                    padding: "3px var(--ds-space-2)",
-                                    borderRadius: "var(--ds-radius-xs)",
-                                    background: isCur ? "rgba(245,194,92,0.10)" : "transparent",
-                                    borderLeft: `2px solid ${familyColor(l.family)}`,
-                                  }}>
-                                    <span style={{
-                                      width: 6, height: 6, borderRadius: 3,
-                                      background: familyColor(l.family),
-                                      marginLeft: 2,
-                                    }} />
-                                    <span style={{ fontSize: "var(--ds-fs-caption)", color: isCur ? "var(--ds-accent)" : "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", fontWeight: isCur ? 700 : 500 }}>
-                                      {l.label}
-                                    </span>
-                                    <span style={{ fontSize: "var(--ds-fs-meta)", color: isCur ? "var(--ds-accent)" : "var(--ds-text)", fontFamily: "var(--tt-font-mono)", fontWeight: isCur ? 700 : 500 }}>
-                                      ${Number(l.price).toFixed(2)}
-                                    </span>
-                                    <span style={{
-                                      fontSize: 9,
-                                      fontFamily: "var(--tt-font-mono)",
-                                      color: isRes ? "var(--ds-dn)" : isSup ? "var(--ds-up)" : "var(--ds-accent)",
-                                      fontWeight: 600,
-                                      letterSpacing: "0.04em",
-                                    }}>
-                                      {isCur ? "—" : `${l.dist_pct >= 0 ? "+" : ""}${l.dist_pct.toFixed(2)}%`}
-                                    </span>
-                                  </div>
-                                );
-                              })}
+
+                        // Strength bar (1-10) — visual weight indicator
+                        const StrengthBar = ({ weight }) => {
+                          const w = Math.max(1, Math.min(10, Number(weight) || 5));
+                          return (
+                            <div style={{ display: "flex", gap: 1, alignItems: "center" }}>
+                              {Array.from({ length: 5 }, (_, i) => (
+                                <div key={i} style={{
+                                  width: 3, height: 8,
+                                  background: i < Math.ceil(w / 2) ? "var(--ds-accent)" : "rgba(255,255,255,0.08)",
+                                  borderRadius: 1,
+                                }} />
+                              ))}
                             </div>
-                            <div style={{ marginTop: "var(--ds-space-2)", paddingTop: "var(--ds-space-2)", borderTop: "1px solid var(--ds-border-faint)", display: "flex", flexWrap: "wrap", gap: 8, fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" }}>
-                              <span><span style={{ display: "inline-block", width: 6, height: 6, background: "var(--ds-text-muted)", borderRadius: 3, marginRight: 4 }} />SATY</span>
-                              <span><span style={{ display: "inline-block", width: 6, height: 6, background: "#60a5fa", borderRadius: 3, marginRight: 4 }} />EMA</span>
-                              <span><span style={{ display: "inline-block", width: 6, height: 6, background: "var(--ds-accent)", borderRadius: 3, marginRight: 4 }} />PDZ</span>
+                          );
+                        };
+
+                        const LevelRow = ({ l, side }) => {
+                          const m = kindMeta(l.kind);
+                          const distColor = side === "res" ? "var(--ds-dn)" : side === "sup" ? "var(--ds-up)" : "var(--ds-accent)";
+                          return (
+                            <div style={{
+                              display: "grid",
+                              gridTemplateColumns: "32px 1fr 56px 36px 26px",
+                              gap: "var(--ds-space-2)",
+                              alignItems: "center",
+                              padding: "5px 8px",
+                              borderRadius: "var(--ds-radius-xs)",
+                              background: "rgba(255,255,255,0.02)",
+                              borderLeft: `3px solid ${m.color}`,
+                            }} title={`${m.desc} · weight ${l.weight}`}>
+                              {/* Type chip */}
+                              <span style={{
+                                fontSize: 9,
+                                fontFamily: "var(--tt-font-mono)",
+                                fontWeight: 700,
+                                color: m.color,
+                                letterSpacing: "0.06em",
+                                textAlign: "center",
+                              }}>{m.letter}</span>
+                              {/* Label */}
+                              <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", letterSpacing: "0.02em" }}>
+                                {l.label}
+                              </span>
+                              {/* Price */}
+                              <span style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text)", fontFamily: "var(--tt-font-mono)", fontWeight: 600, textAlign: "right" }}>
+                                ${Number(l.price).toFixed(2)}
+                              </span>
+                              {/* Distance */}
+                              <span style={{ fontSize: 9, color: distColor, fontFamily: "var(--tt-font-mono)", fontWeight: 600, textAlign: "right" }}>
+                                {l.dist_pct >= 0 ? "+" : ""}{l.dist_pct.toFixed(1)}%
+                              </span>
+                              {/* Strength */}
+                              <StrengthBar weight={l.weight} />
+                            </div>
+                          );
+                        };
+
+                        return (
+                          <Panel title="Key Levels" action={
+                            <span style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 9, fontFamily: "var(--tt-font-mono)", color: "var(--ds-text-faint)", letterSpacing: "0.10em" }}>
+                              {resistance.length}R · {support.length}S
+                            </span>
+                          }>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                              {/* RESISTANCE (above current) — sorted nearest first */}
+                              {resistance.length > 0 && resistance.slice(0, 5).reverse().map((l, i) => (
+                                <LevelRow key={`res-${i}-${l.price}`} l={l} side="res" />
+                              ))}
+
+                              {/* CURRENT PRICE — bold highlighted band */}
+                              <div style={{
+                                display: "grid",
+                                gridTemplateColumns: "32px 1fr 56px 36px 26px",
+                                gap: "var(--ds-space-2)",
+                                alignItems: "center",
+                                padding: "8px 8px",
+                                borderRadius: "var(--ds-radius-xs)",
+                                background: "rgba(245,194,92,0.10)",
+                                border: "1px solid rgba(245,194,92,0.30)",
+                                margin: "2px 0",
+                              }}>
+                                <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, color: "var(--ds-accent)", letterSpacing: "0.06em", textAlign: "center" }}>NOW</span>
+                                <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-accent)", fontFamily: "var(--tt-font-mono)", letterSpacing: "0.02em", fontWeight: 700 }}>
+                                  Current Price
+                                </span>
+                                <span style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-accent)", fontFamily: "var(--tt-font-mono)", fontWeight: 700, textAlign: "right" }}>
+                                  ${px.toFixed(2)}
+                                </span>
+                                <span style={{ fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", textAlign: "right" }}>—</span>
+                                <span />
+                              </div>
+
+                              {/* SUPPORT (below current) — sorted nearest first */}
+                              {support.length > 0 && support.slice(0, 5).map((l, i) => (
+                                <LevelRow key={`sup-${i}-${l.price}`} l={l} side="sup" />
+                              ))}
+                            </div>
+
+                            {/* Legend */}
+                            <div style={{ marginTop: "var(--ds-space-3)", paddingTop: "var(--ds-space-2)", borderTop: "1px solid var(--ds-border-faint)", display: "flex", flexWrap: "wrap", gap: 10, fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", letterSpacing: "0.04em" }}>
+                              <span title="52-week high/low"><span style={{ display: "inline-block", width: 6, height: 6, background: "#f87171", borderRadius: 1, marginRight: 4 }} />52W</span>
+                              <span title="Swing structure"><span style={{ display: "inline-block", width: 6, height: 6, background: "#fbbf24", borderRadius: 1, marginRight: 4 }} />SWING</span>
+                              <span title="Multi-tested pivot"><span style={{ display: "inline-block", width: 6, height: 6, background: "#34d399", borderRadius: 1, marginRight: 4 }} />PIVOT</span>
+                              <span title="Prior day range"><span style={{ display: "inline-block", width: 6, height: 6, background: "#a78bfa", borderRadius: 1, marginRight: 4 }} />PRIOR DAY</span>
+                              <span title="PDZ premium/discount"><span style={{ display: "inline-block", width: 6, height: 6, background: "#60a5fa", borderRadius: 1, marginRight: 4 }} />PDZ</span>
+                              <span title="EMA magnet"><span style={{ display: "inline-block", width: 6, height: 6, background: "rgba(96,165,250,0.6)", borderRadius: 1, marginRight: 4 }} />EMA</span>
                             </div>
                           </Panel>
                         );

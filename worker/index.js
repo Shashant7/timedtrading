@@ -35031,85 +35031,152 @@ async function buildTraderPredictionContract(env, ticker) {
       Number.isFinite(Number(data?.tp_runner)) ? { label: "Runner", price: Number(data.tp_runner) } : null,
     ].filter(Boolean),
 
-    /* V15 P0.7.54 (2026-05-04) — universal Support/Resistance levels.
-       Derived from a blend of:
-         - Saty ATR Fibonacci levels (from atr_levels.day; 0.236/0.382/0.618/1.0)
-         - Daily EMAs (e21, e48, e200) from tf_tech.D.ema
-         - PDZ (premium/discount/equilibrium) zone center from pdz_zone_D
-       Sorted by price; classified as "support" if below current price,
-       "resistance" if above. Always populated even when no trade is active —
-       gives the user clear S/R lines they can use to plan entries/exits. */
-    levels: (() => {
+    /* V15 P0.7.54 (2026-05-04) — Data-driven Support/Resistance levels.
+       Re-architected per user feedback to use ACTUAL price-action levels
+       (not derived projections like Saty ATR fibs). Sources, in priority:
+         1. PDZ swing structure (real swingHigh / swingLow from price action)
+         2. Recent daily swing pivots from D candles (last 60 bars)
+         3. Prior session high/low (yesterday's range)
+         4. 52-week high/low
+         5. Daily EMAs as secondary "magnet" lines (e21, e48, e200)
+         6. PDZ premium/discount lines (range internals)
+       Each level carries a `weight` 1-10 reflecting how meaningful it is
+       (52w high > recent swing pivot > EMA), `touches` count where derivable,
+       and a clear `kind` so the UI can group/style them sensibly. */
+    levels: await (async () => {
       const px = Number(data?.price) || 0;
       if (!(px > 0)) return [];
       const out = [];
-      // 1. Saty ATR daily levels — these are the workhorse intraday extension levels
-      const atr = data?.atr_levels?.day || {};
-      // Day ATR levels are reported as {prevClose, lvls: {0.382: px, 0.618: px, 1.0: px, ...}}
-      // Or sometimes as flat {l_236, l_382, ...}. Check both shapes.
-      const _addAtr = (level, label, family) => {
-        const v = Number(level);
+      const _add = (price, kind, label, weight, opts = {}) => {
+        const v = Number(price);
         if (!Number.isFinite(v) || v <= 0) return;
-        out.push({ price: v, label, family });
+        out.push({
+          price: v,
+          kind,
+          label,
+          weight: weight || 5,
+          touches: opts.touches != null ? opts.touches : null,
+          family: opts.family || kind,
+        });
       };
-      if (atr?.lvls && typeof atr.lvls === "object") {
-        // upside fibs
-        _addAtr(atr.lvls["0.236"], "Day +0.236", "saty_atr");
-        _addAtr(atr.lvls["0.382"], "Day +0.382", "saty_atr");
-        _addAtr(atr.lvls["0.5"], "Day +0.5", "saty_atr");
-        _addAtr(atr.lvls["0.618"], "Day +0.618", "saty_atr");
-        _addAtr(atr.lvls["1.0"], "Day +1.0", "saty_atr");
-        _addAtr(atr.lvls["1.618"], "Day +1.618", "saty_atr");
-        // downside (negative keys)
-        _addAtr(atr.lvls["-0.236"], "Day -0.236", "saty_atr");
-        _addAtr(atr.lvls["-0.382"], "Day -0.382", "saty_atr");
-        _addAtr(atr.lvls["-0.618"], "Day -0.618", "saty_atr");
-        _addAtr(atr.lvls["-1.0"], "Day -1.0", "saty_atr");
+
+      // ── 1. PDZ swing structure (real price-action highs/lows) ─────────
+      const pdzD = data?.pdz_D || data?.pdz || data?.pdz_d || {};
+      if (typeof pdzD === "object") {
+        _add(pdzD.swingHigh, "swing_high", "Swing High (D)", 9);
+        _add(pdzD.swingLow, "swing_low", "Swing Low (D)", 9);
+        _add(pdzD.premiumLine, "pdz_premium", "Premium Zone", 6, { family: "pdz" });
+        _add(pdzD.discountLine, "pdz_discount", "Discount Zone", 6, { family: "pdz" });
+        _add(pdzD.eqHigh, "pdz_eq", "Equilibrium ↑", 5, { family: "pdz" });
+        _add(pdzD.eqLow, "pdz_eq", "Equilibrium ↓", 5, { family: "pdz" });
       }
-      // Also try the 'week' horizon for swing-trade levels (more meaningful
-      // than intraday ATR for our hold horizon).
-      const atrW = data?.atr_levels?.week || {};
-      if (atrW?.lvls && typeof atrW.lvls === "object") {
-        _addAtr(atrW.lvls["0.382"], "Week +0.382", "saty_atr_week");
-        _addAtr(atrW.lvls["0.618"], "Week +0.618", "saty_atr_week");
-        _addAtr(atrW.lvls["1.0"], "Week +1.0", "saty_atr_week");
-        _addAtr(atrW.lvls["-0.382"], "Week -0.382", "saty_atr_week");
-        _addAtr(atrW.lvls["-0.618"], "Week -0.618", "saty_atr_week");
+      const pdz4h = data?.pdz_4h || {};
+      if (typeof pdz4h === "object") {
+        _add(pdz4h.swingHigh, "swing_high_4h", "Swing High (4H)", 7);
+        _add(pdz4h.swingLow, "swing_low_4h", "Swing Low (4H)", 7);
       }
-      // 2. Daily EMAs — universal support/resistance lines
+
+      // ── 2. Recent swing pivots from D candles + prior session range + 52w ──
+      try {
+        const dCandlesRes = await d1GetCandles(env, ticker, "D", 260);
+        const candles = (dCandlesRes?.candles || []).filter((c) => Number.isFinite(c.h) && Number.isFinite(c.l));
+        if (candles.length >= 2) {
+          // Prior session
+          const prior = candles[candles.length - 2];
+          _add(prior.h, "prior_session_high", "Prior Day High", 8);
+          _add(prior.l, "prior_session_low", "Prior Day Low", 8);
+          // 52-week extremes (or full window if <252)
+          const recent = candles.slice(-Math.min(252, candles.length));
+          const wkHigh = Math.max(...recent.map((c) => c.h));
+          const wkLow = Math.min(...recent.map((c) => c.l));
+          _add(wkHigh, "year_high", "52w High", 10);
+          _add(wkLow, "year_low", "52w Low", 10);
+          // Recent swing pivots (last 60 bars). A pivot high = bar's high
+          // is the max over a 5-bar window (2 left, 2 right). Same for lows.
+          // Then count "touches" = subsequent bars whose high|low came
+          // within 0.5% of that pivot.
+          const window = candles.slice(-60);
+          const pivotHighs = [];
+          const pivotLows = [];
+          for (let i = 2; i < window.length - 2; i++) {
+            const c = window[i];
+            const isHigh = c.h >= window[i - 1].h && c.h >= window[i - 2].h && c.h >= window[i + 1].h && c.h >= window[i + 2].h;
+            const isLow = c.l <= window[i - 1].l && c.l <= window[i - 2].l && c.l <= window[i + 1].l && c.l <= window[i + 2].l;
+            if (isHigh) pivotHighs.push({ price: c.h, idx: i });
+            if (isLow) pivotLows.push({ price: c.l, idx: i });
+          }
+          // For each pivot, count touches in the broader 60-bar window
+          const countTouches = (level, isHigh) => {
+            let n = 0;
+            for (const c of window) {
+              const test = isHigh ? c.h : c.l;
+              if (Math.abs(test - level) / level < 0.005) n++;
+            }
+            return n;
+          };
+          // Take top 3 most-touched pivot highs and lows
+          const topHighs = pivotHighs
+            .map((p) => ({ ...p, touches: countTouches(p.price, true) }))
+            .filter((p) => p.touches >= 2)
+            .sort((a, b) => b.touches - a.touches || b.idx - a.idx)
+            .slice(0, 3);
+          const topLows = pivotLows
+            .map((p) => ({ ...p, touches: countTouches(p.price, false) }))
+            .filter((p) => p.touches >= 2)
+            .sort((a, b) => b.touches - a.touches || b.idx - a.idx)
+            .slice(0, 3);
+          for (const p of topHighs) {
+            _add(p.price, "pivot_high", `Pivot Hi · ${p.touches}× tested`, 7 + Math.min(2, p.touches - 2), { touches: p.touches });
+          }
+          for (const p of topLows) {
+            _add(p.price, "pivot_low", `Pivot Lo · ${p.touches}× tested`, 7 + Math.min(2, p.touches - 2), { touches: p.touches });
+          }
+        }
+      } catch (e) {
+        console.warn(`[levels] candle fetch failed for ${ticker}:`, String(e?.message || e).slice(0, 100));
+      }
+
+      // ── 3. Daily EMAs as secondary "magnet" lines ──────────────────────
       const dEma = data?.tf_tech?.D?.ema || {};
-      if (Number.isFinite(Number(dEma?.e21))) out.push({ price: Number(dEma.e21), label: "EMA21 (D)", family: "ema" });
-      if (Number.isFinite(Number(dEma?.e48))) out.push({ price: Number(dEma.e48), label: "EMA48 (D)", family: "ema" });
-      if (Number.isFinite(Number(dEma?.e200))) out.push({ price: Number(dEma.e200), label: "EMA200 (D)", family: "ema" });
-      // 4H EMAs as secondary
-      const h4Ema = data?.tf_tech?.["4H"]?.ema || data?.tf_tech?.["240"]?.ema || {};
-      if (Number.isFinite(Number(h4Ema?.e21))) out.push({ price: Number(h4Ema.e21), label: "EMA21 (4H)", family: "ema_4h" });
-      // 3. PDZ swing range — use the swing high/low from pdz, premium/discount center
-      const pdz = data?.pdz || data?.pdz_d || null;
-      if (pdz && typeof pdz === "object") {
-        if (Number.isFinite(Number(pdz.swing_high))) out.push({ price: Number(pdz.swing_high), label: "Swing High", family: "pdz" });
-        if (Number.isFinite(Number(pdz.swing_low))) out.push({ price: Number(pdz.swing_low), label: "Swing Low", family: "pdz" });
-        if (Number.isFinite(Number(pdz.eq))) out.push({ price: Number(pdz.eq), label: "Equilibrium", family: "pdz" });
-      }
-      // Dedup by price (within 0.5% of each other, keep first)
+      _add(dEma.e21, "ema", "EMA21 (D)", 5);
+      _add(dEma.e48, "ema", "EMA48 (D)", 5);
+      _add(dEma.e200, "ema", "EMA200 (D)", 6);
+
+      // Dedup within 0.4% — keep the highest-weight (most meaningful) name
       const dedup = [];
-      const _seen = [];
+      out.sort((a, b) => b.weight - a.weight);
       for (const lvl of out) {
-        const tooClose = _seen.some((p) => Math.abs(p - lvl.price) / Math.max(1, p) < 0.005);
-        if (!tooClose) { dedup.push(lvl); _seen.push(lvl.price); }
+        const collision = dedup.find((d) => Math.abs(d.price - lvl.price) / Math.max(1, d.price) < 0.004);
+        if (collision) {
+          // Merge: keep collision (higher weight), but if this is a touch-counted
+          // pivot and collision isn't, append the touch count.
+          if (lvl.touches != null && collision.touches == null) {
+            collision.touches = lvl.touches;
+            collision.label = `${collision.label} · ${lvl.touches}× tested`;
+          }
+        } else {
+          dedup.push(lvl);
+        }
       }
-      // Classify support vs resistance vs at-price
+
+      // Classify support vs resistance and add distance %
       for (const lvl of dedup) {
         const distPct = ((lvl.price - px) / px) * 100;
-        lvl.role = distPct < -0.5 ? "support" : distPct > 0.5 ? "resistance" : "at_price";
+        lvl.role = distPct < -0.3 ? "support" : distPct > 0.3 ? "resistance" : "at_price";
         lvl.dist_pct = Math.round(distPct * 100) / 100;
       }
-      // Sort highest to lowest (resistance first, then current, then support)
-      dedup.sort((a, b) => b.price - a.price);
-      // Cap to 10 most relevant (closest to price)
-      const sortedByDist = [...dedup].sort((a, b) => Math.abs(a.dist_pct) - Math.abs(b.dist_pct)).slice(0, 10);
-      const keepSet = new Set(sortedByDist.map((l) => l.price));
-      return dedup.filter((l) => keepSet.has(l.price));
+
+      // Keep the 12 most relevant: prioritize by combined (weight, proximity).
+      // Score = weight - log(distance) so high-weight + close-to-price wins.
+      dedup.sort((a, b) => {
+        const sa = (a.weight || 5) - Math.log10(Math.abs(a.dist_pct) + 1);
+        const sb = (b.weight || 5) - Math.log10(Math.abs(b.dist_pct) + 1);
+        return sb - sa;
+      });
+      const top = dedup.slice(0, 12);
+      // Final sort highest-to-lowest price for display
+      top.sort((a, b) => b.price - a.price);
+      return top;
     })(),
   };
 }
