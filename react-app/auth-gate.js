@@ -2134,7 +2134,8 @@
                 h("polygon", { points: "22 2 15 22 11 13 2 9 22 2" }),
               ),
         ),
-        joined ? "Discord invite pending" : "Discord Waitlist",
+        // 2026-05-04 — Wrapped in span so mobile CSS can icon-collapse the label.
+        h("span", { className: "tt-waitlist-label" }, joined ? "Discord invite pending" : "Discord Waitlist"),
       ),
       open && h("div", { style: panelStyle },
         h("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10 } },
