@@ -35112,8 +35112,77 @@ async function buildTraderPredictionContract(env, ticker) {
     }
     return parts.slice(0, 4).join(" ");
   })();
+  /* V2.1 round 11 (2026-05-04) — Direction-aware risk derivation.
+     Bug: ticker.sl is set by the LONG-biased default scoring path, so on
+     SHORT-bias tickers (e.g. GILD where direction=SHORT but data.sl=$115
+     sits BELOW the ~$131 price), the contract was emitting a stop that
+     would already be in profit territory for the short — which made the
+     entire ladder geometrically wrong.
+     Fix: when the direction conflicts with the geometric position of
+     ticker.sl (LONG with sl > price, OR SHORT with sl < price), derive
+     a corrected stop from atr_levels (preferred) or fall back to a
+     symmetric reflection across price. We also derive direction-aware
+     targets when the contract's tp_trim/exit/runner sit on the wrong
+     side of price. */
+  const _pxNow = Number(data?.price) || 0;
+  const _rawSL = Number.isFinite(Number(data?.sl)) ? Number(data.sl) : null;
+  const _atrDay = (() => {
+    const al = data?.atr_levels;
+    if (!al || typeof al !== "object") return null;
+    const d = al.day || al.D;
+    if (d && Number.isFinite(Number(d.atr))) return Number(d.atr);
+    if (Number.isFinite(Number(data?.atr_d))) return Number(data.atr_d);
+    return null;
+  })();
+  const _slDirCorrect = (() => {
+    if (!_rawSL || !_pxNow) return _rawSL;
+    if (direction === "LONG" && _rawSL >= _pxNow) {
+      // Stop above price for LONG → invalid; flip below price using ATR
+      if (_atrDay > 0) return Math.round((_pxNow - 1.0 * _atrDay) * 100) / 100;
+      return Math.round(_pxNow * 0.97 * 100) / 100;
+    }
+    if (direction === "SHORT" && _rawSL <= _pxNow) {
+      // Stop below price for SHORT → invalid; flip above price using ATR
+      if (_atrDay > 0) return Math.round((_pxNow + 1.0 * _atrDay) * 100) / 100;
+      return Math.round(_pxNow * 1.03 * 100) / 100;
+    }
+    return _rawSL;
+  })();
+  // Direction-aware targets. For SHORT, if data.tp_* sits ABOVE price,
+  // the targets came from a LONG-biased model run — derive proper SHORT
+  // targets from ATR fibs below price.
+  const _rawTrim = Number.isFinite(Number(data?.tp_trim)) ? Number(data.tp_trim) : null;
+  const _rawExit = Number.isFinite(Number(data?.tp_exit)) ? Number(data.tp_exit) : null;
+  const _rawRunner = Number.isFinite(Number(data?.tp_runner)) ? Number(data.tp_runner) : null;
+  const _tpsValid = (tps) => {
+    if (!Array.isArray(tps) || tps.length === 0) return false;
+    if (!_pxNow) return true;
+    if (direction === "LONG") return tps.every((t) => Number(t) > _pxNow);
+    if (direction === "SHORT") return tps.every((t) => Number(t) < _pxNow);
+    return true;
+  };
+  const _legacyTps = [_rawTrim, _rawExit, _rawRunner].filter((t) => Number.isFinite(t) && t > 0);
+  const _useLegacyTargets = _tpsValid(_legacyTps);
+  const _atrFibTargets = (() => {
+    if (_useLegacyTargets) return null;
+    if (!_pxNow || !(_atrDay > 0)) return null;
+    const sign = direction === "SHORT" ? -1 : 1;
+    return [
+      { label: "Trim", price: Math.round((_pxNow + sign * 0.618 * _atrDay) * 100) / 100 },
+      { label: "Exit", price: Math.round((_pxNow + sign * 1.0 * _atrDay) * 100) / 100 },
+      { label: "Runner", price: Math.round((_pxNow + sign * 1.618 * _atrDay) * 100) / 100 },
+    ];
+  })();
+
   const invalidation = [];
-  if (Number.isFinite(Number(data?.sl))) invalidation.push(`Stop loss ${Number(data.sl).toFixed(2)}`);
+  if (Number.isFinite(Number(_slDirCorrect))) {
+    // Direction-aware phrasing so the user reads "above" / "below" right.
+    if (direction === "SHORT") {
+      invalidation.push(`Close above ${Number(_slDirCorrect).toFixed(2)} (stop)`);
+    } else {
+      invalidation.push(`Close below ${Number(_slDirCorrect).toFixed(2)} (stop)`);
+    }
+  }
   invalidation.push(direction === "LONG" ? "Bullish consensus breaks down" : "Bearish consensus breaks down");
   if (regime && regime !== "unknown") invalidation.push(`Regime deteriorates from ${predictionStageLabel(regime)}`);
 
@@ -35153,14 +35222,19 @@ async function buildTraderPredictionContract(env, ticker) {
       data?.rr != null ? `Risk/reward ${Number(data.rr).toFixed(2)}x` : null,
     ]),
     risk: {
-      stop_loss: Number.isFinite(Number(data?.sl)) ? Number(data.sl) : null,
+      stop_loss: Number.isFinite(Number(_slDirCorrect)) ? Number(_slDirCorrect) : null,
+      stop_loss_raw: Number.isFinite(Number(_rawSL)) ? Number(_rawSL) : null,
+      stop_loss_corrected: Number.isFinite(Number(_rawSL)) && Number.isFinite(Number(_slDirCorrect)) && Math.abs(_rawSL - _slDirCorrect) > 0.01,
       rr: Number.isFinite(Number(data?.rr)) ? Number(data.rr) : null,
     },
-    targets: [
-      Number.isFinite(Number(data?.tp_trim)) ? { label: "Trim", price: Number(data.tp_trim) } : null,
-      Number.isFinite(Number(data?.tp_exit)) ? { label: "Exit", price: Number(data.tp_exit) } : null,
-      Number.isFinite(Number(data?.tp_runner)) ? { label: "Runner", price: Number(data.tp_runner) } : null,
-    ].filter(Boolean),
+    targets: _useLegacyTargets
+      ? [
+          Number.isFinite(_rawTrim) ? { label: "Trim", price: Number(_rawTrim) } : null,
+          Number.isFinite(_rawExit) ? { label: "Exit", price: Number(_rawExit) } : null,
+          Number.isFinite(_rawRunner) ? { label: "Runner", price: Number(_rawRunner) } : null,
+        ].filter(Boolean)
+      : (_atrFibTargets || []),
+    targets_basis: _useLegacyTargets ? "model" : (_atrFibTargets ? "atr_projection" : "none"),
 
     /* V15 P0.7.54 (2026-05-04) — Data-driven Support/Resistance levels.
        Re-architected per user feedback to use ACTUAL price-action levels
@@ -35191,20 +35265,23 @@ async function buildTraderPredictionContract(env, ticker) {
         });
       };
 
+      /* V2.1 round 11 (2026-05-04) — Plain-language labels per user:
+         "Retail users will not know what Pivot hi really means." All
+         labels are now full English with no jargon abbreviations. */
       // ── 1. PDZ swing structure (real price-action highs/lows) ─────────
       const pdzD = data?.pdz_D || data?.pdz || data?.pdz_d || {};
       if (typeof pdzD === "object") {
-        _add(pdzD.swingHigh, "swing_high", "Swing High (D)", 9);
-        _add(pdzD.swingLow, "swing_low", "Swing Low (D)", 9);
-        _add(pdzD.premiumLine, "pdz_premium", "Premium Zone", 6, { family: "pdz" });
-        _add(pdzD.discountLine, "pdz_discount", "Discount Zone", 6, { family: "pdz" });
-        _add(pdzD.eqHigh, "pdz_eq", "Equilibrium ↑", 5, { family: "pdz" });
-        _add(pdzD.eqLow, "pdz_eq", "Equilibrium ↓", 5, { family: "pdz" });
+        _add(pdzD.swingHigh, "swing_high", "Recent Swing High", 9);
+        _add(pdzD.swingLow, "swing_low", "Recent Swing Low", 9);
+        _add(pdzD.premiumLine, "pdz_premium", "Premium (overbought zone)", 6, { family: "pdz" });
+        _add(pdzD.discountLine, "pdz_discount", "Discount (oversold zone)", 6, { family: "pdz" });
+        _add(pdzD.eqHigh, "pdz_eq", "Range Center (upper)", 5, { family: "pdz" });
+        _add(pdzD.eqLow, "pdz_eq", "Range Center (lower)", 5, { family: "pdz" });
       }
       const pdz4h = data?.pdz_4h || {};
       if (typeof pdz4h === "object") {
-        _add(pdz4h.swingHigh, "swing_high_4h", "Swing High (4H)", 7);
-        _add(pdz4h.swingLow, "swing_low_4h", "Swing Low (4H)", 7);
+        _add(pdz4h.swingHigh, "swing_high_4h", "4H Swing High", 7);
+        _add(pdz4h.swingLow, "swing_low_4h", "4H Swing Low", 7);
       }
 
       // ── 2. Recent swing pivots from D candles + prior session range + 52w ──
@@ -35214,14 +35291,14 @@ async function buildTraderPredictionContract(env, ticker) {
         if (candles.length >= 2) {
           // Prior session
           const prior = candles[candles.length - 2];
-          _add(prior.h, "prior_session_high", "Prior Day High", 8);
-          _add(prior.l, "prior_session_low", "Prior Day Low", 8);
+          _add(prior.h, "prior_session_high", "Yesterday's High", 8);
+          _add(prior.l, "prior_session_low", "Yesterday's Low", 8);
           // 52-week extremes (or full window if <252)
           const recent = candles.slice(-Math.min(252, candles.length));
           const wkHigh = Math.max(...recent.map((c) => c.h));
           const wkLow = Math.min(...recent.map((c) => c.l));
-          _add(wkHigh, "year_high", "52w High", 10);
-          _add(wkLow, "year_low", "52w Low", 10);
+          _add(wkHigh, "year_high", "52-Week High", 10);
+          _add(wkLow, "year_low", "52-Week Low", 10);
           // Recent swing pivots (last 60 bars). A pivot high = bar's high
           // is the max over a 5-bar window (2 left, 2 right). Same for lows.
           // Then count "touches" = subsequent bars whose high|low came
@@ -35257,10 +35334,10 @@ async function buildTraderPredictionContract(env, ticker) {
             .sort((a, b) => b.touches - a.touches || b.idx - a.idx)
             .slice(0, 3);
           for (const p of topHighs) {
-            _add(p.price, "pivot_high", `Pivot Hi · ${p.touches}× tested`, 7 + Math.min(2, p.touches - 2), { touches: p.touches });
+            _add(p.price, "pivot_high", `Resistance Pivot · tested ${p.touches} times`, 7 + Math.min(2, p.touches - 2), { touches: p.touches });
           }
           for (const p of topLows) {
-            _add(p.price, "pivot_low", `Pivot Lo · ${p.touches}× tested`, 7 + Math.min(2, p.touches - 2), { touches: p.touches });
+            _add(p.price, "pivot_low", `Support Pivot · tested ${p.touches} times`, 7 + Math.min(2, p.touches - 2), { touches: p.touches });
           }
         }
       } catch (e) {
@@ -35269,9 +35346,9 @@ async function buildTraderPredictionContract(env, ticker) {
 
       // ── 3. Daily EMAs as secondary "magnet" lines ──────────────────────
       const dEma = data?.tf_tech?.D?.ema || {};
-      _add(dEma.e21, "ema", "EMA21 (D)", 5);
-      _add(dEma.e48, "ema", "EMA48 (D)", 5);
-      _add(dEma.e200, "ema", "EMA200 (D)", 6);
+      _add(dEma.e21, "ema", "21-Day Moving Average", 5);
+      _add(dEma.e48, "ema", "48-Day Moving Average", 5);
+      _add(dEma.e200, "ema", "200-Day Moving Average", 6);
 
       // Dedup within 0.4% — keep the highest-weight (most meaningful) name
       const dedup = [];
@@ -35283,7 +35360,7 @@ async function buildTraderPredictionContract(env, ticker) {
           // pivot and collision isn't, append the touch count.
           if (lvl.touches != null && collision.touches == null) {
             collision.touches = lvl.touches;
-            collision.label = `${collision.label} · ${lvl.touches}× tested`;
+            collision.label = `${collision.label} · tested ${lvl.touches} times`;
           }
         } else {
           dedup.push(lvl);
@@ -35295,6 +35372,58 @@ async function buildTraderPredictionContract(env, ticker) {
         const distPct = ((lvl.price - px) / px) * 100;
         lvl.role = distPct < -0.3 ? "support" : distPct > 0.3 ? "resistance" : "at_price";
         lvl.dist_pct = Math.round(distPct * 100) / 100;
+      }
+
+      /* V2.1 round 11 (2026-05-04) — Forward-projected ATR levels.
+         Per user: stocks priced far above their historical range (e.g. CAT
+         at $889 with all 52w / pivot levels below) end up with a one-sided
+         ladder that has nothing to plan a target against. When either side
+         (above or below price) has fewer than 2 levels, fill in with
+         ATR-based projections so the user always has reference points
+         on both sides. Marked with kind="atr_projection" so the UI can
+         style them more subtly than tested levels. */
+      const aboveCount = dedup.filter((l) => l.role === "resistance").length;
+      const belowCount = dedup.filter((l) => l.role === "support").length;
+      if (_atrDay > 0 && (aboveCount < 2 || belowCount < 2)) {
+        const fibs = [
+          { mult: 0.382, label: "+0.38× day ATR" },
+          { mult: 0.618, label: "+0.62× day ATR" },
+          { mult: 1.0,   label: "+1.00× day ATR" },
+          { mult: 1.618, label: "+1.62× day ATR" },
+        ];
+        if (aboveCount < 2) {
+          for (const { mult, label } of fibs) {
+            const proj = px + mult * _atrDay;
+            const distPct = Math.round(((proj - px) / px) * 100 * 100) / 100;
+            dedup.push({
+              price: Math.round(proj * 100) / 100,
+              kind: "atr_projection",
+              label,
+              weight: 4,
+              touches: null,
+              family: "atr",
+              role: "resistance",
+              dist_pct: distPct,
+            });
+          }
+        }
+        if (belowCount < 2) {
+          for (const { mult, label } of fibs) {
+            const proj = px - mult * _atrDay;
+            if (proj <= 0) continue;
+            const distPct = Math.round(((proj - px) / px) * 100 * 100) / 100;
+            dedup.push({
+              price: Math.round(proj * 100) / 100,
+              kind: "atr_projection",
+              label: label.replace("+", "−"),
+              weight: 4,
+              touches: null,
+              family: "atr",
+              role: "support",
+              dist_pct: distPct,
+            });
+          }
+        }
       }
 
       // Keep the 12 most relevant: prioritize by combined (weight, proximity).
