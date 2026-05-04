@@ -914,7 +914,13 @@
       );
     }
 
-    /* V2.1 round 7 — memoized LWChart. */
+    /* V2.1 round 7 — memoized LWChart.
+       V2.1 round 11 (2026-05-04) — Hardened comparator: compare EVERY
+       price line value, not just first/last. With S/R levels overlaying
+       the chart we may have 10+ lines whose content is stable across
+       renders but whose array reference changes on every parent re-render.
+       The previous "first/last" check was insufficient — when only middle
+       lines diverged, the chart would re-mount and flicker. */
     const LWChart = React.memo(_LWChartImpl, (prev, next) => {
       if (prev.candles !== next.candles) return false;
       if (prev.chartTf !== next.chartTf) return false;
@@ -924,14 +930,13 @@
       const prevSym = prev.ticker?.ticker || "";
       const nextSym = next.ticker?.ticker || "";
       if (prevSym !== nextSym) return false;
-      // Cheap shallow check on priceLines: length + first/last price
+      // Deep-equal on priceLines: every price value must match.
       const pa = Array.isArray(prev.priceLines) ? prev.priceLines : [];
       const pn = Array.isArray(next.priceLines) ? next.priceLines : [];
       if (pa.length !== pn.length) return false;
-      if (pa.length > 0) {
-        const first = (a, n) => Number(a[0]?.price) === Number(n[0]?.price);
-        const last  = (a, n) => Number(a[a.length-1]?.price) === Number(n[n.length-1]?.price);
-        if (!first(pa, pn) || !last(pa, pn)) return false;
+      for (let i = 0; i < pa.length; i++) {
+        if (Number(pa[i]?.price) !== Number(pn[i]?.price)) return false;
+        if (String(pa[i]?.title || "") !== String(pn[i]?.title || "")) return false;
       }
       const ma = Array.isArray(prev.markers) ? prev.markers : [];
       const mn = Array.isArray(next.markers) ? next.markers : [];
@@ -1297,7 +1302,10 @@
         const [fundamentalsSortDir, setFundamentalsSortDir] = useState("desc");
 
         // Right Rail: multi-timeframe candles chart (fetched on-demand)
-        const [chartTf, setChartTf] = useState("15"); // Default to 15m
+        /* V2.1 round 11 (2026-05-04) — Default to 30m per user feedback:
+           "default to 30m timeframe with indicators OFF" so the chart
+           reads cleanly first; toggles available to enable. */
+        const [chartTf, setChartTf] = useState("30");
         const [chartCandles, setChartCandles] = useState([]);
         const [chartLoading, setChartLoading] = useState(false);
         const [chartError, setChartError] = useState(null);
@@ -1360,9 +1368,12 @@
         // Model signal data (ticker + sector + market level)
         const [modelSignal, setModelSignal] = useState(null);
         const modelSignalCacheRef = useRef({ data: null, ts: 0 });
-        const [chartOverlays, setChartOverlays] = useState({ ema21: true, ema48: true, ema200: false, supertrend: false, tdSequential: false });
+        /* V2.1 round 11 (2026-05-04) — All overlays OFF by default per user.
+           User wants "default to 30m timeframe with indicators OFF" so the
+           chart shows clean candles first; toggles enable any with one click. */
+        const [chartOverlays, setChartOverlays] = useState({ ema21: false, ema48: false, ema200: false, supertrend: false, tdSequential: false });
         const [chartExpanded, setChartExpanded] = useState(false);
-        const [modalTf, setModalTf] = useState("15");
+        const [modalTf, setModalTf] = useState("30");
         const [modalCandles, setModalCandles] = useState([]);
         const [modalLoading, setModalLoading] = useState(false);
 
@@ -2095,12 +2106,32 @@
          * ════════════════════════════════════════════════════════════════ */
         const v2Enabled = (typeof window !== "undefined" && window._dsV2RailEnabled !== false);
         if (v2Enabled && !modalOnly) {
-          // Compute the v2 layout view-model from the same data the legacy renderer uses
-          const v2Dir = String(
-            (predictionContract?.direction || ticker?.position_direction || trade?.direction
-             || (String(ticker?.state || "").startsWith("HTF_BULL") ? "LONG"
-                 : String(ticker?.state || "").startsWith("HTF_BEAR") ? "SHORT" : ""))
-          ).toUpperCase();
+          /* V2.1 round 11 (2026-05-04) — Single source of truth for direction.
+             Every bias-driven label, ladder, level role, and narrative in the
+             rail derives from this one variable. Priority order:
+               1. trade.direction        (active trade — concrete commitment)
+               2. predictionContract.direction (model recommendation)
+               3. ticker.position_direction
+               4. ticker.state HTF_BULL/HTF_BEAR
+             Returns "LONG" / "SHORT" / "" (empty for unknown).
+             Exposed as both `v2Dir` (legacy alias) and `v2BiasDirection`. */
+          const v2BiasDirection = (() => {
+            if (trade?.direction) {
+              const d = String(trade.direction).toUpperCase();
+              if (d === "LONG" || d === "SHORT") return d;
+            }
+            if (predictionContract?.direction) {
+              const d = String(predictionContract.direction).toUpperCase();
+              if (d === "LONG" || d === "SHORT") return d;
+            }
+            const posDir = String(ticker?.position_direction || "").toUpperCase();
+            if (ticker?.has_open_position && (posDir === "LONG" || posDir === "SHORT")) return posDir;
+            const state = String(ticker?.state || "").toUpperCase();
+            if (state.startsWith("HTF_BULL")) return "LONG";
+            if (state.startsWith("HTF_BEAR")) return "SHORT";
+            return "";
+          })();
+          const v2Dir = v2BiasDirection;
           const v2Price = Number(latestTicker?.price ?? ticker?.price) || 0;
           const v2DayChange = (() => {
             const src = latestTicker || ticker;
@@ -2181,13 +2212,31 @@
                   const earnDays = earnings && Number.isFinite(earnings._daysAway) ? earnings._daysAway : null;
                   const earnLabel = earnDays === 0 ? "Today" : earnDays === 1 ? "Tomorrow" : earnDays != null && earnDays > 0 ? `${earnDays}d` : null;
                   const stage = String(ticker?.kanban_stage || "").toLowerCase();
-                  const stageChip = stage === "trim" ? { label: "Trim", cls: "ds-chip--accent" }
-                                   : stage === "defend" ? { label: "Defend", cls: "ds-chip--dn" }
-                                   : stage === "exit" ? { label: "Exit", cls: "ds-chip--dn" }
-                                   : (stage === "enter" || stage === "enter_now" || stage === "just_flipped") ? { label: "Enter", cls: "ds-chip--accent" }
-                                   : (stage === "hold" || stage === "active" || stage === "just_entered") ? { label: "Hold", cls: "ds-chip--up" }
-                                   : (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") ? { label: "Setup", cls: "" }
-                                   : null;
+                  // V2.1 round 10 (2026-05-04) — Stage chip is direction-aware now.
+                  // Previously rendered "Exit" verbatim which conflated "exit signal"
+                  // (model says exit your position) with "exit watch" (you're not in
+                  // a trade and the level is just a planning anchor). Resolve trade
+                  // status here so we can pick the right phrase.
+                  const _hdrTradeStatus = String(trade?.status || "").toUpperCase();
+                  const _hdrTradeIsOpen = !!(trade && (
+                    _hdrTradeStatus === "OPEN" || _hdrTradeStatus === "TP_HIT_TRIM" ||
+                    (!(trade?.exit_ts ?? trade?.exitTs) && _hdrTradeStatus !== "WIN" && _hdrTradeStatus !== "LOSS")
+                  ));
+                  const stageChip = (() => {
+                    if (stage === "trim") return { label: "TRIM", cls: "ds-chip--accent" };
+                    if (stage === "defend") return { label: "DEFEND", cls: "ds-chip--dn" };
+                    if (stage === "exit") {
+                      // "Exit" is unambiguous only when in a trade — then it means
+                      // "exit your position". When NOT in a trade, the engine's
+                      // "exit" label is really "no trade right now".
+                      if (_hdrTradeIsOpen) return { label: "EXIT NOW", cls: "ds-chip--dn" };
+                      return { label: "NO TRADE", cls: "" };
+                    }
+                    if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return { label: "ENTER", cls: "ds-chip--accent" };
+                    if (stage === "hold" || stage === "active" || stage === "just_entered") return { label: "ACTIVE", cls: "ds-chip--up" };
+                    if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") return { label: "ENTRY WATCH", cls: "" };
+                    return null;
+                  })();
                   return (
                 <div className="sticky top-0 z-30" style={{ background: "var(--ds-bg-canvas)", padding: "var(--ds-space-3) var(--ds-space-4)", borderBottom: "1px solid var(--ds-stroke)" }}>
                   <div className="flex items-center justify-between mb-2" style={{ gap: "var(--ds-space-2)" }}>
@@ -2199,7 +2248,16 @@
                         }
                       }}>{tickerSymbol.slice(0,2)}</div>
                       <h3 style={{ fontSize: "var(--ds-fs-h2)", fontWeight: 700, color: "var(--ds-text-display)", letterSpacing: "-0.01em", margin: 0, fontFamily: "var(--tt-font-mono)" }}>{tickerSymbol}</h3>
-                      {v2Dir && <span className={`ds-chip ds-chip--sm ${v2DirChip}`} title={trade ? "Active trade direction" : "Bias"}>{v2Dir}</span>}
+                      {v2Dir && (
+                        <span
+                          className={`ds-chip ds-chip--sm ${v2DirChip}`}
+                          title={_hdrTradeIsOpen
+                            ? `Active ${v2Dir} trade — currently in position`
+                            : `Model bias: ${v2Dir}. No active trade — use level levels as planning anchors.`}
+                        >
+                          {_hdrTradeIsOpen ? `${v2Dir} · ACTIVE` : `${v2Dir} BIAS`}
+                        </span>
+                      )}
                       {isTTSel && (
                         <span title="TT Selected" style={{
                           width: 6, height: 6, borderRadius: "50%",
@@ -2395,38 +2453,120 @@
                       {/* Model Guidance — moved to top of snapshot.
                           Header surfaces R{rank} so it reconciles with the
                           Conviction panel below (single source of truth). */}
-                      {predictionContract && (
-                        <Panel title="Model Guidance" action={
-                          <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                            {v2Rank != null && <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }} title="Rank vs all eligible tickers">R{v2Rank}</span>}
-                            {predictionContract?.action_label && <span className="ds-chip ds-chip--sm ds-chip--accent">{String(predictionContract.action_label).toUpperCase()}</span>}
-                          </div>
-                        }>
-                          {predictionContract?.thesis && (
-                            <p style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", lineHeight: "var(--tt-lh-relaxed)", margin: 0 }}>{predictionContract.thesis}</p>
-                          )}
-                          {predictionContract?.why_now && (
-                            <div style={{ marginTop: "var(--ds-space-3)" }}>
-                              <div className="ds-caption" style={{ marginBottom: "var(--ds-space-1)" }}>Why now</div>
-                              <p style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)", lineHeight: "var(--tt-lh-relaxed)", margin: 0 }}>{predictionContract.why_now}</p>
+                      {predictionContract && (() => {
+                        // V2.1 round 10 (2026-05-04) — Bias-aware Model Guidance.
+                        // Adds:
+                        //  1. Direction chip + plain-language bias line at the top so
+                        //     every Snapshot reads against the SAME direction the
+                        //     Setup, Technicals, Levels and ladder use.
+                        //  2. Supporting bullets are split into Strengths (✓) /
+                        //     Watch-for (·) / Invalidations (✗) — previously they
+                        //     all rendered as "+ ...", which mixed positive
+                        //     rationale with deflators ("Profile Choppy Selective"
+                        //     read positive but is a conviction deflator).
+                        //  3. "Why Now" is augmented with a one-line plain-English
+                        //     bias summary so users don't read the regime-score
+                        //     promotion as a positive.
+                        const pcDirRaw = String(predictionContract?.direction || "").toUpperCase();
+                        const pcDir = (pcDirRaw === "LONG" || pcDirRaw === "SHORT") ? pcDirRaw : null;
+                        const dirChipCls = pcDir === "LONG" ? "ds-chip--up" : pcDir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
+
+                        // Classify supporting bullets. Worker emits a flat string list;
+                        // some entries are conviction-deflators ("Profile Choppy Selective"
+                        // means we're in capital-protection mode, NOT a positive). We
+                        // pattern-match a few well-known deflator phrases.
+                        const supportingArr = Array.isArray(predictionContract?.supporting) ? predictionContract.supporting : [];
+                        const DEFLATOR_RE = /(choppy|capital protection|low conviction|low confidence|tier c|transitional|balanced|wait|watch only)/i;
+                        const QUALITY_RE = /(quality|score|rank)\s*(\d+)/i;
+                        const _strengths = [];
+                        const _watchFor = [];
+                        for (const s of supportingArr.slice(0, 8)) {
+                          const txt = String(s || "").trim();
+                          if (!txt) continue;
+                          if (DEFLATOR_RE.test(txt)) { _watchFor.push(txt); continue; }
+                          // Numeric scores: anything 60+ is a strength, below that is "watch for"
+                          const m = txt.match(QUALITY_RE);
+                          if (m) {
+                            const n = Number(m[2]);
+                            if (Number.isFinite(n) && n < 55) { _watchFor.push(txt); continue; }
+                          }
+                          _strengths.push(txt);
+                        }
+
+                        const invalidationArr = Array.isArray(predictionContract?.invalidation) ? predictionContract.invalidation : [];
+
+                        // Plain-English bias line (one short sentence).
+                        const biasLine = pcDir
+                          ? (pcDir === "LONG"
+                              ? "The model is leaning LONG. Snapshot, Setup, Technicals and Levels all read against this direction below."
+                              : "The model is leaning SHORT. Snapshot, Setup, Technicals and Levels all read against this direction below.")
+                          : null;
+
+                        return (
+                          <Panel title="Model Guidance" action={
+                            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                              {v2Rank != null && <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }} title="Rank vs all eligible tickers">R{v2Rank}</span>}
+                              {pcDir && <span className={`ds-chip ds-chip--sm ${dirChipCls}`} title="Authoritative bias for this ticker">{pcDir}</span>}
+                              {predictionContract?.action_label && <span className="ds-chip ds-chip--sm ds-chip--accent">{String(predictionContract.action_label).toUpperCase()}</span>}
                             </div>
-                          )}
-                          {Array.isArray(predictionContract?.supporting) && predictionContract.supporting.length > 0 && (
-                            <div style={{ marginTop: "var(--ds-space-3)", display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
-                              {predictionContract.supporting.slice(0, 6).map((s, i) => (
-                                <span key={`sup-${i}`} className="ds-chip ds-chip--sm ds-chip--up">+ {s}</span>
-                              ))}
-                            </div>
-                          )}
-                          {Array.isArray(predictionContract?.invalidation) && predictionContract.invalidation.length > 0 && (
-                            <div style={{ marginTop: "var(--ds-space-2)", display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
-                              {predictionContract.invalidation.slice(0, 4).map((s, i) => (
-                                <span key={`inv-${i}`} className="ds-chip ds-chip--sm ds-chip--dn">! {s}</span>
-                              ))}
-                            </div>
-                          )}
-                        </Panel>
-                      )}
+                          }>
+                            {biasLine && (
+                              <p style={{
+                                margin: "0 0 var(--ds-space-2) 0",
+                                fontSize: "var(--ds-fs-caption)",
+                                color: pcDir === "SHORT" ? "var(--ds-dn)" : "var(--ds-up)",
+                                fontFamily: "var(--tt-font-mono)",
+                                letterSpacing: "0.04em",
+                                fontWeight: 700,
+                                lineHeight: 1.5,
+                              }}>{biasLine}</p>
+                            )}
+                            {predictionContract?.thesis && (
+                              <p style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", lineHeight: "var(--tt-lh-relaxed)", margin: 0 }}>{predictionContract.thesis}</p>
+                            )}
+                            {predictionContract?.why_now && (
+                              <div style={{ marginTop: "var(--ds-space-3)" }}>
+                                <div className="ds-caption" style={{ marginBottom: "var(--ds-space-1)" }}>Why now</div>
+                                <p style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)", lineHeight: "var(--tt-lh-relaxed)", margin: 0 }}>{predictionContract.why_now}</p>
+                              </div>
+                            )}
+                            {(_strengths.length > 0 || _watchFor.length > 0 || invalidationArr.length > 0) && (
+                              <div style={{ marginTop: "var(--ds-space-3)", display: "flex", flexDirection: "column", gap: "var(--ds-space-2)" }}>
+                                {_strengths.length > 0 && (
+                                  <div>
+                                    <div className="ds-caption" style={{ marginBottom: 4, color: "var(--ds-up)" }}>Strengths</div>
+                                    <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
+                                      {_strengths.slice(0, 5).map((s, i) => (
+                                        <span key={`str-${i}`} className="ds-chip ds-chip--sm ds-chip--up">✓ {s}</span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                                {_watchFor.length > 0 && (
+                                  <div>
+                                    <div className="ds-caption" style={{ marginBottom: 4, color: "var(--ds-text-muted)" }}>Watch for (deflators)</div>
+                                    <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
+                                      {_watchFor.slice(0, 5).map((s, i) => (
+                                        <span key={`wf-${i}`} className="ds-chip ds-chip--sm ds-chip--solid" title="Conviction deflator — reduces confidence in the call">⚠ {s}</span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                                {invalidationArr.length > 0 && (
+                                  <div>
+                                    <div className="ds-caption" style={{ marginBottom: 4, color: "var(--ds-dn)" }}>Will invalidate</div>
+                                    <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
+                                      {invalidationArr.slice(0, 4).map((s, i) => (
+                                        <span key={`inv-${i}`} className="ds-chip ds-chip--sm ds-chip--dn" title="If this happens the bias is broken">✗ {s}</span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </Panel>
+                        );
+                      })()}
 
                       {/* Conviction panel — with tooltips on each metric */}
                       {(v2Rank || v2Score || v2Conv) && (
@@ -2588,14 +2728,56 @@
                           to memoize this with React.useMemo inside an IIFE
                           was a Rules-of-Hooks violation \u2014 reverted.) */}
                       {chartCandles && chartCandles.length >= 2 && (() => {
+                        /* V2.1 round 11 (2026-05-04) — Chart price lines now overlay the SAME
+                           levels rendered in the Key Levels panel below, so the user reads
+                           ONE coherent story across panel + chart. Includes:
+                             • Active-trade Entry / SL / TP (if any)
+                             • Top 2 resistance + 2 support from prediction contract levels
+                             • Current price (amber band)
+                             • Direction-aware coloring: profit-direction green, defense red
+                           Memoized below via React.useMemo. */
+                        const _pcDirChart = String(predictionContract?.direction || v2Dir || "").toUpperCase();
+                        const _isShortChart = _pcDirChart === "SHORT";
+                        const _pcSlChart = Number(predictionContract?.risk?.stop_loss);
+                        const _curPxChart = Number(v2Price) || Number(ticker?.price) || 0;
+                        const _allLevels = Array.isArray(predictionContract?.levels) ? predictionContract.levels : [];
+                        const _resistance = _allLevels.filter((l) => l.role === "resistance").sort((a, b) => a.price - b.price).slice(0, 3);
+                        const _support = _allLevels.filter((l) => l.role === "support").sort((a, b) => b.price - a.price).slice(0, 3);
                         const buildLines = () => {
                           const lines = [];
                           const ep = Number(ticker?.entry_price);
-                          const slPx = Number(ticker?.sl);
-                          const tpPx = Number(ticker?.tp);
-                          if (Number.isFinite(ep) && ep > 0) lines.push({ price: ep, color: "rgba(245,194,92,0.65)", title: "Entry", lineStyle: 0 });
-                          if (Number.isFinite(slPx) && slPx > 0) lines.push({ price: slPx, color: "rgba(244,63,94,0.7)", title: "Stop", lineStyle: 2 });
-                          if (Number.isFinite(tpPx) && tpPx > 0) lines.push({ price: tpPx, color: "rgba(34,197,94,0.7)", title: "Target", lineStyle: 2 });
+                          // Active-trade Entry/SL/TP (highest priority — solid)
+                          if (Number.isFinite(ep) && ep > 0 && trade) lines.push({ price: ep, color: "rgba(245,194,92,0.85)", title: "Entry", lineStyle: 0, lineWidth: 2 });
+                          if (Number.isFinite(_pcSlChart) && _pcSlChart > 0) lines.push({ price: _pcSlChart, color: "rgba(244,63,94,0.85)", title: "Stop", lineStyle: 2, lineWidth: 2 });
+                          // Targets from contract (direction-aware ordering)
+                          const tps = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
+                          tps.slice(0, 3).forEach((tp, i) => {
+                            const px = Number(tp?.price);
+                            if (Number.isFinite(px) && px > 0) lines.push({ price: px, color: "rgba(34,197,94,0.80)", title: `TP${i + 1}`, lineStyle: 2, lineWidth: 2 });
+                          });
+                          // Key levels from panel — top 2 above + 2 below (subtle dashes)
+                          // Profit direction (LONG above / SHORT below) → green tint.
+                          // Defense direction → red tint. Already classified by role.
+                          const above2 = _resistance.slice(0, 2);
+                          const below2 = _support.slice(0, 2);
+                          for (const l of above2) {
+                            const profit = !_isShortChart;
+                            lines.push({
+                              price: Number(l.price),
+                              color: profit ? "rgba(34,197,94,0.35)" : "rgba(244,63,94,0.35)",
+                              title: l.label || "",
+                              lineStyle: 2, lineWidth: 1,
+                            });
+                          }
+                          for (const l of below2) {
+                            const profit = _isShortChart;
+                            lines.push({
+                              price: Number(l.price),
+                              color: profit ? "rgba(34,197,94,0.35)" : "rgba(244,63,94,0.35)",
+                              title: l.label || "",
+                              lineStyle: 2, lineWidth: 1,
+                            });
+                          }
                           return lines;
                         };
                         const indicatorBtn = (key, label, title) => {
@@ -2696,6 +2878,22 @@
                         const resistance = all.filter((l) => l.role === "resistance").sort((a, b) => a.price - b.price);
                         const support = all.filter((l) => l.role === "support").sort((a, b) => b.price - a.price);
 
+                        // V2.1 round 10 (2026-05-04) — Direction-aware level role labels.
+                        // Worker's `role` field is geometric (above price = resistance,
+                        // below = support), which is direction-blind. For SHORT bias,
+                        // levels BELOW price are profit zones (target zones), and levels
+                        // ABOVE are invalidation risk (above SL = thesis broken).
+                        const pcDir = String(predictionContract?.direction || "").toUpperCase();
+                        const isShort = pcDir === "SHORT";
+                        const aboveLabel = isShort ? "Invalidation Zone" : "Resistance";
+                        const aboveSubtitle = isShort
+                          ? `Levels above $${px.toFixed(2)} — close above invalidates the SHORT bias`
+                          : `Levels above $${px.toFixed(2)} — sell zones / profit-taking targets`;
+                        const belowLabel = isShort ? "Target Zones" : "Support";
+                        const belowSubtitle = isShort
+                          ? `Levels below $${px.toFixed(2)} — profit-taking targets for the SHORT`
+                          : `Levels below $${px.toFixed(2)} — defend / SL reference zones`;
+
                         const kindMeta = (kind) => {
                           // Color + tier letter for the type chip
                           if (kind === "year_high" || kind === "year_low") return { color: "#f87171", letter: "52W", desc: "52-week extreme" };
@@ -2726,6 +2924,12 @@
 
                         const LevelRow = ({ l, side }) => {
                           const m = kindMeta(l.kind);
+                          // Direction-aware distance color:
+                          //   LONG: above price = red (resistance to break), below = green (support)
+                          //   SHORT: above price = red (invalidation), below = green (target/profit)
+                          // The geometric red/green stays the same — what changes is interpretation.
+                          // For SHORT we keep the same colors but the labels (Invalidation Zone /
+                          // Target Zones) clarify the meaning.
                           const distColor = side === "res" ? "var(--ds-dn)" : side === "sup" ? "var(--ds-up)" : "var(--ds-accent)";
                           return (
                             <div style={{
@@ -2765,14 +2969,46 @@
                           );
                         };
 
+                        const SectionLabel = ({ text, sub, color }) => (
+                          <div style={{
+                            display: "flex",
+                            alignItems: "baseline",
+                            justifyContent: "space-between",
+                            padding: "4px 4px 2px 4px",
+                            borderBottom: "1px dashed var(--ds-stroke)",
+                            marginBottom: 2,
+                          }}>
+                            <span style={{
+                              fontSize: 9,
+                              fontFamily: "var(--tt-font-mono)",
+                              fontWeight: 700,
+                              letterSpacing: "0.16em",
+                              textTransform: "uppercase",
+                              color,
+                            }}>{text}</span>
+                            {sub && (
+                              <span style={{
+                                fontSize: 9,
+                                color: "var(--ds-text-faint)",
+                                fontFamily: "var(--tt-font-mono)",
+                                letterSpacing: "0.04em",
+                              }}>{sub}</span>
+                            )}
+                          </div>
+                        );
+
                         return (
                           <Panel title="Key Levels" action={
                             <span style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 9, fontFamily: "var(--tt-font-mono)", color: "var(--ds-text-faint)", letterSpacing: "0.10em" }}>
-                              {resistance.length}R · {support.length}S
+                              {pcDir && <span className={`ds-chip ds-chip--sm ${isShort ? "ds-chip--dn" : "ds-chip--up"}`} title="Bias direction — drives level role labels" style={{ fontSize: 9 }}>{pcDir}</span>}
+                              <span>{resistance.length} above · {support.length} below</span>
                             </span>
                           }>
                             <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                              {/* RESISTANCE (above current) — sorted nearest first */}
+                              {resistance.length > 0 && (
+                                <SectionLabel text={aboveLabel} sub={isShort ? "stop above price" : "profit / fade"} color={isShort ? "var(--ds-dn)" : "var(--ds-dn)"} />
+                              )}
+                              {/* Levels above current — sorted nearest first */}
                               {resistance.length > 0 && resistance.slice(0, 5).reverse().map((l, i) => (
                                 <LevelRow key={`res-${i}-${l.price}`} l={l} side="res" />
                               ))}
@@ -2800,11 +3036,28 @@
                                 <span />
                               </div>
 
-                              {/* SUPPORT (below current) — sorted nearest first */}
+                              {support.length > 0 && (
+                                <SectionLabel text={belowLabel} sub={isShort ? "profit-take" : "defend / SL ref"} color={isShort ? "var(--ds-up)" : "var(--ds-up)"} />
+                              )}
+                              {/* Levels below current — sorted nearest first */}
                               {support.length > 0 && support.slice(0, 5).map((l, i) => (
                                 <LevelRow key={`sup-${i}-${l.price}`} l={l} side="sup" />
                               ))}
                             </div>
+
+                            {/* Direction-aware caption explaining what the labels mean. */}
+                            {pcDir && (
+                              <p style={{
+                                margin: "var(--ds-space-2) 0 0 0",
+                                fontSize: 9,
+                                color: "var(--ds-text-faint)",
+                                fontFamily: "var(--tt-font-mono)",
+                                lineHeight: 1.5,
+                                fontStyle: "italic",
+                              }}>
+                                {pcDir} bias · {aboveSubtitle.replace(/^Levels above .*? — /, "Above: ")} · {belowSubtitle.replace(/^Levels below .*? — /, "Below: ")}
+                              </p>
+                            )}
 
                             {/* Legend */}
                             <div style={{ marginTop: "var(--ds-space-3)", paddingTop: "var(--ds-space-2)", borderTop: "1px solid var(--ds-border-faint)", display: "flex", flexWrap: "wrap", gap: 10, fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", letterSpacing: "0.04em" }}>
@@ -2820,43 +3073,98 @@
                       })()}
 
                       {/* Risk & Targets — vertical price ladder.
-                          V2.1 round 7 (2026-05-01) — Now surfaces ALL TP tiers
-                          (TP1 trim, TP2 exit, TP3 runner) from tpArray when
-                          available, plus any bonus levels (tp_max, tp_runner).
-                          Per user: "make sure the Take Profit level is correct,
-                          we should show any additional bonus levels if they
-                          are there". */}
-                      {(ticker?.sl || ticker?.tp || ticker?.tp_trim || ticker?.tp_exit || ticker?.entry_price) && (() => {
-                        const entry = Number(ticker.entry_price) || 0;
-                        const sl = Number(ticker.sl ?? ticker.sl_dynamic ?? ticker.stop_loss) || 0;
+                          V2.1 round 10 (2026-05-04) — Direction-aware, prediction-contract-first.
+                          BUG FIX: previous version pulled `ticker.sl` / `ticker.tp_*` blindly,
+                          which on SHORT-bias tickers (e.g. GILD where sl=$114 was actually a
+                          LONG-trade stop sitting BELOW price) showed an upside-down ladder
+                          with the stop in profit territory and targets above price.
+                          New ordering of truth (highest priority first):
+                            1. predictionContract.risk.stop_loss + .targets[]  (direction-aware,
+                               always correct: SHORT stops sit ABOVE price, targets BELOW;
+                               LONG stops sit BELOW, targets ABOVE)
+                            2. trade.tpArray + trade.sl (when an active trade exists)
+                            3. ticker.sl / tp_trim / tp_exit / tp_max (legacy fallback only when
+                               there's an open position with matching direction)
+                          When there's no active trade, the panel renders as a "PROPOSED PLAN"
+                          eyebrow with a clear "model-derived levels" disclaimer so the user
+                          doesn't read R:R as an active commitment. */}
+                      {(() => {
+                        const pcSL = predictionContract?.risk?.stop_loss != null ? Number(predictionContract.risk.stop_loss) : NaN;
+                        const pcTargets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
+                        const pcRR = predictionContract?.risk?.rr != null ? Number(predictionContract.risk.rr) : NaN;
+                        const pcDir = String(predictionContract?.direction || "").toUpperCase();
+
+                        const tradeStatus = String(trade?.status || "").toUpperCase();
+                        const tradeIsOpen = !!(trade && (
+                          tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" ||
+                          (!(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS")
+                        ));
+
+                        // Resolve direction (RR honors prediction contract for proposed plans,
+                        // falls back to active trade direction).
+                        const dir = (pcDir === "LONG" || pcDir === "SHORT")
+                          ? pcDir
+                          : (tradeIsOpen ? String(trade?.direction || "").toUpperCase() : (v2Dir || "LONG"));
+                        const isLong = dir !== "SHORT";
+
+                        // Resolve entry, current, stop (priority chain).
+                        const entry = (() => {
+                          if (tradeIsOpen) return Number(trade?.entry_price ?? trade?.entryPrice) || 0;
+                          return Number(ticker?.entry_price) || 0;
+                        })();
                         const cur = v2Price || entry;
-                        // Build TP levels: prefer tpArray (3-tier), fallback to tp_trim/tp_exit/tp
+                        const sl = (() => {
+                          if (Number.isFinite(pcSL) && pcSL > 0) return pcSL;
+                          if (tradeIsOpen) return Number(trade?.sl) || 0;
+                          return Number(ticker?.sl ?? ticker?.sl_dynamic ?? ticker?.stop_loss) || 0;
+                        })();
+
+                        // Resolve TP levels (direction-aware). Prefer prediction contract.
                         const tpLevels = (() => {
                           const out = [];
-                          const tpArr = Array.isArray(trade?.tpArray) && trade.tpArray.length > 0
-                            ? trade.tpArray
-                            : (Array.isArray(ticker?.tpArray) ? ticker.tpArray : []);
-                          if (tpArr.length > 0) {
-                            tpArr.forEach((tp, i) => {
-                              const px = Number(tp?.price ?? tp);
-                              if (Number.isFinite(px) && px > 0) {
-                                out.push({
-                                  label: tp?.tier || (i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`),
-                                  desc: tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner"),
-                                  px,
-                                });
-                              }
+                          if (pcTargets.length > 0) {
+                            // Prediction contract targets are already in priority order
+                            // (Trim → Exit → Runner). Direction-aware: SHORT targets are
+                            // BELOW price, LONG targets ABOVE.
+                            pcTargets.forEach((tp, i) => {
+                              const px = Number(tp?.price);
+                              if (!Number.isFinite(px) || px <= 0) return;
+                              const tier = tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner");
+                              out.push({
+                                label: i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`,
+                                desc: tier,
+                                px,
+                              });
                             });
-                          } else {
+                          } else if (tradeIsOpen && Array.isArray(trade?.tpArray) && trade.tpArray.length > 0) {
+                            trade.tpArray.forEach((tp, i) => {
+                              const px = Number(tp?.price ?? tp);
+                              if (!Number.isFinite(px) || px <= 0) return;
+                              out.push({
+                                label: tp?.tier || (i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`),
+                                desc: tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner"),
+                                px,
+                              });
+                            });
+                          } else if (tradeIsOpen) {
+                            // Active trade with legacy single-tp fields
                             const tp1 = Number(ticker?.tp_trim) || 0;
                             const tp2 = Number(ticker?.tp_exit) || Number(ticker?.tp_target_price) || Number(ticker?.tp) || 0;
                             const tpMax = Number(ticker?.tp_max) || Number(ticker?.tp_runner) || 0;
                             if (tp1 > 0) out.push({ label: "TP1", desc: "Trim", px: tp1 });
                             if (tp2 > 0 && tp2 !== tp1) out.push({ label: "TP2", desc: "Exit", px: tp2 });
-                            if (tpMax > 0 && tpMax !== tp1 && tpMax !== tp2) out.push({ label: "TP3", desc: "Runner / Bonus", px: tpMax });
+                            if (tpMax > 0 && tpMax !== tp1 && tpMax !== tp2) out.push({ label: "TP3", desc: "Runner", px: tpMax });
                           }
+                          // Sort TP1→TP3 in correct distance order from current.
+                          // For SHORT: nearest below price first. For LONG: nearest above first.
+                          // (Already in priority order from contract, but defensive sort.)
                           return out;
                         })();
+
+                        if (!sl && tpLevels.length === 0) return null;
+
+                        // Build ladder. SHORT bias: targets below price, stop above.
+                        // LONG bias: targets above price, stop below. Sort top→bottom by price.
                         const all = [entry, cur, sl, ...tpLevels.map(t => t.px)].filter(p => Number.isFinite(p) && p > 0);
                         if (all.length < 2) return null;
                         const min = Math.min(...all);
@@ -2865,16 +3173,14 @@
                         const lo = min - padding;
                         const hi = max + padding;
                         const yFor = (px) => 100 - ((px - lo) / (hi - lo)) * 100;
-                        const isLong = v2Dir === "LONG";
+                        const targetColor = "var(--ds-up)";
+                        const stopColor = "var(--ds-dn)";
                         const rawLevels = [
-                          ...tpLevels.map(tp => ({ label: tp.label, sub: tp.desc, px: tp.px, color: "var(--ds-up)" })),
+                          ...tpLevels.map(tp => ({ label: tp.label, sub: tp.desc, px: tp.px, color: targetColor, kind: "tp" })),
                           cur ? { label: "Current", px: cur, color: "var(--ds-accent)", isCurrent: true } : null,
-                          entry ? { label: "Entry", px: entry, color: "var(--ds-text-muted)" } : null,
-                          sl ? { label: "Stop", px: sl, color: "var(--ds-dn)" } : null,
+                          entry ? { label: "Entry", px: entry, color: "var(--ds-text-muted)", kind: "entry" } : null,
+                          sl ? { label: "Stop", px: sl, color: stopColor, kind: "sl" } : null,
                         ].filter(Boolean).sort((a, b) => b.px - a.px);
-                        // Avoid label overlap: enforce minimum 8% y-spacing between
-                        // adjacent labels by nudging downstream rows down. Was
-                        // causing Entry/Stop text overlap when prices were close.
                         const levels = rawLevels.map(l => ({ ...l, _y: yFor(l.px) }));
                         const MIN_SPACING = 11;
                         for (let i = 1; i < levels.length; i++) {
@@ -2883,8 +3189,72 @@
                             levels[i]._y = prevY + MIN_SPACING;
                           }
                         }
+
+                        // Direction sanity guard. If we're SHORT and the stop sits BELOW price
+                        // (or LONG and stop sits ABOVE), the ladder is geometrically wrong
+                        // for this direction — surface a warning chip instead of silently
+                        // displaying contradictory data.
+                        const ladderInverted = (() => {
+                          if (!sl || !cur) return false;
+                          if (isLong && sl > cur) return true;
+                          if (!isLong && sl < cur) return true;
+                          return false;
+                        })();
+
+                        // Eyebrow: distinguish PROPOSED PLAN (no active trade — model levels)
+                        // from ACTIVE PLAN (in a trade — these are real risk/reward).
+                        const isProposed = !tradeIsOpen;
+                        const eyebrow = isProposed ? "PROPOSED PLAN" : "ACTIVE PLAN";
+                        const rrChip = (() => {
+                          const rr = Number.isFinite(pcRR) ? pcRR : (Number(ticker?.rr) || NaN);
+                          if (!Number.isFinite(rr) || rr <= 0) return null;
+                          return (
+                            <span className={`ds-chip ds-chip--sm ${rr >= 2 ? "ds-chip--up" : "ds-chip--accent"}`} title={isProposed ? "Model-derived reward-to-risk — entry not triggered" : "Active reward-to-risk for the open trade"}>
+                              R:R {rr.toFixed(2)}
+                            </span>
+                          );
+                        })();
+                        const headerAction = (
+                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            <span className="ds-chip ds-chip--sm" style={{
+                              fontFamily: "var(--tt-font-mono)",
+                              fontSize: 9,
+                              letterSpacing: "0.12em",
+                              color: isProposed ? "var(--ds-text-muted)" : "var(--ds-accent)",
+                              background: isProposed ? "transparent" : "var(--ds-accent-dim)",
+                              borderColor: isProposed ? "var(--ds-stroke)" : "var(--ds-accent)",
+                            }}>{eyebrow}</span>
+                            {rrChip}
+                          </div>
+                        );
+
                         return (
-                          <Panel title="Risk & Targets" action={ticker?.rr && <span className={`ds-chip ds-chip--sm ${Number(ticker.rr) >= 2 ? "ds-chip--up" : "ds-chip--accent"}`}>R:R {Number(ticker.rr).toFixed(2)}</span>}>
+                          <Panel title={isProposed ? "Risk & Targets" : "Risk & Targets"} action={headerAction}>
+                            {isProposed && (
+                              <p style={{
+                                margin: "0 0 var(--ds-space-2) 0",
+                                fontSize: "var(--ds-fs-caption)",
+                                color: "var(--ds-text-faint)",
+                                lineHeight: 1.5,
+                                fontStyle: "italic",
+                              }}>
+                                Model-derived levels — entry not triggered. {dir === "SHORT" ? "Targets below price (profit zones); stop above price (invalidates the short)." : "Targets above price (profit zones); stop below price (invalidates the long)."}
+                              </p>
+                            )}
+                            {ladderInverted && (
+                              <p style={{
+                                margin: "0 0 var(--ds-space-2) 0",
+                                padding: "4px 8px",
+                                borderRadius: "var(--ds-radius-xs)",
+                                background: "rgba(244,63,94,0.08)",
+                                border: "1px solid rgba(244,63,94,0.30)",
+                                fontSize: "var(--ds-fs-caption)",
+                                color: "var(--ds-dn)",
+                                lineHeight: 1.4,
+                              }}>
+                                ⚠ Ladder geometry conflicts with {dir} bias — stop is {isLong ? "above" : "below"} current price.
+                              </p>
+                            )}
                             <div style={{ position: "relative", height: 160, marginTop: "var(--ds-space-2)", borderLeft: "2px solid var(--ds-stroke)", paddingLeft: "var(--ds-space-3)" }}>
                               {levels.map((l, i) => {
                                 const top = l._y;
@@ -2969,16 +3339,95 @@
                   {/* TECHNICALS TAB */}
                   {v2RailTab === "TECHNICALS" && (
                     <>
-                      {/* V2.1 round 6 (2026-05-01) — Technical Analysis narrative.
-                          Per user: "It would be nice to provide a quick technical
-                          analysis narrative on top of the technicals section in
-                          the right rail." Builds plain-language commentary from
-                          tf_tech across LTF/HTF, RSI extremes, squeeze state,
-                          and TD count to give a "what does this all mean" read. */}
+                      {/* V2.1 round 11 (2026-05-04) — Bias Confirmation/Conflict
+                          banner. Always renders at the top of Technicals so the
+                          user knows whether HTF structure SUPPORTS or OPPOSES
+                          the model's call before reading the per-line
+                          observations below.
+                          Color: green (aligned) / amber (mixed) / red (conflict). */}
+                      {(() => {
+                        const tfm = ticker?.tf_tech || {};
+                        const pcDir = String(predictionContract?.direction || "").toUpperCase();
+                        if (!pcDir) return null;
+                        const dirSign = pcDir === "LONG" ? 1 : -1;
+                        let aligned = 0, opposed = 0, present = 0;
+                        for (const k of ["15","30","1H","60","4H","240","D"]) {
+                          const r = tfm[k];
+                          if (!r) continue;
+                          const stack = Number(r?.ema?.stack);
+                          if (!Number.isFinite(stack) || stack === 0) continue;
+                          present += 1;
+                          if (Math.sign(stack) === dirSign) aligned += 1;
+                          else opposed += 1;
+                        }
+                        if (present === 0) return null;
+                        const ratio = aligned / present;
+                        const status = ratio >= 0.7 ? "aligned" : ratio <= 0.3 ? "conflict" : "mixed";
+                        const meta = status === "aligned"
+                          ? { cls: "ds-chip--up", color: "var(--ds-up)", bg: "rgba(34,197,94,0.06)", border: "rgba(34,197,94,0.30)", lead: "ALIGNED", txt: `${aligned}/${present} timeframes confirm the ${pcDir} bias — read the call as well-supported.` }
+                          : status === "conflict"
+                          ? { cls: "ds-chip--dn", color: "var(--ds-dn)", bg: "rgba(244,63,94,0.06)", border: "rgba(244,63,94,0.30)", lead: "CONFLICT", txt: `${opposed}/${present} timeframes oppose the ${pcDir} bias — the model is taking a counter-trend / reversal stance. Wait for confirmation before sizing in.` }
+                          : { cls: "ds-chip--accent", color: "var(--ds-accent)", bg: "rgba(245,194,92,0.06)", border: "rgba(245,194,92,0.30)", lead: "MIXED", txt: `${aligned} aligned / ${opposed} opposed across ${present} timeframes — structure is split. Trade smaller and tighter.` };
+                        return (
+                          <div className="ds-glass" style={{
+                            marginBottom: "var(--ds-space-3)",
+                            background: meta.bg,
+                            border: `1px solid ${meta.border}`,
+                            padding: "var(--ds-space-3)",
+                          }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                              <span className={`ds-chip ds-chip--sm ${meta.cls}`} style={{ fontFamily: "var(--tt-font-mono)", letterSpacing: "0.10em" }}>BIAS · {meta.lead}</span>
+                              <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)" }}>{pcDir}</span>
+                            </div>
+                            <p style={{ margin: 0, fontSize: "var(--ds-fs-caption)", color: meta.color, lineHeight: 1.5 }}>{meta.txt}</p>
+                          </div>
+                        );
+                      })()}
+
+                      {/* V2.1 round 11 (2026-05-04) — Empty state for Technicals.
+                          Per user: Technicals tab "renders nothing for many tickers".
+                          Cause: tf_tech being absent caused the entire narrative panel
+                          to fail silently (`{ticker?.tf_tech && ...}` returns null).
+                          Now always emit at minimum a Multi-TF Stack table or an
+                          explicit "data not available yet" message instead of blank. */}
+                      {!ticker?.tf_tech && (
+                        <Panel title="Technical Analysis" action={
+                          <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }}>NO DATA</span>
+                        }>
+                          <p style={{ margin: 0, fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", lineHeight: 1.5 }}>
+                            Multi-timeframe technicals for <strong style={{ color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)" }}>{tickerSymbol}</strong> haven't loaded yet. This usually clears within a few minutes after the next ingest cycle. If it persists, the ticker may be missing intraday candle coverage (worker-side issue).
+                          </p>
+                        </Panel>
+                      )}
+
+                      {/* V2.1 round 10 (2026-05-04) — Technical Analysis narrative,
+                          now DIRECTION-AWARE.
+                          Previous version computed bias from raw EMA stack signs and
+                          described every observation neutrally, which produced wildly
+                          incoherent output on tickers where the model bias contradicted
+                          raw structure (e.g. GILD reading "bullish bias / Daily structure
+                          is strongly bullish" while the prediction contract had flagged
+                          GILD as SHORT-bias).
+                          Fix:
+                            1. Lead with the AUTHORITATIVE bias (predictionContract.direction
+                               first, then HTF state, then EMA-stack majority).
+                            2. Frame each observation as either ALIGNED with the bias
+                               (supports the call) or CONFLICTING (caveat / fade trigger).
+                            3. Volatility-squeeze line is now direction-neutral
+                               ("expansion in either direction") so it doesn't read bullish
+                               on a SHORT call.
+                            4. If the prediction contract bias is opposite the raw
+                               EMA-stack majority, the panel surfaces that conflict
+                               explicitly so the user knows the model is taking a
+                               counter-trend / reversal stance. */}
                       {ticker?.tf_tech && (() => {
                         const tfm = ticker.tf_tech || {};
                         const sym = tickerSymbol;
+                        // Authoritative bias: prediction contract first.
+                        const pcDir = String(predictionContract?.direction || "").toUpperCase();
                         const dirSign = (() => {
+                          if (pcDir === "LONG") return 1;
+                          if (pcDir === "SHORT") return -1;
                           const s = String(ticker?.state || "").toUpperCase();
                           if (s.startsWith("HTF_BULL")) return 1;
                           if (s.startsWith("HTF_BEAR")) return -1;
@@ -2989,70 +3438,160 @@
                           return sum > 0 ? 1 : sum < 0 ? -1 : 0;
                         })();
                         const dir = dirSign === 1 ? "bullish" : dirSign === -1 ? "bearish" : "mixed";
-                        const lines = [];
-                        // HTF posture
+                        const dirLabel = dirSign === 1 ? "LONG" : dirSign === -1 ? "SHORT" : "MIX";
+
+                        // Helper: classify an observation as ALIGNED / CONFLICTING / NEUTRAL
+                        // relative to the authoritative bias.
+                        const classify = (obsSign) => {
+                          if (dirSign === 0 || obsSign === 0) return "neutral";
+                          return obsSign === dirSign ? "aligned" : "conflicting";
+                        };
+
+                        // Bucketed observations.
+                        const aligned = [];
+                        const conflicting = [];
+                        const neutral = [];
+
+                        // HTF posture (Daily EMA stack).
                         const dailyStack = Number(tfm.D?.ema?.stack);
-                        const fourhStack = Number(tfm["4H"]?.ema?.stack || tfm["240"]?.ema?.stack);
                         if (Number.isFinite(dailyStack) && dailyStack !== 0) {
-                          if (dailyStack >= 4) lines.push(`Daily structure is strongly bullish (full EMA stack).`);
-                          else if (dailyStack <= -4) lines.push(`Daily structure is strongly bearish (full EMA stack down).`);
-                          else if (dailyStack > 0) lines.push(`Daily structure leans bullish but not fully stacked.`);
-                          else lines.push(`Daily structure leans bearish but not fully stacked.`);
+                          const stackSign = Math.sign(dailyStack);
+                          const cls = classify(stackSign);
+                          let txt = "";
+                          if (dailyStack >= 4) txt = `Daily structure is strongly bullish (full EMA stack).`;
+                          else if (dailyStack <= -4) txt = `Daily structure is strongly bearish (full EMA stack down).`;
+                          else if (dailyStack > 0) txt = `Daily structure leans bullish but not fully stacked.`;
+                          else txt = `Daily structure leans bearish but not fully stacked.`;
+                          (cls === "aligned" ? aligned : cls === "conflicting" ? conflicting : neutral).push(txt);
                         }
+                        // 4H vs Daily divergence.
+                        const fourhStack = Number(tfm["4H"]?.ema?.stack || tfm["240"]?.ema?.stack);
                         if (Number.isFinite(fourhStack) && Math.sign(fourhStack) !== Math.sign(dailyStack || 0) && fourhStack !== 0) {
-                          lines.push(`Watch the 4H \u2014 it's moving against the Daily, suggests pullback or counter-rotation.`);
+                          neutral.push(`4H is moving against the Daily — pullback or counter-rotation in play.`);
                         }
-                        // RSI extremes
+                        // RSI extremes — direction-aware framing.
                         const rsi1H = Number(tfm["1H"]?.rsi?.r5 || tfm["60"]?.rsi?.r5);
                         const rsiD  = Number(tfm.D?.rsi?.r5);
-                        if (Number.isFinite(rsiD) && rsiD >= 70) lines.push(`Daily RSI ${rsiD.toFixed(0)} is overbought \u2014 reversal risk elevated.`);
-                        else if (Number.isFinite(rsiD) && rsiD <= 30) lines.push(`Daily RSI ${rsiD.toFixed(0)} is oversold \u2014 mean-reversion bounce possible.`);
-                        if (Number.isFinite(rsi1H) && rsi1H >= 70 && (!Number.isFinite(rsiD) || rsiD < 70)) lines.push(`1H RSI ${rsi1H.toFixed(0)} is hot but Daily isn't \u2014 short-term overheat.`);
-                        // Squeeze
+                        if (Number.isFinite(rsiD) && rsiD >= 70) {
+                          // Overbought daily: aligned for SHORT (reversal target), conflicting for LONG (chase risk).
+                          const cls = classify(-1);
+                          (cls === "aligned" ? aligned : conflicting).push(`Daily RSI ${rsiD.toFixed(0)} is overbought — reversal risk elevated${dirSign === -1 ? " (favors the SHORT)" : dirSign === 1 ? " (extension caution for LONGs)" : ""}.`);
+                        } else if (Number.isFinite(rsiD) && rsiD <= 30) {
+                          const cls = classify(1);
+                          (cls === "aligned" ? aligned : conflicting).push(`Daily RSI ${rsiD.toFixed(0)} is oversold — bounce possible${dirSign === 1 ? " (favors the LONG)" : dirSign === -1 ? " (caution for SHORTs into support)" : ""}.`);
+                        }
+                        if (Number.isFinite(rsi1H) && rsi1H >= 70 && (!Number.isFinite(rsiD) || rsiD < 70)) {
+                          const cls = classify(-1);
+                          (cls === "aligned" ? aligned : conflicting).push(`1H RSI ${rsi1H.toFixed(0)} is hot but Daily isn't — short-term overheat.`);
+                        }
+                        // Squeeze: direction-neutral. Always read as "expansion in either direction".
                         let sqLine = null;
                         for (const k of ["15","30","1H","60","4H","240","D"]) {
                           const sq = tfm[k]?.sq;
                           if (!sq) continue;
-                          if (sq.r) { sqLine = `Squeeze just RELEASED on ${k === "60" ? "1H" : k === "240" ? "4H" : k} \u2014 expect an expansion move.`; break; }
+                          if (sq.r) { sqLine = `Squeeze just RELEASED on ${k === "60" ? "1H" : k === "240" ? "4H" : k} — expansion in either direction; watch for follow-through that confirms the ${dirLabel} bias.`; break; }
                         }
                         if (!sqLine) {
                           for (const k of ["15","30","1H","60","4H","240","D"]) {
                             const sq = tfm[k]?.sq;
                             if (!sq) continue;
-                            if (sq.s) { sqLine = `Volatility coiled with squeeze ON ${k === "60" ? "1H" : k === "240" ? "4H" : k} \u2014 watch for expansion.`; break; }
+                            if (sq.s) { sqLine = `Volatility coiled with squeeze ON ${k === "60" ? "1H" : k === "240" ? "4H" : k} — expansion in either direction; whichever side breaks gets the move.`; break; }
                           }
                         }
-                        if (sqLine) lines.push(sqLine);
-                        // Divergence
+                        if (sqLine) neutral.push(sqLine);
+                        // Divergence — direction-aware.
                         const rsiDivBear = ticker?.rsi_divergence?.bear?.active || tfm["1H"]?.rsiDiv?.bear?.a;
                         const rsiDivBull = ticker?.rsi_divergence?.bull?.active || tfm["1H"]?.rsiDiv?.bull?.a;
-                        if (rsiDivBear) lines.push(`RSI bearish divergence active \u2014 momentum slowing while price still pushes up.`);
-                        if (rsiDivBull) lines.push(`RSI bullish divergence active \u2014 selling losing steam, watch for reversal.`);
-                        // TD
+                        if (rsiDivBear) {
+                          const cls = classify(-1);
+                          (cls === "aligned" ? aligned : conflicting).push(`RSI bearish divergence active — momentum slowing while price still pushes up.`);
+                        }
+                        if (rsiDivBull) {
+                          const cls = classify(1);
+                          (cls === "aligned" ? aligned : conflicting).push(`RSI bullish divergence active — selling losing steam, watch for reversal.`);
+                        }
+                        // TD setup count — direction-aware.
                         const tdD = ticker?.td_sequential?.per_tf?.D || ticker?.td_sequential?.per_tf?.["1D"];
                         if (tdD) {
                           const bp = Number(tdD.bullish_prep_count) || 0;
                           const sp = Number(tdD.bearish_prep_count) || 0;
-                          if (sp >= 8) lines.push(`Daily TD${sp} setup count is exhaustion-high on the bear side.`);
-                          else if (bp >= 8) lines.push(`Daily TD${bp} setup count is exhaustion-high on the bull side.`);
+                          if (sp >= 8) {
+                            const cls = classify(1); // bear-side exhaustion = bullish reversal expected
+                            (cls === "aligned" ? aligned : conflicting).push(`Daily TD${sp} setup count is exhaustion-high on the bear side (reversal candidate).`);
+                          } else if (bp >= 8) {
+                            const cls = classify(-1);
+                            (cls === "aligned" ? aligned : conflicting).push(`Daily TD${bp} setup count is exhaustion-high on the bull side (reversal candidate).`);
+                          }
                         }
-                        if (lines.length === 0) {
-                          lines.push(`Technicals look balanced \u2014 no extreme readings, no exhaustion signals, no fresh squeeze. Waiting for a catalyst.`);
+
+                        if (aligned.length === 0 && conflicting.length === 0 && neutral.length === 0) {
+                          neutral.push(`Technicals look balanced — no extreme readings, no exhaustion signals, no fresh squeeze. Waiting for a catalyst.`);
                         }
+
+                        const Bullet = ({ icon, text, color }) => (
+                          <li style={{
+                            display: "flex",
+                            gap: 8,
+                            alignItems: "flex-start",
+                            margin: "4px 0",
+                            color: "var(--ds-text-body)",
+                            fontSize: "var(--ds-fs-meta)",
+                            lineHeight: 1.5,
+                          }}>
+                            <span style={{
+                              fontFamily: "var(--tt-font-mono)",
+                              fontWeight: 700,
+                              color,
+                              minWidth: 16,
+                              textAlign: "center",
+                              flexShrink: 0,
+                            }}>{icon}</span>
+                            <span>{text}</span>
+                          </li>
+                        );
+
                         return (
-                          <Panel title={`Technical Analysis \u00B7 ${sym}`}>
-                            <p style={{ margin: 0, fontSize: "var(--ds-fs-body)", lineHeight: 1.6, color: "var(--ds-text-body)" }}>
-                              <span style={{
-                                fontFamily: "var(--tt-font-mono)",
-                                fontSize: 9,
-                                letterSpacing: "0.16em",
-                                textTransform: "uppercase",
-                                color: dir === "bullish" ? "var(--ds-up)" : dir === "bearish" ? "var(--ds-dn)" : "var(--ds-text-muted)",
-                                fontWeight: 700,
-                                marginRight: 8,
-                              }}>{dir} bias</span>
-                              {lines.join(" ")}
-                            </p>
+                          <Panel title={`Technical Analysis · ${sym}`} action={
+                            <span className={`ds-chip ds-chip--sm ${dir === "bullish" ? "ds-chip--up" : dir === "bearish" ? "ds-chip--dn" : "ds-chip--solid"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
+                              {dirLabel} bias
+                            </span>
+                          }>
+                            {pcDir && pcDir !== "" && dir !== "mixed" && (
+                              <p style={{
+                                margin: "0 0 var(--ds-space-2) 0",
+                                fontSize: "var(--ds-fs-caption)",
+                                color: "var(--ds-text-muted)",
+                                fontStyle: "italic",
+                                lineHeight: 1.5,
+                              }}>
+                                Read against the model's <strong style={{ color: dirLabel === "SHORT" ? "var(--ds-dn)" : "var(--ds-up)" }}>{dirLabel}</strong> bias. Aligned signals support the call; conflicting signals are caveats / reversal triggers.
+                              </p>
+                            )}
+                            <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                              {aligned.map((t, i) => (
+                                <Bullet key={`al-${i}`} icon="✓" text={t} color="var(--ds-up)" />
+                              ))}
+                              {conflicting.map((t, i) => (
+                                <Bullet key={`cf-${i}`} icon="⚠" text={`Conflicts with ${dirLabel} bias: ${t}`} color="var(--ds-dn)" />
+                              ))}
+                              {neutral.map((t, i) => (
+                                <Bullet key={`nt-${i}`} icon="·" text={t} color="var(--ds-text-muted)" />
+                              ))}
+                            </ul>
+                            {conflicting.length > 0 && aligned.length === 0 && (
+                              <p style={{
+                                margin: "var(--ds-space-2) 0 0 0",
+                                padding: "6px 8px",
+                                borderRadius: "var(--ds-radius-xs)",
+                                background: "rgba(244,63,94,0.06)",
+                                border: "1px solid rgba(244,63,94,0.20)",
+                                fontSize: "var(--ds-fs-caption)",
+                                color: "var(--ds-dn)",
+                                lineHeight: 1.5,
+                              }}>
+                                Raw structure runs counter to the {dirLabel} bias — this is a counter-trend / reversal stance. Wait for a confirming break-of-structure before sizing in.
+                              </p>
+                            )}
                           </Panel>
                         );
                       })()}
@@ -3521,15 +4060,24 @@
                         // Compact-density wrapper. Shrinks all metric values
                         // and chips inside this tab specifically without
                         // affecting Snapshot / Setup / Technicals where the
-                        // bigger numerals are appropriate. Per user feedback:
-                        // current Tenet-style font sizes were too large.
-                        "--ds-fs-h2": "16px",
-                        "--ds-fs-h3": "14px",
-                        "--ds-fs-md": "13px",
-                        "--ds-fs-meta": "11px",
-                        "--ds-fs-caption": "10px",
-                        "--ds-fs-eyebrow": "9px",
-                        "--ds-space-3": "10px",
+                        // bigger numerals are appropriate.
+                        // V2.1 round 11 (2026-05-04) — DROPPED ONE MORE NOTCH
+                        // per user "feels very big compared to the rest of the
+                        // app" (third complaint). All hero numerals (Fair Value,
+                        // EPS Growth %, per-row earnings history) match Snapshot
+                        // density now: h2 14→13, h3 12→11, md 11→10, meta 10→9,
+                        // caption 9→9, eyebrow 8→8.
+                        "--ds-fs-h2": "13px",
+                        "--ds-fs-h3": "11px",
+                        "--ds-fs-md": "10px",
+                        "--ds-fs-body": "10px",
+                        "--ds-fs-emph": "11px",
+                        "--ds-fs-meta": "9px",
+                        "--ds-fs-caption": "9px",
+                        "--ds-fs-eyebrow": "8px",
+                        "--ds-fs-hero": "16px",
+                        "--ds-space-3": "7px",
+                        "--ds-space-4": "9px",
                       }}>
                         {/* Header strip — sector / industry / market cap / cash-rich */}
                         <Panel title={prof.name || tickerSymbol} action={
