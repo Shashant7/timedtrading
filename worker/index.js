@@ -6956,9 +6956,20 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
          and bailed at -3.53% same-day via max_loss without giving the
          pullback the benefit of the doubt. The model captured all the
          right structural strength signals; we just didn't USE them on
-         the SL side. Rule: when the trade is in our workhorse cohort
-         AND the entry-time momentum signals stack bullish, expand the
-         max-loss tolerance from -3% to -5% (cohort + momentum-only). */
+         the SL side.
+
+         Rule: when the trade is in our workhorse cohort AND the ticker
+         qualifies as Momentum Elite (the existing 🚀 flag from
+         computeMomentumElite() — price>=$4, ADR>=1.5%, avgVol>=2M, AND
+         1-month price change >= +25%), give the trade earned momentum
+         credit on the SL side. Momentum Elite is the right primitive
+         here — it's already battle-tested and specifically captures
+         "leading momentum" which is exactly what SNDK was on Sep-18.
+
+         Complementary structural signals are still required (4+ of 5)
+         so we don't loosen on a Momentum Elite ticker that's lost its
+         structural backing (e.g. Momentum Elite but dropped below e200
+         and bull_stack broken — that would be a real reversal). */
       const _momBufEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_momentum_buffer_enabled ?? "true") === "true";
       let _momBufApplied = false;
       let _momBufWhy = null;
@@ -6977,34 +6988,37 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           && _mbEntryPath === "tt_gap_reversal_long"
           && _mbPersonality === "VOLATILE_RUNNER";
         if (_mbIsCohort) {
-          // Read entry-time momentum context — prefer rank_trace_json setup_snapshot
-          // since live tickerData has the same fields by reference.
-          const _mbVwap = tickerData?.vwap || {};
-          const _mbVwapDDist = Number(_mbVwap?.D?.dist_pct) || 0;
-          const _mbVwapDSlope = Number(_mbVwap?.D?.slope_5bar) || 0;
+          // Primary qualifier: the existing Momentum Elite flag (🚀).
+          // Captures price>=$4, ADR>=1.5%, avgVol>=2M, +1mo change>=25%.
+          const _mbMomentumElite = !!tickerData?.flags?.momentum_elite
+            || !!tickerData?.had_momentum_elite
+            || !!tickerData?.flags?.had_momentum_elite;
+          // Structural backing: must still have the trend intact.
           const _mbBullStack = !!tickerData?.daily_structure?.bull_stack;
           const _mbAboveE200 = !!tickerData?.daily_structure?.above_e200;
           const _mbState = String(tickerData?.state || "").toUpperCase();
           const _mbHtfBullLtfBull = _mbState.startsWith("HTF_BULL_LTF_BULL");
+          // Optional secondary momentum check from VWAP (extra confirmation).
+          const _mbVwapDDist = Number(tickerData?.vwap?.D?.dist_pct) || 0;
+          const _mbVwapDSlope = Number(tickerData?.vwap?.D?.slope_5bar) || 0;
           const _mbAdvDiv = !!tickerData?.__entry_divergence_summary?.adverse_phase
             || !!tickerData?.__entry_divergence_summary?.adverse_rsi;
-          // 5 conditions; need 4+ to qualify for the buffer
-          const _mbSignals = [
-            _mbVwapDDist >= 30,        // price extended above daily VWAP (momentum)
-            _mbVwapDSlope > 0,         // VWAP still trending up
-            _mbBullStack,              // EMAs aligned bullish
-            _mbAboveE200,              // macro trend up
-            _mbHtfBullLtfBull,         // multi-TF aligned
-            !_mbAdvDiv,                // no adverse divergence at entry
+          const _mbStructural = [
+            _mbBullStack,
+            _mbAboveE200,
+            _mbHtfBullLtfBull,
+            _mbVwapDDist >= 30 && _mbVwapDSlope > 0,
+            !_mbAdvDiv,
           ].filter(Boolean);
-          const _mbThreshold = Number(tickerData?._env?._deepAuditConfig?.deep_audit_momentum_buffer_min_signals) || 4;
-          if (_mbSignals.length >= _mbThreshold) {
+          const _mbStructuralThreshold = Number(tickerData?._env?._deepAuditConfig?.deep_audit_momentum_buffer_min_signals) || 3;
+          if (_mbMomentumElite && _mbStructural.length >= _mbStructuralThreshold) {
             const _mbBuffer = Number(tickerData?._env?._deepAuditConfig?.deep_audit_momentum_buffer_max_loss_pct) || -5.0;
             _earlyMaxLossPct = Math.min(_earlyMaxLossPct, _mbBuffer); // expand (more negative)
             _momBufApplied = true;
-            _momBufWhy = `mom_buffer:vwapD=${_mbVwapDDist.toFixed(0)}% slope=${_mbVwapDSlope.toFixed(2)} signals=${_mbSignals.length}`;
+            _momBufWhy = `mom_buffer:elite=true vwapD=${_mbVwapDDist.toFixed(0)}% structural=${_mbStructural.length}/5`;
             tickerData.__momentum_buffer_active = true;
-            tickerData.__momentum_buffer_signals = _mbSignals.length;
+            tickerData.__momentum_buffer_elite = true;
+            tickerData.__momentum_buffer_structural = _mbStructural.length;
           }
         }
       }

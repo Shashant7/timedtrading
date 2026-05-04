@@ -141,8 +141,8 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_profit_giveback_min_mfe_volrunner_gap_long", "value": "5.0" },
     { "key": "deep_audit_smart_runner_volrunner_gap_long_defer_pnl_floor", "value": "-0.5" },
 
-    { "_comment": "V15 P0.7.55 — Momentum Buffer (SNDK Sep18 case): give VOLATILE_RUNNER x gap_reversal_long earned momentum credit on the SL side when 4+ of 6 momentum signals stack bullish at entry.", "key": "deep_audit_momentum_buffer_enabled", "value": "true" },
-    { "key": "deep_audit_momentum_buffer_min_signals", "value": "4" },
+    { "_comment": "V15 P0.7.55 — Momentum Buffer (SNDK Sep18 case): give VOLATILE_RUNNER x gap_reversal_long earned momentum credit on the SL side when ticker is Momentum Elite (price>=$4, ADR>=1.5%, avgVol>=2M, +1mo>=25%) AND 3+ of 5 structural signals are still intact.", "key": "deep_audit_momentum_buffer_enabled", "value": "true" },
+    { "key": "deep_audit_momentum_buffer_min_signals", "value": "3" },
     { "key": "deep_audit_momentum_buffer_max_loss_pct", "value": "-5.0" },
     { "key": "deep_audit_momentum_buffer_time_scaled_expand_pct", "value": "1.0" },
 

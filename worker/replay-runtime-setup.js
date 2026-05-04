@@ -395,8 +395,10 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_profit_giveback_min_mfe_volrunner_gap_long",     // default 5.0 (vs 3.0 base)
   "deep_audit_smart_runner_volrunner_gap_long_defer_pnl_floor",// default -0.5 (vs >0 base)
   // V15 P0.7.55 (2026-05-04) — Momentum Buffer for high-momentum runners
+  // Primary qualifier: existing flags.momentum_elite (price>=$4, ADR>=1.5%,
+  // avgVol>=2M, +1mo>=25%). Plus 3+ of 5 structural signals required.
   "deep_audit_momentum_buffer_enabled",                        // default true
-  "deep_audit_momentum_buffer_min_signals",                    // default 4 (of 6)
+  "deep_audit_momentum_buffer_min_signals",                    // default 3 (of 5 structural)
   "deep_audit_momentum_buffer_max_loss_pct",                   // default -5.0 (vs -3.0 base)
   "deep_audit_momentum_buffer_time_scaled_expand_pct",         // default 1.0 (extends 4h/12h/24h floors)
 ];
