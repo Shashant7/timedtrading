@@ -477,6 +477,50 @@
       body:not([data-user-role="admin"]) a[data-admin-only] {
         display: none !important;
       }
+
+      /* V2.1 round 11 (2026-05-04) — Market Pulse mobile fix.
+         User reported tiles overlapping on mobile. Cause: the priority row
+         uses `flex-1 min-w-0` on each ds-tickercard so 7 tiles squeeze to
+         <80px each on phones, breaking the price/sparkline layout.
+         Fix: on screens <768px the priority row becomes a horizontal
+         scroll-snap track. Each tile pins at 44vw min-width so two fit on
+         screen and the rest scroll smoothly with snap stops. The label
+         column collapses to a tight header above the scroll track. */
+      @media (max-width: 767px) {
+        .ds-pulse-row {
+          flex-direction: column;
+          align-items: stretch !important;
+          gap: 6px !important;
+        }
+        .ds-pulse-row__label {
+          width: auto !important;
+          padding-top: 0 !important;
+          display: flex;
+          align-items: baseline;
+          gap: 8px;
+        }
+        .ds-pulse-row__content {
+          flex-wrap: nowrap !important;
+          overflow-x: auto !important;
+          overflow-y: hidden !important;
+          scroll-snap-type: x mandatory;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: none;
+          padding-bottom: 4px;
+        }
+        .ds-pulse-row__content::-webkit-scrollbar { display: none; }
+        .ds-pulse-row__content > * {
+          flex: 0 0 auto !important;
+          min-width: 44vw !important;
+          max-width: 60vw;
+          scroll-snap-align: start;
+        }
+        .ds-pulse-context {
+          flex-direction: column;
+          align-items: stretch !important;
+          gap: 6px !important;
+        }
+      }
     </style>
   </head>
   <body class="ds-v2">
@@ -19141,16 +19185,24 @@
                       return `${Math.floor(ago / 3600)}h ago`;
                     })();
                     return (
-                      <div className="mb-3" style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-2)" }}>
-                        {/* Priority tile row */}
+                      <div className="mb-3 ds-pulse-section" style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-2)" }}>
+                        {/* Priority tile row.
+                            V2.1 round 11 (2026-05-04) — Mobile fix: tiles
+                            previously overlapped because flex-1 + 7 tiles +
+                            min-w-0 squeezed everything below readable width.
+                            Now: on mobile we use a horizontal scroll-snap row
+                            (ds-pulse-row--scroll) with each tile pinned at
+                            ~44vw min-width so 2 fit on screen and the rest
+                            scroll into view. Desktop keeps the existing
+                            flex-1 row. */}
                         {priorityTiles.length > 0 && (
                           <div>
-                            <div className="ds-row" style={{ alignItems: "center" }}>
-                              <div className="ds-row__label">
+                            <div className="ds-row ds-pulse-row" style={{ alignItems: "center" }}>
+                              <div className="ds-row__label ds-pulse-row__label">
                                 <div className="ds-caption">Market Pulse</div>
                                 {freshness && <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", marginTop: 2 }}>updated {freshness}</div>}
                               </div>
-                              <div className="ds-row__content" style={{ gap: "var(--ds-space-2)" }}>
+                              <div className="ds-row__content ds-pulse-row__content" style={{ gap: "var(--ds-space-2)" }}>
                                 {priorityTiles}
                               </div>
                             </div>
@@ -19158,8 +19210,8 @@
                         )}
                         {/* Context chip row */}
                         {contextChips.length > 0 && (
-                          <div className="ds-row">
-                            <div className="ds-row__label">
+                          <div className="ds-row ds-pulse-context">
+                            <div className="ds-row__label ds-pulse-row__label">
                               <div className="ds-caption">Context</div>
                               <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", marginTop: 2 }}>
                                 {_isAdminPulse ? "Futures · Sectors" : "Commodities · Sectors"}

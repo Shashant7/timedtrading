@@ -16080,19 +16080,19 @@ function App() {
       return `${Math.floor(ago / 3600)}h ago`;
     })();
     return React.createElement("div", {
-      className: "mb-3",
+      className: "mb-3 ds-pulse-section",
       style: {
         display: "flex",
         flexDirection: "column",
         gap: "var(--ds-space-2)"
       }
     }, priorityTiles.length > 0 && React.createElement("div", null, React.createElement("div", {
-      className: "ds-row",
+      className: "ds-row ds-pulse-row",
       style: {
         alignItems: "center"
       }
     }, React.createElement("div", {
-      className: "ds-row__label"
+      className: "ds-row__label ds-pulse-row__label"
     }, React.createElement("div", {
       className: "ds-caption"
     }, "Market Pulse"), freshness && React.createElement("div", {
@@ -16102,14 +16102,14 @@ function App() {
         marginTop: 2
       }
     }, "updated ", freshness)), React.createElement("div", {
-      className: "ds-row__content",
+      className: "ds-row__content ds-pulse-row__content",
       style: {
         gap: "var(--ds-space-2)"
       }
     }, priorityTiles))), contextChips.length > 0 && React.createElement("div", {
-      className: "ds-row"
+      className: "ds-row ds-pulse-context"
     }, React.createElement("div", {
-      className: "ds-row__label"
+      className: "ds-row__label ds-pulse-row__label"
     }, React.createElement("div", {
       className: "ds-caption"
     }, "Context"), React.createElement("div", {
