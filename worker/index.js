@@ -96,6 +96,8 @@ import * as DataProvider from "./data-provider.js";
    and wired into the existing entry/exit pipeline. Each loop is gated by
    its own DA flag so it can be killed independently. Default: OFF in code. */
 import * as PhaseCLoops from "./phase-c-loops.js";
+import * as ExitDoctrine from "./phase-c-exit-doctrine.js";
+import * as SetupAdmission from "./phase-c-setup-admission.js";
 import { tdFetchEarningsCalendar, tdFetchTickerEarnings, tdFetchTimeSeries, tdSearchSymbol, toTdSymbol, aggregate5mTo10m, tdFetchProfile, tdFetchStatistics, tdFetchEarningsHistory } from "./twelvedata.js";
 import { onboardTicker, loadTickerProfile, loadSectorProfile, mergeProfileWeights } from "./onboard-ticker.js";
 import {
@@ -6855,6 +6857,84 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       pnlPct = direction === "LONG"
         ? ((currentPrice - entryPrice) / entryPrice) * 100
         : ((entryPrice - currentPrice) / entryPrice) * 100;
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // PHASE C — Stage 1 (2026-05-04) — CONTEXT-AWARE EXIT DOCTRINE.
+    //
+    // Sister gate to setup admission. Decides HOW to manage the open
+    // trade based on (setup × entry_regime × current_regime × MFE × age).
+    // Returns one of: ride_runner / manage_normal / tighten / force_exit.
+    //
+    // If force_exit fires, exit immediately with the doctrine reason.
+    // Otherwise, stash the doctrine output on tickerData so downstream
+    // exit rules can read it as overrides.
+    //
+    // The single highest-leverage rule in the doctrine is the
+    // regime-flip force-exit, which protects ~30% of cumulative P&L per
+    // the canon Jul-Apr loss-anatomy (the 18 catastrophic stale-held
+    // losses that all matched the regime-flip + age + pnl<0 profile).
+    //
+    // Disabled via daCfg.deep_audit_exit_doctrine_enabled = "false".
+    // ═════════════════════════════════════════════════════════════════════════
+    {
+      const _exDocEnabled = String(
+        tickerData?._env?._deepAuditConfig?.deep_audit_exit_doctrine_enabled ?? "true"
+      ) === "true";
+      if (_exDocEnabled) {
+        try {
+          const _setupForDoctrine = String(
+            openPosition?.entryPath || openPosition?.entry_path ||
+            openPosition?.setup_path || openPosition?.setupPath || ""
+          ).toLowerCase();
+          const _entryRegime = String(
+            openPosition?.entryRegime || openPosition?.entry_regime ||
+            openPosition?.regime_at_entry || ""
+          ).toUpperCase();
+          const _currentRegime = String(
+            tickerData?.regime?.combined || tickerData?.regime_combined || ""
+          ).toUpperCase();
+          const _mfe = Number(openPosition?.maxFavorableExcursion
+            ?? openPosition?.max_favorable_excursion
+            ?? openPosition?.mfe ?? 0);
+          // ageMin = positionAgeMin (already computed above)
+          const _doctrine = ExitDoctrine.chooseExitDoctrine(
+            {
+              setup: _setupForDoctrine,
+              direction,
+              entryRegime: _entryRegime,
+              currentRegime: _currentRegime,
+              mfePct: _mfe,
+              currentPnlPct: pnlPct,
+              ageMin: positionAgeMin,
+            },
+            // Pass null doctrine so it uses the embedded default. KV-backed
+            // override is loaded asynchronously via loadExitDoctrine() at the
+            // start of each scoring cycle and cached for 60s.
+            null,
+          );
+          // Stash on tickerData for downstream exit rules to read as overrides.
+          tickerData.__exit_doctrine = _doctrine;
+          if (_doctrine && _doctrine.force_exit === true) {
+            tickerData.__exit_reason = "doctrine_force_exit";
+            tickerData.__exit_family = "doctrine";
+            tickerData.__exit_meta = {
+              doctrine_action: _doctrine.action,
+              doctrine_reason: _doctrine.reason,
+              setup: _setupForDoctrine,
+              entry_regime: _entryRegime,
+              current_regime: _currentRegime,
+              mfe_pct: _mfe,
+              pnl_pct: pnlPct,
+              age_min: positionAgeMin,
+            };
+            return "exit";
+          }
+        } catch (_doctrineErr) {
+          // Doctrine failure must NEVER block legit management. Default to no override.
+          tickerData.__exit_doctrine = null;
+        }
+      }
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -19998,6 +20078,9 @@ async function processTradeSimulation(
               referenceExecution: tickerData?.__reference_execution || null,
               reference_execution: tickerData?.__reference_execution || null,
               entryPath: entryPath || null,
+              entry_path: entryPath || null,
+              entryRegime: String(tickerData?.regime?.combined || tickerData?.regime_combined || "").toUpperCase() || null,
+              entry_regime: String(tickerData?.regime?.combined || tickerData?.regime_combined || "").toUpperCase() || null,
               entryPrice: entryPx,
               entryTime,
               entry_ts: entryTsMs || undefined,
@@ -22760,6 +22843,9 @@ async function processTradeSimulation(
               scenario_policy: _spResolved || tickerData?.__scenario_policy || null,
               scenario_policy_source: tickerData?.__scenario_policy_source || null,
               entryPath: entryPath || null,  // Track which entry criteria was used
+              entry_path: entryPath || null,
+              entryRegime: String(tickerData?.regime?.combined || tickerData?.regime_combined || "").toUpperCase() || null,
+              entry_regime: String(tickerData?.regime?.combined || tickerData?.regime_combined || "").toUpperCase() || null,
               entryPrice,
               entryTime, // When trade was actually created (ingest time in replay)
               entry_ts: entryTsMs, // Numeric ms for D1/display (ingest time, not replay run time)

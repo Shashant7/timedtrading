@@ -326,6 +326,9 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_atr_week_618_defer_on_cloud_hold",
   "deep_audit_atr_week_618_partial_trim_pct",
   "deep_audit_max_daily_entries",
+  // V15 P0.7.59 (2026-05-04) — Setup admission + exit doctrine flags
+  "deep_audit_setup_admission_enabled",
+  "deep_audit_exit_doctrine_enabled",
   // P4: SHORT gate relaxation
   "deep_audit_short_spy_regime_floor",
   "deep_audit_short_requires_ticker_bearish_daily",

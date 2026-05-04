@@ -8,6 +8,7 @@ import { getEasternParts } from "../market-calendar.js";
 import { computePdzSizeMult } from "./sizing.js";
 import { computeConvictionScore, TT_SELECTED_DEFAULT } from "../focus-tier.js";
 import { getTickerType as getTickerTypeForFocus } from "../sector-mapping.js";
+import { admitSetup as admitSetupContext } from "../phase-c-setup-admission.js";
 
 const FRESHNESS_MIN = 0.3;
 const TT_CORE_TRACE_CASES = new Map([
@@ -271,6 +272,68 @@ export function evaluateEntry(ctx) {
     return reject(reason, metadata);
   };
   const qualifyEntry = (path, confidence, reason, sizing, metadata) => {
+    // ─────────────────────────────────────────────────────────────────
+    // PHASE C — Stage 1 (2026-05-04) — Context-Aware Setup Admission.
+    //
+    // Final gate before an entry is accepted. Evaluates the
+    // (setup × direction × grade × regime) cohort against the
+    // admission matrix derived from the canon Jul-Apr loss-anatomy.
+    //
+    // Replaces blanket per-setup enable/disable flags. Allows a setup
+    // ONLY in regimes where the cohort has shown positive edge.
+    //
+    // The matrix is loaded lazily via loadAdmissionMatrix(KV) on the
+    // first scoring cycle of each replay/cron pass. After that, this
+    // gate uses the cached matrix synchronously.
+    //
+    // Disabled via `daCfg.deep_audit_setup_admission_enabled = "false"`.
+    // ─────────────────────────────────────────────────────────────────
+    const _admissionEnabled = String(
+      daCfg.deep_audit_setup_admission_enabled ?? "true"
+    ) === "true";
+    if (_admissionEnabled) {
+      try {
+        const _gradeForAdmission = String(
+          d?.setup_grade ?? d?.setupGrade ?? ""
+        ).trim();
+        const _regimeForAdmission = String(
+          d?.regime?.combined ?? d?.regime_combined ?? ""
+        ).toUpperCase().trim();
+        const _rrForAdmission = Number(d?.rr) || 0;
+        const _convForAdmission = Number(
+          d?.focus?.conviction_score ?? d?.focus_conviction_score
+        );
+        const _admission = admitSetupContext(
+          {
+            setup: path,
+            grade: _gradeForAdmission,
+            direction: side,
+            regime: _regimeForAdmission,
+            conviction: Number.isFinite(_convForAdmission) ? _convForAdmission : undefined,
+            rr: _rrForAdmission,
+          },
+          // Pass null matrix so admitSetup uses the embedded default.
+          // Replay-runtime can override by calling loadAdmissionMatrix
+          // first (cache populates synchronously after first await).
+          null,
+        );
+        if (_admission && _admission.allow === false) {
+          return rejectEntry(_admission.reason || "setup_admission_blocked", {
+            setup_admission: {
+              setup: path,
+              grade: _gradeForAdmission,
+              direction: side,
+              regime: _regimeForAdmission,
+              rr: _rrForAdmission,
+              matched_key: _admission.matched_key,
+              cohort_stats: _admission.cohortStat,
+            },
+          });
+        }
+      } catch (_admErr) {
+        // Admission failure must NOT block legit entries. Default to allow.
+      }
+    }
     traceDecision("qualify", { path, confidence, reason, metadata });
     return qualify(path, confidence, reason, sizing, metadata);
   };

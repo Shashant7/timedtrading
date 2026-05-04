@@ -46,7 +46,7 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_gap_reversal_min_rvol", "value": "1.2" },
     { "key": "deep_audit_gap_reversal_min_gap_pct", "value": "1.5" },
 
-    { "_comment": "V15 P0.7.58 (2026-05-04) — Loss-anatomy proposal #2: kill the toxic N-Test cohort. In v16-canon-julapr (461 trades), N-Test Support × any-grade and N-Test Resistance × Confirmed combined for net -150 PnL%, 28 trades, 2 catastrophic losses. WR 0% on N-Test Resistance/Confirmed. Per the user-approved analysis at tasks/phase-c/loss-anatomy-and-ml-edge.md.", "key": "deep_audit_n_test_support_enabled", "value": "false" },
+    { "_comment": "V15 P0.7.59 (2026-05-04) — Re-enable N-Test trigger. The blanket P0.7.58 'enabled=false' has been replaced by the regime-aware setup admission matrix in worker/phase-c-setup-admission.js, which only blocks N-Test in losing regime/grade combos (canon Jul-Apr autopsy). N-Test is now allowed in EARLY_BULL/STRONG_BULL/NEUTRAL with rr>=2.5 (Prime grade) and is hard-blocked for Confirmed grade.", "key": "deep_audit_n_test_support_enabled", "value": "true" },
     { "key": "deep_audit_n_test_min_touches", "value": "3" },
     { "key": "deep_audit_n_test_min_rvol", "value": "1.0" },
 
@@ -181,8 +181,11 @@ read -r -d '' PAYLOAD <<'JSON' || true
 
     { "key": "deep_audit_max_daily_entries", "value": "999" },
 
-    { "_comment": "V15 P0.7.58 (2026-05-04) — Loss-anatomy proposal #3: tighten SHORT direction. In v16-canon-julapr, 24 short trades produced 29% WR, -49 PnL%, 3 big_W vs 3 big_L. Existing min_rank=80 was too loose. Raise to 90 and require SPY downtrend regime.", "key": "deep_audit_short_min_rank", "value": "90" },
-    { "key": "deep_audit_short_requires_spy_downtrend", "value": "true" }
+    { "_comment": "V15 P0.7.59 (2026-05-04) — Restore short_min_rank to 80. Blanket SHORT tightening is replaced by setup admission matrix which only allows shorts in BEAR/COUNTER_TREND_BULL regimes for Prime grade and blocks Confirmed/Speculative entirely. The matrix is more nuanced and lets profitable Jul SHORT trades through.", "key": "deep_audit_short_min_rank", "value": "80" },
+    { "key": "deep_audit_short_requires_spy_downtrend", "value": "false" },
+
+    { "_comment": "V15 P0.7.59 (2026-05-04) — Phase C Stage 1 context-aware engine. Activates the setup admission matrix (regime-aware entry gating) and the exit doctrine (regime-aware management). Both modules use embedded defaults derived from canon Jul-Apr 461-trade autopsy; tunable via KV phase-c:setup-admission and phase-c:exit-doctrine.", "key": "deep_audit_setup_admission_enabled", "value": "true" },
+    { "key": "deep_audit_exit_doctrine_enabled", "value": "true" }
   ]
 }
 JSON
