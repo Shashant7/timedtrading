@@ -35030,6 +35030,87 @@ async function buildTraderPredictionContract(env, ticker) {
       Number.isFinite(Number(data?.tp_exit)) ? { label: "Exit", price: Number(data.tp_exit) } : null,
       Number.isFinite(Number(data?.tp_runner)) ? { label: "Runner", price: Number(data.tp_runner) } : null,
     ].filter(Boolean),
+
+    /* V15 P0.7.54 (2026-05-04) — universal Support/Resistance levels.
+       Derived from a blend of:
+         - Saty ATR Fibonacci levels (from atr_levels.day; 0.236/0.382/0.618/1.0)
+         - Daily EMAs (e21, e48, e200) from tf_tech.D.ema
+         - PDZ (premium/discount/equilibrium) zone center from pdz_zone_D
+       Sorted by price; classified as "support" if below current price,
+       "resistance" if above. Always populated even when no trade is active —
+       gives the user clear S/R lines they can use to plan entries/exits. */
+    levels: (() => {
+      const px = Number(data?.price) || 0;
+      if (!(px > 0)) return [];
+      const out = [];
+      // 1. Saty ATR daily levels — these are the workhorse intraday extension levels
+      const atr = data?.atr_levels?.day || {};
+      // Day ATR levels are reported as {prevClose, lvls: {0.382: px, 0.618: px, 1.0: px, ...}}
+      // Or sometimes as flat {l_236, l_382, ...}. Check both shapes.
+      const _addAtr = (level, label, family) => {
+        const v = Number(level);
+        if (!Number.isFinite(v) || v <= 0) return;
+        out.push({ price: v, label, family });
+      };
+      if (atr?.lvls && typeof atr.lvls === "object") {
+        // upside fibs
+        _addAtr(atr.lvls["0.236"], "Day +0.236", "saty_atr");
+        _addAtr(atr.lvls["0.382"], "Day +0.382", "saty_atr");
+        _addAtr(atr.lvls["0.5"], "Day +0.5", "saty_atr");
+        _addAtr(atr.lvls["0.618"], "Day +0.618", "saty_atr");
+        _addAtr(atr.lvls["1.0"], "Day +1.0", "saty_atr");
+        _addAtr(atr.lvls["1.618"], "Day +1.618", "saty_atr");
+        // downside (negative keys)
+        _addAtr(atr.lvls["-0.236"], "Day -0.236", "saty_atr");
+        _addAtr(atr.lvls["-0.382"], "Day -0.382", "saty_atr");
+        _addAtr(atr.lvls["-0.618"], "Day -0.618", "saty_atr");
+        _addAtr(atr.lvls["-1.0"], "Day -1.0", "saty_atr");
+      }
+      // Also try the 'week' horizon for swing-trade levels (more meaningful
+      // than intraday ATR for our hold horizon).
+      const atrW = data?.atr_levels?.week || {};
+      if (atrW?.lvls && typeof atrW.lvls === "object") {
+        _addAtr(atrW.lvls["0.382"], "Week +0.382", "saty_atr_week");
+        _addAtr(atrW.lvls["0.618"], "Week +0.618", "saty_atr_week");
+        _addAtr(atrW.lvls["1.0"], "Week +1.0", "saty_atr_week");
+        _addAtr(atrW.lvls["-0.382"], "Week -0.382", "saty_atr_week");
+        _addAtr(atrW.lvls["-0.618"], "Week -0.618", "saty_atr_week");
+      }
+      // 2. Daily EMAs — universal support/resistance lines
+      const dEma = data?.tf_tech?.D?.ema || {};
+      if (Number.isFinite(Number(dEma?.e21))) out.push({ price: Number(dEma.e21), label: "EMA21 (D)", family: "ema" });
+      if (Number.isFinite(Number(dEma?.e48))) out.push({ price: Number(dEma.e48), label: "EMA48 (D)", family: "ema" });
+      if (Number.isFinite(Number(dEma?.e200))) out.push({ price: Number(dEma.e200), label: "EMA200 (D)", family: "ema" });
+      // 4H EMAs as secondary
+      const h4Ema = data?.tf_tech?.["4H"]?.ema || data?.tf_tech?.["240"]?.ema || {};
+      if (Number.isFinite(Number(h4Ema?.e21))) out.push({ price: Number(h4Ema.e21), label: "EMA21 (4H)", family: "ema_4h" });
+      // 3. PDZ swing range — use the swing high/low from pdz, premium/discount center
+      const pdz = data?.pdz || data?.pdz_d || null;
+      if (pdz && typeof pdz === "object") {
+        if (Number.isFinite(Number(pdz.swing_high))) out.push({ price: Number(pdz.swing_high), label: "Swing High", family: "pdz" });
+        if (Number.isFinite(Number(pdz.swing_low))) out.push({ price: Number(pdz.swing_low), label: "Swing Low", family: "pdz" });
+        if (Number.isFinite(Number(pdz.eq))) out.push({ price: Number(pdz.eq), label: "Equilibrium", family: "pdz" });
+      }
+      // Dedup by price (within 0.5% of each other, keep first)
+      const dedup = [];
+      const _seen = [];
+      for (const lvl of out) {
+        const tooClose = _seen.some((p) => Math.abs(p - lvl.price) / Math.max(1, p) < 0.005);
+        if (!tooClose) { dedup.push(lvl); _seen.push(lvl.price); }
+      }
+      // Classify support vs resistance vs at-price
+      for (const lvl of dedup) {
+        const distPct = ((lvl.price - px) / px) * 100;
+        lvl.role = distPct < -0.5 ? "support" : distPct > 0.5 ? "resistance" : "at_price";
+        lvl.dist_pct = Math.round(distPct * 100) / 100;
+      }
+      // Sort highest to lowest (resistance first, then current, then support)
+      dedup.sort((a, b) => b.price - a.price);
+      // Cap to 10 most relevant (closest to price)
+      const sortedByDist = [...dedup].sort((a, b) => Math.abs(a.dist_pct) - Math.abs(b.dist_pct)).slice(0, 10);
+      const keepSet = new Set(sortedByDist.map((l) => l.price));
+      return dedup.filter((l) => keepSet.has(l.price));
+    })(),
   };
 }
 

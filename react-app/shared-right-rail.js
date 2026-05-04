@@ -2668,6 +2668,86 @@
                         );
                       })()}
 
+                      {/* V2.1 round 8 (2026-05-04) — Universal Key Levels panel.
+                          Per user: "There should be levels even if we are not
+                          in a trade and it should provide our users with a
+                          clear support and resistance levels, we can use a
+                          blend of Saty ATR, PDZ and EMAs."
+                          Sourced from /timed/prediction-contract `levels` field
+                          which the worker now builds from atr_levels (Saty),
+                          tf_tech.D.ema (EMAs 21/48/200), and pdz_zone_D (PDZ
+                          swing high/low/equilibrium). Always renders if data
+                          available, regardless of whether we have an active
+                          trade or proposed entry. */}
+                      {Array.isArray(predictionContract?.levels) && predictionContract.levels.length > 0 && (() => {
+                        const px = Number(v2Price) || Number(ticker?.price) || 0;
+                        if (!(px > 0)) return null;
+                        const levels = [...predictionContract.levels];
+                        // Insert "Current" marker.
+                        levels.push({ price: px, label: "Current", family: "current", role: "at_price", dist_pct: 0 });
+                        levels.sort((a, b) => b.price - a.price);
+                        const familyColor = (f) => {
+                          switch (f) {
+                            case "saty_atr": return "var(--ds-text-muted)";
+                            case "saty_atr_week": return "#a78bfa";
+                            case "ema":      return "#60a5fa";
+                            case "ema_4h":   return "rgba(96,165,250,0.5)";
+                            case "pdz":      return "var(--ds-accent)";
+                            case "current":  return "#fbbf24";
+                            default: return "var(--ds-text-muted)";
+                          }
+                        };
+                        return (
+                          <Panel title="Key Levels" action={<span className="ds-chip ds-chip--sm" style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)" }}>SATY · EMA · PDZ</span>}>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                              {levels.slice(0, 12).map((l, i) => {
+                                const isCur = l.family === "current";
+                                const isRes = l.role === "resistance";
+                                const isSup = l.role === "support";
+                                return (
+                                  <div key={`lvl-${i}-${l.price}`} style={{
+                                    display: "grid",
+                                    gridTemplateColumns: "10px 80px 1fr auto",
+                                    gap: "var(--ds-space-2)",
+                                    alignItems: "center",
+                                    padding: "3px var(--ds-space-2)",
+                                    borderRadius: "var(--ds-radius-xs)",
+                                    background: isCur ? "rgba(245,194,92,0.10)" : "transparent",
+                                    borderLeft: `2px solid ${familyColor(l.family)}`,
+                                  }}>
+                                    <span style={{
+                                      width: 6, height: 6, borderRadius: 3,
+                                      background: familyColor(l.family),
+                                      marginLeft: 2,
+                                    }} />
+                                    <span style={{ fontSize: "var(--ds-fs-caption)", color: isCur ? "var(--ds-accent)" : "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", fontWeight: isCur ? 700 : 500 }}>
+                                      {l.label}
+                                    </span>
+                                    <span style={{ fontSize: "var(--ds-fs-meta)", color: isCur ? "var(--ds-accent)" : "var(--ds-text)", fontFamily: "var(--tt-font-mono)", fontWeight: isCur ? 700 : 500 }}>
+                                      ${Number(l.price).toFixed(2)}
+                                    </span>
+                                    <span style={{
+                                      fontSize: 9,
+                                      fontFamily: "var(--tt-font-mono)",
+                                      color: isRes ? "var(--ds-dn)" : isSup ? "var(--ds-up)" : "var(--ds-accent)",
+                                      fontWeight: 600,
+                                      letterSpacing: "0.04em",
+                                    }}>
+                                      {isCur ? "—" : `${l.dist_pct >= 0 ? "+" : ""}${l.dist_pct.toFixed(2)}%`}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <div style={{ marginTop: "var(--ds-space-2)", paddingTop: "var(--ds-space-2)", borderTop: "1px solid var(--ds-border-faint)", display: "flex", flexWrap: "wrap", gap: 8, fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" }}>
+                              <span><span style={{ display: "inline-block", width: 6, height: 6, background: "var(--ds-text-muted)", borderRadius: 3, marginRight: 4 }} />SATY</span>
+                              <span><span style={{ display: "inline-block", width: 6, height: 6, background: "#60a5fa", borderRadius: 3, marginRight: 4 }} />EMA</span>
+                              <span><span style={{ display: "inline-block", width: 6, height: 6, background: "var(--ds-accent)", borderRadius: 3, marginRight: 4 }} />PDZ</span>
+                            </div>
+                          </Panel>
+                        );
+                      })()}
+
                       {/* Risk & Targets — vertical price ladder.
                           V2.1 round 7 (2026-05-01) — Now surfaces ALL TP tiers
                           (TP1 trim, TP2 exit, TP3 runner) from tpArray when
@@ -2715,17 +2795,28 @@
                         const hi = max + padding;
                         const yFor = (px) => 100 - ((px - lo) / (hi - lo)) * 100;
                         const isLong = v2Dir === "LONG";
-                        const levels = [
+                        const rawLevels = [
                           ...tpLevels.map(tp => ({ label: tp.label, sub: tp.desc, px: tp.px, color: "var(--ds-up)" })),
                           cur ? { label: "Current", px: cur, color: "var(--ds-accent)", isCurrent: true } : null,
                           entry ? { label: "Entry", px: entry, color: "var(--ds-text-muted)" } : null,
                           sl ? { label: "Stop", px: sl, color: "var(--ds-dn)" } : null,
                         ].filter(Boolean).sort((a, b) => b.px - a.px);
+                        // Avoid label overlap: enforce minimum 8% y-spacing between
+                        // adjacent labels by nudging downstream rows down. Was
+                        // causing Entry/Stop text overlap when prices were close.
+                        const levels = rawLevels.map(l => ({ ...l, _y: yFor(l.px) }));
+                        const MIN_SPACING = 11;
+                        for (let i = 1; i < levels.length; i++) {
+                          const prevY = levels[i - 1]._y;
+                          if (levels[i]._y - prevY < MIN_SPACING) {
+                            levels[i]._y = prevY + MIN_SPACING;
+                          }
+                        }
                         return (
                           <Panel title="Risk & Targets" action={ticker?.rr && <span className={`ds-chip ds-chip--sm ${Number(ticker.rr) >= 2 ? "ds-chip--up" : "ds-chip--accent"}`}>R:R {Number(ticker.rr).toFixed(2)}</span>}>
                             <div style={{ position: "relative", height: 160, marginTop: "var(--ds-space-2)", borderLeft: "2px solid var(--ds-stroke)", paddingLeft: "var(--ds-space-3)" }}>
                               {levels.map((l, i) => {
-                                const top = yFor(l.px);
+                                const top = l._y;
                                 return (
                                   <div key={`rt-${i}`} style={{
                                     position: "absolute",
