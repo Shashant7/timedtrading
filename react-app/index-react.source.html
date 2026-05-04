@@ -671,6 +671,23 @@
           z-index: 60 !important;
           padding-bottom: env(safe-area-inset-bottom);
         }
+        /* Right rail tab bar — hide horizontal scrollbar but keep
+           horizontal scroll behavior so all 5 tabs stay reachable. */
+        .tt-rail-tabs::-webkit-scrollbar { display: none; }
+        .tt-rail-tabs { scrollbar-width: none; -ms-overflow-style: none; }
+        /* Top header — give it more breathing room on mobile so the
+           logo / LIVE pill / waitlist icon / bell / avatar / hamburger
+           don't feel cramped. Extra vertical padding plus a touch
+           more horizontal spacing between groups. */
+        .tt-top-nav__inner {
+          padding-top: 14px !important;
+          padding-bottom: 12px !important;
+          padding-left: 14px !important;
+          padding-right: 14px !important;
+          gap: 10px;
+        }
+        .tt-top-nav .flex.items-center.gap-3 { gap: 12px !important; }
+        .tt-top-nav .flex.items-center.gap-2 { gap: 10px !important; }
 
         /* ── Bubble Map: collapse the chart by default on mobile. The
            parent height: calc(100vh - 120px) is too tall to scroll past. ── */
@@ -682,6 +699,20 @@
         }
         .tt-bubble-mobile-collapsed .tt-bubble-chart-wrap {
           display: none !important;
+        }
+        /* When the bubble map IS shown on mobile, force it visible
+           and give it real chart height (the parent's 700px min-height
+           was leaving an empty void inside the .tt-bubble-chart-wrap
+           since the lg:flex-1 only kicks in >=1024px). */
+        .tt-analysis-grid:not(.tt-bubble-mobile-collapsed) .tt-bubble-chart-wrap {
+          display: flex !important;
+          min-height: 60vh;
+          height: 60vh;
+        }
+        .tt-analysis-grid:not(.tt-bubble-mobile-collapsed) .tt-bubble-chart-wrap > .relative,
+        .tt-analysis-grid:not(.tt-bubble-mobile-collapsed) .tt-bubble-chart-wrap > div:last-child {
+          flex: 1 1 0;
+          min-height: 0;
         }
         .tt-bubble-toggle-btn {
           width: 100%;
@@ -703,6 +734,46 @@
           margin-bottom: 8px;
         }
         .tt-bubble-toggle-btn:active { transform: scale(0.99); }
+        /* Bubble Map full-screen modal mode — opens the chart in a
+           landscape-oriented full-viewport overlay so the user has
+           real estate to read the labels. The 'Open Full' button on
+           the toggle bar opens this; tapping the close X dismisses. */
+        .tt-bubble-fullscreen {
+          position: fixed;
+          inset: 0;
+          z-index: 9999;
+          background: var(--ds-bg-canvas);
+          display: flex;
+          flex-direction: column;
+          padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+        }
+        .tt-bubble-fullscreen__head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 12px 14px;
+          border-bottom: 1px solid var(--ds-stroke);
+          background: var(--ds-bg-glass);
+        }
+        .tt-bubble-fullscreen__close {
+          width: 36px; height: 36px;
+          border-radius: 999px;
+          background: var(--ds-bg-glass-hi);
+          border: 1px solid var(--ds-stroke);
+          color: var(--ds-text-display);
+          display: flex; align-items: center; justify-content: center;
+          cursor: pointer;
+        }
+        .tt-bubble-fullscreen__body {
+          flex: 1 1 0; min-height: 0;
+          padding: 8px;
+          display: flex;
+          flex-direction: column;
+        }
+        .tt-bubble-fullscreen__body > * {
+          flex: 1 1 0;
+          min-height: 0;
+        }
 
         /* ── 44px minimum tap target for buttons / chips on mobile.
            Apply only to clearly-clickable elements so we don't blow
@@ -18073,6 +18144,7 @@
         // Heavy SVG scatter is hard to read on a phone, so default to
         // collapsed and let the user expand on demand.
         const [bubbleMobileExpanded, setBubbleMobileExpanded] = useState(false);
+        const [bubbleFullscreen, setBubbleFullscreen] = useState(false);
         // 2026-05-04 — Scroll-to-top floating button visibility.
         const [showScrollTop, setShowScrollTop] = useState(false);
         useEffect(() => {
@@ -19122,8 +19194,8 @@
             <div className="min-h-screen p-0 pt-2 tt-page-shell">
               {/* Light page gutter: avoid edge bleed but keep width for Kanban lanes (14" MBP). */}
               {/* ═══ Unified Nav Bar ═══ */}
-              <nav className="sticky top-0 z-50 border-b border-white/[0.06]" style={{background:"rgba(10,10,15,0.95)",backdropFilter:"blur(12px)"}}>
-                <div className="flex items-center justify-between px-4 py-2.5">
+              <nav className="sticky top-0 z-50 border-b border-white/[0.06] tt-top-nav" style={{background:"rgba(10,10,15,0.95)",backdropFilter:"blur(12px)"}}>
+                <div className="flex items-center justify-between px-4 py-2.5 md:py-2.5 tt-top-nav__inner" style={{ paddingTop: "max(10px, env(safe-area-inset-top))" }}>
                   <div className="flex items-center gap-3 md:gap-5 min-w-0">
                     <a href="index-react.html" className="flex items-center gap-2 no-underline shrink-0">
                       <svg width="28" height="28" viewBox="0 0 48 48" fill="none"><defs><linearGradient id="tt-ring" x1="6" y1="42" x2="42" y2="6"><stop offset="0%" stopColor="#34d399"/><stop offset="100%" stopColor="#67e8f9"/></linearGradient></defs><rect width="48" height="48" rx="11" fill="#000"/><circle cx="24" cy="24" r="17" stroke="url(#tt-ring)" strokeWidth="2.5" fill="none"/><line x1="24" y1="7.5" x2="24" y2="10.5" stroke="#34d399" strokeWidth="1.5" strokeLinecap="round" opacity="0.5"/><line x1="7.5" y1="24" x2="10.5" y2="24" stroke="#34d399" strokeWidth="1.5" strokeLinecap="round" opacity="0.5"/><line x1="19" y1="18.5" x2="16" y2="15.5" stroke="#636366" strokeWidth="1.2" strokeLinecap="round"/><line x1="24" y1="24" x2="19" y2="18.5" stroke="#636366" strokeWidth="3.5" strokeLinecap="round"/><line x1="29.5" y1="16.5" x2="32" y2="12.9" stroke="#30d158" strokeWidth="1.2" strokeLinecap="round"/><line x1="24" y1="24" x2="29.5" y2="16.5" stroke="#30d158" strokeWidth="4" strokeLinecap="round"/><circle cx="24" cy="24" r="3.2" fill="#30d158"/><circle cx="24" cy="24" r="1.3" fill="#000"/></svg>
@@ -20202,20 +20274,52 @@
                         </div>
                       </div>
                     ) : dashboardMode === "analysis" && (
-                    <div className={`tt-analysis-grid flex flex-col lg:flex-row gap-4 ${bubbleMobileExpanded ? "" : "tt-bubble-mobile-collapsed"}`} style={{ height: "calc(100vh - 120px)", minHeight: "700px", maxHeight: "1200px" }}>
-                      {/* Mobile-only Bubble Map toggle (sits above the chart on phones).
-                          Hidden on desktop via @media (min-width: 769px) below. */}
-                      <button
-                        type="button"
-                        onClick={() => setBubbleMobileExpanded(v => !v)}
-                        className="tt-bubble-toggle-btn lg:hidden"
-                        aria-expanded={bubbleMobileExpanded}
-                      >
-                        <span>{bubbleMobileExpanded ? "Hide Bubble Map" : "Show Bubble Map"}</span>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: bubbleMobileExpanded ? "rotate(180deg)" : "none", transition: "transform 200ms" }}>
-                          <polyline points="6 9 12 15 18 9" />
-                        </svg>
-                      </button>
+                    <div
+                      className={`tt-analysis-grid flex flex-col lg:flex-row gap-4 ${bubbleMobileExpanded ? "tt-bubble-expanded" : "tt-bubble-mobile-collapsed"}`}
+                      style={{
+                        // On desktop: fixed viewport-height container so the
+                        // bubble chart fills the screen. On mobile: let the
+                        // grid grow naturally so we don't render an empty
+                        // 700px void when the chart is collapsed.
+                        height: typeof window !== "undefined" && window.innerWidth >= 1024 ? "calc(100vh - 120px)" : "auto",
+                        minHeight: typeof window !== "undefined" && window.innerWidth >= 1024 ? "700px" : "auto",
+                        maxHeight: typeof window !== "undefined" && window.innerWidth >= 1024 ? "1200px" : "none",
+                      }}
+                    >
+                      {/* Mobile-only Bubble Map toggle row — collapse/expand
+                          inline + Open Full button to launch the landscape
+                          fullscreen modal where the chart actually has
+                          enough screen real estate to read labels.
+                          Hidden on desktop via @media (min-width: 1024px). */}
+                      <div className="lg:hidden" style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                        <button
+                          type="button"
+                          onClick={() => setBubbleMobileExpanded(v => !v)}
+                          className="tt-bubble-toggle-btn"
+                          aria-expanded={bubbleMobileExpanded}
+                          style={{ flex: 1, marginBottom: 0 }}
+                        >
+                          <span>{bubbleMobileExpanded ? "Hide Bubble Map" : "Show Bubble Map"}</span>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: bubbleMobileExpanded ? "rotate(180deg)" : "none", transition: "transform 200ms" }}>
+                            <polyline points="6 9 12 15 18 9" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setBubbleFullscreen(true)}
+                          className="tt-bubble-toggle-btn"
+                          style={{ width: "auto", padding: "10px 14px", marginBottom: 0, flex: "0 0 auto" }}
+                          title="Open the bubble map in a full-screen view (rotate to landscape for best results)"
+                          aria-label="Open Bubble Map fullscreen"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="15 3 21 3 21 9" />
+                            <polyline points="9 21 3 21 3 15" />
+                            <line x1="21" y1="3" x2="14" y2="10" />
+                            <line x1="3" y1="21" x2="10" y2="14" />
+                          </svg>
+                        </button>
+                      </div>
                       {/* Viewport - Left side (shares parent height) */}
                       <div className="w-full lg:w-[320px] lg:flex-shrink-0 lg:h-full min-h-[400px] lg:min-h-0" data-coachmark="viewport">
                         <OpportunitiesPanel
@@ -20750,6 +20854,39 @@
                   <polyline points="18 15 12 9 6 15" />
                 </svg>
               </button>
+            )}
+
+            {/* ── Bubble Map full-screen mobile modal ─────────────────
+                Tappable launcher on the bubble toggle row opens this.
+                Renders the full BubbleChart at viewport size so the user
+                actually has room to read labels on phone. */}
+            {bubbleFullscreen && (
+              <div className="tt-bubble-fullscreen" role="dialog" aria-modal="true" aria-label="Bubble Map">
+                <div className="tt-bubble-fullscreen__head">
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "var(--ds-text-display)", letterSpacing: "0.04em" }}>Bubble Map</span>
+                    <span style={{ fontSize: 10, color: "var(--ds-text-muted)", letterSpacing: "0.06em", textTransform: "uppercase" }}>Rotate phone for landscape view</span>
+                  </div>
+                  <button type="button" className="tt-bubble-fullscreen__close" onClick={() => setBubbleFullscreen(false)} aria-label="Close">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                </div>
+                <div className="tt-bubble-fullscreen__body">
+                  <BubbleChart
+                    tickers={tickersWithRanks}
+                    selectedTicker={selectedTicker}
+                    onSelectTicker={handleTickerSelect}
+                    rankPositions={rankedTickerPositions}
+                    sectors={sectors}
+                    chartView={bubbleLayoutMode}
+                    onChartViewChange={setBubbleLayoutMode}
+                    showLabels={true}
+                  />
+                </div>
+              </div>
             )}
 
             <Coachmarks />
