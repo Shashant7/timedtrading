@@ -788,6 +788,9 @@ const ROUTES = [
   ["POST", "/timed/admin/replay-lock", "POST /timed/admin/replay-lock"],
   ["GET", "/timed/admin/replay-lock", "GET /timed/admin/replay-lock"],
   ["DELETE", "/timed/admin/replay-lock", "DELETE /timed/admin/replay-lock"],
+  ["POST", "/timed/admin/cron-mute", "POST /timed/admin/cron-mute"],
+  ["GET", "/timed/admin/cron-mute", "GET /timed/admin/cron-mute"],
+  ["DELETE", "/timed/admin/cron-mute", "DELETE /timed/admin/cron-mute"],
   ["POST", "/timed/admin/cleanup-orphan-trades", "POST /timed/admin/cleanup-orphan-trades"],
   // V15 P0.7.46 (2026-05-01) — read-only KV inspector for debugging
   // capture / write-path issues. ?k=<key>&key=<api-key> → { value }
@@ -6801,6 +6804,34 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
   // 7-Lane Flow: just_entered → defend → trim → exit
   // ═══════════════════════════════════════════════════════════════════════════
   if (hasPosition) {
+    // ═════════════════════════════════════════════════════════════════════════
+    // PHASE C — Stage 1 (2026-05-04) — GLOBAL BACKTEST TRADE PROTECTION.
+    //
+    // If the open position belongs to a backtest run (run_id != null)
+    // AND we were called without an asOfTs (= we're in a wall-clock /
+    // read-time path, NOT the replay engine), refuse to evaluate exits.
+    //
+    // Without this guard, ANY of the wall-clock-time exit rules below
+    // (V13, HARD_LOSS_CAP, mid_trade_regime_flip, atr_day_adverse_382_cut,
+    // mfe_decay_*, etc.) will compute pnlPct from the 9-month-old entry
+    // price vs current wall-clock price and force-close the trade with a
+    // bogus exit_ts (today) and bogus pnl. This is what corrupted the
+    // phase-c-stage1 run twice and is the root cause documented in
+    // tasks/phase-c/HANDOFF.md.
+    //
+    // Replay engine ALWAYS passes asOfTs (see processTradeSimulation at
+    // line ~14946: `isReplay && Number.isFinite(asOfMs) ? asOfMs : null`).
+    // So this guard fires only for read-time / cron callers — exactly
+    // where the corruption was happening.
+    //
+    // Returns "neutral" (= no action) so the caller proceeds without
+    // mutating the position.
+    // ═════════════════════════════════════════════════════════════════════════
+    const _isBacktestTradeReadTime = (asOfTs == null) && (openPosition?.run_id || openPosition?.runId);
+    if (_isBacktestTradeReadTime) {
+      return "neutral";
+    }
+
     const completion = Number(tickerData?.completion) || 0;
     const phase = Number(tickerData?.phase_pct) || 0;
     const currentPrice = Number(tickerData?.price);
@@ -14646,6 +14677,29 @@ async function processTradeSimulation(
       allTrades = (await d1LoadTradesForSimulation(env)) ?? (await kvGetJSON(KV, tradesKey)) ?? [];
     } else {
       allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+    }
+
+    // Phase C — Stage 1 (2026-05-04) — BACKTEST TRADE PROTECTION.
+    // When called from the live cron (or any non-replay path) we MUST NOT
+    // evaluate trades that belong to a backtest run. Even if d1LoadTrades-
+    // ForSimulation filters by run_id at the source, a stale KV blob in
+    // `timed:trades:all` (or a different code path that constructs allTrades
+    // from elsewhere) can leak backtest trades into this function. Without
+    // this guard, classifyKanbanStage's many wall-clock-time exit rules
+    // (V13 hard age cap, V13 hard pnl floor, HARD_LOSS_CAP, mid-trade
+    // regime flip, atr_day_adverse, etc.) all fire on a 9-month-old open
+    // backtest trade and force-close it at wall-clock prices, corrupting
+    // the run.
+    //
+    // Strip ANY trade with a non-null run_id from allTrades when not in
+    // replay. Replay paths set isReplay=true and pass their own allTrades
+    // via replayCtx, so this guard never fires for legitimate replay work.
+    if (!isReplay && Array.isArray(allTrades) && allTrades.length > 0) {
+      const _origLen = allTrades.length;
+      allTrades = allTrades.filter((t) => !t?.run_id && !t?.runId);
+      if (allTrades.length !== _origLen) {
+        console.log(`[BACKTEST_GUARD] processTradeSimulation(${sym}): stripped ${_origLen - allTrades.length} backtest trades (run_id != null) from live cron evaluation`);
+      }
     }
 
     const entryTsForTrade = (t) => {
@@ -50092,6 +50146,40 @@ export default {
         return sendJSON({ ok: true, released: true }, 200, corsHeaders(env, req));
       }
 
+      // POST /timed/admin/cron-mute?key=...&reason=phase-c-multileg
+      // Hard mute the live cron's trade execution + reconciliation. Distinct
+      // from replay-lock: this stays in effect across replay-lock acquire/
+      // release cycles, designed for the multi-leg backtest orchestrator
+      // that releases the per-leg lock between legs but wants the cron to
+      // stay quiet for the entire multi-leg run.
+      if (routeKey === "POST /timed/admin/cron-mute") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const KV = env?.KV_TIMED;
+        if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+        const reason = url.searchParams.get("reason") || "manual";
+        const muteVal = `${reason}@${new Date().toISOString()}`;
+        // No TTL — explicit DELETE required to clear. Operator responsibility.
+        await KV.put("phase-c:cron-mute", muteVal);
+        return sendJSON({ ok: true, mute: muteVal }, 200, corsHeaders(env, req));
+      }
+      if (routeKey === "GET /timed/admin/cron-mute") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const KV = env?.KV_TIMED;
+        if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+        const m = await KV.get("phase-c:cron-mute");
+        return sendJSON({ ok: true, muted: !!m, mute: m || null }, 200, corsHeaders(env, req));
+      }
+      if (routeKey === "DELETE /timed/admin/cron-mute") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const KV = env?.KV_TIMED;
+        if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+        await KV.delete("phase-c:cron-mute");
+        return sendJSON({ ok: true, released: true }, 200, corsHeaders(env, req));
+      }
+
       // POST /timed/admin/cleanup-orphan-trades?key=...
       // Force-close all trades with status=OPEN and run_id IS NULL that
       // are older than the threshold (default 7 days). These are leftover
@@ -66369,9 +66457,21 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     const allowExecution = _cronCalendar ? _calIsWithinOH(_cronCalendar) : executionMarketOpen;
 
     // Replay lock: skip ALL trade simulation / reconciliation while a backtest is running
-    const _replayLock = await KV.get("timed:replay:lock");
+    let _replayLock = await KV.get("timed:replay:lock");
     if (_replayLock) {
       console.log(`[CRON] Replay lock active (${_replayLock}). Skipping trade execution & reconciliation.`);
+    }
+    // Phase C — Stage 1 (2026-05-04) — Hard cron mute.
+    // When `phase-c:cron-mute` is set in KV, behave as if the replay lock
+    // was held: skip ALL trade execution and reconciliation. Used by the
+    // multi-leg backtest orchestrator to prevent the live cron from
+    // racing the backtest in the brief gap between continuous-slice
+    // legs (which release the lock on completion). Stays in effect
+    // across any number of legs until explicitly cleared by an admin.
+    const _cronMute = await KV.get("phase-c:cron-mute");
+    if (_cronMute) {
+      console.log(`[CRON] phase-c:cron-mute active (${_cronMute}). Skipping trade execution & reconciliation.`);
+      _replayLock = _replayLock || _cronMute; // re-use the same downstream gates
     }
 
     if (!allowExecution) {

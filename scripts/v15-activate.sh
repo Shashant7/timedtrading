@@ -46,7 +46,7 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_gap_reversal_min_rvol", "value": "1.2" },
     { "key": "deep_audit_gap_reversal_min_gap_pct", "value": "1.5" },
 
-    { "key": "deep_audit_n_test_support_enabled", "value": "true" },
+    { "_comment": "V15 P0.7.58 (2026-05-04) — Loss-anatomy proposal #2: kill the toxic N-Test cohort. In v16-canon-julapr (461 trades), N-Test Support × any-grade and N-Test Resistance × Confirmed combined for net -150 PnL%, 28 trades, 2 catastrophic losses. WR 0% on N-Test Resistance/Confirmed. Per the user-approved analysis at tasks/phase-c/loss-anatomy-and-ml-edge.md.", "key": "deep_audit_n_test_support_enabled", "value": "false" },
     { "key": "deep_audit_n_test_min_touches", "value": "3" },
     { "key": "deep_audit_n_test_min_rvol", "value": "1.0" },
 
@@ -179,7 +179,10 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_atr_week_618_defer_on_cloud_hold", "value": "true" },
     { "key": "deep_audit_atr_week_618_partial_trim_pct", "value": "0.30" },
 
-    { "key": "deep_audit_max_daily_entries", "value": "999" }
+    { "key": "deep_audit_max_daily_entries", "value": "999" },
+
+    { "_comment": "V15 P0.7.58 (2026-05-04) — Loss-anatomy proposal #3: tighten SHORT direction. In v16-canon-julapr, 24 short trades produced 29% WR, -49 PnL%, 3 big_W vs 3 big_L. Existing min_rank=80 was too loose. Raise to 90 and require SPY downtrend regime.", "key": "deep_audit_short_min_rank", "value": "90" },
+    { "key": "deep_audit_short_requires_spy_downtrend", "value": "true" }
   ]
 }
 JSON
