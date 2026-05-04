@@ -5,3 +5,52 @@
 [2026-05-04T17:38:04Z] Resuming after last completed day 2025-07-31
 [2026-05-04T17:38:04Z] Acquired replay lock: continuous_phase-c-stage1-jul2025-may2026@2026-05-04T17:38:04.532Z
 [2026-05-04T17:38:04Z] >>> day 1/21  2025-08-01
+[2026-05-04T17:40:58Z] WARN: curl rc=18 elapsed=16s on 2025-08-01 offset=96 attempt 1
+[2026-05-04T17:44:52Z] day 2025-08-01 ok {"scored":3318,"trades":0,"blocked_bars":3263} (407s, batches=20)
+[2026-05-04T17:44:52Z] >>> day 2/21  2025-08-04
+[2026-05-04T17:50:15Z] day 2025-08-04 ok {"scored":3318,"trades":15,"blocked_bars":3147} (322s, batches=20)
+[2026-05-04T17:50:15Z] >>> day 3/21  2025-08-05
+[2026-05-04T17:55:40Z] day 2025-08-05 ok {"scored":3318,"trades":2,"blocked_bars":3123} (325s, batches=20)
+[2026-05-04T17:55:40Z] >>> day 4/21  2025-08-06
+[2026-05-04T18:01:03Z] day 2025-08-06 ok {"scored":3318,"trades":0,"blocked_bars":3158} (322s, batches=20)
+[2026-05-04T18:01:03Z] >>> day 5/21  2025-08-07
+[2026-05-04T18:06:34Z] day 2025-08-07 ok {"scored":3318,"trades":1,"blocked_bars":3187} (331s, batches=20)
+[2026-05-04T18:06:34Z] >>> day 6/21  2025-08-08
+[2026-05-04T18:11:59Z] day 2025-08-08 ok {"scored":3318,"trades":1,"blocked_bars":3199} (325s, batches=20)
+[2026-05-04T18:11:59Z] >>> day 7/21  2025-08-11
+[2026-05-04T18:12:09Z] WARN: lock was empty; re-acquiring
+[2026-05-04T18:12:10Z] Acquired replay lock: continuous_phase-c-stage1-jul2025-may2026@2026-05-04T18:12:10.487Z
+[2026-05-04T18:18:34Z] day 2025-08-11 ok {"scored":3318,"trades":0,"blocked_bars":3224} (384s, batches=20)
+[2026-05-04T18:18:34Z] >>> day 8/21  2025-08-12
+[2026-05-04T18:26:16Z] day 2025-08-12 ok {"scored":3318,"trades":10,"blocked_bars":3163} (462s, batches=20)
+[2026-05-04T18:26:16Z] >>> day 9/21  2025-08-13
+[2026-05-04T18:31:43Z] day 2025-08-13 ok {"scored":3318,"trades":2,"blocked_bars":3125} (327s, batches=20)
+[2026-05-04T18:31:43Z] >>> day 10/21  2025-08-14
+[2026-05-04T18:37:56Z] day 2025-08-14 ok {"scored":3318,"trades":0,"blocked_bars":3161} (372s, batches=20)
+[2026-05-04T18:37:56Z] >>> day 11/21  2025-08-15
+[2026-05-04T18:43:42Z] day 2025-08-15 ok {"scored":3318,"trades":1,"blocked_bars":3206} (346s, batches=20)
+[2026-05-04T18:43:42Z] >>> day 12/21  2025-08-18
+[2026-05-04T18:48:22Z] day 2025-08-18 ok {"scored":3318,"trades":6,"blocked_bars":3160} (280s, batches=20)
+[2026-05-04T18:48:22Z] >>> day 13/21  2025-08-19
+[2026-05-04T18:52:43Z] day 2025-08-19 ok {"scored":3318,"trades":0,"blocked_bars":3237} (261s, batches=20)
+[2026-05-04T18:52:43Z] >>> day 14/21  2025-08-20
+[2026-05-04T18:56:43Z] day 2025-08-20 ok {"scored":3318,"trades":0,"blocked_bars":3271} (239s, batches=20)
+[2026-05-04T18:56:43Z] >>> day 15/21  2025-08-21
+[2026-05-04T19:00:47Z] day 2025-08-21 ok {"scored":3318,"trades":2,"blocked_bars":3272} (244s, batches=20)
+[2026-05-04T19:00:47Z] >>> day 16/21  2025-08-22
+[2026-05-04T19:05:12Z] day 2025-08-22 ok {"scored":3318,"trades":10,"blocked_bars":3188} (265s, batches=20)
+[2026-05-04T19:05:12Z] >>> day 17/21  2025-08-25
+[2026-05-04T19:09:42Z] day 2025-08-25 ok {"scored":3318,"trades":7,"blocked_bars":3098} (270s, batches=20)
+[2026-05-04T19:09:42Z] >>> day 18/21  2025-08-26
+[2026-05-04T19:14:11Z] day 2025-08-26 ok {"scored":3318,"trades":6,"blocked_bars":3009} (269s, batches=20)
+[2026-05-04T19:14:11Z] >>> day 19/21  2025-08-27
+[2026-05-04T19:18:41Z] day 2025-08-27 ok {"scored":3318,"trades":0,"blocked_bars":3001} (270s, batches=20)
+[2026-05-04T19:18:41Z] >>> day 20/21  2025-08-28
+[2026-05-04T19:23:03Z] day 2025-08-28 ok {"scored":3318,"trades":2,"blocked_bars":3030} (262s, batches=20)
+[2026-05-04T19:23:03Z] >>> day 21/21  2025-08-29
+[2026-05-04T19:27:33Z] day 2025-08-29 ok {"scored":3318,"trades":0,"blocked_bars":3098} (270s, batches=20)
+[2026-05-04T19:27:33Z] === All 21 trading days processed; finalizing ===
+[2026-05-04T19:27:33Z] Skipping finalize (--no-finalize set). Open positions preserved for the next leg.
+[2026-05-04T19:27:33Z] Saved 168 trades to /workspace/data/trade-analysis/phase-c-stage1-jul2025-may2026/trades.json (run remains 'running')
+[2026-05-04T19:27:33Z] === continuous-slice complete: phase-c-stage1-jul2025-may2026 ===
+[2026-05-04T19:27:33Z] KEEP_LOCK=true — refreshing lock instead of releasing (live cron stays muted)
