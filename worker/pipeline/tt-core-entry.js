@@ -388,6 +388,52 @@ export function evaluateEntry(ctx) {
           }
         }
 
+        /* V15 P0.7.56 (2026-05-04) — Anti-chase guard.
+           BE Oct-13 case: LONG entered at \$113.57 after stock had gapped up
+           huge — vwap_30m_dist +33%, vwap_1H_dist +93%, vwap slopes all
+           strongly positive, AND adverse_phase_div=true at entry. Stops
+           fired at HARD_LOSS_CAP -9.23%. The momentum buffer is the
+           OPPOSITE of what we wanted here — momentum was so extended it
+           was a chase, and the divergence flagged it.
+
+           Rule: veto LONG entries (and SHORT entries with mirror logic)
+           when price is far extended from session VWAP AND we have an
+           adverse divergence at entry. This catches the "extended chase"
+           pattern without blocking healthy continuation entries (those
+           don't have adverse divergence).
+
+           Knobs:
+             deep_audit_anti_chase_enabled (default true)
+             deep_audit_anti_chase_vwap_30m_dist_pct (default 25)
+             deep_audit_anti_chase_vwap_1h_dist_pct (default 60) */
+        const _antiChaseEnabled = String(daCfg.deep_audit_anti_chase_enabled ?? "true") === "true";
+        if (_antiChaseEnabled && d) {
+          const _vwap = d?.vwap || {};
+          const _vw30Dist = Number(_vwap?.["30"]?.dist_pct ?? _vwap?.m30?.dist_pct) || 0;
+          const _vw1HDist = Number(_vwap?.["60"]?.dist_pct ?? _vwap?.h1?.dist_pct ?? _vwap?.["1H"]?.dist_pct) || 0;
+          const _vw30Slope = Number(_vwap?.["30"]?.slope_5bar ?? _vwap?.m30?.slope_5bar) || 0;
+          const _divSummary = d?.__entry_divergence_summary || {};
+          const _hasAdvPhase = !!_divSummary?.adverse_phase || !!d?.__entry_signals_summary?.has_adverse_phase_div;
+          const _hasAdvRsi = !!_divSummary?.adverse_rsi || !!d?.__entry_signals_summary?.has_adverse_rsi_div;
+          const _vw30DistThr = Number(daCfg.deep_audit_anti_chase_vwap_30m_dist_pct) || 25;
+          const _vw1HDistThr = Number(daCfg.deep_audit_anti_chase_vwap_1h_dist_pct) || 60;
+          const _isLong = _sideUpper === "LONG";
+          const _isShort = _sideUpper === "SHORT";
+          // For LONG: extended UP + adverse divergence = chase
+          // For SHORT: extended DOWN (negative dist) + adverse divergence = chase
+          const _longExtended = _isLong && _vw30Slope > 0 && (_vw30Dist >= _vw30DistThr || _vw1HDist >= _vw1HDistThr);
+          const _shortExtended = _isShort && _vw30Slope < 0 && (_vw30Dist <= -_vw30DistThr || _vw1HDist <= -_vw1HDistThr);
+          if ((_longExtended || _shortExtended) && (_hasAdvPhase || _hasAdvRsi)) {
+            return rejectEntry("phase_i_anti_chase", {
+              vwap_30m_dist_pct: _vw30Dist,
+              vwap_1h_dist_pct: _vw1HDist,
+              vwap_30m_slope: _vw30Slope,
+              adverse_phase_div: _hasAdvPhase,
+              adverse_rsi_div: _hasAdvRsi,
+            });
+          }
+        }
+
         // Gate 2: re-entry throttle (same direction, within N hours of last exit)
         const _reentryThrottleHrs = Number(daCfg.deep_audit_reentry_throttle_hours ?? 24);
         if (_reentryThrottleHrs > 0) {

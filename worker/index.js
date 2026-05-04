@@ -7074,6 +7074,52 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         }
       }
 
+      /* V15 P0.7.56 (2026-05-04) — Thesis-Flip Early Exit.
+         XLP Oct-13-15 case: SHORT entered at $77.88 with HTFs already
+         leaning bull (m30/h1/h4/D ST=+1, only m10=-1). Held 2 days
+         waiting for max_loss_time_scaled. The full HTF stack flipped
+         bull within hours of entry — the short thesis was dead and
+         we should have bailed within 1-2 bars instead of grinding.
+
+         Rule: if SHORT entry's HTF SuperTrends are 3-of-4 (30m, 1H,
+         4H, D) AGAINST direction for 2+ consecutive bars after entry
+         AND we're in red, exit immediately. Mirror for LONG. Cap at
+         -1% to avoid firing on micro-wiggles within 30 min of entry.
+
+         Knobs:
+           deep_audit_thesis_flip_enabled (default true)
+           deep_audit_thesis_flip_min_age_min (default 60 — 1H min hold)
+           deep_audit_thesis_flip_min_pnl_pct (default -0.5 — must be red) */
+      {
+        const _tfEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_thesis_flip_enabled ?? "true") === "true";
+        const _tfMinAgeMin = Number(tickerData?._env?._deepAuditConfig?.deep_audit_thesis_flip_min_age_min) || 60;
+        const _tfMinPnlPct = Number(tickerData?._env?._deepAuditConfig?.deep_audit_thesis_flip_min_pnl_pct) || -0.5;
+        if (_tfEnabled && positionAgeMarketMin >= _tfMinAgeMin && pnlPct <= _tfMinPnlPct) {
+          const _st30 = Number(tickerData?.tf_tech?.["30"]?.stDir) || 0;
+          const _st1H = Number(tickerData?.tf_tech?.["1H"]?.stDir ?? tickerData?.tf_tech?.["60"]?.stDir) || 0;
+          const _st4H = Number(tickerData?.tf_tech?.["4H"]?.stDir ?? tickerData?.tf_tech?.["240"]?.stDir) || 0;
+          const _stD = Number(tickerData?.tf_tech?.D?.stDir) || 0;
+          // For LONG, "against" means stDir = +1 (bear ST signal).
+          // For SHORT, "against" means stDir = -1 (bull ST signal).
+          // (SuperTrend stDir convention: -1 = bullish trend, +1 = bearish trend.)
+          const _againstSign = direction === "LONG" ? 1 : -1;
+          const _flipped = [_st30, _st1H, _st4H, _stD].filter((s) => s === _againstSign).length;
+          if (_flipped >= 3) {
+            tickerData.__exit_reason = "thesis_flip_htf";
+            tickerData.__exit_family = "safety";
+            tickerData.__exit_detail = {
+              direction,
+              flipped_count: _flipped,
+              st30: _st30, st1h: _st1H, st4h: _st4H, stD: _stD,
+              age_market_min: positionAgeMarketMin,
+              pnl_pct: pnlPct,
+            };
+            console.log(`[THESIS_FLIP] ${tickerData?.ticker} ${direction} flipped against on ${_flipped}/4 HTF ST (30m=${_st30} 1H=${_st1H} 4H=${_st4H} D=${_stD}), pnl=${pnlPct.toFixed(2)}%, age=${positionAgeMarketMin}m → exit`);
+            return "exit";
+          }
+        }
+      }
+
       // ──────────────────────────────────────────────────────────────────
       // V15 P0.6 — DAILY 5/12 EMA PEAK-LOCK EXIT (2026-04-26)
       //

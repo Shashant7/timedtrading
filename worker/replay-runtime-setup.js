@@ -401,6 +401,13 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_momentum_buffer_min_signals",                    // default 3 (of 5 structural)
   "deep_audit_momentum_buffer_max_loss_pct",                   // default -5.0 (vs -3.0 base)
   "deep_audit_momentum_buffer_time_scaled_expand_pct",         // default 1.0 (extends 4h/12h/24h floors)
+  // V15 P0.7.56 (2026-05-04) — Anti-chase entry guard + Thesis-flip exit
+  "deep_audit_anti_chase_enabled",                              // default true
+  "deep_audit_anti_chase_vwap_30m_dist_pct",                    // default 25
+  "deep_audit_anti_chase_vwap_1h_dist_pct",                     // default 60
+  "deep_audit_thesis_flip_enabled",                             // default true
+  "deep_audit_thesis_flip_min_age_min",                         // default 60 min market time
+  "deep_audit_thesis_flip_min_pnl_pct",                         // default -0.5 (must be in red)
 ];
 
 const REPLAY_CFG_KEYS = [

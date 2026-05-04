@@ -146,6 +146,13 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_momentum_buffer_max_loss_pct", "value": "-5.0" },
     { "key": "deep_audit_momentum_buffer_time_scaled_expand_pct", "value": "1.0" },
 
+    { "_comment": "V15 P0.7.56 — Anti-chase entry guard (BE Oct13 case) + Thesis-flip exit (XLP Oct13-15 case).", "key": "deep_audit_anti_chase_enabled", "value": "true" },
+    { "key": "deep_audit_anti_chase_vwap_30m_dist_pct", "value": "25" },
+    { "key": "deep_audit_anti_chase_vwap_1h_dist_pct", "value": "60" },
+    { "key": "deep_audit_thesis_flip_enabled", "value": "true" },
+    { "key": "deep_audit_thesis_flip_min_age_min", "value": "60" },
+    { "key": "deep_audit_thesis_flip_min_pnl_pct", "value": "-0.5" },
+
     { "_comment": "V15 P0.7.51 — universe-benchmark calibration knobs.", "key": "deep_audit_hard_fuse_default_rsi1h", "value": "85" },
     { "key": "deep_audit_hard_fuse_default_rsi4h", "value": "80" },
     { "key": "deep_audit_hard_fuse_volrunner_gap_long_rsi1h", "value": "88" },
