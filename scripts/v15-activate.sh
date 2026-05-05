@@ -185,7 +185,12 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_short_requires_spy_downtrend", "value": "false" },
 
     { "_comment": "V15 P0.7.59 (2026-05-04) — Phase C Stage 1 context-aware engine. Activates the setup admission matrix (regime-aware entry gating) and the exit doctrine (regime-aware management). Both modules use embedded defaults derived from canon Jul-Apr 461-trade autopsy; tunable via KV phase-c:setup-admission and phase-c:exit-doctrine.", "key": "deep_audit_setup_admission_enabled", "value": "true" },
-    { "key": "deep_audit_exit_doctrine_enabled", "value": "true" }
+    { "key": "deep_audit_exit_doctrine_enabled", "value": "true" },
+
+    { "_comment": "V15 P0.7.63 (2026-05-05) — Cluster throttle. When 5+ entries fire within 60min, only allow top-3 by composite (rank * rr) score. Prevents Mar-02-style same-direction crowding before regime shocks. Mar-02 actual: 8 entries/-22.48%; with cluster throttle simulated: 3 entries/-4.10% (5x improvement).", "key": "deep_audit_cluster_throttle_enabled", "value": "true" },
+    { "key": "deep_audit_cluster_throttle_window_min", "value": "60" },
+    { "key": "deep_audit_cluster_throttle_min_size", "value": "5" },
+    { "key": "deep_audit_cluster_throttle_top_n", "value": "3" }
   ]
 }
 JSON

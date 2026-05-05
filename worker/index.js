@@ -99,6 +99,7 @@ import * as PhaseCLoops from "./phase-c-loops.js";
 import * as ExitDoctrine from "./phase-c-exit-doctrine.js";
 import * as SetupAdmission from "./phase-c-setup-admission.js";
 import * as EtfProfile from "./etf-profile.js";
+import * as ClusterThrottle from "./phase-c-cluster-throttle.js";
 import { tdFetchEarningsCalendar, tdFetchTickerEarnings, tdFetchTimeSeries, tdSearchSymbol, toTdSymbol, aggregate5mTo10m, tdFetchProfile, tdFetchStatistics, tdFetchEarningsHistory } from "./twelvedata.js";
 import { onboardTicker, loadTickerProfile, loadSectorProfile, mergeProfileWeights } from "./onboard-ticker.js";
 import {
@@ -4311,6 +4312,70 @@ function qualifiesForEnter(d, asOfTs = null) {
   // ── Pipeline: Dispatch to registered engine (tt_core / ripster_core) ──
   const _dispatched = evaluateEntry(_ctx);
   if (_dispatched) {
+    // ─────────────────────────────────────────────────────────────────────
+    // PHASE C — Stage 1 (2026-05-05) — CLUSTER THROTTLE.
+    //
+    // Mar-02 forensic: 8 same-direction long entries fired within a 5-hour
+    // window before a regime shock. ALB (rank 58, Speculative grade) was
+    // the WORST of the cluster by rank/conviction, lost -8.44%. If we had
+    // kept only top-3 by rank (GE/UNP/XLRE @ rank 100), Mar-02 sum would
+    // be -4.10% instead of -22.48% (5× improvement).
+    //
+    // Throttle: when 5+ entries fire in the same 60-min window, only allow
+    // the top-3 by rank * rr (composite quality score). New candidates that
+    // don't break into the top-N are rejected with reason
+    // 'cluster_throttle_*'.
+    //
+    // Disabled via daCfg.deep_audit_cluster_throttle_enabled = "false".
+    //
+    // Caller (processTradeSimulation) provides the recent-entries ring via
+    // d._env._clusterRecentEntries (an array of {ticker, rank, rr, entryTs}).
+    // ─────────────────────────────────────────────────────────────────────
+    const _clusterEnabled = String(
+      d?._env?._deepAuditConfig?.deep_audit_cluster_throttle_enabled ?? "true"
+    ) === "true";
+    if (_clusterEnabled && _dispatched.qualifies !== false && _dispatched.path) {
+      try {
+        const _recentEntries = Array.isArray(d?._env?._clusterRecentEntries)
+          ? d._env._clusterRecentEntries
+          : [];
+        const _candidateTs = Number(d?.ts) || (asOfTs ? Number(asOfTs) : Date.now());
+        const _candidateRank = Number(d?.rank) || 0;
+        const _candidateRr = Number(d?.rr) || 0;
+        const _clusterDecision = ClusterThrottle.admitCluster(
+          {
+            ticker: String(d?.ticker || "").toUpperCase(),
+            rank: _candidateRank,
+            rr: _candidateRr,
+            entryTs: _candidateTs,
+            recentEntries: _recentEntries,
+          },
+          {
+            window_minutes: Number(d?._env?._deepAuditConfig?.deep_audit_cluster_throttle_window_min ?? 60),
+            cluster_min_size: Number(d?._env?._deepAuditConfig?.deep_audit_cluster_throttle_min_size ?? 5),
+            top_n_keep: Number(d?._env?._deepAuditConfig?.deep_audit_cluster_throttle_top_n ?? 3),
+            composite_score: true,
+          },
+        );
+        if (_clusterDecision && _clusterDecision.allow === false) {
+          // Reject this entry. Reuse the rejectEntry diagnostic shape.
+          d.__entry_block_reason = _clusterDecision.reason;
+          d.__cluster_throttle_meta = {
+            cluster_size: _clusterDecision.cluster_size,
+            candidate_position: _clusterDecision.candidate_position,
+            candidate_rank: _clusterDecision.candidate_rank,
+          };
+          return {
+            qualifies: false,
+            reason: _clusterDecision.reason,
+            cluster_throttle: true,
+            cluster_meta: _clusterDecision,
+          };
+        }
+      } catch (_clusterErr) {
+        // Cluster throttle failure must NEVER block legit entries
+      }
+    }
     _dispatched.selectedEngine = entryEngine;
     _dispatched.selectedManagementEngine = engineResolution.managementEngine || resolveEngineMode(d?._env?._managementEngine);
     _dispatched.engineSource = engineResolution.source;
@@ -6926,6 +6991,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
               mfePct: _mfe,
               currentPnlPct: pnlPct,
               ageMin: positionAgeMin,
+              nowMs: now,
             },
             // Pass null doctrine so it uses the embedded default. KV-backed
             // override is loaded asynchronously via loadExitDoctrine() at the

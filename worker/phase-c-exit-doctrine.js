@@ -430,6 +430,51 @@ export function chooseExitDoctrine(args, doctrine) {
   }
 
   // ───────────────────────────────────────────────────────────────────
+  // 1d. PRE-CLOSE FRESH-TRIM — overnight gap protection.
+  //
+  // Mar-02 forensic: ALB entered 18:00 UTC (2pm ET) Mar-02, closed Mar-02
+  // near flat (-0.5%), gapped down overnight, opened Mar-03 at -8.44%.
+  // The fresh-failure rule didn't catch it because intraday pnl never
+  // breached -2% — the damage happened in the overnight gap.
+  //
+  // Rule: if entry was within last 90 min of session AND age <= 6 hours
+  // AND pnl < -0.3% AND we're within 30 min of session close → force_exit.
+  // Trades with no MFE traction shouldn't carry overnight gap risk on
+  // their first session.
+  //
+  // Per-setup overrides via params.pre_close_fresh_trim_*.
+  // Session close: 21:00 UTC during EDT (4pm ET), 22:00 UTC during EST.
+  // We use a generous 21:30 UTC cutoff to cover both.
+  // ───────────────────────────────────────────────────────────────────
+  const _preCloseEnabled = params.pre_close_fresh_trim_enabled !== false;
+  const _preCloseMaxAgeMin = Number(params.pre_close_max_age_min ?? 360); // 6h
+  const _preCloseMinPnl = Number(params.pre_close_min_pnl ?? -0.3);
+  if (_preCloseEnabled
+      && Number(ageMin) <= _preCloseMaxAgeMin
+      && Number(ageMin) >= 30   // skip first 30min noise
+      && _pnl <= _preCloseMinPnl) {
+    // Determine if we're close to session close. Use args.nowMs (the
+    // current bar timestamp) — UTC hour 20:30-21:30 brackets the close.
+    const _nowMs = Number(args.nowMs) || 0;
+    if (_nowMs > 0) {
+      const _hourUtc = new Date(_nowMs).getUTCHours();
+      const _minuteUtc = new Date(_nowMs).getUTCMinutes();
+      const _isPreClose = (_hourUtc === 20 && _minuteUtc >= 30)
+                        || (_hourUtc === 21 && _minuteUtc <= 30);
+      if (_isPreClose) {
+        return {
+          action: "force_exit",
+          force_exit: true,
+          lock_pct: 0,
+          trail_giveback_pct: 0,
+          reason: `doctrine_pre_close_overnight_gap_protect: setup=${setup} pnl=${_pnl.toFixed(2)}% age=${(Number(ageMin)/60).toFixed(1)}h utc=${_hourUtc}:${String(_minuteUtc).padStart(2,'0')} (avoid carrying losing fresh entry into overnight gap)`,
+          params,
+        };
+      }
+    }
+  }
+
+  // ───────────────────────────────────────────────────────────────────
   // 1c. REGIME-DECAY EXIT — softer than full flip
   //
   // From Oct-13 cluster: trades entered with regime=NEUTRAL (matrix

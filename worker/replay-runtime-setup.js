@@ -329,6 +329,11 @@ export const REPLAY_DA_KEYS = [
   // V15 P0.7.59 (2026-05-04) — Setup admission + exit doctrine flags
   "deep_audit_setup_admission_enabled",
   "deep_audit_exit_doctrine_enabled",
+  // V15 P0.7.63 (2026-05-05) — Cluster throttle flags
+  "deep_audit_cluster_throttle_enabled",
+  "deep_audit_cluster_throttle_window_min",
+  "deep_audit_cluster_throttle_min_size",
+  "deep_audit_cluster_throttle_top_n",
   // P4: SHORT gate relaxation
   "deep_audit_short_spy_regime_floor",
   "deep_audit_short_requires_ticker_bearish_daily",

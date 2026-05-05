@@ -382,6 +382,39 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
               replayCtx._focusHistoryStatsTs = _dayBucketTs(intervalTs);
             }
 
+            // Phase C — Stage 1 (2026-05-05) — Cluster Throttle support.
+            // Build a list of {ticker, rank, rr, entryTs} for trades that
+            // entered within the last `cluster_throttle_window_min` minutes
+            // (default 60). The cluster-throttle gate in qualifiesForEnter
+            // reads this to detect "5+ entries fired in 60min" patterns
+            // (Mar-02 type events) and throttle the lower-ranked ones.
+            const _clusterWindowMs = 60 * 60 * 1000;
+            const _clusterRecentEntries = (Array.isArray(replayCtx?.allTrades) ? replayCtx.allTrades : [])
+              .filter((t) => {
+                const ts = Number(t?.entry_ts) || 0;
+                return ts > 0 && (intervalTs - ts) <= _clusterWindowMs && (intervalTs - ts) >= 0;
+              })
+              .map((t) => {
+                let rk = 0, rr = 0;
+                try {
+                  if (t?.rank_trace_json) {
+                    const rt = typeof t.rank_trace_json === "string"
+                      ? JSON.parse(t.rank_trace_json)
+                      : t.rank_trace_json;
+                    rk = Number(rt?.finalScore) || 0;
+                    rr = Number(rt?.rr) || 0;
+                  }
+                } catch (_) {}
+                if (rk === 0) rk = Number(t?.rank) || 0;
+                if (rr === 0) rr = Number(t?.rr) || 0;
+                return {
+                  ticker: String(t?.ticker || "").toUpperCase(),
+                  rank: rk,
+                  rr,
+                  entryTs: Number(t?.entry_ts) || 0,
+                };
+              });
+
             result._env = {
               _isReplay: true,
               _goldenProfiles: replayGoldenProfiles,
@@ -410,6 +443,8 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
                  Without these, the entry-gate consult silently no-ops. */
               _loop1AdvisoryByCombo: replayEnv._loop1AdvisoryByCombo || {},
               _loop2Pause: replayEnv._loop2Pause || { paused: false },
+              /* Phase C — Stage 1 (2026-05-05) — Cluster throttle. */
+              _clusterRecentEntries,
             };
           }
 

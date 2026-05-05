@@ -235,12 +235,34 @@ async function loop2WritePulse(KV, pulse, evaluation, daCfg, opts = {}) {
       expirationTtl: 3 * 24 * 60 * 60, // 3 days, plenty for review
     });
     if (evaluation.trip) {
+      // Phase C — Stage 1 (2026-05-05) — DEADLOCK FIX.
+      // Previously, every batch that re-evaluated the (still-bad) rolling
+      // window would overwrite tripped_at_ms with current nowMs, resetting
+      // the 18h auto-clear timer. In backtest this caused the breaker to
+      // STAY tripped indefinitely once it fired (e.g. Mar-02 cluster of
+      // 8 losses → breaker tripped → no new trades → rolling window
+      // never refreshes → re-trips on every batch → never clears). Mar
+      // entries silenced for 8+ trading days.
+      //
+      // Fix: preserve the ORIGINAL tripped_at_ms across re-trips. The 18h
+      // clock starts ONCE when the trip first fires and runs to completion
+      // even if subsequent pulses re-evaluate as still-tripped. The pulse
+      // record (pulse details) updates each batch, but tripped_at_ms is
+      // sticky.
+      let originalTrippedAt = nowMs;
+      try {
+        const existing = await KV.get(LOOP2_PAUSE_KEY, { type: "json" });
+        if (existing && existing.paused && Number(existing.tripped_at_ms) > 0) {
+          originalTrippedAt = Number(existing.tripped_at_ms);
+        }
+      } catch (_) {}
       await KV.put(
         LOOP2_PAUSE_KEY,
         JSON.stringify({
           paused: true,
           reason: evaluation.reason,
-          tripped_at_ms: nowMs,
+          tripped_at_ms: originalTrippedAt,
+          last_pulse_at_ms: nowMs,
           pulse,
         }),
         { expirationTtl: 18 * 60 * 60 }, // 18h: covers overnight; auto-clear next morning (live wall-clock)
