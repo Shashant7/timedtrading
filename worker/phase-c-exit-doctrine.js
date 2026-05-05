@@ -1,3 +1,5 @@
+import { getEtfDoctrineOverrides } from "./etf-profile.js";
+
 /**
  * worker/phase-c-exit-doctrine.js
  *
@@ -355,11 +357,19 @@ function pickSetupParams(doctrine, setupKey) {
 export function chooseExitDoctrine(args, doctrine) {
   const {
     setup, direction, entryRegime, currentRegime,
-    mfePct, currentPnlPct, ageMin,
+    mfePct, currentPnlPct, ageMin, ticker,
   } = args || {};
   if (!doctrine) doctrine = DEFAULT_DOCTRINE;
 
-  const params = pickSetupParams(doctrine, setup);
+  const baseParams = pickSetupParams(doctrine, setup);
+  // Phase C — Stage 1 (2026-05-05) — ETF profile override.
+  // If the ticker is in the ETF management profile, merge the profile's
+  // doctrine overrides on top of the per-setup defaults. ETFs need
+  // tighter thresholds across the board (faster fresh-fail, tighter
+  // gave-back, smaller MFE bands).
+  const etfOverrides = getEtfDoctrineOverrides(ticker);
+  const params = etfOverrides ? { ...baseParams, ...etfOverrides } : baseParams;
+
   const ageSessions = ageInSessions(ageMin);
   const _mfe = Number(mfePct) || 0;
   const _pnl = Number(currentPnlPct) || 0;

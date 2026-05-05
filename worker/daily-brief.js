@@ -1805,6 +1805,12 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
   // narrative. Both views are surfaced for the brief.
   let multiDayAtrLevels = null;
   if (recent.length >= 5 && anchor > 0) {
+    // V15 P0.7.62 (2026-05-05) — bug fix: `rnd` was declared inside the
+    // earlier `atrFibLevels` block (line ~1696) and is out of scope here.
+    // This block was crashing the entire daily brief generation with
+    // `ReferenceError: rnd is not defined`, blocking all morning/evening
+    // briefs since the V15 P0.7.42 multi-day-ATR block was added.
+    const rnd = (v) => Math.round(v * 100) / 100;
     // 5-day TR ATR (already approximates "week ATR" since recent has ~10 daily bars)
     const last5 = recent.slice(-5);
     let weekAtrSum = 0; let weekAtrCount = 0;
@@ -2124,16 +2130,20 @@ Each header is editorialized: "## SPY: Stuck above 580" not "## SPY". For each t
 - Swing Consensus: [direction, strength, aligned TFs]
 - Signals: [up to 4 flags, comma-separated]
 
-**Levels** (TF in parens, one line each. Every number paired with a benchmark — ATR% of price, distance from 20-day avg, etc.):
-- S: $XXX (D), $XXX (4H)
-- R: $XXX (W), $XXX (D)
-- Range: $LOW–$HIGH — [how long we've been here]
-- Gap: $XXX–$XXX (4H)
+**Levels** (CRITICAL — must be CURRENT-PRICE-AWARE):
+- ALWAYS reference the CURRENT/PREMARKET price (from "Market Data" section). If SPY is trading at $718 and your daily-chart data shows $712 as "resistance", that level is now SUPPORT (price is above it). Re-classify levels relative to current price.
+- Support = price BELOW current. Resistance = price ABOVE current. If a level was crossed in pre-market, it flipped sides.
+- TF in parens, one line each. Every number paired with a benchmark.
+- S: $XXX (D), $XXX (4H)        ← MUST be below current price
+- R: $XXX (W), $XXX (D)         ← MUST be above current price
+- Range: $LOW–$HIGH — [where current price sits in this range, e.g. "stretched at top", "midrange"]
+- Gap: $XXX–$XXX (4H) [filled / unfilled / pre-market filled]
 
-**Game Plan** (one bullet per case, each ≤ 20 words):
-- Bull: Above $XXX → $XXX → $XXX (confirm by 10:30)
-- Bear: Below $XXX → $XXX → $XXX
-- Base: [expected range, most likely path, one risk note]
+**Game Plan** (one bullet per case, each ≤ 22 words):
+- Bull case: HOLD ABOVE $XXX → targets $XXX, then $XXX (invalidate below $XXX). Read as "if held above X, target Y then Z".
+- Bear case: BREAK BELOW $XXX → targets $XXX, then $XXX (invalidate above $XXX).
+- Base case: [most likely range today, ATR% of current price, single risk note]
+- IMPORTANT: Bull trigger must be NEAR or ABOVE current price (we're waiting for a hold/breakout). Bear trigger must be NEAR or BELOW current price (we're waiting for a breakdown). Targets must be in the trigger's direction (Bull targets > Bull trigger; Bear targets < Bear trigger).
 
 ### Section 4: "Futures Reference" (2 lines total — no sub-bullets)
 - **ES**: ATR $X.XX · O/N $LOW–$HIGH · Bull above $XXXX → $XXXX · Bear below $XXXX → $XXXX

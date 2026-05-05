@@ -98,6 +98,7 @@ import * as DataProvider from "./data-provider.js";
 import * as PhaseCLoops from "./phase-c-loops.js";
 import * as ExitDoctrine from "./phase-c-exit-doctrine.js";
 import * as SetupAdmission from "./phase-c-setup-admission.js";
+import * as EtfProfile from "./etf-profile.js";
 import { tdFetchEarningsCalendar, tdFetchTickerEarnings, tdFetchTimeSeries, tdSearchSymbol, toTdSymbol, aggregate5mTo10m, tdFetchProfile, tdFetchStatistics, tdFetchEarningsHistory } from "./twelvedata.js";
 import { onboardTicker, loadTickerProfile, loadSectorProfile, mergeProfileWeights } from "./onboard-ticker.js";
 import {
@@ -6917,6 +6918,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           // ageMin = positionAgeMin (already computed above)
           const _doctrine = ExitDoctrine.chooseExitDoctrine(
             {
+              ticker: String(tickerData?.ticker || openPosition?.ticker || "").toUpperCase(),
               setup: _setupForDoctrine,
               direction,
               entryRegime: _entryRegime,
@@ -6950,6 +6952,44 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         } catch (_doctrineErr) {
           // Doctrine failure must NEVER block legit management. Default to no override.
           tickerData.__exit_doctrine = null;
+        }
+      }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // PHASE C — Stage 1 (2026-05-05) — ETF STAGNANT-EXIT.
+    //
+    // For ETFs in our profile, fire stagnant-exit faster than stocks:
+    //   - 4h dead-money cut if MFE never cleared 0.3%
+    //   - 8h dead-money cut if MFE never cleared 0.5%
+    //
+    // Stocks default to 24h. SPY/QQQ/IWM trades that just sit at flat
+    // for 24h have already given back any tradable move.
+    // See worker/etf-profile.js getEtfStagnantCheck.
+    // ═════════════════════════════════════════════════════════════════════════
+    {
+      const _etfTickerForStag = String(tickerData?.ticker || openPosition?.ticker || "").toUpperCase();
+      if (EtfProfile.isEtfProfileTicker(_etfTickerForStag)) {
+        try {
+          const _mfeForStag = Number(openPosition?.maxFavorableExcursion
+            ?? openPosition?.max_favorable_excursion
+            ?? openPosition?.mfe ?? 0);
+          const _ageHForStag = positionAgeMin / 60;
+          const _stagCheck = EtfProfile.checkEtfStagnantExit(_etfTickerForStag, _mfeForStag, _ageHForStag);
+          if (_stagCheck && _stagCheck.fire === true) {
+            tickerData.__exit_reason = "etf_stagnant_exit";
+            tickerData.__exit_family = "etf_profile";
+            tickerData.__exit_meta = {
+              etf_stagnant_reason: _stagCheck.reason,
+              ticker: _etfTickerForStag,
+              mfe_pct: _mfeForStag,
+              pnl_pct: pnlPct,
+              age_h: _ageHForStag,
+            };
+            return "exit";
+          }
+        } catch (_etfStagErr) {
+          // Don't block management on errors
         }
       }
     }
@@ -13325,6 +13365,34 @@ function build3TierTPArray(tickerData, entryPrice, direction) {
 
   if (!Number.isFinite(entryPrice) || !Number.isFinite(sl)) {
     return [];
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // PHASE C — Stage 1 (2026-05-05) — ETF MANAGEMENT PROFILE OVERRIDE.
+  // Per user direction: "we want to be masters of the ETFs."
+  //
+  // For broad-market index ETFs (SPY/QQQ/IWM/DIA), sector ETFs (XL*),
+  // and thematic ETFs (GLD/SLV/USO/KWEB/etc.), use a tighter TP ladder
+  // calibrated to the realities of ETF intraday action:
+  //   - TRIM at +0.6% (vs stocks at +1.5% min)
+  //   - EXIT at +1.2%
+  //   - RUNNER at +2.5%
+  //   - 60% trim at TP1 (vs 50% for stocks — ETF moves give back fast)
+  //
+  // Skipped for: leveraged ETFs (SOXL/TNA/AGQ etc.), volatility products
+  // (VIXY/UVXY), and crypto (BTCUSD/ETHUSD) — those keep stock-style
+  // management per user direction.
+  //
+  // See worker/etf-profile.js for the full classification + parameters.
+  // ═════════════════════════════════════════════════════════════════════════
+  const _etfTickerForTp = String(tickerData?.ticker || tickerData?.sym || "").toUpperCase();
+  if (_etfTickerForTp && EtfProfile.isEtfProfileTicker(_etfTickerForTp)) {
+    const etfTpArray = EtfProfile.buildEtfTpArray(_etfTickerForTp, entryPrice, direction);
+    if (etfTpArray && etfTpArray.length === 3) {
+      // Mark on tickerData so other code paths can detect ETF-managed trades
+      tickerData.__etf_managed = true;
+      return etfTpArray;
+    }
   }
 
   // ── PRECISION ENGINE: Use ATR Fibonacci level-based TPs if available ──
@@ -20068,6 +20136,21 @@ async function processTradeSimulation(
             if (tickerData?.flags?.st_flip_bull || tickerData?.flags?.st_flip_bear) _whyParts.push("Fresh ST Flip");
             if (tickerData?.flags?.momentum_elite) _whyParts.push("Elite Momentum");
             if (tickerData?.flags?.sq30_release) _whyParts.push("Squeeze Release");
+            // Phase C — Stage 1 (2026-05-05) — ETF SL CLAMP (replay path).
+            if (EtfProfile.isEtfProfileTicker(sym)) {
+              const _etfMaxStop = EtfProfile.computeEtfStopLoss(sym, entryPx, direction);
+              if (Number.isFinite(_etfMaxStop)) {
+                const _origSL = finalSL;
+                if (direction === "LONG" && finalSL < _etfMaxStop) {
+                  finalSL = Math.round(_etfMaxStop * 100) / 100;
+                  console.log(`[ETF_SL_CLAMP] ${sym} LONG (replay): tightened SL ${_origSL.toFixed(2)} → ${finalSL.toFixed(2)} (max 0.7% from entry $${entryPx.toFixed(2)})`);
+                } else if (direction === "SHORT" && finalSL > _etfMaxStop) {
+                  finalSL = Math.round(_etfMaxStop * 100) / 100;
+                  console.log(`[ETF_SL_CLAMP] ${sym} SHORT (replay): tightened SL ${_origSL.toFixed(2)} → ${finalSL.toFixed(2)} (max 0.7% from entry $${entryPx.toFixed(2)})`);
+                }
+              }
+            }
+
             const ev = {
               type: "ENTRY",
               timestamp: entryTime,
@@ -22832,6 +22915,32 @@ async function processTradeSimulation(
               for (const tp of tpArray) {
                 if (tp?.price && Number.isFinite(tp.price)) {
                   tp.price = Math.round((entryPrice + (tp.price - entryPrice) * _tpAdj) * 100) / 100;
+                }
+              }
+            }
+
+            // Phase C — Stage 1 (2026-05-05) — ETF SL CLAMP.
+            // For ETFs in our profile, no SL should be wider than the
+            // profile's max_distance_pct (default 0.7%). Wider stops on
+            // ETFs get noise-stopped because intraday range is 0.5-1.5%.
+            // Only TIGHTENS the stop — never loosens it.
+            const _etfClampTicker = String(ticker || tickerData?.ticker || "").toUpperCase();
+            if (EtfProfile.isEtfProfileTicker(_etfClampTicker)) {
+              const _etfMaxStop = EtfProfile.computeEtfStopLoss(_etfClampTicker, entryPrice, direction);
+              if (Number.isFinite(_etfMaxStop)) {
+                const _origSL = finalSL;
+                if (direction === "LONG") {
+                  // For long: max stop is BELOW entry; tighten = move SL UP
+                  if (finalSL < _etfMaxStop) {
+                    finalSL = Math.round(_etfMaxStop * 100) / 100;
+                    console.log(`[ETF_SL_CLAMP] ${_etfClampTicker} LONG: tightened SL ${_origSL.toFixed(2)} → ${finalSL.toFixed(2)} (max 0.7% from entry $${entryPrice.toFixed(2)})`);
+                  }
+                } else {
+                  // For short: max stop is ABOVE entry; tighten = move SL DOWN
+                  if (finalSL > _etfMaxStop) {
+                    finalSL = Math.round(_etfMaxStop * 100) / 100;
+                    console.log(`[ETF_SL_CLAMP] ${_etfClampTicker} SHORT: tightened SL ${_origSL.toFixed(2)} → ${finalSL.toFixed(2)} (max 0.7% from entry $${entryPrice.toFixed(2)})`);
+                  }
                 }
               }
             }
