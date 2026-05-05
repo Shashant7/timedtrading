@@ -50861,13 +50861,116 @@ export default {
             deleted.backtest_run_trades = r?.meta?.changes || 0;
           } catch (e) { deleted.backtest_run_trades_error = String(e?.message || e).slice(0, 200); }
 
-          // 5. trades (parent — last)
+          // 5. trades (parent — last in D1)
           try {
             const r = await db.prepare(
               `DELETE FROM trades WHERE run_id = ?1 AND entry_ts >= ?2`
             ).bind(runId, cutoffMs).run();
             deleted.trades = r?.meta?.changes || 0;
           } catch (e) { deleted.trades_error = String(e?.message || e).slice(0, 200); }
+
+          // 5b. KV REPLAY BLOB CLEANUP — `timed:trades:replay` is the
+          //     KV-backed copy used by the trade-autopsy page (source =
+          //     "replay_kv"). It mirrors the in-flight replay's trade
+          //     list and persists across leg boundaries. Without
+          //     cleaning it here, the autopsy UI keeps showing the
+          //     deleted Oct trades + the closed-out hangover state
+          //     even though D1 is clean. Apply the same delete +
+          //     hangover-reopen logic to the KV blob.
+          try {
+            const KV = env?.KV_TIMED;
+            if (KV) {
+              const replayKvKey = "timed:trades:replay";
+              const arr = await kvGetJSON(KV, replayKvKey) || [];
+              if (Array.isArray(arr) && arr.length > 0) {
+                let kvDeleted = 0;
+                let kvReopened = 0;
+                const kept = [];
+                for (const t of arr) {
+                  const tRunId = String(t?.run_id || t?.runId || "");
+                  if (tRunId !== runId) {
+                    kept.push(t);
+                    continue;
+                  }
+                  const entryTs = Number(t?.entry_ts ?? t?.entryTs ?? 0);
+                  const exitTs = Number(t?.exit_ts ?? t?.exitTs ?? 0);
+                  // Trade entered on/after cutoff → delete
+                  if (entryTs >= cutoffMs) {
+                    kvDeleted++;
+                    continue;
+                  }
+                  // Hangover (entered before, exited after cutoff) → re-open
+                  if (entryTs < cutoffMs && exitTs >= cutoffMs) {
+                    const wasPartiallyTrimmed = Number(t?.trimmed_pct ?? t?.trimmedPct ?? 0) > 0
+                      && Number(t?.trimmed_pct ?? t?.trimmedPct ?? 0) < 1;
+                    const restoreStatus = wasPartiallyTrimmed ? "TP_HIT_TRIM" : "OPEN";
+                    const reopened = { ...t };
+                    reopened.status = restoreStatus;
+                    reopened.exit_ts = null; reopened.exitTs = null;
+                    reopened.exit_price = null; reopened.exitPrice = null;
+                    reopened.exit_reason = null; reopened.exitReason = null;
+                    reopened.pnl = null; reopened.pnl_pct = null; reopened.pnlPct = null;
+                    // Trim history events that occurred after cutoff
+                    if (Array.isArray(reopened.history)) {
+                      reopened.history = reopened.history.filter((ev) => {
+                        const evTs = Number(ev?.ts ?? 0);
+                        return evTs > 0 && evTs < cutoffMs;
+                      });
+                    }
+                    kept.push(reopened);
+                    kvReopened++;
+                    continue;
+                  }
+                  // Pre-cutoff trade unaffected
+                  kept.push(t);
+                }
+                await kvPutJSON(KV, replayKvKey, kept);
+                deleted.kv_replay_blob_deleted = kvDeleted;
+                deleted.kv_replay_blob_reopened = kvReopened;
+                deleted.kv_replay_blob_remaining = kept.length;
+              }
+              // Also do the same for timed:trades:all (legacy/live KV blob)
+              const liveKvKey = "timed:trades:all";
+              const liveArr = await kvGetJSON(KV, liveKvKey) || [];
+              if (Array.isArray(liveArr) && liveArr.length > 0) {
+                let liveKvDeleted = 0;
+                let liveKvReopened = 0;
+                const liveKept = [];
+                for (const t of liveArr) {
+                  const tRunId = String(t?.run_id || t?.runId || "");
+                  if (tRunId !== runId) { liveKept.push(t); continue; }
+                  const entryTs = Number(t?.entry_ts ?? t?.entryTs ?? 0);
+                  const exitTs = Number(t?.exit_ts ?? t?.exitTs ?? 0);
+                  if (entryTs >= cutoffMs) { liveKvDeleted++; continue; }
+                  if (entryTs < cutoffMs && exitTs >= cutoffMs) {
+                    const wasPartiallyTrimmed = Number(t?.trimmed_pct ?? t?.trimmedPct ?? 0) > 0
+                      && Number(t?.trimmed_pct ?? t?.trimmedPct ?? 0) < 1;
+                    const restoreStatus = wasPartiallyTrimmed ? "TP_HIT_TRIM" : "OPEN";
+                    const reopened = { ...t, status: restoreStatus };
+                    reopened.exit_ts = null; reopened.exitTs = null;
+                    reopened.exit_price = null; reopened.exitPrice = null;
+                    reopened.exit_reason = null; reopened.exitReason = null;
+                    reopened.pnl = null; reopened.pnl_pct = null; reopened.pnlPct = null;
+                    if (Array.isArray(reopened.history)) {
+                      reopened.history = reopened.history.filter((ev) => {
+                        const evTs = Number(ev?.ts ?? 0);
+                        return evTs > 0 && evTs < cutoffMs;
+                      });
+                    }
+                    liveKept.push(reopened);
+                    liveKvReopened++;
+                    continue;
+                  }
+                  liveKept.push(t);
+                }
+                await kvPutJSON(KV, liveKvKey, liveKept);
+                deleted.kv_trades_all_deleted = liveKvDeleted;
+                deleted.kv_trades_all_reopened = liveKvReopened;
+              }
+            }
+          } catch (e) {
+            deleted.kv_cleanup_error = String(e?.message || e).slice(0, 200);
+          }
 
           // 6. UN-CLOSE "hangover" trades — those that ENTERED before
           //    the cutoff but EXITED after it. The Oct re-run needs to
