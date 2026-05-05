@@ -513,14 +513,30 @@ export function chooseExitDoctrine(args, doctrine) {
   if (_mfe >= params.gave_back_min_mfe && ageSessions >= 1) {
     const givebackPct = (_mfe - _pnl) / _mfe; // fraction of MFE given back
     if (givebackPct >= params.gave_back_giveback_pct) {
-      // If giveback is severe (>80%) AND age >= 2, force exit instead of tighten
-      if (givebackPct >= 0.80 && ageSessions >= 2) {
+      // V15 P0.7.65 (2026-05-05) — bug fix per user feedback on Mar-23 SPY SHORT.
+      // The previous 80% giveback rule was force-exiting WINNING trades on
+      // transient noise. SPY SHORT entered $659.28, MFE +1.21%, dipped to
+      // +0.34% (giveback 72%), should have been TIGHTEN. But on a noisier
+      // bar it briefly hit 80% giveback (+0.24% pnl) and force-exited a
+      // POSITIVE trade. Price then dropped to $634 — left +3.7% on the table.
+      //
+      // New rule: force_exit ONLY if the trade has actually broken AND
+      // returned to losing territory. Specifically:
+      //   - Severe giveback (>=90%, was 80%) AND
+      //   - Trade is now losing (pnl <= 0.0% — was no pnl check at all) AND
+      //   - Age >= 2 sessions
+      // Otherwise: TIGHTEN (lock the gain via tighter stops, but DON'T flat
+      // a winning runner just because it pulled back).
+      //
+      // For losing trades that gave back, the regime_decay rule above
+      // already handles them.
+      if (givebackPct >= 0.90 && _pnl <= 0.0 && ageSessions >= 2) {
         return {
           action: "force_exit",
           force_exit: true,
           lock_pct: 0,
           trail_giveback_pct: 0,
-          reason: `doctrine_giveback_severe_force_exit: setup=${setup} mfe=${_mfe.toFixed(2)}% pnl=${_pnl.toFixed(2)}% giveback=${(givebackPct*100).toFixed(0)}% age=${ageSessions.toFixed(1)}s`,
+          reason: `doctrine_giveback_severe_force_exit: setup=${setup} mfe=${_mfe.toFixed(2)}% pnl=${_pnl.toFixed(2)}% giveback=${(givebackPct*100).toFixed(0)}% age=${ageSessions.toFixed(1)}s (broken AND now losing)`,
           params,
         };
       }
@@ -529,7 +545,7 @@ export function chooseExitDoctrine(args, doctrine) {
         force_exit: false,
         lock_pct: params.tighten_lock_pct,
         trail_giveback_pct: params.tighten_trail_pct,
-        reason: `doctrine_giveback_tighten: setup=${setup} mfe=${_mfe.toFixed(2)}% pnl=${_pnl.toFixed(2)}% giveback=${(givebackPct*100).toFixed(0)}%`,
+        reason: `doctrine_giveback_tighten: setup=${setup} mfe=${_mfe.toFixed(2)}% pnl=${_pnl.toFixed(2)}% giveback=${(givebackPct*100).toFixed(0)}% (still ${_pnl > 0 ? 'positive' : 'losing'} — tighten, don't flatten)`,
         params,
       };
     }
