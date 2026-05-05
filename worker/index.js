@@ -6887,10 +6887,26 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
             openPosition?.entryPath || openPosition?.entry_path ||
             openPosition?.setup_path || openPosition?.setupPath || ""
           ).toLowerCase();
-          const _entryRegime = String(
+          let _entryRegime = String(
             openPosition?.entryRegime || openPosition?.entry_regime ||
             openPosition?.regime_at_entry || ""
           ).toUpperCase();
+          // Fallback: read from entry_signals_json blob (survives D1
+          // round-trips where the in-memory entry_regime field isn't
+          // included in the schema).
+          if (!_entryRegime && openPosition?.entry_signals_json) {
+            try {
+              const _es = typeof openPosition.entry_signals_json === "string"
+                ? JSON.parse(openPosition.entry_signals_json)
+                : openPosition.entry_signals_json;
+              _entryRegime = String(
+                _es?.regime_at_entry ||
+                _es?.entry_regime ||
+                _es?.regime_class ||
+                ""
+              ).toUpperCase();
+            } catch (_) {}
+          }
           const _currentRegime = String(
             tickerData?.regime?.combined || tickerData?.regime_combined || ""
           ).toUpperCase();
@@ -29505,6 +29521,18 @@ function buildDirectionSignalSnapshot(sc, tickerData, entryPathOverride = null) 
     }
   }
   snap.lineage = buildTradeLineageSnapshot(tickerData, entryPathOverride);
+  // Phase C — Stage 1 (2026-05-04) — Persist regime_at_entry on the
+  // trade record so the regime-aware exit doctrine can compare current
+  // regime vs entry regime later. Survives D1 round-trips via the
+  // entry_signals_json blob (the dedicated trade column doesn't exist
+  // yet and a schema migration is risky mid-run).
+  try {
+    snap.regime_at_entry = String(
+      tickerData?.regime?.combined ||
+      tickerData?.regime_combined ||
+      ""
+    ).toUpperCase() || null;
+  } catch (_) {}
   try {
     return JSON.stringify(snap);
   } catch {

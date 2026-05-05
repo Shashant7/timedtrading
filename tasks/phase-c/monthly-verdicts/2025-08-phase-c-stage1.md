@@ -1,0 +1,145 @@
+# Phase C — Monthly Verdict · 2025-08
+
+_Source: `phase-c-stage1-jul2025-may2026` · Trades in window: **83** · Generated 2026-05-05 00:13 UTC_
+
+> Read this alongside the previous month's verdict. The point is **trajectory** —
+> are we drifting toward July or away from it?
+
+## 1 · Headline
+
+- **66 closed trades.** 39W / 27L / 0 flat.
+- **Win rate: 59.1%.** Target 55% — PASS.
+- **Avg winner / Avg loser: 1.39x** (1.65% / 1.18%). Target 1.60x — MISS.
+- **Max drawdown (cum %): 12.10%.** Target ≤ 3.0% — MISS.
+- **Sharpe (annualized, daily-pct proxy): 3.71.** Target 1.50 — PASS.
+- **Cumulative P&L (sum of pct): +32.27%.**
+
+### Account equity (start $100,000 reference, ~$10,124 avg notional/trade)
+
+_Each trade uses its actual recorded P&L (`trade.pnl` field) — not derived from %._
+
+| Metric | Value |
+|---|---|
+| **Start balance** (entering this month) | **$111,906** |
+| **End balance** (after last trade closed) | **$114,244** |
+| **Net $ P&L for the month** | **$+2,338**  (+2.09% of start balance) |
+| Sum of winning $ | +$5,712  (39 wins) |
+| Sum of losing $ | -$3,490  (27 losses) |
+| Biggest winner | **ETHA** +$858 (+9.53%) |
+| Biggest loser | **CVNA** -$378 (-2.51%) |
+| Run-to-date peak | $114,270 (on 2025-08-29) |
+| Run-to-date max DD | -$1,617 (1.43%) (trough on 2025-08-05) |
+
+### Day-by-day P&L (this month)
+
+| Date | # Trades | Day P&L $ | End-of-day Balance |
+|---|---:|---:|---:|
+| 2025-08-04 | 1 | $-113 🔴 | $111,793 |
+| 2025-08-05 | 5 | $-113 🔴 | $111,680 |
+| 2025-08-06 | 1 | $+223 🟢 | $111,904 |
+| 2025-08-07 | 7 | $-171 🔴 | $111,732 |
+| 2025-08-08 | 1 | $-19 🔴 | $111,713 |
+| 2025-08-11 | 2 | $+203 🟢 | $111,916 |
+| 2025-08-12 | 2 | $+139 🟢 | $112,055 |
+| 2025-08-13 | 8 | $+1,026 🟢 | $113,081 |
+| 2025-08-14 | 3 | $-73 🔴 | $113,008 |
+| 2025-08-15 | 2 | $+261 🟢 | $113,268 |
+| 2025-08-18 | 1 | $-36 🔴 | $113,232 |
+| 2025-08-19 | 12 | $+86 🟢 | $113,318 |
+| 2025-08-20 | 3 | $-30 🔴 | $113,288 |
+| 2025-08-21 | 3 | $+277 🟢 | $113,565 |
+| 2025-08-22 | 1 | $-206 🔴 | $113,359 |
+| 2025-08-27 | 3 | $+719 🟢 | $114,078 |
+| 2025-08-28 | 5 | $-367 🔴 | $113,711 |
+| 2025-08-29 | 6 | $+417 🟢 | $114,128 |
+
+## 2 · The Proud (top winners)
+
+What these have in common — pattern-match on setup, personality, regime, PDZ. If the next month
+has fewer trades that look like this, the engine has drifted.
+
+- **ETHA  ** L |  +9.53% | MFE +0.00% / MAE +0.00% | exit: `HARD_FUSE_RSI_EXTREME` | TT Tt Gap Reversal Long · VOLATILE_RUNNER · TRENDING · PDZ=premium
+- **BE    ** L |  +6.03% | MFE +0.00% / MAE +0.00% | exit: `ST_FLIP_4H_CLOSE` | TT Tt Gap Reversal Long · VOLATILE_RUNNER · TRENDING · PDZ=premium
+- **ALB   ** L |  +5.11% | MFE +0.00% / MAE +0.00% | exit: `SOFT_FUSE_RSI_CONFIRMED` | TT Tt Range Reversal Long · VOLATILE_RUNNER · TRANSITIONAL · PDZ=premium_approach · [RSIv-|PHv-]
+- **SGI   ** L |  +3.86% | MFE +0.00% / MAE +0.00% | exit: `sl_breached` | TT Tt Gap Reversal Long · VOLATILE_RUNNER · TRANSITIONAL · PDZ=premium
+- **B     ** L |  +3.77% | MFE +0.00% / MAE +0.00% | exit: `mfe_decay_structural_flatten` | TT Tt Gap Reversal Long · PULLBACK_PLAYER · TRANSITIONAL · PDZ=premium
+
+## 3 · The Disappointed (worst losers)
+
+Each one of these is a calibration question: was the entry the issue, the management, or the regime?
+If the same `setup × personality × regime × side` shows up in 3+ disappointed trades, the next
+calibration should raise the bar for that combo.
+
+- **ALB   ** L |  -3.46% | MFE +0.00% / MAE +0.00% | exit: `phase_i_mfe_fast_cut_2h` | TT Tt Gap Reversal Long · VOLATILE_RUNNER · TRANSITIONAL · PDZ=premium_approach
+- **SN    ** L |  -3.07% | MFE +0.00% / MAE +0.00% | exit: `max_loss` | TT Tt Gap Reversal Long · VOLATILE_RUNNER · TRANSITIONAL · PDZ=premium_approach
+- **STX   ** L |  -2.59% | MFE +0.00% / MAE +0.00% | exit: `atr_day_adverse_382_cut` | TT Tt Gap Reversal Long · VOLATILE_RUNNER · TRENDING · PDZ=premium · [PHv-]
+- **CVNA  ** L |  -2.51% | MFE +0.00% / MAE +0.00% | exit: `max_loss_time_scaled` | TT Tt Gap Reversal Long · VOLATILE_RUNNER · TRANSITIONAL · PDZ=discount_approach · [PHv-]
+- **ANET  ** L |  -2.24% | MFE +0.00% / MAE +0.00% | exit: `max_loss_time_scaled` | TT Tt Gap Reversal Long · VOLATILE_RUNNER · TRENDING · PDZ=premium · [RSIv-|PHv-]
+
+## 4 · Profit giveback (MFE ≥ 1% closed flat-or-worse)
+
+**0 trade(s).** This is the bucket Loop 1's MFE peak-lock targets directly.
+If this list is long, the calibration question is: should peak-lock fire earlier?
+
+_None._ Engine is locking gains well this month.
+
+## 5 · Re-entry chains (tickers traded ≥ 3x)
+
+Negative chains are the engine repeatedly being wrong about the same name.
+If a chain is net negative AND we never paused, Loop 2's circuit breaker missed it.
+
+- **APLD** — 3 trades, 2W/1L, **net +3.69%** 🟢
+- **SPY** — 3 trades, 1W/1L, **net -0.20%** 🔴
+
+## 6 · Setup performance
+
+Bottom-quartile setups by win-rate AND volume are candidates for the next calibration to guard-rail.
+
+| Setup | N | WR | Avg | Net |
+|---|---:|---:|---:|---:|
+| `TT Tt Gap Reversal Long` | 40 | 68% | +0.80% | +32.07% |
+| `TT Tt Range Reversal Long` | 5 | 60% | +0.76% | +3.81% |
+| `TT Tt Pullback` | 5 | 80% | +0.28% | +1.41% |
+| `TT Tt Ath Breakout` | 6 | 33% | -0.05% | -0.31% |
+| `TT Tt N Test Support` | 7 | 43% | -0.07% | -0.52% |
+| `TT Tt N Test Resistance` | 3 | 0% | -1.40% | -4.19% |
+
+## 7 · Personality × Setup (combos with 2+ trades)
+
+Worst-WR combos at top — these are the immediate Loop 1 candidates.
+
+| Personality | Setup | N | WR | Net |
+|---|---|---:|---:|---:|
+| PULLBACK_PLAYER | `TT Tt N Test Resistance` | 2 | 0% | -2.62% |
+| PULLBACK_PLAYER | `TT Tt Ath Breakout` | 2 | 0% | -0.71% |
+| MODERATE | `TT Tt N Test Support` | 3 | 33% | -0.67% |
+| VOLATILE_RUNNER | `TT Tt Ath Breakout` | 2 | 50% | +0.10% |
+| VOLATILE_RUNNER | `TT Tt Gap Reversal Long` | 30 | 63% | +19.43% |
+| VOLATILE_RUNNER | `TT Tt Range Reversal Long` | 3 | 67% | +5.05% |
+| PULLBACK_PLAYER | `TT Tt Gap Reversal Long` | 8 | 75% | +7.59% |
+| PULLBACK_PLAYER | `TT Tt Pullback` | 2 | 100% | +0.45% |
+| MODERATE | `TT Tt Gap Reversal Long` | 2 | 100% | +5.05% |
+| SLOW_GRINDER | `TT Tt N Test Support` | 2 | 100% | +1.32% |
+
+## 8 · Loop firing log
+
+Phase C self-adapting loops. Empty for any backtest run before the loops were enabled.
+
+- **Loop 3** — `flat_cut`: 522 times
+- **Loop 2** — `block`: 34 times
+
+**Loop 1 scorecard snapshot** (end-of-month, min_samples=3):
+- 🔴 BLOCK (3 combos): `tt_n_test_support:trending:volatile_runner:L` (0W/3L), `tt_range_reversal_long:trending:pullback_player:L` (0W/3L), `momentum_score:trending:pullback_player:L` (0W/4L)
+- 🟡 RAISE_BAR (3 combos): `tt_pullback:trending:volatile_runner:L` (1W/2L), `tt_ath_breakout:trending:pullback_player:L` (3W/5L), `tt_gap_reversal_long:transitional:volatile_runner:L` (6W/9L)
+- 🟢 ALLOW (>0.45 WR): 8 combos
+
+## 9 · Calibration notes (fill in by hand after reviewing above)
+
+_Proposed flag deltas for the next month, with one-line justification each._
+
+- [ ] (no change) — engine looks calibrated for this regime
+- [ ] _Or list specific flag deltas. e.g.:_
+      `deep_audit_mfe_peak_lock_retrace_pct: 50 → 40` because profit giveback list is long.
+
+After deciding, edit `scripts/v15-activate.sh`, commit with message
+`phase-c: 2025-08 calibration` and resume the next month.
