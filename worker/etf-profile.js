@@ -265,25 +265,60 @@ export function computeEtfStopLoss(ticker, entryPrice, direction) {
 /**
  * Should the ETF stagnant-exit fire?
  * Returns null if not an ETF, otherwise an object with {fire, reason}.
+ *
+ * V15 P0.7.64 (2026-05-05) — bug fix per user feedback on Mar-18 SPY SHORT.
+ * Previously the rule only checked age + MFE, so a winning trade with
+ * small-but-positive MFE got cut at its high water mark even though the
+ * thesis was working. Mar-18 SPY SHORT cut at +0.20% pnl right before
+ * price dropped another 0.7% — left meaningful profit on the table.
+ *
+ * New logic:
+ *  - If currentPnlPct > 0 (any profit): DON'T fire. Let winners run, even
+ *    if slow. The position can give back to a stop or a TP — that's the
+ *    job of those rules, not stagnant-exit.
+ *  - If currentPnlPct <= 0 AND age + MFE thresholds met: FIRE (existing).
+ *  - Edge case: MFE truly near zero (< 0.05%) AND age >= fast_cut_max:
+ *    fire regardless of current pnl. This catches "wrong from bar 1"
+ *    where the price never even moved — even tiny profit there is just
+ *    floating noise about to revert.
  */
-export function checkEtfStagnantExit(ticker, mfePct, ageHours) {
+export function checkEtfStagnantExit(ticker, mfePct, ageHours, currentPnlPct = null) {
   const profile = getEtfProfile(ticker);
   if (!profile) return null;
   const stag = profile.stagnant_exit;
   const _mfeAbs = Math.abs(Number(mfePct) || 0) / 100; // mfePct is in %, convert
   const _age = Number(ageHours) || 0;
-  // Fast-cut: 4h with <0.3% MFE
+  const _pnl = currentPnlPct == null ? null : Number(currentPnlPct);
+
+  // Hard fast-cut: MFE essentially zero (< 0.05%) AND age >= fast_cut_max.
+  // This catches "wrong from bar 1" where the price truly never moved.
+  // Fires even if pnl is currently positive (it's just noise about to revert).
+  if (_age >= stag.fast_cut_max_age_hours && _mfeAbs < 0.0005) {
+    return {
+      fire: true,
+      reason: `etf_fast_cut_zero_mfe: age=${_age.toFixed(1)}h>=${stag.fast_cut_max_age_hours}h AND mfe=${(_mfeAbs*100).toFixed(3)}% essentially zero`,
+    };
+  }
+
+  // From here, only fire if the trade is NOT currently profitable.
+  // A winning trade — even slow — should be left alone for stops/TPs to
+  // manage. The stagnant rule is for "stuck losers", not "patient winners".
+  if (_pnl != null && _pnl > 0) {
+    return { fire: false, reason: `etf_stagnant_skip_winning_trade: pnl=${_pnl.toFixed(2)}%>0` };
+  }
+
+  // Fast-cut: 4h with <0.3% MFE AND pnl <= 0
   if (_age >= stag.fast_cut_max_age_hours && _mfeAbs < stag.fast_cut_max_mfe_pct) {
     return {
       fire: true,
-      reason: `etf_fast_cut: age=${_age.toFixed(1)}h>=${stag.fast_cut_max_age_hours}h AND mfe=${(_mfeAbs*100).toFixed(2)}%<${(stag.fast_cut_max_mfe_pct*100).toFixed(2)}%`,
+      reason: `etf_fast_cut: age=${_age.toFixed(1)}h>=${stag.fast_cut_max_age_hours}h AND mfe=${(_mfeAbs*100).toFixed(2)}%<${(stag.fast_cut_max_mfe_pct*100).toFixed(2)}% AND pnl<=0`,
     };
   }
-  // Dead-money: 8h with <0.5% MFE
+  // Dead-money: 8h with <0.5% MFE AND pnl <= 0
   if (_age >= stag.dead_money_max_age_hours && _mfeAbs < stag.dead_money_max_mfe_pct) {
     return {
       fire: true,
-      reason: `etf_dead_money: age=${_age.toFixed(1)}h>=${stag.dead_money_max_age_hours}h AND mfe=${(_mfeAbs*100).toFixed(2)}%<${(stag.dead_money_max_mfe_pct*100).toFixed(2)}%`,
+      reason: `etf_dead_money: age=${_age.toFixed(1)}h>=${stag.dead_money_max_age_hours}h AND mfe=${(_mfeAbs*100).toFixed(2)}%<${(stag.dead_money_max_mfe_pct*100).toFixed(2)}% AND pnl<=0`,
     };
   }
   return { fire: false };

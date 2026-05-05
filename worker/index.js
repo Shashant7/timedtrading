@@ -7041,7 +7041,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
             ?? openPosition?.max_favorable_excursion
             ?? openPosition?.mfe ?? 0);
           const _ageHForStag = positionAgeMin / 60;
-          const _stagCheck = EtfProfile.checkEtfStagnantExit(_etfTickerForStag, _mfeForStag, _ageHForStag);
+          const _stagCheck = EtfProfile.checkEtfStagnantExit(_etfTickerForStag, _mfeForStag, _ageHForStag, pnlPct);
           if (_stagCheck && _stagCheck.fire === true) {
             tickerData.__exit_reason = "etf_stagnant_exit";
             tickerData.__exit_family = "etf_profile";
