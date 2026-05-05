@@ -1182,9 +1182,29 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
           batchTickerSet.has(String(t?.ticker || "").toUpperCase())
         );
         try {
+          /* V15 P0.7.50 (2026-05-03) — surface upsert failures.
+             Previously failures here were silently swallowed (.catch(() => {})),
+             which is exactly how 167 of 250 trades went missing from the live
+             `trades` table during the canonical run, orphaning Aug positions
+             when Sept resumed. We now collect per-trade errors into the
+             batch's `errors` array (returned via the API response and worker
+             logs) so the next failure mode is visible the moment it happens.
+             Functional behavior is unchanged: a failed upsert still doesn't
+             abort the loop; the new archive-rescue in loadReplayScopedTrades
+             will pick the trade up next batch via backtest_run_trades. */
+          let upsertFailures = 0;
           for (const trade of batchTrades) {
             if (replayRunId && !trade.run_id) trade.run_id = replayRunId;
-            await d1UpsertTrade(env, trade).catch(() => {});
+            try {
+              await d1UpsertTrade(env, trade);
+            } catch (upsertErr) {
+              upsertFailures++;
+              const msg = String(upsertErr?.message || upsertErr).slice(0, 150);
+              errors.push({ ticker: `TRADES_D1_UPSERT:${trade?.trade_id || trade?.ticker || "?"}`, error: msg });
+            }
+          }
+          if (upsertFailures > 0) {
+            console.warn(`[REPLAY] d1UpsertTrade failures this batch: ${upsertFailures}/${batchTrades.length} (run=${replayRunId})`);
           }
           if (replayRunId) {
             await d1StampRunIdForTrades(
@@ -1199,8 +1219,18 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
 
         if (replayRunId) {
           try {
+            let archiveFailures = 0;
             for (const trade of batchTrades) {
-              await d1ArchiveRunTrade(env, replayRunId, trade).catch(() => {});
+              try {
+                await d1ArchiveRunTrade(env, replayRunId, trade);
+              } catch (archErr) {
+                archiveFailures++;
+                const msg = String(archErr?.message || archErr).slice(0, 150);
+                errors.push({ ticker: `TRADES_ARCHIVE_UPSERT:${trade?.trade_id || trade?.ticker || "?"}`, error: msg });
+              }
+            }
+            if (archiveFailures > 0) {
+              console.warn(`[REPLAY] d1ArchiveRunTrade failures this batch: ${archiveFailures}/${batchTrades.length} (run=${replayRunId})`);
             }
           } catch (e) {
             errors.push({ ticker: "TRADES_ARCHIVE_SYNC", error: String(e?.message || e).slice(0, 150) });

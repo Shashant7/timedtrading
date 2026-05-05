@@ -46,7 +46,7 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_gap_reversal_min_rvol", "value": "1.2" },
     { "key": "deep_audit_gap_reversal_min_gap_pct", "value": "1.5" },
 
-    { "key": "deep_audit_n_test_support_enabled", "value": "true" },
+    { "_comment": "V15 P0.7.59 (2026-05-04) — Re-enable N-Test trigger. The blanket P0.7.58 'enabled=false' has been replaced by the regime-aware setup admission matrix in worker/phase-c-setup-admission.js, which only blocks N-Test in losing regime/grade combos (canon Jul-Apr autopsy). N-Test is now allowed in EARLY_BULL/STRONG_BULL/NEUTRAL with rr>=2.5 (Prime grade) and is hard-blocked for Confirmed grade.", "key": "deep_audit_n_test_support_enabled", "value": "true" },
     { "key": "deep_audit_n_test_min_touches", "value": "3" },
     { "key": "deep_audit_n_test_min_rvol", "value": "1.0" },
 
@@ -133,16 +133,45 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_stagnant_squeeze_deferral_enabled", "value": "true" },
 
     { "_comment": "Phase C — Stage 0 — Three self-adapting loops. Default OFF.", "key": "_phase_c_marker", "value": "stage0" },
-    { "key": "loop1_specialization_enabled", "value": "false" },
-    { "key": "loop1_min_samples", "value": "8" },
+    { "_comment": "V15 P0.7.52 — big-winner extension (Jul-Aug analysis #1+#2).", "key": "deep_audit_winner_protect_big_mfe_threshold_pct", "value": "8.0" },
+    { "key": "deep_audit_winner_protect_big_mfe_lock_pct", "value": "0.55" },
+    { "key": "deep_audit_mfe_decay_giveback_pct_max_volrunner_gap_long", "value": "0.75" },
+
+    { "_comment": "V15 P0.7.53 — extend lever 1 to PROFIT_GIVEBACK + SMART_RUNNER (Aug autopsy).", "key": "deep_audit_profit_giveback_pct_max_volrunner_gap_long", "value": "0.85" },
+    { "key": "deep_audit_profit_giveback_min_mfe_volrunner_gap_long", "value": "5.0" },
+    { "key": "deep_audit_smart_runner_volrunner_gap_long_defer_pnl_floor", "value": "-0.5" },
+
+    { "_comment": "V15 P0.7.55 — Momentum Buffer (SNDK Sep18 case): give VOLATILE_RUNNER x gap_reversal_long earned momentum credit on the SL side when ticker is Momentum Elite (price>=$4, ADR>=1.5%, avgVol>=2M, +1mo>=25%) AND 3+ of 5 structural signals are still intact.", "key": "deep_audit_momentum_buffer_enabled", "value": "true" },
+    { "key": "deep_audit_momentum_buffer_min_signals", "value": "3" },
+    { "key": "deep_audit_momentum_buffer_max_loss_pct", "value": "-5.0" },
+    { "key": "deep_audit_momentum_buffer_time_scaled_expand_pct", "value": "1.0" },
+
+    { "_comment": "V15 P0.7.56 — Anti-chase entry guard (BE Oct13 case) + Thesis-flip exit (XLP Oct13-15 case).", "key": "deep_audit_anti_chase_enabled", "value": "true" },
+    { "key": "deep_audit_anti_chase_vwap_30m_dist_pct", "value": "25" },
+    { "key": "deep_audit_anti_chase_vwap_1h_dist_pct", "value": "60" },
+    { "key": "deep_audit_thesis_flip_enabled", "value": "true" },
+    { "key": "deep_audit_thesis_flip_min_age_min", "value": "60" },
+    { "key": "deep_audit_thesis_flip_min_pnl_pct", "value": "-0.5" },
+
+    { "_comment": "V15 P0.7.51 — universe-benchmark calibration knobs.", "key": "deep_audit_hard_fuse_default_rsi1h", "value": "85" },
+    { "key": "deep_audit_hard_fuse_default_rsi4h", "value": "80" },
+    { "key": "deep_audit_hard_fuse_volrunner_gap_long_rsi1h", "value": "88" },
+    { "key": "deep_audit_hard_fuse_volrunner_gap_long_rsi4h", "value": "83" },
+    { "_comment": "Volatility-expansion carve-out kept OFF — quality over quantity. Loosening the entry gate to chase missed movers also dilutes WR. HARD_FUSE split below already addresses the bigger problem (we cut runners too early).", "key": "deep_audit_volatility_expansion_enabled", "value": "false" },
+    { "key": "deep_audit_volatility_expansion_atr_pct", "value": "4" },
+    { "key": "deep_audit_volatility_expansion_floor_delta", "value": "5" },
+
+    { "_comment": "Loop 1 enabled for Phase C Stage 1 walk-forward. min_samples=3 lets bad combos (4-trade losing streaks) be flagged quickly per nov-apr-findings.md.", "key": "_phase_c_loops_marker", "value": "stage1" },
+    { "key": "loop1_specialization_enabled", "value": "true" },
+    { "key": "loop1_min_samples", "value": "3" },
     { "key": "loop1_raise_bar_wr", "value": "0.45" },
     { "key": "loop1_block_wr", "value": "0.30" },
     { "key": "loop1_raise_bar_lift", "value": "20" },
-    { "key": "loop2_circuit_breaker_enabled", "value": "false" },
+    { "key": "loop2_circuit_breaker_enabled", "value": "true" },
     { "key": "loop2_breaker_wr", "value": "0.30" },
     { "key": "loop2_breaker_day_pnl", "value": "-1.5" },
     { "key": "loop2_breaker_consec_loss", "value": "4" },
-    { "key": "loop3_personality_management_enabled", "value": "false" },
+    { "key": "loop3_personality_management_enabled", "value": "true" },
 
     { "key": "deep_audit_eod_defer_on_cloud_hold", "value": "true" },
     { "key": "deep_audit_eod_low_mae_defer_pct", "value": "1.5" },
@@ -150,7 +179,13 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "key": "deep_audit_atr_week_618_defer_on_cloud_hold", "value": "true" },
     { "key": "deep_audit_atr_week_618_partial_trim_pct", "value": "0.30" },
 
-    { "key": "deep_audit_max_daily_entries", "value": "999" }
+    { "key": "deep_audit_max_daily_entries", "value": "999" },
+
+    { "_comment": "V15 P0.7.59 (2026-05-04) — Restore short_min_rank to 80. Blanket SHORT tightening is replaced by setup admission matrix which only allows shorts in BEAR/COUNTER_TREND_BULL regimes for Prime grade and blocks Confirmed/Speculative entirely. The matrix is more nuanced and lets profitable Jul SHORT trades through.", "key": "deep_audit_short_min_rank", "value": "80" },
+    { "key": "deep_audit_short_requires_spy_downtrend", "value": "false" },
+
+    { "_comment": "V15 P0.7.59 (2026-05-04) — Phase C Stage 1 context-aware engine. Activates the setup admission matrix (regime-aware entry gating) and the exit doctrine (regime-aware management). Both modules use embedded defaults derived from canon Jul-Apr 461-trade autopsy; tunable via KV phase-c:setup-admission and phase-c:exit-doctrine.", "key": "deep_audit_setup_admission_enabled", "value": "true" },
+    { "key": "deep_audit_exit_doctrine_enabled", "value": "true" }
   ]
 }
 JSON

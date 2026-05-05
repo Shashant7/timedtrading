@@ -2262,6 +2262,7 @@ function App({
   const isReadonly = new URLSearchParams(window.location.search).get("readonly") === "1";
   const reviewableRuns = useMemo(() => (availableRuns || []).filter(r => {
     const status = String(r?.status || "").trim().toLowerCase();
+    if (status === "running" || status === "queued") return true;
     if (status !== "completed") return false;
     const totalTrades = Number(r?.total_trades || 0);
     const closedTrades = Number(r?.closed_trades || 0);
@@ -2295,7 +2296,8 @@ function App({
       runId: String(r.run_id || "").trim(),
       label: r.label || null,
       startDate: r.start_date || null,
-      endDate: r.end_date || null
+      endDate: r.end_date || null,
+      status: String(r?.status || "").trim().toLowerCase()
     })),
     latestRunId: reviewableRuns.length ? String(reviewableRuns[0].run_id || "").trim() : "",
     liveRunId: liveRun ? String(liveRun.run_id || "").trim() : "",
@@ -2415,8 +2417,8 @@ function App({
       setError("Failed to load trades");
     }
   }, [tradesUrl, activeRunTruth]);
-  const refreshAll = useCallback(async () => {
-    setLoading(true);
+  const refreshAll = useCallback(async (opts = {}) => {
+    if (!opts?.silent) setLoading(true);
     setError(null);
     try {
       const [runs, liveTruthRes] = await Promise.all([refreshRuns(), refreshActiveRunTruth()]);
@@ -2502,7 +2504,10 @@ function App({
   useEffect(() => {
     if (filterRunId !== RUN_FILTER_LIVE || !autoRefreshEnabled) return;
     const iv = setInterval(() => {
-      refreshAll();
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      refreshAll({
+        silent: true
+      });
     }, 15_000);
     return () => clearInterval(iv);
   }, [autoRefreshEnabled, filterRunId, refreshAll]);
@@ -2898,10 +2903,15 @@ function App({
     value: RUN_FILTER_LIVE
   }, "Live replay", runMeta.liveRunId ? ` · ${runMeta.liveRunLabel || runMeta.liveRunId}` : ""), React.createElement("option", {
     value: ""
-  }, "All runs"), runMeta.runs.map(r => React.createElement("option", {
-    key: r.runId,
-    value: r.runId
-  }, r.label ? `${r.label} (${r.startDate || ""}→${r.endDate || ""})` : r.runId))), trades.length > 0 && React.createElement(React.Fragment, null, React.createElement("input", {
+  }, "All runs"), runMeta.runs.map(r => {
+    const inProgress = r.status === "running" || r.status === "queued";
+    const tag = inProgress ? " · in progress" : "";
+    const display = r.label ? `${r.label} (${r.startDate || ""}→${r.endDate || ""})${tag}` : `${r.runId}${tag}`;
+    return React.createElement("option", {
+      key: r.runId,
+      value: r.runId
+    }, display);
+  })), trades.length > 0 && React.createElement(React.Fragment, null, React.createElement("input", {
     type: "text",
     placeholder: "Filter ticker",
     value: filterTicker,

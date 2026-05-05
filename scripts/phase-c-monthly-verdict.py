@@ -232,7 +232,7 @@ def fmt_attr(a: dict) -> str:
 # ── Sections ────────────────────────────────────────────────────────────
 
 
-def section_headline(trades: list[dict]) -> list[str]:
+def section_headline(trades: list[dict], all_run_trades: list[dict] | None = None) -> list[str]:
     closed = [t for t in trades if is_closed(t)]
     if not closed:
         return ["**No closed trades in this month.**", ""]
@@ -255,6 +255,10 @@ def section_headline(trades: list[dict]) -> list[str]:
         max_dd = max(max_dd, peak - cum)
     sharpe = (statistics.mean(pnls) / statistics.pstdev(pnls)) * (252**0.5) if len(pnls) >= 2 and statistics.pstdev(pnls) > 0 else 0
 
+    # Dollar account curve: walk ALL trades from run start (compounding 1% notional/trade)
+    # so the dollar figures correctly show "what was the account at start/end of THIS month".
+    eq_lines = _equity_curve_for_month(all_run_trades or trades, trades)
+
     def stamp(value: float, target: float, *, higher_is_better: bool = True) -> str:
         ok = (value >= target) if higher_is_better else (value <= target)
         return "PASS" if ok else "MISS"
@@ -270,6 +274,162 @@ def section_headline(trades: list[dict]) -> list[str]:
         f"- **Cumulative P&L (sum of pct): {cum_pct:+.2f}%.**",
         "",
     ]
+    lines.extend(eq_lines)
+    return lines
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Equity curve helpers (dollar-based account view)
+# ─────────────────────────────────────────────────────────────────────
+#
+# CORRECT MODEL: each trade has a fixed-ish notional (sizing engine targets
+# ~$10-15K per trade given current rules). The trade record carries the
+# actual `pnl` (dollars), `notional`, and `pnl_pct` directly, so we use
+# those exact values rather than compounding a fictional bankroll.
+#
+# Starting equity is shown as a reference only ($100K) so you can read
+# month-end balance as a running tally of realized P&L on top of that.
+
+START_EQUITY = 100_000  # reference starting account
+
+def _trade_dollars(trade: dict) -> float:
+    """Return realized P&L in dollars from the trade record."""
+    pnl = trade.get("pnl")
+    if pnl is None:
+        pnl = trade.get("pnlDollars")
+    try:
+        return float(pnl) if pnl is not None else 0.0
+    except Exception:
+        return 0.0
+
+
+def _equity_curve_for_month(all_trades: list[dict], month_trades: list[dict]) -> list[str]:
+    """Build a $-based equity table showing starting balance, end balance,
+    net $ P&L, and best/worst $ trade for the verdict month.
+
+    Equity = $100K starting + cumulative realized P&L (uses actual `pnl`
+    field on each trade — does NOT re-derive from pnl_pct against equity).
+    """
+    closed_all = [t for t in all_trades if is_closed(t) and t.get("exit_ts")]
+    closed_all.sort(key=lambda t: int(t.get("exit_ts") or 0))
+    month_ids = {id(t) for t in month_trades if is_closed(t)}
+
+    eq = float(START_EQUITY)
+    peak = eq
+    max_dd_dollars = 0.0
+    max_dd_pct = 0.0
+    peak_date = None
+    trough_date = None
+    cur_trough_after_peak = eq
+    cur_trough_date = None
+
+    month_start_eq = None
+    month_end_eq = None
+    best = (None, float("-inf"))
+    worst = (None, float("inf"))
+    win_dollars = 0.0
+    loss_dollars = 0.0
+    win_count = 0
+    loss_count = 0
+    flat_count = 0
+    day_pnl: dict[str, float] = {}
+    day_trades: dict[str, int] = {}
+    notional_samples: list[float] = []
+
+    for t in closed_all:
+        is_in_month = id(t) in month_ids
+        if is_in_month and month_start_eq is None:
+            month_start_eq = eq
+        pnl_d = _trade_dollars(t)
+        eq += pnl_d
+        try:
+            day_key = datetime.fromtimestamp(int(t["exit_ts"]) / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+        except Exception:
+            day_key = "?"
+        if eq > peak:
+            peak = eq
+            peak_date = day_key
+            cur_trough_after_peak = eq
+            cur_trough_date = day_key
+        if eq < cur_trough_after_peak:
+            cur_trough_after_peak = eq
+            cur_trough_date = day_key
+        dd = peak - eq
+        if dd > max_dd_dollars:
+            max_dd_dollars = dd
+            max_dd_pct = (dd / peak * 100.0) if peak else 0.0
+            trough_date = day_key
+        if is_in_month:
+            month_end_eq = eq
+            try:
+                notional_samples.append(float(t.get("notional") or 0))
+            except Exception:
+                pass
+            if pnl_d > best[1]:
+                best = (t, pnl_d)
+            if pnl_d < worst[1]:
+                worst = (t, pnl_d)
+            status = str(t.get("status") or "").upper()
+            if status == "WIN":
+                win_count += 1
+                win_dollars += max(pnl_d, 0)
+            elif status == "LOSS":
+                loss_count += 1
+                loss_dollars += min(pnl_d, 0)
+            else:
+                flat_count += 1
+                if pnl_d > 0:
+                    win_dollars += pnl_d
+                elif pnl_d < 0:
+                    loss_dollars += pnl_d
+            day_pnl[day_key] = day_pnl.get(day_key, 0.0) + pnl_d
+            day_trades[day_key] = day_trades.get(day_key, 0) + 1
+
+    if month_start_eq is None:
+        return ["", "_No closed trades in window for equity curve._", ""]
+
+    net_dollars = month_end_eq - month_start_eq
+    avg_notional = (sum(notional_samples) / len(notional_samples)) if notional_samples else 0.0
+    net_pct_of_start = (net_dollars / month_start_eq) * 100 if month_start_eq else 0.0
+    best_t, best_d = best
+    worst_t, worst_d = worst
+
+    lines = [
+        f"### Account equity (start ${START_EQUITY:,.0f} reference, ~${avg_notional:,.0f} avg notional/trade)",
+        "",
+        f"_Each trade uses its actual recorded P&L (`trade.pnl` field) — not derived from %._",
+        "",
+        f"| Metric | Value |",
+        f"|---|---|",
+        f"| **Start balance** (entering this month) | **${month_start_eq:,.0f}** |",
+        f"| **End balance** (after last trade closed) | **${month_end_eq:,.0f}** |",
+        f"| **Net $ P&L for the month** | **${net_dollars:+,.0f}**  ({net_pct_of_start:+.2f}% of start balance) |",
+        f"| Sum of winning $ | +${win_dollars:,.0f}  ({win_count} wins) |",
+        f"| Sum of losing $ | -${abs(loss_dollars):,.0f}  ({loss_count} losses) |",
+    ]
+    if best_t is not None and best_d > float("-inf"):
+        lines.append(f"| Biggest winner | **{best_t.get('ticker','?')}** +${best_d:,.0f} ({float(best_t.get('pnl_pct') or 0):+.2f}%) |")
+    if worst_t is not None and worst_d < float("inf"):
+        lines.append(f"| Biggest loser | **{worst_t.get('ticker','?')}** -${abs(worst_d):,.0f} ({float(worst_t.get('pnl_pct') or 0):+.2f}%) |")
+    lines.append(f"| Run-to-date peak | ${peak:,.0f}{f' (on {peak_date})' if peak_date else ''} |")
+    lines.append(f"| Run-to-date max DD | -${max_dd_dollars:,.0f} ({max_dd_pct:.2f}%){f' (trough on {trough_date})' if trough_date else ''} |")
+    lines.append("")
+
+    if day_pnl:
+        # Running balance day-by-day
+        running = month_start_eq
+        lines.extend([
+            "### Day-by-day P&L (this month)",
+            "",
+            "| Date | # Trades | Day P&L $ | End-of-day Balance |",
+            "|---|---:|---:|---:|",
+        ])
+        for d in sorted(day_pnl):
+            running += day_pnl[d]
+            tag = " 🔴" if day_pnl[d] < 0 else (" 🟢" if day_pnl[d] > 0 else "")
+            lines.append(f"| {d} | {day_trades.get(d,0)} | ${day_pnl[d]:+,.0f}{tag} | ${running:,.0f} |")
+        lines.append("")
+
     return lines
 
 
@@ -454,6 +614,11 @@ def section_loop_log(trades: list[dict]) -> list[str]:
     """
     Loop firing log. Will be empty for pre-Phase-C runs (the loops emit a
     'phase_c_loop_event' record into entry_signals.loop_events when active).
+
+    Loop 1 BLOCK actions never create a trade (the entry is rejected before
+    the trade record exists), so the firing count from entry_signals
+    underrepresents Loop 1 activity. To get a fuller picture, we also fetch
+    the Loop 1 scorecard from KV and report current advisory state.
     """
     events = []
     for t in trades:
@@ -473,12 +638,46 @@ def section_loop_log(trades: list[dict]) -> list[str]:
         "",
     ]
     if not events:
-        lines.append("_No loop events recorded this month (loops not yet active or didn't fire)._")
+        lines.append("_No loop events recorded against trades this month._")
     else:
         loop_counts = Counter((e.get("loop"), e.get("action")) for e in events)
         for (loop, action), cnt in loop_counts.most_common():
             lines.append(f"- **Loop {loop}** — `{action}`: {cnt} times")
     lines.append("")
+
+    # Loop 1 advisory snapshot from KV (BLOCK actions don't show up above
+    # because the entry never created a trade). This is end-of-month state.
+    try:
+        url = f"{WORKER_BASE}/timed/admin/kv/get?k=phase-c:scorecards&key={urllib.parse.quote(_api_key())}"
+        req = urllib.request.Request(url, headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            sc = json.loads(r.read().decode("utf-8"))
+        cards = (sc or {}).get("value") or {}
+        if cards:
+            blocks, raises, allows = [], [], []
+            for combo, c in cards.items():
+                s = int(c.get("samples", 0) or 0)
+                w = int(c.get("wins", 0) or 0)
+                if s < 3:
+                    continue
+                wr = w / s if s else 0
+                row = (combo, s, wr, w, s - w)
+                if wr <= 0.30:
+                    blocks.append(row)
+                elif wr <= 0.45:
+                    raises.append(row)
+                else:
+                    allows.append(row)
+            blocks.sort(key=lambda r: r[2])
+            raises.sort(key=lambda r: r[2])
+            lines.append(f"**Loop 1 scorecard snapshot** (end-of-month, min_samples=3):")
+            lines.append(f"- 🔴 BLOCK ({len(blocks)} combos): " + (", ".join(f"`{c[0]}` ({c[3]}W/{c[4]}L)" for c in blocks[:10]) or "_none_"))
+            lines.append(f"- 🟡 RAISE_BAR ({len(raises)} combos): " + (", ".join(f"`{c[0]}` ({c[3]}W/{c[4]}L)" for c in raises[:10]) or "_none_"))
+            lines.append(f"- 🟢 ALLOW (>0.45 WR): {len(allows)} combos")
+            lines.append("")
+    except Exception as _e:
+        lines.append(f"_Loop 1 scorecard unavailable ({_e})_")
+        lines.append("")
     return lines
 
 
@@ -542,7 +741,7 @@ def main() -> int:
     out.append("> Read this alongside the previous month's verdict. The point is **trajectory** —")
     out.append("> are we drifting toward July or away from it?")
     out.append("")
-    out += section_headline(in_window)
+    out += section_headline(in_window, all_run_trades=trades)
     out += section_proud(in_window)
     out += section_disappointed(in_window)
     out += section_profit_giveback(in_window)

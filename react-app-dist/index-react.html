@@ -468,6 +468,50 @@
       body:not([data-user-role="admin"]) a[data-admin-only] {
         display: none !important;
       }
+
+      /* V2.1 round 11 (2026-05-04) — Market Pulse mobile fix.
+         User reported tiles overlapping on mobile. Cause: the priority row
+         uses `flex-1 min-w-0` on each ds-tickercard so 7 tiles squeeze to
+         <80px each on phones, breaking the price/sparkline layout.
+         Fix: on screens <768px the priority row becomes a horizontal
+         scroll-snap track. Each tile pins at 44vw min-width so two fit on
+         screen and the rest scroll smoothly with snap stops. The label
+         column collapses to a tight header above the scroll track. */
+      @media (max-width: 767px) {
+        .ds-pulse-row {
+          flex-direction: column;
+          align-items: stretch !important;
+          gap: 6px !important;
+        }
+        .ds-pulse-row__label {
+          width: auto !important;
+          padding-top: 0 !important;
+          display: flex;
+          align-items: baseline;
+          gap: 8px;
+        }
+        .ds-pulse-row__content {
+          flex-wrap: nowrap !important;
+          overflow-x: auto !important;
+          overflow-y: hidden !important;
+          scroll-snap-type: x mandatory;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: none;
+          padding-bottom: 4px;
+        }
+        .ds-pulse-row__content::-webkit-scrollbar { display: none; }
+        .ds-pulse-row__content > * {
+          flex: 0 0 auto !important;
+          min-width: 44vw !important;
+          max-width: 60vw;
+          scroll-snap-align: start;
+        }
+        .ds-pulse-context {
+          flex-direction: column;
+          align-items: stretch !important;
+          gap: 6px !important;
+        }
+      }
     </style>
   </head>
   <body class="ds-v2">
@@ -534,9 +578,9 @@
     <script src="ds-components.js?v=20260501a"></script>
     <script src="investor-panel.js?v=20260226a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260501b"></script>
+    <script src="shared-right-rail.compiled.js?v=20260503-fundamentals"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
-    <script src="index-react.compiled.21e184da82.js"></script>
+    <script src="index-react.compiled.108e704d02.js"></script>
 
     <!-- Initialize app - separate script to avoid Babel parsing issues -->
     <script>

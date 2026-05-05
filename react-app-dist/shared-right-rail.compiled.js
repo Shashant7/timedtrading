@@ -1235,10 +1235,9 @@
       const pa = Array.isArray(prev.priceLines) ? prev.priceLines : [];
       const pn = Array.isArray(next.priceLines) ? next.priceLines : [];
       if (pa.length !== pn.length) return false;
-      if (pa.length > 0) {
-        const first = (a, n) => Number(a[0]?.price) === Number(n[0]?.price);
-        const last = (a, n) => Number(a[a.length - 1]?.price) === Number(n[n.length - 1]?.price);
-        if (!first(pa, pn) || !last(pa, pn)) return false;
+      for (let i = 0; i < pa.length; i++) {
+        if (Number(pa[i]?.price) !== Number(pn[i]?.price)) return false;
+        if (String(pa[i]?.title || "") !== String(pn[i]?.title || "")) return false;
       }
       const ma = Array.isArray(prev.markers) ? prev.markers : [];
       const mn = Array.isArray(next.markers) ? next.markers : [];
@@ -1946,7 +1945,17 @@
       const [predictionContract, setPredictionContract] = useState(null);
       const [predictionContractLoading, setPredictionContractLoading] = useState(false);
       const [predictionContractError, setPredictionContractError] = useState(null);
-      const [chartTf, setChartTf] = useState("15");
+      const [fundamentals, setFundamentals] = useState(null);
+      const [fundamentalsLoading, setFundamentalsLoading] = useState(false);
+      const [fundamentalsError, setFundamentalsError] = useState(null);
+      const fundamentalsCacheRef = useRef(new Map());
+      const fundamentalsSortRef = useRef({
+        key: "date",
+        dir: "desc"
+      });
+      const [fundamentalsSortKey, setFundamentalsSortKey] = useState("date");
+      const [fundamentalsSortDir, setFundamentalsSortDir] = useState("desc");
+      const [chartTf, setChartTf] = useState("30");
       const [chartCandles, setChartCandles] = useState([]);
       const [chartLoading, setChartLoading] = useState(false);
       const [chartError, setChartError] = useState(null);
@@ -2028,14 +2037,14 @@
         ts: 0
       });
       const [chartOverlays, setChartOverlays] = useState({
-        ema21: true,
-        ema48: true,
+        ema21: false,
+        ema48: false,
         ema200: false,
         supertrend: false,
         tdSequential: false
       });
       const [chartExpanded, setChartExpanded] = useState(false);
-      const [modalTf, setModalTf] = useState("15");
+      const [modalTf, setModalTf] = useState("30");
       const [modalCandles, setModalCandles] = useState([]);
       const [modalLoading, setModalLoading] = useState(false);
       useEffect(() => {
@@ -2169,6 +2178,58 @@
           }
         };
         fetchInvestor();
+        return () => {
+          cancelled = true;
+        };
+      }, [railTab, tickerSymbol]);
+      useEffect(() => {
+        const sym = String(tickerSymbol || "").trim().toUpperCase();
+        if (!sym) {
+          setFundamentals(null);
+          setFundamentalsError(null);
+          setFundamentalsLoading(false);
+          return;
+        }
+        if (railTab !== "FUNDAMENTALS") return;
+        const cached = fundamentalsCacheRef.current.get(sym);
+        if (cached && Date.now() - cached.ts < 5 * 60 * 1000) {
+          setFundamentals(cached.data);
+          setFundamentalsError(null);
+          setFundamentalsLoading(false);
+          return;
+        }
+        let cancelled = false;
+        (async () => {
+          try {
+            setFundamentalsLoading(true);
+            setFundamentalsError(null);
+            const apiKey = typeof window !== "undefined" && window._ttApiKey ? window._ttApiKey : "";
+            const qs = new URLSearchParams({
+              ticker: sym
+            });
+            if (apiKey) qs.set("key", apiKey);
+            const res = await fetch(`${API_BASE}/timed/admin/fundamentals?${qs.toString()}`, {
+              cache: "no-store"
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            if (!json.ok) throw new Error(json.error || "fundamentals_failed");
+            if (!cancelled) {
+              fundamentalsCacheRef.current.set(sym, {
+                data: json,
+                ts: Date.now()
+              });
+              setFundamentals(json);
+            }
+          } catch (e) {
+            if (!cancelled) {
+              setFundamentals(null);
+              setFundamentalsError(String(e?.message || e));
+            }
+          } finally {
+            if (!cancelled) setFundamentalsLoading(false);
+          }
+        })();
         return () => {
           cancelled = true;
         };
@@ -2608,7 +2669,23 @@
       })();
       const v2Enabled = typeof window !== "undefined" && window._dsV2RailEnabled !== false;
       if (v2Enabled && !modalOnly) {
-        const v2Dir = String(predictionContract?.direction || ticker?.position_direction || trade?.direction || (String(ticker?.state || "").startsWith("HTF_BULL") ? "LONG" : String(ticker?.state || "").startsWith("HTF_BEAR") ? "SHORT" : "")).toUpperCase();
+        const v2BiasDirection = (() => {
+          if (trade?.direction) {
+            const d = String(trade.direction).toUpperCase();
+            if (d === "LONG" || d === "SHORT") return d;
+          }
+          if (predictionContract?.direction) {
+            const d = String(predictionContract.direction).toUpperCase();
+            if (d === "LONG" || d === "SHORT") return d;
+          }
+          const posDir = String(ticker?.position_direction || "").toUpperCase();
+          if (ticker?.has_open_position && (posDir === "LONG" || posDir === "SHORT")) return posDir;
+          const state = String(ticker?.state || "").toUpperCase();
+          if (state.startsWith("HTF_BULL")) return "LONG";
+          if (state.startsWith("HTF_BEAR")) return "SHORT";
+          return "";
+        })();
+        const v2Dir = v2BiasDirection;
         const v2Price = Number(latestTicker?.price ?? ticker?.price) || 0;
         const v2DayChange = (() => {
           const src = latestTicker || ticker;
@@ -2627,7 +2704,7 @@
           return [pc, v2Price];
         })();
         const v2DirChip = v2Dir === "LONG" ? "ds-chip--up" : v2Dir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
-        const v2RailTab = ["SNAPSHOT", "SETUP", "TECHNICALS", "HISTORY"].includes(railTab) ? railTab : "SNAPSHOT";
+        const v2RailTab = ["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY"].includes(railTab) ? railTab : "SNAPSHOT";
         const Metric = ({
           label,
           value,
@@ -2697,25 +2774,41 @@
           const earnDays = earnings && Number.isFinite(earnings._daysAway) ? earnings._daysAway : null;
           const earnLabel = earnDays === 0 ? "Today" : earnDays === 1 ? "Tomorrow" : earnDays != null && earnDays > 0 ? `${earnDays}d` : null;
           const stage = String(ticker?.kanban_stage || "").toLowerCase();
-          const stageChip = stage === "trim" ? {
-            label: "Trim",
-            cls: "ds-chip--accent"
-          } : stage === "defend" ? {
-            label: "Defend",
-            cls: "ds-chip--dn"
-          } : stage === "exit" ? {
-            label: "Exit",
-            cls: "ds-chip--dn"
-          } : stage === "enter" || stage === "enter_now" || stage === "just_flipped" ? {
-            label: "Enter",
-            cls: "ds-chip--accent"
-          } : stage === "hold" || stage === "active" || stage === "just_entered" ? {
-            label: "Hold",
-            cls: "ds-chip--up"
-          } : stage === "setup" || stage === "setup_watch" || stage === "flip_watch" ? {
-            label: "Setup",
-            cls: ""
-          } : null;
+          const _hdrTradeStatus = String(trade?.status || "").toUpperCase();
+          const _hdrTradeIsOpen = !!(trade && (_hdrTradeStatus === "OPEN" || _hdrTradeStatus === "TP_HIT_TRIM" || !(trade?.exit_ts ?? trade?.exitTs) && _hdrTradeStatus !== "WIN" && _hdrTradeStatus !== "LOSS"));
+          const stageChip = (() => {
+            if (stage === "trim") return {
+              label: "TRIM",
+              cls: "ds-chip--accent"
+            };
+            if (stage === "defend") return {
+              label: "DEFEND",
+              cls: "ds-chip--dn"
+            };
+            if (stage === "exit") {
+              if (_hdrTradeIsOpen) return {
+                label: "EXIT NOW",
+                cls: "ds-chip--dn"
+              };
+              return {
+                label: "NO TRADE",
+                cls: ""
+              };
+            }
+            if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return {
+              label: "ENTER",
+              cls: "ds-chip--accent"
+            };
+            if (stage === "hold" || stage === "active" || stage === "just_entered") return {
+              label: "ACTIVE",
+              cls: "ds-chip--up"
+            };
+            if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") return {
+              label: "ENTRY WATCH",
+              cls: ""
+            };
+            return null;
+          })();
           return React.createElement("div", {
             className: "sticky top-0 z-30",
             style: {
@@ -2760,8 +2853,8 @@
             }
           }, tickerSymbol), v2Dir && React.createElement("span", {
             className: `ds-chip ds-chip--sm ${v2DirChip}`,
-            title: trade ? "Active trade direction" : "Bias"
-          }, v2Dir), isTTSel && React.createElement("span", {
+            title: _hdrTradeIsOpen ? `Active ${v2Dir} trade — currently in position` : `Model bias: ${v2Dir}. No active trade — use level levels as planning anchors.`
+          }, _hdrTradeIsOpen ? `${v2Dir} · ACTIVE` : `${v2Dir} BIAS`), isTTSel && React.createElement("span", {
             title: "TT Selected",
             style: {
               width: 6,
@@ -2930,7 +3023,7 @@
             style: {
               width: "100%"
             }
-          }, [["SNAPSHOT", "Snapshot"], ["SETUP", "Setup"], ["TECHNICALS", "Technicals"], ["HISTORY", "History"]].map(([key, label]) => React.createElement("button", {
+          }, [["SNAPSHOT", "Snapshot"], ["SETUP", "Setup"], ["TECHNICALS", "Technicals"], ["FUNDAMENTALS", "Fundamentals"], ["HISTORY", "History"]].map(([key, label]) => React.createElement("button", {
             key: key,
             className: `ds-tab__item ${v2RailTab === key ? "ds-tab__item--active" : ""}`,
             onClick: () => setRailTab(key),
@@ -2962,67 +3055,143 @@
         }, String(ticker.state).replace(/_/g, " ")), ticker?.kanban_stage && React.createElement("span", {
           className: "ds-chip ds-chip--sm ds-chip--accent",
           title: "Active management stage"
-        }, String(ticker.kanban_stage).replace(/_/g, " ")))), predictionContract && React.createElement(Panel, {
-          title: "Model Guidance",
-          action: React.createElement("div", {
+        }, String(ticker.kanban_stage).replace(/_/g, " ")))), predictionContract && (() => {
+          const pcDirRaw = String(predictionContract?.direction || "").toUpperCase();
+          const pcDir = pcDirRaw === "LONG" || pcDirRaw === "SHORT" ? pcDirRaw : null;
+          const dirChipCls = pcDir === "LONG" ? "ds-chip--up" : pcDir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
+          const supportingArr = Array.isArray(predictionContract?.supporting) ? predictionContract.supporting : [];
+          const DEFLATOR_RE = /(choppy|capital protection|low conviction|low confidence|tier c|transitional|balanced|wait|watch only)/i;
+          const QUALITY_RE = /(quality|score|rank)\s*(\d+)/i;
+          const _strengths = [];
+          const _watchFor = [];
+          for (const s of supportingArr.slice(0, 8)) {
+            const txt = String(s || "").trim();
+            if (!txt) continue;
+            if (DEFLATOR_RE.test(txt)) {
+              _watchFor.push(txt);
+              continue;
+            }
+            const m = txt.match(QUALITY_RE);
+            if (m) {
+              const n = Number(m[2]);
+              if (Number.isFinite(n) && n < 55) {
+                _watchFor.push(txt);
+                continue;
+              }
+            }
+            _strengths.push(txt);
+          }
+          const invalidationArr = Array.isArray(predictionContract?.invalidation) ? predictionContract.invalidation : [];
+          const biasLine = pcDir ? pcDir === "LONG" ? "The model is leaning LONG. Snapshot, Setup, Technicals and Levels all read against this direction below." : "The model is leaning SHORT. Snapshot, Setup, Technicals and Levels all read against this direction below." : null;
+          return React.createElement(Panel, {
+            title: "Model Guidance",
+            action: React.createElement("div", {
+              style: {
+                display: "flex",
+                gap: 4,
+                alignItems: "center"
+              }
+            }, v2Rank != null && React.createElement("span", {
+              className: "ds-chip ds-chip--sm",
+              style: {
+                fontFamily: "var(--tt-font-mono)"
+              },
+              title: "Rank vs all eligible tickers"
+            }, "R", v2Rank), pcDir && React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${dirChipCls}`,
+              title: "Authoritative bias for this ticker"
+            }, pcDir), predictionContract?.action_label && React.createElement("span", {
+              className: "ds-chip ds-chip--sm ds-chip--accent"
+            }, String(predictionContract.action_label).toUpperCase()))
+          }, biasLine && React.createElement("p", {
+            style: {
+              margin: "0 0 var(--ds-space-2) 0",
+              fontSize: "var(--ds-fs-caption)",
+              color: pcDir === "SHORT" ? "var(--ds-dn)" : "var(--ds-up)",
+              fontFamily: "var(--tt-font-mono)",
+              letterSpacing: "0.04em",
+              fontWeight: 700,
+              lineHeight: 1.5
+            }
+          }, biasLine), predictionContract?.thesis && React.createElement("p", {
+            style: {
+              fontSize: "var(--ds-fs-body)",
+              color: "var(--ds-text-body)",
+              lineHeight: "var(--tt-lh-relaxed)",
+              margin: 0
+            }
+          }, predictionContract.thesis), predictionContract?.why_now && React.createElement("div", {
+            style: {
+              marginTop: "var(--ds-space-3)"
+            }
+          }, React.createElement("div", {
+            className: "ds-caption",
+            style: {
+              marginBottom: "var(--ds-space-1)"
+            }
+          }, "Why now"), React.createElement("p", {
+            style: {
+              fontSize: "var(--ds-fs-body)",
+              color: "var(--ds-text-muted)",
+              lineHeight: "var(--tt-lh-relaxed)",
+              margin: 0
+            }
+          }, predictionContract.why_now)), (_strengths.length > 0 || _watchFor.length > 0 || invalidationArr.length > 0) && React.createElement("div", {
+            style: {
+              marginTop: "var(--ds-space-3)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--ds-space-2)"
+            }
+          }, _strengths.length > 0 && React.createElement("div", null, React.createElement("div", {
+            className: "ds-caption",
+            style: {
+              marginBottom: 4,
+              color: "var(--ds-up)"
+            }
+          }, "Strengths"), React.createElement("div", {
             style: {
               display: "flex",
-              gap: 4,
-              alignItems: "center"
+              flexWrap: "wrap",
+              gap: "var(--ds-space-1)"
             }
-          }, v2Rank != null && React.createElement("span", {
-            className: "ds-chip ds-chip--sm",
+          }, _strengths.slice(0, 5).map((s, i) => React.createElement("span", {
+            key: `str-${i}`,
+            className: "ds-chip ds-chip--sm ds-chip--up"
+          }, "\u2713 ", s)))), _watchFor.length > 0 && React.createElement("div", null, React.createElement("div", {
+            className: "ds-caption",
             style: {
-              fontFamily: "var(--tt-font-mono)"
-            },
-            title: "Rank vs all eligible tickers"
-          }, "R", v2Rank), predictionContract?.action_label && React.createElement("span", {
-            className: "ds-chip ds-chip--sm ds-chip--accent"
-          }, String(predictionContract.action_label).toUpperCase()))
-        }, predictionContract?.thesis && React.createElement("p", {
-          style: {
-            fontSize: "var(--ds-fs-body)",
-            color: "var(--ds-text-body)",
-            lineHeight: "var(--tt-lh-relaxed)",
-            margin: 0
-          }
-        }, predictionContract.thesis), predictionContract?.why_now && React.createElement("div", {
-          style: {
-            marginTop: "var(--ds-space-3)"
-          }
-        }, React.createElement("div", {
-          className: "ds-caption",
-          style: {
-            marginBottom: "var(--ds-space-1)"
-          }
-        }, "Why now"), React.createElement("p", {
-          style: {
-            fontSize: "var(--ds-fs-body)",
-            color: "var(--ds-text-muted)",
-            lineHeight: "var(--tt-lh-relaxed)",
-            margin: 0
-          }
-        }, predictionContract.why_now)), Array.isArray(predictionContract?.supporting) && predictionContract.supporting.length > 0 && React.createElement("div", {
-          style: {
-            marginTop: "var(--ds-space-3)",
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "var(--ds-space-1)"
-          }
-        }, predictionContract.supporting.slice(0, 6).map((s, i) => React.createElement("span", {
-          key: `sup-${i}`,
-          className: "ds-chip ds-chip--sm ds-chip--up"
-        }, "+ ", s))), Array.isArray(predictionContract?.invalidation) && predictionContract.invalidation.length > 0 && React.createElement("div", {
-          style: {
-            marginTop: "var(--ds-space-2)",
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "var(--ds-space-1)"
-          }
-        }, predictionContract.invalidation.slice(0, 4).map((s, i) => React.createElement("span", {
-          key: `inv-${i}`,
-          className: "ds-chip ds-chip--sm ds-chip--dn"
-        }, "! ", s)))), (v2Rank || v2Score || v2Conv) && React.createElement(Panel, {
+              marginBottom: 4,
+              color: "var(--ds-text-muted)"
+            }
+          }, "Watch for (deflators)"), React.createElement("div", {
+            style: {
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "var(--ds-space-1)"
+            }
+          }, _watchFor.slice(0, 5).map((s, i) => React.createElement("span", {
+            key: `wf-${i}`,
+            className: "ds-chip ds-chip--sm ds-chip--solid",
+            title: "Conviction deflator \u2014 reduces confidence in the call"
+          }, "\u26A0 ", s)))), invalidationArr.length > 0 && React.createElement("div", null, React.createElement("div", {
+            className: "ds-caption",
+            style: {
+              marginBottom: 4,
+              color: "var(--ds-dn)"
+            }
+          }, "Will invalidate"), React.createElement("div", {
+            style: {
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "var(--ds-space-1)"
+            }
+          }, invalidationArr.slice(0, 4).map((s, i) => React.createElement("span", {
+            key: `inv-${i}`,
+            className: "ds-chip ds-chip--sm ds-chip--dn",
+            title: "If this happens the bias is broken"
+          }, "\u2717 ", s))))));
+        })(), (v2Rank || v2Score || v2Conv) && React.createElement(Panel, {
           title: "Conviction"
         }, React.createElement("div", {
           style: {
@@ -3247,29 +3416,63 @@
             alignSelf: "flex-start"
           }
         }, ticker.setup_grade))), chartCandles && chartCandles.length >= 2 && (() => {
+          const _pcDirChart = String(predictionContract?.direction || v2Dir || "").toUpperCase();
+          const _isShortChart = _pcDirChart === "SHORT";
+          const _pcSlChart = Number(predictionContract?.risk?.stop_loss);
+          const _curPxChart = Number(v2Price) || Number(ticker?.price) || 0;
+          const _allLevels = Array.isArray(predictionContract?.levels) ? predictionContract.levels : [];
+          const _resistance = _allLevels.filter(l => l.role === "resistance").sort((a, b) => a.price - b.price).slice(0, 3);
+          const _support = _allLevels.filter(l => l.role === "support").sort((a, b) => b.price - a.price).slice(0, 3);
           const buildLines = () => {
             const lines = [];
             const ep = Number(ticker?.entry_price);
-            const slPx = Number(ticker?.sl);
-            const tpPx = Number(ticker?.tp);
-            if (Number.isFinite(ep) && ep > 0) lines.push({
+            if (Number.isFinite(ep) && ep > 0 && trade) lines.push({
               price: ep,
-              color: "rgba(245,194,92,0.65)",
+              color: "rgba(245,194,92,0.85)",
               title: "Entry",
-              lineStyle: 0
+              lineStyle: 0,
+              lineWidth: 2
             });
-            if (Number.isFinite(slPx) && slPx > 0) lines.push({
-              price: slPx,
-              color: "rgba(244,63,94,0.7)",
+            if (Number.isFinite(_pcSlChart) && _pcSlChart > 0) lines.push({
+              price: _pcSlChart,
+              color: "rgba(244,63,94,0.85)",
               title: "Stop",
-              lineStyle: 2
+              lineStyle: 2,
+              lineWidth: 2
             });
-            if (Number.isFinite(tpPx) && tpPx > 0) lines.push({
-              price: tpPx,
-              color: "rgba(34,197,94,0.7)",
-              title: "Target",
-              lineStyle: 2
+            const tps = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
+            tps.slice(0, 3).forEach((tp, i) => {
+              const px = Number(tp?.price);
+              if (Number.isFinite(px) && px > 0) lines.push({
+                price: px,
+                color: "rgba(34,197,94,0.80)",
+                title: `TP${i + 1}`,
+                lineStyle: 2,
+                lineWidth: 2
+              });
             });
+            const above2 = _resistance.slice(0, 2);
+            const below2 = _support.slice(0, 2);
+            for (const l of above2) {
+              const profit = !_isShortChart;
+              lines.push({
+                price: Number(l.price),
+                color: profit ? "rgba(34,197,94,0.35)" : "rgba(244,63,94,0.35)",
+                title: l.label || "",
+                lineStyle: 2,
+                lineWidth: 1
+              });
+            }
+            for (const l of below2) {
+              const profit = _isShortChart;
+              lines.push({
+                price: Number(l.price),
+                color: profit ? "rgba(34,197,94,0.35)" : "rgba(244,63,94,0.35)",
+                title: l.label || "",
+                lineStyle: 2,
+                lineWidth: 1
+              });
+            }
             return lines;
           };
           const indicatorBtn = (key, label, title) => {
@@ -3341,25 +3544,383 @@
             height: 240,
             hideOverlayToggles: true
           })));
-        })(), (ticker?.sl || ticker?.tp || ticker?.tp_trim || ticker?.tp_exit || ticker?.entry_price) && (() => {
-          const entry = Number(ticker.entry_price) || 0;
-          const sl = Number(ticker.sl ?? ticker.sl_dynamic ?? ticker.stop_loss) || 0;
+        })(), Array.isArray(predictionContract?.levels) && predictionContract.levels.length > 0 && (() => {
+          const px = Number(v2Price) || Number(ticker?.price) || 0;
+          if (!(px > 0)) return null;
+          const all = predictionContract.levels;
+          const resistance = all.filter(l => l.role === "resistance").sort((a, b) => a.price - b.price);
+          const support = all.filter(l => l.role === "support").sort((a, b) => b.price - a.price);
+          const pcDir = String(predictionContract?.direction || "").toUpperCase();
+          const isShort = pcDir === "SHORT";
+          const aboveLabel = isShort ? "Invalidation Zone" : "Resistance";
+          const aboveSubtitle = isShort ? `Levels above $${px.toFixed(2)} — close above invalidates the SHORT bias` : `Levels above $${px.toFixed(2)} — sell zones / profit-taking targets`;
+          const belowLabel = isShort ? "Target Zones" : "Support";
+          const belowSubtitle = isShort ? `Levels below $${px.toFixed(2)} — profit-taking targets for the SHORT` : `Levels below $${px.toFixed(2)} — defend / SL reference zones`;
+          const kindMeta = kind => {
+            if (kind === "year_high" || kind === "year_low") return {
+              color: "#f87171",
+              letter: "52W",
+              desc: "52-week extreme"
+            };
+            if (kind === "swing_high" || kind === "swing_low") return {
+              color: "#fbbf24",
+              letter: "SW",
+              desc: "Swing structure (D)"
+            };
+            if (kind === "swing_high_4h" || kind === "swing_low_4h") return {
+              color: "#fcd34d",
+              letter: "4H",
+              desc: "Swing structure (4H)"
+            };
+            if (kind === "prior_session_high" || kind === "prior_session_low") return {
+              color: "#a78bfa",
+              letter: "PD",
+              desc: "Prior day range"
+            };
+            if (kind === "pivot_high" || kind === "pivot_low") return {
+              color: "#34d399",
+              letter: "PV",
+              desc: "Multi-tested pivot"
+            };
+            if (kind === "pdz_premium" || kind === "pdz_discount" || kind === "pdz_eq") return {
+              color: "#60a5fa",
+              letter: "PDZ",
+              desc: "Premium/Discount/Equilibrium"
+            };
+            if (kind === "ema") return {
+              color: "rgba(96,165,250,0.6)",
+              letter: "EMA",
+              desc: "Daily EMA magnet"
+            };
+            return {
+              color: "var(--ds-text-muted)",
+              letter: "—",
+              desc: "Level"
+            };
+          };
+          const StrengthBar = ({
+            weight
+          }) => {
+            const w = Math.max(1, Math.min(10, Number(weight) || 5));
+            return React.createElement("div", {
+              style: {
+                display: "flex",
+                gap: 1,
+                alignItems: "center"
+              }
+            }, Array.from({
+              length: 5
+            }, (_, i) => React.createElement("div", {
+              key: i,
+              style: {
+                width: 3,
+                height: 8,
+                background: i < Math.ceil(w / 2) ? "var(--ds-accent)" : "rgba(255,255,255,0.08)",
+                borderRadius: 1
+              }
+            })));
+          };
+          const LevelRow = ({
+            l,
+            side
+          }) => {
+            const m = kindMeta(l.kind);
+            const distColor = side === "res" ? "var(--ds-dn)" : side === "sup" ? "var(--ds-up)" : "var(--ds-accent)";
+            return React.createElement("div", {
+              style: {
+                display: "grid",
+                gridTemplateColumns: "32px 1fr 56px 36px 26px",
+                gap: "var(--ds-space-2)",
+                alignItems: "center",
+                padding: "5px 8px",
+                borderRadius: "var(--ds-radius-xs)",
+                background: "rgba(255,255,255,0.02)",
+                borderLeft: `3px solid ${m.color}`
+              },
+              title: `${m.desc} · weight ${l.weight}`
+            }, React.createElement("span", {
+              style: {
+                fontSize: 9,
+                fontFamily: "var(--tt-font-mono)",
+                fontWeight: 700,
+                color: m.color,
+                letterSpacing: "0.06em",
+                textAlign: "center"
+              }
+            }, m.letter), React.createElement("span", {
+              style: {
+                fontSize: "var(--ds-fs-caption)",
+                color: "var(--ds-text-muted)",
+                fontFamily: "var(--tt-font-mono)",
+                letterSpacing: "0.02em"
+              }
+            }, l.label), React.createElement("span", {
+              style: {
+                fontSize: "var(--ds-fs-meta)",
+                color: "var(--ds-text)",
+                fontFamily: "var(--tt-font-mono)",
+                fontWeight: 600,
+                textAlign: "right"
+              }
+            }, "$", Number(l.price).toFixed(2)), React.createElement("span", {
+              style: {
+                fontSize: 9,
+                color: distColor,
+                fontFamily: "var(--tt-font-mono)",
+                fontWeight: 600,
+                textAlign: "right"
+              }
+            }, l.dist_pct >= 0 ? "+" : "", l.dist_pct.toFixed(1), "%"), React.createElement(StrengthBar, {
+              weight: l.weight
+            }));
+          };
+          const SectionLabel = ({
+            text,
+            sub,
+            color
+          }) => React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              padding: "4px 4px 2px 4px",
+              borderBottom: "1px dashed var(--ds-stroke)",
+              marginBottom: 2
+            }
+          }, React.createElement("span", {
+            style: {
+              fontSize: 9,
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700,
+              letterSpacing: "0.16em",
+              textTransform: "uppercase",
+              color
+            }
+          }, text), sub && React.createElement("span", {
+            style: {
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              fontFamily: "var(--tt-font-mono)",
+              letterSpacing: "0.04em"
+            }
+          }, sub));
+          return React.createElement(Panel, {
+            title: "Key Levels",
+            action: React.createElement("span", {
+              style: {
+                display: "flex",
+                gap: 6,
+                alignItems: "center",
+                fontSize: 9,
+                fontFamily: "var(--tt-font-mono)",
+                color: "var(--ds-text-faint)",
+                letterSpacing: "0.10em"
+              }
+            }, pcDir && React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${isShort ? "ds-chip--dn" : "ds-chip--up"}`,
+              title: "Bias direction \u2014 drives level role labels",
+              style: {
+                fontSize: 9
+              }
+            }, pcDir), React.createElement("span", null, resistance.length, " above \xB7 ", support.length, " below"))
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              flexDirection: "column",
+              gap: 3
+            }
+          }, resistance.length > 0 && React.createElement(SectionLabel, {
+            text: aboveLabel,
+            sub: isShort ? "stop above price" : "profit / fade",
+            color: isShort ? "var(--ds-dn)" : "var(--ds-dn)"
+          }), resistance.length > 0 && resistance.slice(0, 5).reverse().map((l, i) => React.createElement(LevelRow, {
+            key: `res-${i}-${l.price}`,
+            l: l,
+            side: "res"
+          })), React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "32px 1fr 56px 36px 26px",
+              gap: "var(--ds-space-2)",
+              alignItems: "center",
+              padding: "8px 8px",
+              borderRadius: "var(--ds-radius-xs)",
+              background: "rgba(245,194,92,0.10)",
+              border: "1px solid rgba(245,194,92,0.30)",
+              margin: "2px 0"
+            }
+          }, React.createElement("span", {
+            style: {
+              fontSize: 9,
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700,
+              color: "var(--ds-accent)",
+              letterSpacing: "0.06em",
+              textAlign: "center"
+            }
+          }, "NOW"), React.createElement("span", {
+            style: {
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-accent)",
+              fontFamily: "var(--tt-font-mono)",
+              letterSpacing: "0.02em",
+              fontWeight: 700
+            }
+          }, "Current Price"), React.createElement("span", {
+            style: {
+              fontSize: "var(--ds-fs-body)",
+              color: "var(--ds-accent)",
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700,
+              textAlign: "right"
+            }
+          }, "$", px.toFixed(2)), React.createElement("span", {
+            style: {
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              fontFamily: "var(--tt-font-mono)",
+              textAlign: "right"
+            }
+          }, "\u2014"), React.createElement("span", null)), support.length > 0 && React.createElement(SectionLabel, {
+            text: belowLabel,
+            sub: isShort ? "profit-take" : "defend / SL ref",
+            color: isShort ? "var(--ds-up)" : "var(--ds-up)"
+          }), support.length > 0 && support.slice(0, 5).map((l, i) => React.createElement(LevelRow, {
+            key: `sup-${i}-${l.price}`,
+            l: l,
+            side: "sup"
+          }))), pcDir && React.createElement("p", {
+            style: {
+              margin: "var(--ds-space-2) 0 0 0",
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              fontFamily: "var(--tt-font-mono)",
+              lineHeight: 1.5,
+              fontStyle: "italic"
+            }
+          }, pcDir, " bias \xB7 ", aboveSubtitle.replace(/^Levels above .*? — /, "Above: "), " \xB7 ", belowSubtitle.replace(/^Levels below .*? — /, "Below: ")), React.createElement("div", {
+            style: {
+              marginTop: "var(--ds-space-3)",
+              paddingTop: "var(--ds-space-2)",
+              borderTop: "1px solid var(--ds-border-faint)",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 10,
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              fontFamily: "var(--tt-font-mono)",
+              letterSpacing: "0.04em"
+            }
+          }, React.createElement("span", {
+            title: "52-week high/low"
+          }, React.createElement("span", {
+            style: {
+              display: "inline-block",
+              width: 6,
+              height: 6,
+              background: "#f87171",
+              borderRadius: 1,
+              marginRight: 4
+            }
+          }), "52W"), React.createElement("span", {
+            title: "Swing structure"
+          }, React.createElement("span", {
+            style: {
+              display: "inline-block",
+              width: 6,
+              height: 6,
+              background: "#fbbf24",
+              borderRadius: 1,
+              marginRight: 4
+            }
+          }), "SWING"), React.createElement("span", {
+            title: "Multi-tested pivot"
+          }, React.createElement("span", {
+            style: {
+              display: "inline-block",
+              width: 6,
+              height: 6,
+              background: "#34d399",
+              borderRadius: 1,
+              marginRight: 4
+            }
+          }), "PIVOT"), React.createElement("span", {
+            title: "Prior day range"
+          }, React.createElement("span", {
+            style: {
+              display: "inline-block",
+              width: 6,
+              height: 6,
+              background: "#a78bfa",
+              borderRadius: 1,
+              marginRight: 4
+            }
+          }), "PRIOR DAY"), React.createElement("span", {
+            title: "PDZ premium/discount"
+          }, React.createElement("span", {
+            style: {
+              display: "inline-block",
+              width: 6,
+              height: 6,
+              background: "#60a5fa",
+              borderRadius: 1,
+              marginRight: 4
+            }
+          }), "PDZ"), React.createElement("span", {
+            title: "EMA magnet"
+          }, React.createElement("span", {
+            style: {
+              display: "inline-block",
+              width: 6,
+              height: 6,
+              background: "rgba(96,165,250,0.6)",
+              borderRadius: 1,
+              marginRight: 4
+            }
+          }), "EMA")));
+        })(), (() => {
+          const pcSL = predictionContract?.risk?.stop_loss != null ? Number(predictionContract.risk.stop_loss) : NaN;
+          const pcTargets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
+          const pcRR = predictionContract?.risk?.rr != null ? Number(predictionContract.risk.rr) : NaN;
+          const pcDir = String(predictionContract?.direction || "").toUpperCase();
+          const tradeStatus = String(trade?.status || "").toUpperCase();
+          const tradeIsOpen = !!(trade && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS"));
+          const dir = pcDir === "LONG" || pcDir === "SHORT" ? pcDir : tradeIsOpen ? String(trade?.direction || "").toUpperCase() : v2Dir || "LONG";
+          const isLong = dir !== "SHORT";
+          const entry = (() => {
+            if (tradeIsOpen) return Number(trade?.entry_price ?? trade?.entryPrice) || 0;
+            return Number(ticker?.entry_price) || 0;
+          })();
           const cur = v2Price || entry;
+          const sl = (() => {
+            if (Number.isFinite(pcSL) && pcSL > 0) return pcSL;
+            if (tradeIsOpen) return Number(trade?.sl) || 0;
+            return Number(ticker?.sl ?? ticker?.sl_dynamic ?? ticker?.stop_loss) || 0;
+          })();
           const tpLevels = (() => {
             const out = [];
-            const tpArr = Array.isArray(trade?.tpArray) && trade.tpArray.length > 0 ? trade.tpArray : Array.isArray(ticker?.tpArray) ? ticker.tpArray : [];
-            if (tpArr.length > 0) {
-              tpArr.forEach((tp, i) => {
-                const px = Number(tp?.price ?? tp);
-                if (Number.isFinite(px) && px > 0) {
-                  out.push({
-                    label: tp?.tier || (i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`),
-                    desc: tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner"),
-                    px
-                  });
-                }
+            if (pcTargets.length > 0) {
+              pcTargets.forEach((tp, i) => {
+                const px = Number(tp?.price);
+                if (!Number.isFinite(px) || px <= 0) return;
+                const tier = tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner");
+                out.push({
+                  label: i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`,
+                  desc: tier,
+                  px
+                });
               });
-            } else {
+            } else if (tradeIsOpen && Array.isArray(trade?.tpArray) && trade.tpArray.length > 0) {
+              trade.tpArray.forEach((tp, i) => {
+                const px = Number(tp?.price ?? tp);
+                if (!Number.isFinite(px) || px <= 0) return;
+                out.push({
+                  label: tp?.tier || (i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`),
+                  desc: tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner"),
+                  px
+                });
+              });
+            } else if (tradeIsOpen) {
               const tp1 = Number(ticker?.tp_trim) || 0;
               const tp2 = Number(ticker?.tp_exit) || Number(ticker?.tp_target_price) || Number(ticker?.tp) || 0;
               const tpMax = Number(ticker?.tp_max) || Number(ticker?.tp_runner) || 0;
@@ -3375,12 +3936,13 @@
               });
               if (tpMax > 0 && tpMax !== tp1 && tpMax !== tp2) out.push({
                 label: "TP3",
-                desc: "Runner / Bonus",
+                desc: "Runner",
                 px: tpMax
               });
             }
             return out;
           })();
+          if (!sl && tpLevels.length === 0) return null;
           const all = [entry, cur, sl, ...tpLevels.map(t => t.px)].filter(p => Number.isFinite(p) && p > 0);
           if (all.length < 2) return null;
           const min = Math.min(...all);
@@ -3389,12 +3951,14 @@
           const lo = min - padding;
           const hi = max + padding;
           const yFor = px => 100 - (px - lo) / (hi - lo) * 100;
-          const isLong = v2Dir === "LONG";
-          const levels = [...tpLevels.map(tp => ({
+          const targetColor = "var(--ds-up)";
+          const stopColor = "var(--ds-dn)";
+          const rawLevels = [...tpLevels.map(tp => ({
             label: tp.label,
             sub: tp.desc,
             px: tp.px,
-            color: "var(--ds-up)"
+            color: targetColor,
+            kind: "tp"
           })), cur ? {
             label: "Current",
             px: cur,
@@ -3403,18 +3967,81 @@
           } : null, entry ? {
             label: "Entry",
             px: entry,
-            color: "var(--ds-text-muted)"
+            color: "var(--ds-text-muted)",
+            kind: "entry"
           } : null, sl ? {
             label: "Stop",
             px: sl,
-            color: "var(--ds-dn)"
+            color: stopColor,
+            kind: "sl"
           } : null].filter(Boolean).sort((a, b) => b.px - a.px);
+          const levels = rawLevels.map(l => ({
+            ...l,
+            _y: yFor(l.px)
+          }));
+          const MIN_SPACING = 11;
+          for (let i = 1; i < levels.length; i++) {
+            const prevY = levels[i - 1]._y;
+            if (levels[i]._y - prevY < MIN_SPACING) {
+              levels[i]._y = prevY + MIN_SPACING;
+            }
+          }
+          const ladderInverted = (() => {
+            if (!sl || !cur) return false;
+            if (isLong && sl > cur) return true;
+            if (!isLong && sl < cur) return true;
+            return false;
+          })();
+          const isProposed = !tradeIsOpen;
+          const eyebrow = isProposed ? "PROPOSED PLAN" : "ACTIVE PLAN";
+          const rrChip = (() => {
+            const rr = Number.isFinite(pcRR) ? pcRR : Number(ticker?.rr) || NaN;
+            if (!Number.isFinite(rr) || rr <= 0) return null;
+            return React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${rr >= 2 ? "ds-chip--up" : "ds-chip--accent"}`,
+              title: isProposed ? "Model-derived reward-to-risk — entry not triggered" : "Active reward-to-risk for the open trade"
+            }, "R:R ", rr.toFixed(2));
+          })();
+          const headerAction = React.createElement("div", {
+            style: {
+              display: "flex",
+              gap: 6,
+              alignItems: "center"
+            }
+          }, React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: 9,
+              letterSpacing: "0.12em",
+              color: isProposed ? "var(--ds-text-muted)" : "var(--ds-accent)",
+              background: isProposed ? "transparent" : "var(--ds-accent-dim)",
+              borderColor: isProposed ? "var(--ds-stroke)" : "var(--ds-accent)"
+            }
+          }, eyebrow), rrChip);
           return React.createElement(Panel, {
-            title: "Risk & Targets",
-            action: ticker?.rr && React.createElement("span", {
-              className: `ds-chip ds-chip--sm ${Number(ticker.rr) >= 2 ? "ds-chip--up" : "ds-chip--accent"}`
-            }, "R:R ", Number(ticker.rr).toFixed(2))
-          }, React.createElement("div", {
+            title: isProposed ? "Risk & Targets" : "Risk & Targets",
+            action: headerAction
+          }, isProposed && React.createElement("p", {
+            style: {
+              margin: "0 0 var(--ds-space-2) 0",
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-text-faint)",
+              lineHeight: 1.5,
+              fontStyle: "italic"
+            }
+          }, "Model-derived levels \u2014 entry not triggered. ", dir === "SHORT" ? "Targets below price (profit zones); stop above price (invalidates the short)." : "Targets above price (profit zones); stop below price (invalidates the long)."), ladderInverted && React.createElement("p", {
+            style: {
+              margin: "0 0 var(--ds-space-2) 0",
+              padding: "4px 8px",
+              borderRadius: "var(--ds-radius-xs)",
+              background: "rgba(244,63,94,0.08)",
+              border: "1px solid rgba(244,63,94,0.30)",
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-dn)",
+              lineHeight: 1.4
+            }
+          }, "\u26A0 Ladder geometry conflicts with ", dir, " bias \u2014 stop is ", isLong ? "above" : "below", " current price."), React.createElement("div", {
             style: {
               position: "relative",
               height: 160,
@@ -3423,7 +4050,7 @@
               paddingLeft: "var(--ds-space-3)"
             }
           }, levels.map((l, i) => {
-            const top = yFor(l.px);
+            const top = l._y;
             return React.createElement("div", {
               key: `rt-${i}`,
               style: {
@@ -3523,10 +4150,109 @@
           className: `ds-chip ds-chip--sm ${(modelSignal.market.netSignal || 0) > 0 ? "ds-chip--up" : (modelSignal.market.netSignal || 0) < 0 ? "ds-chip--dn" : "ds-chip--solid"}`
         }, modelSignal.market.label || "—"), modelSignal.market.riskFlag && React.createElement("span", {
           className: "ds-chip ds-chip--sm ds-chip--dn"
-        }, "RISK"))))), v2RailTab === "TECHNICALS" && React.createElement(React.Fragment, null, ticker?.tf_tech && (() => {
+        }, "RISK"))))), v2RailTab === "TECHNICALS" && React.createElement(React.Fragment, null, (() => {
+          const tfm = ticker?.tf_tech || {};
+          const pcDir = String(predictionContract?.direction || "").toUpperCase();
+          if (!pcDir) return null;
+          const dirSign = pcDir === "LONG" ? 1 : -1;
+          let aligned = 0,
+            opposed = 0,
+            present = 0;
+          for (const k of ["15", "30", "1H", "60", "4H", "240", "D"]) {
+            const r = tfm[k];
+            if (!r) continue;
+            const stack = Number(r?.ema?.stack);
+            if (!Number.isFinite(stack) || stack === 0) continue;
+            present += 1;
+            if (Math.sign(stack) === dirSign) aligned += 1;else opposed += 1;
+          }
+          if (present === 0) return null;
+          const ratio = aligned / present;
+          const status = ratio >= 0.7 ? "aligned" : ratio <= 0.3 ? "conflict" : "mixed";
+          const meta = status === "aligned" ? {
+            cls: "ds-chip--up",
+            color: "var(--ds-up)",
+            bg: "rgba(34,197,94,0.06)",
+            border: "rgba(34,197,94,0.30)",
+            lead: "ALIGNED",
+            txt: `${aligned}/${present} timeframes confirm the ${pcDir} bias — read the call as well-supported.`
+          } : status === "conflict" ? {
+            cls: "ds-chip--dn",
+            color: "var(--ds-dn)",
+            bg: "rgba(244,63,94,0.06)",
+            border: "rgba(244,63,94,0.30)",
+            lead: "CONFLICT",
+            txt: `${opposed}/${present} timeframes oppose the ${pcDir} bias — the model is taking a counter-trend / reversal stance. Wait for confirmation before sizing in.`
+          } : {
+            cls: "ds-chip--accent",
+            color: "var(--ds-accent)",
+            bg: "rgba(245,194,92,0.06)",
+            border: "rgba(245,194,92,0.30)",
+            lead: "MIXED",
+            txt: `${aligned} aligned / ${opposed} opposed across ${present} timeframes — structure is split. Trade smaller and tighter.`
+          };
+          return React.createElement("div", {
+            className: "ds-glass",
+            style: {
+              marginBottom: "var(--ds-space-3)",
+              background: meta.bg,
+              border: `1px solid ${meta.border}`,
+              padding: "var(--ds-space-3)"
+            }
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 4
+            }
+          }, React.createElement("span", {
+            className: `ds-chip ds-chip--sm ${meta.cls}`,
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              letterSpacing: "0.10em"
+            }
+          }, "BIAS \xB7 ", meta.lead), React.createElement("span", {
+            style: {
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-text-muted)",
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, pcDir)), React.createElement("p", {
+            style: {
+              margin: 0,
+              fontSize: "var(--ds-fs-caption)",
+              color: meta.color,
+              lineHeight: 1.5
+            }
+          }, meta.txt));
+        })(), !ticker?.tf_tech && React.createElement(Panel, {
+          title: "Technical Analysis",
+          action: React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            style: {
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, "NO DATA")
+        }, React.createElement("p", {
+          style: {
+            margin: 0,
+            fontSize: "var(--ds-fs-caption)",
+            color: "var(--ds-text-muted)",
+            lineHeight: 1.5
+          }
+        }, "Multi-timeframe technicals for ", React.createElement("strong", {
+          style: {
+            color: "var(--ds-text-body)",
+            fontFamily: "var(--tt-font-mono)"
+          }
+        }, tickerSymbol), " haven't loaded yet. This usually clears within a few minutes after the next ingest cycle. If it persists, the ticker may be missing intraday candle coverage (worker-side issue).")), ticker?.tf_tech && (() => {
           const tfm = ticker.tf_tech || {};
           const sym = tickerSymbol;
+          const pcDir = String(predictionContract?.direction || "").toUpperCase();
           const dirSign = (() => {
+            if (pcDir === "LONG") return 1;
+            if (pcDir === "SHORT") return -1;
             const s = String(ticker?.state || "").toUpperCase();
             if (s.startsWith("HTF_BULL")) return 1;
             if (s.startsWith("HTF_BEAR")) return -1;
@@ -3537,25 +4263,45 @@
             return sum > 0 ? 1 : sum < 0 ? -1 : 0;
           })();
           const dir = dirSign === 1 ? "bullish" : dirSign === -1 ? "bearish" : "mixed";
-          const lines = [];
+          const dirLabel = dirSign === 1 ? "LONG" : dirSign === -1 ? "SHORT" : "MIX";
+          const classify = obsSign => {
+            if (dirSign === 0 || obsSign === 0) return "neutral";
+            return obsSign === dirSign ? "aligned" : "conflicting";
+          };
+          const aligned = [];
+          const conflicting = [];
+          const neutral = [];
           const dailyStack = Number(tfm.D?.ema?.stack);
-          const fourhStack = Number(tfm["4H"]?.ema?.stack || tfm["240"]?.ema?.stack);
           if (Number.isFinite(dailyStack) && dailyStack !== 0) {
-            if (dailyStack >= 4) lines.push(`Daily structure is strongly bullish (full EMA stack).`);else if (dailyStack <= -4) lines.push(`Daily structure is strongly bearish (full EMA stack down).`);else if (dailyStack > 0) lines.push(`Daily structure leans bullish but not fully stacked.`);else lines.push(`Daily structure leans bearish but not fully stacked.`);
+            const stackSign = Math.sign(dailyStack);
+            const cls = classify(stackSign);
+            let txt = "";
+            if (dailyStack >= 4) txt = `Daily structure is strongly bullish (full EMA stack).`;else if (dailyStack <= -4) txt = `Daily structure is strongly bearish (full EMA stack down).`;else if (dailyStack > 0) txt = `Daily structure leans bullish but not fully stacked.`;else txt = `Daily structure leans bearish but not fully stacked.`;
+            (cls === "aligned" ? aligned : cls === "conflicting" ? conflicting : neutral).push(txt);
           }
+          const fourhStack = Number(tfm["4H"]?.ema?.stack || tfm["240"]?.ema?.stack);
           if (Number.isFinite(fourhStack) && Math.sign(fourhStack) !== Math.sign(dailyStack || 0) && fourhStack !== 0) {
-            lines.push(`Watch the 4H \u2014 it's moving against the Daily, suggests pullback or counter-rotation.`);
+            neutral.push(`4H is moving against the Daily — pullback or counter-rotation in play.`);
           }
           const rsi1H = Number(tfm["1H"]?.rsi?.r5 || tfm["60"]?.rsi?.r5);
           const rsiD = Number(tfm.D?.rsi?.r5);
-          if (Number.isFinite(rsiD) && rsiD >= 70) lines.push(`Daily RSI ${rsiD.toFixed(0)} is overbought \u2014 reversal risk elevated.`);else if (Number.isFinite(rsiD) && rsiD <= 30) lines.push(`Daily RSI ${rsiD.toFixed(0)} is oversold \u2014 mean-reversion bounce possible.`);
-          if (Number.isFinite(rsi1H) && rsi1H >= 70 && (!Number.isFinite(rsiD) || rsiD < 70)) lines.push(`1H RSI ${rsi1H.toFixed(0)} is hot but Daily isn't \u2014 short-term overheat.`);
+          if (Number.isFinite(rsiD) && rsiD >= 70) {
+            const cls = classify(-1);
+            (cls === "aligned" ? aligned : conflicting).push(`Daily RSI ${rsiD.toFixed(0)} is overbought — reversal risk elevated${dirSign === -1 ? " (favors the SHORT)" : dirSign === 1 ? " (extension caution for LONGs)" : ""}.`);
+          } else if (Number.isFinite(rsiD) && rsiD <= 30) {
+            const cls = classify(1);
+            (cls === "aligned" ? aligned : conflicting).push(`Daily RSI ${rsiD.toFixed(0)} is oversold — bounce possible${dirSign === 1 ? " (favors the LONG)" : dirSign === -1 ? " (caution for SHORTs into support)" : ""}.`);
+          }
+          if (Number.isFinite(rsi1H) && rsi1H >= 70 && (!Number.isFinite(rsiD) || rsiD < 70)) {
+            const cls = classify(-1);
+            (cls === "aligned" ? aligned : conflicting).push(`1H RSI ${rsi1H.toFixed(0)} is hot but Daily isn't — short-term overheat.`);
+          }
           let sqLine = null;
           for (const k of ["15", "30", "1H", "60", "4H", "240", "D"]) {
             const sq = tfm[k]?.sq;
             if (!sq) continue;
             if (sq.r) {
-              sqLine = `Squeeze just RELEASED on ${k === "60" ? "1H" : k === "240" ? "4H" : k} \u2014 expect an expansion move.`;
+              sqLine = `Squeeze just RELEASED on ${k === "60" ? "1H" : k === "240" ? "4H" : k} — expansion in either direction; watch for follow-through that confirms the ${dirLabel} bias.`;
               break;
             }
           }
@@ -3564,45 +4310,114 @@
               const sq = tfm[k]?.sq;
               if (!sq) continue;
               if (sq.s) {
-                sqLine = `Volatility coiled with squeeze ON ${k === "60" ? "1H" : k === "240" ? "4H" : k} \u2014 watch for expansion.`;
+                sqLine = `Volatility coiled with squeeze ON ${k === "60" ? "1H" : k === "240" ? "4H" : k} — expansion in either direction; whichever side breaks gets the move.`;
                 break;
               }
             }
           }
-          if (sqLine) lines.push(sqLine);
+          if (sqLine) neutral.push(sqLine);
           const rsiDivBear = ticker?.rsi_divergence?.bear?.active || tfm["1H"]?.rsiDiv?.bear?.a;
           const rsiDivBull = ticker?.rsi_divergence?.bull?.active || tfm["1H"]?.rsiDiv?.bull?.a;
-          if (rsiDivBear) lines.push(`RSI bearish divergence active \u2014 momentum slowing while price still pushes up.`);
-          if (rsiDivBull) lines.push(`RSI bullish divergence active \u2014 selling losing steam, watch for reversal.`);
+          if (rsiDivBear) {
+            const cls = classify(-1);
+            (cls === "aligned" ? aligned : conflicting).push(`RSI bearish divergence active — momentum slowing while price still pushes up.`);
+          }
+          if (rsiDivBull) {
+            const cls = classify(1);
+            (cls === "aligned" ? aligned : conflicting).push(`RSI bullish divergence active — selling losing steam, watch for reversal.`);
+          }
           const tdD = ticker?.td_sequential?.per_tf?.D || ticker?.td_sequential?.per_tf?.["1D"];
           if (tdD) {
             const bp = Number(tdD.bullish_prep_count) || 0;
             const sp = Number(tdD.bearish_prep_count) || 0;
-            if (sp >= 8) lines.push(`Daily TD${sp} setup count is exhaustion-high on the bear side.`);else if (bp >= 8) lines.push(`Daily TD${bp} setup count is exhaustion-high on the bull side.`);
+            if (sp >= 8) {
+              const cls = classify(1);
+              (cls === "aligned" ? aligned : conflicting).push(`Daily TD${sp} setup count is exhaustion-high on the bear side (reversal candidate).`);
+            } else if (bp >= 8) {
+              const cls = classify(-1);
+              (cls === "aligned" ? aligned : conflicting).push(`Daily TD${bp} setup count is exhaustion-high on the bull side (reversal candidate).`);
+            }
           }
-          if (lines.length === 0) {
-            lines.push(`Technicals look balanced \u2014 no extreme readings, no exhaustion signals, no fresh squeeze. Waiting for a catalyst.`);
+          if (aligned.length === 0 && conflicting.length === 0 && neutral.length === 0) {
+            neutral.push(`Technicals look balanced — no extreme readings, no exhaustion signals, no fresh squeeze. Waiting for a catalyst.`);
           }
-          return React.createElement(Panel, {
-            title: `Technical Analysis \u00B7 ${sym}`
-          }, React.createElement("p", {
+          const Bullet = ({
+            icon,
+            text,
+            color
+          }) => React.createElement("li", {
             style: {
-              margin: 0,
-              fontSize: "var(--ds-fs-body)",
-              lineHeight: 1.6,
-              color: "var(--ds-text-body)"
+              display: "flex",
+              gap: 8,
+              alignItems: "flex-start",
+              margin: "4px 0",
+              color: "var(--ds-text-body)",
+              fontSize: "var(--ds-fs-meta)",
+              lineHeight: 1.5
             }
           }, React.createElement("span", {
             style: {
               fontFamily: "var(--tt-font-mono)",
-              fontSize: 9,
-              letterSpacing: "0.16em",
-              textTransform: "uppercase",
-              color: dir === "bullish" ? "var(--ds-up)" : dir === "bearish" ? "var(--ds-dn)" : "var(--ds-text-muted)",
               fontWeight: 700,
-              marginRight: 8
+              color,
+              minWidth: 16,
+              textAlign: "center",
+              flexShrink: 0
             }
-          }, dir, " bias"), lines.join(" ")));
+          }, icon), React.createElement("span", null, text));
+          return React.createElement(Panel, {
+            title: `Technical Analysis · ${sym}`,
+            action: React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${dir === "bullish" ? "ds-chip--up" : dir === "bearish" ? "ds-chip--dn" : "ds-chip--solid"}`,
+              style: {
+                fontFamily: "var(--tt-font-mono)"
+              }
+            }, dirLabel, " bias")
+          }, pcDir && pcDir !== "" && dir !== "mixed" && React.createElement("p", {
+            style: {
+              margin: "0 0 var(--ds-space-2) 0",
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-text-muted)",
+              fontStyle: "italic",
+              lineHeight: 1.5
+            }
+          }, "Read against the model's ", React.createElement("strong", {
+            style: {
+              color: dirLabel === "SHORT" ? "var(--ds-dn)" : "var(--ds-up)"
+            }
+          }, dirLabel), " bias. Aligned signals support the call; conflicting signals are caveats / reversal triggers."), React.createElement("ul", {
+            style: {
+              listStyle: "none",
+              padding: 0,
+              margin: 0
+            }
+          }, aligned.map((t, i) => React.createElement(Bullet, {
+            key: `al-${i}`,
+            icon: "\u2713",
+            text: t,
+            color: "var(--ds-up)"
+          })), conflicting.map((t, i) => React.createElement(Bullet, {
+            key: `cf-${i}`,
+            icon: "\u26A0",
+            text: `Conflicts with ${dirLabel} bias: ${t}`,
+            color: "var(--ds-dn)"
+          })), neutral.map((t, i) => React.createElement(Bullet, {
+            key: `nt-${i}`,
+            icon: "\xB7",
+            text: t,
+            color: "var(--ds-text-muted)"
+          }))), conflicting.length > 0 && aligned.length === 0 && React.createElement("p", {
+            style: {
+              margin: "var(--ds-space-2) 0 0 0",
+              padding: "6px 8px",
+              borderRadius: "var(--ds-radius-xs)",
+              background: "rgba(244,63,94,0.06)",
+              border: "1px solid rgba(244,63,94,0.20)",
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-dn)",
+              lineHeight: 1.5
+            }
+          }, "Raw structure runs counter to the ", dirLabel, " bias \u2014 this is a counter-trend / reversal stance. Wait for a confirming break-of-structure before sizing in."));
         })(), ticker?.tf_tech && (() => {
           const tfm = ticker.tf_tech || {};
           const dirSign = (() => {
@@ -3999,7 +4814,14 @@
             className: `ds-chip ds-chip--sm ${cls}`
           }, String(status).toUpperCase()));
         }))), ticker?.fundamentals && (ticker.fundamentals.pe || ticker.fundamentals.peg || ticker.fundamentals.eps_growth) && React.createElement(Panel, {
-          title: "Fundamentals"
+          title: "Fundamentals",
+          action: React.createElement("button", {
+            className: "ds-chip ds-chip--sm",
+            onClick: () => setRailTab("FUNDAMENTALS"),
+            style: {
+              cursor: "pointer"
+            }
+          }, "Open Fundamentals \u2192")
         }, React.createElement("div", {
           style: {
             display: "grid",
@@ -4017,7 +4839,861 @@
           value: `${Number(ticker.fundamentals.eps_growth).toFixed(1)}%`,
           delta: Number(ticker.fundamentals.eps_growth) > 0 ? "Up" : "Dn",
           deltaClass: Number(ticker.fundamentals.eps_growth) > 0 ? "up" : "dn"
-        })))), v2RailTab === "HISTORY" && React.createElement(React.Fragment, null, React.createElement(Panel, {
+        })))), v2RailTab === "FUNDAMENTALS" && (() => {
+          const F = fundamentals;
+          const fmtBigUsd = n => {
+            if (!Number.isFinite(Number(n))) return "—";
+            const v = Math.abs(Number(n));
+            const sign = Number(n) < 0 ? "-" : "";
+            if (v >= 1e12) return `${sign}$${(v / 1e12).toFixed(2)}T`;
+            if (v >= 1e9) return `${sign}$${(v / 1e9).toFixed(2)}B`;
+            if (v >= 1e6) return `${sign}$${(v / 1e6).toFixed(2)}M`;
+            if (v >= 1e3) return `${sign}$${(v / 1e3).toFixed(2)}K`;
+            return `${sign}$${v.toFixed(2)}`;
+          };
+          const fmtBigNum = n => {
+            if (!Number.isFinite(Number(n))) return "—";
+            const v = Math.abs(Number(n));
+            const sign = Number(n) < 0 ? "-" : "";
+            if (v >= 1e9) return `${sign}${(v / 1e9).toFixed(2)}B`;
+            if (v >= 1e6) return `${sign}${(v / 1e6).toFixed(2)}M`;
+            if (v >= 1e3) return `${sign}${(v / 1e3).toFixed(2)}K`;
+            return `${sign}${v.toFixed(0)}`;
+          };
+          const fmtPctVal = (n, digits = 1) => Number.isFinite(Number(n)) ? `${Number(n).toFixed(digits)}%` : "—";
+          const fmtPctSigned = (n, digits = 1) => {
+            if (!Number.isFinite(Number(n))) return "—";
+            const v = Number(n);
+            return `${v >= 0 ? "+" : ""}${v.toFixed(digits)}%`;
+          };
+          const fmtNum = (n, digits = 2) => Number.isFinite(Number(n)) ? Number(n).toFixed(digits) : "—";
+          const fmtDate = s => {
+            if (!s) return "—";
+            const d = new Date(s);
+            if (isNaN(d.getTime())) return String(s);
+            return d.toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+              year: "numeric"
+            });
+          };
+          const growthChip = cls => {
+            switch (cls) {
+              case "explosive":
+                return {
+                  label: "EXPLOSIVE",
+                  color: "var(--ds-accent)",
+                  bg: "rgba(245,194,92,0.18)",
+                  border: "rgba(245,194,92,0.45)"
+                };
+              case "exploding":
+                return {
+                  label: "EXPLODING",
+                  color: "#fbbf24",
+                  bg: "rgba(251,191,36,0.14)",
+                  border: "rgba(251,191,36,0.40)"
+                };
+              case "strong":
+                return {
+                  label: "STRONG",
+                  color: "#34d399",
+                  bg: "rgba(52,211,153,0.14)",
+                  border: "rgba(52,211,153,0.40)"
+                };
+              case "positive":
+                return {
+                  label: "POSITIVE",
+                  color: "#86efac",
+                  bg: "rgba(134,239,172,0.10)",
+                  border: "rgba(134,239,172,0.30)"
+                };
+              case "declining":
+                return {
+                  label: "DECLINING",
+                  color: "#fb7185",
+                  bg: "rgba(251,113,133,0.14)",
+                  border: "rgba(251,113,133,0.40)"
+                };
+              default:
+                return null;
+            }
+          };
+          const resultChip = r => {
+            switch (r) {
+              case "beat_raise":
+                return {
+                  label: "Beat & Raise",
+                  cls: "ds-chip--up"
+                };
+              case "beat":
+                return {
+                  label: "Beat",
+                  cls: "ds-chip--up"
+                };
+              case "inline":
+                return {
+                  label: "In-line",
+                  cls: "ds-chip--solid"
+                };
+              case "miss":
+                return {
+                  label: "Miss",
+                  cls: "ds-chip--dn"
+                };
+              default:
+                return null;
+            }
+          };
+          if (fundamentalsLoading && !F) {
+            return React.createElement(Panel, {
+              title: "Fundamentals"
+            }, React.createElement("div", {
+              style: {
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "var(--ds-space-3)",
+                color: "var(--ds-text-muted)",
+                fontSize: "var(--ds-fs-meta)"
+              }
+            }, React.createElement("span", {
+              className: "loading-spinner loading-spinner-sm",
+              style: {
+                width: 14,
+                height: 14,
+                borderWidth: 2,
+                borderColor: "rgba(245,194,92,0.20)",
+                borderTopColor: "var(--ds-accent)"
+              }
+            }), "Loading fundamentals from TwelveData\u2026"));
+          }
+          if (fundamentalsError && !F) {
+            return React.createElement(Panel, {
+              title: "Fundamentals"
+            }, React.createElement("div", {
+              style: {
+                color: "var(--ds-dn)",
+                fontSize: "var(--ds-fs-meta)"
+              }
+            }, "Failed to load: ", fundamentalsError), React.createElement("div", {
+              style: {
+                marginTop: "var(--ds-space-2)",
+                color: "var(--ds-text-muted)",
+                fontSize: "var(--ds-fs-caption)"
+              }
+            }, "This endpoint requires admin access. Check your API key or sign in via Cloudflare Access."));
+          }
+          if (!F) {
+            return React.createElement(Panel, {
+              title: "Fundamentals"
+            }, React.createElement("div", {
+              style: {
+                color: "var(--ds-text-muted)",
+                fontSize: "var(--ds-fs-meta)"
+              }
+            }, "Fundamentals will load when you select this tab."));
+          }
+          const prof = F.profile || {};
+          const val = F.valuation || {};
+          const cap = F.capital_structure || {};
+          const grw = F.growth || {};
+          const earn = F.earnings || {};
+          const pxs = F.price_summary || {};
+          const _isEtf = (() => {
+            const hasNoEarnings = !Array.isArray(earn.history) || earn.history.length === 0;
+            const hasNoEps = val.pe_ttm == null && val.pe_forward == null;
+            const indHint = String(prof.industry || "").toLowerCase();
+            const etfishIndustry = !indHint || indHint.includes("etf") || indHint.includes("fund") || indHint.includes("trust");
+            return hasNoEarnings && hasNoEps && etfishIndustry;
+          })();
+          if (_isEtf) {
+            return React.createElement(Panel, {
+              title: "Fundamentals"
+            }, React.createElement("div", {
+              style: {
+                padding: "var(--ds-space-3)",
+                display: "flex",
+                flexDirection: "column",
+                gap: "var(--ds-space-3)"
+              }
+            }, React.createElement("div", {
+              className: "ds-glass",
+              style: {
+                padding: "var(--ds-space-3)",
+                borderRadius: "var(--ds-radius-lg)"
+              }
+            }, React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-eyebrow)",
+                color: "var(--ds-text-muted)",
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                marginBottom: "var(--ds-space-2)"
+              }
+            }, prof.exchange || "—", " \xB7 ETF / Fund"), React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-md)",
+                fontWeight: 600,
+                color: "var(--ds-text)",
+                marginBottom: "var(--ds-space-1)"
+              }
+            }, prof.name || tickerSymbol), React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-meta)",
+                color: "var(--ds-text-muted)"
+              }
+            }, prof.industry || "Exchange-Traded Fund", prof.sector ? ` · ${prof.sector}` : "")), React.createElement("div", {
+              className: "ds-glass",
+              style: {
+                padding: "var(--ds-space-3)",
+                borderRadius: "var(--ds-radius-lg)"
+              }
+            }, React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-eyebrow)",
+                color: "var(--ds-text-muted)",
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                marginBottom: "var(--ds-space-2)"
+              }
+            }, "Market Data"), React.createElement("div", {
+              style: {
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "var(--ds-space-3)"
+              }
+            }, React.createElement("div", null, React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-caption)",
+                color: "var(--ds-text-muted)",
+                marginBottom: 2
+              }
+            }, "Current Price"), React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-md)",
+                fontWeight: 600,
+                fontFamily: "var(--tt-font-mono)"
+              }
+            }, val.current_price != null ? `$${Number(val.current_price).toFixed(2)}` : "—")), React.createElement("div", null, React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-caption)",
+                color: "var(--ds-text-muted)",
+                marginBottom: 2
+              }
+            }, "AUM (Market Cap)"), React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-md)",
+                fontWeight: 600,
+                fontFamily: "var(--tt-font-mono)"
+              }
+            }, fmtBigUsd(val.market_cap))), React.createElement("div", null, React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-caption)",
+                color: "var(--ds-text-muted)",
+                marginBottom: 2
+              }
+            }, "52-Week Range"), React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-md)",
+                fontWeight: 600,
+                fontFamily: "var(--tt-font-mono)"
+              }
+            }, pxs.fifty_two_week_low != null && pxs.fifty_two_week_high != null ? `$${Number(pxs.fifty_two_week_low).toFixed(2)} – $${Number(pxs.fifty_two_week_high).toFixed(2)}` : "—")), React.createElement("div", null, React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-caption)",
+                color: "var(--ds-text-muted)",
+                marginBottom: 2
+              }
+            }, "52w Change"), React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-md)",
+                fontWeight: 600,
+                fontFamily: "var(--tt-font-mono)",
+                color: pxs.fifty_two_week_change_pct >= 0 ? "var(--ds-up)" : "var(--ds-dn)"
+              }
+            }, fmtPctSigned(pxs.fifty_two_week_change_pct))), React.createElement("div", null, React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-caption)",
+                color: "var(--ds-text-muted)",
+                marginBottom: 2
+              }
+            }, "50-day MA"), React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-md)",
+                fontWeight: 600,
+                fontFamily: "var(--tt-font-mono)"
+              }
+            }, pxs.day_50_ma != null ? `$${Number(pxs.day_50_ma).toFixed(2)}` : "—")), React.createElement("div", null, React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-caption)",
+                color: "var(--ds-text-muted)",
+                marginBottom: 2
+              }
+            }, "200-day MA"), React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-md)",
+                fontWeight: 600,
+                fontFamily: "var(--tt-font-mono)"
+              }
+            }, pxs.day_200_ma != null ? `$${Number(pxs.day_200_ma).toFixed(2)}` : "—")), React.createElement("div", null, React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-caption)",
+                color: "var(--ds-text-muted)",
+                marginBottom: 2
+              }
+            }, "Beta"), React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-md)",
+                fontWeight: 600,
+                fontFamily: "var(--tt-font-mono)"
+              }
+            }, pxs.beta != null ? Number(pxs.beta).toFixed(2) : "—")), React.createElement("div", null, React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-caption)",
+                color: "var(--ds-text-muted)",
+                marginBottom: 2
+              }
+            }, "Avg Volume"), React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-md)",
+                fontWeight: 600,
+                fontFamily: "var(--tt-font-mono)"
+              }
+            }, cap.shares_outstanding != null ? fmtBigNum(cap.shares_outstanding) : "—")))), React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-caption)",
+                color: "var(--ds-text-muted)",
+                textAlign: "center"
+              }
+            }, "ETFs and index funds don't have EPS, P/E, or earnings history.", React.createElement("br", null), "For these instruments, use the Snapshot, Technicals, and History tabs.")));
+          }
+          const epsChip = growthChip(grw.eps_growth_class);
+          const revChip = growthChip(grw.rev_growth_class);
+          const fairColor = val.fair_value_class === "discount" ? "var(--ds-up)" : val.fair_value_class === "premium" ? "var(--ds-dn)" : val.fair_value_class === "fair" ? "var(--ds-accent)" : "var(--ds-text-muted)";
+          const sortedHistory = (() => {
+            const rows = Array.isArray(earn.history) ? [...earn.history] : [];
+            const k = fundamentalsSortKey;
+            const dir = fundamentalsSortDir === "asc" ? 1 : -1;
+            rows.sort((a, b) => {
+              let va = a?.[k];
+              let vb = b?.[k];
+              if (k === "date") {
+                va = Date.parse(a?.date || "") || 0;
+                vb = Date.parse(b?.date || "") || 0;
+              }
+              const na = Number(va);
+              const nb = Number(vb);
+              if (Number.isFinite(na) && Number.isFinite(nb)) return (na - nb) * dir;
+              return String(va || "").localeCompare(String(vb || "")) * dir;
+            });
+            return rows;
+          })();
+          const sortHeader = (key, label, align = "right") => {
+            const isActive = fundamentalsSortKey === key;
+            const arrow = isActive ? fundamentalsSortDir === "asc" ? " ↑" : " ↓" : "";
+            return React.createElement("button", {
+              onClick: () => {
+                if (isActive) setFundamentalsSortDir(fundamentalsSortDir === "asc" ? "desc" : "asc");else {
+                  setFundamentalsSortKey(key);
+                  setFundamentalsSortDir(key === "date" ? "desc" : "desc");
+                }
+              },
+              className: "ds-caption",
+              style: {
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                padding: 0,
+                color: isActive ? "var(--ds-accent)" : "var(--ds-text-muted)",
+                textAlign: align,
+                width: "100%",
+                fontFamily: "var(--tt-font-mono)",
+                letterSpacing: "0.16em",
+                textTransform: "uppercase",
+                fontSize: 9
+              }
+            }, label, arrow);
+          };
+          return React.createElement("div", {
+            className: "ds-fundamentals-tab",
+            style: {
+              "--ds-fs-h2": "13px",
+              "--ds-fs-h3": "11px",
+              "--ds-fs-md": "10px",
+              "--ds-fs-body": "10px",
+              "--ds-fs-emph": "11px",
+              "--ds-fs-meta": "9px",
+              "--ds-fs-caption": "9px",
+              "--ds-fs-eyebrow": "8px",
+              "--ds-fs-hero": "16px",
+              "--ds-space-3": "7px",
+              "--ds-space-4": "9px"
+            }
+          }, React.createElement(Panel, {
+            title: prof.name || tickerSymbol,
+            action: React.createElement("span", {
+              className: "ds-chip ds-chip--sm",
+              style: {
+                fontFamily: "var(--tt-font-mono)"
+              }
+            }, F._cache === "hit" ? "CACHED" : "LIVE")
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "var(--ds-space-1)",
+              marginBottom: "var(--ds-space-2)"
+            }
+          }, prof.sector && React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            title: "Sector"
+          }, prof.sector), prof.industry && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--solid",
+            title: "Industry"
+          }, prof.industry), prof.exchange && React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            style: {
+              fontFamily: "var(--tt-font-mono)"
+            },
+            title: "Exchange"
+          }, prof.exchange), cap.cash_rich === true && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--up",
+            title: "Cash exceeds total debt"
+          }, "CASH RICH"), cap.cash_rich === false && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--dn",
+            title: "Total debt exceeds cash on hand"
+          }, "DEBT-HEAVY")), React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: "var(--ds-space-2)"
+            }
+          }, React.createElement(Metric, {
+            label: "Market Cap",
+            value: fmtBigUsd(val.market_cap)
+          }), React.createElement(Metric, {
+            label: "EV / EBITDA",
+            value: fmtNum(val.ev_to_ebitda, 1)
+          }), React.createElement(Metric, {
+            label: "Beta",
+            value: fmtNum(pxs.beta, 2)
+          }))), React.createElement(Panel, {
+            title: "Valuation",
+            action: val.fair_value_class && React.createElement("span", {
+              className: "ds-chip ds-chip--sm",
+              style: {
+                color: fairColor,
+                background: val.fair_value_class === "discount" ? "rgba(34,197,94,0.12)" : val.fair_value_class === "premium" ? "rgba(244,63,94,0.12)" : "rgba(245,194,92,0.12)",
+                border: `1px solid ${fairColor}`,
+                fontFamily: "var(--tt-font-mono)",
+                letterSpacing: "0.08em"
+              }
+            }, String(val.fair_value_class || "").toUpperCase())
+          }, React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: "var(--ds-space-2)"
+            }
+          }, React.createElement(Metric, {
+            label: "P/E (TTM)",
+            value: fmtNum(val.pe_ttm, 1)
+          }), React.createElement(Metric, {
+            label: "Forward P/E",
+            value: fmtNum(val.pe_forward, 1)
+          }), React.createElement(Metric, {
+            label: "P/S",
+            value: fmtNum(val.ps_ratio, 1)
+          }), React.createElement(Metric, {
+            label: "P/B",
+            value: fmtNum(val.pb_ratio, 2)
+          }), React.createElement(Metric, {
+            label: "PEG",
+            value: fmtNum(val.peg_ratio, 2)
+          }), React.createElement(Metric, {
+            label: "EV",
+            value: fmtBigUsd(val.enterprise_value)
+          })), val.fair_value_price != null && React.createElement("div", {
+            style: {
+              marginTop: "var(--ds-space-3)",
+              padding: "var(--ds-space-3)",
+              background: "var(--ds-bg-glass)",
+              borderRadius: "var(--ds-radius-xs)",
+              border: `1px solid ${fairColor}`
+            }
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 6
+            }
+          }, React.createElement("span", {
+            className: "ds-caption",
+            style: {
+              color: "var(--ds-text-muted)"
+            }
+          }, "FAIR VALUE"), React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: 9,
+              color: "var(--ds-text-faint)"
+            },
+            title: "Fair value basis"
+          }, val.fair_value_basis || "—")), React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "baseline",
+              gap: "var(--ds-space-2)",
+              flexWrap: "wrap"
+            }
+          }, React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-md)",
+              fontWeight: 700,
+              color: fairColor
+            }
+          }, "$", fmtNum(val.fair_value_price, 2)), val.current_price != null && React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-meta)",
+              color: "var(--ds-text-muted)"
+            }
+          }, "vs $", fmtNum(val.current_price, 2)), val.fair_value_premium_pct != null && React.createElement("span", {
+            style: {
+              color: fairColor,
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: 10,
+              fontWeight: 600
+            }
+          }, val.fair_value_premium_pct >= 0 ? "+" : "", val.fair_value_premium_pct.toFixed(1), "%")), val.fair_value_methods && React.createElement("div", {
+            style: {
+              marginTop: "var(--ds-space-3)",
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr 1fr",
+              gap: "var(--ds-space-2)",
+              paddingTop: "var(--ds-space-2)",
+              borderTop: "1px solid var(--ds-border-faint)"
+            }
+          }, React.createElement("div", null, React.createElement("div", {
+            className: "ds-caption",
+            style: {
+              color: "var(--ds-text-muted)",
+              fontSize: 9
+            },
+            title: "Forward P/E \xD7 forward EPS estimate"
+          }, "FORWARD"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-meta)",
+              fontWeight: 600,
+              color: "var(--ds-text)"
+            }
+          }, val.fair_value_methods.forward != null ? `$${fmtNum(val.fair_value_methods.forward, 2)}` : "—")), React.createElement("div", null, React.createElement("div", {
+            className: "ds-caption",
+            style: {
+              color: "var(--ds-text-muted)",
+              fontSize: 9
+            },
+            title: "EPS \xD7 (growth_rate \xD7 PEG=1.0), capped at 40 P/E"
+          }, "PEG-ADJ"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-meta)",
+              fontWeight: 600,
+              color: "var(--ds-text)"
+            }
+          }, val.fair_value_methods.growth_peg != null ? `$${fmtNum(val.fair_value_methods.growth_peg, 2)}` : "—"), val.fair_value_methods.growth_adjusted_pe != null && React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: 9,
+              color: "var(--ds-text-faint)"
+            }
+          }, `@${val.fair_value_methods.growth_adjusted_pe.toFixed(0)}× P/E`)), React.createElement("div", null, React.createElement("div", {
+            className: "ds-caption",
+            style: {
+              color: "var(--ds-text-muted)",
+              fontSize: 9
+            },
+            title: "Conservative floor: TTM EPS \xD7 (TTM P/E \u2227 18) \xD7 0.85"
+          }, "CONSERVATIVE"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-meta)",
+              fontWeight: 600,
+              color: "var(--ds-text)"
+            }
+          }, val.fair_value_methods.conservative != null ? `$${fmtNum(val.fair_value_methods.conservative, 2)}` : "—"))))), (grw.eps_growth_pct != null || grw.rev_growth_pct != null) && React.createElement(Panel, {
+            title: "Growth (Q YoY)"
+          }, React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "repeat(2, 1fr)",
+              gap: "var(--ds-space-2)"
+            }
+          }, grw.eps_growth_pct != null && React.createElement("div", null, React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              gap: 6
+            }
+          }, React.createElement("span", {
+            className: "ds-caption",
+            style: {
+              color: "var(--ds-text-muted)"
+            }
+          }, "EPS"), epsChip && React.createElement("span", {
+            style: {
+              color: epsChip.color,
+              fontSize: 9,
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 600,
+              letterSpacing: "0.10em"
+            }
+          }, epsChip.label)), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-md)",
+              fontWeight: 600,
+              color: grw.eps_growth_pct >= 0 ? "var(--ds-up)" : "var(--ds-dn)"
+            }
+          }, fmtPctSigned(grw.eps_growth_pct))), grw.rev_growth_pct != null && React.createElement("div", null, React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              gap: 6
+            }
+          }, React.createElement("span", {
+            className: "ds-caption",
+            style: {
+              color: "var(--ds-text-muted)"
+            }
+          }, "REVENUE"), revChip && React.createElement("span", {
+            style: {
+              color: revChip.color,
+              fontSize: 9,
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 600,
+              letterSpacing: "0.10em"
+            }
+          }, revChip.label)), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-md)",
+              fontWeight: 600,
+              color: grw.rev_growth_pct >= 0 ? "var(--ds-up)" : "var(--ds-dn)"
+            }
+          }, fmtPctSigned(grw.rev_growth_pct)))), (grw.gross_margin_pct != null || grw.profit_margin_pct != null || grw.roe_ttm_pct != null) && React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: "var(--ds-space-2)",
+              marginTop: "var(--ds-space-2)"
+            }
+          }, grw.gross_margin_pct != null && React.createElement(Metric, {
+            label: "Gross Mgn",
+            value: fmtPctVal(grw.gross_margin_pct)
+          }), grw.profit_margin_pct != null && React.createElement(Metric, {
+            label: "Net Mgn",
+            value: fmtPctVal(grw.profit_margin_pct)
+          }), grw.roe_ttm_pct != null && React.createElement(Metric, {
+            label: "ROE",
+            value: fmtPctVal(grw.roe_ttm_pct)
+          }))), React.createElement(Panel, {
+            title: "Capital Structure"
+          }, React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "repeat(2, 1fr)",
+              gap: "var(--ds-space-2)"
+            }
+          }, React.createElement(Metric, {
+            label: "Float",
+            value: fmtBigNum(cap.float)
+          }), React.createElement(Metric, {
+            label: "Short Float",
+            value: fmtPctVal(cap.short_float_pct),
+            delta: Number(cap.short_float_pct) >= 15 ? "Squeeze risk" : null,
+            deltaClass: Number(cap.short_float_pct) >= 15 ? "accent" : "muted"
+          }), React.createElement(Metric, {
+            label: "Total Debt",
+            value: fmtBigUsd(cap.total_debt)
+          }), React.createElement(Metric, {
+            label: "Total Cash",
+            value: fmtBigUsd(cap.total_cash)
+          }), React.createElement(Metric, {
+            label: "Free Cash Flow",
+            value: fmtBigUsd(cap.free_cash_flow_ttm)
+          }), React.createElement(Metric, {
+            label: "Operating CF",
+            value: fmtBigUsd(cap.operating_cash_flow_ttm)
+          })), (cap.insider_pct != null || cap.institution_pct != null) && React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "repeat(2, 1fr)",
+              gap: "var(--ds-space-2)",
+              marginTop: "var(--ds-space-2)"
+            }
+          }, cap.insider_pct != null && React.createElement(Metric, {
+            label: "Insider Hold",
+            value: fmtPctVal(cap.insider_pct, 2)
+          }), cap.institution_pct != null && React.createElement(Metric, {
+            label: "Institution",
+            value: fmtPctVal(cap.institution_pct, 1)
+          }))), React.createElement(Panel, {
+            title: "Next Earnings",
+            action: React.createElement("div", {
+              style: {
+                display: "flex",
+                gap: 4,
+                flexWrap: "wrap"
+              }
+            }, earn.estimates_up === true && React.createElement("span", {
+              className: "ds-chip ds-chip--sm ds-chip--up",
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                letterSpacing: "0.08em"
+              }
+            }, "ESTIMATES UP"), earn.guidance_higher === true && React.createElement("span", {
+              className: "ds-chip ds-chip--sm ds-chip--accent",
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                letterSpacing: "0.08em"
+              }
+            }, "GUIDANCE HIGHER"))
+          }, React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: "var(--ds-space-2)"
+            }
+          }, React.createElement(Metric, {
+            label: "Date",
+            value: fmtDate(earn.next_date),
+            delta: earn.next_time || null,
+            deltaClass: "muted"
+          }), React.createElement(Metric, {
+            label: "EPS Est",
+            value: fmtNum(earn.next_quarter_eps_est, 2),
+            delta: earn.next_quarter_eps_yoy_pct != null ? fmtPctSigned(earn.next_quarter_eps_yoy_pct, 1) : null,
+            deltaClass: Number(earn.next_quarter_eps_yoy_pct) >= 0 ? "up" : "dn"
+          }), React.createElement(Metric, {
+            label: "EPS (TTM)",
+            value: fmtNum(earn.eps_ttm, 2)
+          }))), Array.isArray(earn.history) && earn.history.length > 0 && React.createElement(Panel, {
+            title: "Earnings History",
+            action: React.createElement("span", {
+              className: "ds-chip ds-chip--sm"
+            }, earn.history.length, " qtr", earn.history.length === 1 ? "" : "s")
+          }, React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "minmax(70px, 1fr) 60px 60px 70px 70px 90px",
+              gap: "var(--ds-space-1)",
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-meta)"
+            }
+          }, sortHeader("date", "Date", "left"), sortHeader("eps_actual", "EPS Act"), sortHeader("eps_est", "Est"), sortHeader("surprise_pct", "Surp %"), sortHeader("eps_growth_pct", "Growth %"), React.createElement("div", {
+            className: "ds-caption",
+            style: {
+              textAlign: "right"
+            }
+          }, "Result"), sortedHistory.map((row, i) => {
+            const surpColor = row.surprise_pct == null ? "var(--ds-text-faint)" : row.surprise_pct >= 10 ? "var(--ds-up)" : row.surprise_pct >= 1 ? "#86efac" : row.surprise_pct <= -5 ? "var(--ds-dn)" : "var(--ds-text-muted)";
+            const growthColor = row.eps_growth_pct == null ? "var(--ds-text-faint)" : row.eps_growth_pct >= 100 ? "var(--ds-accent)" : row.eps_growth_pct >= 25 ? "var(--ds-up)" : row.eps_growth_pct >= 0 ? "#86efac" : "var(--ds-dn)";
+            const rChip = resultChip(row.result);
+            return React.createElement(React.Fragment, {
+              key: `er-${i}`
+            }, React.createElement("div", {
+              style: {
+                color: "var(--ds-text-muted)"
+              }
+            }, fmtDate(row.date)), React.createElement("div", {
+              style: {
+                textAlign: "right",
+                color: "var(--ds-text-display)"
+              }
+            }, fmtNum(row.eps_actual, 2)), React.createElement("div", {
+              style: {
+                textAlign: "right",
+                color: "var(--ds-text-faint)"
+              }
+            }, fmtNum(row.eps_est, 2)), React.createElement("div", {
+              style: {
+                textAlign: "right",
+                color: surpColor
+              }
+            }, row.surprise_pct != null ? fmtPctSigned(row.surprise_pct, 1) : "—"), React.createElement("div", {
+              style: {
+                textAlign: "right",
+                color: growthColor
+              }
+            }, row.eps_growth_pct != null ? fmtPctSigned(row.eps_growth_pct, 0) : "—"), React.createElement("div", {
+              style: {
+                textAlign: "right"
+              }
+            }, rChip ? React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${rChip.cls}`,
+              style: {
+                fontSize: 9
+              }
+            }, rChip.label) : React.createElement("span", {
+              style: {
+                color: "var(--ds-text-faint)"
+              }
+            }, "\u2014")));
+          }))), (pxs.fifty_two_week_low != null || pxs.fifty_two_week_high != null) && React.createElement(Panel, {
+            title: "52-Week & Moving Averages"
+          }, React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "repeat(2, 1fr)",
+              gap: "var(--ds-space-2)"
+            }
+          }, React.createElement(Metric, {
+            label: "52w Low",
+            value: pxs.fifty_two_week_low != null ? `$${fmtNum(pxs.fifty_two_week_low, 2)}` : "—"
+          }), React.createElement(Metric, {
+            label: "52w High",
+            value: pxs.fifty_two_week_high != null ? `$${fmtNum(pxs.fifty_two_week_high, 2)}` : "—"
+          }), React.createElement(Metric, {
+            label: "50-day MA",
+            value: pxs.day_50_ma != null ? `$${fmtNum(pxs.day_50_ma, 2)}` : "—"
+          }), React.createElement(Metric, {
+            label: "200-day MA",
+            value: pxs.day_200_ma != null ? `$${fmtNum(pxs.day_200_ma, 2)}` : "—"
+          })), pxs.fifty_two_week_change_pct != null && React.createElement("div", {
+            style: {
+              marginTop: "var(--ds-space-2)",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center"
+            }
+          }, React.createElement("span", {
+            className: "ds-caption",
+            style: {
+              color: "var(--ds-text-muted)"
+            }
+          }, "52W RETURN"), React.createElement("span", {
+            className: `ds-chip ds-chip--sm ${pxs.fifty_two_week_change_pct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
+            style: {
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, fmtPctSigned(pxs.fifty_two_week_change_pct)))), React.createElement("div", {
+            style: {
+              marginTop: "var(--ds-space-2)",
+              padding: "var(--ds-space-2)",
+              textAlign: "center",
+              color: "var(--ds-text-faint)",
+              fontSize: 9,
+              fontFamily: "var(--tt-font-mono)",
+              letterSpacing: "0.12em"
+            }
+          }, "DATA \xB7 TWELVEDATA \xB7 CACHED 6H \xB7 FETCHED ", new Date(F.as_of || Date.now()).toLocaleTimeString()));
+        })(), v2RailTab === "HISTORY" && React.createElement(React.Fragment, null, React.createElement(Panel, {
           title: "Trade Ledger",
           action: ledgerTrades.length > 0 && React.createElement("span", {
             className: "ds-chip ds-chip--sm"

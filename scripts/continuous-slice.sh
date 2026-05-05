@@ -67,6 +67,12 @@ NO_FINALIZE=false
 # the manifest scope changes.
 MANIFEST_START=""
 MANIFEST_END=""
+# Phase C — Stage 1 (2026-05-04): when set, do NOT release the replay lock on
+# exit. Used by the multi-leg orchestrator so the live cron stays muted in the
+# gap between legs (otherwise, the cron's kanban+reconciliation tick can run
+# on our open carry-forward positions during the 30-60s the lock would
+# otherwise be released, corrupting KV state for the resume leg).
+KEEP_LOCK=false
 
 for arg in "$@"; do
   case "$arg" in
@@ -78,6 +84,7 @@ for arg in "$@"; do
     --resume) RESUME=true ;;
     --no-block-chain) BLOCK_CHAIN=false ;;
     --no-finalize) NO_FINALIZE=true ;;
+    --keep-lock) KEEP_LOCK=true ;;
     --manifest-start=*) MANIFEST_START="${arg#*=}" ;;
     --manifest-end=*) MANIFEST_END="${arg#*=}" ;;
     *) echo "Unknown flag: $arg" >&2; exit 2 ;;
@@ -181,6 +188,13 @@ acquire_lock() {
 }
 
 release_lock() {
+  if [[ "$KEEP_LOCK" == "true" ]]; then
+    # Re-acquire to refresh the TTL, then bail out without deleting. This keeps
+    # the live cron muted while the orchestrator preps the next leg.
+    log "KEEP_LOCK=true — refreshing lock instead of releasing (live cron stays muted)"
+    timeout 15 curl -sS -m 10 -X POST "$API_BASE/timed/admin/replay-lock?reason=${LOCK_REASON_TAG}-KEPT&key=$API_KEY" > /dev/null 2>&1 || true
+    return 0
+  fi
   timeout 15 curl -sS -m 10 -X DELETE "$API_BASE/timed/admin/replay-lock?key=$API_KEY" > /dev/null 2>&1 || true
   log "Released replay lock"
 }
