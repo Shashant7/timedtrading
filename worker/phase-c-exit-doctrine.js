@@ -114,6 +114,18 @@ const DEFAULT_DOCTRINE = {
       force_exit_pnl_threshold: -1.0,      // fire if pnl <= -1% AND regime flipped
       gave_back_giveback_pct: 0.55,        // 55% MFE giveback triggers tighten
       gave_back_min_mfe: 5.0,              // only if MFE >= 5%
+      // Oct-13 cluster fix (ALB -6.28, BE -9.23, SNDK -2.63):
+      // Workhorse gets aggressive fresh-failure — cut at -2% if MFE
+      // never cleared 0.5% within first 90 min. Stops the bleed
+      // before HARD_LOSS_CAP fires at -8%.
+      fresh_fail_max_mfe_pct: 0.5,
+      fresh_fail_pnl_threshold: -2.0,
+      fresh_fail_min_age_min: 90,
+      // Regime decay: even without a hard flip, kill the trade if it's
+      // sat for 1 session showing < 1% MFE and -1.5% loss.
+      regime_decay_max_mfe_pct: 1.0,
+      regime_decay_pnl_threshold: -1.5,
+      regime_decay_min_age_sessions: 1.0,
     },
     "tt_gap_reversal_short": {
       ride_runner_lock_pct: 0.55,
@@ -124,6 +136,12 @@ const DEFAULT_DOCTRINE = {
       force_exit_pnl_threshold: -1.0,
       gave_back_giveback_pct: 0.55,
       gave_back_min_mfe: 5.0,
+      fresh_fail_max_mfe_pct: 0.5,
+      fresh_fail_pnl_threshold: -2.0,
+      fresh_fail_min_age_min: 90,
+      regime_decay_max_mfe_pct: 1.0,
+      regime_decay_pnl_threshold: -1.5,
+      regime_decay_min_age_sessions: 1.0,
     },
     "tt_pullback": {
       ride_runner_lock_pct: 0.55,
@@ -134,6 +152,12 @@ const DEFAULT_DOCTRINE = {
       force_exit_pnl_threshold: -0.5,
       gave_back_giveback_pct: 0.50,
       gave_back_min_mfe: 4.0,
+      fresh_fail_max_mfe_pct: 0.5,
+      fresh_fail_pnl_threshold: -2.0,
+      fresh_fail_min_age_min: 60,           // pullbacks even faster cutoff (2 bars)
+      regime_decay_max_mfe_pct: 1.0,
+      regime_decay_pnl_threshold: -1.0,     // pullbacks tighter
+      regime_decay_min_age_sessions: 0.5,
     },
     "tt_ath_breakout": {
       ride_runner_lock_pct: 0.50,
@@ -144,6 +168,13 @@ const DEFAULT_DOCTRINE = {
       force_exit_pnl_threshold: -0.5,
       gave_back_giveback_pct: 0.45,
       gave_back_min_mfe: 4.0,
+      // ATH breakouts MUST work fast — extra-aggressive fresh-fail
+      fresh_fail_max_mfe_pct: 0.3,
+      fresh_fail_pnl_threshold: -1.5,
+      fresh_fail_min_age_min: 60,
+      regime_decay_max_mfe_pct: 1.0,
+      regime_decay_pnl_threshold: -1.0,
+      regime_decay_min_age_sessions: 0.5,
     },
     "tt_atl_breakdown": {
       ride_runner_lock_pct: 0.50,
@@ -154,6 +185,12 @@ const DEFAULT_DOCTRINE = {
       force_exit_pnl_threshold: -0.5,
       gave_back_giveback_pct: 0.45,
       gave_back_min_mfe: 4.0,
+      fresh_fail_max_mfe_pct: 0.3,
+      fresh_fail_pnl_threshold: -1.5,
+      fresh_fail_min_age_min: 60,
+      regime_decay_max_mfe_pct: 1.0,
+      regime_decay_pnl_threshold: -1.0,
+      regime_decay_min_age_sessions: 0.5,
     },
     "tt_n_test_support": {
       // N-Test was the cohort that sat for thousands of hours and turned
@@ -166,6 +203,13 @@ const DEFAULT_DOCTRINE = {
       force_exit_pnl_threshold: 0.0,       // ANY losing trade in flipped regime
       gave_back_giveback_pct: 0.40,
       gave_back_min_mfe: 3.0,
+      // N-Test bounces should work fast — if not, fail fast
+      fresh_fail_max_mfe_pct: 0.5,
+      fresh_fail_pnl_threshold: -1.5,
+      fresh_fail_min_age_min: 60,
+      regime_decay_max_mfe_pct: 0.8,
+      regime_decay_pnl_threshold: -1.0,
+      regime_decay_min_age_sessions: 0.5,
     },
     "tt_n_test_resistance": {
       ride_runner_lock_pct: 0.65,
@@ -176,6 +220,12 @@ const DEFAULT_DOCTRINE = {
       force_exit_pnl_threshold: 0.0,
       gave_back_giveback_pct: 0.40,
       gave_back_min_mfe: 3.0,
+      fresh_fail_max_mfe_pct: 0.5,
+      fresh_fail_pnl_threshold: -1.5,
+      fresh_fail_min_age_min: 60,
+      regime_decay_max_mfe_pct: 0.8,
+      regime_decay_pnl_threshold: -1.0,
+      regime_decay_min_age_sessions: 0.5,
     },
     "tt_range_reversal_long": {
       ride_runner_lock_pct: 0.60,
@@ -186,6 +236,12 @@ const DEFAULT_DOCTRINE = {
       force_exit_pnl_threshold: -0.5,
       gave_back_giveback_pct: 0.45,
       gave_back_min_mfe: 4.0,
+      fresh_fail_max_mfe_pct: 0.5,
+      fresh_fail_pnl_threshold: -1.5,
+      fresh_fail_min_age_min: 60,
+      regime_decay_max_mfe_pct: 1.0,
+      regime_decay_pnl_threshold: -1.0,
+      regime_decay_min_age_sessions: 0.5,
     },
     "tt_range_reversal_short": {
       ride_runner_lock_pct: 0.60,
@@ -196,6 +252,12 @@ const DEFAULT_DOCTRINE = {
       force_exit_pnl_threshold: -0.5,
       gave_back_giveback_pct: 0.45,
       gave_back_min_mfe: 4.0,
+      fresh_fail_max_mfe_pct: 0.5,
+      fresh_fail_pnl_threshold: -1.5,
+      fresh_fail_min_age_min: 60,
+      regime_decay_max_mfe_pct: 1.0,
+      regime_decay_pnl_threshold: -1.0,
+      regime_decay_min_age_sessions: 0.5,
     },
   },
   // ───────────────────────────────────────────────────────────────────
@@ -210,6 +272,12 @@ const DEFAULT_DOCTRINE = {
     force_exit_pnl_threshold: -0.5,
     gave_back_giveback_pct: 0.50,
     gave_back_min_mfe: 5.0,
+    fresh_fail_max_mfe_pct: 0.5,
+    fresh_fail_pnl_threshold: -2.0,
+    fresh_fail_min_age_min: 90,
+    regime_decay_max_mfe_pct: 1.0,
+    regime_decay_pnl_threshold: -1.5,
+    regime_decay_min_age_sessions: 1.0,
   },
 };
 
@@ -312,6 +380,72 @@ export function chooseExitDoctrine(args, doctrine) {
       lock_pct: 0,
       trail_giveback_pct: 0,
       reason: `doctrine_regime_flip_force_exit: setup=${setup} entry=${entryRegime}→now=${currentRegime} dir=${direction} age=${ageSessions.toFixed(1)}sessions pnl=${_pnl.toFixed(2)}% (thresholds: age>=${params.force_exit_min_age_sessions}, pnl<=${params.force_exit_pnl_threshold})`,
+      params,
+    };
+  }
+
+  // ───────────────────────────────────────────────────────────────────
+  // 1b. FRESH-FAILURE EXIT — "wrong from bar 1" pattern
+  //
+  // From Oct-13 cluster autopsy: ALB -6.28%, BE -9.23%, SNDK -2.63%
+  // all entered Gap-Reversal-Long Prime in NEUTRAL regime, all had
+  // MFE < 0.5% (never worked), all hit HARD_LOSS_CAP at -6 to -9%.
+  //
+  // The HARD_LOSS_CAP fired too late. If a fresh trade (<1.5h, but
+  // past first 2 bars) has MFE near zero AND is already losing
+  // significantly, the setup is wrong. Cut at -2% instead of -8%.
+  //
+  // Only fires for trades with MFE < params.fresh_fail_max_mfe_pct
+  // (default 0.5%) AND pnl <= params.fresh_fail_pnl_threshold
+  // (default -2%) AND ageMin >= params.fresh_fail_min_age_min
+  // (default 90 minutes = 3 bars on 30m). Min age prevents flushing
+  // on transient first-bar noise.
+  //
+  // Per-setup overrides allowed via params.
+  // ───────────────────────────────────────────────────────────────────
+  const _ffMaxMfe = Number(params.fresh_fail_max_mfe_pct ?? 0.5);
+  const _ffPnlThreshold = Number(params.fresh_fail_pnl_threshold ?? -2.0);
+  const _ffMinAgeMin = Number(params.fresh_fail_min_age_min ?? 90);
+  if (Number(ageMin) >= _ffMinAgeMin
+      && _mfe < _ffMaxMfe
+      && _pnl <= _ffPnlThreshold) {
+    return {
+      action: "force_exit",
+      force_exit: true,
+      lock_pct: 0,
+      trail_giveback_pct: 0,
+      reason: `doctrine_fresh_failure_force_exit: setup=${setup} mfe=${_mfe.toFixed(2)}%(<${_ffMaxMfe}) pnl=${_pnl.toFixed(2)}%(<=${_ffPnlThreshold}) age=${ageMin.toFixed(0)}min(>=${_ffMinAgeMin})`,
+      params,
+    };
+  }
+
+  // ───────────────────────────────────────────────────────────────────
+  // 1c. REGIME-DECAY EXIT — softer than full flip
+  //
+  // From Oct-13 cluster: trades entered with regime=NEUTRAL (matrix
+  // allows it for Gap-Reversal-Long), but the regime had been
+  // deteriorating for days (Oct 6-12 was 0-trade chop). Even though
+  // the doctrine doesn't see a hard FLIP, the pnl trajectory tells us
+  // the regime is hostile.
+  //
+  // If the trade has been open >= 1 session AND pnl < -1.5% AND MFE
+  // never cleared 1%, the entry was in a bad regime context — exit.
+  //
+  // This is more aggressive than the regime-flip rule (no flip
+  // required, less age required) but stricter on pnl threshold.
+  // ───────────────────────────────────────────────────────────────────
+  const _rdMaxMfe = Number(params.regime_decay_max_mfe_pct ?? 1.0);
+  const _rdPnlThreshold = Number(params.regime_decay_pnl_threshold ?? -1.5);
+  const _rdMinAgeSessions = Number(params.regime_decay_min_age_sessions ?? 1.0);
+  if (ageSessions >= _rdMinAgeSessions
+      && _mfe < _rdMaxMfe
+      && _pnl <= _rdPnlThreshold) {
+    return {
+      action: "force_exit",
+      force_exit: true,
+      lock_pct: 0,
+      trail_giveback_pct: 0,
+      reason: `doctrine_regime_decay_force_exit: setup=${setup} mfe=${_mfe.toFixed(2)}%(<${_rdMaxMfe}) pnl=${_pnl.toFixed(2)}%(<=${_rdPnlThreshold}) age=${ageSessions.toFixed(1)}s(>=${_rdMinAgeSessions})`,
       params,
     };
   }

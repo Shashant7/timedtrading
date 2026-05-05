@@ -810,6 +810,7 @@ const ROUTES = [
   ["POST", "/timed/admin/runs/archive", "POST /timed/admin/runs/archive"],
   ["POST", "/timed/admin/runs/update", "POST /timed/admin/runs/update"],
   ["POST", "/timed/admin/runs/delete", "POST /timed/admin/runs/delete"],
+  ["POST", "/timed/admin/runs/rollback-to-date", "POST /timed/admin/runs/rollback-to-date"],
   ["POST", "/timed/admin/runs/config-patch", "POST /timed/admin/runs/config-patch"],
   // System Intelligence revamp (2026-05-03) — endpoints owned by the
   // `/system-intelligence.html` page so the operator never has to drop
@@ -50682,6 +50683,292 @@ export default {
           try { await db.prepare(`DELETE FROM backtest_run_annotations WHERE run_id = ?1`).bind(rid).run(); } catch {}
           try { await db.prepare(`DELETE FROM backtest_run_config WHERE run_id = ?1`).bind(rid).run(); } catch {}
           return sendJSON({ ok: true }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/runs/rollback-to-date
+      //
+      // Surgical rollback for a multi-leg backtest. Given:
+      //   { run_id: "...", from_date: "YYYY-MM-DD", dry_run?: true }
+      //
+      // Deletes ALL trades, trade_events, positions, and direction_accuracy
+      // rows where entry_ts >= from_date 00:00 UTC for the given run_id.
+      // Pre-rollback positions (those entered BEFORE from_date) are preserved
+      // — they remain OPEN and can be carried forward by --resume.
+      //
+      // Use cases:
+      //  1. Mid-walk-forward calibration change: deploy a new doctrine /
+      //     admission rule, then rollback the most recent leg + restart.
+      //  2. Bad cluster: a single day's batch went badly; roll back +
+      //     re-run with a config tweak.
+      //  3. Replace bad October with a re-run after fix.
+      //
+      // Returns counts of what was deleted (and a preview if dry_run=true).
+      // The local checkpoint file (`continuous.checkpoint.json`) must also
+      // be reset by the operator — the API only owns server-side state.
+      // ─────────────────────────────────────────────────────────────────
+      if (routeKey === "POST /timed/admin/runs/rollback-to-date") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const body = await req.json().catch(() => ({}));
+          const runId = String(body?.run_id || "").trim();
+          const fromDate = String(body?.from_date || "").trim();
+          const dryRun = body?.dry_run === true;
+          if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate)) {
+            return sendJSON({ ok: false, error: "from_date_required (YYYY-MM-DD)" }, 400, corsHeaders(env, req));
+          }
+          // Convert from_date to UTC midnight ms
+          const cutoffMs = Date.UTC(
+            Number(fromDate.slice(0, 4)),
+            Number(fromDate.slice(5, 7)) - 1,
+            Number(fromDate.slice(8, 10)),
+            0, 0, 0, 0
+          );
+          if (!Number.isFinite(cutoffMs)) {
+            return sendJSON({ ok: false, error: "from_date_invalid" }, 400, corsHeaders(env, req));
+          }
+
+          // Preview counts (always run, useful for dry_run + post-action audit)
+          let preview = {};
+          try {
+            const tradesPrev = await db.prepare(
+              `SELECT COUNT(*) AS n,
+                      SUM(CASE WHEN status='WIN' THEN 1 ELSE 0 END) AS wins,
+                      SUM(CASE WHEN status='LOSS' THEN 1 ELSE 0 END) AS losses,
+                      SUM(CASE WHEN status='OPEN' OR status='TP_HIT_TRIM' THEN 1 ELSE 0 END) AS still_open,
+                      ROUND(COALESCE(SUM(pnl_pct), 0), 2) AS sum_pnl_pct,
+                      ROUND(COALESCE(SUM(pnl), 0), 2) AS sum_pnl_dollar
+                 FROM trades
+                WHERE run_id = ?1 AND entry_ts >= ?2`
+            ).bind(runId, cutoffMs).first();
+            preview.trades = tradesPrev || {};
+          } catch (e) {
+            preview.trades = { error: String(e?.message || e).slice(0, 200) };
+          }
+          try {
+            const archivePrev = await db.prepare(
+              `SELECT COUNT(*) AS n FROM backtest_run_trades WHERE run_id = ?1 AND entry_ts >= ?2`
+            ).bind(runId, cutoffMs).first();
+            preview.archive_trades = archivePrev?.n || 0;
+          } catch (_) { preview.archive_trades = 0; }
+          try {
+            const eventsPrev = await db.prepare(
+              `SELECT COUNT(*) AS n FROM trade_events
+                WHERE trade_id IN (
+                  SELECT trade_id FROM trades WHERE run_id = ?1 AND entry_ts >= ?2
+                )`
+            ).bind(runId, cutoffMs).first();
+            preview.trade_events = eventsPrev?.n || 0;
+          } catch (_) { preview.trade_events = 0; }
+          try {
+            const positionsPrev = await db.prepare(
+              `SELECT COUNT(*) AS n FROM positions
+                WHERE position_id IN (
+                  SELECT trade_id FROM trades WHERE run_id = ?1 AND entry_ts >= ?2
+                )`
+            ).bind(runId, cutoffMs).first();
+            preview.positions = positionsPrev?.n || 0;
+          } catch (_) { preview.positions = 0; }
+          try {
+            const daPrev = await db.prepare(
+              `SELECT COUNT(*) AS n FROM backtest_run_direction_accuracy
+                WHERE run_id = ?1 AND ts >= ?2`
+            ).bind(runId, cutoffMs).first();
+            preview.direction_accuracy = daPrev?.n || 0;
+          } catch (_) { preview.direction_accuracy = 0; }
+          // Hangover trades — entered pre-cutoff but exited post-cutoff.
+          // These get RE-OPENED (not deleted) so the post-rollback re-run
+          // can manage them under the new doctrine/admission rules.
+          try {
+            const { results: hangoverPreview } = await db.prepare(
+              `SELECT trade_id, ticker, status, ROUND(pnl_pct,2) AS pnl_pct,
+                      ROUND(pnl,2) AS pnl, exit_reason, trimmed_pct
+                 FROM trades
+                WHERE run_id = ?1 AND entry_ts < ?2 AND exit_ts >= ?2`
+            ).bind(runId, cutoffMs).all();
+            preview.hangover_trades = {
+              count: (hangoverPreview || []).length,
+              trades: (hangoverPreview || []).slice(0, 30),
+              note: "These will be RE-OPENED (status set to OPEN/TP_HIT_TRIM, exit fields cleared). Post-cutoff trade_events deleted.",
+            };
+          } catch (_) { preview.hangover_trades = { count: 0 }; }
+
+          if (dryRun) {
+            return sendJSON({
+              ok: true,
+              dry_run: true,
+              run_id: runId,
+              from_date: fromDate,
+              cutoff_ms: cutoffMs,
+              preview,
+            }, 200, corsHeaders(env, req));
+          }
+
+          // Execute deletes. Order matters — children before parents.
+          const deleted = {};
+
+          // 1. trade_events first (FK to trades)
+          try {
+            const r = await db.prepare(
+              `DELETE FROM trade_events
+                WHERE trade_id IN (
+                  SELECT trade_id FROM trades WHERE run_id = ?1 AND entry_ts >= ?2
+                )`
+            ).bind(runId, cutoffMs).run();
+            deleted.trade_events = r?.meta?.changes || 0;
+          } catch (e) { deleted.trade_events_error = String(e?.message || e).slice(0, 200); }
+
+          // 2. positions (referenced by trades.trade_id == positions.position_id)
+          try {
+            const r = await db.prepare(
+              `DELETE FROM positions
+                WHERE position_id IN (
+                  SELECT trade_id FROM trades WHERE run_id = ?1 AND entry_ts >= ?2
+                )`
+            ).bind(runId, cutoffMs).run();
+            deleted.positions = r?.meta?.changes || 0;
+          } catch (e) { deleted.positions_error = String(e?.message || e).slice(0, 200); }
+
+          // 3. direction_accuracy (per-trade snapshots)
+          try {
+            const r = await db.prepare(
+              `DELETE FROM direction_accuracy
+                WHERE trade_id IN (
+                  SELECT trade_id FROM trades WHERE run_id = ?1 AND entry_ts >= ?2
+                )`
+            ).bind(runId, cutoffMs).run();
+            deleted.direction_accuracy = r?.meta?.changes || 0;
+          } catch (e) { deleted.direction_accuracy_error = String(e?.message || e).slice(0, 200); }
+          try {
+            const r = await db.prepare(
+              `DELETE FROM backtest_run_direction_accuracy
+                WHERE run_id = ?1 AND ts >= ?2`
+            ).bind(runId, cutoffMs).run();
+            deleted.backtest_run_direction_accuracy = r?.meta?.changes || 0;
+          } catch (_) {}
+
+          // 4. backtest_run_trades archive (mirror of trades for the run)
+          try {
+            const r = await db.prepare(
+              `DELETE FROM backtest_run_trades WHERE run_id = ?1 AND entry_ts >= ?2`
+            ).bind(runId, cutoffMs).run();
+            deleted.backtest_run_trades = r?.meta?.changes || 0;
+          } catch (e) { deleted.backtest_run_trades_error = String(e?.message || e).slice(0, 200); }
+
+          // 5. trades (parent — last)
+          try {
+            const r = await db.prepare(
+              `DELETE FROM trades WHERE run_id = ?1 AND entry_ts >= ?2`
+            ).bind(runId, cutoffMs).run();
+            deleted.trades = r?.meta?.changes || 0;
+          } catch (e) { deleted.trades_error = String(e?.message || e).slice(0, 200); }
+
+          // 6. UN-CLOSE "hangover" trades — those that ENTERED before
+          //    the cutoff but EXITED after it. The Oct re-run needs to
+          //    re-evaluate these as still-open positions under the new
+          //    doctrine. Rolls back their exit fields, re-opens the
+          //    `positions` row, and deletes Oct trade_events for them.
+          let hangoverReopened = 0;
+          let hangoverPositionsReopened = 0;
+          let hangoverEventsDeleted = 0;
+          try {
+            const { results: hangoverRows } = await db.prepare(
+              `SELECT trade_id, ticker, status, entry_price, trim_price, trimmed_pct
+                 FROM trades
+                WHERE run_id = ?1
+                  AND entry_ts < ?2
+                  AND exit_ts >= ?2`
+            ).bind(runId, cutoffMs).all();
+            for (const r of (hangoverRows || [])) {
+              // Decide whether the position was already trimmed (TP_HIT_TRIM)
+              // or fully untrimmed (OPEN) before the bad exit.
+              const wasPartiallyTrimmed = Number(r.trimmed_pct) > 0 && Number(r.trimmed_pct) < 1;
+              const restoreStatus = wasPartiallyTrimmed ? "TP_HIT_TRIM" : "OPEN";
+              try {
+                await db.prepare(
+                  `UPDATE trades
+                      SET status = ?1,
+                          exit_ts = NULL,
+                          exit_price = NULL,
+                          exit_reason = NULL,
+                          pnl = NULL,
+                          pnl_pct = NULL,
+                          updated_at = ?2
+                    WHERE trade_id = ?3`
+                ).bind(restoreStatus, Date.now(), r.trade_id).run();
+                hangoverReopened++;
+              } catch (_) {}
+              // Mirror in backtest_run_trades
+              try {
+                await db.prepare(
+                  `UPDATE backtest_run_trades
+                      SET status = ?1, exit_ts = NULL, exit_price = NULL, exit_reason = NULL,
+                          pnl = NULL, pnl_pct = NULL, updated_at = ?2
+                    WHERE run_id = ?3 AND trade_id = ?4`
+                ).bind(restoreStatus, Date.now(), runId, r.trade_id).run();
+              } catch (_) {}
+              // Delete trade_events that occurred AFTER the cutoff for this trade
+              try {
+                const evDel = await db.prepare(
+                  `DELETE FROM trade_events WHERE trade_id = ?1 AND ts >= ?2`
+                ).bind(r.trade_id, cutoffMs).run();
+                hangoverEventsDeleted += (evDel?.meta?.changes || 0);
+              } catch (_) {}
+              // Re-open positions row if it was closed during Oct
+              try {
+                const posCheck = await db.prepare(
+                  `SELECT position_id, status FROM positions WHERE position_id = ?1`
+                ).bind(r.trade_id).first();
+                if (posCheck && posCheck.status !== "OPEN") {
+                  await db.prepare(
+                    `UPDATE positions SET status='OPEN', closed_at=NULL, updated_at=?1 WHERE position_id=?2`
+                  ).bind(Date.now(), r.trade_id).run();
+                  hangoverPositionsReopened++;
+                }
+              } catch (_) {}
+            }
+            deleted.hangover_trades_reopened = hangoverReopened;
+            deleted.hangover_positions_reopened = hangoverPositionsReopened;
+            deleted.hangover_events_deleted = hangoverEventsDeleted;
+          } catch (e) {
+            deleted.hangover_error = String(e?.message || e).slice(0, 200);
+          }
+
+          // 7. Verify
+          let remaining = null;
+          try {
+            const r = await db.prepare(
+              `SELECT COUNT(*) AS n FROM trades WHERE run_id = ?1 AND entry_ts >= ?2`
+            ).bind(runId, cutoffMs).first();
+            remaining = r?.n || 0;
+          } catch (_) {}
+          let openCarryFwd = null;
+          try {
+            const r = await db.prepare(
+              `SELECT COUNT(*) AS n FROM trades
+                WHERE run_id = ?1 AND entry_ts < ?2
+                  AND (status = 'OPEN' OR status = 'TP_HIT_TRIM')`
+            ).bind(runId, cutoffMs).first();
+            openCarryFwd = r?.n || 0;
+          } catch (_) {}
+
+          return sendJSON({
+            ok: true,
+            run_id: runId,
+            from_date: fromDate,
+            cutoff_ms: cutoffMs,
+            preview,           // pre-delete counts (what was found)
+            deleted,           // post-delete counts (what was actually removed/reopened)
+            remaining_trades_after_cutoff: remaining,
+            open_carry_fwd_pre_cutoff: openCarryFwd,
+            note: "Local continuous.checkpoint.json must also be reset to the date BEFORE from_date for --resume to pick up correctly.",
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }
