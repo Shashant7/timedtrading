@@ -6927,6 +6927,37 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     }
 
     // ═════════════════════════════════════════════════════════════════════════
+    // V15 P0.7.66 (2026-05-05) — Tier 2E: ETF RIDE-RUNNER MODE.
+    //
+    // For ETFs, once MFE >= 1.0% AND pnl > 0, mark the trade as in
+    // "ride-runner" mode. Downstream non-structural exit rules
+    // (peak_lock, mfe_decay, atr_*, smart_runner_support_break, etc.)
+    // check this flag and SKIP. Only structural exits fire:
+    //   - RSI fuses (HARD_FUSE_RSI_EXTREME, SOFT_FUSE_RSI_CONFIRMED)
+    //   - SuperTrend flip (ST_FLIP_4H_CLOSE)
+    //   - TP_FULL ladder hits
+    //   - V13 safety (catastrophic only)
+    //
+    // Per ETF audit Path A: SOFT_FUSE_RSI_CONFIRMED on ETFs has 100%
+    // WR / +$1,179. Other exits (thesis_flip, dead_money, doctrine
+    // giveback) have all been losing money. Letting structural-only
+    // exits manage MFE>=1% ETF trades captures more of the move.
+    // ═════════════════════════════════════════════════════════════════════════
+    {
+      const _rrTickerForEtf = String(tickerData?.ticker || openPosition?.ticker || "").toUpperCase();
+      const _rrMfeForEtf = Number(openPosition?.maxFavorableExcursion
+        ?? openPosition?.max_favorable_excursion
+        ?? openPosition?.mfe ?? 0);
+      const _rrCheck = EtfProfile.isEtfRideRunnerMode(_rrTickerForEtf, _rrMfeForEtf, pnlPct);
+      if (_rrCheck && _rrCheck.active === true) {
+        tickerData.__etf_ride_runner = true;
+        tickerData.__etf_ride_runner_reason = _rrCheck.reason;
+      } else {
+        tickerData.__etf_ride_runner = false;
+      }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
     // PHASE C — Stage 1 (2026-05-04) — CONTEXT-AWARE EXIT DOCTRINE.
     //
     // Sister gate to setup admission. Decides HOW to manage the open
@@ -6992,6 +7023,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
               currentPnlPct: pnlPct,
               ageMin: positionAgeMin,
               nowMs: now,
+              etfRideRunner: tickerData?.__etf_ride_runner === true,
             },
             // Pass null doctrine so it uses the embedded default. KV-backed
             // override is loaded asynchronously via loadExitDoctrine() at the
@@ -7343,7 +7375,15 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         const _tfEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_thesis_flip_enabled ?? "true") === "true";
         const _tfMinAgeMin = Number(tickerData?._env?._deepAuditConfig?.deep_audit_thesis_flip_min_age_min) || 60;
         const _tfMinPnlPct = Number(tickerData?._env?._deepAuditConfig?.deep_audit_thesis_flip_min_pnl_pct) || -0.5;
-        if (_tfEnabled && positionAgeMarketMin >= _tfMinAgeMin && pnlPct <= _tfMinPnlPct) {
+        // V15 P0.7.66 (2026-05-05) — Tier 1A: skip thesis_flip_htf for ETFs.
+        // ETF audit Path A Jul-Feb: thesis_flip_htf fired 17× on ETFs,
+        // 6% WR, -$1,246. The rule fires on macro noise that doesn't
+        // actually invalidate ETF momentum. Replaced by ETF-specific
+        // structural exits (RSI fuses, ST flip) which work much better
+        // (SOFT_FUSE_RSI_CONFIRMED: 100% WR, +$1,179 on ETFs).
+        const _tfTickerForSkip = String(tickerData?.ticker || "").toUpperCase();
+        const _tfIsEtf = EtfProfile.isEtfProfileTicker(_tfTickerForSkip);
+        if (_tfEnabled && !_tfIsEtf && positionAgeMarketMin >= _tfMinAgeMin && pnlPct <= _tfMinPnlPct) {
           const _st30 = Number(tickerData?.tf_tech?.["30"]?.stDir) || 0;
           const _st1H = Number(tickerData?.tf_tech?.["1H"]?.stDir ?? tickerData?.tf_tech?.["60"]?.stDir) || 0;
           const _st4H = Number(tickerData?.tf_tech?.["4H"]?.stDir ?? tickerData?.tf_tech?.["240"]?.stDir) || 0;
@@ -8087,25 +8127,37 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           // this cut at hour 24+. Cohort analysis showed 6 of 8 such cuts
           // became wins anyway — this rule is killing healthy slow movers.
           {
-            const _structIntactGracePassed = (() => {
-              const _ds = tickerData?.daily_structure || {};
-              const _bullStack = _ds?.bull_stack === true;
-              const _bearStack = _ds?.bear_stack === true;
-              const _e21 = Number(_ds?.e21);
-              const _px = Number(tickerData?.price);
-              const _isLong = direction === "LONG";
-              const _structAligned = _isLong ? _bullStack : _bearStack;
-              const _aboveE21 = (_isLong && _px > _e21) || (!_isLong && _px < _e21);
-              return _structAligned && _aboveE21;
-            })();
-            const _deadMoneyGraceH = _structIntactGracePassed ? 48 : 24;
-            // V15 P0.7.27: runner-protect-active fully skips this tier.
-            if (!_runnerProtectActive
-                && _agH >= _deadMoneyGraceH && _agH < 72 && pnlPct < 0 && _mfeAbs < 1.5) {
-              tickerData.__exit_reason = "phase_i_mfe_dead_money_24h";
-              tickerData.__exit_family = "safety";
-              tickerData.__exit_meta = { age_h: _agH, struct_intact: _structIntactGracePassed };
-              return "exit";
+            // V15 P0.7.66 (2026-05-05) — Tier 1B: skip 24h dead-money for ETFs.
+            // ETF audit: phase_i_mfe_dead_money_24h fired 8× on ETFs and
+            // included 4 trades with MFE >= 1.0% (winners-in-progress). The
+            // ETF-specific etf_stagnant_exit (4h fast-cut + 8h dead-money,
+            // PnL-aware after V15 P0.7.64) handles this better. Skip the
+            // legacy stock 24h rule for ETFs.
+            const _ddTickerForSkip = String(tickerData?.ticker || "").toUpperCase();
+            const _ddIsEtf = EtfProfile.isEtfProfileTicker(_ddTickerForSkip);
+            if (_ddIsEtf) {
+              // ETF-specific stagnant gate already fired above; skip stock rule
+            } else {
+              const _structIntactGracePassed = (() => {
+                const _ds = tickerData?.daily_structure || {};
+                const _bullStack = _ds?.bull_stack === true;
+                const _bearStack = _ds?.bear_stack === true;
+                const _e21 = Number(_ds?.e21);
+                const _px = Number(tickerData?.price);
+                const _isLong = direction === "LONG";
+                const _structAligned = _isLong ? _bullStack : _bearStack;
+                const _aboveE21 = (_isLong && _px > _e21) || (!_isLong && _px < _e21);
+                return _structAligned && _aboveE21;
+              })();
+              const _deadMoneyGraceH = _structIntactGracePassed ? 48 : 24;
+              // V15 P0.7.27: runner-protect-active fully skips this tier.
+              if (!_runnerProtectActive
+                  && _agH >= _deadMoneyGraceH && _agH < 72 && pnlPct < 0 && _mfeAbs < 1.5) {
+                tickerData.__exit_reason = "phase_i_mfe_dead_money_24h";
+                tickerData.__exit_family = "safety";
+                tickerData.__exit_meta = { age_h: _agH, struct_intact: _structIntactGracePassed };
+                return "exit";
+              }
             }
           }
           // Tier 5: 72h — capital locked, any pnl

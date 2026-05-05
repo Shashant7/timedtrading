@@ -126,30 +126,42 @@ const ETF_PROFILE = {
   // ─── Exit doctrine overrides (sister to phase-c-exit-doctrine.js) ───
   // Doctrine reads these via getEtfProfile(ticker)?.doctrine_overrides
   // when the ticker matches.
+  //
+  // V15 P0.7.66 (2026-05-05) — Tier 2 changes per ETF audit findings:
+  //   - Tier 2E: ride-runner mode. Once MFE >= 1.0%, "the move happened"
+  //     for an ETF. Don't cut on noise. Loosen tighten_lock_pct so the
+  //     runner has room. Disable thesis_flip + 24h_dead_money for ETFs
+  //     (handled in worker/index.js).
+  //   - Tier 2F: SHORT defense. ETF SHORTs need patience for waves.
+  //     gave_back_giveback_pct: 0.70 (was 0.40) — give back 70% before tighten.
+  //     gave_back_min_mfe: 0.5 — react sooner on smaller MFE.
   doctrine_overrides: {
     // Fresh-failure: ETFs should fail FAST. If a SPY trade is at -0.7%
     // after 1 hour without ever clearing 0.3% MFE, the entry was wrong.
-    // Don't wait for the standard 90min/0.5%/2% thresholds.
     fresh_fail_max_mfe_pct: 0.3,
     fresh_fail_pnl_threshold: -0.7,
     fresh_fail_min_age_min: 60,        // 2 bars on 30m
-    // Regime decay: tighter still — ETFs reflect the broad market, so
-    // if SPY is in regime decay AND your SPY trade isn't working, kill it.
+    // Regime decay: tighter still — ETFs reflect broad market.
     regime_decay_max_mfe_pct: 0.5,
     regime_decay_pnl_threshold: -0.5,
-    regime_decay_min_age_sessions: 0.5,  // 12h, vs 24h for stocks
-    // Gave-back protection: capture 50% of MFE much faster
-    gave_back_giveback_pct: 0.40,        // 40% giveback vs 55% for stocks
-    gave_back_min_mfe: 0.6,              // any MFE >= 0.6% gets watched
-    // Force-exit on regime flip: even more aggressive
-    force_exit_min_age_sessions: 1,      // half of stocks
-    force_exit_pnl_threshold: 0.0,       // ANY losing trade in flipped regime
-    // Ride-runner: tighter trail (don't give back as much on ETFs)
-    ride_runner_lock_pct: 0.65,          // lock 65% of MFE (vs 50% for stocks)
-    ride_runner_trail_pct: 0.45,         // tighter trail
-    // Tighten params (mid-state)
-    tighten_lock_pct: 0.75,
-    tighten_trail_pct: 0.30,
+    regime_decay_min_age_sessions: 0.5,  // 12h
+    // Gave-back protection: V15 P0.7.66 — LOOSENED for ETFs.
+    // Old 0.40 was triggering tighten on normal SPY noise (Mar-23 case).
+    // Now 0.70 — only react when significant gain is being eroded.
+    gave_back_giveback_pct: 0.70,
+    gave_back_min_mfe: 0.6,
+    // Force-exit on regime flip
+    force_exit_min_age_sessions: 1,
+    force_exit_pnl_threshold: 0.0,
+    // Ride-runner: V15 P0.7.66 — LOOSENED. Once an ETF has MFE >= 1%,
+    // give it room. Lock just 50% of MFE (was 65%) and accept 60% trail
+    // giveback (was 45%). The whole point of riding a runner is to let
+    // it work through corrective waves.
+    ride_runner_lock_pct: 0.50,
+    ride_runner_trail_pct: 0.60,
+    // Tighten params (mid-state) — modest tightening, not strangulation.
+    tighten_lock_pct: 0.65,    // was 0.75
+    tighten_trail_pct: 0.40,    // was 0.30
   },
 
   // ─── Stagnant-exit timing (ETFs should fire faster) ───
@@ -263,6 +275,39 @@ export function computeEtfStopLoss(ticker, entryPrice, direction) {
 }
 
 /**
+ * V15 P0.7.66 (2026-05-05) — Tier 2E: ETF ride-runner mode.
+ *
+ * Once an ETF has cleared MFE >= 1.0%, "the move happened" — the trade
+ * is working and should be left to play out via structural exits only
+ * (RSI fuses, ST flip, gap fill, peak-lock). Time-based and
+ * MFE-decay-based exits should NOT fire.
+ *
+ * Caller: worker/index.js classifyKanbanStage uses this to suppress
+ * non-structural exit rules for ETFs in ride-runner state.
+ *
+ * @param {string} ticker
+ * @param {number} mfePct - max favorable excursion %
+ * @param {number} currentPnlPct - current pnl %
+ * @returns {{active: boolean, reason: string}|null}
+ */
+export function isEtfRideRunnerMode(ticker, mfePct, currentPnlPct) {
+  const profile = getEtfProfile(ticker);
+  if (!profile) return null;
+  const _mfe = Number(mfePct) || 0;
+  const _pnl = Number(currentPnlPct) || 0;
+  // Activate when MFE has cleared 1% AND pnl is still positive (didn't
+  // round-trip yet). This protects winning runners from getting cut by
+  // legacy stock-tuned rules.
+  if (_mfe >= 1.0 && _pnl > 0) {
+    return {
+      active: true,
+      reason: `etf_ride_runner: mfe=${_mfe.toFixed(2)}%>=1.0 AND pnl=${_pnl.toFixed(2)}%>0`,
+    };
+  }
+  return { active: false, reason: `etf_not_ride_runner: mfe=${_mfe.toFixed(2)}% pnl=${_pnl.toFixed(2)}%` };
+}
+
+/**
  * Should the ETF stagnant-exit fire?
  * Returns null if not an ETF, otherwise an object with {fire, reason}.
  *
@@ -342,5 +387,6 @@ export default {
   buildEtfTpArray,
   computeEtfStopLoss,
   checkEtfStagnantExit,
+  isEtfRideRunnerMode,
   ETF_TICKER_SETS,
 };

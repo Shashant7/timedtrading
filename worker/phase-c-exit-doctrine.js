@@ -357,9 +357,27 @@ function pickSetupParams(doctrine, setupKey) {
 export function chooseExitDoctrine(args, doctrine) {
   const {
     setup, direction, entryRegime, currentRegime,
-    mfePct, currentPnlPct, ageMin, ticker,
+    mfePct, currentPnlPct, ageMin, ticker, etfRideRunner,
   } = args || {};
   if (!doctrine) doctrine = DEFAULT_DOCTRINE;
+
+  // V15 P0.7.66 (2026-05-05) — Tier 2E: ETF ride-runner mode shortcut.
+  // If we're in ETF ride-runner state (MFE>=1% on an ETF, pnl>0), bypass
+  // ALL doctrine force-exits. Let structural exits (RSI fuse, ST flip)
+  // and TP ladder manage the runner. This is exactly the case the
+  // user's Mar-23 SPY SHORT example highlighted — the doctrine was
+  // killing winners on transient noise.
+  if (etfRideRunner === true) {
+    const _params = pickSetupParams(doctrine, setup);
+    return {
+      action: "ride_runner",
+      force_exit: false,
+      lock_pct: 0.50,           // generous — let it run
+      trail_giveback_pct: 0.65, // wider trail to absorb chop
+      reason: `etf_ride_runner_active: structural exits only (mfe=${(Number(mfePct)||0).toFixed(2)}% pnl=${(Number(currentPnlPct)||0).toFixed(2)}%)`,
+      params: _params,
+    };
+  }
 
   const baseParams = pickSetupParams(doctrine, setup);
   // Phase C — Stage 1 (2026-05-05) — ETF profile override.

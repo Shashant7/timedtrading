@@ -272,6 +272,32 @@ export function evaluateEntry(ctx) {
     return reject(reason, metadata);
   };
   const qualifyEntry = (path, confidence, reason, sizing, metadata) => {
+    // V15 P0.7.66 (2026-05-05) — Tier 1D: Block Speculative grade for ETFs.
+    // ETF audit Path A: Speculative-grade ETF entries (e.g. ALB Mar-02 rank 58
+    // -8.44%) bring the worst losses + lowest WR. ETFs require precision;
+    // Speculative is by definition "early/marginal evidence". Hard block.
+    {
+      const _etfAdmGrade = String(d?.setup_grade ?? d?.setupGrade ?? "").trim().toLowerCase();
+      const _etfAdmTicker = String(d?.ticker || d?.sym || "").trim().toUpperCase();
+      if (_etfAdmTicker && _etfAdmGrade === "speculative") {
+        // Inline check — can't import etf-profile from pipeline due to layering.
+        // Hardcode the ETF set here (mirrors worker/etf-profile.js ETF_PROFILE_TICKERS).
+        const ETF_PROFILE_INLINE = new Set([
+          "SPY","QQQ","IWM","DIA","VOO","VTI","VEA","VWO","EFA","EEM","MDY","SPLG",
+          "XLE","XLF","XLK","XLV","XLY","XLP","XLU","XLI","XLRE","XLB","XLC",
+          "XHB","XOP","XBI","ITA","IYR","IYE","IYF","IYH","IYK","IYJ",
+          "IGV","IBB","GDX","GLD","SLV","USO","KWEB","FXI","INDA","EWZ",
+          "IAU","INFL","BITO","ETHA","BITX","ARKK","SMH","SOXX","IGE",
+        ]);
+        if (ETF_PROFILE_INLINE.has(_etfAdmTicker)) {
+          return rejectEntry("etf_speculative_blocked", {
+            ticker: _etfAdmTicker,
+            grade: _etfAdmGrade,
+            note: "ETFs require precision; Speculative grade is too marginal",
+          });
+        }
+      }
+    }
     // ─────────────────────────────────────────────────────────────────
     // PHASE C — Stage 1 (2026-05-04) — Context-Aware Setup Admission.
     //
