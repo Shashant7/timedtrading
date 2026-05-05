@@ -186,6 +186,26 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
       const phaseCBuffer = [];
       const phaseCDecisions = [];  // for diagnostic persistence
 
+      // V15 P0.7.67 (2026-05-05) — Pre-fetch tape context (TICK/ADD) for this bar.
+      // Stashed on replayCtx so per-ticker scoring / entry / exit code can read
+      // it sync. Loads from `timed:internals:historical:{TICK|ADD}:{day}` KV
+      // populated by the CSV backfill script.
+      try {
+        const _miEnabled = String((replayEnv?._deepAuditConfig || env?._deepAuditConfig || {}).deep_audit_market_internals_enabled ?? "true") === "true";
+        if (_miEnabled) {
+          // dynamic import to avoid circular dep at top-of-file
+          const { getTapeContext } = await import("./market-internals.js");
+          replayCtx._tapeContext = await getTapeContext(KV, {
+            nowMs: intervalTs,
+            isReplay: true,
+          });
+        } else {
+          replayCtx._tapeContext = null;
+        }
+      } catch (_) {
+        replayCtx._tapeContext = null;
+      }
+
       for (const ticker of batchTickers) {
         try {
           const bundles = {};
@@ -426,6 +446,10 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
               _marketRegime: rMktRegime,
               _sectorRegime: rSecRegime,
               _marketInternals: replayMarketInternals,
+              // V15 P0.7.67 (2026-05-05) — TICK/ADD tape context for entry sizing,
+              // exit doctrine, and SHORT admission unlock. Pre-loaded per batch
+              // at the simulated bar timestamp via market-internals.js.
+              _tapeContext: replayCtx?._tapeContext || null,
               _deepAuditConfig: replayEnv._deepAuditConfig || null,
               _leadingLtf: replayLeadingLtf,
               _universeSize: allTickers.length,

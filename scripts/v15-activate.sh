@@ -190,7 +190,9 @@ read -r -d '' PAYLOAD <<'JSON' || true
     { "_comment": "V15 P0.7.63 (2026-05-05) — Cluster throttle. When 5+ entries fire within 60min, only allow top-3 by composite (rank * rr) score. Prevents Mar-02-style same-direction crowding before regime shocks. Mar-02 actual: 8 entries/-22.48%; with cluster throttle simulated: 3 entries/-4.10% (5x improvement).", "key": "deep_audit_cluster_throttle_enabled", "value": "true" },
     { "key": "deep_audit_cluster_throttle_window_min", "value": "60" },
     { "key": "deep_audit_cluster_throttle_min_size", "value": "5" },
-    { "key": "deep_audit_cluster_throttle_top_n", "value": "3" }
+    { "key": "deep_audit_cluster_throttle_top_n", "value": "3" },
+
+    { "_comment": "V15 P0.7.67 (2026-05-05) — Market internals (TICK/ADD) layer. Provider-agnostic source chain (TradingView webhook → direct latest → synthetic from universe → silent unknown). Used for: entry sizing modulation (0.5x/1.0x/1.25x based on tape alignment with direction), exit doctrine tightening (capitulating tape force-exits unprofitable LONGs >1h old), SHORT admission unlock (capitulating/sustained-bearish tape allows shorts in non-bear regimes if rr>=3.0). Per user direction: never used as binary entry filter — only as confirmation/sizing modulator.", "key": "deep_audit_market_internals_enabled", "value": "true" }
   ]
 }
 JSON

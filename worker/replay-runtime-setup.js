@@ -334,6 +334,8 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_cluster_throttle_window_min",
   "deep_audit_cluster_throttle_min_size",
   "deep_audit_cluster_throttle_top_n",
+  // V15 P0.7.67 (2026-05-05) — Market internals (TICK/ADD) layer
+  "deep_audit_market_internals_enabled",
   // P4: SHORT gate relaxation
   "deep_audit_short_spy_regime_floor",
   "deep_audit_short_requires_ticker_bearish_daily",

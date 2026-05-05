@@ -329,22 +329,93 @@ export function evaluateEntry(ctx) {
         const _convForAdmission = Number(
           d?.focus?.conviction_score ?? d?.focus_conviction_score
         );
-        const _admission = admitSetupContext(
-          {
-            setup: path,
-            grade: _gradeForAdmission,
-            direction: side,
-            regime: _regimeForAdmission,
-            conviction: Number.isFinite(_convForAdmission) ? _convForAdmission : undefined,
-            rr: _rrForAdmission,
-          },
-          // Pass null matrix so admitSetup uses the embedded default.
-          // Replay-runtime can override by calling loadAdmissionMatrix
-          // first (cache populates synchronously after first await).
-          null,
-        );
-        if (_admission && _admission.allow === false) {
-          return rejectEntry(_admission.reason || "setup_admission_blocked", {
+          const _admission = admitSetupContext(
+            {
+              setup: path,
+              grade: _gradeForAdmission,
+              direction: side,
+              regime: _regimeForAdmission,
+              conviction: Number.isFinite(_convForAdmission) ? _convForAdmission : undefined,
+              rr: _rrForAdmission,
+            },
+            // Pass null matrix so admitSetup uses the embedded default.
+            // Replay-runtime can override by calling loadAdmissionMatrix
+            // first (cache populates synchronously after first await).
+            null,
+          );
+          // V15 P0.7.67 (2026-05-05) — TICK/ADD SHORT admission unlock.
+          // If admission would reject a SHORT due to non-bear regime, but
+          // the broad tape is capitulating (sustained negative TICK + ADD),
+          // unlock the SHORT for this bar. Catches Mar-02-style shock days
+          // where the system is regime-blind to live bear pressure.
+          // Requires rr >= 3.0 to maintain quality.
+          if (_admission && _admission.allow === false && side === "SHORT") {
+            try {
+              const _tapeCtxForShort = d?._env?._tapeContext || null;
+              const _shortRrForUnlock = Number(d?.rr) || 0;
+              if (_tapeCtxForShort
+                  && admitSetupContext.constructor // ensure module loaded
+                  && _shortRrForUnlock >= 3.0) {
+                // Check if tape unlocks shorts. We use a duck-typed import to
+                // avoid pulling market-internals into the pipeline's bundle.
+                // The flag check is performed at runtime via tickerData metadata.
+                if (d?._env?._tapeContext?.tone === "capitulating"
+                    || (d?._env?._tapeContext?.tone === "broadly_bearish"
+                        && d?._env?._tapeContext?.tick?.sustained_neg >= 4
+                        && d?._env?._tapeContext?.add?.sustained_neg >= 4)) {
+                  // Unlock — but log the override
+                  const _unlockMeta = {
+                    overridden_admission: _admission.matched_key,
+                    tape_tone: _tapeCtxForShort.tone,
+                    tape_tick: _tapeCtxForShort.tick?.value,
+                    tape_add: _tapeCtxForShort.add?.value,
+                    short_rr: _shortRrForUnlock,
+                  };
+                  d.__short_admission_tape_unlock = _unlockMeta;
+                  // Skip the admission rejection — let the entry continue
+                  // through (we'll log via traceDecision below).
+                  // Don't return from this block; fall through to traceDecision/qualify.
+                } else {
+                  return rejectEntry(_admission.reason || "setup_admission_blocked", {
+                    setup_admission: {
+                      setup: path,
+                      grade: _gradeForAdmission,
+                      direction: side,
+                      regime: _regimeForAdmission,
+                      rr: _rrForAdmission,
+                      matched_key: _admission.matched_key,
+                      cohort_stats: _admission.cohortStat,
+                    },
+                  });
+                }
+              } else {
+                return rejectEntry(_admission.reason || "setup_admission_blocked", {
+                  setup_admission: {
+                    setup: path,
+                    grade: _gradeForAdmission,
+                    direction: side,
+                    regime: _regimeForAdmission,
+                    rr: _rrForAdmission,
+                    matched_key: _admission.matched_key,
+                    cohort_stats: _admission.cohortStat,
+                  },
+                });
+              }
+            } catch (_short_unlock_err) {
+              return rejectEntry(_admission.reason || "setup_admission_blocked", {
+                setup_admission: {
+                  setup: path,
+                  grade: _gradeForAdmission,
+                  direction: side,
+                  regime: _regimeForAdmission,
+                  rr: _rrForAdmission,
+                  matched_key: _admission.matched_key,
+                  cohort_stats: _admission.cohortStat,
+                },
+              });
+            }
+          } else if (_admission && _admission.allow === false) {
+            return rejectEntry(_admission.reason || "setup_admission_blocked", {
             setup_admission: {
               setup: path,
               grade: _gradeForAdmission,

@@ -100,6 +100,7 @@ import * as ExitDoctrine from "./phase-c-exit-doctrine.js";
 import * as SetupAdmission from "./phase-c-setup-admission.js";
 import * as EtfProfile from "./etf-profile.js";
 import * as ClusterThrottle from "./phase-c-cluster-throttle.js";
+import * as MarketInternals from "./market-internals.js";
 import { tdFetchEarningsCalendar, tdFetchTickerEarnings, tdFetchTimeSeries, tdSearchSymbol, toTdSymbol, aggregate5mTo10m, tdFetchProfile, tdFetchStatistics, tdFetchEarningsHistory } from "./twelvedata.js";
 import { onboardTicker, loadTickerProfile, loadSectorProfile, mergeProfileWeights } from "./onboard-ticker.js";
 import {
@@ -7012,6 +7013,32 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
             ?? openPosition?.max_favorable_excursion
             ?? openPosition?.mfe ?? 0);
           // ageMin = positionAgeMin (already computed above)
+          // V15 P0.7.67 (2026-05-05) — TICK/ADD tape capitulation override.
+          // If the broad tape is capitulating against our trade direction
+          // AND the trade is unprofitable AND age >= 1 session, force exit.
+          // Carter's "tape is screaming, get out" rule.
+          const _tapeCtx = tickerData?._env?._tapeContext || null;
+          if (_tapeCtx && tickerData?.__etf_ride_runner !== true) {
+            try {
+              if (MarketInternals.shouldTightenLongsForTape(_tapeCtx)
+                  && direction === "LONG"
+                  && pnlPct < 0
+                  && positionAgeMin >= 60) {
+                tickerData.__exit_reason = "tape_capitulation_force_exit";
+                tickerData.__exit_family = "tape_internals";
+                tickerData.__exit_meta = {
+                  tape_tone: _tapeCtx.tone,
+                  tape_strength: _tapeCtx.strength,
+                  tick_value: _tapeCtx.tick?.value,
+                  add_value: _tapeCtx.add?.value,
+                  pnl_pct: pnlPct,
+                  age_min: positionAgeMin,
+                };
+                return "exit";
+              }
+            } catch (_) {}
+          }
+
           const _doctrine = ExitDoctrine.chooseExitDoctrine(
             {
               ticker: String(tickerData?.ticker || openPosition?.ticker || "").toUpperCase(),
@@ -7024,6 +7051,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
               ageMin: positionAgeMin,
               nowMs: now,
               etfRideRunner: tickerData?.__etf_ride_runner === true,
+              tapeContext: _tapeCtx,
             },
             // Pass null doctrine so it uses the embedded default. KV-backed
             // override is loaded asynchronously via loadExitDoctrine() at the
@@ -11725,7 +11753,7 @@ function formatSetupName(entryPath) {
 // Sizes positions so that if the stop-loss is hit, the account loses
 // a tier-driven percentage of the portfolio value.
 // tierRiskPct is the portfolio % to risk (e.g., 0.01 = 1%).
-function computeRiskBasedSize(confidence, accountValue, entryPrice, stopLoss, vixLevel, env, tierRiskPct) {
+function computeRiskBasedSize(confidence, accountValue, entryPrice, stopLoss, vixLevel, env, tierRiskPct, tapeMultiplier) {
   const cfg = getSizingConfig(env);
   const acctVal = Number.isFinite(accountValue) && accountValue > 0 ? accountValue : PORTFOLIO_START_CASH;
 
@@ -11737,15 +11765,23 @@ function computeRiskBasedSize(confidence, accountValue, entryPrice, stopLoss, vi
     else if (vix > cfg.VIX_HIGH) vixMultiplier = 0.75;
   }
 
+  // 1b. V15 P0.7.67 (2026-05-05) — TICK/ADD tape modulator.
+  // When the broad tape is aligned with the trade direction, scale up.
+  // When disagreeing, scale down. Computed by market-internals.getEntrySizeModulation().
+  // Defaults to 1.0 when not provided / no tape data available.
+  const _tapeMult = Number.isFinite(Number(tapeMultiplier)) && Number(tapeMultiplier) > 0
+    ? Number(tapeMultiplier)
+    : 1.0;
+
   // 2. Max dollar risk — tier-based portfolio % when available, else legacy confidence-to-%
   let riskPct, maxDollarRisk;
   const usingTier = Number.isFinite(tierRiskPct) && tierRiskPct > 0;
   if (usingTier) {
     riskPct = tierRiskPct;
-    maxDollarRisk = acctVal * riskPct * vixMultiplier;
+    maxDollarRisk = acctVal * riskPct * vixMultiplier * _tapeMult;
   } else {
     riskPct = cfg.MIN_RISK_PCT + (cfg.MAX_RISK_PCT - cfg.MIN_RISK_PCT) * clamp(confidence, 0, 1);
-    maxDollarRisk = acctVal * riskPct * vixMultiplier;
+    maxDollarRisk = acctVal * riskPct * vixMultiplier * _tapeMult;
   }
 
   // 3. Risk per share = distance from entry to stop loss
@@ -20040,7 +20076,19 @@ async function processTradeSimulation(
         } else if (Number.isFinite(cash) && cash >= cfg.MIN_NOTIONAL) {
           const accountValue = Number(portfolio.startCash || PORTFOLIO_START_CASH) +
             (allTrades || []).filter(t => t.status === "WIN" || t.status === "LOSS").reduce((sum, t) => sum + (Number(t.realizedPnl) || 0), 0);
-          const sizing = computeRiskBasedSize(confidence, accountValue, entryPx, finalSL, sizingSignals.vixLevel, env, tierRiskPct);
+          // V15 P0.7.67 (2026-05-05) — TICK/ADD tape sizing modulator.
+          // Aligned tape → 1.25× size. Disagreeing tape → 0.5-0.7× size.
+          let _tapeMultEntry = 1.0;
+          try {
+            const _tCtx = tickerData?._env?._tapeContext || null;
+            if (_tCtx) {
+              const _mod = MarketInternals.getEntrySizeModulation({ direction, tapeContext: _tCtx });
+              if (_mod && Number.isFinite(_mod.multiplier)) {
+                _tapeMultEntry = _mod.multiplier;
+              }
+            }
+          } catch (_) {}
+          const sizing = computeRiskBasedSize(confidence, accountValue, entryPx, finalSL, sizingSignals.vixLevel, env, tierRiskPct, _tapeMultEntry);
           const _sizingMults = gatherSizingMultipliers(tickerData);
           const regimeAdjustedNotional = sizing.notional * _sizingMults.combined;
           notional = Math.min(regimeAdjustedNotional, cash);
