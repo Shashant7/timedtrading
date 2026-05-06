@@ -931,6 +931,7 @@ const ROUTES = [
   ["POST", "/timed/trades/reset", "POST /timed/trades/reset"],
   ["GET", "/timed/admin/promoted-trades/datasets", "GET /timed/admin/promoted-trades/datasets"],
   ["POST", "/timed/admin/promoted-trades/promote", "POST /timed/admin/promoted-trades/promote"],
+  ["POST", "/timed/admin/account-ledger/seed-from-promoted", "POST /timed/admin/account-ledger/seed-from-promoted"],
   ["POST", "/timed/admin/model-config", "POST /timed/admin/model-config"],
   ["GET",  "/timed/admin/grade-config",  "GET /timed/admin/grade-config"],
   // ── System Intelligence (unified Calibration + Model) ──
@@ -32154,6 +32155,200 @@ async function d1GetLedgerBalance(env, mode = "trader") {
   }
 }
 
+/**
+ * Seed the trader account_ledger from a promoted backtest dataset (V15 P0.7.70).
+ *
+ * The Trades page's Account Value comes from `account_ledger`, which was only
+ * being fed by the live cron's `execution_actions`. Promoted backtest trades
+ * lived in `promoted_trades` and never seeded the ledger, so the headline
+ * Account number didn't reflect the backtest at all.
+ *
+ * This walks the promoted dataset chronologically and emits one ENTRY +
+ * one EXIT per trade so the running balance ends at start_cash + sum(pnl).
+ *
+ * Cash flow model:
+ *   LONG  ENTRY: cash_delta = -shares * entry_price
+ *   LONG  EXIT:  cash_delta = +shares * exit_price,  realized_pnl = pnl
+ *   SHORT ENTRY: cash_delta = +shares * entry_price (proceeds)
+ *   SHORT EXIT:  cash_delta = -shares * exit_price (cover), realized_pnl = pnl
+ *
+ * For accounting purposes we only care that balance(end) == 100k + sum(pnl).
+ * Both directions satisfy that because pnl already reflects direction sign.
+ *
+ * Snapshots in `portfolio_snapshots` are also rebuilt as one EOD point per
+ * unique day so the equity curve renders the full Jul→May arc instead of the
+ * 33-day live-only window.
+ *
+ * @param {object} env - { DB, KV_TIMED }
+ * @param {object} options - { datasetId?: string, startCash?: number }
+ * @returns {Promise<{ ok, dataset_id, trade_count, ledger_inserted, snap_inserted, end_balance, end_pnl }>}
+ */
+async function d1SeedAccountLedgerFromPromoted(env, options = {}) {
+  const db = env?.DB;
+  if (!db) return { ok: false, error: "no_db" };
+
+  const startCash = Number.isFinite(options.startCash) ? Number(options.startCash) : PORTFOLIO_START_CASH;
+  const requestedDatasetId = options.datasetId ? String(options.datasetId) : null;
+
+  await ensureAccountLedgerSchema(db, env?.KV_TIMED);
+  await ensurePortfolioSnapshotsSchema(db, env?.KV_TIMED);
+
+  // Resolve target dataset: requested → active → most recent
+  let dataset = null;
+  if (requestedDatasetId) {
+    dataset = await db.prepare(
+      `SELECT * FROM promoted_trade_datasets WHERE dataset_id = ?1 LIMIT 1`
+    ).bind(requestedDatasetId).first();
+  } else {
+    dataset = await db.prepare(
+      `SELECT * FROM promoted_trade_datasets
+       WHERE status = 'active'
+       ORDER BY promoted_at DESC
+       LIMIT 1`
+    ).first();
+  }
+  if (!dataset?.dataset_id) return { ok: false, error: "no_dataset" };
+
+  // Pull trades in entry order (asc) so the running balance reads forward.
+  const tradeRows = (await db.prepare(
+    `SELECT trade_id, ticker, direction, entry_ts, entry_price, exit_ts, exit_price, shares, notional, pnl, status
+     FROM promoted_trades
+     WHERE dataset_id = ?1
+     ORDER BY entry_ts ASC, trade_id ASC`
+  ).bind(String(dataset.dataset_id)).all())?.results || [];
+
+  // Wipe the trader ledger and trader snapshots so the seed is deterministic.
+  await db.prepare("DELETE FROM account_ledger WHERE mode = 'trader'").run();
+  await db.prepare("DELETE FROM portfolio_snapshots WHERE mode = 'trader'").run();
+
+  let cumulativePnl = 0;
+  const inserts = [];
+
+  // Track day-level open count + EOD equity for snapshot rebuild.
+  // For trade-level seeding we don't have intra-day mark-to-market, so equity
+  // == cash at each step. We snapshot one EOD point per unique day.
+  const eodByDay = new Map(); // key: YYYY-MM-DD → { ts, balance, dayPnl, dayTrades }
+
+  // Two-pass approach: collect events in chronological order so the running
+  // balance honors ENTRY/EXIT interleaving across overlapping positions.
+  const events = [];
+  for (const r of tradeRows) {
+    const ticker = String(r.ticker || "").toUpperCase();
+    const direction = String(r.direction || "LONG").toUpperCase();
+    const entryTs = Number(r.entry_ts) || 0;
+    const exitTs = Number(r.exit_ts) || 0;
+    const entryPrice = Number(r.entry_price) || 0;
+    const exitPrice = Number(r.exit_price) || 0;
+    let shares = Number(r.shares) || 0;
+    if (!Number.isFinite(shares) || shares <= 0) {
+      const notional = Number(r.notional) || 0;
+      if (notional > 0 && entryPrice > 0) shares = notional / entryPrice;
+    }
+    const pnl = Number(r.pnl) || 0;
+    if (!entryTs || !exitTs || !entryPrice || !exitPrice || shares <= 0) continue;
+
+    events.push({ kind: "ENTRY", ts: entryTs, ticker, direction, shares, price: entryPrice, pnl: 0, tradeId: r.trade_id });
+    events.push({ kind: "EXIT", ts: exitTs, ticker, direction, shares, price: exitPrice, pnl, tradeId: r.trade_id });
+  }
+  // ENTRY before EXIT when they share a timestamp.
+  events.sort((a, b) => (a.ts - b.ts) || (a.kind === "ENTRY" ? -1 : 1));
+
+  // Why we don't track raw cash flow:
+  //   `promoted_trades.pnl` is the total realized PnL across trims + final exit,
+  //   but only `entry_price`/`exit_price` are stored — not the trim_price ladder.
+  //   Reconstructing exact cash flow from a single (entry, exit) pair drifts
+  //   whenever a trade had partial trims.
+  //
+  // What matters for the Account Value display is that
+  //   end_balance == start_cash + sum(pnl)
+  // and that EXIT events carry `realized_pnl` so daily PnL queries (used by
+  // `snapshotBothPortfolios` and `/timed/account-summary`) stay correct.
+  //
+  // Approach: balance tracks `start_cash + cumulative_pnl` (PnL realizes on
+  // EXIT). ENTRY rows get a synthetic cash_delta=0 with the entry notional
+  // captured in `qty`/`price` so the audit trail is intact, but they don't
+  // disturb the running balance. This makes the math direction-agnostic and
+  // robust to trim ladders.
+  for (const e of events) {
+    let cashDelta = 0;
+    let realized = 0;
+    if (e.kind === "EXIT") {
+      cumulativePnl += e.pnl;
+      cashDelta = e.pnl;
+      realized = e.pnl;
+    }
+    const balance = startCash + cumulativePnl;
+
+    inserts.push(db.prepare(
+      `INSERT INTO account_ledger (mode, ts, event_type, position_id, ticker, direction, qty, price, cash_delta, realized_pnl, balance, note)
+       VALUES ('trader', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`
+    ).bind(
+      e.ts,
+      e.kind,
+      e.tradeId || null,
+      e.ticker,
+      e.direction,
+      e.shares,
+      e.price,
+      cashDelta,
+      realized,
+      balance,
+      `Promoted ${dataset.dataset_id}`,
+    ));
+
+    if (e.kind === "EXIT") {
+      const exitDate = new Date(e.ts).toISOString().slice(0, 10);
+      let slot = eodByDay.get(exitDate);
+      if (!slot) {
+        const dayMs = new Date(`${exitDate}T20:00:00Z`).getTime();
+        slot = { ts: dayMs, balance, dayPnl: 0, dayTrades: 0 };
+        eodByDay.set(exitDate, slot);
+      }
+      slot.balance = balance; // last exit of the day wins
+      slot.dayPnl += e.pnl;
+      slot.dayTrades += 1;
+    }
+  }
+  const totalRealized = cumulativePnl;
+  const finalBalance = startCash + cumulativePnl;
+
+  // Batch insert ledger rows in chunks of 500 (D1 limit).
+  for (let i = 0; i < inserts.length; i += 500) {
+    await db.batch(inserts.slice(i, i + 500));
+  }
+
+  // Rebuild snapshots from the day map.
+  const snapInserts = [];
+  for (const [date, s] of eodByDay) {
+    snapInserts.push(db.prepare(
+      `INSERT OR REPLACE INTO portfolio_snapshots (id, mode, snap_date, ts, cash, positions_value, total_equity, open_positions, day_realized_pnl, day_trades, created_at)
+       VALUES (?1, 'trader', ?2, ?3, ?4, 0, ?5, 0, ?6, ?7, ?3)`
+    ).bind(
+      `snap-trader-${date}`,
+      date,
+      s.ts,
+      s.balance,
+      s.balance,
+      s.dayPnl,
+      s.dayTrades,
+    ));
+  }
+  for (let i = 0; i < snapInserts.length; i += 500) {
+    await db.batch(snapInserts.slice(i, i + 500));
+  }
+
+  return {
+    ok: true,
+    dataset_id: dataset.dataset_id,
+    trade_count: tradeRows.length,
+    ledger_inserted: inserts.length,
+    snap_inserted: snapInserts.length,
+    start_cash: startCash,
+    end_balance: finalBalance,
+    end_pnl: totalRealized,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Investor Daily Replay: runs once per replay day to evaluate investor positions
 // Uses computeInvestorScore + classifyInvestorStage for entry/exit decisions.
@@ -52210,7 +52405,40 @@ export default {
           const dataset = await db.prepare(
             `SELECT * FROM promoted_trade_datasets WHERE dataset_id = ?1`
           ).bind(datasetId).first();
-          return sendJSON({ ok: true, dataset, trade_count: tradeCount }, 200, corsHeaders(env, req));
+
+          // V15 P0.7.70: when activating a promoted dataset, auto-seed the
+          // trader account_ledger so the Trades page Account Value reflects
+          // the backtest from bar 1 (live cron then takes over from there).
+          let seedResult = null;
+          if (activate && parseBool01(body?.seed_account_ledger ?? true) === 1) {
+            try {
+              seedResult = await d1SeedAccountLedgerFromPromoted(env, { datasetId });
+            } catch (e) {
+              seedResult = { ok: false, error: String(e?.message || e).slice(0, 200) };
+            }
+          }
+          return sendJSON({ ok: true, dataset, trade_count: tradeCount, seed: seedResult }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/account-ledger/seed-from-promoted?key=...
+      // Body: { dataset_id?: string, start_cash?: number }
+      // Wipes trader account_ledger + portfolio_snapshots and replays the
+      // promoted dataset to seed both. The Trades page Account Value /
+      // Equity Curve then reflect the backtest. Live cron continues to
+      // append from there.
+      if (routeKey === "POST /timed/admin/account-ledger/seed-from-promoted") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const body = await req.json().catch(() => ({}));
+          const opts = {};
+          if (body?.dataset_id) opts.datasetId = String(body.dataset_id);
+          if (body?.start_cash != null) opts.startCash = Number(body.start_cash);
+          const result = await d1SeedAccountLedgerFromPromoted(env, opts);
+          return sendJSON(result, result?.ok ? 200 : 400, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }
