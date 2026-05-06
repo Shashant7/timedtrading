@@ -69,6 +69,16 @@ function fmtUsd(v) {
   if (!Number.isFinite(n)) return "—";
   return USD_FMT.format(n);
 }
+function fmtUsdCompact(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  const abs = Math.abs(n);
+  const sign = n < 0 ? "-" : "";
+  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;
+  if (abs >= 10_000) return `${sign}$${(abs / 1000).toFixed(1)}K`;
+  if (abs >= 1000) return `${sign}$${(abs / 1000).toFixed(2)}K`;
+  return `${sign}$${abs.toFixed(0)}`;
+}
 function fmtInt(v) {
   const n = Number(v);
   if (!Number.isFinite(n)) return "—";
@@ -4796,8 +4806,8 @@ function PortfolioColumn({
 
           <div className="ds-card" style=${{
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-    gap: "var(--ds-space-3)"
+    gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))",
+    gap: "var(--ds-space-2)"
   }}>
             <div className="ds-metric">
               <div className="ds-metric__label">Account</div>
@@ -4805,7 +4815,7 @@ function PortfolioColumn({
                 <div className="ds-metric__value" style=${{
     fontVariantNumeric: "tabular-nums",
     whiteSpace: "nowrap"
-  }}>${fmtUsd(acctVal)}</div>
+  }} title=${fmtUsd(acctVal)}>${fmtUsdCompact(acctVal)}</div>
               </div>
             </div>
             <div className="ds-metric">
@@ -4815,7 +4825,7 @@ function PortfolioColumn({
     fontVariantNumeric: "tabular-nums",
     whiteSpace: "nowrap",
     color: totalPnl >= 0 ? "var(--ds-up)" : "var(--ds-dn)"
-  }}>${fmtUsd(totalPnl)}</div>
+  }} title=${fmtUsd(totalPnl)}>${fmtUsdCompact(totalPnl)}</div>
               </div>
             </div>
             <div className="ds-metric">
@@ -4825,7 +4835,7 @@ function PortfolioColumn({
     fontVariantNumeric: "tabular-nums",
     whiteSpace: "nowrap",
     color: unrealized >= 0 ? "var(--ds-up)" : "var(--ds-dn)"
-  }}>${fmtUsd(unrealized)}</div>
+  }} title=${fmtUsd(unrealized)}>${fmtUsdCompact(unrealized)}</div>
               </div>
             </div>
             <div className="ds-metric">
@@ -4848,7 +4858,7 @@ function PortfolioColumn({
     fontVariantNumeric: "tabular-nums",
     whiteSpace: "nowrap",
     color: realizedPnl >= 0 ? "var(--ds-up)" : "var(--ds-dn)"
-  }}>${fmtUsd(realizedPnl)}</div>
+  }} title=${fmtUsd(realizedPnl)}>${fmtUsdCompact(realizedPnl)}</div>
               </div>
             </div>
           </div>

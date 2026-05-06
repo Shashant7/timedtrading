@@ -937,6 +937,7 @@ const ROUTES = [
   ["POST", "/timed/admin/calibration/seed-from-promoted", "POST /timed/admin/calibration/seed-from-promoted"],
   ["GET", "/timed/admin/loop2-pause", "GET /timed/admin/loop2-pause"],
   ["POST", "/timed/admin/loop2-pause/reset", "POST /timed/admin/loop2-pause/reset"],
+  ["POST", "/timed/admin/cancel-stale-closures", "POST /timed/admin/cancel-stale-closures"],
   ["POST", "/timed/admin/model-config", "POST /timed/admin/model-config"],
   ["GET",  "/timed/admin/grade-config",  "GET /timed/admin/grade-config"],
   // ── System Intelligence (unified Calibration + Model) ──
@@ -6902,10 +6903,24 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     //
     // Returns "neutral" (= no action) so the caller proceeds without
     // mutating the position.
+    //
+    // V15 P0.7.83 (2026-05-06): EXTENDED the guard to also cover legacy
+    // orphan trades (run_id NULL, entry_ts > 30 days old). The original
+    // P0.7.58 guard only fired when run_id was set, which left ancient
+    // pre-Phase-C live trades vulnerable to the same wall-clock force-
+    // close bug. Today (May 6 2026) three orphan trades from July 2025
+    // (ORCL, CDNS, CSX) got force-closed by HARD_LOSS_CAP, generating
+    // fake -\$3,430 / -\$541 / +\$1,822 PnL hits that tripped Loop 2.
     // ═════════════════════════════════════════════════════════════════════════
-    const _isBacktestTradeReadTime = (asOfTs == null) && (openPosition?.run_id || openPosition?.runId);
-    if (_isBacktestTradeReadTime) {
-      return "neutral";
+    {
+      const _entryTsRaw = Number(openPosition?.entry_ts || openPosition?.created_at) || 0;
+      const _isReadTime = asOfTs == null;
+      const _hasRunId = !!(openPosition?.run_id || openPosition?.runId);
+      const _ageDays = _entryTsRaw > 0 ? (Date.now() - _entryTsRaw) / 86400000 : 0;
+      const _isAncientOrphan = _entryTsRaw > 0 && _ageDays > 30;
+      if (_isReadTime && (_hasRunId || _isAncientOrphan)) {
+        return "neutral";
+      }
     }
 
     const completion = Number(tickerData?.completion) || 0;
@@ -52736,6 +52751,36 @@ export default {
           return sendJSON(result, result?.ok ? 200 : 400, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/cancel-stale-closures?key=...&trade_ids=A,B,C
+      // V15 P0.7.83: surgical reversal of wrongly force-closed orphan
+      // trades. Sets status=CANCELED, pnl=0, pnl_pct=0 and stamps the
+      // reason so the entry doesn't pollute today's PnL or trip Loop 2.
+      if (routeKey === "POST /timed/admin/cancel-stale-closures") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const tradeIdsRaw = url.searchParams.get("trade_ids") || "";
+          const tradeIds = tradeIdsRaw.split(",").map(s => s.trim()).filter(Boolean);
+          if (tradeIds.length === 0) {
+            return sendJSON({ ok: false, error: "trade_ids required" }, 400, corsHeaders(env, req));
+          }
+          let updated = 0;
+          for (const tid of tradeIds) {
+            await db.prepare(
+              `UPDATE trades SET status='CANCELED', pnl=0, pnl_pct=0,
+                                 exit_reason='admin_reversed_wallclock_force_close',
+                                 updated_at=?1 WHERE trade_id=?2`
+            ).bind(Date.now(), tid).run();
+            updated++;
+          }
+          return sendJSON({ ok: true, updated, trade_ids: tradeIds }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
       }
 

@@ -6412,13 +6412,23 @@
                           );
                         })()}
                         {(() => {
+                          // V15 P0.7.83: bias terminology unified.
+                          // LONG/SHORT only when there's an actual open
+                          // position; otherwise BULL/BEAR for the signal
+                          // direction. Matches kanban cards / right rail.
                           const b = tooltip.bias_direction || getDirectionFromState(tooltip);
                           if (!b) return null;
+                          const sym = String(tooltip?.ticker || "").toUpperCase();
+                          const tr = (typeof tradeByTicker !== "undefined" && tradeByTicker?.get?.(sym)) || null;
+                          const _trStatus = String(tr?.status || "").toUpperCase();
+                          const hasOpenTrade = !!(tr && (_trStatus === "OPEN" || _trStatus === "TP_HIT_TRIM"));
                           const l = String(b).toUpperCase() === "LONG";
                           const s = String(b).toUpperCase() === "SHORT";
+                          const longLabel = hasOpenTrade ? "LONG" : "BULL";
+                          const shortLabel = hasOpenTrade ? "SHORT" : "BEAR";
                           return (
                             <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${l ? "bg-teal-500/20 text-teal-400" : s ? "bg-rose-500/20 text-rose-400" : "bg-white/[0.04] text-[#6b7280]"}`}>
-                              {l ? "LONG" : s ? "SHORT" : "NEUTRAL"}
+                              {l ? longLabel : s ? shortLabel : "NEUTRAL"}
                             </span>
                           );
                         })()}
@@ -7930,10 +7940,16 @@
           !tradeIsClosed &&
           (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !tradeStatus);
 
+        // V15 P0.7.83: open positions never end up in EXIT lane —
+        // engine 'exit' on an open position means urgent close (DEFEND).
+        // Same logic applied to kanban categorizer + bubble map stage chip
+        // + bubble icon in P0.7.79 / P0.7.82 — this is the third copy that
+        // got missed (drives the bubble's icon-under-bubble label).
         let effectiveStage = rawStage;
         if (tradeIsOpen) {
           if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) effectiveStage = "trim";
-          else if (!["defend", "trim", "exit", "hold", "active", "just_entered"].includes(rawStage)) effectiveStage = "hold";
+          else if (rawStage === "exit") effectiveStage = "defend";
+          else if (!["defend", "trim", "hold", "active", "just_entered"].includes(rawStage)) effectiveStage = "hold";
         }
 
         return {

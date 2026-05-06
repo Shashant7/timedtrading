@@ -252,6 +252,20 @@
         return USD_FMT.format(n);
       }
 
+      // V15 P0.7.83: compact USD format for metric tiles where space
+      // is tight. $140,086.44 → $140.1K, $40,086 → $40.1K, $303 → $303.
+      // Sign-prefixed for explicit positive/negative readability.
+      function fmtUsdCompact(v) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return "—";
+        const abs = Math.abs(n);
+        const sign = n < 0 ? "-" : "";
+        if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;
+        if (abs >= 10_000)    return `${sign}$${(abs / 1000).toFixed(1)}K`;
+        if (abs >= 1000)      return `${sign}$${(abs / 1000).toFixed(2)}K`;
+        return `${sign}$${abs.toFixed(0)}`;
+      }
+
       function fmtInt(v) {
         const n = Number(v);
         if (!Number.isFinite(n)) return "—";
@@ -6272,23 +6286,23 @@
             <${EquityCurveChart} curveData=${curveData} mode=${mode} />
           </div>
 
-          <div className="ds-card" style=${{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "var(--ds-space-3)" }}>
+          <div className="ds-card" style=${{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: "var(--ds-space-2)" }}>
             <div className="ds-metric">
               <div className="ds-metric__label">Account</div>
               <div className="ds-metric__row">
-                <div className="ds-metric__value" style=${{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>${fmtUsd(acctVal)}</div>
+                <div className="ds-metric__value" style=${{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }} title=${fmtUsd(acctVal)}>${fmtUsdCompact(acctVal)}</div>
               </div>
             </div>
             <div className="ds-metric">
               <div className="ds-metric__label">Total P&L</div>
               <div className="ds-metric__row">
-                <div className="ds-metric__value" style=${{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", color: totalPnl >= 0 ? "var(--ds-up)" : "var(--ds-dn)" }}>${fmtUsd(totalPnl)}</div>
+                <div className="ds-metric__value" style=${{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", color: totalPnl >= 0 ? "var(--ds-up)" : "var(--ds-dn)" }} title=${fmtUsd(totalPnl)}>${fmtUsdCompact(totalPnl)}</div>
               </div>
             </div>
             <div className="ds-metric">
               <div className="ds-metric__label">Open P&L</div>
               <div className="ds-metric__row">
-                <div className="ds-metric__value" style=${{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", color: unrealized >= 0 ? "var(--ds-up)" : "var(--ds-dn)" }}>${fmtUsd(unrealized)}</div>
+                <div className="ds-metric__value" style=${{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", color: unrealized >= 0 ? "var(--ds-up)" : "var(--ds-dn)" }} title=${fmtUsd(unrealized)}>${fmtUsdCompact(unrealized)}</div>
               </div>
             </div>
             <div className="ds-metric">
@@ -6301,7 +6315,7 @@
             <div className="ds-metric">
               <div className="ds-metric__label">Realized</div>
               <div className="ds-metric__row">
-                <div className="ds-metric__value" style=${{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", color: realizedPnl >= 0 ? "var(--ds-up)" : "var(--ds-dn)" }}>${fmtUsd(realizedPnl)}</div>
+                <div className="ds-metric__value" style=${{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", color: realizedPnl >= 0 ? "var(--ds-up)" : "var(--ds-dn)" }} title=${fmtUsd(realizedPnl)}>${fmtUsdCompact(realizedPnl)}</div>
               </div>
             </div>
           </div>

@@ -4360,11 +4360,17 @@ function BubbleChart({
       })(), (() => {
         const b = tooltip.bias_direction || getDirectionFromState(tooltip);
         if (!b) return null;
+        const sym = String(tooltip?.ticker || "").toUpperCase();
+        const tr = typeof tradeByTicker !== "undefined" && tradeByTicker?.get?.(sym) || null;
+        const _trStatus = String(tr?.status || "").toUpperCase();
+        const hasOpenTrade = !!(tr && (_trStatus === "OPEN" || _trStatus === "TP_HIT_TRIM"));
         const l = String(b).toUpperCase() === "LONG";
         const s = String(b).toUpperCase() === "SHORT";
+        const longLabel = hasOpenTrade ? "LONG" : "BULL";
+        const shortLabel = hasOpenTrade ? "SHORT" : "BEAR";
         return React.createElement("span", {
           className: `px-1.5 py-0.5 rounded text-[9px] font-semibold ${l ? "bg-teal-500/20 text-teal-400" : s ? "bg-rose-500/20 text-rose-400" : "bg-white/[0.04] text-[#6b7280]"}`
-        }, l ? "LONG" : s ? "SHORT" : "NEUTRAL");
+        }, l ? longLabel : s ? shortLabel : "NEUTRAL");
       })()), (() => {
         const ingestTime = tooltip.ingest_ts || tooltip.ingest_time || tooltip.ts;
         if (ingestTime) {
@@ -5518,7 +5524,7 @@ function getTradeLifecycleState(ticker, trade) {
   const tradeIsOpen = !tradeIsClosed && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !tradeStatus);
   let effectiveStage = rawStage;
   if (tradeIsOpen) {
-    if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) effectiveStage = "trim";else if (!["defend", "trim", "exit", "hold", "active", "just_entered"].includes(rawStage)) effectiveStage = "hold";
+    if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) effectiveStage = "trim";else if (rawStage === "exit") effectiveStage = "defend";else if (!["defend", "trim", "hold", "active", "just_entered"].includes(rawStage)) effectiveStage = "hold";
   }
   return {
     trade: resolvedTrade,
