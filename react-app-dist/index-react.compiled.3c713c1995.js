@@ -14056,7 +14056,8 @@ const OverlayPortal = ({
   dashboardMode = "trader",
   addingTicker = null,
   savedTickers = null,
-  toggleSavedTicker = null
+  toggleSavedTicker = null,
+  layoutMode = "modal"
 }) => {
   if (!selectedTicker) return null;
   try {
@@ -14157,7 +14158,8 @@ const OverlayPortal = ({
       initialRailTab: initialRailTab,
       addingTicker: addingTicker,
       savedTickers: savedTickers,
-      toggleSavedTicker: toggleSavedTicker
+      toggleSavedTicker: toggleSavedTicker,
+      layoutMode: layoutMode
     });
   } catch (error) {
     console.error("OverlayPortal error:", error);
@@ -17299,7 +17301,7 @@ function App() {
     className: "fixed inset-0 z-30",
     onMouseDown: () => handleTickerSelect(null)
   }), React.createElement("div", {
-    className: "tt-rail-mobile fixed right-0 top-[60px] sm:top-[52px] w-full sm:w-[560px] lg:w-[640px] xl:w-[720px] 2xl:w-[800px] bottom-[64px] sm:bottom-[56px] bg-[#0b0e11] border-l border-white/[0.04] z-40 slide-in-right shadow-xl overflow-y-auto",
+    className: "tt-rail-mobile tt-ticker-workspace-mount fixed right-0 top-[60px] sm:top-[52px] w-full sm:w-[560px] lg:w-[640px] xl:w-[720px] 2xl:w-[800px] bottom-[64px] sm:bottom-[56px] bg-[#0b0e11] border-l border-white/[0.04] z-40 slide-in-right shadow-xl overflow-y-auto",
     onMouseDown: e => e.stopPropagation()
   }, React.createElement(OverlayPortal, {
     selectedTicker: selectedTicker,
@@ -17320,7 +17322,8 @@ function App() {
     dashboardMode: dashboardMode,
     addingTicker: userTickers.addingTicker,
     savedTickers: savedTickers,
-    toggleSavedTicker: toggleSavedTicker
+    toggleSavedTicker: toggleSavedTicker,
+    layoutMode: typeof window !== "undefined" && window.innerWidth >= 1280 ? "workspace" : "modal"
   }))), dashboardMode === "trader" && !noTickerResults && React.createElement("div", {
     className: "relative pb-12",
     "data-coachmark": "kanban-lanes"

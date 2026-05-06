@@ -3306,7 +3306,8 @@ const TickerDetailsLoader = ({
   rankedTickerPositions = null,
   positionEvents = null,
   openAutopsyForTrade = null,
-  modalOnly = false
+  modalOnly = false,
+  layoutMode = "modal"
 }) => {
   const [tickerData, setTickerData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -3411,7 +3412,8 @@ const TickerDetailsLoader = ({
     initialRailTab: trade ? "HISTORY" : null,
     openAutopsyForTrade: openAutopsyForTrade,
     effectiveStage: effectiveStage,
-    modalOnly: modalOnly
+    modalOnly: modalOnly,
+    layoutMode: layoutMode
   });
 };
 function DashboardWelcomeModal({
@@ -6812,7 +6814,7 @@ function App() {
       setModalOnly(false);
     }
   })))), (selectedTicker || selectedTrade) && !modalOnly && React.createElement("div", {
-    className: "fixed right-0 top-[49px] w-[480px] lg:w-[640px] xl:w-[720px] 2xl:w-[800px] bottom-0 z-40 slide-in-right shadow-2xl overflow-y-auto bg-[#0b0e11] border-l border-white/[0.04]"
+    className: "tt-ticker-workspace-mount fixed right-0 top-[49px] w-[480px] lg:w-[640px] xl:w-[720px] 2xl:w-[800px] bottom-0 z-40 slide-in-right shadow-2xl overflow-y-auto bg-[#0b0e11] border-l border-white/[0.04]"
   }, React.createElement(TickerDetailsLoader, {
     tickerSymbol: selectedTrade ? selectedTrade.ticker : selectedTicker,
     trade: selectedTrade,
@@ -6828,7 +6830,8 @@ function App() {
     sectors: sectors,
     rankedTickers: rankedTickers,
     rankedTickerPositions: rankedTickerPositions,
-    openAutopsyForTrade: openAutopsyForTrade
+    openAutopsyForTrade: openAutopsyForTrade,
+    layoutMode: typeof window !== "undefined" && window.innerWidth >= 1280 ? "workspace" : "modal"
   })), (selectedTicker || selectedTrade) && modalOnly && (() => {
     const t = openAutopsyForTrade || selectedTrade;
     if (!t) return null;

@@ -120,6 +120,55 @@
       body:not([data-user-role="admin"]) a[data-admin-only] {
         display: none !important;
       }
+
+      /* ── V15 P0.7.76 — Ticker Workspace layout (≥1280px desktop only).
+         Mirror of CSS in index-react.source.html so the Trades page also
+         gets the chart-left / rail-right split when a ticker is opened. */
+      @media (min-width: 1280px) {
+        .tt-ticker-workspace-mount {
+          top: 0 !important;
+          bottom: 0 !important;
+          left: 0 !important;
+          right: 0 !important;
+          width: 100% !important;
+          border-left: none !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+        }
+      }
+      .tt-rail-shell--workspace {
+        display: grid !important;
+        grid-template-columns: 1fr 460px;
+        grid-template-rows: auto 1fr;
+        grid-template-areas:
+          "header header"
+          "left   right";
+        height: 100vh;
+        max-height: 100vh;
+        overflow: hidden;
+      }
+      .tt-rail-shell--workspace > .tt-rail-area-header {
+        grid-area: header;
+        position: relative;
+        z-index: 5;
+      }
+      .tt-rail-shell--workspace > .tt-rail-area-left-pane {
+        grid-area: left;
+        overflow-y: auto;
+        padding: var(--ds-space-4);
+        border-right: 1px solid var(--ds-stroke);
+      }
+      .tt-rail-shell--workspace > .tt-rail-area-right-pane {
+        grid-area: right;
+        overflow-y: auto;
+      }
+      .tt-rail-shell--workspace .tt-rail-chart-canvas {
+        height: 420px !important;
+      }
+      .tt-rail-area-left-pane,
+      .tt-rail-area-right-pane {
+        display: block;
+      }
     </style>
   </head>
   <body class="ds-v2">
@@ -4300,6 +4349,7 @@
         positionEvents = null,
         openAutopsyForTrade = null,
         modalOnly = false,
+        layoutMode = "modal",
       }) => {
         const [tickerData, setTickerData] = useState(null);
         const [loading, setLoading] = useState(true);
@@ -4412,6 +4462,7 @@
             openAutopsyForTrade={openAutopsyForTrade}
             effectiveStage={effectiveStage}
             modalOnly={modalOnly}
+            layoutMode={layoutMode}
           />
         );
       };
@@ -8079,7 +8130,7 @@
                        desktop-only (lg:) keeps 450px; mobile is full-width via the
                        investor-dashboard pattern. */}
                   {(selectedTicker || selectedTrade) && !modalOnly && (
-                    <div className="fixed right-0 top-[49px] w-[480px] lg:w-[640px] xl:w-[720px] 2xl:w-[800px] bottom-0 z-40 slide-in-right shadow-2xl overflow-y-auto bg-[#0b0e11] border-l border-white/[0.04]">
+                    <div className="tt-ticker-workspace-mount fixed right-0 top-[49px] w-[480px] lg:w-[640px] xl:w-[720px] 2xl:w-[800px] bottom-0 z-40 slide-in-right shadow-2xl overflow-y-auto bg-[#0b0e11] border-l border-white/[0.04]">
                       <TickerDetailsLoader
                         tickerSymbol={selectedTrade ? selectedTrade.ticker : selectedTicker}
                         trade={selectedTrade}
@@ -8096,6 +8147,7 @@
                         rankedTickers={rankedTickers}
                         rankedTickerPositions={rankedTickerPositions}
                         openAutopsyForTrade={openAutopsyForTrade}
+                        layoutMode={typeof window !== "undefined" && window.innerWidth >= 1280 ? "workspace" : "modal"}
                       />
                     </div>
                   )}

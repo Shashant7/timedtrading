@@ -1300,6 +1300,13 @@
         toggleSavedTicker = null,
         openAutopsyForTrade = null,
         modalOnly = false,
+        /* V15 P0.7.76 (2026-05-06) — Workspace mode. When "workspace",
+           the rail uses CSS Grid to split into two panes:
+             - LEFT: persistent chart + key levels (always visible)
+             - RIGHT: tab nav + tab content (Snapshot default, scrollable)
+           When "modal" (default), the rail keeps single-column flow
+           (mobile/tablet drawer behavior). */
+        layoutMode = "modal",
       }) {
         const tickerSymbol = ticker?.ticker ? String(ticker.ticker) : "";
         const isAdding = addingTicker && String(addingTicker).toUpperCase() === tickerSymbol;
@@ -2238,9 +2245,20 @@
           const v2SparkSvg = (typeof window !== "undefined" && window.DS)
             ? window.DS.sparklineSvg(v2Spark, { width: 320, height: 60, direction: v2SparkDir, strokeWidth: 1.5 })
             : "";
+          const _isWorkspace = layoutMode === "workspace";
           return (
             <>
-              <div className="w-full h-full flex flex-col" style={{ background: "var(--ds-bg-canvas)", borderRadius: "var(--ds-radius-lg)", border: "1px solid var(--ds-stroke)" }}>
+              {/* V15 P0.7.76 (2026-05-06) — Workspace layout mode. When
+                  active, the outer container becomes a CSS grid:
+                     header  header
+                     left    right
+                  Children opt into placement via `tt-rail-area-*` classes
+                  (header / chart / levels / tabnav / tabbody). In modal
+                  mode (default) the same JSX flows as a single column. */}
+              <div
+                className={`w-full h-full flex flex-col tt-rail-shell ${_isWorkspace ? "tt-rail-shell--workspace" : ""}`}
+                style={{ background: "var(--ds-bg-canvas)", borderRadius: "var(--ds-radius-lg)", border: "1px solid var(--ds-stroke)" }}
+              >
                 {/* ─── Sticky header ─────────────────────────────────── */}
                 {/* V2.1 round 3 (2026-05-01) — Mirror the CompactCard:
                     logo + symbol + bias chip + TT-Selected dot + EPS badge +
@@ -2279,7 +2297,7 @@
                     return null;
                   })();
                   return (
-                <div className="sticky top-0 z-30" style={{ background: "var(--ds-bg-canvas)", padding: "var(--ds-space-3) var(--ds-space-4)", borderBottom: "1px solid var(--ds-stroke)" }}>
+                <div className="sticky top-0 z-30 tt-rail-area-header" style={{ background: "var(--ds-bg-canvas)", padding: "var(--ds-space-3) var(--ds-space-4)", borderBottom: "1px solid var(--ds-stroke)" }}>
                   <div className="flex items-center justify-between mb-2" style={{ gap: "var(--ds-space-2)" }}>
                     <div className="flex items-center gap-2 min-w-0" style={{ flexWrap: "wrap" }}>
                       <div className="ds-tickercard__logo" style={{ width: 28, height: 28 }} ref={(el) => {
@@ -2460,7 +2478,7 @@
                       panel width. flex: 0 0 auto on each tab keeps each
                       label intact (no wrapping or truncation). */}
                   <div
-                    className="ds-tab tt-rail-tabs"
+                    className="ds-tab tt-rail-tabs tt-rail-area-tabnav"
                     role="tablist"
                     style={{
                       width: "100%",
@@ -2490,8 +2508,13 @@
                   );
                 })()}
 
-                {/* ─── Scrollable body ───────────────────────────────── */}
-                <div className="flex-1 overflow-y-auto tt-rail-body" style={{ padding: "var(--ds-space-4)" }}>
+                {/* ─── LEFT PANE: chart + levels (workspace mode only) ──
+                    V15 P0.7.76 — In workspace mode this wraps the chart
+                    and Key Levels into a dedicated left column with its
+                    own scroll. In modal mode, display: contents flattens
+                    it so the children flow naturally into the body below
+                    (preserving mobile single-column behavior). */}
+                <div className="tt-rail-area-left-pane">
                   {/* ── PERSISTENT CHART (V15 P0.7.74 — Phase 4 workspace) ──
                       The chart was historically only rendered inside the
                       Setup tab body. Per user vision (2026-05-06):
@@ -2558,13 +2581,9 @@
                       );
                     };
                     return (
-                    /* V15 P0.7.75 (2026-05-06) — Reverted sticky pinning.
-                       Sticky positioning meant content scrolled UNDER the
-                       chart, creating an overlap effect (worse on mobile).
-                       Chart now scrolls naturally with the body. The
-                       proper desktop workspace (chart-left / rail-right
-                       split pane that doesn't overlap) is built in the
-                       parent mount, see TickerWorkspace shell. */
+                    /* V15 P0.7.76 — Chart block. Wrapped by parent
+                       tt-rail-area-left-pane in workspace mode for grid
+                       layout; flat in modal mode. */
                     <div className="tt-rail-chart-block" style={{
                       marginBottom: "var(--ds-space-3)",
                     }}>
@@ -2621,6 +2640,131 @@
                     );
                   })()}
 
+                  {/* ── PERSISTENT KEY LEVELS (V15 P0.7.76 — Phase 4 workspace) ──
+                      Lifted from inside the Setup tab body so the workspace's
+                      left pane has both Chart + Levels persistent across
+                      tabs (per user vision: "On the left side we have the
+                      setup tab, with the Chart and the levels"). */}
+                  {Array.isArray(predictionContract?.levels) && predictionContract.levels.length > 0 && (() => {
+                    const px = Number(v2Price) || Number(ticker?.price) || 0;
+                    if (!(px > 0)) return null;
+                    const all = predictionContract.levels;
+                    const resistance = all.filter((l) => l.role === "resistance").sort((a, b) => a.price - b.price);
+                    const support = all.filter((l) => l.role === "support").sort((a, b) => b.price - a.price);
+                    const pcDir = String(predictionContract?.direction || "").toUpperCase();
+                    const isShort = pcDir === "SHORT";
+                    const aboveLabel = isShort ? "Invalidation Zone" : "Resistance";
+                    const aboveSubtitle = isShort
+                      ? `Levels above $${px.toFixed(2)} — close above invalidates the SHORT bias`
+                      : `Levels above $${px.toFixed(2)} — sell zones / profit-taking targets`;
+                    const belowLabel = isShort ? "Target Zones" : "Support";
+                    const belowSubtitle = isShort
+                      ? `Levels below $${px.toFixed(2)} — profit-taking targets for the SHORT`
+                      : `Levels below $${px.toFixed(2)} — defend / SL reference zones`;
+                    const kindMeta = (kind) => {
+                      if (kind === "year_high" || kind === "year_low") return { color: "#f87171", letter: "52W", desc: "52-week extreme" };
+                      if (kind === "swing_high" || kind === "swing_low") return { color: "#fbbf24", letter: "SW", desc: "Swing structure (D)" };
+                      if (kind === "swing_high_4h" || kind === "swing_low_4h") return { color: "#fcd34d", letter: "4H", desc: "Swing structure (4H)" };
+                      if (kind === "prior_session_high" || kind === "prior_session_low") return { color: "#a78bfa", letter: "PD", desc: "Prior day range" };
+                      if (kind === "pivot_high" || kind === "pivot_low") return { color: "#34d399", letter: "PV", desc: "Multi-tested pivot" };
+                      if (kind === "pdz_premium" || kind === "pdz_discount" || kind === "pdz_eq") return { color: "#60a5fa", letter: "PDZ", desc: "Premium/Discount/Equilibrium" };
+                      if (kind === "ema") return { color: "rgba(96,165,250,0.6)", letter: "EMA", desc: "Daily EMA magnet" };
+                      return { color: "var(--ds-text-muted)", letter: "—", desc: "Level" };
+                    };
+                    const StrengthBar = ({ weight }) => {
+                      const w = Math.max(1, Math.min(10, Number(weight) || 5));
+                      return (
+                        <div style={{ display: "flex", gap: 1, alignItems: "center" }}>
+                          {Array.from({ length: 5 }, (_, i) => (
+                            <div key={i} style={{ width: 3, height: 8, background: i < Math.ceil(w / 2) ? "var(--ds-accent)" : "rgba(255,255,255,0.08)", borderRadius: 1 }} />
+                          ))}
+                        </div>
+                      );
+                    };
+                    const LevelRow = ({ l, side }) => {
+                      const m = kindMeta(l.kind);
+                      const distColor = side === "res" ? "var(--ds-dn)" : side === "sup" ? "var(--ds-up)" : "var(--ds-accent)";
+                      return (
+                        <div style={{
+                          display: "grid",
+                          gridTemplateColumns: "32px 1fr 56px 36px 26px",
+                          gap: "var(--ds-space-2)",
+                          alignItems: "center",
+                          padding: "5px 8px",
+                          borderRadius: "var(--ds-radius-xs)",
+                          background: "rgba(255,255,255,0.02)",
+                          borderLeft: `3px solid ${m.color}`,
+                        }} title={`${m.desc} · weight ${l.weight}`}>
+                          <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, color: m.color, letterSpacing: "0.06em", textAlign: "center" }}>{m.letter}</span>
+                          <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", letterSpacing: "0.02em" }}>{l.label}</span>
+                          <span style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text)", fontFamily: "var(--tt-font-mono)", fontWeight: 600, textAlign: "right" }}>${Number(l.price).toFixed(2)}</span>
+                          <span style={{ fontSize: 9, color: distColor, fontFamily: "var(--tt-font-mono)", fontWeight: 600, textAlign: "right" }}>{l.dist_pct >= 0 ? "+" : ""}{l.dist_pct.toFixed(1)}%</span>
+                          <StrengthBar weight={l.weight} />
+                        </div>
+                      );
+                    };
+                    const SectionLabel = ({ text, sub, color }) => (
+                      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "4px 4px 2px 4px", borderBottom: "1px dashed var(--ds-stroke)", marginBottom: 2 }}>
+                        <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", color }}>{text}</span>
+                        {sub && <span style={{ fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", letterSpacing: "0.04em" }}>{sub}</span>}
+                      </div>
+                    );
+                    return (
+                    <div className="tt-rail-levels-block" style={{ marginBottom: "var(--ds-space-3)" }}>
+                      <Panel title="Key Levels" action={
+                        <span style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 9, fontFamily: "var(--tt-font-mono)", color: "var(--ds-text-faint)", letterSpacing: "0.10em" }}>
+                          {pcDir && <span className={`ds-chip ds-chip--sm ${isShort ? "ds-chip--dn" : "ds-chip--up"}`} title="Bias direction — drives level role labels" style={{ fontSize: 9 }}>{pcDir}</span>}
+                          <span>{resistance.length} above · {support.length} below</span>
+                        </span>
+                      }>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                          {resistance.length > 0 && (
+                            <SectionLabel text={aboveLabel} sub={isShort ? "stop above price" : "profit / fade"} color={isShort ? "var(--ds-dn)" : "var(--ds-dn)"} />
+                          )}
+                          {resistance.length > 0 && resistance.slice(0, 5).reverse().map((l, i) => (
+                            <LevelRow key={`res-${i}-${l.price}`} l={l} side="res" />
+                          ))}
+                          <div style={{
+                            display: "grid",
+                            gridTemplateColumns: "32px 1fr 56px 36px 26px",
+                            gap: "var(--ds-space-2)",
+                            alignItems: "center",
+                            padding: "8px 8px",
+                            borderRadius: "var(--ds-radius-xs)",
+                            background: "rgba(245,194,92,0.10)",
+                            border: "1px solid rgba(245,194,92,0.30)",
+                            margin: "2px 0",
+                          }}>
+                            <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, color: "var(--ds-accent)", letterSpacing: "0.06em", textAlign: "center" }}>NOW</span>
+                            <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-accent)", fontFamily: "var(--tt-font-mono)", letterSpacing: "0.02em", fontWeight: 700 }}>Current Price</span>
+                            <span style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-accent)", fontFamily: "var(--tt-font-mono)", fontWeight: 700, textAlign: "right" }}>${px.toFixed(2)}</span>
+                            <span style={{ fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", textAlign: "right" }}>—</span>
+                            <span />
+                          </div>
+                          {support.length > 0 && (
+                            <SectionLabel text={belowLabel} sub={isShort ? "profit-take" : "defend / SL ref"} color={isShort ? "var(--ds-up)" : "var(--ds-up)"} />
+                          )}
+                          {support.length > 0 && support.slice(0, 5).map((l, i) => (
+                            <LevelRow key={`sup-${i}-${l.price}`} l={l} side="sup" />
+                          ))}
+                        </div>
+                        {pcDir && (
+                          <p style={{ margin: "var(--ds-space-2) 0 0 0", fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", lineHeight: 1.5, fontStyle: "italic" }}>
+                            {pcDir} bias · {aboveSubtitle.replace(/^Levels above .*? — /, "Above: ")} · {belowSubtitle.replace(/^Levels below .*? — /, "Below: ")}
+                          </p>
+                        )}
+                      </Panel>
+                    </div>
+                    );
+                  })()}
+                </div>
+                {/* ─── END LEFT PANE ─── */}
+
+                {/* ─── RIGHT PANE: tabs + tab content (workspace mode only) ──
+                    In workspace mode this becomes the right column with its
+                    own scroll. In modal mode it just continues the body
+                    flow as before. */}
+                <div className="tt-rail-area-right-pane flex-1 overflow-y-auto tt-rail-body" style={{ padding: "var(--ds-space-4)" }}>
                   {/* SNAPSHOT TAB
                       V2.1 round 3 (2026-05-01) — Reorganized per user feedback:
                        1. Today (regime/state/stage chips)
@@ -2912,229 +3056,22 @@
                           Setup tab and into a sticky pinned position
                           above all tab bodies so it stays visible across
                           tabs. See the chart block at the top of the
-                          scrollable body. */}
+                          scrollable body.
 
-                      {/* V2.1 round 8 (2026-05-04) — Universal Key Levels panel.
-                          Per user: "There should be levels even if we are not
-                          in a trade and it should provide our users with a
-                          clear support and resistance levels, we can use a
-                          blend of Saty ATR, PDZ and EMAs."
-                          Sourced from /timed/prediction-contract `levels` field
-                          which the worker now builds from atr_levels (Saty),
-                          tf_tech.D.ema (EMAs 21/48/200), and pdz_zone_D (PDZ
-                          swing high/low/equilibrium). Always renders if data
-                          available, regardless of whether we have an active
-                          trade or proposed entry. */}
-                      {/* V2.1 round 9 (2026-05-04) — Data-driven Key Levels.
-                          Now sourced from the upgraded prediction-contract
-                          `levels` array which prefers REAL price-action levels
-                          (52w high/low, swing pivots from D candles with touch
-                          counts, prior session range, PDZ swing structure)
-                          over derived projections (Saty fibs, EMAs).
-                          Presentation: split into Resistance (above current),
-                          Current price marker, Support (below). Each row has
-                          a strength bar (weight 1-10), color-coded kind chip,
-                          and tested-touch counter where applicable. */}
-                      {Array.isArray(predictionContract?.levels) && predictionContract.levels.length > 0 && (() => {
-                        const px = Number(v2Price) || Number(ticker?.price) || 0;
-                        if (!(px > 0)) return null;
-                        const all = predictionContract.levels;
-                        const resistance = all.filter((l) => l.role === "resistance").sort((a, b) => a.price - b.price);
-                        const support = all.filter((l) => l.role === "support").sort((a, b) => b.price - a.price);
+                          V15 P0.7.76 (2026-05-06): Key Levels panel was
+                          ALSO lifted out of Setup, sibling of the chart,
+                          so the workspace's left pane has both chart +
+                          levels persistent across tabs (per user vision:
+                          "On the left side we have the setup tab, with
+                          the Chart and the levels"). */}
 
-                        // V2.1 round 10 (2026-05-04) — Direction-aware level role labels.
-                        // Worker's `role` field is geometric (above price = resistance,
-                        // below = support), which is direction-blind. For SHORT bias,
-                        // levels BELOW price are profit zones (target zones), and levels
-                        // ABOVE are invalidation risk (above SL = thesis broken).
-                        const pcDir = String(predictionContract?.direction || "").toUpperCase();
-                        const isShort = pcDir === "SHORT";
-                        const aboveLabel = isShort ? "Invalidation Zone" : "Resistance";
-                        const aboveSubtitle = isShort
-                          ? `Levels above $${px.toFixed(2)} — close above invalidates the SHORT bias`
-                          : `Levels above $${px.toFixed(2)} — sell zones / profit-taking targets`;
-                        const belowLabel = isShort ? "Target Zones" : "Support";
-                        const belowSubtitle = isShort
-                          ? `Levels below $${px.toFixed(2)} — profit-taking targets for the SHORT`
-                          : `Levels below $${px.toFixed(2)} — defend / SL reference zones`;
+                      {/* (legacy comment block, kept as anchor for the
+                          duplicate detection check below) */}
 
-                        const kindMeta = (kind) => {
-                          // Color + tier letter for the type chip
-                          if (kind === "year_high" || kind === "year_low") return { color: "#f87171", letter: "52W", desc: "52-week extreme" };
-                          if (kind === "swing_high" || kind === "swing_low") return { color: "#fbbf24", letter: "SW", desc: "Swing structure (D)" };
-                          if (kind === "swing_high_4h" || kind === "swing_low_4h") return { color: "#fcd34d", letter: "4H", desc: "Swing structure (4H)" };
-                          if (kind === "prior_session_high" || kind === "prior_session_low") return { color: "#a78bfa", letter: "PD", desc: "Prior day range" };
-                          if (kind === "pivot_high" || kind === "pivot_low") return { color: "#34d399", letter: "PV", desc: "Multi-tested pivot" };
-                          if (kind === "pdz_premium" || kind === "pdz_discount" || kind === "pdz_eq") return { color: "#60a5fa", letter: "PDZ", desc: "Premium/Discount/Equilibrium" };
-                          if (kind === "ema") return { color: "rgba(96,165,250,0.6)", letter: "EMA", desc: "Daily EMA magnet" };
-                          return { color: "var(--ds-text-muted)", letter: "—", desc: "Level" };
-                        };
-
-                        // Strength bar (1-10) — visual weight indicator
-                        const StrengthBar = ({ weight }) => {
-                          const w = Math.max(1, Math.min(10, Number(weight) || 5));
-                          return (
-                            <div style={{ display: "flex", gap: 1, alignItems: "center" }}>
-                              {Array.from({ length: 5 }, (_, i) => (
-                                <div key={i} style={{
-                                  width: 3, height: 8,
-                                  background: i < Math.ceil(w / 2) ? "var(--ds-accent)" : "rgba(255,255,255,0.08)",
-                                  borderRadius: 1,
-                                }} />
-                              ))}
-                            </div>
-                          );
-                        };
-
-                        const LevelRow = ({ l, side }) => {
-                          const m = kindMeta(l.kind);
-                          // Direction-aware distance color:
-                          //   LONG: above price = red (resistance to break), below = green (support)
-                          //   SHORT: above price = red (invalidation), below = green (target/profit)
-                          // The geometric red/green stays the same — what changes is interpretation.
-                          // For SHORT we keep the same colors but the labels (Invalidation Zone /
-                          // Target Zones) clarify the meaning.
-                          const distColor = side === "res" ? "var(--ds-dn)" : side === "sup" ? "var(--ds-up)" : "var(--ds-accent)";
-                          return (
-                            <div style={{
-                              display: "grid",
-                              gridTemplateColumns: "32px 1fr 56px 36px 26px",
-                              gap: "var(--ds-space-2)",
-                              alignItems: "center",
-                              padding: "5px 8px",
-                              borderRadius: "var(--ds-radius-xs)",
-                              background: "rgba(255,255,255,0.02)",
-                              borderLeft: `3px solid ${m.color}`,
-                            }} title={`${m.desc} · weight ${l.weight}`}>
-                              {/* Type chip */}
-                              <span style={{
-                                fontSize: 9,
-                                fontFamily: "var(--tt-font-mono)",
-                                fontWeight: 700,
-                                color: m.color,
-                                letterSpacing: "0.06em",
-                                textAlign: "center",
-                              }}>{m.letter}</span>
-                              {/* Label */}
-                              <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", letterSpacing: "0.02em" }}>
-                                {l.label}
-                              </span>
-                              {/* Price */}
-                              <span style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text)", fontFamily: "var(--tt-font-mono)", fontWeight: 600, textAlign: "right" }}>
-                                ${Number(l.price).toFixed(2)}
-                              </span>
-                              {/* Distance */}
-                              <span style={{ fontSize: 9, color: distColor, fontFamily: "var(--tt-font-mono)", fontWeight: 600, textAlign: "right" }}>
-                                {l.dist_pct >= 0 ? "+" : ""}{l.dist_pct.toFixed(1)}%
-                              </span>
-                              {/* Strength */}
-                              <StrengthBar weight={l.weight} />
-                            </div>
-                          );
-                        };
-
-                        const SectionLabel = ({ text, sub, color }) => (
-                          <div style={{
-                            display: "flex",
-                            alignItems: "baseline",
-                            justifyContent: "space-between",
-                            padding: "4px 4px 2px 4px",
-                            borderBottom: "1px dashed var(--ds-stroke)",
-                            marginBottom: 2,
-                          }}>
-                            <span style={{
-                              fontSize: 9,
-                              fontFamily: "var(--tt-font-mono)",
-                              fontWeight: 700,
-                              letterSpacing: "0.16em",
-                              textTransform: "uppercase",
-                              color,
-                            }}>{text}</span>
-                            {sub && (
-                              <span style={{
-                                fontSize: 9,
-                                color: "var(--ds-text-faint)",
-                                fontFamily: "var(--tt-font-mono)",
-                                letterSpacing: "0.04em",
-                              }}>{sub}</span>
-                            )}
-                          </div>
-                        );
-
-                        return (
-                          <Panel title="Key Levels" action={
-                            <span style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 9, fontFamily: "var(--tt-font-mono)", color: "var(--ds-text-faint)", letterSpacing: "0.10em" }}>
-                              {pcDir && <span className={`ds-chip ds-chip--sm ${isShort ? "ds-chip--dn" : "ds-chip--up"}`} title="Bias direction — drives level role labels" style={{ fontSize: 9 }}>{pcDir}</span>}
-                              <span>{resistance.length} above · {support.length} below</span>
-                            </span>
-                          }>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                              {resistance.length > 0 && (
-                                <SectionLabel text={aboveLabel} sub={isShort ? "stop above price" : "profit / fade"} color={isShort ? "var(--ds-dn)" : "var(--ds-dn)"} />
-                              )}
-                              {/* Levels above current — sorted nearest first */}
-                              {resistance.length > 0 && resistance.slice(0, 5).reverse().map((l, i) => (
-                                <LevelRow key={`res-${i}-${l.price}`} l={l} side="res" />
-                              ))}
-
-                              {/* CURRENT PRICE — bold highlighted band */}
-                              <div style={{
-                                display: "grid",
-                                gridTemplateColumns: "32px 1fr 56px 36px 26px",
-                                gap: "var(--ds-space-2)",
-                                alignItems: "center",
-                                padding: "8px 8px",
-                                borderRadius: "var(--ds-radius-xs)",
-                                background: "rgba(245,194,92,0.10)",
-                                border: "1px solid rgba(245,194,92,0.30)",
-                                margin: "2px 0",
-                              }}>
-                                <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, color: "var(--ds-accent)", letterSpacing: "0.06em", textAlign: "center" }}>NOW</span>
-                                <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-accent)", fontFamily: "var(--tt-font-mono)", letterSpacing: "0.02em", fontWeight: 700 }}>
-                                  Current Price
-                                </span>
-                                <span style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-accent)", fontFamily: "var(--tt-font-mono)", fontWeight: 700, textAlign: "right" }}>
-                                  ${px.toFixed(2)}
-                                </span>
-                                <span style={{ fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", textAlign: "right" }}>—</span>
-                                <span />
-                              </div>
-
-                              {support.length > 0 && (
-                                <SectionLabel text={belowLabel} sub={isShort ? "profit-take" : "defend / SL ref"} color={isShort ? "var(--ds-up)" : "var(--ds-up)"} />
-                              )}
-                              {/* Levels below current — sorted nearest first */}
-                              {support.length > 0 && support.slice(0, 5).map((l, i) => (
-                                <LevelRow key={`sup-${i}-${l.price}`} l={l} side="sup" />
-                              ))}
-                            </div>
-
-                            {/* Direction-aware caption explaining what the labels mean. */}
-                            {pcDir && (
-                              <p style={{
-                                margin: "var(--ds-space-2) 0 0 0",
-                                fontSize: 9,
-                                color: "var(--ds-text-faint)",
-                                fontFamily: "var(--tt-font-mono)",
-                                lineHeight: 1.5,
-                                fontStyle: "italic",
-                              }}>
-                                {pcDir} bias · {aboveSubtitle.replace(/^Levels above .*? — /, "Above: ")} · {belowSubtitle.replace(/^Levels below .*? — /, "Below: ")}
-                              </p>
-                            )}
-
-                            {/* Legend */}
-                            <div style={{ marginTop: "var(--ds-space-3)", paddingTop: "var(--ds-space-2)", borderTop: "1px solid var(--ds-border-faint)", display: "flex", flexWrap: "wrap", gap: 10, fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", letterSpacing: "0.04em" }}>
-                              <span title="52-week high/low"><span style={{ display: "inline-block", width: 6, height: 6, background: "#f87171", borderRadius: 1, marginRight: 4 }} />52W</span>
-                              <span title="Swing structure"><span style={{ display: "inline-block", width: 6, height: 6, background: "#fbbf24", borderRadius: 1, marginRight: 4 }} />SWING</span>
-                              <span title="Multi-tested pivot"><span style={{ display: "inline-block", width: 6, height: 6, background: "#34d399", borderRadius: 1, marginRight: 4 }} />PIVOT</span>
-                              <span title="Prior day range"><span style={{ display: "inline-block", width: 6, height: 6, background: "#a78bfa", borderRadius: 1, marginRight: 4 }} />PRIOR DAY</span>
-                              <span title="PDZ premium/discount"><span style={{ display: "inline-block", width: 6, height: 6, background: "#60a5fa", borderRadius: 1, marginRight: 4 }} />PDZ</span>
-                              <span title="EMA magnet"><span style={{ display: "inline-block", width: 6, height: 6, background: "rgba(96,165,250,0.6)", borderRadius: 1, marginRight: 4 }} />EMA</span>
-                            </div>
-                          </Panel>
-                        );
-                      })()}
+                      {/* Key Levels was here — V15 P0.7.76 lifted it
+                          out of Setup tab to render alongside the chart
+                          (above all tab gates). See `tt-rail-levels-block`
+                          near the chart. */}
 
                       {/* Risk & Targets — vertical price ladder.
                           V2.1 round 10 (2026-05-04) — Direction-aware, prediction-contract-first.

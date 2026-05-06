@@ -662,6 +662,67 @@
           z-index: 60 !important;
           padding-bottom: env(safe-area-inset-bottom);
         }
+
+        /* ── At ≥1280px the rail's parent mount expands to full viewport
+           so the workspace grid has the room it needs. */
+        @media (min-width: 1280px) {
+          .tt-ticker-workspace-mount {
+            top: 0 !important;
+            bottom: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            width: 100% !important;
+            border-left: none !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+          }
+        }
+
+        /* ─────────────────────────────────────────────────────────────────
+           V15 P0.7.76 — Ticker Workspace layout (≥1280px desktop only).
+           When the parent passes layoutMode="workspace", the rail outer
+           shell becomes a CSS grid with three rows × two columns:
+             [HEADER..............]  ← spans both columns (sticky)
+             [LEFT pane | RIGHT pane]  ← left = chart + levels (own scroll)
+                                       right = tab nav + tab content (own scroll)
+           Mobile (default modal mode): single column flow as before.
+           ───────────────────────────────────────────────────────────────── */
+        .tt-rail-shell--workspace {
+          display: grid !important;
+          grid-template-columns: 1fr 460px;
+          grid-template-rows: auto 1fr;
+          grid-template-areas:
+            "header header"
+            "left   right";
+          height: 100vh;
+          max-height: 100vh;
+          overflow: hidden;
+        }
+        .tt-rail-shell--workspace > .tt-rail-area-header {
+          grid-area: header;
+          position: relative;
+          z-index: 5;
+        }
+        .tt-rail-shell--workspace > .tt-rail-area-left-pane {
+          grid-area: left;
+          overflow-y: auto;
+          padding: var(--ds-space-4);
+          border-right: 1px solid var(--ds-stroke);
+        }
+        .tt-rail-shell--workspace > .tt-rail-area-right-pane {
+          grid-area: right;
+          overflow-y: auto;
+        }
+        /* Workspace mode: bigger chart canvas to use the available width */
+        .tt-rail-shell--workspace .tt-rail-chart-canvas {
+          height: 420px !important;
+        }
+        /* Mobile/modal mode: left-pane and right-pane are just transparent
+           wrappers — children flow naturally. */
+        .tt-rail-area-left-pane,
+        .tt-rail-area-right-pane {
+          display: block;
+        }
         /* Right rail tab bar — hide horizontal scrollbar but keep
            horizontal scroll behavior so all 5 tabs stay reachable. */
         .tt-rail-tabs::-webkit-scrollbar { display: none; }
@@ -969,7 +1030,7 @@
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-right-rail.compiled.js?v=20260503-fundamentals"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
-    <script src="index-react.compiled.d5a950dc5d.js"></script>
+    <script src="index-react.compiled.3c713c1995.js"></script>
 
     <!-- Initialize app - separate script to avoid Babel parsing issues -->
     <script>
