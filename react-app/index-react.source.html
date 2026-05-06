@@ -12812,10 +12812,20 @@
         const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
         const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
         const rr = Number(t?.rr) || null;
-        const stage = String(t?.kanban_stage || "").toLowerCase();
+        let stage = String(t?.kanban_stage || "").toLowerCase();
         const openTrade = tradeByTicker?.get?.(sym) || null;
         const hasOpen = openTrade && !openTrade.exit_ts;
         const tradeDir = hasOpen ? String(openTrade.direction || "").toUpperCase() : null;
+        // V15 P0.7.82: open-position override — same logic the kanban
+        // categorizer uses. Open positions never show EXIT (engine 'exit'
+        // on an open position is DEFEND).
+        if (hasOpen) {
+          const _st = String(openTrade?.status || "").toUpperCase();
+          const _trim = Number(openTrade?.trimmed_pct ?? openTrade?.trimmedPct ?? 0);
+          if (_st === "TP_HIT_TRIM" || _trim > 0) stage = "trim";
+          else if (stage === "exit") stage = "defend";
+          else if (stage !== "defend" && stage !== "trim" && stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
+        }
 
         /* V2.1 round 2 — TT Selected check */
         const isTTSel = (typeof isTickerTTSelected === "function") ? isTickerTTSelected(sym) : false;
@@ -19520,12 +19530,34 @@
                     if (macroItems.length === 0 && earningItems.length === 0) return null;
                     return (
                       <div className="mb-2" style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-1)" }}>
-                        {macroItems.length > 0 && (
+                        {macroItems.length > 0 && (() => {
+                          // V15 P0.7.82: honest sublabel. The event list can
+                          // span weeks (FOMC every ~6 weeks). Categorize each
+                          // event by distance from today and render the most
+                          // relevant horizon. "This week" is reserved for
+                          // events within 7 days. Otherwise show "next FOMC
+                          // in Xd" / "next 30 days" etc.
+                          const _now = Date.now();
+                          const _MS_DAY = 86400000;
+                          const _withinDays = (n) => macroItems.filter(ev => {
+                            const ts = Number(ev?.ts) || (ev?.date ? new Date(ev.date).getTime() : 0);
+                            if (!ts) return false;
+                            const days = (ts - _now) / _MS_DAY;
+                            return days >= -1 && days <= n;
+                          }).length;
+                          const _within7 = _withinDays(7);
+                          const _within30 = _withinDays(30);
+                          const _sublabel = _within7 > 0
+                            ? `${_within7} this week`
+                            : _within30 > 0
+                              ? `${_within30} in next 30 days`
+                              : `${macroItems.length} upcoming`;
+                          return (
                           <div className="ds-row" style={{ alignItems: "flex-start" }}>
                             <div className="ds-row__label">
                               <div className="ds-caption">Macro</div>
                               <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", marginTop: 2, fontVariantNumeric: "tabular-nums" }}>
-                                {macroItems.length} this week
+                                {_sublabel}
                               </div>
                             </div>
                             <div className="ds-row__content">
@@ -19543,7 +19575,8 @@
                               ))}
                             </div>
                           </div>
-                        )}
+                          );
+                        })()}
                         {earningItems.length > 0 && (
                           <div className="ds-row" style={{ alignItems: "flex-start" }}>
                             <div className="ds-row__label">

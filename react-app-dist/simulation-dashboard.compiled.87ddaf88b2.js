@@ -4796,19 +4796,24 @@ function PortfolioColumn({
 
           <div className="ds-card" style=${{
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
     gap: "var(--ds-space-3)"
   }}>
             <div className="ds-metric">
               <div className="ds-metric__label">Account</div>
               <div className="ds-metric__row">
-                <div className="ds-metric__value">${fmtUsd(acctVal)}</div>
+                <div className="ds-metric__value" style=${{
+    fontVariantNumeric: "tabular-nums",
+    whiteSpace: "nowrap"
+  }}>${fmtUsd(acctVal)}</div>
               </div>
             </div>
             <div className="ds-metric">
               <div className="ds-metric__label">Total P&L</div>
               <div className="ds-metric__row">
                 <div className="ds-metric__value" style=${{
+    fontVariantNumeric: "tabular-nums",
+    whiteSpace: "nowrap",
     color: totalPnl >= 0 ? "var(--ds-up)" : "var(--ds-dn)"
   }}>${fmtUsd(totalPnl)}</div>
               </div>
@@ -4817,6 +4822,8 @@ function PortfolioColumn({
               <div className="ds-metric__label">Open P&L</div>
               <div className="ds-metric__row">
                 <div className="ds-metric__value" style=${{
+    fontVariantNumeric: "tabular-nums",
+    whiteSpace: "nowrap",
     color: unrealized >= 0 ? "var(--ds-up)" : "var(--ds-dn)"
   }}>${fmtUsd(unrealized)}</div>
               </div>
@@ -4824,9 +4831,13 @@ function PortfolioColumn({
             <div className="ds-metric">
               <div className="ds-metric__label">Closed</div>
               <div className="ds-metric__row">
-                <div className="ds-metric__value">${closedTrades.length}</div>
+                <div className="ds-metric__value" style=${{
+    fontVariantNumeric: "tabular-nums",
+    whiteSpace: "nowrap"
+  }}>${closedTrades.length}</div>
                 <div className="ds-metric__delta" style=${{
-    color: "var(--ds-text-muted)"
+    color: "var(--ds-text-muted)",
+    whiteSpace: "nowrap"
   }}>${wins}W ${losses}L</div>
               </div>
             </div>
@@ -4834,6 +4845,8 @@ function PortfolioColumn({
               <div className="ds-metric__label">Realized</div>
               <div className="ds-metric__row">
                 <div className="ds-metric__value" style=${{
+    fontVariantNumeric: "tabular-nums",
+    whiteSpace: "nowrap",
     color: realizedPnl >= 0 ? "var(--ds-up)" : "var(--ds-dn)"
   }}>${fmtUsd(realizedPnl)}</div>
               </div>

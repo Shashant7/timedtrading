@@ -9543,10 +9543,15 @@ const DsCompactCard = React.memo(function DsCompactCard({
   const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
   const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
   const rr = Number(t?.rr) || null;
-  const stage = String(t?.kanban_stage || "").toLowerCase();
+  let stage = String(t?.kanban_stage || "").toLowerCase();
   const openTrade = tradeByTicker?.get?.(sym) || null;
   const hasOpen = openTrade && !openTrade.exit_ts;
   const tradeDir = hasOpen ? String(openTrade.direction || "").toUpperCase() : null;
+  if (hasOpen) {
+    const _st = String(openTrade?.status || "").toUpperCase();
+    const _trim = Number(openTrade?.trimmed_pct ?? openTrade?.trimmedPct ?? 0);
+    if (_st === "TP_HIT_TRIM" || _trim > 0) stage = "trim";else if (stage === "exit") stage = "defend";else if (stage !== "defend" && stage !== "trim" && stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
+  }
   const isTTSel = typeof isTickerTTSelected === "function" ? isTickerTTSelected(sym) : false;
   const earnings = typeof window !== "undefined" && window._ttEarningsMap ? window._ttEarningsMap[sym] : null;
   const earnDays = earnings && Number.isFinite(earnings._daysAway) ? earnings._daysAway : null;
@@ -15868,46 +15873,59 @@ function App() {
         flexDirection: "column",
         gap: "var(--ds-space-1)"
       }
-    }, macroItems.length > 0 && React.createElement("div", {
-      className: "ds-row",
-      style: {
-        alignItems: "flex-start"
-      }
-    }, React.createElement("div", {
-      className: "ds-row__label"
-    }, React.createElement("div", {
-      className: "ds-caption"
-    }, "Macro"), React.createElement("div", {
-      style: {
-        fontSize: "var(--ds-fs-caption)",
-        color: "var(--ds-text-faint)",
-        marginTop: 2,
-        fontVariantNumeric: "tabular-nums"
-      }
-    }, macroItems.length, " this week")), React.createElement("div", {
-      className: "ds-row__content"
-    }, macroItems.map((ev, i) => React.createElement("span", {
-      key: `macro-${ev.type}-${ev.date || i}`,
-      className: macroTypeCls(ev.type),
-      style: {
-        fontFamily: "var(--tt-font-mono)"
-      },
-      title: ev.label || ev.type
-    }, React.createElement("span", {
-      style: {
-        fontWeight: 700
-      }
-    }, ev.type), React.createElement("span", {
-      style: {
-        color: "var(--ds-text-muted)",
-        fontWeight: 500
-      }
-    }, formatDayLabel(ev.date)), React.createElement("span", {
-      style: {
-        color: "var(--ds-text-faint)",
-        fontWeight: 500
-      }
-    }, formatMacroTime(ev.ts), " ET"))))), earningItems.length > 0 && React.createElement("div", {
+    }, macroItems.length > 0 && (() => {
+      const _now = Date.now();
+      const _MS_DAY = 86400000;
+      const _withinDays = n => macroItems.filter(ev => {
+        const ts = Number(ev?.ts) || (ev?.date ? new Date(ev.date).getTime() : 0);
+        if (!ts) return false;
+        const days = (ts - _now) / _MS_DAY;
+        return days >= -1 && days <= n;
+      }).length;
+      const _within7 = _withinDays(7);
+      const _within30 = _withinDays(30);
+      const _sublabel = _within7 > 0 ? `${_within7} this week` : _within30 > 0 ? `${_within30} in next 30 days` : `${macroItems.length} upcoming`;
+      return React.createElement("div", {
+        className: "ds-row",
+        style: {
+          alignItems: "flex-start"
+        }
+      }, React.createElement("div", {
+        className: "ds-row__label"
+      }, React.createElement("div", {
+        className: "ds-caption"
+      }, "Macro"), React.createElement("div", {
+        style: {
+          fontSize: "var(--ds-fs-caption)",
+          color: "var(--ds-text-faint)",
+          marginTop: 2,
+          fontVariantNumeric: "tabular-nums"
+        }
+      }, _sublabel)), React.createElement("div", {
+        className: "ds-row__content"
+      }, macroItems.map((ev, i) => React.createElement("span", {
+        key: `macro-${ev.type}-${ev.date || i}`,
+        className: macroTypeCls(ev.type),
+        style: {
+          fontFamily: "var(--tt-font-mono)"
+        },
+        title: ev.label || ev.type
+      }, React.createElement("span", {
+        style: {
+          fontWeight: 700
+        }
+      }, ev.type), React.createElement("span", {
+        style: {
+          color: "var(--ds-text-muted)",
+          fontWeight: 500
+        }
+      }, formatDayLabel(ev.date)), React.createElement("span", {
+        style: {
+          color: "var(--ds-text-faint)",
+          fontWeight: 500
+        }
+      }, formatMacroTime(ev.ts), " ET")))));
+    })(), earningItems.length > 0 && React.createElement("div", {
       className: "ds-row",
       style: {
         alignItems: "flex-start"

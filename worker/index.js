@@ -46563,7 +46563,84 @@ export default {
             throw e;
           }
         }
-        const results = Array.isArray(rows?.results) ? rows.results : [];
+        let results = Array.isArray(rows?.results) ? rows.results : [];
+
+        // V15 P0.7.82: UNION with the active promoted dataset.
+        // The Trades page Performance Overview / Equity Curve / Monthly
+        // tables expect to see ALL trades that contributed to the seeded
+        // account_ledger (including the 587 promoted backtest trades),
+        // not just the post-promotion live trades. Without this merge, the
+        // Trades page showed "19 closed" when the promoted run had 587 +
+        // a handful of live trades after.
+        //
+        // Honors the same ticker/since/until filters. Promoted trades have
+        // their own entry_ts so they sort correctly with the live ones.
+        // The resulting list is a single chronological view of "every trade
+        // that built the current account state." Skipped when the caller
+        // explicitly asks for `include_promoted=false`.
+        const includePromoted = (url.searchParams.get("include_promoted") || "true").toLowerCase() !== "false";
+        if (includePromoted) {
+          try {
+            // Resolve active promoted dataset (most recent active, fall back to most recent)
+            let pdataset = await db.prepare(
+              `SELECT dataset_id FROM promoted_trade_datasets WHERE status = 'active' ORDER BY promoted_at DESC LIMIT 1`
+            ).first();
+            if (!pdataset) {
+              pdataset = await db.prepare(
+                `SELECT dataset_id FROM promoted_trade_datasets ORDER BY promoted_at DESC LIMIT 1`
+              ).first();
+            }
+            if (pdataset?.dataset_id) {
+              let pwhere = "WHERE dataset_id = ?";
+              const pbinds = [String(pdataset.dataset_id)];
+              if (ticker) {
+                pwhere += " AND ticker = ?";
+                pbinds.push(String(ticker).toUpperCase());
+              }
+              if (statusNorm && statusNorm !== "all") {
+                if (statusNorm === "closed") {
+                  pwhere += " AND status IN ('WIN','LOSS','FLAT')";
+                } else if (statusNorm === "open") {
+                  pwhere += " AND (status IS NULL OR status NOT IN ('WIN','LOSS','FLAT'))";
+                } else {
+                  pwhere += " AND status = ?";
+                  pbinds.push(String(statusRaw).toUpperCase());
+                }
+              }
+              if (since != null && Number.isFinite(since)) {
+                pwhere += " AND (exit_ts IS NULL OR exit_ts >= ?)";
+                pbinds.push(Number(since));
+              }
+              if (until != null && Number.isFinite(until)) {
+                pwhere += " AND entry_ts <= ?";
+                pbinds.push(Number(until));
+              }
+              const promotedRows = (await db.prepare(
+                `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+                        exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
+                        script_version, created_at, updated_at, trim_ts, trim_price,
+                        setup_name, setup_grade, risk_budget, shares, notional
+                 FROM promoted_trades
+                 ${pwhere}
+                 ORDER BY entry_ts DESC, trade_id DESC`
+              ).bind(...pbinds).all())?.results || [];
+              // Dedupe by trade_id — live trades override promoted on collision
+              const liveIds = new Set(results.map(r => r.trade_id));
+              for (const pr of promotedRows) {
+                if (!liveIds.has(pr.trade_id)) results.push(pr);
+              }
+              // Re-sort merged set newest first
+              results.sort((a, b) => {
+                const da = Number(b.entry_ts || 0) - Number(a.entry_ts || 0);
+                if (da !== 0) return da;
+                return String(b.trade_id || "").localeCompare(String(a.trade_id || ""));
+              });
+            }
+          } catch (e) {
+            console.warn("[ledger/trades] promoted union failed:", String(e?.message || e).slice(0, 200));
+          }
+        }
+
         const page = results.slice(0, limit);
         const hasMore = results.length > limit;
         const last = page.length > 0 ? page[page.length - 1] : null;
@@ -57801,10 +57878,12 @@ export default {
           let markToMarket = 0;
 
           if (mode === "trader") {
-            // Use the trades table (actual live trades) instead of positions table
-            // (which may contain stale backtest entries)
+            // V15 P0.7.82: include status='TP_HIT_TRIM' too — trimmed
+            // positions are still half-open and contribute unrealized PnL.
+            // Was: 'WHERE status = OPEN'  → SNDK (TP_HIT_TRIM) was excluded
+            // and Open PnL showed $0 even with two open positions.
             const openTrades = (await db.prepare(
-              "SELECT trade_id, ticker, direction, entry_price, shares, notional FROM trades WHERE status = 'OPEN'"
+              "SELECT trade_id, ticker, direction, entry_price, shares, notional, trimmed_pct FROM trades WHERE status IN ('OPEN', 'TP_HIT_TRIM')"
             ).all())?.results || [];
 
             const pricesRaw = await kvGetJSON(KV, "timed:prices");
@@ -57817,7 +57896,11 @@ export default {
 
             for (const t of openTrades) {
               const px = priceMap[t.ticker] || 0;
-              const qty = Number(t.shares) || 0;
+              const fullQty = Number(t.shares) || 0;
+              // For TP_HIT_TRIM trades the engine doesn't always reduce
+              // `shares`; respect trimmed_pct to size the remaining leg.
+              const trimPct = Math.max(0, Math.min(1, Number(t.trimmed_pct) || 0));
+              const qty = fullQty * (1 - trimPct);
               const entry = Number(t.entry_price) || 0;
               const cb = entry * qty;
               const mtm = px * qty;
