@@ -33352,14 +33352,26 @@ async function getOpenPositionAsTrade(env, ticker, direction) {
   };
 }
 
-/** GET /timed/trades?source=positions — Load from positions/lots/execution_actions (Phase 2). Returns same shape as KV. */
+/** GET /timed/trades?source=positions — Load from positions/lots/execution_actions (Phase 2). Returns same shape as KV.
+ *
+ * V15 P0.7.73: filter to status='OPEN' only. The frontend kanban lane
+ * categorizer treats every row from this endpoint as a candidate "active
+ * trade" and applies an override that forces it into HOLD if status isn't
+ * an explicit closed-state. CLOSED/CANCELED positions surfaced as ghost
+ * HOLD entries on the kanban board (issue: HOLD lane showing 13 tickers
+ * with no actually-open positions). Filtering at source makes the
+ * /timed/trades?source=positions contract honest: "currently-open
+ * positions only."
+ */
 async function d1GetAllPositionsAsTrades(env) {
   const db = env?.DB;
   if (!db) return null;
   try {
     const posRes = await db.prepare(
       `SELECT position_id, ticker, direction, status, total_qty, cost_basis, created_at, updated_at, closed_at, script_version, stop_loss, take_profit
-       FROM positions ORDER BY created_at DESC`
+       FROM positions
+       WHERE status = 'OPEN' OR status = 'TP_HIT_TRIM'
+       ORDER BY created_at DESC`
     ).all();
     const positions = Array.isArray(posRes?.results) ? posRes.results : [];
     if (positions.length === 0) return [];

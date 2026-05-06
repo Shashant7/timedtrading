@@ -10493,8 +10493,8 @@ function ActionCenterPanel({
       if (trade) {
         const st = String(trade.status || "").toUpperCase();
         const trimPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
-        const isClosed = st === "WIN" || st === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs) || trimPct >= 0.9999;
-        const isOpen = !isClosed && (st === "OPEN" || st === "TP_HIT_TRIM" || !st);
+        const isClosed = st === "WIN" || st === "LOSS" || st === "FLAT" || st === "CLOSED" || st === "CANCELED" || !!(trade?.exit_ts ?? trade?.exitTs) || trimPct >= 0.9999;
+        const isOpen = !isClosed && (st === "OPEN" || st === "TP_HIT_TRIM");
         if (isOpen) {
           if (st === "TP_HIT_TRIM" || trimPct > 0) stage = "trim";else if (stage !== "defend" && stage !== "trim" && stage !== "exit" && stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
         }
@@ -11714,8 +11714,8 @@ function EarlyMoversPanel({
       const trade = tradeByTicker.get(sym);
       const status = trade ? String(trade.status || "").toUpperCase() : "";
       const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
-      const isClosed = status === "WIN" || status === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs) || trimmedPct >= 0.9999;
-      const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM" || !status);
+      const isClosed = status === "WIN" || status === "LOSS" || status === "FLAT" || status === "CLOSED" || status === "CANCELED" || !!(trade?.exit_ts ?? trade?.exitTs) || trimmedPct >= 0.9999;
+      const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM");
       if (trade && isOpen) {
         if (status === "TP_HIT_TRIM" || Number(trade.trimmed_pct ?? trade.trimmedPct ?? 0) > 0) {
           stage = "trim";
@@ -15256,8 +15256,8 @@ function App() {
       if (trade) {
         const st = String(trade.status || "").toUpperCase();
         const trimPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
-        const isClosed = st === "WIN" || st === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs) || trimPct >= 0.9999;
-        const isOpen = !isClosed && (st === "OPEN" || st === "TP_HIT_TRIM" || !st);
+        const isClosed = st === "WIN" || st === "LOSS" || st === "FLAT" || st === "CLOSED" || st === "CANCELED" || !!(trade?.exit_ts ?? trade?.exitTs) || trimPct >= 0.9999;
+        const isOpen = !isClosed && (st === "OPEN" || st === "TP_HIT_TRIM");
         if (isOpen) {
           if (st === "TP_HIT_TRIM" || trimPct > 0) stage = "trim";else if (!["defend", "trim", "exit", "hold", "active", "just_entered"].includes(stage)) stage = "hold";
         }
