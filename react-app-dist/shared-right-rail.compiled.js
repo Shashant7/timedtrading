@@ -7211,13 +7211,27 @@
           const _tTrimPct = Number(trade.trimmed_pct || trade.trimmedPct) || 0;
           const _tSl = Number(trade.stop_loss || trade.sl) || 0;
           const _tTp = Number(trade.take_profit || trade.tp) || 0;
+          const _tNotional = Number(trade.notional) || (_tShares > 0 && _tEntry > 0 ? _tShares * _tEntry : 0);
+          const _tRiskBudget = Number(trade.risk_budget || trade.riskBudget) || 0;
+          const _tAcctValue = Number(window?._ttAccountValue || window?.TimedPriceUtils?.SYSTEM_REFERENCE_ACCOUNT) || 100000;
+          const _szCtx = window?.TimedPriceUtils?.computePositionContext ? window.TimedPriceUtils.computePositionContext({
+            shares: _tShares,
+            entryPrice: _tEntry,
+            accountValue: _tAcctValue,
+            riskBudget: _tRiskBudget,
+            direction: _tDir
+          }) : null;
           return React.createElement("div", {
             className: "mt-2 rounded-lg p-2.5 border border-[#14b8a6]/20 bg-[#14b8a6]/5"
           }, React.createElement("div", {
             className: "text-[9px] text-[#14b8a6] uppercase font-bold tracking-wider mb-1"
           }, "Active Position"), React.createElement("div", {
             className: "text-[11px] text-white font-semibold"
-          }, _tDir, " @ $", _tEntry.toFixed(2), " \xB7 ", _tShares > 0 ? `${Math.round(_tShares)} shares` : ""), React.createElement("div", {
+          }, _tDir, " @ $", _tEntry.toFixed(2), _szCtx && _tShares > 0 ? ` · ${_szCtx.sharesText}` : _tShares > 0 ? ` · ${Math.round(_tShares)} shares` : ""), _szCtx && (_szCtx.notional > 0 || _szCtx.pctOfAccount > 0) && React.createElement("div", {
+            className: "text-[10px] text-slate-300 mt-0.5 tabular-nums"
+          }, _szCtx.notional > 0 ? `${_szCtx.notionalText} notional` : "", _szCtx.notional > 0 && _szCtx.pctText ? " · " : "", _szCtx.pctText && React.createElement("span", {
+            className: "text-[#14b8a6] font-medium"
+          }, _szCtx.pctText)), React.createElement("div", {
             className: `text-[11px] font-bold mt-0.5 ${_tPnlPct >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`
           }, _tPnlPct >= 0 ? "+" : "", _tPnlPct.toFixed(2), "% P&L", _tTrimPct > 0 ? ` · ${Math.round(_tTrimPct * 100)}% trimmed` : ""), (_tSl > 0 || _tTp > 0) && React.createElement("div", {
             className: "text-[10px] text-slate-400 mt-1"
@@ -7225,7 +7239,11 @@
             className: "text-[#ef4444] font-medium"
           }, "$", _tSl.toFixed(2))), _tSl > 0 && _tTp > 0 && " · ", _tTp > 0 && React.createElement("span", null, "Target @ ", React.createElement("span", {
             className: "text-[#22c55e] font-medium"
-          }, "$", _tTp.toFixed(2)))), _tSetup && React.createElement("div", {
+          }, "$", _tTp.toFixed(2)))), _szCtx && _szCtx.scaleHint && React.createElement("div", {
+            className: "text-[9px] text-slate-400/90 italic mt-1"
+          }, _szCtx.scaleHint), _szCtx && _szCtx.optionsHint && React.createElement("div", {
+            className: "text-[9px] text-slate-400/80 mt-0.5"
+          }, _szCtx.optionsHint), _tSetup && React.createElement("div", {
             className: "text-[9px] text-slate-500 mt-1"
           }, _formatPath(_tSetup), _tGrade ? ` · TT ${_tGrade}` : ""));
         })(), (() => {

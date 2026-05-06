@@ -932,6 +932,7 @@ const ROUTES = [
   ["GET", "/timed/admin/promoted-trades/datasets", "GET /timed/admin/promoted-trades/datasets"],
   ["POST", "/timed/admin/promoted-trades/promote", "POST /timed/admin/promoted-trades/promote"],
   ["POST", "/timed/admin/account-ledger/seed-from-promoted", "POST /timed/admin/account-ledger/seed-from-promoted"],
+  ["POST", "/timed/admin/calibration/seed-from-promoted", "POST /timed/admin/calibration/seed-from-promoted"],
   ["POST", "/timed/admin/model-config", "POST /timed/admin/model-config"],
   ["GET",  "/timed/admin/grade-config",  "GET /timed/admin/grade-config"],
   // ── System Intelligence (unified Calibration + Model) ──
@@ -20856,6 +20857,11 @@ async function processTradeSimulation(
                       qty: Number(trade.shares),
                       value: Number(entryPx) * Number(trade.shares),
                       pnl: 0,
+                      // V15 P0.7.71: pass account_value so the embed can show
+                      // "X% of acct" + scale-to-yours hint in the discord message.
+                      account_value: Number(portfolio?.cash) > 0 || Number(portfolio?.equity) > 0
+                        ? (Number(portfolio.equity) || Number(portfolio.cash) || PORTFOLIO_START_CASH)
+                        : (Number(accountValue) || PORTFOLIO_START_CASH),
                     },
                   );
                   const entryChartUrl = getTradeAutopsyChartUrl(env, tradeId);
@@ -32349,6 +32355,163 @@ async function d1SeedAccountLedgerFromPromoted(env, options = {}) {
   };
 }
 
+/**
+ * Seed `calibration_trade_autopsy` from a promoted backtest dataset (V15 P0.7.71).
+ *
+ * The System Intelligence Analysis page reads from `calibration_trade_autopsy`,
+ * which is normally populated by `autopsyTradesServerSide(env)` reading from
+ * the live `trades` table. The promoted backtest lives in `promoted_trades`
+ * and never feeds the calibration pipeline, so the Analysis tab shows
+ * generations from before the V15 P0.7.59-67 features shipped (admission
+ * matrix, exit doctrine, ETF profile, cluster throttle, market internals).
+ *
+ * This helper bridges the two: it reads the active promoted dataset and
+ * writes the same shape of row into `calibration_trade_autopsy` with
+ * `scope_id = <run_id>` so calibration can be re-run against just the
+ * promoted set without polluting the live `trades`-driven pipeline.
+ *
+ * Caveats:
+ *   - We don't have intraday MFE/MAE candles on hand; we approximate using
+ *     entry/exit prices, which over-counts "optimal" classifications.
+ *     Setup × regime × WR breakdowns are correct; gave-back/left-money are
+ *     directional estimates only.
+ *   - VIX, htf_score, ltf_score, state are best-effort: pulled from the
+ *     trade row itself when available, otherwise null.
+ *   - This re-runs idempotently. Each call wipes prior rows for the same
+ *     scope_id before inserting.
+ *
+ * @param {object} env - { DB }
+ * @param {object} options - { datasetId?, scopeId? }
+ * @returns {Promise<{ ok, scope_id, dataset_id, autopsy_count, classifications }>}
+ */
+async function d1SeedCalibrationAutopsyFromPromoted(env, options = {}) {
+  const db = env?.DB;
+  if (!db) return { ok: false, error: "no_db" };
+
+  await d1EnsureCalibrationSchema(env);
+
+  // Resolve dataset (requested → active → most recent)
+  let dataset = null;
+  const requested = options.datasetId ? String(options.datasetId) : null;
+  if (requested) {
+    dataset = await db.prepare(
+      `SELECT * FROM promoted_trade_datasets WHERE dataset_id = ?1 LIMIT 1`
+    ).bind(requested).first();
+  } else {
+    dataset = await db.prepare(
+      `SELECT * FROM promoted_trade_datasets
+       WHERE status = 'active'
+       ORDER BY promoted_at DESC LIMIT 1`
+    ).first();
+  }
+  if (!dataset?.dataset_id) return { ok: false, error: "no_dataset" };
+
+  const scopeId = options.scopeId
+    ? String(options.scopeId)
+    : (dataset.source_run_id || dataset.dataset_id);
+
+  const promotedRows = (await db.prepare(
+    `SELECT trade_id, ticker, direction, entry_ts, exit_ts, entry_price, exit_price,
+            pnl, pnl_pct, rank, rr, status, setup_name, setup_grade, exit_reason
+     FROM promoted_trades
+     WHERE dataset_id = ?1
+     ORDER BY entry_ts ASC, trade_id ASC`
+  ).bind(String(dataset.dataset_id)).all())?.results || [];
+
+  if (!promotedRows.length) return { ok: false, error: "no_promoted_trades" };
+
+  // Wipe prior rows for this scope so re-seeding is idempotent.
+  await db.prepare(
+    `DELETE FROM calibration_trade_autopsy WHERE scope_id = ?1`
+  ).bind(scopeId).run();
+
+  const inserts = [];
+  const classCounts = {};
+  for (const r of promotedRows) {
+    const ticker = String(r.ticker || "").toUpperCase();
+    const direction = String(r.direction || "LONG").toUpperCase();
+    const entryTs = Number(r.entry_ts) || 0;
+    const exitTs = Number(r.exit_ts) || 0;
+    const entryPrice = Number(r.entry_price) || 0;
+    const exitPrice = Number(r.exit_price) || 0;
+    const pnlPct = Number(r.pnl_pct) || 0;
+    const status = String(r.status || "").toUpperCase();
+    if (!entryTs || !exitTs || !entryPrice || !exitPrice) continue;
+
+    const isLong = direction === "LONG";
+    // Approximate MFE/MAE using entry/exit only — without intraday candles
+    // we can't compute true excursions, so use the actual realized move as
+    // a lower bound for the favorable side and treat losses as MAE.
+    const moveAbs = Math.abs(exitPrice - entryPrice) / entryPrice * 100;
+    const mfePct = pnlPct > 0 ? Math.max(pnlPct, moveAbs) : 0;
+    const maePct = pnlPct < 0 ? Math.max(Math.abs(pnlPct), moveAbs) : 0;
+    // R-multiple proxy: assume 1R = 1.5% (matches ETF/setup average from
+    // ATR-based sizing in the worker).
+    const rMultiple = pnlPct / 1.5;
+    const exitEfficiency = mfePct > 0 ? Math.max(0, pnlPct) / mfePct : 0;
+
+    let classification;
+    if (status === "WIN" && exitEfficiency >= 0.7) classification = "optimal";
+    else if (status === "WIN" && exitEfficiency < 0.5) classification = "left_money";
+    else if (status === "WIN") classification = "left_money";
+    else if (status === "LOSS" && mfePct > 1) classification = "gave_back";
+    else if (status === "LOSS") classification = "bad_entry";
+    else classification = "noise_trade";
+    classCounts[classification] = (classCounts[classification] || 0) + 1;
+
+    const setupName = String(r.setup_name || "").toLowerCase().replace(/\s+/g, "_") || "unknown";
+    const slPrice = isLong
+      ? entryPrice - (entryPrice * 0.015)
+      : entryPrice + (entryPrice * 0.015);
+
+    inserts.push(db.prepare(
+      `INSERT INTO calibration_trade_autopsy
+        (trade_id, ticker, direction, entry_ts, exit_ts, entry_price, exit_price, sl_price,
+         pnl_pct, r_multiple, mfe_pct, mfe_atr, mae_pct, mae_atr, exit_efficiency, sl_hit_before_mfe,
+         time_to_mfe_min, optimal_hold_min, classification, manual_classification, manual_notes,
+         entry_signals_json, entry_path, rank_at_entry, regime_at_entry,
+         execution_profile_name, execution_profile_confidence, market_state, execution_profile_json,
+         vix_at_entry, htf_score_at_entry, ltf_score_at_entry, state_at_entry,
+         completion_at_entry, phase_at_entry, flags_at_entry, scope_id, created_at)
+       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,
+               ?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35,?36,?37,?38)`
+    ).bind(
+      r.trade_id, ticker, direction, entryTs, exitTs, entryPrice, exitPrice,
+      Math.round(slPrice * 100) / 100,
+      pnlPct, Math.round(rMultiple * 100) / 100,
+      Math.round(mfePct * 100) / 100, 0,
+      Math.round(maePct * 100) / 100, 0,
+      Math.round(exitEfficiency * 100) / 100,
+      maePct > 1.5 ? 1 : 0,
+      Math.max(0, Math.round((exitTs - entryTs) / 60000)),
+      Math.max(0, Math.round((exitTs - entryTs) / 60000)),
+      classification, null, null,
+      null, // entry_signals_json
+      setupName,
+      Number(r.rank) || 0,
+      "unknown",
+      null, null, null, null,
+      null, null, null, null,
+      null, null, null,
+      scopeId,
+      Math.floor(Date.now() / 1000),
+    ));
+  }
+
+  // Batch insert
+  for (let i = 0; i < inserts.length; i += 500) {
+    await db.batch(inserts.slice(i, i + 500));
+  }
+
+  return {
+    ok: true,
+    scope_id: scopeId,
+    dataset_id: dataset.dataset_id,
+    autopsy_count: inserts.length,
+    classifications: classCounts,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Investor Daily Replay: runs once per replay day to evaluate investor positions
 // Uses computeInvestorScore + classifyInvestorStage for entry/exit decisions.
@@ -34143,7 +34306,19 @@ function createTradeEntryEmbed(
     summaryLines.push(`Setup:  **${_fmtSetup(_setupName)}** ${_setupGrade ? `(${_setupGrade})` : ""}${riskLabel ? `  |  **${riskLabel}**` : ""}`);
   }
   if (_shares > 0) {
-    summaryLines.push(`Shares:  **${Math.round(_shares)}**  |  Notional:  **$${_notional.toFixed(0)}**`);
+    // V15 P0.7.71: dynamic-sizing transparency. Surface "% of acct" so
+    // discord readers can scale to their own account, plus a perThousand hint.
+    const _acctVal = Number(execution?.account_value) || PORTFOLIO_START_CASH;
+    const _pctOfAcct = _notional > 0 && _acctVal > 0 ? (_notional / _acctVal) * 100 : 0;
+    const _perThousand = _pctOfAcct > 0 ? (_pctOfAcct / 100) * 1000 : 0;
+    let line = `Shares:  **${Math.round(_shares)}**  |  Notional:  **$${_notional.toFixed(0)}**`;
+    if (_pctOfAcct > 0) {
+      line += `  |  **${_pctOfAcct.toFixed(1)}% of acct**`;
+    }
+    summaryLines.push(line);
+    if (_perThousand > 0) {
+      summaryLines.push(`Scale to your own:  ≈ **$${_perThousand.toFixed(0)} per $1k** of your account`);
+    }
   }
   fields.push({ name: "Trade Details", value: summaryLines.join("\n"), inline: false });
 
@@ -52438,6 +52613,33 @@ export default {
           if (body?.dataset_id) opts.datasetId = String(body.dataset_id);
           if (body?.start_cash != null) opts.startCash = Number(body.start_cash);
           const result = await d1SeedAccountLedgerFromPromoted(env, opts);
+          return sendJSON(result, result?.ok ? 200 : 400, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/calibration/seed-from-promoted?key=...
+      // Body: { dataset_id?: string, scope_id?: string }
+      // V15 P0.7.71: ingest the promoted backtest into calibration_trade_autopsy
+      // so System Intelligence Analysis (Run Analysis button + Recommendations)
+      // reflect the actual run we promoted. Without this the Analysis page
+      // shows stale recommendations from a months-old generation that doesn't
+      // include the V15 admission matrix / exit doctrine / ETF profile / cluster
+      // throttle / market internals layers.
+      //
+      // After seeding, the user can click "Run Analysis" or hit
+      // /timed/calibration/run with `scope_id=<run_id>` to compute fresh
+      // recommendations against the seeded autopsy rows.
+      if (routeKey === "POST /timed/admin/calibration/seed-from-promoted") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const body = await req.json().catch(() => ({}));
+          const opts = {};
+          if (body?.dataset_id) opts.datasetId = String(body.dataset_id);
+          if (body?.scope_id) opts.scopeId = String(body.scope_id);
+          const result = await d1SeedCalibrationAutopsyFromPromoted(env, opts);
           return sendJSON(result, result?.ok ? 200 : 400, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));

@@ -133,7 +133,7 @@
     <!-- V15 P0.7.36 (2026-04-30): Trades Performance overview component
          (Monthly perf table, setup breakdown, P&L calendar heatmap).
          Self-contained factory at react-app/trades-performance.js. -->
-    <script src="trades-performance.js?v=20260501a"></script>
+    <script src="trades-performance.js?v=20260506a"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, memo, useRef, createElement } = React;
       const html = (function () {
@@ -6017,7 +6017,7 @@
       //  - Setup Breakdown (rolled-up per-setup performance)
       //  - P&L Calendar heatmap (90-day GitHub-style grid)
       // ─────────────────────────────────────────────────────────────
-      function PerformanceOverviewSection({ trades, loading }) {
+      function PerformanceOverviewSection({ trades, loading, accountStartCash }) {
         const TradesPerformance = useMemo(() => {
           const factory = (typeof window !== "undefined") && window.TradesPerformanceFactory;
           if (!factory) return null;
@@ -6033,16 +6033,18 @@
           return null; // Gracefully hide if script didn't load — dashboard remains functional
         }
 
+        // V15 P0.7.71: align to the same ds-glass panel pattern used by the
+        // Equity Curve / PortfolioColumn elsewhere on the Trades page so the
+        // headline section doesn't look like a different component family.
         return (
-          <div className="mb-6 p-5 rounded-xl"
-            style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
-            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-              <h2 className="text-[15px] font-semibold text-white">Performance Overview</h2>
-              <span className="text-[10px] uppercase tracking-wider text-[#6b7280]">
+          <div className="ds-glass" style={{ marginBottom: "var(--ds-space-5)" }}>
+            <div className="ds-glass__head">
+              <div className="ds-glass__title">Performance Overview</div>
+              <div style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
                 Closed trades · 90-day calendar
-              </span>
+              </div>
             </div>
-            <TradesPerformance trades={trades} loading={loading} />
+            <TradesPerformance trades={trades} loading={loading} accountStartCash={accountStartCash} />
           </div>
         );
       }
@@ -6320,7 +6322,7 @@
                           <th className="py-2 pr-2 text-left font-semibold text-[var(--tt-text-faint)] text-[11px]">Ticker</th>
                           <th className="py-2 pr-2 text-left font-semibold text-[var(--tt-text-faint)] text-[11px]">Dir</th>
                           <th className="py-2 pr-2 text-left font-semibold text-[var(--tt-text-faint)] text-[11px]">Tier</th>
-                          <th className="py-2 pr-2 text-right font-semibold text-[var(--tt-text-faint)] text-[11px]">Shares</th>
+                          <th className="py-2 pr-2 text-right font-semibold text-[var(--tt-text-faint)] text-[11px]">Size</th>
                           <th className="py-2 pr-2 text-right font-semibold text-[var(--tt-text-faint)] text-[11px]">P&L</th>
                           <th className="py-2 pr-2 text-right font-semibold text-[var(--tt-text-faint)] text-[11px]">P&L%</th>
                           <th className="py-2 text-center font-semibold text-[var(--tt-text-faint)] text-[11px]">Status</th>
@@ -6355,8 +6357,29 @@
                             <td className="py-2 pr-2">
                               ${_g ? html`<span className=${"px-1.5 py-0.5 rounded text-[9px] font-bold border " + gradeCls}>${_g}</span>` : html`<span className="text-[var(--tt-text-faint)]">—</span>`}
                             </td>
-                            <td className="py-2 pr-2 text-right font-medium text-[#a78bfa] whitespace-nowrap">
-                              ${(() => { const _s = Number(h.raw?.shares); return (_s > 0 && Number.isFinite(_s)) ? Math.round(_s) : "—"; })()}
+                            <td className="py-2 pr-2 text-right font-medium whitespace-nowrap">
+                              ${(() => {
+                                const _s = Number(h.raw?.shares) || 0;
+                                const _ep = Number(h.raw?.entry_price || h.raw?.entryPrice) || 0;
+                                if (!_s || !_ep) return html`<span className="text-[var(--tt-text-faint)]">—</span>`;
+                                const _av = Number(window?._ttAccountValue || 100000) || 100000;
+                                const _ctx = window?.TimedPriceUtils?.computePositionContext
+                                  ? window.TimedPriceUtils.computePositionContext({
+                                      shares: _s,
+                                      entryPrice: _ep,
+                                      accountValue: _av,
+                                      riskBudget: Number(h.raw?.risk_budget) || 0,
+                                      direction: h.direction,
+                                    })
+                                  : null;
+                                if (!_ctx) return html`<span className="text-[#a78bfa]">${Math.round(_s)}</span>`;
+                                return html`<div className="leading-tight">
+                                  <div className="text-[#a78bfa]">${Math.round(_s)} sh</div>
+                                  <div className="text-[10px] text-[var(--tt-text-muted)]">
+                                    ${_ctx.notionalText}${_ctx.pctText ? ` · ${_ctx.pctText}` : ""}
+                                  </div>
+                                </div>`;
+                              })()}
                             </td>
                             <td className=${"py-2 pr-2 text-right font-medium whitespace-nowrap " + pnlColor}>
                               ${h.pnl != null ? fmtUsd(h.pnl) : "—"}
@@ -6744,6 +6767,16 @@
         } = useSimulatedTrades();
         const { sectors } = useSectors();
         const { summary: acctSummary } = useAccountSummary("trader");
+
+        // V15 P0.7.71: expose trader account value globally so the shared
+        // Right Rail's Active Position card can compute "X% of acct" with
+        // the user's actual balance (vs the $100k system reference).
+        useEffect(() => {
+          const av = Number(acctSummary?.accountValue);
+          if (Number.isFinite(av) && av > 0) {
+            window._ttAccountValue = av;
+          }
+        }, [acctSummary?.accountValue]);
 
         // ── Investor portfolio data ──
         const { summary: investorSummary } = useAccountSummary("investor");
@@ -7953,6 +7986,7 @@
                   <PerformanceOverviewSection
                     trades={ledgerFilteredTrades || []}
                     loading={(ledgerTrades ?? {}).loading}
+                    accountStartCash={Number(acctSummary?.startCash) || 100000}
                   />
                 </div>
 

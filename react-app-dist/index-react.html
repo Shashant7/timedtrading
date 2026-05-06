@@ -705,6 +705,12 @@
           flex: 1 1 0;
           min-height: 0;
         }
+        .tt-bubble-mobile-toggles {
+          display: flex;
+        }
+        @media (min-width: 1024px) {
+          .tt-bubble-mobile-toggles { display: none !important; }
+        }
         .tt-bubble-toggle-btn {
           width: 100%;
           padding: 10px 14px;
@@ -963,7 +969,7 @@
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-right-rail.compiled.js?v=20260503-fundamentals"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
-    <script src="index-react.compiled.0647141a2d.js"></script>
+    <script src="index-react.compiled.c42bc0915e.js"></script>
 
     <!-- Initialize app - separate script to avoid Babel parsing issues -->
     <script>

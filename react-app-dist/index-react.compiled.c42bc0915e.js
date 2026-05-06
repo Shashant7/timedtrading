@@ -14455,6 +14455,12 @@ function App() {
   const {
     summary: accountSummary
   } = useAccountSummary(accountMode, secondaryDataReady);
+  useEffect(() => {
+    const av = Number(accountSummary?.accountValue);
+    if (Number.isFinite(av) && av > 0) {
+      window._ttAccountValue = av;
+    }
+  }, [accountSummary?.accountValue]);
   const {
     pending: queuedPending,
     pendingCount: queuedPendingCount
@@ -16870,9 +16876,8 @@ function App() {
       maxHeight: typeof window !== "undefined" && window.innerWidth >= 1024 ? "1200px" : "none"
     }
   }, React.createElement("div", {
-    className: "lg:hidden",
+    className: "lg:hidden tt-bubble-mobile-toggles",
     style: {
-      display: "flex",
       gap: 8,
       marginBottom: 8
     }

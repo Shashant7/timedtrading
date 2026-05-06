@@ -4575,7 +4575,8 @@ function EquityCurveChart({
 }
 function PerformanceOverviewSection({
   trades,
-  loading
+  loading,
+  accountStartCash
 }) {
   const TradesPerformance = useMemo(() => {
     const factory = typeof window !== "undefined" && window.TradesPerformanceFactory;
@@ -4594,20 +4595,25 @@ function PerformanceOverviewSection({
     return null;
   }
   return React.createElement("div", {
-    className: "mb-6 p-5 rounded-xl",
+    className: "ds-glass",
     style: {
-      background: "rgba(255,255,255,0.02)",
-      border: "1px solid rgba(255,255,255,0.06)"
+      marginBottom: "var(--ds-space-5)"
     }
   }, React.createElement("div", {
-    className: "flex items-center justify-between mb-4 flex-wrap gap-2"
-  }, React.createElement("h2", {
-    className: "text-[15px] font-semibold text-white"
-  }, "Performance Overview"), React.createElement("span", {
-    className: "text-[10px] uppercase tracking-wider text-[#6b7280]"
+    className: "ds-glass__head"
+  }, React.createElement("div", {
+    className: "ds-glass__title"
+  }, "Performance Overview"), React.createElement("div", {
+    style: {
+      fontSize: "var(--ds-fs-meta)",
+      color: "var(--ds-text-muted)",
+      textTransform: "uppercase",
+      letterSpacing: "0.08em"
+    }
   }, "Closed trades \xB7 90-day calendar")), React.createElement(TradesPerformance, {
     trades: trades,
-    loading: loading
+    loading: loading,
+    accountStartCash: accountStartCash
   }));
 }
 function PortfolioColumn({
@@ -4912,7 +4918,7 @@ function PortfolioColumn({
                           <th className="py-2 pr-2 text-left font-semibold text-[var(--tt-text-faint)] text-[11px]">Ticker</th>
                           <th className="py-2 pr-2 text-left font-semibold text-[var(--tt-text-faint)] text-[11px]">Dir</th>
                           <th className="py-2 pr-2 text-left font-semibold text-[var(--tt-text-faint)] text-[11px]">Tier</th>
-                          <th className="py-2 pr-2 text-right font-semibold text-[var(--tt-text-faint)] text-[11px]">Shares</th>
+                          <th className="py-2 pr-2 text-right font-semibold text-[var(--tt-text-faint)] text-[11px]">Size</th>
                           <th className="py-2 pr-2 text-right font-semibold text-[var(--tt-text-faint)] text-[11px]">P&L</th>
                           <th className="py-2 pr-2 text-right font-semibold text-[var(--tt-text-faint)] text-[11px]">P&L%</th>
                           <th className="py-2 text-center font-semibold text-[var(--tt-text-faint)] text-[11px]">Status</th>
@@ -4947,10 +4953,26 @@ function PortfolioColumn({
                             <td className="py-2 pr-2">
                               ${_g ? html`<span className=${"px-1.5 py-0.5 rounded text-[9px] font-bold border " + gradeCls}>${_g}</span>` : html`<span className="text-[var(--tt-text-faint)]">—</span>`}
                             </td>
-                            <td className="py-2 pr-2 text-right font-medium text-[#a78bfa] whitespace-nowrap">
+                            <td className="py-2 pr-2 text-right font-medium whitespace-nowrap">
                               ${(() => {
-      const _s = Number(h.raw?.shares);
-      return _s > 0 && Number.isFinite(_s) ? Math.round(_s) : "—";
+      const _s = Number(h.raw?.shares) || 0;
+      const _ep = Number(h.raw?.entry_price || h.raw?.entryPrice) || 0;
+      if (!_s || !_ep) return html`<span className="text-[var(--tt-text-faint)]">—</span>`;
+      const _av = Number(window?._ttAccountValue || 100000) || 100000;
+      const _ctx = window?.TimedPriceUtils?.computePositionContext ? window.TimedPriceUtils.computePositionContext({
+        shares: _s,
+        entryPrice: _ep,
+        accountValue: _av,
+        riskBudget: Number(h.raw?.risk_budget) || 0,
+        direction: h.direction
+      }) : null;
+      if (!_ctx) return html`<span className="text-[#a78bfa]">${Math.round(_s)}</span>`;
+      return html`<div className="leading-tight">
+                                  <div className="text-[#a78bfa]">${Math.round(_s)} sh</div>
+                                  <div className="text-[10px] text-[var(--tt-text-muted)]">
+                                    ${_ctx.notionalText}${_ctx.pctText ? ` · ${_ctx.pctText}` : ""}
+                                  </div>
+                                </div>`;
     })()}
                             </td>
                             <td className=${"py-2 pr-2 text-right font-medium whitespace-nowrap " + pnlColor}>
@@ -5463,6 +5485,12 @@ function App() {
   const {
     summary: acctSummary
   } = useAccountSummary("trader");
+  useEffect(() => {
+    const av = Number(acctSummary?.accountValue);
+    if (Number.isFinite(av) && av > 0) {
+      window._ttAccountValue = av;
+    }
+  }, [acctSummary?.accountValue]);
   const {
     summary: investorSummary
   } = useAccountSummary("investor");
@@ -6721,7 +6749,8 @@ function App() {
     className: `${selectedTicker || selectedTrade ? "mr-[470px] xl:mr-[580px]" : ""}`
   }, React.createElement(PerformanceOverviewSection, {
     trades: ledgerFilteredTrades || [],
-    loading: (ledgerTrades ?? {}).loading
+    loading: (ledgerTrades ?? {}).loading,
+    accountStartCash: Number(acctSummary?.startCash) || 100000
   })), React.createElement("div", {
     className: `${selectedTicker || selectedTrade ? "mr-[470px] xl:mr-[580px]" : ""}`
   }, React.createElement("div", {

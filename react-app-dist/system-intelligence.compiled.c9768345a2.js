@@ -6952,14 +6952,34 @@ function App() {
     setError(null);
     preCalibReportIdRef.current = reportId;
     try {
+      let scopeArgs = {
+        analysis_only: true
+      };
+      try {
+        const seedRes = await fetch(`${API_BASE}/timed/admin/calibration/seed-from-promoted`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({}),
+          credentials: "include"
+        });
+        const seedData = await seedRes.json().catch(() => ({}));
+        if (seedData?.ok && seedData?.scope_id) {
+          scopeArgs = {
+            analysis_only: true,
+            scope_id: seedData.scope_id,
+            source_run_id: seedData.scope_id,
+            scope_kind: "promoted_run"
+          };
+        }
+      } catch (_) {}
       const res = await fetch(`${API_BASE}/timed/calibration/run`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({
-          analysis_only: true
-        }),
+        body: JSON.stringify(scopeArgs),
         credentials: "include"
       });
       const data = await res.json();

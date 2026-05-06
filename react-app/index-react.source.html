@@ -714,6 +714,12 @@
           flex: 1 1 0;
           min-height: 0;
         }
+        .tt-bubble-mobile-toggles {
+          display: flex;
+        }
+        @media (min-width: 1024px) {
+          .tt-bubble-mobile-toggles { display: none !important; }
+        }
         .tt-bubble-toggle-btn {
           width: 100%;
           padding: 10px 14px;
@@ -18089,6 +18095,14 @@
         }, [trades]);
         const accountMode = dashboardMode === "investor" ? "investor" : "trader";
         const { summary: accountSummary } = useAccountSummary(accountMode, secondaryDataReady);
+        // V15 P0.7.71: expose account value globally so the shared Right Rail
+        // can compute "X% of acct" using the user's actual balance.
+        useEffect(() => {
+          const av = Number(accountSummary?.accountValue);
+          if (Number.isFinite(av) && av > 0) {
+            window._ttAccountValue = av;
+          }
+        }, [accountSummary?.accountValue]);
         const { pending: queuedPending, pendingCount: queuedPendingCount } = useQueuedActions(secondaryDataReady);
         const userTickers = useUserTickers(secondaryDataReady);
         const { sectors } = useSectors(secondaryDataReady);
@@ -20290,8 +20304,12 @@
                           inline + Open Full button to launch the landscape
                           fullscreen modal where the chart actually has
                           enough screen real estate to read labels.
-                          Hidden on desktop via @media (min-width: 1024px). */}
-                      <div className="lg:hidden" style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                          Hidden on desktop via @media (min-width: 1024px).
+                          V15 P0.7.71: must NOT set inline display:flex here —
+                          inline styles override Tailwind's lg:hidden, which
+                          caused the toggle to leak into desktop and push the
+                          Viewport over. Use class-only display switching. */}
+                      <div className="lg:hidden tt-bubble-mobile-toggles" style={{ gap: 8, marginBottom: 8 }}>
                         <button
                           type="button"
                           onClick={() => setBubbleMobileExpanded(v => !v)}

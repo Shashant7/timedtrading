@@ -6,17 +6,29 @@
  *    what setups worked, biggest winners, biggest losers"
  *   "Day by Day P&L Calendar that shows how much realized P&L the system locked in"
  *
+ * V15 P0.7.71 (2026-05-06): math + design overhaul per user feedback
+ *   - Total PnL %: was sum(pnl_pct) which produced absurd 429% on 587 trades.
+ *     Now uses portfolio return: sumPnlUsd / startCash * 100. (Matches the
+ *     +40.09% on the equity curve.)
+ *   - Setup Breakdown PnL %: same fix — now portfolio-return-attributed.
+ *   - Setup names: strip the "TT Tt " double prefix produced by "TT " prefix
+ *     on already-display-friendly names.
+ *   - PnL Calendar: now an actual 90-day, month-grouped 3-column layout with
+ *     realized $ visible in each day cell, not a tiny GitHub-style heatmap.
+ *   - Style aligned to ds-card / ds-glass / ds-metric tokens for visual
+ *     consistency with the rest of the Trades page.
+ *
  * Self-contained component that can be rendered into any container on the Trades
  * page (simulation-dashboard.html). Reads from /timed/trades and aggregates client-side.
  *
  * Usage:
  *   const TradesPerformance = window.TradesPerformanceFactory({ React, API_BASE });
- *   ReactDOM.render(<TradesPerformance />, container);
+ *   ReactDOM.render(<TradesPerformance trades={...} loading={false} accountStartCash={100000} />, container);
  */
 (function () {
   window.TradesPerformanceFactory = function (deps) {
     const React = deps.React;
-    const { useState, useEffect, useMemo } = React;
+    const { useMemo } = React;
     const API_BASE = deps.API_BASE || "";
 
     // ── Helpers ──────────────────────────────────────────────────────
@@ -29,6 +41,13 @@
       if (!Number.isFinite(v)) return "—";
       const sign = v >= 0 ? "+" : "−";
       return `${sign}$${Math.abs(v).toFixed(0)}`;
+    };
+    const fmtUsdShort = (v) => {
+      if (!Number.isFinite(v) || v === 0) return "";
+      const sign = v >= 0 ? "+" : "−";
+      const abs = Math.abs(v);
+      if (abs >= 1000) return `${sign}$${(abs / 1000).toFixed(1)}k`;
+      return `${sign}$${abs.toFixed(0)}`;
     };
     const monthKey = (ts) => {
       const d = new Date(Number(ts));
@@ -44,6 +63,24 @@
       return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
     };
 
+    // Pretty setup name. Engine emits things like "TT Tt Gap Reversal Long"
+    // (where the first "TT " is a brand prefix and "Tt " is the legacy
+    // Tt_ engine namespace). Strip both, then title-case.
+    function prettySetupName(name) {
+      if (!name) return "Unknown";
+      let s = String(name);
+      // Strip leading "TT " (brand) once
+      s = s.replace(/^TT\s+/i, "");
+      // Strip leading "Tt " or "tt_" (engine namespace) once
+      s = s.replace(/^Tt[\s_]/i, "");
+      s = s.replace(/^tt_/i, "");
+      // Strip the "Tt" between brand and setup ("Gap Reversal Long" already)
+      s = s.replace(/_/g, " ").trim();
+      // Title-case any remaining words
+      s = s.replace(/\b\w/g, c => c.toUpperCase());
+      return s || "Unknown";
+    }
+
     // Aggregate trades by month
     function aggregateMonthly(trades) {
       const byMonth = new Map();
@@ -55,27 +92,27 @@
         const k = monthKey(exitTs);
         let slot = byMonth.get(k);
         if (!slot) {
-          slot = { key: k, n: 0, wins: 0, losses: 0, flats: 0, pnlPct: 0, pnlUsd: 0,
-                   bestPct: -Infinity, bestTicker: null, worstPct: Infinity, worstTicker: null,
+          slot = { key: k, n: 0, wins: 0, losses: 0, flats: 0, pnlUsd: 0,
+                   bestPnlUsd: -Infinity, bestTicker: null, bestPnlPct: 0,
+                   worstPnlUsd: Infinity, worstTicker: null, worstPnlPct: 0,
                    setups: new Map() };
           byMonth.set(k, slot);
         }
         slot.n++;
         const pnlPct = Number(t?.pnl_pct ?? t?.pnlPct) || 0;
         const pnl = Number(t?.pnl) || 0;
-        slot.pnlPct += pnlPct;
         slot.pnlUsd += pnl;
         if (status === "WIN") slot.wins++;
         else if (status === "LOSS") slot.losses++;
         else slot.flats++;
-        if (pnlPct > slot.bestPct) { slot.bestPct = pnlPct; slot.bestTicker = t?.ticker; }
-        if (pnlPct < slot.worstPct) { slot.worstPct = pnlPct; slot.worstTicker = t?.ticker; }
-        // Track setups
+        if (pnl > slot.bestPnlUsd) { slot.bestPnlUsd = pnl; slot.bestTicker = t?.ticker; slot.bestPnlPct = pnlPct; }
+        if (pnl < slot.worstPnlUsd) { slot.worstPnlUsd = pnl; slot.worstTicker = t?.ticker; slot.worstPnlPct = pnlPct; }
+        // Track setups by USD pnl (correct attribution for portfolio return)
         const setupKey = String(t?.setup_name || t?.entry_path || "unknown");
-        const setupSlot = slot.setups.get(setupKey) || { n: 0, wins: 0, pnlPct: 0 };
+        const setupSlot = slot.setups.get(setupKey) || { n: 0, wins: 0, pnlUsd: 0 };
         setupSlot.n++;
         if (status === "WIN") setupSlot.wins++;
-        setupSlot.pnlPct += pnlPct;
+        setupSlot.pnlUsd += pnl;
         slot.setups.set(setupKey, setupSlot);
       }
       // Sort newest first
@@ -83,7 +120,7 @@
     }
 
     // Aggregate trades by day (for calendar)
-    function aggregateDaily(trades, startDate, endDate) {
+    function aggregateDaily(trades) {
       const byDay = new Map();
       for (const t of trades) {
         const status = String(t?.status || "").toUpperCase();
@@ -93,11 +130,10 @@
         const k = dayKey(exitTs);
         let slot = byDay.get(k);
         if (!slot) {
-          slot = { key: k, n: 0, wins: 0, losses: 0, pnlPct: 0, pnlUsd: 0 };
+          slot = { key: k, n: 0, wins: 0, losses: 0, pnlUsd: 0 };
           byDay.set(k, slot);
         }
         slot.n++;
-        slot.pnlPct += Number(t?.pnl_pct ?? t?.pnlPct) || 0;
         slot.pnlUsd += Number(t?.pnl) || 0;
         if (status === "WIN") slot.wins++;
         else if (status === "LOSS") slot.losses++;
@@ -105,7 +141,7 @@
       return byDay;
     }
 
-    function MonthlyPerformanceTable({ months }) {
+    function MonthlyPerformanceTable({ months, startCash }) {
       if (!months.length) {
         return React.createElement("div", { className: "text-[12px] text-[#6b7280] py-4" }, "No closed trades yet.");
       }
@@ -125,18 +161,23 @@
           React.createElement("tbody", null,
             months.map((m) => {
               const wr = m.n > 0 ? (m.wins / m.n) * 100 : 0;
-              const pnlCls = m.pnlPct > 0 ? "text-emerald-400" : m.pnlPct < 0 ? "text-rose-400" : "text-[#9ca3af]";
+              // V15 P0.7.71: monthly PnL % is the portfolio return for that
+              // month — pnlUsd / startCash * 100 — not the sum of per-trade
+              // pct returns (which double-counts because each trade is sized
+              // as a fraction of the portfolio).
+              const pnlPct = startCash > 0 ? (m.pnlUsd / startCash) * 100 : 0;
+              const pnlCls = pnlPct > 0 ? "text-emerald-400" : pnlPct < 0 ? "text-rose-400" : "text-[#9ca3af]";
               const wrCls = wr >= 65 ? "text-emerald-400" : wr >= 50 ? "text-sky-400" : "text-amber-400";
               return React.createElement("tr", { key: m.key, className: "border-b border-white/[0.04] hover:bg-white/[0.02]" },
                 React.createElement("td", { className: "py-2 pr-3 font-medium text-white" }, monthLabel(m.key)),
                 React.createElement("td", { className: "py-2 pr-3 text-right text-[#9ca3af]" }, m.n),
                 React.createElement("td", { className: `py-2 pr-3 text-right font-semibold ${wrCls}` }, `${wr.toFixed(0)}%`),
-                React.createElement("td", { className: `py-2 pr-3 text-right font-semibold ${pnlCls}` }, fmtPnl(m.pnlPct)),
+                React.createElement("td", { className: `py-2 pr-3 text-right font-semibold ${pnlCls}` }, fmtPnl(pnlPct)),
                 React.createElement("td", { className: `py-2 pr-3 text-right ${pnlCls}` }, fmtUsd(m.pnlUsd)),
                 React.createElement("td", { className: "py-2 pr-3 text-emerald-400/90" },
-                  m.bestTicker ? `${m.bestTicker} ${fmtPnl(m.bestPct)}` : "—"),
+                  m.bestTicker ? `${m.bestTicker} ${fmtPnl(m.bestPnlPct)}` : "—"),
                 React.createElement("td", { className: "py-2 text-rose-400/90" },
-                  m.worstTicker ? `${m.worstTicker} ${fmtPnl(m.worstPct)}` : "—")
+                  m.worstTicker ? `${m.worstTicker} ${fmtPnl(m.worstPnlPct)}` : "—")
               );
             })
           )
@@ -144,21 +185,21 @@
       );
     }
 
-    function SetupBreakdown({ months }) {
-      // Roll all months into one setup table
+    function SetupBreakdown({ months, startCash }) {
+      // Roll all months into one setup table — aggregate USD then convert to %
       const setupTotals = new Map();
       for (const m of months) {
         for (const [k, s] of m.setups.entries()) {
-          const t = setupTotals.get(k) || { name: k, n: 0, wins: 0, pnlPct: 0 };
+          const t = setupTotals.get(k) || { name: k, n: 0, wins: 0, pnlUsd: 0 };
           t.n += s.n;
           t.wins += s.wins;
-          t.pnlPct += s.pnlPct;
+          t.pnlUsd += s.pnlUsd;
           setupTotals.set(k, t);
         }
       }
       const setups = [...setupTotals.values()]
         .filter(s => s.n >= 2)
-        .sort((a, b) => b.pnlPct - a.pnlPct);
+        .sort((a, b) => b.pnlUsd - a.pnlUsd);
       if (!setups.length) return null;
       return React.createElement("div", { className: "mt-4" },
         React.createElement("h3", { className: "text-[10px] uppercase tracking-wider text-[#6b7280] font-semibold mb-2" }, "Setup Breakdown"),
@@ -168,21 +209,22 @@
               React.createElement("th", { className: "py-1.5 pr-3 font-semibold" }, "Setup"),
               React.createElement("th", { className: "py-1.5 pr-3 font-semibold text-right" }, "Trades"),
               React.createElement("th", { className: "py-1.5 pr-3 font-semibold text-right" }, "WR"),
-              React.createElement("th", { className: "py-1.5 font-semibold text-right" }, "Total PnL")
+              React.createElement("th", { className: "py-1.5 pr-3 font-semibold text-right" }, "PnL %"),
+              React.createElement("th", { className: "py-1.5 font-semibold text-right" }, "PnL $")
             )
           ),
           React.createElement("tbody", null,
             setups.map((s) => {
               const wr = s.n > 0 ? (s.wins / s.n) * 100 : 0;
-              const pnlCls = s.pnlPct > 0 ? "text-emerald-400" : s.pnlPct < 0 ? "text-rose-400" : "text-[#9ca3af]";
+              const pnlPct = startCash > 0 ? (s.pnlUsd / startCash) * 100 : 0;
+              const pnlCls = pnlPct > 0 ? "text-emerald-400" : pnlPct < 0 ? "text-rose-400" : "text-[#9ca3af]";
               const wrCls = wr >= 65 ? "text-emerald-400" : wr >= 50 ? "text-sky-400" : "text-amber-400";
-              // Pretty setup name (strip "tt_" prefix)
-              const display = s.name.replace(/^tt_/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
               return React.createElement("tr", { key: s.name, className: "border-b border-white/[0.03]" },
-                React.createElement("td", { className: "py-1.5 pr-3 text-white" }, display),
+                React.createElement("td", { className: "py-1.5 pr-3 text-white" }, prettySetupName(s.name)),
                 React.createElement("td", { className: "py-1.5 pr-3 text-right text-[#9ca3af]" }, s.n),
                 React.createElement("td", { className: `py-1.5 pr-3 text-right font-semibold ${wrCls}` }, `${wr.toFixed(0)}%`),
-                React.createElement("td", { className: `py-1.5 text-right font-semibold ${pnlCls}` }, fmtPnl(s.pnlPct))
+                React.createElement("td", { className: `py-1.5 pr-3 text-right font-semibold ${pnlCls}` }, fmtPnl(pnlPct)),
+                React.createElement("td", { className: `py-1.5 text-right ${pnlCls}` }, fmtUsd(s.pnlUsd))
               );
             })
           )
@@ -190,62 +232,132 @@
       );
     }
 
-    function PnlCalendar({ trades, days = 90 }) {
-      // Build a heatmap: last N days, each cell colored by daily PnL
+    /**
+     * V15 P0.7.71: real 3-month calendar view.
+     *
+     * Replaces the GitHub-style heatmap (tiny 12px cells with no dollar
+     * amounts visible) with an actual 3-month-by-3-month grid. Each cell
+     * shows the day number + realized $ amount when there were trades.
+     * Background tint encodes magnitude (green = win, red = loss). Weekends
+     * stay muted but visible for orientation.
+     */
+    function PnlCalendar({ trades }) {
+      // Build day map for the last ~93 days (covers 3 calendar months)
       const today = new Date();
       today.setUTCHours(0, 0, 0, 0);
-      const startDate = new Date(today.getTime() - days * 86400000);
-      const byDay = aggregateDaily(trades, startDate, today);
+      const byDay = aggregateDaily(trades);
 
-      // Build day grid
-      const cells = [];
-      let maxAbs = 0;
-      for (let i = 0; i < days; i++) {
-        const d = new Date(startDate.getTime() + i * 86400000);
-        const k = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
-        const slot = byDay.get(k);
-        const dow = d.getUTCDay(); // 0=Sun, 6=Sat
-        const isWeekend = dow === 0 || dow === 6;
-        const pnl = slot?.pnlPct || 0;
-        if (Math.abs(pnl) > maxAbs) maxAbs = Math.abs(pnl);
-        cells.push({ date: d, key: k, pnl, n: slot?.n || 0, wins: slot?.wins || 0, losses: slot?.losses || 0, isWeekend });
+      // Compute the 3 calendar months ending today: [today-2mo, today-1mo, today]
+      const monthsToShow = [];
+      const baseY = today.getUTCFullYear();
+      const baseM = today.getUTCMonth();
+      for (let off = 2; off >= 0; off--) {
+        const dt = new Date(Date.UTC(baseY, baseM - off, 1));
+        monthsToShow.push({ year: dt.getUTCFullYear(), month: dt.getUTCMonth() });
       }
 
-      const cellColor = (cell) => {
-        if (cell.isWeekend) return "rgba(255,255,255,0.02)";
-        if (cell.n === 0) return "rgba(255,255,255,0.04)";
-        if (maxAbs <= 0) return "rgba(255,255,255,0.06)";
-        const intensity = Math.min(1, Math.abs(cell.pnl) / maxAbs);
-        const alpha = 0.15 + intensity * 0.7;
-        const rgb = cell.pnl >= 0 ? "34,197,94" : "239,68,68";
+      // Find max abs $ across the visible window to scale color intensity
+      let maxAbs = 0;
+      for (const m of monthsToShow) {
+        const daysInMonth = new Date(Date.UTC(m.year, m.month + 1, 0)).getUTCDate();
+        for (let d = 1; d <= daysInMonth; d++) {
+          const k = `${m.year}-${String(m.month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+          const slot = byDay.get(k);
+          if (slot && Math.abs(slot.pnlUsd) > maxAbs) maxAbs = Math.abs(slot.pnlUsd);
+        }
+      }
+
+      const cellBg = (pnlUsd) => {
+        if (!Number.isFinite(pnlUsd) || pnlUsd === 0 || maxAbs === 0) return "rgba(255,255,255,0.02)";
+        const intensity = Math.min(1, Math.abs(pnlUsd) / maxAbs);
+        const alpha = 0.10 + intensity * 0.45;
+        const rgb = pnlUsd >= 0 ? "34,197,94" : "239,68,68";
         return `rgba(${rgb},${alpha.toFixed(2)})`;
       };
 
-      // Group into weeks for grid layout
-      const weeks = [];
-      let currentWeek = [];
-      // Pad start so first week aligns to Sunday
-      const firstDow = cells[0]?.date.getUTCDay() || 0;
-      for (let i = 0; i < firstDow; i++) currentWeek.push(null);
-      for (const c of cells) {
-        currentWeek.push(c);
-        if (c.date.getUTCDay() === 6) { // Saturday — close week
-          weeks.push(currentWeek);
-          currentWeek = [];
+      const dayLabels = ["S", "M", "T", "W", "T", "F", "S"];
+
+      // Aggregate window totals
+      let totalDays = 0, greenDays = 0, redDays = 0, totalPnlUsd = 0;
+      for (const m of monthsToShow) {
+        const daysInMonth = new Date(Date.UTC(m.year, m.month + 1, 0)).getUTCDate();
+        for (let d = 1; d <= daysInMonth; d++) {
+          const k = `${m.year}-${String(m.month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+          const slot = byDay.get(k);
+          if (!slot || slot.n === 0) continue;
+          totalDays++;
+          totalPnlUsd += slot.pnlUsd;
+          if (slot.pnlUsd > 0) greenDays++;
+          else if (slot.pnlUsd < 0) redDays++;
         }
       }
-      if (currentWeek.length > 0) weeks.push(currentWeek);
 
-      // Compute totals
-      const totalDays = cells.filter(c => c.n > 0).length;
-      const greenDays = cells.filter(c => c.n > 0 && c.pnl > 0).length;
-      const redDays = cells.filter(c => c.n > 0 && c.pnl < 0).length;
-      const totalPnl = cells.reduce((sum, c) => sum + (c.pnl || 0), 0);
+      function MonthGrid({ year, month }) {
+        const firstOfMonth = new Date(Date.UTC(year, month, 1));
+        const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+        const firstDow = firstOfMonth.getUTCDay();
+        const cells = [];
+        for (let i = 0; i < firstDow; i++) cells.push(null); // pad
+        for (let d = 1; d <= daysInMonth; d++) {
+          const k = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+          const slot = byDay.get(k);
+          const dow = (firstDow + d - 1) % 7;
+          const isWeekend = dow === 0 || dow === 6;
+          cells.push({ day: d, k, slot, isWeekend });
+        }
+        const monthName = firstOfMonth.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+        return React.createElement("div", { className: "flex-1" },
+          React.createElement("div", {
+            className: "text-[11px] font-semibold text-white mb-1.5 px-1",
+          }, monthName),
+          // Day-of-week header
+          React.createElement("div", {
+            style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "2px", marginBottom: "4px" },
+          },
+            dayLabels.map((lbl, i) => React.createElement("div", {
+              key: i,
+              className: "text-[9px] text-[#6b7280] uppercase tracking-wider text-center font-semibold py-0.5",
+            }, lbl))
+          ),
+          // Day cells
+          React.createElement("div", {
+            style: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "2px" },
+          },
+            cells.map((c, i) => {
+              if (!c) return React.createElement("div", { key: i, style: { minHeight: "44px" } });
+              const pnl = c.slot?.pnlUsd || 0;
+              const n = c.slot?.n || 0;
+              const w = c.slot?.wins || 0;
+              const l = c.slot?.losses || 0;
+              const tip = n > 0
+                ? `${c.k}: ${n} trade${n !== 1 ? 's' : ''} · ${w}W/${l}L · ${fmtUsd(pnl)}`
+                : `${c.k}: no trades`;
+              return React.createElement("div", {
+                key: i,
+                title: tip,
+                className: "rounded-md border border-white/[0.04] flex flex-col items-start justify-between p-1.5 transition-colors hover:border-white/[0.12]",
+                style: {
+                  background: c.slot ? cellBg(pnl) : (c.isWeekend ? "rgba(255,255,255,0.015)" : "rgba(255,255,255,0.025)"),
+                  minHeight: "44px",
+                },
+              },
+                React.createElement("div", {
+                  className: `text-[10px] font-semibold tabular-nums ${c.isWeekend && !c.slot ? "text-[#4b5563]" : "text-[#d1d5db]"}`,
+                }, c.day),
+                n > 0
+                  ? React.createElement("div", {
+                      className: `text-[9.5px] font-bold tabular-nums leading-none ${pnl > 0 ? "text-emerald-300" : pnl < 0 ? "text-rose-300" : "text-[#9ca3af]"}`,
+                    }, fmtUsdShort(pnl))
+                  : null
+              );
+            })
+          )
+        );
+      }
 
       return React.createElement("div", null,
-        React.createElement("div", { className: "ds-glass__head" },
-          React.createElement("div", { className: "ds-glass__title" },
-            `P&L Calendar — last ${days} days`),
+        React.createElement("div", { className: "ds-glass__head", style: { marginBottom: "var(--ds-space-3)" } },
+          React.createElement("div", { className: "ds-glass__title" }, "P&L Calendar — last 3 months"),
           React.createElement("div", {
             style: { fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", display: "flex", gap: "var(--ds-space-2)", alignItems: "center" },
           },
@@ -253,43 +365,24 @@
             React.createElement("span", { className: "ds-chip ds-chip--up ds-chip--sm" }, `${greenDays} green`),
             React.createElement("span", { className: "ds-chip ds-chip--dn ds-chip--sm" }, `${redDays} red`),
             React.createElement("span", {
-              className: `ds-chip ds-chip--sm ${totalPnl >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
-            }, fmtPnl(totalPnl))
+              className: `ds-chip ds-chip--sm ${totalPnlUsd >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
+            }, fmtUsd(totalPnlUsd))
           )
         ),
-        React.createElement("div", { className: "flex gap-1" },
-          weeks.map((week, wi) => React.createElement("div", { key: wi, className: "flex flex-col gap-1" },
-            week.map((c, di) => {
-              if (!c) return React.createElement("div", { key: di, className: "w-3 h-3" });
-              const tip = c.n > 0
-                ? `${c.key}: ${c.n} trade${c.n !== 1 ? 's' : ''} · ${c.wins}W/${c.losses}L · ${fmtPnl(c.pnl)}`
-                : `${c.key}: no trades`;
-              return React.createElement("div", {
-                key: di,
-                title: tip,
-                className: "w-3 h-3 rounded-sm border border-white/[0.04]",
-                style: { background: cellColor(c) }
-              });
-            })
-          ))
-        ),
-        // Legend
-        React.createElement("div", { className: "flex items-center gap-3 mt-2 text-[10px] text-[#6b7280]" },
-          React.createElement("span", null, "Less"),
-          React.createElement("div", { className: "flex gap-1" },
-            React.createElement("div", { className: "w-3 h-3 rounded-sm", style: { background: "rgba(239,68,68,0.65)" }}),
-            React.createElement("div", { className: "w-3 h-3 rounded-sm", style: { background: "rgba(239,68,68,0.30)" }}),
-            React.createElement("div", { className: "w-3 h-3 rounded-sm", style: { background: "rgba(255,255,255,0.04)" }}),
-            React.createElement("div", { className: "w-3 h-3 rounded-sm", style: { background: "rgba(34,197,94,0.30)" }}),
-            React.createElement("div", { className: "w-3 h-3 rounded-sm", style: { background: "rgba(34,197,94,0.65)" }})
-          ),
-          React.createElement("span", null, "More")
+        // 3-up grid: each month is its own column on desktop, stacks on mobile
+        React.createElement("div", {
+          className: "grid grid-cols-1 md:grid-cols-3 gap-4",
+        },
+          monthsToShow.map((m, i) => React.createElement(MonthGrid, { key: i, year: m.year, month: m.month }))
         )
       );
     }
 
     // Main component
-    return function TradesPerformance({ trades, loading }) {
+    return function TradesPerformance({ trades, loading, accountStartCash }) {
+      const startCash = Number.isFinite(Number(accountStartCash)) && Number(accountStartCash) > 0
+        ? Number(accountStartCash)
+        : 100000;
       const months = useMemo(() => aggregateMonthly(trades || []), [trades]);
 
       if (loading) {
@@ -305,12 +398,16 @@
         return s === "WIN" || s === "LOSS" || s === "FLAT";
       });
       const totalWins = closed.filter(t => String(t?.status || "").toUpperCase() === "WIN").length;
-      const totalPnlPct = closed.reduce((s, t) => s + (Number(t?.pnl_pct ?? t?.pnlPct) || 0), 0);
+      const totalLosses = closed.filter(t => String(t?.status || "").toUpperCase() === "LOSS").length;
       const totalPnlUsd = closed.reduce((s, t) => s + (Number(t?.pnl) || 0), 0);
-      const overallWr = closed.length > 0 ? (totalWins / closed.length) * 100 : 0;
+      // V15 P0.7.71: Total PnL % is portfolio return — sumPnlUsd / startCash *
+      // 100 — not sum of per-trade %s (which over-counts because each trade
+      // is a fraction of the account).
+      const totalPnlPct = startCash > 0 ? (totalPnlUsd / startCash) * 100 : 0;
+      // Win rate is a true ratio (excludes flats from the denominator)
+      const decisive = totalWins + totalLosses;
+      const overallWr = decisive > 0 ? (totalWins / decisive) * 100 : 0;
 
-      /* V2 (2026-05-01) — DS metric tile pattern. Each KPI uses
-         ds-metric + delta chip (semantic up/dn/accent). */
       const wrDelta = overallWr >= 65 ? "Strong" : overallWr >= 50 ? "OK" : "Low";
       const wrDeltaClass = overallWr >= 65 ? "up" : overallWr >= 50 ? "accent" : "dn";
       const pnlDeltaClass = totalPnlPct >= 0 ? "up" : "dn";
@@ -353,18 +450,18 @@
           )
         ),
 
-        // Monthly performance table inside ds-glass panel
+        // Monthly performance + setup breakdown — single ds-glass panel
         React.createElement("div", { className: "ds-glass" },
           React.createElement("div", { className: "ds-glass__head" },
             React.createElement("div", { className: "ds-glass__title" }, "Monthly Performance")
           ),
-          React.createElement(MonthlyPerformanceTable, { months }),
-          React.createElement(SetupBreakdown, { months })
+          React.createElement(MonthlyPerformanceTable, { months, startCash }),
+          React.createElement(SetupBreakdown, { months, startCash })
         ),
 
         // P&L Calendar inside ds-glass panel
         React.createElement("div", { className: "ds-glass" },
-          React.createElement(PnlCalendar, { trades: closed, days: 90 })
+          React.createElement(PnlCalendar, { trades: closed })
         )
       );
     };

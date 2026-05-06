@@ -5312,7 +5312,34 @@ function App() {
     setRunning(true); setError(null);
     preCalibReportIdRef.current = reportId;
     try {
-      const res = await fetch(`${API_BASE}/timed/calibration/run`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ analysis_only: true }), credentials: "include" });
+      // V15 P0.7.71: when there's an active promoted backtest, seed
+      // calibration_trade_autopsy from it first so the Analysis runs against
+      // the *current* run (which includes V15 admission matrix / exit
+      // doctrine / ETF profile / cluster throttle / market internals).
+      // Without this the page recomputes from stale `trades`-table-only data
+      // and produces months-old recommendations.
+      let scopeArgs = { analysis_only: true };
+      try {
+        const seedRes = await fetch(`${API_BASE}/timed/admin/calibration/seed-from-promoted`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+          credentials: "include",
+        });
+        const seedData = await seedRes.json().catch(() => ({}));
+        if (seedData?.ok && seedData?.scope_id) {
+          scopeArgs = {
+            analysis_only: true,
+            scope_id: seedData.scope_id,
+            source_run_id: seedData.scope_id,
+            scope_kind: "promoted_run",
+          };
+        }
+      } catch (_) {
+        // Best-effort; if seed fails (no promoted dataset, no auth) fall
+        // back to the legacy global-scope run.
+      }
+      const res = await fetch(`${API_BASE}/timed/calibration/run`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(scopeArgs), credentials: "include" });
       const data = await res.json();
       if (data.ok && data.report) { setReport(data.report); setRecs(data.report?.recommendations); setReportId(data.report?.report_id || reportId); fetchData(); }
       else if (!data.ok) setError(data.error || "Analysis failed");
