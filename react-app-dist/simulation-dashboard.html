@@ -127,7 +127,8 @@
          qualify too. */
       @media (min-width: 1024px) {
         .tt-ticker-workspace-mount {
-          top: 0 !important;
+          /* V15 P0.7.79: keep existing top-[49px] so workspace starts
+             below the main app nav (close button stays selectable). */
           bottom: 0 !important;
           left: 0 !important;
           right: 0 !important;
@@ -144,8 +145,8 @@
         grid-template-areas:
           "header header"
           "left   right";
-        height: 100vh;
-        max-height: 100vh;
+        height: 100%; /* fill the mount; mount is positioned below nav */
+        max-height: 100%;
         overflow: hidden;
         flex-direction: unset !important; /* override .flex.flex-col */
       }

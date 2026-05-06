@@ -935,6 +935,8 @@ const ROUTES = [
   ["POST", "/timed/admin/promoted-trades/promote", "POST /timed/admin/promoted-trades/promote"],
   ["POST", "/timed/admin/account-ledger/seed-from-promoted", "POST /timed/admin/account-ledger/seed-from-promoted"],
   ["POST", "/timed/admin/calibration/seed-from-promoted", "POST /timed/admin/calibration/seed-from-promoted"],
+  ["GET", "/timed/admin/loop2-pause", "GET /timed/admin/loop2-pause"],
+  ["POST", "/timed/admin/loop2-pause/reset", "POST /timed/admin/loop2-pause/reset"],
   ["POST", "/timed/admin/model-config", "POST /timed/admin/model-config"],
   ["GET",  "/timed/admin/grade-config",  "GET /timed/admin/grade-config"],
   // ── System Intelligence (unified Calibration + Model) ──
@@ -52657,6 +52659,38 @@ export default {
           return sendJSON(result, result?.ok ? 200 : 400, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET  /timed/admin/loop2-pause?key=...
+      // POST /timed/admin/loop2-pause/reset?key=...
+      // V15 P0.7.79: surface and clear the Loop 2 circuit-breaker pause.
+      // Stale `tripped_at_ms` from old backtest legs would otherwise leave
+      // the live engine paused forever (the 18h KV TTL doesn't fire when
+      // backtests keep refreshing the key).
+      if (routeKey === "GET /timed/admin/loop2-pause") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const KV = env?.KV_TIMED;
+          if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+          const raw = await KV.get("phase-c:engine-paused", { type: "json" });
+          return sendJSON({ ok: true, paused: !!raw?.paused, state: raw || null }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "POST /timed/admin/loop2-pause/reset") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const KV = env?.KV_TIMED;
+          if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+          const before = await KV.get("phase-c:engine-paused", { type: "json" });
+          await KV.delete("phase-c:engine-paused");
+          return sendJSON({ ok: true, cleared: !!before, before }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
       }
 

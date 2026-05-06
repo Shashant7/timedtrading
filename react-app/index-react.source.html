@@ -239,7 +239,10 @@
          ───────────────────────────────────────────────────────────────── */
       @media (min-width: 1024px) {
         .tt-ticker-workspace-mount {
-          top: 0 !important;
+          /* V15 P0.7.79: leave existing top-[60px] sm:top-[52px] in place
+             so the workspace starts BELOW the main app nav. Previously
+             top:0 hid the rail's own sticky header (with the ✕ close
+             button) behind the main nav, leaving users stuck. */
           bottom: 0 !important;
           left: 0 !important;
           right: 0 !important;
@@ -257,8 +260,8 @@
         grid-template-areas:
           "header header"
           "left   right";
-        height: 100vh;
-        max-height: 100vh;
+        height: 100%; /* fill the mount; mount is positioned below nav */
+        max-height: 100%;
         overflow: hidden;
         flex-direction: unset !important; /* override .flex.flex-col */
       }
@@ -13556,8 +13559,11 @@
                 || !!(trade?.exit_ts ?? trade?.exitTs) || trimPct >= 0.9999;
               const isOpen = !isClosed && (st === "OPEN" || st === "TP_HIT_TRIM");
               if (isOpen) {
+                // V15 P0.7.79: open positions never end up in EXIT — engine
+                // 'exit' on an open position means urgent close, not closed.
                 if (st === "TP_HIT_TRIM" || trimPct > 0) stage = "trim";
-                else if (stage !== "defend" && stage !== "trim" && stage !== "exit" &&
+                else if (stage === "exit") stage = "defend";
+                else if (stage !== "defend" && stage !== "trim" &&
                          stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
               }
               // Recently closed trades (< 24h) count in Exit lane — unless scorer is promoting a new setup
@@ -14612,21 +14618,33 @@
 
             // ═══════════════════════════════════════════════════════════════
             // TRADE LIFECYCLE OVERRIDE — open trades NEVER fall back to
-            // discovery lanes (setup/enter).  They stay in management lanes.
-            // Priority: exit > trim > defend > hold (based on trade state)
-            // Recently closed trades (< 24h) → Exit lane for visibility.
+            // discovery lanes (setup/enter), AND open positions never end
+            // up in the EXIT lane (EXIT means closed/closing — open
+            // positions belong in TRIM, DEFEND, or HOLD).
+            //
+            // V15 P0.7.79: SNDK was showing in EXIT lane while still half-
+            // open after a 50% trim (status=TP_HIT_TRIM, engine emitted
+            // 'exit'). Engine 'exit' on an open position means "urgent
+            // close needed" — that's the DEFEND lane semantically.
+            // Priority for OPEN positions:
+            //   1. status=TP_HIT_TRIM         → TRIM
+            //   2. trimmed_pct > 0            → TRIM
+            //   3. engine stage = exit        → DEFEND  (urgent close)
+            //   4. engine stage = defend|trim → keep
+            //   5. anything else              → HOLD
             // ═══════════════════════════════════════════════════════════════
             if (trade && isOpen) {
-              // Trim lane: partial TP hit or manually trimmed
               if (status === "TP_HIT_TRIM" || (Number(trade.trimmed_pct ?? trade.trimmedPct ?? 0) > 0)) {
                 stage = "trim";
               }
-              // If stage is already a valid management lane, keep it
-              else if (stage === "defend" || stage === "trim" || stage === "exit") {
-                // keep stage as-is
+              else if (stage === "exit") {
+                // Engine wants to close but position is still open. That's
+                // a DEFEND (act now), not a closed-trade EXIT entry.
+                stage = "defend";
               }
-              // Everything else (setup, enter, flip_watch, just_flipped, archive, empty, etc.)
-              // → force to HOLD.  An open trade is a held position, period.
+              else if (stage === "defend" || stage === "trim") {
+                // Already a valid open-position management lane.
+              }
               else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") {
                 stage = "hold";
               }

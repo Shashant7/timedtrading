@@ -230,7 +230,10 @@
          ───────────────────────────────────────────────────────────────── */
       @media (min-width: 1024px) {
         .tt-ticker-workspace-mount {
-          top: 0 !important;
+          /* V15 P0.7.79: leave existing top-[60px] sm:top-[52px] in place
+             so the workspace starts BELOW the main app nav. Previously
+             top:0 hid the rail's own sticky header (with the ✕ close
+             button) behind the main nav, leaving users stuck. */
           bottom: 0 !important;
           left: 0 !important;
           right: 0 !important;
@@ -248,8 +251,8 @@
         grid-template-areas:
           "header header"
           "left   right";
-        height: 100vh;
-        max-height: 100vh;
+        height: 100%; /* fill the mount; mount is positioned below nav */
+        max-height: 100%;
         overflow: hidden;
         flex-direction: unset !important; /* override .flex.flex-col */
       }
@@ -1046,7 +1049,7 @@
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-right-rail.compiled.js?v=20260503-fundamentals"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
-    <script src="index-react.compiled.4e5a322ba2.js"></script>
+    <script src="index-react.compiled.9ad752c5f3.js"></script>
 
     <!-- Initialize app - separate script to avoid Babel parsing issues -->
     <script>

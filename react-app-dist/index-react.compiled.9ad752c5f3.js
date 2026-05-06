@@ -10496,7 +10496,7 @@ function ActionCenterPanel({
         const isClosed = st === "WIN" || st === "LOSS" || st === "FLAT" || st === "CLOSED" || st === "CANCELED" || !!(trade?.exit_ts ?? trade?.exitTs) || trimPct >= 0.9999;
         const isOpen = !isClosed && (st === "OPEN" || st === "TP_HIT_TRIM");
         if (isOpen) {
-          if (st === "TP_HIT_TRIM" || trimPct > 0) stage = "trim";else if (stage !== "defend" && stage !== "trim" && stage !== "exit" && stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
+          if (st === "TP_HIT_TRIM" || trimPct > 0) stage = "trim";else if (stage === "exit") stage = "defend";else if (stage !== "defend" && stage !== "trim" && stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
         }
         if (isClosed) {
           const exitMs = Number(trade.exit_ts ?? trade.exitTs ?? 0);
@@ -11719,7 +11719,9 @@ function EarlyMoversPanel({
       if (trade && isOpen) {
         if (status === "TP_HIT_TRIM" || Number(trade.trimmed_pct ?? trade.trimmedPct ?? 0) > 0) {
           stage = "trim";
-        } else if (stage === "defend" || stage === "trim" || stage === "exit") {} else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") {
+        } else if (stage === "exit") {
+          stage = "defend";
+        } else if (stage === "defend" || stage === "trim") {} else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") {
           stage = "hold";
         }
       }
