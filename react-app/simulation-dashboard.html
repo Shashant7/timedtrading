@@ -180,7 +180,9 @@
       .tt-rail-shell--workspace .tt-rail-chart-canvas {
         height: 420px !important;
       }
-      /* V15 P0.7.85: mobile reorder \u2014 tab content first, chart + levels at bottom. */
+      /* V15 P0.7.85: mobile reorder \u2014 tab content first, chart + levels at bottom.
+         V15 P0.7.87: on mobile (<1024px) hide chart+levels entirely so
+         tab content gets full screen. */
       .tt-rail-shell:not(.tt-rail-shell--workspace) {
         display: flex;
         flex-direction: column;
@@ -191,6 +193,11 @@
       .tt-rail-area-left-pane,
       .tt-rail-area-right-pane {
         display: block;
+      }
+      @media (max-width: 1023px) {
+        .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-left-pane {
+          display: none !important;
+        }
       }
     </style>
   </head>

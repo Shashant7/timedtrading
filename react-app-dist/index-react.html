@@ -312,6 +312,16 @@
       .tt-rail-area-right-pane {
         display: block;
       }
+      /* V15 P0.7.87 (per user): on mobile / narrow tablet (<1024px) hide
+         the chart + levels left pane entirely. The user still couldn't
+         see tab content with the left pane consuming so much vertical
+         space. The chart + levels are still available on the desktop
+         workspace mode where the side-by-side layout makes them useful. */
+      @media (max-width: 1023px) {
+        .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-left-pane {
+          display: none !important;
+        }
+      }
 
       @keyframes fadeIn {
         from { opacity: 0; }
