@@ -938,6 +938,7 @@ const ROUTES = [
   ["GET", "/timed/admin/loop2-pause", "GET /timed/admin/loop2-pause"],
   ["POST", "/timed/admin/loop2-pause/reset", "POST /timed/admin/loop2-pause/reset"],
   ["POST", "/timed/admin/cancel-stale-closures", "POST /timed/admin/cancel-stale-closures"],
+  ["POST", "/timed/admin/purge-orphan-trades", "POST /timed/admin/purge-orphan-trades"],
   ["GET", "/timed/admin/activity-feed", "GET /timed/admin/activity-feed"],
   ["POST", "/timed/admin/model-config", "POST /timed/admin/model-config"],
   ["GET",  "/timed/admin/grade-config",  "GET /timed/admin/grade-config"],
@@ -52847,6 +52848,57 @@ export default {
             updated++;
           }
           return sendJSON({ ok: true, updated, trade_ids: tradeIds }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/purge-orphan-trades?key=...&trade_ids=A,B,C
+      // V15 P0.7.88: HARD DELETE orphan trade + position rows.
+      // The CANCEL approach (P0.7.83) wasn't sticking — the live cron
+      // reconciliation kept re-creating these as OPEN positions because
+      // the rows were still findable. This nukes them from `trades`,
+      // `positions`, and `execution_actions` so they can't come back.
+      if (routeKey === "POST /timed/admin/purge-orphan-trades") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const tradeIdsRaw = url.searchParams.get("trade_ids") || "";
+          const tradeIds = tradeIdsRaw.split(",").map(s => s.trim()).filter(Boolean);
+          if (tradeIds.length === 0) {
+            return sendJSON({ ok: false, error: "trade_ids required" }, 400, corsHeaders(env, req));
+          }
+          let tradesDeleted = 0;
+          let positionsDeleted = 0;
+          let actionsDeleted = 0;
+          for (const tid of tradeIds) {
+            // Delete from trades
+            try {
+              const r = await db.prepare(`DELETE FROM trades WHERE trade_id = ?1`).bind(tid).run();
+              tradesDeleted += (r?.meta?.changes || 0);
+            } catch (_) {}
+            // Delete from positions (position_id == trade_id by convention)
+            try {
+              const r = await db.prepare(`DELETE FROM positions WHERE position_id = ?1`).bind(tid).run();
+              positionsDeleted += (r?.meta?.changes || 0);
+            } catch (_) {}
+            // Delete execution_actions linked by position_id
+            try {
+              const r = await db.prepare(`DELETE FROM execution_actions WHERE position_id = ?1`).bind(tid).run();
+              actionsDeleted += (r?.meta?.changes || 0);
+            } catch (_) {}
+            // Also delete from KV (best-effort)
+            try { await env.KV_TIMED?.delete?.(`timed:trade:${tid}`); } catch (_) {}
+          }
+          return sendJSON({
+            ok: true,
+            trade_ids: tradeIds,
+            trades_deleted: tradesDeleted,
+            positions_deleted: positionsDeleted,
+            actions_deleted: actionsDeleted,
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
