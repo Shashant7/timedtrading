@@ -284,7 +284,18 @@
       .tt-rail-shell--workspace .tt-rail-chart-canvas {
         height: 420px !important;
       }
-      /* Modal mode: left/right wrappers are transparent, children flow */
+      /* Modal mode (mobile/tablet < 1024px): left/right wrappers are
+         transparent and children flow. Per user request (V15 P0.7.85),
+         we use flex order to place tab content FIRST and chart+levels
+         at the BOTTOM so the active tab is what reads first on a phone.
+         Only applies when the workspace class is NOT on the shell. */
+      .tt-rail-shell:not(.tt-rail-shell--workspace) {
+        display: flex;
+        flex-direction: column;
+      }
+      .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-header { order: 0; flex: 0 0 auto; }
+      .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-right-pane { order: 1; flex: 1 1 auto; }
+      .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-left-pane { order: 2; flex: 0 0 auto; }
       .tt-rail-area-left-pane,
       .tt-rail-area-right-pane {
         display: block;
@@ -1049,7 +1060,7 @@
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-right-rail.compiled.js?v=20260503-fundamentals"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
-    <script src="index-react.compiled.83481ef8d3.js"></script>
+    <script src="index-react.compiled.b571e001b5.js"></script>
 
     <!-- Initialize app - separate script to avoid Babel parsing issues -->
     <script>

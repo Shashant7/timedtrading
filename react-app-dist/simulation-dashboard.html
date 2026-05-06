@@ -179,6 +179,14 @@
       .tt-rail-shell--workspace .tt-rail-chart-canvas {
         height: 420px !important;
       }
+      /* V15 P0.7.85: mobile reorder \u2014 tab content first, chart + levels at bottom. */
+      .tt-rail-shell:not(.tt-rail-shell--workspace) {
+        display: flex;
+        flex-direction: column;
+      }
+      .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-header { order: 0; flex: 0 0 auto; }
+      .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-right-pane { order: 1; flex: 1 1 auto; }
+      .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-left-pane { order: 2; flex: 0 0 auto; }
       .tt-rail-area-left-pane,
       .tt-rail-area-right-pane {
         display: block;

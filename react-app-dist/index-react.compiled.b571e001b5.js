@@ -16282,15 +16282,18 @@ function App() {
     const rthLosers = rthSorted.slice(-5).reverse();
     const _moversMarketOpen = isNyRegularMarketOpen();
     const ethArr = _moversMarketOpen ? [] : allArr.filter(t => !CRYPTO_24H.has(t?.ticker)).map(t => {
-      const pct = Number(t?._ah_change_pct);
-      if (!Number.isFinite(pct) || pct === 0) return null;
+      const ahPrice = Number(t?._ah_price);
+      const rthClose = Number(t?.price ?? t?.close);
+      if (!Number.isFinite(ahPrice) || ahPrice <= 0) return null;
+      if (!Number.isFinite(rthClose) || rthClose <= 0) return null;
+      const pct = (ahPrice - rthClose) / rthClose * 100;
+      if (!Number.isFinite(pct) || Math.abs(pct) < 0.05) return null;
       const sym = String(t?.ticker || "").toUpperCase();
       if (Math.abs(pct) > ABS_CAP(sym)) return null;
-      const px = Number(t?._ah_price) || Number(t?.price ?? t?.close) || 0;
       return {
         ...t,
         _ethPct: pct,
-        _ethPrice: px
+        _ethPrice: ahPrice
       };
     }).filter(Boolean);
     const ethSorted = [...ethArr].sort((a, b) => b._ethPct - a._ethPct);

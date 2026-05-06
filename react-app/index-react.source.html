@@ -293,7 +293,18 @@
       .tt-rail-shell--workspace .tt-rail-chart-canvas {
         height: 420px !important;
       }
-      /* Modal mode: left/right wrappers are transparent, children flow */
+      /* Modal mode (mobile/tablet < 1024px): left/right wrappers are
+         transparent and children flow. Per user request (V15 P0.7.85),
+         we use flex order to place tab content FIRST and chart+levels
+         at the BOTTOM so the active tab is what reads first on a phone.
+         Only applies when the workspace class is NOT on the shell. */
+      .tt-rail-shell:not(.tt-rail-shell--workspace) {
+        display: flex;
+        flex-direction: column;
+      }
+      .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-header { order: 0; flex: 0 0 auto; }
+      .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-right-pane { order: 1; flex: 1 1 auto; }
+      .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-left-pane { order: 2; flex: 0 0 auto; }
       .tt-rail-area-left-pane,
       .tt-rail-area-right-pane {
         display: block;
@@ -19901,14 +19912,24 @@
                     const rthGainers = rthSorted.slice(0, 5);
                     const rthLosers = rthSorted.slice(-5).reverse();
                     const _moversMarketOpen = isNyRegularMarketOpen();
+                    /* V15 P0.7.85 — EXT row should show AFTER-HOURS-ONLY
+                       move, not total prev-close → ah-price move.
+                       The KV `ahdp` field is `(ahp - prevClose) / prevClose`,
+                       which bakes in the day's RTH change. We recompute as
+                       `(ahp - rthClose) / rthClose` so the EXT row truly
+                       isolates the post-RTH move (e.g. earnings reactions). */
                     const ethArr = _moversMarketOpen ? [] : allArr.filter(t => !CRYPTO_24H.has(t?.ticker)).map(t => {
-                      const pct = Number(t?._ah_change_pct);
-                      if (!Number.isFinite(pct) || pct === 0) return null;
+                      const ahPrice = Number(t?._ah_price);
+                      const rthClose = Number(t?.price ?? t?.close);
+                      if (!Number.isFinite(ahPrice) || ahPrice <= 0) return null;
+                      if (!Number.isFinite(rthClose) || rthClose <= 0) return null;
+                      const pct = ((ahPrice - rthClose) / rthClose) * 100;
+                      // Filter out tiny ticks ( < 0.05% ) that aren't real
+                      // after-hours news but rounding noise.
+                      if (!Number.isFinite(pct) || Math.abs(pct) < 0.05) return null;
                       const sym = String(t?.ticker || "").toUpperCase();
-                      // V2.1 round 4 — same ±50% sanity cap on extended-hours moves.
                       if (Math.abs(pct) > ABS_CAP(sym)) return null;
-                      const px = Number(t?._ah_price) || Number(t?.price ?? t?.close) || 0;
-                      return { ...t, _ethPct: pct, _ethPrice: px };
+                      return { ...t, _ethPct: pct, _ethPrice: ahPrice };
                     }).filter(Boolean);
                     const ethSorted = [...ethArr].sort((a, b) => b._ethPct - a._ethPct);
                     const ethGainers = ethSorted.slice(0, 5);
