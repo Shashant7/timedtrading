@@ -2558,17 +2558,15 @@
                       );
                     };
                     return (
-                    <div className="tt-rail-chart-pinned" style={{
-                      position: "sticky",
-                      top: 0,
-                      zIndex: 5,
-                      marginLeft: "calc(-1 * var(--ds-space-4))",
-                      marginRight: "calc(-1 * var(--ds-space-4))",
-                      marginTop: "calc(-1 * var(--ds-space-4))",
+                    /* V15 P0.7.75 (2026-05-06) — Reverted sticky pinning.
+                       Sticky positioning meant content scrolled UNDER the
+                       chart, creating an overlap effect (worse on mobile).
+                       Chart now scrolls naturally with the body. The
+                       proper desktop workspace (chart-left / rail-right
+                       split pane that doesn't overlap) is built in the
+                       parent mount, see TickerWorkspace shell. */
+                    <div className="tt-rail-chart-block" style={{
                       marginBottom: "var(--ds-space-3)",
-                      padding: "var(--ds-space-3) var(--ds-space-4)",
-                      background: "var(--tt-bg-1, #0b0e11)",
-                      borderBottom: "1px solid var(--ds-stroke)",
                     }}>
                       <Panel
                         title="Chart"
@@ -2600,17 +2598,21 @@
                           {indicatorBtn("supertrend", "ST", "SuperTrend (10, 3)")}
                           {indicatorBtn("tdSequential", "TD", "TD Sequential markers")}
                         </div>
-                        {/* Chart canvas — taller now that we have more rail width.
-                            On wide rails (lg+) the canvas grows to 320px so the
-                            user can read price action without squinting. */}
-                        <div className="tt-rail-chart-canvas">
+                        {/* V15 P0.7.75: chart canvas height responds to
+                            viewport. On mobile the previous 320px was eating
+                            most of the screen, making it hard to scroll to the
+                            content below. Use 200px on small viewports, 320px
+                            on lg+. */}
+                        <div className="tt-rail-chart-canvas" style={{
+                          height: typeof window !== "undefined" && window.innerWidth >= 1024 ? 320 : 200,
+                        }}>
                           {React.createElement(LWChart, {
                             candles: chartCandles,
                             chartTf,
                             overlays: chartOverlays,
                             priceLines: buildLines(),
                             ticker,
-                            height: 320,
+                            height: typeof window !== "undefined" && window.innerWidth >= 1024 ? 320 : 200,
                             hideOverlayToggles: true,
                           })}
                         </div>

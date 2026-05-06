@@ -3160,68 +3160,63 @@
               }
             }, label);
           };
-          return React.createElement("div", {
-            className: "tt-rail-chart-pinned",
-            style: {
-              position: "sticky",
-              top: 0,
-              zIndex: 5,
-              marginLeft: "calc(-1 * var(--ds-space-4))",
-              marginRight: "calc(-1 * var(--ds-space-4))",
-              marginTop: "calc(-1 * var(--ds-space-4))",
-              marginBottom: "var(--ds-space-3)",
-              padding: "var(--ds-space-3) var(--ds-space-4)",
-              background: "var(--tt-bg-1, #0b0e11)",
-              borderBottom: "1px solid var(--ds-stroke)"
-            }
-          }, React.createElement(Panel, {
-            title: "Chart",
-            action: React.createElement("div", {
+          return (React.createElement("div", {
+              className: "tt-rail-chart-block",
+              style: {
+                marginBottom: "var(--ds-space-3)"
+              }
+            }, React.createElement(Panel, {
+              title: "Chart",
+              action: React.createElement("div", {
+                style: {
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6
+                }
+              }, React.createElement("div", {
+                className: "ds-chipgroup",
+                style: {
+                  padding: 2
+                }
+              }, ["15", "30", "60", "240", "D"].map(tf => React.createElement("button", {
+                key: `ctf-${tf}`,
+                onClick: () => setChartTf(tf),
+                className: `ds-chipgroup__item ${chartTf === tf ? "ds-chipgroup__item--active" : ""}`,
+                style: {
+                  padding: "3px 8px",
+                  fontSize: 10
+                }
+              }, tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`))), React.createElement("button", {
+                className: "ds-chip ds-chip--sm",
+                onClick: () => setChartExpanded(true),
+                title: "Expand chart",
+                style: {
+                  fontFamily: "var(--tt-font-mono)",
+                  padding: "0 8px"
+                }
+              }, "\u2922"))
+            }, React.createElement("div", {
               style: {
                 display: "flex",
-                alignItems: "center",
-                gap: 6
+                flexWrap: "wrap",
+                gap: 4,
+                marginBottom: "var(--ds-space-2)"
               }
-            }, React.createElement("div", {
-              className: "ds-chipgroup",
+            }, indicatorBtn("ema21", "EMA21", "21-period EMA"), indicatorBtn("ema48", "EMA48", "48-period EMA"), indicatorBtn("ema200", "EMA200", "200-period EMA"), indicatorBtn("supertrend", "ST", "SuperTrend (10, 3)"), indicatorBtn("tdSequential", "TD", "TD Sequential markers")), React.createElement("div", {
+              className: "tt-rail-chart-canvas",
               style: {
-                padding: 2
+                height: typeof window !== "undefined" && window.innerWidth >= 1024 ? 320 : 200
               }
-            }, ["15", "30", "60", "240", "D"].map(tf => React.createElement("button", {
-              key: `ctf-${tf}`,
-              onClick: () => setChartTf(tf),
-              className: `ds-chipgroup__item ${chartTf === tf ? "ds-chipgroup__item--active" : ""}`,
-              style: {
-                padding: "3px 8px",
-                fontSize: 10
-              }
-            }, tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`))), React.createElement("button", {
-              className: "ds-chip ds-chip--sm",
-              onClick: () => setChartExpanded(true),
-              title: "Expand chart",
-              style: {
-                fontFamily: "var(--tt-font-mono)",
-                padding: "0 8px"
-              }
-            }, "\u2922"))
-          }, React.createElement("div", {
-            style: {
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 4,
-              marginBottom: "var(--ds-space-2)"
-            }
-          }, indicatorBtn("ema21", "EMA21", "21-period EMA"), indicatorBtn("ema48", "EMA48", "48-period EMA"), indicatorBtn("ema200", "EMA200", "200-period EMA"), indicatorBtn("supertrend", "ST", "SuperTrend (10, 3)"), indicatorBtn("tdSequential", "TD", "TD Sequential markers")), React.createElement("div", {
-            className: "tt-rail-chart-canvas"
-          }, React.createElement(LWChart, {
-            candles: chartCandles,
-            chartTf,
-            overlays: chartOverlays,
-            priceLines: buildLines(),
-            ticker,
-            height: 320,
-            hideOverlayToggles: true
-          }))));
+            }, React.createElement(LWChart, {
+              candles: chartCandles,
+              chartTf,
+              overlays: chartOverlays,
+              priceLines: buildLines(),
+              ticker,
+              height: typeof window !== "undefined" && window.innerWidth >= 1024 ? 320 : 200,
+              hideOverlayToggles: true
+            }))))
+          );
         })(), v2RailTab === "SNAPSHOT" && React.createElement(React.Fragment, null, (ticker?.regime_class || ticker?.state || ticker?.kanban_stage) && React.createElement(Panel, {
           title: "Today"
         }, React.createElement("div", {
