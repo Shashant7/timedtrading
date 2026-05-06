@@ -101,6 +101,7 @@ import * as SetupAdmission from "./phase-c-setup-admission.js";
 import * as EtfProfile from "./etf-profile.js";
 import * as ClusterThrottle from "./phase-c-cluster-throttle.js";
 import * as MarketInternals from "./market-internals.js";
+import { buildTickerScenario } from "./ticker-scenario.js";
 import { tdFetchEarningsCalendar, tdFetchTickerEarnings, tdFetchTimeSeries, tdSearchSymbol, toTdSymbol, aggregate5mTo10m, tdFetchProfile, tdFetchStatistics, tdFetchEarningsHistory } from "./twelvedata.js";
 import { onboardTicker, loadTickerProfile, loadSectorProfile, mergeProfileWeights } from "./onboard-ticker.js";
 import {
@@ -640,6 +641,7 @@ const ROUTES = [
   ["POST", "/timed/ingest-candles", "POST /timed/ingest-candles"],
   ["POST", "/timed/heartbeat", "POST /timed/heartbeat"],
   ["GET", "/timed/latest", "GET /timed/latest"],
+  ["GET", "/timed/ticker-scenario", "GET /timed/ticker-scenario"],
   ["GET", "/timed/prediction-contract", "GET /timed/prediction-contract"],
   ["GET", "/timed/tickers", "GET /timed/tickers"],
   ["GET", "/timed/all", "GET /timed/all"],
@@ -39839,6 +39841,33 @@ export default {
             500,
             req,
           );
+        }
+      }
+
+      // GET /timed/ticker-scenario?ticker=SPY
+      // V15 P0.7.72 — Phase 2 Q1 unification.
+      // Canonical per-ticker scenario consumed by both:
+      //   - Daily Brief generator (server-side, embedded in AI prompt)
+      //   - Right Rail Model card / chart Levels overlay (client-side fetch)
+      // Returns price, bias, support/resistance levels (sorted), pivots,
+      // ATR fib, golden gate (when present), and game plan triggers.
+      // Single source = no drift between Brief and Right Rail.
+      if (routeKey === "GET /timed/ticker-scenario") {
+        const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+        const rateLimit = await checkRateLimit(KV, ip, "/timed/ticker-scenario", 600, 3600);
+        if (!rateLimit.allowed) {
+          return sendJSON({ ok: false, error: "rate_limit_exceeded", retryAfter: 3600 }, 429, corsHeaders(env, req));
+        }
+        const ticker = normTicker(url.searchParams.get("ticker"));
+        if (!ticker) return sendJSON({ ok: false, error: "missing ticker" }, 400, corsHeaders(env, req));
+        try {
+          const scenario = await buildTickerScenario(env, ticker);
+          if (!scenario) {
+            return sendJSON({ ok: false, error: "build_failed" }, 500, corsHeaders(env, req));
+          }
+          return sendJSON(scenario, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
       }
 

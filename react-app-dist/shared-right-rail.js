@@ -342,13 +342,24 @@
       const ck = `${sym}-${chartTf}`;
       if (_rrLevelsCache[ck] && Date.now() - _rrLevelsCache[ck].ts < 300000) return _rrLevelsCache[ck].data;
       try {
+        // V15 P0.7.72 — Phase 2 Q1 unification.
+        // Try the canonical /timed/ticker-scenario endpoint FIRST. The Daily
+        // Brief AI prompt reads from this exact endpoint, so by reading it
+        // here too we guarantee zero drift between the chart overlay and the
+        // morning brief. Fall back to the legacy local computation if the
+        // endpoint returns no data (e.g. for tickers without daily candles).
+        let canonical = null;
+        try {
+          const sres = await fetch(`${API_BASE}/timed/ticker-scenario?ticker=${encodeURIComponent(sym)}`, { cache: "no-store" });
+          const sjson = await sres.json();
+          if (sjson?.ok && sjson?.levels) canonical = sjson;
+        } catch (_) { /* fall through to legacy */ }
+
         const res = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=D&limit=40`, { cache: "no-store" });
         const d = await res.json();
         if (!d.ok || !d.candles || d.candles.length < 5) return null;
         const dailies = d.candles;
         const rnd = v => Math.round(v * 100) / 100;
-        const levels = [];
-
         let atrSum = 0, atrN = 0;
         for (let i = 1; i < dailies.length; i++) {
           const h = Number(dailies[i].h), l = Number(dailies[i].l), pc = Number(dailies[i - 1].c);
@@ -357,31 +368,10 @@
         }
         const dayAtr = atrN > 0 ? atrSum / atrN : 0;
         if (dayAtr <= 0) return null;
-
         const prevDay = dailies[dailies.length - 2];
         const anchor = Number(prevDay.c);
-        levels.push({ price: rnd(anchor), color: "rgba(255,255,255,0.40)", label: "Prev Close", lineWidth: 1, style: "dotted" });
 
-        const dailyParsed = dailies.map(c => ({ h: Number(c.h), l: Number(c.l), c: Number(c.c), o: Number(c.o), ts: Number(c.ts) / 1000 }));
-        const { highs, lows } = _rrDetectSwingPoints(dailyParsed, 2);
-        const curPx = dailyParsed[dailyParsed.length - 1].c;
-        const nearHighs = highs.filter(h => h.price > curPx * 0.98).sort((a, b) => a.price - b.price).slice(0, 2);
-        const nearLows = lows.filter(l => l.price < curPx * 1.02).sort((a, b) => b.price - a.price).slice(0, 2);
-        for (const h of nearHighs) levels.push({ price: rnd(h.price), color: "rgba(239,83,80,0.50)", label: `R ${rnd(h.price)}`, lineWidth: 1, style: "dashed" });
-        for (const l of nearLows) levels.push({ price: rnd(l.price), color: "rgba(38,166,154,0.50)", label: `S ${rnd(l.price)}`, lineWidth: 1, style: "dashed" });
-
-        if (chartTf !== "D" && chartTf !== "W") {
-          const dist = curPx - anchor;
-          const pctOfAtr = dist / dayAtr;
-          if (pctOfAtr > 0.382) {
-            levels.push({ price: rnd(anchor + dayAtr * 0.618), color: "rgba(245,158,11,0.50)", label: "ATR +61.8%", lineWidth: 1, style: "dashed" });
-            levels.push({ price: rnd(anchor + dayAtr * 1.0), color: "rgba(245,158,11,0.50)", label: "ATR +100%", lineWidth: 1, style: "dashed" });
-          } else if (pctOfAtr < -0.382) {
-            levels.push({ price: rnd(anchor - dayAtr * 0.618), color: "rgba(245,158,11,0.50)", label: "ATR -61.8%", lineWidth: 1, style: "dashed" });
-            levels.push({ price: rnd(anchor - dayAtr * 1.0), color: "rgba(245,158,11,0.50)", label: "ATR -100%", lineWidth: 1, style: "dashed" });
-          }
-        }
-
+        // Pattern detection still runs locally on the chart's own candles.
         let patternData = { trendlines: [], patterns: [] };
         if (chartCandles && chartCandles.length > 15) {
           const parsed = chartCandles.map(c => ({
@@ -391,7 +381,58 @@
           }));
           patternData = _rrDetectPatterns(parsed);
         }
-        const result = { levels, dayAtr: rnd(dayAtr), anchor: rnd(anchor), trendlines: patternData.trendlines, patterns: patternData.patterns };
+
+        let levels = [];
+        if (canonical) {
+          // Compose horizontal lines from the canonical S/R + game plan.
+          // Same prices the AI is quoting in the Daily Brief.
+          for (const r of (canonical.levels?.resistance || [])) {
+            const isPivot = r.source === "pivot";
+            const isAtr = r.source === "atr_fib";
+            const color = isPivot ? "rgba(245,158,11,0.55)" : isAtr ? "rgba(245,158,11,0.40)" : "rgba(239,83,80,0.55)";
+            levels.push({ price: rnd(r.price), color, label: r.label || `R ${rnd(r.price)}`, lineWidth: 1, style: "dashed" });
+          }
+          for (const s of (canonical.levels?.support || [])) {
+            const isPivot = s.source === "pivot";
+            const isAtr = s.source === "atr_fib";
+            const isAnchor = s.source === "anchor";
+            const color = isAnchor ? "rgba(255,255,255,0.45)" : isPivot ? "rgba(56,189,248,0.55)" : isAtr ? "rgba(245,158,11,0.40)" : "rgba(38,166,154,0.55)";
+            const style = isAnchor ? "dotted" : "dashed";
+            levels.push({ price: rnd(s.price), color, label: s.label || `S ${rnd(s.price)}`, lineWidth: 1, style });
+          }
+        } else {
+          // Legacy local path (unchanged) — used when canonical scenario unavailable
+          levels.push({ price: rnd(anchor), color: "rgba(255,255,255,0.40)", label: "Prev Close", lineWidth: 1, style: "dotted" });
+          const dailyParsed = dailies.map(c => ({ h: Number(c.h), l: Number(c.l), c: Number(c.c), o: Number(c.o), ts: Number(c.ts) / 1000 }));
+          const { highs, lows } = _rrDetectSwingPoints(dailyParsed, 2);
+          const curPx = dailyParsed[dailyParsed.length - 1].c;
+          const nearHighs = highs.filter(h => h.price > curPx * 0.98).sort((a, b) => a.price - b.price).slice(0, 2);
+          const nearLows = lows.filter(l => l.price < curPx * 1.02).sort((a, b) => b.price - a.price).slice(0, 2);
+          for (const h of nearHighs) levels.push({ price: rnd(h.price), color: "rgba(239,83,80,0.50)", label: `R ${rnd(h.price)}`, lineWidth: 1, style: "dashed" });
+          for (const l of nearLows) levels.push({ price: rnd(l.price), color: "rgba(38,166,154,0.50)", label: `S ${rnd(l.price)}`, lineWidth: 1, style: "dashed" });
+          if (chartTf !== "D" && chartTf !== "W") {
+            const dist = curPx - anchor;
+            const pctOfAtr = dist / dayAtr;
+            if (pctOfAtr > 0.382) {
+              levels.push({ price: rnd(anchor + dayAtr * 0.618), color: "rgba(245,158,11,0.50)", label: "ATR +61.8%", lineWidth: 1, style: "dashed" });
+              levels.push({ price: rnd(anchor + dayAtr * 1.0), color: "rgba(245,158,11,0.50)", label: "ATR +100%", lineWidth: 1, style: "dashed" });
+            } else if (pctOfAtr < -0.382) {
+              levels.push({ price: rnd(anchor - dayAtr * 0.618), color: "rgba(245,158,11,0.50)", label: "ATR -61.8%", lineWidth: 1, style: "dashed" });
+              levels.push({ price: rnd(anchor - dayAtr * 1.0), color: "rgba(245,158,11,0.50)", label: "ATR -100%", lineWidth: 1, style: "dashed" });
+            }
+          }
+        }
+
+        const result = {
+          levels,
+          dayAtr: rnd(dayAtr),
+          anchor: rnd(anchor),
+          trendlines: patternData.trendlines,
+          patterns: patternData.patterns,
+          // Expose the full canonical scenario so the Model card can render
+          // bias + GG + game plan from the same source.
+          canonical: canonical || null,
+        };
         _rrLevelsCache[ck] = { data: result, ts: Date.now() };
         return result;
       } catch (e) {

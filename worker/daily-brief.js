@@ -1248,6 +1248,23 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     iwmCandlesM5?.candles || [], iwmData, iwmCandlesH4?.candles || [], []
   );
 
+  // V15 P0.7.72 — Phase 2 Q1 unification.
+  // Build canonical scenarios for the indices using the SAME helper that
+  // /timed/ticker-scenario serves to the Right Rail. This guarantees the
+  // levels the AI cites in the brief match exactly what the user sees in
+  // the chart overlay and Model card.
+  let spyScenario = null, qqqScenario = null, iwmScenario = null;
+  try {
+    const { buildTickerScenario } = await import("./ticker-scenario.js");
+    [spyScenario, qqqScenario, iwmScenario] = await Promise.all([
+      buildTickerScenario(env, "SPY").catch(() => null),
+      buildTickerScenario(env, "QQQ").catch(() => null),
+      buildTickerScenario(env, "IWM").catch(() => null),
+    ]);
+  } catch (e) {
+    console.warn("[DailyBrief] canonical scenario import/build failed:", String(e).slice(0, 200));
+  }
+
   // Build result
   const extract = (d) => d ? {
     price: Number(d.price) || 0,
@@ -1302,6 +1319,10 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     spyTechnical,
     qqqTechnical,
     iwmTechnical,
+    // V15 P0.7.72 — canonical per-index scenarios (Phase 2 Q1 unification)
+    spyScenario,
+    qqqScenario,
+    iwmScenario,
     sectors,
     todayEarnings,
     weekEarnings: weekEarnings.slice(0, 30), // cap for prompt size
@@ -2436,19 +2457,41 @@ ${(() => {
   return lines.length > 0 ? lines.join("\n") : "(N/A)";
 })()}
 
-### SPY Key Levels:
+### Canonical Index Scenarios (V15 P0.7.72 — Phase 2 Q1 unification)
+The objects below are the SINGLE SOURCE OF TRUTH for SPY/QQQ/IWM levels.
+The Right Rail Model card on the live app reads from the EXACT same
+endpoint, so the levels you cite below MUST match these values verbatim.
+Do NOT compute your own levels from the technical summaries above when a
+canonical scenario is provided — quote these prices directly.
+
+If a level is in \`support[]\`, it is BELOW current price.
+If a level is in \`resistance[]\`, it is ABOVE current price.
+NEVER cite a "resistance" that is below the current price — that's support.
+
+#### SPY canonical scenario:
+${data.spyScenario && data.spyScenario.ok ? JSON.stringify(data.spyScenario, null, 1) : "(unavailable — fall back to SMC levels below)"}
+
+#### QQQ canonical scenario:
+${data.qqqScenario && data.qqqScenario.ok ? JSON.stringify(data.qqqScenario, null, 1) : "(unavailable — fall back to SMC levels below)"}
+
+#### IWM canonical scenario:
+${data.iwmScenario && data.iwmScenario.ok ? JSON.stringify(data.iwmScenario, null, 1) : "(unavailable — fall back to SMC levels below)"}
+
+### Legacy SMC fallback (use ONLY when the canonical scenario above is unavailable):
+
+#### SPY Key Levels:
 ${formatSMCForPrompt(data.spyTechnical?.smcLevels)}
 
-### QQQ Key Levels:
+#### QQQ Key Levels:
 ${formatSMCForPrompt(data.qqqTechnical?.smcLevels)}
 
-### IWM Key Levels (Russell 2000):
+#### IWM Key Levels (Russell 2000):
 ${formatSMCForPrompt(data.iwmTechnical?.smcLevels)}
 
-### ES Key Levels (for futures traders):
+#### ES Key Levels (for futures traders):
 ${formatSMCForPrompt(data.esTechnical?.smcLevels)}
 
-### NQ Key Levels (for futures traders):
+#### NQ Key Levels (for futures traders):
 ${formatSMCForPrompt(data.nqTechnical?.smcLevels)}
 
 ## Sector ETF Performance (sorted by magnitude):
