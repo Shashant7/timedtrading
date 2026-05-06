@@ -10,6 +10,14 @@ const API_BASE = "";
 function renderMarkdown(md) {
   if (!md) return "";
   let cleaned = md.replace(/ (#{2,4}) /g, "\n\n$1 ").replace(/ - \*\*/g, "\n- **").replace(/ - ([A-Z])/g, "\n- $1");
+  const stripIdx = cleaned.search(/^\s*1\.\s+(?:\*\*?)?(?:SPY|QQQ|IWM|S&P|ES|NQ|Today)/im);
+  if (stripIdx >= 0 && stripIdx < 800) {
+    const after = cleaned.slice(stripIdx);
+    const m = after.match(/^\s*1\.[\s\S]*?\n\s*2\.[\s\S]*?\n\s*3\.[^\n]*\n/);
+    if (m) {
+      cleaned = cleaned.slice(0, stripIdx) + cleaned.slice(stripIdx + m[0].length);
+    }
+  }
   if (typeof marked !== "undefined" && marked.parse) {
     return marked.parse(cleaned, {
       breaks: true,
@@ -161,53 +169,121 @@ function BriefInfographic({
       }
     }, idx.chgPct != null ? `${idx.chgPct >= 0 ? "+" : ""}${idx.chgPct.toFixed(2)}%` : ""), idx.atr != null && React.createElement("span", {
       className: "ml-auto text-[10px] text-[#6b7280]"
-    }, "ATR $", idx.atr.toFixed(2))), React.createElement("div", {
-      className: "text-[9px] uppercase tracking-wider text-[#6b7280] mb-0.5 flex items-center justify-between"
-    }, React.createElement("span", null, "Day Gate"), dayProb && gg !== "NEUTRAL" && React.createElement("span", {
-      className: "tabular-nums",
-      style: {
-        color: probColor(dayProb.dayLabel)
-      }
-    }, (dayProb.day * 100).toFixed(0), "% close \xB7 ", dayProb.dayLabel)), dn382 != null && up382 != null && React.createElement("div", {
-      className: "relative h-2 rounded bg-white/[0.05] overflow-hidden mb-1"
-    }, React.createElement("div", {
-      className: "absolute left-0 top-0 bottom-0",
-      style: {
-        width: `${barProgress}%`,
-        background: "linear-gradient(90deg, rgba(239,68,68,0.35), rgba(107,114,128,0.25), rgba(52,211,153,0.35))"
-      }
-    }), anchor != null && cp != null && React.createElement("div", {
-      className: "absolute top-0 bottom-0",
-      style: {
-        left: `${Math.max(0, Math.min(100, (anchor - dn382) / (up382 - dn382) * 100))}%`,
-        width: 2,
-        background: "#9ca3af"
-      },
-      title: `Prev close ${anchor}`
-    })), dn382 != null && up382 != null && React.createElement("div", {
-      className: "flex items-center justify-between text-[9px] text-[#6b7280] tabular-nums mb-2"
-    }, React.createElement("span", null, "-38.2% $", dn382.toFixed(2)), React.createElement("span", null, "+38.2% $", up382.toFixed(2))), wlvls && React.createElement(React.Fragment, null, React.createElement("div", {
-      className: "text-[9px] uppercase tracking-wider text-[#6b7280] mb-0.5 flex items-center justify-between"
-    }, React.createElement("span", {
-      style: {
-        color: ggColor(wgg)
-      }
-    }, "Week Gate ", wgg === "OPEN_UP" ? "▲" : wgg === "OPEN_DOWN" ? "▼" : "◆"), weekProb && wgg !== "NEUTRAL" && React.createElement("span", {
-      className: "tabular-nums",
-      style: {
-        color: probColor(weekProb.weekLabel)
-      }
-    }, (weekProb.week * 100).toFixed(0), "% close \xB7 ", weekProb.weekLabel)), wDn382 != null && wUp382 != null && React.createElement(React.Fragment, null, React.createElement("div", {
-      className: "relative h-1.5 rounded bg-white/[0.05] overflow-hidden mb-1"
-    }, React.createElement("div", {
-      className: "absolute left-0 top-0 bottom-0",
-      style: {
-        width: `${wBarProgress}%`,
-        background: "linear-gradient(90deg, rgba(239,68,68,0.25), rgba(107,114,128,0.15), rgba(52,211,153,0.25))"
-      }
-    })), React.createElement("div", {
-      className: "flex items-center justify-between text-[9px] text-[#6b7280] tabular-nums"
-    }, React.createElement("span", null, "-38.2% $", wDn382.toFixed(2)), React.createElement("span", null, "+38.2% $", wUp382.toFixed(2))))));
+    }, "ATR $", idx.atr.toFixed(2))), (() => {
+      const up50 = lvls.levels?.["+50%"];
+      const up618 = lvls.levels?.["+61.8%"];
+      const dn50 = lvls.levels?.["-50%"];
+      const dn618 = lvls.levels?.["-61.8%"];
+      const ggDirText = g => g === "OPEN_UP" ? "above +38.2%" : g === "OPEN_DOWN" ? "below -38.2%" : "between gates";
+      const targetText = (g, lbls) => {
+        if (g === "OPEN_UP" && up50 != null && up618 != null) return `next: $${up50.toFixed(2)} (50%) → $${up618.toFixed(2)} (61.8%)`;
+        if (g === "OPEN_DOWN" && dn50 != null && dn618 != null) return `next: $${dn50.toFixed(2)} (50%) → $${dn618.toFixed(2)} (61.8%)`;
+        return null;
+      };
+      return React.createElement(React.Fragment, null, React.createElement("div", {
+        className: "text-[9px] uppercase tracking-wider text-[#6b7280] mb-0.5 flex items-center justify-between"
+      }, React.createElement("span", null, "Day Gate"), dayProb && gg !== "NEUTRAL" && React.createElement("span", {
+        className: "tabular-nums normal-case",
+        style: {
+          color: probColor(dayProb.dayLabel)
+        }
+      }, (dayProb.day * 100).toFixed(0), "% holds ", ggDirText(gg))), dn382 != null && up382 != null && React.createElement("div", {
+        className: "relative h-2.5 rounded bg-white/[0.05] overflow-hidden mb-1"
+      }, React.createElement("div", {
+        className: "absolute inset-0",
+        style: {
+          background: "linear-gradient(90deg, rgba(239,68,68,0.30) 0%, rgba(239,68,68,0.18) 35%, rgba(107,114,128,0.20) 50%, rgba(52,211,153,0.18) 65%, rgba(52,211,153,0.30) 100%)"
+        }
+      }), anchor != null && React.createElement("div", {
+        className: "absolute top-0 bottom-0",
+        style: {
+          left: `${Math.max(0, Math.min(100, (anchor - dn382) / (up382 - dn382) * 100))}%`,
+          width: 1,
+          background: "rgba(156,163,175,0.5)"
+        },
+        title: `Anchor (prev close) ${anchor}`
+      }), cp != null && React.createElement("div", {
+        className: "absolute top-[-2px] bottom-[-2px] flex items-center",
+        style: {
+          left: `${barProgress}%`,
+          transform: "translateX(-50%)"
+        }
+      }, React.createElement("div", {
+        style: {
+          width: 3,
+          height: "100%",
+          background: "#fff",
+          boxShadow: "0 0 4px rgba(255,255,255,0.6)"
+        },
+        title: `Current $${cp.toFixed(2)}`
+      }))), dn382 != null && up382 != null && React.createElement("div", {
+        className: "flex items-center justify-between text-[9px] text-[#6b7280] tabular-nums mb-1"
+      }, React.createElement("span", null, "-38.2% $", dn382.toFixed(2)), React.createElement("span", {
+        style: {
+          color: "#9ca3af"
+        }
+      }, anchor != null ? `mid ${anchor.toFixed(2)}` : ""), React.createElement("span", null, "+38.2% $", up382.toFixed(2))), gg !== "NEUTRAL" && targetText(gg) && React.createElement("div", {
+        className: "text-[9px] text-[#9ca3af] tabular-nums mb-2 italic"
+      }, targetText(gg)), wlvls && React.createElement(React.Fragment, null, React.createElement("div", {
+        className: "text-[9px] uppercase tracking-wider text-[#6b7280] mb-0.5 flex items-center justify-between"
+      }, React.createElement("span", {
+        style: {
+          color: ggColor(wgg)
+        }
+      }, "Week Gate ", wgg === "OPEN_UP" ? "▲" : wgg === "OPEN_DOWN" ? "▼" : "◆"), weekProb && wgg !== "NEUTRAL" && React.createElement("span", {
+        className: "tabular-nums normal-case",
+        style: {
+          color: probColor(weekProb.weekLabel)
+        }
+      }, (weekProb.week * 100).toFixed(0), "% holds ", ggDirText(wgg), " \xB7 ", weekProb.daysRemaining, "d left")), wDn382 != null && wUp382 != null && React.createElement(React.Fragment, null, React.createElement("div", {
+        className: "relative h-2 rounded bg-white/[0.05] overflow-hidden mb-1"
+      }, React.createElement("div", {
+        className: "absolute inset-0",
+        style: {
+          background: "linear-gradient(90deg, rgba(239,68,68,0.20) 0%, rgba(239,68,68,0.12) 35%, rgba(107,114,128,0.15) 50%, rgba(52,211,153,0.12) 65%, rgba(52,211,153,0.20) 100%)"
+        }
+      }), wlvls.anchor != null && React.createElement("div", {
+        className: "absolute top-0 bottom-0",
+        style: {
+          left: `${Math.max(0, Math.min(100, (wlvls.anchor - wDn382) / (wUp382 - wDn382) * 100))}%`,
+          width: 1,
+          background: "rgba(156,163,175,0.5)"
+        },
+        title: `Week anchor ${wlvls.anchor}`
+      }), cp != null && React.createElement("div", {
+        className: "absolute top-[-2px] bottom-[-2px] flex items-center",
+        style: {
+          left: `${wBarProgress}%`,
+          transform: "translateX(-50%)"
+        }
+      }, React.createElement("div", {
+        style: {
+          width: 3,
+          height: "100%",
+          background: "#fff",
+          boxShadow: "0 0 4px rgba(255,255,255,0.6)"
+        },
+        title: `Current $${cp.toFixed(2)}`
+      }))), React.createElement("div", {
+        className: "flex items-center justify-between text-[9px] text-[#6b7280] tabular-nums"
+      }, React.createElement("span", null, "-38.2% $", wDn382.toFixed(2)), React.createElement("span", {
+        style: {
+          color: "#9ca3af"
+        }
+      }, wlvls.anchor != null ? `mid ${wlvls.anchor.toFixed(2)}` : ""), React.createElement("span", null, "+38.2% $", wUp382.toFixed(2))), wgg !== "NEUTRAL" && (() => {
+        const wUp50 = wlvls.levels?.["+50%"];
+        const wUp618 = wlvls.levels?.["+61.8%"];
+        const wDn50 = wlvls.levels?.["-50%"];
+        const wDn618 = wlvls.levels?.["-61.8%"];
+        if (wgg === "OPEN_UP" && wUp50 != null && wUp618 != null) return React.createElement("div", {
+          className: "text-[9px] text-[#9ca3af] tabular-nums mt-0.5 italic"
+        }, "next: $", wUp50.toFixed(2), " (50%) \u2192 $", wUp618.toFixed(2), " (61.8%)");
+        if (wgg === "OPEN_DOWN" && wDn50 != null && wDn618 != null) return React.createElement("div", {
+          className: "text-[9px] text-[#9ca3af] tabular-nums mt-0.5 italic"
+        }, "next: $", wDn50.toFixed(2), " (50%) \u2192 $", wDn618.toFixed(2), " (61.8%)");
+        return null;
+      })())));
+    })());
   })), indicies.some(i => i.levels?.gamePlan) && React.createElement("div", null, React.createElement("div", {
     className: "text-[9px] uppercase tracking-wider text-[#6b7280] mb-1"
   }, "Game Plan triggers"), React.createElement("div", {
@@ -215,6 +291,12 @@ function BriefInfographic({
   }, indicies.filter(i => i.levels?.gamePlan).map(idx => {
     const gp = idx.levels.gamePlan;
     const cp = idx.levels.currentPrice ?? idx.price;
+    const bullArmed = cp != null && cp >= gp.bullTrigger;
+    const bullDist = cp != null ? (gp.bullTrigger - cp) / cp * 100 : null;
+    const bearArmed = cp != null && cp <= gp.bearTrigger;
+    const bearDist = cp != null ? (cp - gp.bearTrigger) / cp * 100 : null;
+    const bullPct = (gp.bullTarget - gp.bullTrigger) / gp.bullTrigger * 100;
+    const bearPct = (gp.bearTarget - gp.bearTrigger) / gp.bearTrigger * 100;
     return React.createElement("div", {
       key: "gp-" + idx.sym,
       className: "p-2 rounded bg-white/[0.02] border border-white/[0.06]"
@@ -227,34 +309,50 @@ function BriefInfographic({
     }, "$", cp.toFixed(2))), React.createElement("div", {
       className: "space-y-1.5"
     }, React.createElement("div", {
-      className: "flex items-center gap-2"
+      className: "flex items-start gap-2"
     }, React.createElement("span", {
-      className: "text-[9px] font-semibold uppercase tracking-wider text-emerald-300/80 w-9"
+      className: "text-[9px] font-semibold uppercase tracking-wider text-emerald-300/80 w-10 shrink-0 mt-0.5"
     }, "Bull"), React.createElement("div", {
-      className: "flex-1 flex items-center gap-1 text-[10px] tabular-nums"
+      className: "flex-1 flex flex-col text-[10px] tabular-nums leading-tight"
+    }, React.createElement("div", {
+      className: "flex items-center gap-1"
     }, React.createElement("span", {
-      className: "text-[#86efac]"
+      className: "text-[#9ca3af]"
+    }, bullArmed ? "Hold above" : "Break above"), React.createElement("span", {
+      className: "text-[#86efac] font-semibold"
     }, "$", gp.bullTrigger.toFixed(2)), React.createElement("span", {
       className: "text-[#6b7280]"
-    }, "\u2192"), React.createElement("span", {
+    }, "\u2192 target"), React.createElement("span", {
       className: "text-emerald-300 font-semibold"
     }, "$", gp.bullTarget.toFixed(2)), React.createElement("span", {
-      className: "ml-auto text-[9px] text-[#6b7280]"
-    }, "+", ((gp.bullTarget - gp.bullTrigger) / gp.bullTrigger * 100).toFixed(2), "%"))), React.createElement("div", {
-      className: "flex items-center gap-2"
+      className: "ml-auto text-[9px] text-emerald-400/70"
+    }, "+", bullPct.toFixed(2), "%")), bullDist != null && React.createElement("div", {
+      className: "text-[9px] text-[#6b7280] mt-0.5"
+    }, bullArmed ? React.createElement("span", {
+      className: "text-emerald-400/80"
+    }, "\u25CF Armed (price ", Math.abs(bullDist).toFixed(2), "% above trigger)") : React.createElement("span", null, "\u25CB ", bullDist.toFixed(2), "% to trigger")))), React.createElement("div", {
+      className: "flex items-start gap-2"
     }, React.createElement("span", {
-      className: "text-[9px] font-semibold uppercase tracking-wider text-red-300/80 w-9"
+      className: "text-[9px] font-semibold uppercase tracking-wider text-red-300/80 w-10 shrink-0 mt-0.5"
     }, "Bear"), React.createElement("div", {
-      className: "flex-1 flex items-center gap-1 text-[10px] tabular-nums"
+      className: "flex-1 flex flex-col text-[10px] tabular-nums leading-tight"
+    }, React.createElement("div", {
+      className: "flex items-center gap-1"
     }, React.createElement("span", {
-      className: "text-[#fecaca]"
+      className: "text-[#9ca3af]"
+    }, bearArmed ? "Hold below" : "Break below"), React.createElement("span", {
+      className: "text-[#fecaca] font-semibold"
     }, "$", gp.bearTrigger.toFixed(2)), React.createElement("span", {
       className: "text-[#6b7280]"
-    }, "\u2192"), React.createElement("span", {
+    }, "\u2192 target"), React.createElement("span", {
       className: "text-red-300 font-semibold"
     }, "$", gp.bearTarget.toFixed(2)), React.createElement("span", {
-      className: "ml-auto text-[9px] text-[#6b7280]"
-    }, ((gp.bearTarget - gp.bearTrigger) / gp.bearTrigger * 100).toFixed(2), "%")))));
+      className: "ml-auto text-[9px] text-red-400/70"
+    }, bearPct.toFixed(2), "%")), bearDist != null && React.createElement("div", {
+      className: "text-[9px] text-[#6b7280] mt-0.5"
+    }, bearArmed ? React.createElement("span", {
+      className: "text-red-400/80"
+    }, "\u25CF Armed (price ", Math.abs(bearDist).toFixed(2), "% below trigger)") : React.createElement("span", null, "\u25CB ", Math.abs(bearDist).toFixed(2), "% to trigger"))))));
   }))), sectors.length > 0 && (() => {
     const themes = {
       "Risk-On / Cyclical": ["XLK", "XLY", "XLC", "XLI"],

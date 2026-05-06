@@ -2414,10 +2414,33 @@
                       </div>
                     );
                   })()}
-                  {/* Tab nav */}
-                  <div className="ds-tab" role="tablist" style={{ width: "100%" }}>
+                  {/* Tab nav — horizontal scroll on mobile so Fundamentals
+                      / History stay reachable instead of overflowing the
+                      panel width. flex: 0 0 auto on each tab keeps each
+                      label intact (no wrapping or truncation). */}
+                  <div
+                    className="ds-tab tt-rail-tabs"
+                    role="tablist"
+                    style={{
+                      width: "100%",
+                      overflowX: "auto",
+                      WebkitOverflowScrolling: "touch",
+                      scrollSnapType: "x proximity",
+                      scrollbarWidth: "none",
+                    }}
+                  >
                     {[["SNAPSHOT","Snapshot"],["SETUP","Setup"],["TECHNICALS","Technicals"],["FUNDAMENTALS","Fundamentals"],["HISTORY","History"]].map(([key, label]) => (
-                      <button key={key} className={`ds-tab__item ${v2RailTab === key ? "ds-tab__item--active" : ""}`} onClick={() => setRailTab(key)} style={{ flex: 1, justifyContent: "center", padding: "6px 12px" }}>
+                      <button
+                        key={key}
+                        className={`ds-tab__item ${v2RailTab === key ? "ds-tab__item--active" : ""}`}
+                        onClick={() => setRailTab(key)}
+                        style={{
+                          flex: "0 0 auto",
+                          justifyContent: "center",
+                          padding: "6px 12px",
+                          scrollSnapAlign: "start",
+                        }}
+                      >
                         <span>{label}</span>
                       </button>
                     ))}

@@ -46030,7 +46030,10 @@ export default {
           sinceRaw != null && sinceRaw !== "" ? Number(sinceRaw) : null;
         const until =
           untilRaw != null && untilRaw !== "" ? Number(untilRaw) : null;
-        const limit = Math.max(1, Math.min(1000, Number(limitRaw) || 200));
+        // Cap raised 1000 → 2000 (P0.7.69) so a typical promoted backtest
+        // run (~600 trades) fits in a single round trip from the Trades page.
+        // The frontend hook `useLedgerTrades` will still auto-page beyond this.
+        const limit = Math.max(1, Math.min(2000, Number(limitRaw) || 200));
         const cursor = decodeCursor(cursorRaw);
 
         let where = "WHERE 1=1";
@@ -50931,6 +50934,32 @@ export default {
             const nextParams = hasParamsObject ? body.params : { ...baseParams, ...body.params_patch };
             fields.push(`params_json = ?${bindIdx++}`);
             values.push(JSON.stringify(nextParams || {}));
+          }
+          // V15 P0.7.68 (2026-05-06) — Allow extending the manifest end date
+          // mid-run. Multi-leg backtests sometimes need to add an extra day
+          // (e.g. extending Apr→May by an extra day to capture today's data).
+          // Without this, tradeMatchesReplayScope will silently drop trades
+          // entered after the original endDate. Updates BOTH manifest_json
+          // (used by replay scope filter) AND the top-level start/end_date
+          // columns (used by runs index UI).
+          if (Object.prototype.hasOwnProperty.call(body, "end_date") && body.end_date) {
+            fields.push(`end_date = ?${bindIdx++}`);
+            values.push(String(body.end_date));
+            // Also patch manifest_json
+            try {
+              const existingManifest = await db.prepare(`SELECT manifest_json FROM backtest_runs WHERE run_id = ?1`).bind(runId).first();
+              if (existingManifest?.manifest_json) {
+                const m = JSON.parse(existingManifest.manifest_json);
+                if (m?.dataset) m.dataset.endDate = String(body.end_date);
+                if (m?.params) m.params.endDate = String(body.end_date);
+                fields.push(`manifest_json = ?${bindIdx++}`);
+                values.push(JSON.stringify(m));
+              }
+            } catch (_) {}
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "start_date") && body.start_date) {
+            fields.push(`start_date = ?${bindIdx++}`);
+            values.push(String(body.start_date));
           }
           fields.push(`updated_at = ?${bindIdx++}`);
           values.push(Date.now());

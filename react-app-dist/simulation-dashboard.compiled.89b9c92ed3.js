@@ -625,7 +625,8 @@ function useLedgerTrades({
   status = "all",
   since = null,
   until = null,
-  pageSize = 200
+  pageSize = 1000,
+  maxAutoPageRows = 10000
 } = {}) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -647,16 +648,32 @@ function useLedgerTrades({
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch(buildUrl(null), {
-        cache: "no-store"
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "ledger_trades_failed");
-      const trades = Array.isArray(json.trades) ? json.trades : [];
-      setItems(trades);
-      setHasMore(!!json.hasMore);
-      setCursor(json.nextCursor || null);
+      let cursorVal = null;
+      let collected = [];
+      let lastHasMore = false;
+      let lastCursor = null;
+      const maxPages = 20;
+      for (let i = 0; i < maxPages; i++) {
+        const res = await fetch(buildUrl(cursorVal), {
+          cache: "no-store"
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        if (!json.ok) throw new Error(json.error || "ledger_trades_failed");
+        const trades = Array.isArray(json.trades) ? json.trades : [];
+        collected = collected.concat(trades);
+        lastHasMore = !!json.hasMore;
+        lastCursor = json.nextCursor || null;
+        if (!lastHasMore || !lastCursor) break;
+        if (collected.length >= maxAutoPageRows) {
+          console.warn(`[useLedgerTrades] auto-page cap (${maxAutoPageRows}) hit; stopping`);
+          break;
+        }
+        cursorVal = lastCursor;
+      }
+      setItems(collected);
+      setHasMore(lastHasMore);
+      setCursor(lastCursor);
     } catch (e) {
       setError(String(e.message || e));
       setItems([]);
@@ -665,7 +682,7 @@ function useLedgerTrades({
     } finally {
       setLoading(false);
     }
-  }, [buildUrl]);
+  }, [buildUrl, maxAutoPageRows]);
   const fetchMore = useCallback(async () => {
     if (!cursor || loadingMore) return;
     try {
@@ -5539,7 +5556,7 @@ function App() {
     status: ledgerStatusFilter,
     since: ledgerSince,
     until: ledgerUntil,
-    pageSize: 500
+    pageSize: 1000
   });
   const ledgerAlerts = useLedgerAlerts({
     ticker: ledgerTickerFilter.trim(),

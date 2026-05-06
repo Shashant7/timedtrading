@@ -784,7 +784,10 @@
         status = "all",
         since = null,
         until = null,
-        pageSize = 200,
+        pageSize = 1000,
+        // Cap auto-paging so a runaway dataset cannot hammer the API. 10k trades is
+        // enough for any realistic backtest window we promote.
+        maxAutoPageRows = 10000,
       } = {}) {
         const [items, setItems] = useState([]);
         const [loading, setLoading] = useState(true);
@@ -807,18 +810,40 @@
           [ticker, status, since, until, pageSize],
         );
 
+        // Auto-paging loader: walks `nextCursor` until `hasMore` is false (or
+        // the safety cap is hit). Without this, the Trades page Performance
+        // Overview / Trade History only saw the first page (e.g. first 500 trades),
+        // producing wrong monthly aggregates and a phantom "9 trades / 11% WR" July.
         const fetchFirstPage = useCallback(async () => {
           try {
             setLoading(true);
             setError(null);
-            const res = await fetch(buildUrl(null), { cache: "no-store" });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const json = await res.json();
-            if (!json.ok) throw new Error(json.error || "ledger_trades_failed");
-            const trades = Array.isArray(json.trades) ? json.trades : [];
-            setItems(trades);
-            setHasMore(!!json.hasMore);
-            setCursor(json.nextCursor || null);
+            let cursorVal = null;
+            let collected = [];
+            let lastHasMore = false;
+            let lastCursor = null;
+            // Hard upper bound on round trips so a misconfigured server never
+            // loops forever. 20 pages * pageSize covers up to 20k rows.
+            const maxPages = 20;
+            for (let i = 0; i < maxPages; i++) {
+              const res = await fetch(buildUrl(cursorVal), { cache: "no-store" });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              if (!json.ok) throw new Error(json.error || "ledger_trades_failed");
+              const trades = Array.isArray(json.trades) ? json.trades : [];
+              collected = collected.concat(trades);
+              lastHasMore = !!json.hasMore;
+              lastCursor = json.nextCursor || null;
+              if (!lastHasMore || !lastCursor) break;
+              if (collected.length >= maxAutoPageRows) {
+                console.warn(`[useLedgerTrades] auto-page cap (${maxAutoPageRows}) hit; stopping`);
+                break;
+              }
+              cursorVal = lastCursor;
+            }
+            setItems(collected);
+            setHasMore(lastHasMore);
+            setCursor(lastCursor);
           } catch (e) {
             setError(String(e.message || e));
             setItems([]);
@@ -827,7 +852,7 @@
           } finally {
             setLoading(false);
           }
-        }, [buildUrl]);
+        }, [buildUrl, maxAutoPageRows]);
 
         const fetchMore = useCallback(async () => {
           if (!cursor || loadingMore) return;
@@ -6835,7 +6860,7 @@
           status: ledgerStatusFilter,
           since: ledgerSince,
           until: ledgerUntil,
-          pageSize: 500,
+          pageSize: 1000,
         });
         const ledgerAlerts = useLedgerAlerts({
           ticker: ledgerTickerFilter.trim(),

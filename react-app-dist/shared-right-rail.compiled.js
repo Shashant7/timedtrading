@@ -3018,19 +3018,24 @@
               title: "Behavior personality (engine classification)"
             }, String(personality).replace(/_/g, " "))));
           })(), React.createElement("div", {
-            className: "ds-tab",
+            className: "ds-tab tt-rail-tabs",
             role: "tablist",
             style: {
-              width: "100%"
+              width: "100%",
+              overflowX: "auto",
+              WebkitOverflowScrolling: "touch",
+              scrollSnapType: "x proximity",
+              scrollbarWidth: "none"
             }
           }, [["SNAPSHOT", "Snapshot"], ["SETUP", "Setup"], ["TECHNICALS", "Technicals"], ["FUNDAMENTALS", "Fundamentals"], ["HISTORY", "History"]].map(([key, label]) => React.createElement("button", {
             key: key,
             className: `ds-tab__item ${v2RailTab === key ? "ds-tab__item--active" : ""}`,
             onClick: () => setRailTab(key),
             style: {
-              flex: 1,
+              flex: "0 0 auto",
               justifyContent: "center",
-              padding: "6px 12px"
+              padding: "6px 12px",
+              scrollSnapAlign: "start"
             }
           }, React.createElement("span", null, label)))));
         })(), React.createElement("div", {

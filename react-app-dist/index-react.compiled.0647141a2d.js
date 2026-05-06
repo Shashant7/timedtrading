@@ -10341,7 +10341,7 @@ function StatusStrip({
   }, "L")))), topSignals && topSignals.map((sig, i) => React.createElement("button", {
     key: `sig-${sig.kind}-${sig.ticker}`,
     onClick: () => onSelectTicker && onSelectTicker(sig.ticker),
-    className: "flex flex-col justify-center min-w-0 hover:bg-white/[0.04] transition-colors group text-left",
+    className: `flex flex-col justify-center min-w-0 hover:bg-white/[0.04] transition-colors group text-left ${i >= 1 ? "tt-signal-low-prio" : ""}`,
     style: {
       padding: "6px 14px",
       borderRight: "1px solid var(--tt-border-weak)"
@@ -10381,7 +10381,7 @@ function StatusStrip({
       color: String(sig.dir).toUpperCase().includes("SHORT") ? "var(--tt-danger)" : "var(--tt-success)"
     }
   }, String(sig.dir).toUpperCase().includes("SHORT") ? "S" : "L")))), React.createElement("div", {
-    className: "flex items-center ml-auto",
+    className: "tt-mkt-status-cell flex items-center ml-auto",
     style: {
       padding: "6px 14px"
     }
@@ -14516,6 +14516,18 @@ function App() {
     });
   }, [dashboardViewMode]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [bubbleMobileExpanded, setBubbleMobileExpanded] = useState(false);
+  const [bubbleFullscreen, setBubbleFullscreen] = useState(false);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  useEffect(() => {
+    const onScroll = () => {
+      setShowScrollTop((window.scrollY || document.documentElement.scrollTop || 0) > 300);
+    };
+    window.addEventListener("scroll", onScroll, {
+      passive: true
+    });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
   const [showAiChat, setShowAiChat] = useState(false);
   const [showAddTicker, setShowAddTicker] = useState(false);
   const [addTickerInput, setAddTickerInput] = useState("");
@@ -15425,13 +15437,16 @@ function App() {
   }), React.createElement("div", {
     className: "min-h-screen p-0 pt-2 tt-page-shell"
   }, React.createElement("nav", {
-    className: "sticky top-0 z-50 border-b border-white/[0.06]",
+    className: "sticky top-0 z-50 border-b border-white/[0.06] tt-top-nav",
     style: {
       background: "rgba(10,10,15,0.95)",
       backdropFilter: "blur(12px)"
     }
   }, React.createElement("div", {
-    className: "flex items-center justify-between px-4 py-2.5"
+    className: "flex items-center justify-between px-4 py-2.5 md:py-2.5 tt-top-nav__inner",
+    style: {
+      paddingTop: "max(10px, env(safe-area-inset-top))"
+    }
   }, React.createElement("div", {
     className: "flex items-center gap-3 md:gap-5 min-w-0"
   }, React.createElement("a", {
@@ -15899,7 +15914,7 @@ function App() {
         fontVariantNumeric: "tabular-nums"
       }
     }, earningItems.length, " on deck \xB7 sorted by date, time, ticker")), React.createElement("div", {
-      className: "ds-row__content",
+      className: "ds-row__content tt-earnings-content",
       style: {
         display: "flex",
         flexDirection: "column",
@@ -15907,6 +15922,7 @@ function App() {
       }
     }, earningsByDay.map((day, di) => React.createElement("div", {
       key: `eday-${day.date}`,
+      className: "tt-earn-day-row",
       style: {
         display: "flex",
         flexWrap: "wrap",
@@ -16847,13 +16863,79 @@ function App() {
     }),
     className: "px-4 py-2 rounded-xl border border-white/[0.10] text-sm text-[#94a3b8] hover:text-white hover:bg-white/[0.05] transition-colors"
   }, "Clear Search")))) : dashboardMode === "analysis" && React.createElement("div", {
-    className: "flex flex-col lg:flex-row gap-4",
+    className: `tt-analysis-grid flex flex-col lg:flex-row gap-4 ${bubbleMobileExpanded ? "tt-bubble-expanded" : "tt-bubble-mobile-collapsed"}`,
     style: {
-      height: "calc(100vh - 120px)",
-      minHeight: "700px",
-      maxHeight: "1200px"
+      height: typeof window !== "undefined" && window.innerWidth >= 1024 ? "calc(100vh - 120px)" : "auto",
+      minHeight: typeof window !== "undefined" && window.innerWidth >= 1024 ? "700px" : "auto",
+      maxHeight: typeof window !== "undefined" && window.innerWidth >= 1024 ? "1200px" : "none"
     }
   }, React.createElement("div", {
+    className: "lg:hidden",
+    style: {
+      display: "flex",
+      gap: 8,
+      marginBottom: 8
+    }
+  }, React.createElement("button", {
+    type: "button",
+    onClick: () => setBubbleMobileExpanded(v => !v),
+    className: "tt-bubble-toggle-btn",
+    "aria-expanded": bubbleMobileExpanded,
+    style: {
+      flex: 1,
+      marginBottom: 0
+    }
+  }, React.createElement("span", null, bubbleMobileExpanded ? "Hide Bubble Map" : "Show Bubble Map"), React.createElement("svg", {
+    width: "14",
+    height: "14",
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "2.5",
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    style: {
+      transform: bubbleMobileExpanded ? "rotate(180deg)" : "none",
+      transition: "transform 200ms"
+    }
+  }, React.createElement("polyline", {
+    points: "6 9 12 15 18 9"
+  }))), React.createElement("button", {
+    type: "button",
+    onClick: () => setBubbleFullscreen(true),
+    className: "tt-bubble-toggle-btn",
+    style: {
+      width: "auto",
+      padding: "10px 14px",
+      marginBottom: 0,
+      flex: "0 0 auto"
+    },
+    title: "Open the bubble map in a full-screen view (rotate to landscape for best results)",
+    "aria-label": "Open Bubble Map fullscreen"
+  }, React.createElement("svg", {
+    width: "16",
+    height: "16",
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "2.5",
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  }, React.createElement("polyline", {
+    points: "15 3 21 3 21 9"
+  }), React.createElement("polyline", {
+    points: "9 21 3 21 3 15"
+  }), React.createElement("line", {
+    x1: "21",
+    y1: "3",
+    x2: "14",
+    y2: "10"
+  }), React.createElement("line", {
+    x1: "3",
+    y1: "21",
+    x2: "10",
+    y2: "14"
+  })))), React.createElement("div", {
     className: "w-full lg:w-[320px] lg:flex-shrink-0 lg:h-full min-h-[400px] lg:min-h-0",
     "data-coachmark": "viewport"
   }, React.createElement(OpportunitiesPanel, {
@@ -16870,7 +16952,7 @@ function App() {
     toggleSavedTicker: toggleSavedTicker,
     addingTicker: userTickers.addingTicker
   })), React.createElement("div", {
-    className: `relative w-full lg:flex-1 lg:min-w-0 lg:h-full flex flex-col transition-[margin] duration-300 ${selectedTicker ? "lg:mr-[540px] xl:mr-[620px]" : ""}`
+    className: `tt-bubble-chart-wrap relative w-full lg:flex-1 lg:min-w-0 lg:h-full flex flex-col transition-[margin] duration-300 ${selectedTicker ? "lg:mr-[540px] xl:mr-[620px]" : ""}`
   }, React.createElement("div", {
     className: "px-3 py-2 mb-1 rounded-lg border border-white/[0.06] bg-white/[0.02]",
     "data-coachmark": "bubble-chart"
@@ -17212,7 +17294,7 @@ function App() {
     className: "fixed inset-0 z-30",
     onMouseDown: () => handleTickerSelect(null)
   }), React.createElement("div", {
-    className: "fixed right-0 top-[60px] sm:top-[52px] w-full sm:w-[520px] xl:w-[600px] bottom-[64px] sm:bottom-[56px] bg-[#0b0e11] border-l border-white/[0.04] z-40 slide-in-right shadow-xl overflow-y-auto",
+    className: "tt-rail-mobile fixed right-0 top-[60px] sm:top-[52px] w-full sm:w-[520px] xl:w-[600px] bottom-[64px] sm:bottom-[56px] bg-[#0b0e11] border-l border-white/[0.04] z-40 slide-in-right shadow-xl overflow-y-auto",
     onMouseDown: e => e.stopPropagation()
   }, React.createElement(OverlayPortal, {
     selectedTicker: selectedTicker,
@@ -17352,7 +17434,190 @@ function App() {
     className: "text-[#94a3b8] truncate"
   }, item.message || "Finishing context, profile, and scoring...")), React.createElement("div", {
     className: "text-cyan-300 font-semibold tabular-nums shrink-0"
-  }, Number.isFinite(Number(item.progress)) ? `${Math.round(Number(item.progress) * 100)}%` : ""))))), React.createElement(Coachmarks, null), React.createElement(GoProModal, {
+  }, Number.isFinite(Number(item.progress)) ? `${Math.round(Number(item.progress) * 100)}%` : ""))))), React.createElement("nav", {
+    className: "tt-mobile-bottom-nav",
+    "data-coachmark": "nav-modes",
+    "aria-label": "View modes",
+    style: {
+      display: "none"
+    }
+  }, [{
+    id: "analysis",
+    label: "Analysis",
+    icon: React.createElement("svg", {
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: "2",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      "aria-hidden": "true"
+    }, React.createElement("circle", {
+      cx: "12",
+      cy: "12",
+      r: "10"
+    }), React.createElement("polygon", {
+      points: "16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"
+    })),
+    count: null
+  }, {
+    id: "trader",
+    label: "Trader",
+    icon: React.createElement("svg", {
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: "2",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      "aria-hidden": "true"
+    }, React.createElement("polyline", {
+      points: "23 6 13.5 15.5 8.5 10.5 1 18"
+    }), React.createElement("polyline", {
+      points: "17 6 23 6 23 12"
+    })),
+    count: traderActionableCount + traderHoldCount > 0 ? traderActionableCount + traderHoldCount : null
+  }, {
+    id: "investor",
+    label: "Invest",
+    icon: React.createElement("svg", {
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: "2",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      "aria-hidden": "true"
+    }, React.createElement("rect", {
+      x: "2",
+      y: "7",
+      width: "20",
+      height: "14",
+      rx: "2",
+      ry: "2"
+    }), React.createElement("path", {
+      d: "M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"
+    })),
+    count: investorTotalCount > 0 ? investorTotalCount : null
+  }, {
+    id: "all",
+    label: "All",
+    icon: React.createElement("svg", {
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: "2",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      "aria-hidden": "true"
+    }, React.createElement("line", {
+      x1: "3",
+      y1: "6",
+      x2: "21",
+      y2: "6"
+    }), React.createElement("line", {
+      x1: "3",
+      y1: "12",
+      x2: "21",
+      y2: "12"
+    }), React.createElement("line", {
+      x1: "3",
+      y1: "18",
+      x2: "21",
+      y2: "18"
+    })),
+    count: Array.isArray(tickers) && tickers.length > 0 ? tickers.length : null
+  }].map(item => React.createElement("button", {
+    key: `mbn-${item.id}`,
+    type: "button",
+    className: `tt-mobile-bottom-nav__item ${dashboardMode === item.id ? "tt-mobile-bottom-nav__item--active" : ""}`,
+    onClick: () => handleDashboardModeChange(item.id),
+    "aria-current": dashboardMode === item.id ? "page" : undefined,
+    "aria-label": item.label
+  }, item.icon, React.createElement("span", null, item.label), item.count != null && React.createElement("span", {
+    className: "tt-mobile-bottom-nav__count"
+  }, item.count)))), showScrollTop && React.createElement("button", {
+    type: "button",
+    className: "tt-scroll-top-btn",
+    onClick: () => window.scrollTo({
+      top: 0,
+      behavior: "smooth"
+    }),
+    "aria-label": "Scroll to top"
+  }, React.createElement("svg", {
+    width: "20",
+    height: "20",
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "2.4",
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  }, React.createElement("polyline", {
+    points: "18 15 12 9 6 15"
+  }))), bubbleFullscreen && React.createElement("div", {
+    className: "tt-bubble-fullscreen",
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-label": "Bubble Map"
+  }, React.createElement("div", {
+    className: "tt-bubble-fullscreen__head"
+  }, React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 2
+    }
+  }, React.createElement("span", {
+    style: {
+      fontSize: 14,
+      fontWeight: 700,
+      color: "var(--ds-text-display)",
+      letterSpacing: "0.04em"
+    }
+  }, "Bubble Map"), React.createElement("span", {
+    style: {
+      fontSize: 10,
+      color: "var(--ds-text-muted)",
+      letterSpacing: "0.06em",
+      textTransform: "uppercase"
+    }
+  }, "Rotate phone for landscape view")), React.createElement("button", {
+    type: "button",
+    className: "tt-bubble-fullscreen__close",
+    onClick: () => setBubbleFullscreen(false),
+    "aria-label": "Close"
+  }, React.createElement("svg", {
+    width: "18",
+    height: "18",
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "2.5",
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  }, React.createElement("line", {
+    x1: "18",
+    y1: "6",
+    x2: "6",
+    y2: "18"
+  }), React.createElement("line", {
+    x1: "6",
+    y1: "6",
+    x2: "18",
+    y2: "18"
+  })))), React.createElement("div", {
+    className: "tt-bubble-fullscreen__body"
+  }, React.createElement(BubbleChart, {
+    tickers: tickersWithRanks,
+    selectedTicker: selectedTicker,
+    onSelectTicker: handleTickerSelect,
+    rankPositions: rankedTickerPositions,
+    sectors: sectors,
+    chartView: bubbleLayoutMode,
+    onChartViewChange: setBubbleLayoutMode,
+    showLabels: true
+  }))), React.createElement(Coachmarks, null), React.createElement(GoProModal, {
     open: goProOpen,
     onClose: () => setGoProOpen(false)
   }));
