@@ -939,6 +939,8 @@ const ROUTES = [
   ["POST", "/timed/admin/loop2-pause/reset", "POST /timed/admin/loop2-pause/reset"],
   ["POST", "/timed/admin/cancel-stale-closures", "POST /timed/admin/cancel-stale-closures"],
   ["POST", "/timed/admin/purge-orphan-trades", "POST /timed/admin/purge-orphan-trades"],
+  ["POST", "/timed/admin/seed-direction-accuracy-from-promoted", "POST /timed/admin/seed-direction-accuracy-from-promoted"],
+  ["POST", "/timed/admin/refresh-path-performance", "POST /timed/admin/refresh-path-performance"],
   ["GET", "/timed/admin/activity-feed", "GET /timed/admin/activity-feed"],
   ["POST", "/timed/admin/model-config", "POST /timed/admin/model-config"],
   ["GET",  "/timed/admin/grade-config",  "GET /timed/admin/grade-config"],
@@ -52848,6 +52850,101 @@ export default {
             updated++;
           }
           return sendJSON({ ok: true, updated, trade_ids: tradeIds }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/seed-direction-accuracy-from-promoted?key=...
+      // POST /timed/admin/refresh-path-performance?key=...
+      // V15 P0.7.89: AI CIO hydration. The CIO's 7-layer memory reads
+      // path_performance which is computed from direction_accuracy. The
+      // live cron's direction_accuracy table is empty (or only has post-
+      // promotion live trades), so the CIO has no historical context.
+      //
+      // seed-direction-accuracy-from-promoted: writes ~587 rows from
+      //   promoted_trades into direction_accuracy with a synthetic
+      //   trade_id prefix ('promo-') so it doesn't collide with live ids.
+      // refresh-path-performance: triggers the existing refreshPathPerformance
+      //   helper to compute path-level WR/expectancy/recent-WR stats.
+      if (routeKey === "POST /timed/admin/seed-direction-accuracy-from-promoted") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          // Resolve active promoted dataset
+          let dataset = await db.prepare(
+            `SELECT * FROM promoted_trade_datasets WHERE status = 'active' ORDER BY promoted_at DESC LIMIT 1`
+          ).first();
+          if (!dataset) {
+            dataset = await db.prepare(
+              `SELECT * FROM promoted_trade_datasets ORDER BY promoted_at DESC LIMIT 1`
+            ).first();
+          }
+          if (!dataset?.dataset_id) return sendJSON({ ok: false, error: "no_dataset" }, 400, corsHeaders(env, req));
+
+          const promotedRows = (await db.prepare(
+            `SELECT trade_id, ticker, direction, entry_ts, exit_ts, entry_price, exit_price,
+                    pnl, pnl_pct, rank, rr, status, setup_name, setup_grade, exit_reason
+             FROM promoted_trades WHERE dataset_id = ?1 ORDER BY entry_ts ASC`
+          ).bind(String(dataset.dataset_id)).all())?.results || [];
+
+          if (promotedRows.length === 0) return sendJSON({ ok: false, error: "no_promoted_trades" }, 400, corsHeaders(env, req));
+
+          // Idempotent: wipe prior 'promo-' rows so re-seeding is safe.
+          await db.prepare(`DELETE FROM direction_accuracy WHERE trade_id LIKE 'promo-%'`).run();
+
+          const inserts = [];
+          for (const r of promotedRows) {
+            const ticker = String(r.ticker || "").toUpperCase();
+            const direction = String(r.direction || "LONG").toUpperCase();
+            const entryTs = Number(r.entry_ts) || 0;
+            const exitTs = Number(r.exit_ts) || 0;
+            const status = String(r.status || "").toUpperCase();
+            if (!entryTs || !ticker) continue;
+            // Prefix trade_id so promoted rows don't collide with live ids.
+            const synthId = `promo-${r.trade_id}`;
+            const pnlPct = Number(r.pnl_pct) || 0;
+            const dirCorrect = (status === "WIN") ? 1 : (status === "LOSS") ? 0 : null;
+            inserts.push(db.prepare(
+              `INSERT INTO direction_accuracy
+                (trade_id, ticker, ts, traded_direction, entry_path, rank, rr,
+                 entry_price, exit_ts, exit_price, pnl, pnl_pct, status,
+                 direction_correct, direction_source)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 'promoted_seed')`
+            ).bind(
+              synthId, ticker, entryTs, direction,
+              String(r.setup_name || "unknown"),
+              Number(r.rank) || 0,
+              Number(r.rr) || 0,
+              Number(r.entry_price) || 0,
+              exitTs || null,
+              Number(r.exit_price) || 0,
+              Number(r.pnl) || 0,
+              pnlPct,
+              status,
+              dirCorrect,
+            ));
+          }
+          for (let i = 0; i < inserts.length; i += 200) {
+            await db.batch(inserts.slice(i, i + 200));
+          }
+          return sendJSON({
+            ok: true,
+            dataset_id: dataset.dataset_id,
+            seeded: inserts.length,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "POST /timed/admin/refresh-path-performance") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const result = await refreshPathPerformance(env);
+          return sendJSON(result, result?.ok ? 200 : 500, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
