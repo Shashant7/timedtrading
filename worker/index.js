@@ -938,6 +938,7 @@ const ROUTES = [
   ["GET", "/timed/admin/loop2-pause", "GET /timed/admin/loop2-pause"],
   ["POST", "/timed/admin/loop2-pause/reset", "POST /timed/admin/loop2-pause/reset"],
   ["POST", "/timed/admin/cancel-stale-closures", "POST /timed/admin/cancel-stale-closures"],
+  ["GET", "/timed/admin/activity-feed", "GET /timed/admin/activity-feed"],
   ["POST", "/timed/admin/model-config", "POST /timed/admin/model-config"],
   ["GET",  "/timed/admin/grade-config",  "GET /timed/admin/grade-config"],
   // ── System Intelligence (unified Calibration + Model) ──
@@ -52751,6 +52752,73 @@ export default {
           return sendJSON(result, result?.ok ? 200 : 400, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/activity-feed?limit=50&since=YYYY-MM-DD&key=...
+      // V15 P0.7.86: chronological feed of recent system actions (ENTRY,
+      // TRIM, EXIT, ADD_ENTRY) for the right-side activity drawer. Data
+      // source: execution_actions joined with positions for ticker +
+      // direction. Sorted ts DESC. Returns the unified shape documented
+      // in tasks/phase-c/ACTIVITY_FEED_DESIGN.md.
+      if (routeKey === "GET /timed/admin/activity-feed") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const limitRaw = url.searchParams.get("limit");
+          const sinceRaw = url.searchParams.get("since"); // YYYY-MM-DD
+          const limit = Math.max(1, Math.min(200, Number(limitRaw) || 50));
+          let where = "WHERE 1=1";
+          const binds = [];
+          if (sinceRaw && /^\d{4}-\d{2}-\d{2}$/.test(sinceRaw)) {
+            const sinceMs = new Date(sinceRaw + "T00:00:00Z").getTime();
+            if (Number.isFinite(sinceMs)) {
+              where += " AND ea.ts >= ?";
+              binds.push(sinceMs);
+            }
+          }
+          // V15 P0.7.86: skip events whose parent trade has been CANCELED
+          // (e.g. admin-reversed wall-clock force-closures from P0.7.83).
+          // Also skip wall-clock force-close reasons + EXITs whose parent
+          // position was opened >30 days before the exit (those are
+          // orphans the V13 bug recurs on; the cron force-closes them).
+          where += " AND (t.status IS NULL OR t.status != 'CANCELED')";
+          where += " AND (ea.reason IS NULL OR ea.reason NOT IN ('admin_reversed_wallclock_force_close', 'v13_hard_age_cap', 'v13_hard_pnl_floor'))";
+          // Drop EXITs where the parent position was created > 30 days
+          // before the exit timestamp — that's the wall-clock orphan
+          // pattern. Live trades close within days, not months.
+          where += " AND NOT (ea.action_type = 'EXIT' AND p.created_at IS NOT NULL AND (ea.ts - p.created_at) > 2592000000)";
+          const rows = (await db.prepare(
+            `SELECT ea.action_id, ea.ts, ea.action_type, ea.qty, ea.price, ea.value,
+                    ea.pnl_realized, ea.reason, ea.position_id,
+                    p.ticker, p.direction, p.script_version, p.created_at,
+                    t.setup_name, t.setup_grade, t.status as trade_status
+             FROM execution_actions ea
+             LEFT JOIN positions p ON ea.position_id = p.position_id
+             LEFT JOIN trades t ON t.trade_id = ea.position_id
+             ${where}
+             ORDER BY ea.ts DESC
+             LIMIT ?`
+          ).bind(...binds, limit).all())?.results || [];
+          const events = rows.map(r => ({
+            ts: Number(r.ts),
+            type: String(r.action_type || "").toUpperCase(),
+            ticker: String(r.ticker || "").toUpperCase(),
+            direction: String(r.direction || "").toUpperCase() || null,
+            qty: Number(r.qty) || 0,
+            price: Number(r.price) || 0,
+            value: Number(r.value) || 0,
+            pnl: Number(r.pnl_realized) || 0,
+            reason: r.reason || null,
+            trade_id: r.position_id || null,
+            setup_name: r.setup_name || null,
+            setup_grade: r.setup_grade || null,
+          }));
+          return sendJSON({ ok: true, count: events.length, events }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
       }
 

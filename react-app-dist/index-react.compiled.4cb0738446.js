@@ -17337,7 +17337,10 @@ function App() {
     className: "text-[9px] text-gray-400 mx-0.5"
   }, "\u2014"), React.createElement("span", {
     className: "text-[10px] font-bold text-amber-400"
-  }, "Go Pro for all")))))), selectedTicker && React.createElement(React.Fragment, null, React.createElement("div", {
+  }, "Go Pro for all")))))), React.createElement(ActivityFeedDrawer, {
+    selectedTicker: selectedTicker,
+    onSelectTicker: sym => handleTickerSelect(sym)
+  }), selectedTicker && React.createElement(React.Fragment, null, React.createElement("div", {
     className: "fixed inset-0 z-30",
     onMouseDown: () => handleTickerSelect(null)
   }), React.createElement("div", {
@@ -18179,5 +18182,251 @@ function Coachmarks() {
     onMouseLeave: e => e.target.style.color = "#475569"
   }, "Skip tour"))))), document.body);
 }
+function ActivityFeedDrawer({
+  selectedTicker,
+  onSelectTicker
+}) {
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [collapsed, setCollapsed] = useState(false);
+  const fetchFeed = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/timed/admin/activity-feed?limit=50&_t=${Date.now()}`, {
+        cache: "no-store",
+        credentials: "include"
+      });
+      if (!res.ok) return;
+      const json = await res.json();
+      if (json.ok && Array.isArray(json.events)) setEvents(json.events);
+    } catch (_) {} finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    fetchFeed();
+    const id = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      fetchFeed();
+    }, 30000);
+    return () => clearInterval(id);
+  }, [fetchFeed]);
+  if (selectedTicker) return null;
+  const fmtRelative = ts => {
+    if (!ts) return "—";
+    const ms = Date.now() - Number(ts);
+    const m = Math.round(ms / 60000);
+    if (m < 1) return "now";
+    if (m < 60) return `${m}m ago`;
+    const h = Math.round(m / 60);
+    if (h < 24) return `${h}h ago`;
+    const d = Math.round(h / 24);
+    return `${d}d ago`;
+  };
+  const fmtTime = ts => {
+    if (!ts) return "—";
+    try {
+      return new Date(Number(ts)).toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+        timeZone: "America/New_York"
+      });
+    } catch {
+      return "—";
+    }
+  };
+  const typeMeta = type => {
+    switch (String(type).toUpperCase()) {
+      case "ENTRY":
+        return {
+          label: "ENTER",
+          color: "#34d399",
+          bg: "rgba(52,211,153,0.12)"
+        };
+      case "ADD_ENTRY":
+        return {
+          label: "ADD",
+          color: "#34d399",
+          bg: "rgba(52,211,153,0.12)"
+        };
+      case "TRIM":
+        return {
+          label: "TRIM",
+          color: "#fbbf24",
+          bg: "rgba(251,191,36,0.12)"
+        };
+      case "EXIT":
+        return {
+          label: "EXIT",
+          color: "#f87171",
+          bg: "rgba(248,113,113,0.12)"
+        };
+      default:
+        return {
+          label: type || "—",
+          color: "var(--tt-text-muted)",
+          bg: "rgba(255,255,255,0.04)"
+        };
+    }
+  };
+  return React.createElement("aside", {
+    className: "tt-activity-drawer",
+    style: {
+      position: "fixed",
+      right: 0,
+      top: "60px",
+      bottom: 0,
+      width: collapsed ? "32px" : "300px",
+      background: "var(--ds-bg-canvas, #0b0e11)",
+      borderLeft: "1px solid var(--ds-stroke, rgba(255,255,255,0.06))",
+      zIndex: 35,
+      display: "flex",
+      flexDirection: "column",
+      transition: "width 220ms ease",
+      overflow: "hidden"
+    },
+    "aria-label": "Recent system activity"
+  }, React.createElement("button", {
+    type: "button",
+    onClick: () => setCollapsed(c => !c),
+    title: collapsed ? "Show activity feed" : "Collapse activity feed",
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: collapsed ? "center" : "space-between",
+      padding: "8px 10px",
+      background: "rgba(255,255,255,0.02)",
+      borderBottom: "1px solid var(--ds-stroke, rgba(255,255,255,0.06))",
+      color: "var(--ds-text-muted)",
+      fontSize: 10,
+      letterSpacing: "0.12em",
+      textTransform: "uppercase",
+      fontWeight: 700,
+      cursor: "pointer",
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, collapsed ? React.createElement("span", {
+    style: {
+      writingMode: "vertical-rl",
+      transform: "rotate(180deg)",
+      fontSize: 9
+    }
+  }, "Activity") : React.createElement(React.Fragment, null, React.createElement("span", null, "Activity"), React.createElement("span", {
+    style: {
+      color: "var(--ds-text-faint)",
+      fontSize: 11
+    }
+  }, events.length > 0 ? `${events.length}` : "", "  \u203A"))), !collapsed && React.createElement("div", {
+    style: {
+      flex: 1,
+      overflowY: "auto",
+      padding: "6px 8px"
+    }
+  }, loading ? React.createElement("div", {
+    style: {
+      padding: 12,
+      fontSize: 11,
+      color: "var(--ds-text-faint)"
+    }
+  }, "Loading\u2026") : events.length === 0 ? React.createElement("div", {
+    style: {
+      padding: 12,
+      fontSize: 11,
+      color: "var(--ds-text-faint)",
+      lineHeight: 1.5
+    }
+  }, "No activity yet today. Last action will show here when the engine fires.") : React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 4
+    }
+  }, events.map((e, i) => {
+    const meta = typeMeta(e.type);
+    const dirIsLong = String(e.direction || "").toUpperCase() === "LONG";
+    const dirIsShort = String(e.direction || "").toUpperCase() === "SHORT";
+    const dirColor = dirIsLong ? "#34d399" : dirIsShort ? "#f87171" : "var(--ds-text-muted)";
+    const pnlColor = e.pnl > 0 ? "#34d399" : e.pnl < 0 ? "#f87171" : "var(--ds-text-muted)";
+    return React.createElement("button", {
+      key: `${e.trade_id}-${i}`,
+      type: "button",
+      onClick: () => onSelectTicker && onSelectTicker(e.ticker),
+      style: {
+        display: "flex",
+        flexDirection: "column",
+        gap: 2,
+        padding: "6px 8px",
+        background: "rgba(255,255,255,0.015)",
+        border: "1px solid var(--ds-stroke, rgba(255,255,255,0.04))",
+        borderRadius: 6,
+        textAlign: "left",
+        cursor: "pointer",
+        transition: "background 120ms"
+      },
+      onMouseEnter: ev => ev.currentTarget.style.background = "rgba(255,255,255,0.04)",
+      onMouseLeave: ev => ev.currentTarget.style.background = "rgba(255,255,255,0.015)",
+      title: `${e.type} ${e.ticker} — ${fmtTime(e.ts)} ET${e.reason ? ` — ${e.reason}` : ""}`
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 6
+      }
+    }, React.createElement("span", {
+      style: {
+        fontSize: 9,
+        fontWeight: 700,
+        letterSpacing: "0.08em",
+        padding: "1px 5px",
+        borderRadius: 3,
+        color: meta.color,
+        background: meta.bg,
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, meta.label), React.createElement("span", {
+      style: {
+        fontSize: 9,
+        color: "var(--ds-text-faint)",
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, fmtRelative(e.ts))), React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "baseline",
+        gap: 6
+      }
+    }, React.createElement("span", {
+      style: {
+        fontWeight: 700,
+        fontSize: 12,
+        color: "var(--ds-text-display)",
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, e.ticker), e.direction && React.createElement("span", {
+      style: {
+        fontSize: 9,
+        fontWeight: 700,
+        color: dirColor,
+        letterSpacing: "0.06em"
+      }
+    }, e.direction)), React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        fontSize: 10,
+        color: "var(--ds-text-muted)",
+        fontFamily: "var(--tt-font-mono)",
+        fontVariantNumeric: "tabular-nums"
+      }
+    }, React.createElement("span", null, e.qty > 0 ? `${e.qty.toFixed(e.qty < 10 ? 1 : 0)} @ $${Number(e.price).toFixed(2)}` : ""), e.type !== "ENTRY" && e.type !== "ADD_ENTRY" && Math.abs(e.pnl) > 0.01 && React.createElement("span", {
+      style: {
+        color: pnlColor,
+        fontWeight: 700
+      }
+    }, e.pnl >= 0 ? "+" : "", "$", Math.abs(e.pnl).toFixed(0))));
+  }))));
+}
 window.App = App;
+window.ActivityFeedDrawer = ActivityFeedDrawer;
 window.Coachmarks = Coachmarks;

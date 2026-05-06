@@ -284,6 +284,18 @@
       .tt-rail-shell--workspace .tt-rail-chart-canvas {
         height: 420px !important;
       }
+      /* V15 P0.7.86 — Activity Feed drawer.
+         Hidden on mobile/tablet (<1024px) — too narrow to dock a 300px
+         strip without crowding the kanban / bubble map. Visible on
+         desktop only. The drawer also self-hides when the right rail
+         opens (via the React `selectedTicker` check inside the
+         component). The drawer is `position: fixed` so it overlays
+         content rather than pushing it; on a 1280px+ screen this still
+         leaves ~980px of usable content width. */
+      @media (max-width: 1023px) {
+        .tt-activity-drawer { display: none !important; }
+      }
+
       /* Modal mode (mobile/tablet < 1024px): left/right wrappers are
          transparent and children flow. Per user request (V15 P0.7.85),
          we use flex order to place tab content FIRST and chart+levels
@@ -1060,7 +1072,7 @@
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-right-rail.compiled.js?v=20260503-fundamentals"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
-    <script src="index-react.compiled.b571e001b5.js"></script>
+    <script src="index-react.compiled.4cb0738446.js"></script>
 
     <!-- Initialize app - separate script to avoid Babel parsing issues -->
     <script>
