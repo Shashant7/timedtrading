@@ -1717,11 +1717,13 @@
           const sym = String(tickerSymbol || "")
             .trim()
             .toUpperCase();
-          /* V2.1 round 3 (2026-05-01) — Also fetch when SETUP tab is active.
-             The v2 RR renders the chart inside the Setup tab; without this
-             the chart panel was empty / stale because the legacy guard only
-             fired on the ANALYSIS tab. */
-          if (railTab !== "ANALYSIS" && railTab !== "SETUP") return;
+          /* V15 P0.7.84: chart is now lifted OUT of tab gates and rendered
+             persistently above all tabs (P0.7.74). The previous tab guard
+             ('if railTab not in [ANALYSIS, SETUP] return') and the railTab
+             dependency caused the chart to refetch + re-create on every
+             tab switch (Snapshot → Setup → Technicals → ...) — that was
+             the visible flicker. Removed both. Chart now reloads only on
+             ticker change or TF change. */
           if (!sym) return;
 
           let cancelled = false;
@@ -1767,7 +1769,7 @@
           return () => {
             cancelled = true;
           };
-        }, [railTab, tickerSymbol, chartTf]);
+        }, [tickerSymbol, chartTf]);
 
         useEffect(() => {
           const sym = String(tickerSymbol || "")

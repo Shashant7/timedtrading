@@ -4041,7 +4041,7 @@ function BubbleChart({
         style: {
           pointerEvents: "none"
         }
-      }, "LONG ENTRY ZONE"), React.createElement("rect", {
+      }, "BULL SETUP ZONE"), React.createElement("rect", {
         x: shortX,
         y: offsetY + plotHeight / 2,
         width: shortW,
@@ -4061,7 +4061,7 @@ function BubbleChart({
         style: {
           pointerEvents: "none"
         }
-      }, "SHORT ENTRY ZONE"));
+      }, "BEAR SETUP ZONE"));
     })(), crosshairPos && crosshairPos.chartX >= 0 && crosshairPos.chartX <= plotWidth && React.createElement("line", {
       x1: offsetX + crosshairPos.chartX,
       y1: offsetY,
@@ -10368,12 +10368,31 @@ function StatusStrip({
     style: {
       fontSize: 12,
       lineHeight: 1.2,
-      whiteSpace: "nowrap"
+      whiteSpace: "nowrap",
+      display: "flex",
+      alignItems: "center",
+      gap: 6
     }
   }, React.createElement("span", {
+    className: "ds-tickercard__logo shrink-0",
+    style: {
+      width: 16,
+      height: 16
+    },
+    ref: el => {
+      if (el && !el.dataset.dsInit && window.DS) {
+        el.dataset.dsInit = "1";
+        try {
+          el.replaceWith(window.DS.tickerLogo(sig.ticker, {
+            size: 16
+          }));
+        } catch (_) {}
+      }
+    }
+  }, String(sig.ticker).slice(0, 2)), React.createElement("span", {
     className: "tt-num font-bold text-white group-hover:text-cyan-300 transition-colors"
   }, sig.ticker), React.createElement("span", {
-    className: "tt-num ml-1.5",
+    className: "tt-num",
     style: {
       fontSize: 10.5,
       color: "var(--tt-text-3)"
@@ -10384,7 +10403,6 @@ function StatusStrip({
       color: "var(--tt-info)"
     }
   }, sig.rank)), sig.dir && sig.dir !== "\u2014" && React.createElement("span", {
-    className: "ml-1",
     style: {
       fontSize: 9.5,
       textTransform: "uppercase",
@@ -11327,9 +11345,6 @@ function SimpleKanbanTable({
   }, "R:R"), React.createElement("th", {
     className: "px-1 py-2 text-center text-[11px] font-medium text-gray-400"
   }, "Flags"), React.createElement("th", {
-    className: "px-2 py-2 text-center text-[10px] font-medium text-gray-500 whitespace-nowrap cursor-pointer hover:text-white select-none",
-    onClick: () => handleSort("stage")
-  }, "Active Trader", sortArrow("stage")), React.createElement("th", {
     className: "px-2 py-2 text-center text-[10px] font-medium text-gray-500 whitespace-nowrap"
   }, "Investor"))), React.createElement("tbody", null, filtered.map((t, idx) => {
     const sym = String(t?.ticker || "").toUpperCase();
@@ -11392,7 +11407,7 @@ function SimpleKanbanTable({
       className: "px-2 py-1.5 text-center"
     }, React.createElement("span", {
       className: `text-[11px] font-bold ${dirColor}`
-    }, dir === "L" ? "LONG" : "SHORT")), window._ttIsPro && React.createElement("td", {
+    }, dir === "L" ? hasOpen ? "LONG" : "BULL" : hasOpen ? "SHORT" : "BEAR")), window._ttIsPro && React.createElement("td", {
       className: "px-1 py-1 text-right text-[11px] text-white font-medium tabular-nums"
     }, price > 0 ? `$${price.toFixed(2)}` : React.createElement("span", {
       className: "text-gray-600"
@@ -11451,10 +11466,6 @@ function SimpleKanbanTable({
     }, badges.length > 0 ? badges.join("") : React.createElement("span", {
       className: "text-gray-600"
     }, "\u2014")), React.createElement("td", {
-      className: "px-1 py-1 text-center"
-    }, React.createElement("span", {
-      className: `inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${STAGE_META[stg]?.cls || "bg-gray-700/60 text-gray-300 border-gray-500/40"}`
-    }, STAGE_META[stg]?.icon, " ", STAGE_META[stg]?.label || stg)), React.createElement("td", {
       className: "px-1 py-1 text-center"
     }, (() => {
       const inv = t?.investor_action || t?.investor_stage;

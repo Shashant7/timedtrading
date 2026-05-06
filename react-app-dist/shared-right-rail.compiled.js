@@ -2349,7 +2349,6 @@
       const candleCacheRef = useRef({});
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
-        if (railTab !== "ANALYSIS" && railTab !== "SETUP") return;
         if (!sym) return;
         let cancelled = false;
         const run = async () => {
@@ -2393,7 +2392,7 @@
         return () => {
           cancelled = true;
         };
-      }, [railTab, tickerSymbol, chartTf]);
+      }, [tickerSymbol, chartTf]);
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
         const contextReady = !!(ticker?.context && typeof ticker.context === "object" && (ticker.context.name || ticker.context.industry || ticker.context.sector || ticker.context.description));

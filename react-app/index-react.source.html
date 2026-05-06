@@ -5933,9 +5933,12 @@
                   return (
                     <>
                       <rect x={longX} y={offsetY} width={longW} height={plotHeight / 2} fill="rgba(34,197,94,0.06)" stroke="rgba(34,197,94,0.25)" strokeWidth="1" strokeDasharray="6 4" />
-                      <text x={longX + longW / 2} y={offsetY + plotHeight * 0.25} fill="rgba(34,197,94,0.25)" fontSize="10" fontWeight="600" textAnchor="middle" dominantBaseline="middle" style={{pointerEvents:"none"}}>LONG ENTRY ZONE</text>
+                      {/* V15 P0.7.84: BULL/BEAR vocabulary for setup zones
+                          (no active trade); LONG/SHORT reserved for the
+                          actual position direction. */}
+                      <text x={longX + longW / 2} y={offsetY + plotHeight * 0.25} fill="rgba(34,197,94,0.25)" fontSize="10" fontWeight="600" textAnchor="middle" dominantBaseline="middle" style={{pointerEvents:"none"}}>BULL SETUP ZONE</text>
                       <rect x={shortX} y={offsetY + plotHeight / 2} width={shortW} height={plotHeight / 2} fill="rgba(239,68,68,0.06)" stroke="rgba(239,68,68,0.25)" strokeWidth="1" strokeDasharray="6 4" />
-                      <text x={shortX + shortW / 2} y={offsetY + plotHeight * 0.75} fill="rgba(239,68,68,0.25)" fontSize="10" fontWeight="600" textAnchor="middle" dominantBaseline="middle" style={{pointerEvents:"none"}}>SHORT ENTRY ZONE</text>
+                      <text x={shortX + shortW / 2} y={offsetY + plotHeight * 0.75} fill="rgba(239,68,68,0.25)" fontSize="10" fontWeight="600" textAnchor="middle" dominantBaseline="middle" style={{pointerEvents:"none"}}>BEAR SETUP ZONE</text>
                     </>
                   );
                 })()}
@@ -13444,6 +13447,10 @@
                 rendered side-by-side in the status strip. Each cell shows
                 the category label + ticker + rank + direction. Cells share
                 consistent padding/border so the strip reads as one row. */}
+            {/* V15 P0.7.84: ticker logos rendered next to each top-signal
+                ticker name for fast visual recognition. Uses
+                window.DS.tickerLogo() — same helper the right rail and
+                kanban cards use. */}
             {topSignals && topSignals.map((sig, i) => (
               <button
                 key={`sig-${sig.kind}-${sig.ticker}`}
@@ -13453,13 +13460,23 @@
                 title={sig.tip || `${sig.kind} \u2014 click to open ${sig.ticker}`}
               >
                 <div className="tt-label" style={{ fontSize: 9, marginBottom: 2 }}>{sig.kind}</div>
-                <div style={{ fontSize: 12, lineHeight: 1.2, whiteSpace: "nowrap" }}>
+                <div style={{ fontSize: 12, lineHeight: 1.2, whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6 }}>
+                  <span
+                    className="ds-tickercard__logo shrink-0"
+                    style={{ width: 16, height: 16 }}
+                    ref={(el) => {
+                      if (el && !el.dataset.dsInit && window.DS) {
+                        el.dataset.dsInit = "1";
+                        try { el.replaceWith(window.DS.tickerLogo(sig.ticker, { size: 16 })); } catch (_) {}
+                      }
+                    }}
+                  >{String(sig.ticker).slice(0,2)}</span>
                   <span className="tt-num font-bold text-white group-hover:text-cyan-300 transition-colors">{sig.ticker}</span>
-                  <span className="tt-num ml-1.5" style={{ fontSize: 10.5, color: "var(--tt-text-3)" }}>
+                  <span className="tt-num" style={{ fontSize: 10.5, color: "var(--tt-text-3)" }}>
                     R<span className="font-semibold" style={{ color: "var(--tt-info)" }}>{sig.rank}</span>
                   </span>
                   {sig.dir && sig.dir !== "\u2014" && (
-                    <span className="ml-1" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: String(sig.dir).toUpperCase().includes("SHORT") ? "var(--tt-danger)" : "var(--tt-success)" }}>
+                    <span style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: String(sig.dir).toUpperCase().includes("SHORT") ? "var(--tt-danger)" : "var(--tt-success)" }}>
                       {String(sig.dir).toUpperCase().includes("SHORT") ? "S" : "L"}
                     </span>
                   )}
@@ -14245,9 +14262,9 @@
                     </th>
                     <th className="px-1 py-2 text-center text-[11px] font-medium text-gray-400">R:R</th>
                     <th className="px-1 py-2 text-center text-[11px] font-medium text-gray-400">Flags</th>
-                    <th className="px-2 py-2 text-center text-[10px] font-medium text-gray-500 whitespace-nowrap cursor-pointer hover:text-white select-none" onClick={() => handleSort("stage")}>
-                      Active Trader{sortArrow("stage")}
-                    </th>
+                    {/* V15 P0.7.84: 'Active Trader' column removed — it
+                        was a duplicate of the leftmost 'Stage' column
+                        (both rendered STAGE_META[stg] sorted by 'stage'). */}
                     <th className="px-2 py-2 text-center text-[10px] font-medium text-gray-500 whitespace-nowrap">
                       Investor
                     </th>
@@ -14321,9 +14338,12 @@
                         </td>
                         {/* Name */}
                         <td className="px-2 py-1 text-[11px] text-gray-400 truncate max-w-[120px]" title={name}>{name || "—"}</td>
-                        {/* Directional Bias (after Name) */}
+                        {/* Directional Bias (after Name)
+                            V15 P0.7.84: BULL/BEAR for signal direction (no open trade),
+                            LONG/SHORT for actual open positions. Matches kanban cards
+                            and bubble overlay. */}
                         <td className="px-2 py-1.5 text-center">
-                          <span className={`text-[11px] font-bold ${dirColor}`}>{dir === "L" ? "LONG" : "SHORT"}</span>
+                          <span className={`text-[11px] font-bold ${dirColor}`}>{dir === "L" ? (hasOpen ? "LONG" : "BULL") : (hasOpen ? "SHORT" : "BEAR")}</span>
                         </td>
                         {window._ttIsPro && <td className="px-1 py-1 text-right text-[11px] text-white font-medium tabular-nums">
                           {price > 0 ? `$${price.toFixed(2)}` : <span className="text-gray-600">—</span>}
@@ -14380,12 +14400,7 @@
                         <td className="px-1 py-1.5 text-center text-[11px]">
                           {badges.length > 0 ? badges.join("") : <span className="text-gray-600">—</span>}
                         </td>
-                        {/* Active Trader column: stage badge */}
-                        <td className="px-1 py-1 text-center">
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${STAGE_META[stg]?.cls || "bg-gray-700/60 text-gray-300 border-gray-500/40"}`}>
-                            {STAGE_META[stg]?.icon} {STAGE_META[stg]?.label || stg}
-                          </span>
-                        </td>
+                        {/* V15 P0.7.84: Active Trader cell removed — duplicate of Stage column */}
                         {/* Investor column: derived action badge */}
                         <td className="px-1 py-1 text-center">
                           {(() => {
