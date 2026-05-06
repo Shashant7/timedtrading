@@ -450,6 +450,12 @@
           )
         ),
 
+        // P&L Calendar FIRST (per user reorder V15 P0.7.81 — Calendar
+        // before Monthly Performance for at-a-glance day-by-day rhythm).
+        React.createElement("div", { className: "ds-glass" },
+          React.createElement(PnlCalendar, { trades: closed })
+        ),
+
         // Monthly performance + setup breakdown — single ds-glass panel
         React.createElement("div", { className: "ds-glass" },
           React.createElement("div", { className: "ds-glass__head" },
@@ -457,11 +463,6 @@
           ),
           React.createElement(MonthlyPerformanceTable, { months, startCash }),
           React.createElement(SetupBreakdown, { months, startCash })
-        ),
-
-        // P&L Calendar inside ds-glass panel
-        React.createElement("div", { className: "ds-glass" },
-          React.createElement(PnlCalendar, { trades: closed })
         )
       );
     };

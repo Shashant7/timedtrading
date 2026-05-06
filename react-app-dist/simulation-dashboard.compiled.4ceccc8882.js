@@ -4781,46 +4781,76 @@ function PortfolioColumn({
           </div>`;
   }
   return html`<div className="space-y-4">
-          <h2 className="text-base font-semibold text-[var(--tt-text)] flex items-center gap-2">
+          <h2 className="ds-glass__title flex items-center gap-2" style=${{
+    fontSize: "var(--ds-fs-emph)"
+  }}>
             <span className="w-2 h-2 rounded-full" style=${{
     background: accentColor
   }} />
             ${label}
           </h2>
 
-          <${EquityCurveChart} curveData=${curveData} mode=${mode} />
+          <div className="ds-glass">
+            <${EquityCurveChart} curveData=${curveData} mode=${mode} />
+          </div>
 
-
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
-            <div className="tt-card p-3">
-              <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Account</div>
-              <div className="text-base font-bold text-[var(--tt-text)]">${fmtUsd(acctVal)}</div>
+          <div className="ds-card" style=${{
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+    gap: "var(--ds-space-3)"
+  }}>
+            <div className="ds-metric">
+              <div className="ds-metric__label">Account</div>
+              <div className="ds-metric__row">
+                <div className="ds-metric__value">${fmtUsd(acctVal)}</div>
+              </div>
             </div>
-            <div className="tt-card p-3">
-              <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Total P&L</div>
-              <div className=${"text-base font-bold " + (totalPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]")}>${fmtUsd(totalPnl)}</div>
+            <div className="ds-metric">
+              <div className="ds-metric__label">Total P&L</div>
+              <div className="ds-metric__row">
+                <div className="ds-metric__value" style=${{
+    color: totalPnl >= 0 ? "var(--ds-up)" : "var(--ds-dn)"
+  }}>${fmtUsd(totalPnl)}</div>
+              </div>
             </div>
-            <div className="tt-card p-3">
-              <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Open P&L</div>
-              <div className=${"text-base font-bold " + (unrealized >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]")}>${fmtUsd(unrealized)}</div>
+            <div className="ds-metric">
+              <div className="ds-metric__label">Open P&L</div>
+              <div className="ds-metric__row">
+                <div className="ds-metric__value" style=${{
+    color: unrealized >= 0 ? "var(--ds-up)" : "var(--ds-dn)"
+  }}>${fmtUsd(unrealized)}</div>
+              </div>
             </div>
-            <div className="tt-card p-3">
-              <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Closed</div>
-              <div className="text-base font-bold text-[var(--tt-text)]">${closedTrades.length}</div>
-              <div className="text-[10px] text-[var(--tt-text-faint)]">${wins}W ${losses}L</div>
+            <div className="ds-metric">
+              <div className="ds-metric__label">Closed</div>
+              <div className="ds-metric__row">
+                <div className="ds-metric__value">${closedTrades.length}</div>
+                <div className="ds-metric__delta" style=${{
+    color: "var(--ds-text-muted)"
+  }}>${wins}W ${losses}L</div>
+              </div>
             </div>
-            <div className="tt-card p-3">
-              <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Realized</div>
-              <div className=${"text-base font-bold " + (realizedPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]")}>${fmtUsd(realizedPnl)}</div>
+            <div className="ds-metric">
+              <div className="ds-metric__label">Realized</div>
+              <div className="ds-metric__row">
+                <div className="ds-metric__value" style=${{
+    color: realizedPnl >= 0 ? "var(--ds-up)" : "var(--ds-dn)"
+  }}>${fmtUsd(realizedPnl)}</div>
+              </div>
             </div>
           </div>
 
 
 
-          <div className="tt-card p-4 relative">
-            <h3 className="text-xs font-medium text-[var(--tt-text-faint)] uppercase tracking-wider mb-3">
-              Open Positions (${openPositionCards.length})
-            </h3>
+          <div className="ds-glass">
+            <div className="ds-glass__head">
+              <div className="ds-glass__title">Open Positions</div>
+              <div style=${{
+    fontSize: "var(--ds-fs-meta)",
+    color: "var(--ds-text-muted)",
+    fontFamily: "var(--tt-font-mono)"
+  }}>${openPositionCards.length}</div>
+            </div>
             ${!window._ttIsPro ? html`
               <div className="relative">
                 <div style=${{
@@ -4867,15 +4897,18 @@ function PortfolioColumn({
 
 
 
-          <div className="tt-card p-4">
-            <div className="flex items-baseline justify-between mb-3 gap-3">
-              <div className="flex items-baseline gap-2.5 min-w-0">
-                <span className="tt-label-editorial">${isTrader ? "Trade History" : "Lot History"}</span>
-                <span className="tt-num" style=${{
-    fontSize: "11px",
-    color: "var(--tt-text-3)"
-  }}>${isTrader ? tradeHistory.length : `${closedTrades.length} exits · ${tradeHistory.length} lots`}</span>
-              </div>
+          <div className="ds-glass">
+            <div className="ds-glass__head" style=${{
+    marginBottom: "var(--ds-space-2)"
+  }}>
+              <div className="ds-glass__title">${isTrader ? "Trade History" : "Lot History"}</div>
+              <div style=${{
+    fontSize: "var(--ds-fs-meta)",
+    color: "var(--ds-text-muted)",
+    fontFamily: "var(--tt-font-mono)"
+  }}>${isTrader ? tradeHistory.length : `${closedTrades.length} exits · ${tradeHistory.length} lots`}</div>
+            </div>
+            <div className="flex items-baseline justify-end mb-3">
               ${window._ttIsPro && tradeHistory.length > 0 && html`<button
                 onClick=${() => setExpanded(!expanded)}
                 className="text-[11px] px-2 py-1 rounded border border-[var(--tt-border)] text-[var(--tt-text-muted)] hover:text-[var(--tt-text)] hover:bg-[var(--tt-bg-hover)] transition-colors"
@@ -6749,12 +6782,6 @@ function App() {
     className: "ml-3 px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/30 text-xs"
   }, "Retry")), React.createElement("div", {
     className: `${selectedTicker || selectedTrade ? "mr-[500px] lg:mr-[660px] xl:mr-[740px] 2xl:mr-[820px]" : ""}`
-  }, React.createElement(PerformanceOverviewSection, {
-    trades: ledgerFilteredTrades || [],
-    loading: (ledgerTrades ?? {}).loading,
-    accountStartCash: Number(acctSummary?.startCash) || 100000
-  })), React.createElement("div", {
-    className: `${selectedTicker || selectedTrade ? "mr-[500px] lg:mr-[660px] xl:mr-[740px] 2xl:mr-[820px]" : ""}`
   }, React.createElement("div", {
     className: "flex items-center gap-1 mb-4 border-b border-[var(--tt-border)] lg:hidden"
   }, React.createElement("button", {
@@ -6813,7 +6840,13 @@ function App() {
       setOpenAutopsyForTrade(null);
       setModalOnly(false);
     }
-  })))), (selectedTicker || selectedTrade) && !modalOnly && React.createElement("div", {
+  })))), React.createElement("div", {
+    className: `mt-6 ${selectedTicker || selectedTrade ? "mr-[500px] lg:mr-[660px] xl:mr-[740px] 2xl:mr-[820px]" : ""}`
+  }, React.createElement(PerformanceOverviewSection, {
+    trades: ledgerFilteredTrades || [],
+    loading: (ledgerTrades ?? {}).loading,
+    accountStartCash: Number(acctSummary?.startCash) || 100000
+  })), (selectedTicker || selectedTrade) && !modalOnly && React.createElement("div", {
     className: "tt-ticker-workspace-mount fixed right-0 top-[49px] w-[480px] lg:w-[640px] xl:w-[720px] 2xl:w-[800px] bottom-0 z-40 slide-in-right shadow-2xl overflow-y-auto bg-[#0b0e11] border-l border-white/[0.04]"
   }, React.createElement(TickerDetailsLoader, {
     tickerSymbol: selectedTrade ? selectedTrade.ticker : selectedTicker,
