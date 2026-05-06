@@ -213,6 +213,80 @@
       @keyframes tt-spin {
         to { transform: rotate(360deg); }
       }
+
+      /* ─────────────────────────────────────────────────────────────────
+         V15 P0.7.78 — Ticker Workspace layout (≥1024px desktop only).
+         At ≥1024px, the ticker overlay expands to full viewport and the
+         inner rail switches to a CSS Grid two-pane layout:
+           [ HEADER...full width ]
+           [ LEFT pane | RIGHT pane ]
+         Left = chart + key levels (own scroll). Right = tab nav + tab
+         content (own scroll). Below 1024px: existing slide-in modal.
+
+         Note: this lives at top level (NOT inside @media (max-width:768px))
+         so the >=1024px rules actually match. The earlier P0.7.76/77
+         attempt put these rules inside the mobile-only block by mistake
+         and they never applied.
+         ───────────────────────────────────────────────────────────────── */
+      @media (min-width: 1024px) {
+        .tt-ticker-workspace-mount {
+          top: 0 !important;
+          bottom: 0 !important;
+          left: 0 !important;
+          right: 0 !important;
+          width: 100% !important;
+          max-width: none !important;
+          border-left: none !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+        }
+      }
+      .tt-rail-shell--workspace {
+        display: grid !important;
+        grid-template-columns: 1fr 460px;
+        grid-template-rows: auto 1fr;
+        grid-template-areas:
+          "header header"
+          "left   right";
+        height: 100vh;
+        max-height: 100vh;
+        overflow: hidden;
+        flex-direction: unset !important; /* override .flex.flex-col */
+      }
+      .tt-rail-shell--workspace > .tt-rail-area-header {
+        grid-area: header;
+        position: relative;
+        z-index: 5;
+      }
+      .tt-rail-shell--workspace > .tt-rail-area-left-pane {
+        grid-area: left;
+        overflow-y: auto;
+        padding: var(--ds-space-4);
+        border-right: 1px solid var(--ds-stroke);
+        min-width: 0;
+      }
+      .tt-rail-shell--workspace > .tt-rail-area-right-pane {
+        grid-area: right;
+        overflow-y: auto;
+        min-width: 0;
+      }
+      /* Chart canvas height by breakpoint. Stable via CSS so the JSX
+         does not re-evaluate window.innerWidth on every render. */
+      .tt-rail-chart-canvas {
+        height: 200px;
+      }
+      @media (min-width: 1024px) {
+        .tt-rail-chart-canvas { height: 320px; }
+      }
+      .tt-rail-shell--workspace .tt-rail-chart-canvas {
+        height: 420px !important;
+      }
+      /* Modal mode: left/right wrappers are transparent, children flow */
+      .tt-rail-area-left-pane,
+      .tt-rail-area-right-pane {
+        display: block;
+      }
+
       @keyframes fadeIn {
         from { opacity: 0; }
         to { opacity: 1; }
@@ -663,77 +737,8 @@
           padding-bottom: env(safe-area-inset-bottom);
         }
 
-        /* ── At ≥1024px (lg breakpoint) the rail's parent mount expands
-           to full viewport so the workspace grid has the room it needs.
-           V15 P0.7.77: was 1280px; lowered to 1024px so standard laptops
-           (1024-1280px viewport) get the split-pane experience too. */
-        @media (min-width: 1024px) {
-          .tt-ticker-workspace-mount {
-            top: 0 !important;
-            bottom: 0 !important;
-            left: 0 !important;
-            right: 0 !important;
-            width: 100% !important;
-            border-left: none !important;
-            border-radius: 0 !important;
-            box-shadow: none !important;
-          }
-        }
-
-        /* ─────────────────────────────────────────────────────────────────
-           V15 P0.7.76 — Ticker Workspace layout (≥1280px desktop only).
-           When the parent passes layoutMode="workspace", the rail outer
-           shell becomes a CSS grid with three rows × two columns:
-             [HEADER..............]  ← spans both columns (sticky)
-             [LEFT pane | RIGHT pane]  ← left = chart + levels (own scroll)
-                                       right = tab nav + tab content (own scroll)
-           Mobile (default modal mode): single column flow as before.
-           ───────────────────────────────────────────────────────────────── */
-        .tt-rail-shell--workspace {
-          display: grid !important;
-          grid-template-columns: 1fr 460px;
-          grid-template-rows: auto 1fr;
-          grid-template-areas:
-            "header header"
-            "left   right";
-          height: 100vh;
-          max-height: 100vh;
-          overflow: hidden;
-        }
-        .tt-rail-shell--workspace > .tt-rail-area-header {
-          grid-area: header;
-          position: relative;
-          z-index: 5;
-        }
-        .tt-rail-shell--workspace > .tt-rail-area-left-pane {
-          grid-area: left;
-          overflow-y: auto;
-          padding: var(--ds-space-4);
-          border-right: 1px solid var(--ds-stroke);
-        }
-        .tt-rail-shell--workspace > .tt-rail-area-right-pane {
-          grid-area: right;
-          overflow-y: auto;
-        }
-        /* V15 P0.7.77: chart canvas height by breakpoint, controlled
-           via CSS so the JSX doesn't re-eval inline `window.innerWidth`
-           on every render (was causing chart re-mount flicker). */
-        .tt-rail-chart-canvas {
-          height: 200px;
-        }
-        @media (min-width: 1024px) {
-          .tt-rail-chart-canvas { height: 320px; }
-        }
-        /* Workspace mode: bigger chart canvas to use the available width */
-        .tt-rail-shell--workspace .tt-rail-chart-canvas {
-          height: 420px !important;
-        }
-        /* Mobile/modal mode: left-pane and right-pane are just transparent
-           wrappers — children flow naturally. */
-        .tt-rail-area-left-pane,
-        .tt-rail-area-right-pane {
-          display: block;
-        }
+        /* (Workspace CSS moved out of this @media (max-width: 768px) block —
+           a sibling block at the top-level handles desktop workspace layout.) */
         /* Right rail tab bar — hide horizontal scrollbar but keep
            horizontal scroll behavior so all 5 tabs stay reachable. */
         .tt-rail-tabs::-webkit-scrollbar { display: none; }

@@ -147,6 +147,7 @@
         height: 100vh;
         max-height: 100vh;
         overflow: hidden;
+        flex-direction: unset !important; /* override .flex.flex-col */
       }
       .tt-rail-shell--workspace > .tt-rail-area-header {
         grid-area: header;
@@ -158,10 +159,15 @@
         overflow-y: auto;
         padding: var(--ds-space-4);
         border-right: 1px solid var(--ds-stroke);
+        min-width: 0;
       }
       .tt-rail-shell--workspace > .tt-rail-area-right-pane {
         grid-area: right;
         overflow-y: auto;
+        min-width: 0;
+      }
+      .tt-ticker-workspace-mount {
+        max-width: none !important;
       }
       .tt-rail-chart-canvas {
         height: 200px;
