@@ -1110,15 +1110,21 @@
           }).catch(() => {});
         }
         let resizeObserver = null;
+        let resizeDebounce = null;
+        let lastAppliedWidth = 0;
         const handleResize = () => {
-          if (containerRef.current && chart) {
-            const w = containerRef.current.clientWidth;
-            if (w > 0) {
-              chart.applyOptions({
-                width: w
-              });
+          if (resizeDebounce) cancelAnimationFrame(resizeDebounce);
+          resizeDebounce = requestAnimationFrame(() => {
+            if (containerRef.current && chart) {
+              const w = Math.round(containerRef.current.clientWidth);
+              if (w > 0 && Math.abs(w - lastAppliedWidth) >= 1) {
+                lastAppliedWidth = w;
+                chart.applyOptions({
+                  width: w
+                });
+              }
             }
-          }
+          });
         };
         if (typeof ResizeObserver !== "undefined" && containerRef.current) {
           resizeObserver = new ResizeObserver(handleResize);
@@ -1148,6 +1154,7 @@
         });
         return () => {
           window.removeEventListener("resize", handleResize);
+          if (resizeDebounce) cancelAnimationFrame(resizeDebounce);
           if (resizeObserver) resizeObserver.disconnect();
           levelPriceLinesRef.current = [];
           levelTrendSeriesRef.current = [];
@@ -3202,17 +3209,14 @@
                 marginBottom: "var(--ds-space-2)"
               }
             }, indicatorBtn("ema21", "EMA21", "21-period EMA"), indicatorBtn("ema48", "EMA48", "48-period EMA"), indicatorBtn("ema200", "EMA200", "200-period EMA"), indicatorBtn("supertrend", "ST", "SuperTrend (10, 3)"), indicatorBtn("tdSequential", "TD", "TD Sequential markers")), React.createElement("div", {
-              className: "tt-rail-chart-canvas",
-              style: {
-                height: typeof window !== "undefined" && window.innerWidth >= 1024 ? 320 : 200
-              }
+              className: "tt-rail-chart-canvas"
             }, React.createElement(LWChart, {
               candles: chartCandles,
               chartTf,
               overlays: chartOverlays,
               priceLines: buildLines(),
               ticker,
-              height: typeof window !== "undefined" && window.innerWidth >= 1024 ? 320 : 200,
+              height: 320,
               hideOverlayToggles: true
             }))))
           );

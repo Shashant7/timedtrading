@@ -121,10 +121,12 @@
         display: none !important;
       }
 
-      /* ── V15 P0.7.76 — Ticker Workspace layout (≥1280px desktop only).
+      /* ── V15 P0.7.76 — Ticker Workspace layout (≥1024px desktop only).
          Mirror of CSS in index-react.source.html so the Trades page also
-         gets the chart-left / rail-right split when a ticker is opened. */
-      @media (min-width: 1280px) {
+         gets the chart-left / rail-right split when a ticker is opened.
+         V15 P0.7.77: breakpoint lowered 1280px → 1024px so laptops
+         qualify too. */
+      @media (min-width: 1024px) {
         .tt-ticker-workspace-mount {
           top: 0 !important;
           bottom: 0 !important;
@@ -161,6 +163,12 @@
       .tt-rail-shell--workspace > .tt-rail-area-right-pane {
         grid-area: right;
         overflow-y: auto;
+      }
+      .tt-rail-chart-canvas {
+        height: 200px;
+      }
+      @media (min-width: 1024px) {
+        .tt-rail-chart-canvas { height: 320px; }
       }
       .tt-rail-shell--workspace .tt-rail-chart-canvas {
         height: 420px !important;
@@ -8147,7 +8155,7 @@
                         rankedTickers={rankedTickers}
                         rankedTickerPositions={rankedTickerPositions}
                         openAutopsyForTrade={openAutopsyForTrade}
-                        layoutMode={typeof window !== "undefined" && window.innerWidth >= 1280 ? "workspace" : "modal"}
+                        layoutMode={typeof window !== "undefined" && window.innerWidth >= 1024 ? "workspace" : "modal"}
                       />
                     </div>
                   )}

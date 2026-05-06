@@ -818,15 +818,25 @@
           }).catch(() => {});
         }
 
-        // Resize — use ResizeObserver for portal/modal mount detection + window fallback
+        // Resize — use ResizeObserver for portal/modal mount detection + window fallback.
+        // V15 P0.7.77: debounce + only fire when width actually changes by ≥1px.
+        // Prior version called chart.applyOptions() on every ResizeObserver tick,
+        // which fired on every layout reflow (account value updating, levels
+        // refresh, etc.) and caused a visible flicker as the chart redrew.
         let resizeObserver = null;
+        let resizeDebounce = null;
+        let lastAppliedWidth = 0;
         const handleResize = () => {
-          if (containerRef.current && chart) {
-            const w = containerRef.current.clientWidth;
-            if (w > 0) {
-              chart.applyOptions({ width: w });
+          if (resizeDebounce) cancelAnimationFrame(resizeDebounce);
+          resizeDebounce = requestAnimationFrame(() => {
+            if (containerRef.current && chart) {
+              const w = Math.round(containerRef.current.clientWidth);
+              if (w > 0 && Math.abs(w - lastAppliedWidth) >= 1) {
+                lastAppliedWidth = w;
+                chart.applyOptions({ width: w });
+              }
             }
-          }
+          });
         };
         if (typeof ResizeObserver !== "undefined" && containerRef.current) {
           resizeObserver = new ResizeObserver(handleResize);
@@ -857,6 +867,7 @@
 
         return () => {
           window.removeEventListener("resize", handleResize);
+          if (resizeDebounce) cancelAnimationFrame(resizeDebounce);
           if (resizeObserver) resizeObserver.disconnect();
           levelPriceLinesRef.current = [];
           levelTrendSeriesRef.current = [];
@@ -2617,21 +2628,19 @@
                           {indicatorBtn("supertrend", "ST", "SuperTrend (10, 3)")}
                           {indicatorBtn("tdSequential", "TD", "TD Sequential markers")}
                         </div>
-                        {/* V15 P0.7.75: chart canvas height responds to
-                            viewport. On mobile the previous 320px was eating
-                            most of the screen, making it hard to scroll to the
-                            content below. Use 200px on small viewports, 320px
-                            on lg+. */}
-                        <div className="tt-rail-chart-canvas" style={{
-                          height: typeof window !== "undefined" && window.innerWidth >= 1024 ? 320 : 200,
-                        }}>
+                        {/* V15 P0.7.77: stable chart canvas height (was viewport-
+                            checking inline on every render which created a
+                            new ref each time). Use a CSS class instead so
+                            the workspace CSS controls actual height per
+                            breakpoint without re-rendering the chart. */}
+                        <div className="tt-rail-chart-canvas">
                           {React.createElement(LWChart, {
                             candles: chartCandles,
                             chartTf,
                             overlays: chartOverlays,
                             priceLines: buildLines(),
                             ticker,
-                            height: typeof window !== "undefined" && window.innerWidth >= 1024 ? 320 : 200,
+                            height: 320,
                             hideOverlayToggles: true,
                           })}
                         </div>

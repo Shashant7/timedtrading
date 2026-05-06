@@ -17323,7 +17323,7 @@ function App() {
     addingTicker: userTickers.addingTicker,
     savedTickers: savedTickers,
     toggleSavedTicker: toggleSavedTicker,
-    layoutMode: typeof window !== "undefined" && window.innerWidth >= 1280 ? "workspace" : "modal"
+    layoutMode: typeof window !== "undefined" && window.innerWidth >= 1024 ? "workspace" : "modal"
   }))), dashboardMode === "trader" && !noTickerResults && React.createElement("div", {
     className: "relative pb-12",
     "data-coachmark": "kanban-lanes"

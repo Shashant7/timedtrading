@@ -6831,7 +6831,7 @@ function App() {
     rankedTickers: rankedTickers,
     rankedTickerPositions: rankedTickerPositions,
     openAutopsyForTrade: openAutopsyForTrade,
-    layoutMode: typeof window !== "undefined" && window.innerWidth >= 1280 ? "workspace" : "modal"
+    layoutMode: typeof window !== "undefined" && window.innerWidth >= 1024 ? "workspace" : "modal"
   })), (selectedTicker || selectedTrade) && modalOnly && (() => {
     const t = openAutopsyForTrade || selectedTrade;
     if (!t) return null;

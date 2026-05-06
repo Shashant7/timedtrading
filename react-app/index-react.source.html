@@ -672,9 +672,11 @@
           padding-bottom: env(safe-area-inset-bottom);
         }
 
-        /* ── At ≥1280px the rail's parent mount expands to full viewport
-           so the workspace grid has the room it needs. */
-        @media (min-width: 1280px) {
+        /* ── At ≥1024px (lg breakpoint) the rail's parent mount expands
+           to full viewport so the workspace grid has the room it needs.
+           V15 P0.7.77: was 1280px; lowered to 1024px so standard laptops
+           (1024-1280px viewport) get the split-pane experience too. */
+        @media (min-width: 1024px) {
           .tt-ticker-workspace-mount {
             top: 0 !important;
             bottom: 0 !important;
@@ -721,6 +723,15 @@
         .tt-rail-shell--workspace > .tt-rail-area-right-pane {
           grid-area: right;
           overflow-y: auto;
+        }
+        /* V15 P0.7.77: chart canvas height by breakpoint, controlled
+           via CSS so the JSX doesn't re-eval inline `window.innerWidth`
+           on every render (was causing chart re-mount flicker). */
+        .tt-rail-chart-canvas {
+          height: 200px;
+        }
+        @media (min-width: 1024px) {
+          .tt-rail-chart-canvas { height: 320px; }
         }
         /* Workspace mode: bigger chart canvas to use the available width */
         .tt-rail-shell--workspace .tt-rail-chart-canvas {
@@ -20762,7 +20773,7 @@
                             addingTicker={userTickers.addingTicker}
                             savedTickers={savedTickers}
                             toggleSavedTicker={toggleSavedTicker}
-                            layoutMode={typeof window !== "undefined" && window.innerWidth >= 1280 ? "workspace" : "modal"}
+                            layoutMode={typeof window !== "undefined" && window.innerWidth >= 1024 ? "workspace" : "modal"}
                           />
                         </div>
                       </>
