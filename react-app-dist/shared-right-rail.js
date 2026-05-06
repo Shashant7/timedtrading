@@ -2491,7 +2491,134 @@
                 })()}
 
                 {/* ─── Scrollable body ───────────────────────────────── */}
-                <div className="flex-1 overflow-y-auto" style={{ padding: "var(--ds-space-4)" }}>
+                <div className="flex-1 overflow-y-auto tt-rail-body" style={{ padding: "var(--ds-space-4)" }}>
+                  {/* ── PERSISTENT CHART (V15 P0.7.74 — Phase 4 workspace) ──
+                      The chart was historically only rendered inside the
+                      Setup tab body. Per user vision (2026-05-06):
+                        "as the user navigates through the various tabs,
+                         they always have a live tab of the price action,
+                         levels and clean annotations they can reference."
+                      We render the chart subtree ONCE here, above the tab
+                      gates, so it stays visible across Snapshot / Setup /
+                      Technicals / Fundamentals / History. Sticky so it
+                      pins to the top as the user scrolls within a tab.
+                      All state (chartCandles, chartTf, overlays, ticker,
+                      predictionContract) lives in the parent component's
+                      closure scope, so this is a pure render-position
+                      change. */}
+                  {chartCandles && chartCandles.length >= 2 && (() => {
+                    /* Same chart construction as before — direction-aware
+                       price lines, indicator toggles, TF chips, expand
+                       button. Rendered once above all tabs now. */
+                    const _pcDirChart = String(predictionContract?.direction || v2Dir || "").toUpperCase();
+                    const _isShortChart = _pcDirChart === "SHORT";
+                    const _pcSlChart = Number(predictionContract?.risk?.stop_loss);
+                    const _curPxChart = Number(v2Price) || Number(ticker?.price) || 0;
+                    const _allLevels = Array.isArray(predictionContract?.levels) ? predictionContract.levels : [];
+                    const _resistance = _allLevels.filter((l) => l.role === "resistance").sort((a, b) => a.price - b.price).slice(0, 3);
+                    const _support = _allLevels.filter((l) => l.role === "support").sort((a, b) => b.price - a.price).slice(0, 3);
+                    const buildLines = () => {
+                      const lines = [];
+                      const ep = Number(ticker?.entry_price);
+                      if (Number.isFinite(ep) && ep > 0 && trade) lines.push({ price: ep, color: "rgba(245,194,92,0.85)", title: "Entry", lineStyle: 0, lineWidth: 2 });
+                      if (Number.isFinite(_pcSlChart) && _pcSlChart > 0) lines.push({ price: _pcSlChart, color: "rgba(244,63,94,0.85)", title: "Stop", lineStyle: 2, lineWidth: 2 });
+                      const tps = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
+                      tps.slice(0, 3).forEach((tp, i) => {
+                        const px = Number(tp?.price);
+                        if (Number.isFinite(px) && px > 0) lines.push({ price: px, color: "rgba(34,197,94,0.80)", title: `TP${i + 1}`, lineStyle: 2, lineWidth: 2 });
+                      });
+                      const above2 = _resistance.slice(0, 2);
+                      const below2 = _support.slice(0, 2);
+                      for (const l of above2) {
+                        const profit = !_isShortChart;
+                        lines.push({ price: Number(l.price), color: profit ? "rgba(34,197,94,0.35)" : "rgba(244,63,94,0.35)", title: l.label || "", lineStyle: 2, lineWidth: 1 });
+                      }
+                      for (const l of below2) {
+                        const profit = _isShortChart;
+                        lines.push({ price: Number(l.price), color: profit ? "rgba(34,197,94,0.35)" : "rgba(244,63,94,0.35)", title: l.label || "", lineStyle: 2, lineWidth: 1 });
+                      }
+                      return lines;
+                    };
+                    const indicatorBtn = (key, label, title) => {
+                      const on = !!chartOverlays[key];
+                      return (
+                        <button
+                          key={`ind-${key}`}
+                          onClick={() => setChartOverlays(prev => ({ ...prev, [key]: !prev[key] }))}
+                          className="ds-chip ds-chip--sm"
+                          title={title}
+                          style={{
+                            fontFamily: "var(--tt-font-mono)",
+                            padding: "0 6px",
+                            color: on ? "var(--ds-accent)" : "var(--ds-text-muted)",
+                            background: on ? "var(--ds-accent-dim)" : "transparent",
+                            borderColor: on ? "var(--ds-accent)" : "var(--ds-stroke)",
+                          }}
+                        >{label}</button>
+                      );
+                    };
+                    return (
+                    <div className="tt-rail-chart-pinned" style={{
+                      position: "sticky",
+                      top: 0,
+                      zIndex: 5,
+                      marginLeft: "calc(-1 * var(--ds-space-4))",
+                      marginRight: "calc(-1 * var(--ds-space-4))",
+                      marginTop: "calc(-1 * var(--ds-space-4))",
+                      marginBottom: "var(--ds-space-3)",
+                      padding: "var(--ds-space-3) var(--ds-space-4)",
+                      background: "var(--tt-bg-1, #0b0e11)",
+                      borderBottom: "1px solid var(--ds-stroke)",
+                    }}>
+                      <Panel
+                        title="Chart"
+                        action={
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <div className="ds-chipgroup" style={{ padding: 2 }}>
+                              {["15", "30", "60", "240", "D"].map((tf) => (
+                                <button
+                                  key={`ctf-${tf}`}
+                                  onClick={() => setChartTf(tf)}
+                                  className={`ds-chipgroup__item ${chartTf === tf ? "ds-chipgroup__item--active" : ""}`}
+                                  style={{ padding: "3px 8px", fontSize: 10 }}
+                                >{tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`}</button>
+                              ))}
+                            </div>
+                            <button
+                              className="ds-chip ds-chip--sm"
+                              onClick={() => setChartExpanded(true)}
+                              title="Expand chart"
+                              style={{ fontFamily: "var(--tt-font-mono)", padding: "0 8px" }}
+                            >⤢</button>
+                          </div>
+                        }
+                      >
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: "var(--ds-space-2)" }}>
+                          {indicatorBtn("ema21", "EMA21", "21-period EMA")}
+                          {indicatorBtn("ema48", "EMA48", "48-period EMA")}
+                          {indicatorBtn("ema200", "EMA200", "200-period EMA")}
+                          {indicatorBtn("supertrend", "ST", "SuperTrend (10, 3)")}
+                          {indicatorBtn("tdSequential", "TD", "TD Sequential markers")}
+                        </div>
+                        {/* Chart canvas — taller now that we have more rail width.
+                            On wide rails (lg+) the canvas grows to 320px so the
+                            user can read price action without squinting. */}
+                        <div className="tt-rail-chart-canvas">
+                          {React.createElement(LWChart, {
+                            candles: chartCandles,
+                            chartTf,
+                            overlays: chartOverlays,
+                            priceLines: buildLines(),
+                            ticker,
+                            height: 320,
+                            hideOverlayToggles: true,
+                          })}
+                        </div>
+                      </Panel>
+                    </div>
+                    );
+                  })()}
+
                   {/* SNAPSHOT TAB
                       V2.1 round 3 (2026-05-01) — Reorganized per user feedback:
                        1. Today (regime/state/stage chips)
@@ -2779,140 +2906,11 @@
                         </Panel>
                       )}
 
-                      {/* ── Mini Chart with SL/TP/Entry overlays ──
-                          V2.1 round 4 (2026-05-01) — Functional header:
-                            - TF chips (15 / 30 / 1H / 4H / D)
-                            - Indicator toggles (EMA21 / EMA48 / EMA200 / ST / TD)
-                            - Expand-to-modal button (re-uses the legacy modal
-                              already mounted further down in this file).
-                          Stability: LWChart's internal useEffect already
-                          excludes propPriceLines from its dependency array, so
-                          recomputing the lines array each render does not
-                          tear down the chart. (The previous round-4 attempt
-                          to memoize this with React.useMemo inside an IIFE
-                          was a Rules-of-Hooks violation \u2014 reverted.) */}
-                      {chartCandles && chartCandles.length >= 2 && (() => {
-                        /* V2.1 round 11 (2026-05-04) — Chart price lines now overlay the SAME
-                           levels rendered in the Key Levels panel below, so the user reads
-                           ONE coherent story across panel + chart. Includes:
-                             • Active-trade Entry / SL / TP (if any)
-                             • Top 2 resistance + 2 support from prediction contract levels
-                             • Current price (amber band)
-                             • Direction-aware coloring: profit-direction green, defense red
-                           Memoized below via React.useMemo. */
-                        const _pcDirChart = String(predictionContract?.direction || v2Dir || "").toUpperCase();
-                        const _isShortChart = _pcDirChart === "SHORT";
-                        const _pcSlChart = Number(predictionContract?.risk?.stop_loss);
-                        const _curPxChart = Number(v2Price) || Number(ticker?.price) || 0;
-                        const _allLevels = Array.isArray(predictionContract?.levels) ? predictionContract.levels : [];
-                        const _resistance = _allLevels.filter((l) => l.role === "resistance").sort((a, b) => a.price - b.price).slice(0, 3);
-                        const _support = _allLevels.filter((l) => l.role === "support").sort((a, b) => b.price - a.price).slice(0, 3);
-                        const buildLines = () => {
-                          const lines = [];
-                          const ep = Number(ticker?.entry_price);
-                          // Active-trade Entry/SL/TP (highest priority — solid)
-                          if (Number.isFinite(ep) && ep > 0 && trade) lines.push({ price: ep, color: "rgba(245,194,92,0.85)", title: "Entry", lineStyle: 0, lineWidth: 2 });
-                          if (Number.isFinite(_pcSlChart) && _pcSlChart > 0) lines.push({ price: _pcSlChart, color: "rgba(244,63,94,0.85)", title: "Stop", lineStyle: 2, lineWidth: 2 });
-                          // Targets from contract (direction-aware ordering)
-                          const tps = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
-                          tps.slice(0, 3).forEach((tp, i) => {
-                            const px = Number(tp?.price);
-                            if (Number.isFinite(px) && px > 0) lines.push({ price: px, color: "rgba(34,197,94,0.80)", title: `TP${i + 1}`, lineStyle: 2, lineWidth: 2 });
-                          });
-                          // Key levels from panel — top 2 above + 2 below (subtle dashes)
-                          // Profit direction (LONG above / SHORT below) → green tint.
-                          // Defense direction → red tint. Already classified by role.
-                          const above2 = _resistance.slice(0, 2);
-                          const below2 = _support.slice(0, 2);
-                          for (const l of above2) {
-                            const profit = !_isShortChart;
-                            lines.push({
-                              price: Number(l.price),
-                              color: profit ? "rgba(34,197,94,0.35)" : "rgba(244,63,94,0.35)",
-                              title: l.label || "",
-                              lineStyle: 2, lineWidth: 1,
-                            });
-                          }
-                          for (const l of below2) {
-                            const profit = _isShortChart;
-                            lines.push({
-                              price: Number(l.price),
-                              color: profit ? "rgba(34,197,94,0.35)" : "rgba(244,63,94,0.35)",
-                              title: l.label || "",
-                              lineStyle: 2, lineWidth: 1,
-                            });
-                          }
-                          return lines;
-                        };
-                        const indicatorBtn = (key, label, title) => {
-                          const on = !!chartOverlays[key];
-                          return (
-                            <button
-                              key={`ind-${key}`}
-                              onClick={() => setChartOverlays(prev => ({ ...prev, [key]: !prev[key] }))}
-                              className="ds-chip ds-chip--sm"
-                              title={title}
-                              style={{
-                                fontFamily: "var(--tt-font-mono)",
-                                padding: "0 6px",
-                                color: on ? "var(--ds-accent)" : "var(--ds-text-muted)",
-                                background: on ? "var(--ds-accent-dim)" : "transparent",
-                                borderColor: on ? "var(--ds-accent)" : "var(--ds-stroke)",
-                              }}
-                            >{label}</button>
-                          );
-                        };
-                        return (
-                        <Panel
-                          title="Chart"
-                          action={
-                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              <div className="ds-chipgroup" style={{ padding: 2 }}>
-                                {["15", "30", "60", "240", "D"].map((tf) => (
-                                  <button
-                                    key={`ctf-${tf}`}
-                                    onClick={() => setChartTf(tf)}
-                                    className={`ds-chipgroup__item ${chartTf === tf ? "ds-chipgroup__item--active" : ""}`}
-                                    style={{ padding: "3px 8px", fontSize: 10 }}
-                                  >{tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`}</button>
-                                ))}
-                              </div>
-                              <button
-                                className="ds-chip ds-chip--sm"
-                                onClick={() => setChartExpanded(true)}
-                                title="Expand chart"
-                                style={{ fontFamily: "var(--tt-font-mono)", padding: "0 8px" }}
-                              >⤢</button>
-                            </div>
-                          }
-                        >
-                          {/* Indicator toggle row */}
-                          <div style={{
-                            display: "flex",
-                            flexWrap: "wrap",
-                            gap: 4,
-                            marginBottom: "var(--ds-space-2)",
-                          }}>
-                            {indicatorBtn("ema21", "EMA21", "21-period EMA")}
-                            {indicatorBtn("ema48", "EMA48", "48-period EMA")}
-                            {indicatorBtn("ema200", "EMA200", "200-period EMA")}
-                            {indicatorBtn("supertrend", "ST", "SuperTrend (10, 3)")}
-                            {indicatorBtn("tdSequential", "TD", "TD Sequential markers")}
-                          </div>
-                          <div style={{ height: 240 }}>
-                            {React.createElement(LWChart, {
-                              candles: chartCandles,
-                              chartTf,
-                              overlays: chartOverlays,
-                              priceLines: buildLines(),
-                              ticker,
-                              height: 240,
-                              hideOverlayToggles: true,
-                            })}
-                          </div>
-                        </Panel>
-                        );
-                      })()}
+                      {/* Chart was here — V15 P0.7.74 lifted it out of the
+                          Setup tab and into a sticky pinned position
+                          above all tab bodies so it stays visible across
+                          tabs. See the chart block at the top of the
+                          scrollable body. */}
 
                       {/* V2.1 round 8 (2026-05-04) — Universal Key Levels panel.
                           Per user: "There should be levels even if we are not

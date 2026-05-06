@@ -6746,13 +6746,13 @@ function App() {
     },
     className: "ml-3 px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/30 text-xs"
   }, "Retry")), React.createElement("div", {
-    className: `${selectedTicker || selectedTrade ? "mr-[470px] xl:mr-[580px]" : ""}`
+    className: `${selectedTicker || selectedTrade ? "mr-[500px] lg:mr-[660px] xl:mr-[740px] 2xl:mr-[820px]" : ""}`
   }, React.createElement(PerformanceOverviewSection, {
     trades: ledgerFilteredTrades || [],
     loading: (ledgerTrades ?? {}).loading,
     accountStartCash: Number(acctSummary?.startCash) || 100000
   })), React.createElement("div", {
-    className: `${selectedTicker || selectedTrade ? "mr-[470px] xl:mr-[580px]" : ""}`
+    className: `${selectedTicker || selectedTrade ? "mr-[500px] lg:mr-[660px] xl:mr-[740px] 2xl:mr-[820px]" : ""}`
   }, React.createElement("div", {
     className: "flex items-center gap-1 mb-4 border-b border-[var(--tt-border)] lg:hidden"
   }, React.createElement("button", {
@@ -6812,7 +6812,7 @@ function App() {
       setModalOnly(false);
     }
   })))), (selectedTicker || selectedTrade) && !modalOnly && React.createElement("div", {
-    className: "fixed right-0 top-[49px] w-[450px] xl:w-[560px] bottom-0 z-40 slide-in-right shadow-2xl overflow-y-auto bg-[#0b0e11] border-l border-white/[0.04]"
+    className: "fixed right-0 top-[49px] w-[480px] lg:w-[640px] xl:w-[720px] 2xl:w-[800px] bottom-0 z-40 slide-in-right shadow-2xl overflow-y-auto bg-[#0b0e11] border-l border-white/[0.04]"
   }, React.createElement(TickerDetailsLoader, {
     tickerSymbol: selectedTrade ? selectedTrade.ticker : selectedTicker,
     trade: selectedTrade,

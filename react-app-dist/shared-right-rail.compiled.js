@@ -3077,11 +3077,152 @@
             }
           }, React.createElement("span", null, label)))));
         })(), React.createElement("div", {
-          className: "flex-1 overflow-y-auto",
+          className: "flex-1 overflow-y-auto tt-rail-body",
           style: {
             padding: "var(--ds-space-4)"
           }
-        }, v2RailTab === "SNAPSHOT" && React.createElement(React.Fragment, null, (ticker?.regime_class || ticker?.state || ticker?.kanban_stage) && React.createElement(Panel, {
+        }, chartCandles && chartCandles.length >= 2 && (() => {
+          const _pcDirChart = String(predictionContract?.direction || v2Dir || "").toUpperCase();
+          const _isShortChart = _pcDirChart === "SHORT";
+          const _pcSlChart = Number(predictionContract?.risk?.stop_loss);
+          const _curPxChart = Number(v2Price) || Number(ticker?.price) || 0;
+          const _allLevels = Array.isArray(predictionContract?.levels) ? predictionContract.levels : [];
+          const _resistance = _allLevels.filter(l => l.role === "resistance").sort((a, b) => a.price - b.price).slice(0, 3);
+          const _support = _allLevels.filter(l => l.role === "support").sort((a, b) => b.price - a.price).slice(0, 3);
+          const buildLines = () => {
+            const lines = [];
+            const ep = Number(ticker?.entry_price);
+            if (Number.isFinite(ep) && ep > 0 && trade) lines.push({
+              price: ep,
+              color: "rgba(245,194,92,0.85)",
+              title: "Entry",
+              lineStyle: 0,
+              lineWidth: 2
+            });
+            if (Number.isFinite(_pcSlChart) && _pcSlChart > 0) lines.push({
+              price: _pcSlChart,
+              color: "rgba(244,63,94,0.85)",
+              title: "Stop",
+              lineStyle: 2,
+              lineWidth: 2
+            });
+            const tps = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
+            tps.slice(0, 3).forEach((tp, i) => {
+              const px = Number(tp?.price);
+              if (Number.isFinite(px) && px > 0) lines.push({
+                price: px,
+                color: "rgba(34,197,94,0.80)",
+                title: `TP${i + 1}`,
+                lineStyle: 2,
+                lineWidth: 2
+              });
+            });
+            const above2 = _resistance.slice(0, 2);
+            const below2 = _support.slice(0, 2);
+            for (const l of above2) {
+              const profit = !_isShortChart;
+              lines.push({
+                price: Number(l.price),
+                color: profit ? "rgba(34,197,94,0.35)" : "rgba(244,63,94,0.35)",
+                title: l.label || "",
+                lineStyle: 2,
+                lineWidth: 1
+              });
+            }
+            for (const l of below2) {
+              const profit = _isShortChart;
+              lines.push({
+                price: Number(l.price),
+                color: profit ? "rgba(34,197,94,0.35)" : "rgba(244,63,94,0.35)",
+                title: l.label || "",
+                lineStyle: 2,
+                lineWidth: 1
+              });
+            }
+            return lines;
+          };
+          const indicatorBtn = (key, label, title) => {
+            const on = !!chartOverlays[key];
+            return React.createElement("button", {
+              key: `ind-${key}`,
+              onClick: () => setChartOverlays(prev => ({
+                ...prev,
+                [key]: !prev[key]
+              })),
+              className: "ds-chip ds-chip--sm",
+              title: title,
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                padding: "0 6px",
+                color: on ? "var(--ds-accent)" : "var(--ds-text-muted)",
+                background: on ? "var(--ds-accent-dim)" : "transparent",
+                borderColor: on ? "var(--ds-accent)" : "var(--ds-stroke)"
+              }
+            }, label);
+          };
+          return React.createElement("div", {
+            className: "tt-rail-chart-pinned",
+            style: {
+              position: "sticky",
+              top: 0,
+              zIndex: 5,
+              marginLeft: "calc(-1 * var(--ds-space-4))",
+              marginRight: "calc(-1 * var(--ds-space-4))",
+              marginTop: "calc(-1 * var(--ds-space-4))",
+              marginBottom: "var(--ds-space-3)",
+              padding: "var(--ds-space-3) var(--ds-space-4)",
+              background: "var(--tt-bg-1, #0b0e11)",
+              borderBottom: "1px solid var(--ds-stroke)"
+            }
+          }, React.createElement(Panel, {
+            title: "Chart",
+            action: React.createElement("div", {
+              style: {
+                display: "flex",
+                alignItems: "center",
+                gap: 6
+              }
+            }, React.createElement("div", {
+              className: "ds-chipgroup",
+              style: {
+                padding: 2
+              }
+            }, ["15", "30", "60", "240", "D"].map(tf => React.createElement("button", {
+              key: `ctf-${tf}`,
+              onClick: () => setChartTf(tf),
+              className: `ds-chipgroup__item ${chartTf === tf ? "ds-chipgroup__item--active" : ""}`,
+              style: {
+                padding: "3px 8px",
+                fontSize: 10
+              }
+            }, tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`))), React.createElement("button", {
+              className: "ds-chip ds-chip--sm",
+              onClick: () => setChartExpanded(true),
+              title: "Expand chart",
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                padding: "0 8px"
+              }
+            }, "\u2922"))
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 4,
+              marginBottom: "var(--ds-space-2)"
+            }
+          }, indicatorBtn("ema21", "EMA21", "21-period EMA"), indicatorBtn("ema48", "EMA48", "48-period EMA"), indicatorBtn("ema200", "EMA200", "200-period EMA"), indicatorBtn("supertrend", "ST", "SuperTrend (10, 3)"), indicatorBtn("tdSequential", "TD", "TD Sequential markers")), React.createElement("div", {
+            className: "tt-rail-chart-canvas"
+          }, React.createElement(LWChart, {
+            candles: chartCandles,
+            chartTf,
+            overlays: chartOverlays,
+            priceLines: buildLines(),
+            ticker,
+            height: 320,
+            hideOverlayToggles: true
+          }))));
+        })(), v2RailTab === "SNAPSHOT" && React.createElement(React.Fragment, null, (ticker?.regime_class || ticker?.state || ticker?.kanban_stage) && React.createElement(Panel, {
           title: "Today"
         }, React.createElement("div", {
           style: {
@@ -3458,136 +3599,7 @@
           style: {
             alignSelf: "flex-start"
           }
-        }, ticker.setup_grade))), chartCandles && chartCandles.length >= 2 && (() => {
-          const _pcDirChart = String(predictionContract?.direction || v2Dir || "").toUpperCase();
-          const _isShortChart = _pcDirChart === "SHORT";
-          const _pcSlChart = Number(predictionContract?.risk?.stop_loss);
-          const _curPxChart = Number(v2Price) || Number(ticker?.price) || 0;
-          const _allLevels = Array.isArray(predictionContract?.levels) ? predictionContract.levels : [];
-          const _resistance = _allLevels.filter(l => l.role === "resistance").sort((a, b) => a.price - b.price).slice(0, 3);
-          const _support = _allLevels.filter(l => l.role === "support").sort((a, b) => b.price - a.price).slice(0, 3);
-          const buildLines = () => {
-            const lines = [];
-            const ep = Number(ticker?.entry_price);
-            if (Number.isFinite(ep) && ep > 0 && trade) lines.push({
-              price: ep,
-              color: "rgba(245,194,92,0.85)",
-              title: "Entry",
-              lineStyle: 0,
-              lineWidth: 2
-            });
-            if (Number.isFinite(_pcSlChart) && _pcSlChart > 0) lines.push({
-              price: _pcSlChart,
-              color: "rgba(244,63,94,0.85)",
-              title: "Stop",
-              lineStyle: 2,
-              lineWidth: 2
-            });
-            const tps = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
-            tps.slice(0, 3).forEach((tp, i) => {
-              const px = Number(tp?.price);
-              if (Number.isFinite(px) && px > 0) lines.push({
-                price: px,
-                color: "rgba(34,197,94,0.80)",
-                title: `TP${i + 1}`,
-                lineStyle: 2,
-                lineWidth: 2
-              });
-            });
-            const above2 = _resistance.slice(0, 2);
-            const below2 = _support.slice(0, 2);
-            for (const l of above2) {
-              const profit = !_isShortChart;
-              lines.push({
-                price: Number(l.price),
-                color: profit ? "rgba(34,197,94,0.35)" : "rgba(244,63,94,0.35)",
-                title: l.label || "",
-                lineStyle: 2,
-                lineWidth: 1
-              });
-            }
-            for (const l of below2) {
-              const profit = _isShortChart;
-              lines.push({
-                price: Number(l.price),
-                color: profit ? "rgba(34,197,94,0.35)" : "rgba(244,63,94,0.35)",
-                title: l.label || "",
-                lineStyle: 2,
-                lineWidth: 1
-              });
-            }
-            return lines;
-          };
-          const indicatorBtn = (key, label, title) => {
-            const on = !!chartOverlays[key];
-            return React.createElement("button", {
-              key: `ind-${key}`,
-              onClick: () => setChartOverlays(prev => ({
-                ...prev,
-                [key]: !prev[key]
-              })),
-              className: "ds-chip ds-chip--sm",
-              title: title,
-              style: {
-                fontFamily: "var(--tt-font-mono)",
-                padding: "0 6px",
-                color: on ? "var(--ds-accent)" : "var(--ds-text-muted)",
-                background: on ? "var(--ds-accent-dim)" : "transparent",
-                borderColor: on ? "var(--ds-accent)" : "var(--ds-stroke)"
-              }
-            }, label);
-          };
-          return React.createElement(Panel, {
-            title: "Chart",
-            action: React.createElement("div", {
-              style: {
-                display: "flex",
-                alignItems: "center",
-                gap: 6
-              }
-            }, React.createElement("div", {
-              className: "ds-chipgroup",
-              style: {
-                padding: 2
-              }
-            }, ["15", "30", "60", "240", "D"].map(tf => React.createElement("button", {
-              key: `ctf-${tf}`,
-              onClick: () => setChartTf(tf),
-              className: `ds-chipgroup__item ${chartTf === tf ? "ds-chipgroup__item--active" : ""}`,
-              style: {
-                padding: "3px 8px",
-                fontSize: 10
-              }
-            }, tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`))), React.createElement("button", {
-              className: "ds-chip ds-chip--sm",
-              onClick: () => setChartExpanded(true),
-              title: "Expand chart",
-              style: {
-                fontFamily: "var(--tt-font-mono)",
-                padding: "0 8px"
-              }
-            }, "\u2922"))
-          }, React.createElement("div", {
-            style: {
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 4,
-              marginBottom: "var(--ds-space-2)"
-            }
-          }, indicatorBtn("ema21", "EMA21", "21-period EMA"), indicatorBtn("ema48", "EMA48", "48-period EMA"), indicatorBtn("ema200", "EMA200", "200-period EMA"), indicatorBtn("supertrend", "ST", "SuperTrend (10, 3)"), indicatorBtn("tdSequential", "TD", "TD Sequential markers")), React.createElement("div", {
-            style: {
-              height: 240
-            }
-          }, React.createElement(LWChart, {
-            candles: chartCandles,
-            chartTf,
-            overlays: chartOverlays,
-            priceLines: buildLines(),
-            ticker,
-            height: 240,
-            hideOverlayToggles: true
-          })));
-        })(), Array.isArray(predictionContract?.levels) && predictionContract.levels.length > 0 && (() => {
+        }, ticker.setup_grade))), Array.isArray(predictionContract?.levels) && predictionContract.levels.length > 0 && (() => {
           const px = Number(v2Price) || Number(ticker?.price) || 0;
           if (!(px > 0)) return null;
           const all = predictionContract.levels;
