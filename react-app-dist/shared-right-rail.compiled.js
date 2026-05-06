@@ -3147,25 +3147,6 @@
             }
             return lines;
           };
-          const indicatorBtn = (key, label, title) => {
-            const on = !!chartOverlays[key];
-            return React.createElement("button", {
-              key: `ind-${key}`,
-              onClick: () => setChartOverlays(prev => ({
-                ...prev,
-                [key]: !prev[key]
-              })),
-              className: "ds-chip ds-chip--sm",
-              title: title,
-              style: {
-                fontFamily: "var(--tt-font-mono)",
-                padding: "0 6px",
-                color: on ? "var(--ds-accent)" : "var(--ds-text-muted)",
-                background: on ? "var(--ds-accent-dim)" : "transparent",
-                borderColor: on ? "var(--ds-accent)" : "var(--ds-stroke)"
-              }
-            }, label);
-          };
           return (React.createElement("div", {
               className: "tt-rail-chart-block",
               style: {
@@ -3202,13 +3183,6 @@
                 }
               }, "\u2922"))
             }, React.createElement("div", {
-              style: {
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 4,
-                marginBottom: "var(--ds-space-2)"
-              }
-            }, indicatorBtn("ema21", "EMA21", "21-period EMA"), indicatorBtn("ema48", "EMA48", "48-period EMA"), indicatorBtn("ema200", "EMA200", "200-period EMA"), indicatorBtn("supertrend", "ST", "SuperTrend (10, 3)"), indicatorBtn("tdSequential", "TD", "TD Sequential markers")), React.createElement("div", {
               className: "tt-rail-chart-canvas"
             }, React.createElement(LWChart, {
               candles: chartCandles,

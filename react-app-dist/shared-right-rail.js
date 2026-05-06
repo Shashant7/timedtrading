@@ -2573,24 +2573,6 @@
                       }
                       return lines;
                     };
-                    const indicatorBtn = (key, label, title) => {
-                      const on = !!chartOverlays[key];
-                      return (
-                        <button
-                          key={`ind-${key}`}
-                          onClick={() => setChartOverlays(prev => ({ ...prev, [key]: !prev[key] }))}
-                          className="ds-chip ds-chip--sm"
-                          title={title}
-                          style={{
-                            fontFamily: "var(--tt-font-mono)",
-                            padding: "0 6px",
-                            color: on ? "var(--ds-accent)" : "var(--ds-text-muted)",
-                            background: on ? "var(--ds-accent-dim)" : "transparent",
-                            borderColor: on ? "var(--ds-accent)" : "var(--ds-stroke)",
-                          }}
-                        >{label}</button>
-                      );
-                    };
                     return (
                     /* V15 P0.7.76 — Chart block. Wrapped by parent
                        tt-rail-area-left-pane in workspace mode for grid
@@ -2621,13 +2603,13 @@
                           </div>
                         }
                       >
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: "var(--ds-space-2)" }}>
-                          {indicatorBtn("ema21", "EMA21", "21-period EMA")}
-                          {indicatorBtn("ema48", "EMA48", "48-period EMA")}
-                          {indicatorBtn("ema200", "EMA200", "200-period EMA")}
-                          {indicatorBtn("supertrend", "ST", "SuperTrend (10, 3)")}
-                          {indicatorBtn("tdSequential", "TD", "TD Sequential markers")}
-                        </div>
+                        {/* V15 P0.7.80: indicator-toggle row removed from rail
+                            chart per user feedback "I really want the chart
+                            to be simple and look as much like what we have
+                            for the Daily Brief, that style looks elegant".
+                            Indicators are still available in the expanded
+                            chart modal (⤢ button). The default chart now
+                            shows just price action + canonical levels. */}
                         {/* V15 P0.7.77: stable chart canvas height (was viewport-
                             checking inline on every render which created a
                             new ref each time). Use a CSS class instead so
