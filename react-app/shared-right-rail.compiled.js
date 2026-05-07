@@ -200,21 +200,27 @@ if(ovData.patterns?.length>0){const pMarkers=ovData.patterns.map(p=>({time:p.ts,
 useEffect(()=>{const candleSeries=candleSeriesRef.current;if(!candleSeries)return;// Clean previous external price lines
 for(const pl of externalPriceLinesRef.current){try{candleSeries.removePriceLine(pl);}catch(_){}}externalPriceLinesRef.current=[];if(!Array.isArray(propPriceLines))return;for(const pl of propPriceLines){if(pl&&Number.isFinite(pl.price)&&pl.price>0){try{const created=candleSeries.createPriceLine({price:pl.price,color:pl.color||'#ffffff',lineWidth:pl.lineWidth||1,lineStyle:pl.lineStyle!=null?pl.lineStyle:2,axisLabelVisible:pl.axisLabelVisible!==false,title:pl.title||''});externalPriceLinesRef.current.push(created);}catch(_){}}}},[propPriceLines]);if(!LWC){return React.createElement("div",{className:"text-xs text-[#6b7280]"},"Charts library not loaded.");}// OHLC header data
 const hdr=ohlcHeader||(mapped.length>0?{time:mapped[mapped.length-1].time,o:mapped[mapped.length-1].open,h:mapped[mapped.length-1].high,l:mapped[mapped.length-1].low,c:mapped[mapped.length-1].close}:null);const hdrUp=hdr?hdr.c>=hdr.o:true;const hdrChg=hdr?hdr.c-hdr.o:0;const hdrPct=hdr&&hdr.o?hdrChg/hdr.o*100:0;// Format time
-let hdrTimeStr="";if(hdr){try{const d=new Date(hdr.time*1000);const isDWM=["D","W","M"].includes(String(chartTf));hdrTimeStr=isDWM?d.toLocaleString("en-US",{month:"short",day:"numeric",year:"numeric",timeZone:"America/New_York"}):d.toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit",timeZone:"America/New_York"})+" ET";}catch(_){}}return React.createElement("div",{className:"w-full relative -mx-3 px-3"},// V2.1 round 6 (2026-05-01) — Legacy in-canvas overlay-toggle row
+let hdrTimeStr="";if(hdr){try{const d=new Date(hdr.time*1000);const isDWM=["D","W","M"].includes(String(chartTf));hdrTimeStr=isDWM?d.toLocaleString("en-US",{month:"short",day:"numeric",year:"numeric",timeZone:"America/New_York"}):d.toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit",timeZone:"America/New_York"})+" ET";}catch(_){}}// P0.7.100-r3 — outer wrapper now h-full + flex column so the
+// chart container's height: 100% genuinely resolves to the parent
+// (.tt-rail-chart-canvas) explicit pixel height. Without this,
+// height: 100% falls back to 0 and the chart renders at LWC's
+// tiny default. Header + status bar are flex-shrink: 0; the
+// container flex-grows.
+return React.createElement("div",{className:"w-full h-full relative -mx-3 px-3 flex flex-col",style:{minHeight:0}},// V2.1 round 6 (2026-05-01) — Legacy in-canvas overlay-toggle row
 // suppressed when the parent passes hideOverlayToggles=true (the v2
 // Setup panel renders its own gold-styled toggles outside the chart,
 // and the duplicate row was visible in the right rail).
 !hideOverlayToggles&&React.createElement("div",{className:"flex items-center gap-1.5 mb-1 flex-wrap"},[{key:"ema21",label:"21 EMA",color:"#fbbf24"},{key:"ema48",label:"48 EMA",color:"#a78bfa"},{key:"ema200",label:"200 EMA",color:"#f87171"},{key:"supertrend",label:"SuperTrend",color:"#34d399"},{key:"tdSequential",label:"TD Seq",color:"#f59e0b"}].map(ov=>React.createElement("button",{key:ov.key,onClick:()=>onCrosshair?.(ov.key),// toggle overlay via parent
 className:`px-2 py-0.5 rounded text-[9px] font-semibold border transition-all ${overlays[ov.key]?"border-white/20 text-white":"border-white/[0.06] text-[#555] hover:text-[#6b7280]"}`,style:overlays[ov.key]?{borderColor:ov.color+"80",color:ov.color,background:ov.color+"15"}:{}},ov.label))),// OHLC header
 hdr&&React.createElement("div",{className:"flex items-center gap-2 mb-0.5 text-[10px] font-mono h-5 select-none"},React.createElement("span",{className:"text-[#6b7280]"},hdrTimeStr),React.createElement("span",{className:"text-[#6b7280]"},"O"),React.createElement("span",{className:"text-white"},hdr.o?.toFixed(2)),React.createElement("span",{className:"text-[#6b7280]"},"H"),React.createElement("span",{className:"text-sky-300"},hdr.h?.toFixed(2)),React.createElement("span",{className:"text-[#6b7280]"},"L"),React.createElement("span",{className:"text-orange-300"},hdr.l?.toFixed(2)),React.createElement("span",{className:"text-[#6b7280]"},"C"),React.createElement("span",{className:hdrUp?"text-teal-400 font-semibold":"text-rose-400 font-semibold"},hdr.c?.toFixed(2)),React.createElement("span",{className:hdrUp?"text-teal-400":"text-rose-400"},`${hdrUp?"+":""}${hdrChg.toFixed(2)} (${hdrUp?"+":""}${hdrPct.toFixed(2)}%)`),patternLabel&&React.createElement("span",{className:"px-1.5 py-px rounded text-[8px] font-bold border border-violet-400/40 bg-violet-500/20 text-violet-300"},patternLabel)),// Chart container
-// P0.7.100-r2 — back to height:100% so the chart fills its CSS-
-// sized parent (.tt-rail-chart-canvas). The CSS handles ALL
-// sizing decisions (mobile/desktop/workspace) via media queries.
-// The chart's initial pixel height is read from clientHeight
-// once at create time. We do NOT track height in the
-// ResizeObserver because LightweightCharts' internal canvas
-// resize fires the observer and causes a feedback loop.
-React.createElement("div",{ref:containerRef,className:"rounded-lg overflow-hidden",style:{height:propHeight?propHeight:"100%",background:"#0b0e11"}}),// Status bar
+// P0.7.100-r3 — flex-1 inside the new h-full flex-col wrapper so
+// the container fills whatever remains after the OHLC header +
+// status bar. The actual pixel height is owned by the parent
+// .tt-rail-chart-canvas via CSS (calc(100vh - 200px) in
+// workspace mode, fixed 240/380px otherwise). LightweightCharts
+// is sized via clientHeight at create + window-resize listener
+// (NOT ResizeObserver — that path looped before).
+React.createElement("div",{ref:containerRef,className:"rounded-lg overflow-hidden",style:{height:propHeight?propHeight:"auto",flex:propHeight?"0 0 auto":"1 1 auto",minHeight:propHeight?propHeight:0,background:"#0b0e11"}}),// Status bar
 React.createElement("div",{className:"mt-1 text-[10px] text-[#6b7280] flex items-center justify-between"},React.createElement("span",null,`${["D","W","M"].includes(String(chartTf))?chartTf==="D"?"Daily":chartTf==="W"?"Weekly":"Monthly":Number(chartTf)>=60?`${Number(chartTf)/60}H`:`${chartTf}m`} • ${mapped.length} bars`),React.createElement("span",{className:"text-[#555] text-[9px]"},"scroll to zoom • drag to pan")));}/* V2.1 round 7 — memoized LWChart.
        V2.1 round 11 (2026-05-04) — Hardened comparator: compare EVERY
        price line value, not just first/last. With S/R levels overlaying

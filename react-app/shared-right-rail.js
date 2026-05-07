@@ -1102,7 +1102,13 @@
         } catch (_) {}
       }
 
-      return React.createElement("div", { className: "w-full relative -mx-3 px-3" },
+      // P0.7.100-r3 — outer wrapper now h-full + flex column so the
+      // chart container's height: 100% genuinely resolves to the parent
+      // (.tt-rail-chart-canvas) explicit pixel height. Without this,
+      // height: 100% falls back to 0 and the chart renders at LWC's
+      // tiny default. Header + status bar are flex-shrink: 0; the
+      // container flex-grows.
+      return React.createElement("div", { className: "w-full h-full relative -mx-3 px-3 flex flex-col", style: { minHeight: 0 } },
         // V2.1 round 6 (2026-05-01) — Legacy in-canvas overlay-toggle row
         // suppressed when the parent passes hideOverlayToggles=true (the v2
         // Setup panel renders its own gold-styled toggles outside the chart,
@@ -1142,18 +1148,20 @@
           }, patternLabel)
         ),
         // Chart container
-        // P0.7.100-r2 — back to height:100% so the chart fills its CSS-
-        // sized parent (.tt-rail-chart-canvas). The CSS handles ALL
-        // sizing decisions (mobile/desktop/workspace) via media queries.
-        // The chart's initial pixel height is read from clientHeight
-        // once at create time. We do NOT track height in the
-        // ResizeObserver because LightweightCharts' internal canvas
-        // resize fires the observer and causes a feedback loop.
+        // P0.7.100-r3 — flex-1 inside the new h-full flex-col wrapper so
+        // the container fills whatever remains after the OHLC header +
+        // status bar. The actual pixel height is owned by the parent
+        // .tt-rail-chart-canvas via CSS (calc(100vh - 200px) in
+        // workspace mode, fixed 240/380px otherwise). LightweightCharts
+        // is sized via clientHeight at create + window-resize listener
+        // (NOT ResizeObserver — that path looped before).
         React.createElement("div", {
           ref: containerRef,
           className: "rounded-lg overflow-hidden",
           style: {
-            height: propHeight ? propHeight : "100%",
+            height: propHeight ? propHeight : "auto",
+            flex: propHeight ? "0 0 auto" : "1 1 auto",
+            minHeight: propHeight ? propHeight : 0,
             background: "#0b0e11",
           },
         }),

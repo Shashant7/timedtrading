@@ -1302,7 +1302,10 @@
         } catch (_) {}
       }
       return React.createElement("div", {
-        className: "w-full relative -mx-3 px-3"
+        className: "w-full h-full relative -mx-3 px-3 flex flex-col",
+        style: {
+          minHeight: 0
+        }
       }, !hideOverlayToggles && React.createElement("div", {
         className: "flex items-center gap-1.5 mb-1 flex-wrap"
       }, [{
@@ -1362,7 +1365,9 @@
         ref: containerRef,
         className: "rounded-lg overflow-hidden",
         style: {
-          height: propHeight ? propHeight : "100%",
+          height: propHeight ? propHeight : "auto",
+          flex: propHeight ? "0 0 auto" : "1 1 auto",
+          minHeight: propHeight ? propHeight : 0,
           background: "#0b0e11"
         }
       }), React.createElement("div", {
