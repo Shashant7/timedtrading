@@ -1545,7 +1545,8 @@
 
         // Trade History: default chart selection to first trade when trades load
         useEffect(() => {
-          if (railTab === "TRADE_HISTORY" && ledgerTrades.length > 0 && !tradeChartSelection) {
+          const isHistoryTab = railTab === "TRADE_HISTORY" || railTab === "HISTORY";
+          if (isHistoryTab && ledgerTrades.length > 0 && !tradeChartSelection) {
             setTradeChartSelection(ledgerTrades[0]);
           }
         }, [railTab, ledgerTrades, tradeChartSelection]);
@@ -1864,7 +1865,9 @@
           const sym = String(tickerSymbol || "")
             .trim()
             .toUpperCase();
-          if (!sym || railTab !== "TRADE_HISTORY") {
+          // Fire for both legacy v1 ("TRADE_HISTORY") and v2 ("HISTORY") rail tab names.
+          const isHistoryTab = railTab === "TRADE_HISTORY" || railTab === "HISTORY";
+          if (!sym || !isHistoryTab) {
             setLedgerTrades([]);
             setLedgerTradesError(null);
             setLedgerTradesLoading(false);
@@ -1915,7 +1918,8 @@
 
         // Default Trade History chart to first trade when tab has trades and no selection
         useEffect(() => {
-          if (railTab === "TRADE_HISTORY" && ledgerTrades.length > 0 && tradeChartSelection == null) {
+          const isHistoryTab = railTab === "TRADE_HISTORY" || railTab === "HISTORY";
+          if (isHistoryTab && ledgerTrades.length > 0 && tradeChartSelection == null) {
             setTradeChartSelection(ledgerTrades[0]);
           }
         }, [railTab, ledgerTrades, tradeChartSelection]);

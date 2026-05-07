@@ -2180,7 +2180,8 @@
         setRailTab(def === "INVESTOR" ? "INVESTOR" : def);
       }, [tickerSymbol, initialRailTab]);
       useEffect(() => {
-        if (railTab === "TRADE_HISTORY" && ledgerTrades.length > 0 && !tradeChartSelection) {
+        const isHistoryTab = railTab === "TRADE_HISTORY" || railTab === "HISTORY";
+        if (isHistoryTab && ledgerTrades.length > 0 && !tradeChartSelection) {
           setTradeChartSelection(ledgerTrades[0]);
         }
       }, [railTab, ledgerTrades, tradeChartSelection]);
@@ -2478,7 +2479,8 @@
       }, [tickerSymbol, latestTicker, ticker]);
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
-        if (!sym || railTab !== "TRADE_HISTORY") {
+        const isHistoryTab = railTab === "TRADE_HISTORY" || railTab === "HISTORY";
+        if (!sym || !isHistoryTab) {
           setLedgerTrades([]);
           setLedgerTradesError(null);
           setLedgerTradesLoading(false);
@@ -2522,7 +2524,8 @@
         };
       }, [tickerSymbol, railTab]);
       useEffect(() => {
-        if (railTab === "TRADE_HISTORY" && ledgerTrades.length > 0 && tradeChartSelection == null) {
+        const isHistoryTab = railTab === "TRADE_HISTORY" || railTab === "HISTORY";
+        if (isHistoryTab && ledgerTrades.length > 0 && tradeChartSelection == null) {
           setTradeChartSelection(ledgerTrades[0]);
         }
       }, [railTab, ledgerTrades, tradeChartSelection]);
