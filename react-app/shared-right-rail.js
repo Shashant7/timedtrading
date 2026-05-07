@@ -512,6 +512,15 @@
       const overlaySeriesRef = useRef({});
       const levelPriceLinesRef = useRef([]);
       const levelTrendSeriesRef = useRef([]);
+      // V15 P0.7.99 — additional refs to support split CREATE/UPDATE effects.
+      // Tracks whether the visible-range autofit has been applied for the
+      // current chart instance (so subsequent live data updates don't snap
+      // back to default view), and the price lines added from external SL/
+      // TP/Entry props (so they can be cleaned up when those props change
+      // without recreating the chart).
+      const firstDataLoadAppliedRef = useRef(false);
+      const externalPriceLinesRef = useRef([]);
+      const tdSeqMarkersRef = useRef([]);
       const [ohlcHeader, setOhlcHeader] = useState(null);
       const [patternLabel, setPatternLabel] = useState(null);
 
@@ -620,9 +629,29 @@
         return result;
       }, [mapped, overlays]);
 
-      // Create / update chart
+      // V15 P0.7.99 — CREATE effect.
+      // Used to be a single big useEffect with deps [mapped, indicatorData,
+      // chartTf, ...] that recreated the chart whenever the candle data
+      // identity changed. Even with the React.memo comparator preventing
+      // most re-renders, any incidental re-render that did get through
+      // (e.g. cache cycle, parent prop churn from the WS price feed) caused
+      // a chart.remove() + createChart() cycle that lost zoom/pan state and
+      // produced the visible flicker the user reported as
+      //   "I resize, wait a few seconds, it flickers and reverts to default".
+      //
+      // Split:
+      //   CREATE effect — deps [chartTf, propTicker?.ticker, LWC, propHeight, hideOverlayToggles]
+      //     Creates the chart instance + candle series ONCE per ticker/TF
+      //     change. Sets up crosshair, resize observer, async S/R fetch.
+      //   UPDATE effect — deps [mapped, indicatorData]
+      //     Calls candleSeries.setData(mapped) without recreating the chart.
+      //     Adds/refreshes overlay series. Preserves the existing visible
+      //     range so live data updates feel like in-place updates rather
+      //     than full redraws.
+      //   PRICE-LINES effect — deps [propPriceLines]
+      //     Re-applies external SL/TP/Entry lines as those change.
       useEffect(() => {
-        if (!containerRef.current || !LWC || mapped.length < 2) return;
+        if (!containerRef.current || !LWC) return;
 
         /* V2.1 round 5 (2026-05-01) — LWChart styled to match the Daily
            Brief chart per user feedback ("nice and clean"). Changes:
@@ -706,61 +735,14 @@
           wickUpColor: "#26a69a",
           wickDownColor: "#ef5350",
         });
-        candleSeries.setData(mapped);
         candleSeriesRef.current = candleSeries;
 
-        // Overlay series
-        const addedSeries = {};
-        if (indicatorData.ema21?.length > 0) {
-          const s = chart.addLineSeries({ color: "#fbbf24", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-          s.setData(indicatorData.ema21);
-          addedSeries.ema21 = s;
-        }
-        if (indicatorData.ema48?.length > 0) {
-          const s = chart.addLineSeries({ color: "#a78bfa", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-          s.setData(indicatorData.ema48);
-          addedSeries.ema48 = s;
-        }
-        if (indicatorData.ema200?.length > 0) {
-          const s = chart.addLineSeries({ color: "#f87171", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-          s.setData(indicatorData.ema200);
-          addedSeries.ema200 = s;
-        }
-        if (indicatorData.stSegments?.length > 0) {
-          const stSeriesList = [];
-          for (const seg of indicatorData.stSegments) {
-            if (!seg.data?.length) continue;
-            const s = chart.addLineSeries({ color: seg.color, lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
-            s.setData(seg.data);
-            stSeriesList.push(s);
-          }
-          addedSeries.stSegments = stSeriesList;
-        }
-        // TD Sequential markers + external markers
-        const allMarkers = [
-          ...(indicatorData.tdMarkers || []),
-          ...(Array.isArray(propMarkers) ? propMarkers : []),
-        ].sort((a, b) => a.time - b.time);
-        if (allMarkers.length > 0) {
-          candleSeries.setMarkers(allMarkers);
-        }
-        overlaySeriesRef.current = addedSeries;
+        // V15 P0.7.99 — initial data load + overlays + S/R fetch all
+        // happen in the UPDATE effect below. CREATE effect is pure
+        // construction so it never re-runs on data changes.
 
-        // External price lines (SL, TP, Entry)
-        if (Array.isArray(propPriceLines)) {
-          for (const pl of propPriceLines) {
-            if (pl && Number.isFinite(pl.price) && pl.price > 0) {
-              candleSeries.createPriceLine({
-                price: pl.price,
-                color: pl.color || '#ffffff',
-                lineWidth: pl.lineWidth || 1,
-                lineStyle: pl.lineStyle != null ? pl.lineStyle : 2,
-                axisLabelVisible: pl.axisLabelVisible !== false,
-                title: pl.title || '',
-              });
-            }
-          }
-        }
+        // Reset first-data-load flag so visible range gets set on next data
+        firstDataLoadAppliedRef.current = false;
 
         // Crosshair move → OHLC header
         chart.subscribeCrosshairMove(param => {
@@ -780,60 +762,12 @@
           }
         });
 
-        // TF-specific visible range and bar spacing
-        const _visibleBars = { "5": 156, "15": 52, "30": 26, "60": 20, "240": 60, "D": 30, "W": 52 };
-        const _barsToShow = _visibleBars[String(chartTf)] || mapped.length;
+        // V15 P0.7.99 — TF-specific bar spacing applied here once. The
+        // visible logical range is set in the UPDATE effect after data is
+        // populated (and only on the FIRST data load — subsequent updates
+        // preserve whatever range the user has scrolled/zoomed to).
         const _tfBarSpacing = String(chartTf) === "D" ? 12 : String(chartTf) === "60" ? 8 : 6;
         chart.applyOptions({ timeScale: { rightOffset: 5, barSpacing: _tfBarSpacing } });
-        if (mapped.length > _barsToShow) {
-          chart.timeScale().setVisibleLogicalRange({ from: mapped.length - _barsToShow, to: mapped.length + 5 });
-        } else {
-          chart.timeScale().fitContent();
-        }
-
-        // Fetch and apply S/R levels, trendlines, patterns
-        if (propTicker && overlays?.levels !== false) {
-          _rrFetchChartLevels(propTicker, String(chartTf), mapped).then(ovData => {
-            if (!ovData || !candleSeries || !chart) return;
-            // Price lines
-            for (const lvl of (ovData.levels || [])) {
-              try {
-                const styleMap = { dotted: LWC.LineStyle.Dotted, dashed: LWC.LineStyle.Dashed, solid: LWC.LineStyle.Solid };
-                const pl = candleSeries.createPriceLine({
-                  price: lvl.price, color: lvl.color || "rgba(255,255,255,0.2)", lineWidth: lvl.lineWidth || 1,
-                  lineStyle: styleMap[lvl.style] || LWC.LineStyle.Dashed, axisLabelVisible: true, title: lvl.label || "",
-                });
-                levelPriceLinesRef.current.push(pl);
-              } catch (_) {}
-            }
-            // Trendlines
-            for (const tl of (ovData.trendlines || [])) {
-              if (!tl.points || tl.points.length < 2) continue;
-              try {
-                const ls = chart.addLineSeries({
-                  color: tl.color || "rgba(255,255,255,0.3)", lineWidth: 2, lineStyle: LWC.LineStyle.LargeDashed,
-                  crosshairMarkerVisible: false, priceLineVisible: false, lastValueVisible: false,
-                });
-                ls.setData(tl.points);
-                levelTrendSeriesRef.current.push(ls);
-              } catch (_) {}
-            }
-            // Pattern markers (merge with existing)
-            if (ovData.patterns?.length > 0) {
-              const pMarkers = ovData.patterns.map(p => ({
-                time: p.ts, position: p.bias === "bearish" ? "aboveBar" : "belowBar",
-                color: p.bias === "bearish" ? "#ef5350" : p.bias === "bullish" ? "#26a69a" : "#7c8493",
-                shape: p.bias === "bearish" ? "arrowDown" : p.bias === "bullish" ? "arrowUp" : "circle",
-                text: p.type,
-              }));
-              try {
-                const existingMarkers = allMarkers || [];
-                candleSeries.setMarkers([...existingMarkers, ...pMarkers].sort((a, b) => a.time - b.time));
-              } catch (_) {}
-              setPatternLabel(ovData.patterns[ovData.patterns.length - 1]?.type || null);
-            }
-          }).catch(() => {});
-        }
 
         // Resize — use ResizeObserver for portal/modal mount detection + window fallback.
         // V15 P0.7.77: debounce + only fire when width actually changes by ≥1px.
@@ -893,13 +827,186 @@
           candleSeriesRef.current = null;
           overlaySeriesRef.current = {};
         };
-      /* V2.1 round 3 (2026-05-01) — propTicker dropped from deps.
-         The full ticker object identity changes on every dashboard refresh
-         (every ~1s), so including it here destroyed and recreated the chart
-         on every poll → visible flicker. The chart only needs propTicker for
-         _rrFetchChartLevels which is keyed by ticker.symbol; we drive that
-         from a separate effect that depends on the symbol (stable). */
-      }, [mapped, indicatorData, chartTf, LWC, propHeight, propTicker?.ticker]);
+      /* V15 P0.7.99 — CREATE deps now exclude mapped + indicatorData so
+         the chart instance only rebuilds on ticker/TF/sizing changes. Data
+         hydration runs in the UPDATE effect below; level fetching runs in
+         the LEVELS effect; external price lines run in the PRICE-LINES
+         effect. Result: WS price ticks (which arrive every ~2s and were
+         previously sneaking through the React.memo on the parent ticker
+         object reference change) no longer trigger chart.remove() +
+         createChart() — they at most cause a setData() call that
+         preserves the user's zoom/scroll state. */
+      }, [chartTf, LWC, propHeight, propTicker?.ticker]);
+
+      // V15 P0.7.99 — UPDATE effect: hydrates the candle series + indicator
+      // overlays + markers without recreating the chart instance. Runs on
+      // every data change but is cheap (just setData + line series adds).
+      useEffect(() => {
+        const chart = chartInstanceRef.current;
+        const candleSeries = candleSeriesRef.current;
+        if (!chart || !candleSeries || !LWC || mapped.length < 2) return;
+
+        // Push current candle data
+        try {
+          candleSeries.setData(mapped);
+        } catch (_) { /* fall through; series will recover on next ref */ }
+
+        // Replace overlay (EMA / SuperTrend) line series. We remove + add
+        // because indicatorData can include arbitrary segments per cycle.
+        for (const k of Object.keys(overlaySeriesRef.current)) {
+          const v = overlaySeriesRef.current[k];
+          if (Array.isArray(v)) { for (const s of v) try { chart.removeSeries(s); } catch (_) {} }
+          else if (v) try { chart.removeSeries(v); } catch (_) {}
+        }
+        const addedSeries = {};
+        if (indicatorData.ema21?.length > 0) {
+          const s = chart.addLineSeries({ color: "#fbbf24", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+          s.setData(indicatorData.ema21); addedSeries.ema21 = s;
+        }
+        if (indicatorData.ema48?.length > 0) {
+          const s = chart.addLineSeries({ color: "#a78bfa", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+          s.setData(indicatorData.ema48); addedSeries.ema48 = s;
+        }
+        if (indicatorData.ema200?.length > 0) {
+          const s = chart.addLineSeries({ color: "#f87171", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+          s.setData(indicatorData.ema200); addedSeries.ema200 = s;
+        }
+        if (indicatorData.stSegments?.length > 0) {
+          const stList = [];
+          for (const seg of indicatorData.stSegments) {
+            if (!seg.data?.length) continue;
+            const s = chart.addLineSeries({ color: seg.color, lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
+            s.setData(seg.data); stList.push(s);
+          }
+          addedSeries.stSegments = stList;
+        }
+        overlaySeriesRef.current = addedSeries;
+
+        // TD Sequential markers + external markers + (later) pattern markers
+        // are merged in the LEVELS effect; here we just record the TD/
+        // external set so LEVELS can re-merge with patterns when fresh.
+        const baseMarkers = [
+          ...(indicatorData.tdMarkers || []),
+          ...(Array.isArray(propMarkers) ? propMarkers : []),
+        ].sort((a, b) => a.time - b.time);
+        tdSeqMarkersRef.current = baseMarkers;
+        if (baseMarkers.length > 0) {
+          try { candleSeries.setMarkers(baseMarkers); } catch (_) {}
+        } else {
+          try { candleSeries.setMarkers([]); } catch (_) {}
+        }
+
+        // First data load: snap to TF-appropriate visible range. Subsequent
+        // data updates keep whatever range the user has scrolled/zoomed.
+        if (!firstDataLoadAppliedRef.current) {
+          firstDataLoadAppliedRef.current = true;
+          const _visibleBars = { "5": 156, "15": 52, "30": 26, "60": 20, "240": 60, "D": 30, "W": 52 };
+          const _barsToShow = _visibleBars[String(chartTf)] || mapped.length;
+          if (mapped.length > _barsToShow) {
+            try { chart.timeScale().setVisibleLogicalRange({ from: mapped.length - _barsToShow, to: mapped.length + 5 }); } catch (_) {}
+          } else {
+            try { chart.timeScale().fitContent(); } catch (_) {}
+          }
+        }
+      }, [mapped, indicatorData, propMarkers, chartTf, LWC]);
+
+      // V15 P0.7.99 — LEVELS effect: fetches canonical S/R + trendlines +
+      // patterns from /timed/ticker-scenario and applies them as horizontal
+      // price lines + dashed line series + arrow markers (Double Top /
+      // Double Bottom / Bull Flag etc — same set the Daily Brief draws).
+      useEffect(() => {
+        const chart = chartInstanceRef.current;
+        const candleSeries = candleSeriesRef.current;
+        if (!chart || !candleSeries || !LWC || mapped.length < 15) return;
+        if (!propTicker || overlays?.levels === false) return;
+
+        let cancelled = false;
+        _rrFetchChartLevels(propTicker, String(chartTf), mapped).then(ovData => {
+          if (cancelled || !ovData) return;
+          // Clean prior level lines + trendline series (separate from the
+          // external propPriceLines which the PRICE-LINES effect manages)
+          for (const pl of levelPriceLinesRef.current) {
+            try { candleSeries.removePriceLine(pl); } catch (_) {}
+          }
+          levelPriceLinesRef.current = [];
+          for (const ls of levelTrendSeriesRef.current) {
+            try { chart.removeSeries(ls); } catch (_) {}
+          }
+          levelTrendSeriesRef.current = [];
+
+          // Horizontal S/R levels (canonical scenario from ticker-scenario.js)
+          const styleMap = { dotted: LWC.LineStyle.Dotted, dashed: LWC.LineStyle.Dashed, solid: LWC.LineStyle.Solid };
+          for (const lvl of (ovData.levels || [])) {
+            try {
+              const pl = candleSeries.createPriceLine({
+                price: lvl.price, color: lvl.color || "rgba(255,255,255,0.2)", lineWidth: lvl.lineWidth || 1,
+                lineStyle: styleMap[lvl.style] || LWC.LineStyle.Dashed, axisLabelVisible: true, title: lvl.label || "",
+              });
+              levelPriceLinesRef.current.push(pl);
+            } catch (_) {}
+          }
+          // Diagonal support/resistance trendlines (auto-fitted)
+          for (const tl of (ovData.trendlines || [])) {
+            if (!tl.points || tl.points.length < 2) continue;
+            try {
+              const ls = chart.addLineSeries({
+                color: tl.color || "rgba(255,255,255,0.3)", lineWidth: 2, lineStyle: LWC.LineStyle.LargeDashed,
+                crosshairMarkerVisible: false, priceLineVisible: false, lastValueVisible: false,
+              });
+              ls.setData(tl.points);
+              levelTrendSeriesRef.current.push(ls);
+            } catch (_) {}
+          }
+          // Pattern markers — Double Top / Double Bottom / Bull Flag /
+          // Bear Flag / Asc Triangle / Desc Triangle / Range. Merge with
+          // any TD-sequential / external markers from the UPDATE effect.
+          if (ovData.patterns?.length > 0) {
+            const pMarkers = ovData.patterns.map(p => ({
+              time: p.ts, position: p.bias === "bearish" ? "aboveBar" : "belowBar",
+              color: p.bias === "bearish" ? "#ef5350" : p.bias === "bullish" ? "#26a69a" : "#7c8493",
+              shape: p.bias === "bearish" ? "arrowDown" : p.bias === "bullish" ? "arrowUp" : "circle",
+              text: p.type,
+            }));
+            try {
+              candleSeries.setMarkers([...(tdSeqMarkersRef.current || []), ...pMarkers].sort((a, b) => a.time - b.time));
+            } catch (_) {}
+            setPatternLabel(ovData.patterns[ovData.patterns.length - 1]?.type || null);
+          } else {
+            setPatternLabel(null);
+          }
+        }).catch(() => {});
+
+        return () => { cancelled = true; };
+      }, [propTicker?.ticker, chartTf, mapped.length, LWC, overlays?.levels]);
+
+      // V15 P0.7.99 — PRICE-LINES effect: applies external SL/TP/Entry lines
+      // passed via propPriceLines. Decoupled from the chart instance so
+      // these can update without recreating the canvas.
+      useEffect(() => {
+        const candleSeries = candleSeriesRef.current;
+        if (!candleSeries) return;
+        // Clean previous external price lines
+        for (const pl of externalPriceLinesRef.current) {
+          try { candleSeries.removePriceLine(pl); } catch (_) {}
+        }
+        externalPriceLinesRef.current = [];
+        if (!Array.isArray(propPriceLines)) return;
+        for (const pl of propPriceLines) {
+          if (pl && Number.isFinite(pl.price) && pl.price > 0) {
+            try {
+              const created = candleSeries.createPriceLine({
+                price: pl.price,
+                color: pl.color || '#ffffff',
+                lineWidth: pl.lineWidth || 1,
+                lineStyle: pl.lineStyle != null ? pl.lineStyle : 2,
+                axisLabelVisible: pl.axisLabelVisible !== false,
+                title: pl.title || '',
+              });
+              externalPriceLinesRef.current.push(created);
+            } catch (_) {}
+          }
+        }
+      }, [propPriceLines]);
 
       if (!LWC) {
         return React.createElement("div", { className: "text-xs text-[#6b7280]" }, "Charts library not loaded.");
@@ -2677,12 +2784,15 @@
                     );
                   })()}
 
-                  {/* ── PERSISTENT KEY LEVELS (V15 P0.7.76 — Phase 4 workspace) ──
-                      Lifted from inside the Setup tab body so the workspace's
-                      left pane has both Chart + Levels persistent across
-                      tabs (per user vision: "On the left side we have the
-                      setup tab, with the Chart and the levels"). */}
-                  {Array.isArray(predictionContract?.levels) && predictionContract.levels.length > 0 && (() => {
+                  {/* V15 P0.7.99 — Key Levels moved OUT of the left pane and
+                      relocated INSIDE the Setup tab body below Risk/Reward
+                      Levels (per user request: "move the Key Levels box
+                      over to the Setup Pane under the SL/TP levels, also
+                      allowing the chart to be much bigger"). The IIFE is
+                      kept for the moved copy below. The original placement
+                      here renders nothing — the left pane now hosts only
+                      the chart, which can grow to fill the vertical space. */}
+                  {false && Array.isArray(predictionContract?.levels) && predictionContract.levels.length > 0 && (() => {
                     const px = Number(v2Price) || Number(ticker?.price) || 0;
                     if (!(px > 0)) return null;
                     const all = predictionContract.levels;
@@ -5438,6 +5548,103 @@
                                 </>
                               ) : null}
                             </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {/* 5a. KEY LEVELS — V15 P0.7.99                              */}
+                      {/* Relocated from the left pane to live with SL/TP per user  */}
+                      {/* feedback: keeps everything trade-decision-related in one  */}
+                      {/* tab and lets the persistent rail chart grow much larger.   */}
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {Array.isArray(predictionContract?.levels) && predictionContract.levels.length > 0 && (() => {
+                        const px = Number(v2Price) || Number(ticker?.price) || 0;
+                        if (!(px > 0)) return null;
+                        const all = predictionContract.levels;
+                        const resistance = all.filter((l) => l.role === "resistance").sort((a, b) => a.price - b.price);
+                        const support = all.filter((l) => l.role === "support").sort((a, b) => b.price - a.price);
+                        const pcDir = String(predictionContract?.direction || "").toUpperCase();
+                        const isShort = pcDir === "SHORT";
+                        const aboveLabel = isShort ? "Invalidation Zone" : "Resistance";
+                        const belowLabel = isShort ? "Target Zones" : "Support";
+                        const kindMeta = (kind) => {
+                          if (kind === "year_high" || kind === "year_low") return { color: "#f87171", letter: "52W", desc: "52-week extreme" };
+                          if (kind === "swing_high" || kind === "swing_low") return { color: "#fbbf24", letter: "SW", desc: "Swing structure (D)" };
+                          if (kind === "swing_high_4h" || kind === "swing_low_4h") return { color: "#fcd34d", letter: "4H", desc: "Swing structure (4H)" };
+                          if (kind === "prior_session_high" || kind === "prior_session_low") return { color: "#a78bfa", letter: "PD", desc: "Prior day range" };
+                          if (kind === "pivot_high" || kind === "pivot_low") return { color: "#34d399", letter: "PV", desc: "Multi-tested pivot" };
+                          if (kind === "pdz_premium" || kind === "pdz_discount" || kind === "pdz_eq") return { color: "#60a5fa", letter: "PDZ", desc: "Premium/Discount/Equilibrium" };
+                          if (kind === "ema") return { color: "rgba(96,165,250,0.6)", letter: "EMA", desc: "Daily EMA magnet" };
+                          return { color: "var(--ds-text-muted)", letter: "—", desc: "Level" };
+                        };
+                        const LevelRow = ({ l, side }) => {
+                          const m = kindMeta(l.kind);
+                          const dist = ((Number(l.price) - px) / px) * 100;
+                          const distColor = side === "res" ? "var(--ds-dn)" : "var(--ds-up)";
+                          return (
+                            <div style={{
+                              display: "grid",
+                              gridTemplateColumns: "32px 1fr 64px 44px",
+                              gap: "var(--ds-space-2)",
+                              alignItems: "center",
+                              padding: "5px 8px",
+                              borderRadius: "var(--ds-radius-xs)",
+                              background: "rgba(255,255,255,0.02)",
+                              borderLeft: `3px solid ${m.color}`,
+                            }} title={`${m.desc} · weight ${l.weight}`}>
+                              <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, color: m.color, letterSpacing: "0.06em", textAlign: "center" }}>{m.letter}</span>
+                              <span style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)" }}>{l.label || ""}</span>
+                              <span style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-display)", fontFamily: "var(--tt-font-mono)", fontWeight: 700, textAlign: "right" }}>${Number(l.price).toFixed(2)}</span>
+                              <span style={{ fontSize: 9, color: distColor, fontFamily: "var(--tt-font-mono)", textAlign: "right" }}>{dist >= 0 ? "+" : ""}{dist.toFixed(2)}%</span>
+                            </div>
+                          );
+                        };
+                        return (
+                          <div style={{ marginBottom: "var(--ds-space-3)" }}>
+                            <Panel title="Key Levels" action={
+                              <span style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 9, fontFamily: "var(--tt-font-mono)", color: "var(--ds-text-faint)", letterSpacing: "0.10em" }}>
+                                {pcDir && <span className={`ds-chip ds-chip--sm ${isShort ? "ds-chip--dn" : "ds-chip--up"}`} title="Bias direction" style={{ fontSize: 9 }}>{pcDir}</span>}
+                                <span>{resistance.length} above · {support.length} below</span>
+                              </span>
+                            }>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                                {resistance.length > 0 && (
+                                  <div style={{ padding: "4px 8px 2px", display: "flex", alignItems: "baseline", gap: "var(--ds-space-2)" }}>
+                                    <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-dn)" }}>{aboveLabel}</span>
+                                    <span style={{ fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" }}>{isShort ? "stop above price" : "profit / fade"}</span>
+                                  </div>
+                                )}
+                                {resistance.length > 0 && resistance.slice(0, 5).reverse().map((l, i) => (
+                                  <LevelRow key={`res-${i}-${l.price}`} l={l} side="res" />
+                                ))}
+                                <div style={{
+                                  display: "grid",
+                                  gridTemplateColumns: "32px 1fr 64px 44px",
+                                  gap: "var(--ds-space-2)",
+                                  alignItems: "center",
+                                  padding: "8px 8px",
+                                  borderRadius: "var(--ds-radius-xs)",
+                                  background: "rgba(245,194,92,0.10)",
+                                  border: "1px solid rgba(245,194,92,0.30)",
+                                  margin: "2px 0",
+                                }}>
+                                  <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, color: "var(--ds-accent)", letterSpacing: "0.06em", textAlign: "center" }}>NOW</span>
+                                  <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-accent)", fontFamily: "var(--tt-font-mono)", fontWeight: 700 }}>Current Price</span>
+                                  <span style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-accent)", fontFamily: "var(--tt-font-mono)", fontWeight: 700, textAlign: "right" }}>${px.toFixed(2)}</span>
+                                  <span style={{ fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", textAlign: "right" }}>—</span>
+                                </div>
+                                {support.length > 0 && (
+                                  <div style={{ padding: "4px 8px 2px", display: "flex", alignItems: "baseline", gap: "var(--ds-space-2)" }}>
+                                    <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-up)" }}>{belowLabel}</span>
+                                    <span style={{ fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" }}>{isShort ? "profit-take" : "defend / SL ref"}</span>
+                                  </div>
+                                )}
+                                {support.length > 0 && support.slice(0, 5).map((l, i) => (
+                                  <LevelRow key={`sup-${i}-${l.price}`} l={l} side="sup" />
+                                ))}
+                              </div>
+                            </Panel>
                           </div>
                         );
                       })()}

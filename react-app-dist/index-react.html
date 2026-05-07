@@ -13,7 +13,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260507-mobile-tabs" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260507-rail-bigger" />
 
     <!-- React & ReactDOM via CDN -->
     <script
@@ -274,15 +274,20 @@
         min-width: 0;
       }
       /* Chart canvas height by breakpoint. Stable via CSS so the JSX
-         does not re-evaluate window.innerWidth on every render. */
+         does not re-evaluate window.innerWidth on every render.
+         V15 P0.7.99 — sizes bumped now that Key Levels has been moved
+         out of the left pane into the Setup tab. The chart is the only
+         occupant of the workspace left pane so it can grow much taller. */
       .tt-rail-chart-canvas {
-        height: 200px;
+        height: 240px;
       }
       @media (min-width: 1024px) {
-        .tt-rail-chart-canvas { height: 320px; }
+        .tt-rail-chart-canvas { height: 380px; }
       }
       .tt-rail-shell--workspace .tt-rail-chart-canvas {
-        height: 420px !important;
+        height: calc(100vh - 220px) !important;
+        max-height: 720px;
+        min-height: 480px;
       }
       /* V15 P0.7.86 — Activity Feed drawer.
          Hidden on mobile/tablet (<1024px) — too narrow to dock a 300px
@@ -1080,7 +1085,7 @@
     <script src="ds-components.js?v=20260501a"></script>
     <script src="investor-panel.js?v=20260226a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260507-rail-chart"></script>
+    <script src="shared-right-rail.compiled.js?v=20260507-rail-no-flicker"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
     <script src="index-react.compiled.cf13460fbd.js"></script>
 

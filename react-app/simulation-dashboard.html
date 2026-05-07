@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260507-mobile-tabs" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260507-rail-bigger" />
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/htm@3.1.1/dist/htm.umd.js"></script>
@@ -171,14 +171,18 @@
       .tt-ticker-workspace-mount {
         max-width: none !important;
       }
+      /* V15 P0.7.99 \u2014 sizes bumped now that Key Levels lives in the
+         Setup tab and the rail's left pane only hosts the chart. */
       .tt-rail-chart-canvas {
-        height: 200px;
+        height: 240px;
       }
       @media (min-width: 1024px) {
-        .tt-rail-chart-canvas { height: 320px; }
+        .tt-rail-chart-canvas { height: 380px; }
       }
       .tt-rail-shell--workspace .tt-rail-chart-canvas {
-        height: 420px !important;
+        height: calc(100vh - 220px) !important;
+        max-height: 720px;
+        min-height: 480px;
       }
       /* V15 P0.7.85: mobile reorder \u2014 tab content first, chart + levels at bottom.
          V15 P0.7.87: on mobile (<1024px) hide chart+levels entirely so
@@ -208,7 +212,7 @@
     <script src="shared-price-utils.js?v=20260211a"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260507-rail-chart"></script>
+    <script src="shared-right-rail.compiled.js?v=20260507-rail-no-flicker"></script>
     <!-- V15 P0.7.36 (2026-04-30): Trades Performance overview component
          (Monthly perf table, setup breakdown, P&L calendar heatmap).
          Self-contained factory at react-app/trades-performance.js. -->
