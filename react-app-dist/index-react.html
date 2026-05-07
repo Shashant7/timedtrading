@@ -13,7 +13,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260507-rail-bigger" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260507-rail-fullheight" />
 
     <!-- React & ReactDOM via CDN -->
     <script
@@ -263,10 +263,36 @@
       }
       .tt-rail-shell--workspace > .tt-rail-area-left-pane {
         grid-area: left;
-        overflow-y: auto;
-        padding: var(--ds-space-4);
+        overflow: hidden; /* P0.7.100: chart owns the pane, no inner scroll */
+        padding: var(--ds-space-2); /* P0.7.100: tighter padding to give chart more room */
         border-right: 1px solid var(--ds-stroke);
         min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      /* P0.7.100 — In workspace mode the chart panel + canvas should
+         fill the entire left pane vertically. The Panel wrapper (.ds-glass)
+         flex-grows; the canvas inside it expands to consume whatever
+         vertical space the Panel header doesn't use. */
+      .tt-rail-shell--workspace .tt-rail-chart-block {
+        flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
+        margin-bottom: 0 !important;
+        min-height: 0;
+      }
+      .tt-rail-shell--workspace .tt-rail-chart-block > .ds-glass {
+        flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        margin-bottom: 0;
+      }
+      .tt-rail-shell--workspace .tt-rail-chart-block > .ds-glass > *:not(.ds-glass__head) {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
       }
       .tt-rail-shell--workspace > .tt-rail-area-right-pane {
         grid-area: right;
@@ -276,8 +302,11 @@
       /* Chart canvas height by breakpoint. Stable via CSS so the JSX
          does not re-evaluate window.innerWidth on every render.
          V15 P0.7.99 — sizes bumped now that Key Levels has been moved
-         out of the left pane into the Setup tab. The chart is the only
-         occupant of the workspace left pane so it can grow much taller. */
+         out of the left pane into the Setup tab.
+         V15 P0.7.100 — workspace mode: canvas grows to fill all
+         remaining vertical space in the left pane (which is now flex
+         column). The fixed `height` is replaced with `flex: 1` so the
+         chart genuinely fills the screen instead of being clamped. */
       .tt-rail-chart-canvas {
         height: 240px;
       }
@@ -285,9 +314,10 @@
         .tt-rail-chart-canvas { height: 380px; }
       }
       .tt-rail-shell--workspace .tt-rail-chart-canvas {
-        height: calc(100vh - 220px) !important;
-        max-height: 720px;
+        height: auto !important;
+        flex: 1 1 auto;
         min-height: 480px;
+        max-height: none;
       }
       /* V15 P0.7.86 — Activity Feed drawer.
          Hidden on mobile/tablet (<1024px) — too narrow to dock a 300px
@@ -1085,7 +1115,7 @@
     <script src="ds-components.js?v=20260501a"></script>
     <script src="investor-panel.js?v=20260226a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260507-rail-r2"></script>
+    <script src="shared-right-rail.compiled.js?v=20260507-rail-fullheight"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
     <script src="index-react.compiled.cf13460fbd.js"></script>
 

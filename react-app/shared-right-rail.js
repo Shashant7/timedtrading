@@ -673,7 +673,10 @@
            - localization.priceFormatter shows VIX/%-based as 2dp, equities
              as 2dp (consistent with Daily Brief)
            - timeFormatter uses month/day/hour/min for tooltips */
-        const chartHeight = propHeight || 320;
+        // P0.7.100 — when no propHeight is passed, use the container's
+        // current clientHeight so the chart matches whatever flex height
+        // the parent CSS has assigned (workspace mode: full pane).
+        const chartHeight = propHeight || containerRef.current.clientHeight || 320;
         const _isHtfChart = ["D", "W", "M"].includes(String(chartTf));
         const chart = LWC.createChart(containerRef.current, {
           width: containerRef.current.clientWidth,
@@ -786,14 +789,23 @@
         let resizeObserver = null;
         let resizeDebounce = null;
         let lastAppliedWidth = 0;
+        let lastAppliedHeight = 0;
         const handleResize = () => {
           if (resizeDebounce) cancelAnimationFrame(resizeDebounce);
           resizeDebounce = requestAnimationFrame(() => {
             if (containerRef.current && chart) {
               const w = Math.round(containerRef.current.clientWidth);
+              const h = Math.round(containerRef.current.clientHeight);
+              const opts = {};
               if (w > 0 && Math.abs(w - lastAppliedWidth) >= 1) {
-                lastAppliedWidth = w;
-                chart.applyOptions({ width: w });
+                lastAppliedWidth = w; opts.width = w;
+              }
+              // P0.7.100 — also apply height changes (workspace mode flex)
+              if (!propHeight && h > 0 && Math.abs(h - lastAppliedHeight) >= 1) {
+                lastAppliedHeight = h; opts.height = h;
+              }
+              if (opts.width != null || opts.height != null) {
+                chart.applyOptions(opts);
               }
             }
           });
@@ -804,23 +816,31 @@
         }
         window.addEventListener("resize", handleResize);
 
-        // Settle: when chart mounts inside a React portal (expanded modal),
-        // the container may not have its final width yet. Use rAF to sync.
+        // Settle: when chart mounts inside a React portal (expanded modal)
+        // or workspace flex layout, the container may not have its final
+        // width/height yet. Use rAF to sync.
+        // P0.7.100 — apply both width AND height from clientWidth/Height
+        // so workspace-mode flex sizing snaps to the right value on first
+        // paint instead of waiting for a ResizeObserver tick.
         requestAnimationFrame(() => {
           if (containerRef.current && chart) {
             const w = containerRef.current.clientWidth;
-            if (w > 0) {
-              chart.applyOptions({ width: w });
-            }
+            const h = containerRef.current.clientHeight;
+            const opts = {};
+            if (w > 0) opts.width = w;
+            if (!propHeight && h > 0) opts.height = h;
+            if (opts.width != null || opts.height != null) chart.applyOptions(opts);
             chart.timeScale().fitContent();
           }
           // Safety net for slow portal reflow
           setTimeout(() => {
             if (containerRef.current && chart) {
               const w = containerRef.current.clientWidth;
-              if (w > 0) {
-                chart.applyOptions({ width: w });
-              }
+              const h = containerRef.current.clientHeight;
+              const opts = {};
+              if (w > 0) opts.width = w;
+              if (!propHeight && h > 0) opts.height = h;
+              if (opts.width != null || opts.height != null) chart.applyOptions(opts);
             }
           }, 150);
         });
@@ -1105,10 +1125,20 @@
           }, patternLabel)
         ),
         // Chart container
+        // P0.7.100 — When the parent applies CSS height (workspace mode
+        // sets the canvas to flex:1), an inline `height: 320px` would
+        // override the parent's stretching. New behavior: when the
+        // parent passes `propHeight`, use it. Otherwise let the chart
+        // fill its parent (height: 100%).
         React.createElement("div", {
           ref: containerRef,
           className: "rounded-lg overflow-hidden",
-          style: { height: propHeight || 320, background: "#0b0e11" },
+          style: {
+            height: propHeight ? propHeight : "100%",
+            minHeight: propHeight ? propHeight : 240,
+            flex: propHeight ? "0 0 auto" : "1 1 auto",
+            background: "#0b0e11",
+          },
         }),
         // Status bar
         React.createElement("div", { className: "mt-1 text-[10px] text-[#6b7280] flex items-center justify-between" },
@@ -2863,13 +2893,19 @@
                               Levels panel. SL/TP/Entry stay OFF the chart
                               (the user keeps those visually in the Risk &
                               Targets panel). */}
+                          {/* P0.7.100 — height prop omitted so the chart
+                              fills its parent (.tt-rail-chart-canvas).
+                              The canvas height is controlled by CSS:
+                                mobile: fixed 240px
+                                desktop (single col): fixed 380px
+                                workspace mode: flex:1 → fills the entire
+                                left pane minus the Panel header. */}
                           {React.createElement(LWChart, {
                             candles: chartCandles,
                             chartTf,
                             overlays: chartOverlays,
                             priceLines: subtleKeyLevelLines,
                             ticker,
-                            height: 320,
                             hideOverlayToggles: true,
                           })}
                         </div>

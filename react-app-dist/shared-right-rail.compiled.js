@@ -845,7 +845,7 @@
       }, [mapped, overlays]);
       useEffect(() => {
         if (!containerRef.current || !LWC) return;
-        const chartHeight = propHeight || 320;
+        const chartHeight = propHeight || containerRef.current.clientHeight || 320;
         const _isHtfChart = ["D", "W", "M"].includes(String(chartTf));
         const chart = LWC.createChart(containerRef.current, {
           width: containerRef.current.clientWidth,
@@ -984,16 +984,24 @@
         let resizeObserver = null;
         let resizeDebounce = null;
         let lastAppliedWidth = 0;
+        let lastAppliedHeight = 0;
         const handleResize = () => {
           if (resizeDebounce) cancelAnimationFrame(resizeDebounce);
           resizeDebounce = requestAnimationFrame(() => {
             if (containerRef.current && chart) {
               const w = Math.round(containerRef.current.clientWidth);
+              const h = Math.round(containerRef.current.clientHeight);
+              const opts = {};
               if (w > 0 && Math.abs(w - lastAppliedWidth) >= 1) {
                 lastAppliedWidth = w;
-                chart.applyOptions({
-                  width: w
-                });
+                opts.width = w;
+              }
+              if (!propHeight && h > 0 && Math.abs(h - lastAppliedHeight) >= 1) {
+                lastAppliedHeight = h;
+                opts.height = h;
+              }
+              if (opts.width != null || opts.height != null) {
+                chart.applyOptions(opts);
               }
             }
           });
@@ -1006,21 +1014,21 @@
         requestAnimationFrame(() => {
           if (containerRef.current && chart) {
             const w = containerRef.current.clientWidth;
-            if (w > 0) {
-              chart.applyOptions({
-                width: w
-              });
-            }
+            const h = containerRef.current.clientHeight;
+            const opts = {};
+            if (w > 0) opts.width = w;
+            if (!propHeight && h > 0) opts.height = h;
+            if (opts.width != null || opts.height != null) chart.applyOptions(opts);
             chart.timeScale().fitContent();
           }
           setTimeout(() => {
             if (containerRef.current && chart) {
               const w = containerRef.current.clientWidth;
-              if (w > 0) {
-                chart.applyOptions({
-                  width: w
-                });
-              }
+              const h = containerRef.current.clientHeight;
+              const opts = {};
+              if (w > 0) opts.width = w;
+              if (!propHeight && h > 0) opts.height = h;
+              if (opts.width != null || opts.height != null) chart.applyOptions(opts);
             }
           }, 150);
         });
@@ -1338,7 +1346,9 @@
         ref: containerRef,
         className: "rounded-lg overflow-hidden",
         style: {
-          height: propHeight || 320,
+          height: propHeight ? propHeight : "100%",
+          minHeight: propHeight ? propHeight : 240,
+          flex: propHeight ? "0 0 auto" : "1 1 auto",
           background: "#0b0e11"
         }
       }), React.createElement("div", {
@@ -3325,7 +3335,6 @@
               overlays: chartOverlays,
               priceLines: subtleKeyLevelLines,
               ticker,
-              height: 320,
               hideOverlayToggles: true
             }))))
           );
