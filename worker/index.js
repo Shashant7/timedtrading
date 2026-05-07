@@ -50288,6 +50288,17 @@ export default {
       } = getReplayExecutorRuntime();
 
       if (routeKey === "POST /timed/admin/candle-replay") {
+        // P0.7.103 — audit cleanSlate before destructive ops fire.
+        const isCleanSlate = url.searchParams.get("cleanSlate") === "1" || url.searchParams.get("cleanSlate") === "true";
+        if (isCleanSlate) {
+          await auditDataChange(env, {
+            op: "CANDLE_REPLAY_CLEAN_SLATE",
+            scope: `date=${url.searchParams.get("date") || "?"}`,
+            caller: req?.url || "unknown",
+            rowsAffected: null,
+            meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
+          });
+        }
         return handleCandleReplayRoute({
           req,
           env,
@@ -50298,6 +50309,20 @@ export default {
       }
 
       if (routeKey === "POST /timed/admin/interval-replay") {
+        // P0.7.103 — audit-log when cleanSlate=1 since this nukes
+        // trades/positions/account_ledger/etc. Catches the source of
+        // mystery wipes (the previous P0.7.95 audit only covered
+        // /timed/trades/reset and the orphan-cleanup admin endpoints).
+        const isCleanSlate = url.searchParams.get("cleanSlate") === "1" || url.searchParams.get("cleanSlate") === "true";
+        if (isCleanSlate) {
+          await auditDataChange(env, {
+            op: "INTERVAL_REPLAY_CLEAN_SLATE",
+            scope: `date=${url.searchParams.get("date") || "?"}`,
+            caller: req?.url || "unknown",
+            rowsAffected: null,
+            meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
+          });
+        }
         return handleIntervalReplayRoute({
           req,
           env,
@@ -50340,6 +50365,14 @@ export default {
 
         // Clean slate: purge trades
         if (cleanSlate) {
+          // P0.7.103 — audit BEFORE nuke
+          await auditDataChange(env, {
+            op: "SNAPSHOT_REPLAY_CLEAN_SLATE",
+            scope: `date=${dateParam}`,
+            caller: req?.url || "unknown",
+            rowsAffected: null,
+            meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
+          });
           await kvPutJSON(KV, "timed:trades:all", []);
           await kvPutJSON(KV, REPLAY_TRADES_KV_KEY, []);
           await kvPutJSON(KV, "timed:portfolio:v1", null);
@@ -50964,6 +50997,14 @@ export default {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
         const db = env?.DB;
+        // P0.7.103 — audit BEFORE the destructive op fires
+        await auditDataChange(env, {
+          op: "RECONCILE_REPLAY",
+          scope: `date=${url.searchParams.get("date") || "?"}`,
+          caller: req?.url || "unknown",
+          rowsAffected: null,
+          meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
+        });
         const KV = env?.KV_TIMED;
         if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
 
@@ -51671,6 +51712,14 @@ export default {
           const body = await req.json().catch(() => ({}));
           if (!body?.run_id) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
           const rid = body.run_id;
+          // P0.7.103 — audit before destructive op
+          await auditDataChange(env, {
+            op: "RUN_DELETE",
+            scope: `run_id=${rid}`,
+            caller: req?.url || "unknown",
+            rowsAffected: null,
+            meta: { user_agent: req?.headers?.get?.("user-agent") || null },
+          });
           await db.prepare(`DELETE FROM backtest_runs WHERE run_id = ?1`).bind(rid).run();
           try { await db.prepare(`DELETE FROM backtest_run_metrics WHERE run_id = ?1`).bind(rid).run(); } catch {}
           try { await db.prepare(`DELETE FROM backtest_run_trades WHERE run_id = ?1`).bind(rid).run(); } catch {}
@@ -51717,6 +51766,16 @@ export default {
           if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
           if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate)) {
             return sendJSON({ ok: false, error: "from_date_required (YYYY-MM-DD)" }, 400, corsHeaders(env, req));
+          }
+          // P0.7.103 — audit destructive op
+          if (!dryRun) {
+            await auditDataChange(env, {
+              op: "RUN_ROLLBACK_TO_DATE",
+              scope: `run_id=${runId} from_date=${fromDate}`,
+              caller: req?.url || "unknown",
+              rowsAffected: null,
+              meta: { user_agent: req?.headers?.get?.("user-agent") || null, body },
+            });
           }
           // Convert from_date to UTC midnight ms
           const cutoffMs = Date.UTC(
@@ -66498,6 +66557,49 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     if (configFail) {
       console.error("[CRON] Skipping scheduled run because runtime config is invalid");
       return;
+    }
+
+    // P0.7.103 — DATA INTEGRITY GUARD.
+    // Snapshot trades + account_ledger row counts at every cron tick. If
+    // the count drops by >50% in one cycle, write an audit warning AND
+    // auto-mute the cron so we don't silently lose more data. The user
+    // can manually unmute after investigating. Catches the "mystery
+    // wipe" pattern that has recurred twice in 24h despite earlier
+    // guards (each time wiping APD/SNDK + account_ledger and seeding
+    // CDNS/CSX/ORCL ghosts from positions).
+    try {
+      const KV = env?.KV_TIMED || env?.KV;
+      const db = env?.DB;
+      if (KV && db) {
+        const [tCnt, lCnt] = await Promise.all([
+          db.prepare(`SELECT COUNT(*) AS c FROM trades`).first().catch(() => ({ c: 0 })),
+          db.prepare(`SELECT COUNT(*) AS c FROM account_ledger WHERE mode = 'trader'`).first().catch(() => ({ c: 0 })),
+        ]);
+        const trades = Number(tCnt?.c) || 0;
+        const ledger = Number(lCnt?.c) || 0;
+        const prev = await KV.get("phase-c:integrity:counts", { type: "json" });
+        if (prev && Number.isFinite(Number(prev.trades)) && Number(prev.trades) > 10) {
+          const tradesDrop = (prev.trades - trades) / prev.trades;
+          const ledgerDrop = prev.ledger > 10 ? (prev.ledger - ledger) / prev.ledger : 0;
+          if (tradesDrop > 0.5 || ledgerDrop > 0.5) {
+            console.error(`[INTEGRITY] WIPE DETECTED — trades ${prev.trades} -> ${trades} (drop ${(tradesDrop*100).toFixed(0)}%), ledger ${prev.ledger} -> ${ledger} (drop ${(ledgerDrop*100).toFixed(0)}%). Auto-muting cron.`);
+            await auditDataChange(env, {
+              op: "INTEGRITY_WIPE_DETECTED",
+              scope: `trades_drop=${(tradesDrop*100).toFixed(0)}%,ledger_drop=${(ledgerDrop*100).toFixed(0)}%`,
+              caller: `cron:${event.cron}`,
+              rowsAffected: (prev.trades - trades) + (prev.ledger - ledger),
+              meta: { prev, current: { trades, ledger }, ts: Date.now() },
+            });
+            // Auto-mute so the cron won't keep processing zombie state
+            await KV.put("phase-c:cron-mute", `auto_integrity_wipe@${new Date().toISOString()}`);
+            return;
+          }
+        }
+        // Persist current counts for next tick
+        await KV.put("phase-c:integrity:counts", JSON.stringify({ trades, ledger, ts: Date.now() }));
+      }
+    } catch (integrityErr) {
+      console.warn("[INTEGRITY] check failed:", String(integrityErr?.message || integrityErr).slice(0, 200));
     }
 
     const _now = new Date();
