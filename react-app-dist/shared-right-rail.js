@@ -521,6 +521,11 @@
       const firstDataLoadAppliedRef = useRef(false);
       const externalPriceLinesRef = useRef([]);
       const tdSeqMarkersRef = useRef([]);
+      // V15 P0.7.99-r2 — content signature of the last applied mapped
+      // dataset. UPDATE effect short-circuits when content is identical
+      // even if the array reference changed (defends against any spurious
+      // useMemo re-runs that might otherwise trigger a brief redraw).
+      const lastMappedSigRef = useRef(null);
       const [ohlcHeader, setOhlcHeader] = useState(null);
       const [patternLabel, setPatternLabel] = useState(null);
 
@@ -743,6 +748,10 @@
 
         // Reset first-data-load flag so visible range gets set on next data
         firstDataLoadAppliedRef.current = false;
+        // Reset mapped-content signature so the UPDATE effect's short-
+        // circuit runs the FIRST data load through (otherwise the new
+        // chart instance would never receive any candles).
+        lastMappedSigRef.current = null;
 
         // Crosshair move → OHLC header
         chart.subscribeCrosshairMove(param => {
@@ -841,10 +850,30 @@
       // V15 P0.7.99 — UPDATE effect: hydrates the candle series + indicator
       // overlays + markers without recreating the chart instance. Runs on
       // every data change but is cheap (just setData + line series adds).
+      // V15 P0.7.99-r2: short-circuit if mapped content hasn't changed.
+      // Even when useMemo deps shift (rawCandles ref changes), the
+      // CONTENT may still be identical — calling setData with identical
+      // bars produces a brief candle redraw the user sees as flash.
+      // (lastMappedSigRef is declared at the top of the component with
+      // the other refs so CREATE can also reset it on chart rebuild.)
       useEffect(() => {
         const chart = chartInstanceRef.current;
         const candleSeries = candleSeriesRef.current;
         if (!chart || !candleSeries || !LWC || mapped.length < 2) return;
+
+        // Build a cheap content signature for the candle data. If the data
+        // is structurally identical to the last applied set, skip setData
+        // and overlay rebuild — the chart already shows the right values.
+        const last = mapped[mapped.length - 1];
+        const first = mapped[0];
+        const sig = `${mapped.length}|${first?.time}|${first?.close}|${last?.time}|${last?.open}|${last?.high}|${last?.low}|${last?.close}`;
+        if (lastMappedSigRef.current === sig) {
+          // Mapped reference changed but content is identical — chart is
+          // already showing this data. Leave it alone (no setData call,
+          // no overlay rebuild → no flicker).
+          return;
+        }
+        lastMappedSigRef.current = sig;
 
         // Push current candle data
         try {
@@ -1098,14 +1127,39 @@
        The previous "first/last" check was insufficient — when only middle
        lines diverged, the chart would re-mount and flicker. */
     const LWChart = React.memo(_LWChartImpl, (prev, next) => {
-      if (prev.candles !== next.candles) return false;
+      // V15 P0.7.99-r2 — HARDENED comparator. Even with the CREATE/UPDATE
+      // split in _LWChartImpl, any spurious re-render that gets through
+      // here forces useMemo([rawCandles]) to re-run and the UPDATE effect
+      // to fire — which calls setData() and produces a brief candle redraw
+      // that the user sees as flicker. New rule: skip render if the
+      // candle data is STRUCTURALLY identical (same length, last bar
+      // time + close + open) — even if the array reference changed.
       if (prev.chartTf !== next.chartTf) return false;
       if (prev.overlays !== next.overlays) return false;
-      if (prev.propHeight !== next.propHeight && prev.height !== next.height) return false;
+      if (prev.height !== next.height) return false;
       if ((prev.hideOverlayToggles || false) !== (next.hideOverlayToggles || false)) return false;
       const prevSym = prev.ticker?.ticker || "";
       const nextSym = next.ticker?.ticker || "";
       if (prevSym !== nextSym) return false;
+      // Candles: try reference equality first; if that fails, do a
+      // shallow structural check on length + last bar (cheap, ~1µs)
+      // so a fresh-but-identical array doesn't trigger a redraw.
+      const pc = Array.isArray(prev.candles) ? prev.candles : [];
+      const nc = Array.isArray(next.candles) ? next.candles : [];
+      if (pc !== nc) {
+        if (pc.length !== nc.length) return false;
+        if (pc.length > 0) {
+          const a = pc[pc.length - 1];
+          const b = nc[nc.length - 1];
+          const aTs = a?.ts ?? a?.t ?? a?.time;
+          const bTs = b?.ts ?? b?.t ?? b?.time;
+          if (Number(aTs) !== Number(bTs)) return false;
+          if (Number(a?.c ?? a?.close) !== Number(b?.c ?? b?.close)) return false;
+          if (Number(a?.o ?? a?.open) !== Number(b?.o ?? b?.open)) return false;
+          if (Number(a?.h ?? a?.high) !== Number(b?.h ?? b?.high)) return false;
+          if (Number(a?.l ?? a?.low)  !== Number(b?.l ?? b?.low))  return false;
+        }
+      }
       // Deep-equal on priceLines: every price value must match.
       const pa = Array.isArray(prev.priceLines) ? prev.priceLines : [];
       const pn = Array.isArray(next.priceLines) ? next.priceLines : [];
@@ -1475,6 +1529,51 @@
         const [predictionContract, setPredictionContract] = useState(null);
         const [predictionContractLoading, setPredictionContractLoading] = useState(false);
         const [predictionContractError, setPredictionContractError] = useState(null);
+
+        // V15 P0.7.99-r2 — Subtle Key Levels for the rail chart.
+        // Maps the SAME predictionContract.levels rendered in the Setup
+        // tab's Key Levels box into a small set of low-alpha dotted lines
+        // so users can visually correlate the box with the chart. We cap
+        // to the top 3 above + top 3 below to keep the right axis legible
+        // and use very low opacity (0.18) so the lines don't compete with
+        // the candles. Reference is memoized so the LWChart's PRICE-LINES
+        // effect only runs when the underlying levels actually change.
+        const subtleKeyLevelLines = useMemo(() => {
+          if (!Array.isArray(predictionContract?.levels)) return EMPTY_PRICE_LINES;
+          const px = Number(predictionContract?.current_price)
+            || Number(ticker?.price) || 0;
+          if (!(px > 0)) return EMPTY_PRICE_LINES;
+          const above = predictionContract.levels
+            .filter((l) => l.role === "resistance" && Number.isFinite(Number(l.price)) && Number(l.price) > px)
+            .sort((a, b) => Number(a.price) - Number(b.price))
+            .slice(0, 3);
+          const below = predictionContract.levels
+            .filter((l) => l.role === "support" && Number.isFinite(Number(l.price)) && Number(l.price) < px)
+            .sort((a, b) => Number(b.price) - Number(a.price))
+            .slice(0, 3);
+          const out = [];
+          for (const l of above) {
+            out.push({
+              price: Number(l.price),
+              color: "rgba(244,63,94,0.22)",
+              lineWidth: 1,
+              lineStyle: 1, // Dotted
+              axisLabelVisible: true,
+              title: (l.label || "").replace(/Recent /i, "").replace(/Yesterday's /i, "Y'day ").slice(0, 22),
+            });
+          }
+          for (const l of below) {
+            out.push({
+              price: Number(l.price),
+              color: "rgba(38,166,154,0.22)",
+              lineWidth: 1,
+              lineStyle: 1, // Dotted
+              axisLabelVisible: true,
+              title: (l.label || "").replace(/Recent /i, "").replace(/Yesterday's /i, "Y'day ").slice(0, 22),
+            });
+          }
+          return out;
+        }, [predictionContract, ticker?.price]);
 
         // Fundamentals tab: per-ticker data from /timed/admin/fundamentals.
         // Cached client-side per ticker for 5min so flipping between Snapshot
@@ -2756,24 +2855,19 @@
                             the workspace CSS controls actual height per
                             breakpoint without re-rendering the chart. */}
                         <div className="tt-rail-chart-canvas">
-                          {/* V15 P0.7.98 — Match Daily Brief MiniChart exactly.
-                              priceLines is empty so the chart isn't cluttered
-                              with SL/TP/ATR/52W/Stop/Premium overlays — the
-                              Daily Brief chart only renders candles + S/R
-                              trendlines + pattern markers, both of which the
-                              underlying LWChart still fetches via
-                              _rrFetchChartLevels. The clutter on the rail was
-                              the primary driver of the "ghost candles flicker
-                              briefly between the Daily Brief look and the
-                              cluttered look" symptom — those ghost frames were
-                              the (correct) pre-buildLines render.
-                              The expanded modal still gets the full
-                              priceLines via its own LWChart instance below. */}
+                          {/* V15 P0.7.99-r2 — Subtle S/R lines mapped to the
+                              Key Levels box (top 3 above + top 3 below from
+                              predictionContract). Low-alpha dotted lines
+                              with axis labels so the user sees the same
+                              levels on the chart as in the Setup tab's Key
+                              Levels panel. SL/TP/Entry stay OFF the chart
+                              (the user keeps those visually in the Risk &
+                              Targets panel). */}
                           {React.createElement(LWChart, {
                             candles: chartCandles,
                             chartTf,
                             overlays: chartOverlays,
-                            priceLines: EMPTY_PRICE_LINES,
+                            priceLines: subtleKeyLevelLines,
                             ticker,
                             height: 320,
                             hideOverlayToggles: true,
@@ -3441,6 +3535,101 @@
                                   </div>
                                 );
                               })}
+                            </div>
+                          </Panel>
+                        );
+                      })()}
+
+                      {/* V15 P0.7.99 — KEY LEVELS in v2 SETUP tab.
+                          Sits between Risk & Targets and Profile so all
+                          trade-decision data lives in one tab and the
+                          persistent rail chart in the left pane can grow.
+                          (My previous attempt placed this in the legacy v1
+                          ANALYSIS tab by accident — moved here.) */}
+                      {Array.isArray(predictionContract?.levels) && predictionContract.levels.length > 0 && (() => {
+                        const px = Number(v2Price) || Number(ticker?.price) || 0;
+                        if (!(px > 0)) return null;
+                        const all = predictionContract.levels;
+                        const resistance = all.filter((l) => l.role === "resistance").sort((a, b) => a.price - b.price);
+                        const support = all.filter((l) => l.role === "support").sort((a, b) => b.price - a.price);
+                        const pcDir = String(predictionContract?.direction || "").toUpperCase();
+                        const isShort = pcDir === "SHORT";
+                        const aboveLabel = isShort ? "Invalidation Zone" : "Resistance";
+                        const belowLabel = isShort ? "Target Zones" : "Support";
+                        const kindMeta = (kind) => {
+                          if (kind === "year_high" || kind === "year_low") return { color: "#f87171", letter: "52W", desc: "52-week extreme" };
+                          if (kind === "swing_high" || kind === "swing_low") return { color: "#fbbf24", letter: "SW", desc: "Swing structure (D)" };
+                          if (kind === "swing_high_4h" || kind === "swing_low_4h") return { color: "#fcd34d", letter: "4H", desc: "Swing structure (4H)" };
+                          if (kind === "prior_session_high" || kind === "prior_session_low") return { color: "#a78bfa", letter: "PD", desc: "Prior day range" };
+                          if (kind === "pivot_high" || kind === "pivot_low") return { color: "#34d399", letter: "PV", desc: "Multi-tested pivot" };
+                          if (kind === "pdz_premium" || kind === "pdz_discount" || kind === "pdz_eq") return { color: "#60a5fa", letter: "PDZ", desc: "Premium/Discount/Equilibrium" };
+                          if (kind === "ema") return { color: "rgba(96,165,250,0.6)", letter: "EMA", desc: "Daily EMA magnet" };
+                          return { color: "var(--ds-text-muted)", letter: "—", desc: "Level" };
+                        };
+                        const LevelRow = ({ l, side }) => {
+                          const m = kindMeta(l.kind);
+                          const dist = ((Number(l.price) - px) / px) * 100;
+                          const distColor = side === "res" ? "var(--ds-dn)" : "var(--ds-up)";
+                          return (
+                            <div style={{
+                              display: "grid",
+                              gridTemplateColumns: "32px 1fr 64px 44px",
+                              gap: "var(--ds-space-2)",
+                              alignItems: "center",
+                              padding: "5px 8px",
+                              borderRadius: "var(--ds-radius-xs)",
+                              background: "rgba(255,255,255,0.02)",
+                              borderLeft: `3px solid ${m.color}`,
+                            }} title={`${m.desc} · weight ${l.weight}`}>
+                              <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, color: m.color, letterSpacing: "0.06em", textAlign: "center" }}>{m.letter}</span>
+                              <span style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)" }}>{l.label || ""}</span>
+                              <span style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-display)", fontFamily: "var(--tt-font-mono)", fontWeight: 700, textAlign: "right" }}>${Number(l.price).toFixed(2)}</span>
+                              <span style={{ fontSize: 9, color: distColor, fontFamily: "var(--tt-font-mono)", textAlign: "right" }}>{dist >= 0 ? "+" : ""}{dist.toFixed(2)}%</span>
+                            </div>
+                          );
+                        };
+                        return (
+                          <Panel title="Key Levels" action={
+                            <span style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 9, fontFamily: "var(--tt-font-mono)", color: "var(--ds-text-faint)", letterSpacing: "0.10em" }}>
+                              {pcDir && <span className={`ds-chip ds-chip--sm ${isShort ? "ds-chip--dn" : "ds-chip--up"}`} title="Bias direction" style={{ fontSize: 9 }}>{pcDir}</span>}
+                              <span>{resistance.length} above · {support.length} below</span>
+                            </span>
+                          }>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                              {resistance.length > 0 && (
+                                <div style={{ padding: "4px 8px 2px", display: "flex", alignItems: "baseline", gap: "var(--ds-space-2)" }}>
+                                  <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-dn)" }}>{aboveLabel}</span>
+                                  <span style={{ fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" }}>{isShort ? "stop above price" : "profit / fade"}</span>
+                                </div>
+                              )}
+                              {resistance.length > 0 && resistance.slice(0, 5).reverse().map((l, i) => (
+                                <LevelRow key={`v2-res-${i}-${l.price}`} l={l} side="res" />
+                              ))}
+                              <div style={{
+                                display: "grid",
+                                gridTemplateColumns: "32px 1fr 64px 44px",
+                                gap: "var(--ds-space-2)",
+                                alignItems: "center",
+                                padding: "8px 8px",
+                                borderRadius: "var(--ds-radius-xs)",
+                                background: "rgba(245,194,92,0.10)",
+                                border: "1px solid rgba(245,194,92,0.30)",
+                                margin: "2px 0",
+                              }}>
+                                <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, color: "var(--ds-accent)", letterSpacing: "0.06em", textAlign: "center" }}>NOW</span>
+                                <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-accent)", fontFamily: "var(--tt-font-mono)", fontWeight: 700 }}>Current Price</span>
+                                <span style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-accent)", fontFamily: "var(--tt-font-mono)", fontWeight: 700, textAlign: "right" }}>${px.toFixed(2)}</span>
+                                <span style={{ fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", textAlign: "right" }}>—</span>
+                              </div>
+                              {support.length > 0 && (
+                                <div style={{ padding: "4px 8px 2px", display: "flex", alignItems: "baseline", gap: "var(--ds-space-2)" }}>
+                                  <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-up)" }}>{belowLabel}</span>
+                                  <span style={{ fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" }}>{isShort ? "profit-take" : "defend / SL ref"}</span>
+                                </div>
+                              )}
+                              {support.length > 0 && support.slice(0, 5).map((l, i) => (
+                                <LevelRow key={`v2-sup-${i}-${l.price}`} l={l} side="sup" />
+                              ))}
                             </div>
                           </Panel>
                         );
@@ -5553,10 +5742,10 @@
                       })()}
 
                       {/* ═══════════════════════════════════════════════════════════ */}
-                      {/* 5a. KEY LEVELS — V15 P0.7.99                              */}
-                      {/* Relocated from the left pane to live with SL/TP per user  */}
-                      {/* feedback: keeps everything trade-decision-related in one  */}
-                      {/* tab and lets the persistent rail chart grow much larger.   */}
+                      {/* 5a. KEY LEVELS — V15 P0.7.99 (legacy v1 ANALYSIS tab copy) */}
+                      {/* The v2 SETUP tab has its own Key Levels copy at the top   */}
+                      {/* of the file (around line 3450). This v1 copy stays for    */}
+                      {/* backwards compatibility with the legacy analysis layout.  */}
                       {/* ═══════════════════════════════════════════════════════════ */}
                       {Array.isArray(predictionContract?.levels) && predictionContract.levels.length > 0 && (() => {
                         const px = Number(v2Price) || Number(ticker?.price) || 0;

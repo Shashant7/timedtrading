@@ -736,6 +736,7 @@
       const firstDataLoadAppliedRef = useRef(false);
       const externalPriceLinesRef = useRef([]);
       const tdSeqMarkersRef = useRef([]);
+      const lastMappedSigRef = useRef(null);
       const [ohlcHeader, setOhlcHeader] = useState(null);
       const [patternLabel, setPatternLabel] = useState(null);
       const LWC = typeof LightweightCharts !== "undefined" ? LightweightCharts : null;
@@ -956,6 +957,7 @@
         });
         candleSeriesRef.current = candleSeries;
         firstDataLoadAppliedRef.current = false;
+        lastMappedSigRef.current = null;
         chart.subscribeCrosshairMove(param => {
           if (!param.time || !param.seriesData) {
             setOhlcHeader(null);
@@ -1038,6 +1040,13 @@
         const chart = chartInstanceRef.current;
         const candleSeries = candleSeriesRef.current;
         if (!chart || !candleSeries || !LWC || mapped.length < 2) return;
+        const last = mapped[mapped.length - 1];
+        const first = mapped[0];
+        const sig = `${mapped.length}|${first?.time}|${first?.close}|${last?.time}|${last?.open}|${last?.high}|${last?.low}|${last?.close}`;
+        if (lastMappedSigRef.current === sig) {
+          return;
+        }
+        lastMappedSigRef.current = sig;
         try {
           candleSeries.setData(mapped);
         } catch (_) {}
@@ -1339,14 +1348,29 @@
       }, "scroll to zoom • drag to pan")));
     }
     const LWChart = React.memo(_LWChartImpl, (prev, next) => {
-      if (prev.candles !== next.candles) return false;
       if (prev.chartTf !== next.chartTf) return false;
       if (prev.overlays !== next.overlays) return false;
-      if (prev.propHeight !== next.propHeight && prev.height !== next.height) return false;
+      if (prev.height !== next.height) return false;
       if ((prev.hideOverlayToggles || false) !== (next.hideOverlayToggles || false)) return false;
       const prevSym = prev.ticker?.ticker || "";
       const nextSym = next.ticker?.ticker || "";
       if (prevSym !== nextSym) return false;
+      const pc = Array.isArray(prev.candles) ? prev.candles : [];
+      const nc = Array.isArray(next.candles) ? next.candles : [];
+      if (pc !== nc) {
+        if (pc.length !== nc.length) return false;
+        if (pc.length > 0) {
+          const a = pc[pc.length - 1];
+          const b = nc[nc.length - 1];
+          const aTs = a?.ts ?? a?.t ?? a?.time;
+          const bTs = b?.ts ?? b?.t ?? b?.time;
+          if (Number(aTs) !== Number(bTs)) return false;
+          if (Number(a?.c ?? a?.close) !== Number(b?.c ?? b?.close)) return false;
+          if (Number(a?.o ?? a?.open) !== Number(b?.o ?? b?.open)) return false;
+          if (Number(a?.h ?? a?.high) !== Number(b?.h ?? b?.high)) return false;
+          if (Number(a?.l ?? a?.low) !== Number(b?.l ?? b?.low)) return false;
+        }
+      }
       const pa = Array.isArray(prev.priceLines) ? prev.priceLines : [];
       const pn = Array.isArray(next.priceLines) ? next.priceLines : [];
       if (pa.length !== pn.length) return false;
@@ -2061,6 +2085,35 @@
       const [predictionContract, setPredictionContract] = useState(null);
       const [predictionContractLoading, setPredictionContractLoading] = useState(false);
       const [predictionContractError, setPredictionContractError] = useState(null);
+      const subtleKeyLevelLines = useMemo(() => {
+        if (!Array.isArray(predictionContract?.levels)) return EMPTY_PRICE_LINES;
+        const px = Number(predictionContract?.current_price) || Number(ticker?.price) || 0;
+        if (!(px > 0)) return EMPTY_PRICE_LINES;
+        const above = predictionContract.levels.filter(l => l.role === "resistance" && Number.isFinite(Number(l.price)) && Number(l.price) > px).sort((a, b) => Number(a.price) - Number(b.price)).slice(0, 3);
+        const below = predictionContract.levels.filter(l => l.role === "support" && Number.isFinite(Number(l.price)) && Number(l.price) < px).sort((a, b) => Number(b.price) - Number(a.price)).slice(0, 3);
+        const out = [];
+        for (const l of above) {
+          out.push({
+            price: Number(l.price),
+            color: "rgba(244,63,94,0.22)",
+            lineWidth: 1,
+            lineStyle: 1,
+            axisLabelVisible: true,
+            title: (l.label || "").replace(/Recent /i, "").replace(/Yesterday's /i, "Y'day ").slice(0, 22)
+          });
+        }
+        for (const l of below) {
+          out.push({
+            price: Number(l.price),
+            color: "rgba(38,166,154,0.22)",
+            lineWidth: 1,
+            lineStyle: 1,
+            axisLabelVisible: true,
+            title: (l.label || "").replace(/Recent /i, "").replace(/Yesterday's /i, "Y'day ").slice(0, 22)
+          });
+        }
+        return out;
+      }, [predictionContract, ticker?.price]);
       const [fundamentals, setFundamentals] = useState(null);
       const [fundamentalsLoading, setFundamentalsLoading] = useState(false);
       const [fundamentalsError, setFundamentalsError] = useState(null);
@@ -3270,7 +3323,7 @@
               candles: chartCandles,
               chartTf,
               overlays: chartOverlays,
-              priceLines: EMPTY_PRICE_LINES,
+              priceLines: subtleKeyLevelLines,
               ticker,
               height: 320,
               hideOverlayToggles: true
@@ -4146,6 +4199,230 @@
               }, pct >= 0 ? "+" : "", pct.toFixed(2), "%");
             })());
           })));
+        })(), Array.isArray(predictionContract?.levels) && predictionContract.levels.length > 0 && (() => {
+          const px = Number(v2Price) || Number(ticker?.price) || 0;
+          if (!(px > 0)) return null;
+          const all = predictionContract.levels;
+          const resistance = all.filter(l => l.role === "resistance").sort((a, b) => a.price - b.price);
+          const support = all.filter(l => l.role === "support").sort((a, b) => b.price - a.price);
+          const pcDir = String(predictionContract?.direction || "").toUpperCase();
+          const isShort = pcDir === "SHORT";
+          const aboveLabel = isShort ? "Invalidation Zone" : "Resistance";
+          const belowLabel = isShort ? "Target Zones" : "Support";
+          const kindMeta = kind => {
+            if (kind === "year_high" || kind === "year_low") return {
+              color: "#f87171",
+              letter: "52W",
+              desc: "52-week extreme"
+            };
+            if (kind === "swing_high" || kind === "swing_low") return {
+              color: "#fbbf24",
+              letter: "SW",
+              desc: "Swing structure (D)"
+            };
+            if (kind === "swing_high_4h" || kind === "swing_low_4h") return {
+              color: "#fcd34d",
+              letter: "4H",
+              desc: "Swing structure (4H)"
+            };
+            if (kind === "prior_session_high" || kind === "prior_session_low") return {
+              color: "#a78bfa",
+              letter: "PD",
+              desc: "Prior day range"
+            };
+            if (kind === "pivot_high" || kind === "pivot_low") return {
+              color: "#34d399",
+              letter: "PV",
+              desc: "Multi-tested pivot"
+            };
+            if (kind === "pdz_premium" || kind === "pdz_discount" || kind === "pdz_eq") return {
+              color: "#60a5fa",
+              letter: "PDZ",
+              desc: "Premium/Discount/Equilibrium"
+            };
+            if (kind === "ema") return {
+              color: "rgba(96,165,250,0.6)",
+              letter: "EMA",
+              desc: "Daily EMA magnet"
+            };
+            return {
+              color: "var(--ds-text-muted)",
+              letter: "—",
+              desc: "Level"
+            };
+          };
+          const LevelRow = ({
+            l,
+            side
+          }) => {
+            const m = kindMeta(l.kind);
+            const dist = (Number(l.price) - px) / px * 100;
+            const distColor = side === "res" ? "var(--ds-dn)" : "var(--ds-up)";
+            return React.createElement("div", {
+              style: {
+                display: "grid",
+                gridTemplateColumns: "32px 1fr 64px 44px",
+                gap: "var(--ds-space-2)",
+                alignItems: "center",
+                padding: "5px 8px",
+                borderRadius: "var(--ds-radius-xs)",
+                background: "rgba(255,255,255,0.02)",
+                borderLeft: `3px solid ${m.color}`
+              },
+              title: `${m.desc} · weight ${l.weight}`
+            }, React.createElement("span", {
+              style: {
+                fontSize: 9,
+                fontFamily: "var(--tt-font-mono)",
+                fontWeight: 700,
+                color: m.color,
+                letterSpacing: "0.06em",
+                textAlign: "center"
+              }
+            }, m.letter), React.createElement("span", {
+              style: {
+                fontSize: "var(--ds-fs-meta)",
+                color: "var(--ds-text-body)",
+                fontFamily: "var(--tt-font-mono)"
+              }
+            }, l.label || ""), React.createElement("span", {
+              style: {
+                fontSize: "var(--ds-fs-meta)",
+                color: "var(--ds-text-display)",
+                fontFamily: "var(--tt-font-mono)",
+                fontWeight: 700,
+                textAlign: "right"
+              }
+            }, "$", Number(l.price).toFixed(2)), React.createElement("span", {
+              style: {
+                fontSize: 9,
+                color: distColor,
+                fontFamily: "var(--tt-font-mono)",
+                textAlign: "right"
+              }
+            }, dist >= 0 ? "+" : "", dist.toFixed(2), "%"));
+          };
+          return React.createElement(Panel, {
+            title: "Key Levels",
+            action: React.createElement("span", {
+              style: {
+                display: "flex",
+                gap: 6,
+                alignItems: "center",
+                fontSize: 9,
+                fontFamily: "var(--tt-font-mono)",
+                color: "var(--ds-text-faint)",
+                letterSpacing: "0.10em"
+              }
+            }, pcDir && React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${isShort ? "ds-chip--dn" : "ds-chip--up"}`,
+              title: "Bias direction",
+              style: {
+                fontSize: 9
+              }
+            }, pcDir), React.createElement("span", null, resistance.length, " above \xB7 ", support.length, " below"))
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              flexDirection: "column",
+              gap: 3
+            }
+          }, resistance.length > 0 && React.createElement("div", {
+            style: {
+              padding: "4px 8px 2px",
+              display: "flex",
+              alignItems: "baseline",
+              gap: "var(--ds-space-2)"
+            }
+          }, React.createElement("span", {
+            style: {
+              fontSize: 9,
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700,
+              letterSpacing: "0.16em",
+              textTransform: "uppercase",
+              color: "var(--ds-dn)"
+            }
+          }, aboveLabel), React.createElement("span", {
+            style: {
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, isShort ? "stop above price" : "profit / fade")), resistance.length > 0 && resistance.slice(0, 5).reverse().map((l, i) => React.createElement(LevelRow, {
+            key: `v2-res-${i}-${l.price}`,
+            l: l,
+            side: "res"
+          })), React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "32px 1fr 64px 44px",
+              gap: "var(--ds-space-2)",
+              alignItems: "center",
+              padding: "8px 8px",
+              borderRadius: "var(--ds-radius-xs)",
+              background: "rgba(245,194,92,0.10)",
+              border: "1px solid rgba(245,194,92,0.30)",
+              margin: "2px 0"
+            }
+          }, React.createElement("span", {
+            style: {
+              fontSize: 9,
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700,
+              color: "var(--ds-accent)",
+              letterSpacing: "0.06em",
+              textAlign: "center"
+            }
+          }, "NOW"), React.createElement("span", {
+            style: {
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-accent)",
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700
+            }
+          }, "Current Price"), React.createElement("span", {
+            style: {
+              fontSize: "var(--ds-fs-body)",
+              color: "var(--ds-accent)",
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700,
+              textAlign: "right"
+            }
+          }, "$", px.toFixed(2)), React.createElement("span", {
+            style: {
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              fontFamily: "var(--tt-font-mono)",
+              textAlign: "right"
+            }
+          }, "\u2014")), support.length > 0 && React.createElement("div", {
+            style: {
+              padding: "4px 8px 2px",
+              display: "flex",
+              alignItems: "baseline",
+              gap: "var(--ds-space-2)"
+            }
+          }, React.createElement("span", {
+            style: {
+              fontSize: 9,
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700,
+              letterSpacing: "0.16em",
+              textTransform: "uppercase",
+              color: "var(--ds-up)"
+            }
+          }, belowLabel), React.createElement("span", {
+            style: {
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, isShort ? "profit-take" : "defend / SL ref")), support.length > 0 && support.slice(0, 5).map((l, i) => React.createElement(LevelRow, {
+            key: `v2-sup-${i}-${l.price}`,
+            l: l,
+            side: "sup"
+          }))));
         })(), ticker?._ticker_profile && React.createElement(Panel, {
           title: "Profile"
         }, React.createElement("div", {
