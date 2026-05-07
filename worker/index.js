@@ -945,6 +945,7 @@ const ROUTES = [
   ["POST", "/timed/admin/restore-trade-from-da", "POST /timed/admin/restore-trade-from-da"],
   ["POST", "/timed/admin/patch-trade-shares", "POST /timed/admin/patch-trade-shares"],
   ["POST", "/timed/admin/close-stale-open-trades", "POST /timed/admin/close-stale-open-trades"],
+  ["GET", "/timed/admin/data-audit-log", "GET /timed/admin/data-audit-log"],
   ["GET", "/timed/admin/activity-feed", "GET /timed/admin/activity-feed"],
   ["POST", "/timed/admin/model-config", "POST /timed/admin/model-config"],
   ["GET",  "/timed/admin/grade-config",  "GET /timed/admin/grade-config"],
@@ -32130,6 +32131,71 @@ async function ensureAccountLedgerSchema(db, KV) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// V15 P0.7.95 — Forensic data audit log
+//
+// Records every destructive operation against trades / positions /
+// account_ledger / execution_actions / direction_accuracy. Lets us
+// trace which endpoint (or cron path) is responsible the next time
+// trade rows or the ledger gets wiped (see incident notes for P0.7.94).
+//
+// Helpers in this section never throw — audit failure must not block
+// the underlying operation. Callers are expected to capture rows
+// affected and pass relevant context (caller URL, user, scope).
+// ─────────────────────────────────────────────────────────────────────────────
+
+let _auditLogSchemaEnsured = false;
+async function ensureDataAuditLogSchema(db) {
+  if (_auditLogSchemaEnsured || !db) return;
+  try {
+    await db.batch([
+      db.prepare(`CREATE TABLE IF NOT EXISTS data_audit_log (
+        audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts INTEGER NOT NULL,
+        op TEXT NOT NULL,
+        scope TEXT,
+        caller TEXT,
+        rows_affected INTEGER,
+        meta_json TEXT
+      )`),
+      db.prepare("CREATE INDEX IF NOT EXISTS idx_data_audit_log_ts ON data_audit_log (ts DESC)"),
+      db.prepare("CREATE INDEX IF NOT EXISTS idx_data_audit_log_op_ts ON data_audit_log (op, ts DESC)"),
+    ]);
+    _auditLogSchemaEnsured = true;
+  } catch (err) {
+    console.error("[AUDIT] schema init failed:", String(err?.message || err).slice(0, 200));
+  }
+}
+
+/**
+ * Append a row to data_audit_log. Best-effort; never throws.
+ *   op            — short token, e.g. "DELETE_TRADES", "DELETE_LEDGER"
+ *   scope         — short context, e.g. "trade_ids=A,B,C", "all", "ticker=CSX"
+ *   callerInfo    — request url, cron name, or "manual"
+ *   rowsAffected  — integer count if known
+ *   meta          — small JSON-serializable object with extra detail
+ */
+async function auditDataChange(env, { op, scope, caller, rowsAffected, meta } = {}) {
+  const db = env?.DB;
+  if (!db || !op) return;
+  try {
+    await ensureDataAuditLogSchema(db);
+    await db.prepare(
+      `INSERT INTO data_audit_log (ts, op, scope, caller, rows_affected, meta_json)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
+    ).bind(
+      Date.now(),
+      String(op).slice(0, 64),
+      scope ? String(scope).slice(0, 256) : null,
+      caller ? String(caller).slice(0, 256) : null,
+      Number.isFinite(rowsAffected) ? Number(rowsAffected) : null,
+      meta ? (() => { try { return JSON.stringify(meta).slice(0, 4000); } catch { return null; } })() : null,
+    ).run();
+  } catch (err) {
+    console.warn("[AUDIT] write failed:", String(err?.message || err).slice(0, 200));
+  }
+}
+
 /**
  * Insert a row into account_ledger. `balance` is the running cash balance AFTER this event.
  */
@@ -33519,17 +33585,22 @@ async function d1LoadTradesForSimulation(env) {
   try {
     let rows;
     try {
-      // V15 P0.7.94 — HARDENING after May 7 2026 zombie-alert incident.
-      // The live cron was loading the entire 587-row promoted backtest as
-      // "live trades" via the live_config_slot=1 join. Any of those rows
-      // whose status drifted back to OPEN (positions table never closed,
-      // a re-INSERT, etc.) would get processed as a live position and
-      // could re-fire entry alerts at pre-market with the OLD entry price.
+      // V15 P0.7.95 — Architectural decoupling of promoted-history from
+      // the live-trades pipeline. Previously the simulation loop joined
+      // trades to backtest_runs WHERE live_config_slot = 1, which mixed
+      // 587 historical backtest rows in with the truly-live trades. That
+      // is what made the May 7 2026 ghost-alert incident possible.
       //
-      // New rule: NEVER load a trade older than 30 days unless it is
-      // strictly OPEN and has a recent execution_actions row. This keeps
-      // the simulation loop focused on actual live trades and refuses to
-      // resurrect zombie history.
+      // Live trades have run_id IS NULL by construction (the cron's
+      // processTradeSimulation never stamps a run_id). Backtest trades
+      // get run_id stamped during replay. So the only correct filter is
+      //   WHERE t.run_id IS NULL
+      // Promoted backtest history is consumed via the ledger UNION at
+      // /timed/ledger/trades, NOT by re-feeding it into the live loop.
+      //
+      // The EXISTS-on-execution_actions guard from P0.7.94 stays as a
+      // belt-and-suspenders safety net for any future "OPEN status with
+      // no entry trail" zombie scenario — even live-only.
       const STALE_LIVE_TRADE_CUTOFF_MS = Date.now() - 30 * 24 * 60 * 60 * 1000;
       const tradesRes = await db.prepare(
         `SELECT t.trade_id, t.ticker, t.direction, t.entry_ts, t.entry_price, t.rank, t.rr, t.status,
@@ -33539,15 +33610,12 @@ async function d1LoadTradesForSimulation(env) {
           COALESCE(p.total_qty, 0) AS pos_qty
          FROM trades t
          LEFT JOIN positions p ON p.position_id = t.trade_id
-         WHERE (t.run_id IS NULL
-                OR t.run_id IN (SELECT run_id FROM backtest_runs WHERE live_config_slot = 1))
+         WHERE t.run_id IS NULL
            AND (
              /* Recent trade — let it pass regardless of status */
              COALESCE(t.entry_ts, 0) >= ?1
              /* OR an explicitly OPEN/TP_HIT_TRIM trade with a confirmed
-                execution_actions ENTRY row in the last 30 days. The EXISTS
-                guard refuses to surface zombie OPEN rows whose history has
-                been wiped. */
+                execution_actions ENTRY row in the last 30 days. */
              OR (
                UPPER(COALESCE(t.status, '')) IN ('OPEN', 'TP_HIT_TRIM')
                AND EXISTS (
@@ -33563,13 +33631,14 @@ async function d1LoadTradesForSimulation(env) {
       rows = Array.isArray(tradesRes?.results) ? tradesRes.results : [];
     } catch (joinErr) {
       if ((joinErr?.message || "").includes("no such table") && (joinErr?.message || "").includes("positions")) {
+        // Fallback: positions table missing. Same architectural rule —
+        // live trades only (run_id IS NULL).
         const tradesRes = await db.prepare(
           `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
             exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
             script_version, created_at, updated_at, trim_ts, trim_price, run_id
            FROM trades
            WHERE run_id IS NULL
-              OR run_id IN (SELECT run_id FROM backtest_runs WHERE live_config_slot = 1)
            ORDER BY entry_ts DESC`
         ).all();
         rows = (Array.isArray(tradesRes?.results) ? tradesRes.results : []).map((r) => ({ ...r, pos_qty: 0 }));
@@ -51194,6 +51263,19 @@ export default {
               console.warn("[cleanup-orphan-trades] KV cleanup failed:", String(kvErr?.message || kvErr));
             }
           }
+          if ((d1Closed + posClosed + kvFound) > 0) {
+            await auditDataChange(env, {
+              op: "CLEANUP_ORPHAN_TRADES",
+              scope: `min_age_days=${minAgeDays}`,
+              caller: req?.url || "unknown",
+              rowsAffected: d1Closed + posClosed + kvFound,
+              meta: {
+                trade_ids_canceled: d1Found.map(r => r.trade_id),
+                position_ids_closed: posFound.map(r => r.position_id),
+                kv_purged: kvFound,
+              },
+            });
+          }
           return sendJSON({
             ok: true,
             d1_trades: { found: d1Found.length, closed: d1Closed },
@@ -52959,6 +53041,45 @@ export default {
         }
       }
 
+      // GET /timed/admin/data-audit-log?op=&since_ms=&limit=&key=...
+      // V15 P0.7.95: forensic view of every destructive data change.
+      if (routeKey === "GET /timed/admin/data-audit-log") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          await ensureDataAuditLogSchema(db);
+          const opFilter = (url.searchParams.get("op") || "").trim().toUpperCase();
+          const sinceMs = Number(url.searchParams.get("since_ms")) || 0;
+          const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit")) || 100));
+          let where = "WHERE 1=1";
+          const binds = [];
+          if (opFilter) { where += " AND op = ?"; binds.push(opFilter); }
+          if (sinceMs > 0) { where += " AND ts >= ?"; binds.push(sinceMs); }
+          const rows = (await db.prepare(
+            `SELECT audit_id, ts, op, scope, caller, rows_affected, meta_json
+               FROM data_audit_log
+               ${where}
+               ORDER BY ts DESC
+               LIMIT ?`
+          ).bind(...binds, limit).all())?.results || [];
+          const events = rows.map(r => ({
+            audit_id: r.audit_id,
+            ts: Number(r.ts),
+            iso: r.ts ? new Date(Number(r.ts)).toISOString() : null,
+            op: r.op,
+            scope: r.scope,
+            caller: r.caller,
+            rows_affected: r.rows_affected,
+            meta: r.meta_json ? (() => { try { return JSON.parse(r.meta_json); } catch { return r.meta_json; } })() : null,
+          }));
+          return sendJSON({ ok: true, count: events.length, events }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // POST /timed/admin/close-stale-open-trades?key=...
       // V15 P0.7.92: dedicated cleanup for trades stuck on status='OPEN'
       // even though they have exit_ts and pnl populated. These appear when
@@ -53272,6 +53393,13 @@ export default {
             // Also delete from KV (best-effort)
             try { await env.KV_TIMED?.delete?.(`timed:trade:${tid}`); } catch (_) {}
           }
+          await auditDataChange(env, {
+            op: "PURGE_ORPHAN_TRADES",
+            scope: `trade_ids=${tradeIds.join(",")}`.slice(0, 256),
+            caller: req?.url || "unknown",
+            rowsAffected: tradesDeleted + positionsDeleted + actionsDeleted,
+            meta: { trade_ids: tradeIds, trades_deleted: tradesDeleted, positions_deleted: positionsDeleted, actions_deleted: actionsDeleted },
+          });
           return sendJSON({
             ok: true,
             trade_ids: tradeIds,
@@ -59261,6 +59389,37 @@ export default {
         if (authFail) return authFail;
         const db = env?.DB;
         try {
+          // V15 P0.7.95 — capture pre-reset row counts for forensics so
+          // any future "where did my trades go?" investigation has a
+          // baseline. The audit row is written BEFORE the deletes so we
+          // know exactly how big the wipe was.
+          let preCounts = null;
+          if (db) {
+            try {
+              const [tRow, pRow, eaRow, alRow, daRow] = await Promise.all([
+                db.prepare(`SELECT COUNT(*) as c FROM trades`).first(),
+                db.prepare(`SELECT COUNT(*) as c FROM positions`).first().catch(() => null),
+                db.prepare(`SELECT COUNT(*) as c FROM execution_actions`).first().catch(() => null),
+                db.prepare(`SELECT COUNT(*) as c FROM account_ledger WHERE mode = 'trader'`).first().catch(() => null),
+                db.prepare(`SELECT COUNT(*) as c FROM direction_accuracy`).first().catch(() => null),
+              ]);
+              preCounts = {
+                trades: Number(tRow?.c) || 0,
+                positions: Number(pRow?.c) || 0,
+                execution_actions: Number(eaRow?.c) || 0,
+                account_ledger_trader: Number(alRow?.c) || 0,
+                direction_accuracy: Number(daRow?.c) || 0,
+              };
+            } catch {}
+          }
+          await auditDataChange(env, {
+            op: "RESET_TRADES",
+            scope: "all_trader_data",
+            caller: req?.url || "unknown",
+            rowsAffected: preCounts ? Object.values(preCounts).reduce((a, b) => a + b, 0) : null,
+            meta: { preCounts, user_agent: req?.headers?.get?.("user-agent") || null },
+          });
+
           // 1. Clear KV trade data
           await kvPutJSON(KV, "timed:trades:all", []);
           await kvPutJSON(KV, REPLAY_TRADES_KV_KEY, []);
@@ -59297,7 +59456,7 @@ export default {
             kvPutJSON(KV, PORTFOLIO_KEY, null),
           ]);
           console.log(`[RESET] All trades cleared, account reset to $100K baseline`);
-          return sendJSON({ ok: true, message: "All trades cleared. Account reset to $100,000 baseline." }, 200, corsHeaders(env, req));
+          return sendJSON({ ok: true, message: "All trades cleared. Account reset to $100,000 baseline.", pre_reset_counts: preCounts }, 200, corsHeaders(env, req));
         } catch (e) {
           console.error("[RESET] Error:", e);
           return sendJSON({ ok: false, error: e.message }, 500, corsHeaders(env, req));

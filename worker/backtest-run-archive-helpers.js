@@ -493,6 +493,31 @@ export async function finalizeBacktestRun(db, body = {}) {
       ).bind(runId).run();
     }
   } catch (error) { console.error("[ARCHIVE] config:", String(error).slice(0, 200)); }
+
+  // V15 P0.7.95 — Close any positions whose parent trade has been
+  // finalized as WIN/LOSS/FLAT. Fixes the long-standing status drift
+  // where backtest trades were correctly statused in the `trades`
+  // table at finalize but their `positions` rows stayed OPEN, which
+  // let the live cron later resurrect them as zombie live trades
+  // (see incident notes for P0.7.94).
+  try {
+    const closeRes = await db.prepare(
+      `UPDATE positions
+          SET status = 'CLOSED',
+              closed_at = COALESCE(closed_at, ?2),
+              updated_at = ?2
+        WHERE position_id IN (
+          SELECT trade_id FROM trades
+           WHERE run_id = ?1
+             AND UPPER(COALESCE(status, '')) IN ('WIN', 'LOSS', 'FLAT')
+        )
+          AND UPPER(COALESCE(status, '')) NOT IN ('CLOSED', 'CANCELED')`
+    ).bind(runId, now).run();
+    const closedCount = closeRes?.meta?.changes ?? 0;
+    if (closedCount > 0) {
+      console.log(`[FINALIZE] Closed ${closedCount} positions for run ${runId} that had drifted to OPEN`);
+    }
+  } catch (error) { console.error("[FINALIZE] positions status sync:", String(error).slice(0, 200)); }
   try {
     const [tradeCountRow, daCountRow, annCountRow, cfgCountRow] = await Promise.all([
       db.prepare(`SELECT COUNT(*) AS cnt FROM backtest_run_trades WHERE run_id = ?1`).bind(runId).first(),
