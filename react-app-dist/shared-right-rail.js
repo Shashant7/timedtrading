@@ -795,58 +795,75 @@
           resizeDebounce = requestAnimationFrame(() => {
             if (containerRef.current && chart) {
               const w = Math.round(containerRef.current.clientWidth);
-              const h = Math.round(containerRef.current.clientHeight);
               const opts = {};
               if (w > 0 && Math.abs(w - lastAppliedWidth) >= 1) {
                 lastAppliedWidth = w; opts.width = w;
               }
-              // P0.7.100 — also apply height changes (workspace mode flex)
-              if (!propHeight && h > 0 && Math.abs(h - lastAppliedHeight) >= 1) {
-                lastAppliedHeight = h; opts.height = h;
-              }
-              if (opts.width != null || opts.height != null) {
+              if (opts.width != null) {
                 chart.applyOptions(opts);
               }
             }
           });
         };
+        // P0.7.100-r2 — height changes are handled separately via the
+        // window 'resize' listener below (NOT the ResizeObserver), which
+        // breaks the feedback loop where chart.applyOptions({height})
+        // would itself fire the observer and trigger another applyOptions
+        // call. The window event only fires on actual viewport changes.
+        const handleWindowResize = () => {
+          if (containerRef.current && chart) {
+            const w = Math.round(containerRef.current.clientWidth);
+            const h = Math.round(containerRef.current.clientHeight);
+            const opts = {};
+            if (w > 0 && Math.abs(w - lastAppliedWidth) >= 1) {
+              lastAppliedWidth = w; opts.width = w;
+            }
+            if (!propHeight && h > 0 && Math.abs(h - lastAppliedHeight) >= 4) {
+              lastAppliedHeight = h; opts.height = h;
+            }
+            if (opts.width != null || opts.height != null) {
+              chart.applyOptions(opts);
+            }
+          }
+        };
         if (typeof ResizeObserver !== "undefined" && containerRef.current) {
           resizeObserver = new ResizeObserver(handleResize);
           resizeObserver.observe(containerRef.current);
         }
-        window.addEventListener("resize", handleResize);
+        // Width-only on window resize is redundant with ResizeObserver,
+        // but we ALSO add the window listener for height (which is NOT
+        // tracked by the observer to avoid the feedback loop).
+        window.addEventListener("resize", handleWindowResize);
 
         // Settle: when chart mounts inside a React portal (expanded modal)
-        // or workspace flex layout, the container may not have its final
-        // width/height yet. Use rAF to sync.
-        // P0.7.100 — apply both width AND height from clientWidth/Height
-        // so workspace-mode flex sizing snaps to the right value on first
-        // paint instead of waiting for a ResizeObserver tick.
+        // or workspace mode, the container may not have its final width
+        // yet. Use rAF to sync. Width-only — height is set once at
+        // create time from clientHeight; subsequent height changes only
+        // happen on window resize (handled by handleWindowResize above).
         requestAnimationFrame(() => {
           if (containerRef.current && chart) {
             const w = containerRef.current.clientWidth;
-            const h = containerRef.current.clientHeight;
-            const opts = {};
-            if (w > 0) opts.width = w;
-            if (!propHeight && h > 0) opts.height = h;
-            if (opts.width != null || opts.height != null) chart.applyOptions(opts);
+            if (w > 0) {
+              chart.applyOptions({ width: w });
+              lastAppliedWidth = w;
+            }
             chart.timeScale().fitContent();
           }
-          // Safety net for slow portal reflow
           setTimeout(() => {
             if (containerRef.current && chart) {
               const w = containerRef.current.clientWidth;
-              const h = containerRef.current.clientHeight;
-              const opts = {};
-              if (w > 0) opts.width = w;
-              if (!propHeight && h > 0) opts.height = h;
-              if (opts.width != null || opts.height != null) chart.applyOptions(opts);
+              if (w > 0 && Math.abs(w - lastAppliedWidth) >= 1) {
+                chart.applyOptions({ width: w });
+                lastAppliedWidth = w;
+              }
             }
           }, 150);
         });
+        // Track initial height so window-resize comparator works
+        lastAppliedHeight = containerRef.current.clientHeight || chartHeight;
 
         return () => {
-          window.removeEventListener("resize", handleResize);
+          window.removeEventListener("resize", handleWindowResize);
           if (resizeDebounce) cancelAnimationFrame(resizeDebounce);
           if (resizeObserver) resizeObserver.disconnect();
           levelPriceLinesRef.current = [];
@@ -1125,18 +1142,18 @@
           }, patternLabel)
         ),
         // Chart container
-        // P0.7.100 — When the parent applies CSS height (workspace mode
-        // sets the canvas to flex:1), an inline `height: 320px` would
-        // override the parent's stretching. New behavior: when the
-        // parent passes `propHeight`, use it. Otherwise let the chart
-        // fill its parent (height: 100%).
+        // P0.7.100-r2 — back to height:100% so the chart fills its CSS-
+        // sized parent (.tt-rail-chart-canvas). The CSS handles ALL
+        // sizing decisions (mobile/desktop/workspace) via media queries.
+        // The chart's initial pixel height is read from clientHeight
+        // once at create time. We do NOT track height in the
+        // ResizeObserver because LightweightCharts' internal canvas
+        // resize fires the observer and causes a feedback loop.
         React.createElement("div", {
           ref: containerRef,
           className: "rounded-lg overflow-hidden",
           style: {
             height: propHeight ? propHeight : "100%",
-            minHeight: propHeight ? propHeight : 240,
-            flex: propHeight ? "0 0 auto" : "1 1 auto",
             background: "#0b0e11",
           },
         }),

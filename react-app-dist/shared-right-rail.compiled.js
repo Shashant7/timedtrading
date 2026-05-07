@@ -990,50 +990,66 @@
           resizeDebounce = requestAnimationFrame(() => {
             if (containerRef.current && chart) {
               const w = Math.round(containerRef.current.clientWidth);
-              const h = Math.round(containerRef.current.clientHeight);
               const opts = {};
               if (w > 0 && Math.abs(w - lastAppliedWidth) >= 1) {
                 lastAppliedWidth = w;
                 opts.width = w;
               }
-              if (!propHeight && h > 0 && Math.abs(h - lastAppliedHeight) >= 1) {
-                lastAppliedHeight = h;
-                opts.height = h;
-              }
-              if (opts.width != null || opts.height != null) {
+              if (opts.width != null) {
                 chart.applyOptions(opts);
               }
             }
           });
         };
+        const handleWindowResize = () => {
+          if (containerRef.current && chart) {
+            const w = Math.round(containerRef.current.clientWidth);
+            const h = Math.round(containerRef.current.clientHeight);
+            const opts = {};
+            if (w > 0 && Math.abs(w - lastAppliedWidth) >= 1) {
+              lastAppliedWidth = w;
+              opts.width = w;
+            }
+            if (!propHeight && h > 0 && Math.abs(h - lastAppliedHeight) >= 4) {
+              lastAppliedHeight = h;
+              opts.height = h;
+            }
+            if (opts.width != null || opts.height != null) {
+              chart.applyOptions(opts);
+            }
+          }
+        };
         if (typeof ResizeObserver !== "undefined" && containerRef.current) {
           resizeObserver = new ResizeObserver(handleResize);
           resizeObserver.observe(containerRef.current);
         }
-        window.addEventListener("resize", handleResize);
+        window.addEventListener("resize", handleWindowResize);
         requestAnimationFrame(() => {
           if (containerRef.current && chart) {
             const w = containerRef.current.clientWidth;
-            const h = containerRef.current.clientHeight;
-            const opts = {};
-            if (w > 0) opts.width = w;
-            if (!propHeight && h > 0) opts.height = h;
-            if (opts.width != null || opts.height != null) chart.applyOptions(opts);
+            if (w > 0) {
+              chart.applyOptions({
+                width: w
+              });
+              lastAppliedWidth = w;
+            }
             chart.timeScale().fitContent();
           }
           setTimeout(() => {
             if (containerRef.current && chart) {
               const w = containerRef.current.clientWidth;
-              const h = containerRef.current.clientHeight;
-              const opts = {};
-              if (w > 0) opts.width = w;
-              if (!propHeight && h > 0) opts.height = h;
-              if (opts.width != null || opts.height != null) chart.applyOptions(opts);
+              if (w > 0 && Math.abs(w - lastAppliedWidth) >= 1) {
+                chart.applyOptions({
+                  width: w
+                });
+                lastAppliedWidth = w;
+              }
             }
           }, 150);
         });
+        lastAppliedHeight = containerRef.current.clientHeight || chartHeight;
         return () => {
-          window.removeEventListener("resize", handleResize);
+          window.removeEventListener("resize", handleWindowResize);
           if (resizeDebounce) cancelAnimationFrame(resizeDebounce);
           if (resizeObserver) resizeObserver.disconnect();
           levelPriceLinesRef.current = [];
@@ -1347,8 +1363,6 @@
         className: "rounded-lg overflow-hidden",
         style: {
           height: propHeight ? propHeight : "100%",
-          minHeight: propHeight ? propHeight : 240,
-          flex: propHeight ? "0 0 auto" : "1 1 auto",
           background: "#0b0e11"
         }
       }), React.createElement("div", {

@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260507-rail-fullheight" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260507-rail-r3" />
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/htm@3.1.1/dist/htm.umd.js"></script>
@@ -158,33 +158,10 @@
       }
       .tt-rail-shell--workspace > .tt-rail-area-left-pane {
         grid-area: left;
-        overflow: hidden; /* P0.7.100: chart owns the pane, no inner scroll */
-        padding: var(--ds-space-2); /* P0.7.100: tighter padding */
+        overflow-y: auto;
+        padding: var(--ds-space-3); /* P0.7.100-r2: slightly tighter */
         border-right: 1px solid var(--ds-stroke);
         min-width: 0;
-        display: flex;
-        flex-direction: column;
-      }
-      /* P0.7.100 — chart panel + canvas fill the full left pane height. */
-      .tt-rail-shell--workspace .tt-rail-chart-block {
-        flex: 1 1 auto;
-        display: flex;
-        flex-direction: column;
-        margin-bottom: 0 !important;
-        min-height: 0;
-      }
-      .tt-rail-shell--workspace .tt-rail-chart-block > .ds-glass {
-        flex: 1 1 auto;
-        display: flex;
-        flex-direction: column;
-        min-height: 0;
-        margin-bottom: 0;
-      }
-      .tt-rail-shell--workspace .tt-rail-chart-block > .ds-glass > *:not(.ds-glass__head) {
-        flex: 1 1 auto;
-        min-height: 0;
-        display: flex;
-        flex-direction: column;
       }
       .tt-rail-shell--workspace > .tt-rail-area-right-pane {
         grid-area: right;
@@ -196,8 +173,8 @@
       }
       /* V15 P0.7.99 \u2014 sizes bumped now that Key Levels lives in the
          Setup tab and the rail's left pane only hosts the chart.
-         V15 P0.7.100 \u2014 workspace mode canvas grows via flex to fill
-         the full left pane height (no fixed cap). */
+         V15 P0.7.100-r2 \u2014 reverted flex-fill (caused ResizeObserver
+         feedback loop). Larger viewport-based height instead. */
       .tt-rail-chart-canvas {
         height: 240px;
       }
@@ -205,10 +182,9 @@
         .tt-rail-chart-canvas { height: 380px; }
       }
       .tt-rail-shell--workspace .tt-rail-chart-canvas {
-        height: auto !important;
-        flex: 1 1 auto;
-        min-height: 480px;
-        max-height: none;
+        height: calc(100vh - 200px) !important;
+        max-height: 1200px;
+        min-height: 540px;
       }
       /* V15 P0.7.85: mobile reorder \u2014 tab content first, chart + levels at bottom.
          V15 P0.7.87: on mobile (<1024px) hide chart+levels entirely so
@@ -238,7 +214,7 @@
     <script src="shared-price-utils.js?v=20260211a"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260507-rail-fullheight"></script>
+    <script src="shared-right-rail.compiled.js?v=20260507-rail-r3"></script>
     <!-- V15 P0.7.36 (2026-04-30): Trades Performance overview component
          (Monthly perf table, setup breakdown, P&L calendar heatmap).
          Self-contained factory at react-app/trades-performance.js. -->

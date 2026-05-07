@@ -138,15 +138,21 @@ const _tfBarSpacing=String(chartTf)==="D"?12:String(chartTf)==="60"?8:6;chart.ap
 // Prior version called chart.applyOptions() on every ResizeObserver tick,
 // which fired on every layout reflow (account value updating, levels
 // refresh, etc.) and caused a visible flicker as the chart redrew.
-let resizeObserver=null;let resizeDebounce=null;let lastAppliedWidth=0;let lastAppliedHeight=0;const handleResize=()=>{if(resizeDebounce)cancelAnimationFrame(resizeDebounce);resizeDebounce=requestAnimationFrame(()=>{if(containerRef.current&&chart){const w=Math.round(containerRef.current.clientWidth);const h=Math.round(containerRef.current.clientHeight);const opts={};if(w>0&&Math.abs(w-lastAppliedWidth)>=1){lastAppliedWidth=w;opts.width=w;}// P0.7.100 — also apply height changes (workspace mode flex)
-if(!propHeight&&h>0&&Math.abs(h-lastAppliedHeight)>=1){lastAppliedHeight=h;opts.height=h;}if(opts.width!=null||opts.height!=null){chart.applyOptions(opts);}}});};if(typeof ResizeObserver!=="undefined"&&containerRef.current){resizeObserver=new ResizeObserver(handleResize);resizeObserver.observe(containerRef.current);}window.addEventListener("resize",handleResize);// Settle: when chart mounts inside a React portal (expanded modal)
-// or workspace flex layout, the container may not have its final
-// width/height yet. Use rAF to sync.
-// P0.7.100 — apply both width AND height from clientWidth/Height
-// so workspace-mode flex sizing snaps to the right value on first
-// paint instead of waiting for a ResizeObserver tick.
-requestAnimationFrame(()=>{if(containerRef.current&&chart){const w=containerRef.current.clientWidth;const h=containerRef.current.clientHeight;const opts={};if(w>0)opts.width=w;if(!propHeight&&h>0)opts.height=h;if(opts.width!=null||opts.height!=null)chart.applyOptions(opts);chart.timeScale().fitContent();}// Safety net for slow portal reflow
-setTimeout(()=>{if(containerRef.current&&chart){const w=containerRef.current.clientWidth;const h=containerRef.current.clientHeight;const opts={};if(w>0)opts.width=w;if(!propHeight&&h>0)opts.height=h;if(opts.width!=null||opts.height!=null)chart.applyOptions(opts);}},150);});return()=>{window.removeEventListener("resize",handleResize);if(resizeDebounce)cancelAnimationFrame(resizeDebounce);if(resizeObserver)resizeObserver.disconnect();levelPriceLinesRef.current=[];levelTrendSeriesRef.current=[];chart.remove();chartInstanceRef.current=null;candleSeriesRef.current=null;overlaySeriesRef.current={};};/* V15 P0.7.99 — CREATE deps now exclude mapped + indicatorData so
+let resizeObserver=null;let resizeDebounce=null;let lastAppliedWidth=0;let lastAppliedHeight=0;const handleResize=()=>{if(resizeDebounce)cancelAnimationFrame(resizeDebounce);resizeDebounce=requestAnimationFrame(()=>{if(containerRef.current&&chart){const w=Math.round(containerRef.current.clientWidth);const opts={};if(w>0&&Math.abs(w-lastAppliedWidth)>=1){lastAppliedWidth=w;opts.width=w;}if(opts.width!=null){chart.applyOptions(opts);}}});};// P0.7.100-r2 — height changes are handled separately via the
+// window 'resize' listener below (NOT the ResizeObserver), which
+// breaks the feedback loop where chart.applyOptions({height})
+// would itself fire the observer and trigger another applyOptions
+// call. The window event only fires on actual viewport changes.
+const handleWindowResize=()=>{if(containerRef.current&&chart){const w=Math.round(containerRef.current.clientWidth);const h=Math.round(containerRef.current.clientHeight);const opts={};if(w>0&&Math.abs(w-lastAppliedWidth)>=1){lastAppliedWidth=w;opts.width=w;}if(!propHeight&&h>0&&Math.abs(h-lastAppliedHeight)>=4){lastAppliedHeight=h;opts.height=h;}if(opts.width!=null||opts.height!=null){chart.applyOptions(opts);}}};if(typeof ResizeObserver!=="undefined"&&containerRef.current){resizeObserver=new ResizeObserver(handleResize);resizeObserver.observe(containerRef.current);}// Width-only on window resize is redundant with ResizeObserver,
+// but we ALSO add the window listener for height (which is NOT
+// tracked by the observer to avoid the feedback loop).
+window.addEventListener("resize",handleWindowResize);// Settle: when chart mounts inside a React portal (expanded modal)
+// or workspace mode, the container may not have its final width
+// yet. Use rAF to sync. Width-only — height is set once at
+// create time from clientHeight; subsequent height changes only
+// happen on window resize (handled by handleWindowResize above).
+requestAnimationFrame(()=>{if(containerRef.current&&chart){const w=containerRef.current.clientWidth;if(w>0){chart.applyOptions({width:w});lastAppliedWidth=w;}chart.timeScale().fitContent();}setTimeout(()=>{if(containerRef.current&&chart){const w=containerRef.current.clientWidth;if(w>0&&Math.abs(w-lastAppliedWidth)>=1){chart.applyOptions({width:w});lastAppliedWidth=w;}}},150);});// Track initial height so window-resize comparator works
+lastAppliedHeight=containerRef.current.clientHeight||chartHeight;return()=>{window.removeEventListener("resize",handleWindowResize);if(resizeDebounce)cancelAnimationFrame(resizeDebounce);if(resizeObserver)resizeObserver.disconnect();levelPriceLinesRef.current=[];levelTrendSeriesRef.current=[];chart.remove();chartInstanceRef.current=null;candleSeriesRef.current=null;overlaySeriesRef.current={};};/* V15 P0.7.99 — CREATE deps now exclude mapped + indicatorData so
          the chart instance only rebuilds on ticker/TF/sizing changes. Data
          hydration runs in the UPDATE effect below; level fetching runs in
          the LEVELS effect; external price lines run in the PRICE-LINES
@@ -201,12 +207,14 @@ let hdrTimeStr="";if(hdr){try{const d=new Date(hdr.time*1000);const isDWM=["D","
 !hideOverlayToggles&&React.createElement("div",{className:"flex items-center gap-1.5 mb-1 flex-wrap"},[{key:"ema21",label:"21 EMA",color:"#fbbf24"},{key:"ema48",label:"48 EMA",color:"#a78bfa"},{key:"ema200",label:"200 EMA",color:"#f87171"},{key:"supertrend",label:"SuperTrend",color:"#34d399"},{key:"tdSequential",label:"TD Seq",color:"#f59e0b"}].map(ov=>React.createElement("button",{key:ov.key,onClick:()=>onCrosshair?.(ov.key),// toggle overlay via parent
 className:`px-2 py-0.5 rounded text-[9px] font-semibold border transition-all ${overlays[ov.key]?"border-white/20 text-white":"border-white/[0.06] text-[#555] hover:text-[#6b7280]"}`,style:overlays[ov.key]?{borderColor:ov.color+"80",color:ov.color,background:ov.color+"15"}:{}},ov.label))),// OHLC header
 hdr&&React.createElement("div",{className:"flex items-center gap-2 mb-0.5 text-[10px] font-mono h-5 select-none"},React.createElement("span",{className:"text-[#6b7280]"},hdrTimeStr),React.createElement("span",{className:"text-[#6b7280]"},"O"),React.createElement("span",{className:"text-white"},hdr.o?.toFixed(2)),React.createElement("span",{className:"text-[#6b7280]"},"H"),React.createElement("span",{className:"text-sky-300"},hdr.h?.toFixed(2)),React.createElement("span",{className:"text-[#6b7280]"},"L"),React.createElement("span",{className:"text-orange-300"},hdr.l?.toFixed(2)),React.createElement("span",{className:"text-[#6b7280]"},"C"),React.createElement("span",{className:hdrUp?"text-teal-400 font-semibold":"text-rose-400 font-semibold"},hdr.c?.toFixed(2)),React.createElement("span",{className:hdrUp?"text-teal-400":"text-rose-400"},`${hdrUp?"+":""}${hdrChg.toFixed(2)} (${hdrUp?"+":""}${hdrPct.toFixed(2)}%)`),patternLabel&&React.createElement("span",{className:"px-1.5 py-px rounded text-[8px] font-bold border border-violet-400/40 bg-violet-500/20 text-violet-300"},patternLabel)),// Chart container
-// P0.7.100 — When the parent applies CSS height (workspace mode
-// sets the canvas to flex:1), an inline `height: 320px` would
-// override the parent's stretching. New behavior: when the
-// parent passes `propHeight`, use it. Otherwise let the chart
-// fill its parent (height: 100%).
-React.createElement("div",{ref:containerRef,className:"rounded-lg overflow-hidden",style:{height:propHeight?propHeight:"100%",minHeight:propHeight?propHeight:240,flex:propHeight?"0 0 auto":"1 1 auto",background:"#0b0e11"}}),// Status bar
+// P0.7.100-r2 — back to height:100% so the chart fills its CSS-
+// sized parent (.tt-rail-chart-canvas). The CSS handles ALL
+// sizing decisions (mobile/desktop/workspace) via media queries.
+// The chart's initial pixel height is read from clientHeight
+// once at create time. We do NOT track height in the
+// ResizeObserver because LightweightCharts' internal canvas
+// resize fires the observer and causes a feedback loop.
+React.createElement("div",{ref:containerRef,className:"rounded-lg overflow-hidden",style:{height:propHeight?propHeight:"100%",background:"#0b0e11"}}),// Status bar
 React.createElement("div",{className:"mt-1 text-[10px] text-[#6b7280] flex items-center justify-between"},React.createElement("span",null,`${["D","W","M"].includes(String(chartTf))?chartTf==="D"?"Daily":chartTf==="W"?"Weekly":"Monthly":Number(chartTf)>=60?`${Number(chartTf)/60}H`:`${chartTf}m`} • ${mapped.length} bars`),React.createElement("span",{className:"text-[#555] text-[9px]"},"scroll to zoom • drag to pan")));}/* V2.1 round 7 — memoized LWChart.
        V2.1 round 11 (2026-05-04) — Hardened comparator: compare EVERY
        price line value, not just first/last. With S/R levels overlaying
