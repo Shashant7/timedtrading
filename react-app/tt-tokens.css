@@ -902,6 +902,44 @@ input, button, select, textarea {
   background: var(--ds-accent-dim);
   color: var(--ds-accent);
 }
+
+/* P0.7.95 — Hide the right-side Activity drawer entirely on mobile.
+   It was covering the right portion of the page (including the Active
+   Trader tab in the View row) and isn't useful at narrow widths where
+   every pixel of horizontal space matters. */
+@media (max-width: 1023px) {
+  .tt-activity-drawer { display: none !important; }
+}
+
+/* P0.7.95 — On mobile the four-tab Analysis/Active Trader/Investor/All
+   row was wider than the viewport, so the user couldn't reach Active
+   Trader (the kanban view). Make the tab row horizontally scrollable
+   and tighten label padding so all four fit on a typical phone. */
+@media (max-width: 768px) {
+  .ds-tab {
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 12px;
+    padding: 3px;
+    gap: 1px;
+  }
+  .ds-tab::-webkit-scrollbar { display: none; }
+  .ds-tab__item {
+    padding: 6px 10px;
+    font-size: var(--ds-fs-meta);
+    flex-shrink: 0;
+    border-radius: 9px;
+  }
+  .ds-tab__item svg { width: 14px; height: 14px; }
+  .ds-tab__count {
+    font-size: 10px;
+    padding: 1px 5px;
+  }
+}
 .ds-tab__dot {
   position: absolute;
   top: 6px; right: 6px;
