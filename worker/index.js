@@ -941,6 +941,8 @@ const ROUTES = [
   ["POST", "/timed/admin/purge-orphan-trades", "POST /timed/admin/purge-orphan-trades"],
   ["POST", "/timed/admin/seed-direction-accuracy-from-promoted", "POST /timed/admin/seed-direction-accuracy-from-promoted"],
   ["POST", "/timed/admin/refresh-path-performance", "POST /timed/admin/refresh-path-performance"],
+  ["GET", "/timed/admin/direction-accuracy/inspect", "GET /timed/admin/direction-accuracy/inspect"],
+  ["POST", "/timed/admin/restore-trade-from-da", "POST /timed/admin/restore-trade-from-da"],
   ["GET", "/timed/admin/activity-feed", "GET /timed/admin/activity-feed"],
   ["POST", "/timed/admin/model-config", "POST /timed/admin/model-config"],
   ["GET",  "/timed/admin/grade-config",  "GET /timed/admin/grade-config"],
@@ -52850,6 +52852,107 @@ export default {
             updated++;
           }
           return sendJSON({ ok: true, updated, trade_ids: tradeIds }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/restore-trade-from-da?key=...&trade_ids=A,B,C
+      // V15 P0.7.90: restore trades that got wiped from `trades`+`positions`
+      // tables but still have records in `direction_accuracy` (the canonical
+      // decision log). Reconstructs the trade row + position row so the UI
+      // and live cron see them again.
+      if (routeKey === "POST /timed/admin/restore-trade-from-da") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const tradeIdsRaw = url.searchParams.get("trade_ids") || "";
+          const tradeIds = tradeIdsRaw.split(",").map(s => s.trim()).filter(Boolean);
+          if (tradeIds.length === 0) {
+            return sendJSON({ ok: false, error: "trade_ids required" }, 400, corsHeaders(env, req));
+          }
+          const restored = [];
+          for (const tid of tradeIds) {
+            const da = await db.prepare(
+              `SELECT * FROM direction_accuracy WHERE trade_id = ?1`
+            ).bind(tid).first();
+            if (!da) {
+              restored.push({ trade_id: tid, ok: false, reason: "not_found_in_da" });
+              continue;
+            }
+            const ticker = String(da.ticker || "").toUpperCase();
+            const entryTs = Number(da.ts) || 0;
+            const direction = String(da.traded_direction || "LONG").toUpperCase();
+            const entryPrice = Number(da.entry_price) || 0;
+            const status = String(da.status || "OPEN").toUpperCase();
+            const exitTs = Number(da.exit_ts) || null;
+            const exitPrice = Number(da.exit_price) || 0;
+            const pnl = Number(da.pnl) || 0;
+            const pnlPct = Number(da.pnl_pct) || 0;
+            const entryPath = da.entry_path || null;
+            const rank = Number(da.rank) || 0;
+            const rr = Number(da.rr) || 0;
+            // Insert trade row (idempotent — INSERT OR REPLACE)
+            await db.prepare(
+              `INSERT OR REPLACE INTO trades
+                (trade_id, ticker, direction, entry_ts, entry_price, status,
+                 exit_ts, exit_price, pnl, pnl_pct, rank, rr, entry_path,
+                 created_at, updated_at, run_id)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?4, ?14, NULL)`
+            ).bind(
+              tid, ticker, direction, entryTs, entryPrice, status,
+              exitTs, exitPrice, pnl, pnlPct, rank, rr, entryPath,
+              Date.now(),
+            ).run();
+            // Insert position row if status is OPEN/TP_HIT_TRIM
+            if (status === "OPEN" || status === "TP_HIT_TRIM") {
+              await db.prepare(
+                `INSERT OR REPLACE INTO positions
+                  (position_id, ticker, direction, status, total_qty, cost_basis,
+                   created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)`
+              ).bind(
+                tid, ticker, direction, status,
+                0, // qty unknown — cron will resync from execution_actions if any
+                0, // cost basis
+                entryTs,
+              ).run();
+            }
+            restored.push({ trade_id: tid, ticker, ok: true, status, entry_ts: entryTs, entry_price: entryPrice });
+          }
+          return sendJSON({ ok: true, restored }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/direction-accuracy/inspect?ticker=APD&since_ms=...&key=...
+      // V15 P0.7.90: forensic helper to inspect direction_accuracy rows
+      // when the live trades table has been wiped. Returns all rows for
+      // a ticker (optionally filtered by entry_ts >= since_ms) so we can
+      // recover trade timestamps + prices when other surfaces are empty.
+      if (routeKey === "GET /timed/admin/direction-accuracy/inspect") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const ticker = (url.searchParams.get("ticker") || "").toUpperCase();
+          const sinceMs = Number(url.searchParams.get("since_ms") || 0) || 0;
+          let where = "WHERE 1=1";
+          const binds = [];
+          if (ticker) { where += " AND ticker = ?"; binds.push(ticker); }
+          if (sinceMs > 0) { where += " AND ts >= ?"; binds.push(sinceMs); }
+          const rows = (await db.prepare(
+            `SELECT trade_id, ticker, ts, traded_direction, entry_path, status, pnl, pnl_pct,
+                    entry_price, exit_ts, exit_price, direction_source, rank, rr
+             FROM direction_accuracy
+             ${where}
+             ORDER BY ts DESC LIMIT 100`
+          ).bind(...binds).all())?.results || [];
+          return sendJSON({ ok: true, count: rows.length, rows }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
