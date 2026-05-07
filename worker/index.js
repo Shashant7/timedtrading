@@ -944,6 +944,7 @@ const ROUTES = [
   ["GET", "/timed/admin/direction-accuracy/inspect", "GET /timed/admin/direction-accuracy/inspect"],
   ["POST", "/timed/admin/restore-trade-from-da", "POST /timed/admin/restore-trade-from-da"],
   ["POST", "/timed/admin/patch-trade-shares", "POST /timed/admin/patch-trade-shares"],
+  ["POST", "/timed/admin/close-stale-open-trades", "POST /timed/admin/close-stale-open-trades"],
   ["GET", "/timed/admin/activity-feed", "GET /timed/admin/activity-feed"],
   ["POST", "/timed/admin/model-config", "POST /timed/admin/model-config"],
   ["GET",  "/timed/admin/grade-config",  "GET /timed/admin/grade-config"],
@@ -52929,6 +52930,47 @@ export default {
         }
       }
 
+      // POST /timed/admin/close-stale-open-trades?key=...
+      // V15 P0.7.92: dedicated cleanup for trades stuck on status='OPEN'
+      // even though they have exit_ts and pnl populated. These appear when
+      // the backtest finalize step doesn't update status, leaving rows
+      // that pollute /timed/trades?status=OPEN, the kanban OPEN lane, and
+      // any account-summary recomputes that read trades.shares.
+      //
+      // Logic: WHERE status='OPEN' AND exit_ts IS NOT NULL AND exit_ts > 0
+      // → set status to WIN (pnl>0) / LOSS (pnl<0) / FLAT (pnl≈0) so the
+      // status matches the closed reality without inventing new exit data.
+      if (routeKey === "POST /timed/admin/close-stale-open-trades") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const dryRun = url.searchParams.get("dry_run") === "1";
+          const stale = (await db.prepare(
+            `SELECT trade_id, ticker, status, pnl, pnl_pct, exit_ts
+             FROM trades
+             WHERE status = 'OPEN' AND exit_ts IS NOT NULL AND exit_ts > 0`
+          ).all())?.results || [];
+          if (dryRun) {
+            return sendJSON({ ok: true, dry_run: true, count: stale.length, stale }, 200, corsHeaders(env, req));
+          }
+          const now = Date.now();
+          let updated = 0;
+          for (const r of stale) {
+            const pnl = Number(r.pnl) || 0;
+            const newStatus = pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "FLAT";
+            await db.prepare(
+              `UPDATE trades SET status = ?2, updated_at = ?3 WHERE trade_id = ?1`
+            ).bind(r.trade_id, newStatus, now).run();
+            updated++;
+          }
+          return sendJSON({ ok: true, updated, count: stale.length }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // POST /timed/admin/patch-trade-shares?trade_id=X&shares=Y[&notional=Z][&key=...]
       // V15 P0.7.91: restore qty / cost_basis on a trade row whose original
       // entry actions were purged (e.g. by purge-orphan-trades). The
@@ -52983,6 +53025,43 @@ export default {
             ).bind(tid, sharesParam, costBasis, now).run();
             positionUpdated = true;
           }
+          // V15 P0.7.92: also write an ENTRY execution_actions row + lot if
+          // none exists. Without this the activity feed stays empty for
+          // restored trades, the audit trail is missing, and account_ledger
+          // backfill skips the entry. INSERT OR IGNORE so re-running is safe.
+          let actionWritten = false;
+          let lotWritten = false;
+          try {
+            const existingAction = await db.prepare(
+              `SELECT action_id FROM execution_actions WHERE position_id = ?1 AND action_type = 'ENTRY' LIMIT 1`
+            ).bind(tid).first();
+            if (!existingAction) {
+              const tradeFull = await db.prepare(
+                `SELECT entry_ts FROM trades WHERE trade_id = ?1`
+              ).bind(tid).first();
+              const entryTs = Number(tradeFull?.entry_ts) || now;
+              const actionId = `${tid}-ENTRY-${entryTs}`;
+              const lotId = `${tid}-lot-${entryTs}`;
+              try {
+                await db.prepare(
+                  `INSERT OR IGNORE INTO lots (lot_id, position_id, ts, qty, price, value, remaining_qty)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
+                ).bind(lotId, tid, entryTs, sharesParam, entryPrice, costBasis, sharesParam).run();
+                lotWritten = true;
+              } catch (_) {}
+              await db.prepare(
+                `INSERT OR IGNORE INTO execution_actions
+                  (action_id, position_id, ts, action_type, qty, price, value, pnl_realized, lot_id, reason, meta_json)
+                 VALUES (?1, ?2, ?3, 'ENTRY', ?4, ?5, ?6, NULL, ?7, 'admin_restore', ?8)`
+              ).bind(
+                actionId, tid, entryTs, sharesParam, entryPrice, costBasis, lotId,
+                JSON.stringify({ source: "patch-trade-shares" }),
+              ).run();
+              actionWritten = true;
+            }
+          } catch (e) {
+            console.warn("[patch-trade-shares] action backfill failed:", String(e?.message || e));
+          }
           return sendJSON({
             ok: true,
             trade_id: tid,
@@ -52992,6 +53071,8 @@ export default {
             notional,
             cost_basis: costBasis,
             position_updated: positionUpdated,
+            action_written: actionWritten,
+            lot_written: lotWritten,
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
