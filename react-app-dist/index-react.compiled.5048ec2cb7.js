@@ -18275,9 +18275,9 @@ function ActivityFeedDrawer({
     style: {
       position: "fixed",
       right: 0,
-      top: "60px",
+      top: "340px",
       width: collapsed ? "28px" : "240px",
-      maxHeight: collapsed ? "120px" : "min(440px, calc(100vh - 80px))",
+      maxHeight: collapsed ? "120px" : "min(420px, calc(100vh - 360px))",
       background: collapsed ? "rgba(255,255,255,0.02)" : "rgba(11,14,17,0.78)",
       borderLeft: "1px solid var(--ds-stroke, rgba(255,255,255,0.05))",
       borderBottom: "1px solid var(--ds-stroke, rgba(255,255,255,0.05))",

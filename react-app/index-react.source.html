@@ -13,7 +13,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260507-rail-r3" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260507-r5" />
 
     <!-- React & ReactDOM via CDN -->
     <script
@@ -296,22 +296,15 @@
       @media (min-width: 1024px) {
         .tt-rail-chart-canvas { height: 380px; }
       }
-      /* P0.7.101 — calc accounts for ALL chrome between viewport and
-         chart canvas:
-           top nav .........  60
-           bottom safe area . 56  (mount uses sm:bottom-[56px])
-           pane padding ..... 24  (12px top + 12px bottom)
-           panel padding .... 32  (16px each)
-           panel header ..... 42  (~30px + 12px margin-bottom)
-           safety / borders . 16
-                            ────
-                             230
-         At 1080p that's ~850px. At 800px ~570px. Both fit cleanly with
-         the time-axis labels visible without page scroll. */
+      /* P0.7.102 — calc bumped to account for the rail's own footer
+         (Open in TradingView, ~50px), the legal footer (~30px), and
+         the chart's internal OHLC header + status bar (~45px) on top
+         of the previous chrome stack. Total now ~340px so the time-
+         axis labels at the bottom of the chart are always visible. */
       .tt-rail-shell--workspace .tt-rail-chart-canvas {
-        height: calc(100vh - 230px) !important;
-        max-height: 1100px;
-        min-height: 420px;
+        height: calc(100vh - 340px) !important;
+        max-height: 980px;
+        min-height: 380px;
       }
       /* V15 P0.7.86 — Activity Feed drawer.
          Hidden on mobile/tablet (<1024px) — too narrow to dock a 300px
@@ -1109,7 +1102,7 @@
     <script src="ds-components.js?v=20260501a"></script>
     <script src="investor-panel.js?v=20260226a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260507-rail-noflicker"></script>
+    <script src="shared-right-rail.compiled.js?v=20260507-r5"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef, memo } = React;
@@ -21683,9 +21676,14 @@
             style={{
               position: "fixed",
               right: 0,
-              top: "60px",
+              // P0.7.102 — pushed down from top:60 to top:340 so the
+              // drawer sits BELOW the macro / earnings ticker row at
+              // the top of the page (those rows live in the first
+              // ~280px below the nav). Previously the drawer overlapped
+              // the rightmost earnings tickers.
+              top: "340px",
               width: collapsed ? "28px" : "240px",
-              maxHeight: collapsed ? "120px" : "min(440px, calc(100vh - 80px))",
+              maxHeight: collapsed ? "120px" : "min(420px, calc(100vh - 360px))",
               background: collapsed
                 ? "rgba(255,255,255,0.02)"
                 : "rgba(11,14,17,0.78)",

@@ -891,6 +891,18 @@
             minimumWidth: 70,
             entireTextOnly: true
           },
+          handleScale: {
+            mouseWheel: true,
+            pinch: true,
+            axisPressedMouseMove: {
+              price: true,
+              time: true
+            },
+            axisDoubleClickReset: {
+              price: true,
+              time: true
+            }
+          },
           timeScale: {
             borderColor: "rgba(38,50,95,0.3)",
             timeVisible: !_isHtfChart,
@@ -958,6 +970,33 @@
         candleSeriesRef.current = candleSeries;
         firstDataLoadAppliedRef.current = false;
         lastMappedSigRef.current = null;
+        try {
+          const priceScale = chart.priceScale("right");
+          if (priceScale && typeof priceScale.subscribePriceScaleChanged === "function") {
+            priceScale.subscribePriceScaleChanged(() => {
+              try {
+                priceScale.applyOptions({
+                  autoScale: false
+                });
+              } catch (_) {}
+            });
+          } else {
+            const axisInteract = () => {
+              try {
+                chart.priceScale("right").applyOptions({
+                  autoScale: false
+                });
+              } catch (_) {}
+            };
+            containerRef.current.addEventListener("wheel", axisInteract, {
+              passive: true
+            });
+            containerRef.current.addEventListener("mousedown", ev => {
+              const rect = containerRef.current.getBoundingClientRect();
+              if (ev.clientX > rect.right - 80) axisInteract();
+            });
+          }
+        } catch (_) {}
         chart.subscribeCrosshairMove(param => {
           if (!param.time || !param.seriesData) {
             setOhlcHeader(null);
@@ -2124,21 +2163,21 @@
         for (const l of above) {
           out.push({
             price: Number(l.price),
-            color: "rgba(244,63,94,0.22)",
+            color: "rgba(244,63,94,0.55)",
             lineWidth: 1,
-            lineStyle: 1,
+            lineStyle: 2,
             axisLabelVisible: true,
-            title: (l.label || "").replace(/Recent /i, "").replace(/Yesterday's /i, "Y'day ").slice(0, 22)
+            title: (l.label || "").replace(/Recent /i, "").replace(/Yesterday's /i, "Y'day ").slice(0, 24)
           });
         }
         for (const l of below) {
           out.push({
             price: Number(l.price),
-            color: "rgba(38,166,154,0.22)",
+            color: "rgba(38,166,154,0.55)",
             lineWidth: 1,
-            lineStyle: 1,
+            lineStyle: 2,
             axisLabelVisible: true,
-            title: (l.label || "").replace(/Recent /i, "").replace(/Yesterday's /i, "Y'day ").slice(0, 22)
+            title: (l.label || "").replace(/Recent /i, "").replace(/Yesterday's /i, "Y'day ").slice(0, 24)
           });
         }
         return out;
@@ -3236,7 +3275,8 @@
               overflowX: "auto",
               WebkitOverflowScrolling: "touch",
               scrollSnapType: "x proximity",
-              scrollbarWidth: "none"
+              scrollbarWidth: "none",
+              justifyContent: "flex-end"
             }
           }, [["SNAPSHOT", "Snapshot"], ["SETUP", "Setup"], ["TECHNICALS", "Technicals"], ["FUNDAMENTALS", "Fundamentals"], ["HISTORY", "History"]].map(([key, label]) => React.createElement("button", {
             key: key,

@@ -687,7 +687,11 @@ input, button, select, textarea {
   justify-content: center;
   font-size: 10px;
   font-weight: 700;
-  color: var(--ds-text-display);
+  /* P0.7.102 — placeholder text is INVISIBLE so the swap from
+     "SP" letters -> SPY logo image doesn't visibly flash. The
+     circular badge stays as a stable skeleton until the real
+     logo loads in via window.DS.tickerLogo() ref callback. */
+  color: transparent;
   font-family: var(--tt-font-mono);
 }
 .ds-tickercard__symbol {

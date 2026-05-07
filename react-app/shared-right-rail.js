@@ -702,6 +702,18 @@
             minimumWidth: 70,
             entireTextOnly: true,
           },
+          // P0.7.102 — explicit handleScale config so dragging the
+          // right price axis or scrolling on it scales price (vs time).
+          // axisDoubleClickReset lets the user double-click the axis
+          // to snap back to autoScale. Without this the chart would
+          // re-fit on every data refresh and wipe the user's manual
+          // zoom — that was the "snap back and flickers" symptom.
+          handleScale: {
+            mouseWheel: true,
+            pinch: true,
+            axisPressedMouseMove: { price: true, time: true },
+            axisDoubleClickReset: { price: true, time: true },
+          },
           timeScale: {
             borderColor: "rgba(38,50,95,0.3)",
             timeVisible: !_isHtfChart,
@@ -755,6 +767,32 @@
         // circuit runs the FIRST data load through (otherwise the new
         // chart instance would never receive any candles).
         lastMappedSigRef.current = null;
+
+        // P0.7.102 — Detect user interaction with the price axis and
+        // disable autoScale so subsequent data updates don't re-fit
+        // the price range. Without this, manually zooming vertically
+        // would "snap back" to autoScale on the next data refresh.
+        try {
+          const priceScale = chart.priceScale("right");
+          if (priceScale && typeof priceScale.subscribePriceScaleChanged === "function") {
+            // newer LWC versions
+            priceScale.subscribePriceScaleChanged(() => {
+              try { priceScale.applyOptions({ autoScale: false }); } catch (_) {}
+            });
+          } else {
+            // Fallback: detect mousewheel + drag on the chart container
+            // and turn off autoScale manually.
+            const axisInteract = () => {
+              try { chart.priceScale("right").applyOptions({ autoScale: false }); } catch (_) {}
+            };
+            containerRef.current.addEventListener("wheel", axisInteract, { passive: true });
+            containerRef.current.addEventListener("mousedown", (ev) => {
+              // only fire on price-axis side (right ~70px of chart)
+              const rect = containerRef.current.getBoundingClientRect();
+              if (ev.clientX > rect.right - 80) axisInteract();
+            });
+          }
+        } catch (_) {}
 
         // Crosshair move → OHLC header
         chart.subscribeCrosshairMove(param => {
@@ -1607,24 +1645,28 @@
             .sort((a, b) => Number(b.price) - Number(a.price))
             .slice(0, 3);
           const out = [];
+          // P0.7.102 — bumped opacity 0.22 -> 0.45 + lineWidth 1 -> 1
+          // (kept thin) so the lines are clearly visible on the chart
+          // but still subtle. Also use Dashed (style 2) instead of
+          // Dotted (1) for better visibility on dark backgrounds.
           for (const l of above) {
             out.push({
               price: Number(l.price),
-              color: "rgba(244,63,94,0.22)",
+              color: "rgba(244,63,94,0.55)",
               lineWidth: 1,
-              lineStyle: 1, // Dotted
+              lineStyle: 2, // Dashed
               axisLabelVisible: true,
-              title: (l.label || "").replace(/Recent /i, "").replace(/Yesterday's /i, "Y'day ").slice(0, 22),
+              title: (l.label || "").replace(/Recent /i, "").replace(/Yesterday's /i, "Y'day ").slice(0, 24),
             });
           }
           for (const l of below) {
             out.push({
               price: Number(l.price),
-              color: "rgba(38,166,154,0.22)",
+              color: "rgba(38,166,154,0.55)",
               lineWidth: 1,
-              lineStyle: 1, // Dotted
+              lineStyle: 2, // Dashed
               axisLabelVisible: true,
-              title: (l.label || "").replace(/Recent /i, "").replace(/Yesterday's /i, "Y'day ").slice(0, 22),
+              title: (l.label || "").replace(/Recent /i, "").replace(/Yesterday's /i, "Y'day ").slice(0, 24),
             });
           }
           return out;
@@ -2794,6 +2836,11 @@
                       / History stay reachable instead of overflowing the
                       panel width. flex: 0 0 auto on each tab keeps each
                       label intact (no wrapping or truncation). */}
+                  {/* P0.7.102 — tabs justify-content: flex-end so the
+                      Snapshot/Setup/.../History buttons sit on the
+                      RIGHT side of the rail. Closer to the user's
+                      mouse since the rail is on the right side of
+                      the viewport. Mobile horizontal-scroll preserved. */}
                   <div
                     className="ds-tab tt-rail-tabs tt-rail-area-tabnav"
                     role="tablist"
@@ -2803,6 +2850,7 @@
                       WebkitOverflowScrolling: "touch",
                       scrollSnapType: "x proximity",
                       scrollbarWidth: "none",
+                      justifyContent: "flex-end",
                     }}
                   >
                     {[["SNAPSHOT","Snapshot"],["SETUP","Setup"],["TECHNICALS","Technicals"],["FUNDAMENTALS","Fundamentals"],["HISTORY","History"]].map(([key, label]) => (
