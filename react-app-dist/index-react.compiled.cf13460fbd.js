@@ -18268,20 +18268,26 @@ function ActivityFeedDrawer({
         };
     }
   };
+  const MAX_EVENTS = 10;
+  const visibleEvents = events.slice(0, MAX_EVENTS);
   return React.createElement("aside", {
     className: "tt-activity-drawer",
     style: {
       position: "fixed",
       right: 0,
       top: "60px",
-      bottom: 0,
-      width: collapsed ? "32px" : "300px",
-      background: "var(--ds-bg-canvas, #0b0e11)",
-      borderLeft: "1px solid var(--ds-stroke, rgba(255,255,255,0.06))",
+      width: collapsed ? "28px" : "240px",
+      maxHeight: collapsed ? "120px" : "min(440px, calc(100vh - 80px))",
+      background: collapsed ? "rgba(255,255,255,0.02)" : "rgba(11,14,17,0.78)",
+      borderLeft: "1px solid var(--ds-stroke, rgba(255,255,255,0.05))",
+      borderBottom: "1px solid var(--ds-stroke, rgba(255,255,255,0.05))",
+      borderBottomLeftRadius: 8,
+      backdropFilter: "blur(6px)",
+      WebkitBackdropFilter: "blur(6px)",
       zIndex: 35,
       display: "flex",
       flexDirection: "column",
-      transition: "width 220ms ease",
+      transition: "width 200ms ease, max-height 200ms ease",
       overflow: "hidden"
     },
     "aria-label": "Recent system activity"
@@ -18293,12 +18299,12 @@ function ActivityFeedDrawer({
       display: "flex",
       alignItems: "center",
       justifyContent: collapsed ? "center" : "space-between",
-      padding: "8px 10px",
-      background: "rgba(255,255,255,0.02)",
-      borderBottom: "1px solid var(--ds-stroke, rgba(255,255,255,0.06))",
+      padding: collapsed ? "8px 4px" : "6px 10px",
+      background: "transparent",
+      borderBottom: collapsed ? "none" : "1px solid var(--ds-stroke, rgba(255,255,255,0.05))",
       color: "var(--ds-text-muted)",
-      fontSize: 10,
-      letterSpacing: "0.12em",
+      fontSize: 9,
+      letterSpacing: "0.14em",
       textTransform: "uppercase",
       fontWeight: 700,
       cursor: "pointer",
@@ -18308,123 +18314,121 @@ function ActivityFeedDrawer({
     style: {
       writingMode: "vertical-rl",
       transform: "rotate(180deg)",
-      fontSize: 9
+      fontSize: 8
     }
   }, "Activity") : React.createElement(React.Fragment, null, React.createElement("span", null, "Activity"), React.createElement("span", {
     style: {
       color: "var(--ds-text-faint)",
-      fontSize: 11
+      fontSize: 9
     }
-  }, events.length > 0 ? `${events.length}` : "", "  \u203A"))), !collapsed && React.createElement("div", {
+  }, visibleEvents.length > 0 ? `${visibleEvents.length}${events.length > MAX_EVENTS ? "+" : ""}` : "", "  \u203A"))), !collapsed && React.createElement("div", {
     style: {
       flex: 1,
       overflowY: "auto",
-      padding: "6px 8px"
+      padding: "2px 6px 6px"
     }
   }, loading ? React.createElement("div", {
     style: {
-      padding: 12,
-      fontSize: 11,
+      padding: "10px 6px",
+      fontSize: 10,
       color: "var(--ds-text-faint)"
     }
-  }, "Loading\u2026") : events.length === 0 ? React.createElement("div", {
+  }, "Loading\u2026") : visibleEvents.length === 0 ? React.createElement("div", {
     style: {
-      padding: 12,
-      fontSize: 11,
+      padding: "10px 6px",
+      fontSize: 10,
       color: "var(--ds-text-faint)",
       lineHeight: 1.5
     }
-  }, "No activity yet today. Last action will show here when the engine fires.") : React.createElement("div", {
+  }, "No recent activity. Last action will appear here.") : React.createElement("div", {
     style: {
       display: "flex",
-      flexDirection: "column",
-      gap: 4
+      flexDirection: "column"
     }
-  }, events.map((e, i) => {
+  }, visibleEvents.map((e, i) => {
     const meta = typeMeta(e.type);
     const dirIsLong = String(e.direction || "").toUpperCase() === "LONG";
     const dirIsShort = String(e.direction || "").toUpperCase() === "SHORT";
     const dirColor = dirIsLong ? "#34d399" : dirIsShort ? "#f87171" : "var(--ds-text-muted)";
     const pnlColor = e.pnl > 0 ? "#34d399" : e.pnl < 0 ? "#f87171" : "var(--ds-text-muted)";
+    const showPnl = e.type !== "ENTRY" && e.type !== "ADD_ENTRY" && Math.abs(e.pnl) > 0.01;
     return React.createElement("button", {
       key: `${e.trade_id}-${i}`,
       type: "button",
       onClick: () => onSelectTicker && onSelectTicker(e.ticker),
       style: {
-        display: "flex",
-        flexDirection: "column",
-        gap: 2,
-        padding: "6px 8px",
-        background: "rgba(255,255,255,0.015)",
-        border: "1px solid var(--ds-stroke, rgba(255,255,255,0.04))",
-        borderRadius: 6,
+        display: "grid",
+        gridTemplateColumns: "auto 1fr auto",
+        alignItems: "center",
+        gap: 6,
+        padding: "5px 6px",
+        background: "transparent",
+        border: "none",
+        borderTop: i > 0 ? "1px solid rgba(255,255,255,0.025)" : "none",
         textAlign: "left",
         cursor: "pointer",
-        transition: "background 120ms"
+        transition: "background 100ms",
+        fontFamily: "var(--tt-font-mono)"
       },
-      onMouseEnter: ev => ev.currentTarget.style.background = "rgba(255,255,255,0.04)",
-      onMouseLeave: ev => ev.currentTarget.style.background = "rgba(255,255,255,0.015)",
-      title: `${e.type} ${e.ticker} — ${fmtTime(e.ts)} ET${e.reason ? ` — ${e.reason}` : ""}`
-    }, React.createElement("div", {
-      style: {
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 6
-      }
+      onMouseEnter: ev => ev.currentTarget.style.background = "rgba(255,255,255,0.03)",
+      onMouseLeave: ev => ev.currentTarget.style.background = "transparent",
+      title: `${e.type} ${e.ticker} ${e.direction || ""} — ${fmtTime(e.ts)} ET${e.reason ? ` — ${e.reason}` : ""}`
     }, React.createElement("span", {
       style: {
-        fontSize: 9,
+        fontSize: 8,
         fontWeight: 700,
         letterSpacing: "0.08em",
-        padding: "1px 5px",
-        borderRadius: 3,
+        padding: "1px 4px",
+        borderRadius: 2,
         color: meta.color,
         background: meta.bg,
-        fontFamily: "var(--tt-font-mono)"
+        minWidth: 36,
+        textAlign: "center"
       }
     }, meta.label), React.createElement("span", {
       style: {
-        fontSize: 9,
-        color: "var(--ds-text-faint)",
-        fontFamily: "var(--tt-font-mono)"
-      }
-    }, fmtRelative(e.ts))), React.createElement("div", {
-      style: {
         display: "flex",
         alignItems: "baseline",
-        gap: 6
+        gap: 4,
+        minWidth: 0,
+        overflow: "hidden"
       }
     }, React.createElement("span", {
       style: {
         fontWeight: 700,
-        fontSize: 12,
-        color: "var(--ds-text-display)",
-        fontFamily: "var(--tt-font-mono)"
+        fontSize: 11,
+        color: "var(--ds-text-display)"
       }
     }, e.ticker), e.direction && React.createElement("span", {
       style: {
-        fontSize: 9,
+        fontSize: 8,
         fontWeight: 700,
-        color: dirColor,
-        letterSpacing: "0.06em"
+        color: dirColor
       }
-    }, e.direction)), React.createElement("div", {
+    }, dirIsLong ? "L" : dirIsShort ? "S" : ""), e.qty > 0 && React.createElement("span", {
+      style: {
+        fontSize: 9,
+        color: "var(--ds-text-muted)",
+        fontVariantNumeric: "tabular-nums"
+      }
+    }, e.qty.toFixed(e.qty < 10 ? 1 : 0), "@$", Number(e.price).toFixed(0))), React.createElement("span", {
       style: {
         display: "flex",
         alignItems: "center",
-        justifyContent: "space-between",
-        fontSize: 10,
-        color: "var(--ds-text-muted)",
-        fontFamily: "var(--tt-font-mono)",
-        fontVariantNumeric: "tabular-nums"
+        gap: 4,
+        fontSize: 9
       }
-    }, React.createElement("span", null, e.qty > 0 ? `${e.qty.toFixed(e.qty < 10 ? 1 : 0)} @ $${Number(e.price).toFixed(2)}` : ""), e.type !== "ENTRY" && e.type !== "ADD_ENTRY" && Math.abs(e.pnl) > 0.01 && React.createElement("span", {
+    }, showPnl && React.createElement("span", {
       style: {
         color: pnlColor,
-        fontWeight: 700
+        fontWeight: 700,
+        fontVariantNumeric: "tabular-nums"
       }
-    }, e.pnl >= 0 ? "+" : "", "$", Math.abs(e.pnl).toFixed(0))));
+    }, e.pnl >= 0 ? "+" : "−", "$", Math.abs(e.pnl).toFixed(0)), React.createElement("span", {
+      style: {
+        color: "var(--ds-text-faint)"
+      }
+    }, fmtRelative(e.ts))));
   }))));
 }
 window.App = App;
