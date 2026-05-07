@@ -16006,6 +16006,7 @@ async function processTradeSimulation(
                 value: p * remainingShares,
                 pnl: pnlRemaining,
               },
+              tsMs, // V15 P0.7.97 — actionTs (exit decision time)
             );
             if (!isReplay) {
               const chartUrl = getTradeAutopsyChartUrl(env, trade.id);
@@ -16024,10 +16025,14 @@ async function processTradeSimulation(
                   }))
                 : { ok: false, skipped: true, reason: "critical_only" };
               // Replay/backtest exits should not emit user-facing notifications.
+              // V15 P0.7.97 — exit notification body now includes the
+              // ET clock time of the exit so users can see WHEN the
+              // close happened vs the live market price they see now.
+              const _exitEtTime = formatEtClock(tsMs);
               queueBackground(d1InsertNotification(env, {
                 email: null, type: "trade_exit",
-                title: `EXIT: ${sym} ${String(trade.direction || "").toUpperCase()}`,
-                body: `Closed ${sym} @ $${Number(trade.exitPrice).toFixed(2)} (P&L: ${Number(trade.pnlPct || 0) >= 0 ? "+" : ""}${Number(trade.pnlPct || 0).toFixed(1)}%, ${String(trade.status || "").toUpperCase()})`,
+                title: `EXIT (${String(trade.status || "").toUpperCase()}): ${sym} ${String(trade.direction || "").toUpperCase()} @ $${Number(trade.exitPrice).toFixed(2)}${_exitEtTime ? ` · ${_exitEtTime}` : ""}`,
+                body: `Closed ${sym} ${String(trade.direction || "").toUpperCase()}${_exitEtTime ? ` at ${_exitEtTime}` : ""} · Filled $${Number(trade.exitPrice).toFixed(2)} · P&L ${Number(trade.pnlPct || 0) >= 0 ? "+" : ""}${Number(trade.pnlPct || 0).toFixed(2)}%`,
                 link: `/simulation-dashboard.html`,
               }));
               queueBackground(dispatchTradeAlertEmails(env, {
@@ -16429,7 +16434,7 @@ async function processTradeSimulation(
               dir,
               Number(trade.entryPrice),
               Number(trade.currentPrice || p),
-              Number(trade.tp || p),
+              Number(p), // V15 P0.7.97 — actual fill price for this trim
               Number(pnlRealized || 0),
               Number(pnlPctAtTrim || 0),
               tgt,
@@ -16437,6 +16442,7 @@ async function processTradeSimulation(
               trade,
               delta,
               { qty: trimShares, value: p * trimShares, pnl: pnlRealized },
+              tsMs, // V15 P0.7.97 — pass action ts so embed shows when
             );
             const trimChartUrl = getTradeAutopsyChartUrl(env, trade.id);
             if (trimChartUrl) {
@@ -16450,10 +16456,17 @@ async function processTradeSimulation(
                 }))
               : { ok: false, skipped: true, reason: "critical_only" };
             // In-app notification for trade trim
+            // V15 P0.7.97 — body now includes the fill PRICE and the
+            // ET clock time of the action. Without these, users were
+            // confused by alerts that arrived a few minutes after the
+            // trim and showed only "trimmed to 50%" while the live
+            // market had already drifted.
+            const _trimEtTime = formatEtClock(tsMs);
+            const _trimPriceFmt = Number.isFinite(Number(p)) ? `$${Number(p).toFixed(2)}` : null;
             queueBackground(d1InsertNotification(env, {
               email: null, type: "trade_trim",
-              title: `TRIM: ${sym} ${dir}`,
-              body: `Trimmed ${sym} ${dir} to ${tgt}% (P&L: ${Number(pnlPctAtTrim || 0) >= 0 ? "+" : ""}${Number(pnlPctAtTrim || 0).toFixed(1)}%)`,
+              title: `TRIM: ${sym} ${dir} ${tgt}%${_trimPriceFmt ? ` @ ${_trimPriceFmt}` : ""}`,
+              body: `Trimmed ${sym} ${dir} ${tgt}% of position${_trimPriceFmt ? ` filled at ${_trimPriceFmt}` : ""}${_trimEtTime ? ` (${_trimEtTime})` : ""} — P&L ${Number(pnlPctAtTrim || 0) >= 0 ? "+" : ""}${Number(pnlPctAtTrim || 0).toFixed(2)}%`,
               link: `/index-react.html?ticker=${sym}`,
             }));
             // Email trade alert
@@ -20891,6 +20904,7 @@ async function processTradeSimulation(
                         ? (Number(portfolio.equity) || Number(portfolio.cash) || PORTFOLIO_START_CASH)
                         : (Number(accountValue) || PORTFOLIO_START_CASH),
                     },
+                    tsMs, // V15 P0.7.97 — actionTs (entry decision time)
                   );
                   const entryChartUrl = getTradeAutopsyChartUrl(env, tradeId);
                   if (entryChartUrl) {
@@ -20913,10 +20927,13 @@ async function processTradeSimulation(
                       }))
                     : { ok: false, skipped: true, reason: "critical_only" };
                   // In-app notification for trade entry
+                  // V15 P0.7.97 — title includes price + ET time so the
+                  // notification is self-explanatory even if delivered late.
+                  const _entryEtTime = formatEtClock(tsMs);
                   queueBackground(d1InsertNotification(env, {
                     email: null, type: "trade_entry",
-                    title: `ENTRY: ${sym} ${direction}`,
-                    body: `Entered ${sym} ${direction} @ $${Number(entryPx).toFixed(2)} (Rank: ${Number(trade.rank || 0)}, R:R: ${Number(trade.rr || 0).toFixed(1)})`,
+                    title: `ENTRY: ${sym} ${direction} @ $${Number(entryPx).toFixed(2)}${_entryEtTime ? ` · ${_entryEtTime}` : ""}`,
+                    body: `Entered ${sym} ${direction}${_entryEtTime ? ` at ${_entryEtTime}` : ""} · Filled $${Number(entryPx).toFixed(2)} · Rank ${Number(trade.rank || 0)} · R:R ${Number(trade.rr || 0).toFixed(1)}`,
                     link: `/index-react.html?ticker=${sym}`,
                   }));
                   // Email trade alert
@@ -22373,6 +22390,7 @@ async function processTradeSimulation(
                   updatedTrade,
                   trimDeltaPctRaw,
                   { qty: trimQtySim, value: trimPriceSim * trimQtySim, pnl },
+                  alertTs, // V15 P0.7.97 — pass action ts so embed shows when
                 );
                 const sendRes = await notifyDiscord(env, embed).catch((err) => {
                   console.error(
@@ -22473,6 +22491,8 @@ async function processTradeSimulation(
                     updatedTrade.rr || existingOpenTrade.rr || 0,
                     tickerData,
                     updatedTrade,
+                    null, // execution
+                    exitTs, // V15 P0.7.97 — actionTs (exit decision time)
                   );
                   const td9Res = await notifyDiscord(env, td9Embed).catch(
                     (err) => {
@@ -23360,6 +23380,8 @@ async function processTradeSimulation(
                     Number(tickerData.price), // Current price for comparison
                     isBackfill,
                     tickerData, // Pass full ticker data for comprehensive embed
+                    null, // execution
+                    isoToMs(trade.entryTime) || Number(trade.entry_ts) || Date.now(), // V15 P0.7.97 actionTs
                   )
                 : null;
               const sendRes = allowDiscord
@@ -26166,6 +26188,26 @@ async function drainQueuedActions(env) {
   } catch (e) {
     console.error("[QUEUE DRAIN] Fatal error:", e);
     return { executed: 0, expired: 0, error: String(e) };
+  }
+}
+
+/**
+ * V15 P0.7.97 — Format a UTC timestamp as a short ET clock string for
+ * inclusion in user-facing alert bodies. Lets the user see WHEN an
+ * action happened ("filled at 10:31 AM ET") so they don't get confused
+ * when they read the alert later and the live price has drifted.
+ *   formatEtClock(1778164278396) -> "10:31 AM ET"
+ */
+function formatEtClock(tsMs) {
+  if (!Number.isFinite(Number(tsMs))) return null;
+  try {
+    return new Date(Number(tsMs)).toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: "America/New_York",
+    }) + " ET";
+  } catch {
+    return null;
   }
 }
 
@@ -34373,6 +34415,7 @@ function createTradeEntryEmbed(
   isBackfill = false,
   tickerData = null,
   execution = null, // { qty, value, pnl } for verifiable history
+  actionTs = null,  // V15 P0.7.97 — when the entry actually fired
 ) {
   const isLong = direction === "LONG";
   const color = isLong ? 0x22c55e : 0xef4444;
@@ -34380,7 +34423,10 @@ function createTradeEntryEmbed(
 
   // Human-readable description
   const rrLabel = Number.isFinite(rr) && rr > 0 ? ` with a ${rr.toFixed(1)}:1 risk-to-reward ratio` : "";
-  const description = `Opened a **${dirLabel.toLowerCase()}** position at **$${entryPrice.toFixed(2)}**${rrLabel}.`;
+  // V15 P0.7.97 — lead with the fill time so the user can immediately tell
+  // when the action happened, regardless of when the alert is read.
+  const _entryEt = formatEtClock(actionTs) || "now";
+  const description = `Opened a **${dirLabel.toLowerCase()}** position at **$${entryPrice.toFixed(2)}**${rrLabel}.\n_Filled at **$${entryPrice.toFixed(2)}** · ${_entryEt}_`;
 
   const fields = [];
 
@@ -34512,12 +34558,12 @@ function createTradeEntryEmbed(
   }
 
   return {
-    title: `${isLong ? "🟢" : "🔴"}  New Trade: ${ticker} ${dirLabel}${isBackfill ? " (backfill)" : ""}`,
+    title: `${isLong ? "🟢" : "🔴"}  New Trade: ${ticker} ${dirLabel} @ $${entryPrice.toFixed(2)}${isBackfill ? " (backfill)" : ""}`,
     description,
     color,
     fields,
-    timestamp: new Date().toISOString(),
-    footer: { text: "Timed Trading Model • Not financial advice" },
+    timestamp: actionTs ? new Date(Number(actionTs)).toISOString() : new Date().toISOString(),
+    footer: { text: `Timed Trading • Filled at $${entryPrice.toFixed(2)} · live price may have moved` },
   };
 }
 
@@ -34535,6 +34581,7 @@ function createTradeTrimmedEmbed(
   trade = null,
   trimDeltaPct = null,
   execution = null, // { qty, value, pnl } for verifiable history
+  actionTs = null,  // V15 P0.7.97 — when the trim actually fired
 ) {
   const trimPercent = Math.round(trimmedPct * 100);
   const remainingPct = Math.round((1 - trimmedPct) * 100);
@@ -34554,15 +34601,27 @@ function createTradeTrimmedEmbed(
   const pnlLabel = pnl >= 0 ? `+$${pnl.toFixed(2)}` : `-$${Math.abs(pnl).toFixed(2)}`;
   const pctLabel = `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`;
   const stepLabel = stepPct ? `${stepPct}%` : `${trimPercent}%`;
-  const description = pnl >= 0
+  // V15 P0.7.97 — Lead with WHEN + WHAT PRICE so the user can immediately
+  // tell whether this is a fresh action or a delayed alert. The fill price
+  // (`currentPrice` here = price snapshot at decision time) is the SAME
+  // value as `tp` for trim execution; we explicitly label it as "filled at"
+  // not "current" so it's not confused with the live market price the user
+  // sees on their charts.
+  const _trimEt = formatEtClock(actionTs) || "now";
+  const fillPrice = Number.isFinite(tp) ? Number(tp) : Number(currentPrice);
+  const description = (pnl >= 0
     ? `Locked in **${pnlLabel}** (${pctLabel}) by trimming **${stepLabel}** of the position. **${remainingPct}%** still running.`
-    : `Reduced exposure by trimming **${stepLabel}** of the position at **${pnlLabel}** (${pctLabel}). **${remainingPct}%** still running.`;
+    : `Reduced exposure by trimming **${stepLabel}** of the position at **${pnlLabel}** (${pctLabel}). **${remainingPct}%** still running.`)
+    + `\n_Filled at **$${fillPrice.toFixed(2)}** · ${_trimEt}_`;
 
   const fields = [];
 
   // 1. Position & P&L
+  // V15 P0.7.97 — relabel "Current" to "Filled at" since this value is the
+  // engine's fill snapshot at decision time (not the live tape, which may
+  // have moved while the alert was in transit).
   const posLines = [
-    `Entry:  **$${entryPrice.toFixed(2)}**  |  Current:  **$${currentPrice.toFixed(2)}**`,
+    `Entry:  **$${entryPrice.toFixed(2)}**  |  Filled at:  **$${fillPrice.toFixed(2)}**`,
     `P&L:  **${pnlLabel}** (${pctLabel})`,
   ];
   if (execution && Number.isFinite(execution.qty)) {
@@ -34641,12 +34700,15 @@ function createTradeTrimmedEmbed(
   const titleAction = isProfit ? "Taking Profit" : "Trimming Position";
 
   return {
-    title: `${titleEmoji}  ${titleAction}: ${ticker} ${direction} — ${stepLabel}`,
+    title: `${titleEmoji}  ${titleAction}: ${ticker} ${direction} — ${stepLabel} @ $${fillPrice.toFixed(2)}`,
     description,
     color: isProfit ? 0xf59e0b : 0xef4444,
     fields,
-    timestamp: new Date().toISOString(),
-    footer: { text: "Timed Trading Model • Not financial advice" },
+    // V15 P0.7.97 — embed timestamp now reflects the ACTION time, not
+    // the embed-render time. Discord renders this as "Today at HH:MM"
+    // so the user can always see when the trim actually fired.
+    timestamp: actionTs ? new Date(Number(actionTs)).toISOString() : new Date().toISOString(),
+    footer: { text: `Timed Trading • Filled at $${fillPrice.toFixed(2)} · live price may have moved` },
   };
 }
 
@@ -34664,6 +34726,7 @@ function createTradeClosedEmbed(
   tickerData = null,
   trade = null,
   execution = null, // { qty, value, pnl } for verifiable history
+  actionTs = null,  // V15 P0.7.97 — when the exit actually fired
 ) {
   const isWin = status === "WIN";
   const isFlat = status === "FLAT";
@@ -34789,14 +34852,18 @@ function createTradeClosedEmbed(
   } else {
     title = `🛑  Stopped Out: ${ticker} ${direction} — Closed ${closedPct}%  —  ${pctLabel}`;
   }
+  // V15 P0.7.97 — append fill price + ET time so the title is self-explanatory
+  title = `${title} @ $${Number(exitPrice).toFixed(2)}`;
+  const _exitEt = formatEtClock(actionTs);
+  if (_exitEt) title = `${title} · ${_exitEt}`;
 
   return {
     title,
     description,
     color,
     fields,
-    timestamp: new Date().toISOString(),
-    footer: { text: "Timed Trading Model • Not financial advice" },
+    timestamp: actionTs ? new Date(Number(actionTs)).toISOString() : new Date().toISOString(),
+    footer: { text: `Timed Trading • Filled at $${Number(exitPrice).toFixed(2)} · live price may have moved` },
   };
 }
 
