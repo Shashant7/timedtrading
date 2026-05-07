@@ -2555,16 +2555,16 @@
           cancelled = true;
         };
       }, [tickerSymbol, chartTf]);
+      const _contextReady = !!(ticker?.context && typeof ticker.context === "object" && (ticker.context.name || ticker.context.industry || ticker.context.sector || ticker.context.description));
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
-        const contextReady = !!(ticker?.context && typeof ticker.context === "object" && (ticker.context.name || ticker.context.industry || ticker.context.sector || ticker.context.description));
         if (!sym) {
           setLatestTicker(null);
           setLatestTickerError(null);
           setLatestTickerLoading(false);
           return;
         }
-        if (contextReady) {
+        if (_contextReady) {
           setLatestTicker(null);
           setLatestTickerError(null);
           setLatestTickerLoading(false);
@@ -2598,7 +2598,7 @@
         return () => {
           cancelled = true;
         };
-      }, [tickerSymbol, ticker]);
+      }, [tickerSymbol, _contextReady]);
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
         if (!sym) {
@@ -2637,7 +2637,7 @@
         return () => {
           cancelled = true;
         };
-      }, [tickerSymbol, latestTicker, ticker]);
+      }, [tickerSymbol, latestTicker, ticker?.sector, ticker?.pattern_match]);
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
         const isHistoryTab = railTab === "TRADE_HISTORY" || railTab === "HISTORY";

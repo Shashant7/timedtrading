@@ -2046,22 +2046,30 @@
           };
         }, [tickerSymbol, chartTf]);
 
+        // P0.7.101 — derive contextReady from STABLE primitive values
+        // (not the ticker object reference). Was: deps included the
+        // entire `ticker` prop, which gets a new object reference on
+        // every WS price tick (~every 2s). Each tick refired this
+        // effect → setLatestTicker → cascading parent re-renders that
+        // touched the chart panel and produced the "flash" the user
+        // reported. Now the effect only refires when the ticker
+        // SYMBOL changes or when context fields appear/disappear.
+        const _contextReady = !!(
+          ticker?.context &&
+          typeof ticker.context === "object" &&
+          (ticker.context.name || ticker.context.industry || ticker.context.sector || ticker.context.description)
+        );
         useEffect(() => {
           const sym = String(tickerSymbol || "")
             .trim()
             .toUpperCase();
-          const contextReady = !!(
-            ticker?.context &&
-            typeof ticker.context === "object" &&
-            (ticker.context.name || ticker.context.industry || ticker.context.sector || ticker.context.description)
-          );
           if (!sym) {
             setLatestTicker(null);
             setLatestTickerError(null);
             setLatestTickerLoading(false);
             return;
           }
-          if (contextReady) {
+          if (_contextReady) {
             setLatestTicker(null);
             setLatestTickerError(null);
             setLatestTickerLoading(false);
@@ -2102,7 +2110,7 @@
           return () => {
             cancelled = true;
           };
-        }, [tickerSymbol, ticker]);
+        }, [tickerSymbol, _contextReady]);
 
         // Fetch model signals (ticker + sector + market level)
         useEffect(() => {
@@ -2133,7 +2141,11 @@
             } catch (_) { /* model signals are a boost, not a gate */ }
           })();
           return () => { cancelled = true; };
-        }, [tickerSymbol, latestTicker, ticker]);
+          // P0.7.101 — pin deps to STABLE primitive values from `ticker`
+          // (sector + pattern_match) instead of the whole ticker object,
+          // which changes reference every WS price tick (~every 2s) and
+          // refired this effect → setModelSignal → cascading re-renders.
+        }, [tickerSymbol, latestTicker, ticker?.sector, ticker?.pattern_match]);
 
         useEffect(() => {
           const sym = String(tickerSymbol || "")

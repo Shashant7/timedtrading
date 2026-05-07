@@ -180,10 +180,12 @@
       @media (min-width: 1024px) {
         .tt-rail-chart-canvas { height: 380px; }
       }
+      /* P0.7.101 — see comment in index-react.source.html: 230px
+         total chrome accounted for (nav + bottom + paddings). */
       .tt-rail-shell--workspace .tt-rail-chart-canvas {
-        height: calc(100vh - 200px) !important;
-        max-height: 1200px;
-        min-height: 540px;
+        height: calc(100vh - 230px) !important;
+        max-height: 1100px;
+        min-height: 420px;
       }
       /* V15 P0.7.85: mobile reorder \u2014 tab content first, chart + levels at bottom.
          V15 P0.7.87: on mobile (<1024px) hide chart+levels entirely so
@@ -213,7 +215,7 @@
     <script src="shared-price-utils.js?v=20260211a"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260507-rail-r4"></script>
+    <script src="shared-right-rail.compiled.js?v=20260507-rail-noflicker"></script>
     <!-- V15 P0.7.36 (2026-04-30): Trades Performance overview component
          (Monthly perf table, setup breakdown, P&L calendar heatmap).
          Self-contained factory at react-app/trades-performance.js. -->
