@@ -33519,6 +33519,18 @@ async function d1LoadTradesForSimulation(env) {
   try {
     let rows;
     try {
+      // V15 P0.7.94 — HARDENING after May 7 2026 zombie-alert incident.
+      // The live cron was loading the entire 587-row promoted backtest as
+      // "live trades" via the live_config_slot=1 join. Any of those rows
+      // whose status drifted back to OPEN (positions table never closed,
+      // a re-INSERT, etc.) would get processed as a live position and
+      // could re-fire entry alerts at pre-market with the OLD entry price.
+      //
+      // New rule: NEVER load a trade older than 30 days unless it is
+      // strictly OPEN and has a recent execution_actions row. This keeps
+      // the simulation loop focused on actual live trades and refuses to
+      // resurrect zombie history.
+      const STALE_LIVE_TRADE_CUTOFF_MS = Date.now() - 30 * 24 * 60 * 60 * 1000;
       const tradesRes = await db.prepare(
         `SELECT t.trade_id, t.ticker, t.direction, t.entry_ts, t.entry_price, t.rank, t.rr, t.status,
           t.exit_ts, t.exit_price, t.exit_reason, t.trimmed_pct, t.pnl, t.pnl_pct,
@@ -33527,10 +33539,27 @@ async function d1LoadTradesForSimulation(env) {
           COALESCE(p.total_qty, 0) AS pos_qty
          FROM trades t
          LEFT JOIN positions p ON p.position_id = t.trade_id
-         WHERE t.run_id IS NULL
-            OR t.run_id IN (SELECT run_id FROM backtest_runs WHERE live_config_slot = 1)
+         WHERE (t.run_id IS NULL
+                OR t.run_id IN (SELECT run_id FROM backtest_runs WHERE live_config_slot = 1))
+           AND (
+             /* Recent trade — let it pass regardless of status */
+             COALESCE(t.entry_ts, 0) >= ?1
+             /* OR an explicitly OPEN/TP_HIT_TRIM trade with a confirmed
+                execution_actions ENTRY row in the last 30 days. The EXISTS
+                guard refuses to surface zombie OPEN rows whose history has
+                been wiped. */
+             OR (
+               UPPER(COALESCE(t.status, '')) IN ('OPEN', 'TP_HIT_TRIM')
+               AND EXISTS (
+                 SELECT 1 FROM execution_actions ea
+                 WHERE ea.position_id = t.trade_id
+                   AND ea.action_type = 'ENTRY'
+                   AND ea.ts >= ?1
+               )
+             )
+           )
          ORDER BY t.entry_ts DESC`
-      ).all();
+      ).bind(STALE_LIVE_TRADE_CUTOFF_MS).all();
       rows = Array.isArray(tradesRes?.results) ? tradesRes.results : [];
     } catch (joinErr) {
       if ((joinErr?.message || "").includes("no such table") && (joinErr?.message || "").includes("positions")) {
