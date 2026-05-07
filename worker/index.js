@@ -943,6 +943,7 @@ const ROUTES = [
   ["POST", "/timed/admin/refresh-path-performance", "POST /timed/admin/refresh-path-performance"],
   ["GET", "/timed/admin/direction-accuracy/inspect", "GET /timed/admin/direction-accuracy/inspect"],
   ["POST", "/timed/admin/restore-trade-from-da", "POST /timed/admin/restore-trade-from-da"],
+  ["POST", "/timed/admin/patch-trade-shares", "POST /timed/admin/patch-trade-shares"],
   ["GET", "/timed/admin/activity-feed", "GET /timed/admin/activity-feed"],
   ["POST", "/timed/admin/model-config", "POST /timed/admin/model-config"],
   ["GET",  "/timed/admin/grade-config",  "GET /timed/admin/grade-config"],
@@ -52923,6 +52924,75 @@ export default {
             restored.push({ trade_id: tid, ticker, ok: true, status, entry_ts: entryTs, entry_price: entryPrice });
           }
           return sendJSON({ ok: true, restored }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/patch-trade-shares?trade_id=X&shares=Y[&notional=Z][&key=...]
+      // V15 P0.7.91: restore qty / cost_basis on a trade row whose original
+      // entry actions were purged (e.g. by purge-orphan-trades). The
+      // /timed/account-summary unrealized PnL formula reads `trades.shares`
+      // and `trades.entry_price` to compute mark-to-market for OPEN/TP_HIT_TRIM
+      // trades. Without `shares`, Open P&L stays $0 even when prices move.
+      //
+      // This endpoint:
+      //   1. Updates trades.shares + trades.notional (notional defaults to
+      //      shares * entry_price if not supplied).
+      //   2. Updates positions.total_qty + positions.cost_basis.
+      //   3. Does NOT touch account_ledger — accountValue = startCash +
+      //      totalRealized + unrealized, so the deduction is already implicit
+      //      in the unrealized recompute.
+      if (routeKey === "POST /timed/admin/patch-trade-shares") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const tid = String(url.searchParams.get("trade_id") || "").trim();
+          const sharesParam = Number(url.searchParams.get("shares"));
+          const notionalParam = Number(url.searchParams.get("notional"));
+          if (!tid) return sendJSON({ ok: false, error: "trade_id required" }, 400, corsHeaders(env, req));
+          if (!Number.isFinite(sharesParam) || sharesParam <= 0) {
+            return sendJSON({ ok: false, error: "shares must be a positive number" }, 400, corsHeaders(env, req));
+          }
+          // Look up the trade so we know entry_price + ticker + direction.
+          const tradeRow = await db.prepare(
+            `SELECT trade_id, ticker, direction, entry_price, status FROM trades WHERE trade_id = ?1`
+          ).bind(tid).first();
+          if (!tradeRow) {
+            return sendJSON({ ok: false, error: "trade_not_found" }, 404, corsHeaders(env, req));
+          }
+          const entryPrice = Number(tradeRow.entry_price) || 0;
+          const notional = Number.isFinite(notionalParam) && notionalParam > 0
+            ? notionalParam
+            : (sharesParam * entryPrice);
+          const costBasis = sharesParam * entryPrice;
+          const now = Date.now();
+          await db.prepare(
+            `UPDATE trades SET shares = ?2, notional = ?3, updated_at = ?4 WHERE trade_id = ?1`
+          ).bind(tid, sharesParam, notional, now).run();
+          // Position row may not exist if trade is closed; only patch if present.
+          const posRow = await db.prepare(
+            `SELECT position_id, status FROM positions WHERE position_id = ?1`
+          ).bind(tid).first();
+          let positionUpdated = false;
+          if (posRow) {
+            await db.prepare(
+              `UPDATE positions SET total_qty = ?2, cost_basis = ?3, updated_at = ?4 WHERE position_id = ?1`
+            ).bind(tid, sharesParam, costBasis, now).run();
+            positionUpdated = true;
+          }
+          return sendJSON({
+            ok: true,
+            trade_id: tid,
+            ticker: tradeRow.ticker,
+            entry_price: entryPrice,
+            shares: sharesParam,
+            notional,
+            cost_basis: costBasis,
+            position_updated: positionUpdated,
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }

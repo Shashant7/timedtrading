@@ -626,6 +626,29 @@ input, button, select, textarea {
   border-right: 1px solid var(--ds-stroke);
 }
 
+/* Mobile: shrink metric tiles so the value never overflows into the next cell.
+   At ≤640px the 32px hero font of "$140.1K" was bleeding into the adjacent
+   tile (Total P&L → Open P&L). Reduce font, padding, and min-width so the
+   grid lays out cleanly. */
+@media (max-width: 640px) {
+  .ds-metric {
+    padding: var(--ds-space-2) var(--ds-space-3);
+    min-width: 0;
+  }
+  .ds-metric__value {
+    font-size: 22px;
+    letter-spacing: -0.01em;
+  }
+  .ds-metric__label {
+    font-size: 9px;
+    letter-spacing: 0.12em;
+  }
+  .ds-metric__delta {
+    font-size: 10px;
+    padding: 1px 5px;
+  }
+}
+
 /* ─── DsTickerCard ─────────────────────────────────────────────────── */
 
 .ds-tickercard {
