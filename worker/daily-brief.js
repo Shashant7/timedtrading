@@ -1695,9 +1695,21 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
   // from the previous daily close (anchor). These are tighter, more
   // actionable than traditional pivot levels for intraday trading.
   let atrFibLevels = null;
-  // Use previous daily close as anchor — matches the client-side chart levels exactly
+  // V15 P0.7.96 — anchor MUST be the most recent SESSION close (= yesterday
+  // for pre-market, today's prev close for RTH). The previous logic used
+  // recent[length-2].c which is the day-BEFORE-yesterday's close whenever
+  // recent[length-1] is yesterday's bar — that's the bug that made the
+  // SPY brief render anchor=$701.66 while live price was $733.83 and the
+  // game-plan target ended up on the wrong side of the current price.
+  // Prefer latestData.prev_close (canonical, fed by the price pipeline)
+  // and fall back to the candle heuristic only if it isn't available.
+  const lastCandle = recent[recent.length - 1];
   const prevDayCandle = recent[recent.length - 2];
-  const anchor = prevDayCandle ? Number(prevDayCandle.c) : (pivots?.prevClose || last);
+  const anchor = Number(latestData?.prev_close)
+    || Number(latestData?.prevClose)
+    || (lastCandle && Number(lastCandle.c))
+    || (prevDayCandle && Number(prevDayCandle.c))
+    || (pivots?.prevClose || last);
   if (anchor > 0 && atr14 > 0) {
     // Use the daily true-range ATR directly (already computed above)
     const dayAtr = atr14;
@@ -1801,16 +1813,32 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
       };
     }
 
-    // Pre-validated game plan targets so the AI doesn't produce impossible combos
+    // V15 P0.7.96 — game plan triggers + targets, with strict invariant
+    // that bullTarget > bullTrigger > curPrice and bearTarget < bearTrigger
+    // < curPrice. The previous logic could produce target-on-the-wrong-side
+    // when the overnight range was missing or the price had drifted >1 ATR
+    // from anchor.
+    //
+    // Trigger logic:
+    //   bullTrigger = max(overnight high, curPrice + 0.25*ATR)
+    //   bearTrigger = min(overnight low,  curPrice - 0.25*ATR)
+    // Target logic: pick the nearest fib level past the trigger; if no fib
+    //   level is past the trigger, project trigger ± 0.75*ATR.
     const oHi = overnightRange?.high || curPrice;
     const oLo = overnightRange?.low || curPrice;
-    const allBullTargets = fibs.map(f => rnd(anchor + dayAtr * f)).filter(t => t > oHi);
-    const allBearTargets = fibs.map(f => rnd(anchor - dayAtr * f)).filter(t => t < oLo);
+    const bullTrig = Math.max(rnd(oHi), rnd(curPrice + dayAtr * 0.25));
+    const bearTrig = Math.min(rnd(oLo), rnd(curPrice - dayAtr * 0.25));
+    const allUpFibs = fibs.map(f => rnd(anchor + dayAtr * f));
+    const allDnFibs = fibs.map(f => rnd(anchor - dayAtr * f));
+    const bullTargetFib = allUpFibs.find(t => t > bullTrig);
+    const bearTargetFib = allDnFibs.slice().reverse().find(t => t < bearTrig);
+    const bullTgt = bullTargetFib != null ? bullTargetFib : rnd(bullTrig + dayAtr * 0.75);
+    const bearTgt = bearTargetFib != null ? bearTargetFib : rnd(bearTrig - dayAtr * 0.75);
     atrFibLevels.gamePlan = {
-      bullTrigger: rnd(oHi),
-      bullTarget: allBullTargets[0] || rnd(anchor + dayAtr * 1.0),
-      bearTrigger: rnd(oLo),
-      bearTarget: allBearTargets[0] || rnd(anchor - dayAtr * 1.0),
+      bullTrigger: bullTrig,
+      bullTarget:  Math.max(bullTgt, rnd(bullTrig + 0.01)),
+      bearTrigger: bearTrig,
+      bearTarget:  Math.min(bearTgt, rnd(bearTrig - 0.01)),
     };
   }
 
@@ -3079,24 +3107,62 @@ function buildBriefInfographic(data, type) {
       levels: w.levels || {},
     };
   };
-  const _extract = (sym, md, tech) => {
-    if (!md) return null;
-    const price = Number(md.price);
-    const chg = Number(md.changePct ?? md.dp);
-    const atr = Number(tech?.atr14 ?? tech?.atr);
+  // V15 P0.7.96 — Overlay the canonical ticker-scenario over the per-tech
+  // payload. The legacy `summarizeTechnical()` path (a) anchors fibs to
+  // recent[length-2].c which is two sessions stale during pre-market, and
+  // (b) has a game-plan fallback that produces invalid bull/bear pairs
+  // (target on the wrong side of the trigger) when no overnight range is
+  // available. The canonical scenario (worker/ticker-scenario.js) has
+  // already been fixed to use prev_close + swing-reclaim levels and is
+  // shared with the right rail. Prefer its values when present.
+  const _extract = (sym, md, tech, scenario) => {
+    if (!md && !scenario) return null;
+    // Prefer scenario.price (live, includes pre-market) over md.price
+    // (which is often the cached RTH-close snapshot).
+    const livePrice = Number(scenario?.price) || Number(md?.price);
+    const chg = Number(md?.changePct ?? md?.dp);
+    const atr = Number(scenario?.atr14 ?? tech?.atr14 ?? tech?.atr);
+    const baseLevels = _normLevels(tech);
+    let mergedLevels = baseLevels;
+    if (scenario?.ok && scenario?.game_plan) {
+      // Use scenario's game plan + current price; keep tech's fib map
+      // (anchor/levels object) for the DAY GATE bar so we don't lose
+      // the existing visualization, but override the gamePlan + currentPrice.
+      const gp = scenario.game_plan;
+      mergedLevels = {
+        ...(baseLevels || {}),
+        currentPrice: Number.isFinite(livePrice) ? livePrice : (baseLevels?.currentPrice ?? null),
+        gamePlan: {
+          bullTrigger: Number(gp.bull_trigger) || null,
+          bullTarget:  Number(gp.bull_target)  || null,
+          bearTrigger: Number(gp.bear_trigger) || null,
+          bearTarget:  Number(gp.bear_target)  || null,
+        },
+      };
+    } else if (baseLevels?.gamePlan) {
+      // Fallback: validate the legacy game-plan and drop it if the
+      // bull/bear sides are inverted (target on the wrong side of trigger).
+      const gp = baseLevels.gamePlan;
+      const bullValid = Number.isFinite(gp.bullTrigger) && Number.isFinite(gp.bullTarget) && gp.bullTarget > gp.bullTrigger;
+      const bearValid = Number.isFinite(gp.bearTrigger) && Number.isFinite(gp.bearTarget) && gp.bearTarget < gp.bearTrigger;
+      if (!bullValid || !bearValid) {
+        mergedLevels = { ...baseLevels, gamePlan: null };
+      }
+    }
     return {
       sym,
-      price: Number.isFinite(price) ? Math.round(price * 100) / 100 : null,
+      price: Number.isFinite(livePrice) ? Math.round(livePrice * 100) / 100 : null,
       chgPct: Number.isFinite(chg) ? Math.round(chg * 100) / 100 : null,
       atr: Number.isFinite(atr) ? Math.round(atr * 100) / 100 : null,
-      levels: _normLevels(tech),
+      levels: mergedLevels,
       weeklyLevels: _normWeeklyLevels(tech),
+      bias: scenario?.bias || null,
     };
   };
   const indices = [
-    _extract("SPY", data.market?.SPY, data.spyTechnical),
-    _extract("QQQ", data.market?.QQQ, data.qqqTechnical),
-    _extract("IWM", data.market?.IWM, data.iwmTechnical),
+    _extract("SPY", data.market?.SPY, data.spyTechnical, data.spyScenario),
+    _extract("QQQ", data.market?.QQQ, data.qqqTechnical, data.qqqScenario),
+    _extract("IWM", data.market?.IWM, data.iwmTechnical, data.iwmScenario),
   ].filter(Boolean);
 
   const pf = data.priceFeedRaw || {};
