@@ -499,6 +499,12 @@
          - hideOverlayToggles bool
          - propTicker.ticker string
        Returns true (skip render) if all match. */
+    // V15 P0.7.98 — module-scoped stable empty array. Used as the
+    // priceLines prop for the rail's default "Daily Brief style" chart so
+    // we don't allocate a fresh [] on every render (which would defeat
+    // the LWChart React.memo comparator and force a full chart redraw).
+    const EMPTY_PRICE_LINES = Object.freeze([]);
+
     function _LWChartImpl({ candles: rawCandles, chartTf, overlays, onCrosshair, height: propHeight, priceLines: propPriceLines, markers: propMarkers, ticker: propTicker, hideOverlayToggles = false }) {
       const containerRef = useRef(null);
       const chartInstanceRef = useRef(null);
@@ -1743,10 +1749,17 @@
                 return;
               }
 
+              // V15 P0.7.98 — match Daily Brief MiniChart limits exactly.
+              // Was 500 bars (~2 weeks of 30m, costly + unnecessary). User
+              // wants ~100 bars / today + previous day for the rail chart.
+              // The daily-brief uses these exact per-TF limits and the chart
+              // looks much cleaner / loads faster / flickers less.
+              const TF_LIMITS = { "5": 250, "15": 180, "30": 130, "60": 100, "240": 60, "D": 60, "W": 52 };
+              const limit = TF_LIMITS[tf] || 130;
               const qs = new URLSearchParams();
               qs.set("ticker", sym);
               qs.set("tf", tf);
-              qs.set("limit", "500");
+              qs.set("limit", String(limit));
               const res = await fetch(`${API_BASE}/timed/candles?${qs.toString()}`, {
                 cache: "no-store",
               });
@@ -2636,11 +2649,24 @@
                             the workspace CSS controls actual height per
                             breakpoint without re-rendering the chart. */}
                         <div className="tt-rail-chart-canvas">
+                          {/* V15 P0.7.98 — Match Daily Brief MiniChart exactly.
+                              priceLines is empty so the chart isn't cluttered
+                              with SL/TP/ATR/52W/Stop/Premium overlays — the
+                              Daily Brief chart only renders candles + S/R
+                              trendlines + pattern markers, both of which the
+                              underlying LWChart still fetches via
+                              _rrFetchChartLevels. The clutter on the rail was
+                              the primary driver of the "ghost candles flicker
+                              briefly between the Daily Brief look and the
+                              cluttered look" symptom — those ghost frames were
+                              the (correct) pre-buildLines render.
+                              The expanded modal still gets the full
+                              priceLines via its own LWChart instance below. */}
                           {React.createElement(LWChart, {
                             candles: chartCandles,
                             chartTf,
                             overlays: chartOverlays,
-                            priceLines: buildLines(),
+                            priceLines: EMPTY_PRICE_LINES,
                             ticker,
                             height: 320,
                             hideOverlayToggles: true,

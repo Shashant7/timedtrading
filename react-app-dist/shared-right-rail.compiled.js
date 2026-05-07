@@ -715,6 +715,7 @@
         }
       })));
     }
+    const EMPTY_PRICE_LINES = Object.freeze([]);
     function _LWChartImpl({
       candles: rawCandles,
       chartTf,
@@ -2364,10 +2365,20 @@
               if (!cancelled) setChartLoading(false);
               return;
             }
+            const TF_LIMITS = {
+              "5": 250,
+              "15": 180,
+              "30": 130,
+              "60": 100,
+              "240": 60,
+              "D": 60,
+              "W": 52
+            };
+            const limit = TF_LIMITS[tf] || 130;
             const qs = new URLSearchParams();
             qs.set("ticker", sym);
             qs.set("tf", tf);
-            qs.set("limit", "500");
+            qs.set("limit", String(limit));
             const res = await fetch(`${API_BASE}/timed/candles?${qs.toString()}`, {
               cache: "no-store"
             });
@@ -3191,7 +3202,7 @@
               candles: chartCandles,
               chartTf,
               overlays: chartOverlays,
-              priceLines: buildLines(),
+              priceLines: EMPTY_PRICE_LINES,
               ticker,
               height: 320,
               hideOverlayToggles: true
