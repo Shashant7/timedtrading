@@ -1128,14 +1128,27 @@
     if (compact) {
       return React.createElement(
         "div",
-        { ref: menuRef, style: { position: "relative" } },
+        { ref: menuRef, style: { position: "relative", flexShrink: 0 } },
         React.createElement(
           "button",
           {
             onClick: () => setShowMenu(!showMenu),
             style: {
+              /* V15 P0.7.113 (2026-05-08) — User reported the avatar "S"
+                 looked like an oval on mobile, not a circle. The 28×28
+                 button was getting squeezed by its flex parent (the nav
+                 strip has gap-1.5/2 and other shrinkable children). Lock
+                 dimensions with minWidth/maxWidth + flexShrink:0 +
+                 aspectRatio:1 so it stays a perfect circle at every
+                 viewport size. */
               width: "28px",
+              minWidth: "28px",
+              maxWidth: "28px",
               height: "28px",
+              minHeight: "28px",
+              maxHeight: "28px",
+              flexShrink: 0,
+              aspectRatio: "1 / 1",
               borderRadius: "50%",
               background:
                 "linear-gradient(135deg, #00c853 0%, #00e676 100%)",
@@ -1144,10 +1157,12 @@
               fontSize: "12px",
               fontWeight: "600",
               cursor: "pointer",
-              display: "flex",
+              display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
               fontFamily: "inherit",
+              padding: 0,
+              boxSizing: "border-box",
             },
             title: `${displayName} (${user.email})`,
           },
