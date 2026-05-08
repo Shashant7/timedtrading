@@ -3325,13 +3325,24 @@ const TickerDetailsLoader = ({
   useEffect(() => {
     if (!tickerSymbol) return;
     let cancelled = false;
+    let resolved = false;
+    let timeoutId = null;
     setLoading(true);
     setTickerData(null);
     setError(null);
     const startedAt = Date.now();
+    const settle = () => {
+      resolved = true;
+      if (timeoutId != null) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+    };
     (async () => {
       try {
-        const res = await fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(tickerSymbol)}`);
+        const res = await fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(tickerSymbol)}`, {
+          cache: "no-store"
+        });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
         if (cancelled) return;
@@ -3348,17 +3359,21 @@ const TickerDetailsLoader = ({
         console.error(`[TickerDetailsLoader] fetch failed for ${tickerSymbol}:`, err);
         setError(err?.message || String(err));
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          settle();
+          setLoading(false);
+        }
       }
     })();
-    const timeoutId = setTimeout(() => {
-      if (cancelled) return;
+    timeoutId = setTimeout(() => {
+      if (cancelled || resolved) return;
+      console.warn(`[TickerDetailsLoader] ${tickerSymbol} fetch did not resolve within 8s — giving up`);
       setLoading(false);
-      setError(prev => prev || `Request timed out after 8s. The detail panel couldn't load ${tickerSymbol}. Try again or refresh the page.`);
+      setError(`Request timed out after 8s. The detail panel couldn't load ${tickerSymbol}. Try again or refresh the page.`);
     }, 8000);
     return () => {
       cancelled = true;
-      clearTimeout(timeoutId);
+      if (timeoutId != null) clearTimeout(timeoutId);
     };
   }, [tickerSymbol]);
   if (loading) {
@@ -5581,10 +5596,12 @@ function TradeReviewModal({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 px-3 py-1.5 rounded-md bg-white/[0.02] border border-white/[0.04]">
-                  ${entryPath ? html`<span className="text-[12px] font-semibold text-white">${fmtPath(entryPath)}</span>` : html`<span className="text-[12px] text-[#6b7280]">${decisionReasons ? "Setup reconstructed from snapshot" : "Setup not recorded"}</span>`}
+                  ${""}
+                  ${entryPath ? html`<span className="text-[12px] font-semibold text-white">${fmtPath(entryPath)}</span>` : null}
+                  ${""}
                   ${setupGrade && (() => {
     const cls = setupGrade === "Prime" ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : setupGrade === "Confirmed" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : "bg-blue-500/20 text-blue-300 border-emerald-500/30";
-    return html`<span className=${`px-2 py-0.5 rounded text-[10px] font-bold border ${cls}`}>TT ${setupGrade}</span>`;
+    return html`<span className=${`px-2 py-0.5 rounded text-[10px] font-bold border ${cls}`}>${setupGrade}</span>`;
   })()}
                   ${shares > 0 && html`<span className="text-[10px] text-[#a78bfa]">${Math.round(shares)} shares</span>`}
                   ${riskBudget > 0.001 && html`<span className="text-[10px] text-[#9ca3af]">Risk ${riskBudget < 1 ? (riskBudget * 100).toFixed(1) : riskBudget.toFixed(1)}%</span>`}
@@ -7181,6 +7198,7 @@ function App() {
     const fmtPath = p => {
       if (!p) return "Setup";
       let s = String(p).toLowerCase().trim();
+      s = s.replace(/\s+/g, "_");
       while (/^(tt|ripster|saty)_/.test(s)) s = s.replace(/^(tt|ripster|saty)_/, "");
       if (SETUP_MAP[s]) return SETUP_MAP[s];
       if (SETUP_MAP[`tt_${s}`]) return SETUP_MAP[`tt_${s}`];

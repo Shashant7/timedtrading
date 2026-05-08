@@ -4409,23 +4409,32 @@
         const [error, setError] = useState(null);
 
         /* V15 P0.7.110 (2026-05-08) — Reset state when ticker changes.
-           Clicking SNDK from Open Positions left a stale tickerData=null
-           + loading=true if the previous fetch hadn't resolved. Combined
-           with the workspace-mode CSS that expands the rail to full
-           viewport on desktop, the user saw a black screen with only my
-           defensive close X button. Reset on every ticker change so the
-           loading state is always fresh and visible. */
+           V15 P0.7.111 (2026-05-08) — CRITICAL FIX: previous version's
+           8s timeout always fired regardless of fetch state, so a
+           successful fetch at 2s would render the rail correctly, then
+           6s later the timeout would set error="Request timed out" and
+           switch the user from the loaded rail to the error card. Now we
+           track 'resolved' and clear the timeout in success/error
+           handlers — the timeout only fires if the fetch is genuinely
+           still pending. */
         useEffect(() => {
           if (!tickerSymbol) return;
           let cancelled = false;
+          let resolved = false;
+          let timeoutId = null;
           setLoading(true);
           setTickerData(null);
           setError(null);
           const startedAt = Date.now();
+          const settle = () => {
+            resolved = true;
+            if (timeoutId != null) { clearTimeout(timeoutId); timeoutId = null; }
+          };
           (async () => {
             try {
               const res = await fetch(
                 `${API_BASE}/timed/latest?ticker=${encodeURIComponent(tickerSymbol)}`,
+                { cache: "no-store" }
               );
               if (!res.ok) throw new Error(`HTTP ${res.status}`);
               const json = await res.json();
@@ -4441,18 +4450,19 @@
               console.error(`[TickerDetailsLoader] fetch failed for ${tickerSymbol}:`, err);
               setError(err?.message || String(err));
             } finally {
-              if (!cancelled) setLoading(false);
+              if (!cancelled) {
+                settle();
+                setLoading(false);
+              }
             }
           })();
-          // V15 P0.7.110 — 8s hard timeout. If the fetch hangs (network,
-          // worker cold start, redirect loop) the user is no longer stuck
-          // on a black panel — they get a clear error + Close button.
-          const timeoutId = setTimeout(() => {
-            if (cancelled) return;
+          timeoutId = setTimeout(() => {
+            if (cancelled || resolved) return;
+            console.warn(`[TickerDetailsLoader] ${tickerSymbol} fetch did not resolve within 8s — giving up`);
             setLoading(false);
-            setError((prev) => prev || `Request timed out after 8s. The detail panel couldn't load ${tickerSymbol}. Try again or refresh the page.`);
+            setError(`Request timed out after 8s. The detail panel couldn't load ${tickerSymbol}. Try again or refresh the page.`);
           }, 8000);
-          return () => { cancelled = true; clearTimeout(timeoutId); };
+          return () => { cancelled = true; if (timeoutId != null) clearTimeout(timeoutId); };
         }, [tickerSymbol]);
 
         // V15 P0.7.110 — Loading state: high-contrast, always-visible
@@ -6973,10 +6983,22 @@
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 px-3 py-1.5 rounded-md bg-white/[0.02] border border-white/[0.04]">
-                  ${entryPath ? html`<span className="text-[12px] font-semibold text-white">${fmtPath(entryPath)}</span>` : html`<span className="text-[12px] text-[#6b7280]">${decisionReasons ? "Setup reconstructed from snapshot" : "Setup not recorded"}</span>`}
+                  ${/* V15 P0.7.111 (2026-05-08): when entry_path is missing, render
+                       NOTHING in this slot (was: "Setup reconstructed from snapshot"
+                       which the user found redundant — the synthesized reasons in the
+                       Why-We-Entered card below already convey the same idea, and an
+                       explicit "reconstructed" label on a normal modal felt like a
+                       quality flag the user shouldn't have to think about). */ ""}
+                  ${entryPath ? html`<span className="text-[12px] font-semibold text-white">${fmtPath(entryPath)}</span>` : null}
+                  ${/* V15 P0.7.111 (2026-05-08): drop the redundant "TT" prefix
+                       on the grade chip. Setup names already get a "TT_" prefix
+                       stripped in fmtPath (so "TT Tt Gap Reversal Long" renders
+                       as "Gap Reversal (Long)"); mirroring that on the grade
+                       chip — show just "Speculative" / "Confirmed" / "Prime",
+                       not "TT Speculative". The chip color already brands it. */ ""}
                   ${setupGrade && (() => {
                     const cls = setupGrade==="Prime"?"bg-amber-500/20 text-amber-300 border-amber-500/30":setupGrade==="Confirmed"?"bg-emerald-500/20 text-emerald-300 border-emerald-500/30":"bg-blue-500/20 text-blue-300 border-emerald-500/30";
-                    return html`<span className=${`px-2 py-0.5 rounded text-[10px] font-bold border ${cls}`}>TT ${setupGrade}</span>`;
+                    return html`<span className=${`px-2 py-0.5 rounded text-[10px] font-bold border ${cls}`}>${setupGrade}</span>`;
                   })()}
                   ${shares > 0 && html`<span className="text-[10px] text-[#a78bfa]">${Math.round(shares)} shares</span>`}
                   ${riskBudget > 0.001 && html`<span className="text-[10px] text-[#9ca3af]">Risk ${riskBudget < 1 ? (riskBudget * 100).toFixed(1) : riskBudget.toFixed(1)}%</span>`}
@@ -8568,12 +8590,22 @@
                        1) lowercase before lookup (SETUP_MAP keys are lower)
                        2) strip ANY repeated tt_/ripster_/saty_ prefix
                        3) only then apply the SETUP_MAP / titleCase fallback. */
+                    /* V15 P0.7.111 (2026-05-08) — Strip BOTH separator
+                       variants. Live-engine writes setup_name like
+                       "TT Tt Gap Reversal Long" with SPACES (not
+                       underscores), so the underscore-only regex left
+                       the doubled prefix in place and the user saw
+                       "Tt Tt Gap Reversal Long" with capitalized "Tt".
+                       Now we normalize spaces→underscores first, then
+                       strip any repeated tt_/ripster_/saty_ prefix in
+                       any case. */
                     const fmtPath = (p) => {
                       if (!p) return "Setup";
                       let s = String(p).toLowerCase().trim();
+                      // Normalize space-separated and underscore-separated to underscores
+                      s = s.replace(/\s+/g, "_");
                       // Strip repeated leading "tt_" / "ripster_" / "saty_" prefixes
                       while (/^(tt|ripster|saty)_/.test(s)) s = s.replace(/^(tt|ripster|saty)_/, "");
-                      // Try SETUP_MAP after each strip pass (mapped keys may include the first "tt_")
                       if (SETUP_MAP[s]) return SETUP_MAP[s];
                       if (SETUP_MAP[`tt_${s}`]) return SETUP_MAP[`tt_${s}`];
                       // Fallback: spaces + Title Case
