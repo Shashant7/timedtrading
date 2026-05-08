@@ -946,6 +946,7 @@ const ROUTES = [
   ["POST", "/timed/admin/patch-trade-from-da", "POST /timed/admin/patch-trade-from-da"],
   ["POST", "/timed/admin/patch-trade-event-reason", "POST /timed/admin/patch-trade-event-reason"],
   ["POST", "/timed/admin/patch-trade-shares", "POST /timed/admin/patch-trade-shares"],
+  ["GET", "/timed/admin/check-stale-tick", "GET /timed/admin/check-stale-tick"],
   ["POST", "/timed/admin/close-stale-open-trades", "POST /timed/admin/close-stale-open-trades"],
   ["GET", "/timed/admin/data-audit-log", "GET /timed/admin/data-audit-log"],
   ["GET", "/timed/admin/activity-feed", "GET /timed/admin/activity-feed"],
@@ -1042,6 +1043,88 @@ function isNyRegularMarketOpen(now = new Date()) {
     return mins >= 570 && mins < 960;
   } catch {
     return true; // fail open
+  }
+}
+
+// V15 P0.7.108 (2026-05-08) — Stale-tick guard at market open.
+//
+// Background: SNDK trim on 2026-05-08 9:31 ET fired with a recorded fill
+// price of $1339.96. The actual 9:30-9:45 ET candle range was $1392-$1429,
+// and $1339.96 happened to be the prev close exactly. The TwelveData /quote
+// feed lagged the open by ~30-90s; during that window pf.p == pf.pc (the
+// system literally re-served yesterday's close as the live price). Trims
+// and exits computed against that price executed at the wrong fill, and
+// realized PnL was computed against a price the market never traded at.
+//
+// Guard heuristics (any one trips it):
+//   1. Price feed timestamp (pf.t) is older than 90s during RTH.
+//   2. Price feed price (pf.p) equals prev_close exactly within 0.05%
+//      AND we are within the first 5 minutes of regular trading hours.
+//   3. The caller's pxNow (which may have been resolved separately
+//      from pf) equals prev_close exactly within 0.05% AND we are
+//      within the first 5 minutes of RTH.
+//
+// Returns {stale: bool, reason?: string, ageSec?: number, prevClose?: number, minsSinceOpen?: number}
+// Off-hours always returns {stale: false}.
+function _minsSinceNyOpen(now = new Date()) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour12: false, hour: "2-digit", minute: "2-digit",
+    }).formatToParts(now);
+    const map = {};
+    for (const p of parts) map[p.type] = Number(p.value);
+    const mins = (map.hour || 0) * 60 + (map.minute || 0);
+    return mins - 570; // 9:30 AM ET = 570 minutes
+  } catch { return null; }
+}
+
+async function checkPriceFeedStale(env, sym, pxNow) {
+  if (!isNyRegularMarketOpen()) return { stale: false };
+  try {
+    const KV = env?.KV_TIMED || env?.KV;
+    if (!KV) return { stale: false };
+    const pf = await kvGetJSON(KV, "timed:prices");
+    const tickerKey = String(sym || "").toUpperCase();
+    if (!pf || typeof pf !== "object") return { stale: false };
+    // timed:prices may be flat ({SYM: {...}}) or wrapped ({prices: {SYM: {...}}})
+    const map = pf.prices && typeof pf.prices === "object" ? pf.prices : pf;
+    const row = map[tickerKey];
+    if (!row || typeof row !== "object") return { stale: false };
+    const wrapperUpdated = Number(pf.updated_at) || 0;
+    const pc = Number(row.pc) || 0;
+    const p = Number(row.p) || Number(row.price) || 0;
+    const minsSinceOpen = _minsSinceNyOpen();
+    // Heuristic 1: cron wrapper update is older than 180s. The cron runs
+    // every 60s during RTH so >3 min means cron has actually stopped — that
+    // alone is concerning enough to defer execution. Per-ticker `t` lags
+    // for low-volume names (TwelveData stamps last-tick time, not poll time)
+    // so we deliberately do NOT use it as a staleness signal.
+    if (wrapperUpdated > 0) {
+      const wrapperAgeSec = (Date.now() - wrapperUpdated) / 1000;
+      if (wrapperAgeSec > 180) {
+        return { stale: true, reason: "price_cron_stalled", wrapperAgeSec, prevClose: pc, minsSinceOpen };
+      }
+    }
+    // Heuristic 2 + 3: price equals prev_close in first 5 min after open.
+    // This is the SNDK 5/8 case — TwelveData's /quote returned the prev
+    // close as the live price during the first ~30-90s of RTH because no
+    // tick had arrived yet. The recorded fill price was stale. Defer
+    // until either the feed price OR the caller's pxNow has moved off
+    // prev_close (= a real tick has arrived).
+    if (Number.isFinite(minsSinceOpen) && minsSinceOpen >= 0 && minsSinceOpen <= 5 && pc > 0) {
+      const eps = pc * 0.0005;
+      if (p > 0 && Math.abs(p - pc) < eps) {
+        return { stale: true, reason: "feed_price_equals_prev_close_at_open", prevClose: pc, feedPrice: p, minsSinceOpen };
+      }
+      const px = Number(pxNow) || 0;
+      if (px > 0 && Math.abs(px - pc) < eps) {
+        return { stale: true, reason: "pxnow_equals_prev_close_at_open", prevClose: pc, pxNow: px, minsSinceOpen };
+      }
+    }
+    return { stale: false };
+  } catch (e) {
+    return { stale: false, reason: "check_failed", error: String(e?.message || e).slice(0, 100) };
   }
 }
 
@@ -18711,10 +18794,54 @@ async function processTradeSimulation(
           }
         }
         if (!_exitCioBlocked) {
-          await closeTradeAtPrice(openTrade, pxNow, exitReasonRaw);
-          const exitExecUpdate = { ...execState, lastExitMs: now };
-          if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, exitExecUpdate);
-          else if (!isReplay) await kvPutJSON(KV, execKey, exitExecUpdate);
+          // V15 P0.7.108 (2026-05-08) — Stale-tick guard. Skip ONLY for soft
+          // exits; hard SL / max-loss / V13 nets must execute even if the
+          // feed looks stale because they are protective. (A stale price
+          // can artificially trip soft signals like a fake giveback, but it
+          // cannot artificially lower a real price below the SL — SL fires
+          // when the displayed price drops below the SL value, and a stale
+          // re-served prev_close just keeps the position appearing "above
+          // SL", which is fine to defer.)
+          let _exitDeferred = false;
+          if (!isReplay && !_exitIsHard) {
+            const _exitStaleCheck = await checkPriceFeedStale(env, sym, pxNow);
+            if (_exitStaleCheck?.stale) {
+              const _staleMeta = {
+                ticker: sym,
+                action: "exit",
+                exit_reason: exitReasonRaw,
+                pxNow,
+                ..._exitStaleCheck,
+              };
+              console.warn(`[STALE_TICK_GUARD] ${sym} soft exit deferred — ${_exitStaleCheck.reason} (pxNow=$${pxNow}, prev_close=$${_exitStaleCheck.prevClose}). Will retry next cycle.`);
+              try {
+                d1QueueAction(env, {
+                  ticker: sym,
+                  action: "exit",
+                  direction: openTrade?.direction,
+                  session: "RTH_OPEN_STALE",
+                  snapshot: _staleMeta,
+                  reason: `stale_tick_at_open_deferred:${_exitStaleCheck.reason}`,
+                }).catch(() => {});
+              } catch (_) {}
+              try {
+                auditDataChange(env, {
+                  op: "STALE_TICK_BLOCKED",
+                  scope: `exit:${sym}`,
+                  caller: "live_cron",
+                  rowsAffected: 0,
+                  meta: _staleMeta,
+                }).catch(() => {});
+              } catch (_) {}
+              _exitDeferred = true;
+            }
+          }
+          if (!_exitDeferred) {
+            await closeTradeAtPrice(openTrade, pxNow, exitReasonRaw);
+            const exitExecUpdate = { ...execState, lastExitMs: now };
+            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, exitExecUpdate);
+            else if (!isReplay) await kvPutJSON(KV, execKey, exitExecUpdate);
+          }
         }
       }
     } else if (isExit && openTrade && outsideRTH && !exitAllowedOutsideRTH && !fuseExitFired) {
@@ -19015,6 +19142,49 @@ async function processTradeSimulation(
             }
           } catch (cioTrimErr) {
             console.warn(`[AI_CIO_TRIM] Exception ${sym}: ${String(cioTrimErr).slice(0, 150)}`);
+          }
+        }
+      }
+      if (target > 0) {
+        // V15 P0.7.108 (2026-05-08) — Stale-tick guard at market open.
+        // SNDK trim on 5/8 fired at 9:31 ET with pxNow = $1339.96 == prev_close.
+        // Real market candle range was $1392-$1429; TwelveData feed lagged the
+        // open and re-served yesterday's close. The atr_week_618 rule legitimately
+        // fired (weekly target was hit) but execution at the stale price recorded
+        // a -$28.59 realized loss instead of a ~+$165 gain. Defer execution by
+        // one cycle so the rule still wins but executes at the right price.
+        // Live cron only — replay uses backfilled candles and is never stale.
+        if (!isReplay) {
+          const _trimStaleCheck = await checkPriceFeedStale(env, sym, pxNow);
+          if (_trimStaleCheck?.stale) {
+            const _staleMeta = {
+              ticker: sym,
+              action: "trim",
+              target_pct: target,
+              pxNow,
+              ..._trimStaleCheck,
+            };
+            console.warn(`[STALE_TICK_GUARD] ${sym} trim deferred — ${_trimStaleCheck.reason} (pxNow=$${pxNow}, prev_close=$${_trimStaleCheck.prevClose}). Will retry next cycle.`);
+            try {
+              d1QueueAction(env, {
+                ticker: sym,
+                action: "trim",
+                direction: openTrade?.direction,
+                session: "RTH_OPEN_STALE",
+                snapshot: _staleMeta,
+                reason: `stale_tick_at_open_deferred:${_trimStaleCheck.reason}`,
+              }).catch(() => {});
+            } catch (_) {}
+            try {
+              auditDataChange(env, {
+                op: "STALE_TICK_BLOCKED",
+                scope: `trim:${sym}`,
+                caller: "live_cron",
+                rowsAffected: 0,
+                meta: _staleMeta,
+              }).catch(() => {});
+            } catch (_) {}
+            target = 0;
           }
         }
       }
@@ -53238,6 +53408,45 @@ export default {
             updated++;
           }
           return sendJSON({ ok: true, updated, trade_ids: tradeIds }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/check-stale-tick?ticker=SNDK[&pxNow=1339.96][&key=...]
+      // V15 P0.7.108 (2026-05-08): unit-test the stale-tick guard helper
+      // without waiting for the next market open. Returns {stale, reason,
+      // ...} per the helper. Useful to confirm the guard would fire on a
+      // synthetic price (e.g. setting pxNow=prev_close to simulate the
+      // SNDK-5/8 case).
+      if (routeKey === "GET /timed/admin/check-stale-tick") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const ticker = String(url.searchParams.get("ticker") || "").toUpperCase();
+          if (!ticker) return sendJSON({ ok: false, error: "ticker required" }, 400, corsHeaders(env, req));
+          const pxNowRaw = url.searchParams.get("pxNow");
+          const pxNow = pxNowRaw != null && pxNowRaw !== "" ? Number(pxNowRaw) : null;
+          const result = await checkPriceFeedStale(env, ticker, pxNow);
+          // Also surface the timed:prices row + isMarketOpen for context
+          let row = null;
+          let wrapperUpdated = null;
+          try {
+            const pf = await kvGetJSON(KV, "timed:prices");
+            const map = pf?.prices && typeof pf.prices === "object" ? pf.prices : pf;
+            row = map?.[ticker] || null;
+            wrapperUpdated = pf?.updated_at || null;
+          } catch (_) {}
+          return sendJSON({
+            ok: true,
+            ticker,
+            pxNow,
+            is_market_open: typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : null,
+            mins_since_ny_open: _minsSinceNyOpen(),
+            wrapper_updated_at: wrapperUpdated,
+            row,
+            result,
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
