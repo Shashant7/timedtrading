@@ -352,16 +352,20 @@ for (const r of ALLOWED) {
 // ─────────────────────────────────────────────────────────────────────
 // extractTrendSnapshot — normalization sanity check
 // ─────────────────────────────────────────────────────────────────────
-t('extractTrendSnapshot: maps tickerData fields correctly', () => {
+t('extractTrendSnapshot: maps tickerData fields correctly + normalizes ST conventions', () => {
+  // SuperTrend sign-convention discipline:
+  //   tf_tech.D/W/4H/M.stDir uses Pine convention (-1 = bull, +1 = bear).
+  //   monthly_bundle.supertrend_dir uses standard convention (+1 = bull).
+  //   Snapshot output normalizes EVERYTHING to standard (+1 = bull).
   const td = {
     ticker: 'SNDK',
     priceClose: 200,
     tf_tech: {
-      D: { ema21: 180, ema48: 175, ema5: 195, ema12: 188, stDir: 1, rsi: 72 },
-      W: { ema21: 165, stDir: 1, rsi: 70 },
+      D: { ema21: 180, ema48: 175, ema5: 195, ema12: 188, stDir: -1, rsi: 72 },  // Pine bull
+      W: { ema21: 165, stDir: -1, rsi: 70 },                                       // Pine bull
       "4H": { ema21: 192, rsi: 68 },
     },
-    monthly_bundle: { supertrend_dir: 1 },
+    monthly_bundle: { supertrend_dir: 1 },                                          // standard bull
     td_sequential: { per_tf: { W: { bearish_prep_count: 4 } } },
     spy_day_change_pct: 0.4,
     vix_level: 16,
@@ -374,11 +378,43 @@ t('extractTrendSnapshot: maps tickerData fields correctly', () => {
   expect(snap.weekly.ema21_above, '==', true, 'wkEMA21 above');
   expect(snap.daily.ema21_above, '==', true, 'dEMA21 above');
   expect(snap.fourH.ema21_above, '==', true, '4H EMA21 above');
-  expect(snap.weekly.stDir, '==', 1, 'wk stDir');
-  expect(snap.monthly.stDir, '==', 1, 'mST');
+  expect(snap.daily.stDir, '==', 1, 'd stDir normalized to +1=bull');
+  expect(snap.weekly.stDir, '==', 1, 'wk stDir normalized to +1=bull');
+  expect(snap.monthly.stDir, '==', 1, 'monthly stDir already +1=bull (passthrough)');
   expect(snap.weekly.td9_sell_count, '==', 4, 'TD9 sell');
   expect(snap.daily.cloud_status, '==', 'above', 'cloud');
   expect(snap.sector_rating, '==', 'DOUBLE_OW', 'sector');
+});
+
+t('extractTrendSnapshot: tf_tech bear (Pine +1) normalizes to standard -1', () => {
+  const td = {
+    ticker: 'SNDK',
+    priceClose: 200,
+    tf_tech: {
+      D: { ema21: 180, ema5: 195, ema12: 188, stDir: 1, rsi: 50 },  // Pine bear
+      W: { ema21: 165, stDir: 1, rsi: 50 },                            // Pine bear
+    },
+    monthly_bundle: { supertrend_dir: -1 },  // standard bear
+  };
+  const snap = extractTrendSnapshot(td, fxOpenTrade());
+  expect(snap.daily.stDir, '==', -1, 'd stDir Pine+1 -> std-1');
+  expect(snap.weekly.stDir, '==', -1, 'wk stDir Pine+1 -> std-1');
+  expect(snap.monthly.stDir, '==', -1, 'monthly std-1 passthrough');
+});
+
+t('extractTrendSnapshot: prefers monthly_bundle over tf_tech.M when both present', () => {
+  const td = {
+    ticker: 'SNDK',
+    priceClose: 200,
+    tf_tech: {
+      D: { ema21: 180, ema5: 195, ema12: 188, stDir: -1 },
+      W: { ema21: 165, stDir: -1 },
+      M: { stDir: 1 },                  // Pine bear (would normalize to -1)
+    },
+    monthly_bundle: { supertrend_dir: 1 },  // standard bull
+  };
+  const snap = extractTrendSnapshot(td, fxOpenTrade());
+  expect(snap.monthly.stDir, '==', 1, 'monthly_bundle wins (bull) even though tf_tech.M says bear');
 });
 
 t('extractTrendSnapshot: returns null on empty input', () => {

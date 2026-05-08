@@ -137,6 +137,21 @@ export function isTrendHoldEnabled(daCfg) {
 // All values are CLOSE-discipline (per user direction) — the upstream
 // indicator pipeline already computes ema21 / stDir / etc. on bar
 // closes only.
+//
+// SUPERTREND SIGN-CONVENTION NORMALIZATION (critical):
+//   The worker stores SuperTrend with TWO different conventions:
+//     * tf_tech.{D,W,4H,M}.stDir       → PINE convention: -1 = BULL, +1 = BEAR
+//                                        (see worker/indicators.js stFlipDir;
+//                                         worker/index.js line ~33180:
+//                                         "_stDBull = stDir === -1")
+//     * monthly_bundle.supertrend_dir  → STANDARD:         +1 = BULL, -1 = BEAR
+//                                        (see worker/investor.js line ~67:
+//                                         "if (mb.supertrend_dir === 1)
+//                                          components.monthlyTrend += 7")
+//   We normalize ALL values in the snapshot to the standard convention
+//   (+1 = bull, -1 = bear) so downstream predicates read as `stDir === 1`
+//   for bull regardless of source. tfTechStDir() inverts the Pine sign;
+//   bundleStDir() passes through.
 // ─────────────────────────────────────────────────────────────────────
 export function extractTrendSnapshot(tickerData, openPosition) {
   if (!tickerData || typeof tickerData !== "object") return null;
@@ -146,16 +161,18 @@ export function extractTrendSnapshot(tickerData, openPosition) {
   const close = num(tickerData.priceClose ?? tickerData.close ?? tickerData.price);
 
   const dailyEma21 = num(tt.D?.ema21);
-  const dailyStDir = signOrNull(tt.D?.stDir);
+  const dailyStDir = tfTechStDir(tt.D?.stDir);
 
   const weeklyEma21 = num(tt.W?.ema21);
-  const weeklyStDir = signOrNull(tt.W?.stDir);
+  const weeklyStDir = tfTechStDir(tt.W?.stDir);
 
   const fourHEma21 = num(tt["4H"]?.ema21);
 
-  const monthlyStDir =
-    signOrNull(tickerData.monthly_bundle?.supertrend_dir) ??
-    signOrNull(tt.M?.stDir);
+  // Monthly: prefer monthly_bundle.supertrend_dir (STANDARD convention),
+  // fall back to tf_tech.M.stDir (PINE convention, inverted via
+  // tfTechStDir()).
+  const monthlyStDir = bundleStDir(tickerData.monthly_bundle?.supertrend_dir)
+    ?? tfTechStDir(tt.M?.stDir);
 
   // Weekly RSI / TD9 sell-setup count.
   const weeklyRsi = num(tt.W?.rsi);
@@ -487,10 +504,33 @@ function num(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
-function signOrNull(v) {
+
+/**
+ * Normalize a tf_tech.{D,W,4H,M}.stDir reading.
+ * Pine convention used in worker/indicators.js:
+ *   stDir = -1  →  bull   →  return +1 (standard)
+ *   stDir = +1  →  bear   →  return -1
+ *   stDir =  0  →  flat   →  return  0
+ */
+function tfTechStDir(v) {
   const n = Number(v);
-  if (n > 0) return 1;
-  if (n < 0) return -1;
+  if (n === -1) return 1;
+  if (n === 1) return -1;
+  if (n === 0) return 0;
+  return null;
+}
+
+/**
+ * Normalize a monthly_bundle.supertrend_dir reading.
+ * Standard convention used in worker/investor.js:
+ *   supertrend_dir = +1  →  bull   →  return +1
+ *   supertrend_dir = -1  →  bear   →  return -1
+ *   supertrend_dir =  0  →  flat   →  return  0
+ */
+function bundleStDir(v) {
+  const n = Number(v);
+  if (n === 1) return 1;
+  if (n === -1) return -1;
   if (n === 0) return 0;
   return null;
 }
