@@ -152,11 +152,21 @@ t('promote: rejects when 4H close below EMA-21', () => {
   expect(r.reason, 'matches', '4h_ema21_below', 'reason');
 });
 
-t('promote: rejects when monthly SuperTrend not bull', () => {
+t('promote: rejects when monthly SuperTrend explicitly bear', () => {
   const snap = fxIdealPromotionSnap(); snap.monthly.stDir = -1;
   const r = shouldPromoteToTrendHold(snap, fxOpenTrade(), DEFAULT_TREND_HOLD_CONFIG);
   expect(r.promote, '==', false, 'promote');
-  expect(r.reason, 'matches', 'monthly_st_not_bull', 'reason');
+  expect(r.reason, 'matches', 'monthly_st_bear', 'reason');
+});
+
+t('promote: ALLOWS when monthly SuperTrend null (sparse spinoff data)', () => {
+  // Phase 2.9 — for new spinoffs (SNDK pre-Aug-2025) and recent IPOs, monthly
+  // history is too short to compute monthly SuperTrend. Per the Phase 1.2
+  // deep dive, weekly EMA-21 streak ≤ 2 already validates macro trend
+  // integrity for the cohort — monthly is confirmatory, not primary.
+  const snap = fxIdealPromotionSnap(); snap.monthly.stDir = null;
+  const r = shouldPromoteToTrendHold(snap, fxOpenTrade(), DEFAULT_TREND_HOLD_CONFIG);
+  expect(r.promote, '==', true, 'promote');
 });
 
 t('promote: rejects when weekly TD9 sell-setup at 9', () => {

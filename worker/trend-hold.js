@@ -318,11 +318,16 @@ export function shouldPromoteToTrendHold(snap, trade, cfg) {
   }
 
   // 3. Higher-timeframe SuperTrend confirms.
+  // Weekly is STRICT — there's always enough weekly history; null is anomalous.
   if (c.promote_require_weekly_supertrend_bull && snap.weekly.stDir !== 1) {
     return reject(`weekly_st_not_bull (dir=${snap.weekly.stDir})`);
   }
-  if (c.promote_require_monthly_supertrend_bull && snap.monthly.stDir !== 1) {
-    return reject(`monthly_st_not_bull (dir=${snap.monthly.stDir})`);
+  // Monthly is PERMISSIVE — recent spinoffs / new IPOs / sparse-history tickers
+  // legitimately have null monthly_bundle until enough bars accumulate. Reject
+  // only on EXPLICIT bear; allow null / 0 / 1. The stricter D/W/4H trend
+  // filters above plus the weekly-st-bull requirement carry sufficient signal.
+  if (c.promote_require_monthly_supertrend_bull && snap.monthly.stDir === -1) {
+    return reject(`monthly_st_bear (dir=${snap.monthly.stDir})`);
   }
 
   // 4. No exhaustion.

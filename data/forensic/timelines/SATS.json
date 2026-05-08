@@ -1,0 +1,655 @@
+{
+  "ticker": "SATS",
+  "cohort": "WINNERS",
+  "flavor": "RESILIENT_TREND",
+  "return_pct": 369.71,
+  "max_dd_pct": -19.91,
+  "weekly_ema21_break_streak": 0,
+  "daily_512_cloud_break_streak": 16,
+  "sector": "Communication Services",
+  "industry": "Telecom Services",
+  "eps_growth_class": "declining",
+  "fundamentals_today": {
+    "pe_ttm": 11.863636,
+    "pe_forward": -1073.728,
+    "peg": -1073.728,
+    "fair_value_today": null,
+    "fair_value_class_today": null,
+    "current_price": 127.05
+  },
+  "inflections": [
+    {
+      "inflection": "entry_oracle",
+      "gain_pct": 0,
+      "ts": 1751342400000,
+      "date": "2025-07-01",
+      "close": 28.36,
+      "daily": {
+        "ema5": 27.23,
+        "ema12": 25.17,
+        "ema21": 23.65,
+        "ema21_status": "above",
+        "ema50": 22.73,
+        "ema50_status": "above",
+        "cloud_status": "above",
+        "rsi": 66.65,
+        "atr": 1.74,
+        "atr_pct": 6.15,
+        "st_dir": 1,
+        "st_value": 22.72,
+        "td9_count": 4,
+        "td9_dir": "sell"
+      },
+      "weekly": {
+        "close": 31.36,
+        "ema21": 23.7,
+        "ema21_status": "above",
+        "rsi": 60.81,
+        "st_dir": 1,
+        "td9_count": 3,
+        "td9_dir": "sell"
+      },
+      "monthly": {
+        "st_dir": null
+      },
+      "h4": {
+        "close": 27.7,
+        "ema21": 27.08,
+        "ema21_status": "above",
+        "rsi": 60.48
+      },
+      "fv": {
+        "ttm_eps": -0.76,
+        "pe_mult_used": -1073.73,
+        "fv_price": 816.03,
+        "fv_basis": "ttm_eps_x_fwd_pe",
+        "quarters_used": 4
+      },
+      "fv_class": {
+        "ratio": 0.035,
+        "label": "discount"
+      },
+      "sys": null
+    },
+    {
+      "inflection": "+5%",
+      "gain_pct": 5,
+      "ts": 1751500800000,
+      "date": "2025-07-03",
+      "close": 31.36,
+      "daily": {
+        "ema5": 29.11,
+        "ema12": 26.68,
+        "ema21": 24.83,
+        "ema21_status": "above",
+        "ema50": 23.32,
+        "ema50_status": "above",
+        "cloud_status": "above",
+        "rsi": 72.26,
+        "atr": 1.76,
+        "atr_pct": 5.61,
+        "st_dir": 1,
+        "st_value": 25.25,
+        "td9_count": 6,
+        "td9_dir": "sell"
+      },
+      "weekly": {
+        "close": 31.36,
+        "ema21": 23.7,
+        "ema21_status": "above",
+        "rsi": 60.81,
+        "st_dir": 1,
+        "td9_count": 3,
+        "td9_dir": "sell"
+      },
+      "monthly": {
+        "st_dir": null
+      },
+      "h4": {
+        "close": 29.01,
+        "ema21": 28.19,
+        "ema21_status": "above",
+        "rsi": 64.59
+      },
+      "fv": {
+        "ttm_eps": -0.76,
+        "pe_mult_used": -1073.73,
+        "fv_price": 816.03,
+        "fv_basis": "ttm_eps_x_fwd_pe",
+        "quarters_used": 4
+      },
+      "fv_class": {
+        "ratio": 0.038,
+        "label": "discount"
+      },
+      "sys": null
+    },
+    {
+      "inflection": "+15%",
+      "gain_pct": 15,
+      "ts": 1751947200000,
+      "date": "2025-07-08",
+      "close": 32.66,
+      "daily": {
+        "ema5": 30.79,
+        "ema12": 28.21,
+        "ema21": 26.08,
+        "ema21_status": "above",
+        "ema50": 23.99,
+        "ema50_status": "above",
+        "cloud_status": "above",
+        "rsi": 74.48,
+        "atr": 1.77,
+        "atr_pct": 5.41,
+        "st_dir": 1,
+        "st_value": 26.49,
+        "td9_count": 8,
+        "td9_dir": "sell"
+      },
+      "weekly": {
+        "close": 30.86,
+        "ema21": 24.35,
+        "ema21_status": "above",
+        "rsi": 59.72,
+        "st_dir": 1,
+        "td9_count": 4,
+        "td9_dir": "sell"
+      },
+      "monthly": {
+        "st_dir": null
+      },
+      "h4": {
+        "close": 32.03,
+        "ema21": 29.82,
+        "ema21_status": "above",
+        "rsi": 72.19
+      },
+      "fv": {
+        "ttm_eps": -0.76,
+        "pe_mult_used": -1073.73,
+        "fv_price": 816.03,
+        "fv_basis": "ttm_eps_x_fwd_pe",
+        "quarters_used": 4
+      },
+      "fv_class": {
+        "ratio": 0.04,
+        "label": "discount"
+      },
+      "sys": null
+    },
+    {
+      "inflection": "+30%",
+      "gain_pct": 30,
+      "ts": 1756180800000,
+      "date": "2025-08-26",
+      "close": 50.87,
+      "daily": {
+        "ema5": 36.18,
+        "ema12": 31.86,
+        "ema21": 30.38,
+        "ema21_status": "above",
+        "ema50": 28.36,
+        "ema50_status": "above",
+        "cloud_status": "above",
+        "rsi": 88.05,
+        "atr": 3.03,
+        "atr_pct": 5.96,
+        "st_dir": 1,
+        "st_value": 41.94,
+        "td9_count": 3,
+        "td9_dir": "sell"
+      },
+      "weekly": {
+        "close": 61.79,
+        "ema21": 29.32,
+        "ema21_status": "above",
+        "rsi": 81.66,
+        "st_dir": 1,
+        "td9_count": 1,
+        "td9_dir": "sell"
+      },
+      "monthly": {
+        "st_dir": null
+      },
+      "h4": {
+        "close": 29.68,
+        "ema21": 28.84,
+        "ema21_status": "above",
+        "rsi": 67.59
+      },
+      "fv": {
+        "ttm_eps": -1.06,
+        "pe_mult_used": -1073.73,
+        "fv_price": 1138.15,
+        "fv_basis": "ttm_eps_x_fwd_pe",
+        "quarters_used": 4
+      },
+      "fv_class": {
+        "ratio": 0.045,
+        "label": "discount"
+      },
+      "sys": null
+    },
+    {
+      "inflection": "+50%",
+      "gain_pct": 50,
+      "ts": 1756180800000,
+      "date": "2025-08-26",
+      "close": 50.87,
+      "daily": {
+        "ema5": 36.18,
+        "ema12": 31.86,
+        "ema21": 30.38,
+        "ema21_status": "above",
+        "ema50": 28.36,
+        "ema50_status": "above",
+        "cloud_status": "above",
+        "rsi": 88.05,
+        "atr": 3.03,
+        "atr_pct": 5.96,
+        "st_dir": 1,
+        "st_value": 41.94,
+        "td9_count": 3,
+        "td9_dir": "sell"
+      },
+      "weekly": {
+        "close": 61.79,
+        "ema21": 29.32,
+        "ema21_status": "above",
+        "rsi": 81.66,
+        "st_dir": 1,
+        "td9_count": 1,
+        "td9_dir": "sell"
+      },
+      "monthly": {
+        "st_dir": null
+      },
+      "h4": {
+        "close": 29.68,
+        "ema21": 28.84,
+        "ema21_status": "above",
+        "rsi": 67.59
+      },
+      "fv": {
+        "ttm_eps": -1.06,
+        "pe_mult_used": -1073.73,
+        "fv_price": 1138.15,
+        "fv_basis": "ttm_eps_x_fwd_pe",
+        "quarters_used": 4
+      },
+      "fv_class": {
+        "ratio": 0.045,
+        "label": "discount"
+      },
+      "sys": null
+    },
+    {
+      "inflection": "+75%",
+      "gain_pct": 75,
+      "ts": 1756180800000,
+      "date": "2025-08-26",
+      "close": 50.87,
+      "daily": {
+        "ema5": 36.18,
+        "ema12": 31.86,
+        "ema21": 30.38,
+        "ema21_status": "above",
+        "ema50": 28.36,
+        "ema50_status": "above",
+        "cloud_status": "above",
+        "rsi": 88.05,
+        "atr": 3.03,
+        "atr_pct": 5.96,
+        "st_dir": 1,
+        "st_value": 41.94,
+        "td9_count": 3,
+        "td9_dir": "sell"
+      },
+      "weekly": {
+        "close": 61.79,
+        "ema21": 29.32,
+        "ema21_status": "above",
+        "rsi": 81.66,
+        "st_dir": 1,
+        "td9_count": 1,
+        "td9_dir": "sell"
+      },
+      "monthly": {
+        "st_dir": null
+      },
+      "h4": {
+        "close": 29.68,
+        "ema21": 28.84,
+        "ema21_status": "above",
+        "rsi": 67.59
+      },
+      "fv": {
+        "ttm_eps": -1.06,
+        "pe_mult_used": -1073.73,
+        "fv_price": 1138.15,
+        "fv_basis": "ttm_eps_x_fwd_pe",
+        "quarters_used": 4
+      },
+      "fv_class": {
+        "ratio": 0.045,
+        "label": "discount"
+      },
+      "sys": null
+    },
+    {
+      "inflection": "+100%",
+      "gain_pct": 100,
+      "ts": 1756252800000,
+      "date": "2025-08-27",
+      "close": 58.76,
+      "daily": {
+        "ema5": 43.71,
+        "ema12": 36,
+        "ema21": 32.96,
+        "ema21_status": "above",
+        "ema50": 29.55,
+        "ema50_status": "above",
+        "cloud_status": "above",
+        "rsi": 90.7,
+        "atr": 3.44,
+        "atr_pct": 5.85,
+        "st_dir": 1,
+        "st_value": 44.27,
+        "td9_count": 4,
+        "td9_dir": "sell"
+      },
+      "weekly": {
+        "close": 61.79,
+        "ema21": 29.32,
+        "ema21_status": "above",
+        "rsi": 81.66,
+        "st_dir": 1,
+        "td9_count": 1,
+        "td9_dir": "sell"
+      },
+      "monthly": {
+        "st_dir": null
+      },
+      "h4": {
+        "close": 54.8,
+        "ema21": 38.98,
+        "ema21_status": "above",
+        "rsi": 90.79
+      },
+      "fv": {
+        "ttm_eps": -1.06,
+        "pe_mult_used": -1073.73,
+        "fv_price": 1138.15,
+        "fv_basis": "ttm_eps_x_fwd_pe",
+        "quarters_used": 4
+      },
+      "fv_class": {
+        "ratio": 0.052,
+        "label": "discount"
+      },
+      "sys": null
+    },
+    {
+      "inflection": "peak",
+      "gain_pct": 369.71,
+      "ts": 1776384000000,
+      "date": "2026-04-17",
+      "close": 133.21001,
+      "daily": {
+        "ema5": 130.83,
+        "ema12": 126.78,
+        "ema21": 123.14,
+        "ema21_status": "above",
+        "ema50": 117.15,
+        "ema50_status": "above",
+        "cloud_status": "above",
+        "rsi": 64.09,
+        "atr": 6.61,
+        "atr_pct": 4.96,
+        "st_dir": 1,
+        "st_value": 114.33,
+        "td9_count": 6,
+        "td9_dir": "sell"
+      },
+      "weekly": {
+        "close": 133.21,
+        "ema21": 108.67,
+        "ema21_status": "above",
+        "rsi": 73.55,
+        "st_dir": 1,
+        "td9_count": 3,
+        "td9_dir": "sell"
+      },
+      "monthly": {
+        "st_dir": 1
+      },
+      "h4": {
+        "close": 132.49,
+        "ema21": 126.03,
+        "ema21_status": "above",
+        "rsi": 64.12
+      },
+      "fv": {
+        "ttm_eps": -46.51,
+        "pe_mult_used": -1073.73,
+        "fv_price": 49939.09,
+        "fv_basis": "ttm_eps_x_fwd_pe",
+        "quarters_used": 4
+      },
+      "fv_class": {
+        "ratio": 0.003,
+        "label": "discount"
+      },
+      "sys": null
+    },
+    {
+      "inflection": "exit_window",
+      "gain_pct": 369.71,
+      "ts": 1776384000000,
+      "date": "2026-04-17",
+      "close": 133.21001,
+      "daily": {
+        "ema5": 130.83,
+        "ema12": 126.78,
+        "ema21": 123.14,
+        "ema21_status": "above",
+        "ema50": 117.15,
+        "ema50_status": "above",
+        "cloud_status": "above",
+        "rsi": 64.09,
+        "atr": 6.61,
+        "atr_pct": 4.96,
+        "st_dir": 1,
+        "st_value": 114.33,
+        "td9_count": 6,
+        "td9_dir": "sell"
+      },
+      "weekly": {
+        "close": 133.21,
+        "ema21": 108.67,
+        "ema21_status": "above",
+        "rsi": 73.55,
+        "st_dir": 1,
+        "td9_count": 3,
+        "td9_dir": "sell"
+      },
+      "monthly": {
+        "st_dir": 1
+      },
+      "h4": {
+        "close": 132.49,
+        "ema21": 126.03,
+        "ema21_status": "above",
+        "rsi": 64.12
+      },
+      "fv": {
+        "ttm_eps": -46.51,
+        "pe_mult_used": -1073.73,
+        "fv_price": 49939.09,
+        "fv_basis": "ttm_eps_x_fwd_pe",
+        "quarters_used": 4
+      },
+      "fv_class": {
+        "ratio": 0.003,
+        "label": "discount"
+      },
+      "sys": null
+    }
+  ],
+  "all_sys_trades": [
+    {
+      "trade_id": "SATS-1758904200000",
+      "direction": "LONG",
+      "entry_date": "2025-09-26",
+      "entry_price": 74.15,
+      "exit_date": "2025-09-29",
+      "exit_price": 72.84,
+      "pnl_pct": -1.76,
+      "setup_name": "TT Tt N Test Support",
+      "setup_grade": "Prime",
+      "entry_path": "tt_n_test_support",
+      "exit_reason": "phase_i_mfe_fast_cut_zero_mfe",
+      "sector": "Communication Services",
+      "rank": 92,
+      "rr": 4.26,
+      "mfe_pct": 0,
+      "mae_pct": -1.76,
+      "held_days": 2.9,
+      "personality": null,
+      "regime_class": null,
+      "td9_bear_ltf_active": null
+    },
+    {
+      "trade_id": "SATS-1761937200000",
+      "direction": "LONG",
+      "entry_date": "2025-10-31",
+      "entry_price": 74.88,
+      "exit_date": "2025-11-03",
+      "exit_price": 74.16,
+      "pnl_pct": -0.96,
+      "setup_name": "TT Tt Gap Reversal Long",
+      "setup_grade": "Confirmed",
+      "entry_path": "tt_gap_reversal_long",
+      "exit_reason": "phase_i_mfe_fast_cut_2h",
+      "sector": "Communication Services",
+      "rank": 94,
+      "rr": 3.73,
+      "mfe_pct": 0.21,
+      "mae_pct": -0.96,
+      "held_days": 2.9,
+      "personality": null,
+      "regime_class": null,
+      "td9_bear_ltf_active": null
+    },
+    {
+      "trade_id": "SATS-1765204200000",
+      "direction": "LONG",
+      "entry_date": "2025-12-08",
+      "entry_price": 87.81,
+      "exit_date": "2025-12-17",
+      "exit_price": 102,
+      "pnl_pct": 8.38,
+      "setup_name": "TT Tt Gap Reversal Long",
+      "setup_grade": "Prime",
+      "entry_path": "tt_gap_reversal_long",
+      "exit_reason": "ST_FLIP_4H_CLOSE",
+      "sector": "Communication Services",
+      "rank": 93,
+      "rr": 2.62,
+      "mfe_pct": 23.96,
+      "mae_pct": -1.51,
+      "held_days": 9.1,
+      "personality": "VOLATILE_RUNNER",
+      "regime_class": "TRENDING",
+      "td9_bear_ltf_active": null
+    },
+    {
+      "trade_id": "SATS-1767717000000",
+      "direction": "LONG",
+      "entry_date": "2026-01-06",
+      "entry_price": 114.99,
+      "exit_date": "2026-01-07",
+      "exit_price": 112.15,
+      "pnl_pct": -0.84,
+      "setup_name": "TT Tt Gap Reversal Long",
+      "setup_grade": "Prime",
+      "entry_path": "tt_gap_reversal_long",
+      "exit_reason": "max_loss_time_scaled",
+      "sector": "Communication Services",
+      "rank": 93,
+      "rr": 2.88,
+      "mfe_pct": 2.49,
+      "mae_pct": -2.47,
+      "held_days": 1,
+      "personality": "VOLATILE_RUNNER",
+      "regime_class": "TRENDING",
+      "td9_bear_ltf_active": null
+    },
+    {
+      "trade_id": "SATS-1767976200000",
+      "direction": "LONG",
+      "entry_date": "2026-01-09",
+      "entry_price": 119.3,
+      "exit_date": "2026-01-16",
+      "exit_price": 123.87,
+      "pnl_pct": 2.2,
+      "setup_name": "TT Tt Gap Reversal Long",
+      "setup_grade": "Prime",
+      "entry_path": "tt_gap_reversal_long",
+      "exit_reason": "ST_FLIP_4H_CLOSE",
+      "sector": "Communication Services",
+      "rank": 100,
+      "rr": 2.65,
+      "mfe_pct": 10.26,
+      "mae_pct": 0,
+      "held_days": 7.1,
+      "personality": "VOLATILE_RUNNER",
+      "regime_class": "TRENDING",
+      "td9_bear_ltf_active": null
+    },
+    {
+      "trade_id": "SATS-1769112000000",
+      "direction": "LONG",
+      "entry_date": "2026-01-22",
+      "entry_price": 126.07,
+      "exit_date": "2026-01-26",
+      "exit_price": 124.33,
+      "pnl_pct": -0.3,
+      "setup_name": "TT Tt Gap Reversal Long",
+      "setup_grade": "Prime",
+      "entry_path": "tt_gap_reversal_long",
+      "exit_reason": "thesis_flip_htf",
+      "sector": "Communication Services",
+      "rank": 100,
+      "rr": 3.25,
+      "mfe_pct": 1.91,
+      "mae_pct": -1.38,
+      "held_days": 3.8,
+      "personality": "VOLATILE_RUNNER",
+      "regime_class": "TRENDING",
+      "td9_bear_ltf_active": null
+    },
+    {
+      "trade_id": "SATS-1775142000000",
+      "direction": "LONG",
+      "entry_date": "2026-04-02",
+      "entry_price": 124.3,
+      "exit_date": "2026-04-07",
+      "exit_price": 122.53,
+      "pnl_pct": -0.24,
+      "setup_name": "TT Tt Gap Reversal Long",
+      "setup_grade": "Prime",
+      "entry_path": "tt_gap_reversal_long",
+      "exit_reason": "tape_capitulation_force_exit",
+      "sector": "Communication Services",
+      "rank": 100,
+      "rr": 2.29,
+      "mfe_pct": 4.23,
+      "mae_pct": -1.42,
+      "held_days": 5,
+      "personality": "VOLATILE_RUNNER",
+      "regime_class": "CHOPPY",
+      "td9_bear_ltf_active": null
+    }
+  ]
+}

@@ -1,0 +1,601 @@
+{
+  "ticker": "IESC",
+  "cohort": "WINNERS",
+  "flavor": "RESILIENT_TREND",
+  "return_pct": 85.82,
+  "max_dd_pct": -21.8,
+  "weekly_ema21_break_streak": 1,
+  "daily_512_cloud_break_streak": 12,
+  "sector": "Industrials",
+  "industry": "Engineering & Construction",
+  "eps_growth_class": "exploding",
+  "fundamentals_today": {
+    "pe_ttm": 35.538174,
+    "pe_forward": 30.09234234234234,
+    "peg": 0.6386047510659899,
+    "fair_value_today": 544.67,
+    "fair_value_class_today": "premium",
+    "current_price": 667.06
+  },
+  "inflections": [
+    {
+      "inflection": "entry_oracle",
+      "gain_pct": 0,
+      "ts": 1751342400000,
+      "date": "2025-07-01",
+      "close": 289.3,
+      "daily": {
+        "ema5": 289.24,
+        "ema12": 283.19,
+        "ema21": 276.24,
+        "ema21_status": "above",
+        "ema50": 254.05,
+        "ema50_status": "above",
+        "cloud_status": "above",
+        "rsi": 61.65,
+        "atr": 11.61,
+        "atr_pct": 4.01,
+        "st_dir": 1,
+        "st_value": 257.38,
+        "td9_count": 11,
+        "td9_dir": "sell"
+      },
+      "weekly": {
+        "close": 306.41,
+        "ema21": 233.4,
+        "ema21_status": "above",
+        "rsi": 79.14,
+        "st_dir": 1,
+        "td9_count": 3,
+        "td9_dir": "sell"
+      },
+      "monthly": {
+        "st_dir": null
+      },
+      "h4": {
+        "close": 296.23,
+        "ema21": 289.68,
+        "ema21_status": "above",
+        "rsi": 66.16
+      },
+      "fv": {
+        "ttm_eps": 3.3,
+        "pe_mult_used": 30.09,
+        "fv_price": 99.3,
+        "fv_basis": "ttm_eps_x_fwd_pe",
+        "quarters_used": 4
+      },
+      "fv_class": {
+        "ratio": 2.913,
+        "label": "premium"
+      },
+      "sys": null
+    },
+    {
+      "inflection": "+5%",
+      "gain_pct": 5,
+      "ts": 1751515200000,
+      "date": "2025-07-03",
+      "close": 306.41,
+      "daily": {
+        "ema5": 296.74,
+        "ema12": 288.59,
+        "ema21": 280.72,
+        "ema21_status": "above",
+        "ema50": 257.73,
+        "ema50_status": "above",
+        "cloud_status": "above",
+        "rsi": 68.9,
+        "atr": 11.93,
+        "atr_pct": 3.89,
+        "st_dir": 1,
+        "st_value": 267,
+        "td9_count": 13,
+        "td9_dir": "sell"
+      },
+      "weekly": {
+        "close": 306.41,
+        "ema21": 233.4,
+        "ema21_status": "above",
+        "rsi": 79.14,
+        "st_dir": 1,
+        "td9_count": 3,
+        "td9_dir": "sell"
+      },
+      "monthly": {
+        "st_dir": null
+      },
+      "h4": {
+        "close": 297.25,
+        "ema21": 291.99,
+        "ema21_status": "above",
+        "rsi": 60.63
+      },
+      "fv": {
+        "ttm_eps": 3.3,
+        "pe_mult_used": 30.09,
+        "fv_price": 99.3,
+        "fv_basis": "ttm_eps_x_fwd_pe",
+        "quarters_used": 4
+      },
+      "fv_class": {
+        "ratio": 3.086,
+        "label": "premium"
+      },
+      "sys": null
+    },
+    {
+      "inflection": "+15%",
+      "gain_pct": 15,
+      "ts": 1753416000000,
+      "date": "2025-07-25",
+      "close": 357.66,
+      "daily": {
+        "ema5": 333.28,
+        "ema12": 321.28,
+        "ema21": 311.11,
+        "ema21_status": "above",
+        "ema50": 284.86,
+        "ema50_status": "above",
+        "cloud_status": "above",
+        "rsi": 73.63,
+        "atr": 15.79,
+        "atr_pct": 4.41,
+        "st_dir": 1,
+        "st_value": 301.64,
+        "td9_count": 2,
+        "td9_dir": "sell"
+      },
+      "weekly": {
+        "close": 357.66,
+        "ema21": 258.14,
+        "ema21_status": "above",
+        "rsi": 83.42,
+        "st_dir": 1,
+        "td9_count": 6,
+        "td9_dir": "sell"
+      },
+      "monthly": {
+        "st_dir": null
+      },
+      "h4": {
+        "close": 331.99,
+        "ema21": 321.57,
+        "ema21_status": "above",
+        "rsi": 67.31
+      },
+      "fv": {
+        "ttm_eps": 3.3,
+        "pe_mult_used": 30.09,
+        "fv_price": 99.3,
+        "fv_basis": "ttm_eps_x_fwd_pe",
+        "quarters_used": 4
+      },
+      "fv_class": {
+        "ratio": 3.602,
+        "label": "premium"
+      },
+      "sys": {
+        "trade_id": "IESC-1753290000000",
+        "direction": "LONG",
+        "entry_date": "2025-07-23",
+        "entry_price": 319.28,
+        "exit_date": "2025-07-31",
+        "exit_price": 354.06,
+        "pnl_pct": 5.81,
+        "setup_name": "TT Tt Gap Reversal Long",
+        "setup_grade": "Prime",
+        "entry_path": "tt_gap_reversal_long",
+        "exit_reason": "TP_FULL",
+        "sector": "Industrials",
+        "rank": 92,
+        "rr": 4.11,
+        "mfe_pct": 12.77,
+        "mae_pct": -1.07,
+        "held_days": 7.9,
+        "personality": null,
+        "regime_class": null,
+        "td9_bear_ltf_active": null
+      }
+    },
+    {
+      "inflection": "+30%",
+      "gain_pct": 30,
+      "ts": 1757462400000,
+      "date": "2025-09-10",
+      "close": 381.19,
+      "daily": {
+        "ema5": 364.86,
+        "ema12": 356.46,
+        "ema21": 350.25,
+        "ema21_status": "above",
+        "ema50": 330.69,
+        "ema50_status": "above",
+        "cloud_status": "above",
+        "rsi": 65.43,
+        "atr": 16.19,
+        "atr_pct": 4.25,
+        "st_dir": 1,
+        "st_value": 326.32,
+        "td9_count": 4,
+        "td9_dir": "sell"
+      },
+      "weekly": {
+        "close": 377.53,
+        "ema21": 303.36,
+        "ema21_status": "above",
+        "rsi": 79.52,
+        "st_dir": 1,
+        "td9_count": 2,
+        "td9_dir": "sell"
+      },
+      "monthly": {
+        "st_dir": null
+      },
+      "h4": {
+        "close": 364.02,
+        "ema21": 356.45,
+        "ema21_status": "above",
+        "rsi": 61.37
+      },
+      "fv": {
+        "ttm_eps": 6.65,
+        "pe_mult_used": 30.09,
+        "fv_price": 200.11,
+        "fv_basis": "ttm_eps_x_fwd_pe",
+        "quarters_used": 4
+      },
+      "fv_class": {
+        "ratio": 1.905,
+        "label": "premium"
+      },
+      "sys": null
+    },
+    {
+      "inflection": "+50%",
+      "gain_pct": 50,
+      "ts": 1761264000000,
+      "date": "2025-10-24",
+      "close": 436.98001,
+      "daily": {
+        "ema5": 399.54,
+        "ema12": 392.43,
+        "ema21": 388.47,
+        "ema21_status": "above",
+        "ema50": 372.15,
+        "ema50_status": "above",
+        "cloud_status": "above",
+        "rsi": 63.9,
+        "atr": 24.11,
+        "atr_pct": 5.52,
+        "st_dir": 1,
+        "st_value": 350.08,
+        "td9_count": 1,
+        "td9_dir": "sell"
+      },
+      "weekly": {
+        "close": 436.98,
+        "ema21": 342.01,
+        "ema21_status": "above",
+        "rsi": 78.04,
+        "st_dir": 1,
+        "td9_count": 2,
+        "td9_dir": "sell"
+      },
+      "monthly": {
+        "st_dir": null
+      },
+      "h4": {
+        "close": 385,
+        "ema21": 379.86,
+        "ema21_status": "above",
+        "rsi": 53.33
+      },
+      "fv": {
+        "ttm_eps": 6.65,
+        "pe_mult_used": 30.09,
+        "fv_price": 200.11,
+        "fv_basis": "ttm_eps_x_fwd_pe",
+        "quarters_used": 4
+      },
+      "fv_class": {
+        "ratio": 2.184,
+        "label": "premium"
+      },
+      "sys": null
+    },
+    {
+      "inflection": "+75%",
+      "gain_pct": 75,
+      "ts": 1770768000000,
+      "date": "2026-02-11",
+      "close": 514.35999,
+      "daily": {
+        "ema5": 481.99,
+        "ema12": 459.77,
+        "ema21": 449.3,
+        "ema21_status": "above",
+        "ema50": 431.71,
+        "ema50_status": "above",
+        "cloud_status": "above",
+        "rsi": 64.22,
+        "atr": 31.56,
+        "atr_pct": 6.14,
+        "st_dir": 1,
+        "st_value": 415.9,
+        "td9_count": 5,
+        "td9_dir": "sell"
+      },
+      "weekly": {
+        "close": 518.16,
+        "ema21": 411.51,
+        "ema21_status": "above",
+        "rsi": 65.01,
+        "st_dir": 1,
+        "td9_count": 2,
+        "td9_dir": "sell"
+      },
+      "monthly": {
+        "st_dir": 1
+      },
+      "h4": {
+        "close": 499.78,
+        "ema21": 471.39,
+        "ema21_status": "above",
+        "rsi": 70.44
+      },
+      "fv": {
+        "ttm_eps": 11.74,
+        "pe_mult_used": 30.09,
+        "fv_price": 353.28,
+        "fv_basis": "ttm_eps_x_fwd_pe",
+        "quarters_used": 4
+      },
+      "fv_class": {
+        "ratio": 1.456,
+        "label": "premium"
+      },
+      "sys": null
+    },
+    {
+      "inflection": "peak",
+      "gain_pct": 88.09,
+      "ts": 1776124800000,
+      "date": "2026-04-14",
+      "close": 544.14001,
+      "daily": {
+        "ema5": 530.88,
+        "ema12": 509.82,
+        "ema21": 495.95,
+        "ema21_status": "above",
+        "ema50": 476.45,
+        "ema50_status": "above",
+        "cloud_status": "above",
+        "rsi": 64.87,
+        "atr": 28.31,
+        "atr_pct": 5.2,
+        "st_dir": 1,
+        "st_value": 453.49,
+        "td9_count": 9,
+        "td9_dir": "sell"
+      },
+      "weekly": {
+        "close": 537.58,
+        "ema21": 455.41,
+        "ema21_status": "above",
+        "rsi": 63.73,
+        "st_dir": 1,
+        "td9_count": 3,
+        "td9_dir": "sell"
+      },
+      "monthly": {
+        "st_dir": 1
+      },
+      "h4": {
+        "close": 539.54,
+        "ema21": 507.2,
+        "ema21_status": "above",
+        "rsi": 67.35
+      },
+      "fv": {
+        "ttm_eps": 11.74,
+        "pe_mult_used": 30.09,
+        "fv_price": 353.28,
+        "fv_basis": "ttm_eps_x_fwd_pe",
+        "quarters_used": 4
+      },
+      "fv_class": {
+        "ratio": 1.54,
+        "label": "premium"
+      },
+      "sys": null
+    },
+    {
+      "inflection": "exit_window",
+      "gain_pct": 85.82,
+      "ts": 1776384000000,
+      "date": "2026-04-17",
+      "close": 537.58002,
+      "daily": {
+        "ema5": 522.31,
+        "ema12": 512.79,
+        "ema21": 501.2,
+        "ema21_status": "above",
+        "ema50": 481.02,
+        "ema50_status": "above",
+        "cloud_status": "above",
+        "rsi": 58.49,
+        "atr": 31.75,
+        "atr_pct": 5.91,
+        "st_dir": 1,
+        "st_value": 453.49,
+        "td9_count": 3,
+        "td9_dir": "buy"
+      },
+      "weekly": {
+        "close": 537.58,
+        "ema21": 455.41,
+        "ema21_status": "above",
+        "rsi": 63.73,
+        "st_dir": 1,
+        "td9_count": 3,
+        "td9_dir": "sell"
+      },
+      "monthly": {
+        "st_dir": 1
+      },
+      "h4": {
+        "close": 483.37,
+        "ema21": 510.71,
+        "ema21_status": "below",
+        "rsi": 41.05
+      },
+      "fv": {
+        "ttm_eps": 11.74,
+        "pe_mult_used": 30.09,
+        "fv_price": 353.28,
+        "fv_basis": "ttm_eps_x_fwd_pe",
+        "quarters_used": 4
+      },
+      "fv_class": {
+        "ratio": 1.522,
+        "label": "premium"
+      },
+      "sys": null
+    }
+  ],
+  "all_sys_trades": [
+    {
+      "trade_id": "IESC-1753290000000",
+      "direction": "LONG",
+      "entry_date": "2025-07-23",
+      "entry_price": 319.28,
+      "exit_date": "2025-07-31",
+      "exit_price": 354.06,
+      "pnl_pct": 5.81,
+      "setup_name": "TT Tt Gap Reversal Long",
+      "setup_grade": "Prime",
+      "entry_path": "tt_gap_reversal_long",
+      "exit_reason": "TP_FULL",
+      "sector": "Industrials",
+      "rank": 92,
+      "rr": 4.11,
+      "mfe_pct": 12.77,
+      "mae_pct": -1.07,
+      "held_days": 7.9,
+      "personality": null,
+      "regime_class": null,
+      "td9_bear_ltf_active": null
+    },
+    {
+      "trade_id": "IESC-1756143000000",
+      "direction": "LONG",
+      "entry_date": "2025-08-25",
+      "entry_price": 346.86,
+      "exit_date": "2025-08-29",
+      "exit_price": 349.05,
+      "pnl_pct": 1.6,
+      "setup_name": "TT Tt Gap Reversal Long",
+      "setup_grade": "Prime",
+      "entry_path": "tt_gap_reversal_long",
+      "exit_reason": "SMART_RUNNER_SUPPORT_BREAK_CLOUD",
+      "sector": "Industrials",
+      "rank": 94,
+      "rr": 4.5,
+      "mfe_pct": 5.56,
+      "mae_pct": 0,
+      "held_days": 3.9,
+      "personality": null,
+      "regime_class": null,
+      "td9_bear_ltf_active": null
+    },
+    {
+      "trade_id": "IESC-1758218400000",
+      "direction": "LONG",
+      "entry_date": "2025-09-18",
+      "entry_price": 381.73,
+      "exit_date": "2025-09-19",
+      "exit_price": 375.78,
+      "pnl_pct": -1.56,
+      "setup_name": "TT Tt Gap Reversal Long",
+      "setup_grade": "Prime",
+      "entry_path": "tt_gap_reversal_long",
+      "exit_reason": "phase_i_mfe_cut_4h",
+      "sector": "Industrials",
+      "rank": 100,
+      "rr": 2.67,
+      "mfe_pct": 0.4,
+      "mae_pct": -1.56,
+      "held_days": 1,
+      "personality": null,
+      "regime_class": null,
+      "td9_bear_ltf_active": null
+    },
+    {
+      "trade_id": "IESC-1758909600000",
+      "direction": "LONG",
+      "entry_date": "2025-09-26",
+      "entry_price": 390,
+      "exit_date": "2025-10-03",
+      "exit_price": 387.28,
+      "pnl_pct": -0.42,
+      "setup_name": "TT Tt Gap Reversal Long",
+      "setup_grade": "Prime",
+      "entry_path": "tt_gap_reversal_long",
+      "exit_reason": "peak_lock_ema12_deep_break",
+      "sector": "Industrials",
+      "rank": 100,
+      "rr": 3.67,
+      "mfe_pct": 3.1,
+      "mae_pct": -1.22,
+      "held_days": 6.9,
+      "personality": null,
+      "regime_class": null,
+      "td9_bear_ltf_active": null
+    },
+    {
+      "trade_id": "IESC-1764964800000",
+      "direction": "LONG",
+      "entry_date": "2025-12-05",
+      "entry_price": 425.97,
+      "exit_date": "2025-12-15",
+      "exit_price": 458.61,
+      "pnl_pct": 5.96,
+      "setup_name": "TT Tt Gap Reversal Long",
+      "setup_grade": "Prime",
+      "entry_path": "tt_gap_reversal_long",
+      "exit_reason": "atr_week_618_full_exit",
+      "sector": "Industrials",
+      "rank": 100,
+      "rr": 3.03,
+      "mfe_pct": 12.66,
+      "mae_pct": 0,
+      "held_days": 9.8,
+      "personality": "VOLATILE_RUNNER",
+      "regime_class": "TRENDING",
+      "td9_bear_ltf_active": null
+    },
+    {
+      "trade_id": "IESC-1771615800000",
+      "direction": "LONG",
+      "entry_date": "2026-02-20",
+      "entry_price": 513.4,
+      "exit_date": "2026-02-23",
+      "exit_price": 501.12,
+      "pnl_pct": -2.39,
+      "setup_name": "TT Tt Gap Reversal Long",
+      "setup_grade": "Prime",
+      "entry_path": "tt_gap_reversal_long",
+      "exit_reason": "max_loss_time_scaled",
+      "sector": "Industrials",
+      "rank": 97,
+      "rr": 3.01,
+      "mfe_pct": 1.22,
+      "mae_pct": -2.39,
+      "held_days": 2.9,
+      "personality": "VOLATILE_RUNNER",
+      "regime_class": "TRENDING",
+      "td9_bear_ltf_active": null
+    }
+  ]
+}

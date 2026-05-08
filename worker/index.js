@@ -948,6 +948,7 @@ const ROUTES = [
   ["POST", "/timed/admin/seed-direction-accuracy-from-promoted", "POST /timed/admin/seed-direction-accuracy-from-promoted"],
   ["POST", "/timed/admin/refresh-path-performance", "POST /timed/admin/refresh-path-performance"],
   ["POST", "/timed/admin/ensure-trend-hold-schema", "POST /timed/admin/ensure-trend-hold-schema"],
+  ["POST", "/timed/admin/trend-hold-evaluate", "POST /timed/admin/trend-hold-evaluate"],
   ["GET", "/timed/admin/direction-accuracy/inspect", "GET /timed/admin/direction-accuracy/inspect"],
   ["POST", "/timed/admin/restore-trade-from-da", "POST /timed/admin/restore-trade-from-da"],
   ["POST", "/timed/admin/patch-trade-from-da", "POST /timed/admin/patch-trade-from-da"],
@@ -54833,6 +54834,135 @@ export default {
           return sendJSON(result, result?.ok ? 200 : 500, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // POST /timed/admin/trend-hold-evaluate?ticker=SNDK&commit=0&key=...
+      // V15 P0.7.108 (2026-05-08) — Phase 3 wiring smoke test.
+      //
+      // Reads the latest timed_trail snapshot for `ticker` and the live
+      // open trade for that ticker (run_id IS NULL). Runs TrendHold's
+      // extractTrendSnapshot + shouldPromoteToTrendHold against them.
+      // Returns the would-promote decision + reason + extracted snapshot
+      // for diagnostic inspection.
+      //
+      // Side-effect free by default. Pass commit=1 to actually stamp the
+      // trade if the gate passes (still respects daCfg flag).
+      //
+      // Use this to validate Phase 2 wiring without depending on a full
+      // multi-leg replay — the gate runs against current real market data.
+      // ═══════════════════════════════════════════════════════════════════════
+      if (routeKey === "POST /timed/admin/trend-hold-evaluate") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const ticker = String(url.searchParams.get("ticker") || "").toUpperCase();
+          const commit = url.searchParams.get("commit") === "1";
+          const autoFallback = url.searchParams.get("autoFallback") !== "0";
+          if (!ticker) return sendJSON({ ok: false, error: "ticker_required" }, 400, corsHeaders(env, req));
+
+          // 1. Get the most recent timed_trail row with payload_json for this ticker.
+          // (Phase-I purge sets payload_json=NULL on older rows to reclaim D1 space;
+          //  recent live rows usually still have it.)
+          let trailRow = await db.prepare(
+            `SELECT ticker, ts, payload_json FROM timed_trail
+             WHERE ticker = ?1 AND payload_json IS NOT NULL
+             ORDER BY ts DESC LIMIT 1`
+          ).bind(ticker).first();
+          let snapshotSourceTicker = ticker;
+          // Auto-fallback: if no payload for the requested ticker, find ANY ticker
+          // with recent payload_json. Caller can disable with autoFallback=0.
+          if (!trailRow?.payload_json && autoFallback) {
+            trailRow = await db.prepare(
+              `SELECT ticker, ts, payload_json FROM timed_trail
+               WHERE payload_json IS NOT NULL
+               ORDER BY ts DESC LIMIT 1`
+            ).first();
+            if (trailRow?.payload_json) snapshotSourceTicker = trailRow.ticker;
+          }
+          if (!trailRow?.payload_json) {
+            return sendJSON({ ok: false, error: "no_recent_snapshot",
+              hint: "no timed_trail.payload_json rows in D1 — Phase-I purge may have nuked them; need fresh ingest" }, 404, corsHeaders(env, req));
+          }
+          let tickerData;
+          try { tickerData = JSON.parse(trailRow.payload_json); }
+          catch (e) {
+            return sendJSON({ ok: false, error: "snapshot_parse_failed", detail: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+          }
+          tickerData.ticker = ticker;
+
+          // 2. Get the live open trade (run_id IS NULL).
+          const openTrade = await db.prepare(
+            `SELECT * FROM trades
+             WHERE ticker = ?1 AND status = 'OPEN' AND run_id IS NULL
+             ORDER BY entry_ts DESC LIMIT 1`
+          ).bind(ticker).first();
+          // Synthetic trade if no live position — lets us test gates against just the snapshot.
+          const tradeForGate = openTrade || {
+            trade_id: `synthetic-${ticker}`,
+            ticker,
+            direction: "LONG",
+            entryPrice: Number(tickerData.price ?? tickerData.priceClose ?? 0),
+            entry_price: Number(tickerData.price ?? tickerData.priceClose ?? 0),
+            maxFavorableExcursion: 10.0, // assume 10% MFE for the synthetic test
+            trimmed_pct: 0,
+            trend_hold_state: null,
+          };
+
+          // 3. Load daCfg (same path as live cron + replay).
+          const daKeys = REPLAY_DA_KEYS;
+          const daRows = (await db.prepare(
+            `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
+          ).bind(...daKeys).all())?.results || [];
+          const daCfg = {};
+          for (const r of daRows) {
+            try { daCfg[r.config_key] = JSON.parse(r.config_value); } catch { daCfg[r.config_key] = r.config_value; }
+          }
+
+          // 4. Run the gates.
+          const cfg = TrendHold.loadTrendHoldConfig(daCfg);
+          const enabled = TrendHold.isTrendHoldEnabled(daCfg);
+          const snap = TrendHold.extractTrendSnapshot(tickerData, tradeForGate);
+          const promoteResult = snap ? TrendHold.shouldPromoteToTrendHold(snap, tradeForGate, cfg) : null;
+          const demoteResult = snap ? TrendHold.shouldDemoteFromTrendHold(snap, tradeForGate, cfg) : null;
+          const dcaResult = snap ? TrendHold.shouldDcaTrendHold(snap, tradeForGate, cfg) : null;
+
+          // 5. Optionally commit if promote=true and a real open trade exists.
+          let committed = null;
+          if (commit && promoteResult?.promote && openTrade?.trade_id) {
+            committed = await d1UpdateTradeTrendHoldState(env, openTrade.trade_id, {
+              state: "active",
+              promoted_at: Date.now(),
+              flavor: promoteResult.flavor,
+              promote_reason: `manual-eval: ${promoteResult.reason}`,
+              max_mfe_pct: Number(openTrade.max_favorable_excursion ?? openTrade.maxFavorableExcursion) || null,
+            });
+          }
+
+          return sendJSON({
+            ok: true,
+            ticker,
+            snapshot_source_ticker: snapshotSourceTicker,
+            snapshot_fallback: snapshotSourceTicker !== ticker,
+            flag_enabled: enabled,
+            cfg_max_positions: cfg.max_simultaneous_positions,
+            snapshot_age_ms: Date.now() - Number(trailRow.ts),
+            snapshot_ts: Number(trailRow.ts),
+            has_open_trade: !!openTrade,
+            open_trade_id: openTrade?.trade_id || null,
+            open_trade_mfe_pct: openTrade ? Number(openTrade.max_favorable_excursion) : null,
+            existing_state: openTrade?.trend_hold_state || null,
+            snapshot: snap,
+            promote: promoteResult,
+            demote: demoteResult,
+            dca: dcaResult,
+            committed,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }
       }
 
