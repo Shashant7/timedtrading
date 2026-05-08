@@ -152,6 +152,20 @@ export function isTrendHoldEnabled(daCfg) {
 //   (+1 = bull, -1 = bear) so downstream predicates read as `stDir === 1`
 //   for bull regardless of source. tfTechStDir() inverts the Pine sign;
 //   bundleStDir() passes through.
+//
+// EMA / RSI ACCESS SHAPE:
+//   The worker persists tf_tech with NESTED ema/rsi objects, NOT flat
+//   numeric fields:
+//     tf_tech.{TF}.ema.priceAboveEma21   ← derived bool (canonical)
+//     tf_tech.{TF}.ema.depth/structure/momentum/stack
+//     tf_tech.{TF}.rsi.r5                ← canonical RSI access
+//   See worker/indicators.js line ~4664 (priceAboveEma21 derivation)
+//   and the persisted day-state KV blob shape inspected at
+//   timed:replay:daystate:YYYY-MM-DD.
+//
+//   We prefer the derived `priceAboveEma21` boolean. If absent (older
+//   day-states or alternate ingest paths) we fall back to computing
+//   `close >= ema21` from raw numeric fields if both exist.
 // ─────────────────────────────────────────────────────────────────────
 export function extractTrendSnapshot(tickerData, openPosition) {
   if (!tickerData || typeof tickerData !== "object") return null;
@@ -160,31 +174,38 @@ export function extractTrendSnapshot(tickerData, openPosition) {
 
   const close = num(tickerData.priceClose ?? tickerData.close ?? tickerData.price);
 
-  const dailyEma21 = num(tt.D?.ema21);
+  const dailyEma21Above = readPriceAboveEma21(tt.D, close);
   const dailyStDir = tfTechStDir(tt.D?.stDir);
 
-  const weeklyEma21 = num(tt.W?.ema21);
+  const weeklyEma21Above = readPriceAboveEma21(tt.W, close);
   const weeklyStDir = tfTechStDir(tt.W?.stDir);
 
-  const fourHEma21 = num(tt["4H"]?.ema21);
+  const fourHEma21Above = readPriceAboveEma21(tt["4H"], close);
 
   // Monthly: prefer monthly_bundle.supertrend_dir (STANDARD convention),
   // fall back to tf_tech.M.stDir (PINE convention, inverted via
-  // tfTechStDir()).
+  // tfTechStDir()). Sparse population is common — many tickers have
+  // null monthly_bundle until the monthly bar settles.
   const monthlyStDir = bundleStDir(tickerData.monthly_bundle?.supertrend_dir)
     ?? tfTechStDir(tt.M?.stDir);
 
-  // Weekly RSI / TD9 sell-setup count.
-  const weeklyRsi = num(tt.W?.rsi);
+  // RSI: tf_tech.*.rsi.r5 is the canonical 5-period RSI; some upstream
+  // shapes store rsi as a bare number. Try both.
+  const weeklyRsi = num(tt.W?.rsi?.r5 ?? tt.W?.rsi);
   // td_sequential reports "bearish_prep_count" as the bullish-exhaustion
   // (sell-setup) count by their convention — see worker/index.js
   // ~line 29830. Sell-setup = TD9 sell pattern = bearish-prep.
   const weeklyTd9SellCount = num(td.W?.bearish_prep_count) ?? 0;
 
-  const dailyRsi = num(tt.D?.rsi);
-  const fourHRsi = num(tt["4H"]?.rsi);
+  const dailyRsi = num(tt.D?.rsi?.r5 ?? tt.D?.rsi);
+  const fourHRsi = num(tt["4H"]?.rsi?.r5 ?? tt["4H"]?.rsi);
 
   // Daily 5/12 cloud status (close vs min(EMA5, EMA12)).
+  // Day-state KV doesn't persist EMA-5/12 numerics, but it does persist
+  // tt.D.ema.depth which is "close - ema21" in some normalized form.
+  // For cohort/replay purposes we treat absent ema5/12 as "unknown
+  // cloud status" — caller must populate from a richer pipeline if
+  // they want cloud-reclaim DCA to fire.
   const dailyEma5 = num(tt.D?.ema5);
   const dailyEma12 = num(tt.D?.ema12);
   let cloudStatus = null;
@@ -229,8 +250,7 @@ export function extractTrendSnapshot(tickerData, openPosition) {
     mfePct,
     trimmedPct,
     daily: {
-      ema21: dailyEma21,
-      ema21_above: close != null && dailyEma21 != null ? close >= dailyEma21 : null,
+      ema21_above: dailyEma21Above,
       ema5: dailyEma5,
       ema12: dailyEma12,
       cloud_status: cloudStatus,
@@ -238,16 +258,14 @@ export function extractTrendSnapshot(tickerData, openPosition) {
       rsi: dailyRsi,
     },
     weekly: {
-      ema21: weeklyEma21,
-      ema21_above: close != null && weeklyEma21 != null ? close >= weeklyEma21 : null,
+      ema21_above: weeklyEma21Above,
       stDir: weeklyStDir,
       rsi: weeklyRsi,
       td9_sell_count: weeklyTd9SellCount,
       consecutive_below_ema21: consecutiveWeeklyBelow,
     },
     fourH: {
-      ema21: fourHEma21,
-      ema21_above: close != null && fourHEma21 != null ? close >= fourHEma21 : null,
+      ema21_above: fourHEma21Above,
       rsi: fourHRsi,
     },
     monthly: { stDir: monthlyStDir },
@@ -506,14 +524,43 @@ function num(v) {
 }
 
 /**
+ * Read "is close above EMA-21" for one timeframe block.
+ *
+ * Day-state KV persists this as a derived boolean at `tfBlock.ema.priceAboveEma21`
+ * — the canonical access path. Live tickerData usually provides the same shape
+ * via the indicator pipeline (worker/indicators.js ~line 4664).
+ *
+ * Falls back to numeric `tfBlock.ema21` + close comparison if the derived
+ * bool is absent. Returns `null` when the timeframe block is missing or empty
+ * (e.g. tt.W = {} for tickers with insufficient weekly history).
+ */
+function readPriceAboveEma21(tfBlock, close) {
+  if (!tfBlock || typeof tfBlock !== "object") return null;
+  // Empty block → no signal. (Day-state has tt.W = {} for sparse tickers.)
+  const ema = tfBlock.ema;
+  if (ema && typeof ema === "object" && Object.keys(ema).length > 0) {
+    if (typeof ema.priceAboveEma21 === "boolean") return ema.priceAboveEma21;
+  }
+  // Fallback: numeric ema21 + close.
+  const ema21Num = Number(tfBlock.ema21);
+  if (Number.isFinite(ema21Num) && close != null) {
+    return close >= ema21Num;
+  }
+  return null;
+}
+
+/**
  * Normalize a tf_tech.{D,W,4H,M}.stDir reading.
  * Pine convention used in worker/indicators.js:
  *   stDir = -1  →  bull   →  return +1 (standard)
  *   stDir = +1  →  bear   →  return -1
  *   stDir =  0  →  flat   →  return  0
+ *   null/undefined/NaN    →  return null  (signal absent — distinct from "flat")
  */
 function tfTechStDir(v) {
+  if (v === null || v === undefined) return null;
   const n = Number(v);
+  if (!Number.isFinite(n)) return null;
   if (n === -1) return 1;
   if (n === 1) return -1;
   if (n === 0) return 0;
@@ -526,9 +573,12 @@ function tfTechStDir(v) {
  *   supertrend_dir = +1  →  bull   →  return +1
  *   supertrend_dir = -1  →  bear   →  return -1
  *   supertrend_dir =  0  →  flat   →  return  0
+ *   null/undefined/NaN   →  return null  (signal absent)
  */
 function bundleStDir(v) {
+  if (v === null || v === undefined) return null;
   const n = Number(v);
+  if (!Number.isFinite(n)) return null;
   if (n === 1) return 1;
   if (n === -1) return -1;
   if (n === 0) return 0;
