@@ -1,0 +1,1436 @@
+{
+  "generated_at": 1778256585826,
+  "base": "https://timed-trading-ingest.shashant.workers.dev",
+  "universe_size": 237,
+  "fetched": 711,
+  "failed": 0,
+  "timeframes": [
+    "D",
+    "W",
+    "M"
+  ],
+  "tickers": [
+    {
+      "ticker": "AA",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 146
+    },
+    {
+      "ticker": "AAPL",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "ABT",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "ACN",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 146
+    },
+    {
+      "ticker": "AEHR",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "AGQ",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "AGYS",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "ALB",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "ALLY",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "AMD",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "AMGN",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "AMZN",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "ANET",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "APD",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "APLD",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 168
+    },
+    {
+      "ticker": "APP",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 120
+    },
+    {
+      "ticker": "AR",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 136
+    },
+    {
+      "ticker": "ARM",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 62
+    },
+    {
+      "ticker": "ARRY",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 81
+    },
+    {
+      "ticker": "ASTS",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 154
+    },
+    {
+      "ticker": "AU",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "AVAV",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "AVGO",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "AWI",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "AXON",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "AXP",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "AYI",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "B",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "BA",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "BABA",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "BE",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 186
+    },
+    {
+      "ticker": "BG",
+      "D_count": 500,
+      "W_count": 174,
+      "M_count": 40
+    },
+    {
+      "ticker": "BK",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "BMNR",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 130
+    },
+    {
+      "ticker": "BRK-B",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 137
+    },
+    {
+      "ticker": "BTCUSD",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 119
+    },
+    {
+      "ticker": "BWXT",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "CARR",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 87
+    },
+    {
+      "ticker": "CAT",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "CCJ",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "CDNS",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "CELH",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "CL1!",
+      "D_count": 358,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "CLS",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "COIN",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 120
+    },
+    {
+      "ticker": "COST",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "CRM",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "CRS",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "CRWD",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 164
+    },
+    {
+      "ticker": "CRWV",
+      "D_count": 498,
+      "W_count": 108,
+      "M_count": 26
+    },
+    {
+      "ticker": "CSCO",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "CSX",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "CVNA",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "CVX",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "CW",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 136
+    },
+    {
+      "ticker": "DBA",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 144
+    },
+    {
+      "ticker": "DCI",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "DE",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "DIA",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 136
+    },
+    {
+      "ticker": "DINO",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 136
+    },
+    {
+      "ticker": "DKNG",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 162
+    },
+    {
+      "ticker": "DPZ",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 136
+    },
+    {
+      "ticker": "DTM",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 72
+    },
+    {
+      "ticker": "DY",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "ELF",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 130
+    },
+    {
+      "ticker": "EME",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "EMR",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "ENS",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "ES1!",
+      "D_count": 427,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "ETHA",
+      "D_count": 500,
+      "W_count": 177,
+      "M_count": 42
+    },
+    {
+      "ticker": "ETHUSD",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 62
+    },
+    {
+      "ticker": "ETN",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "EWBC",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "EXEL",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 136
+    },
+    {
+      "ticker": "EXPE",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "FIX",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "FLR",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 136
+    },
+    {
+      "ticker": "FN",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 136
+    },
+    {
+      "ticker": "FSLR",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "GC1!",
+      "D_count": 363,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "GDX",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "GE",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "GEV",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 48
+    },
+    {
+      "ticker": "GILD",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "GLD",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 136
+    },
+    {
+      "ticker": "GLXY",
+      "D_count": 429,
+      "W_count": 93,
+      "M_count": 22
+    },
+    {
+      "ticker": "GOLD",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "GOOGL",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "GRNI",
+      "D_count": 105,
+      "W_count": 23,
+      "M_count": 6
+    },
+    {
+      "ticker": "GRNJ",
+      "D_count": 104,
+      "W_count": 23,
+      "M_count": 6
+    },
+    {
+      "ticker": "GRNY",
+      "D_count": 500,
+      "W_count": 145,
+      "M_count": 34
+    },
+    {
+      "ticker": "GS",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "H",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 136
+    },
+    {
+      "ticker": "HALO",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 136
+    },
+    {
+      "ticker": "HII",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "HIMS",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 158
+    },
+    {
+      "ticker": "HL",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "HOOD",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 114
+    },
+    {
+      "ticker": "HUBS",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "IAU",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "IBB",
+      "D_count": 500,
+      "W_count": 105,
+      "M_count": 24
+    },
+    {
+      "ticker": "IBP",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "IESC",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "INFL",
+      "D_count": 500,
+      "W_count": 105,
+      "M_count": 24
+    },
+    {
+      "ticker": "INTC",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "INTU",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "IONQ",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 126
+    },
+    {
+      "ticker": "IOT",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 104
+    },
+    {
+      "ticker": "IREN",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 106
+    },
+    {
+      "ticker": "ISRG",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 136
+    },
+    {
+      "ticker": "ITT",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "IWM",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "J",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 136
+    },
+    {
+      "ticker": "JCI",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "JD",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "JOBY",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 130
+    },
+    {
+      "ticker": "JPM",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "KLAC",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "KO",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "KTOS",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "KWEB",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "LIT",
+      "D_count": 500,
+      "W_count": 105,
+      "M_count": 24
+    },
+    {
+      "ticker": "LITE",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "LLY",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "LMND",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 138
+    },
+    {
+      "ticker": "LRCX",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "LRN",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 136
+    },
+    {
+      "ticker": "LSCC",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 136
+    },
+    {
+      "ticker": "LULU",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "MCD",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "MDB",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "META",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "MLI",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "MNST",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "MP",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 140
+    },
+    {
+      "ticker": "MRK",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 136
+    },
+    {
+      "ticker": "MSFT",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "MSTR",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "MTB",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "MTZ",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "MU",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "NBIS",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 140
+    },
+    {
+      "ticker": "NEU",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "NFLX",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "NKE",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "NOC",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "NQ1!",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "NVDA",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "NXT",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 76
+    },
+    {
+      "ticker": "OKE",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 136
+    },
+    {
+      "ticker": "ON",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "ORCL",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "PANW",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "PATH",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 120
+    },
+    {
+      "ticker": "PEGA",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "PH",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "PI",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "PKG",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 136
+    },
+    {
+      "ticker": "PLTR",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 134
+    },
+    {
+      "ticker": "PNC",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "PPG",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "PSTG",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "PWR",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "QLYS",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "QQQ",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "QXO",
+      "D_count": 500,
+      "W_count": 174,
+      "M_count": 40
+    },
+    {
+      "ticker": "RBLX",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 122
+    },
+    {
+      "ticker": "RDDT",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 50
+    },
+    {
+      "ticker": "RGLD",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "RIOT",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "RKLB",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 130
+    },
+    {
+      "ticker": "RPG",
+      "D_count": 500,
+      "W_count": 105,
+      "M_count": 24
+    },
+    {
+      "ticker": "RTX",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "RTY1!",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 108
+    },
+    {
+      "ticker": "SANM",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "SATS",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 136
+    },
+    {
+      "ticker": "SGI",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "SHOP",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "SI1!",
+      "D_count": 363,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "SLV",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "SN",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 154
+    },
+    {
+      "ticker": "SNDK",
+      "D_count": 500,
+      "W_count": 119,
+      "M_count": 28
+    },
+    {
+      "ticker": "SOFI",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 128
+    },
+    {
+      "ticker": "SOXL",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "SPGI",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "SPHB",
+      "D_count": 500,
+      "W_count": 105,
+      "M_count": 24
+    },
+    {
+      "ticker": "SPOT",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 192
+    },
+    {
+      "ticker": "SPX",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "SPY",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "STRL",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "STX",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "SWK",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "TEM",
+      "D_count": 500,
+      "W_count": 187,
+      "M_count": 44
+    },
+    {
+      "ticker": "TJX",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "TLN",
+      "D_count": 500,
+      "W_count": 182,
+      "M_count": 42
+    },
+    {
+      "ticker": "TNA",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "TPL",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 136
+    },
+    {
+      "ticker": "TSLA",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "TSM",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "TT",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "TWLO",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "U",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 134
+    },
+    {
+      "ticker": "UHS",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 136
+    },
+    {
+      "ticker": "ULTA",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "UNH",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "UNP",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "UPS",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "US500",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "USO",
+      "D_count": 500,
+      "W_count": 161,
+      "M_count": 37
+    },
+    {
+      "ticker": "UTHR",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "UUUU",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "VIXY",
+      "D_count": 500,
+      "W_count": 161,
+      "M_count": 37
+    },
+    {
+      "ticker": "VMI",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 136
+    },
+    {
+      "ticker": "VRTX",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "VST",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "VX1!",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "WAL",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "WDC",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "WFRD",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 121
+    },
+    {
+      "ticker": "WM",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "WMT",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "WTS",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "XHB",
+      "D_count": 500,
+      "W_count": 173,
+      "M_count": 41
+    },
+    {
+      "ticker": "XLB",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "XLC",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 188
+    },
+    {
+      "ticker": "XLE",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "XLF",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "XLI",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "XLK",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "XLP",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "XLRE",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "XLU",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "XLV",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "XLY",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "XOM",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "XYZ",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    },
+    {
+      "ticker": "YM1!",
+      "D_count": 500,
+      "W_count": 200,
+      "M_count": 200
+    }
+  ]
+}

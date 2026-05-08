@@ -75,3 +75,6 @@ wrangler.toml.local
 
 # PFVG raw bars (regenerable)
 data/pfvg/*-bars-*.json
+data/phase-c-deep-dive/candles
+data/phase-c-deep-dive/cache
+data/phase-c-deep-dive/milestones
