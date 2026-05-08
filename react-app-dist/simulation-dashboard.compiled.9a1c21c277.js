@@ -5480,22 +5480,24 @@ function TradeReviewModal({
 }) {
   const [decisionReasons, setDecisionReasons] = useState(null);
   const [decisionLoading, setDecisionLoading] = useState(false);
+  const [decisionSnapshot, setDecisionSnapshot] = useState(null);
   const [trimEvents, setTrimEvents] = useState([]);
   const tradeId = t?.trade_id || t?.tradeId || t?.id;
   useEffect(() => {
     if (!tradeId) return;
     let cancelled = false;
-    if (!entryPath) {
-      setDecisionLoading(true);
-      fetch(`${API_BASE}/timed/ledger/trades/${encodeURIComponent(tradeId)}/decision-card?type=ENTRY`, {
-        cache: "no-store"
-      }).then(r => r.json()).then(j => {
-        if (cancelled) return;
-        if (j?.ok && j?.card?.reasons) setDecisionReasons(String(j.card.reasons));
-      }).catch(() => {}).finally(() => {
-        if (!cancelled) setDecisionLoading(false);
-      });
-    }
+    setDecisionLoading(true);
+    setDecisionReasons(null);
+    setDecisionSnapshot(null);
+    fetch(`${API_BASE}/timed/ledger/trades/${encodeURIComponent(tradeId)}/decision-card?type=ENTRY`, {
+      cache: "no-store"
+    }).then(r => r.json()).then(j => {
+      if (cancelled) return;
+      if (j?.ok && j?.card?.reasons) setDecisionReasons(String(j.card.reasons));
+      if (j?.ok && j?.snapshot?.payload) setDecisionSnapshot(j.snapshot.payload);
+    }).catch(() => {}).finally(() => {
+      if (!cancelled) setDecisionLoading(false);
+    });
     fetch(`${API_BASE}/timed/ledger/trades/${encodeURIComponent(tradeId)}`, {
       cache: "no-store"
     }).then(r => r.json()).then(j => {
@@ -5523,7 +5525,30 @@ function TradeReviewModal({
     return () => {
       cancelled = true;
     };
-  }, [tradeId, entryPath]);
+  }, [tradeId]);
+  const derivedSetupName = (() => {
+    if (entryPath) return null;
+    const snap = decisionSnapshot;
+    if (!snap) return null;
+    const state = String(snap.state || "").toUpperCase();
+    const flags = snap.flags || {};
+    const isMomentumElite = !!flags.momentum_elite;
+    const isSqueeze = !!flags.sq1h_on || !!flags.sq4h_on;
+    const isBreakout = !!flags.breakout || !!flags.fresh_breakout;
+    if (state === "HTF_BULL_LTF_PULLBACK" && isMomentumElite) return "Momentum Pullback";
+    if (state === "HTF_BULL_LTF_PULLBACK") return "Bullish Pullback";
+    if (state === "HTF_BULL_LTF_BULL" && isMomentumElite) return "Momentum Continuation";
+    if (state === "HTF_BULL_LTF_BULL") return "Trend Continuation (Long)";
+    if (state === "HTF_BEAR_LTF_PULLBACK") return "Bearish Pullback";
+    if (state === "HTF_BEAR_LTF_BEAR") return "Trend Continuation (Short)";
+    if (state === "HTF_BULL_LTF_REVERSAL" || state === "HTF_BEAR_LTF_REVERSAL") return "Reversal";
+    if (isSqueeze && state.includes("BULL")) return "Squeeze Release (Long)";
+    if (isSqueeze && state.includes("BEAR")) return "Squeeze Release (Short)";
+    if (isBreakout) return "Breakout";
+    if (state) return state.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, c => c.toUpperCase()).replace(/\bHtf\b/i, "HTF").replace(/\bLtf\b/i, "LTF");
+    return null;
+  })();
+  const displayedSetupName = entryPath ? null : derivedSetupName;
   const bestTrimReason = (() => {
     if (trimEvents.length > 0) {
       const last = trimEvents[trimEvents.length - 1];
@@ -5597,7 +5622,7 @@ function TradeReviewModal({
 
                 <div className="flex flex-wrap items-center gap-2 px-3 py-1.5 rounded-md bg-white/[0.02] border border-white/[0.04]">
                   ${""}
-                  ${entryPath ? html`<span className="text-[12px] font-semibold text-white">${fmtPath(entryPath)}</span>` : null}
+                  ${entryPath ? html`<span className="text-[12px] font-semibold text-white">${fmtPath(entryPath)}</span>` : displayedSetupName ? html`<span className="text-[12px] font-semibold text-white">${displayedSetupName}</span>` : null}
                   ${""}
                   ${setupGrade && (() => {
     const cls = setupGrade === "Prime" ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : setupGrade === "Confirmed" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : "bg-blue-500/20 text-blue-300 border-emerald-500/30";
@@ -5615,8 +5640,9 @@ function TradeReviewModal({
                   <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-3 py-2">
                     <div className="text-[8px] text-[#60a5fa] uppercase font-bold mb-1">Why We Entered</div>
                     <div className="text-[10px] text-[#d1d5db] leading-relaxed">
-                      ${entryPath ? html`<span className="text-[11px] font-semibold text-white block mb-1">${fmtPath(entryPath)}</span>` : null}
-                      ${decisionReasons ? html`<div className="text-[10px] text-[#d1d5db] whitespace-pre-line">${decisionReasons}</div>` : entryPath ? null : decisionLoading ? html`<span className="text-[#6b7280]">Loading reasons…</span>` : html`<span className="text-[#6b7280]">Not recorded</span>`}
+                      ${""}
+                      ${entryPath || displayedSetupName ? html`<span className="text-[11px] font-semibold text-white block mb-1">${entryPath ? fmtPath(entryPath) : displayedSetupName}</span>` : null}
+                      ${decisionReasons ? html`<div className="text-[10px] text-[#d1d5db] whitespace-pre-line">${decisionReasons}</div>` : decisionLoading ? html`<span className="text-[#6b7280]">Loading reasons…</span>` : entryPath ? null : html`<span className="text-[#6b7280]">Not recorded</span>`}
                       ${setupGrade && html`<div className="text-[9px] text-[#9ca3af] mt-1">${setupGrade} grade setup</div>`}
                       ${shares > 0 && html`<div className="text-[9px] text-[#9ca3af] mt-0.5">${Math.round(shares)} shares · ${fmtUsd(notional)} notional</div>`}
                       ${riskBudget > 0.001 && html`<div className="text-[9px] text-[#9ca3af] mt-0.5">Risk: ${riskBudget < 1 ? (riskBudget * 100).toFixed(1) : riskBudget.toFixed(1)}%</div>`}
@@ -7048,8 +7074,8 @@ function App() {
       setSelectedTrade(t);
       setSelectedTicker(t?.ticker || null);
       setSelectedPositionEvents(t?.history || []);
-      setOpenAutopsyForTrade(null);
-      setModalOnly(false);
+      setOpenAutopsyForTrade(t);
+      setModalOnly(true);
     }
   })), React.createElement("div", {
     className: `${portfolioTab !== "investor" ? "hidden lg:block" : ""}`
@@ -7072,8 +7098,8 @@ function App() {
       setSelectedTrade(t);
       setSelectedTicker(t?.ticker || null);
       setSelectedPositionEvents(t?.history || []);
-      setOpenAutopsyForTrade(null);
-      setModalOnly(false);
+      setOpenAutopsyForTrade(t);
+      setModalOnly(true);
     }
   })))), React.createElement("div", {
     className: `mt-6 ${selectedTicker || selectedTrade ? "mr-[500px] lg:mr-[660px] xl:mr-[740px] 2xl:mr-[820px]" : ""}`

@@ -6873,24 +6873,33 @@
               Renders "Why We Trimmed" with the EXIT_MAP entry. */
         const [decisionReasons, setDecisionReasons] = useState(null);
         const [decisionLoading, setDecisionLoading] = useState(false);
+        const [decisionSnapshot, setDecisionSnapshot] = useState(null);
         const [trimEvents, setTrimEvents] = useState([]);
         const tradeId = t?.trade_id || t?.tradeId || t?.id;
 
+        /* V15 P0.7.112 (2026-05-08) — Always fetch the ENTRY decision-card,
+           regardless of whether the trade row has an entry_path. The user
+           wants the rich "Why We Entered" reasons (HTF state, RR, Rank,
+           Momentum signals etc.) on EVERY trade, not just the ones that
+           are missing setup_name. The decision-card is keyed by trade_id +
+           the nearest trail KV snapshot, so it's always derivable. We also
+           keep the snapshot payload in state so we can derive a setup
+           label for trades whose entry_path is null (e.g. SNDK). */
         useEffect(() => {
           if (!tradeId) return;
           let cancelled = false;
-          // Fetch decision-card for ENTRY (synthesized reasons from KV snapshot)
-          if (!entryPath) {
-            setDecisionLoading(true);
-            fetch(`${API_BASE}/timed/ledger/trades/${encodeURIComponent(tradeId)}/decision-card?type=ENTRY`, { cache: "no-store" })
-              .then(r => r.json())
-              .then(j => {
-                if (cancelled) return;
-                if (j?.ok && j?.card?.reasons) setDecisionReasons(String(j.card.reasons));
-              })
-              .catch(() => {})
-              .finally(() => { if (!cancelled) setDecisionLoading(false); });
-          }
+          setDecisionLoading(true);
+          setDecisionReasons(null);
+          setDecisionSnapshot(null);
+          fetch(`${API_BASE}/timed/ledger/trades/${encodeURIComponent(tradeId)}/decision-card?type=ENTRY`, { cache: "no-store" })
+            .then(r => r.json())
+            .then(j => {
+              if (cancelled) return;
+              if (j?.ok && j?.card?.reasons) setDecisionReasons(String(j.card.reasons));
+              if (j?.ok && j?.snapshot?.payload) setDecisionSnapshot(j.snapshot.payload);
+            })
+            .catch(() => {})
+            .finally(() => { if (!cancelled) setDecisionLoading(false); });
           // Fetch trade detail to surface real trim reasons from event meta_json
           fetch(`${API_BASE}/timed/ledger/trades/${encodeURIComponent(tradeId)}`, { cache: "no-store" })
             .then(r => r.json())
@@ -6914,7 +6923,40 @@
             })
             .catch(() => {});
           return () => { cancelled = true; };
-        }, [tradeId, entryPath]);
+        }, [tradeId]);
+
+        /* V15 P0.7.112 — derive a setup label from the snapshot when the
+           trade row has no entry_path (e.g. SNDK 5/6/2026). Maps the
+           coarse state + flags to a friendly label so the user sees a
+           proper "setup name" rather than nothing. Examples:
+             HTF_BULL_LTF_PULLBACK + momentum_elite => "Momentum Pullback"
+             HTF_BULL_LTF_BULL                       => "Trend Continuation"
+             HTF_BEAR_LTF_PULLBACK                   => "Bearish Pullback"
+           Falls back to the raw state with title-case if no friendly map. */
+        const derivedSetupName = (() => {
+          if (entryPath) return null;
+          const snap = decisionSnapshot;
+          if (!snap) return null;
+          const state = String(snap.state || "").toUpperCase();
+          const flags = snap.flags || {};
+          const isMomentumElite = !!flags.momentum_elite;
+          const isSqueeze = !!flags.sq1h_on || !!flags.sq4h_on;
+          const isBreakout = !!flags.breakout || !!flags.fresh_breakout;
+          if (state === "HTF_BULL_LTF_PULLBACK" && isMomentumElite) return "Momentum Pullback";
+          if (state === "HTF_BULL_LTF_PULLBACK") return "Bullish Pullback";
+          if (state === "HTF_BULL_LTF_BULL" && isMomentumElite) return "Momentum Continuation";
+          if (state === "HTF_BULL_LTF_BULL") return "Trend Continuation (Long)";
+          if (state === "HTF_BEAR_LTF_PULLBACK") return "Bearish Pullback";
+          if (state === "HTF_BEAR_LTF_BEAR") return "Trend Continuation (Short)";
+          if (state === "HTF_BULL_LTF_REVERSAL" || state === "HTF_BEAR_LTF_REVERSAL") return "Reversal";
+          if (isSqueeze && state.includes("BULL")) return "Squeeze Release (Long)";
+          if (isSqueeze && state.includes("BEAR")) return "Squeeze Release (Short)";
+          if (isBreakout) return "Breakout";
+          // Generic title-case fallback (e.g. "Htf Bull Ltf Pullback")
+          if (state) return state.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, c => c.toUpperCase()).replace(/\bHtf\b/i, "HTF").replace(/\bLtf\b/i, "LTF");
+          return null;
+        })();
+        const displayedSetupName = entryPath ? null : derivedSetupName; // null = use entryPath path
 
         // Pick the best trim reason: prefer per-event reason over trade.exit_reason fallback
         const bestTrimReason = (() => {
@@ -6983,13 +7025,15 @@
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 px-3 py-1.5 rounded-md bg-white/[0.02] border border-white/[0.04]">
-                  ${/* V15 P0.7.111 (2026-05-08): when entry_path is missing, render
-                       NOTHING in this slot (was: "Setup reconstructed from snapshot"
-                       which the user found redundant — the synthesized reasons in the
-                       Why-We-Entered card below already convey the same idea, and an
-                       explicit "reconstructed" label on a normal modal felt like a
-                       quality flag the user shouldn't have to think about). */ ""}
-                  ${entryPath ? html`<span className="text-[12px] font-semibold text-white">${fmtPath(entryPath)}</span>` : null}
+                  ${/* V15 P0.7.112 (2026-05-08) — Show a setup label even when
+                       trade.entry_path is null: derive one from the snapshot
+                       state + flags (Momentum Pullback / Trend Continuation /
+                       Squeeze Release / etc.). Better UX than a blank slot. */ ""}
+                  ${entryPath
+                    ? html`<span className="text-[12px] font-semibold text-white">${fmtPath(entryPath)}</span>`
+                    : (displayedSetupName
+                        ? html`<span className="text-[12px] font-semibold text-white">${displayedSetupName}</span>`
+                        : null)}
                   ${/* V15 P0.7.111 (2026-05-08): drop the redundant "TT" prefix
                        on the grade chip. Setup names already get a "TT_" prefix
                        stripped in fmtPath (so "TT Tt Gap Reversal Long" renders
@@ -7012,8 +7056,17 @@
                   <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-3 py-2">
                     <div className="text-[8px] text-[#60a5fa] uppercase font-bold mb-1">Why We Entered</div>
                     <div className="text-[10px] text-[#d1d5db] leading-relaxed">
-                      ${entryPath ? html`<span className="text-[11px] font-semibold text-white block mb-1">${fmtPath(entryPath)}</span>` : null}
-                      ${decisionReasons ? html`<div className="text-[10px] text-[#d1d5db] whitespace-pre-line">${decisionReasons}</div>` : (entryPath ? null : (decisionLoading ? html`<span className="text-[#6b7280]">Loading reasons…</span>` : html`<span className="text-[#6b7280]">Not recorded</span>`))}
+                      ${/* V15 P0.7.112 (2026-05-08) — Always show the rich
+                           decision-card reasons (HTF state, RR, Rank, Momentum
+                           signals etc.) for ALL trades, not just trades with
+                           a missing entry_path. The setup name (recorded or
+                           derived) is the heading; the reasons fill the body. */ ""}
+                      ${(entryPath || displayedSetupName) ? html`<span className="text-[11px] font-semibold text-white block mb-1">${entryPath ? fmtPath(entryPath) : displayedSetupName}</span>` : null}
+                      ${decisionReasons
+                        ? html`<div className="text-[10px] text-[#d1d5db] whitespace-pre-line">${decisionReasons}</div>`
+                        : (decisionLoading
+                            ? html`<span className="text-[#6b7280]">Loading reasons…</span>`
+                            : (entryPath ? null : html`<span className="text-[#6b7280]">Not recorded</span>`))}
                       ${setupGrade && html`<div className="text-[9px] text-[#9ca3af] mt-1">${setupGrade} grade setup</div>`}
                       ${shares > 0 && html`<div className="text-[9px] text-[#9ca3af] mt-0.5">${Math.round(shares)} shares · ${fmtUsd(notional)} notional</div>`}
                       ${riskBudget > 0.001 && html`<div className="text-[9px] text-[#9ca3af] mt-0.5">Risk: ${riskBudget < 1 ? (riskBudget * 100).toFixed(1) : riskBudget.toFixed(1)}%</div>`}
@@ -8430,11 +8483,24 @@
                           setModalOnly(true);
                         }}
                         onSelectPosition={(t) => {
+                          /* V15 P0.7.112 (2026-05-08) — Open Positions row
+                             now opens the same proven TradeReviewModal that
+                             Trade History uses. Previously it tried to mount
+                             the right rail (modalOnly=false), which failed
+                             on mobile / desktop with a blank panel for
+                             reasons we couldn't reproduce server-side
+                             despite multiple defensive fixes (P0.7.107/109/
+                             110/111). The modal path renders from the trade
+                             prop directly + the new always-on decision-card
+                             fetch, so no /timed/latest dependency. UX:
+                             clicking ANY trade row (open or closed) now
+                             opens the same Trade Review modal — consistent
+                             and reliable. */
                           setSelectedTrade(t);
                           setSelectedTicker(t?.ticker || null);
                           setSelectedPositionEvents(t?.history || []);
-                          setOpenAutopsyForTrade(null);
-                          setModalOnly(false);
+                          setOpenAutopsyForTrade(t);
+                          setModalOnly(true);
                         }}
                       />
                     </div>
@@ -8456,11 +8522,12 @@
                           setModalOnly(true);
                         }}
                         onSelectPosition={(t) => {
+                          // V15 P0.7.112 — same as trader: modal path for both rows
                           setSelectedTrade(t);
                           setSelectedTicker(t?.ticker || null);
                           setSelectedPositionEvents(t?.history || []);
-                          setOpenAutopsyForTrade(null);
-                          setModalOnly(false);
+                          setOpenAutopsyForTrade(t);
+                          setModalOnly(true);
                         }}
                       />
                     </div>
