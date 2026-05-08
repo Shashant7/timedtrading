@@ -19017,7 +19017,18 @@ async function processTradeSimulation(
         }
       }
       if (target > 0) {
-        await trimTradeToPct(openTrade, target, pxNow, reason);
+        // V15 P0.7.107 (2026-05-08) — Prefer the specific exit-rule reason
+        // (e.g. "atr_week_618_partial_cloud_hold", "doctrine_giveback_severe",
+        // "etf_stagnant_exit") over the generic kanban-stage fallback
+        // ("KANBAN_TRIM"). Without this, trade history + execution_actions
+        // store "KANBAN_TRIM" while the Discord embed says the rich rule
+        // name — leaving the user with two stories about the same trim and
+        // no audit trail of which rule actually fired. SNDK trim on
+        // 2026-05-08 9:31 ET was the first reported instance.
+        const _trimEventReason = tickerData?.__exit_reason
+          || tickerData?.__trim_reason
+          || reason;
+        await trimTradeToPct(openTrade, target, pxNow, _trimEventReason);
         const trimExecUpdate = { ...execState, lastTrimMs: now, runnerPeakPrice: pxNow };
         if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, trimExecUpdate);
         else if (!isReplay) await kvPutJSON(KV, execKey, trimExecUpdate);
@@ -34677,11 +34688,39 @@ function createTradeTrimmedEmbed(
   }
 
   // 4. Why We Trimmed
+  // V15 P0.7.107 (2026-05-08) — Expanded mapping. Most importantly, added
+  // the atr_week_618_* family (weekly ATR target reached) and the
+  // doctrine_giveback / etf_stagnant rules. Without these, the embed fell
+  // back to "Trim triggered: atr week 618 partial cloud hold" which left
+  // the user wondering what that meant — especially when the position was
+  // at intraday loss but the WEEKLY trend hit a profit target. Each entry
+  // explains both the trigger AND why the trim is the right action even
+  // when the current P&L is negative.
   const trimReason = trade?.exitReason || tickerData?.__exit_reason || null;
   const trimReasonMap = {
     MFE_SAFETY_TRIM: "Locked in profits while the trade was ahead — taking money off the table",
     PHASE_LEAVE_100: "Momentum peaked and is starting to fade — securing gains before reversal",
     RUNNER_PEAK_TRAIL: "Letting the winner run paid off — trailed up and trimmed after pullback from peak",
+    BIG_MFE_PROGRESSIVE_TRIM: "Trade ran far in our favor — taking another chunk off to lock in more of the move",
+    SOFT_FUSE_TRIM: "Momentum signals weakened — trimming to reduce exposure while structure still holds",
+    SOFT_FUSE_CLOUD_TRIM: "Momentum weakened but the EMA cloud is still holding — partial trim, runner stays",
+    ATR_RANGE_EXHAUST: "Price stretched past its normal daily range — trimming because further upside is statistically thin",
+    RSI_DIVERGENCE: "RSI is making lower highs while price makes higher highs — momentum is fading even though price isn't yet",
+    ST_FLIP_4H_TRIM: "4H Supertrend flipped against the position — trimming defensively while the runner waits for confirmation",
+    TD_HTF_EXHAUSTION: "Higher-timeframe TD Sequential signaled exhaustion — trimming before a likely reversal",
+    TD_HTF_EXHAUST_CLOUD_TRIM: "Higher-TF TD exhaustion with cloud still holding — partial trim, leave a runner",
+    PROFIT_PROTECT_TRIM: "Locking in unrealized gains while the structure is still favorable",
+    REFERENCE_TRIM: "Reference setup hit its scheduled trim level — taking the planned partial",
+    atr_week_618_partial_cloud_hold: "Weekly ATR profit target reached — trimming partial because the daily 5/12 EMA cloud is still holding, so 50% stays as a runner. Position may show intraday loss because we're trimming on the WEEKLY scale, not the trade scale.",
+    atr_week_618_full_exit: "Weekly ATR full-exit target reached — closing the runner. The week-to-week move maxed out our risk model and we'd rather book the trade than hope for more.",
+    atr_tp_ladder_tier1_fib0_382: "Daily ATR ladder tier 1 (+0.382 ATR) — first scheduled partial trim",
+    atr_tp_ladder_tier2_fib0_618: "Daily ATR ladder tier 2 (+0.618 ATR) — second scheduled partial trim",
+    atr_tp_ladder_tier3_fib1: "Daily ATR ladder tier 3 (+1.0 ATR) — third scheduled partial trim",
+    atr_tp_ladder_tier4_fib1_236: "Daily ATR ladder tier 4 (+1.236 ATR) — fourth scheduled partial trim",
+    atr_tp_ladder_runner_full: "Daily ATR runner cap (+1.618 ATR) — closing the runner at the top of the ladder",
+    doctrine_giveback_severe_force_exit: "Position gave back most of its peak gains — exit doctrine forced a flatten to protect what's left",
+    doctrine_giveback_force_exit: "Trade gave back too much from its peak — trimming defensively per exit doctrine",
+    etf_stagnant_exit: "ETF position stalled with no meaningful move — closing to free up capital for better setups",
     PRE_EARNINGS_RISK_REDUCTION: "Reduced exposure ahead of earnings because overnight gaps can overwhelm normal stops",
     PRE_EARNINGS_FORCE_EXIT: "Closed the position ahead of earnings because gap risk outweighed holding through the event",
     PRE_CPI_RISK_REDUCTION: "Reduced exposure ahead of CPI because the release can sharply reprice open positions",
