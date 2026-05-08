@@ -366,7 +366,7 @@ t('extractTrendSnapshot: reads day-state-KV shape (nested ema.priceAboveEma21 + 
       W:    { ema: { priceAboveEma21: true,  depth: 8,  structure: 1 }, rsi: { r5: 70 }, stDir: -1 },
       "4H": { ema: { priceAboveEma21: true,  depth: 15, structure: 1 }, rsi: { r5: 68 }, stDir: -1 },
     },
-    monthly_bundle: { supertrend_dir: 1 },
+    monthly_bundle: { supertrend_dir: -1 },  // Pine bull
     td_sequential: { per_tf: { W: { bearish_prep_count: 4 } } },
     sector_rating: 'DOUBLE_OW',
     days_to_earnings: 25,
@@ -378,7 +378,7 @@ t('extractTrendSnapshot: reads day-state-KV shape (nested ema.priceAboveEma21 + 
   expect(snap.fourH.ema21_above, '==', true, '4H EMA21 above (derived bool)');
   expect(snap.daily.stDir, '==', 1, 'd stDir normalized to +1=bull');
   expect(snap.weekly.stDir, '==', 1, 'wk stDir normalized to +1=bull');
-  expect(snap.monthly.stDir, '==', 1, 'monthly stDir +1=bull (passthrough)');
+  expect(snap.monthly.stDir, '==', 1, 'monthly stDir Pine -1 -> std +1=bull');
   expect(snap.daily.rsi, '==', 72, 'rsi from .r5');
   expect(snap.weekly.rsi, '==', 70, 'wk rsi from .r5');
   expect(snap.weekly.td9_sell_count, '==', 4, 'TD9 sell');
@@ -419,7 +419,7 @@ t('extractTrendSnapshot: numeric-ema21 fallback when priceAboveEma21 absent', ()
       W:    { ema21: 165, stDir: -1 },
       "4H": { ema21: 192 },
     },
-    monthly_bundle: { supertrend_dir: 1 },
+    monthly_bundle: { supertrend_dir: -1 },  // Pine bull
   };
   const snap = extractTrendSnapshot(td, fxOpenTrade());
   expect(snap.daily.ema21_above, '==', true, 'numeric fallback works');
@@ -435,12 +435,12 @@ t('extractTrendSnapshot: tf_tech bear (Pine +1) normalizes to standard -1', () =
       D: { ema: { priceAboveEma21: false }, stDir: 1 },  // Pine bear
       W: { ema: { priceAboveEma21: false }, stDir: 1 },
     },
-    monthly_bundle: { supertrend_dir: -1 },
+    monthly_bundle: { supertrend_dir: 1 },  // Pine bear
   };
   const snap = extractTrendSnapshot(td, fxOpenTrade());
   expect(snap.daily.stDir, '==', -1, 'd stDir Pine+1 -> std-1');
   expect(snap.weekly.stDir, '==', -1, 'wk stDir Pine+1 -> std-1');
-  expect(snap.monthly.stDir, '==', -1, 'monthly std-1 passthrough');
+  expect(snap.monthly.stDir, '==', -1, 'monthly Pine+1 -> std-1');
 });
 
 t('extractTrendSnapshot: prefers monthly_bundle over tf_tech.M when both present', () => {
@@ -450,9 +450,9 @@ t('extractTrendSnapshot: prefers monthly_bundle over tf_tech.M when both present
     tf_tech: {
       D: { ema: { priceAboveEma21: true }, stDir: -1 },
       W: { ema: { priceAboveEma21: true }, stDir: -1 },
-      M: { stDir: 1 },
+      M: { stDir: 1 },                     // Pine bear (would normalize to -1)
     },
-    monthly_bundle: { supertrend_dir: 1 },
+    monthly_bundle: { supertrend_dir: -1 },  // Pine bull (would normalize to +1)
   };
   const snap = extractTrendSnapshot(td, fxOpenTrade());
   expect(snap.monthly.stDir, '==', 1, 'monthly_bundle wins (bull) even though tf_tech.M says bear');

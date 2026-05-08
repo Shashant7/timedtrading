@@ -138,20 +138,26 @@ export function isTrendHoldEnabled(daCfg) {
 // indicator pipeline already computes ema21 / stDir / etc. on bar
 // closes only.
 //
-// SUPERTREND SIGN-CONVENTION NORMALIZATION (critical):
-//   The worker stores SuperTrend with TWO different conventions:
-//     * tf_tech.{D,W,4H,M}.stDir       → PINE convention: -1 = BULL, +1 = BEAR
-//                                        (see worker/indicators.js stFlipDir;
-//                                         worker/index.js line ~33180:
-//                                         "_stDBull = stDir === -1")
-//     * monthly_bundle.supertrend_dir  → STANDARD:         +1 = BULL, -1 = BEAR
-//                                        (see worker/investor.js line ~67:
-//                                         "if (mb.supertrend_dir === 1)
-//                                          components.monthlyTrend += 7")
-//   We normalize ALL values in the snapshot to the standard convention
-//   (+1 = bull, -1 = bear) so downstream predicates read as `stDir === 1`
-//   for bull regardless of source. tfTechStDir() inverts the Pine sign;
-//   bundleStDir() passes through.
+// SUPERTREND SIGN-CONVENTION (verified empirically against day-state KV):
+//   ALL persisted SuperTrend values use PINE convention:
+//     * tf_tech.{D,W,4H,M}.stDir       → -1 = BULL, +1 = BEAR
+//     * monthly_bundle.supertrend_dir  → -1 = BULL, +1 = BEAR
+//
+//   Verification: timed:replay:daystate:2025-07-01 shows AAPL/MSFT/SPY/
+//   QQQ/NVDA/META/GOOGL all with monthly_bundle.supertrend_dir === -1
+//   during a clear monthly-bull period.
+//
+//   Confirmation in worker code:
+//     - worker/indicators.js stFlipDir (Pine source)
+//     - worker/index.js line 33333: investor entry gate
+//       `_stMBull = c.td?.monthly_bundle?.supertrend_dir === -1`
+//   (The misleading comment "1 = bullish" at indicators.js:5050 is a
+//    code-comment bug — bM.stDir comes from the same Pine SuperTrend
+//    pipeline as every other stDir, all Pine convention.)
+//
+//   We normalize ALL values to STANDARD convention (+1 = bull, -1 = bear)
+//   in the snapshot so downstream predicates read as `stDir === 1` for
+//   bull. Both tfTechStDir() and bundleStDir() invert the Pine sign.
 //
 // EMA / RSI ACCESS SHAPE:
 //   The worker persists tf_tech with NESTED ema/rsi objects, NOT flat
@@ -569,20 +575,25 @@ function tfTechStDir(v) {
 
 /**
  * Normalize a monthly_bundle.supertrend_dir reading.
- * Standard convention used in worker/investor.js:
- *   supertrend_dir = +1  →  bull   →  return +1
- *   supertrend_dir = -1  →  bear   →  return -1
+ *
+ * Despite the misleading "1 = bullish" comment in
+ * worker/indicators.js:5050, monthly_bundle.supertrend_dir is sourced
+ * from the same Pine SuperTrend pipeline as tf_tech.*.stDir and uses
+ * the same Pine convention. Verified empirically — the investor entry
+ * gate at worker/index.js:33333 reads `=== -1` as bull, and that gate
+ * fires correctly on real bull-market dates.
+ *
+ *   supertrend_dir = -1  →  bull   →  return +1 (standard)
+ *   supertrend_dir = +1  →  bear   →  return -1
  *   supertrend_dir =  0  →  flat   →  return  0
  *   null/undefined/NaN   →  return null  (signal absent)
+ *
+ * Currently identical to tfTechStDir() — kept as a separate function
+ * so that if the worker schema diverges in future the two access
+ * paths can be normalized independently.
  */
 function bundleStDir(v) {
-  if (v === null || v === undefined) return null;
-  const n = Number(v);
-  if (!Number.isFinite(n)) return null;
-  if (n === 1) return 1;
-  if (n === -1) return -1;
-  if (n === 0) return 0;
-  return null;
+  return tfTechStDir(v);
 }
 function fmt(x, dp = 2) {
   if (x == null || !Number.isFinite(x)) return String(x);
