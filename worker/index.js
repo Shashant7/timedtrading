@@ -945,6 +945,8 @@ const ROUTES = [
   ["POST", "/timed/admin/restore-trade-from-da", "POST /timed/admin/restore-trade-from-da"],
   ["POST", "/timed/admin/patch-trade-from-da", "POST /timed/admin/patch-trade-from-da"],
   ["POST", "/timed/admin/patch-trade-event-reason", "POST /timed/admin/patch-trade-event-reason"],
+  ["POST", "/timed/admin/patch-trade-event-price", "POST /timed/admin/patch-trade-event-price"],
+  ["POST", "/timed/admin/recover-event-price-from-candle", "POST /timed/admin/recover-event-price-from-candle"],
   ["POST", "/timed/admin/patch-trade-shares", "POST /timed/admin/patch-trade-shares"],
   ["GET", "/timed/admin/check-stale-tick", "GET /timed/admin/check-stale-tick"],
   ["GET", "/timed/admin/ledger-inspect", "GET /timed/admin/ledger-inspect"],
@@ -53715,6 +53717,361 @@ export default {
             ).bind(a.action_id, newReason).run();
           }
           return sendJSON({ ok: true, trade_id: tid, type: eventType, updated_events: updated.length, events: updated, updated_actions: ea.length }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/patch-trade-event-price?trade_id=X&type=TRIM&new_price=Y[&key=...]
+      // V15 P0.7.110 (2026-05-08): re-fill a trade event at a corrected
+      // price and propagate the recomputed realized PnL through every
+      // surface (trade row, trade_events row + meta_json, execution_actions,
+      // account_ledger row + downstream balance recomputation). Use when
+      // the live system fired at a stale tick and the recorded fill price
+      // doesn't match what the market actually traded at.
+      //
+      // SNDK trim 5/8/2026 9:31 ET fired at $1339.96 (= prev close, stale
+      // tick at open) but the actual 9:30-9:45 ET 1m candle range was
+      // $1391.66-$1410.66. Recover by passing the candle midpoint as
+      // new_price; the endpoint recomputes everything.
+      //
+      // Updates per trade:
+      //   trades.{trim_price | exit_price | entry_price}
+      //   trades.pnl + pnl_pct (recomputed against new price)
+      //   trade_events.price + meta_json.price + meta_json.trim_price +
+      //     meta_json.current_price + meta_json.value + meta_json.note +
+      //     meta_json.pnl_realized + meta_json.pnl_pct
+      //   execution_actions.price + value + pnl_realized
+      //   account_ledger.price + cash_delta + realized_pnl + balance
+      //   ALL SUBSEQUENT account_ledger.balance entries shift by delta
+      //
+      // Logs PRICE_RECOVERY to data_audit_log with full before/after.
+      if (routeKey === "POST /timed/admin/patch-trade-event-price") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const tid = String(url.searchParams.get("trade_id") || "").trim();
+          const eventType = String(url.searchParams.get("type") || "TRIM").toUpperCase();
+          const newPrice = Number(url.searchParams.get("new_price"));
+          const note = String(url.searchParams.get("note") || "admin_price_recovery");
+          if (!tid) return sendJSON({ ok: false, error: "trade_id required" }, 400, corsHeaders(env, req));
+          if (!Number.isFinite(newPrice) || newPrice <= 0) {
+            return sendJSON({ ok: false, error: "new_price must be a positive number" }, 400, corsHeaders(env, req));
+          }
+          if (!["ENTRY","TRIM","EXIT"].includes(eventType)) {
+            return sendJSON({ ok: false, error: "type must be ENTRY|TRIM|EXIT" }, 400, corsHeaders(env, req));
+          }
+
+          const trade = await db.prepare(
+            `SELECT trade_id, ticker, direction, entry_ts, entry_price, shares, notional,
+                    trim_ts, trim_price, trimmed_pct, exit_ts, exit_price, status, pnl, pnl_pct
+               FROM trades WHERE trade_id = ?1`
+          ).bind(tid).first();
+          if (!trade) return sendJSON({ ok: false, error: "trade_not_found" }, 404, corsHeaders(env, req));
+
+          const dir = String(trade.direction || "LONG").toUpperCase();
+          const sign = dir === "SHORT" ? -1 : 1;
+          const entryPrice = Number(trade.entry_price) || 0;
+          const totalShares = Number(trade.shares) || 0;
+
+          // Find the matching trade_event(s)
+          const events = (await db.prepare(
+            `SELECT event_id, ts, type, price, qty_pct_delta, qty_pct_total, pnl_realized, reason, meta_json
+               FROM trade_events WHERE trade_id = ?1 AND type = ?2 ORDER BY ts ASC`
+          ).bind(tid, eventType).all())?.results || [];
+          if (events.length === 0) {
+            return sendJSON({ ok: false, error: `no ${eventType} event found for trade_id=${tid}` }, 404, corsHeaders(env, req));
+          }
+
+          const before = {
+            trade_pnl: Number(trade.pnl) || 0,
+            trade_pnl_pct: Number(trade.pnl_pct) || 0,
+            trade_trim_price: Number(trade.trim_price) || 0,
+            trade_exit_price: Number(trade.exit_price) || 0,
+            trade_entry_price: entryPrice,
+          };
+
+          // Compute the per-event qty + new realized
+          const updatedEvents = [];
+          let totalRealizedDelta = 0;
+          for (const ev of events) {
+            const oldPrice = Number(ev.price) || 0;
+            const pctDelta = Number(ev.qty_pct_delta);
+            const evQty = (Number.isFinite(pctDelta) && pctDelta > 0)
+              ? totalShares * pctDelta
+              : totalShares;
+            const oldRealized = Number(ev.pnl_realized) || 0;
+            const newRealized = (eventType === "ENTRY")
+              ? 0
+              : sign * (newPrice - entryPrice) * evQty;
+            const realizedDelta = newRealized - oldRealized;
+            totalRealizedDelta += realizedDelta;
+
+            // Patch meta_json
+            let meta = {};
+            try { meta = ev.meta_json ? JSON.parse(ev.meta_json) : {}; } catch { meta = {}; }
+            meta.price = newPrice;
+            if (eventType === "TRIM") {
+              meta.trim_price = newPrice;
+              meta.current_price = newPrice;
+            } else if (eventType === "EXIT") {
+              meta.exit_price = newPrice;
+            } else {
+              meta.entry_price = newPrice;
+            }
+            meta.value = newPrice * evQty;
+            meta.pnl_realized = newRealized;
+            meta.pnl_pct = entryPrice > 0
+              ? (sign * (newPrice - entryPrice) / entryPrice * 100).toFixed(2)
+              : null;
+            meta.note = (meta.note || `${eventType} backfill`) + ` [admin price recovery: $${oldPrice.toFixed(2)} → $${newPrice.toFixed(2)}]`;
+            meta._price_recovery = { at: Date.now(), old_price: oldPrice, new_price: newPrice, source: note };
+
+            await db.prepare(
+              `UPDATE trade_events
+                 SET price = ?2, pnl_realized = ?3, meta_json = ?4
+                 WHERE event_id = ?1`
+            ).bind(ev.event_id, newPrice, newRealized, JSON.stringify(meta)).run();
+            updatedEvents.push({ event_id: ev.event_id, ts: Number(ev.ts), old_price: oldPrice, new_price: newPrice, old_realized: oldRealized, new_realized: newRealized });
+          }
+
+          // Update execution_actions
+          const eaRows = (await db.prepare(
+            `SELECT action_id, qty, price, value, pnl_realized FROM execution_actions
+               WHERE position_id = ?1 AND action_type = ?2`
+          ).bind(tid, eventType).all())?.results || [];
+          let eaUpdated = 0;
+          for (const a of eaRows) {
+            const aQty = Number(a.qty) || 0;
+            const aOldRealized = Number(a.pnl_realized) || 0;
+            const aNewRealized = (eventType === "ENTRY") ? 0 : sign * (newPrice - entryPrice) * aQty;
+            await db.prepare(
+              `UPDATE execution_actions
+                 SET price = ?2, value = ?3, pnl_realized = ?4
+                 WHERE action_id = ?1`
+            ).bind(a.action_id, newPrice, newPrice * aQty, aNewRealized).run();
+            eaUpdated++;
+          }
+
+          // Update trades row + recompute pnl/pnl_pct
+          const updates = ["updated_at = ?2"];
+          const binds = [tid, Date.now()];
+          if (eventType === "TRIM") {
+            updates.push("trim_price = ?3");
+            binds.push(newPrice);
+          } else if (eventType === "EXIT") {
+            updates.push("exit_price = ?3");
+            binds.push(newPrice);
+          } else {
+            updates.push("entry_price = ?3");
+            binds.push(newPrice);
+          }
+          // Recompute trades.pnl as the SUM of all event pnl_realized for this trade,
+          // sourced fresh from trade_events after the patch above.
+          const summed = await db.prepare(
+            `SELECT SUM(pnl_realized) as total_realized FROM trade_events
+               WHERE trade_id = ?1 AND type IN ('TRIM','EXIT')`
+          ).bind(tid).first();
+          const newPnl = Number(summed?.total_realized) || 0;
+          const newPnlPct = (entryPrice > 0 && totalShares > 0)
+            ? (newPnl / (entryPrice * totalShares)) * 100
+            : 0;
+          updates.push("pnl = ?" + (binds.length + 1));
+          binds.push(newPnl);
+          updates.push("pnl_pct = ?" + (binds.length + 1));
+          binds.push(newPnlPct);
+          await db.prepare(
+            `UPDATE trades SET ${updates.join(", ")} WHERE trade_id = ?1`
+          ).bind(...binds).run();
+
+          // Update account_ledger row(s) for this event + propagate balance forward
+          await ensureAccountLedgerSchema(db, env?.KV_TIMED);
+          const ledgerEvType = eventType === "EXIT" ? "EXIT" : (eventType === "TRIM" ? "TRIM" : "ENTRY");
+          const ledgerRows = (await db.prepare(
+            `SELECT ledger_id, ts, qty, price, cash_delta, realized_pnl, balance FROM account_ledger
+               WHERE mode = 'trader' AND position_id = ?1 AND event_type = ?2 ORDER BY ts ASC`
+          ).bind(tid, ledgerEvType).all())?.results || [];
+          let ledgerCashDelta = 0;
+          let ledgerRealizedDelta = 0;
+          const ledgerUpdated = [];
+          for (const lr of ledgerRows) {
+            const lrQty = Number(lr.qty) || 0;
+            const lrOldCash = Number(lr.cash_delta) || 0;
+            const lrOldRealized = Number(lr.realized_pnl) || 0;
+            // cash_delta sign: ENTRY (LONG) negative, others positive (LONG)
+            const lrNewCash = (ledgerEvType === "ENTRY")
+              ? (dir === "LONG" ? -(newPrice * lrQty) : +(newPrice * lrQty))
+              : (dir === "LONG" ? +(newPrice * lrQty) : -(newPrice * lrQty));
+            const lrNewRealized = (ledgerEvType === "ENTRY") ? 0 : sign * (newPrice - entryPrice) * lrQty;
+            const lrNewBalance = Number(lr.balance) - lrOldCash + lrNewCash;
+            await db.prepare(
+              `UPDATE account_ledger
+                 SET price = ?2, cash_delta = ?3, realized_pnl = ?4, balance = ?5
+                 WHERE ledger_id = ?1`
+            ).bind(lr.ledger_id, newPrice, lrNewCash, lrNewRealized, lrNewBalance).run();
+            ledgerCashDelta += (lrNewCash - lrOldCash);
+            ledgerRealizedDelta += (lrNewRealized - lrOldRealized);
+            ledgerUpdated.push({ ledger_id: lr.ledger_id, ts: Number(lr.ts), old_price: Number(lr.price), new_price: newPrice, old_cash_delta: lrOldCash, new_cash_delta: lrNewCash, old_realized: lrOldRealized, new_realized: lrNewRealized, new_balance: lrNewBalance });
+          }
+          // Propagate the cash_delta shift forward to all later balances
+          let propagated = 0;
+          if (Math.abs(ledgerCashDelta) > 1e-6 && ledgerRows.length > 0) {
+            const cutoffTs = Math.max(...ledgerRows.map(r => Number(r.ts) || 0));
+            const cutoffLedgerId = Math.max(...ledgerRows.map(r => Number(r.ledger_id) || 0));
+            const updatedRes = await db.prepare(
+              `UPDATE account_ledger
+                 SET balance = balance + ?1
+                 WHERE mode = 'trader'
+                   AND (ts > ?2 OR (ts = ?2 AND ledger_id > ?3))`
+            ).bind(ledgerCashDelta, cutoffTs, cutoffLedgerId).run();
+            propagated = updatedRes?.meta?.changes || 0;
+          }
+
+          // Audit
+          try {
+            await auditDataChange(env, {
+              op: "PRICE_RECOVERY",
+              scope: `${eventType}:${tid}`,
+              caller: req.headers.get("CF-Connecting-IP") || "admin",
+              rowsAffected: updatedEvents.length + eaUpdated + ledgerUpdated.length,
+              meta: {
+                trade_id: tid,
+                event_type: eventType,
+                new_price: newPrice,
+                before,
+                trade_pnl_after: newPnl,
+                trade_pnl_pct_after: newPnlPct,
+                events_updated: updatedEvents,
+                execution_actions_updated: eaUpdated,
+                ledger_updated: ledgerUpdated,
+                ledger_propagated: propagated,
+                ledger_cash_delta: ledgerCashDelta,
+                ledger_realized_delta: ledgerRealizedDelta,
+                source: note,
+              },
+            });
+          } catch (_) {}
+
+          return sendJSON({
+            ok: true,
+            trade_id: tid,
+            event_type: eventType,
+            new_price: newPrice,
+            before,
+            after: { trade_pnl: newPnl, trade_pnl_pct: newPnlPct },
+            updated_events: updatedEvents,
+            updated_execution_actions: eaUpdated,
+            ledger_rows_updated: ledgerUpdated,
+            ledger_balances_propagated: propagated,
+            total_realized_delta: ledgerRealizedDelta,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300), stack: String(e?.stack || "").slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/recover-event-price-from-candle?trade_id=X&type=TRIM[&use=mid|close|open|high|low][&key=...]
+      // V15 P0.7.110 (2026-05-08): general capability — fetch the 1m
+      // candle at the event's timestamp and use it to call
+      // patch-trade-event-price internally. Defaults to mid = (H+L)/2.
+      // Per-user request: "we can always derive this using Alpaca or
+      // Twelve Data and fetching the 1m candle for any entry, trim or
+      // exit price if we are ever lacking it."
+      if (routeKey === "POST /timed/admin/recover-event-price-from-candle") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const tid = String(url.searchParams.get("trade_id") || "").trim();
+          const eventType = String(url.searchParams.get("type") || "TRIM").toUpperCase();
+          const useMode = String(url.searchParams.get("use") || "mid").toLowerCase();
+          if (!tid) return sendJSON({ ok: false, error: "trade_id required" }, 400, corsHeaders(env, req));
+          if (!["ENTRY","TRIM","EXIT"].includes(eventType)) {
+            return sendJSON({ ok: false, error: "type must be ENTRY|TRIM|EXIT" }, 400, corsHeaders(env, req));
+          }
+          if (!["mid","close","open","high","low","ohlc4","hlc3"].includes(useMode)) {
+            return sendJSON({ ok: false, error: "use must be mid|close|open|high|low|ohlc4|hlc3" }, 400, corsHeaders(env, req));
+          }
+
+          // Find event ts
+          const trade = await db.prepare(
+            `SELECT ticker, entry_ts, trim_ts, exit_ts FROM trades WHERE trade_id = ?1`
+          ).bind(tid).first();
+          if (!trade) return sendJSON({ ok: false, error: "trade_not_found" }, 404, corsHeaders(env, req));
+          const ticker = String(trade.ticker || "").toUpperCase();
+          const evTs = eventType === "ENTRY" ? Number(trade.entry_ts)
+            : eventType === "EXIT" ? Number(trade.exit_ts)
+            : Number(trade.trim_ts);
+          if (!Number.isFinite(evTs) || evTs <= 0) {
+            return sendJSON({ ok: false, error: `trade has no ${eventType} timestamp` }, 400, corsHeaders(env, req));
+          }
+
+          // Fetch the smallest available candle around the event ts.
+          // /timed/candles supports tf in [15, 30, 60, 240, D]; 1m/5m
+          // aren't backfilled here so we walk from coarsest precision
+          // down. TODO: wire a direct TwelveData /time_series call for
+          // 1m precision when needed (lookbacks ≤ 60 days). For now,
+          // tf=15 gives ±7.5 min granularity which captures the tick
+          // range pretty well.
+          const tfsToTry = ["15", "30", "60"];
+          // Search ±30 min so a tf=15 candle at evTs±7.5 still qualifies
+          const halfWindowMs = 30 * 60 * 1000;
+          let best = null;
+          let bestDiff = Infinity;
+          let usedTf = null;
+          let candleUrl = null;
+          for (const tf of tfsToTry) {
+            candleUrl = `${url.origin}/timed/candles?ticker=${encodeURIComponent(ticker)}&tf=${tf}&limit=10&asOfTs=${evTs + halfWindowMs}`;
+            const cRes = await fetch(candleUrl);
+            const cJson = await cRes.json();
+            const candles = Array.isArray(cJson?.candles) ? cJson.candles : [];
+            if (candles.length === 0) continue;
+            for (const c of candles) {
+              const cts = Number(c.ts || c.t);
+              if (!Number.isFinite(cts)) continue;
+              const diff = Math.abs(cts - evTs);
+              if (diff < bestDiff && diff <= halfWindowMs) {
+                best = c;
+                bestDiff = diff;
+                usedTf = tf;
+              }
+            }
+            if (best) break;
+          }
+          if (!best) {
+            return sendJSON({ ok: false, error: "no candle within ±30 min of event ts across tf=15/30/60", ticker, evTs, candle_url: candleUrl }, 404, corsHeaders(env, req));
+          }
+          const o = Number(best.o), h = Number(best.h), l = Number(best.l), c = Number(best.c);
+          let newPrice;
+          switch (useMode) {
+            case "open": newPrice = o; break;
+            case "close": newPrice = c; break;
+            case "high": newPrice = h; break;
+            case "low": newPrice = l; break;
+            case "hlc3": newPrice = (h + l + c) / 3; break;
+            case "ohlc4": newPrice = (o + h + l + c) / 4; break;
+            case "mid":
+            default: newPrice = (h + l) / 2; break;
+          }
+          newPrice = Math.round(newPrice * 100) / 100;
+
+          // Delegate to patch-trade-event-price (call internally via fetch loopback)
+          const patchUrl = `${url.origin}/timed/admin/patch-trade-event-price?trade_id=${encodeURIComponent(tid)}&type=${eventType}&new_price=${newPrice}&note=candle_${useMode}_at_${evTs}&key=${env?.TIMED_INGEST_API_KEY || ""}`;
+          const pRes = await fetch(patchUrl, { method: "POST" });
+          const pJson = await pRes.json();
+          return sendJSON({
+            ok: true,
+            ticker,
+            event_type: eventType,
+            event_ts: evTs,
+            chosen_candle: { tf: usedTf, ts: Number(best.ts || best.t), o, h, l, c, age_sec: Math.round(bestDiff / 1000) },
+            use_mode: useMode,
+            new_price: newPrice,
+            patch_result: pJson,
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }

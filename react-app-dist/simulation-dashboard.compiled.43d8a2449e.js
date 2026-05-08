@@ -3323,24 +3323,43 @@ const TickerDetailsLoader = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   useEffect(() => {
-    const fetchTicker = async () => {
+    if (!tickerSymbol) return;
+    let cancelled = false;
+    setLoading(true);
+    setTickerData(null);
+    setError(null);
+    const startedAt = Date.now();
+    (async () => {
       try {
-        setLoading(true);
         const res = await fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(tickerSymbol)}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
-        if (!json.ok || !json.data) {
-          throw new Error(json.error || "Ticker not found");
+        if (cancelled) return;
+        const payload = json?.data || json?.latestData;
+        if (!json?.ok || !payload) {
+          throw new Error(json?.error || "Ticker not found");
         }
-        setTickerData(json.data || json.latestData);
+        setTickerData(payload);
+        try {
+          console.info(`[TickerDetailsLoader] loaded ${tickerSymbol} in ${Date.now() - startedAt}ms`);
+        } catch (_) {}
       } catch (err) {
-        console.error("Failed to fetch ticker:", err);
-        setError(err.message);
+        if (cancelled) return;
+        console.error(`[TickerDetailsLoader] fetch failed for ${tickerSymbol}:`, err);
+        setError(err?.message || String(err));
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
+    })();
+    const timeoutId = setTimeout(() => {
+      if (cancelled) return;
+      setLoading(false);
+      setError(prev => prev || `Request timed out after 8s. The detail panel couldn't load ${tickerSymbol}. Try again or refresh the page.`);
+    }, 8000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
     };
-    fetchTicker();
   }, [tickerSymbol]);
   if (loading) {
     if (modalOnly) {
@@ -3355,18 +3374,24 @@ const TickerDetailsLoader = ({
       }, React.createElement("div", {
         className: "loading-spinner mx-auto mb-4"
       }), React.createElement("div", {
-        className: "text-white/60"
+        className: "text-white/80 text-sm font-medium"
       }, "Loading ", tickerSymbol, "...")));
     }
     return React.createElement("div", {
-      className: "w-full h-full flex items-center justify-center bg-[var(--tt-bg-surface)]"
+      className: "w-full h-full flex items-center justify-center",
+      style: {
+        background: "linear-gradient(135deg, rgba(0,200,83,0.04), rgba(255,255,255,0.02))",
+        minHeight: "200px"
+      }
     }, React.createElement("div", {
       className: "text-center"
     }, React.createElement("div", {
       className: "loading-spinner mx-auto mb-4"
     }), React.createElement("div", {
-      className: "text-[var(--tt-text-muted)]"
-    }, "Loading ", tickerSymbol, "...")));
+      className: "text-white/85 text-[14px] font-semibold tracking-wide"
+    }, "Loading ", tickerSymbol, "\u2026"), React.createElement("div", {
+      className: "text-[#9ca3af] text-[11px] mt-1"
+    }, "Fetching latest snapshot")));
   }
   if (error || !tickerData) {
     if (modalOnly) {
@@ -3381,26 +3406,35 @@ const TickerDetailsLoader = ({
         className: "text-center bg-[#0b0e11] rounded-xl p-6 border border-white/10",
         onClick: e => e.stopPropagation()
       }, React.createElement("div", {
-        className: "text-red-400 mb-2"
+        className: "text-red-400 mb-2 font-semibold"
       }, "Failed to load ", tickerSymbol), React.createElement("div", {
-        className: "text-white/40 text-sm mb-4"
+        className: "text-white/60 text-sm mb-4"
       }, error || "No data available"), React.createElement("button", {
         onClick: onClose,
         className: "px-4 py-2 bg-white/[0.06] hover:bg-white/[0.1] rounded-lg text-white"
       }, "Close")));
     }
     return React.createElement("div", {
-      className: "w-full h-full flex items-center justify-center bg-[var(--tt-bg-surface)]"
+      className: "w-full h-full flex items-center justify-center",
+      style: {
+        background: "linear-gradient(135deg, rgba(239,68,68,0.05), rgba(255,255,255,0.02))",
+        minHeight: "200px"
+      }
     }, React.createElement("div", {
-      className: "text-center"
+      className: "max-w-[360px] text-center px-4"
     }, React.createElement("div", {
-      className: "text-red-400 mb-2"
-    }, "Failed to load ", tickerSymbol), React.createElement("div", {
-      className: "text-[var(--tt-text-muted)] text-sm mb-4"
-    }, error || "No data available"), React.createElement("button", {
+      className: "text-amber-400 text-[14px] font-semibold mb-2"
+    }, "Couldn't load ", tickerSymbol, " detail panel"), React.createElement("div", {
+      className: "text-[#d1d5db] text-[12px] mb-4 leading-relaxed"
+    }, error || "No data available"), React.createElement("div", {
+      className: "flex gap-2 justify-center"
+    }, React.createElement("button", {
       onClick: onClose,
-      className: "px-4 py-2 bg-[var(--tt-bg-elevated)] hover:bg-[var(--tt-bg-elevated)] rounded-lg text-white"
-    }, "Close")));
+      className: "px-3 py-1.5 rounded bg-white/[0.06] hover:bg-white/[0.1] text-[12px] text-white border border-white/[0.1]"
+    }, "Close"), React.createElement("button", {
+      onClick: () => window.location.reload(),
+      className: "px-3 py-1.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-[12px] text-amber-200"
+    }, "Reload page"))));
   }
   const effectiveStage = (() => {
     if (!trade) return tickerData?.kanban_stage || null;
