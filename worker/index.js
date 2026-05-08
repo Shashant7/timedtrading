@@ -40860,50 +40860,79 @@ export default {
                     }
                   }
 
-                  // Pick best prev_close: TwelveData pf.pc (authoritative) > daily candle > stored
+                  // P0.7.105 — TwelveData pc preferred (it's the freshest
+                  // and session-aware), with a tightened sanity check that
+                  // rejects any source giving > 8% daily change (was 25%).
+                  // The 25% threshold let yesterday's stale stored values
+                  // (CAT prev_close=$702 vs current $895, a 27% computed
+                  // change) leak through during the 60s before the cron's
+                  // next price-feed update overwrote the bad data. Now we
+                  // OVERWRITE the stored value on every overlay pass with
+                  // the freshest TD value, and fall back to daily candle
+                  // only when TD itself is missing/extreme.
                   const dailyCandlePc = pcCache[sym] || 0;
                   const pfPc = Number(pf.pc);
                   const pfP = Number(pf.p);
                   const pfPcUsable = Number.isFinite(pfPc) && pfPc > 0 && pfP > 0
                     && (Math.abs(pfPc - pfP) / pfP * 100) > 0.05;
-                  let bestPc = pfPcUsable
-                    ? pfPc
-                    : dailyCandlePc > 0
-                      ? dailyCandlePc
-                      : (obj.prev_close || obj._live_prev_close || 0);
-                  // Sanity: skip extreme daily change (>25%)
-                  if (bestPc > 0 && pfP > 0 && Math.abs((pfP - bestPc) / bestPc * 100) > 25) {
-                    bestPc = obj.prev_close || obj._live_prev_close || 0;
+                  let bestPc = 0;
+                  let bestPcSource = "none";
+                  // Priority: TD pc > daily candle > stored
+                  if (pfPcUsable) {
+                    bestPc = pfPc;
+                    bestPcSource = "td";
+                  } else if (dailyCandlePc > 0) {
+                    bestPc = dailyCandlePc;
+                    bestPcSource = "daily_candle";
+                  } else if (obj.prev_close || obj._live_prev_close) {
+                    bestPc = Number(obj.prev_close || obj._live_prev_close) || 0;
+                    bestPcSource = "stored";
                   }
-                  if (bestPc > 0) obj._live_prev_close = bestPc;
+                  // Tightened sanity: any single-day change > 8% is suspect.
+                  // Try the next source down the priority chain.
+                  if (bestPc > 0 && pfP > 0 && Math.abs((pfP - bestPc) / bestPc * 100) > 8) {
+                    if (bestPcSource === "td" && dailyCandlePc > 0
+                        && Math.abs((pfP - dailyCandlePc) / dailyCandlePc * 100) <= 8) {
+                      bestPc = dailyCandlePc;
+                      bestPcSource = "daily_candle_fallback";
+                    } else {
+                      const storedPc = Number(obj.prev_close || obj._live_prev_close) || 0;
+                      if (storedPc > 0 && Math.abs((pfP - storedPc) / storedPc * 100) <= 8) {
+                        bestPc = storedPc;
+                        bestPcSource = "stored_fallback";
+                      } else {
+                        bestPc = 0;
+                        bestPcSource = "rejected_extreme";
+                      }
+                    }
+                  }
+                  // ALWAYS overwrite stored value with the resolved bestPc
+                  // so the next read sees the fresh value (was: only set
+                  // when pfDp was non-zero, which left stale values stuck).
+                  if (bestPc > 0) {
+                    obj._live_prev_close = bestPc;
+                    obj.prev_close = bestPc;
+                  }
 
-                  // Apply daily change from price feed if non-zero
+                  // Apply daily change from price feed when source is TD
+                  // and value is sane; otherwise compute from bestPc.
                   const pfDc = Number(pf.dc);
                   const pfDp = Number(pf.dp);
-                  if (Number.isFinite(pfDp) && pfDp !== 0) {
+                  if (bestPcSource === "td" && Number.isFinite(pfDp) && pfDp !== 0) {
                     obj.day_change_pct = pfDp;
                     obj.change_pct = pfDp;
                     if (Number.isFinite(pfDc) && pfDc !== 0) {
                       obj.day_change = pfDc;
                       obj.change = pfDc;
                     }
-                    // Trust pfPc when price feed has session-aware daily change
-                    const feedPc = pfPcUsable ? pfPc : bestPc;
-                    if (feedPc > 0) { obj.prev_close = feedPc; obj._live_prev_close = feedPc; obj._td_pc_set = true; }
-                  } else if (!Number.isFinite(Number(obj.day_change_pct)) || Number(obj.day_change_pct) === 0) {
-                    // Price feed has no daily change AND snapshot has none — compute from bestPc
-                    if (bestPc > 0 && pfP > 0) {
-                      const computedDc = Math.round((pfP - bestPc) * 100) / 100;
-                      const computedDp = Math.round(((pfP - bestPc) / bestPc) * 10000) / 100;
-                      if (computedDp !== 0) {
-                        obj.day_change = computedDc;
-                        obj.day_change_pct = computedDp;
-                        obj.change = computedDc;
-                        obj.change_pct = computedDp;
-                        obj.prev_close = bestPc;
-                        if (pfPcUsable) obj._td_pc_set = true;
-                      }
-                    }
+                    obj._td_pc_set = true;
+                  } else if (bestPc > 0 && pfP > 0) {
+                    const computedDc = Math.round((pfP - bestPc) * 100) / 100;
+                    const computedDp = Math.round(((pfP - bestPc) / bestPc) * 10000) / 100;
+                    obj.day_change = computedDc;
+                    obj.day_change_pct = computedDp;
+                    obj.change = computedDc;
+                    obj.change_pct = computedDp;
                   }
                 }
                 data._price_overlay = { ok: true, updated_at: pricesUpdatedAt, tickers: Object.keys(livePrices.prices).length };
@@ -41299,38 +41328,31 @@ export default {
               // Canonicalize daily change fields: prefer heartbeat capture semantics (change/change_pct)
               // when stored day_change_pct is poisoned by a bad prev_close anchor.
               try {
+                // P0.7.105 — reconcile logic now defers to dayPct (the
+                // freshly-set TD value) when it's already reasonable.
+                // Was: any time dayPct disagreed with the (often stale)
+                // altPct=change_pct value, this clobbered dayPct →
+                // overwrote the correct TD-derived day change with old
+                // session-snapshot data. SPY observed: dayPct=0.20 (TD,
+                // correct) → overwritten with altPct=4.79 (stale).
+                //
+                // New rule: only USE altPct if dayPct itself is missing
+                // OR is itself absurd (>8%) AND altPct is saner. We
+                // prefer the SMALLER absolute value when both are valid.
                 const dayPct = Number(obj.day_change_pct);
                 const altPct = Number(obj.change_pct);
                 const altChg = Number(obj.change);
                 const price = Number(obj.price);
-                const hasHeartbeatSession =
-                  obj.session != null || obj.is_rth != null;
-                if (hasHeartbeatSession && Number.isFinite(altPct)) {
-                  obj.day_change_pct = altPct;
-                  if (Number.isFinite(altChg)) obj.day_change = altChg;
-                  if (Number.isFinite(price) && Number.isFinite(altChg))
-                    obj.prev_close = price - altChg;
-                }
-                const disagree =
-                  Number.isFinite(dayPct) &&
-                  Number.isFinite(altPct) &&
-                  (dayPct >= 0 !== altPct >= 0 ||
-                    Math.abs(dayPct - altPct) >= 1.5);
-                const absurd = Number.isFinite(dayPct) && Math.abs(dayPct) > 5;
-                const saneAlt =
-                  Number.isFinite(altPct) && Math.abs(altPct) <= 5;
-                if (
-                  (disagree || (absurd && saneAlt)) &&
-                  Number.isFinite(altPct)
-                ) {
-                  obj.day_change_pct = altPct;
-                  if (Number.isFinite(altChg)) obj.day_change = altChg;
-                  if (Number.isFinite(price) && Number.isFinite(altChg))
-                    obj.prev_close = price - altChg;
-                } else if (
-                  !Number.isFinite(dayPct) &&
-                  Number.isFinite(altPct)
-                ) {
+                const dayPctValid = Number.isFinite(dayPct);
+                const altPctValid = Number.isFinite(altPct);
+                const dayPctAbsurd = dayPctValid && Math.abs(dayPct) > 8;
+                const altPctSaner = altPctValid && Math.abs(altPct) < Math.abs(dayPct || 999);
+                const shouldUseAlt =
+                  // dayPct missing → use alt
+                  (!dayPctValid && altPctValid) ||
+                  // dayPct absurd AND alt is saner → use alt
+                  (dayPctAbsurd && altPctValid && Math.abs(altPct) <= 8 && altPctSaner);
+                if (shouldUseAlt) {
                   obj.day_change_pct = altPct;
                   if (Number.isFinite(altChg)) obj.day_change = altChg;
                   if (Number.isFinite(price) && Number.isFinite(altChg))
@@ -41738,47 +41760,63 @@ export default {
                 // ONLY update live price from timed:prices.
                 obj.price = pf.p;
                 obj._live_price = pf.p;
-                // Pick best prev_close: TwelveData pf.pc (authoritative) > daily candle > stored
+                // P0.7.105 — TD pc preferred + 8% sanity floor + always
+                // overwrite stored value. See full comment at the first
+                // occurrence (~line 40863).
                 const dailyCandlePc = allDailyPcMap[sym] || 0;
                 const pfPc = Number(pf.pc);
                 const pfP = Number(pf.p);
                 const pfPcUsable = Number.isFinite(pfPc) && pfPc > 0 && pfP > 0
                   && (Math.abs(pfPc - pfP) / pfP * 100) > 0.05;
-                let bestPc = pfPcUsable
-                  ? pfPc
-                  : dailyCandlePc > 0
-                    ? dailyCandlePc
-                    : (obj.prev_close || obj._live_prev_close || undefined);
-                // Sanity check: if bestPc gives extreme daily change (>25%), skip it
-                if (bestPc > 0 && pf.p > 0 && Math.abs((pf.p - bestPc) / bestPc * 100) > 25) {
-                  bestPc = obj.prev_close || obj._live_prev_close || undefined;
+                let bestPc = 0;
+                let bestPcSource = "none";
+                if (pfPcUsable) {
+                  bestPc = pfPc;
+                  bestPcSource = "td";
+                } else if (dailyCandlePc > 0) {
+                  bestPc = dailyCandlePc;
+                  bestPcSource = "daily_candle";
+                } else if (obj.prev_close || obj._live_prev_close) {
+                  bestPc = Number(obj.prev_close || obj._live_prev_close) || 0;
+                  bestPcSource = "stored";
                 }
-                if (bestPc > 0) obj._live_prev_close = bestPc;
-                // Apply daily change from price feed if it has meaningful non-zero values.
-                // This ensures daily change survives page refresh even when D1/KV stored values are stale.
+                if (bestPc > 0 && pf.p > 0 && Math.abs((pf.p - bestPc) / bestPc * 100) > 8) {
+                  if (bestPcSource === "td" && dailyCandlePc > 0
+                      && Math.abs((pf.p - dailyCandlePc) / dailyCandlePc * 100) <= 8) {
+                    bestPc = dailyCandlePc;
+                    bestPcSource = "daily_candle_fallback";
+                  } else {
+                    const storedPc = Number(obj.prev_close || obj._live_prev_close) || 0;
+                    if (storedPc > 0 && Math.abs((pf.p - storedPc) / storedPc * 100) <= 8) {
+                      bestPc = storedPc;
+                      bestPcSource = "stored_fallback";
+                    } else {
+                      bestPc = 0;
+                      bestPcSource = "rejected_extreme";
+                    }
+                  }
+                }
+                if (bestPc > 0) {
+                  obj._live_prev_close = bestPc;
+                  obj.prev_close = bestPc;
+                }
+
                 const pfDc = Number(pf.dc);
                 const pfDp = Number(pf.dp);
-                if (Number.isFinite(pfDp) && pfDp !== 0) {
+                if (bestPcSource === "td" && Number.isFinite(pfDp) && pfDp !== 0) {
                   obj.day_change_pct = pfDp;
                   obj.change_pct = pfDp;
                   if (Number.isFinite(pfDc) && pfDc !== 0) {
                     obj.day_change = pfDc;
                     obj.change = pfDc;
                   }
-                  if (bestPc > 0) obj.prev_close = bestPc;
-                } else if (!Number.isFinite(Number(obj.day_change_pct)) || Number(obj.day_change_pct) === 0) {
-                  // No price feed daily change AND no stored daily change — compute from bestPc
-                  if (bestPc > 0 && pf.p > 0) {
-                    const computedDc = Math.round((pf.p - bestPc) * 100) / 100;
-                    const computedDp = Math.round(((pf.p - bestPc) / bestPc) * 10000) / 100;
-                    if (computedDp !== 0) {
-                      obj.day_change = computedDc;
-                      obj.day_change_pct = computedDp;
-                      obj.change = computedDc;
-                      obj.change_pct = computedDp;
-                      obj.prev_close = bestPc;
-                    }
-                  }
+                } else if (bestPc > 0 && pf.p > 0) {
+                  const computedDc = Math.round((pf.p - bestPc) * 100) / 100;
+                  const computedDp = Math.round(((pf.p - bestPc) / bestPc) * 10000) / 100;
+                  obj.day_change = computedDc;
+                  obj.day_change_pct = computedDp;
+                  obj.change = computedDc;
+                  obj.change_pct = computedDp;
                 }
                 obj._live_daily_high = pf.dh;
                 obj._live_daily_low = pf.dl;
@@ -50288,12 +50326,60 @@ export default {
       } = getReplayExecutorRuntime();
 
       if (routeKey === "POST /timed/admin/candle-replay") {
-        // P0.7.103 — audit cleanSlate before destructive ops fire.
+        // P0.7.106 — HARD GUARD on cleanSlate.
+        // Three mystery wipes in 24h were traced to
+        //   POST candle-replay?cleanSlate=1&tickers=CSX,CDNS,ORCL,ITT&...
+        // being invoked from scripts/reference-validation-matrix.py
+        // running on the user's Mac (curl/8.7.1). The cron-mute flag
+        // doesn't protect HTTP endpoints — it only halts the scheduled
+        // handler. So a stray script + cleanSlate keeps wiping the
+        // live ledger.
+        //
+        // New rule: cleanSlate=1 now requires BOTH:
+        //   - cron-mute KV flag NOT active (so muting blocks all wipes)
+        //   - confirm_clean_slate=YES_DESTROY query param
+        // Without confirmation we audit and reject 409.
         const isCleanSlate = url.searchParams.get("cleanSlate") === "1" || url.searchParams.get("cleanSlate") === "true";
         if (isCleanSlate) {
+          const confirm = url.searchParams.get("confirm_clean_slate");
+          const KV = env?.KV_TIMED;
+          let muted = false;
+          try {
+            const m = KV ? await KV.get("phase-c:cron-mute") : null;
+            muted = !!m;
+          } catch (_) {}
+          if (muted) {
+            await auditDataChange(env, {
+              op: "CANDLE_REPLAY_CLEAN_SLATE_BLOCKED",
+              scope: `date=${url.searchParams.get("date") || "?"} reason=cron_muted`,
+              caller: req?.url || "unknown",
+              rowsAffected: 0,
+              meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search, mute_value: String(muted).slice(0, 80) },
+            });
+            return sendJSON({
+              ok: false,
+              error: "clean_slate_blocked_cron_muted",
+              detail: "cleanSlate=1 is blocked while phase-c:cron-mute is set. Clear the mute via DELETE /timed/admin/cron-mute then retry.",
+            }, 409, corsHeaders(env, req));
+          }
+          if (confirm !== "YES_DESTROY") {
+            await auditDataChange(env, {
+              op: "CANDLE_REPLAY_CLEAN_SLATE_BLOCKED",
+              scope: `date=${url.searchParams.get("date") || "?"} reason=missing_confirmation`,
+              caller: req?.url || "unknown",
+              rowsAffected: 0,
+              meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
+            });
+            return sendJSON({
+              ok: false,
+              error: "clean_slate_requires_confirmation",
+              detail: "cleanSlate=1 wipes ALL trades / positions / account_ledger. Add &confirm_clean_slate=YES_DESTROY to the request to proceed. This guard was added because 3+ mystery wipes today traced to scripts firing this endpoint.",
+            }, 409, corsHeaders(env, req));
+          }
+          // Audit the destructive op (was: P0.7.103 audit-only)
           await auditDataChange(env, {
             op: "CANDLE_REPLAY_CLEAN_SLATE",
-            scope: `date=${url.searchParams.get("date") || "?"}`,
+            scope: `date=${url.searchParams.get("date") || "?"} confirmed=true`,
             caller: req?.url || "unknown",
             rowsAffected: null,
             meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
@@ -50309,17 +50395,37 @@ export default {
       }
 
       if (routeKey === "POST /timed/admin/interval-replay") {
-        // P0.7.103 — audit-log when cleanSlate=1 since this nukes
-        // trades/positions/account_ledger/etc. Catches the source of
-        // mystery wipes (the previous P0.7.95 audit only covered
-        // /timed/trades/reset and the orphan-cleanup admin endpoints).
+        // P0.7.106 — same hard guard on cleanSlate as candle-replay (above)
         const isCleanSlate = url.searchParams.get("cleanSlate") === "1" || url.searchParams.get("cleanSlate") === "true";
         if (isCleanSlate) {
+          const confirm = url.searchParams.get("confirm_clean_slate");
+          const KV = env?.KV_TIMED;
+          let muted = false;
+          try { muted = !!(KV ? await KV.get("phase-c:cron-mute") : null); } catch (_) {}
+          if (muted) {
+            await auditDataChange(env, {
+              op: "INTERVAL_REPLAY_CLEAN_SLATE_BLOCKED",
+              scope: `date=${url.searchParams.get("date") || "?"} reason=cron_muted`,
+              caller: req?.url || "unknown", rowsAffected: 0,
+              meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
+            });
+            return sendJSON({ ok: false, error: "clean_slate_blocked_cron_muted",
+              detail: "cleanSlate=1 blocked while cron-mute is set." }, 409, corsHeaders(env, req));
+          }
+          if (confirm !== "YES_DESTROY") {
+            await auditDataChange(env, {
+              op: "INTERVAL_REPLAY_CLEAN_SLATE_BLOCKED",
+              scope: `date=${url.searchParams.get("date") || "?"} reason=missing_confirmation`,
+              caller: req?.url || "unknown", rowsAffected: 0,
+              meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
+            });
+            return sendJSON({ ok: false, error: "clean_slate_requires_confirmation",
+              detail: "Add &confirm_clean_slate=YES_DESTROY to wipe trades/positions/ledger." }, 409, corsHeaders(env, req));
+          }
           await auditDataChange(env, {
             op: "INTERVAL_REPLAY_CLEAN_SLATE",
-            scope: `date=${url.searchParams.get("date") || "?"}`,
-            caller: req?.url || "unknown",
-            rowsAffected: null,
+            scope: `date=${url.searchParams.get("date") || "?"} confirmed=true`,
+            caller: req?.url || "unknown", rowsAffected: null,
             meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
           });
         }
@@ -66592,10 +66698,15 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             });
             // Auto-mute so the cron won't keep processing zombie state
             await KV.put("phase-c:cron-mute", `auto_integrity_wipe@${new Date().toISOString()}`);
+            // P0.7.106 — persist post-wipe counts BEFORE returning so we
+            // don't re-fire the same alert every minute. The new baseline
+            // is the wiped state; next wipe (if any) will compare against
+            // this and only fire if it drops further.
+            await KV.put("phase-c:integrity:counts", JSON.stringify({ trades, ledger, ts: Date.now() }));
             return;
           }
         }
-        // Persist current counts for next tick
+        // Persist current counts for next tick (only when no wipe detected)
         await KV.put("phase-c:integrity:counts", JSON.stringify({ trades, ledger, ts: Date.now() }));
       }
     } catch (integrityErr) {
