@@ -418,6 +418,13 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_thesis_flip_enabled",                             // default true
   "deep_audit_thesis_flip_min_age_min",                         // default 60 min market time
   "deep_audit_thesis_flip_min_pnl_pct",                         // default -0.5 (must be in red)
+  // V15 P0.7.107 (2026-05-08) — Phase 2 Trend-Hold hybrid lifecycle.
+  // Default 'false' (dark feature). Backtests flip it to 'true' via
+  // INSERT INTO model_config so replay-loaded daCfg activates the
+  // promotion / suppression / DCA paths in worker/trend-hold.js.
+  // See tasks/phase-c/PHASE_3_RUNBOOK.md for the operational flow.
+  "deep_audit_trend_hold_enabled",                              // default false
+  "deep_audit_trend_hold_max_positions",                        // default 6 (range 1..50)
 ];
 
 const REPLAY_CFG_KEYS = [
