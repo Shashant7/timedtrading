@@ -959,6 +959,7 @@ const ROUTES = [
   ["GET", "/timed/admin/check-stale-tick", "GET /timed/admin/check-stale-tick"],
   ["GET", "/timed/admin/ledger-inspect", "GET /timed/admin/ledger-inspect"],
   ["POST", "/timed/admin/sync-trade-to-ledger", "POST /timed/admin/sync-trade-to-ledger"],
+  ["POST", "/timed/admin/patch-trade-fields", "POST /timed/admin/patch-trade-fields"],
   ["POST", "/timed/admin/close-stale-open-trades", "POST /timed/admin/close-stale-open-trades"],
   ["GET", "/timed/admin/data-audit-log", "GET /timed/admin/data-audit-log"],
   ["GET", "/timed/admin/activity-feed", "GET /timed/admin/activity-feed"],
@@ -53666,6 +53667,74 @@ export default {
             setup_grade: r.setup_grade || null,
           }));
           return sendJSON({ ok: true, count: events.length, events }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/patch-trade-fields?trade_id=X&[field=value...]&key=...
+      // V15 P0.7.113 (2026-05-08): generic UPDATE endpoint for the trades
+      // row. Accepts an explicit allowlist of fields to avoid SQL surprises:
+      //   status, exit_ts, exit_price, exit_reason, pnl, pnl_pct,
+      //   trim_ts, trim_price, trimmed_pct,
+      //   shares, notional, entry_price, entry_path,
+      //   setup_name, setup_grade, risk_budget, rank, rr,
+      //   note (stored in a new updated_at audit_note field)
+      // Each field is optional; only those explicitly passed are updated.
+      // Used to (a) fill setup_grade/setup_name on trades the live engine
+      // didn't tag, and (b) finalize wiped-then-restored trades to FLAT
+      // so they show in history without polluting account state.
+      if (routeKey === "POST /timed/admin/patch-trade-fields") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const tid = String(url.searchParams.get("trade_id") || "").trim();
+          if (!tid) return sendJSON({ ok: false, error: "trade_id required" }, 400, corsHeaders(env, req));
+          const allow = ["status","exit_ts","exit_price","exit_reason","pnl","pnl_pct","trim_ts","trim_price","trimmed_pct","shares","notional","entry_price","entry_path","setup_name","setup_grade","risk_budget","rank","rr"];
+          const updates = [];
+          const binds = [tid, Date.now()];
+          const applied = {};
+          for (const k of allow) {
+            const v = url.searchParams.get(k);
+            if (v == null || v === "") continue;
+            // Type coercion per field
+            if (["exit_ts","trim_ts","rank"].includes(k)) {
+              const n = Number(v);
+              if (!Number.isFinite(n)) continue;
+              updates.push(`${k} = ?${binds.length + 1}`);
+              binds.push(n);
+              applied[k] = n;
+            } else if (["exit_price","pnl","pnl_pct","trim_price","trimmed_pct","shares","notional","entry_price","risk_budget","rr"].includes(k)) {
+              const n = Number(v);
+              if (!Number.isFinite(n)) continue;
+              updates.push(`${k} = ?${binds.length + 1}`);
+              binds.push(n);
+              applied[k] = n;
+            } else {
+              updates.push(`${k} = ?${binds.length + 1}`);
+              binds.push(String(v));
+              applied[k] = String(v);
+            }
+          }
+          if (updates.length === 0) {
+            return sendJSON({ ok: false, error: "no allowed fields supplied", allow }, 400, corsHeaders(env, req));
+          }
+          updates.push("updated_at = ?2");
+          await db.prepare(
+            `UPDATE trades SET ${updates.join(", ")} WHERE trade_id = ?1`
+          ).bind(...binds).run();
+          try {
+            await auditDataChange(env, {
+              op: "PATCH_TRADE_FIELDS",
+              scope: tid,
+              caller: req.headers.get("CF-Connecting-IP") || "admin",
+              rowsAffected: 1,
+              meta: { trade_id: tid, applied },
+            });
+          } catch (_) {}
+          return sendJSON({ ok: true, trade_id: tid, applied }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
