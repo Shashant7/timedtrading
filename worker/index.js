@@ -947,6 +947,7 @@ const ROUTES = [
   ["POST", "/timed/admin/purge-orphan-trades", "POST /timed/admin/purge-orphan-trades"],
   ["POST", "/timed/admin/seed-direction-accuracy-from-promoted", "POST /timed/admin/seed-direction-accuracy-from-promoted"],
   ["POST", "/timed/admin/refresh-path-performance", "POST /timed/admin/refresh-path-performance"],
+  ["POST", "/timed/admin/ensure-trend-hold-schema", "POST /timed/admin/ensure-trend-hold-schema"],
   ["GET", "/timed/admin/direction-accuracy/inspect", "GET /timed/admin/direction-accuracy/inspect"],
   ["POST", "/timed/admin/restore-trade-from-da", "POST /timed/admin/restore-trade-from-da"],
   ["POST", "/timed/admin/patch-trade-from-da", "POST /timed/admin/patch-trade-from-da"],
