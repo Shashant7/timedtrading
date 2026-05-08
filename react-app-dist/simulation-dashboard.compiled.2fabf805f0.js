@@ -4675,14 +4675,16 @@ function PortfolioColumn({
     return items.map(item => {
       const ticker = String(item.ticker || "").toUpperCase();
       const td = tickerData && (tickerData[ticker] || tickerData[item.ticker]);
-      const curPrice = Number(td?.price) || Number(item.currentPrice) || Number(item.mark) || 0;
+      const rawCur = Number(td?.price) || Number(item.currentPrice) || Number(item.mark) || 0;
+      const curPrice = rawCur > 0 ? rawCur : null;
       const entryPrice = Number(item.entry_price || item.avg_entry || item.avgEntry) || 0;
       const qty = Number(item.qty || item.total_qty || item.total_shares || item.shares) || 0;
       const costBasis = Number(item.cost_basis || item.costBasis) || entryPrice * qty;
       const dir = String(item.direction || "LONG").toUpperCase();
       const sign = dir === "SHORT" ? -1 : 1;
-      const pnl = qty > 0 && entryPrice > 0 ? sign * (curPrice - entryPrice) * qty : 0;
-      const pnlPct = costBasis > 0 ? pnl / costBasis * 100 : 0;
+      const havePrice = curPrice != null && qty > 0 && entryPrice > 0;
+      const pnl = havePrice ? sign * (curPrice - entryPrice) * qty : null;
+      const pnlPct = havePrice && costBasis > 0 ? pnl / costBasis * 100 : null;
       return {
         ticker,
         entryPrice,
@@ -4690,6 +4692,7 @@ function PortfolioColumn({
         qty,
         pnl,
         pnlPct,
+        havePrice,
         direction: dir,
         item
       };
@@ -4897,7 +4900,7 @@ function PortfolioColumn({
               </div>
             ` : openPositionCards.length === 0 ? html`<div className="text-[13px] text-[var(--tt-text-faint)] py-2">No open positions</div>` : html`<div className="space-y-1.5 max-h-[300px] overflow-y-auto">
                   ${openPositionCards.map(p => {
-    const isGain = p.pnl >= 0;
+    const isGain = p.havePrice && p.pnl >= 0;
     return html`<div
                       key=${p.ticker}
                       className="flex items-center justify-between py-2 px-3 rounded bg-[var(--tt-bg)] border border-[var(--tt-border)] hover:bg-[var(--tt-bg-hover)] cursor-pointer transition-colors"
@@ -4908,10 +4911,11 @@ function PortfolioColumn({
                         <span className="text-[11px] text-[var(--tt-text-faint)]">${p.qty.toFixed(1)} sh @ $${p.entryPrice.toFixed(2)}</span>
                       </div>
                       <div className="flex items-center gap-3 text-[13px]">
-                        <span className="text-[var(--tt-text-muted)]">$${p.curPrice.toFixed(2)}</span>
-                        <span className=${"font-semibold " + (isGain ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]")}>
-                          ${isGain ? "+" : ""}${fmtUsd(p.pnl)} (${p.pnlPct >= 0 ? "+" : ""}${p.pnlPct.toFixed(1)}%)
-                        </span>
+                        ${p.havePrice ? html`<span className="text-[var(--tt-text-muted)]">$${p.curPrice.toFixed(2)}</span>
+                                  <span className=${"font-semibold " + (isGain ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]")}>
+                                    ${isGain ? "+" : ""}${fmtUsd(p.pnl)} (${p.pnlPct >= 0 ? "+" : ""}${p.pnlPct.toFixed(1)}%)
+                                  </span>` : html`<span className="text-[var(--tt-text-faint)] tabular-nums">—</span>
+                                  <span className="text-[var(--tt-text-faint)] text-[11px] italic">Loading price…</span>`}
                       </div>
                     </div>`;
   })}
@@ -5595,6 +5599,65 @@ function TradeReviewModal({
             </div>
           </div>
         `;
+}
+class RailErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = {
+      hasError: false,
+      error: null
+    };
+  }
+  static getDerivedStateFromError(error) {
+    return {
+      hasError: true,
+      error
+    };
+  }
+  componentDidCatch(error, info) {
+    try {
+      console.error("[RailErrorBoundary] caught render error:", error, info);
+    } catch (_) {}
+  }
+  componentDidUpdate(prevProps) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({
+        hasError: false,
+        error: null
+      });
+    }
+  }
+  render() {
+    if (this.state.hasError) {
+      const msg = this.state.error?.message || String(this.state.error || "Render error");
+      return React.createElement("div", {
+        className: "fixed right-0 top-[49px] w-[480px] lg:w-[640px] xl:w-[720px] 2xl:w-[800px] bottom-0 z-40 bg-[#0b0e11] border-l border-white/[0.08] flex items-center justify-center p-6"
+      }, React.createElement("div", {
+        className: "max-w-[360px] text-center"
+      }, React.createElement("div", {
+        className: "text-amber-400 text-[14px] font-semibold mb-2"
+      }, "Detail panel didn't load"), React.createElement("div", {
+        className: "text-[12px] text-[#9ca3af] mb-4 leading-relaxed"
+      }, "Something went wrong rendering this ticker. The rest of the page is unaffected."), React.createElement("div", {
+        className: "text-[10px] text-[#6b7280] font-mono mb-4 break-words bg-white/[0.04] rounded p-2 border border-white/[0.06]"
+      }, String(msg).slice(0, 240)), React.createElement("div", {
+        className: "flex gap-2 justify-center"
+      }, React.createElement("button", {
+        onClick: () => {
+          this.setState({
+            hasError: false,
+            error: null
+          });
+          this.props.onClose && this.props.onClose();
+        },
+        className: "px-3 py-1.5 rounded bg-white/[0.06] hover:bg-white/[0.1] text-[12px] text-white"
+      }, "Close"), React.createElement("button", {
+        onClick: () => window.location.reload(),
+        className: "px-3 py-1.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-[12px] text-amber-200"
+      }, "Reload page"))));
+    }
+    return this.props.children;
+  }
 }
 function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -6975,7 +7038,11 @@ function App() {
       setOpenAutopsyForTrade(null);
       setModalOnly(false);
     };
-    return React.createElement("div", {
+    const railSym = selectedTrade ? selectedTrade.ticker || selectedTrade.tradeId || selectedTrade.trade_id : selectedTicker;
+    return React.createElement(RailErrorBoundary, {
+      onClose: handleClose,
+      resetKey: railSym
+    }, React.createElement("div", {
       className: "tt-ticker-workspace-mount fixed right-0 top-[49px] w-[480px] lg:w-[640px] xl:w-[720px] 2xl:w-[800px] bottom-0 z-40 slide-in-right shadow-2xl overflow-y-auto bg-[#0b0e11] border-l border-white/[0.04]"
     }, React.createElement("button", {
       onClick: handleClose,
@@ -6996,8 +7063,17 @@ function App() {
       rankedTickerPositions: rankedTickerPositions,
       openAutopsyForTrade: openAutopsyForTrade,
       layoutMode: typeof window !== "undefined" && window.innerWidth >= 1024 ? "workspace" : "modal"
-    }));
-  })(), (selectedTicker || selectedTrade) && modalOnly && (() => {
+    })));
+  })(), (selectedTicker || selectedTrade) && modalOnly && React.createElement(RailErrorBoundary, {
+    onClose: () => {
+      setSelectedTrade(null);
+      setSelectedTicker(null);
+      setSelectedPositionEvents(null);
+      setOpenAutopsyForTrade(null);
+      setModalOnly(false);
+    },
+    resetKey: (openAutopsyForTrade || selectedTrade)?.trade_id || (openAutopsyForTrade || selectedTrade)?.tradeId || (openAutopsyForTrade || selectedTrade)?.ticker || ""
+  }, (() => {
     const t = openAutopsyForTrade || selectedTrade;
     if (!t) return null;
     const closeModal = () => {
@@ -7118,7 +7194,7 @@ function App() {
       KANBAN_EXIT: "Kanban EXIT lane fired — see Discord for the specific rule that triggered."
     };
     return html`<${TradeReviewModal} trade=${t} closeModal=${closeModal} _fmt=${_fmt} entryPx=${entryPx} exitPx=${exitPx} pnl=${pnl} shares=${shares} trimPct=${trimPct} trimmed=${trimmed} remaining=${remaining} exitReason=${exitReason} entryPath=${entryPath} setupGrade=${setupGrade} rank=${rank} riskBudget=${riskBudget} notional=${notional} durLabel=${durLabel} fmtPath=${fmtPath} EXIT_MAP=${EXIT_MAP} />`;
-  })())), showSummary && dailySummary && React.createElement("div", {
+  })()))), showSummary && dailySummary && React.createElement("div", {
     className: "fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
   }, React.createElement("div", {
     className: "bg-[var(--tt-bg-elevated)] border border-[var(--tt-border)] rounded-xl p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto"

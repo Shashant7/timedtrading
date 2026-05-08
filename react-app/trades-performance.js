@@ -81,62 +81,114 @@
       return s || "Unknown";
     }
 
+    /* V15 P0.7.109 (2026-05-08) — realized PnL from trims on still-open
+       trades. The Performance Overview / Calendar / Monthly tables used
+       to count ONLY closed trades (status WIN/LOSS/FLAT), so the moment
+       a position got partially trimmed (status TP_HIT_TRIM) the realized
+       portion of that trim was invisible here even though it WAS in the
+       account_ledger and showed up in the top widget's totalRealized.
+       That was the source of the user-reported gap between the headline
+       "Total PnL $" widget ($40,057.85) and the calendar sum ($39,834.65)
+       — exactly the SNDK trim's -$28.59 realized.
+
+       Helper computes the realized $ from a TP_HIT_TRIM trade:
+         shares_trimmed = shares * trimmed_pct
+         realized = sign * (trim_price - entry_price) * shares_trimmed
+       Returns { realized, ts } so the caller can bucket on trim_ts. */
+    function realizedFromTrim(t) {
+      const status = String(t?.status || "").toUpperCase();
+      if (status !== "TP_HIT_TRIM") return null;
+      const trimmedPct = Number(t?.trimmed_pct ?? t?.trimmedPct) || 0;
+      if (trimmedPct <= 0) return null;
+      const shares = Number(t?.shares) || 0;
+      const entry = Number(t?.entry_price ?? t?.entryPrice) || 0;
+      const trim = Number(t?.trim_price ?? t?.trimPrice) || 0;
+      const trimTs = Number(t?.trim_ts ?? t?.trimTs);
+      if (shares <= 0 || entry <= 0 || trim <= 0 || !Number.isFinite(trimTs) || trimTs <= 0) return null;
+      const dir = String(t?.direction || "LONG").toUpperCase();
+      const sign = dir === "SHORT" ? -1 : 1;
+      const realized = sign * (trim - entry) * (shares * trimmedPct);
+      return { realized, ts: trimTs };
+    }
+
     // Aggregate trades by month
     function aggregateMonthly(trades) {
       const byMonth = new Map();
-      for (const t of trades) {
-        const status = String(t?.status || "").toUpperCase();
-        if (status !== "WIN" && status !== "LOSS" && status !== "FLAT") continue;
-        const exitTs = Number(t?.exit_ts || t?.exitTs);
-        if (!Number.isFinite(exitTs) || exitTs <= 0) continue;
-        const k = monthKey(exitTs);
+      const ensureSlot = (k) => {
         let slot = byMonth.get(k);
         if (!slot) {
-          slot = { key: k, n: 0, wins: 0, losses: 0, flats: 0, pnlUsd: 0,
+          slot = { key: k, n: 0, wins: 0, losses: 0, flats: 0, trims: 0, pnlUsd: 0,
                    bestPnlUsd: -Infinity, bestTicker: null, bestPnlPct: 0,
                    worstPnlUsd: Infinity, worstTicker: null, worstPnlPct: 0,
                    setups: new Map() };
           byMonth.set(k, slot);
         }
-        slot.n++;
-        const pnlPct = Number(t?.pnl_pct ?? t?.pnlPct) || 0;
-        const pnl = Number(t?.pnl) || 0;
-        slot.pnlUsd += pnl;
-        if (status === "WIN") slot.wins++;
-        else if (status === "LOSS") slot.losses++;
-        else slot.flats++;
-        if (pnl > slot.bestPnlUsd) { slot.bestPnlUsd = pnl; slot.bestTicker = t?.ticker; slot.bestPnlPct = pnlPct; }
-        if (pnl < slot.worstPnlUsd) { slot.worstPnlUsd = pnl; slot.worstTicker = t?.ticker; slot.worstPnlPct = pnlPct; }
-        // Track setups by USD pnl (correct attribution for portfolio return)
-        const setupKey = String(t?.setup_name || t?.entry_path || "unknown");
-        const setupSlot = slot.setups.get(setupKey) || { n: 0, wins: 0, pnlUsd: 0 };
-        setupSlot.n++;
-        if (status === "WIN") setupSlot.wins++;
-        setupSlot.pnlUsd += pnl;
-        slot.setups.set(setupKey, setupSlot);
+        return slot;
+      };
+      for (const t of trades) {
+        const status = String(t?.status || "").toUpperCase();
+        // Closed trades — credit on exit day
+        if (status === "WIN" || status === "LOSS" || status === "FLAT") {
+          const exitTs = Number(t?.exit_ts || t?.exitTs);
+          if (!Number.isFinite(exitTs) || exitTs <= 0) continue;
+          const slot = ensureSlot(monthKey(exitTs));
+          slot.n++;
+          const pnlPct = Number(t?.pnl_pct ?? t?.pnlPct) || 0;
+          const pnl = Number(t?.pnl) || 0;
+          slot.pnlUsd += pnl;
+          if (status === "WIN") slot.wins++;
+          else if (status === "LOSS") slot.losses++;
+          else slot.flats++;
+          if (pnl > slot.bestPnlUsd) { slot.bestPnlUsd = pnl; slot.bestTicker = t?.ticker; slot.bestPnlPct = pnlPct; }
+          if (pnl < slot.worstPnlUsd) { slot.worstPnlUsd = pnl; slot.worstTicker = t?.ticker; slot.worstPnlPct = pnlPct; }
+          const setupKey = String(t?.setup_name || t?.entry_path || "unknown");
+          const setupSlot = slot.setups.get(setupKey) || { n: 0, wins: 0, pnlUsd: 0 };
+          setupSlot.n++;
+          if (status === "WIN") setupSlot.wins++;
+          setupSlot.pnlUsd += pnl;
+          slot.setups.set(setupKey, setupSlot);
+          continue;
+        }
+        // Open + trimmed — credit realized portion on trim day
+        const tr = realizedFromTrim(t);
+        if (tr) {
+          const slot = ensureSlot(monthKey(tr.ts));
+          slot.trims++;
+          slot.pnlUsd += tr.realized;
+        }
       }
-      // Sort newest first
       return [...byMonth.values()].sort((a, b) => b.key.localeCompare(a.key));
     }
 
     // Aggregate trades by day (for calendar)
     function aggregateDaily(trades) {
       const byDay = new Map();
-      for (const t of trades) {
-        const status = String(t?.status || "").toUpperCase();
-        if (status !== "WIN" && status !== "LOSS" && status !== "FLAT") continue;
-        const exitTs = Number(t?.exit_ts || t?.exitTs);
-        if (!Number.isFinite(exitTs) || exitTs <= 0) continue;
-        const k = dayKey(exitTs);
+      const ensureSlot = (k) => {
         let slot = byDay.get(k);
         if (!slot) {
-          slot = { key: k, n: 0, wins: 0, losses: 0, pnlUsd: 0 };
+          slot = { key: k, n: 0, wins: 0, losses: 0, trims: 0, pnlUsd: 0 };
           byDay.set(k, slot);
         }
-        slot.n++;
-        slot.pnlUsd += Number(t?.pnl) || 0;
-        if (status === "WIN") slot.wins++;
-        else if (status === "LOSS") slot.losses++;
+        return slot;
+      };
+      for (const t of trades) {
+        const status = String(t?.status || "").toUpperCase();
+        if (status === "WIN" || status === "LOSS" || status === "FLAT") {
+          const exitTs = Number(t?.exit_ts || t?.exitTs);
+          if (!Number.isFinite(exitTs) || exitTs <= 0) continue;
+          const slot = ensureSlot(dayKey(exitTs));
+          slot.n++;
+          slot.pnlUsd += Number(t?.pnl) || 0;
+          if (status === "WIN") slot.wins++;
+          else if (status === "LOSS") slot.losses++;
+          continue;
+        }
+        const tr = realizedFromTrim(t);
+        if (tr) {
+          const slot = ensureSlot(dayKey(tr.ts));
+          slot.trims++;
+          slot.pnlUsd += tr.realized;
+        }
       }
       return byDay;
     }
@@ -399,7 +451,16 @@
       });
       const totalWins = closed.filter(t => String(t?.status || "").toUpperCase() === "WIN").length;
       const totalLosses = closed.filter(t => String(t?.status || "").toUpperCase() === "LOSS").length;
-      const totalPnlUsd = closed.reduce((s, t) => s + (Number(t?.pnl) || 0), 0);
+      // V15 P0.7.109 (2026-05-08): include realized PnL from trims on still-
+      // open trades (TP_HIT_TRIM). Without this, the headline Total PnL $
+      // disagrees with the account-summary widget by exactly the trim's
+      // realized portion. See realizedFromTrim() comment for the SNDK case.
+      const closedPnlUsd = closed.reduce((s, t) => s + (Number(t?.pnl) || 0), 0);
+      const trimPnlUsd = trades.reduce((s, t) => {
+        const tr = realizedFromTrim(t);
+        return s + (tr ? tr.realized : 0);
+      }, 0);
+      const totalPnlUsd = closedPnlUsd + trimPnlUsd;
       // V15 P0.7.71: Total PnL % is portfolio return — sumPnlUsd / startCash *
       // 100 — not sum of per-trade %s (which over-counts because each trade
       // is a fraction of the account).

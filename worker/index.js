@@ -947,6 +947,8 @@ const ROUTES = [
   ["POST", "/timed/admin/patch-trade-event-reason", "POST /timed/admin/patch-trade-event-reason"],
   ["POST", "/timed/admin/patch-trade-shares", "POST /timed/admin/patch-trade-shares"],
   ["GET", "/timed/admin/check-stale-tick", "GET /timed/admin/check-stale-tick"],
+  ["GET", "/timed/admin/ledger-inspect", "GET /timed/admin/ledger-inspect"],
+  ["POST", "/timed/admin/sync-trade-to-ledger", "POST /timed/admin/sync-trade-to-ledger"],
   ["POST", "/timed/admin/close-stale-open-trades", "POST /timed/admin/close-stale-open-trades"],
   ["GET", "/timed/admin/data-audit-log", "GET /timed/admin/data-audit-log"],
   ["GET", "/timed/admin/activity-feed", "GET /timed/admin/activity-feed"],
@@ -53408,6 +53410,207 @@ export default {
             updated++;
           }
           return sendJSON({ ok: true, updated, trade_ids: tradeIds }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/sync-trade-to-ledger?trade_ids=A,B,C&key=...
+      // V15 P0.7.109 (2026-05-08): backfill missing account_ledger rows
+      // for live trades that closed but weren't represented in the ledger
+      // (e.g. APD-1778074236340 LOSS yesterday, which was wiped along
+      // with the rest of the live state on May 7 22:37 UTC and not
+      // re-added when we re-seeded from promoted_trades). Reads the
+      // trade row + trade_events, inserts a row per event missing from
+      // the ledger keyed on (position_id, ts, event_type), and updates
+      // the running balance chronologically. Idempotent: re-running for
+      // the same trade adds nothing.
+      if (routeKey === "POST /timed/admin/sync-trade-to-ledger") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const tradeIdsRaw = url.searchParams.get("trade_ids") || "";
+          const tradeIds = tradeIdsRaw.split(",").map(s => s.trim()).filter(Boolean);
+          if (tradeIds.length === 0) {
+            return sendJSON({ ok: false, error: "trade_ids required" }, 400, corsHeaders(env, req));
+          }
+          await ensureAccountLedgerSchema(db, env?.KV_TIMED);
+          // Snapshot the latest balance — we'll roll it forward as we add rows.
+          const latest = await db.prepare(
+            "SELECT balance FROM account_ledger WHERE mode = 'trader' ORDER BY ts DESC, ledger_id DESC LIMIT 1"
+          ).first();
+          let runningBalance = Number(latest?.balance) || 100000;
+          const synced = [];
+          for (const tid of tradeIds) {
+            const trade = await db.prepare(
+              `SELECT trade_id, ticker, direction, entry_ts, entry_price, exit_ts, exit_price,
+                      shares, notional, status, pnl, trim_ts, trim_price, trimmed_pct, run_id
+                 FROM trades WHERE trade_id = ?1`
+            ).bind(tid).first();
+            if (!trade) { synced.push({ trade_id: tid, ok: false, reason: "trade_not_found" }); continue; }
+            const ticker = String(trade.ticker || "").toUpperCase();
+            const direction = String(trade.direction || "LONG").toUpperCase();
+            const entryPrice = Number(trade.entry_price) || 0;
+            const shares = Number(trade.shares) || 0;
+            const notional = Number(trade.notional) || (entryPrice * shares);
+            const events = (await db.prepare(
+              `SELECT ts, type, price, qty_pct_delta, qty_pct_total, pnl_realized, reason, meta_json
+                 FROM trade_events WHERE trade_id = ?1 ORDER BY ts ASC`
+            ).bind(tid).all())?.results || [];
+            // Build a synthetic ENTRY event if no ENTRY in trade_events but trade has entry_ts.
+            const haveEntryEvent = events.some(e => String(e.type).toUpperCase() === "ENTRY");
+            if (!haveEntryEvent && Number(trade.entry_ts) > 0) {
+              events.unshift({
+                ts: Number(trade.entry_ts),
+                type: "ENTRY",
+                price: entryPrice,
+                qty_pct_delta: 1.0, qty_pct_total: 1.0,
+                pnl_realized: 0,
+                reason: "entry_synthetic",
+                meta_json: null,
+              });
+            }
+            // Build a synthetic EXIT for closed trades that don't have an EXIT event.
+            const haveExitEvent = events.some(e => String(e.type).toUpperCase() === "EXIT");
+            const tradeStatus = String(trade.status || "").toUpperCase();
+            const isClosed = tradeStatus === "WIN" || tradeStatus === "LOSS" || tradeStatus === "FLAT";
+            if (!haveExitEvent && isClosed && Number(trade.exit_ts) > 0) {
+              events.push({
+                ts: Number(trade.exit_ts),
+                type: "EXIT",
+                price: Number(trade.exit_price) || 0,
+                qty_pct_delta: 1.0, qty_pct_total: 1.0,
+                pnl_realized: Number(trade.pnl) || 0,
+                reason: "exit_synthetic",
+                meta_json: null,
+              });
+            }
+            const added = [];
+            for (const ev of events) {
+              const evType = String(ev.type || "").toUpperCase();
+              if (evType !== "ENTRY" && evType !== "TRIM" && evType !== "EXIT") continue;
+              const evTs = Number(ev.ts);
+              if (!Number.isFinite(evTs) || evTs <= 0) continue;
+              // Idempotency: skip if a ledger row already exists for this event
+              const existing = await db.prepare(
+                `SELECT ledger_id FROM account_ledger
+                   WHERE mode = 'trader' AND position_id = ?1 AND ts = ?2 AND event_type = ?3 LIMIT 1`
+              ).bind(tid, evTs, evType).first();
+              if (existing) continue;
+              const evPrice = Number(ev.price) || 0;
+              let evQty = 0;
+              if (evType === "ENTRY") {
+                evQty = shares;
+              } else {
+                // For TRIM/EXIT, derive qty from qty_pct_delta * shares
+                const pctDelta = Number(ev.qty_pct_delta);
+                evQty = Number.isFinite(pctDelta) && pctDelta > 0 ? shares * pctDelta : (Number(trade.shares) || 0);
+              }
+              const evRealized = Number(ev.pnl_realized) || 0;
+              // cash_delta convention from d1InsertLedgerEntry callers:
+              //   ENTRY (LONG): outflow (negative cash); ENTRY (SHORT): inflow
+              //   TRIM/EXIT (LONG): inflow (positive cash); SHORT: outflow
+              const isLong = direction === "LONG";
+              let cashDelta;
+              if (evType === "ENTRY") {
+                cashDelta = isLong ? -(evPrice * evQty) : +(evPrice * evQty);
+              } else {
+                cashDelta = isLong ? +(evPrice * evQty) : -(evPrice * evQty);
+              }
+              runningBalance += cashDelta;
+              await db.prepare(
+                `INSERT INTO account_ledger
+                   (mode, ts, event_type, position_id, ticker, direction, qty, price, cash_delta, realized_pnl, balance, note)
+                 VALUES ('trader', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`
+              ).bind(
+                evTs, evType, tid, ticker, direction,
+                evQty, evPrice, cashDelta, evRealized, runningBalance,
+                `Backfill from sync-trade-to-ledger (${ev.reason || "synthetic"})`,
+              ).run();
+              added.push({ ts: evTs, iso: new Date(evTs).toISOString(), event_type: evType, qty: evQty, price: evPrice, cash_delta: cashDelta, realized_pnl: evRealized, balance: runningBalance });
+            }
+            synced.push({ trade_id: tid, ok: true, ticker, status: tradeStatus, added });
+          }
+          // Audit
+          try {
+            await auditDataChange(env, {
+              op: "LEDGER_BACKFILL",
+              scope: `trade_ids=${tradeIds.join(",")}`,
+              caller: req.headers.get("CF-Connecting-IP") || "admin",
+              rowsAffected: synced.reduce((n, s) => n + (s.added?.length || 0), 0),
+              meta: { synced },
+            });
+          } catch (_) {}
+          return sendJSON({ ok: true, final_balance: runningBalance, synced }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/ledger-inspect?mode=trader[&ticker=APD][&since_ms=N][&limit=200][&key=...]
+      // V15 P0.7.109 (2026-05-08): forensic view of account_ledger so we
+      // can reconcile widget totalRealized vs sum(trades.pnl) (the
+      // PnL Calendar source). Returns rows + summary by event_type.
+      if (routeKey === "GET /timed/admin/ledger-inspect") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const mode = String(url.searchParams.get("mode") || "trader").toLowerCase();
+          const ticker = (url.searchParams.get("ticker") || "").toUpperCase();
+          const sinceMs = Number(url.searchParams.get("since_ms")) || 0;
+          const limit = Math.min(2000, Math.max(1, Number(url.searchParams.get("limit")) || 200));
+          let where = "WHERE mode = ?";
+          const binds = [mode];
+          if (ticker) { where += " AND ticker = ?"; binds.push(ticker); }
+          if (sinceMs > 0) { where += " AND ts >= ?"; binds.push(sinceMs); }
+          const rows = (await db.prepare(
+            `SELECT ledger_id, mode, ts, event_type, position_id, ticker, direction, qty, price, cash_delta, realized_pnl, balance, note
+               FROM account_ledger ${where}
+               ORDER BY ts DESC, ledger_id DESC
+               LIMIT ?`
+          ).bind(...binds, limit).all())?.results || [];
+          // Aggregate
+          const byType = {};
+          let totalRealized = 0;
+          for (const r of rows) {
+            const t = String(r.event_type || "");
+            byType[t] = (byType[t] || 0) + 1;
+            totalRealized += Number(r.realized_pnl) || 0;
+          }
+          // Also pull the global sums so we don't have to add up the limited window
+          const globalSum = await db.prepare(
+            `SELECT SUM(realized_pnl) as total_realized, COUNT(*) as cnt FROM account_ledger ${where}`
+          ).bind(...binds).first();
+          return sendJSON({
+            ok: true,
+            mode, ticker: ticker || null,
+            sample_count: rows.length,
+            sample_total_realized: Math.round(totalRealized * 100) / 100,
+            sample_by_event_type: byType,
+            global: {
+              total_rows: Number(globalSum?.cnt) || 0,
+              total_realized: Math.round((Number(globalSum?.total_realized) || 0) * 100) / 100,
+            },
+            rows: rows.map(r => ({
+              ledger_id: r.ledger_id,
+              ts: Number(r.ts),
+              iso: r.ts ? new Date(Number(r.ts)).toISOString() : null,
+              event_type: r.event_type,
+              position_id: r.position_id,
+              ticker: r.ticker,
+              direction: r.direction,
+              qty: Number(r.qty),
+              price: Number(r.price),
+              cash_delta: Number(r.cash_delta),
+              realized_pnl: Number(r.realized_pnl),
+              balance: Number(r.balance),
+              note: r.note,
+            })),
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
