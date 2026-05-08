@@ -4675,14 +4675,16 @@ function PortfolioColumn({
     return items.map(item => {
       const ticker = String(item.ticker || "").toUpperCase();
       const td = tickerData && (tickerData[ticker] || tickerData[item.ticker]);
-      const curPrice = Number(td?.price) || Number(item.currentPrice) || Number(item.mark) || 0;
+      const rawCur = Number(td?.price) || Number(item.currentPrice) || Number(item.mark) || 0;
+      const curPrice = rawCur > 0 ? rawCur : null;
       const entryPrice = Number(item.entry_price || item.avg_entry || item.avgEntry) || 0;
       const qty = Number(item.qty || item.total_qty || item.total_shares || item.shares) || 0;
       const costBasis = Number(item.cost_basis || item.costBasis) || entryPrice * qty;
       const dir = String(item.direction || "LONG").toUpperCase();
       const sign = dir === "SHORT" ? -1 : 1;
-      const pnl = qty > 0 && entryPrice > 0 ? sign * (curPrice - entryPrice) * qty : 0;
-      const pnlPct = costBasis > 0 ? pnl / costBasis * 100 : 0;
+      const havePrice = curPrice != null && qty > 0 && entryPrice > 0;
+      const pnl = havePrice ? sign * (curPrice - entryPrice) * qty : null;
+      const pnlPct = havePrice && costBasis > 0 ? pnl / costBasis * 100 : null;
       return {
         ticker,
         entryPrice,
@@ -4690,6 +4692,7 @@ function PortfolioColumn({
         qty,
         pnl,
         pnlPct,
+        havePrice,
         direction: dir,
         item
       };
@@ -4897,7 +4900,7 @@ function PortfolioColumn({
               </div>
             ` : openPositionCards.length === 0 ? html`<div className="text-[13px] text-[var(--tt-text-faint)] py-2">No open positions</div>` : html`<div className="space-y-1.5 max-h-[300px] overflow-y-auto">
                   ${openPositionCards.map(p => {
-    const isGain = p.pnl >= 0;
+    const isGain = p.havePrice && p.pnl >= 0;
     return html`<div
                       key=${p.ticker}
                       className="flex items-center justify-between py-2 px-3 rounded bg-[var(--tt-bg)] border border-[var(--tt-border)] hover:bg-[var(--tt-bg-hover)] cursor-pointer transition-colors"
@@ -4908,10 +4911,11 @@ function PortfolioColumn({
                         <span className="text-[11px] text-[var(--tt-text-faint)]">${p.qty.toFixed(1)} sh @ $${p.entryPrice.toFixed(2)}</span>
                       </div>
                       <div className="flex items-center gap-3 text-[13px]">
-                        <span className="text-[var(--tt-text-muted)]">$${p.curPrice.toFixed(2)}</span>
-                        <span className=${"font-semibold " + (isGain ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]")}>
-                          ${isGain ? "+" : ""}${fmtUsd(p.pnl)} (${p.pnlPct >= 0 ? "+" : ""}${p.pnlPct.toFixed(1)}%)
-                        </span>
+                        ${p.havePrice ? html`<span className="text-[var(--tt-text-muted)]">$${p.curPrice.toFixed(2)}</span>
+                                  <span className=${"font-semibold " + (isGain ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]")}>
+                                    ${isGain ? "+" : ""}${fmtUsd(p.pnl)} (${p.pnlPct >= 0 ? "+" : ""}${p.pnlPct.toFixed(1)}%)
+                                  </span>` : html`<span className="text-[var(--tt-text-faint)] tabular-nums">—</span>
+                                  <span className="text-[var(--tt-text-faint)] text-[11px] italic">Loading price…</span>`}
                       </div>
                     </div>`;
   })}
@@ -5291,7 +5295,7 @@ function TradeReviewChart({
           lineWidth: 1,
           lineStyle: 2,
           axisLabelVisible: true,
-          title: "Entry"
+          title: `Entry $${Number(entryPrice).toFixed(2)}`
         });
       }
       if (Number(exitPrice) > 0) {
@@ -5301,17 +5305,19 @@ function TradeReviewChart({
           lineWidth: 1,
           lineStyle: 2,
           axisLabelVisible: true,
-          title: "Exit"
+          title: `Exit $${Number(exitPrice).toFixed(2)}`
         });
       }
       if (Number(trimPrice) > 0) {
+        const _trimDelta = Number(entryPrice) > 0 ? (Number(trimPrice) - Number(entryPrice)) / Number(entryPrice) * 100 : null;
+        const _trimLabel = Number.isFinite(_trimDelta) ? `Trim $${Number(trimPrice).toFixed(2)} (${_trimDelta >= 0 ? "+" : ""}${_trimDelta.toFixed(2)}%)` : `Trim $${Number(trimPrice).toFixed(2)}`;
         candleSeries.createPriceLine({
           price: Number(trimPrice),
           color: "#14b8a6",
           lineWidth: 1,
           lineStyle: 2,
           axisLabelVisible: true,
-          title: "Trim"
+          title: _trimLabel
         });
       }
       const markers = [];
@@ -5423,6 +5429,65 @@ function TradeReviewModal({
   fmtPath,
   EXIT_MAP
 }) {
+  const [decisionReasons, setDecisionReasons] = useState(null);
+  const [decisionLoading, setDecisionLoading] = useState(false);
+  const [trimEvents, setTrimEvents] = useState([]);
+  const tradeId = t?.trade_id || t?.tradeId || t?.id;
+  useEffect(() => {
+    if (!tradeId) return;
+    let cancelled = false;
+    if (!entryPath) {
+      setDecisionLoading(true);
+      fetch(`${API_BASE}/timed/ledger/trades/${encodeURIComponent(tradeId)}/decision-card?type=ENTRY`, {
+        cache: "no-store"
+      }).then(r => r.json()).then(j => {
+        if (cancelled) return;
+        if (j?.ok && j?.card?.reasons) setDecisionReasons(String(j.card.reasons));
+      }).catch(() => {}).finally(() => {
+        if (!cancelled) setDecisionLoading(false);
+      });
+    }
+    fetch(`${API_BASE}/timed/ledger/trades/${encodeURIComponent(tradeId)}`, {
+      cache: "no-store"
+    }).then(r => r.json()).then(j => {
+      if (cancelled) return;
+      const evs = Array.isArray(j?.events) ? j.events : [];
+      const trims = evs.filter(e => String(e?.type || "").toUpperCase() === "TRIM").map(e => {
+        let meta = null;
+        try {
+          meta = e?.meta_json ? JSON.parse(e.meta_json) : null;
+        } catch {
+          meta = null;
+        }
+        return {
+          ts: Number(e?.ts) || null,
+          price: Number(e?.price) || Number(meta?.price) || null,
+          reason: e?.reason || meta?.reason || null,
+          trimPct: Number(e?.qty_pct_delta || meta?.trimDeltaPct || 0),
+          totalPct: Number(e?.qty_pct_total || meta?.trimPct || 0),
+          pnlPct: meta?.pnl_pct != null ? Number(meta.pnl_pct) : null,
+          pnl: Number(e?.pnl_realized) || Number(meta?.pnl_realized) || null
+        };
+      });
+      setTrimEvents(trims);
+    }).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [tradeId, entryPath]);
+  const bestTrimReason = (() => {
+    if (trimEvents.length > 0) {
+      const last = trimEvents[trimEvents.length - 1];
+      if (last?.reason && last.reason !== "KANBAN_TRIM" && last.reason !== "TRIM") return last.reason;
+    }
+    if (exitReason && exitReason !== "KANBAN_TRIM" && exitReason !== "unknown") return exitReason;
+    return trimEvents[0]?.reason || exitReason || null;
+  })();
+  const trimReasonText = bestTrimReason ? EXIT_MAP[String(bestTrimReason).trim()] || `Trim triggered: ${String(bestTrimReason).replace(/_/g, " ")}` : null;
+  const lastTrim = trimEvents[trimEvents.length - 1] || null;
+  const trimPnlPct = lastTrim?.pnlPct != null ? Number(lastTrim.pnlPct) : null;
+  const isDefensiveTrim = trimPct > 0 && Number.isFinite(trimPnlPct) && trimPnlPct < 0;
+  const isProfitTrim = trimPct > 0 && Number.isFinite(trimPnlPct) && trimPnlPct > 0;
   return html`
           <div className="fixed inset-0 z-[100] flex items-center justify-center md:p-4" style=${{
     background: "rgba(0,0,0,0.7)",
@@ -5441,17 +5506,30 @@ function TradeReviewModal({
                     <span className="text-[8px] font-bold text-[#60a5fa] uppercase">Entry</span>
                     <span className="text-[11px] font-semibold text-white">${_fmt(t.entry_ts)} @ ${fmtUsd(entryPx)}</span>
                   </div>
-                  <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#f59e0b]/10 border border-[#f59e0b]/20">
-                    <span className="text-[8px] font-bold text-[#f59e0b] uppercase">Exit</span>
-                    <span className="text-[11px] font-semibold text-white">${_fmt(t.exit_ts)} @ ${fmtUsd(exitPx)}</span>
-                  </div>
+                  ${exitPx > 0 ? html`
+                    <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#f59e0b]/10 border border-[#f59e0b]/20">
+                      <span className="text-[8px] font-bold text-[#f59e0b] uppercase">Exit</span>
+                      <span className="text-[11px] font-semibold text-white">${_fmt(t.exit_ts)} @ ${fmtUsd(exitPx)}</span>
+                    </div>
+                  ` : lastTrim && Number.isFinite(lastTrim.price) ? html`
+                    <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-[#14b8a6]/10 border border-[#14b8a6]/20">
+                      <span className="text-[8px] font-bold text-[#14b8a6] uppercase">Trim</span>
+                      <span className="text-[11px] font-semibold text-white">${_fmt(lastTrim.ts)} @ ${fmtUsd(lastTrim.price)}</span>
+                      ${Number.isFinite(trimPnlPct) && html`<span className=${"text-[10px] " + (trimPnlPct >= 0 ? "text-emerald-400" : "text-red-400")}>(${trimPnlPct >= 0 ? "+" : ""}${trimPnlPct.toFixed(2)}%)</span>`}
+                    </div>
+                  ` : html`
+                    <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-white/[0.04] border border-white/[0.06]">
+                      <span className="text-[8px] font-bold text-[#9ca3af] uppercase">Status</span>
+                      <span className="text-[11px] font-semibold text-white">Open</span>
+                    </div>
+                  `}
                   <div className="flex items-center gap-1 px-2 py-0.5 rounded" style=${{
     background: pnl >= 0 ? "rgba(34,197,94,0.08)" : "rgba(239,68,72,0.08)",
     border: `1px solid ${pnl >= 0 ? "rgba(34,197,94,0.2)" : "rgba(239,68,72,0.2)"}`
   }}>
                     <span className="text-[8px] font-bold uppercase" style=${{
     color: pnl >= 0 ? "#22c55e" : "#ef4444"
-  }}>P&L</span>
+  }}>${exitPx > 0 ? "P&L" : "Realized"}</span>
                     <span className="text-[11px] font-bold" style=${{
     color: pnl >= 0 ? "#22c55e" : "#ef4444"
   }}>${fmtUsd(pnl)}</span>
@@ -5459,11 +5537,17 @@ function TradeReviewModal({
                   ${(t.status === "WIN" || t.status === "LOSS") && html`
                     <span className=${`px-1.5 py-0.5 rounded text-[9px] font-bold border ${t.status === "WIN" ? "bg-green-500/20 text-green-400 border-green-500/30" : "bg-red-500/20 text-red-400 border-red-500/30"}`}>${t.status}</span>
                   `}
+                  ${(t.status === "TP_HIT_TRIM" || t.status === "OPEN") && html`
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold border bg-[#14b8a6]/20 text-teal-300 border-[#14b8a6]/30">${t.status === "TP_HIT_TRIM" ? "OPEN · TRIMMED" : "OPEN"}</span>
+                  `}
+                  ${isDefensiveTrim && html`
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold border bg-amber-500/15 text-amber-300 border-amber-500/30" title="Trimmed below entry — defensive trim from a higher-timeframe rule">DEFENSIVE TRIM</span>
+                  `}
                   ${durLabel && html`<span className="text-[10px] text-[#a78bfa] ml-auto">${durLabel}</span>`}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 px-3 py-1.5 rounded-md bg-white/[0.02] border border-white/[0.04]">
-                  ${entryPath ? html`<span className="text-[12px] font-semibold text-white">${fmtPath(entryPath)}</span>` : html`<span className="text-[12px] text-[#6b7280]">Setup not recorded</span>`}
+                  ${entryPath ? html`<span className="text-[12px] font-semibold text-white">${fmtPath(entryPath)}</span>` : html`<span className="text-[12px] text-[#6b7280]">${decisionReasons ? "Setup reconstructed from snapshot" : "Setup not recorded"}</span>`}
                   ${setupGrade && (() => {
     const cls = setupGrade === "Prime" ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : setupGrade === "Confirmed" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : "bg-blue-500/20 text-blue-300 border-emerald-500/30";
     return html`<span className=${`px-2 py-0.5 rounded text-[10px] font-bold border ${cls}`}>TT ${setupGrade}</span>`;
@@ -5474,35 +5558,39 @@ function TradeReviewModal({
                   ${rank > 0 && html`<span className="text-[10px] text-[#9ca3af] ml-auto">Rank #${rank}</span>`}
                 </div>
 
-                <${TradeReviewChart} ticker=${t.ticker} entryPrice=${entryPx} exitPrice=${exitPx} entryTs=${t.entry_ts} exitTs=${t.exit_ts} trimTs=${t.trim_ts} trimPrice=${Number(t.trim_price || t.trimPrice) || 0} />
+                <${TradeReviewChart} ticker=${t.ticker} entryPrice=${entryPx} exitPrice=${exitPx} entryTs=${t.entry_ts} exitTs=${t.exit_ts} trimTs=${t.trim_ts} trimPrice=${Number(t.trim_price || t.trimPrice) || lastTrim?.price || 0} />
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                   <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-3 py-2">
                     <div className="text-[8px] text-[#60a5fa] uppercase font-bold mb-1">Why We Entered</div>
                     <div className="text-[10px] text-[#d1d5db] leading-relaxed">
-                      ${entryPath ? html`<span>${fmtPath(entryPath)}</span>` : html`<span className="text-[#6b7280]">Not recorded</span>`}
-                      ${setupGrade && html`<div className="text-[9px] text-[#9ca3af] mt-0.5">${setupGrade} grade setup</div>`}
+                      ${entryPath ? html`<span className="text-[11px] font-semibold text-white block mb-1">${fmtPath(entryPath)}</span>` : null}
+                      ${decisionReasons ? html`<div className="text-[10px] text-[#d1d5db] whitespace-pre-line">${decisionReasons}</div>` : entryPath ? null : decisionLoading ? html`<span className="text-[#6b7280]">Loading reasons…</span>` : html`<span className="text-[#6b7280]">Not recorded</span>`}
+                      ${setupGrade && html`<div className="text-[9px] text-[#9ca3af] mt-1">${setupGrade} grade setup</div>`}
                       ${shares > 0 && html`<div className="text-[9px] text-[#9ca3af] mt-0.5">${Math.round(shares)} shares · ${fmtUsd(notional)} notional</div>`}
                       ${riskBudget > 0.001 && html`<div className="text-[9px] text-[#9ca3af] mt-0.5">Risk: ${riskBudget < 1 ? (riskBudget * 100).toFixed(1) : riskBudget.toFixed(1)}%</div>`}
                     </div>
                   </div>
                   <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-3 py-2">
-                    <div className="text-[8px] text-[#14b8a6] uppercase font-bold mb-1">Trim Details</div>
+                    <div className="text-[8px] text-[#14b8a6] uppercase font-bold mb-1">${trimEvents.length > 0 ? "Why We Trimmed" : "Trim Details"}</div>
                     ${trimPct > 0 ? html`
                       <div className="text-[10px] text-[#d1d5db] leading-relaxed">
                         Trimmed <span className="font-semibold text-white">${Math.round(trimPct * 100)}%</span>
-                        ${t.trim_price ? html` at <span className="font-semibold text-white">${fmtUsd(t.trim_price)}</span>` : null}
+                        ${t.trim_price || lastTrim?.price ? html` at <span className="font-semibold text-white">${fmtUsd(t.trim_price || lastTrim?.price)}</span>` : null}
+                        ${Number.isFinite(trimPnlPct) && html`<span className=${"ml-1 " + (trimPnlPct >= 0 ? "text-emerald-400" : "text-red-400")}>(${trimPnlPct >= 0 ? "+" : ""}${trimPnlPct.toFixed(2)}%)</span>`}
                         ${trimmed > 0 && html`<div className="text-[9px] text-[#9ca3af] mt-0.5">${trimmed} shares trimmed, ${remaining} as runner</div>`}
+                        ${trimReasonText && html`<div className="text-[10px] text-[#d1d5db] mt-1.5 leading-snug">${trimReasonText}</div>`}
+                        ${isDefensiveTrim && html`<div className="text-[9px] text-amber-300 mt-1 italic">A trim below entry usually means a higher-timeframe rule fired — the WEEK or DAY hit a target even though this position is at a small intraday loss. The remaining size keeps running.</div>`}
                       </div>
                     ` : html`<div className="text-[10px] text-[#6b7280]">No trim on this trade</div>`}
                   </div>
                   <div className="rounded-md bg-white/[0.02] border border-white/[0.04] px-3 py-2">
                     <div className="text-[8px] text-[#f59e0b] uppercase font-bold mb-1">Why We Exited</div>
-                    ${exitReason ? (() => {
+                    ${exitPx > 0 && exitReason ? (() => {
     const mapped = EXIT_MAP[exitReason.trim()];
     if (mapped) return html`<div className="text-[10px] text-[#d1d5db] leading-relaxed">${mapped}</div>`;
     return html`<div className="text-[10px] text-[#d1d5db] leading-relaxed">${exitReason.replace(/^ripster[_ ]?/i, "TT ").replace(/^saty[_ ]?/i, "TT ").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>`;
-  })() : html`<div className="text-[10px] text-[#6b7280]">Not recorded</div>`}
+  })() : html`<div className="text-[10px] text-[#6b7280]">${exitPx > 0 ? "Not recorded" : "Position still open — no exit yet"}</div>`}
                   </div>
                 </div>
 
@@ -5511,6 +5599,65 @@ function TradeReviewModal({
             </div>
           </div>
         `;
+}
+class RailErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = {
+      hasError: false,
+      error: null
+    };
+  }
+  static getDerivedStateFromError(error) {
+    return {
+      hasError: true,
+      error
+    };
+  }
+  componentDidCatch(error, info) {
+    try {
+      console.error("[RailErrorBoundary] caught render error:", error, info);
+    } catch (_) {}
+  }
+  componentDidUpdate(prevProps) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({
+        hasError: false,
+        error: null
+      });
+    }
+  }
+  render() {
+    if (this.state.hasError) {
+      const msg = this.state.error?.message || String(this.state.error || "Render error");
+      return React.createElement("div", {
+        className: "fixed right-0 top-[49px] w-[480px] lg:w-[640px] xl:w-[720px] 2xl:w-[800px] bottom-0 z-40 bg-[#0b0e11] border-l border-white/[0.08] flex items-center justify-center p-6"
+      }, React.createElement("div", {
+        className: "max-w-[360px] text-center"
+      }, React.createElement("div", {
+        className: "text-amber-400 text-[14px] font-semibold mb-2"
+      }, "Detail panel didn't load"), React.createElement("div", {
+        className: "text-[12px] text-[#9ca3af] mb-4 leading-relaxed"
+      }, "Something went wrong rendering this ticker. The rest of the page is unaffected."), React.createElement("div", {
+        className: "text-[10px] text-[#6b7280] font-mono mb-4 break-words bg-white/[0.04] rounded p-2 border border-white/[0.06]"
+      }, String(msg).slice(0, 240)), React.createElement("div", {
+        className: "flex gap-2 justify-center"
+      }, React.createElement("button", {
+        onClick: () => {
+          this.setState({
+            hasError: false,
+            error: null
+          });
+          this.props.onClose && this.props.onClose();
+        },
+        className: "px-3 py-1.5 rounded bg-white/[0.06] hover:bg-white/[0.1] text-[12px] text-white"
+      }, "Close"), React.createElement("button", {
+        onClick: () => window.location.reload(),
+        className: "px-3 py-1.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-[12px] text-amber-200"
+      }, "Reload page"))));
+    }
+    return this.props.children;
+  }
 }
 function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -6305,6 +6452,20 @@ function App() {
   const [selectedPositionEvents, setSelectedPositionEvents] = useState(null);
   const [openAutopsyForTrade, setOpenAutopsyForTrade] = useState(null);
   const [modalOnly, setModalOnly] = useState(false);
+  useEffect(() => {
+    if (!selectedTicker && !selectedTrade) return undefined;
+    const handler = e => {
+      if (e.key === "Escape") {
+        setSelectedTrade(null);
+        setSelectedTicker(null);
+        setSelectedPositionEvents(null);
+        setOpenAutopsyForTrade(null);
+        setModalOnly(false);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [selectedTicker, selectedTrade]);
   const availableVersions = useMemo(() => {
     const versionSet = new Set(trades.map(t => t.scriptVersion || "unknown").filter(Boolean));
     return Array.from(versionSet).sort().reverse();
@@ -6869,12 +7030,41 @@ function App() {
     trades: ledgerFilteredTrades || [],
     loading: (ledgerTrades ?? {}).loading,
     accountStartCash: Number(acctSummary?.startCash) || 100000
-  })), (selectedTicker || selectedTrade) && !modalOnly && React.createElement("div", {
-    className: "tt-ticker-workspace-mount fixed right-0 top-[49px] w-[480px] lg:w-[640px] xl:w-[720px] 2xl:w-[800px] bottom-0 z-40 slide-in-right shadow-2xl overflow-y-auto bg-[#0b0e11] border-l border-white/[0.04]"
-  }, React.createElement(TickerDetailsLoader, {
-    tickerSymbol: selectedTrade ? selectedTrade.ticker : selectedTicker,
-    trade: selectedTrade,
-    positionEvents: selectedPositionEvents,
+  })), (selectedTicker || selectedTrade) && !modalOnly && (() => {
+    const handleClose = () => {
+      setSelectedTrade(null);
+      setSelectedTicker(null);
+      setSelectedPositionEvents(null);
+      setOpenAutopsyForTrade(null);
+      setModalOnly(false);
+    };
+    const railSym = selectedTrade ? selectedTrade.ticker || selectedTrade.tradeId || selectedTrade.trade_id : selectedTicker;
+    return React.createElement(RailErrorBoundary, {
+      onClose: handleClose,
+      resetKey: railSym
+    }, React.createElement("div", {
+      className: "tt-ticker-workspace-mount fixed right-0 top-[49px] w-[480px] lg:w-[640px] xl:w-[720px] 2xl:w-[800px] bottom-0 z-40 slide-in-right shadow-2xl overflow-y-auto bg-[#0b0e11] border-l border-white/[0.04]"
+    }, React.createElement("button", {
+      onClick: handleClose,
+      "aria-label": "Close panel",
+      className: "absolute top-2 right-2 z-50 w-8 h-8 flex items-center justify-center rounded-md text-[#9ca3af] hover:text-white hover:bg-white/[0.08] bg-black/30 backdrop-blur-sm border border-white/[0.06]",
+      title: "Close panel (Esc)",
+      style: {
+        pointerEvents: "auto"
+      }
+    }, "\u2715"), React.createElement(TickerDetailsLoader, {
+      tickerSymbol: selectedTrade ? selectedTrade.ticker : selectedTicker,
+      trade: selectedTrade,
+      positionEvents: selectedPositionEvents,
+      onClose: handleClose,
+      allLoadedData: data,
+      sectors: sectors,
+      rankedTickers: rankedTickers,
+      rankedTickerPositions: rankedTickerPositions,
+      openAutopsyForTrade: openAutopsyForTrade,
+      layoutMode: typeof window !== "undefined" && window.innerWidth >= 1024 ? "workspace" : "modal"
+    })));
+  })(), (selectedTicker || selectedTrade) && modalOnly && React.createElement(RailErrorBoundary, {
     onClose: () => {
       setSelectedTrade(null);
       setSelectedTicker(null);
@@ -6882,13 +7072,8 @@ function App() {
       setOpenAutopsyForTrade(null);
       setModalOnly(false);
     },
-    allLoadedData: data,
-    sectors: sectors,
-    rankedTickers: rankedTickers,
-    rankedTickerPositions: rankedTickerPositions,
-    openAutopsyForTrade: openAutopsyForTrade,
-    layoutMode: typeof window !== "undefined" && window.innerWidth >= 1024 ? "workspace" : "modal"
-  })), (selectedTicker || selectedTrade) && modalOnly && (() => {
+    resetKey: (openAutopsyForTrade || selectedTrade)?.trade_id || (openAutopsyForTrade || selectedTrade)?.tradeId || (openAutopsyForTrade || selectedTrade)?.ticker || ""
+  }, (() => {
     const t = openAutopsyForTrade || selectedTrade;
     if (!t) return null;
     const closeModal = () => {
@@ -6973,20 +7158,43 @@ function App() {
       max_loss: "Position reached our maximum acceptable loss — exited to protect capital.",
       HARD_FUSE_RSI_EXTREME: "Momentum indicators hit extreme levels — high chance of reversal, exiting now.",
       SOFT_FUSE_RSI_CONFIRMED: "Multiple signals confirmed momentum is reversing — exiting to protect gains.",
+      SOFT_FUSE_TRIM: "Momentum signals weakened — trimming to reduce exposure while structure still holds.",
+      SOFT_FUSE_CLOUD_TRIM: "Momentum weakened but the EMA cloud is still holding — partial trim, runner stays.",
       RUNNER_PEAK_TRAIL: "Letting the winner run paid off — trailed up and exited after pullback from peak.",
       RUNNER_MAX_DRAWDOWN_BREAKER: "The remaining position pulled back too far from its high — closed to protect gains.",
       HARD_LOSS_CAP: "Hard safety limit hit — exited to prevent further damage.",
       MFE_SAFETY_TRIM: "Locked in profits while the trade was ahead — taking money off the table.",
+      BIG_MFE_PROGRESSIVE_TRIM: "Trade ran far in our favor — taking another chunk off to lock in more of the move.",
       PHASE_LEAVE_100: "Momentum peaked and is starting to fade — securing gains before reversal.",
       STALL_BREAKEVEN: "Position stalled with no momentum — closed near breakeven.",
       STALL_FORCE_CLOSE: "Position went nowhere for too long — closed to free up capital for better setups.",
+      RUNNER_STALE_FORCE_CLOSE: "Trimmed runner held too long without resolving — closed to free capital.",
       SMART_RUNNER_TD_EXHAUSTION_RUNNER: "Trend exhaustion detected — exiting remaining shares before likely reversal.",
       SMART_RUNNER_SUPPORT_BREAK_CLOUD: "Key support level broke down — exiting to avoid further downside.",
       SMART_RUNNER_SQUEEZE_RELEASE_AGAINST: "Volatility squeeze fired against our direction — exiting before the move accelerates.",
-      TP_FULL: "All profit targets hit — full exit with gains locked in."
+      TP_FULL: "All profit targets hit — full exit with gains locked in.",
+      ATR_RANGE_EXHAUST: "Price stretched past its normal daily range — trimming because further upside is statistically thin.",
+      RSI_DIVERGENCE: "RSI is making lower highs while price makes higher highs — momentum is fading even though price isn't yet.",
+      ST_FLIP_4H_TRIM: "4H Supertrend flipped against the position — trimming defensively while the runner waits for confirmation.",
+      TD_HTF_EXHAUSTION: "Higher-timeframe TD Sequential signaled exhaustion — trimming before a likely reversal.",
+      TD_HTF_EXHAUST_CLOUD_TRIM: "Higher-TF TD exhaustion with cloud still holding — partial trim, leave a runner.",
+      PROFIT_PROTECT_TRIM: "Locking in unrealized gains while the structure is still favorable.",
+      REFERENCE_TRIM: "Reference setup hit its scheduled trim level — taking the planned partial.",
+      atr_week_618_partial_cloud_hold: "Weekly ATR profit target reached. The daily 5/12 EMA cloud is still holding so 50% stays as a runner. Position may show intraday loss because we're trimming on the WEEKLY scale, not the trade scale.",
+      atr_week_618_full_exit: "Weekly ATR full-exit target reached — closing the runner. The week-to-week move maxed out our risk model and we'd rather book the trade than hope for more.",
+      atr_tp_ladder_tier1_fib0_382: "Daily ATR ladder tier 1 (+0.382 ATR) — first scheduled partial trim.",
+      atr_tp_ladder_tier2_fib0_618: "Daily ATR ladder tier 2 (+0.618 ATR) — second scheduled partial trim.",
+      atr_tp_ladder_tier3_fib1: "Daily ATR ladder tier 3 (+1.0 ATR) — third scheduled partial trim.",
+      atr_tp_ladder_tier4_fib1_236: "Daily ATR ladder tier 4 (+1.236 ATR) — fourth scheduled partial trim.",
+      atr_tp_ladder_runner_full: "Daily ATR runner cap (+1.618 ATR) — closing the runner at the top of the ladder.",
+      doctrine_giveback_severe_force_exit: "Position gave back most of its peak gains — exit doctrine forced a flatten to protect what's left.",
+      doctrine_giveback_force_exit: "Trade gave back too much from its peak — trimming defensively per exit doctrine.",
+      etf_stagnant_exit: "ETF position stalled with no meaningful move — closing to free up capital for better setups.",
+      KANBAN_TRIM: "Kanban TRIM lane fired — see Discord for the specific rule that triggered.",
+      KANBAN_EXIT: "Kanban EXIT lane fired — see Discord for the specific rule that triggered."
     };
     return html`<${TradeReviewModal} trade=${t} closeModal=${closeModal} _fmt=${_fmt} entryPx=${entryPx} exitPx=${exitPx} pnl=${pnl} shares=${shares} trimPct=${trimPct} trimmed=${trimmed} remaining=${remaining} exitReason=${exitReason} entryPath=${entryPath} setupGrade=${setupGrade} rank=${rank} riskBudget=${riskBudget} notional=${notional} durLabel=${durLabel} fmtPath=${fmtPath} EXIT_MAP=${EXIT_MAP} />`;
-  })())), showSummary && dailySummary && React.createElement("div", {
+  })()))), showSummary && dailySummary && React.createElement("div", {
     className: "fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
   }, React.createElement("div", {
     className: "bg-[var(--tt-bg-elevated)] border border-[var(--tt-border)] rounded-xl p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto"
