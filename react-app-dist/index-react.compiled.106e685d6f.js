@@ -16515,7 +16515,121 @@ function App() {
     d: "M3 10h18M3 6h18M3 14h18M3 18h18"
   })), React.createElement("span", null, "All"), Array.isArray(tickers) && tickers.length > 0 && React.createElement("span", {
     className: "ds-tab__count"
-  }, tickers.length)))), React.createElement("div", {
+  }, tickers.length)))), (() => {
+    const activeFilterChips = [];
+    if (filters.search) activeFilterChips.push({
+      key: "search",
+      label: `"${String(filters.search).slice(0, 20)}"`,
+      clear: () => handleFilterChange({
+        search: "",
+        tickerFilter: ""
+      })
+    });
+    if (filters.tickerFilter && filters.tickerFilter !== filters.search) activeFilterChips.push({
+      key: "tickerFilter",
+      label: `tickers: ${String(filters.tickerFilter).slice(0, 20)}`,
+      clear: () => handleFilterChange({
+        tickerFilter: ""
+      })
+    });
+    if (effectiveFilters.group && effectiveFilters.group !== "ALL") {
+      const groupLabel = effectiveFilters.group === "SAVED" ? "⭐ Saved" : effectiveFilters.group === "TT_SELECTED" ? "TT Selected" : effectiveFilters.group === "INVESTOR_ACTIONABLE" ? "Investor Actionable" : effectiveFilters.group;
+      activeFilterChips.push({
+        key: "group",
+        label: groupLabel,
+        clear: () => handleFilterChange({
+          group: "ALL"
+        })
+      });
+    }
+    if (filters.sector) activeFilterChips.push({
+      key: "sector",
+      label: `Sector: ${filters.sector}`,
+      clear: () => handleFilterChange({
+        sector: null
+      })
+    });
+    if (filters.td9Setup) activeFilterChips.push({
+      key: "td9Setup",
+      label: `TD9: ${filters.td9Setup}`,
+      clear: () => handleFilterChange({
+        td9Setup: null
+      })
+    });
+    if (Number(filters.minRank) > 0) activeFilterChips.push({
+      key: "minRank",
+      label: `Rank ≥ ${filters.minRank}`,
+      clear: () => handleFilterChange({
+        minRank: 0
+      })
+    });
+    if (Number(filters.minRR) > 0) activeFilterChips.push({
+      key: "minRR",
+      label: `R:R ≥ ${filters.minRR}`,
+      clear: () => handleFilterChange({
+        minRR: 0
+      })
+    });
+    if (Number(filters.maxCompletion) < 1.01) activeFilterChips.push({
+      key: "maxCompletion",
+      label: `Completion ≤ ${(Number(filters.maxCompletion) * 100).toFixed(0)}%`,
+      clear: () => handleFilterChange({
+        maxCompletion: 1.01
+      })
+    });
+    const _quadDefault = DEFAULT_DASHBOARD_QUADRANTS;
+    const quadActive = Array.isArray(filters.quadrants) && (filters.quadrants.length !== _quadDefault.length || filters.quadrants.some(q => !_quadDefault.includes(q)));
+    if (quadActive) activeFilterChips.push({
+      key: "quadrants",
+      label: `Quadrants: ${(filters.quadrants || []).length}`,
+      clear: () => handleFilterChange({
+        quadrants: [..._quadDefault]
+      })
+    });
+    const activeCount = activeFilterChips.length;
+    return activeCount > 0 && React.createElement("div", {
+      className: "mb-2 px-2.5 py-2 rounded-lg flex items-center flex-wrap gap-1.5",
+      style: {
+        background: "rgba(245,194,92,0.06)",
+        border: "1px solid rgba(245,194,92,0.20)"
+      }
+    }, React.createElement("span", {
+      className: "text-[9px] font-bold uppercase tracking-[0.16em] shrink-0",
+      style: {
+        color: "var(--ds-accent)"
+      }
+    }, activeCount, " filter", activeCount === 1 ? "" : "s", " active"), activeFilterChips.map(chip => React.createElement("button", {
+      key: chip.key,
+      type: "button",
+      onClick: chip.clear,
+      title: `Remove "${chip.label}" filter`,
+      className: "inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors",
+      style: {
+        background: "rgba(245,194,92,0.14)",
+        border: "1px solid rgba(245,194,92,0.28)",
+        color: "var(--ds-accent)",
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, chip.label, React.createElement("span", {
+      style: {
+        opacity: 0.65,
+        marginLeft: 1,
+        fontWeight: 700
+      }
+    }, "\xD7"))), React.createElement("button", {
+      type: "button",
+      onClick: () => resetDashboardFilters(false),
+      className: "ml-auto px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-colors shrink-0",
+      style: {
+        background: "rgba(244,63,94,0.12)",
+        border: "1px solid rgba(244,63,94,0.30)",
+        color: "var(--ds-dn)",
+        fontFamily: "var(--tt-font-mono)",
+        letterSpacing: "0.10em"
+      },
+      title: "Clear all active filters and return to default view"
+    }, "Clear All"));
+  })(), React.createElement("div", {
     className: "ds-glass mb-4",
     style: {
       padding: "var(--ds-space-3)"

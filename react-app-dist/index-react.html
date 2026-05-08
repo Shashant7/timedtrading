@@ -943,10 +943,19 @@
         }
         .tt-scroll-top-btn:active { transform: scale(0.95); }
 
-        /* ── Mobile bottom navigation bar ── */
+        /* ── Mobile bottom navigation bar ──
+           P0.7.104 — bottom shifted UP from 0 to var(--tt-legal-footer-h)
+           so the View tabs (Analysis / Active Trader / Investor / All)
+           aren't covered by the fixed legal-disclaimer footer. The
+           footer has z-index: 9999 (above this bar at z-index: 50).
+           --tt-legal-footer-h is set just above based on the footer's
+           computed height on mobile (~32px for single-line, ~50px when
+           it wraps). Auto-measured via JS when the footer mounts so
+           we never have to hard-code a magic number. */
         .tt-mobile-bottom-nav {
           position: fixed;
-          left: 0; right: 0; bottom: 0;
+          left: 0; right: 0;
+          bottom: var(--tt-legal-footer-h, 32px);
           display: flex !important;
           align-items: stretch;
           justify-content: space-around;
@@ -1003,11 +1012,13 @@
           line-height: 1;
         }
 
-        /* Add bottom padding to main shell so content isn't hidden
-           behind the bottom nav. */
+        /* P0.7.104 — body padding now clears BOTH bars: the mobile
+           bottom nav (~64px) + the legal footer (~32px) + safe area.
+           Previously only cleared the bottom nav, so the bottom of
+           page content was hidden behind the legal footer. */
         .tt-page-shell,
         body {
-          padding-bottom: calc(72px + env(safe-area-inset-bottom)) !important;
+          padding-bottom: calc(64px + 32px + env(safe-area-inset-bottom)) !important;
         }
       }
 
@@ -1095,7 +1106,7 @@
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-right-rail.compiled.js?v=20260507-r5"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
-    <script src="index-react.compiled.5048ec2cb7.js"></script>
+    <script src="index-react.compiled.106e685d6f.js"></script>
 
     <!-- Initialize app - separate script to avoid Babel parsing issues -->
     <script>

@@ -952,10 +952,19 @@
         }
         .tt-scroll-top-btn:active { transform: scale(0.95); }
 
-        /* ── Mobile bottom navigation bar ── */
+        /* ── Mobile bottom navigation bar ──
+           P0.7.104 — bottom shifted UP from 0 to var(--tt-legal-footer-h)
+           so the View tabs (Analysis / Active Trader / Investor / All)
+           aren't covered by the fixed legal-disclaimer footer. The
+           footer has z-index: 9999 (above this bar at z-index: 50).
+           --tt-legal-footer-h is set just above based on the footer's
+           computed height on mobile (~32px for single-line, ~50px when
+           it wraps). Auto-measured via JS when the footer mounts so
+           we never have to hard-code a magic number. */
         .tt-mobile-bottom-nav {
           position: fixed;
-          left: 0; right: 0; bottom: 0;
+          left: 0; right: 0;
+          bottom: var(--tt-legal-footer-h, 32px);
           display: flex !important;
           align-items: stretch;
           justify-content: space-around;
@@ -1012,11 +1021,13 @@
           line-height: 1;
         }
 
-        /* Add bottom padding to main shell so content isn't hidden
-           behind the bottom nav. */
+        /* P0.7.104 — body padding now clears BOTH bars: the mobile
+           bottom nav (~64px) + the legal footer (~32px) + safe area.
+           Previously only cleared the bottom nav, so the bottom of
+           page content was hidden behind the legal footer. */
         .tt-page-shell,
         body {
-          padding-bottom: calc(72px + env(safe-area-inset-bottom)) !important;
+          padding-bottom: calc(64px + 32px + env(safe-area-inset-bottom)) !important;
         }
       }
 
@@ -20112,7 +20123,83 @@
                        Phase C — Stage 0.5 (2026-05-02) — Aligned to v2 design
                        language: ds-glass shell + ds-tokens for surface/border/
                        padding so it matches Bubble Map filter tiles + RTH/EXT
-                       rows. Was: rounded-2xl + raw white/[0.08] borders. */}
+                       rows. Was: rounded-2xl + raw white/[0.08] borders.
+                       P0.7.104 — added active-filters chip row + Clear All
+                       button so the user can see at-a-glance which filters
+                       are enabled and clear them in one tap (especially
+                       important on mobile where the secondary filter pills
+                       wrap below the fold). */}
+                  {(() => {
+                    // Compute the list of currently-active filters (anything
+                    // that differs from createDefaultDashboardFilters()).
+                    const activeFilterChips = [];
+                    if (filters.search) activeFilterChips.push({ key: "search", label: `"${String(filters.search).slice(0, 20)}"`, clear: () => handleFilterChange({ search: "", tickerFilter: "" }) });
+                    if (filters.tickerFilter && filters.tickerFilter !== filters.search) activeFilterChips.push({ key: "tickerFilter", label: `tickers: ${String(filters.tickerFilter).slice(0, 20)}`, clear: () => handleFilterChange({ tickerFilter: "" }) });
+                    if (effectiveFilters.group && effectiveFilters.group !== "ALL") {
+                      const groupLabel = effectiveFilters.group === "SAVED" ? "⭐ Saved"
+                        : effectiveFilters.group === "TT_SELECTED" ? "TT Selected"
+                        : effectiveFilters.group === "INVESTOR_ACTIONABLE" ? "Investor Actionable"
+                        : effectiveFilters.group;
+                      activeFilterChips.push({ key: "group", label: groupLabel, clear: () => handleFilterChange({ group: "ALL" }) });
+                    }
+                    if (filters.sector) activeFilterChips.push({ key: "sector", label: `Sector: ${filters.sector}`, clear: () => handleFilterChange({ sector: null }) });
+                    if (filters.td9Setup) activeFilterChips.push({ key: "td9Setup", label: `TD9: ${filters.td9Setup}`, clear: () => handleFilterChange({ td9Setup: null }) });
+                    if (Number(filters.minRank) > 0) activeFilterChips.push({ key: "minRank", label: `Rank ≥ ${filters.minRank}`, clear: () => handleFilterChange({ minRank: 0 }) });
+                    if (Number(filters.minRR) > 0) activeFilterChips.push({ key: "minRR", label: `R:R ≥ ${filters.minRR}`, clear: () => handleFilterChange({ minRR: 0 }) });
+                    if (Number(filters.maxCompletion) < 1.01) activeFilterChips.push({ key: "maxCompletion", label: `Completion ≤ ${(Number(filters.maxCompletion) * 100).toFixed(0)}%`, clear: () => handleFilterChange({ maxCompletion: 1.01 }) });
+                    const _quadDefault = DEFAULT_DASHBOARD_QUADRANTS;
+                    const quadActive = Array.isArray(filters.quadrants)
+                      && (filters.quadrants.length !== _quadDefault.length || filters.quadrants.some((q) => !_quadDefault.includes(q)));
+                    if (quadActive) activeFilterChips.push({ key: "quadrants", label: `Quadrants: ${(filters.quadrants || []).length}`, clear: () => handleFilterChange({ quadrants: [..._quadDefault] }) });
+                    const activeCount = activeFilterChips.length;
+                    return (
+                      activeCount > 0 && (
+                        <div className="mb-2 px-2.5 py-2 rounded-lg flex items-center flex-wrap gap-1.5"
+                          style={{
+                            background: "rgba(245,194,92,0.06)",
+                            border: "1px solid rgba(245,194,92,0.20)",
+                          }}>
+                          <span className="text-[9px] font-bold uppercase tracking-[0.16em] shrink-0"
+                            style={{ color: "var(--ds-accent)" }}>
+                            {activeCount} filter{activeCount === 1 ? "" : "s"} active
+                          </span>
+                          {activeFilterChips.map((chip) => (
+                            <button
+                              key={chip.key}
+                              type="button"
+                              onClick={chip.clear}
+                              title={`Remove "${chip.label}" filter`}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors"
+                              style={{
+                                background: "rgba(245,194,92,0.14)",
+                                border: "1px solid rgba(245,194,92,0.28)",
+                                color: "var(--ds-accent)",
+                                fontFamily: "var(--tt-font-mono)",
+                              }}
+                            >
+                              {chip.label}
+                              <span style={{ opacity: 0.65, marginLeft: 1, fontWeight: 700 }}>×</span>
+                            </button>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => resetDashboardFilters(false)}
+                            className="ml-auto px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-colors shrink-0"
+                            style={{
+                              background: "rgba(244,63,94,0.12)",
+                              border: "1px solid rgba(244,63,94,0.30)",
+                              color: "var(--ds-dn)",
+                              fontFamily: "var(--tt-font-mono)",
+                              letterSpacing: "0.10em",
+                            }}
+                            title="Clear all active filters and return to default view"
+                          >
+                            Clear All
+                          </button>
+                        </div>
+                      )
+                    );
+                  })()}
                   <div className="ds-glass mb-4" style={{ padding: "var(--ds-space-3)" }} data-coachmark="search-filter">
                     <div className="flex flex-col gap-3">
                       <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
