@@ -24,6 +24,7 @@ import {
   evaluateExitSuppression,
   isTrendHoldActive,
 } from '../worker/trend-hold.js';
+import { chooseExitDoctrine } from '../worker/phase-c-exit-doctrine.js';
 
 let pass = 0, fail = 0;
 const log = [];
@@ -414,6 +415,56 @@ t('isTrendHoldActive: case-insensitive + null-safe', () => {
   expect(isTrendHoldActive({ trend_hold_state: null }), '==', false, 'null');
   expect(isTrendHoldActive({}), '==', false, 'missing column');
   expect(isTrendHoldActive(null), '==', false, 'null trade');
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Exit-doctrine short-circuit when trendHoldActive=true
+// ─────────────────────────────────────────────────────────────────────
+t('doctrine: trendHoldActive=true → ride_runner regardless of regime flip', () => {
+  const r = chooseExitDoctrine({
+    setup: 'tt_gap_reversal_long',
+    direction: 'LONG',
+    entryRegime: 'STRONG_BULL',
+    currentRegime: 'STRONG_BEAR',  // would normally force_exit
+    mfePct: 25,
+    currentPnlPct: -2,             // would normally force_exit
+    ageMin: 60 * 24 * 5,           // 5 sessions
+    trendHoldActive: true,
+  }, null);
+  expect(r.action, '==', 'ride_runner', 'action');
+  expect(r.force_exit, '==', false, 'force_exit');
+  expect(r.reason, 'matches', '^trend_hold_active', 'reason');
+});
+
+t('doctrine: trendHoldActive=false → original behavior preserved (regime flip force_exit)', () => {
+  const r = chooseExitDoctrine({
+    setup: 'tt_gap_reversal_long',
+    direction: 'LONG',
+    entryRegime: 'STRONG_BULL',
+    currentRegime: 'STRONG_BEAR',
+    mfePct: 25,
+    currentPnlPct: -2,
+    ageMin: 60 * 24 * 5,
+    trendHoldActive: false,
+  }, null);
+  expect(r.action, '==', 'force_exit', 'action');
+  expect(r.force_exit, '==', true, 'force_exit');
+});
+
+t('doctrine: trendHoldActive=true wins precedence over etfRideRunner', () => {
+  const r = chooseExitDoctrine({
+    setup: 'tt_gap_reversal_long',
+    direction: 'LONG',
+    entryRegime: 'STRONG_BULL',
+    currentRegime: 'STRONG_BULL',
+    mfePct: 10,
+    currentPnlPct: 5,
+    ageMin: 60 * 4,
+    trendHoldActive: true,
+    etfRideRunner: true,
+  }, null);
+  expect(r.action, '==', 'ride_runner', 'action');
+  expect(r.reason, 'matches', '^trend_hold_active', 'reason');
 });
 
 // ─────────────────────────────────────────────────────────────────────

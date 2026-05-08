@@ -7176,6 +7176,11 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
               ageMin: positionAgeMin,
               nowMs: now,
               etfRideRunner: tickerData?.__etf_ride_runner === true,
+              // V15 P0.7.107 — Trend-Hold short-circuit (mirror of
+              // etfRideRunner pattern). Set when the open trade has
+              // been promoted to Trend-Hold; doctrine then returns
+              // ride_runner regardless of regime flip / age / pnl.
+              trendHoldActive: TrendHold.isTrendHoldActive(openPosition),
               tapeContext: _tapeCtx,
             },
             // Pass null doctrine so it uses the embedded default. KV-backed
