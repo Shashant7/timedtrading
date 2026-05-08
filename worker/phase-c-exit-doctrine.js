@@ -357,9 +357,34 @@ function pickSetupParams(doctrine, setupKey) {
 export function chooseExitDoctrine(args, doctrine) {
   const {
     setup, direction, entryRegime, currentRegime,
-    mfePct, currentPnlPct, ageMin, ticker, etfRideRunner,
+    mfePct, currentPnlPct, ageMin, ticker, etfRideRunner, trendHoldActive,
   } = args || {};
   if (!doctrine) doctrine = DEFAULT_DOCTRINE;
+
+  // V15 P0.7.107 (2026-05-08) — Phase 2 Trend-Hold mode shortcut.
+  // Same shape as etfRideRunner below. When a trade is in active
+  // Trend-Hold state (worker/trend-hold.js shouldPromoteToTrendHold
+  // returned true earlier and the structural filters are still intact),
+  // bypass ALL doctrine force-exits. The structural demotion path
+  // (shouldDemoteFromTrendHold: weekly EMA-21 streak >= 2, weekly TD9
+  // sell-9, monthly ST bear, cascade flip, macro shock) is the only
+  // thing that closes a Trend-Hold runner. regime_class flips alone
+  // are NOT enough — Phase 1.2 deep dive showed regime_class is
+  // decoupled from close-discipline trend filters; runners with
+  // weekly+monthly bull structure rode through regime transitions.
+  // Source: tasks/phase-c/accumulation-trend-deep-dive.md
+  if (trendHoldActive === true) {
+    const _paramsTh = pickSetupParams(doctrine, setup);
+    return {
+      action: "ride_runner",
+      force_exit: false,
+      lock_pct: 0.40,           // even more generous than ETF mode
+      trail_giveback_pct: 0.75, // widest trail (weekly EMA-21 trail
+                                // is the real stop, applied elsewhere)
+      reason: `trend_hold_active: structural demotion only (mfe=${(Number(mfePct)||0).toFixed(2)}% pnl=${(Number(currentPnlPct)||0).toFixed(2)}%)`,
+      params: _paramsTh,
+    };
+  }
 
   // V15 P0.7.66 (2026-05-05) — Tier 2E: ETF ride-runner mode shortcut.
   // If we're in ETF ride-runner state (MFE>=1% on an ETF, pnl>0), bypass

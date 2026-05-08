@@ -97,6 +97,12 @@ import * as DataProvider from "./data-provider.js";
    its own DA flag so it can be killed independently. Default: OFF in code. */
 import * as PhaseCLoops from "./phase-c-loops.js";
 import * as ExitDoctrine from "./phase-c-exit-doctrine.js";
+/* V15 P0.7.107 (2026-05-08) — Phase 2 Trend-Hold hybrid lifecycle.
+   Pure-function module gates promotion / demotion / DCA / exit-suppression
+   for runners that pass the multi-timeframe close-discipline trend filter.
+   ALL behavior gated on daCfg.deep_audit_trend_hold_enabled (default 'false').
+   Source-of-truth: tasks/phase-c/accumulation-trend-deep-dive.md. */
+import * as TrendHold from "./trend-hold.js";
 import * as SetupAdmission from "./phase-c-setup-admission.js";
 import * as EtfProfile from "./etf-profile.js";
 import * as ClusterThrottle from "./phase-c-cluster-throttle.js";
@@ -7170,6 +7176,11 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
               ageMin: positionAgeMin,
               nowMs: now,
               etfRideRunner: tickerData?.__etf_ride_runner === true,
+              // V15 P0.7.107 — Trend-Hold short-circuit (mirror of
+              // etfRideRunner pattern). Set when the open trade has
+              // been promoted to Trend-Hold; doctrine then returns
+              // ride_runner regardless of regime flip / age / pnl.
+              trendHoldActive: TrendHold.isTrendHoldActive(openPosition),
               tapeContext: _tapeCtx,
             },
             // Pass null doctrine so it uses the embedded default. KV-backed
@@ -8964,9 +8975,19 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
                 const _md1hStDir = Number(tickerData?.tf_tech?.["1H"]?.stDir) || 0;
                 const _mdFlipped = direction === "LONG" ? _md1hStDir === 1 : _md1hStDir === -1;
                 if (!_mdRequireFlip || _mdFlipped) {
-                  tickerData.__exit_reason = "mfe_decay_structural_flatten";
-                  tickerData.__exit_family = "safety";
-                  return "exit";
+                  // V15 P0.7.107 — Trend-Hold suppression. mfe_decay
+                  // fires on consolidation phases that are normal in
+                  // RESILIENT_TREND. 8 candidate-cohort exits at 2.09%
+                  // pnl on 7.08% MFE (4.99% giveback / trade).
+                  const _mdThSuppress = TrendHold.evaluateExitSuppression(
+                    openPosition, "mfe_decay_structural_flatten",
+                    TrendHold.loadTrendHoldConfig(tickerData?._env?._deepAuditConfig),
+                  );
+                  if (!_mdThSuppress.suppress) {
+                    tickerData.__exit_reason = "mfe_decay_structural_flatten";
+                    tickerData.__exit_family = "safety";
+                    return "exit";
+                  }
                 }
               }
             }
@@ -17150,6 +17171,81 @@ async function processTradeSimulation(
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
+    // V15 P0.7.107 (2026-05-08) — PHASE 2 TREND-HOLD LIFECYCLE EVAL
+    //
+    // After MFE/MAE update each tick, evaluate Trend-Hold transitions:
+    //   1. If state=null and gates pass → promote (mark active, stamp flavor)
+    //   2. If state=active and any structural break → demote (drop back to AT)
+    // Both are gated on daCfg.deep_audit_trend_hold_enabled (default 'false').
+    //
+    // The promotion/demotion stamps are written to the trade row in D1
+    // via d1UpdateTradeTrendHoldState() (idempotent). Audit row is written
+    // via auditDataChange() so the integrity guard (P0.7.103) sees every
+    // transition and can attribute behavior changes to this module.
+    //
+    // Source-of-truth thresholds: tasks/phase-c/accumulation-trend-deep-dive.md
+    // Pure logic: worker/trend-hold.js
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (openTrade && isOpenTradeStatus(openTrade.status)) {
+      try {
+        const _thDaCfg = tickerData?._env?._deepAuditConfig || {};
+        if (TrendHold.isTrendHoldEnabled(_thDaCfg)) {
+          const _thCfg = TrendHold.loadTrendHoldConfig(_thDaCfg);
+          const _thSnap = TrendHold.extractTrendSnapshot(tickerData, openTrade);
+          if (_thSnap) {
+            const _thState = String(openTrade.trend_hold_state || "").toLowerCase();
+            if (_thState === "active") {
+              // Track running max-MFE while in active state.
+              const _thCurMfe = Number(openTrade.maxFavorableExcursion) || 0;
+              const _thMaxMfe = Number(openTrade.trend_hold_max_mfe_pct) || 0;
+              if (_thCurMfe > _thMaxMfe) openTrade.trend_hold_max_mfe_pct = _thCurMfe;
+              // Demotion check.
+              const _thDemote = TrendHold.shouldDemoteFromTrendHold(_thSnap, openTrade, _thCfg);
+              if (_thDemote.demote) {
+                openTrade.trend_hold_state = "demoted";
+                openTrade.trend_hold_demoted_at = now;
+                openTrade.trend_hold_demote_reason = _thDemote.reason;
+                console.log(`[TREND_HOLD DEMOTE] ${sym} ${_thDemote.reason}`);
+                if (typeof d1UpdateTradeTrendHoldState === "function") {
+                  await d1UpdateTradeTrendHoldState(env, openTrade.trade_id, {
+                    state: "demoted",
+                    demoted_at: now,
+                    demote_reason: _thDemote.reason,
+                    max_mfe_pct: openTrade.trend_hold_max_mfe_pct,
+                  });
+                }
+              }
+            } else if (!_thState || _thState === "demoted") {
+              // Promotion check (re-promotion respects cooldown via
+              // shouldPromoteToTrendHold's promote_cooldown_after_demote_ms).
+              const _thPromote = TrendHold.shouldPromoteToTrendHold(_thSnap, openTrade, _thCfg);
+              if (_thPromote.promote) {
+                openTrade.trend_hold_state = "active";
+                openTrade.trend_hold_promoted_at = now;
+                openTrade.trend_hold_flavor = _thPromote.flavor;
+                openTrade.trend_hold_promote_reason = _thPromote.reason;
+                openTrade.trend_hold_max_mfe_pct = Number(openTrade.maxFavorableExcursion) || 0;
+                console.log(`[TREND_HOLD PROMOTE] ${sym} ${_thPromote.flavor}: ${_thPromote.reason}`);
+                if (typeof d1UpdateTradeTrendHoldState === "function") {
+                  await d1UpdateTradeTrendHoldState(env, openTrade.trade_id, {
+                    state: "active",
+                    promoted_at: now,
+                    flavor: _thPromote.flavor,
+                    promote_reason: _thPromote.reason,
+                    max_mfe_pct: openTrade.trend_hold_max_mfe_pct,
+                  });
+                }
+              }
+            }
+          }
+        }
+      } catch (_thErr) {
+        // Trend-Hold eval must NEVER block legit management. Log + continue.
+        console.log(`[TREND_HOLD ERROR] ${sym}: ${String(_thErr?.message || _thErr).slice(0, 200)}`);
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // V15 P0.7.17 (2026-04-29): LIVE 30m MANAGEMENT-CADENCE GATE
     //
     // Empirical comparison (v16-fix1-p716-jul July smoke at 30m vs 10m vs 5m)
@@ -17244,14 +17340,30 @@ async function processTradeSimulation(
       const hardFuseShort = !isLong && rsi1H <= 15 && rsi4H <= 20;
 
       if (hardFuseLong || hardFuseShort) {
-        console.log(`[FUSE EXIT] ${sym} HARD FUSE: ${isLong ? "LONG" : "SHORT"} rsi1H=${rsi1H} rsi4H=${rsi4H}`);
-        tickerData.__exit_reason = `hard_fuse_rsi_extreme`;
-        // Force exit regardless of kanban stage
-        await closeTradeAtPrice(openTrade, pxNow, "HARD_FUSE_RSI_EXTREME");
-        const fuseExecUpdate = { ...execState, lastExitMs: now };
-        if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, fuseExecUpdate);
-        else if (!isReplay) await kvPutJSON(KV, execKey, fuseExecUpdate);
-        fuseExitFired = true;
+        // V15 P0.7.107 (2026-05-08) — Trend-Hold suppression.
+        // Phase 1.2 deep-dive showed HARD_FUSE_RSI_EXTREME fired 11x on
+        // the Trend-Hold-candidate cohort, locking in 4.11% on 7.53%
+        // MFE — i.e. firing on legit runners that the trend confirmed
+        // across W+D+4H. Suppress when trend_hold_state === 'active'.
+        // The structural demotion path (worker/trend-hold.js) is the
+        // only thing that closes a Trend-Hold position via the
+        // suppressed reason set.
+        const _thSuppression = TrendHold.evaluateExitSuppression(
+          openTrade, "HARD_FUSE_RSI_EXTREME",
+          TrendHold.loadTrendHoldConfig(tickerData?._env?._deepAuditConfig),
+        );
+        if (_thSuppression.suppress) {
+          console.log(`[FUSE EXIT SUPPRESSED] ${sym} ${_thSuppression.reason}`);
+        } else {
+          console.log(`[FUSE EXIT] ${sym} HARD FUSE: ${isLong ? "LONG" : "SHORT"} rsi1H=${rsi1H} rsi4H=${rsi4H}`);
+          tickerData.__exit_reason = `hard_fuse_rsi_extreme`;
+          // Force exit regardless of kanban stage
+          await closeTradeAtPrice(openTrade, pxNow, "HARD_FUSE_RSI_EXTREME");
+          const fuseExecUpdate = { ...execState, lastExitMs: now };
+          if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, fuseExecUpdate);
+          else if (!isReplay) await kvPutJSON(KV, execKey, fuseExecUpdate);
+          fuseExitFired = true;
+        }
       }
 
       // Phase 4b: SOFT FUSE — arm on moderate RSI, confirm with structure break
@@ -17689,13 +17801,23 @@ async function processTradeSimulation(
             ? ((pxNow - entryPx) / entryPx) * 100
             : ((entryPx - pxNow) / entryPx) * 100;
           if (_stTrimPct >= THREE_TIER_CONFIG.TRIM.trimPct - 0.01 && _stPnl > 0) {
-            console.log(`[ST_FLIP_FUSE] ${sym} 4H ST flip against ${isLong ? "LONG" : "SHORT"}: closing runner (pnl=${_stPnl.toFixed(1)}% trimmed=${(_stTrimPct * 100).toFixed(0)}%)`);
-            tickerData.__exit_reason = "st_flip_4h_close";
-            await closeTradeAtPrice(openTrade, pxNow, "ST_FLIP_4H_CLOSE");
-            const _stExec = { ...execState, lastExitMs: now };
-            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _stExec);
-            else if (!isReplay) await kvPutJSON(KV, execKey, _stExec);
-            fuseExitFired = true;
+            // V15 P0.7.107 — Trend-Hold suppression. 4H ST flip is too
+            // tactical for a runner whose weekly+monthly trend is intact.
+            const _thStFlipSuppress = TrendHold.evaluateExitSuppression(
+              openTrade, "ST_FLIP_4H_CLOSE",
+              TrendHold.loadTrendHoldConfig(tickerData?._env?._deepAuditConfig),
+            );
+            if (_thStFlipSuppress.suppress) {
+              console.log(`[ST_FLIP_FUSE SUPPRESSED] ${sym} ${_thStFlipSuppress.reason}`);
+            } else {
+              console.log(`[ST_FLIP_FUSE] ${sym} 4H ST flip against ${isLong ? "LONG" : "SHORT"}: closing runner (pnl=${_stPnl.toFixed(1)}% trimmed=${(_stTrimPct * 100).toFixed(0)}%)`);
+              tickerData.__exit_reason = "st_flip_4h_close";
+              await closeTradeAtPrice(openTrade, pxNow, "ST_FLIP_4H_CLOSE");
+              const _stExec = { ...execState, lastExitMs: now };
+              if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _stExec);
+              else if (!isReplay) await kvPutJSON(KV, execKey, _stExec);
+              fuseExitFired = true;
+            }
           } else if (_stTrimPct < THREE_TIER_CONFIG.TRIM.trimPct - 0.01 && _stPnl > 0.3) {
             const _stFirstTrimGuard = canTakeInitialSignalTrim(_stPnl, "ST_FLIP_4H_TRIM");
             if (_stFirstTrimGuard.allow) {
@@ -18162,14 +18284,27 @@ async function processTradeSimulation(
                 console.log(`[PROFIT_GIVEBACK] ${sym} MFE +${_gbMfePct.toFixed(2)}% now ${_gbPnlPct.toFixed(2)}% (retained ${(_gbRetained * 100).toFixed(0)}% htf=${_gbHtfAligned}) → hold (${_gbHoldWhy})`);
                 tickerData.__exit_reason = _gbStageHold ? "PROFIT_GIVEBACK_STAGE_HOLD" : "PROFIT_GIVEBACK_COOLING_HOLD";
               } else {
-              const _gbReason = "PROFIT_GIVEBACK";
-              console.log(`[PROFIT_GIVEBACK] ${sym} MFE +${_gbMfePct.toFixed(2)}% now ${_gbPnlPct.toFixed(2)}% (retained ${(_gbRetained*100).toFixed(0)}% htf=${_gbHtfAligned}) → closing`);
-              tickerData.__exit_reason = _gbReason;
-              await closeTradeAtPrice(openTrade, pxNow, _gbReason);
-              const _gbExec = { ...execState, lastExitMs: now };
-              if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _gbExec);
-              else if (!isReplay) await kvPutJSON(KV, execKey, _gbExec);
-              fuseExitFired = true;
+              // V15 P0.7.107 — Trend-Hold suppression. PROFIT_GIVEBACK
+              // exits on the candidate cohort locked in 0.86% on 4.92%
+              // MFE — 4.06% giveback per trade. Suppress on Trend-Hold
+              // active runners; structural demotion is the only path
+              // that closes them.
+              const _gbThSuppress = TrendHold.evaluateExitSuppression(
+                openTrade, "PROFIT_GIVEBACK_STAGE_HOLD",
+                TrendHold.loadTrendHoldConfig(tickerData?._env?._deepAuditConfig),
+              );
+              if (_gbThSuppress.suppress) {
+                console.log(`[PROFIT_GIVEBACK SUPPRESSED] ${sym} ${_gbThSuppress.reason}`);
+              } else {
+                const _gbReason = "PROFIT_GIVEBACK";
+                console.log(`[PROFIT_GIVEBACK] ${sym} MFE +${_gbMfePct.toFixed(2)}% now ${_gbPnlPct.toFixed(2)}% (retained ${(_gbRetained*100).toFixed(0)}% htf=${_gbHtfAligned}) → closing`);
+                tickerData.__exit_reason = _gbReason;
+                await closeTradeAtPrice(openTrade, pxNow, _gbReason);
+                const _gbExec = { ...execState, lastExitMs: now };
+                if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _gbExec);
+                else if (!isReplay) await kvPutJSON(KV, execKey, _gbExec);
+                fuseExitFired = true;
+              }
               }
             }
           }
@@ -18573,16 +18708,32 @@ async function processTradeSimulation(
             tickerData.__exit_family = "tt_context";
             fuseExitFired = true;
           } else {
-            if (_sreCancelDeferral) {
-              console.log(`[SMART_RUNNER] ${sym} ${_sreReason} forcing exit: 15m 5-12 cloud lost (hard=${_sreCloseBelowC512Hard ? 1 : 0} count=${_sreC512BelowCount})`);
+            // V15 P0.7.107 — Trend-Hold suppression. The candidate cohort
+            // had 19 SMART_RUNNER_SUPPORT_BREAK_CLOUD exits at avg 0.86%
+            // pnl on 6.82% MFE (5.97% giveback). When trend_hold_state
+            // is active the daily 5/12 cloud break is a DCA trigger,
+            // not an exit trigger.
+            const _sreThSuppress = TrendHold.evaluateExitSuppression(
+              openTrade, _sreReason,
+              TrendHold.loadTrendHoldConfig(tickerData?._env?._deepAuditConfig),
+            );
+            if (_sreThSuppress.suppress) {
+              console.log(`[SMART_RUNNER SUPPRESSED] ${sym} ${_sreThSuppress.reason}`);
+              tickerData.__force_defend_stage = true;
+              tickerData.__defend_reason = "trend_hold_active_suppress";
+              fuseExitFired = true;
+            } else {
+              if (_sreCancelDeferral) {
+                console.log(`[SMART_RUNNER] ${sym} ${_sreReason} forcing exit: 15m 5-12 cloud lost (hard=${_sreCloseBelowC512Hard ? 1 : 0} count=${_sreC512BelowCount})`);
+              }
+              console.log(`[SMART_RUNNER] ${sym} ${_sreReason}: ${JSON.stringify(_sreResult)}`);
+              tickerData.__exit_reason = _sreReason.toLowerCase();
+              await closeTradeAtPrice(openTrade, pxNow, _sreReason);
+              const _sreExec = { ...execState, lastExitMs: now };
+              if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _sreExec);
+              else if (!isReplay) await kvPutJSON(KV, execKey, _sreExec);
+              fuseExitFired = true;
             }
-            console.log(`[SMART_RUNNER] ${sym} ${_sreReason}: ${JSON.stringify(_sreResult)}`);
-            tickerData.__exit_reason = _sreReason.toLowerCase();
-            await closeTradeAtPrice(openTrade, pxNow, _sreReason);
-            const _sreExec = { ...execState, lastExitMs: now };
-            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _sreExec);
-            else if (!isReplay) await kvPutJSON(KV, execKey, _sreExec);
-            fuseExitFired = true;
           }
         } else if (_sreResult.action === "defend") {
           // HTF still supports but LTF/1H structure broke — tighten trail to 1x ATR
@@ -33596,6 +33747,90 @@ async function d1UpdatePosition(env, position_id, updates) {
     if (err && (err.message || "").includes("no such table")) return { ok: false, skipped: true };
     console.error("[D1 LEDGER] position update failed:", err);
     return { ok: false, error: String(err) };
+  }
+}
+
+/**
+ * V15 P0.7.107 (2026-05-08) — Phase 2 Trend-Hold lifecycle persistence.
+ *
+ * Updates trend_hold_* columns on a `trades` row. Idempotent.
+ * Defensive: returns {ok:false, skipped:true} if the migration
+ * (worker/migrations/add-trend-hold-columns.sql) hasn't been applied.
+ *
+ * Writes a data_audit_log row for every state transition so the
+ * P0.7.103 INTEGRITY GUARD can attribute downstream-row-count changes
+ * to the Trend-Hold module rather than panicking and muting cron.
+ *
+ * @param {object} env — D1-bound env
+ * @param {string} trade_id
+ * @param {object} updates — any subset of:
+ *   { state, promoted_at, demoted_at, flavor,
+ *     promote_reason, demote_reason, max_mfe_pct }
+ */
+async function d1UpdateTradeTrendHoldState(env, trade_id, updates) {
+  const db = env?.DB;
+  if (!db || !trade_id || !updates) return { ok: false };
+  try {
+    const setClauses = [];
+    const params = [trade_id];
+    let pIdx = 2;
+    if (updates.state !== undefined) {
+      setClauses.push(`trend_hold_state = ?${pIdx++}`);
+      params.push(updates.state == null ? null : String(updates.state));
+    }
+    if (updates.promoted_at !== undefined) {
+      setClauses.push(`trend_hold_promoted_at = ?${pIdx++}`);
+      params.push(updates.promoted_at == null ? null : Number(updates.promoted_at));
+    }
+    if (updates.demoted_at !== undefined) {
+      setClauses.push(`trend_hold_demoted_at = ?${pIdx++}`);
+      params.push(updates.demoted_at == null ? null : Number(updates.demoted_at));
+    }
+    if (updates.flavor !== undefined) {
+      setClauses.push(`trend_hold_flavor = ?${pIdx++}`);
+      params.push(updates.flavor == null ? null : String(updates.flavor));
+    }
+    if (updates.promote_reason !== undefined) {
+      setClauses.push(`trend_hold_promote_reason = ?${pIdx++}`);
+      params.push(updates.promote_reason == null ? null : String(updates.promote_reason).slice(0, 256));
+    }
+    if (updates.demote_reason !== undefined) {
+      setClauses.push(`trend_hold_demote_reason = ?${pIdx++}`);
+      params.push(updates.demote_reason == null ? null : String(updates.demote_reason).slice(0, 256));
+    }
+    if (updates.max_mfe_pct !== undefined) {
+      setClauses.push(`trend_hold_max_mfe_pct = ?${pIdx++}`);
+      params.push(updates.max_mfe_pct == null ? null : Number(updates.max_mfe_pct));
+    }
+    if (setClauses.length === 0) return { ok: false, reason: "no_updates" };
+    const sql = `UPDATE trades SET ${setClauses.join(", ")} WHERE trade_id = ?1`;
+    const r = await db.prepare(sql).bind(...params).run();
+    const rowsAffected = Number(r?.meta?.changes || 0);
+    // Audit every transition for the integrity guard.
+    try {
+      await auditDataChange(env, {
+        op: updates.state === "active" ? "trend_hold_promote" : "trend_hold_demote",
+        scope: `trades:${trade_id}`,
+        caller: "d1UpdateTradeTrendHoldState",
+        rowsAffected,
+        meta: {
+          trade_id,
+          state: updates.state,
+          flavor: updates.flavor,
+          promote_reason: updates.promote_reason,
+          demote_reason: updates.demote_reason,
+        },
+      });
+    } catch (_) { /* audit must never block the update */ }
+    return { ok: true, rowsAffected };
+  } catch (err) {
+    const msg = String(err?.message || err);
+    // Migration not yet applied — return skipped so callers don't blow up.
+    if (msg.includes("no such column") || msg.includes("no such table")) {
+      return { ok: false, skipped: true, reason: "schema_pending_migration" };
+    }
+    console.error("[D1 TREND_HOLD] update failed:", msg);
+    return { ok: false, error: msg };
   }
 }
 
