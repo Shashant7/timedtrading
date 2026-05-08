@@ -398,6 +398,53 @@ export async function tdFetchTickerEarnings(env, symbol) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Fundamentals — Profile, Statistics, Earnings History
+// Used by GET /timed/admin/fundamentals?ticker=X for the Right Rail Fundamentals tab.
+// All endpoints are cached at the route layer (KV, 6h TTL) to amortize credit cost.
+// Per-call credit cost (TwelveData Pro plan):
+//   /profile      = 10 credits
+//   /statistics   = 50 credits
+//   /earnings     = 20 credits  (history, up to 1000 rows)
+// Total ≈ 80 credits per ticker per refresh window.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export async function tdFetchProfile(env, symbol) {
+  const apiKey = getApiKey(env);
+  if (!apiKey) return { _error: "missing_credentials" };
+  const sym = toTdSymbol(String(symbol || "").toUpperCase());
+  if (SKIP_TICKERS.has(symbol)) return { _error: "non_equity" };
+  const params = new URLSearchParams({ symbol: sym, apikey: apiKey });
+  const url = `${TD_BASE}/profile?${params}`;
+  return tdFetch(url, 15000);
+}
+
+export async function tdFetchStatistics(env, symbol) {
+  const apiKey = getApiKey(env);
+  if (!apiKey) return { _error: "missing_credentials" };
+  const sym = toTdSymbol(String(symbol || "").toUpperCase());
+  if (SKIP_TICKERS.has(symbol)) return { _error: "non_equity" };
+  const params = new URLSearchParams({ symbol: sym, apikey: apiKey });
+  const url = `${TD_BASE}/statistics?${params}`;
+  return tdFetch(url, 20000);
+}
+
+// Pull a richer earnings history (up to N records). Used by Fundamentals tab
+// to render the per-quarter table with surprise %, growth %, and result class.
+export async function tdFetchEarningsHistory(env, symbol, outputsize = 12) {
+  const apiKey = getApiKey(env);
+  if (!apiKey) return { _error: "missing_credentials" };
+  const sym = toTdSymbol(String(symbol || "").toUpperCase());
+  if (SKIP_TICKERS.has(symbol)) return { _error: "non_equity" };
+  const params = new URLSearchParams({
+    symbol: sym,
+    apikey: apiKey,
+    outputsize: String(outputsize),
+  });
+  const url = `${TD_BASE}/earnings?${params}`;
+  return tdFetch(url, 15000);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Exports for data-provider layer
 // ═══════════════════════════════════════════════════════════════════════════════
 

@@ -8,6 +8,7 @@ import { getEasternParts } from "../market-calendar.js";
 import { computePdzSizeMult } from "./sizing.js";
 import { computeConvictionScore, TT_SELECTED_DEFAULT } from "../focus-tier.js";
 import { getTickerType as getTickerTypeForFocus } from "../sector-mapping.js";
+import { admitSetup as admitSetupContext } from "../phase-c-setup-admission.js";
 
 const FRESHNESS_MIN = 0.3;
 const TT_CORE_TRACE_CASES = new Map([
@@ -271,6 +272,165 @@ export function evaluateEntry(ctx) {
     return reject(reason, metadata);
   };
   const qualifyEntry = (path, confidence, reason, sizing, metadata) => {
+    // V15 P0.7.66 (2026-05-05) — Tier 1D: Block Speculative grade for ETFs.
+    // ETF audit Path A: Speculative-grade ETF entries (e.g. ALB Mar-02 rank 58
+    // -8.44%) bring the worst losses + lowest WR. ETFs require precision;
+    // Speculative is by definition "early/marginal evidence". Hard block.
+    {
+      const _etfAdmGrade = String(d?.setup_grade ?? d?.setupGrade ?? "").trim().toLowerCase();
+      const _etfAdmTicker = String(d?.ticker || d?.sym || "").trim().toUpperCase();
+      if (_etfAdmTicker && _etfAdmGrade === "speculative") {
+        // Inline check — can't import etf-profile from pipeline due to layering.
+        // Hardcode the ETF set here (mirrors worker/etf-profile.js ETF_PROFILE_TICKERS).
+        const ETF_PROFILE_INLINE = new Set([
+          "SPY","QQQ","IWM","DIA","VOO","VTI","VEA","VWO","EFA","EEM","MDY","SPLG",
+          "XLE","XLF","XLK","XLV","XLY","XLP","XLU","XLI","XLRE","XLB","XLC",
+          "XHB","XOP","XBI","ITA","IYR","IYE","IYF","IYH","IYK","IYJ",
+          "IGV","IBB","GDX","GLD","SLV","USO","KWEB","FXI","INDA","EWZ",
+          "IAU","INFL","BITO","ETHA","BITX","ARKK","SMH","SOXX","IGE",
+        ]);
+        if (ETF_PROFILE_INLINE.has(_etfAdmTicker)) {
+          return rejectEntry("etf_speculative_blocked", {
+            ticker: _etfAdmTicker,
+            grade: _etfAdmGrade,
+            note: "ETFs require precision; Speculative grade is too marginal",
+          });
+        }
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────
+    // PHASE C — Stage 1 (2026-05-04) — Context-Aware Setup Admission.
+    //
+    // Final gate before an entry is accepted. Evaluates the
+    // (setup × direction × grade × regime) cohort against the
+    // admission matrix derived from the canon Jul-Apr loss-anatomy.
+    //
+    // Replaces blanket per-setup enable/disable flags. Allows a setup
+    // ONLY in regimes where the cohort has shown positive edge.
+    //
+    // The matrix is loaded lazily via loadAdmissionMatrix(KV) on the
+    // first scoring cycle of each replay/cron pass. After that, this
+    // gate uses the cached matrix synchronously.
+    //
+    // Disabled via `daCfg.deep_audit_setup_admission_enabled = "false"`.
+    // ─────────────────────────────────────────────────────────────────
+    const _admissionEnabled = String(
+      daCfg.deep_audit_setup_admission_enabled ?? "true"
+    ) === "true";
+    if (_admissionEnabled) {
+      try {
+        const _gradeForAdmission = String(
+          d?.setup_grade ?? d?.setupGrade ?? ""
+        ).trim();
+        const _regimeForAdmission = String(
+          d?.regime?.combined ?? d?.regime_combined ?? ""
+        ).toUpperCase().trim();
+        const _rrForAdmission = Number(d?.rr) || 0;
+        const _convForAdmission = Number(
+          d?.focus?.conviction_score ?? d?.focus_conviction_score
+        );
+          const _admission = admitSetupContext(
+            {
+              setup: path,
+              grade: _gradeForAdmission,
+              direction: side,
+              regime: _regimeForAdmission,
+              conviction: Number.isFinite(_convForAdmission) ? _convForAdmission : undefined,
+              rr: _rrForAdmission,
+            },
+            // Pass null matrix so admitSetup uses the embedded default.
+            // Replay-runtime can override by calling loadAdmissionMatrix
+            // first (cache populates synchronously after first await).
+            null,
+          );
+          // V15 P0.7.67 (2026-05-05) — TICK/ADD SHORT admission unlock.
+          // If admission would reject a SHORT due to non-bear regime, but
+          // the broad tape is capitulating (sustained negative TICK + ADD),
+          // unlock the SHORT for this bar. Catches Mar-02-style shock days
+          // where the system is regime-blind to live bear pressure.
+          // Requires rr >= 3.0 to maintain quality.
+          if (_admission && _admission.allow === false && side === "SHORT") {
+            try {
+              const _tapeCtxForShort = d?._env?._tapeContext || null;
+              const _shortRrForUnlock = Number(d?.rr) || 0;
+              if (_tapeCtxForShort
+                  && admitSetupContext.constructor // ensure module loaded
+                  && _shortRrForUnlock >= 3.0) {
+                // Check if tape unlocks shorts. We use a duck-typed import to
+                // avoid pulling market-internals into the pipeline's bundle.
+                // The flag check is performed at runtime via tickerData metadata.
+                if (d?._env?._tapeContext?.tone === "capitulating"
+                    || (d?._env?._tapeContext?.tone === "broadly_bearish"
+                        && d?._env?._tapeContext?.tick?.sustained_neg >= 4
+                        && d?._env?._tapeContext?.add?.sustained_neg >= 4)) {
+                  // Unlock — but log the override
+                  const _unlockMeta = {
+                    overridden_admission: _admission.matched_key,
+                    tape_tone: _tapeCtxForShort.tone,
+                    tape_tick: _tapeCtxForShort.tick?.value,
+                    tape_add: _tapeCtxForShort.add?.value,
+                    short_rr: _shortRrForUnlock,
+                  };
+                  d.__short_admission_tape_unlock = _unlockMeta;
+                  // Skip the admission rejection — let the entry continue
+                  // through (we'll log via traceDecision below).
+                  // Don't return from this block; fall through to traceDecision/qualify.
+                } else {
+                  return rejectEntry(_admission.reason || "setup_admission_blocked", {
+                    setup_admission: {
+                      setup: path,
+                      grade: _gradeForAdmission,
+                      direction: side,
+                      regime: _regimeForAdmission,
+                      rr: _rrForAdmission,
+                      matched_key: _admission.matched_key,
+                      cohort_stats: _admission.cohortStat,
+                    },
+                  });
+                }
+              } else {
+                return rejectEntry(_admission.reason || "setup_admission_blocked", {
+                  setup_admission: {
+                    setup: path,
+                    grade: _gradeForAdmission,
+                    direction: side,
+                    regime: _regimeForAdmission,
+                    rr: _rrForAdmission,
+                    matched_key: _admission.matched_key,
+                    cohort_stats: _admission.cohortStat,
+                  },
+                });
+              }
+            } catch (_short_unlock_err) {
+              return rejectEntry(_admission.reason || "setup_admission_blocked", {
+                setup_admission: {
+                  setup: path,
+                  grade: _gradeForAdmission,
+                  direction: side,
+                  regime: _regimeForAdmission,
+                  rr: _rrForAdmission,
+                  matched_key: _admission.matched_key,
+                  cohort_stats: _admission.cohortStat,
+                },
+              });
+            }
+          } else if (_admission && _admission.allow === false) {
+            return rejectEntry(_admission.reason || "setup_admission_blocked", {
+            setup_admission: {
+              setup: path,
+              grade: _gradeForAdmission,
+              direction: side,
+              regime: _regimeForAdmission,
+              rr: _rrForAdmission,
+              matched_key: _admission.matched_key,
+              cohort_stats: _admission.cohortStat,
+            },
+          });
+        }
+      } catch (_admErr) {
+        // Admission failure must NOT block legit entries. Default to allow.
+      }
+    }
     traceDecision("qualify", { path, confidence, reason, metadata });
     return qualify(path, confidence, reason, sizing, metadata);
   };
@@ -384,6 +544,52 @@ export function evaluateEntry(ctx) {
               existing_entry_ts: _stillOpen.entry_ts,
               existing_entry_price: _stillOpen.entry_price,
               existing_status: _stillOpen.status,
+            });
+          }
+        }
+
+        /* V15 P0.7.56 (2026-05-04) — Anti-chase guard.
+           BE Oct-13 case: LONG entered at \$113.57 after stock had gapped up
+           huge — vwap_30m_dist +33%, vwap_1H_dist +93%, vwap slopes all
+           strongly positive, AND adverse_phase_div=true at entry. Stops
+           fired at HARD_LOSS_CAP -9.23%. The momentum buffer is the
+           OPPOSITE of what we wanted here — momentum was so extended it
+           was a chase, and the divergence flagged it.
+
+           Rule: veto LONG entries (and SHORT entries with mirror logic)
+           when price is far extended from session VWAP AND we have an
+           adverse divergence at entry. This catches the "extended chase"
+           pattern without blocking healthy continuation entries (those
+           don't have adverse divergence).
+
+           Knobs:
+             deep_audit_anti_chase_enabled (default true)
+             deep_audit_anti_chase_vwap_30m_dist_pct (default 25)
+             deep_audit_anti_chase_vwap_1h_dist_pct (default 60) */
+        const _antiChaseEnabled = String(daCfg.deep_audit_anti_chase_enabled ?? "true") === "true";
+        if (_antiChaseEnabled && d) {
+          const _vwap = d?.vwap || {};
+          const _vw30Dist = Number(_vwap?.["30"]?.dist_pct ?? _vwap?.m30?.dist_pct) || 0;
+          const _vw1HDist = Number(_vwap?.["60"]?.dist_pct ?? _vwap?.h1?.dist_pct ?? _vwap?.["1H"]?.dist_pct) || 0;
+          const _vw30Slope = Number(_vwap?.["30"]?.slope_5bar ?? _vwap?.m30?.slope_5bar) || 0;
+          const _divSummary = d?.__entry_divergence_summary || {};
+          const _hasAdvPhase = !!_divSummary?.adverse_phase || !!d?.__entry_signals_summary?.has_adverse_phase_div;
+          const _hasAdvRsi = !!_divSummary?.adverse_rsi || !!d?.__entry_signals_summary?.has_adverse_rsi_div;
+          const _vw30DistThr = Number(daCfg.deep_audit_anti_chase_vwap_30m_dist_pct) || 25;
+          const _vw1HDistThr = Number(daCfg.deep_audit_anti_chase_vwap_1h_dist_pct) || 60;
+          const _isLong = _sideUpper === "LONG";
+          const _isShort = _sideUpper === "SHORT";
+          // For LONG: extended UP + adverse divergence = chase
+          // For SHORT: extended DOWN (negative dist) + adverse divergence = chase
+          const _longExtended = _isLong && _vw30Slope > 0 && (_vw30Dist >= _vw30DistThr || _vw1HDist >= _vw1HDistThr);
+          const _shortExtended = _isShort && _vw30Slope < 0 && (_vw30Dist <= -_vw30DistThr || _vw1HDist <= -_vw1HDistThr);
+          if ((_longExtended || _shortExtended) && (_hasAdvPhase || _hasAdvRsi)) {
+            return rejectEntry("phase_i_anti_chase", {
+              vwap_30m_dist_pct: _vw30Dist,
+              vwap_1h_dist_pct: _vw1HDist,
+              vwap_30m_slope: _vw30Slope,
+              adverse_phase_div: _hasAdvPhase,
+              adverse_rsi_div: _hasAdvRsi,
             });
           }
         }

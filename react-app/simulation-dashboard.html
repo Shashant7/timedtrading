@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260423a" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260507-r5" />
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/htm@3.1.1/dist/htm.umd.js"></script>
@@ -120,6 +120,94 @@
       body:not([data-user-role="admin"]) a[data-admin-only] {
         display: none !important;
       }
+
+      /* ── V15 P0.7.76 — Ticker Workspace layout (≥1024px desktop only).
+         Mirror of CSS in index-react.source.html so the Trades page also
+         gets the chart-left / rail-right split when a ticker is opened.
+         V15 P0.7.77: breakpoint lowered 1280px → 1024px so laptops
+         qualify too. */
+      @media (min-width: 1024px) {
+        .tt-ticker-workspace-mount {
+          /* V15 P0.7.79: keep existing top-[49px] so workspace starts
+             below the main app nav (close button stays selectable). */
+          bottom: 0 !important;
+          left: 0 !important;
+          right: 0 !important;
+          width: 100% !important;
+          border-left: none !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+        }
+      }
+      .tt-rail-shell--workspace {
+        display: grid !important;
+        grid-template-columns: 1fr 460px;
+        grid-template-rows: auto 1fr;
+        grid-template-areas:
+          "header header"
+          "left   right";
+        height: 100%; /* fill the mount; mount is positioned below nav */
+        max-height: 100%;
+        overflow: hidden;
+        flex-direction: unset !important; /* override .flex.flex-col */
+      }
+      .tt-rail-shell--workspace > .tt-rail-area-header {
+        grid-area: header;
+        position: relative;
+        z-index: 5;
+      }
+      .tt-rail-shell--workspace > .tt-rail-area-left-pane {
+        grid-area: left;
+        overflow-y: auto;
+        padding: var(--ds-space-3); /* P0.7.100-r2: slightly tighter */
+        border-right: 1px solid var(--ds-stroke);
+        min-width: 0;
+      }
+      .tt-rail-shell--workspace > .tt-rail-area-right-pane {
+        grid-area: right;
+        overflow-y: auto;
+        min-width: 0;
+      }
+      .tt-ticker-workspace-mount {
+        max-width: none !important;
+      }
+      /* V15 P0.7.99 \u2014 sizes bumped now that Key Levels lives in the
+         Setup tab and the rail's left pane only hosts the chart.
+         V15 P0.7.100-r2 \u2014 reverted flex-fill (caused ResizeObserver
+         feedback loop). Larger viewport-based height instead. */
+      .tt-rail-chart-canvas {
+        height: 240px;
+      }
+      @media (min-width: 1024px) {
+        .tt-rail-chart-canvas { height: 380px; }
+      }
+      /* P0.7.102 — see comment in index-react.source.html: 340px
+         total chrome accounted for to leave room for the time-axis
+         labels above the rail footer + legal footer. */
+      .tt-rail-shell--workspace .tt-rail-chart-canvas {
+        height: calc(100vh - 340px) !important;
+        max-height: 980px;
+        min-height: 380px;
+      }
+      /* V15 P0.7.85: mobile reorder \u2014 tab content first, chart + levels at bottom.
+         V15 P0.7.87: on mobile (<1024px) hide chart+levels entirely so
+         tab content gets full screen. */
+      .tt-rail-shell:not(.tt-rail-shell--workspace) {
+        display: flex;
+        flex-direction: column;
+      }
+      .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-header { order: 0; flex: 0 0 auto; }
+      .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-right-pane { order: 1; flex: 1 1 auto; }
+      .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-left-pane { order: 2; flex: 0 0 auto; }
+      .tt-rail-area-left-pane,
+      .tt-rail-area-right-pane {
+        display: block;
+      }
+      @media (max-width: 1023px) {
+        .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-left-pane {
+          display: none !important;
+        }
+      }
     </style>
   </head>
   <body class="ds-v2">
@@ -129,11 +217,11 @@
     <script src="shared-price-utils.js?v=20260211a"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260501b"></script>
+    <script src="shared-right-rail.compiled.js?v=20260508-daychg"></script>
     <!-- V15 P0.7.36 (2026-04-30): Trades Performance overview component
          (Monthly perf table, setup breakdown, P&L calendar heatmap).
          Self-contained factory at react-app/trades-performance.js. -->
-    <script src="trades-performance.js?v=20260501a"></script>
+    <script src="trades-performance.js?v=20260506b"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, memo, useRef, createElement } = React;
       const html = (function () {
@@ -186,6 +274,20 @@
         const n = Number(v);
         if (!Number.isFinite(n)) return "—";
         return USD_FMT.format(n);
+      }
+
+      // V15 P0.7.83: compact USD format for metric tiles where space
+      // is tight. $140,086.44 → $140.1K, $40,086 → $40.1K, $303 → $303.
+      // Sign-prefixed for explicit positive/negative readability.
+      function fmtUsdCompact(v) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return "—";
+        const abs = Math.abs(n);
+        const sign = n < 0 ? "-" : "";
+        if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;
+        if (abs >= 10_000)    return `${sign}$${(abs / 1000).toFixed(1)}K`;
+        if (abs >= 1000)      return `${sign}$${(abs / 1000).toFixed(2)}K`;
+        return `${sign}$${abs.toFixed(0)}`;
       }
 
       function fmtInt(v) {
@@ -784,7 +886,10 @@
         status = "all",
         since = null,
         until = null,
-        pageSize = 200,
+        pageSize = 1000,
+        // Cap auto-paging so a runaway dataset cannot hammer the API. 10k trades is
+        // enough for any realistic backtest window we promote.
+        maxAutoPageRows = 10000,
       } = {}) {
         const [items, setItems] = useState([]);
         const [loading, setLoading] = useState(true);
@@ -807,18 +912,40 @@
           [ticker, status, since, until, pageSize],
         );
 
+        // Auto-paging loader: walks `nextCursor` until `hasMore` is false (or
+        // the safety cap is hit). Without this, the Trades page Performance
+        // Overview / Trade History only saw the first page (e.g. first 500 trades),
+        // producing wrong monthly aggregates and a phantom "9 trades / 11% WR" July.
         const fetchFirstPage = useCallback(async () => {
           try {
             setLoading(true);
             setError(null);
-            const res = await fetch(buildUrl(null), { cache: "no-store" });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const json = await res.json();
-            if (!json.ok) throw new Error(json.error || "ledger_trades_failed");
-            const trades = Array.isArray(json.trades) ? json.trades : [];
-            setItems(trades);
-            setHasMore(!!json.hasMore);
-            setCursor(json.nextCursor || null);
+            let cursorVal = null;
+            let collected = [];
+            let lastHasMore = false;
+            let lastCursor = null;
+            // Hard upper bound on round trips so a misconfigured server never
+            // loops forever. 20 pages * pageSize covers up to 20k rows.
+            const maxPages = 20;
+            for (let i = 0; i < maxPages; i++) {
+              const res = await fetch(buildUrl(cursorVal), { cache: "no-store" });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              if (!json.ok) throw new Error(json.error || "ledger_trades_failed");
+              const trades = Array.isArray(json.trades) ? json.trades : [];
+              collected = collected.concat(trades);
+              lastHasMore = !!json.hasMore;
+              lastCursor = json.nextCursor || null;
+              if (!lastHasMore || !lastCursor) break;
+              if (collected.length >= maxAutoPageRows) {
+                console.warn(`[useLedgerTrades] auto-page cap (${maxAutoPageRows}) hit; stopping`);
+                break;
+              }
+              cursorVal = lastCursor;
+            }
+            setItems(collected);
+            setHasMore(lastHasMore);
+            setCursor(lastCursor);
           } catch (e) {
             setError(String(e.message || e));
             setItems([]);
@@ -827,7 +954,7 @@
           } finally {
             setLoading(false);
           }
-        }, [buildUrl]);
+        }, [buildUrl, maxAutoPageRows]);
 
         const fetchMore = useCallback(async () => {
           if (!cursor || loadingMore) return;
@@ -4275,6 +4402,7 @@
         positionEvents = null,
         openAutopsyForTrade = null,
         modalOnly = false,
+        layoutMode = "modal",
       }) => {
         const [tickerData, setTickerData] = useState(null);
         const [loading, setLoading] = useState(true);
@@ -4387,6 +4515,7 @@
             openAutopsyForTrade={openAutopsyForTrade}
             effectiveStage={effectiveStage}
             modalOnly={modalOnly}
+            layoutMode={layoutMode}
           />
         );
       };
@@ -5992,7 +6121,7 @@
       //  - Setup Breakdown (rolled-up per-setup performance)
       //  - P&L Calendar heatmap (90-day GitHub-style grid)
       // ─────────────────────────────────────────────────────────────
-      function PerformanceOverviewSection({ trades, loading }) {
+      function PerformanceOverviewSection({ trades, loading, accountStartCash }) {
         const TradesPerformance = useMemo(() => {
           const factory = (typeof window !== "undefined") && window.TradesPerformanceFactory;
           if (!factory) return null;
@@ -6008,16 +6137,18 @@
           return null; // Gracefully hide if script didn't load — dashboard remains functional
         }
 
+        // V15 P0.7.71: align to the same ds-glass panel pattern used by the
+        // Equity Curve / PortfolioColumn elsewhere on the Trades page so the
+        // headline section doesn't look like a different component family.
         return (
-          <div className="mb-6 p-5 rounded-xl"
-            style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
-            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-              <h2 className="text-[15px] font-semibold text-white">Performance Overview</h2>
-              <span className="text-[10px] uppercase tracking-wider text-[#6b7280]">
+          <div className="ds-glass" style={{ marginBottom: "var(--ds-space-5)" }}>
+            <div className="ds-glass__head">
+              <div className="ds-glass__title">Performance Overview</div>
+              <div style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
                 Closed trades · 90-day calendar
-              </span>
+              </div>
             </div>
-            <TradesPerformance trades={trades} loading={loading} />
+            <TradesPerformance trades={trades} loading={loading} accountStartCash={accountStartCash} />
           </div>
         );
       }
@@ -6165,45 +6296,61 @@
           </div>`;
         }
 
+        /* V15 P0.7.81 — PortfolioColumn migrated from tt-card to ds-glass /
+           ds-metric tokens so the Active Trader / Investor sections match
+           the design vocabulary used by Performance Overview, Daily Brief,
+           and the rest of the new pages. */
         return html`<div className="space-y-4">
-          <h2 className="text-base font-semibold text-[var(--tt-text)] flex items-center gap-2">
+          <h2 className="ds-glass__title flex items-center gap-2" style=${{ fontSize: "var(--ds-fs-emph)" }}>
             <span className="w-2 h-2 rounded-full" style=${{ background: accentColor }} />
             ${label}
           </h2>
 
-          <${EquityCurveChart} curveData=${curveData} mode=${mode} />
+          <div className="ds-glass">
+            <${EquityCurveChart} curveData=${curveData} mode=${mode} />
+          </div>
 
-
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
-            <div className="tt-card p-3">
-              <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Account</div>
-              <div className="text-base font-bold text-[var(--tt-text)]">${fmtUsd(acctVal)}</div>
+          <div className="ds-card" style=${{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: "var(--ds-space-2)" }}>
+            <div className="ds-metric">
+              <div className="ds-metric__label">Account</div>
+              <div className="ds-metric__row">
+                <div className="ds-metric__value" style=${{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }} title=${fmtUsd(acctVal)}>${fmtUsdCompact(acctVal)}</div>
+              </div>
             </div>
-            <div className="tt-card p-3">
-              <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Total P&L</div>
-              <div className=${"text-base font-bold " + (totalPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]")}>${fmtUsd(totalPnl)}</div>
+            <div className="ds-metric">
+              <div className="ds-metric__label">Total P&L</div>
+              <div className="ds-metric__row">
+                <div className="ds-metric__value" style=${{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", color: totalPnl >= 0 ? "var(--ds-up)" : "var(--ds-dn)" }} title=${fmtUsd(totalPnl)}>${fmtUsdCompact(totalPnl)}</div>
+              </div>
             </div>
-            <div className="tt-card p-3">
-              <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Open P&L</div>
-              <div className=${"text-base font-bold " + (unrealized >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]")}>${fmtUsd(unrealized)}</div>
+            <div className="ds-metric">
+              <div className="ds-metric__label">Open P&L</div>
+              <div className="ds-metric__row">
+                <div className="ds-metric__value" style=${{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", color: unrealized >= 0 ? "var(--ds-up)" : "var(--ds-dn)" }} title=${fmtUsd(unrealized)}>${fmtUsdCompact(unrealized)}</div>
+              </div>
             </div>
-            <div className="tt-card p-3">
-              <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Closed</div>
-              <div className="text-base font-bold text-[var(--tt-text)]">${closedTrades.length}</div>
-              <div className="text-[10px] text-[var(--tt-text-faint)]">${wins}W ${losses}L</div>
+            <div className="ds-metric">
+              <div className="ds-metric__label">Closed</div>
+              <div className="ds-metric__row">
+                <div className="ds-metric__value" style=${{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>${closedTrades.length}</div>
+                <div className="ds-metric__delta" style=${{ color: "var(--ds-text-muted)", whiteSpace: "nowrap" }}>${wins}W ${losses}L</div>
+              </div>
             </div>
-            <div className="tt-card p-3">
-              <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Realized</div>
-              <div className=${"text-base font-bold " + (realizedPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]")}>${fmtUsd(realizedPnl)}</div>
+            <div className="ds-metric">
+              <div className="ds-metric__label">Realized</div>
+              <div className="ds-metric__row">
+                <div className="ds-metric__value" style=${{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", color: realizedPnl >= 0 ? "var(--ds-up)" : "var(--ds-dn)" }} title=${fmtUsd(realizedPnl)}>${fmtUsdCompact(realizedPnl)}</div>
+              </div>
             </div>
           </div>
 
 
 
-          <div className="tt-card p-4 relative">
-            <h3 className="text-xs font-medium text-[var(--tt-text-faint)] uppercase tracking-wider mb-3">
-              Open Positions (${openPositionCards.length})
-            </h3>
+          <div className="ds-glass">
+            <div className="ds-glass__head">
+              <div className="ds-glass__title">Open Positions</div>
+              <div style=${{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)" }}>${openPositionCards.length}</div>
+            </div>
             ${!window._ttIsPro ? html`
               <div className="relative">
                 <div style=${{ filter: "blur(6px)", pointerEvents: "none", userSelect: "none", opacity: 0.4 }}>
@@ -6248,12 +6395,12 @@
 
 
 
-          <div className="tt-card p-4">
-            <div className="flex items-baseline justify-between mb-3 gap-3">
-              <div className="flex items-baseline gap-2.5 min-w-0">
-                <span className="tt-label-editorial">${isTrader ? "Trade History" : "Lot History"}</span>
-                <span className="tt-num" style=${{ fontSize: "11px", color: "var(--tt-text-3)" }}>${isTrader ? tradeHistory.length : `${closedTrades.length} exits · ${tradeHistory.length} lots`}</span>
-              </div>
+          <div className="ds-glass">
+            <div className="ds-glass__head" style=${{ marginBottom: "var(--ds-space-2)" }}>
+              <div className="ds-glass__title">${isTrader ? "Trade History" : "Lot History"}</div>
+              <div style=${{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)" }}>${isTrader ? tradeHistory.length : `${closedTrades.length} exits · ${tradeHistory.length} lots`}</div>
+            </div>
+            <div className="flex items-baseline justify-end mb-3">
               ${window._ttIsPro && tradeHistory.length > 0 && html`<button
                 onClick=${() => setExpanded(!expanded)}
                 className="text-[11px] px-2 py-1 rounded border border-[var(--tt-border)] text-[var(--tt-text-muted)] hover:text-[var(--tt-text)] hover:bg-[var(--tt-bg-hover)] transition-colors"
@@ -6295,7 +6442,7 @@
                           <th className="py-2 pr-2 text-left font-semibold text-[var(--tt-text-faint)] text-[11px]">Ticker</th>
                           <th className="py-2 pr-2 text-left font-semibold text-[var(--tt-text-faint)] text-[11px]">Dir</th>
                           <th className="py-2 pr-2 text-left font-semibold text-[var(--tt-text-faint)] text-[11px]">Tier</th>
-                          <th className="py-2 pr-2 text-right font-semibold text-[var(--tt-text-faint)] text-[11px]">Shares</th>
+                          <th className="py-2 pr-2 text-right font-semibold text-[var(--tt-text-faint)] text-[11px]">Size</th>
                           <th className="py-2 pr-2 text-right font-semibold text-[var(--tt-text-faint)] text-[11px]">P&L</th>
                           <th className="py-2 pr-2 text-right font-semibold text-[var(--tt-text-faint)] text-[11px]">P&L%</th>
                           <th className="py-2 text-center font-semibold text-[var(--tt-text-faint)] text-[11px]">Status</th>
@@ -6330,8 +6477,29 @@
                             <td className="py-2 pr-2">
                               ${_g ? html`<span className=${"px-1.5 py-0.5 rounded text-[9px] font-bold border " + gradeCls}>${_g}</span>` : html`<span className="text-[var(--tt-text-faint)]">—</span>`}
                             </td>
-                            <td className="py-2 pr-2 text-right font-medium text-[#a78bfa] whitespace-nowrap">
-                              ${(() => { const _s = Number(h.raw?.shares); return (_s > 0 && Number.isFinite(_s)) ? Math.round(_s) : "—"; })()}
+                            <td className="py-2 pr-2 text-right font-medium whitespace-nowrap">
+                              ${(() => {
+                                const _s = Number(h.raw?.shares) || 0;
+                                const _ep = Number(h.raw?.entry_price || h.raw?.entryPrice) || 0;
+                                if (!_s || !_ep) return html`<span className="text-[var(--tt-text-faint)]">—</span>`;
+                                const _av = Number(window?._ttAccountValue || 100000) || 100000;
+                                const _ctx = window?.TimedPriceUtils?.computePositionContext
+                                  ? window.TimedPriceUtils.computePositionContext({
+                                      shares: _s,
+                                      entryPrice: _ep,
+                                      accountValue: _av,
+                                      riskBudget: Number(h.raw?.risk_budget) || 0,
+                                      direction: h.direction,
+                                    })
+                                  : null;
+                                if (!_ctx) return html`<span className="text-[#a78bfa]">${Math.round(_s)}</span>`;
+                                return html`<div className="leading-tight">
+                                  <div className="text-[#a78bfa]">${Math.round(_s)} sh</div>
+                                  <div className="text-[10px] text-[var(--tt-text-muted)]">
+                                    ${_ctx.notionalText}${_ctx.pctText ? ` · ${_ctx.pctText}` : ""}
+                                  </div>
+                                </div>`;
+                              })()}
                             </td>
                             <td className=${"py-2 pr-2 text-right font-medium whitespace-nowrap " + pnlColor}>
                               ${h.pnl != null ? fmtUsd(h.pnl) : "—"}
@@ -6720,6 +6888,16 @@
         const { sectors } = useSectors();
         const { summary: acctSummary } = useAccountSummary("trader");
 
+        // V15 P0.7.71: expose trader account value globally so the shared
+        // Right Rail's Active Position card can compute "X% of acct" with
+        // the user's actual balance (vs the $100k system reference).
+        useEffect(() => {
+          const av = Number(acctSummary?.accountValue);
+          if (Number.isFinite(av) && av > 0) {
+            window._ttAccountValue = av;
+          }
+        }, [acctSummary?.accountValue]);
+
         // ── Investor portfolio data ──
         const { summary: investorSummary } = useAccountSummary("investor");
         const SLIDER_RANGE_DAYS = 365;
@@ -6835,7 +7013,7 @@
           status: ledgerStatusFilter,
           since: ledgerSince,
           until: ledgerUntil,
-          pageSize: 500,
+          pageSize: 1000,
         });
         const ledgerAlerts = useLedgerAlerts({
           ticker: ledgerTickerFilter.trim(),
@@ -7922,17 +8100,18 @@
                   </div>
                 )}
 
-                {/* ═══ Performance Overview — Monthly + Setup Breakdown + P&L Calendar ═══ */}
-                {/* V15 P0.7.36 (2026-04-30): self-contained component loaded via window.TradesPerformanceFactory */}
-                <div className={`${selectedTicker || selectedTrade ? "mr-[470px] xl:mr-[580px]" : ""}`}>
-                  <PerformanceOverviewSection
-                    trades={ledgerFilteredTrades || []}
-                    loading={(ledgerTrades ?? {}).loading}
-                  />
-                </div>
+                {/* ═══ Trades Page Layout (V15 P0.7.81 — reordered per user) ═══
+                    Order:
+                      1. Header (Portfolio overview, above)
+                      2. Dual-column Active Trader | Investor (equity + stats + open positions + trade history)
+                      3. P&L Calendar (last 90 days)
+                      4. Monthly Performance + Setup Breakdown
+                    The PerformanceOverviewSection now renders ONLY Calendar +
+                    Monthly Performance (top headline tiles moved into the
+                    Active Trader / Investor sections themselves). */}
 
                 {/* ═══ Dual-Column Layout: Active Trader | Investor ═══ */}
-                <div className={`${selectedTicker || selectedTrade ? "mr-[470px] xl:mr-[580px]" : ""}`}>
+                <div className={`${selectedTicker || selectedTrade ? "mr-[500px] lg:mr-[660px] xl:mr-[740px] 2xl:mr-[820px]" : ""}`}>
 
                   {/* Mobile: Tab toggle (hidden on lg+) */}
                   <div className="flex items-center gap-1 mb-4 border-b border-[var(--tt-border)] lg:hidden">
@@ -8015,12 +8194,26 @@
                   </div>
                 </div>
 
+                {/* ═══ Performance Overview — P&L Calendar + Monthly Performance ═══
+                    Renders BELOW the dual-column Active Trader / Investor block
+                    per user reorder (V15 P0.7.81). The headline tiles inside
+                    PerformanceOverview duplicate the Account/PnL stats already
+                    shown above, so we keep them as a secondary "all-time"
+                    rollup beneath the per-mode columns. */}
+                <div className={`mt-6 ${selectedTicker || selectedTrade ? "mr-[500px] lg:mr-[660px] xl:mr-[740px] 2xl:mr-[820px]" : ""}`}>
+                  <PerformanceOverviewSection
+                    trades={ledgerFilteredTrades || []}
+                    loading={(ledgerTrades ?? {}).loading}
+                    accountStartCash={Number(acctSummary?.startCash) || 100000}
+                  />
+                </div>
+
                   {/* Right rail — same component and look as Dashboard
                        V15 P0.7.37: wider on xl+ screens (560px) for better readability;
                        desktop-only (lg:) keeps 450px; mobile is full-width via the
                        investor-dashboard pattern. */}
                   {(selectedTicker || selectedTrade) && !modalOnly && (
-                    <div className="fixed right-0 top-[49px] w-[450px] xl:w-[560px] bottom-0 z-40 slide-in-right shadow-2xl overflow-y-auto bg-[#0b0e11] border-l border-white/[0.04]">
+                    <div className="tt-ticker-workspace-mount fixed right-0 top-[49px] w-[480px] lg:w-[640px] xl:w-[720px] 2xl:w-[800px] bottom-0 z-40 slide-in-right shadow-2xl overflow-y-auto bg-[#0b0e11] border-l border-white/[0.04]">
                       <TickerDetailsLoader
                         tickerSymbol={selectedTrade ? selectedTrade.ticker : selectedTicker}
                         trade={selectedTrade}
@@ -8037,6 +8230,7 @@
                         rankedTickers={rankedTickers}
                         rankedTickerPositions={rankedTickerPositions}
                         openAutopsyForTrade={openAutopsyForTrade}
+                        layoutMode={typeof window !== "undefined" && window.innerWidth >= 1024 ? "workspace" : "modal"}
                       />
                     </div>
                   )}

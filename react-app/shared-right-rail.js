@@ -89,8 +89,19 @@
     function _formatPath(path) {
       if (!path || typeof path !== "string") return null;
       if (SETUP_NAME_MAP[path]) return SETUP_NAME_MAP[path];
-      return path.replace(/^tt_/i, "").replace(/^ripster_?/i, "").replace(/^saty_?/i, "")
-                 .replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+      // V15 P0.7.82: strip both "TT " (brand) and "Tt " (engine namespace)
+      // double-prefix that some backend rows emit verbatim, e.g.
+      // "TT Tt Gap Reversal Long" → "Gap Reversal Long". Previously only
+      // the underscore form `tt_` was stripped.
+      let s = path
+        .replace(/^TT\s+/i, "")
+        .replace(/^Tt[\s_]/i, "")
+        .replace(/^tt_/i, "")
+        .replace(/^ripster_?/i, "")
+        .replace(/^saty_?/i, "")
+        .replace(/_/g, " ");
+      // Title-case any remaining words
+      return s.replace(/\b\w/g, c => c.toUpperCase());
     }
     function _parseSnapshot(snap) {
       if (!snap) return null;
@@ -342,13 +353,24 @@
       const ck = `${sym}-${chartTf}`;
       if (_rrLevelsCache[ck] && Date.now() - _rrLevelsCache[ck].ts < 300000) return _rrLevelsCache[ck].data;
       try {
+        // V15 P0.7.72 — Phase 2 Q1 unification.
+        // Try the canonical /timed/ticker-scenario endpoint FIRST. The Daily
+        // Brief AI prompt reads from this exact endpoint, so by reading it
+        // here too we guarantee zero drift between the chart overlay and the
+        // morning brief. Fall back to the legacy local computation if the
+        // endpoint returns no data (e.g. for tickers without daily candles).
+        let canonical = null;
+        try {
+          const sres = await fetch(`${API_BASE}/timed/ticker-scenario?ticker=${encodeURIComponent(sym)}`, { cache: "no-store" });
+          const sjson = await sres.json();
+          if (sjson?.ok && sjson?.levels) canonical = sjson;
+        } catch (_) { /* fall through to legacy */ }
+
         const res = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=D&limit=40`, { cache: "no-store" });
         const d = await res.json();
         if (!d.ok || !d.candles || d.candles.length < 5) return null;
         const dailies = d.candles;
         const rnd = v => Math.round(v * 100) / 100;
-        const levels = [];
-
         let atrSum = 0, atrN = 0;
         for (let i = 1; i < dailies.length; i++) {
           const h = Number(dailies[i].h), l = Number(dailies[i].l), pc = Number(dailies[i - 1].c);
@@ -357,31 +379,10 @@
         }
         const dayAtr = atrN > 0 ? atrSum / atrN : 0;
         if (dayAtr <= 0) return null;
-
         const prevDay = dailies[dailies.length - 2];
         const anchor = Number(prevDay.c);
-        levels.push({ price: rnd(anchor), color: "rgba(255,255,255,0.40)", label: "Prev Close", lineWidth: 1, style: "dotted" });
 
-        const dailyParsed = dailies.map(c => ({ h: Number(c.h), l: Number(c.l), c: Number(c.c), o: Number(c.o), ts: Number(c.ts) / 1000 }));
-        const { highs, lows } = _rrDetectSwingPoints(dailyParsed, 2);
-        const curPx = dailyParsed[dailyParsed.length - 1].c;
-        const nearHighs = highs.filter(h => h.price > curPx * 0.98).sort((a, b) => a.price - b.price).slice(0, 2);
-        const nearLows = lows.filter(l => l.price < curPx * 1.02).sort((a, b) => b.price - a.price).slice(0, 2);
-        for (const h of nearHighs) levels.push({ price: rnd(h.price), color: "rgba(239,83,80,0.50)", label: `R ${rnd(h.price)}`, lineWidth: 1, style: "dashed" });
-        for (const l of nearLows) levels.push({ price: rnd(l.price), color: "rgba(38,166,154,0.50)", label: `S ${rnd(l.price)}`, lineWidth: 1, style: "dashed" });
-
-        if (chartTf !== "D" && chartTf !== "W") {
-          const dist = curPx - anchor;
-          const pctOfAtr = dist / dayAtr;
-          if (pctOfAtr > 0.382) {
-            levels.push({ price: rnd(anchor + dayAtr * 0.618), color: "rgba(245,158,11,0.50)", label: "ATR +61.8%", lineWidth: 1, style: "dashed" });
-            levels.push({ price: rnd(anchor + dayAtr * 1.0), color: "rgba(245,158,11,0.50)", label: "ATR +100%", lineWidth: 1, style: "dashed" });
-          } else if (pctOfAtr < -0.382) {
-            levels.push({ price: rnd(anchor - dayAtr * 0.618), color: "rgba(245,158,11,0.50)", label: "ATR -61.8%", lineWidth: 1, style: "dashed" });
-            levels.push({ price: rnd(anchor - dayAtr * 1.0), color: "rgba(245,158,11,0.50)", label: "ATR -100%", lineWidth: 1, style: "dashed" });
-          }
-        }
-
+        // Pattern detection still runs locally on the chart's own candles.
         let patternData = { trendlines: [], patterns: [] };
         if (chartCandles && chartCandles.length > 15) {
           const parsed = chartCandles.map(c => ({
@@ -391,7 +392,58 @@
           }));
           patternData = _rrDetectPatterns(parsed);
         }
-        const result = { levels, dayAtr: rnd(dayAtr), anchor: rnd(anchor), trendlines: patternData.trendlines, patterns: patternData.patterns };
+
+        let levels = [];
+        if (canonical) {
+          // Compose horizontal lines from the canonical S/R + game plan.
+          // Same prices the AI is quoting in the Daily Brief.
+          for (const r of (canonical.levels?.resistance || [])) {
+            const isPivot = r.source === "pivot";
+            const isAtr = r.source === "atr_fib";
+            const color = isPivot ? "rgba(245,158,11,0.55)" : isAtr ? "rgba(245,158,11,0.40)" : "rgba(239,83,80,0.55)";
+            levels.push({ price: rnd(r.price), color, label: r.label || `R ${rnd(r.price)}`, lineWidth: 1, style: "dashed" });
+          }
+          for (const s of (canonical.levels?.support || [])) {
+            const isPivot = s.source === "pivot";
+            const isAtr = s.source === "atr_fib";
+            const isAnchor = s.source === "anchor";
+            const color = isAnchor ? "rgba(255,255,255,0.45)" : isPivot ? "rgba(56,189,248,0.55)" : isAtr ? "rgba(245,158,11,0.40)" : "rgba(38,166,154,0.55)";
+            const style = isAnchor ? "dotted" : "dashed";
+            levels.push({ price: rnd(s.price), color, label: s.label || `S ${rnd(s.price)}`, lineWidth: 1, style });
+          }
+        } else {
+          // Legacy local path (unchanged) — used when canonical scenario unavailable
+          levels.push({ price: rnd(anchor), color: "rgba(255,255,255,0.40)", label: "Prev Close", lineWidth: 1, style: "dotted" });
+          const dailyParsed = dailies.map(c => ({ h: Number(c.h), l: Number(c.l), c: Number(c.c), o: Number(c.o), ts: Number(c.ts) / 1000 }));
+          const { highs, lows } = _rrDetectSwingPoints(dailyParsed, 2);
+          const curPx = dailyParsed[dailyParsed.length - 1].c;
+          const nearHighs = highs.filter(h => h.price > curPx * 0.98).sort((a, b) => a.price - b.price).slice(0, 2);
+          const nearLows = lows.filter(l => l.price < curPx * 1.02).sort((a, b) => b.price - a.price).slice(0, 2);
+          for (const h of nearHighs) levels.push({ price: rnd(h.price), color: "rgba(239,83,80,0.50)", label: `R ${rnd(h.price)}`, lineWidth: 1, style: "dashed" });
+          for (const l of nearLows) levels.push({ price: rnd(l.price), color: "rgba(38,166,154,0.50)", label: `S ${rnd(l.price)}`, lineWidth: 1, style: "dashed" });
+          if (chartTf !== "D" && chartTf !== "W") {
+            const dist = curPx - anchor;
+            const pctOfAtr = dist / dayAtr;
+            if (pctOfAtr > 0.382) {
+              levels.push({ price: rnd(anchor + dayAtr * 0.618), color: "rgba(245,158,11,0.50)", label: "ATR +61.8%", lineWidth: 1, style: "dashed" });
+              levels.push({ price: rnd(anchor + dayAtr * 1.0), color: "rgba(245,158,11,0.50)", label: "ATR +100%", lineWidth: 1, style: "dashed" });
+            } else if (pctOfAtr < -0.382) {
+              levels.push({ price: rnd(anchor - dayAtr * 0.618), color: "rgba(245,158,11,0.50)", label: "ATR -61.8%", lineWidth: 1, style: "dashed" });
+              levels.push({ price: rnd(anchor - dayAtr * 1.0), color: "rgba(245,158,11,0.50)", label: "ATR -100%", lineWidth: 1, style: "dashed" });
+            }
+          }
+        }
+
+        const result = {
+          levels,
+          dayAtr: rnd(dayAtr),
+          anchor: rnd(anchor),
+          trendlines: patternData.trendlines,
+          patterns: patternData.patterns,
+          // Expose the full canonical scenario so the Model card can render
+          // bias + GG + game plan from the same source.
+          canonical: canonical || null,
+        };
         _rrLevelsCache[ck] = { data: result, ts: Date.now() };
         return result;
       } catch (e) {
@@ -447,6 +499,12 @@
          - hideOverlayToggles bool
          - propTicker.ticker string
        Returns true (skip render) if all match. */
+    // V15 P0.7.98 — module-scoped stable empty array. Used as the
+    // priceLines prop for the rail's default "Daily Brief style" chart so
+    // we don't allocate a fresh [] on every render (which would defeat
+    // the LWChart React.memo comparator and force a full chart redraw).
+    const EMPTY_PRICE_LINES = Object.freeze([]);
+
     function _LWChartImpl({ candles: rawCandles, chartTf, overlays, onCrosshair, height: propHeight, priceLines: propPriceLines, markers: propMarkers, ticker: propTicker, hideOverlayToggles = false }) {
       const containerRef = useRef(null);
       const chartInstanceRef = useRef(null);
@@ -454,6 +512,20 @@
       const overlaySeriesRef = useRef({});
       const levelPriceLinesRef = useRef([]);
       const levelTrendSeriesRef = useRef([]);
+      // V15 P0.7.99 — additional refs to support split CREATE/UPDATE effects.
+      // Tracks whether the visible-range autofit has been applied for the
+      // current chart instance (so subsequent live data updates don't snap
+      // back to default view), and the price lines added from external SL/
+      // TP/Entry props (so they can be cleaned up when those props change
+      // without recreating the chart).
+      const firstDataLoadAppliedRef = useRef(false);
+      const externalPriceLinesRef = useRef([]);
+      const tdSeqMarkersRef = useRef([]);
+      // V15 P0.7.99-r2 — content signature of the last applied mapped
+      // dataset. UPDATE effect short-circuits when content is identical
+      // even if the array reference changed (defends against any spurious
+      // useMemo re-runs that might otherwise trigger a brief redraw).
+      const lastMappedSigRef = useRef(null);
       const [ohlcHeader, setOhlcHeader] = useState(null);
       const [patternLabel, setPatternLabel] = useState(null);
 
@@ -562,9 +634,29 @@
         return result;
       }, [mapped, overlays]);
 
-      // Create / update chart
+      // V15 P0.7.99 — CREATE effect.
+      // Used to be a single big useEffect with deps [mapped, indicatorData,
+      // chartTf, ...] that recreated the chart whenever the candle data
+      // identity changed. Even with the React.memo comparator preventing
+      // most re-renders, any incidental re-render that did get through
+      // (e.g. cache cycle, parent prop churn from the WS price feed) caused
+      // a chart.remove() + createChart() cycle that lost zoom/pan state and
+      // produced the visible flicker the user reported as
+      //   "I resize, wait a few seconds, it flickers and reverts to default".
+      //
+      // Split:
+      //   CREATE effect — deps [chartTf, propTicker?.ticker, LWC, propHeight, hideOverlayToggles]
+      //     Creates the chart instance + candle series ONCE per ticker/TF
+      //     change. Sets up crosshair, resize observer, async S/R fetch.
+      //   UPDATE effect — deps [mapped, indicatorData]
+      //     Calls candleSeries.setData(mapped) without recreating the chart.
+      //     Adds/refreshes overlay series. Preserves the existing visible
+      //     range so live data updates feel like in-place updates rather
+      //     than full redraws.
+      //   PRICE-LINES effect — deps [propPriceLines]
+      //     Re-applies external SL/TP/Entry lines as those change.
       useEffect(() => {
-        if (!containerRef.current || !LWC || mapped.length < 2) return;
+        if (!containerRef.current || !LWC) return;
 
         /* V2.1 round 5 (2026-05-01) — LWChart styled to match the Daily
            Brief chart per user feedback ("nice and clean"). Changes:
@@ -581,7 +673,10 @@
            - localization.priceFormatter shows VIX/%-based as 2dp, equities
              as 2dp (consistent with Daily Brief)
            - timeFormatter uses month/day/hour/min for tooltips */
-        const chartHeight = propHeight || 320;
+        // P0.7.100 — when no propHeight is passed, use the container's
+        // current clientHeight so the chart matches whatever flex height
+        // the parent CSS has assigned (workspace mode: full pane).
+        const chartHeight = propHeight || containerRef.current.clientHeight || 320;
         const _isHtfChart = ["D", "W", "M"].includes(String(chartTf));
         const chart = LWC.createChart(containerRef.current, {
           width: containerRef.current.clientWidth,
@@ -606,6 +701,18 @@
             autoScale: true,
             minimumWidth: 70,
             entireTextOnly: true,
+          },
+          // P0.7.102 — explicit handleScale config so dragging the
+          // right price axis or scrolling on it scales price (vs time).
+          // axisDoubleClickReset lets the user double-click the axis
+          // to snap back to autoScale. Without this the chart would
+          // re-fit on every data refresh and wipe the user's manual
+          // zoom — that was the "snap back and flickers" symptom.
+          handleScale: {
+            mouseWheel: true,
+            pinch: true,
+            axisPressedMouseMove: { price: true, time: true },
+            axisDoubleClickReset: { price: true, time: true },
           },
           timeScale: {
             borderColor: "rgba(38,50,95,0.3)",
@@ -648,61 +755,44 @@
           wickUpColor: "#26a69a",
           wickDownColor: "#ef5350",
         });
-        candleSeries.setData(mapped);
         candleSeriesRef.current = candleSeries;
 
-        // Overlay series
-        const addedSeries = {};
-        if (indicatorData.ema21?.length > 0) {
-          const s = chart.addLineSeries({ color: "#fbbf24", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-          s.setData(indicatorData.ema21);
-          addedSeries.ema21 = s;
-        }
-        if (indicatorData.ema48?.length > 0) {
-          const s = chart.addLineSeries({ color: "#a78bfa", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-          s.setData(indicatorData.ema48);
-          addedSeries.ema48 = s;
-        }
-        if (indicatorData.ema200?.length > 0) {
-          const s = chart.addLineSeries({ color: "#f87171", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-          s.setData(indicatorData.ema200);
-          addedSeries.ema200 = s;
-        }
-        if (indicatorData.stSegments?.length > 0) {
-          const stSeriesList = [];
-          for (const seg of indicatorData.stSegments) {
-            if (!seg.data?.length) continue;
-            const s = chart.addLineSeries({ color: seg.color, lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
-            s.setData(seg.data);
-            stSeriesList.push(s);
-          }
-          addedSeries.stSegments = stSeriesList;
-        }
-        // TD Sequential markers + external markers
-        const allMarkers = [
-          ...(indicatorData.tdMarkers || []),
-          ...(Array.isArray(propMarkers) ? propMarkers : []),
-        ].sort((a, b) => a.time - b.time);
-        if (allMarkers.length > 0) {
-          candleSeries.setMarkers(allMarkers);
-        }
-        overlaySeriesRef.current = addedSeries;
+        // V15 P0.7.99 — initial data load + overlays + S/R fetch all
+        // happen in the UPDATE effect below. CREATE effect is pure
+        // construction so it never re-runs on data changes.
 
-        // External price lines (SL, TP, Entry)
-        if (Array.isArray(propPriceLines)) {
-          for (const pl of propPriceLines) {
-            if (pl && Number.isFinite(pl.price) && pl.price > 0) {
-              candleSeries.createPriceLine({
-                price: pl.price,
-                color: pl.color || '#ffffff',
-                lineWidth: pl.lineWidth || 1,
-                lineStyle: pl.lineStyle != null ? pl.lineStyle : 2,
-                axisLabelVisible: pl.axisLabelVisible !== false,
-                title: pl.title || '',
-              });
-            }
+        // Reset first-data-load flag so visible range gets set on next data
+        firstDataLoadAppliedRef.current = false;
+        // Reset mapped-content signature so the UPDATE effect's short-
+        // circuit runs the FIRST data load through (otherwise the new
+        // chart instance would never receive any candles).
+        lastMappedSigRef.current = null;
+
+        // P0.7.102 — Detect user interaction with the price axis and
+        // disable autoScale so subsequent data updates don't re-fit
+        // the price range. Without this, manually zooming vertically
+        // would "snap back" to autoScale on the next data refresh.
+        try {
+          const priceScale = chart.priceScale("right");
+          if (priceScale && typeof priceScale.subscribePriceScaleChanged === "function") {
+            // newer LWC versions
+            priceScale.subscribePriceScaleChanged(() => {
+              try { priceScale.applyOptions({ autoScale: false }); } catch (_) {}
+            });
+          } else {
+            // Fallback: detect mousewheel + drag on the chart container
+            // and turn off autoScale manually.
+            const axisInteract = () => {
+              try { chart.priceScale("right").applyOptions({ autoScale: false }); } catch (_) {}
+            };
+            containerRef.current.addEventListener("wheel", axisInteract, { passive: true });
+            containerRef.current.addEventListener("mousedown", (ev) => {
+              // only fire on price-axis side (right ~70px of chart)
+              const rect = containerRef.current.getBoundingClientRect();
+              if (ev.clientX > rect.right - 80) axisInteract();
+            });
           }
-        }
+        } catch (_) {}
 
         // Crosshair move → OHLC header
         chart.subscribeCrosshairMove(param => {
@@ -722,68 +812,55 @@
           }
         });
 
-        // TF-specific visible range and bar spacing
-        const _visibleBars = { "5": 156, "15": 52, "30": 26, "60": 20, "240": 60, "D": 30, "W": 52 };
-        const _barsToShow = _visibleBars[String(chartTf)] || mapped.length;
+        // V15 P0.7.99 — TF-specific bar spacing applied here once. The
+        // visible logical range is set in the UPDATE effect after data is
+        // populated (and only on the FIRST data load — subsequent updates
+        // preserve whatever range the user has scrolled/zoomed to).
         const _tfBarSpacing = String(chartTf) === "D" ? 12 : String(chartTf) === "60" ? 8 : 6;
         chart.applyOptions({ timeScale: { rightOffset: 5, barSpacing: _tfBarSpacing } });
-        if (mapped.length > _barsToShow) {
-          chart.timeScale().setVisibleLogicalRange({ from: mapped.length - _barsToShow, to: mapped.length + 5 });
-        } else {
-          chart.timeScale().fitContent();
-        }
 
-        // Fetch and apply S/R levels, trendlines, patterns
-        if (propTicker && overlays?.levels !== false) {
-          _rrFetchChartLevels(propTicker, String(chartTf), mapped).then(ovData => {
-            if (!ovData || !candleSeries || !chart) return;
-            // Price lines
-            for (const lvl of (ovData.levels || [])) {
-              try {
-                const styleMap = { dotted: LWC.LineStyle.Dotted, dashed: LWC.LineStyle.Dashed, solid: LWC.LineStyle.Solid };
-                const pl = candleSeries.createPriceLine({
-                  price: lvl.price, color: lvl.color || "rgba(255,255,255,0.2)", lineWidth: lvl.lineWidth || 1,
-                  lineStyle: styleMap[lvl.style] || LWC.LineStyle.Dashed, axisLabelVisible: true, title: lvl.label || "",
-                });
-                levelPriceLinesRef.current.push(pl);
-              } catch (_) {}
-            }
-            // Trendlines
-            for (const tl of (ovData.trendlines || [])) {
-              if (!tl.points || tl.points.length < 2) continue;
-              try {
-                const ls = chart.addLineSeries({
-                  color: tl.color || "rgba(255,255,255,0.3)", lineWidth: 2, lineStyle: LWC.LineStyle.LargeDashed,
-                  crosshairMarkerVisible: false, priceLineVisible: false, lastValueVisible: false,
-                });
-                ls.setData(tl.points);
-                levelTrendSeriesRef.current.push(ls);
-              } catch (_) {}
-            }
-            // Pattern markers (merge with existing)
-            if (ovData.patterns?.length > 0) {
-              const pMarkers = ovData.patterns.map(p => ({
-                time: p.ts, position: p.bias === "bearish" ? "aboveBar" : "belowBar",
-                color: p.bias === "bearish" ? "#ef5350" : p.bias === "bullish" ? "#26a69a" : "#7c8493",
-                shape: p.bias === "bearish" ? "arrowDown" : p.bias === "bullish" ? "arrowUp" : "circle",
-                text: p.type,
-              }));
-              try {
-                const existingMarkers = allMarkers || [];
-                candleSeries.setMarkers([...existingMarkers, ...pMarkers].sort((a, b) => a.time - b.time));
-              } catch (_) {}
-              setPatternLabel(ovData.patterns[ovData.patterns.length - 1]?.type || null);
-            }
-          }).catch(() => {});
-        }
-
-        // Resize — use ResizeObserver for portal/modal mount detection + window fallback
+        // Resize — use ResizeObserver for portal/modal mount detection + window fallback.
+        // V15 P0.7.77: debounce + only fire when width actually changes by ≥1px.
+        // Prior version called chart.applyOptions() on every ResizeObserver tick,
+        // which fired on every layout reflow (account value updating, levels
+        // refresh, etc.) and caused a visible flicker as the chart redrew.
         let resizeObserver = null;
+        let resizeDebounce = null;
+        let lastAppliedWidth = 0;
+        let lastAppliedHeight = 0;
         const handleResize = () => {
+          if (resizeDebounce) cancelAnimationFrame(resizeDebounce);
+          resizeDebounce = requestAnimationFrame(() => {
+            if (containerRef.current && chart) {
+              const w = Math.round(containerRef.current.clientWidth);
+              const opts = {};
+              if (w > 0 && Math.abs(w - lastAppliedWidth) >= 1) {
+                lastAppliedWidth = w; opts.width = w;
+              }
+              if (opts.width != null) {
+                chart.applyOptions(opts);
+              }
+            }
+          });
+        };
+        // P0.7.100-r2 — height changes are handled separately via the
+        // window 'resize' listener below (NOT the ResizeObserver), which
+        // breaks the feedback loop where chart.applyOptions({height})
+        // would itself fire the observer and trigger another applyOptions
+        // call. The window event only fires on actual viewport changes.
+        const handleWindowResize = () => {
           if (containerRef.current && chart) {
-            const w = containerRef.current.clientWidth;
-            if (w > 0) {
-              chart.applyOptions({ width: w });
+            const w = Math.round(containerRef.current.clientWidth);
+            const h = Math.round(containerRef.current.clientHeight);
+            const opts = {};
+            if (w > 0 && Math.abs(w - lastAppliedWidth) >= 1) {
+              lastAppliedWidth = w; opts.width = w;
+            }
+            if (!propHeight && h > 0 && Math.abs(h - lastAppliedHeight) >= 4) {
+              lastAppliedHeight = h; opts.height = h;
+            }
+            if (opts.width != null || opts.height != null) {
+              chart.applyOptions(opts);
             }
           }
         };
@@ -791,31 +868,41 @@
           resizeObserver = new ResizeObserver(handleResize);
           resizeObserver.observe(containerRef.current);
         }
-        window.addEventListener("resize", handleResize);
+        // Width-only on window resize is redundant with ResizeObserver,
+        // but we ALSO add the window listener for height (which is NOT
+        // tracked by the observer to avoid the feedback loop).
+        window.addEventListener("resize", handleWindowResize);
 
-        // Settle: when chart mounts inside a React portal (expanded modal),
-        // the container may not have its final width yet. Use rAF to sync.
+        // Settle: when chart mounts inside a React portal (expanded modal)
+        // or workspace mode, the container may not have its final width
+        // yet. Use rAF to sync. Width-only — height is set once at
+        // create time from clientHeight; subsequent height changes only
+        // happen on window resize (handled by handleWindowResize above).
         requestAnimationFrame(() => {
           if (containerRef.current && chart) {
             const w = containerRef.current.clientWidth;
             if (w > 0) {
               chart.applyOptions({ width: w });
+              lastAppliedWidth = w;
             }
             chart.timeScale().fitContent();
           }
-          // Safety net for slow portal reflow
           setTimeout(() => {
             if (containerRef.current && chart) {
               const w = containerRef.current.clientWidth;
-              if (w > 0) {
+              if (w > 0 && Math.abs(w - lastAppliedWidth) >= 1) {
                 chart.applyOptions({ width: w });
+                lastAppliedWidth = w;
               }
             }
           }, 150);
         });
+        // Track initial height so window-resize comparator works
+        lastAppliedHeight = containerRef.current.clientHeight || chartHeight;
 
         return () => {
-          window.removeEventListener("resize", handleResize);
+          window.removeEventListener("resize", handleWindowResize);
+          if (resizeDebounce) cancelAnimationFrame(resizeDebounce);
           if (resizeObserver) resizeObserver.disconnect();
           levelPriceLinesRef.current = [];
           levelTrendSeriesRef.current = [];
@@ -824,13 +911,206 @@
           candleSeriesRef.current = null;
           overlaySeriesRef.current = {};
         };
-      /* V2.1 round 3 (2026-05-01) — propTicker dropped from deps.
-         The full ticker object identity changes on every dashboard refresh
-         (every ~1s), so including it here destroyed and recreated the chart
-         on every poll → visible flicker. The chart only needs propTicker for
-         _rrFetchChartLevels which is keyed by ticker.symbol; we drive that
-         from a separate effect that depends on the symbol (stable). */
-      }, [mapped, indicatorData, chartTf, LWC, propHeight, propTicker?.ticker]);
+      /* V15 P0.7.99 — CREATE deps now exclude mapped + indicatorData so
+         the chart instance only rebuilds on ticker/TF/sizing changes. Data
+         hydration runs in the UPDATE effect below; level fetching runs in
+         the LEVELS effect; external price lines run in the PRICE-LINES
+         effect. Result: WS price ticks (which arrive every ~2s and were
+         previously sneaking through the React.memo on the parent ticker
+         object reference change) no longer trigger chart.remove() +
+         createChart() — they at most cause a setData() call that
+         preserves the user's zoom/scroll state. */
+      }, [chartTf, LWC, propHeight, propTicker?.ticker]);
+
+      // V15 P0.7.99 — UPDATE effect: hydrates the candle series + indicator
+      // overlays + markers without recreating the chart instance. Runs on
+      // every data change but is cheap (just setData + line series adds).
+      // V15 P0.7.99-r2: short-circuit if mapped content hasn't changed.
+      // Even when useMemo deps shift (rawCandles ref changes), the
+      // CONTENT may still be identical — calling setData with identical
+      // bars produces a brief candle redraw the user sees as flash.
+      // (lastMappedSigRef is declared at the top of the component with
+      // the other refs so CREATE can also reset it on chart rebuild.)
+      useEffect(() => {
+        const chart = chartInstanceRef.current;
+        const candleSeries = candleSeriesRef.current;
+        if (!chart || !candleSeries || !LWC || mapped.length < 2) return;
+
+        // Build a cheap content signature for the candle data. If the data
+        // is structurally identical to the last applied set, skip setData
+        // and overlay rebuild — the chart already shows the right values.
+        const last = mapped[mapped.length - 1];
+        const first = mapped[0];
+        const sig = `${mapped.length}|${first?.time}|${first?.close}|${last?.time}|${last?.open}|${last?.high}|${last?.low}|${last?.close}`;
+        if (lastMappedSigRef.current === sig) {
+          // Mapped reference changed but content is identical — chart is
+          // already showing this data. Leave it alone (no setData call,
+          // no overlay rebuild → no flicker).
+          return;
+        }
+        lastMappedSigRef.current = sig;
+
+        // Push current candle data
+        try {
+          candleSeries.setData(mapped);
+        } catch (_) { /* fall through; series will recover on next ref */ }
+
+        // Replace overlay (EMA / SuperTrend) line series. We remove + add
+        // because indicatorData can include arbitrary segments per cycle.
+        for (const k of Object.keys(overlaySeriesRef.current)) {
+          const v = overlaySeriesRef.current[k];
+          if (Array.isArray(v)) { for (const s of v) try { chart.removeSeries(s); } catch (_) {} }
+          else if (v) try { chart.removeSeries(v); } catch (_) {}
+        }
+        const addedSeries = {};
+        if (indicatorData.ema21?.length > 0) {
+          const s = chart.addLineSeries({ color: "#fbbf24", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+          s.setData(indicatorData.ema21); addedSeries.ema21 = s;
+        }
+        if (indicatorData.ema48?.length > 0) {
+          const s = chart.addLineSeries({ color: "#a78bfa", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+          s.setData(indicatorData.ema48); addedSeries.ema48 = s;
+        }
+        if (indicatorData.ema200?.length > 0) {
+          const s = chart.addLineSeries({ color: "#f87171", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+          s.setData(indicatorData.ema200); addedSeries.ema200 = s;
+        }
+        if (indicatorData.stSegments?.length > 0) {
+          const stList = [];
+          for (const seg of indicatorData.stSegments) {
+            if (!seg.data?.length) continue;
+            const s = chart.addLineSeries({ color: seg.color, lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
+            s.setData(seg.data); stList.push(s);
+          }
+          addedSeries.stSegments = stList;
+        }
+        overlaySeriesRef.current = addedSeries;
+
+        // TD Sequential markers + external markers + (later) pattern markers
+        // are merged in the LEVELS effect; here we just record the TD/
+        // external set so LEVELS can re-merge with patterns when fresh.
+        const baseMarkers = [
+          ...(indicatorData.tdMarkers || []),
+          ...(Array.isArray(propMarkers) ? propMarkers : []),
+        ].sort((a, b) => a.time - b.time);
+        tdSeqMarkersRef.current = baseMarkers;
+        if (baseMarkers.length > 0) {
+          try { candleSeries.setMarkers(baseMarkers); } catch (_) {}
+        } else {
+          try { candleSeries.setMarkers([]); } catch (_) {}
+        }
+
+        // First data load: snap to TF-appropriate visible range. Subsequent
+        // data updates keep whatever range the user has scrolled/zoomed.
+        if (!firstDataLoadAppliedRef.current) {
+          firstDataLoadAppliedRef.current = true;
+          const _visibleBars = { "5": 156, "15": 52, "30": 26, "60": 20, "240": 60, "D": 30, "W": 52 };
+          const _barsToShow = _visibleBars[String(chartTf)] || mapped.length;
+          if (mapped.length > _barsToShow) {
+            try { chart.timeScale().setVisibleLogicalRange({ from: mapped.length - _barsToShow, to: mapped.length + 5 }); } catch (_) {}
+          } else {
+            try { chart.timeScale().fitContent(); } catch (_) {}
+          }
+        }
+      }, [mapped, indicatorData, propMarkers, chartTf, LWC]);
+
+      // V15 P0.7.99 — LEVELS effect: fetches canonical S/R + trendlines +
+      // patterns from /timed/ticker-scenario and applies them as horizontal
+      // price lines + dashed line series + arrow markers (Double Top /
+      // Double Bottom / Bull Flag etc — same set the Daily Brief draws).
+      useEffect(() => {
+        const chart = chartInstanceRef.current;
+        const candleSeries = candleSeriesRef.current;
+        if (!chart || !candleSeries || !LWC || mapped.length < 15) return;
+        if (!propTicker || overlays?.levels === false) return;
+
+        let cancelled = false;
+        _rrFetchChartLevels(propTicker, String(chartTf), mapped).then(ovData => {
+          if (cancelled || !ovData) return;
+          // Clean prior level lines + trendline series (separate from the
+          // external propPriceLines which the PRICE-LINES effect manages)
+          for (const pl of levelPriceLinesRef.current) {
+            try { candleSeries.removePriceLine(pl); } catch (_) {}
+          }
+          levelPriceLinesRef.current = [];
+          for (const ls of levelTrendSeriesRef.current) {
+            try { chart.removeSeries(ls); } catch (_) {}
+          }
+          levelTrendSeriesRef.current = [];
+
+          // Horizontal S/R levels (canonical scenario from ticker-scenario.js)
+          const styleMap = { dotted: LWC.LineStyle.Dotted, dashed: LWC.LineStyle.Dashed, solid: LWC.LineStyle.Solid };
+          for (const lvl of (ovData.levels || [])) {
+            try {
+              const pl = candleSeries.createPriceLine({
+                price: lvl.price, color: lvl.color || "rgba(255,255,255,0.2)", lineWidth: lvl.lineWidth || 1,
+                lineStyle: styleMap[lvl.style] || LWC.LineStyle.Dashed, axisLabelVisible: true, title: lvl.label || "",
+              });
+              levelPriceLinesRef.current.push(pl);
+            } catch (_) {}
+          }
+          // Diagonal support/resistance trendlines (auto-fitted)
+          for (const tl of (ovData.trendlines || [])) {
+            if (!tl.points || tl.points.length < 2) continue;
+            try {
+              const ls = chart.addLineSeries({
+                color: tl.color || "rgba(255,255,255,0.3)", lineWidth: 2, lineStyle: LWC.LineStyle.LargeDashed,
+                crosshairMarkerVisible: false, priceLineVisible: false, lastValueVisible: false,
+              });
+              ls.setData(tl.points);
+              levelTrendSeriesRef.current.push(ls);
+            } catch (_) {}
+          }
+          // Pattern markers — Double Top / Double Bottom / Bull Flag /
+          // Bear Flag / Asc Triangle / Desc Triangle / Range. Merge with
+          // any TD-sequential / external markers from the UPDATE effect.
+          if (ovData.patterns?.length > 0) {
+            const pMarkers = ovData.patterns.map(p => ({
+              time: p.ts, position: p.bias === "bearish" ? "aboveBar" : "belowBar",
+              color: p.bias === "bearish" ? "#ef5350" : p.bias === "bullish" ? "#26a69a" : "#7c8493",
+              shape: p.bias === "bearish" ? "arrowDown" : p.bias === "bullish" ? "arrowUp" : "circle",
+              text: p.type,
+            }));
+            try {
+              candleSeries.setMarkers([...(tdSeqMarkersRef.current || []), ...pMarkers].sort((a, b) => a.time - b.time));
+            } catch (_) {}
+            setPatternLabel(ovData.patterns[ovData.patterns.length - 1]?.type || null);
+          } else {
+            setPatternLabel(null);
+          }
+        }).catch(() => {});
+
+        return () => { cancelled = true; };
+      }, [propTicker?.ticker, chartTf, mapped.length, LWC, overlays?.levels]);
+
+      // V15 P0.7.99 — PRICE-LINES effect: applies external SL/TP/Entry lines
+      // passed via propPriceLines. Decoupled from the chart instance so
+      // these can update without recreating the canvas.
+      useEffect(() => {
+        const candleSeries = candleSeriesRef.current;
+        if (!candleSeries) return;
+        // Clean previous external price lines
+        for (const pl of externalPriceLinesRef.current) {
+          try { candleSeries.removePriceLine(pl); } catch (_) {}
+        }
+        externalPriceLinesRef.current = [];
+        if (!Array.isArray(propPriceLines)) return;
+        for (const pl of propPriceLines) {
+          if (pl && Number.isFinite(pl.price) && pl.price > 0) {
+            try {
+              const created = candleSeries.createPriceLine({
+                price: pl.price,
+                color: pl.color || '#ffffff',
+                lineWidth: pl.lineWidth || 1,
+                lineStyle: pl.lineStyle != null ? pl.lineStyle : 2,
+                axisLabelVisible: pl.axisLabelVisible !== false,
+                title: pl.title || '',
+              });
+              externalPriceLinesRef.current.push(created);
+            } catch (_) {}
+          }
+        }
+      }, [propPriceLines]);
 
       if (!LWC) {
         return React.createElement("div", { className: "text-xs text-[#6b7280]" }, "Charts library not loaded.");
@@ -860,7 +1140,13 @@
         } catch (_) {}
       }
 
-      return React.createElement("div", { className: "w-full relative -mx-3 px-3" },
+      // P0.7.100-r3 — outer wrapper now h-full + flex column so the
+      // chart container's height: 100% genuinely resolves to the parent
+      // (.tt-rail-chart-canvas) explicit pixel height. Without this,
+      // height: 100% falls back to 0 and the chart renders at LWC's
+      // tiny default. Header + status bar are flex-shrink: 0; the
+      // container flex-grows.
+      return React.createElement("div", { className: "w-full h-full relative -mx-3 px-3 flex flex-col", style: { minHeight: 0 } },
         // V2.1 round 6 (2026-05-01) — Legacy in-canvas overlay-toggle row
         // suppressed when the parent passes hideOverlayToggles=true (the v2
         // Setup panel renders its own gold-styled toggles outside the chart,
@@ -900,10 +1186,22 @@
           }, patternLabel)
         ),
         // Chart container
+        // P0.7.100-r3 — flex-1 inside the new h-full flex-col wrapper so
+        // the container fills whatever remains after the OHLC header +
+        // status bar. The actual pixel height is owned by the parent
+        // .tt-rail-chart-canvas via CSS (calc(100vh - 200px) in
+        // workspace mode, fixed 240/380px otherwise). LightweightCharts
+        // is sized via clientHeight at create + window-resize listener
+        // (NOT ResizeObserver — that path looped before).
         React.createElement("div", {
           ref: containerRef,
           className: "rounded-lg overflow-hidden",
-          style: { height: propHeight || 320, background: "#0b0e11" },
+          style: {
+            height: propHeight ? propHeight : "auto",
+            flex: propHeight ? "0 0 auto" : "1 1 auto",
+            minHeight: propHeight ? propHeight : 0,
+            background: "#0b0e11",
+          },
         }),
         // Status bar
         React.createElement("div", { className: "mt-1 text-[10px] text-[#6b7280] flex items-center justify-between" },
@@ -914,24 +1212,54 @@
       );
     }
 
-    /* V2.1 round 7 — memoized LWChart. */
+    /* V2.1 round 7 — memoized LWChart.
+       V2.1 round 11 (2026-05-04) — Hardened comparator: compare EVERY
+       price line value, not just first/last. With S/R levels overlaying
+       the chart we may have 10+ lines whose content is stable across
+       renders but whose array reference changes on every parent re-render.
+       The previous "first/last" check was insufficient — when only middle
+       lines diverged, the chart would re-mount and flicker. */
     const LWChart = React.memo(_LWChartImpl, (prev, next) => {
-      if (prev.candles !== next.candles) return false;
+      // V15 P0.7.99-r2 — HARDENED comparator. Even with the CREATE/UPDATE
+      // split in _LWChartImpl, any spurious re-render that gets through
+      // here forces useMemo([rawCandles]) to re-run and the UPDATE effect
+      // to fire — which calls setData() and produces a brief candle redraw
+      // that the user sees as flicker. New rule: skip render if the
+      // candle data is STRUCTURALLY identical (same length, last bar
+      // time + close + open) — even if the array reference changed.
       if (prev.chartTf !== next.chartTf) return false;
       if (prev.overlays !== next.overlays) return false;
-      if (prev.propHeight !== next.propHeight && prev.height !== next.height) return false;
+      if (prev.height !== next.height) return false;
       if ((prev.hideOverlayToggles || false) !== (next.hideOverlayToggles || false)) return false;
       const prevSym = prev.ticker?.ticker || "";
       const nextSym = next.ticker?.ticker || "";
       if (prevSym !== nextSym) return false;
-      // Cheap shallow check on priceLines: length + first/last price
+      // Candles: try reference equality first; if that fails, do a
+      // shallow structural check on length + last bar (cheap, ~1µs)
+      // so a fresh-but-identical array doesn't trigger a redraw.
+      const pc = Array.isArray(prev.candles) ? prev.candles : [];
+      const nc = Array.isArray(next.candles) ? next.candles : [];
+      if (pc !== nc) {
+        if (pc.length !== nc.length) return false;
+        if (pc.length > 0) {
+          const a = pc[pc.length - 1];
+          const b = nc[nc.length - 1];
+          const aTs = a?.ts ?? a?.t ?? a?.time;
+          const bTs = b?.ts ?? b?.t ?? b?.time;
+          if (Number(aTs) !== Number(bTs)) return false;
+          if (Number(a?.c ?? a?.close) !== Number(b?.c ?? b?.close)) return false;
+          if (Number(a?.o ?? a?.open) !== Number(b?.o ?? b?.open)) return false;
+          if (Number(a?.h ?? a?.high) !== Number(b?.h ?? b?.high)) return false;
+          if (Number(a?.l ?? a?.low)  !== Number(b?.l ?? b?.low))  return false;
+        }
+      }
+      // Deep-equal on priceLines: every price value must match.
       const pa = Array.isArray(prev.priceLines) ? prev.priceLines : [];
       const pn = Array.isArray(next.priceLines) ? next.priceLines : [];
       if (pa.length !== pn.length) return false;
-      if (pa.length > 0) {
-        const first = (a, n) => Number(a[0]?.price) === Number(n[0]?.price);
-        const last  = (a, n) => Number(a[a.length-1]?.price) === Number(n[n.length-1]?.price);
-        if (!first(pa, pn) || !last(pa, pn)) return false;
+      for (let i = 0; i < pa.length; i++) {
+        if (Number(pa[i]?.price) !== Number(pn[i]?.price)) return false;
+        if (String(pa[i]?.title || "") !== String(pn[i]?.title || "")) return false;
       }
       const ma = Array.isArray(prev.markers) ? prev.markers : [];
       const mn = Array.isArray(next.markers) ? next.markers : [];
@@ -1191,7 +1519,10 @@
           <div className="shrink-0 px-3 py-2 flex items-center justify-between border-b border-white/[0.04]">
             <span className="text-[13px] font-semibold text-[#14b8a6]">{ticker}</span>
             <div className="flex items-center gap-0.5">
-              {["5", "15", "30", "60", "D"].map(t => (
+              {/* V15 P0.7.82: dropped 5m from the Trade Review modal — too
+                  noisy for a post-mortem view; 15m is the leading LTF the
+                  engine actually reads against. */}
+              {["15", "30", "60", "D"].map(t => (
                 <button key={t} onClick={() => setTf(t)} className={`px-2 py-1 rounded text-[11px] font-medium ${tf === t ? "bg-white/10 text-white" : "text-[#6b7280] hover:text-white"}`}>{t === "D" ? "1D" : t + "m"}</button>
               ))}
             </div>
@@ -1254,6 +1585,13 @@
         toggleSavedTicker = null,
         openAutopsyForTrade = null,
         modalOnly = false,
+        /* V15 P0.7.76 (2026-05-06) — Workspace mode. When "workspace",
+           the rail uses CSS Grid to split into two panes:
+             - LEFT: persistent chart + key levels (always visible)
+             - RIGHT: tab nav + tab content (Snapshot default, scrollable)
+           When "modal" (default), the rail keeps single-column flow
+           (mobile/tablet drawer behavior). */
+        layoutMode = "modal",
       }) {
         const tickerSymbol = ticker?.ticker ? String(ticker.ticker) : "";
         const isAdding = addingTicker && String(addingTicker).toUpperCase() === tickerSymbol;
@@ -1285,8 +1623,71 @@
         const [predictionContractLoading, setPredictionContractLoading] = useState(false);
         const [predictionContractError, setPredictionContractError] = useState(null);
 
+        // V15 P0.7.99-r2 — Subtle Key Levels for the rail chart.
+        // Maps the SAME predictionContract.levels rendered in the Setup
+        // tab's Key Levels box into a small set of low-alpha dotted lines
+        // so users can visually correlate the box with the chart. We cap
+        // to the top 3 above + top 3 below to keep the right axis legible
+        // and use very low opacity (0.18) so the lines don't compete with
+        // the candles. Reference is memoized so the LWChart's PRICE-LINES
+        // effect only runs when the underlying levels actually change.
+        const subtleKeyLevelLines = useMemo(() => {
+          if (!Array.isArray(predictionContract?.levels)) return EMPTY_PRICE_LINES;
+          const px = Number(predictionContract?.current_price)
+            || Number(ticker?.price) || 0;
+          if (!(px > 0)) return EMPTY_PRICE_LINES;
+          const above = predictionContract.levels
+            .filter((l) => l.role === "resistance" && Number.isFinite(Number(l.price)) && Number(l.price) > px)
+            .sort((a, b) => Number(a.price) - Number(b.price))
+            .slice(0, 3);
+          const below = predictionContract.levels
+            .filter((l) => l.role === "support" && Number.isFinite(Number(l.price)) && Number(l.price) < px)
+            .sort((a, b) => Number(b.price) - Number(a.price))
+            .slice(0, 3);
+          const out = [];
+          // P0.7.102 — bumped opacity 0.22 -> 0.45 + lineWidth 1 -> 1
+          // (kept thin) so the lines are clearly visible on the chart
+          // but still subtle. Also use Dashed (style 2) instead of
+          // Dotted (1) for better visibility on dark backgrounds.
+          for (const l of above) {
+            out.push({
+              price: Number(l.price),
+              color: "rgba(244,63,94,0.55)",
+              lineWidth: 1,
+              lineStyle: 2, // Dashed
+              axisLabelVisible: true,
+              title: (l.label || "").replace(/Recent /i, "").replace(/Yesterday's /i, "Y'day ").slice(0, 24),
+            });
+          }
+          for (const l of below) {
+            out.push({
+              price: Number(l.price),
+              color: "rgba(38,166,154,0.55)",
+              lineWidth: 1,
+              lineStyle: 2, // Dashed
+              axisLabelVisible: true,
+              title: (l.label || "").replace(/Recent /i, "").replace(/Yesterday's /i, "Y'day ").slice(0, 24),
+            });
+          }
+          return out;
+        }, [predictionContract, ticker?.price]);
+
+        // Fundamentals tab: per-ticker data from /timed/admin/fundamentals.
+        // Cached client-side per ticker for 5min so flipping between Snapshot
+        // and Fundamentals doesn't refetch (worker also caches in KV for 6h).
+        const [fundamentals, setFundamentals] = useState(null);
+        const [fundamentalsLoading, setFundamentalsLoading] = useState(false);
+        const [fundamentalsError, setFundamentalsError] = useState(null);
+        const fundamentalsCacheRef = useRef(new Map()); // ticker -> { data, ts }
+        const fundamentalsSortRef = useRef({ key: "date", dir: "desc" });
+        const [fundamentalsSortKey, setFundamentalsSortKey] = useState("date");
+        const [fundamentalsSortDir, setFundamentalsSortDir] = useState("desc");
+
         // Right Rail: multi-timeframe candles chart (fetched on-demand)
-        const [chartTf, setChartTf] = useState("15"); // Default to 15m
+        /* V2.1 round 11 (2026-05-04) — Default to 30m per user feedback:
+           "default to 30m timeframe with indicators OFF" so the chart
+           reads cleanly first; toggles available to enable. */
+        const [chartTf, setChartTf] = useState("30");
         const [chartCandles, setChartCandles] = useState([]);
         const [chartLoading, setChartLoading] = useState(false);
         const [chartError, setChartError] = useState(null);
@@ -1349,9 +1750,12 @@
         // Model signal data (ticker + sector + market level)
         const [modelSignal, setModelSignal] = useState(null);
         const modelSignalCacheRef = useRef({ data: null, ts: 0 });
-        const [chartOverlays, setChartOverlays] = useState({ ema21: true, ema48: true, ema200: false, supertrend: false, tdSequential: false });
+        /* V2.1 round 11 (2026-05-04) — All overlays OFF by default per user.
+           User wants "default to 30m timeframe with indicators OFF" so the
+           chart shows clean candles first; toggles enable any with one click. */
+        const [chartOverlays, setChartOverlays] = useState({ ema21: false, ema48: false, ema200: false, supertrend: false, tdSequential: false });
         const [chartExpanded, setChartExpanded] = useState(false);
-        const [modalTf, setModalTf] = useState("15");
+        const [modalTf, setModalTf] = useState("30");
         const [modalCandles, setModalCandles] = useState([]);
         const [modalLoading, setModalLoading] = useState(false);
 
@@ -1450,7 +1854,8 @@
 
         // Trade History: default chart selection to first trade when trades load
         useEffect(() => {
-          if (railTab === "TRADE_HISTORY" && ledgerTrades.length > 0 && !tradeChartSelection) {
+          const isHistoryTab = railTab === "TRADE_HISTORY" || railTab === "HISTORY";
+          if (isHistoryTab && ledgerTrades.length > 0 && !tradeChartSelection) {
             setTradeChartSelection(ledgerTrades[0]);
           }
         }, [railTab, ledgerTrades, tradeChartSelection]);
@@ -1493,6 +1898,55 @@
             }
           };
           fetchInvestor();
+          return () => { cancelled = true; };
+        }, [railTab, tickerSymbol]);
+
+        // Fundamentals fetch — only when the Fundamentals tab is selected.
+        // Cached per-ticker for 5 min in fundamentalsCacheRef so tab flips
+        // don't trigger duplicate network calls. Worker further caches in KV
+        // for 6h to amortize TwelveData credit cost.
+        useEffect(() => {
+          const sym = String(tickerSymbol || "").trim().toUpperCase();
+          if (!sym) {
+            setFundamentals(null);
+            setFundamentalsError(null);
+            setFundamentalsLoading(false);
+            return;
+          }
+          if (railTab !== "FUNDAMENTALS") return;
+          // Hit client cache first (5min freshness)
+          const cached = fundamentalsCacheRef.current.get(sym);
+          if (cached && (Date.now() - cached.ts) < 5 * 60 * 1000) {
+            setFundamentals(cached.data);
+            setFundamentalsError(null);
+            setFundamentalsLoading(false);
+            return;
+          }
+          let cancelled = false;
+          (async () => {
+            try {
+              setFundamentalsLoading(true);
+              setFundamentalsError(null);
+              const apiKey = (typeof window !== "undefined" && window._ttApiKey) ? window._ttApiKey : "";
+              const qs = new URLSearchParams({ ticker: sym });
+              if (apiKey) qs.set("key", apiKey);
+              const res = await fetch(`${API_BASE}/timed/admin/fundamentals?${qs.toString()}`, { cache: "no-store" });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              if (!json.ok) throw new Error(json.error || "fundamentals_failed");
+              if (!cancelled) {
+                fundamentalsCacheRef.current.set(sym, { data: json, ts: Date.now() });
+                setFundamentals(json);
+              }
+            } catch (e) {
+              if (!cancelled) {
+                setFundamentals(null);
+                setFundamentalsError(String(e?.message || e));
+              }
+            } finally {
+              if (!cancelled) setFundamentalsLoading(false);
+            }
+          })();
           return () => { cancelled = true; };
         }, [railTab, tickerSymbol]);
 
@@ -1573,11 +2027,13 @@
           const sym = String(tickerSymbol || "")
             .trim()
             .toUpperCase();
-          /* V2.1 round 3 (2026-05-01) — Also fetch when SETUP tab is active.
-             The v2 RR renders the chart inside the Setup tab; without this
-             the chart panel was empty / stale because the legacy guard only
-             fired on the ANALYSIS tab. */
-          if (railTab !== "ANALYSIS" && railTab !== "SETUP") return;
+          /* V15 P0.7.84: chart is now lifted OUT of tab gates and rendered
+             persistently above all tabs (P0.7.74). The previous tab guard
+             ('if railTab not in [ANALYSIS, SETUP] return') and the railTab
+             dependency caused the chart to refetch + re-create on every
+             tab switch (Snapshot → Setup → Technicals → ...) — that was
+             the visible flicker. Removed both. Chart now reloads only on
+             ticker change or TF change. */
           if (!sym) return;
 
           let cancelled = false;
@@ -1596,10 +2052,17 @@
                 return;
               }
 
+              // V15 P0.7.98 — match Daily Brief MiniChart limits exactly.
+              // Was 500 bars (~2 weeks of 30m, costly + unnecessary). User
+              // wants ~100 bars / today + previous day for the rail chart.
+              // The daily-brief uses these exact per-TF limits and the chart
+              // looks much cleaner / loads faster / flickers less.
+              const TF_LIMITS = { "5": 250, "15": 180, "30": 130, "60": 100, "240": 60, "D": 60, "W": 52 };
+              const limit = TF_LIMITS[tf] || 130;
               const qs = new URLSearchParams();
               qs.set("ticker", sym);
               qs.set("tf", tf);
-              qs.set("limit", "500");
+              qs.set("limit", String(limit));
               const res = await fetch(`${API_BASE}/timed/candles?${qs.toString()}`, {
                 cache: "no-store",
               });
@@ -1623,24 +2086,32 @@
           return () => {
             cancelled = true;
           };
-        }, [railTab, tickerSymbol, chartTf]);
+        }, [tickerSymbol, chartTf]);
 
+        // P0.7.101 — derive contextReady from STABLE primitive values
+        // (not the ticker object reference). Was: deps included the
+        // entire `ticker` prop, which gets a new object reference on
+        // every WS price tick (~every 2s). Each tick refired this
+        // effect → setLatestTicker → cascading parent re-renders that
+        // touched the chart panel and produced the "flash" the user
+        // reported. Now the effect only refires when the ticker
+        // SYMBOL changes or when context fields appear/disappear.
+        const _contextReady = !!(
+          ticker?.context &&
+          typeof ticker.context === "object" &&
+          (ticker.context.name || ticker.context.industry || ticker.context.sector || ticker.context.description)
+        );
         useEffect(() => {
           const sym = String(tickerSymbol || "")
             .trim()
             .toUpperCase();
-          const contextReady = !!(
-            ticker?.context &&
-            typeof ticker.context === "object" &&
-            (ticker.context.name || ticker.context.industry || ticker.context.sector || ticker.context.description)
-          );
           if (!sym) {
             setLatestTicker(null);
             setLatestTickerError(null);
             setLatestTickerLoading(false);
             return;
           }
-          if (contextReady) {
+          if (_contextReady) {
             setLatestTicker(null);
             setLatestTickerError(null);
             setLatestTickerLoading(false);
@@ -1681,7 +2152,7 @@
           return () => {
             cancelled = true;
           };
-        }, [tickerSymbol, ticker]);
+        }, [tickerSymbol, _contextReady]);
 
         // Fetch model signals (ticker + sector + market level)
         useEffect(() => {
@@ -1712,13 +2183,19 @@
             } catch (_) { /* model signals are a boost, not a gate */ }
           })();
           return () => { cancelled = true; };
-        }, [tickerSymbol, latestTicker, ticker]);
+          // P0.7.101 — pin deps to STABLE primitive values from `ticker`
+          // (sector + pattern_match) instead of the whole ticker object,
+          // which changes reference every WS price tick (~every 2s) and
+          // refired this effect → setModelSignal → cascading re-renders.
+        }, [tickerSymbol, latestTicker, ticker?.sector, ticker?.pattern_match]);
 
         useEffect(() => {
           const sym = String(tickerSymbol || "")
             .trim()
             .toUpperCase();
-          if (!sym || railTab !== "TRADE_HISTORY") {
+          // Fire for both legacy v1 ("TRADE_HISTORY") and v2 ("HISTORY") rail tab names.
+          const isHistoryTab = railTab === "TRADE_HISTORY" || railTab === "HISTORY";
+          if (!sym || !isHistoryTab) {
             setLedgerTrades([]);
             setLedgerTradesError(null);
             setLedgerTradesLoading(false);
@@ -1769,7 +2246,8 @@
 
         // Default Trade History chart to first trade when tab has trades and no selection
         useEffect(() => {
-          if (railTab === "TRADE_HISTORY" && ledgerTrades.length > 0 && tradeChartSelection == null) {
+          const isHistoryTab = railTab === "TRADE_HISTORY" || railTab === "HISTORY";
+          if (isHistoryTab && ledgerTrades.length > 0 && tradeChartSelection == null) {
             setTradeChartSelection(ledgerTrades[0]);
           }
         }, [railTab, ledgerTrades, tradeChartSelection]);
@@ -2035,12 +2513,32 @@
          * ════════════════════════════════════════════════════════════════ */
         const v2Enabled = (typeof window !== "undefined" && window._dsV2RailEnabled !== false);
         if (v2Enabled && !modalOnly) {
-          // Compute the v2 layout view-model from the same data the legacy renderer uses
-          const v2Dir = String(
-            (predictionContract?.direction || ticker?.position_direction || trade?.direction
-             || (String(ticker?.state || "").startsWith("HTF_BULL") ? "LONG"
-                 : String(ticker?.state || "").startsWith("HTF_BEAR") ? "SHORT" : ""))
-          ).toUpperCase();
+          /* V2.1 round 11 (2026-05-04) — Single source of truth for direction.
+             Every bias-driven label, ladder, level role, and narrative in the
+             rail derives from this one variable. Priority order:
+               1. trade.direction        (active trade — concrete commitment)
+               2. predictionContract.direction (model recommendation)
+               3. ticker.position_direction
+               4. ticker.state HTF_BULL/HTF_BEAR
+             Returns "LONG" / "SHORT" / "" (empty for unknown).
+             Exposed as both `v2Dir` (legacy alias) and `v2BiasDirection`. */
+          const v2BiasDirection = (() => {
+            if (trade?.direction) {
+              const d = String(trade.direction).toUpperCase();
+              if (d === "LONG" || d === "SHORT") return d;
+            }
+            if (predictionContract?.direction) {
+              const d = String(predictionContract.direction).toUpperCase();
+              if (d === "LONG" || d === "SHORT") return d;
+            }
+            const posDir = String(ticker?.position_direction || "").toUpperCase();
+            if (ticker?.has_open_position && (posDir === "LONG" || posDir === "SHORT")) return posDir;
+            const state = String(ticker?.state || "").toUpperCase();
+            if (state.startsWith("HTF_BULL")) return "LONG";
+            if (state.startsWith("HTF_BEAR")) return "SHORT";
+            return "";
+          })();
+          const v2Dir = v2BiasDirection;
           const v2Price = Number(latestTicker?.price ?? ticker?.price) || 0;
           const v2DayChange = (() => {
             const src = latestTicker || ticker;
@@ -2055,7 +2553,7 @@
             return [pc, v2Price];
           })();
           const v2DirChip = v2Dir === "LONG" ? "ds-chip--up" : v2Dir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
-          const v2RailTab = ["SNAPSHOT","SETUP","TECHNICALS","HISTORY"].includes(railTab) ? railTab : "SNAPSHOT";
+          const v2RailTab = ["SNAPSHOT","SETUP","TECHNICALS","FUNDAMENTALS","HISTORY"].includes(railTab) ? railTab : "SNAPSHOT";
           // ds-metric helpers
           const Metric = ({ label, value, delta, deltaClass = "accent" }) => (
             <div className="ds-metric">
@@ -2106,9 +2604,20 @@
           const v2SparkSvg = (typeof window !== "undefined" && window.DS)
             ? window.DS.sparklineSvg(v2Spark, { width: 320, height: 60, direction: v2SparkDir, strokeWidth: 1.5 })
             : "";
+          const _isWorkspace = layoutMode === "workspace";
           return (
             <>
-              <div className="w-full h-full flex flex-col" style={{ background: "var(--ds-bg-canvas)", borderRadius: "var(--ds-radius-lg)", border: "1px solid var(--ds-stroke)" }}>
+              {/* V15 P0.7.76 (2026-05-06) — Workspace layout mode. When
+                  active, the outer container becomes a CSS grid:
+                     header  header
+                     left    right
+                  Children opt into placement via `tt-rail-area-*` classes
+                  (header / chart / levels / tabnav / tabbody). In modal
+                  mode (default) the same JSX flows as a single column. */}
+              <div
+                className={`w-full h-full flex flex-col tt-rail-shell ${_isWorkspace ? "tt-rail-shell--workspace" : ""}`}
+                style={{ background: "var(--ds-bg-canvas)", borderRadius: "var(--ds-radius-lg)", border: "1px solid var(--ds-stroke)" }}
+              >
                 {/* ─── Sticky header ─────────────────────────────────── */}
                 {/* V2.1 round 3 (2026-05-01) — Mirror the CompactCard:
                     logo + symbol + bias chip + TT-Selected dot + EPS badge +
@@ -2121,15 +2630,33 @@
                   const earnDays = earnings && Number.isFinite(earnings._daysAway) ? earnings._daysAway : null;
                   const earnLabel = earnDays === 0 ? "Today" : earnDays === 1 ? "Tomorrow" : earnDays != null && earnDays > 0 ? `${earnDays}d` : null;
                   const stage = String(ticker?.kanban_stage || "").toLowerCase();
-                  const stageChip = stage === "trim" ? { label: "Trim", cls: "ds-chip--accent" }
-                                   : stage === "defend" ? { label: "Defend", cls: "ds-chip--dn" }
-                                   : stage === "exit" ? { label: "Exit", cls: "ds-chip--dn" }
-                                   : (stage === "enter" || stage === "enter_now" || stage === "just_flipped") ? { label: "Enter", cls: "ds-chip--accent" }
-                                   : (stage === "hold" || stage === "active" || stage === "just_entered") ? { label: "Hold", cls: "ds-chip--up" }
-                                   : (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") ? { label: "Setup", cls: "" }
-                                   : null;
+                  // V2.1 round 10 (2026-05-04) — Stage chip is direction-aware now.
+                  // Previously rendered "Exit" verbatim which conflated "exit signal"
+                  // (model says exit your position) with "exit watch" (you're not in
+                  // a trade and the level is just a planning anchor). Resolve trade
+                  // status here so we can pick the right phrase.
+                  const _hdrTradeStatus = String(trade?.status || "").toUpperCase();
+                  const _hdrTradeIsOpen = !!(trade && (
+                    _hdrTradeStatus === "OPEN" || _hdrTradeStatus === "TP_HIT_TRIM" ||
+                    (!(trade?.exit_ts ?? trade?.exitTs) && _hdrTradeStatus !== "WIN" && _hdrTradeStatus !== "LOSS")
+                  ));
+                  const stageChip = (() => {
+                    if (stage === "trim") return { label: "TRIM", cls: "ds-chip--accent" };
+                    if (stage === "defend") return { label: "DEFEND", cls: "ds-chip--dn" };
+                    if (stage === "exit") {
+                      // "Exit" is unambiguous only when in a trade — then it means
+                      // "exit your position". When NOT in a trade, the engine's
+                      // "exit" label is really "no trade right now".
+                      if (_hdrTradeIsOpen) return { label: "EXIT NOW", cls: "ds-chip--dn" };
+                      return { label: "NO TRADE", cls: "" };
+                    }
+                    if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return { label: "ENTER", cls: "ds-chip--accent" };
+                    if (stage === "hold" || stage === "active" || stage === "just_entered") return { label: "ACTIVE", cls: "ds-chip--up" };
+                    if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") return { label: "ENTRY WATCH", cls: "" };
+                    return null;
+                  })();
                   return (
-                <div className="sticky top-0 z-30" style={{ background: "var(--ds-bg-canvas)", padding: "var(--ds-space-3) var(--ds-space-4)", borderBottom: "1px solid var(--ds-stroke)" }}>
+                <div className="sticky top-0 z-30 tt-rail-area-header" style={{ background: "var(--ds-bg-canvas)", padding: "var(--ds-space-3) var(--ds-space-4)", borderBottom: "1px solid var(--ds-stroke)" }}>
                   <div className="flex items-center justify-between mb-2" style={{ gap: "var(--ds-space-2)" }}>
                     <div className="flex items-center gap-2 min-w-0" style={{ flexWrap: "wrap" }}>
                       <div className="ds-tickercard__logo" style={{ width: 28, height: 28 }} ref={(el) => {
@@ -2139,7 +2666,16 @@
                         }
                       }}>{tickerSymbol.slice(0,2)}</div>
                       <h3 style={{ fontSize: "var(--ds-fs-h2)", fontWeight: 700, color: "var(--ds-text-display)", letterSpacing: "-0.01em", margin: 0, fontFamily: "var(--tt-font-mono)" }}>{tickerSymbol}</h3>
-                      {v2Dir && <span className={`ds-chip ds-chip--sm ${v2DirChip}`} title={trade ? "Active trade direction" : "Bias"}>{v2Dir}</span>}
+                      {v2Dir && (
+                        <span
+                          className={`ds-chip ds-chip--sm ${v2DirChip}`}
+                          title={_hdrTradeIsOpen
+                            ? `Active ${v2Dir} trade — currently in position`
+                            : `Model bias: ${v2Dir}. No active trade — use level levels as planning anchors.`}
+                        >
+                          {_hdrTradeIsOpen ? `${v2Dir} · ACTIVE` : `${v2Dir} BIAS`}
+                        </span>
+                      )}
                       {isTTSel && (
                         <span title="TT Selected" style={{
                           width: 6, height: 6, borderRadius: "50%",
@@ -2219,6 +2755,12 @@
                       {Number.isFinite(v2DayPct) && (
                         <span className={`ds-chip ds-chip--sm ds-chip--${v2SparkDir === "flat" ? "solid" : v2SparkDir}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
                           {v2DayPct >= 0 ? "▲ +" : "▼ "}{v2DayPct.toFixed(2)}%
+                          {/* P0.7.105 — also show $ amount of daily change */}
+                          {Number.isFinite(v2DayChange?.dayChg) && Math.abs(v2DayChange.dayChg) > 0.001 && (
+                            <span style={{ marginLeft: 4, opacity: 0.75, fontSize: "0.85em" }}>
+                              ({v2DayChange.dayChg >= 0 ? "+" : "−"}${Math.abs(v2DayChange.dayChg).toFixed(2)})
+                            </span>
+                          )}
                         </span>
                       )}
                     </div>
@@ -2296,10 +2838,39 @@
                       </div>
                     );
                   })()}
-                  {/* Tab nav */}
-                  <div className="ds-tab" role="tablist" style={{ width: "100%" }}>
-                    {[["SNAPSHOT","Snapshot"],["SETUP","Setup"],["TECHNICALS","Technicals"],["HISTORY","History"]].map(([key, label]) => (
-                      <button key={key} className={`ds-tab__item ${v2RailTab === key ? "ds-tab__item--active" : ""}`} onClick={() => setRailTab(key)} style={{ flex: 1, justifyContent: "center", padding: "6px 12px" }}>
+                  {/* Tab nav — horizontal scroll on mobile so Fundamentals
+                      / History stay reachable instead of overflowing the
+                      panel width. flex: 0 0 auto on each tab keeps each
+                      label intact (no wrapping or truncation). */}
+                  {/* P0.7.102 — tabs justify-content: flex-end so the
+                      Snapshot/Setup/.../History buttons sit on the
+                      RIGHT side of the rail. Closer to the user's
+                      mouse since the rail is on the right side of
+                      the viewport. Mobile horizontal-scroll preserved. */}
+                  <div
+                    className="ds-tab tt-rail-tabs tt-rail-area-tabnav"
+                    role="tablist"
+                    style={{
+                      width: "100%",
+                      overflowX: "auto",
+                      WebkitOverflowScrolling: "touch",
+                      scrollSnapType: "x proximity",
+                      scrollbarWidth: "none",
+                      justifyContent: "flex-end",
+                    }}
+                  >
+                    {[["SNAPSHOT","Snapshot"],["SETUP","Setup"],["TECHNICALS","Technicals"],["FUNDAMENTALS","Fundamentals"],["HISTORY","History"]].map(([key, label]) => (
+                      <button
+                        key={key}
+                        className={`ds-tab__item ${v2RailTab === key ? "ds-tab__item--active" : ""}`}
+                        onClick={() => setRailTab(key)}
+                        style={{
+                          flex: "0 0 auto",
+                          justifyContent: "center",
+                          padding: "6px 12px",
+                          scrollSnapAlign: "start",
+                        }}
+                      >
                         <span>{label}</span>
                       </button>
                     ))}
@@ -2308,8 +2879,260 @@
                   );
                 })()}
 
-                {/* ─── Scrollable body ───────────────────────────────── */}
-                <div className="flex-1 overflow-y-auto" style={{ padding: "var(--ds-space-4)" }}>
+                {/* ─── LEFT PANE: chart + levels (workspace mode only) ──
+                    V15 P0.7.76 — In workspace mode this wraps the chart
+                    and Key Levels into a dedicated left column with its
+                    own scroll. In modal mode, display: contents flattens
+                    it so the children flow naturally into the body below
+                    (preserving mobile single-column behavior). */}
+                <div className="tt-rail-area-left-pane">
+                  {/* ── PERSISTENT CHART (V15 P0.7.74 — Phase 4 workspace) ──
+                      The chart was historically only rendered inside the
+                      Setup tab body. Per user vision (2026-05-06):
+                        "as the user navigates through the various tabs,
+                         they always have a live tab of the price action,
+                         levels and clean annotations they can reference."
+                      We render the chart subtree ONCE here, above the tab
+                      gates, so it stays visible across Snapshot / Setup /
+                      Technicals / Fundamentals / History. Sticky so it
+                      pins to the top as the user scrolls within a tab.
+                      All state (chartCandles, chartTf, overlays, ticker,
+                      predictionContract) lives in the parent component's
+                      closure scope, so this is a pure render-position
+                      change. */}
+                  {chartCandles && chartCandles.length >= 2 && (() => {
+                    /* Same chart construction as before — direction-aware
+                       price lines, indicator toggles, TF chips, expand
+                       button. Rendered once above all tabs now. */
+                    const _pcDirChart = String(predictionContract?.direction || v2Dir || "").toUpperCase();
+                    const _isShortChart = _pcDirChart === "SHORT";
+                    const _pcSlChart = Number(predictionContract?.risk?.stop_loss);
+                    const _curPxChart = Number(v2Price) || Number(ticker?.price) || 0;
+                    const _allLevels = Array.isArray(predictionContract?.levels) ? predictionContract.levels : [];
+                    const _resistance = _allLevels.filter((l) => l.role === "resistance").sort((a, b) => a.price - b.price).slice(0, 3);
+                    const _support = _allLevels.filter((l) => l.role === "support").sort((a, b) => b.price - a.price).slice(0, 3);
+                    const buildLines = () => {
+                      const lines = [];
+                      const ep = Number(ticker?.entry_price);
+                      if (Number.isFinite(ep) && ep > 0 && trade) lines.push({ price: ep, color: "rgba(245,194,92,0.85)", title: "Entry", lineStyle: 0, lineWidth: 2 });
+                      if (Number.isFinite(_pcSlChart) && _pcSlChart > 0) lines.push({ price: _pcSlChart, color: "rgba(244,63,94,0.85)", title: "Stop", lineStyle: 2, lineWidth: 2 });
+                      const tps = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
+                      tps.slice(0, 3).forEach((tp, i) => {
+                        const px = Number(tp?.price);
+                        if (Number.isFinite(px) && px > 0) lines.push({ price: px, color: "rgba(34,197,94,0.80)", title: `TP${i + 1}`, lineStyle: 2, lineWidth: 2 });
+                      });
+                      const above2 = _resistance.slice(0, 2);
+                      const below2 = _support.slice(0, 2);
+                      for (const l of above2) {
+                        const profit = !_isShortChart;
+                        lines.push({ price: Number(l.price), color: profit ? "rgba(34,197,94,0.35)" : "rgba(244,63,94,0.35)", title: l.label || "", lineStyle: 2, lineWidth: 1 });
+                      }
+                      for (const l of below2) {
+                        const profit = _isShortChart;
+                        lines.push({ price: Number(l.price), color: profit ? "rgba(34,197,94,0.35)" : "rgba(244,63,94,0.35)", title: l.label || "", lineStyle: 2, lineWidth: 1 });
+                      }
+                      return lines;
+                    };
+                    return (
+                    /* V15 P0.7.76 — Chart block. Wrapped by parent
+                       tt-rail-area-left-pane in workspace mode for grid
+                       layout; flat in modal mode. */
+                    <div className="tt-rail-chart-block" style={{
+                      marginBottom: "var(--ds-space-3)",
+                    }}>
+                      <Panel
+                        title="Chart"
+                        action={
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <div className="ds-chipgroup" style={{ padding: 2 }}>
+                              {["15", "30", "60", "240", "D"].map((tf) => (
+                                <button
+                                  key={`ctf-${tf}`}
+                                  onClick={() => setChartTf(tf)}
+                                  className={`ds-chipgroup__item ${chartTf === tf ? "ds-chipgroup__item--active" : ""}`}
+                                  style={{ padding: "3px 8px", fontSize: 10 }}
+                                >{tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`}</button>
+                              ))}
+                            </div>
+                            <button
+                              className="ds-chip ds-chip--sm"
+                              onClick={() => setChartExpanded(true)}
+                              title="Expand chart"
+                              style={{ fontFamily: "var(--tt-font-mono)", padding: "0 8px" }}
+                            >⤢</button>
+                          </div>
+                        }
+                      >
+                        {/* V15 P0.7.80: indicator-toggle row removed from rail
+                            chart per user feedback "I really want the chart
+                            to be simple and look as much like what we have
+                            for the Daily Brief, that style looks elegant".
+                            Indicators are still available in the expanded
+                            chart modal (⤢ button). The default chart now
+                            shows just price action + canonical levels. */}
+                        {/* V15 P0.7.77: stable chart canvas height (was viewport-
+                            checking inline on every render which created a
+                            new ref each time). Use a CSS class instead so
+                            the workspace CSS controls actual height per
+                            breakpoint without re-rendering the chart. */}
+                        <div className="tt-rail-chart-canvas">
+                          {/* V15 P0.7.99-r2 — Subtle S/R lines mapped to the
+                              Key Levels box (top 3 above + top 3 below from
+                              predictionContract). Low-alpha dotted lines
+                              with axis labels so the user sees the same
+                              levels on the chart as in the Setup tab's Key
+                              Levels panel. SL/TP/Entry stay OFF the chart
+                              (the user keeps those visually in the Risk &
+                              Targets panel). */}
+                          {/* P0.7.100 — height prop omitted so the chart
+                              fills its parent (.tt-rail-chart-canvas).
+                              The canvas height is controlled by CSS:
+                                mobile: fixed 240px
+                                desktop (single col): fixed 380px
+                                workspace mode: flex:1 → fills the entire
+                                left pane minus the Panel header. */}
+                          {React.createElement(LWChart, {
+                            candles: chartCandles,
+                            chartTf,
+                            overlays: chartOverlays,
+                            priceLines: subtleKeyLevelLines,
+                            ticker,
+                            hideOverlayToggles: true,
+                          })}
+                        </div>
+                      </Panel>
+                    </div>
+                    );
+                  })()}
+
+                  {/* V15 P0.7.99 — Key Levels moved OUT of the left pane and
+                      relocated INSIDE the Setup tab body below Risk/Reward
+                      Levels (per user request: "move the Key Levels box
+                      over to the Setup Pane under the SL/TP levels, also
+                      allowing the chart to be much bigger"). The IIFE is
+                      kept for the moved copy below. The original placement
+                      here renders nothing — the left pane now hosts only
+                      the chart, which can grow to fill the vertical space. */}
+                  {false && Array.isArray(predictionContract?.levels) && predictionContract.levels.length > 0 && (() => {
+                    const px = Number(v2Price) || Number(ticker?.price) || 0;
+                    if (!(px > 0)) return null;
+                    const all = predictionContract.levels;
+                    const resistance = all.filter((l) => l.role === "resistance").sort((a, b) => a.price - b.price);
+                    const support = all.filter((l) => l.role === "support").sort((a, b) => b.price - a.price);
+                    const pcDir = String(predictionContract?.direction || "").toUpperCase();
+                    const isShort = pcDir === "SHORT";
+                    const aboveLabel = isShort ? "Invalidation Zone" : "Resistance";
+                    const aboveSubtitle = isShort
+                      ? `Levels above $${px.toFixed(2)} — close above invalidates the SHORT bias`
+                      : `Levels above $${px.toFixed(2)} — sell zones / profit-taking targets`;
+                    const belowLabel = isShort ? "Target Zones" : "Support";
+                    const belowSubtitle = isShort
+                      ? `Levels below $${px.toFixed(2)} — profit-taking targets for the SHORT`
+                      : `Levels below $${px.toFixed(2)} — defend / SL reference zones`;
+                    const kindMeta = (kind) => {
+                      if (kind === "year_high" || kind === "year_low") return { color: "#f87171", letter: "52W", desc: "52-week extreme" };
+                      if (kind === "swing_high" || kind === "swing_low") return { color: "#fbbf24", letter: "SW", desc: "Swing structure (D)" };
+                      if (kind === "swing_high_4h" || kind === "swing_low_4h") return { color: "#fcd34d", letter: "4H", desc: "Swing structure (4H)" };
+                      if (kind === "prior_session_high" || kind === "prior_session_low") return { color: "#a78bfa", letter: "PD", desc: "Prior day range" };
+                      if (kind === "pivot_high" || kind === "pivot_low") return { color: "#34d399", letter: "PV", desc: "Multi-tested pivot" };
+                      if (kind === "pdz_premium" || kind === "pdz_discount" || kind === "pdz_eq") return { color: "#60a5fa", letter: "PDZ", desc: "Premium/Discount/Equilibrium" };
+                      if (kind === "ema") return { color: "rgba(96,165,250,0.6)", letter: "EMA", desc: "Daily EMA magnet" };
+                      return { color: "var(--ds-text-muted)", letter: "—", desc: "Level" };
+                    };
+                    const StrengthBar = ({ weight }) => {
+                      const w = Math.max(1, Math.min(10, Number(weight) || 5));
+                      return (
+                        <div style={{ display: "flex", gap: 1, alignItems: "center" }}>
+                          {Array.from({ length: 5 }, (_, i) => (
+                            <div key={i} style={{ width: 3, height: 8, background: i < Math.ceil(w / 2) ? "var(--ds-accent)" : "rgba(255,255,255,0.08)", borderRadius: 1 }} />
+                          ))}
+                        </div>
+                      );
+                    };
+                    const LevelRow = ({ l, side }) => {
+                      const m = kindMeta(l.kind);
+                      const distColor = side === "res" ? "var(--ds-dn)" : side === "sup" ? "var(--ds-up)" : "var(--ds-accent)";
+                      return (
+                        <div style={{
+                          display: "grid",
+                          gridTemplateColumns: "32px 1fr 56px 36px 26px",
+                          gap: "var(--ds-space-2)",
+                          alignItems: "center",
+                          padding: "5px 8px",
+                          borderRadius: "var(--ds-radius-xs)",
+                          background: "rgba(255,255,255,0.02)",
+                          borderLeft: `3px solid ${m.color}`,
+                        }} title={`${m.desc} · weight ${l.weight}`}>
+                          <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, color: m.color, letterSpacing: "0.06em", textAlign: "center" }}>{m.letter}</span>
+                          <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", letterSpacing: "0.02em" }}>{l.label}</span>
+                          <span style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text)", fontFamily: "var(--tt-font-mono)", fontWeight: 600, textAlign: "right" }}>${Number(l.price).toFixed(2)}</span>
+                          <span style={{ fontSize: 9, color: distColor, fontFamily: "var(--tt-font-mono)", fontWeight: 600, textAlign: "right" }}>{l.dist_pct >= 0 ? "+" : ""}{l.dist_pct.toFixed(1)}%</span>
+                          <StrengthBar weight={l.weight} />
+                        </div>
+                      );
+                    };
+                    const SectionLabel = ({ text, sub, color }) => (
+                      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "4px 4px 2px 4px", borderBottom: "1px dashed var(--ds-stroke)", marginBottom: 2 }}>
+                        <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", color }}>{text}</span>
+                        {sub && <span style={{ fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", letterSpacing: "0.04em" }}>{sub}</span>}
+                      </div>
+                    );
+                    return (
+                    <div className="tt-rail-levels-block" style={{ marginBottom: "var(--ds-space-3)" }}>
+                      <Panel title="Key Levels" action={
+                        <span style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 9, fontFamily: "var(--tt-font-mono)", color: "var(--ds-text-faint)", letterSpacing: "0.10em" }}>
+                          {pcDir && <span className={`ds-chip ds-chip--sm ${isShort ? "ds-chip--dn" : "ds-chip--up"}`} title="Bias direction — drives level role labels" style={{ fontSize: 9 }}>{pcDir}</span>}
+                          <span>{resistance.length} above · {support.length} below</span>
+                        </span>
+                      }>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                          {resistance.length > 0 && (
+                            <SectionLabel text={aboveLabel} sub={isShort ? "stop above price" : "profit / fade"} color={isShort ? "var(--ds-dn)" : "var(--ds-dn)"} />
+                          )}
+                          {resistance.length > 0 && resistance.slice(0, 5).reverse().map((l, i) => (
+                            <LevelRow key={`res-${i}-${l.price}`} l={l} side="res" />
+                          ))}
+                          <div style={{
+                            display: "grid",
+                            gridTemplateColumns: "32px 1fr 56px 36px 26px",
+                            gap: "var(--ds-space-2)",
+                            alignItems: "center",
+                            padding: "8px 8px",
+                            borderRadius: "var(--ds-radius-xs)",
+                            background: "rgba(245,194,92,0.10)",
+                            border: "1px solid rgba(245,194,92,0.30)",
+                            margin: "2px 0",
+                          }}>
+                            <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, color: "var(--ds-accent)", letterSpacing: "0.06em", textAlign: "center" }}>NOW</span>
+                            <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-accent)", fontFamily: "var(--tt-font-mono)", letterSpacing: "0.02em", fontWeight: 700 }}>Current Price</span>
+                            <span style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-accent)", fontFamily: "var(--tt-font-mono)", fontWeight: 700, textAlign: "right" }}>${px.toFixed(2)}</span>
+                            <span style={{ fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", textAlign: "right" }}>—</span>
+                            <span />
+                          </div>
+                          {support.length > 0 && (
+                            <SectionLabel text={belowLabel} sub={isShort ? "profit-take" : "defend / SL ref"} color={isShort ? "var(--ds-up)" : "var(--ds-up)"} />
+                          )}
+                          {support.length > 0 && support.slice(0, 5).map((l, i) => (
+                            <LevelRow key={`sup-${i}-${l.price}`} l={l} side="sup" />
+                          ))}
+                        </div>
+                        {pcDir && (
+                          <p style={{ margin: "var(--ds-space-2) 0 0 0", fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", lineHeight: 1.5, fontStyle: "italic" }}>
+                            {pcDir} bias · {aboveSubtitle.replace(/^Levels above .*? — /, "Above: ")} · {belowSubtitle.replace(/^Levels below .*? — /, "Below: ")}
+                          </p>
+                        )}
+                      </Panel>
+                    </div>
+                    );
+                  })()}
+                </div>
+                {/* ─── END LEFT PANE ─── */}
+
+                {/* ─── RIGHT PANE: tabs + tab content (workspace mode only) ──
+                    In workspace mode this becomes the right column with its
+                    own scroll. In modal mode it just continues the body
+                    flow as before. */}
+                <div className="tt-rail-area-right-pane flex-1 overflow-y-auto tt-rail-body" style={{ padding: "var(--ds-space-4)" }}>
                   {/* SNAPSHOT TAB
                       V2.1 round 3 (2026-05-01) — Reorganized per user feedback:
                        1. Today (regime/state/stage chips)
@@ -2335,38 +3158,120 @@
                       {/* Model Guidance — moved to top of snapshot.
                           Header surfaces R{rank} so it reconciles with the
                           Conviction panel below (single source of truth). */}
-                      {predictionContract && (
-                        <Panel title="Model Guidance" action={
-                          <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                            {v2Rank != null && <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }} title="Rank vs all eligible tickers">R{v2Rank}</span>}
-                            {predictionContract?.action_label && <span className="ds-chip ds-chip--sm ds-chip--accent">{String(predictionContract.action_label).toUpperCase()}</span>}
-                          </div>
-                        }>
-                          {predictionContract?.thesis && (
-                            <p style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", lineHeight: "var(--tt-lh-relaxed)", margin: 0 }}>{predictionContract.thesis}</p>
-                          )}
-                          {predictionContract?.why_now && (
-                            <div style={{ marginTop: "var(--ds-space-3)" }}>
-                              <div className="ds-caption" style={{ marginBottom: "var(--ds-space-1)" }}>Why now</div>
-                              <p style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)", lineHeight: "var(--tt-lh-relaxed)", margin: 0 }}>{predictionContract.why_now}</p>
+                      {predictionContract && (() => {
+                        // V2.1 round 10 (2026-05-04) — Bias-aware Model Guidance.
+                        // Adds:
+                        //  1. Direction chip + plain-language bias line at the top so
+                        //     every Snapshot reads against the SAME direction the
+                        //     Setup, Technicals, Levels and ladder use.
+                        //  2. Supporting bullets are split into Strengths (✓) /
+                        //     Watch-for (·) / Invalidations (✗) — previously they
+                        //     all rendered as "+ ...", which mixed positive
+                        //     rationale with deflators ("Profile Choppy Selective"
+                        //     read positive but is a conviction deflator).
+                        //  3. "Why Now" is augmented with a one-line plain-English
+                        //     bias summary so users don't read the regime-score
+                        //     promotion as a positive.
+                        const pcDirRaw = String(predictionContract?.direction || "").toUpperCase();
+                        const pcDir = (pcDirRaw === "LONG" || pcDirRaw === "SHORT") ? pcDirRaw : null;
+                        const dirChipCls = pcDir === "LONG" ? "ds-chip--up" : pcDir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
+
+                        // Classify supporting bullets. Worker emits a flat string list;
+                        // some entries are conviction-deflators ("Profile Choppy Selective"
+                        // means we're in capital-protection mode, NOT a positive). We
+                        // pattern-match a few well-known deflator phrases.
+                        const supportingArr = Array.isArray(predictionContract?.supporting) ? predictionContract.supporting : [];
+                        const DEFLATOR_RE = /(choppy|capital protection|low conviction|low confidence|tier c|transitional|balanced|wait|watch only)/i;
+                        const QUALITY_RE = /(quality|score|rank)\s*(\d+)/i;
+                        const _strengths = [];
+                        const _watchFor = [];
+                        for (const s of supportingArr.slice(0, 8)) {
+                          const txt = String(s || "").trim();
+                          if (!txt) continue;
+                          if (DEFLATOR_RE.test(txt)) { _watchFor.push(txt); continue; }
+                          // Numeric scores: anything 60+ is a strength, below that is "watch for"
+                          const m = txt.match(QUALITY_RE);
+                          if (m) {
+                            const n = Number(m[2]);
+                            if (Number.isFinite(n) && n < 55) { _watchFor.push(txt); continue; }
+                          }
+                          _strengths.push(txt);
+                        }
+
+                        const invalidationArr = Array.isArray(predictionContract?.invalidation) ? predictionContract.invalidation : [];
+
+                        // Plain-English bias line (one short sentence).
+                        const biasLine = pcDir
+                          ? (pcDir === "LONG"
+                              ? "The model is leaning LONG. Snapshot, Setup, Technicals and Levels all read against this direction below."
+                              : "The model is leaning SHORT. Snapshot, Setup, Technicals and Levels all read against this direction below.")
+                          : null;
+
+                        return (
+                          <Panel title="Model Guidance" action={
+                            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                              {v2Rank != null && <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }} title="Rank vs all eligible tickers">R{v2Rank}</span>}
+                              {pcDir && <span className={`ds-chip ds-chip--sm ${dirChipCls}`} title="Authoritative bias for this ticker">{pcDir}</span>}
+                              {predictionContract?.action_label && <span className="ds-chip ds-chip--sm ds-chip--accent">{String(predictionContract.action_label).toUpperCase()}</span>}
                             </div>
-                          )}
-                          {Array.isArray(predictionContract?.supporting) && predictionContract.supporting.length > 0 && (
-                            <div style={{ marginTop: "var(--ds-space-3)", display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
-                              {predictionContract.supporting.slice(0, 6).map((s, i) => (
-                                <span key={`sup-${i}`} className="ds-chip ds-chip--sm ds-chip--up">+ {s}</span>
-                              ))}
-                            </div>
-                          )}
-                          {Array.isArray(predictionContract?.invalidation) && predictionContract.invalidation.length > 0 && (
-                            <div style={{ marginTop: "var(--ds-space-2)", display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
-                              {predictionContract.invalidation.slice(0, 4).map((s, i) => (
-                                <span key={`inv-${i}`} className="ds-chip ds-chip--sm ds-chip--dn">! {s}</span>
-                              ))}
-                            </div>
-                          )}
-                        </Panel>
-                      )}
+                          }>
+                            {biasLine && (
+                              <p style={{
+                                margin: "0 0 var(--ds-space-2) 0",
+                                fontSize: "var(--ds-fs-caption)",
+                                color: pcDir === "SHORT" ? "var(--ds-dn)" : "var(--ds-up)",
+                                fontFamily: "var(--tt-font-mono)",
+                                letterSpacing: "0.04em",
+                                fontWeight: 700,
+                                lineHeight: 1.5,
+                              }}>{biasLine}</p>
+                            )}
+                            {predictionContract?.thesis && (
+                              <p style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", lineHeight: "var(--tt-lh-relaxed)", margin: 0 }}>{predictionContract.thesis}</p>
+                            )}
+                            {predictionContract?.why_now && (
+                              <div style={{ marginTop: "var(--ds-space-3)" }}>
+                                <div className="ds-caption" style={{ marginBottom: "var(--ds-space-1)" }}>Why now</div>
+                                <p style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)", lineHeight: "var(--tt-lh-relaxed)", margin: 0 }}>{predictionContract.why_now}</p>
+                              </div>
+                            )}
+                            {(_strengths.length > 0 || _watchFor.length > 0 || invalidationArr.length > 0) && (
+                              <div style={{ marginTop: "var(--ds-space-3)", display: "flex", flexDirection: "column", gap: "var(--ds-space-2)" }}>
+                                {_strengths.length > 0 && (
+                                  <div>
+                                    <div className="ds-caption" style={{ marginBottom: 4, color: "var(--ds-up)" }}>Strengths</div>
+                                    <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
+                                      {_strengths.slice(0, 5).map((s, i) => (
+                                        <span key={`str-${i}`} className="ds-chip ds-chip--sm ds-chip--up">✓ {s}</span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                                {_watchFor.length > 0 && (
+                                  <div>
+                                    <div className="ds-caption" style={{ marginBottom: 4, color: "var(--ds-text-muted)" }}>Watch for (deflators)</div>
+                                    <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
+                                      {_watchFor.slice(0, 5).map((s, i) => (
+                                        <span key={`wf-${i}`} className="ds-chip ds-chip--sm ds-chip--solid" title="Conviction deflator — reduces confidence in the call">⚠ {s}</span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                                {invalidationArr.length > 0 && (
+                                  <div>
+                                    <div className="ds-caption" style={{ marginBottom: 4, color: "var(--ds-dn)" }}>Will invalidate</div>
+                                    <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
+                                      {invalidationArr.slice(0, 4).map((s, i) => (
+                                        <span key={`inv-${i}`} className="ds-chip ds-chip--sm ds-chip--dn" title="If this happens the bias is broken">✗ {s}</span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </Panel>
+                        );
+                      })()}
 
                       {/* Conviction panel — with tooltips on each metric */}
                       {(v2Rank || v2Score || v2Conv) && (
@@ -2515,137 +3420,120 @@
                         </Panel>
                       )}
 
-                      {/* ── Mini Chart with SL/TP/Entry overlays ──
-                          V2.1 round 4 (2026-05-01) — Functional header:
-                            - TF chips (15 / 30 / 1H / 4H / D)
-                            - Indicator toggles (EMA21 / EMA48 / EMA200 / ST / TD)
-                            - Expand-to-modal button (re-uses the legacy modal
-                              already mounted further down in this file).
-                          Stability: LWChart's internal useEffect already
-                          excludes propPriceLines from its dependency array, so
-                          recomputing the lines array each render does not
-                          tear down the chart. (The previous round-4 attempt
-                          to memoize this with React.useMemo inside an IIFE
-                          was a Rules-of-Hooks violation \u2014 reverted.) */}
-                      {chartCandles && chartCandles.length >= 2 && (() => {
-                        const buildLines = () => {
-                          const lines = [];
-                          const ep = Number(ticker?.entry_price);
-                          const slPx = Number(ticker?.sl);
-                          const tpPx = Number(ticker?.tp);
-                          if (Number.isFinite(ep) && ep > 0) lines.push({ price: ep, color: "rgba(245,194,92,0.65)", title: "Entry", lineStyle: 0 });
-                          if (Number.isFinite(slPx) && slPx > 0) lines.push({ price: slPx, color: "rgba(244,63,94,0.7)", title: "Stop", lineStyle: 2 });
-                          if (Number.isFinite(tpPx) && tpPx > 0) lines.push({ price: tpPx, color: "rgba(34,197,94,0.7)", title: "Target", lineStyle: 2 });
-                          return lines;
-                        };
-                        const indicatorBtn = (key, label, title) => {
-                          const on = !!chartOverlays[key];
-                          return (
-                            <button
-                              key={`ind-${key}`}
-                              onClick={() => setChartOverlays(prev => ({ ...prev, [key]: !prev[key] }))}
-                              className="ds-chip ds-chip--sm"
-                              title={title}
-                              style={{
-                                fontFamily: "var(--tt-font-mono)",
-                                padding: "0 6px",
-                                color: on ? "var(--ds-accent)" : "var(--ds-text-muted)",
-                                background: on ? "var(--ds-accent-dim)" : "transparent",
-                                borderColor: on ? "var(--ds-accent)" : "var(--ds-stroke)",
-                              }}
-                            >{label}</button>
-                          );
-                        };
-                        return (
-                        <Panel
-                          title="Chart"
-                          action={
-                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              <div className="ds-chipgroup" style={{ padding: 2 }}>
-                                {["15", "30", "60", "240", "D"].map((tf) => (
-                                  <button
-                                    key={`ctf-${tf}`}
-                                    onClick={() => setChartTf(tf)}
-                                    className={`ds-chipgroup__item ${chartTf === tf ? "ds-chipgroup__item--active" : ""}`}
-                                    style={{ padding: "3px 8px", fontSize: 10 }}
-                                  >{tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`}</button>
-                                ))}
-                              </div>
-                              <button
-                                className="ds-chip ds-chip--sm"
-                                onClick={() => setChartExpanded(true)}
-                                title="Expand chart"
-                                style={{ fontFamily: "var(--tt-font-mono)", padding: "0 8px" }}
-                              >⤢</button>
-                            </div>
-                          }
-                        >
-                          {/* Indicator toggle row */}
-                          <div style={{
-                            display: "flex",
-                            flexWrap: "wrap",
-                            gap: 4,
-                            marginBottom: "var(--ds-space-2)",
-                          }}>
-                            {indicatorBtn("ema21", "EMA21", "21-period EMA")}
-                            {indicatorBtn("ema48", "EMA48", "48-period EMA")}
-                            {indicatorBtn("ema200", "EMA200", "200-period EMA")}
-                            {indicatorBtn("supertrend", "ST", "SuperTrend (10, 3)")}
-                            {indicatorBtn("tdSequential", "TD", "TD Sequential markers")}
-                          </div>
-                          <div style={{ height: 240 }}>
-                            {React.createElement(LWChart, {
-                              candles: chartCandles,
-                              chartTf,
-                              overlays: chartOverlays,
-                              priceLines: buildLines(),
-                              ticker,
-                              height: 240,
-                              hideOverlayToggles: true,
-                            })}
-                          </div>
-                        </Panel>
-                        );
-                      })()}
+                      {/* Chart was here — V15 P0.7.74 lifted it out of the
+                          Setup tab and into a sticky pinned position
+                          above all tab bodies so it stays visible across
+                          tabs. See the chart block at the top of the
+                          scrollable body.
+
+                          V15 P0.7.76 (2026-05-06): Key Levels panel was
+                          ALSO lifted out of Setup, sibling of the chart,
+                          so the workspace's left pane has both chart +
+                          levels persistent across tabs (per user vision:
+                          "On the left side we have the setup tab, with
+                          the Chart and the levels"). */}
+
+                      {/* (legacy comment block, kept as anchor for the
+                          duplicate detection check below) */}
+
+                      {/* Key Levels was here — V15 P0.7.76 lifted it
+                          out of Setup tab to render alongside the chart
+                          (above all tab gates). See `tt-rail-levels-block`
+                          near the chart. */}
 
                       {/* Risk & Targets — vertical price ladder.
-                          V2.1 round 7 (2026-05-01) — Now surfaces ALL TP tiers
-                          (TP1 trim, TP2 exit, TP3 runner) from tpArray when
-                          available, plus any bonus levels (tp_max, tp_runner).
-                          Per user: "make sure the Take Profit level is correct,
-                          we should show any additional bonus levels if they
-                          are there". */}
-                      {(ticker?.sl || ticker?.tp || ticker?.tp_trim || ticker?.tp_exit || ticker?.entry_price) && (() => {
-                        const entry = Number(ticker.entry_price) || 0;
-                        const sl = Number(ticker.sl ?? ticker.sl_dynamic ?? ticker.stop_loss) || 0;
+                          V2.1 round 10 (2026-05-04) — Direction-aware, prediction-contract-first.
+                          BUG FIX: previous version pulled `ticker.sl` / `ticker.tp_*` blindly,
+                          which on SHORT-bias tickers (e.g. GILD where sl=$114 was actually a
+                          LONG-trade stop sitting BELOW price) showed an upside-down ladder
+                          with the stop in profit territory and targets above price.
+                          New ordering of truth (highest priority first):
+                            1. predictionContract.risk.stop_loss + .targets[]  (direction-aware,
+                               always correct: SHORT stops sit ABOVE price, targets BELOW;
+                               LONG stops sit BELOW, targets ABOVE)
+                            2. trade.tpArray + trade.sl (when an active trade exists)
+                            3. ticker.sl / tp_trim / tp_exit / tp_max (legacy fallback only when
+                               there's an open position with matching direction)
+                          When there's no active trade, the panel renders as a "PROPOSED PLAN"
+                          eyebrow with a clear "model-derived levels" disclaimer so the user
+                          doesn't read R:R as an active commitment. */}
+                      {(() => {
+                        const pcSL = predictionContract?.risk?.stop_loss != null ? Number(predictionContract.risk.stop_loss) : NaN;
+                        const pcTargets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
+                        const pcRR = predictionContract?.risk?.rr != null ? Number(predictionContract.risk.rr) : NaN;
+                        const pcDir = String(predictionContract?.direction || "").toUpperCase();
+
+                        const tradeStatus = String(trade?.status || "").toUpperCase();
+                        const tradeIsOpen = !!(trade && (
+                          tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" ||
+                          (!(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS")
+                        ));
+
+                        // Resolve direction (RR honors prediction contract for proposed plans,
+                        // falls back to active trade direction).
+                        const dir = (pcDir === "LONG" || pcDir === "SHORT")
+                          ? pcDir
+                          : (tradeIsOpen ? String(trade?.direction || "").toUpperCase() : (v2Dir || "LONG"));
+                        const isLong = dir !== "SHORT";
+
+                        // Resolve entry, current, stop (priority chain).
+                        const entry = (() => {
+                          if (tradeIsOpen) return Number(trade?.entry_price ?? trade?.entryPrice) || 0;
+                          return Number(ticker?.entry_price) || 0;
+                        })();
                         const cur = v2Price || entry;
-                        // Build TP levels: prefer tpArray (3-tier), fallback to tp_trim/tp_exit/tp
+                        const sl = (() => {
+                          if (Number.isFinite(pcSL) && pcSL > 0) return pcSL;
+                          if (tradeIsOpen) return Number(trade?.sl) || 0;
+                          return Number(ticker?.sl ?? ticker?.sl_dynamic ?? ticker?.stop_loss) || 0;
+                        })();
+
+                        // Resolve TP levels (direction-aware). Prefer prediction contract.
                         const tpLevels = (() => {
                           const out = [];
-                          const tpArr = Array.isArray(trade?.tpArray) && trade.tpArray.length > 0
-                            ? trade.tpArray
-                            : (Array.isArray(ticker?.tpArray) ? ticker.tpArray : []);
-                          if (tpArr.length > 0) {
-                            tpArr.forEach((tp, i) => {
-                              const px = Number(tp?.price ?? tp);
-                              if (Number.isFinite(px) && px > 0) {
-                                out.push({
-                                  label: tp?.tier || (i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`),
-                                  desc: tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner"),
-                                  px,
-                                });
-                              }
+                          if (pcTargets.length > 0) {
+                            // Prediction contract targets are already in priority order
+                            // (Trim → Exit → Runner). Direction-aware: SHORT targets are
+                            // BELOW price, LONG targets ABOVE.
+                            pcTargets.forEach((tp, i) => {
+                              const px = Number(tp?.price);
+                              if (!Number.isFinite(px) || px <= 0) return;
+                              const tier = tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner");
+                              out.push({
+                                label: i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`,
+                                desc: tier,
+                                px,
+                              });
                             });
-                          } else {
+                          } else if (tradeIsOpen && Array.isArray(trade?.tpArray) && trade.tpArray.length > 0) {
+                            trade.tpArray.forEach((tp, i) => {
+                              const px = Number(tp?.price ?? tp);
+                              if (!Number.isFinite(px) || px <= 0) return;
+                              out.push({
+                                label: tp?.tier || (i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`),
+                                desc: tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner"),
+                                px,
+                              });
+                            });
+                          } else if (tradeIsOpen) {
+                            // Active trade with legacy single-tp fields
                             const tp1 = Number(ticker?.tp_trim) || 0;
                             const tp2 = Number(ticker?.tp_exit) || Number(ticker?.tp_target_price) || Number(ticker?.tp) || 0;
                             const tpMax = Number(ticker?.tp_max) || Number(ticker?.tp_runner) || 0;
                             if (tp1 > 0) out.push({ label: "TP1", desc: "Trim", px: tp1 });
                             if (tp2 > 0 && tp2 !== tp1) out.push({ label: "TP2", desc: "Exit", px: tp2 });
-                            if (tpMax > 0 && tpMax !== tp1 && tpMax !== tp2) out.push({ label: "TP3", desc: "Runner / Bonus", px: tpMax });
+                            if (tpMax > 0 && tpMax !== tp1 && tpMax !== tp2) out.push({ label: "TP3", desc: "Runner", px: tpMax });
                           }
+                          // Sort TP1→TP3 in correct distance order from current.
+                          // For SHORT: nearest below price first. For LONG: nearest above first.
+                          // (Already in priority order from contract, but defensive sort.)
                           return out;
                         })();
+
+                        if (!sl && tpLevels.length === 0) return null;
+
+                        // Build ladder. SHORT bias: targets below price, stop above.
+                        // LONG bias: targets above price, stop below. Sort top→bottom by price.
                         const all = [entry, cur, sl, ...tpLevels.map(t => t.px)].filter(p => Number.isFinite(p) && p > 0);
                         if (all.length < 2) return null;
                         const min = Math.min(...all);
@@ -2654,18 +3542,91 @@
                         const lo = min - padding;
                         const hi = max + padding;
                         const yFor = (px) => 100 - ((px - lo) / (hi - lo)) * 100;
-                        const isLong = v2Dir === "LONG";
-                        const levels = [
-                          ...tpLevels.map(tp => ({ label: tp.label, sub: tp.desc, px: tp.px, color: "var(--ds-up)" })),
+                        const targetColor = "var(--ds-up)";
+                        const stopColor = "var(--ds-dn)";
+                        const rawLevels = [
+                          ...tpLevels.map(tp => ({ label: tp.label, sub: tp.desc, px: tp.px, color: targetColor, kind: "tp" })),
                           cur ? { label: "Current", px: cur, color: "var(--ds-accent)", isCurrent: true } : null,
-                          entry ? { label: "Entry", px: entry, color: "var(--ds-text-muted)" } : null,
-                          sl ? { label: "Stop", px: sl, color: "var(--ds-dn)" } : null,
+                          entry ? { label: "Entry", px: entry, color: "var(--ds-text-muted)", kind: "entry" } : null,
+                          sl ? { label: "Stop", px: sl, color: stopColor, kind: "sl" } : null,
                         ].filter(Boolean).sort((a, b) => b.px - a.px);
+                        const levels = rawLevels.map(l => ({ ...l, _y: yFor(l.px) }));
+                        const MIN_SPACING = 11;
+                        for (let i = 1; i < levels.length; i++) {
+                          const prevY = levels[i - 1]._y;
+                          if (levels[i]._y - prevY < MIN_SPACING) {
+                            levels[i]._y = prevY + MIN_SPACING;
+                          }
+                        }
+
+                        // Direction sanity guard. If we're SHORT and the stop sits BELOW price
+                        // (or LONG and stop sits ABOVE), the ladder is geometrically wrong
+                        // for this direction — surface a warning chip instead of silently
+                        // displaying contradictory data.
+                        const ladderInverted = (() => {
+                          if (!sl || !cur) return false;
+                          if (isLong && sl > cur) return true;
+                          if (!isLong && sl < cur) return true;
+                          return false;
+                        })();
+
+                        // Eyebrow: distinguish PROPOSED PLAN (no active trade — model levels)
+                        // from ACTIVE PLAN (in a trade — these are real risk/reward).
+                        const isProposed = !tradeIsOpen;
+                        const eyebrow = isProposed ? "PROPOSED PLAN" : "ACTIVE PLAN";
+                        const rrChip = (() => {
+                          const rr = Number.isFinite(pcRR) ? pcRR : (Number(ticker?.rr) || NaN);
+                          if (!Number.isFinite(rr) || rr <= 0) return null;
+                          return (
+                            <span className={`ds-chip ds-chip--sm ${rr >= 2 ? "ds-chip--up" : "ds-chip--accent"}`} title={isProposed ? "Model-derived reward-to-risk — entry not triggered" : "Active reward-to-risk for the open trade"}>
+                              R:R {rr.toFixed(2)}
+                            </span>
+                          );
+                        })();
+                        const headerAction = (
+                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            <span className="ds-chip ds-chip--sm" style={{
+                              fontFamily: "var(--tt-font-mono)",
+                              fontSize: 9,
+                              letterSpacing: "0.12em",
+                              color: isProposed ? "var(--ds-text-muted)" : "var(--ds-accent)",
+                              background: isProposed ? "transparent" : "var(--ds-accent-dim)",
+                              borderColor: isProposed ? "var(--ds-stroke)" : "var(--ds-accent)",
+                            }}>{eyebrow}</span>
+                            {rrChip}
+                          </div>
+                        );
+
                         return (
-                          <Panel title="Risk & Targets" action={ticker?.rr && <span className={`ds-chip ds-chip--sm ${Number(ticker.rr) >= 2 ? "ds-chip--up" : "ds-chip--accent"}`}>R:R {Number(ticker.rr).toFixed(2)}</span>}>
+                          <Panel title={isProposed ? "Risk & Targets" : "Risk & Targets"} action={headerAction}>
+                            {isProposed && (
+                              <p style={{
+                                margin: "0 0 var(--ds-space-2) 0",
+                                fontSize: "var(--ds-fs-caption)",
+                                color: "var(--ds-text-faint)",
+                                lineHeight: 1.5,
+                                fontStyle: "italic",
+                              }}>
+                                Model-derived levels — entry not triggered. {dir === "SHORT" ? "Targets below price (profit zones); stop above price (invalidates the short)." : "Targets above price (profit zones); stop below price (invalidates the long)."}
+                              </p>
+                            )}
+                            {ladderInverted && (
+                              <p style={{
+                                margin: "0 0 var(--ds-space-2) 0",
+                                padding: "4px 8px",
+                                borderRadius: "var(--ds-radius-xs)",
+                                background: "rgba(244,63,94,0.08)",
+                                border: "1px solid rgba(244,63,94,0.30)",
+                                fontSize: "var(--ds-fs-caption)",
+                                color: "var(--ds-dn)",
+                                lineHeight: 1.4,
+                              }}>
+                                ⚠ Ladder geometry conflicts with {dir} bias — stop is {isLong ? "above" : "below"} current price.
+                              </p>
+                            )}
                             <div style={{ position: "relative", height: 160, marginTop: "var(--ds-space-2)", borderLeft: "2px solid var(--ds-stroke)", paddingLeft: "var(--ds-space-3)" }}>
                               {levels.map((l, i) => {
-                                const top = yFor(l.px);
+                                const top = l._y;
                                 return (
                                   <div key={`rt-${i}`} style={{
                                     position: "absolute",
@@ -2701,6 +3662,101 @@
                                   </div>
                                 );
                               })}
+                            </div>
+                          </Panel>
+                        );
+                      })()}
+
+                      {/* V15 P0.7.99 — KEY LEVELS in v2 SETUP tab.
+                          Sits between Risk & Targets and Profile so all
+                          trade-decision data lives in one tab and the
+                          persistent rail chart in the left pane can grow.
+                          (My previous attempt placed this in the legacy v1
+                          ANALYSIS tab by accident — moved here.) */}
+                      {Array.isArray(predictionContract?.levels) && predictionContract.levels.length > 0 && (() => {
+                        const px = Number(v2Price) || Number(ticker?.price) || 0;
+                        if (!(px > 0)) return null;
+                        const all = predictionContract.levels;
+                        const resistance = all.filter((l) => l.role === "resistance").sort((a, b) => a.price - b.price);
+                        const support = all.filter((l) => l.role === "support").sort((a, b) => b.price - a.price);
+                        const pcDir = String(predictionContract?.direction || "").toUpperCase();
+                        const isShort = pcDir === "SHORT";
+                        const aboveLabel = isShort ? "Invalidation Zone" : "Resistance";
+                        const belowLabel = isShort ? "Target Zones" : "Support";
+                        const kindMeta = (kind) => {
+                          if (kind === "year_high" || kind === "year_low") return { color: "#f87171", letter: "52W", desc: "52-week extreme" };
+                          if (kind === "swing_high" || kind === "swing_low") return { color: "#fbbf24", letter: "SW", desc: "Swing structure (D)" };
+                          if (kind === "swing_high_4h" || kind === "swing_low_4h") return { color: "#fcd34d", letter: "4H", desc: "Swing structure (4H)" };
+                          if (kind === "prior_session_high" || kind === "prior_session_low") return { color: "#a78bfa", letter: "PD", desc: "Prior day range" };
+                          if (kind === "pivot_high" || kind === "pivot_low") return { color: "#34d399", letter: "PV", desc: "Multi-tested pivot" };
+                          if (kind === "pdz_premium" || kind === "pdz_discount" || kind === "pdz_eq") return { color: "#60a5fa", letter: "PDZ", desc: "Premium/Discount/Equilibrium" };
+                          if (kind === "ema") return { color: "rgba(96,165,250,0.6)", letter: "EMA", desc: "Daily EMA magnet" };
+                          return { color: "var(--ds-text-muted)", letter: "—", desc: "Level" };
+                        };
+                        const LevelRow = ({ l, side }) => {
+                          const m = kindMeta(l.kind);
+                          const dist = ((Number(l.price) - px) / px) * 100;
+                          const distColor = side === "res" ? "var(--ds-dn)" : "var(--ds-up)";
+                          return (
+                            <div style={{
+                              display: "grid",
+                              gridTemplateColumns: "32px 1fr 64px 44px",
+                              gap: "var(--ds-space-2)",
+                              alignItems: "center",
+                              padding: "5px 8px",
+                              borderRadius: "var(--ds-radius-xs)",
+                              background: "rgba(255,255,255,0.02)",
+                              borderLeft: `3px solid ${m.color}`,
+                            }} title={`${m.desc} · weight ${l.weight}`}>
+                              <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, color: m.color, letterSpacing: "0.06em", textAlign: "center" }}>{m.letter}</span>
+                              <span style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)" }}>{l.label || ""}</span>
+                              <span style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-display)", fontFamily: "var(--tt-font-mono)", fontWeight: 700, textAlign: "right" }}>${Number(l.price).toFixed(2)}</span>
+                              <span style={{ fontSize: 9, color: distColor, fontFamily: "var(--tt-font-mono)", textAlign: "right" }}>{dist >= 0 ? "+" : ""}{dist.toFixed(2)}%</span>
+                            </div>
+                          );
+                        };
+                        return (
+                          <Panel title="Key Levels" action={
+                            <span style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 9, fontFamily: "var(--tt-font-mono)", color: "var(--ds-text-faint)", letterSpacing: "0.10em" }}>
+                              {pcDir && <span className={`ds-chip ds-chip--sm ${isShort ? "ds-chip--dn" : "ds-chip--up"}`} title="Bias direction" style={{ fontSize: 9 }}>{pcDir}</span>}
+                              <span>{resistance.length} above · {support.length} below</span>
+                            </span>
+                          }>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                              {resistance.length > 0 && (
+                                <div style={{ padding: "4px 8px 2px", display: "flex", alignItems: "baseline", gap: "var(--ds-space-2)" }}>
+                                  <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-dn)" }}>{aboveLabel}</span>
+                                  <span style={{ fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" }}>{isShort ? "stop above price" : "profit / fade"}</span>
+                                </div>
+                              )}
+                              {resistance.length > 0 && resistance.slice(0, 5).reverse().map((l, i) => (
+                                <LevelRow key={`v2-res-${i}-${l.price}`} l={l} side="res" />
+                              ))}
+                              <div style={{
+                                display: "grid",
+                                gridTemplateColumns: "32px 1fr 64px 44px",
+                                gap: "var(--ds-space-2)",
+                                alignItems: "center",
+                                padding: "8px 8px",
+                                borderRadius: "var(--ds-radius-xs)",
+                                background: "rgba(245,194,92,0.10)",
+                                border: "1px solid rgba(245,194,92,0.30)",
+                                margin: "2px 0",
+                              }}>
+                                <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, color: "var(--ds-accent)", letterSpacing: "0.06em", textAlign: "center" }}>NOW</span>
+                                <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-accent)", fontFamily: "var(--tt-font-mono)", fontWeight: 700 }}>Current Price</span>
+                                <span style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-accent)", fontFamily: "var(--tt-font-mono)", fontWeight: 700, textAlign: "right" }}>${px.toFixed(2)}</span>
+                                <span style={{ fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", textAlign: "right" }}>—</span>
+                              </div>
+                              {support.length > 0 && (
+                                <div style={{ padding: "4px 8px 2px", display: "flex", alignItems: "baseline", gap: "var(--ds-space-2)" }}>
+                                  <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-up)" }}>{belowLabel}</span>
+                                  <span style={{ fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" }}>{isShort ? "profit-take" : "defend / SL ref"}</span>
+                                </div>
+                              )}
+                              {support.length > 0 && support.slice(0, 5).map((l, i) => (
+                                <LevelRow key={`v2-sup-${i}-${l.price}`} l={l} side="sup" />
+                              ))}
                             </div>
                           </Panel>
                         );
@@ -2747,16 +3803,95 @@
                   {/* TECHNICALS TAB */}
                   {v2RailTab === "TECHNICALS" && (
                     <>
-                      {/* V2.1 round 6 (2026-05-01) — Technical Analysis narrative.
-                          Per user: "It would be nice to provide a quick technical
-                          analysis narrative on top of the technicals section in
-                          the right rail." Builds plain-language commentary from
-                          tf_tech across LTF/HTF, RSI extremes, squeeze state,
-                          and TD count to give a "what does this all mean" read. */}
+                      {/* V2.1 round 11 (2026-05-04) — Bias Confirmation/Conflict
+                          banner. Always renders at the top of Technicals so the
+                          user knows whether HTF structure SUPPORTS or OPPOSES
+                          the model's call before reading the per-line
+                          observations below.
+                          Color: green (aligned) / amber (mixed) / red (conflict). */}
+                      {(() => {
+                        const tfm = ticker?.tf_tech || {};
+                        const pcDir = String(predictionContract?.direction || "").toUpperCase();
+                        if (!pcDir) return null;
+                        const dirSign = pcDir === "LONG" ? 1 : -1;
+                        let aligned = 0, opposed = 0, present = 0;
+                        for (const k of ["15","30","1H","60","4H","240","D"]) {
+                          const r = tfm[k];
+                          if (!r) continue;
+                          const stack = Number(r?.ema?.stack);
+                          if (!Number.isFinite(stack) || stack === 0) continue;
+                          present += 1;
+                          if (Math.sign(stack) === dirSign) aligned += 1;
+                          else opposed += 1;
+                        }
+                        if (present === 0) return null;
+                        const ratio = aligned / present;
+                        const status = ratio >= 0.7 ? "aligned" : ratio <= 0.3 ? "conflict" : "mixed";
+                        const meta = status === "aligned"
+                          ? { cls: "ds-chip--up", color: "var(--ds-up)", bg: "rgba(34,197,94,0.06)", border: "rgba(34,197,94,0.30)", lead: "ALIGNED", txt: `${aligned}/${present} timeframes confirm the ${pcDir} bias — read the call as well-supported.` }
+                          : status === "conflict"
+                          ? { cls: "ds-chip--dn", color: "var(--ds-dn)", bg: "rgba(244,63,94,0.06)", border: "rgba(244,63,94,0.30)", lead: "CONFLICT", txt: `${opposed}/${present} timeframes oppose the ${pcDir} bias — the model is taking a counter-trend / reversal stance. Wait for confirmation before sizing in.` }
+                          : { cls: "ds-chip--accent", color: "var(--ds-accent)", bg: "rgba(245,194,92,0.06)", border: "rgba(245,194,92,0.30)", lead: "MIXED", txt: `${aligned} aligned / ${opposed} opposed across ${present} timeframes — structure is split. Trade smaller and tighter.` };
+                        return (
+                          <div className="ds-glass" style={{
+                            marginBottom: "var(--ds-space-3)",
+                            background: meta.bg,
+                            border: `1px solid ${meta.border}`,
+                            padding: "var(--ds-space-3)",
+                          }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                              <span className={`ds-chip ds-chip--sm ${meta.cls}`} style={{ fontFamily: "var(--tt-font-mono)", letterSpacing: "0.10em" }}>BIAS · {meta.lead}</span>
+                              <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)" }}>{pcDir}</span>
+                            </div>
+                            <p style={{ margin: 0, fontSize: "var(--ds-fs-caption)", color: meta.color, lineHeight: 1.5 }}>{meta.txt}</p>
+                          </div>
+                        );
+                      })()}
+
+                      {/* V2.1 round 11 (2026-05-04) — Empty state for Technicals.
+                          Per user: Technicals tab "renders nothing for many tickers".
+                          Cause: tf_tech being absent caused the entire narrative panel
+                          to fail silently (`{ticker?.tf_tech && ...}` returns null).
+                          Now always emit at minimum a Multi-TF Stack table or an
+                          explicit "data not available yet" message instead of blank. */}
+                      {!ticker?.tf_tech && (
+                        <Panel title="Technical Analysis" action={
+                          <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }}>NO DATA</span>
+                        }>
+                          <p style={{ margin: 0, fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", lineHeight: 1.5 }}>
+                            Multi-timeframe technicals for <strong style={{ color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)" }}>{tickerSymbol}</strong> haven't loaded yet. This usually clears within a few minutes after the next ingest cycle. If it persists, the ticker may be missing intraday candle coverage (worker-side issue).
+                          </p>
+                        </Panel>
+                      )}
+
+                      {/* V2.1 round 10 (2026-05-04) — Technical Analysis narrative,
+                          now DIRECTION-AWARE.
+                          Previous version computed bias from raw EMA stack signs and
+                          described every observation neutrally, which produced wildly
+                          incoherent output on tickers where the model bias contradicted
+                          raw structure (e.g. GILD reading "bullish bias / Daily structure
+                          is strongly bullish" while the prediction contract had flagged
+                          GILD as SHORT-bias).
+                          Fix:
+                            1. Lead with the AUTHORITATIVE bias (predictionContract.direction
+                               first, then HTF state, then EMA-stack majority).
+                            2. Frame each observation as either ALIGNED with the bias
+                               (supports the call) or CONFLICTING (caveat / fade trigger).
+                            3. Volatility-squeeze line is now direction-neutral
+                               ("expansion in either direction") so it doesn't read bullish
+                               on a SHORT call.
+                            4. If the prediction contract bias is opposite the raw
+                               EMA-stack majority, the panel surfaces that conflict
+                               explicitly so the user knows the model is taking a
+                               counter-trend / reversal stance. */}
                       {ticker?.tf_tech && (() => {
                         const tfm = ticker.tf_tech || {};
                         const sym = tickerSymbol;
+                        // Authoritative bias: prediction contract first.
+                        const pcDir = String(predictionContract?.direction || "").toUpperCase();
                         const dirSign = (() => {
+                          if (pcDir === "LONG") return 1;
+                          if (pcDir === "SHORT") return -1;
                           const s = String(ticker?.state || "").toUpperCase();
                           if (s.startsWith("HTF_BULL")) return 1;
                           if (s.startsWith("HTF_BEAR")) return -1;
@@ -2767,70 +3902,160 @@
                           return sum > 0 ? 1 : sum < 0 ? -1 : 0;
                         })();
                         const dir = dirSign === 1 ? "bullish" : dirSign === -1 ? "bearish" : "mixed";
-                        const lines = [];
-                        // HTF posture
+                        const dirLabel = dirSign === 1 ? "LONG" : dirSign === -1 ? "SHORT" : "MIX";
+
+                        // Helper: classify an observation as ALIGNED / CONFLICTING / NEUTRAL
+                        // relative to the authoritative bias.
+                        const classify = (obsSign) => {
+                          if (dirSign === 0 || obsSign === 0) return "neutral";
+                          return obsSign === dirSign ? "aligned" : "conflicting";
+                        };
+
+                        // Bucketed observations.
+                        const aligned = [];
+                        const conflicting = [];
+                        const neutral = [];
+
+                        // HTF posture (Daily EMA stack).
                         const dailyStack = Number(tfm.D?.ema?.stack);
-                        const fourhStack = Number(tfm["4H"]?.ema?.stack || tfm["240"]?.ema?.stack);
                         if (Number.isFinite(dailyStack) && dailyStack !== 0) {
-                          if (dailyStack >= 4) lines.push(`Daily structure is strongly bullish (full EMA stack).`);
-                          else if (dailyStack <= -4) lines.push(`Daily structure is strongly bearish (full EMA stack down).`);
-                          else if (dailyStack > 0) lines.push(`Daily structure leans bullish but not fully stacked.`);
-                          else lines.push(`Daily structure leans bearish but not fully stacked.`);
+                          const stackSign = Math.sign(dailyStack);
+                          const cls = classify(stackSign);
+                          let txt = "";
+                          if (dailyStack >= 4) txt = `Daily structure is strongly bullish (full EMA stack).`;
+                          else if (dailyStack <= -4) txt = `Daily structure is strongly bearish (full EMA stack down).`;
+                          else if (dailyStack > 0) txt = `Daily structure leans bullish but not fully stacked.`;
+                          else txt = `Daily structure leans bearish but not fully stacked.`;
+                          (cls === "aligned" ? aligned : cls === "conflicting" ? conflicting : neutral).push(txt);
                         }
+                        // 4H vs Daily divergence.
+                        const fourhStack = Number(tfm["4H"]?.ema?.stack || tfm["240"]?.ema?.stack);
                         if (Number.isFinite(fourhStack) && Math.sign(fourhStack) !== Math.sign(dailyStack || 0) && fourhStack !== 0) {
-                          lines.push(`Watch the 4H \u2014 it's moving against the Daily, suggests pullback or counter-rotation.`);
+                          neutral.push(`4H is moving against the Daily — pullback or counter-rotation in play.`);
                         }
-                        // RSI extremes
+                        // RSI extremes — direction-aware framing.
                         const rsi1H = Number(tfm["1H"]?.rsi?.r5 || tfm["60"]?.rsi?.r5);
                         const rsiD  = Number(tfm.D?.rsi?.r5);
-                        if (Number.isFinite(rsiD) && rsiD >= 70) lines.push(`Daily RSI ${rsiD.toFixed(0)} is overbought \u2014 reversal risk elevated.`);
-                        else if (Number.isFinite(rsiD) && rsiD <= 30) lines.push(`Daily RSI ${rsiD.toFixed(0)} is oversold \u2014 mean-reversion bounce possible.`);
-                        if (Number.isFinite(rsi1H) && rsi1H >= 70 && (!Number.isFinite(rsiD) || rsiD < 70)) lines.push(`1H RSI ${rsi1H.toFixed(0)} is hot but Daily isn't \u2014 short-term overheat.`);
-                        // Squeeze
+                        if (Number.isFinite(rsiD) && rsiD >= 70) {
+                          // Overbought daily: aligned for SHORT (reversal target), conflicting for LONG (chase risk).
+                          const cls = classify(-1);
+                          (cls === "aligned" ? aligned : conflicting).push(`Daily RSI ${rsiD.toFixed(0)} is overbought — reversal risk elevated${dirSign === -1 ? " (favors the SHORT)" : dirSign === 1 ? " (extension caution for LONGs)" : ""}.`);
+                        } else if (Number.isFinite(rsiD) && rsiD <= 30) {
+                          const cls = classify(1);
+                          (cls === "aligned" ? aligned : conflicting).push(`Daily RSI ${rsiD.toFixed(0)} is oversold — bounce possible${dirSign === 1 ? " (favors the LONG)" : dirSign === -1 ? " (caution for SHORTs into support)" : ""}.`);
+                        }
+                        if (Number.isFinite(rsi1H) && rsi1H >= 70 && (!Number.isFinite(rsiD) || rsiD < 70)) {
+                          const cls = classify(-1);
+                          (cls === "aligned" ? aligned : conflicting).push(`1H RSI ${rsi1H.toFixed(0)} is hot but Daily isn't — short-term overheat.`);
+                        }
+                        // Squeeze: direction-neutral. Always read as "expansion in either direction".
                         let sqLine = null;
                         for (const k of ["15","30","1H","60","4H","240","D"]) {
                           const sq = tfm[k]?.sq;
                           if (!sq) continue;
-                          if (sq.r) { sqLine = `Squeeze just RELEASED on ${k === "60" ? "1H" : k === "240" ? "4H" : k} \u2014 expect an expansion move.`; break; }
+                          if (sq.r) { sqLine = `Squeeze just RELEASED on ${k === "60" ? "1H" : k === "240" ? "4H" : k} — expansion in either direction; watch for follow-through that confirms the ${dirLabel} bias.`; break; }
                         }
                         if (!sqLine) {
                           for (const k of ["15","30","1H","60","4H","240","D"]) {
                             const sq = tfm[k]?.sq;
                             if (!sq) continue;
-                            if (sq.s) { sqLine = `Volatility coiled with squeeze ON ${k === "60" ? "1H" : k === "240" ? "4H" : k} \u2014 watch for expansion.`; break; }
+                            if (sq.s) { sqLine = `Volatility coiled with squeeze ON ${k === "60" ? "1H" : k === "240" ? "4H" : k} — expansion in either direction; whichever side breaks gets the move.`; break; }
                           }
                         }
-                        if (sqLine) lines.push(sqLine);
-                        // Divergence
+                        if (sqLine) neutral.push(sqLine);
+                        // Divergence — direction-aware.
                         const rsiDivBear = ticker?.rsi_divergence?.bear?.active || tfm["1H"]?.rsiDiv?.bear?.a;
                         const rsiDivBull = ticker?.rsi_divergence?.bull?.active || tfm["1H"]?.rsiDiv?.bull?.a;
-                        if (rsiDivBear) lines.push(`RSI bearish divergence active \u2014 momentum slowing while price still pushes up.`);
-                        if (rsiDivBull) lines.push(`RSI bullish divergence active \u2014 selling losing steam, watch for reversal.`);
-                        // TD
+                        if (rsiDivBear) {
+                          const cls = classify(-1);
+                          (cls === "aligned" ? aligned : conflicting).push(`RSI bearish divergence active — momentum slowing while price still pushes up.`);
+                        }
+                        if (rsiDivBull) {
+                          const cls = classify(1);
+                          (cls === "aligned" ? aligned : conflicting).push(`RSI bullish divergence active — selling losing steam, watch for reversal.`);
+                        }
+                        // TD setup count — direction-aware.
                         const tdD = ticker?.td_sequential?.per_tf?.D || ticker?.td_sequential?.per_tf?.["1D"];
                         if (tdD) {
                           const bp = Number(tdD.bullish_prep_count) || 0;
                           const sp = Number(tdD.bearish_prep_count) || 0;
-                          if (sp >= 8) lines.push(`Daily TD${sp} setup count is exhaustion-high on the bear side.`);
-                          else if (bp >= 8) lines.push(`Daily TD${bp} setup count is exhaustion-high on the bull side.`);
+                          if (sp >= 8) {
+                            const cls = classify(1); // bear-side exhaustion = bullish reversal expected
+                            (cls === "aligned" ? aligned : conflicting).push(`Daily TD${sp} setup count is exhaustion-high on the bear side (reversal candidate).`);
+                          } else if (bp >= 8) {
+                            const cls = classify(-1);
+                            (cls === "aligned" ? aligned : conflicting).push(`Daily TD${bp} setup count is exhaustion-high on the bull side (reversal candidate).`);
+                          }
                         }
-                        if (lines.length === 0) {
-                          lines.push(`Technicals look balanced \u2014 no extreme readings, no exhaustion signals, no fresh squeeze. Waiting for a catalyst.`);
+
+                        if (aligned.length === 0 && conflicting.length === 0 && neutral.length === 0) {
+                          neutral.push(`Technicals look balanced — no extreme readings, no exhaustion signals, no fresh squeeze. Waiting for a catalyst.`);
                         }
+
+                        const Bullet = ({ icon, text, color }) => (
+                          <li style={{
+                            display: "flex",
+                            gap: 8,
+                            alignItems: "flex-start",
+                            margin: "4px 0",
+                            color: "var(--ds-text-body)",
+                            fontSize: "var(--ds-fs-meta)",
+                            lineHeight: 1.5,
+                          }}>
+                            <span style={{
+                              fontFamily: "var(--tt-font-mono)",
+                              fontWeight: 700,
+                              color,
+                              minWidth: 16,
+                              textAlign: "center",
+                              flexShrink: 0,
+                            }}>{icon}</span>
+                            <span>{text}</span>
+                          </li>
+                        );
+
                         return (
-                          <Panel title={`Technical Analysis \u00B7 ${sym}`}>
-                            <p style={{ margin: 0, fontSize: "var(--ds-fs-body)", lineHeight: 1.6, color: "var(--ds-text-body)" }}>
-                              <span style={{
-                                fontFamily: "var(--tt-font-mono)",
-                                fontSize: 9,
-                                letterSpacing: "0.16em",
-                                textTransform: "uppercase",
-                                color: dir === "bullish" ? "var(--ds-up)" : dir === "bearish" ? "var(--ds-dn)" : "var(--ds-text-muted)",
-                                fontWeight: 700,
-                                marginRight: 8,
-                              }}>{dir} bias</span>
-                              {lines.join(" ")}
-                            </p>
+                          <Panel title={`Technical Analysis · ${sym}`} action={
+                            <span className={`ds-chip ds-chip--sm ${dir === "bullish" ? "ds-chip--up" : dir === "bearish" ? "ds-chip--dn" : "ds-chip--solid"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
+                              {dirLabel} bias
+                            </span>
+                          }>
+                            {pcDir && pcDir !== "" && dir !== "mixed" && (
+                              <p style={{
+                                margin: "0 0 var(--ds-space-2) 0",
+                                fontSize: "var(--ds-fs-caption)",
+                                color: "var(--ds-text-muted)",
+                                fontStyle: "italic",
+                                lineHeight: 1.5,
+                              }}>
+                                Read against the model's <strong style={{ color: dirLabel === "SHORT" ? "var(--ds-dn)" : "var(--ds-up)" }}>{dirLabel}</strong> bias. Aligned signals support the call; conflicting signals are caveats / reversal triggers.
+                              </p>
+                            )}
+                            <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                              {aligned.map((t, i) => (
+                                <Bullet key={`al-${i}`} icon="✓" text={t} color="var(--ds-up)" />
+                              ))}
+                              {conflicting.map((t, i) => (
+                                <Bullet key={`cf-${i}`} icon="⚠" text={`Conflicts with ${dirLabel} bias: ${t}`} color="var(--ds-dn)" />
+                              ))}
+                              {neutral.map((t, i) => (
+                                <Bullet key={`nt-${i}`} icon="·" text={t} color="var(--ds-text-muted)" />
+                              ))}
+                            </ul>
+                            {conflicting.length > 0 && aligned.length === 0 && (
+                              <p style={{
+                                margin: "var(--ds-space-2) 0 0 0",
+                                padding: "6px 8px",
+                                borderRadius: "var(--ds-radius-xs)",
+                                background: "rgba(244,63,94,0.06)",
+                                border: "1px solid rgba(244,63,94,0.20)",
+                                fontSize: "var(--ds-fs-caption)",
+                                color: "var(--ds-dn)",
+                                lineHeight: 1.5,
+                              }}>
+                                Raw structure runs counter to the {dirLabel} bias — this is a counter-trend / reversal stance. Wait for a confirming break-of-structure before sizing in.
+                              </p>
+                            )}
                           </Panel>
                         );
                       })()}
@@ -3070,9 +4295,9 @@
                         </Panel>
                       )}
 
-                      {/* Fundamentals */}
+                      {/* Fundamentals (light snapshot — full Tenet-style breakdown lives in the Fundamentals tab) */}
                       {ticker?.fundamentals && (ticker.fundamentals.pe || ticker.fundamentals.peg || ticker.fundamentals.eps_growth) && (
-                        <Panel title="Fundamentals">
+                        <Panel title="Fundamentals" action={<button className="ds-chip ds-chip--sm" onClick={() => setRailTab("FUNDAMENTALS")} style={{ cursor: "pointer" }}>Open Fundamentals →</button>}>
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--ds-space-2)" }}>
                             {ticker.fundamentals.pe != null && <Metric label="P/E" value={Number(ticker.fundamentals.pe).toFixed(1)} />}
                             {ticker.fundamentals.peg != null && <Metric label="PEG" value={Number(ticker.fundamentals.peg).toFixed(2)} />}
@@ -3082,6 +4307,486 @@
                       )}
                     </>
                   )}
+
+                  {/* FUNDAMENTALS TAB
+                      Tenet-style fundamentals breakdown. Sources fundamentals from
+                      /timed/admin/fundamentals (TwelveData /profile + /statistics
+                      + /earnings; KV-cached 6h to amortize credit cost). Layout:
+                        1. Header strip (sector / industry / market cap / cash-rich)
+                        2. Valuation row (P/E TTM, Fwd P/E, P/S, Fair Value, current price)
+                        3. Growth banners (EPS / Rev growth with EXPLODING-style chips)
+                        4. Capital structure (float, short %, total debt, FCF)
+                        5. Next earnings (date + estimates-up / guidance-higher pills)
+                        6. Earnings History (sortable table, last 8 quarters) */}
+                  {v2RailTab === "FUNDAMENTALS" && (() => {
+                    const F = fundamentals;
+                    const fmtBigUsd = (n) => {
+                      if (!Number.isFinite(Number(n))) return "—";
+                      const v = Math.abs(Number(n));
+                      const sign = Number(n) < 0 ? "-" : "";
+                      if (v >= 1e12) return `${sign}$${(v / 1e12).toFixed(2)}T`;
+                      if (v >= 1e9) return `${sign}$${(v / 1e9).toFixed(2)}B`;
+                      if (v >= 1e6) return `${sign}$${(v / 1e6).toFixed(2)}M`;
+                      if (v >= 1e3) return `${sign}$${(v / 1e3).toFixed(2)}K`;
+                      return `${sign}$${v.toFixed(2)}`;
+                    };
+                    const fmtBigNum = (n) => {
+                      if (!Number.isFinite(Number(n))) return "—";
+                      const v = Math.abs(Number(n));
+                      const sign = Number(n) < 0 ? "-" : "";
+                      if (v >= 1e9) return `${sign}${(v / 1e9).toFixed(2)}B`;
+                      if (v >= 1e6) return `${sign}${(v / 1e6).toFixed(2)}M`;
+                      if (v >= 1e3) return `${sign}${(v / 1e3).toFixed(2)}K`;
+                      return `${sign}${v.toFixed(0)}`;
+                    };
+                    const fmtPctVal = (n, digits = 1) => Number.isFinite(Number(n)) ? `${Number(n).toFixed(digits)}%` : "—";
+                    const fmtPctSigned = (n, digits = 1) => {
+                      if (!Number.isFinite(Number(n))) return "—";
+                      const v = Number(n);
+                      return `${v >= 0 ? "+" : ""}${v.toFixed(digits)}%`;
+                    };
+                    const fmtNum = (n, digits = 2) => Number.isFinite(Number(n)) ? Number(n).toFixed(digits) : "—";
+                    const fmtDate = (s) => {
+                      if (!s) return "—";
+                      const d = new Date(s);
+                      if (isNaN(d.getTime())) return String(s);
+                      return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+                    };
+                    const growthChip = (cls) => {
+                      switch (cls) {
+                        case "explosive": return { label: "EXPLOSIVE", color: "var(--ds-accent)", bg: "rgba(245,194,92,0.18)", border: "rgba(245,194,92,0.45)" };
+                        case "exploding": return { label: "EXPLODING", color: "#fbbf24", bg: "rgba(251,191,36,0.14)", border: "rgba(251,191,36,0.40)" };
+                        case "strong":    return { label: "STRONG",    color: "#34d399", bg: "rgba(52,211,153,0.14)",  border: "rgba(52,211,153,0.40)" };
+                        case "positive":  return { label: "POSITIVE",  color: "#86efac", bg: "rgba(134,239,172,0.10)", border: "rgba(134,239,172,0.30)" };
+                        case "declining": return { label: "DECLINING", color: "#fb7185", bg: "rgba(251,113,133,0.14)", border: "rgba(251,113,133,0.40)" };
+                        default:          return null;
+                      }
+                    };
+                    const resultChip = (r) => {
+                      switch (r) {
+                        case "beat_raise": return { label: "Beat & Raise", cls: "ds-chip--up" };
+                        case "beat":       return { label: "Beat",         cls: "ds-chip--up" };
+                        case "inline":     return { label: "In-line",      cls: "ds-chip--solid" };
+                        case "miss":       return { label: "Miss",         cls: "ds-chip--dn" };
+                        default:           return null;
+                      }
+                    };
+
+                    if (fundamentalsLoading && !F) {
+                      return (
+                        <Panel title="Fundamentals">
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "var(--ds-space-3)", color: "var(--ds-text-muted)", fontSize: "var(--ds-fs-meta)" }}>
+                            <span className="loading-spinner loading-spinner-sm" style={{ width: 14, height: 14, borderWidth: 2, borderColor: "rgba(245,194,92,0.20)", borderTopColor: "var(--ds-accent)" }} />
+                            Loading fundamentals from TwelveData…
+                          </div>
+                        </Panel>
+                      );
+                    }
+                    if (fundamentalsError && !F) {
+                      return (
+                        <Panel title="Fundamentals">
+                          <div style={{ color: "var(--ds-dn)", fontSize: "var(--ds-fs-meta)" }}>Failed to load: {fundamentalsError}</div>
+                          <div style={{ marginTop: "var(--ds-space-2)", color: "var(--ds-text-muted)", fontSize: "var(--ds-fs-caption)" }}>
+                            This endpoint requires admin access. Check your API key or sign in via Cloudflare Access.
+                          </div>
+                        </Panel>
+                      );
+                    }
+                    if (!F) {
+                      return (
+                        <Panel title="Fundamentals">
+                          <div style={{ color: "var(--ds-text-muted)", fontSize: "var(--ds-fs-meta)" }}>Fundamentals will load when you select this tab.</div>
+                        </Panel>
+                      );
+                    }
+
+                    const prof = F.profile || {};
+                    const val = F.valuation || {};
+                    const cap = F.capital_structure || {};
+                    const grw = F.growth || {};
+                    const earn = F.earnings || {};
+                    const pxs = F.price_summary || {};
+
+                    // ETF / non-equity guard: SPY, QQQ, IWM and similar have no
+                    // EPS, no earnings history, no PE ratio. Show a focused
+                    // "ETF / Index" view rather than 13 rows of "—".
+                    const _isEtf = (() => {
+                      const hasNoEarnings = !Array.isArray(earn.history) || earn.history.length === 0;
+                      const hasNoEps = val.pe_ttm == null && val.pe_forward == null;
+                      const indHint = String(prof.industry || "").toLowerCase();
+                      const etfishIndustry = !indHint || indHint.includes("etf") || indHint.includes("fund") || indHint.includes("trust");
+                      return hasNoEarnings && hasNoEps && etfishIndustry;
+                    })();
+
+                    if (_isEtf) {
+                      return (
+                        <Panel title="Fundamentals">
+                          <div style={{ padding: "var(--ds-space-3)", display: "flex", flexDirection: "column", gap: "var(--ds-space-3)" }}>
+                            <div className="ds-glass" style={{ padding: "var(--ds-space-3)", borderRadius: "var(--ds-radius-lg)" }}>
+                              <div style={{ fontSize: "var(--ds-fs-eyebrow)", color: "var(--ds-text-muted)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "var(--ds-space-2)" }}>{prof.exchange || "—"} · ETF / Fund</div>
+                              <div style={{ fontSize: "var(--ds-fs-md)", fontWeight: 600, color: "var(--ds-text)", marginBottom: "var(--ds-space-1)" }}>{prof.name || tickerSymbol}</div>
+                              <div style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)" }}>{prof.industry || "Exchange-Traded Fund"}{prof.sector ? ` · ${prof.sector}` : ""}</div>
+                            </div>
+                            <div className="ds-glass" style={{ padding: "var(--ds-space-3)", borderRadius: "var(--ds-radius-lg)" }}>
+                              <div style={{ fontSize: "var(--ds-fs-eyebrow)", color: "var(--ds-text-muted)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "var(--ds-space-2)" }}>Market Data</div>
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--ds-space-3)" }}>
+                                <div>
+                                  <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", marginBottom: 2 }}>Current Price</div>
+                                  <div style={{ fontSize: "var(--ds-fs-md)", fontWeight: 600, fontFamily: "var(--tt-font-mono)" }}>{val.current_price != null ? `$${Number(val.current_price).toFixed(2)}` : "—"}</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", marginBottom: 2 }}>AUM (Market Cap)</div>
+                                  <div style={{ fontSize: "var(--ds-fs-md)", fontWeight: 600, fontFamily: "var(--tt-font-mono)" }}>{fmtBigUsd(val.market_cap)}</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", marginBottom: 2 }}>52-Week Range</div>
+                                  <div style={{ fontSize: "var(--ds-fs-md)", fontWeight: 600, fontFamily: "var(--tt-font-mono)" }}>{pxs.fifty_two_week_low != null && pxs.fifty_two_week_high != null ? `$${Number(pxs.fifty_two_week_low).toFixed(2)} – $${Number(pxs.fifty_two_week_high).toFixed(2)}` : "—"}</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", marginBottom: 2 }}>52w Change</div>
+                                  <div style={{ fontSize: "var(--ds-fs-md)", fontWeight: 600, fontFamily: "var(--tt-font-mono)", color: pxs.fifty_two_week_change_pct >= 0 ? "var(--ds-up)" : "var(--ds-dn)" }}>{fmtPctSigned(pxs.fifty_two_week_change_pct)}</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", marginBottom: 2 }}>50-day MA</div>
+                                  <div style={{ fontSize: "var(--ds-fs-md)", fontWeight: 600, fontFamily: "var(--tt-font-mono)" }}>{pxs.day_50_ma != null ? `$${Number(pxs.day_50_ma).toFixed(2)}` : "—"}</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", marginBottom: 2 }}>200-day MA</div>
+                                  <div style={{ fontSize: "var(--ds-fs-md)", fontWeight: 600, fontFamily: "var(--tt-font-mono)" }}>{pxs.day_200_ma != null ? `$${Number(pxs.day_200_ma).toFixed(2)}` : "—"}</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", marginBottom: 2 }}>Beta</div>
+                                  <div style={{ fontSize: "var(--ds-fs-md)", fontWeight: 600, fontFamily: "var(--tt-font-mono)" }}>{pxs.beta != null ? Number(pxs.beta).toFixed(2) : "—"}</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", marginBottom: 2 }}>Avg Volume</div>
+                                  <div style={{ fontSize: "var(--ds-fs-md)", fontWeight: 600, fontFamily: "var(--tt-font-mono)" }}>{cap.shares_outstanding != null ? fmtBigNum(cap.shares_outstanding) : "—"}</div>
+                                </div>
+                              </div>
+                            </div>
+                            <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", textAlign: "center" }}>
+                              ETFs and index funds don't have EPS, P/E, or earnings history.<br/>For these instruments, use the Snapshot, Technicals, and History tabs.
+                            </div>
+                          </div>
+                        </Panel>
+                      );
+                    }
+
+                    const epsChip = growthChip(grw.eps_growth_class);
+                    const revChip = growthChip(grw.rev_growth_class);
+                    const fairColor = val.fair_value_class === "discount" ? "var(--ds-up)"
+                                    : val.fair_value_class === "premium" ? "var(--ds-dn)"
+                                    : val.fair_value_class === "fair" ? "var(--ds-accent)" : "var(--ds-text-muted)";
+
+                    // Sortable history rows.
+                    const sortedHistory = (() => {
+                      const rows = Array.isArray(earn.history) ? [...earn.history] : [];
+                      const k = fundamentalsSortKey;
+                      const dir = fundamentalsSortDir === "asc" ? 1 : -1;
+                      rows.sort((a, b) => {
+                        let va = a?.[k]; let vb = b?.[k];
+                        if (k === "date") { va = Date.parse(a?.date || "") || 0; vb = Date.parse(b?.date || "") || 0; }
+                        const na = Number(va); const nb = Number(vb);
+                        if (Number.isFinite(na) && Number.isFinite(nb)) return (na - nb) * dir;
+                        return String(va || "").localeCompare(String(vb || "")) * dir;
+                      });
+                      return rows;
+                    })();
+                    const sortHeader = (key, label, align = "right") => {
+                      const isActive = fundamentalsSortKey === key;
+                      const arrow = isActive ? (fundamentalsSortDir === "asc" ? " ↑" : " ↓") : "";
+                      return (
+                        <button
+                          onClick={() => {
+                            if (isActive) setFundamentalsSortDir(fundamentalsSortDir === "asc" ? "desc" : "asc");
+                            else { setFundamentalsSortKey(key); setFundamentalsSortDir(key === "date" ? "desc" : "desc"); }
+                          }}
+                          className="ds-caption"
+                          style={{
+                            background: "transparent",
+                            border: "none",
+                            cursor: "pointer",
+                            padding: 0,
+                            color: isActive ? "var(--ds-accent)" : "var(--ds-text-muted)",
+                            textAlign: align,
+                            width: "100%",
+                            fontFamily: "var(--tt-font-mono)",
+                            letterSpacing: "0.16em",
+                            textTransform: "uppercase",
+                            fontSize: 9,
+                          }}
+                        >{label}{arrow}</button>
+                      );
+                    };
+
+                    return (
+                      <div className="ds-fundamentals-tab" style={{
+                        // Compact-density wrapper. Shrinks all metric values
+                        // and chips inside this tab specifically without
+                        // affecting Snapshot / Setup / Technicals where the
+                        // bigger numerals are appropriate.
+                        // V2.1 round 11 (2026-05-04) — DROPPED ONE MORE NOTCH
+                        // per user "feels very big compared to the rest of the
+                        // app" (third complaint). All hero numerals (Fair Value,
+                        // EPS Growth %, per-row earnings history) match Snapshot
+                        // density now: h2 14→13, h3 12→11, md 11→10, meta 10→9,
+                        // caption 9→9, eyebrow 8→8.
+                        "--ds-fs-h2": "13px",
+                        "--ds-fs-h3": "11px",
+                        "--ds-fs-md": "10px",
+                        "--ds-fs-body": "10px",
+                        "--ds-fs-emph": "11px",
+                        "--ds-fs-meta": "9px",
+                        "--ds-fs-caption": "9px",
+                        "--ds-fs-eyebrow": "8px",
+                        "--ds-fs-hero": "16px",
+                        "--ds-space-3": "7px",
+                        "--ds-space-4": "9px",
+                      }}>
+                        {/* Header strip — sector / industry / market cap / cash-rich */}
+                        <Panel title={prof.name || tickerSymbol} action={
+                          <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }}>
+                            {F._cache === "hit" ? "CACHED" : "LIVE"}
+                          </span>
+                        }>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)", marginBottom: "var(--ds-space-2)" }}>
+                            {prof.sector && <span className="ds-chip ds-chip--sm" title="Sector">{prof.sector}</span>}
+                            {prof.industry && <span className="ds-chip ds-chip--sm ds-chip--solid" title="Industry">{prof.industry}</span>}
+                            {prof.exchange && <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }} title="Exchange">{prof.exchange}</span>}
+                            {cap.cash_rich === true && (
+                              <span className="ds-chip ds-chip--sm ds-chip--up" title="Cash exceeds total debt">CASH RICH</span>
+                            )}
+                            {cap.cash_rich === false && (
+                              <span className="ds-chip ds-chip--sm ds-chip--dn" title="Total debt exceeds cash on hand">DEBT-HEAVY</span>
+                            )}
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--ds-space-2)" }}>
+                            <Metric label="Market Cap" value={fmtBigUsd(val.market_cap)} />
+                            <Metric label="EV / EBITDA" value={fmtNum(val.ev_to_ebitda, 1)} />
+                            <Metric label="Beta" value={fmtNum(pxs.beta, 2)} />
+                          </div>
+                        </Panel>
+
+                        {/* Valuation panel — P/E TTM, Fwd P/E, P/S, Fair Value, Current */}
+                        <Panel title="Valuation" action={val.fair_value_class && (
+                          <span className="ds-chip ds-chip--sm" style={{
+                            color: fairColor,
+                            background: val.fair_value_class === "discount" ? "rgba(34,197,94,0.12)"
+                                       : val.fair_value_class === "premium"  ? "rgba(244,63,94,0.12)"
+                                                                              : "rgba(245,194,92,0.12)",
+                            border: `1px solid ${fairColor}`,
+                            fontFamily: "var(--tt-font-mono)",
+                            letterSpacing: "0.08em",
+                          }}>{String(val.fair_value_class || "").toUpperCase()}</span>
+                        )}>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--ds-space-2)" }}>
+                            <Metric label="P/E (TTM)" value={fmtNum(val.pe_ttm, 1)} />
+                            <Metric label="Forward P/E" value={fmtNum(val.pe_forward, 1)} />
+                            <Metric label="P/S" value={fmtNum(val.ps_ratio, 1)} />
+                            <Metric label="P/B" value={fmtNum(val.pb_ratio, 2)} />
+                            <Metric label="PEG" value={fmtNum(val.peg_ratio, 2)} />
+                            <Metric label="EV" value={fmtBigUsd(val.enterprise_value)} />
+                          </div>
+                          {val.fair_value_price != null && (
+                            <div style={{ marginTop: "var(--ds-space-3)", padding: "var(--ds-space-3)", background: "var(--ds-bg-glass)", borderRadius: "var(--ds-radius-xs)", border: `1px solid ${fairColor}` }}>
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                                <span className="ds-caption" style={{ color: "var(--ds-text-muted)" }}>FAIR VALUE</span>
+                                <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: 9, color: "var(--ds-text-faint)" }} title="Fair value basis">{val.fair_value_basis || "—"}</span>
+                              </div>
+                              <div style={{ display: "flex", alignItems: "baseline", gap: "var(--ds-space-2)", flexWrap: "wrap" }}>
+                                <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-md)", fontWeight: 700, color: fairColor }}>${fmtNum(val.fair_value_price, 2)}</span>
+                                {val.current_price != null && (
+                                  <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)" }}>vs ${fmtNum(val.current_price, 2)}</span>
+                                )}
+                                {val.fair_value_premium_pct != null && (
+                                  <span style={{ color: fairColor, fontFamily: "var(--tt-font-mono)", fontSize: 10, fontWeight: 600 }}>
+                                    {val.fair_value_premium_pct >= 0 ? "+" : ""}{val.fair_value_premium_pct.toFixed(1)}%
+                                  </span>
+                                )}
+                              </div>
+                              {/* Show the three methods that fed the blend so the user
+                                  can sanity-check the headline. Methodology mirrors the
+                                  user's TradingView indicators (PERatioAnalyzer +
+                                  PricevsEarnings) — forward, growth-adjusted PEG, and
+                                  conservative floor. */}
+                              {val.fair_value_methods && (
+                                <div style={{ marginTop: "var(--ds-space-3)", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "var(--ds-space-2)", paddingTop: "var(--ds-space-2)", borderTop: "1px solid var(--ds-border-faint)" }}>
+                                  <div>
+                                    <div className="ds-caption" style={{ color: "var(--ds-text-muted)", fontSize: 9 }} title="Forward P/E × forward EPS estimate">FORWARD</div>
+                                    <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-meta)", fontWeight: 600, color: "var(--ds-text)" }}>
+                                      {val.fair_value_methods.forward != null ? `$${fmtNum(val.fair_value_methods.forward, 2)}` : "—"}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div className="ds-caption" style={{ color: "var(--ds-text-muted)", fontSize: 9 }} title="EPS × (growth_rate × PEG=1.0), capped at 40 P/E">PEG-ADJ</div>
+                                    <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-meta)", fontWeight: 600, color: "var(--ds-text)" }}>
+                                      {val.fair_value_methods.growth_peg != null ? `$${fmtNum(val.fair_value_methods.growth_peg, 2)}` : "—"}
+                                    </div>
+                                    {val.fair_value_methods.growth_adjusted_pe != null && (
+                                      <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: 9, color: "var(--ds-text-faint)" }}>{`@${val.fair_value_methods.growth_adjusted_pe.toFixed(0)}× P/E`}</div>
+                                    )}
+                                  </div>
+                                  <div>
+                                    <div className="ds-caption" style={{ color: "var(--ds-text-muted)", fontSize: 9 }} title="Conservative floor: TTM EPS × (TTM P/E ∧ 18) × 0.85">CONSERVATIVE</div>
+                                    <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-meta)", fontWeight: 600, color: "var(--ds-text)" }}>
+                                      {val.fair_value_methods.conservative != null ? `$${fmtNum(val.fair_value_methods.conservative, 2)}` : "—"}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </Panel>
+
+                        {/* Growth — single compact row instead of chunky banners */}
+                        {(grw.eps_growth_pct != null || grw.rev_growth_pct != null) && (
+                          <Panel title="Growth (Q YoY)">
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "var(--ds-space-2)" }}>
+                              {grw.eps_growth_pct != null && (
+                                <div>
+                                  <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 6 }}>
+                                    <span className="ds-caption" style={{ color: "var(--ds-text-muted)" }}>EPS</span>
+                                    {epsChip && (
+                                      <span style={{ color: epsChip.color, fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 600, letterSpacing: "0.10em" }}>{epsChip.label}</span>
+                                    )}
+                                  </div>
+                                  <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-md)", fontWeight: 600, color: grw.eps_growth_pct >= 0 ? "var(--ds-up)" : "var(--ds-dn)" }}>
+                                    {fmtPctSigned(grw.eps_growth_pct)}
+                                  </div>
+                                </div>
+                              )}
+                              {grw.rev_growth_pct != null && (
+                                <div>
+                                  <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 6 }}>
+                                    <span className="ds-caption" style={{ color: "var(--ds-text-muted)" }}>REVENUE</span>
+                                    {revChip && (
+                                      <span style={{ color: revChip.color, fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 600, letterSpacing: "0.10em" }}>{revChip.label}</span>
+                                    )}
+                                  </div>
+                                  <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-md)", fontWeight: 600, color: grw.rev_growth_pct >= 0 ? "var(--ds-up)" : "var(--ds-dn)" }}>
+                                    {fmtPctSigned(grw.rev_growth_pct)}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            {(grw.gross_margin_pct != null || grw.profit_margin_pct != null || grw.roe_ttm_pct != null) && (
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--ds-space-2)", marginTop: "var(--ds-space-2)" }}>
+                                {grw.gross_margin_pct != null && <Metric label="Gross Mgn" value={fmtPctVal(grw.gross_margin_pct)} />}
+                                {grw.profit_margin_pct != null && <Metric label="Net Mgn" value={fmtPctVal(grw.profit_margin_pct)} />}
+                                {grw.roe_ttm_pct != null && <Metric label="ROE" value={fmtPctVal(grw.roe_ttm_pct)} />}
+                              </div>
+                            )}
+                          </Panel>
+                        )}
+
+                        {/* Capital structure — float, short, debt, FCF */}
+                        <Panel title="Capital Structure">
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "var(--ds-space-2)" }}>
+                            <Metric label="Float" value={fmtBigNum(cap.float)} />
+                            <Metric
+                              label="Short Float"
+                              value={fmtPctVal(cap.short_float_pct)}
+                              delta={Number(cap.short_float_pct) >= 15 ? "Squeeze risk" : null}
+                              deltaClass={Number(cap.short_float_pct) >= 15 ? "accent" : "muted"}
+                            />
+                            <Metric label="Total Debt" value={fmtBigUsd(cap.total_debt)} />
+                            <Metric label="Total Cash" value={fmtBigUsd(cap.total_cash)} />
+                            <Metric label="Free Cash Flow" value={fmtBigUsd(cap.free_cash_flow_ttm)} />
+                            <Metric label="Operating CF" value={fmtBigUsd(cap.operating_cash_flow_ttm)} />
+                          </div>
+                          {(cap.insider_pct != null || cap.institution_pct != null) && (
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "var(--ds-space-2)", marginTop: "var(--ds-space-2)" }}>
+                              {cap.insider_pct != null && <Metric label="Insider Hold" value={fmtPctVal(cap.insider_pct, 2)} />}
+                              {cap.institution_pct != null && <Metric label="Institution" value={fmtPctVal(cap.institution_pct, 1)} />}
+                            </div>
+                          )}
+                        </Panel>
+
+                        {/* Next Earnings */}
+                        <Panel title="Next Earnings" action={
+                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                            {earn.estimates_up === true && <span className="ds-chip ds-chip--sm ds-chip--up" style={{ fontFamily: "var(--tt-font-mono)", letterSpacing: "0.08em" }}>ESTIMATES UP</span>}
+                            {earn.guidance_higher === true && <span className="ds-chip ds-chip--sm ds-chip--accent" style={{ fontFamily: "var(--tt-font-mono)", letterSpacing: "0.08em" }}>GUIDANCE HIGHER</span>}
+                          </div>
+                        }>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--ds-space-2)" }}>
+                            <Metric label="Date" value={fmtDate(earn.next_date)} delta={earn.next_time || null} deltaClass="muted" />
+                            <Metric
+                              label="EPS Est"
+                              value={fmtNum(earn.next_quarter_eps_est, 2)}
+                              delta={earn.next_quarter_eps_yoy_pct != null ? fmtPctSigned(earn.next_quarter_eps_yoy_pct, 1) : null}
+                              deltaClass={Number(earn.next_quarter_eps_yoy_pct) >= 0 ? "up" : "dn"}
+                            />
+                            <Metric label="EPS (TTM)" value={fmtNum(earn.eps_ttm, 2)} />
+                          </div>
+                        </Panel>
+
+                        {/* Earnings History — sortable */}
+                        {Array.isArray(earn.history) && earn.history.length > 0 && (
+                          <Panel title="Earnings History" action={<span className="ds-chip ds-chip--sm">{earn.history.length} qtr{earn.history.length === 1 ? "" : "s"}</span>}>
+                            <div style={{ display: "grid", gridTemplateColumns: "minmax(70px, 1fr) 60px 60px 70px 70px 90px", gap: "var(--ds-space-1)", fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-meta)" }}>
+                              {sortHeader("date", "Date", "left")}
+                              {sortHeader("eps_actual", "EPS Act")}
+                              {sortHeader("eps_est", "Est")}
+                              {sortHeader("surprise_pct", "Surp %")}
+                              {sortHeader("eps_growth_pct", "Growth %")}
+                              <div className="ds-caption" style={{ textAlign: "right" }}>Result</div>
+                              {sortedHistory.map((row, i) => {
+                                const surpColor = row.surprise_pct == null ? "var(--ds-text-faint)"
+                                                : row.surprise_pct >= 10 ? "var(--ds-up)"
+                                                : row.surprise_pct >= 1 ? "#86efac"
+                                                : row.surprise_pct <= -5 ? "var(--ds-dn)"
+                                                : "var(--ds-text-muted)";
+                                const growthColor = row.eps_growth_pct == null ? "var(--ds-text-faint)"
+                                                  : row.eps_growth_pct >= 100 ? "var(--ds-accent)"
+                                                  : row.eps_growth_pct >= 25 ? "var(--ds-up)"
+                                                  : row.eps_growth_pct >= 0 ? "#86efac"
+                                                  : "var(--ds-dn)";
+                                const rChip = resultChip(row.result);
+                                return (
+                                  <React.Fragment key={`er-${i}`}>
+                                    <div style={{ color: "var(--ds-text-muted)" }}>{fmtDate(row.date)}</div>
+                                    <div style={{ textAlign: "right", color: "var(--ds-text-display)" }}>{fmtNum(row.eps_actual, 2)}</div>
+                                    <div style={{ textAlign: "right", color: "var(--ds-text-faint)" }}>{fmtNum(row.eps_est, 2)}</div>
+                                    <div style={{ textAlign: "right", color: surpColor }}>{row.surprise_pct != null ? fmtPctSigned(row.surprise_pct, 1) : "—"}</div>
+                                    <div style={{ textAlign: "right", color: growthColor }}>{row.eps_growth_pct != null ? fmtPctSigned(row.eps_growth_pct, 0) : "—"}</div>
+                                    <div style={{ textAlign: "right" }}>
+                                      {rChip ? <span className={`ds-chip ds-chip--sm ${rChip.cls}`} style={{ fontSize: 9 }}>{rChip.label}</span> : <span style={{ color: "var(--ds-text-faint)" }}>—</span>}
+                                    </div>
+                                  </React.Fragment>
+                                );
+                              })}
+                            </div>
+                          </Panel>
+                        )}
+
+                        {/* 52-week range + MAs */}
+                        {(pxs.fifty_two_week_low != null || pxs.fifty_two_week_high != null) && (
+                          <Panel title="52-Week & Moving Averages">
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "var(--ds-space-2)" }}>
+                              <Metric label="52w Low" value={pxs.fifty_two_week_low != null ? `$${fmtNum(pxs.fifty_two_week_low, 2)}` : "—"} />
+                              <Metric label="52w High" value={pxs.fifty_two_week_high != null ? `$${fmtNum(pxs.fifty_two_week_high, 2)}` : "—"} />
+                              <Metric label="50-day MA" value={pxs.day_50_ma != null ? `$${fmtNum(pxs.day_50_ma, 2)}` : "—"} />
+                              <Metric label="200-day MA" value={pxs.day_200_ma != null ? `$${fmtNum(pxs.day_200_ma, 2)}` : "—"} />
+                            </div>
+                            {pxs.fifty_two_week_change_pct != null && (
+                              <div style={{ marginTop: "var(--ds-space-2)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <span className="ds-caption" style={{ color: "var(--ds-text-muted)" }}>52W RETURN</span>
+                                <span className={`ds-chip ds-chip--sm ${pxs.fifty_two_week_change_pct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
+                                  {fmtPctSigned(pxs.fifty_two_week_change_pct)}
+                                </span>
+                              </div>
+                            )}
+                          </Panel>
+                        )}
+
+                        {/* Footer attribution */}
+                        <div style={{ marginTop: "var(--ds-space-2)", padding: "var(--ds-space-2)", textAlign: "center", color: "var(--ds-text-faint)", fontSize: 9, fontFamily: "var(--tt-font-mono)", letterSpacing: "0.12em" }}>
+                          DATA · TWELVEDATA · CACHED 6H · FETCHED {new Date(F.as_of || Date.now()).toLocaleTimeString()}
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* HISTORY TAB */}
                   {v2RailTab === "HISTORY" && (
@@ -4164,6 +5869,103 @@
                       })()}
 
                       {/* ═══════════════════════════════════════════════════════════ */}
+                      {/* 5a. KEY LEVELS — V15 P0.7.99 (legacy v1 ANALYSIS tab copy) */}
+                      {/* The v2 SETUP tab has its own Key Levels copy at the top   */}
+                      {/* of the file (around line 3450). This v1 copy stays for    */}
+                      {/* backwards compatibility with the legacy analysis layout.  */}
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {Array.isArray(predictionContract?.levels) && predictionContract.levels.length > 0 && (() => {
+                        const px = Number(v2Price) || Number(ticker?.price) || 0;
+                        if (!(px > 0)) return null;
+                        const all = predictionContract.levels;
+                        const resistance = all.filter((l) => l.role === "resistance").sort((a, b) => a.price - b.price);
+                        const support = all.filter((l) => l.role === "support").sort((a, b) => b.price - a.price);
+                        const pcDir = String(predictionContract?.direction || "").toUpperCase();
+                        const isShort = pcDir === "SHORT";
+                        const aboveLabel = isShort ? "Invalidation Zone" : "Resistance";
+                        const belowLabel = isShort ? "Target Zones" : "Support";
+                        const kindMeta = (kind) => {
+                          if (kind === "year_high" || kind === "year_low") return { color: "#f87171", letter: "52W", desc: "52-week extreme" };
+                          if (kind === "swing_high" || kind === "swing_low") return { color: "#fbbf24", letter: "SW", desc: "Swing structure (D)" };
+                          if (kind === "swing_high_4h" || kind === "swing_low_4h") return { color: "#fcd34d", letter: "4H", desc: "Swing structure (4H)" };
+                          if (kind === "prior_session_high" || kind === "prior_session_low") return { color: "#a78bfa", letter: "PD", desc: "Prior day range" };
+                          if (kind === "pivot_high" || kind === "pivot_low") return { color: "#34d399", letter: "PV", desc: "Multi-tested pivot" };
+                          if (kind === "pdz_premium" || kind === "pdz_discount" || kind === "pdz_eq") return { color: "#60a5fa", letter: "PDZ", desc: "Premium/Discount/Equilibrium" };
+                          if (kind === "ema") return { color: "rgba(96,165,250,0.6)", letter: "EMA", desc: "Daily EMA magnet" };
+                          return { color: "var(--ds-text-muted)", letter: "—", desc: "Level" };
+                        };
+                        const LevelRow = ({ l, side }) => {
+                          const m = kindMeta(l.kind);
+                          const dist = ((Number(l.price) - px) / px) * 100;
+                          const distColor = side === "res" ? "var(--ds-dn)" : "var(--ds-up)";
+                          return (
+                            <div style={{
+                              display: "grid",
+                              gridTemplateColumns: "32px 1fr 64px 44px",
+                              gap: "var(--ds-space-2)",
+                              alignItems: "center",
+                              padding: "5px 8px",
+                              borderRadius: "var(--ds-radius-xs)",
+                              background: "rgba(255,255,255,0.02)",
+                              borderLeft: `3px solid ${m.color}`,
+                            }} title={`${m.desc} · weight ${l.weight}`}>
+                              <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, color: m.color, letterSpacing: "0.06em", textAlign: "center" }}>{m.letter}</span>
+                              <span style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)" }}>{l.label || ""}</span>
+                              <span style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-display)", fontFamily: "var(--tt-font-mono)", fontWeight: 700, textAlign: "right" }}>${Number(l.price).toFixed(2)}</span>
+                              <span style={{ fontSize: 9, color: distColor, fontFamily: "var(--tt-font-mono)", textAlign: "right" }}>{dist >= 0 ? "+" : ""}{dist.toFixed(2)}%</span>
+                            </div>
+                          );
+                        };
+                        return (
+                          <div style={{ marginBottom: "var(--ds-space-3)" }}>
+                            <Panel title="Key Levels" action={
+                              <span style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 9, fontFamily: "var(--tt-font-mono)", color: "var(--ds-text-faint)", letterSpacing: "0.10em" }}>
+                                {pcDir && <span className={`ds-chip ds-chip--sm ${isShort ? "ds-chip--dn" : "ds-chip--up"}`} title="Bias direction" style={{ fontSize: 9 }}>{pcDir}</span>}
+                                <span>{resistance.length} above · {support.length} below</span>
+                              </span>
+                            }>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                                {resistance.length > 0 && (
+                                  <div style={{ padding: "4px 8px 2px", display: "flex", alignItems: "baseline", gap: "var(--ds-space-2)" }}>
+                                    <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-dn)" }}>{aboveLabel}</span>
+                                    <span style={{ fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" }}>{isShort ? "stop above price" : "profit / fade"}</span>
+                                  </div>
+                                )}
+                                {resistance.length > 0 && resistance.slice(0, 5).reverse().map((l, i) => (
+                                  <LevelRow key={`res-${i}-${l.price}`} l={l} side="res" />
+                                ))}
+                                <div style={{
+                                  display: "grid",
+                                  gridTemplateColumns: "32px 1fr 64px 44px",
+                                  gap: "var(--ds-space-2)",
+                                  alignItems: "center",
+                                  padding: "8px 8px",
+                                  borderRadius: "var(--ds-radius-xs)",
+                                  background: "rgba(245,194,92,0.10)",
+                                  border: "1px solid rgba(245,194,92,0.30)",
+                                  margin: "2px 0",
+                                }}>
+                                  <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, color: "var(--ds-accent)", letterSpacing: "0.06em", textAlign: "center" }}>NOW</span>
+                                  <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-accent)", fontFamily: "var(--tt-font-mono)", fontWeight: 700 }}>Current Price</span>
+                                  <span style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-accent)", fontFamily: "var(--tt-font-mono)", fontWeight: 700, textAlign: "right" }}>${px.toFixed(2)}</span>
+                                  <span style={{ fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", textAlign: "right" }}>—</span>
+                                </div>
+                                {support.length > 0 && (
+                                  <div style={{ padding: "4px 8px 2px", display: "flex", alignItems: "baseline", gap: "var(--ds-space-2)" }}>
+                                    <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-up)" }}>{belowLabel}</span>
+                                    <span style={{ fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" }}>{isShort ? "profit-take" : "defend / SL ref"}</span>
+                                  </div>
+                                )}
+                                {support.length > 0 && support.slice(0, 5).map((l, i) => (
+                                  <LevelRow key={`sup-${i}-${l.price}`} l={l} side="sup" />
+                                ))}
+                              </div>
+                            </Panel>
+                          </div>
+                        );
+                      })()}
+
+                      {/* ═══════════════════════════════════════════════════════════ */}
                       {/* 5b. MINI PRICE CHART (SL / TP1 / Entry overlay)            */}
                       {/* ═══════════════════════════════════════════════════════════ */}
                       {(() => {
@@ -4468,10 +6270,35 @@
                             const _tTrimPct = Number(trade.trimmed_pct || trade.trimmedPct) || 0;
                             const _tSl = Number(trade.stop_loss || trade.sl) || 0;
                             const _tTp = Number(trade.take_profit || trade.tp) || 0;
+                            const _tNotional = Number(trade.notional) || (_tShares > 0 && _tEntry > 0 ? _tShares * _tEntry : 0);
+                            const _tRiskBudget = Number(trade.risk_budget || trade.riskBudget) || 0;
+                            // V15 P0.7.71: dynamic-sizing transparency. Prefer the
+                            // user's actual account value (when known) so the % is
+                            // honest, fall back to the system reference $100k.
+                            const _tAcctValue = Number(window?._ttAccountValue || (window?.TimedPriceUtils?.SYSTEM_REFERENCE_ACCOUNT)) || 100000;
+                            const _szCtx = window?.TimedPriceUtils?.computePositionContext
+                              ? window.TimedPriceUtils.computePositionContext({
+                                  shares: _tShares,
+                                  entryPrice: _tEntry,
+                                  accountValue: _tAcctValue,
+                                  riskBudget: _tRiskBudget,
+                                  direction: _tDir,
+                                })
+                              : null;
                             return (
                               <div className="mt-2 rounded-lg p-2.5 border border-[#14b8a6]/20 bg-[#14b8a6]/5">
                                 <div className="text-[9px] text-[#14b8a6] uppercase font-bold tracking-wider mb-1">Active Position</div>
-                                <div className="text-[11px] text-white font-semibold">{_tDir} @ ${_tEntry.toFixed(2)} · {_tShares > 0 ? `${Math.round(_tShares)} shares` : ""}</div>
+                                <div className="text-[11px] text-white font-semibold">
+                                  {_tDir} @ ${_tEntry.toFixed(2)}
+                                  {_szCtx && _tShares > 0 ? ` · ${_szCtx.sharesText}` : (_tShares > 0 ? ` · ${Math.round(_tShares)} shares` : "")}
+                                </div>
+                                {_szCtx && (_szCtx.notional > 0 || _szCtx.pctOfAccount > 0) && (
+                                  <div className="text-[10px] text-slate-300 mt-0.5 tabular-nums">
+                                    {_szCtx.notional > 0 ? `${_szCtx.notionalText} notional` : ""}
+                                    {_szCtx.notional > 0 && _szCtx.pctText ? " · " : ""}
+                                    {_szCtx.pctText && <span className="text-[#14b8a6] font-medium">{_szCtx.pctText}</span>}
+                                  </div>
+                                )}
                                 <div className={`text-[11px] font-bold mt-0.5 ${_tPnlPct >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`}>
                                   {_tPnlPct >= 0 ? "+" : ""}{_tPnlPct.toFixed(2)}% P&L
                                   {_tTrimPct > 0 ? ` · ${Math.round(_tTrimPct * 100)}% trimmed` : ""}
@@ -4482,6 +6309,12 @@
                                     {_tSl > 0 && _tTp > 0 && " · "}
                                     {_tTp > 0 && <span>Target @ <span className="text-[#22c55e] font-medium">${_tTp.toFixed(2)}</span></span>}
                                   </div>
+                                )}
+                                {_szCtx && _szCtx.scaleHint && (
+                                  <div className="text-[9px] text-slate-400/90 italic mt-1">{_szCtx.scaleHint}</div>
+                                )}
+                                {_szCtx && _szCtx.optionsHint && (
+                                  <div className="text-[9px] text-slate-400/80 mt-0.5">{_szCtx.optionsHint}</div>
                                 )}
                                 {_tSetup && <div className="text-[9px] text-slate-500 mt-1">{_formatPath(_tSetup)}{_tGrade ? ` · TT ${_tGrade}` : ""}</div>}
                               </div>

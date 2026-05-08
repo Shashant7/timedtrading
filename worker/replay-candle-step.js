@@ -191,9 +191,46 @@ export function createCandleReplayStep(deps = {}) {
        per batch and stamp it on replayEnv so the per-ticker scoring loop
        can read it sync. Mirrors the live cron path in worker/index.js. */
     const _phaseCDaCfg = replayEnv?._deepAuditConfig || env?._deepAuditConfig || {};
+
+    /* Phase C — Stage 1.1 (2026-05-03) — In live, Loop 2's hourly cron
+       computes a pulse from the most-recent closed trades and trips the
+       pause flag if WR/today-PnL/consec-loss thresholds are breached.
+       Backtest replay never invokes the cron, so the breaker stays at
+       rest no matter how badly the engine is bleeding mid-month. We mirror
+       the cron logic here using the in-memory replayCtx.allTrades (no D1
+       query needed — it's already the trade history for the run). The
+       pulse fires once per batch (i.e. once per simulated day per ticker
+       slice), which is the right cadence for backtest — way fewer pulses
+       than the hourly live cron, but still sufficient to catch a 4-day
+       losing streak. */
+    try {
+      const loop2Enabled = String(_phaseCDaCfg.loop2_circuit_breaker_enabled ?? "false") === "true";
+      if (PhaseCLoops && loop2Enabled && KV && Array.isArray(replayCtx?.allTrades)) {
+        const recentRows = replayCtx.allTrades
+          .filter((t) => {
+            const s = String(t?.status || "").toUpperCase();
+            return (s === "WIN" || s === "LOSS" || s === "FLAT") && t?.exit_ts;
+          })
+          .sort((a, b) => Number(b.exit_ts || 0) - Number(a.exit_ts || 0))
+          .slice(0, 30);
+        if (recentRows.length > 0) {
+          const pulse = PhaseCLoops.loop2ComputePulse(recentRows, { window: 10, nowMs: marketCloseMs });
+          const evalRes = PhaseCLoops.loop2EvaluatePulse(pulse, _phaseCDaCfg);
+          await PhaseCLoops.loop2WritePulse(KV, pulse, evalRes, _phaseCDaCfg, { nowMs: marketCloseMs });
+          if (evalRes.trip) {
+            console.warn(
+              `[phase-c][REPLAY] LOOP 2 BREAKER TRIPPED — reason=${evalRes.reason} wr=${pulse.last10_wr != null ? (pulse.last10_wr * 100).toFixed(0) + "%" : "n/a"} todayPnl=${pulse.today_pnl_pct.toFixed(2)}% consec=${pulse.consec_losses}`
+            );
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[phase-c][REPLAY] loop2 pulse failed:", String(e?.message || e).slice(0, 200));
+    }
+
     try {
       if (PhaseCLoops && String(_phaseCDaCfg.loop2_circuit_breaker_enabled ?? "false") === "true") {
-        replayEnv._loop2Pause = await PhaseCLoops.loop2ReadPause(KV);
+        replayEnv._loop2Pause = await PhaseCLoops.loop2ReadPause(KV, { nowMs: marketCloseMs });
       } else {
         replayEnv._loop2Pause = { paused: false };
       }

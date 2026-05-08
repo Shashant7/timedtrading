@@ -186,6 +186,26 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
       const phaseCBuffer = [];
       const phaseCDecisions = [];  // for diagnostic persistence
 
+      // V15 P0.7.67 (2026-05-05) — Pre-fetch tape context (TICK/ADD) for this bar.
+      // Stashed on replayCtx so per-ticker scoring / entry / exit code can read
+      // it sync. Loads from `timed:internals:historical:{TICK|ADD}:{day}` KV
+      // populated by the CSV backfill script.
+      try {
+        const _miEnabled = String((replayEnv?._deepAuditConfig || env?._deepAuditConfig || {}).deep_audit_market_internals_enabled ?? "true") === "true";
+        if (_miEnabled) {
+          // dynamic import to avoid circular dep at top-of-file
+          const { getTapeContext } = await import("./market-internals.js");
+          replayCtx._tapeContext = await getTapeContext(KV, {
+            nowMs: intervalTs,
+            isReplay: true,
+          });
+        } else {
+          replayCtx._tapeContext = null;
+        }
+      } catch (_) {
+        replayCtx._tapeContext = null;
+      }
+
       for (const ticker of batchTickers) {
         try {
           const bundles = {};
@@ -382,6 +402,39 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
               replayCtx._focusHistoryStatsTs = _dayBucketTs(intervalTs);
             }
 
+            // Phase C — Stage 1 (2026-05-05) — Cluster Throttle support.
+            // Build a list of {ticker, rank, rr, entryTs} for trades that
+            // entered within the last `cluster_throttle_window_min` minutes
+            // (default 60). The cluster-throttle gate in qualifiesForEnter
+            // reads this to detect "5+ entries fired in 60min" patterns
+            // (Mar-02 type events) and throttle the lower-ranked ones.
+            const _clusterWindowMs = 60 * 60 * 1000;
+            const _clusterRecentEntries = (Array.isArray(replayCtx?.allTrades) ? replayCtx.allTrades : [])
+              .filter((t) => {
+                const ts = Number(t?.entry_ts) || 0;
+                return ts > 0 && (intervalTs - ts) <= _clusterWindowMs && (intervalTs - ts) >= 0;
+              })
+              .map((t) => {
+                let rk = 0, rr = 0;
+                try {
+                  if (t?.rank_trace_json) {
+                    const rt = typeof t.rank_trace_json === "string"
+                      ? JSON.parse(t.rank_trace_json)
+                      : t.rank_trace_json;
+                    rk = Number(rt?.finalScore) || 0;
+                    rr = Number(rt?.rr) || 0;
+                  }
+                } catch (_) {}
+                if (rk === 0) rk = Number(t?.rank) || 0;
+                if (rr === 0) rr = Number(t?.rr) || 0;
+                return {
+                  ticker: String(t?.ticker || "").toUpperCase(),
+                  rank: rk,
+                  rr,
+                  entryTs: Number(t?.entry_ts) || 0,
+                };
+              });
+
             result._env = {
               _isReplay: true,
               _goldenProfiles: replayGoldenProfiles,
@@ -393,6 +446,10 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
               _marketRegime: rMktRegime,
               _sectorRegime: rSecRegime,
               _marketInternals: replayMarketInternals,
+              // V15 P0.7.67 (2026-05-05) — TICK/ADD tape context for entry sizing,
+              // exit doctrine, and SHORT admission unlock. Pre-loaded per batch
+              // at the simulated bar timestamp via market-internals.js.
+              _tapeContext: replayCtx?._tapeContext || null,
               _deepAuditConfig: replayEnv._deepAuditConfig || null,
               _leadingLtf: replayLeadingLtf,
               _universeSize: allTickers.length,
@@ -410,6 +467,8 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
                  Without these, the entry-gate consult silently no-ops. */
               _loop1AdvisoryByCombo: replayEnv._loop1AdvisoryByCombo || {},
               _loop2Pause: replayEnv._loop2Pause || { paused: false },
+              /* Phase C — Stage 1 (2026-05-05) — Cluster throttle. */
+              _clusterRecentEntries,
             };
           }
 
@@ -1182,9 +1241,29 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
           batchTickerSet.has(String(t?.ticker || "").toUpperCase())
         );
         try {
+          /* V15 P0.7.50 (2026-05-03) — surface upsert failures.
+             Previously failures here were silently swallowed (.catch(() => {})),
+             which is exactly how 167 of 250 trades went missing from the live
+             `trades` table during the canonical run, orphaning Aug positions
+             when Sept resumed. We now collect per-trade errors into the
+             batch's `errors` array (returned via the API response and worker
+             logs) so the next failure mode is visible the moment it happens.
+             Functional behavior is unchanged: a failed upsert still doesn't
+             abort the loop; the new archive-rescue in loadReplayScopedTrades
+             will pick the trade up next batch via backtest_run_trades. */
+          let upsertFailures = 0;
           for (const trade of batchTrades) {
             if (replayRunId && !trade.run_id) trade.run_id = replayRunId;
-            await d1UpsertTrade(env, trade).catch(() => {});
+            try {
+              await d1UpsertTrade(env, trade);
+            } catch (upsertErr) {
+              upsertFailures++;
+              const msg = String(upsertErr?.message || upsertErr).slice(0, 150);
+              errors.push({ ticker: `TRADES_D1_UPSERT:${trade?.trade_id || trade?.ticker || "?"}`, error: msg });
+            }
+          }
+          if (upsertFailures > 0) {
+            console.warn(`[REPLAY] d1UpsertTrade failures this batch: ${upsertFailures}/${batchTrades.length} (run=${replayRunId})`);
           }
           if (replayRunId) {
             await d1StampRunIdForTrades(
@@ -1199,8 +1278,18 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
 
         if (replayRunId) {
           try {
+            let archiveFailures = 0;
             for (const trade of batchTrades) {
-              await d1ArchiveRunTrade(env, replayRunId, trade).catch(() => {});
+              try {
+                await d1ArchiveRunTrade(env, replayRunId, trade);
+              } catch (archErr) {
+                archiveFailures++;
+                const msg = String(archErr?.message || archErr).slice(0, 150);
+                errors.push({ ticker: `TRADES_ARCHIVE_UPSERT:${trade?.trade_id || trade?.ticker || "?"}`, error: msg });
+              }
+            }
+            if (archiveFailures > 0) {
+              console.warn(`[REPLAY] d1ArchiveRunTrade failures this batch: ${archiveFailures}/${batchTrades.length} (run=${replayRunId})`);
             }
           } catch (e) {
             errors.push({ ticker: "TRADES_ARCHIVE_SYNC", error: String(e?.message || e).slice(0, 150) });

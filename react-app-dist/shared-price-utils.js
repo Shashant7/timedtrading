@@ -259,6 +259,109 @@
     return abs / range;
   }
 
+  // ── Position sizing helpers (V15 P0.7.71) ─────────────────────────────────
+  //
+  // The system sizes every trade as a % of account, but the UI historically
+  // showed only "X shares @ $Y" — leaving users unable to map our trade to
+  // their own account. These helpers produce a uniform "context object" used
+  // by the Right Rail Active Position card, the Open Trades table, the kanban
+  // cards, and the Discord webhook formatter.
+  //
+  // Reference: PORTFOLIO_START_CASH (worker constant) is $100k. The live
+  // engine uses *current* accountValue when sizing, so when the account is
+  // $140k a 5% risk trade is bigger than when it was $100k. We display the
+  // pct against the accountValue used at entry (when known) so users can
+  // translate to their own account by multiplying by their starting capital.
+  //
+  // Usage:
+  //   var ctx = TimedPriceUtils.computePositionContext({
+  //     shares: 47.2,
+  //     entryPrice: 148.50,
+  //     accountValue: 140086,   // optional; defaults to 100k baseline
+  //     riskBudget: 0.05,       // optional; if known, overrides notional/acct calc
+  //     direction: "LONG",
+  //   });
+  //   ctx.sharesText      → "47 sh"
+  //   ctx.notionalText    → "$7,011"
+  //   ctx.pctText         → "5.0% of acct"
+  //   ctx.scaleHint       → "≈ $50 risk per $1k of your account"
+  //   ctx.optionsHint     → "≈ 1-2 ATM contracts (~$300-600 premium for 30-day)"
+  //
+  function _safeNum(v, fallback) {
+    var n = Number(v);
+    return Number.isFinite(n) ? n : (fallback != null ? fallback : 0);
+  }
+
+  function _fmtUsd(v) {
+    if (!Number.isFinite(v)) return "—";
+    var abs = Math.abs(v);
+    if (abs >= 1000) return "$" + Math.round(v).toLocaleString("en-US");
+    return "$" + v.toFixed(0);
+  }
+
+  function _fmtShares(v) {
+    if (!Number.isFinite(v) || v <= 0) return "0 sh";
+    if (v < 1) return v.toFixed(2) + " sh"; // fractional crypto
+    if (v < 10) return v.toFixed(1) + " sh";
+    return Math.round(v).toString() + " sh";
+  }
+
+  // Used as the canonical reference when no accountValue is supplied. Keep
+  // this in lockstep with worker `PORTFOLIO_START_CASH`.
+  var SYSTEM_REFERENCE_ACCOUNT = 100000;
+
+  function computePositionContext(input) {
+    input = input || {};
+    var shares = _safeNum(input.shares, 0);
+    var entryPrice = _safeNum(input.entryPrice, 0);
+    var accountValue = _safeNum(input.accountValue, SYSTEM_REFERENCE_ACCOUNT) || SYSTEM_REFERENCE_ACCOUNT;
+    var riskBudget = _safeNum(input.riskBudget, 0);
+
+    var notional = shares > 0 && entryPrice > 0 ? shares * entryPrice : 0;
+    var pctOfAccount = accountValue > 0 && notional > 0
+      ? (notional / accountValue) * 100
+      : (riskBudget > 0 ? riskBudget * 100 : 0);
+
+    // Risk per $1k of user's own account, in dollars
+    // e.g. if pctOfAccount = 5.0%, scaling to $1k means $50 notional per $1k
+    var perThousand = pctOfAccount > 0 ? (pctOfAccount / 100) * 1000 : 0;
+
+    var scaleHint = "";
+    if (perThousand > 0) {
+      scaleHint = "≈ " + _fmtUsd(perThousand) + " per $1k of your account";
+    }
+
+    // Rough options translation: a 30-day ATM call/put on a $100 stock
+    // typically costs ~3-5% of underlying (varies wildly by IV). We give
+    // a contracts-and-premium hint so users get a ballpark, not a strike.
+    var optionsHint = "";
+    if (notional > 0 && entryPrice > 0) {
+      // 1 contract = 100 shares of underlying
+      var contracts = Math.max(1, Math.round(shares / 100));
+      // Premium estimate: ~4% of underlying notional for 30-day ATM
+      var premiumLow = Math.round(notional * 0.03);
+      var premiumHigh = Math.round(notional * 0.06);
+      if (contracts === 1) {
+        optionsHint = "options: ~1 ATM contract (~" + _fmtUsd(premiumLow) + "-" + _fmtUsd(premiumHigh) + " premium for 30-day)";
+      } else {
+        optionsHint = "options: ~" + contracts + " ATM contracts (~" + _fmtUsd(premiumLow) + "-" + _fmtUsd(premiumHigh) + " premium for 30-day)";
+      }
+    }
+
+    return {
+      shares: shares,
+      notional: notional,
+      pctOfAccount: pctOfAccount,
+      accountValue: accountValue,
+      perThousand: perThousand,
+      sharesText: _fmtShares(shares),
+      notionalText: _fmtUsd(notional),
+      pctText: pctOfAccount > 0 ? pctOfAccount.toFixed(1) + "% of acct" : "",
+      scaleHint: scaleHint,
+      optionsHint: optionsHint,
+    };
+  }
+
   // Expose on window for consumption by all pages
   window.TimedPriceUtils = {
     getIngestMs: getIngestMs,
@@ -271,5 +374,7 @@
     TICKER_TYPE_MAP: TICKER_TYPE_MAP,
     resolveTickerType: resolveTickerType,
     getNormalizedIntensity: getNormalizedIntensity,
+    SYSTEM_REFERENCE_ACCOUNT: SYSTEM_REFERENCE_ACCOUNT,
+    computePositionContext: computePositionContext,
   };
 })();

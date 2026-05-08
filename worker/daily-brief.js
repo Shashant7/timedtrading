@@ -1248,6 +1248,23 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     iwmCandlesM5?.candles || [], iwmData, iwmCandlesH4?.candles || [], []
   );
 
+  // V15 P0.7.72 — Phase 2 Q1 unification.
+  // Build canonical scenarios for the indices using the SAME helper that
+  // /timed/ticker-scenario serves to the Right Rail. This guarantees the
+  // levels the AI cites in the brief match exactly what the user sees in
+  // the chart overlay and Model card.
+  let spyScenario = null, qqqScenario = null, iwmScenario = null;
+  try {
+    const { buildTickerScenario } = await import("./ticker-scenario.js");
+    [spyScenario, qqqScenario, iwmScenario] = await Promise.all([
+      buildTickerScenario(env, "SPY").catch(() => null),
+      buildTickerScenario(env, "QQQ").catch(() => null),
+      buildTickerScenario(env, "IWM").catch(() => null),
+    ]);
+  } catch (e) {
+    console.warn("[DailyBrief] canonical scenario import/build failed:", String(e).slice(0, 200));
+  }
+
   // Build result
   const extract = (d) => d ? {
     price: Number(d.price) || 0,
@@ -1302,6 +1319,10 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     spyTechnical,
     qqqTechnical,
     iwmTechnical,
+    // V15 P0.7.72 — canonical per-index scenarios (Phase 2 Q1 unification)
+    spyScenario,
+    qqqScenario,
+    iwmScenario,
     sectors,
     todayEarnings,
     weekEarnings: weekEarnings.slice(0, 30), // cap for prompt size
@@ -1674,9 +1695,21 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
   // from the previous daily close (anchor). These are tighter, more
   // actionable than traditional pivot levels for intraday trading.
   let atrFibLevels = null;
-  // Use previous daily close as anchor — matches the client-side chart levels exactly
+  // V15 P0.7.96 — anchor MUST be the most recent SESSION close (= yesterday
+  // for pre-market, today's prev close for RTH). The previous logic used
+  // recent[length-2].c which is the day-BEFORE-yesterday's close whenever
+  // recent[length-1] is yesterday's bar — that's the bug that made the
+  // SPY brief render anchor=$701.66 while live price was $733.83 and the
+  // game-plan target ended up on the wrong side of the current price.
+  // Prefer latestData.prev_close (canonical, fed by the price pipeline)
+  // and fall back to the candle heuristic only if it isn't available.
+  const lastCandle = recent[recent.length - 1];
   const prevDayCandle = recent[recent.length - 2];
-  const anchor = prevDayCandle ? Number(prevDayCandle.c) : (pivots?.prevClose || last);
+  const anchor = Number(latestData?.prev_close)
+    || Number(latestData?.prevClose)
+    || (lastCandle && Number(lastCandle.c))
+    || (prevDayCandle && Number(prevDayCandle.c))
+    || (pivots?.prevClose || last);
   if (anchor > 0 && atr14 > 0) {
     // Use the daily true-range ATR directly (already computed above)
     const dayAtr = atr14;
@@ -1780,16 +1813,32 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
       };
     }
 
-    // Pre-validated game plan targets so the AI doesn't produce impossible combos
+    // V15 P0.7.96 — game plan triggers + targets, with strict invariant
+    // that bullTarget > bullTrigger > curPrice and bearTarget < bearTrigger
+    // < curPrice. The previous logic could produce target-on-the-wrong-side
+    // when the overnight range was missing or the price had drifted >1 ATR
+    // from anchor.
+    //
+    // Trigger logic:
+    //   bullTrigger = max(overnight high, curPrice + 0.25*ATR)
+    //   bearTrigger = min(overnight low,  curPrice - 0.25*ATR)
+    // Target logic: pick the nearest fib level past the trigger; if no fib
+    //   level is past the trigger, project trigger ± 0.75*ATR.
     const oHi = overnightRange?.high || curPrice;
     const oLo = overnightRange?.low || curPrice;
-    const allBullTargets = fibs.map(f => rnd(anchor + dayAtr * f)).filter(t => t > oHi);
-    const allBearTargets = fibs.map(f => rnd(anchor - dayAtr * f)).filter(t => t < oLo);
+    const bullTrig = Math.max(rnd(oHi), rnd(curPrice + dayAtr * 0.25));
+    const bearTrig = Math.min(rnd(oLo), rnd(curPrice - dayAtr * 0.25));
+    const allUpFibs = fibs.map(f => rnd(anchor + dayAtr * f));
+    const allDnFibs = fibs.map(f => rnd(anchor - dayAtr * f));
+    const bullTargetFib = allUpFibs.find(t => t > bullTrig);
+    const bearTargetFib = allDnFibs.slice().reverse().find(t => t < bearTrig);
+    const bullTgt = bullTargetFib != null ? bullTargetFib : rnd(bullTrig + dayAtr * 0.75);
+    const bearTgt = bearTargetFib != null ? bearTargetFib : rnd(bearTrig - dayAtr * 0.75);
     atrFibLevels.gamePlan = {
-      bullTrigger: rnd(oHi),
-      bullTarget: allBullTargets[0] || rnd(anchor + dayAtr * 1.0),
-      bearTrigger: rnd(oLo),
-      bearTarget: allBearTargets[0] || rnd(anchor - dayAtr * 1.0),
+      bullTrigger: bullTrig,
+      bullTarget:  Math.max(bullTgt, rnd(bullTrig + 0.01)),
+      bearTrigger: bearTrig,
+      bearTarget:  Math.min(bearTgt, rnd(bearTrig - 0.01)),
     };
   }
 
@@ -1805,6 +1854,12 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
   // narrative. Both views are surfaced for the brief.
   let multiDayAtrLevels = null;
   if (recent.length >= 5 && anchor > 0) {
+    // V15 P0.7.62 (2026-05-05) — bug fix: `rnd` was declared inside the
+    // earlier `atrFibLevels` block (line ~1696) and is out of scope here.
+    // This block was crashing the entire daily brief generation with
+    // `ReferenceError: rnd is not defined`, blocking all morning/evening
+    // briefs since the V15 P0.7.42 multi-day-ATR block was added.
+    const rnd = (v) => Math.round(v * 100) / 100;
     // 5-day TR ATR (already approximates "week ATR" since recent has ~10 daily bars)
     const last5 = recent.slice(-5);
     let weekAtrSum = 0; let weekAtrCount = 0;
@@ -2124,16 +2179,20 @@ Each header is editorialized: "## SPY: Stuck above 580" not "## SPY". For each t
 - Swing Consensus: [direction, strength, aligned TFs]
 - Signals: [up to 4 flags, comma-separated]
 
-**Levels** (TF in parens, one line each. Every number paired with a benchmark — ATR% of price, distance from 20-day avg, etc.):
-- S: $XXX (D), $XXX (4H)
-- R: $XXX (W), $XXX (D)
-- Range: $LOW–$HIGH — [how long we've been here]
-- Gap: $XXX–$XXX (4H)
+**Levels** (CRITICAL — must be CURRENT-PRICE-AWARE):
+- ALWAYS reference the CURRENT/PREMARKET price (from "Market Data" section). If SPY is trading at $718 and your daily-chart data shows $712 as "resistance", that level is now SUPPORT (price is above it). Re-classify levels relative to current price.
+- Support = price BELOW current. Resistance = price ABOVE current. If a level was crossed in pre-market, it flipped sides.
+- TF in parens, one line each. Every number paired with a benchmark.
+- S: $XXX (D), $XXX (4H)        ← MUST be below current price
+- R: $XXX (W), $XXX (D)         ← MUST be above current price
+- Range: $LOW–$HIGH — [where current price sits in this range, e.g. "stretched at top", "midrange"]
+- Gap: $XXX–$XXX (4H) [filled / unfilled / pre-market filled]
 
-**Game Plan** (one bullet per case, each ≤ 20 words):
-- Bull: Above $XXX → $XXX → $XXX (confirm by 10:30)
-- Bear: Below $XXX → $XXX → $XXX
-- Base: [expected range, most likely path, one risk note]
+**Game Plan** (one bullet per case, each ≤ 22 words):
+- Bull case: HOLD ABOVE $XXX → targets $XXX, then $XXX (invalidate below $XXX). Read as "if held above X, target Y then Z".
+- Bear case: BREAK BELOW $XXX → targets $XXX, then $XXX (invalidate above $XXX).
+- Base case: [most likely range today, ATR% of current price, single risk note]
+- IMPORTANT: Bull trigger must be NEAR or ABOVE current price (we're waiting for a hold/breakout). Bear trigger must be NEAR or BELOW current price (we're waiting for a breakdown). Targets must be in the trigger's direction (Bull targets > Bull trigger; Bear targets < Bear trigger).
 
 ### Section 4: "Futures Reference" (2 lines total — no sub-bullets)
 - **ES**: ATR $X.XX · O/N $LOW–$HIGH · Bull above $XXXX → $XXXX · Bear below $XXXX → $XXXX
@@ -2426,19 +2485,41 @@ ${(() => {
   return lines.length > 0 ? lines.join("\n") : "(N/A)";
 })()}
 
-### SPY Key Levels:
+### Canonical Index Scenarios (V15 P0.7.72 — Phase 2 Q1 unification)
+The objects below are the SINGLE SOURCE OF TRUTH for SPY/QQQ/IWM levels.
+The Right Rail Model card on the live app reads from the EXACT same
+endpoint, so the levels you cite below MUST match these values verbatim.
+Do NOT compute your own levels from the technical summaries above when a
+canonical scenario is provided — quote these prices directly.
+
+If a level is in \`support[]\`, it is BELOW current price.
+If a level is in \`resistance[]\`, it is ABOVE current price.
+NEVER cite a "resistance" that is below the current price — that's support.
+
+#### SPY canonical scenario:
+${data.spyScenario && data.spyScenario.ok ? JSON.stringify(data.spyScenario, null, 1) : "(unavailable — fall back to SMC levels below)"}
+
+#### QQQ canonical scenario:
+${data.qqqScenario && data.qqqScenario.ok ? JSON.stringify(data.qqqScenario, null, 1) : "(unavailable — fall back to SMC levels below)"}
+
+#### IWM canonical scenario:
+${data.iwmScenario && data.iwmScenario.ok ? JSON.stringify(data.iwmScenario, null, 1) : "(unavailable — fall back to SMC levels below)"}
+
+### Legacy SMC fallback (use ONLY when the canonical scenario above is unavailable):
+
+#### SPY Key Levels:
 ${formatSMCForPrompt(data.spyTechnical?.smcLevels)}
 
-### QQQ Key Levels:
+#### QQQ Key Levels:
 ${formatSMCForPrompt(data.qqqTechnical?.smcLevels)}
 
-### IWM Key Levels (Russell 2000):
+#### IWM Key Levels (Russell 2000):
 ${formatSMCForPrompt(data.iwmTechnical?.smcLevels)}
 
-### ES Key Levels (for futures traders):
+#### ES Key Levels (for futures traders):
 ${formatSMCForPrompt(data.esTechnical?.smcLevels)}
 
-### NQ Key Levels (for futures traders):
+#### NQ Key Levels (for futures traders):
 ${formatSMCForPrompt(data.nqTechnical?.smcLevels)}
 
 ## Sector ETF Performance (sorted by magnitude):
@@ -3026,24 +3107,62 @@ function buildBriefInfographic(data, type) {
       levels: w.levels || {},
     };
   };
-  const _extract = (sym, md, tech) => {
-    if (!md) return null;
-    const price = Number(md.price);
-    const chg = Number(md.changePct ?? md.dp);
-    const atr = Number(tech?.atr14 ?? tech?.atr);
+  // V15 P0.7.96 — Overlay the canonical ticker-scenario over the per-tech
+  // payload. The legacy `summarizeTechnical()` path (a) anchors fibs to
+  // recent[length-2].c which is two sessions stale during pre-market, and
+  // (b) has a game-plan fallback that produces invalid bull/bear pairs
+  // (target on the wrong side of the trigger) when no overnight range is
+  // available. The canonical scenario (worker/ticker-scenario.js) has
+  // already been fixed to use prev_close + swing-reclaim levels and is
+  // shared with the right rail. Prefer its values when present.
+  const _extract = (sym, md, tech, scenario) => {
+    if (!md && !scenario) return null;
+    // Prefer scenario.price (live, includes pre-market) over md.price
+    // (which is often the cached RTH-close snapshot).
+    const livePrice = Number(scenario?.price) || Number(md?.price);
+    const chg = Number(md?.changePct ?? md?.dp);
+    const atr = Number(scenario?.atr14 ?? tech?.atr14 ?? tech?.atr);
+    const baseLevels = _normLevels(tech);
+    let mergedLevels = baseLevels;
+    if (scenario?.ok && scenario?.game_plan) {
+      // Use scenario's game plan + current price; keep tech's fib map
+      // (anchor/levels object) for the DAY GATE bar so we don't lose
+      // the existing visualization, but override the gamePlan + currentPrice.
+      const gp = scenario.game_plan;
+      mergedLevels = {
+        ...(baseLevels || {}),
+        currentPrice: Number.isFinite(livePrice) ? livePrice : (baseLevels?.currentPrice ?? null),
+        gamePlan: {
+          bullTrigger: Number(gp.bull_trigger) || null,
+          bullTarget:  Number(gp.bull_target)  || null,
+          bearTrigger: Number(gp.bear_trigger) || null,
+          bearTarget:  Number(gp.bear_target)  || null,
+        },
+      };
+    } else if (baseLevels?.gamePlan) {
+      // Fallback: validate the legacy game-plan and drop it if the
+      // bull/bear sides are inverted (target on the wrong side of trigger).
+      const gp = baseLevels.gamePlan;
+      const bullValid = Number.isFinite(gp.bullTrigger) && Number.isFinite(gp.bullTarget) && gp.bullTarget > gp.bullTrigger;
+      const bearValid = Number.isFinite(gp.bearTrigger) && Number.isFinite(gp.bearTarget) && gp.bearTarget < gp.bearTrigger;
+      if (!bullValid || !bearValid) {
+        mergedLevels = { ...baseLevels, gamePlan: null };
+      }
+    }
     return {
       sym,
-      price: Number.isFinite(price) ? Math.round(price * 100) / 100 : null,
+      price: Number.isFinite(livePrice) ? Math.round(livePrice * 100) / 100 : null,
       chgPct: Number.isFinite(chg) ? Math.round(chg * 100) / 100 : null,
       atr: Number.isFinite(atr) ? Math.round(atr * 100) / 100 : null,
-      levels: _normLevels(tech),
+      levels: mergedLevels,
       weeklyLevels: _normWeeklyLevels(tech),
+      bias: scenario?.bias || null,
     };
   };
   const indices = [
-    _extract("SPY", data.market?.SPY, data.spyTechnical),
-    _extract("QQQ", data.market?.QQQ, data.qqqTechnical),
-    _extract("IWM", data.market?.IWM, data.iwmTechnical),
+    _extract("SPY", data.market?.SPY, data.spyTechnical, data.spyScenario),
+    _extract("QQQ", data.market?.QQQ, data.qqqTechnical, data.qqqScenario),
+    _extract("IWM", data.market?.IWM, data.iwmTechnical, data.iwmScenario),
   ].filter(Boolean);
 
   const pf = data.priceFeedRaw || {};

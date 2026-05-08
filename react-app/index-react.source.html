@@ -4,14 +4,16 @@
     <meta charset="UTF-8" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes"
+      content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover"
     />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Timed Trading</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2048%2048%27%20fill%3D%27none%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27r%27%20x1%3D%276%27%20y1%3D%2742%27%20x2%3D%2742%27%20y2%3D%276%27%3E%3Cstop%20offset%3D%270%25%27%20stop-color%3D%27%2334d399%27%2F%3E%3Cstop%20offset%3D%27100%25%27%20stop-color%3D%27%2367e8f9%27%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20width%3D%2748%27%20height%3D%2748%27%20rx%3D%2711%27%20fill%3D%27%23000%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%2717%27%20stroke%3D%27url%28%23r%29%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%277.5%27%20x2%3D%2724%27%20y2%3D%2710.5%27%20stroke%3D%27%2334d399%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20opacity%3D%270.5%27%2F%3E%3Cline%20x1%3D%277.5%27%20y1%3D%2724%27%20x2%3D%2710.5%27%20y2%3D%2724%27%20stroke%3D%27%2334d399%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20opacity%3D%270.5%27%2F%3E%3Cline%20x1%3D%2719%27%20y1%3D%2718.5%27%20x2%3D%2716%27%20y2%3D%2715.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2719%27%20y2%3D%2718.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%273.5%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2729.5%27%20y1%3D%2716.5%27%20x2%3D%2732%27%20y2%3D%2712.9%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2729.5%27%20y2%3D%2716.5%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%274%27%20stroke-linecap%3D%27round%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%273.2%27%20fill%3D%27%2330d158%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%271.3%27%20fill%3D%27%23000%27%2F%3E%3C%2Fsvg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260423a" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260507-r5" />
 
     <!-- React & ReactDOM via CDN -->
     <script
@@ -220,6 +222,129 @@
       @keyframes tt-spin {
         to { transform: rotate(360deg); }
       }
+
+      /* ─────────────────────────────────────────────────────────────────
+         V15 P0.7.78 — Ticker Workspace layout (≥1024px desktop only).
+         At ≥1024px, the ticker overlay expands to full viewport and the
+         inner rail switches to a CSS Grid two-pane layout:
+           [ HEADER...full width ]
+           [ LEFT pane | RIGHT pane ]
+         Left = chart + key levels (own scroll). Right = tab nav + tab
+         content (own scroll). Below 1024px: existing slide-in modal.
+
+         Note: this lives at top level (NOT inside @media (max-width:768px))
+         so the >=1024px rules actually match. The earlier P0.7.76/77
+         attempt put these rules inside the mobile-only block by mistake
+         and they never applied.
+         ───────────────────────────────────────────────────────────────── */
+      @media (min-width: 1024px) {
+        .tt-ticker-workspace-mount {
+          /* V15 P0.7.79: leave existing top-[60px] sm:top-[52px] in place
+             so the workspace starts BELOW the main app nav. Previously
+             top:0 hid the rail's own sticky header (with the ✕ close
+             button) behind the main nav, leaving users stuck. */
+          bottom: 0 !important;
+          left: 0 !important;
+          right: 0 !important;
+          width: 100% !important;
+          max-width: none !important;
+          border-left: none !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+        }
+      }
+      .tt-rail-shell--workspace {
+        display: grid !important;
+        grid-template-columns: 1fr 460px;
+        grid-template-rows: auto 1fr;
+        grid-template-areas:
+          "header header"
+          "left   right";
+        height: 100%; /* fill the mount; mount is positioned below nav */
+        max-height: 100%;
+        overflow: hidden;
+        flex-direction: unset !important; /* override .flex.flex-col */
+      }
+      .tt-rail-shell--workspace > .tt-rail-area-header {
+        grid-area: header;
+        position: relative;
+        z-index: 5;
+      }
+      .tt-rail-shell--workspace > .tt-rail-area-left-pane {
+        grid-area: left;
+        overflow-y: auto;
+        padding: var(--ds-space-3); /* P0.7.100-r2: slightly tighter than space-4 */
+        border-right: 1px solid var(--ds-stroke);
+        min-width: 0;
+      }
+      .tt-rail-shell--workspace > .tt-rail-area-right-pane {
+        grid-area: right;
+        overflow-y: auto;
+        min-width: 0;
+      }
+      /* Chart canvas height by breakpoint. Stable via CSS so the JSX
+         does not re-evaluate window.innerWidth on every render.
+         V15 P0.7.99 — sizes bumped now that Key Levels has been moved
+         out of the left pane into the Setup tab.
+         V15 P0.7.100-r2 — REVERT flex-fill (caused a ResizeObserver
+         feedback loop where chart.applyOptions({height}) triggered the
+         observer to fire again). Use a much larger viewport-based
+         height instead — bigger than P0.7.99 but stable. */
+      .tt-rail-chart-canvas {
+        height: 240px;
+      }
+      @media (min-width: 1024px) {
+        .tt-rail-chart-canvas { height: 380px; }
+      }
+      /* P0.7.102 — calc bumped to account for the rail's own footer
+         (Open in TradingView, ~50px), the legal footer (~30px), and
+         the chart's internal OHLC header + status bar (~45px) on top
+         of the previous chrome stack. Total now ~340px so the time-
+         axis labels at the bottom of the chart are always visible. */
+      .tt-rail-shell--workspace .tt-rail-chart-canvas {
+        height: calc(100vh - 340px) !important;
+        max-height: 980px;
+        min-height: 380px;
+      }
+      /* V15 P0.7.86 — Activity Feed drawer.
+         Hidden on mobile/tablet (<1024px) — too narrow to dock a 300px
+         strip without crowding the kanban / bubble map. Visible on
+         desktop only. The drawer also self-hides when the right rail
+         opens (via the React `selectedTicker` check inside the
+         component). The drawer is `position: fixed` so it overlays
+         content rather than pushing it; on a 1280px+ screen this still
+         leaves ~980px of usable content width. */
+      @media (max-width: 1023px) {
+        .tt-activity-drawer { display: none !important; }
+      }
+
+      /* Modal mode (mobile/tablet < 1024px): left/right wrappers are
+         transparent and children flow. Per user request (V15 P0.7.85),
+         we use flex order to place tab content FIRST and chart+levels
+         at the BOTTOM so the active tab is what reads first on a phone.
+         Only applies when the workspace class is NOT on the shell. */
+      .tt-rail-shell:not(.tt-rail-shell--workspace) {
+        display: flex;
+        flex-direction: column;
+      }
+      .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-header { order: 0; flex: 0 0 auto; }
+      .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-right-pane { order: 1; flex: 1 1 auto; }
+      .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-left-pane { order: 2; flex: 0 0 auto; }
+      .tt-rail-area-left-pane,
+      .tt-rail-area-right-pane {
+        display: block;
+      }
+      /* V15 P0.7.87 (per user): on mobile / narrow tablet (<1024px) hide
+         the chart + levels left pane entirely. The user still couldn't
+         see tab content with the left pane consuming so much vertical
+         space. The chart + levels are still available on the desktop
+         workspace mode where the side-by-side layout makes them useful. */
+      @media (max-width: 1023px) {
+        .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-left-pane {
+          display: none !important;
+        }
+      }
+
       @keyframes fadeIn {
         from { opacity: 0; }
         to { opacity: 1; }
@@ -477,6 +602,451 @@
       body:not([data-user-role="admin"]) a[data-admin-only] {
         display: none !important;
       }
+
+      /* V2.1 round 11 (2026-05-04) — Market Pulse mobile fix.
+         User reported tiles overlapping on mobile. Cause: the priority row
+         uses `flex-1 min-w-0` on each ds-tickercard so 7 tiles squeeze to
+         <80px each on phones, breaking the price/sparkline layout.
+         Fix: on screens <768px the priority row becomes a horizontal
+         scroll-snap track. Each tile pins at 44vw min-width so two fit on
+         screen and the rest scroll smoothly with snap stops. The label
+         column collapses to a tight header above the scroll track. */
+      @media (max-width: 767px) {
+        .ds-pulse-row {
+          flex-direction: column;
+          align-items: stretch !important;
+          gap: 6px !important;
+        }
+        .ds-pulse-row__label {
+          width: auto !important;
+          padding-top: 0 !important;
+          display: flex;
+          align-items: baseline;
+          gap: 8px;
+        }
+        .ds-pulse-row__content {
+          flex-wrap: nowrap !important;
+          overflow-x: auto !important;
+          overflow-y: hidden !important;
+          scroll-snap-type: x mandatory;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: none;
+          padding-bottom: 4px;
+          scroll-behavior: smooth;
+        }
+        .ds-pulse-row__content::-webkit-scrollbar { display: none; }
+        /* Boosted specificity so the priority tiles snap correctly even when
+           inline styles or Tailwind utilities (flex-1 min-w-0) try to win. */
+        .ds-pulse-row .ds-pulse-row__content > * {
+          flex: 0 0 auto !important;
+          min-width: 38vw !important;
+          max-width: 60vw;
+          scroll-snap-align: start;
+        }
+        .ds-pulse-context {
+          flex-direction: column;
+          align-items: stretch !important;
+          gap: 6px !important;
+        }
+        /* Context (futures · sectors) chip strip becomes a horizontal scroll
+           track instead of wrapping onto 5 lines. Same pattern as priority. */
+        .ds-pulse-context .ds-row__content {
+          flex-wrap: nowrap !important;
+          overflow-x: auto !important;
+          overflow-y: hidden !important;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: none;
+          padding-bottom: 4px;
+          scroll-behavior: smooth;
+          scroll-snap-type: x proximity;
+        }
+        .ds-pulse-context .ds-row__content::-webkit-scrollbar { display: none; }
+        .ds-pulse-context .ds-row__content > * {
+          flex: 0 0 auto !important;
+          scroll-snap-align: start;
+        }
+      }
+
+      /* ─────────────────────────────────────────────────────────────────
+       * 2026-05-04 — Mobile-native pass.
+       * All rules scoped to (max-width: 768px) or (max-width: 430px).
+       * Desktop (>=769px) is untouched.
+       * ───────────────────────────────────────────────────────────────── */
+      @media (max-width: 768px) {
+        /* ── Body / fonts: prefer iOS system stack on phones for
+           instant render + native feel; keep mono for prices ── */
+        body.ds-v2 {
+          font-family: -apple-system, BlinkMacSystemFont, "Inter",
+            "Segoe UI", Roboto, sans-serif;
+        }
+        /* Eliminate horizontal viewport jitter from oversize children. */
+        html, body { overflow-x: hidden; }
+
+        /* ── Macro/Earnings rows: same scroll-snap as Pulse rows so the
+           50+ ticker chips don't wrap into a wall of text on phones. ── */
+        .ds-row {
+          flex-direction: column !important;
+          align-items: stretch !important;
+          gap: 6px !important;
+        }
+        .ds-row__label {
+          width: auto !important;
+          padding-top: 0 !important;
+          display: flex;
+          align-items: baseline;
+          gap: 8px;
+        }
+        .ds-row__content {
+          flex-wrap: nowrap !important;
+          overflow-x: auto !important;
+          overflow-y: hidden !important;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: none;
+          scroll-behavior: smooth;
+          padding-bottom: 4px;
+        }
+        .ds-row__content::-webkit-scrollbar { display: none; }
+        /* Earnings parent stays a vertical stack of day rows (don't apply
+           the horizontal scroll there) — the inner per-day rows do the
+           horizontal scrolling themselves. */
+        .tt-earnings-content {
+          flex-direction: column !important;
+          flex-wrap: nowrap !important;
+          overflow-x: visible !important;
+          overflow-y: visible !important;
+        }
+        .tt-earn-day-row {
+          flex-wrap: nowrap !important;
+          overflow-x: auto !important;
+          overflow-y: hidden !important;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: none;
+          scroll-behavior: smooth;
+          scroll-snap-type: x proximity;
+          padding-bottom: 4px;
+        }
+        .tt-earn-day-row::-webkit-scrollbar { display: none; }
+        .tt-earn-day-row > * {
+          flex: 0 0 auto !important;
+          scroll-snap-align: start;
+        }
+
+        /* ── Status Strip (Regime · Vol · Breadth · Top Rank · Top
+           Signals · Market state) collapses to 2-col grid on mobile.
+           Was: single horizontal flex row that wrapped awkwardly. ── */
+        [data-coachmark="status-strip"] {
+          display: grid !important;
+          grid-template-columns: 1fr 1fr;
+          gap: 0;
+          border-radius: 12px;
+        }
+        [data-coachmark="status-strip"] > * {
+          padding: 8px 12px !important;
+          border-right: 1px solid var(--tt-border-weak) !important;
+          border-bottom: 1px solid var(--tt-border-weak) !important;
+        }
+        [data-coachmark="status-strip"] > *:nth-child(2n) { border-right: none !important; }
+        [data-coachmark="status-strip"] > .tt-mkt-status-cell {
+          margin-left: 0 !important;
+          grid-column: 1 / -1;
+          border-right: none !important;
+          border-bottom: none !important;
+          justify-content: flex-start !important;
+        }
+        /* Hide low-priority Top Signal cells on mobile (Just Flipped /
+           Momentum Elite / High R:R) to keep the strip readable; Top
+           Rank is the most useful single signal. */
+        [data-coachmark="status-strip"] > button.tt-signal-low-prio {
+          display: none !important;
+        }
+        /* Bigger value, smaller eyebrow per spec. */
+        [data-coachmark="status-strip"] .tt-label {
+          font-size: 8.5px !important;
+          letter-spacing: 0.08em;
+        }
+
+        /* ── View tabs (Analysis / Active Trader / Investor / All) —
+           keep hidden in main flow on mobile; we render a fixed bottom
+           nav instead. The bottom nav is shown via tt-mobile-bottom-nav. ── */
+        [data-coachmark="nav-modes"]:not(.tt-mobile-bottom-nav) {
+          display: none !important;
+        }
+
+        /* ── Search box wrapper: tighter padding, single column ── */
+        [data-coachmark="search-filter"] {
+          padding: 10px !important;
+        }
+
+        /* ── Compact card (viewport) tighter padding so 4-5 fit
+           without scrolling. ── */
+        .ds-tickercard {
+          padding: 12px !important;
+        }
+
+        /* ── Mobile right rail: full-screen overlay (was 80% partial). ── */
+        .tt-rail-mobile {
+          top: 0 !important;
+          bottom: 0 !important;
+          left: 0 !important;
+          right: 0 !important;
+          width: 100% !important;
+          border-left: none !important;
+          z-index: 60 !important;
+          padding-bottom: env(safe-area-inset-bottom);
+        }
+
+        /* (Workspace CSS moved out of this @media (max-width: 768px) block —
+           a sibling block at the top-level handles desktop workspace layout.) */
+        /* Right rail tab bar — hide horizontal scrollbar but keep
+           horizontal scroll behavior so all 5 tabs stay reachable. */
+        .tt-rail-tabs::-webkit-scrollbar { display: none; }
+        .tt-rail-tabs { scrollbar-width: none; -ms-overflow-style: none; }
+        /* Top header — give it more breathing room on mobile so the
+           logo / LIVE pill / waitlist icon / bell / avatar / hamburger
+           don't feel cramped. Extra vertical padding plus a touch
+           more horizontal spacing between groups. */
+        .tt-top-nav__inner {
+          padding-top: 14px !important;
+          padding-bottom: 12px !important;
+          padding-left: 14px !important;
+          padding-right: 14px !important;
+          gap: 10px;
+        }
+        .tt-top-nav .flex.items-center.gap-3 { gap: 12px !important; }
+        .tt-top-nav .flex.items-center.gap-2 { gap: 10px !important; }
+
+        /* ── Bubble Map: collapse the chart by default on mobile. The
+           parent height: calc(100vh - 120px) is too tall to scroll past. ── */
+        .tt-analysis-grid {
+          height: auto !important;
+          min-height: 0 !important;
+          max-height: none !important;
+          flex-direction: column !important;
+        }
+        .tt-bubble-mobile-collapsed .tt-bubble-chart-wrap {
+          display: none !important;
+        }
+        /* When the bubble map IS shown on mobile, force it visible
+           and give it real chart height (the parent's 700px min-height
+           was leaving an empty void inside the .tt-bubble-chart-wrap
+           since the lg:flex-1 only kicks in >=1024px). */
+        .tt-analysis-grid:not(.tt-bubble-mobile-collapsed) .tt-bubble-chart-wrap {
+          display: flex !important;
+          min-height: 60vh;
+          height: 60vh;
+        }
+        .tt-analysis-grid:not(.tt-bubble-mobile-collapsed) .tt-bubble-chart-wrap > .relative,
+        .tt-analysis-grid:not(.tt-bubble-mobile-collapsed) .tt-bubble-chart-wrap > div:last-child {
+          flex: 1 1 0;
+          min-height: 0;
+        }
+        .tt-bubble-mobile-toggles {
+          display: flex;
+        }
+        @media (min-width: 1024px) {
+          .tt-bubble-mobile-toggles { display: none !important; }
+        }
+        .tt-bubble-toggle-btn {
+          width: 100%;
+          padding: 10px 14px;
+          border-radius: 12px;
+          background: var(--ds-bg-glass-hi);
+          border: 1px solid var(--ds-stroke);
+          color: var(--ds-text-display);
+          font-size: 12px;
+          font-weight: 700;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          cursor: pointer;
+          font-family: var(--tt-font-mono);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          margin-bottom: 8px;
+        }
+        .tt-bubble-toggle-btn:active { transform: scale(0.99); }
+        /* Bubble Map full-screen modal mode — opens the chart in a
+           landscape-oriented full-viewport overlay so the user has
+           real estate to read the labels. The 'Open Full' button on
+           the toggle bar opens this; tapping the close X dismisses. */
+        .tt-bubble-fullscreen {
+          position: fixed;
+          inset: 0;
+          z-index: 9999;
+          background: var(--ds-bg-canvas);
+          display: flex;
+          flex-direction: column;
+          padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+        }
+        .tt-bubble-fullscreen__head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 12px 14px;
+          border-bottom: 1px solid var(--ds-stroke);
+          background: var(--ds-bg-glass);
+        }
+        .tt-bubble-fullscreen__close {
+          width: 36px; height: 36px;
+          border-radius: 999px;
+          background: var(--ds-bg-glass-hi);
+          border: 1px solid var(--ds-stroke);
+          color: var(--ds-text-display);
+          display: flex; align-items: center; justify-content: center;
+          cursor: pointer;
+        }
+        .tt-bubble-fullscreen__body {
+          flex: 1 1 0; min-height: 0;
+          padding: 8px;
+          display: flex;
+          flex-direction: column;
+        }
+        .tt-bubble-fullscreen__body > * {
+          flex: 1 1 0;
+          min-height: 0;
+        }
+
+        /* ── 44px minimum tap target for buttons / chips on mobile.
+           Apply only to clearly-clickable elements so we don't blow
+           up text containers. ── */
+        button.ds-chip,
+        .ds-tab__item,
+        nav button,
+        nav a {
+          min-height: 36px;
+        }
+
+        /* ── Active press feedback ── */
+        button:active,
+        a:active,
+        .ds-chip:active,
+        .ds-tickercard:active {
+          transform: scale(0.97);
+          transition: transform 80ms ease-out;
+        }
+
+        /* ── Hide WaitlistButton's text label, show icon only. The label
+           span is added in auth-gate.js as .tt-waitlist-label. ── */
+        .tt-waitlist-label { display: none !important; }
+
+        /* ── Sticky scroll-to-top button ── */
+        .tt-scroll-top-btn {
+          position: fixed;
+          right: 14px;
+          bottom: calc(72px + env(safe-area-inset-bottom));
+          width: 44px;
+          height: 44px;
+          border-radius: 50%;
+          background: rgba(20,22,30,0.92);
+          border: 1px solid var(--ds-stroke);
+          color: var(--ds-accent);
+          z-index: 55;
+          box-shadow: 0 6px 20px rgba(0,0,0,0.45);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
+        }
+        .tt-scroll-top-btn:active { transform: scale(0.95); }
+
+        /* ── Mobile bottom navigation bar ──
+           P0.7.104 — bottom shifted UP from 0 to var(--tt-legal-footer-h)
+           so the View tabs (Analysis / Active Trader / Investor / All)
+           aren't covered by the fixed legal-disclaimer footer. The
+           footer has z-index: 9999 (above this bar at z-index: 50).
+           --tt-legal-footer-h is set just above based on the footer's
+           computed height on mobile (~32px for single-line, ~50px when
+           it wraps). Auto-measured via JS when the footer mounts so
+           we never have to hard-code a magic number. */
+        .tt-mobile-bottom-nav {
+          position: fixed;
+          left: 0; right: 0;
+          bottom: var(--tt-legal-footer-h, 32px);
+          display: flex !important;
+          align-items: stretch;
+          justify-content: space-around;
+          background: rgba(10,12,16,0.96);
+          border-top: 1px solid var(--ds-stroke);
+          backdrop-filter: blur(14px);
+          -webkit-backdrop-filter: blur(14px);
+          z-index: 50;
+          padding-bottom: env(safe-area-inset-bottom);
+        }
+        .tt-mobile-bottom-nav__item {
+          flex: 1;
+          display: flex !important;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 2px;
+          padding: 8px 4px;
+          color: var(--ds-text-muted);
+          background: transparent;
+          border: none;
+          cursor: pointer;
+          font-size: 10px;
+          font-weight: 600;
+          letter-spacing: 0.04em;
+          min-height: 56px;
+          position: relative;
+        }
+        .tt-mobile-bottom-nav__item:active { transform: scale(0.95); }
+        .tt-mobile-bottom-nav__item--active {
+          color: var(--ds-accent);
+        }
+        .tt-mobile-bottom-nav__item--active::before {
+          content: "";
+          position: absolute;
+          top: 0; left: 30%; right: 30%; height: 2px;
+          background: var(--ds-accent);
+          border-radius: 0 0 2px 2px;
+        }
+        .tt-mobile-bottom-nav__item svg { width: 20px; height: 20px; }
+        .tt-mobile-bottom-nav__count {
+          position: absolute;
+          top: 4px; right: 25%;
+          min-width: 14px; height: 14px;
+          padding: 0 4px;
+          border-radius: 7px;
+          background: var(--ds-accent);
+          color: #0a0d11;
+          font-size: 9px;
+          font-weight: 800;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          line-height: 1;
+        }
+
+        /* P0.7.104 — body padding now clears BOTH bars: the mobile
+           bottom nav (~64px) + the legal footer (~32px) + safe area.
+           Previously only cleared the bottom nav, so the bottom of
+           page content was hidden behind the legal footer. */
+        .tt-page-shell,
+        body {
+          padding-bottom: calc(64px + 32px + env(safe-area-inset-bottom)) !important;
+        }
+      }
+
+      /* ── Tighter mobile @ 430px (smaller phones) ── */
+      @media (max-width: 430px) {
+        /* Hide "MARKET CLOSED" label cell entirely on tiny phones. */
+        .tt-mkt-status-cell { display: none !important; }
+        /* Status strip: keep 2-col but pad less. */
+        [data-coachmark="status-strip"] > * { padding: 6px 10px !important; }
+        /* Compact viewport cards even more. */
+        .ds-tickercard { padding: 10px !important; }
+        /* Hamburger / icon-only nav buttons stay 36px tap targets. */
+      }
+
+      /* ── Hide the mobile bottom nav on desktop ── */
+      @media (min-width: 769px) {
+        .tt-mobile-bottom-nav { display: none !important; }
+        .tt-scroll-top-btn { display: none !important; }
+      }
     </style>
   </head>
   <body class="ds-v2">
@@ -543,7 +1113,7 @@
     <script src="ds-components.js?v=20260501a"></script>
     <script src="investor-panel.js?v=20260226a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260501b"></script>
+    <script src="shared-right-rail.compiled.js?v=20260508-daychg"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef, memo } = React;
@@ -5420,9 +5990,12 @@
                   return (
                     <>
                       <rect x={longX} y={offsetY} width={longW} height={plotHeight / 2} fill="rgba(34,197,94,0.06)" stroke="rgba(34,197,94,0.25)" strokeWidth="1" strokeDasharray="6 4" />
-                      <text x={longX + longW / 2} y={offsetY + plotHeight * 0.25} fill="rgba(34,197,94,0.25)" fontSize="10" fontWeight="600" textAnchor="middle" dominantBaseline="middle" style={{pointerEvents:"none"}}>LONG ENTRY ZONE</text>
+                      {/* V15 P0.7.84: BULL/BEAR vocabulary for setup zones
+                          (no active trade); LONG/SHORT reserved for the
+                          actual position direction. */}
+                      <text x={longX + longW / 2} y={offsetY + plotHeight * 0.25} fill="rgba(34,197,94,0.25)" fontSize="10" fontWeight="600" textAnchor="middle" dominantBaseline="middle" style={{pointerEvents:"none"}}>BULL SETUP ZONE</text>
                       <rect x={shortX} y={offsetY + plotHeight / 2} width={shortW} height={plotHeight / 2} fill="rgba(239,68,68,0.06)" stroke="rgba(239,68,68,0.25)" strokeWidth="1" strokeDasharray="6 4" />
-                      <text x={shortX + shortW / 2} y={offsetY + plotHeight * 0.75} fill="rgba(239,68,68,0.25)" fontSize="10" fontWeight="600" textAnchor="middle" dominantBaseline="middle" style={{pointerEvents:"none"}}>SHORT ENTRY ZONE</text>
+                      <text x={shortX + shortW / 2} y={offsetY + plotHeight * 0.75} fill="rgba(239,68,68,0.25)" fontSize="10" fontWeight="600" textAnchor="middle" dominantBaseline="middle" style={{pointerEvents:"none"}}>BEAR SETUP ZONE</text>
                     </>
                   );
                 })()}
@@ -5899,13 +6472,23 @@
                           );
                         })()}
                         {(() => {
+                          // V15 P0.7.83: bias terminology unified.
+                          // LONG/SHORT only when there's an actual open
+                          // position; otherwise BULL/BEAR for the signal
+                          // direction. Matches kanban cards / right rail.
                           const b = tooltip.bias_direction || getDirectionFromState(tooltip);
                           if (!b) return null;
+                          const sym = String(tooltip?.ticker || "").toUpperCase();
+                          const tr = (typeof tradeByTicker !== "undefined" && tradeByTicker?.get?.(sym)) || null;
+                          const _trStatus = String(tr?.status || "").toUpperCase();
+                          const hasOpenTrade = !!(tr && (_trStatus === "OPEN" || _trStatus === "TP_HIT_TRIM"));
                           const l = String(b).toUpperCase() === "LONG";
                           const s = String(b).toUpperCase() === "SHORT";
+                          const longLabel = hasOpenTrade ? "LONG" : "BULL";
+                          const shortLabel = hasOpenTrade ? "SHORT" : "BEAR";
                           return (
                             <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${l ? "bg-teal-500/20 text-teal-400" : s ? "bg-rose-500/20 text-rose-400" : "bg-white/[0.04] text-[#6b7280]"}`}>
-                              {l ? "LONG" : s ? "SHORT" : "NEUTRAL"}
+                              {l ? longLabel : s ? shortLabel : "NEUTRAL"}
                             </span>
                           );
                         })()}
@@ -7417,10 +8000,16 @@
           !tradeIsClosed &&
           (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !tradeStatus);
 
+        // V15 P0.7.83: open positions never end up in EXIT lane —
+        // engine 'exit' on an open position means urgent close (DEFEND).
+        // Same logic applied to kanban categorizer + bubble map stage chip
+        // + bubble icon in P0.7.79 / P0.7.82 — this is the third copy that
+        // got missed (drives the bubble's icon-under-bubble label).
         let effectiveStage = rawStage;
         if (tradeIsOpen) {
           if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) effectiveStage = "trim";
-          else if (!["defend", "trim", "exit", "hold", "active", "just_entered"].includes(rawStage)) effectiveStage = "hold";
+          else if (rawStage === "exit") effectiveStage = "defend";
+          else if (!["defend", "trim", "hold", "active", "just_entered"].includes(rawStage)) effectiveStage = "hold";
         }
 
         return {
@@ -12276,6 +12865,10 @@
         const price = Number(t?.price ?? t?.close);
         const dc = (() => { try { return getDailyChange(t); } catch (_) { return null; } })();
         const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
+        // P0.7.106 — also extract dayChg ($ amount) so the card can show
+        // both pct and absolute. Was missing in the previous round which
+        // caused ReferenceError: dayChg is not defined.
+        const dayChg = Number.isFinite(dc?.dayChg) ? Number(dc.dayChg) : null;
         const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
         /* V2.1 round 7 (2026-05-01) — Card "R##" must display the rank
            POSITION (1 = best), not the rank SCORE (0–200, higher = better).
@@ -12299,10 +12892,20 @@
         const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
         const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
         const rr = Number(t?.rr) || null;
-        const stage = String(t?.kanban_stage || "").toLowerCase();
+        let stage = String(t?.kanban_stage || "").toLowerCase();
         const openTrade = tradeByTicker?.get?.(sym) || null;
         const hasOpen = openTrade && !openTrade.exit_ts;
         const tradeDir = hasOpen ? String(openTrade.direction || "").toUpperCase() : null;
+        // V15 P0.7.82: open-position override — same logic the kanban
+        // categorizer uses. Open positions never show EXIT (engine 'exit'
+        // on an open position is DEFEND).
+        if (hasOpen) {
+          const _st = String(openTrade?.status || "").toUpperCase();
+          const _trim = Number(openTrade?.trimmed_pct ?? openTrade?.trimmedPct ?? 0);
+          if (_st === "TP_HIT_TRIM" || _trim > 0) stage = "trim";
+          else if (stage === "exit") stage = "defend";
+          else if (stage !== "defend" && stage !== "trim" && stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
+        }
 
         /* V2.1 round 2 — TT Selected check */
         const isTTSel = (typeof isTickerTTSelected === "function") ? isTickerTTSelected(sym) : false;
@@ -12531,6 +13134,13 @@
             {dayPct != null && (
               <div className={`ds-tickercard__change ds-tickercard__change--${dir}`} style={{ fontSize: 12 }}>
                 {dir === "up" ? "▲" : dir === "dn" ? "▼" : "◆"} {dayPct >= 0 ? "+" : ""}{dayPct.toFixed(2)}%
+                {/* P0.7.105 — also show $ amount of daily change so users
+                    can see absolute move alongside the percent */}
+                {Number.isFinite(dayChg) && Math.abs(dayChg) > 0.001 && (
+                  <span style={{ marginLeft: 4, opacity: 0.7, fontSize: 10 }}>
+                    ({dayChg >= 0 ? "+" : ""}${Math.abs(dayChg).toFixed(2)})
+                  </span>
+                )}
               </div>
             )}
             {/* Active-trade progress bar (only when in trade) */}
@@ -12905,22 +13515,36 @@
                 rendered side-by-side in the status strip. Each cell shows
                 the category label + ticker + rank + direction. Cells share
                 consistent padding/border so the strip reads as one row. */}
+            {/* V15 P0.7.84: ticker logos rendered next to each top-signal
+                ticker name for fast visual recognition. Uses
+                window.DS.tickerLogo() — same helper the right rail and
+                kanban cards use. */}
             {topSignals && topSignals.map((sig, i) => (
               <button
                 key={`sig-${sig.kind}-${sig.ticker}`}
                 onClick={() => onSelectTicker && onSelectTicker(sig.ticker)}
-                className="flex flex-col justify-center min-w-0 hover:bg-white/[0.04] transition-colors group text-left"
+                className={`flex flex-col justify-center min-w-0 hover:bg-white/[0.04] transition-colors group text-left ${i >= 1 ? "tt-signal-low-prio" : ""}`}
                 style={{ padding: "6px 14px", borderRight: "1px solid var(--tt-border-weak)" }}
                 title={sig.tip || `${sig.kind} \u2014 click to open ${sig.ticker}`}
               >
                 <div className="tt-label" style={{ fontSize: 9, marginBottom: 2 }}>{sig.kind}</div>
-                <div style={{ fontSize: 12, lineHeight: 1.2, whiteSpace: "nowrap" }}>
+                <div style={{ fontSize: 12, lineHeight: 1.2, whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6 }}>
+                  <span
+                    className="ds-tickercard__logo shrink-0"
+                    style={{ width: 16, height: 16 }}
+                    ref={(el) => {
+                      if (el && !el.dataset.dsInit && window.DS) {
+                        el.dataset.dsInit = "1";
+                        try { el.replaceWith(window.DS.tickerLogo(sig.ticker, { size: 16 })); } catch (_) {}
+                      }
+                    }}
+                  >{String(sig.ticker).slice(0,2)}</span>
                   <span className="tt-num font-bold text-white group-hover:text-cyan-300 transition-colors">{sig.ticker}</span>
-                  <span className="tt-num ml-1.5" style={{ fontSize: 10.5, color: "var(--tt-text-3)" }}>
+                  <span className="tt-num" style={{ fontSize: 10.5, color: "var(--tt-text-3)" }}>
                     R<span className="font-semibold" style={{ color: "var(--tt-info)" }}>{sig.rank}</span>
                   </span>
                   {sig.dir && sig.dir !== "\u2014" && (
-                    <span className="ml-1" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: String(sig.dir).toUpperCase().includes("SHORT") ? "var(--tt-danger)" : "var(--tt-success)" }}>
+                    <span style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em", color: String(sig.dir).toUpperCase().includes("SHORT") ? "var(--tt-danger)" : "var(--tt-success)" }}>
                       {String(sig.dir).toUpperCase().includes("SHORT") ? "S" : "L"}
                     </span>
                   )}
@@ -12929,7 +13553,7 @@
             ))}
 
             {/* Market status (right-aligned) */}
-            <div className="flex items-center ml-auto" style={{ padding: "6px 14px" }}>
+            <div className="tt-mkt-status-cell flex items-center ml-auto" style={{ padding: "6px 14px" }}>
               {mktOpen ? (
                 <>
                   <span className="tt-heartbeat tt-heartbeat-green" style={{ marginRight: 8 }} />
@@ -13039,11 +13663,18 @@
             if (trade) {
               const st = String(trade.status || "").toUpperCase();
               const trimPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
-              const isClosed = st === "WIN" || st === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs) || trimPct >= 0.9999;
-              const isOpen = !isClosed && (st === "OPEN" || st === "TP_HIT_TRIM" || !st);
+              // V15 P0.7.73: tighten closed/open. Empty status used to count
+              // as open which let CLOSED orphan positions inflate HOLD.
+              const isClosed = st === "WIN" || st === "LOSS" || st === "FLAT"
+                || st === "CLOSED" || st === "CANCELED"
+                || !!(trade?.exit_ts ?? trade?.exitTs) || trimPct >= 0.9999;
+              const isOpen = !isClosed && (st === "OPEN" || st === "TP_HIT_TRIM");
               if (isOpen) {
+                // V15 P0.7.79: open positions never end up in EXIT — engine
+                // 'exit' on an open position means urgent close, not closed.
                 if (st === "TP_HIT_TRIM" || trimPct > 0) stage = "trim";
-                else if (stage !== "defend" && stage !== "trim" && stage !== "exit" &&
+                else if (stage === "exit") stage = "defend";
+                else if (stage !== "defend" && stage !== "trim" &&
                          stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
               }
               // Recently closed trades (< 24h) count in Exit lane — unless scorer is promoting a new setup
@@ -13699,9 +14330,9 @@
                     </th>
                     <th className="px-1 py-2 text-center text-[11px] font-medium text-gray-400">R:R</th>
                     <th className="px-1 py-2 text-center text-[11px] font-medium text-gray-400">Flags</th>
-                    <th className="px-2 py-2 text-center text-[10px] font-medium text-gray-500 whitespace-nowrap cursor-pointer hover:text-white select-none" onClick={() => handleSort("stage")}>
-                      Active Trader{sortArrow("stage")}
-                    </th>
+                    {/* V15 P0.7.84: 'Active Trader' column removed — it
+                        was a duplicate of the leftmost 'Stage' column
+                        (both rendered STAGE_META[stg] sorted by 'stage'). */}
                     <th className="px-2 py-2 text-center text-[10px] font-medium text-gray-500 whitespace-nowrap">
                       Investor
                     </th>
@@ -13775,9 +14406,12 @@
                         </td>
                         {/* Name */}
                         <td className="px-2 py-1 text-[11px] text-gray-400 truncate max-w-[120px]" title={name}>{name || "—"}</td>
-                        {/* Directional Bias (after Name) */}
+                        {/* Directional Bias (after Name)
+                            V15 P0.7.84: BULL/BEAR for signal direction (no open trade),
+                            LONG/SHORT for actual open positions. Matches kanban cards
+                            and bubble overlay. */}
                         <td className="px-2 py-1.5 text-center">
-                          <span className={`text-[11px] font-bold ${dirColor}`}>{dir === "L" ? "LONG" : "SHORT"}</span>
+                          <span className={`text-[11px] font-bold ${dirColor}`}>{dir === "L" ? (hasOpen ? "LONG" : "BULL") : (hasOpen ? "SHORT" : "BEAR")}</span>
                         </td>
                         {window._ttIsPro && <td className="px-1 py-1 text-right text-[11px] text-white font-medium tabular-nums">
                           {price > 0 ? `$${price.toFixed(2)}` : <span className="text-gray-600">—</span>}
@@ -13834,12 +14468,7 @@
                         <td className="px-1 py-1.5 text-center text-[11px]">
                           {badges.length > 0 ? badges.join("") : <span className="text-gray-600">—</span>}
                         </td>
-                        {/* Active Trader column: stage badge */}
-                        <td className="px-1 py-1 text-center">
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${STAGE_META[stg]?.cls || "bg-gray-700/60 text-gray-300 border-gray-500/40"}`}>
-                            {STAGE_META[stg]?.icon} {STAGE_META[stg]?.label || stg}
-                          </span>
-                        </td>
+                        {/* V15 P0.7.84: Active Trader cell removed — duplicate of Stage column */}
                         {/* Investor column: derived action badge */}
                         <td className="px-1 py-1 text-center">
                           {(() => {
@@ -14081,30 +14710,50 @@
             const trade = tradeByTicker.get(sym);
             const status = trade ? String(trade.status || "").toUpperCase() : "";
             const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
+            // V15 P0.7.73: tighten closed/open detection. Previously `!status`
+            // was treated as "open", which let CLOSED/CANCELED orphan
+            // positions force their tickers into the HOLD lane. Now an
+            // empty status counts as closed (we can't promote into a
+            // management lane on missing data).
             const isClosed =
               status === "WIN" ||
               status === "LOSS" ||
+              status === "FLAT" ||
+              status === "CLOSED" ||
+              status === "CANCELED" ||
               !!(trade?.exit_ts ?? trade?.exitTs) ||
               trimmedPct >= 0.9999;
-            const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM" || !status);
+            const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM");
 
             // ═══════════════════════════════════════════════════════════════
             // TRADE LIFECYCLE OVERRIDE — open trades NEVER fall back to
-            // discovery lanes (setup/enter).  They stay in management lanes.
-            // Priority: exit > trim > defend > hold (based on trade state)
-            // Recently closed trades (< 24h) → Exit lane for visibility.
+            // discovery lanes (setup/enter), AND open positions never end
+            // up in the EXIT lane (EXIT means closed/closing — open
+            // positions belong in TRIM, DEFEND, or HOLD).
+            //
+            // V15 P0.7.79: SNDK was showing in EXIT lane while still half-
+            // open after a 50% trim (status=TP_HIT_TRIM, engine emitted
+            // 'exit'). Engine 'exit' on an open position means "urgent
+            // close needed" — that's the DEFEND lane semantically.
+            // Priority for OPEN positions:
+            //   1. status=TP_HIT_TRIM         → TRIM
+            //   2. trimmed_pct > 0            → TRIM
+            //   3. engine stage = exit        → DEFEND  (urgent close)
+            //   4. engine stage = defend|trim → keep
+            //   5. anything else              → HOLD
             // ═══════════════════════════════════════════════════════════════
             if (trade && isOpen) {
-              // Trim lane: partial TP hit or manually trimmed
               if (status === "TP_HIT_TRIM" || (Number(trade.trimmed_pct ?? trade.trimmedPct ?? 0) > 0)) {
                 stage = "trim";
               }
-              // If stage is already a valid management lane, keep it
-              else if (stage === "defend" || stage === "trim" || stage === "exit") {
-                // keep stage as-is
+              else if (stage === "exit") {
+                // Engine wants to close but position is still open. That's
+                // a DEFEND (act now), not a closed-trade EXIT entry.
+                stage = "defend";
               }
-              // Everything else (setup, enter, flip_watch, just_flipped, archive, empty, etc.)
-              // → force to HOLD.  An open trade is a held position, period.
+              else if (stage === "defend" || stage === "trim") {
+                // Already a valid open-position management lane.
+              }
               else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") {
                 stage = "hold";
               }
@@ -17234,6 +17883,8 @@
         /* V2.1 round 4 (2026-05-01) — pass through to RR for Save toggle */
         savedTickers = null,
         toggleSavedTicker = null,
+        /* V15 P0.7.76 — workspace mode flag */
+        layoutMode = "modal",
       }) => {
         if (!selectedTicker) return null;
 
@@ -17359,6 +18010,7 @@
               addingTicker={addingTicker}
               savedTickers={savedTickers}
               toggleSavedTicker={toggleSavedTicker}
+              layoutMode={layoutMode}
             />
           );
 
@@ -17662,6 +18314,14 @@
         }, [trades]);
         const accountMode = dashboardMode === "investor" ? "investor" : "trader";
         const { summary: accountSummary } = useAccountSummary(accountMode, secondaryDataReady);
+        // V15 P0.7.71: expose account value globally so the shared Right Rail
+        // can compute "X% of acct" using the user's actual balance.
+        useEffect(() => {
+          const av = Number(accountSummary?.accountValue);
+          if (Number.isFinite(av) && av > 0) {
+            window._ttAccountValue = av;
+          }
+        }, [accountSummary?.accountValue]);
         const { pending: queuedPending, pendingCount: queuedPendingCount } = useQueuedActions(secondaryDataReady);
         const userTickers = useUserTickers(secondaryDataReady);
         const { sectors } = useSectors(secondaryDataReady);
@@ -17713,6 +18373,20 @@
         // AI Assistant removed (unused)
         // Admin panel moved to dedicated /admin-clients.html page
         const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+        // 2026-05-04 — Mobile-only collapse for the Bubble Map.
+        // Heavy SVG scatter is hard to read on a phone, so default to
+        // collapsed and let the user expand on demand.
+        const [bubbleMobileExpanded, setBubbleMobileExpanded] = useState(false);
+        const [bubbleFullscreen, setBubbleFullscreen] = useState(false);
+        // 2026-05-04 — Scroll-to-top floating button visibility.
+        const [showScrollTop, setShowScrollTop] = useState(false);
+        useEffect(() => {
+          const onScroll = () => {
+            setShowScrollTop((window.scrollY || document.documentElement.scrollTop || 0) > 300);
+          };
+          window.addEventListener("scroll", onScroll, { passive: true });
+          return () => window.removeEventListener("scroll", onScroll);
+        }, []);
         const [showAiChat, setShowAiChat] = useState(false);
         const [showAddTicker, setShowAddTicker] = useState(false);
         const [addTickerInput, setAddTickerInput] = useState("");
@@ -18476,8 +19150,12 @@
             if (trade) {
               const st = String(trade.status || "").toUpperCase();
               const trimPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
-              const isClosed = st === "WIN" || st === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs) || trimPct >= 0.9999;
-              const isOpen = !isClosed && (st === "OPEN" || st === "TP_HIT_TRIM" || !st);
+              // V15 P0.7.73: tighten closed/open. Empty status used to count
+              // as open which let CLOSED orphan positions inflate HOLD.
+              const isClosed = st === "WIN" || st === "LOSS" || st === "FLAT"
+                || st === "CLOSED" || st === "CANCELED"
+                || !!(trade?.exit_ts ?? trade?.exitTs) || trimPct >= 0.9999;
+              const isOpen = !isClosed && (st === "OPEN" || st === "TP_HIT_TRIM");
               if (isOpen) {
                 if (st === "TP_HIT_TRIM" || trimPct > 0) stage = "trim";
                 else if (!["defend","trim","exit","hold","active","just_entered"].includes(stage)) stage = "hold";
@@ -18753,8 +19431,8 @@
             <div className="min-h-screen p-0 pt-2 tt-page-shell">
               {/* Light page gutter: avoid edge bleed but keep width for Kanban lanes (14" MBP). */}
               {/* ═══ Unified Nav Bar ═══ */}
-              <nav className="sticky top-0 z-50 border-b border-white/[0.06]" style={{background:"rgba(10,10,15,0.95)",backdropFilter:"blur(12px)"}}>
-                <div className="flex items-center justify-between px-4 py-2.5">
+              <nav className="sticky top-0 z-50 border-b border-white/[0.06] tt-top-nav" style={{background:"rgba(10,10,15,0.95)",backdropFilter:"blur(12px)"}}>
+                <div className="flex items-center justify-between px-4 py-2.5 md:py-2.5 tt-top-nav__inner" style={{ paddingTop: "max(10px, env(safe-area-inset-top))" }}>
                   <div className="flex items-center gap-3 md:gap-5 min-w-0">
                     <a href="index-react.html" className="flex items-center gap-2 no-underline shrink-0">
                       <svg width="28" height="28" viewBox="0 0 48 48" fill="none"><defs><linearGradient id="tt-ring" x1="6" y1="42" x2="42" y2="6"><stop offset="0%" stopColor="#34d399"/><stop offset="100%" stopColor="#67e8f9"/></linearGradient></defs><rect width="48" height="48" rx="11" fill="#000"/><circle cx="24" cy="24" r="17" stroke="url(#tt-ring)" strokeWidth="2.5" fill="none"/><line x1="24" y1="7.5" x2="24" y2="10.5" stroke="#34d399" strokeWidth="1.5" strokeLinecap="round" opacity="0.5"/><line x1="7.5" y1="24" x2="10.5" y2="24" stroke="#34d399" strokeWidth="1.5" strokeLinecap="round" opacity="0.5"/><line x1="19" y1="18.5" x2="16" y2="15.5" stroke="#636366" strokeWidth="1.2" strokeLinecap="round"/><line x1="24" y1="24" x2="19" y2="18.5" stroke="#636366" strokeWidth="3.5" strokeLinecap="round"/><line x1="29.5" y1="16.5" x2="32" y2="12.9" stroke="#30d158" strokeWidth="1.2" strokeLinecap="round"/><line x1="24" y1="24" x2="29.5" y2="16.5" stroke="#30d158" strokeWidth="4" strokeLinecap="round"/><circle cx="24" cy="24" r="3.2" fill="#30d158"/><circle cx="24" cy="24" r="1.3" fill="#000"/></svg>
@@ -18951,12 +19629,34 @@
                     if (macroItems.length === 0 && earningItems.length === 0) return null;
                     return (
                       <div className="mb-2" style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-1)" }}>
-                        {macroItems.length > 0 && (
+                        {macroItems.length > 0 && (() => {
+                          // V15 P0.7.82: honest sublabel. The event list can
+                          // span weeks (FOMC every ~6 weeks). Categorize each
+                          // event by distance from today and render the most
+                          // relevant horizon. "This week" is reserved for
+                          // events within 7 days. Otherwise show "next FOMC
+                          // in Xd" / "next 30 days" etc.
+                          const _now = Date.now();
+                          const _MS_DAY = 86400000;
+                          const _withinDays = (n) => macroItems.filter(ev => {
+                            const ts = Number(ev?.ts) || (ev?.date ? new Date(ev.date).getTime() : 0);
+                            if (!ts) return false;
+                            const days = (ts - _now) / _MS_DAY;
+                            return days >= -1 && days <= n;
+                          }).length;
+                          const _within7 = _withinDays(7);
+                          const _within30 = _withinDays(30);
+                          const _sublabel = _within7 > 0
+                            ? `${_within7} this week`
+                            : _within30 > 0
+                              ? `${_within30} in next 30 days`
+                              : `${macroItems.length} upcoming`;
+                          return (
                           <div className="ds-row" style={{ alignItems: "flex-start" }}>
                             <div className="ds-row__label">
                               <div className="ds-caption">Macro</div>
                               <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", marginTop: 2, fontVariantNumeric: "tabular-nums" }}>
-                                {macroItems.length} this week
+                                {_sublabel}
                               </div>
                             </div>
                             <div className="ds-row__content">
@@ -18974,7 +19674,8 @@
                               ))}
                             </div>
                           </div>
-                        )}
+                          );
+                        })()}
                         {earningItems.length > 0 && (
                           <div className="ds-row" style={{ alignItems: "flex-start" }}>
                             <div className="ds-row__label">
@@ -18983,9 +19684,9 @@
                                 {earningItems.length} on deck · sorted by date, time, ticker
                               </div>
                             </div>
-                            <div className="ds-row__content" style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-1)" }}>
+                            <div className="ds-row__content tt-earnings-content" style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-1)" }}>
                               {earningsByDay.map((day, di) => (
-                                <div key={`eday-${day.date}`} style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+                                <div key={`eday-${day.date}`} className="tt-earn-day-row" style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
                                   {/* Per-day separator chip — first column of the row */}
                                   <span
                                     className="ds-chip ds-chip--sm"
@@ -19141,16 +19842,24 @@
                       return `${Math.floor(ago / 3600)}h ago`;
                     })();
                     return (
-                      <div className="mb-3" style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-2)" }}>
-                        {/* Priority tile row */}
+                      <div className="mb-3 ds-pulse-section" style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-2)" }}>
+                        {/* Priority tile row.
+                            V2.1 round 11 (2026-05-04) — Mobile fix: tiles
+                            previously overlapped because flex-1 + 7 tiles +
+                            min-w-0 squeezed everything below readable width.
+                            Now: on mobile we use a horizontal scroll-snap row
+                            (ds-pulse-row--scroll) with each tile pinned at
+                            ~44vw min-width so 2 fit on screen and the rest
+                            scroll into view. Desktop keeps the existing
+                            flex-1 row. */}
                         {priorityTiles.length > 0 && (
                           <div>
-                            <div className="ds-row" style={{ alignItems: "center" }}>
-                              <div className="ds-row__label">
+                            <div className="ds-row ds-pulse-row" style={{ alignItems: "center" }}>
+                              <div className="ds-row__label ds-pulse-row__label">
                                 <div className="ds-caption">Market Pulse</div>
                                 {freshness && <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", marginTop: 2 }}>updated {freshness}</div>}
                               </div>
-                              <div className="ds-row__content" style={{ gap: "var(--ds-space-2)" }}>
+                              <div className="ds-row__content ds-pulse-row__content" style={{ gap: "var(--ds-space-2)" }}>
                                 {priorityTiles}
                               </div>
                             </div>
@@ -19158,8 +19867,8 @@
                         )}
                         {/* Context chip row */}
                         {contextChips.length > 0 && (
-                          <div className="ds-row">
-                            <div className="ds-row__label">
+                          <div className="ds-row ds-pulse-context">
+                            <div className="ds-row__label ds-pulse-row__label">
                               <div className="ds-caption">Context</div>
                               <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", marginTop: 2 }}>
                                 {_isAdminPulse ? "Futures · Sectors" : "Commodities · Sectors"}
@@ -19260,14 +19969,24 @@
                     const rthGainers = rthSorted.slice(0, 5);
                     const rthLosers = rthSorted.slice(-5).reverse();
                     const _moversMarketOpen = isNyRegularMarketOpen();
+                    /* V15 P0.7.85 — EXT row should show AFTER-HOURS-ONLY
+                       move, not total prev-close → ah-price move.
+                       The KV `ahdp` field is `(ahp - prevClose) / prevClose`,
+                       which bakes in the day's RTH change. We recompute as
+                       `(ahp - rthClose) / rthClose` so the EXT row truly
+                       isolates the post-RTH move (e.g. earnings reactions). */
                     const ethArr = _moversMarketOpen ? [] : allArr.filter(t => !CRYPTO_24H.has(t?.ticker)).map(t => {
-                      const pct = Number(t?._ah_change_pct);
-                      if (!Number.isFinite(pct) || pct === 0) return null;
+                      const ahPrice = Number(t?._ah_price);
+                      const rthClose = Number(t?.price ?? t?.close);
+                      if (!Number.isFinite(ahPrice) || ahPrice <= 0) return null;
+                      if (!Number.isFinite(rthClose) || rthClose <= 0) return null;
+                      const pct = ((ahPrice - rthClose) / rthClose) * 100;
+                      // Filter out tiny ticks ( < 0.05% ) that aren't real
+                      // after-hours news but rounding noise.
+                      if (!Number.isFinite(pct) || Math.abs(pct) < 0.05) return null;
                       const sym = String(t?.ticker || "").toUpperCase();
-                      // V2.1 round 4 — same ±50% sanity cap on extended-hours moves.
                       if (Math.abs(pct) > ABS_CAP(sym)) return null;
-                      const px = Number(t?._ah_price) || Number(t?.price ?? t?.close) || 0;
-                      return { ...t, _ethPct: pct, _ethPrice: px };
+                      return { ...t, _ethPct: pct, _ethPrice: ahPrice };
                     }).filter(Boolean);
                     const ethSorted = [...ethArr].sort((a, b) => b._ethPct - a._ethPct);
                     const ethGainers = ethSorted.slice(0, 5);
@@ -19415,7 +20134,83 @@
                        Phase C — Stage 0.5 (2026-05-02) — Aligned to v2 design
                        language: ds-glass shell + ds-tokens for surface/border/
                        padding so it matches Bubble Map filter tiles + RTH/EXT
-                       rows. Was: rounded-2xl + raw white/[0.08] borders. */}
+                       rows. Was: rounded-2xl + raw white/[0.08] borders.
+                       P0.7.104 — added active-filters chip row + Clear All
+                       button so the user can see at-a-glance which filters
+                       are enabled and clear them in one tap (especially
+                       important on mobile where the secondary filter pills
+                       wrap below the fold). */}
+                  {(() => {
+                    // Compute the list of currently-active filters (anything
+                    // that differs from createDefaultDashboardFilters()).
+                    const activeFilterChips = [];
+                    if (filters.search) activeFilterChips.push({ key: "search", label: `"${String(filters.search).slice(0, 20)}"`, clear: () => handleFilterChange({ search: "", tickerFilter: "" }) });
+                    if (filters.tickerFilter && filters.tickerFilter !== filters.search) activeFilterChips.push({ key: "tickerFilter", label: `tickers: ${String(filters.tickerFilter).slice(0, 20)}`, clear: () => handleFilterChange({ tickerFilter: "" }) });
+                    if (effectiveFilters.group && effectiveFilters.group !== "ALL") {
+                      const groupLabel = effectiveFilters.group === "SAVED" ? "⭐ Saved"
+                        : effectiveFilters.group === "TT_SELECTED" ? "TT Selected"
+                        : effectiveFilters.group === "INVESTOR_ACTIONABLE" ? "Investor Actionable"
+                        : effectiveFilters.group;
+                      activeFilterChips.push({ key: "group", label: groupLabel, clear: () => handleFilterChange({ group: "ALL" }) });
+                    }
+                    if (filters.sector) activeFilterChips.push({ key: "sector", label: `Sector: ${filters.sector}`, clear: () => handleFilterChange({ sector: null }) });
+                    if (filters.td9Setup) activeFilterChips.push({ key: "td9Setup", label: `TD9: ${filters.td9Setup}`, clear: () => handleFilterChange({ td9Setup: null }) });
+                    if (Number(filters.minRank) > 0) activeFilterChips.push({ key: "minRank", label: `Rank ≥ ${filters.minRank}`, clear: () => handleFilterChange({ minRank: 0 }) });
+                    if (Number(filters.minRR) > 0) activeFilterChips.push({ key: "minRR", label: `R:R ≥ ${filters.minRR}`, clear: () => handleFilterChange({ minRR: 0 }) });
+                    if (Number(filters.maxCompletion) < 1.01) activeFilterChips.push({ key: "maxCompletion", label: `Completion ≤ ${(Number(filters.maxCompletion) * 100).toFixed(0)}%`, clear: () => handleFilterChange({ maxCompletion: 1.01 }) });
+                    const _quadDefault = DEFAULT_DASHBOARD_QUADRANTS;
+                    const quadActive = Array.isArray(filters.quadrants)
+                      && (filters.quadrants.length !== _quadDefault.length || filters.quadrants.some((q) => !_quadDefault.includes(q)));
+                    if (quadActive) activeFilterChips.push({ key: "quadrants", label: `Quadrants: ${(filters.quadrants || []).length}`, clear: () => handleFilterChange({ quadrants: [..._quadDefault] }) });
+                    const activeCount = activeFilterChips.length;
+                    return (
+                      activeCount > 0 && (
+                        <div className="mb-2 px-2.5 py-2 rounded-lg flex items-center flex-wrap gap-1.5"
+                          style={{
+                            background: "rgba(245,194,92,0.06)",
+                            border: "1px solid rgba(245,194,92,0.20)",
+                          }}>
+                          <span className="text-[9px] font-bold uppercase tracking-[0.16em] shrink-0"
+                            style={{ color: "var(--ds-accent)" }}>
+                            {activeCount} filter{activeCount === 1 ? "" : "s"} active
+                          </span>
+                          {activeFilterChips.map((chip) => (
+                            <button
+                              key={chip.key}
+                              type="button"
+                              onClick={chip.clear}
+                              title={`Remove "${chip.label}" filter`}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors"
+                              style={{
+                                background: "rgba(245,194,92,0.14)",
+                                border: "1px solid rgba(245,194,92,0.28)",
+                                color: "var(--ds-accent)",
+                                fontFamily: "var(--tt-font-mono)",
+                              }}
+                            >
+                              {chip.label}
+                              <span style={{ opacity: 0.65, marginLeft: 1, fontWeight: 700 }}>×</span>
+                            </button>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => resetDashboardFilters(false)}
+                            className="ml-auto px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-colors shrink-0"
+                            style={{
+                              background: "rgba(244,63,94,0.12)",
+                              border: "1px solid rgba(244,63,94,0.30)",
+                              color: "var(--ds-dn)",
+                              fontFamily: "var(--tt-font-mono)",
+                              letterSpacing: "0.10em",
+                            }}
+                            title="Clear all active filters and return to default view"
+                          >
+                            Clear All
+                          </button>
+                        </div>
+                      )
+                    );
+                  })()}
                   <div className="ds-glass mb-4" style={{ padding: "var(--ds-space-3)" }} data-coachmark="search-filter">
                     <div className="flex flex-col gap-3">
                       <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
@@ -19825,7 +20620,56 @@
                         </div>
                       </div>
                     ) : dashboardMode === "analysis" && (
-                    <div className="flex flex-col lg:flex-row gap-4" style={{ height: "calc(100vh - 120px)", minHeight: "700px", maxHeight: "1200px" }}>
+                    <div
+                      className={`tt-analysis-grid flex flex-col lg:flex-row gap-4 ${bubbleMobileExpanded ? "tt-bubble-expanded" : "tt-bubble-mobile-collapsed"}`}
+                      style={{
+                        // On desktop: fixed viewport-height container so the
+                        // bubble chart fills the screen. On mobile: let the
+                        // grid grow naturally so we don't render an empty
+                        // 700px void when the chart is collapsed.
+                        height: typeof window !== "undefined" && window.innerWidth >= 1024 ? "calc(100vh - 120px)" : "auto",
+                        minHeight: typeof window !== "undefined" && window.innerWidth >= 1024 ? "700px" : "auto",
+                        maxHeight: typeof window !== "undefined" && window.innerWidth >= 1024 ? "1200px" : "none",
+                      }}
+                    >
+                      {/* Mobile-only Bubble Map toggle row — collapse/expand
+                          inline + Open Full button to launch the landscape
+                          fullscreen modal where the chart actually has
+                          enough screen real estate to read labels.
+                          Hidden on desktop via @media (min-width: 1024px).
+                          V15 P0.7.71: must NOT set inline display:flex here —
+                          inline styles override Tailwind's lg:hidden, which
+                          caused the toggle to leak into desktop and push the
+                          Viewport over. Use class-only display switching. */}
+                      <div className="lg:hidden tt-bubble-mobile-toggles" style={{ gap: 8, marginBottom: 8 }}>
+                        <button
+                          type="button"
+                          onClick={() => setBubbleMobileExpanded(v => !v)}
+                          className="tt-bubble-toggle-btn"
+                          aria-expanded={bubbleMobileExpanded}
+                          style={{ flex: 1, marginBottom: 0 }}
+                        >
+                          <span>{bubbleMobileExpanded ? "Hide Bubble Map" : "Show Bubble Map"}</span>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: bubbleMobileExpanded ? "rotate(180deg)" : "none", transition: "transform 200ms" }}>
+                            <polyline points="6 9 12 15 18 9" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setBubbleFullscreen(true)}
+                          className="tt-bubble-toggle-btn"
+                          style={{ width: "auto", padding: "10px 14px", marginBottom: 0, flex: "0 0 auto" }}
+                          title="Open the bubble map in a full-screen view (rotate to landscape for best results)"
+                          aria-label="Open Bubble Map fullscreen"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="15 3 21 3 21 9" />
+                            <polyline points="9 21 3 21 3 15" />
+                            <line x1="21" y1="3" x2="14" y2="10" />
+                            <line x1="3" y1="21" x2="10" y2="14" />
+                          </svg>
+                        </button>
+                      </div>
                       {/* Viewport - Left side (shares parent height) */}
                       <div className="w-full lg:w-[320px] lg:flex-shrink-0 lg:h-full min-h-[400px] lg:min-h-0" data-coachmark="viewport">
                         <OpportunitiesPanel
@@ -19846,7 +20690,7 @@
 
                       {/* Bubble Chart - Center Hero (flexible, takes remaining space) */}
                       <div
-                        className={`relative w-full lg:flex-1 lg:min-w-0 lg:h-full flex flex-col transition-[margin] duration-300 ${
+                        className={`tt-bubble-chart-wrap relative w-full lg:flex-1 lg:min-w-0 lg:h-full flex flex-col transition-[margin] duration-300 ${
                           selectedTicker ? "lg:mr-[540px] xl:mr-[620px]" : ""
                         }`}
                       >
@@ -20132,6 +20976,14 @@
 
                     {/* Cards / Table View controller — removed; Active Trader always shows cards */}
 
+                    {/* V15 P0.7.86 — Activity Feed drawer (right side).
+                        Vertical 300px strip showing recent ENTRY/TRIM/EXIT
+                        events. Hidden when ticker rail is open. */}
+                    <ActivityFeedDrawer
+                      selectedTicker={selectedTicker}
+                      onSelectTicker={(sym) => handleTickerSelect(sym)}
+                    />
+
                     {/* Right Rail - Detail View (slides in from right, fixed to viewport) */}
                     {selectedTicker && (
                       <>
@@ -20140,8 +20992,14 @@
                           className="fixed inset-0 z-30"
                           onMouseDown={() => handleTickerSelect(null)}
                         />
+                        {/* V15 P0.7.76 — Ticker Workspace overlay.
+                            At ≥1280px the overlay expands to full viewport
+                            (true split-pane). Below 1280px keeps the
+                            existing slide-in modal behavior pixel-for-pixel.
+                            The rail itself reads `layoutMode="workspace"`
+                            and switches its inner CSS Grid accordingly. */}
                         <div
-                          className="fixed right-0 top-[60px] sm:top-[52px] w-full sm:w-[520px] xl:w-[600px] bottom-[64px] sm:bottom-[56px] bg-[#0b0e11] border-l border-white/[0.04] z-40 slide-in-right shadow-xl overflow-y-auto"
+                          className="tt-rail-mobile tt-ticker-workspace-mount fixed right-0 top-[60px] sm:top-[52px] w-full sm:w-[560px] lg:w-[640px] xl:w-[720px] 2xl:w-[800px] bottom-[64px] sm:bottom-[56px] bg-[#0b0e11] border-l border-white/[0.04] z-40 slide-in-right shadow-xl overflow-y-auto"
                           onMouseDown={(e) => e.stopPropagation()}
                         >
                           <OverlayPortal
@@ -20164,6 +21022,7 @@
                             addingTicker={userTickers.addingTicker}
                             savedTickers={savedTickers}
                             toggleSavedTicker={toggleSavedTicker}
+                            layoutMode={typeof window !== "undefined" && window.innerWidth >= 1024 ? "workspace" : "modal"}
                           />
                         </div>
                       </>
@@ -20277,6 +21136,124 @@
                 </div>
               </div>
             )}
+            {/* ── Mobile bottom navigation (CSS-hidden on desktop via @media) ── */}
+            <nav
+              className="tt-mobile-bottom-nav"
+              data-coachmark="nav-modes"
+              aria-label="View modes"
+              style={{ display: "none" }}
+            >
+              {[
+                {
+                  id: "analysis",
+                  label: "Analysis",
+                  icon: (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <circle cx="12" cy="12" r="10" />
+                      <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" />
+                    </svg>
+                  ),
+                  count: null,
+                },
+                {
+                  id: "trader",
+                  label: "Trader",
+                  icon: (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+                      <polyline points="17 6 23 6 23 12" />
+                    </svg>
+                  ),
+                  count: traderActionableCount + traderHoldCount > 0 ? traderActionableCount + traderHoldCount : null,
+                },
+                {
+                  id: "investor",
+                  label: "Invest",
+                  icon: (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+                      <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+                    </svg>
+                  ),
+                  count: investorTotalCount > 0 ? investorTotalCount : null,
+                },
+                {
+                  id: "all",
+                  label: "All",
+                  icon: (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <line x1="3" y1="6" x2="21" y2="6" />
+                      <line x1="3" y1="12" x2="21" y2="12" />
+                      <line x1="3" y1="18" x2="21" y2="18" />
+                    </svg>
+                  ),
+                  count: Array.isArray(tickers) && tickers.length > 0 ? tickers.length : null,
+                },
+              ].map(item => (
+                <button
+                  key={`mbn-${item.id}`}
+                  type="button"
+                  className={`tt-mobile-bottom-nav__item ${dashboardMode === item.id ? "tt-mobile-bottom-nav__item--active" : ""}`}
+                  onClick={() => handleDashboardModeChange(item.id)}
+                  aria-current={dashboardMode === item.id ? "page" : undefined}
+                  aria-label={item.label}
+                >
+                  {item.icon}
+                  <span>{item.label}</span>
+                  {item.count != null && (
+                    <span className="tt-mobile-bottom-nav__count">{item.count}</span>
+                  )}
+                </button>
+              ))}
+            </nav>
+
+            {/* ── Mobile scroll-to-top floating button (CSS hides on desktop) ── */}
+            {showScrollTop && (
+              <button
+                type="button"
+                className="tt-scroll-top-btn"
+                onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+                aria-label="Scroll to top"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="18 15 12 9 6 15" />
+                </svg>
+              </button>
+            )}
+
+            {/* ── Bubble Map full-screen mobile modal ─────────────────
+                Tappable launcher on the bubble toggle row opens this.
+                Renders the full BubbleChart at viewport size so the user
+                actually has room to read labels on phone. */}
+            {bubbleFullscreen && (
+              <div className="tt-bubble-fullscreen" role="dialog" aria-modal="true" aria-label="Bubble Map">
+                <div className="tt-bubble-fullscreen__head">
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "var(--ds-text-display)", letterSpacing: "0.04em" }}>Bubble Map</span>
+                    <span style={{ fontSize: 10, color: "var(--ds-text-muted)", letterSpacing: "0.06em", textTransform: "uppercase" }}>Rotate phone for landscape view</span>
+                  </div>
+                  <button type="button" className="tt-bubble-fullscreen__close" onClick={() => setBubbleFullscreen(false)} aria-label="Close">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                </div>
+                <div className="tt-bubble-fullscreen__body">
+                  <BubbleChart
+                    tickers={tickersWithRanks}
+                    selectedTicker={selectedTicker}
+                    onSelectTicker={handleTickerSelect}
+                    rankPositions={rankedTickerPositions}
+                    sectors={sectors}
+                    chartView={bubbleLayoutMode}
+                    onChartViewChange={setBubbleLayoutMode}
+                    showLabels={true}
+                  />
+                </div>
+              </div>
+            )}
+
             <Coachmarks />
             <GoProModal open={goProOpen} onClose={() => setGoProOpen(false)} />
           </>
@@ -20712,8 +21689,228 @@
         );
       }
 
+      // ─────────────────────────────────────────────────────────────────
+      // ActivityFeedDrawer — V15 P0.7.86 (2026-05-06)
+      //
+      // Per user vision: vertical rectangle docked to the right of the
+      // viewport showing the system's recent ENTRY / TRIM / EXIT events
+      // chronologically. Fits without disrupting the kanban / bubble map.
+      // Hidden when the right rail (ticker workspace) is open so it
+      // doesn't compete for the same space.
+      //
+      // Data: GET /timed/admin/activity-feed?limit=50, polled every 30s.
+      // Rows: [time] [type chip] [ticker · bias] [qty @ price · pnl]
+      // ─────────────────────────────────────────────────────────────────
+      function ActivityFeedDrawer({ selectedTicker, onSelectTicker }) {
+        const [events, setEvents] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [collapsed, setCollapsed] = useState(false);
+
+        const fetchFeed = useCallback(async () => {
+          try {
+            const res = await fetch(`${API_BASE}/timed/admin/activity-feed?limit=50&_t=${Date.now()}`, {
+              cache: "no-store",
+              credentials: "include",
+            });
+            if (!res.ok) return;
+            const json = await res.json();
+            if (json.ok && Array.isArray(json.events)) setEvents(json.events);
+          } catch (_) {
+            /* best-effort */
+          } finally {
+            setLoading(false);
+          }
+        }, []);
+
+        useEffect(() => {
+          fetchFeed();
+          const id = setInterval(() => {
+            if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+            fetchFeed();
+          }, 30000);
+          return () => clearInterval(id);
+        }, [fetchFeed]);
+
+        // Hide entirely when a ticker rail is open — that overlay covers
+        // the whole right side at >=1024px workspace mode anyway.
+        if (selectedTicker) return null;
+
+        const fmtRelative = (ts) => {
+          if (!ts) return "—";
+          const ms = Date.now() - Number(ts);
+          const m = Math.round(ms / 60000);
+          if (m < 1) return "now";
+          if (m < 60) return `${m}m ago`;
+          const h = Math.round(m / 60);
+          if (h < 24) return `${h}h ago`;
+          const d = Math.round(h / 24);
+          return `${d}d ago`;
+        };
+        const fmtTime = (ts) => {
+          if (!ts) return "—";
+          try {
+            return new Date(Number(ts)).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
+          } catch { return "—"; }
+        };
+
+        const typeMeta = (type) => {
+          switch (String(type).toUpperCase()) {
+            case "ENTRY":     return { label: "ENTER",  color: "#34d399", bg: "rgba(52,211,153,0.12)" };
+            case "ADD_ENTRY": return { label: "ADD",    color: "#34d399", bg: "rgba(52,211,153,0.12)" };
+            case "TRIM":      return { label: "TRIM",   color: "#fbbf24", bg: "rgba(251,191,36,0.12)" };
+            case "EXIT":      return { label: "EXIT",   color: "#f87171", bg: "rgba(248,113,113,0.12)" };
+            default:          return { label: type || "—", color: "var(--tt-text-muted)", bg: "rgba(255,255,255,0.04)" };
+          }
+        };
+
+        // P0.7.93 — lighter, bounded drawer. Shows the most recent 10 events
+        // in a single dense row each. Pinned to the top-right corner with a
+        // capped maxHeight so it never covers the rest of the viewport.
+        const MAX_EVENTS = 10;
+        const visibleEvents = events.slice(0, MAX_EVENTS);
+        return (
+          <aside
+            className="tt-activity-drawer"
+            style={{
+              position: "fixed",
+              right: 0,
+              // P0.7.102 — pushed down from top:60 to top:340 so the
+              // drawer sits BELOW the macro / earnings ticker row at
+              // the top of the page (those rows live in the first
+              // ~280px below the nav). Previously the drawer overlapped
+              // the rightmost earnings tickers.
+              top: "340px",
+              width: collapsed ? "28px" : "240px",
+              maxHeight: collapsed ? "120px" : "min(420px, calc(100vh - 360px))",
+              background: collapsed
+                ? "rgba(255,255,255,0.02)"
+                : "rgba(11,14,17,0.78)",
+              borderLeft: "1px solid var(--ds-stroke, rgba(255,255,255,0.05))",
+              borderBottom: "1px solid var(--ds-stroke, rgba(255,255,255,0.05))",
+              borderBottomLeftRadius: 8,
+              backdropFilter: "blur(6px)",
+              WebkitBackdropFilter: "blur(6px)",
+              zIndex: 35,
+              display: "flex",
+              flexDirection: "column",
+              transition: "width 200ms ease, max-height 200ms ease",
+              overflow: "hidden",
+            }}
+            aria-label="Recent system activity"
+          >
+            <button
+              type="button"
+              onClick={() => setCollapsed(c => !c)}
+              title={collapsed ? "Show activity feed" : "Collapse activity feed"}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: collapsed ? "center" : "space-between",
+                padding: collapsed ? "8px 4px" : "6px 10px",
+                background: "transparent",
+                borderBottom: collapsed ? "none" : "1px solid var(--ds-stroke, rgba(255,255,255,0.05))",
+                color: "var(--ds-text-muted)",
+                fontSize: 9,
+                letterSpacing: "0.14em",
+                textTransform: "uppercase",
+                fontWeight: 700,
+                cursor: "pointer",
+                fontFamily: "var(--tt-font-mono)",
+              }}
+            >
+              {collapsed ? (
+                <span style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", fontSize: 8 }}>Activity</span>
+              ) : (
+                <>
+                  <span>Activity</span>
+                  <span style={{ color: "var(--ds-text-faint)", fontSize: 9 }}>
+                    {visibleEvents.length > 0 ? `${visibleEvents.length}${events.length > MAX_EVENTS ? "+" : ""}` : ""}  ›
+                  </span>
+                </>
+              )}
+            </button>
+
+            {!collapsed && (
+              <div style={{ flex: 1, overflowY: "auto", padding: "2px 6px 6px" }}>
+                {loading ? (
+                  <div style={{ padding: "10px 6px", fontSize: 10, color: "var(--ds-text-faint)" }}>Loading…</div>
+                ) : visibleEvents.length === 0 ? (
+                  <div style={{ padding: "10px 6px", fontSize: 10, color: "var(--ds-text-faint)", lineHeight: 1.5 }}>
+                    No recent activity. Last action will appear here.
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column" }}>
+                    {visibleEvents.map((e, i) => {
+                      const meta = typeMeta(e.type);
+                      const dirIsLong = String(e.direction || "").toUpperCase() === "LONG";
+                      const dirIsShort = String(e.direction || "").toUpperCase() === "SHORT";
+                      const dirColor = dirIsLong ? "#34d399" : dirIsShort ? "#f87171" : "var(--ds-text-muted)";
+                      const pnlColor = e.pnl > 0 ? "#34d399" : e.pnl < 0 ? "#f87171" : "var(--ds-text-muted)";
+                      const showPnl = e.type !== "ENTRY" && e.type !== "ADD_ENTRY" && Math.abs(e.pnl) > 0.01;
+                      return (
+                        <button
+                          key={`${e.trade_id}-${i}`}
+                          type="button"
+                          onClick={() => onSelectTicker && onSelectTicker(e.ticker)}
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "auto 1fr auto",
+                            alignItems: "center",
+                            gap: 6,
+                            padding: "5px 6px",
+                            background: "transparent",
+                            border: "none",
+                            borderTop: i > 0 ? "1px solid rgba(255,255,255,0.025)" : "none",
+                            textAlign: "left",
+                            cursor: "pointer",
+                            transition: "background 100ms",
+                            fontFamily: "var(--tt-font-mono)",
+                          }}
+                          onMouseEnter={(ev) => ev.currentTarget.style.background = "rgba(255,255,255,0.03)"}
+                          onMouseLeave={(ev) => ev.currentTarget.style.background = "transparent"}
+                          title={`${e.type} ${e.ticker} ${e.direction || ""} — ${fmtTime(e.ts)} ET${e.reason ? ` — ${e.reason}` : ""}`}
+                        >
+                          <span style={{
+                            fontSize: 8, fontWeight: 700, letterSpacing: "0.08em",
+                            padding: "1px 4px", borderRadius: 2,
+                            color: meta.color, background: meta.bg,
+                            minWidth: 36, textAlign: "center",
+                          }}>{meta.label}</span>
+                          <span style={{ display: "flex", alignItems: "baseline", gap: 4, minWidth: 0, overflow: "hidden" }}>
+                            <span style={{ fontWeight: 700, fontSize: 11, color: "var(--ds-text-display)" }}>{e.ticker}</span>
+                            {e.direction && (
+                              <span style={{ fontSize: 8, fontWeight: 700, color: dirColor }}>
+                                {dirIsLong ? "L" : dirIsShort ? "S" : ""}
+                              </span>
+                            )}
+                            {e.qty > 0 && (
+                              <span style={{ fontSize: 9, color: "var(--ds-text-muted)", fontVariantNumeric: "tabular-nums" }}>
+                                {e.qty.toFixed(e.qty < 10 ? 1 : 0)}@${Number(e.price).toFixed(0)}
+                              </span>
+                            )}
+                          </span>
+                          <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9 }}>
+                            {showPnl && (
+                              <span style={{ color: pnlColor, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                                {e.pnl >= 0 ? "+" : "−"}${Math.abs(e.pnl).toFixed(0)}
+                              </span>
+                            )}
+                            <span style={{ color: "var(--ds-text-faint)" }}>{fmtRelative(e.ts)}</span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </aside>
+        );
+      }
+
       // Make App accessible from outside the Babel script
       window.App = App;
+      window.ActivityFeedDrawer = ActivityFeedDrawer;
       window.Coachmarks = Coachmarks;
     </script>
 

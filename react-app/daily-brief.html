@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260423a" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260507-r5" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -197,6 +197,25 @@
           .replace(/ (#{2,4}) /g, "\n\n$1 ")             // blank line before ## / ### / #### headers
           .replace(/ - \*\*/g, "\n- **")                 // split inline bold-list items onto new lines
           .replace(/ - ([A-Z])/g, "\n- $1")              // split inline dash-lists starting with uppercase
+
+        // V15 P0.7.62 (2026-05-05) — strip the "Today's Three" TOC out of the
+        // markdown body. The infographic at the top already renders these as
+        // a card; leaving them in the body produces a duplicate display where
+        // the same 3 numbered lines appear twice (once in the card, once at
+        // the start of the prose).
+        // Also strip a leading "Section 0" or "Today's Three" header if the
+        // model emits one. Conservative match: only strip if the first
+        // numbered line appears in the first ~600 chars of content.
+        const stripIdx = cleaned.search(/^\s*1\.\s+(?:\*\*?)?(?:SPY|QQQ|IWM|S&P|ES|NQ|Today)/im);
+        if (stripIdx >= 0 && stripIdx < 800) {
+          // Find the end of the third numbered line
+          const after = cleaned.slice(stripIdx);
+          const m = after.match(/^\s*1\.[\s\S]*?\n\s*2\.[\s\S]*?\n\s*3\.[^\n]*\n/);
+          if (m) {
+            cleaned = cleaned.slice(0, stripIdx) + cleaned.slice(stripIdx + m[0].length);
+          }
+        }
+
         if (typeof marked !== "undefined" && marked.parse) {
           return marked.parse(cleaned, { breaks: true, gfm: true });
         }
@@ -340,62 +359,124 @@
                           <span className="ml-auto text-[10px] text-[#6b7280]">ATR ${idx.atr.toFixed(2)}</span>
                         )}
                       </div>
-                      {/* Day GG bar */}
-                      <div className="text-[9px] uppercase tracking-wider text-[#6b7280] mb-0.5 flex items-center justify-between">
-                        <span>Day Gate</span>
-                        {dayProb && gg !== "NEUTRAL" && (
-                          <span className="tabular-nums" style={{ color: probColor(dayProb.dayLabel) }}>
-                            {(dayProb.day * 100).toFixed(0)}% close · {dayProb.dayLabel}
-                          </span>
-                        )}
-                      </div>
-                      {dn382 != null && up382 != null && (
-                        <div className="relative h-2 rounded bg-white/[0.05] overflow-hidden mb-1">
-                          <div className="absolute left-0 top-0 bottom-0" style={{ width: `${barProgress}%`, background: "linear-gradient(90deg, rgba(239,68,68,0.35), rgba(107,114,128,0.25), rgba(52,211,153,0.35))" }} />
-                          {anchor != null && cp != null && (
-                            <div className="absolute top-0 bottom-0" style={{ left: `${Math.max(0, Math.min(100, ((anchor - dn382) / (up382 - dn382)) * 100))}%`, width: 2, background: "#9ca3af" }} title={`Prev close ${anchor}`} />
-                          )}
-                        </div>
-                      )}
-                      {dn382 != null && up382 != null && (
-                        <div className="flex items-center justify-between text-[9px] text-[#6b7280] tabular-nums mb-2">
-                          <span>-38.2% ${dn382.toFixed(2)}</span>
-                          <span>+38.2% ${up382.toFixed(2)}</span>
-                        </div>
-                      )}
-                      {/* Week GG bar */}
-                      {wlvls && (
-                        <>
-                          <div className="text-[9px] uppercase tracking-wider text-[#6b7280] mb-0.5 flex items-center justify-between">
-                            <span style={{ color: ggColor(wgg) }}>
-                              Week Gate {wgg === "OPEN_UP" ? "▲" : wgg === "OPEN_DOWN" ? "▼" : "◆"}
-                            </span>
-                            {weekProb && wgg !== "NEUTRAL" && (
-                              <span className="tabular-nums" style={{ color: probColor(weekProb.weekLabel) }}>
-                                {(weekProb.week * 100).toFixed(0)}% close · {weekProb.weekLabel}
-                              </span>
+                      {/* V15 P0.7.62 (2026-05-05) — clearer Day/Week GG cards.
+                         Adds: price marker on the bar, +50% / +61.8% target
+                         labels, and natural-language probability text
+                         ("78% chance closes ABOVE +38.2%" instead of just "78%"). */}
+                      {(() => {
+                        const up50 = lvls.levels?.["+50%"];
+                        const up618 = lvls.levels?.["+61.8%"];
+                        const dn50 = lvls.levels?.["-50%"];
+                        const dn618 = lvls.levels?.["-61.8%"];
+                        const ggDirText = (g) => g === "OPEN_UP" ? "above +38.2%" : g === "OPEN_DOWN" ? "below -38.2%" : "between gates";
+                        const targetText = (g, lbls) => {
+                          if (g === "OPEN_UP" && up50 != null && up618 != null) return `next: $${up50.toFixed(2)} (50%) → $${up618.toFixed(2)} (61.8%)`;
+                          if (g === "OPEN_DOWN" && dn50 != null && dn618 != null) return `next: $${dn50.toFixed(2)} (50%) → $${dn618.toFixed(2)} (61.8%)`;
+                          return null;
+                        };
+                        return (
+                          <>
+                            {/* Day GG */}
+                            <div className="text-[9px] uppercase tracking-wider text-[#6b7280] mb-0.5 flex items-center justify-between">
+                              <span>Day Gate</span>
+                              {dayProb && gg !== "NEUTRAL" && (
+                                <span className="tabular-nums normal-case" style={{ color: probColor(dayProb.dayLabel) }}>
+                                  {(dayProb.day * 100).toFixed(0)}% holds {ggDirText(gg)}
+                                </span>
+                              )}
+                            </div>
+                            {dn382 != null && up382 != null && (
+                              <div className="relative h-2.5 rounded bg-white/[0.05] overflow-hidden mb-1">
+                                {/* gradient backdrop: bear (red) | mid | bull (green) */}
+                                <div className="absolute inset-0" style={{ background: "linear-gradient(90deg, rgba(239,68,68,0.30) 0%, rgba(239,68,68,0.18) 35%, rgba(107,114,128,0.20) 50%, rgba(52,211,153,0.18) 65%, rgba(52,211,153,0.30) 100%)" }} />
+                                {/* mid (anchor) tick */}
+                                {anchor != null && (
+                                  <div className="absolute top-0 bottom-0" style={{ left: `${Math.max(0, Math.min(100, ((anchor - dn382) / (up382 - dn382)) * 100))}%`, width: 1, background: "rgba(156,163,175,0.5)" }} title={`Anchor (prev close) ${anchor}`} />
+                                )}
+                                {/* current price marker */}
+                                {cp != null && (
+                                  <div className="absolute top-[-2px] bottom-[-2px] flex items-center" style={{ left: `${barProgress}%`, transform: "translateX(-50%)" }}>
+                                    <div style={{ width: 3, height: "100%", background: "#fff", boxShadow: "0 0 4px rgba(255,255,255,0.6)" }} title={`Current $${cp.toFixed(2)}`} />
+                                  </div>
+                                )}
+                              </div>
                             )}
-                          </div>
-                          {wDn382 != null && wUp382 != null && (
-                            <>
-                              <div className="relative h-1.5 rounded bg-white/[0.05] overflow-hidden mb-1">
-                                <div className="absolute left-0 top-0 bottom-0" style={{ width: `${wBarProgress}%`, background: "linear-gradient(90deg, rgba(239,68,68,0.25), rgba(107,114,128,0.15), rgba(52,211,153,0.25))" }} />
+                            {dn382 != null && up382 != null && (
+                              <div className="flex items-center justify-between text-[9px] text-[#6b7280] tabular-nums mb-1">
+                                <span>-38.2% ${dn382.toFixed(2)}</span>
+                                <span style={{ color: "#9ca3af" }}>{anchor != null ? `mid ${anchor.toFixed(2)}` : ""}</span>
+                                <span>+38.2% ${up382.toFixed(2)}</span>
                               </div>
-                              <div className="flex items-center justify-between text-[9px] text-[#6b7280] tabular-nums">
-                                <span>-38.2% ${wDn382.toFixed(2)}</span>
-                                <span>+38.2% ${wUp382.toFixed(2)}</span>
+                            )}
+                            {gg !== "NEUTRAL" && targetText(gg) && (
+                              <div className="text-[9px] text-[#9ca3af] tabular-nums mb-2 italic">
+                                {targetText(gg)}
                               </div>
-                            </>
-                          )}
-                        </>
-                      )}
+                            )}
+                            {/* Week GG */}
+                            {wlvls && (
+                              <>
+                                <div className="text-[9px] uppercase tracking-wider text-[#6b7280] mb-0.5 flex items-center justify-between">
+                                  <span style={{ color: ggColor(wgg) }}>
+                                    Week Gate {wgg === "OPEN_UP" ? "▲" : wgg === "OPEN_DOWN" ? "▼" : "◆"}
+                                  </span>
+                                  {weekProb && wgg !== "NEUTRAL" && (
+                                    <span className="tabular-nums normal-case" style={{ color: probColor(weekProb.weekLabel) }}>
+                                      {(weekProb.week * 100).toFixed(0)}% holds {ggDirText(wgg)} · {weekProb.daysRemaining}d left
+                                    </span>
+                                  )}
+                                </div>
+                                {wDn382 != null && wUp382 != null && (
+                                  <>
+                                    <div className="relative h-2 rounded bg-white/[0.05] overflow-hidden mb-1">
+                                      <div className="absolute inset-0" style={{ background: "linear-gradient(90deg, rgba(239,68,68,0.20) 0%, rgba(239,68,68,0.12) 35%, rgba(107,114,128,0.15) 50%, rgba(52,211,153,0.12) 65%, rgba(52,211,153,0.20) 100%)" }} />
+                                      {wlvls.anchor != null && (
+                                        <div className="absolute top-0 bottom-0" style={{ left: `${Math.max(0, Math.min(100, ((wlvls.anchor - wDn382) / (wUp382 - wDn382)) * 100))}%`, width: 1, background: "rgba(156,163,175,0.5)" }} title={`Week anchor ${wlvls.anchor}`} />
+                                      )}
+                                      {cp != null && (
+                                        <div className="absolute top-[-2px] bottom-[-2px] flex items-center" style={{ left: `${wBarProgress}%`, transform: "translateX(-50%)" }}>
+                                          <div style={{ width: 3, height: "100%", background: "#fff", boxShadow: "0 0 4px rgba(255,255,255,0.6)" }} title={`Current $${cp.toFixed(2)}`} />
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center justify-between text-[9px] text-[#6b7280] tabular-nums">
+                                      <span>-38.2% ${wDn382.toFixed(2)}</span>
+                                      <span style={{ color: "#9ca3af" }}>{wlvls.anchor != null ? `mid ${wlvls.anchor.toFixed(2)}` : ""}</span>
+                                      <span>+38.2% ${wUp382.toFixed(2)}</span>
+                                    </div>
+                                    {wgg !== "NEUTRAL" && (() => {
+                                      const wUp50 = wlvls.levels?.["+50%"];
+                                      const wUp618 = wlvls.levels?.["+61.8%"];
+                                      const wDn50 = wlvls.levels?.["-50%"];
+                                      const wDn618 = wlvls.levels?.["-61.8%"];
+                                      if (wgg === "OPEN_UP" && wUp50 != null && wUp618 != null)
+                                        return <div className="text-[9px] text-[#9ca3af] tabular-nums mt-0.5 italic">next: ${wUp50.toFixed(2)} (50%) → ${wUp618.toFixed(2)} (61.8%)</div>;
+                                      if (wgg === "OPEN_DOWN" && wDn50 != null && wDn618 != null)
+                                        return <div className="text-[9px] text-[#9ca3af] tabular-nums mt-0.5 italic">next: ${wDn50.toFixed(2)} (50%) → ${wDn618.toFixed(2)} (61.8%)</div>;
+                                      return null;
+                                    })()}
+                                  </>
+                                )}
+                              </>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   );
                 })}
               </div>
             )}
 
-            {/* Game Plan triggers — V15 P0.7.42: visual bull/bear trigger ↔ target */}
+            {/* Game Plan triggers — V15 P0.7.62 (2026-05-05): clearer labels.
+               The previous "$718→$710" arrow read as "bullish target $710" but
+               actually meant "trigger at $718, target $710" which was the BEAR
+               case. Reworked to read as natural language:
+                 BULL · Hold above $XXX → Target $XXX  (+X.XX%)
+                 BEAR · Break below $XXX → Target $XXX (-X.XX%)
+               Also adds: an "(at price)" / "(above price)" / "(below price)"
+               status badge so user can see at a glance whether the trigger is
+               already armed. */}
             {indicies.some((i) => i.levels?.gamePlan) && (
               <div>
                 <div className="text-[9px] uppercase tracking-wider text-[#6b7280] mb-1">Game Plan triggers</div>
@@ -403,6 +484,13 @@
                   {indicies.filter((i) => i.levels?.gamePlan).map((idx) => {
                     const gp = idx.levels.gamePlan;
                     const cp = idx.levels.currentPrice ?? idx.price;
+                    // Status helpers: where current price sits vs each trigger.
+                    const bullArmed = cp != null && cp >= gp.bullTrigger; // already through trigger
+                    const bullDist = cp != null ? ((gp.bullTrigger - cp) / cp * 100) : null;
+                    const bearArmed = cp != null && cp <= gp.bearTrigger;
+                    const bearDist = cp != null ? ((cp - gp.bearTrigger) / cp * 100) : null;
+                    const bullPct = ((gp.bullTarget - gp.bullTrigger) / gp.bullTrigger * 100);
+                    const bearPct = ((gp.bearTarget - gp.bearTrigger) / gp.bearTrigger * 100);
                     return (
                       <div key={"gp-" + idx.sym} className="p-2 rounded bg-white/[0.02] border border-white/[0.06]">
                         <div className="flex items-center justify-between mb-1.5">
@@ -410,22 +498,44 @@
                           {cp != null && <span className="text-[10px] text-[#9ca3af] tabular-nums">${cp.toFixed(2)}</span>}
                         </div>
                         <div className="space-y-1.5">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[9px] font-semibold uppercase tracking-wider text-emerald-300/80 w-9">Bull</span>
-                            <div className="flex-1 flex items-center gap-1 text-[10px] tabular-nums">
-                              <span className="text-[#86efac]">${gp.bullTrigger.toFixed(2)}</span>
-                              <span className="text-[#6b7280]">→</span>
-                              <span className="text-emerald-300 font-semibold">${gp.bullTarget.toFixed(2)}</span>
-                              <span className="ml-auto text-[9px] text-[#6b7280]">+{((gp.bullTarget - gp.bullTrigger) / gp.bullTrigger * 100).toFixed(2)}%</span>
+                          {/* BULL row */}
+                          <div className="flex items-start gap-2">
+                            <span className="text-[9px] font-semibold uppercase tracking-wider text-emerald-300/80 w-10 shrink-0 mt-0.5">Bull</span>
+                            <div className="flex-1 flex flex-col text-[10px] tabular-nums leading-tight">
+                              <div className="flex items-center gap-1">
+                                <span className="text-[#9ca3af]">{bullArmed ? "Hold above" : "Break above"}</span>
+                                <span className="text-[#86efac] font-semibold">${gp.bullTrigger.toFixed(2)}</span>
+                                <span className="text-[#6b7280]">→ target</span>
+                                <span className="text-emerald-300 font-semibold">${gp.bullTarget.toFixed(2)}</span>
+                                <span className="ml-auto text-[9px] text-emerald-400/70">+{bullPct.toFixed(2)}%</span>
+                              </div>
+                              {bullDist != null && (
+                                <div className="text-[9px] text-[#6b7280] mt-0.5">
+                                  {bullArmed
+                                    ? <span className="text-emerald-400/80">● Armed (price {Math.abs(bullDist).toFixed(2)}% above trigger)</span>
+                                    : <span>○ {bullDist.toFixed(2)}% to trigger</span>}
+                                </div>
+                              )}
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[9px] font-semibold uppercase tracking-wider text-red-300/80 w-9">Bear</span>
-                            <div className="flex-1 flex items-center gap-1 text-[10px] tabular-nums">
-                              <span className="text-[#fecaca]">${gp.bearTrigger.toFixed(2)}</span>
-                              <span className="text-[#6b7280]">→</span>
-                              <span className="text-red-300 font-semibold">${gp.bearTarget.toFixed(2)}</span>
-                              <span className="ml-auto text-[9px] text-[#6b7280]">{((gp.bearTarget - gp.bearTrigger) / gp.bearTrigger * 100).toFixed(2)}%</span>
+                          {/* BEAR row */}
+                          <div className="flex items-start gap-2">
+                            <span className="text-[9px] font-semibold uppercase tracking-wider text-red-300/80 w-10 shrink-0 mt-0.5">Bear</span>
+                            <div className="flex-1 flex flex-col text-[10px] tabular-nums leading-tight">
+                              <div className="flex items-center gap-1">
+                                <span className="text-[#9ca3af]">{bearArmed ? "Hold below" : "Break below"}</span>
+                                <span className="text-[#fecaca] font-semibold">${gp.bearTrigger.toFixed(2)}</span>
+                                <span className="text-[#6b7280]">→ target</span>
+                                <span className="text-red-300 font-semibold">${gp.bearTarget.toFixed(2)}</span>
+                                <span className="ml-auto text-[9px] text-red-400/70">{bearPct.toFixed(2)}%</span>
+                              </div>
+                              {bearDist != null && (
+                                <div className="text-[9px] text-[#6b7280] mt-0.5">
+                                  {bearArmed
+                                    ? <span className="text-red-400/80">● Armed (price {Math.abs(bearDist).toFixed(2)}% below trigger)</span>
+                                    : <span>○ {Math.abs(bearDist).toFixed(2)}% to trigger</span>}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>

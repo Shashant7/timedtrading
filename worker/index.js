@@ -96,7 +96,13 @@ import * as DataProvider from "./data-provider.js";
    and wired into the existing entry/exit pipeline. Each loop is gated by
    its own DA flag so it can be killed independently. Default: OFF in code. */
 import * as PhaseCLoops from "./phase-c-loops.js";
-import { tdFetchEarningsCalendar, tdFetchTickerEarnings, tdFetchTimeSeries, tdSearchSymbol, toTdSymbol, aggregate5mTo10m } from "./twelvedata.js";
+import * as ExitDoctrine from "./phase-c-exit-doctrine.js";
+import * as SetupAdmission from "./phase-c-setup-admission.js";
+import * as EtfProfile from "./etf-profile.js";
+import * as ClusterThrottle from "./phase-c-cluster-throttle.js";
+import * as MarketInternals from "./market-internals.js";
+import { buildTickerScenario } from "./ticker-scenario.js";
+import { tdFetchEarningsCalendar, tdFetchTickerEarnings, tdFetchTimeSeries, tdSearchSymbol, toTdSymbol, aggregate5mTo10m, tdFetchProfile, tdFetchStatistics, tdFetchEarningsHistory } from "./twelvedata.js";
 import { onboardTicker, loadTickerProfile, loadSectorProfile, mergeProfileWeights } from "./onboard-ticker.js";
 import {
   loadCalendar,
@@ -635,6 +641,7 @@ const ROUTES = [
   ["POST", "/timed/ingest-candles", "POST /timed/ingest-candles"],
   ["POST", "/timed/heartbeat", "POST /timed/heartbeat"],
   ["GET", "/timed/latest", "GET /timed/latest"],
+  ["GET", "/timed/ticker-scenario", "GET /timed/ticker-scenario"],
   ["GET", "/timed/prediction-contract", "GET /timed/prediction-contract"],
   ["GET", "/timed/tickers", "GET /timed/tickers"],
   ["GET", "/timed/all", "GET /timed/all"],
@@ -788,6 +795,9 @@ const ROUTES = [
   ["POST", "/timed/admin/replay-lock", "POST /timed/admin/replay-lock"],
   ["GET", "/timed/admin/replay-lock", "GET /timed/admin/replay-lock"],
   ["DELETE", "/timed/admin/replay-lock", "DELETE /timed/admin/replay-lock"],
+  ["POST", "/timed/admin/cron-mute", "POST /timed/admin/cron-mute"],
+  ["GET", "/timed/admin/cron-mute", "GET /timed/admin/cron-mute"],
+  ["DELETE", "/timed/admin/cron-mute", "DELETE /timed/admin/cron-mute"],
   ["POST", "/timed/admin/cleanup-orphan-trades", "POST /timed/admin/cleanup-orphan-trades"],
   // V15 P0.7.46 (2026-05-01) — read-only KV inspector for debugging
   // capture / write-path issues. ?k=<key>&key=<api-key> → { value }
@@ -805,6 +815,15 @@ const ROUTES = [
   ["POST", "/timed/admin/runs/archive", "POST /timed/admin/runs/archive"],
   ["POST", "/timed/admin/runs/update", "POST /timed/admin/runs/update"],
   ["POST", "/timed/admin/runs/delete", "POST /timed/admin/runs/delete"],
+  ["POST", "/timed/admin/runs/rollback-to-date", "POST /timed/admin/runs/rollback-to-date"],
+  ["POST", "/timed/admin/runs/config-patch", "POST /timed/admin/runs/config-patch"],
+  // System Intelligence revamp (2026-05-03) — endpoints owned by the
+  // `/system-intelligence.html` page so the operator never has to drop
+  // to a shell to re-run analysis or compute the next calibration deltas.
+  // See tasks/system-intelligence-revamp/audit.md for the surface map.
+  ["GET", "/timed/admin/system-intelligence/engine-snapshot", "GET /timed/admin/system-intelligence/engine-snapshot"],
+  ["POST", "/timed/admin/system-intelligence/run-analysis", "POST /timed/admin/system-intelligence/run-analysis"],
+  ["POST", "/timed/admin/system-intelligence/calibrate", "POST /timed/admin/system-intelligence/calibrate"],
   ["GET", "/timed/admin/runs", "GET /timed/admin/runs"],
   ["GET", "/timed/admin/runs/live", "GET /timed/admin/runs/live"],
   ["GET", "/timed/admin/runs/detail", "GET /timed/admin/runs/detail"],
@@ -820,6 +839,9 @@ const ROUTES = [
   ["POST", "/timed/admin/model-approve", "POST /timed/admin/model-approve"],
   ["GET", "/timed/admin/ai-cio/decisions", "GET /timed/admin/ai-cio/decisions"],
   ["GET", "/timed/admin/ai-cio/accuracy", "GET /timed/admin/ai-cio/accuracy"],
+  // ── Right Rail Fundamentals tab (TwelveData-backed, KV-cached 6h) ──
+  // Phase C tooling 2026-05-03 — Tenet-style fundamentals snapshot per ticker.
+  ["GET", "/timed/admin/fundamentals", "GET /timed/admin/fundamentals"],
   ["POST", "/timed/admin/backfill-market-events", "POST /timed/admin/backfill-market-events"],
   ["POST", "/timed/admin/market-events/bulk-seed", "POST /timed/admin/market-events/bulk-seed"],
   ["GET", "/timed/admin/market-events/coverage", "GET /timed/admin/market-events/coverage"],
@@ -911,6 +933,20 @@ const ROUTES = [
   ["POST", "/timed/trades/reset", "POST /timed/trades/reset"],
   ["GET", "/timed/admin/promoted-trades/datasets", "GET /timed/admin/promoted-trades/datasets"],
   ["POST", "/timed/admin/promoted-trades/promote", "POST /timed/admin/promoted-trades/promote"],
+  ["POST", "/timed/admin/account-ledger/seed-from-promoted", "POST /timed/admin/account-ledger/seed-from-promoted"],
+  ["POST", "/timed/admin/calibration/seed-from-promoted", "POST /timed/admin/calibration/seed-from-promoted"],
+  ["GET", "/timed/admin/loop2-pause", "GET /timed/admin/loop2-pause"],
+  ["POST", "/timed/admin/loop2-pause/reset", "POST /timed/admin/loop2-pause/reset"],
+  ["POST", "/timed/admin/cancel-stale-closures", "POST /timed/admin/cancel-stale-closures"],
+  ["POST", "/timed/admin/purge-orphan-trades", "POST /timed/admin/purge-orphan-trades"],
+  ["POST", "/timed/admin/seed-direction-accuracy-from-promoted", "POST /timed/admin/seed-direction-accuracy-from-promoted"],
+  ["POST", "/timed/admin/refresh-path-performance", "POST /timed/admin/refresh-path-performance"],
+  ["GET", "/timed/admin/direction-accuracy/inspect", "GET /timed/admin/direction-accuracy/inspect"],
+  ["POST", "/timed/admin/restore-trade-from-da", "POST /timed/admin/restore-trade-from-da"],
+  ["POST", "/timed/admin/patch-trade-shares", "POST /timed/admin/patch-trade-shares"],
+  ["POST", "/timed/admin/close-stale-open-trades", "POST /timed/admin/close-stale-open-trades"],
+  ["GET", "/timed/admin/data-audit-log", "GET /timed/admin/data-audit-log"],
+  ["GET", "/timed/admin/activity-feed", "GET /timed/admin/activity-feed"],
   ["POST", "/timed/admin/model-config", "POST /timed/admin/model-config"],
   ["GET",  "/timed/admin/grade-config",  "GET /timed/admin/grade-config"],
   // ── System Intelligence (unified Calibration + Model) ──
@@ -4099,8 +4135,8 @@ function qualifiesForEnter(d, asOfTs = null) {
           _focusDaCfg.deep_audit_focus_stack_carveout_enabled ?? "true"
         ) === "true";
         if (_stackCarveOutEnabled && _focusConv?.breakdown) {
-          const _carveState = String(tickerData?.state || "").toUpperCase();
-          const _carveDs = tickerData?.daily_structure || {};
+          const _carveState = String(d?.state || "").toUpperCase();
+          const _carveDs = d?.daily_structure || {};
           const _carveBullStack = _carveDs?.bull_stack === true;
           const _carveBearStack = _carveDs?.bear_stack === true;
           const _carveLongStacked =
@@ -4117,6 +4153,40 @@ function qualifiesForEnter(d, asOfTs = null) {
             );
             _entryMinConv = Math.max(70, _entryMinConv - _carveDelta);
           }
+        }
+
+        /* V15 P0.7.51 (2026-05-03) — volatility-expansion entry carve-out.
+           The universe-vs-system benchmark showed 83 of 238 universe tickers
+           were never traded in Jul-Sep, leaving 6,683% of move on the table.
+           The pattern: high-volatility movers (ASTS, IONQ, ARRY, UUUU, NBIS,
+           RKLB, HIMS, MP, …) consistently price-bounced off the conviction
+           floor. Knob: when daily ATR/price > deep_audit_volatility_expansion_atr_pct
+           (default 4%), lower the conviction floor by deep_audit_volatility_expansion_floor_delta
+           (default 5). Holds the same min-floor rails (≥70) so we never go
+           below the absolute safety threshold even in compounding carve-outs. */
+        const _volExpansionEnabled = String(_focusDaCfg.deep_audit_volatility_expansion_enabled ?? "false") === "true";
+        if (_volExpansionEnabled) {
+          try {
+            const _atrD = Number(d?.tf_tech?.D?.atr?.atr ?? d?.tf_tech?.D?.atr?.value ?? 0);
+            const _pxD = Number(d?.last_price ?? d?.tf_tech?.D?.close ?? 0);
+            if (_atrD > 0 && _pxD > 0) {
+              const _atrPct = (_atrD / _pxD) * 100;
+              const _atrThreshPct = Number(_focusDaCfg.deep_audit_volatility_expansion_atr_pct ?? 4);
+              if (_atrPct >= _atrThreshPct) {
+                const _volDelta = Number(_focusDaCfg.deep_audit_volatility_expansion_floor_delta ?? 5);
+                const _origFloor = _entryMinConv;
+                _entryMinConv = Math.max(70, _entryMinConv - _volDelta);
+                if (d?.__rank_trace && _entryMinConv < _origFloor) {
+                  d.__rank_trace.volatility_expansion_carveout = {
+                    atr_pct: Math.round(_atrPct * 100) / 100,
+                    threshold_pct: _atrThreshPct,
+                    floor_delta: _volDelta,
+                    floor_after: _entryMinConv,
+                  };
+                }
+              }
+            }
+          } catch (_e) { /* swallow — defensive */ }
         }
         if (_focusConv.score < _entryMinConv) {
           return {
@@ -4259,6 +4329,70 @@ function qualifiesForEnter(d, asOfTs = null) {
   // ── Pipeline: Dispatch to registered engine (tt_core / ripster_core) ──
   const _dispatched = evaluateEntry(_ctx);
   if (_dispatched) {
+    // ─────────────────────────────────────────────────────────────────────
+    // PHASE C — Stage 1 (2026-05-05) — CLUSTER THROTTLE.
+    //
+    // Mar-02 forensic: 8 same-direction long entries fired within a 5-hour
+    // window before a regime shock. ALB (rank 58, Speculative grade) was
+    // the WORST of the cluster by rank/conviction, lost -8.44%. If we had
+    // kept only top-3 by rank (GE/UNP/XLRE @ rank 100), Mar-02 sum would
+    // be -4.10% instead of -22.48% (5× improvement).
+    //
+    // Throttle: when 5+ entries fire in the same 60-min window, only allow
+    // the top-3 by rank * rr (composite quality score). New candidates that
+    // don't break into the top-N are rejected with reason
+    // 'cluster_throttle_*'.
+    //
+    // Disabled via daCfg.deep_audit_cluster_throttle_enabled = "false".
+    //
+    // Caller (processTradeSimulation) provides the recent-entries ring via
+    // d._env._clusterRecentEntries (an array of {ticker, rank, rr, entryTs}).
+    // ─────────────────────────────────────────────────────────────────────
+    const _clusterEnabled = String(
+      d?._env?._deepAuditConfig?.deep_audit_cluster_throttle_enabled ?? "true"
+    ) === "true";
+    if (_clusterEnabled && _dispatched.qualifies !== false && _dispatched.path) {
+      try {
+        const _recentEntries = Array.isArray(d?._env?._clusterRecentEntries)
+          ? d._env._clusterRecentEntries
+          : [];
+        const _candidateTs = Number(d?.ts) || (asOfTs ? Number(asOfTs) : Date.now());
+        const _candidateRank = Number(d?.rank) || 0;
+        const _candidateRr = Number(d?.rr) || 0;
+        const _clusterDecision = ClusterThrottle.admitCluster(
+          {
+            ticker: String(d?.ticker || "").toUpperCase(),
+            rank: _candidateRank,
+            rr: _candidateRr,
+            entryTs: _candidateTs,
+            recentEntries: _recentEntries,
+          },
+          {
+            window_minutes: Number(d?._env?._deepAuditConfig?.deep_audit_cluster_throttle_window_min ?? 60),
+            cluster_min_size: Number(d?._env?._deepAuditConfig?.deep_audit_cluster_throttle_min_size ?? 5),
+            top_n_keep: Number(d?._env?._deepAuditConfig?.deep_audit_cluster_throttle_top_n ?? 3),
+            composite_score: true,
+          },
+        );
+        if (_clusterDecision && _clusterDecision.allow === false) {
+          // Reject this entry. Reuse the rejectEntry diagnostic shape.
+          d.__entry_block_reason = _clusterDecision.reason;
+          d.__cluster_throttle_meta = {
+            cluster_size: _clusterDecision.cluster_size,
+            candidate_position: _clusterDecision.candidate_position,
+            candidate_rank: _clusterDecision.candidate_rank,
+          };
+          return {
+            qualifies: false,
+            reason: _clusterDecision.reason,
+            cluster_throttle: true,
+            cluster_meta: _clusterDecision,
+          };
+        }
+      } catch (_clusterErr) {
+        // Cluster throttle failure must NEVER block legit entries
+      }
+    }
     _dispatched.selectedEngine = entryEngine;
     _dispatched.selectedManagementEngine = engineResolution.managementEngine || resolveEngineMode(d?._env?._managementEngine);
     _dispatched.engineSource = engineResolution.source;
@@ -6756,6 +6890,48 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
   // 7-Lane Flow: just_entered → defend → trim → exit
   // ═══════════════════════════════════════════════════════════════════════════
   if (hasPosition) {
+    // ═════════════════════════════════════════════════════════════════════════
+    // PHASE C — Stage 1 (2026-05-04) — GLOBAL BACKTEST TRADE PROTECTION.
+    //
+    // If the open position belongs to a backtest run (run_id != null)
+    // AND we were called without an asOfTs (= we're in a wall-clock /
+    // read-time path, NOT the replay engine), refuse to evaluate exits.
+    //
+    // Without this guard, ANY of the wall-clock-time exit rules below
+    // (V13, HARD_LOSS_CAP, mid_trade_regime_flip, atr_day_adverse_382_cut,
+    // mfe_decay_*, etc.) will compute pnlPct from the 9-month-old entry
+    // price vs current wall-clock price and force-close the trade with a
+    // bogus exit_ts (today) and bogus pnl. This is what corrupted the
+    // phase-c-stage1 run twice and is the root cause documented in
+    // tasks/phase-c/HANDOFF.md.
+    //
+    // Replay engine ALWAYS passes asOfTs (see processTradeSimulation at
+    // line ~14946: `isReplay && Number.isFinite(asOfMs) ? asOfMs : null`).
+    // So this guard fires only for read-time / cron callers — exactly
+    // where the corruption was happening.
+    //
+    // Returns "neutral" (= no action) so the caller proceeds without
+    // mutating the position.
+    //
+    // V15 P0.7.83 (2026-05-06): EXTENDED the guard to also cover legacy
+    // orphan trades (run_id NULL, entry_ts > 30 days old). The original
+    // P0.7.58 guard only fired when run_id was set, which left ancient
+    // pre-Phase-C live trades vulnerable to the same wall-clock force-
+    // close bug. Today (May 6 2026) three orphan trades from July 2025
+    // (ORCL, CDNS, CSX) got force-closed by HARD_LOSS_CAP, generating
+    // fake -\$3,430 / -\$541 / +\$1,822 PnL hits that tripped Loop 2.
+    // ═════════════════════════════════════════════════════════════════════════
+    {
+      const _entryTsRaw = Number(openPosition?.entry_ts || openPosition?.created_at) || 0;
+      const _isReadTime = asOfTs == null;
+      const _hasRunId = !!(openPosition?.run_id || openPosition?.runId);
+      const _ageDays = _entryTsRaw > 0 ? (Date.now() - _entryTsRaw) / 86400000 : 0;
+      const _isAncientOrphan = _entryTsRaw > 0 && _ageDays > 30;
+      if (_isReadTime && (_hasRunId || _isAncientOrphan)) {
+        return "neutral";
+      }
+    }
+
     const completion = Number(tickerData?.completion) || 0;
     const phase = Number(tickerData?.phase_pct) || 0;
     const currentPrice = Number(tickerData?.price);
@@ -6782,6 +6958,199 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     }
 
     // ═════════════════════════════════════════════════════════════════════════
+    // V15 P0.7.66 (2026-05-05) — Tier 2E: ETF RIDE-RUNNER MODE.
+    //
+    // For ETFs, once MFE >= 1.0% AND pnl > 0, mark the trade as in
+    // "ride-runner" mode. Downstream non-structural exit rules
+    // (peak_lock, mfe_decay, atr_*, smart_runner_support_break, etc.)
+    // check this flag and SKIP. Only structural exits fire:
+    //   - RSI fuses (HARD_FUSE_RSI_EXTREME, SOFT_FUSE_RSI_CONFIRMED)
+    //   - SuperTrend flip (ST_FLIP_4H_CLOSE)
+    //   - TP_FULL ladder hits
+    //   - V13 safety (catastrophic only)
+    //
+    // Per ETF audit Path A: SOFT_FUSE_RSI_CONFIRMED on ETFs has 100%
+    // WR / +$1,179. Other exits (thesis_flip, dead_money, doctrine
+    // giveback) have all been losing money. Letting structural-only
+    // exits manage MFE>=1% ETF trades captures more of the move.
+    // ═════════════════════════════════════════════════════════════════════════
+    {
+      const _rrTickerForEtf = String(tickerData?.ticker || openPosition?.ticker || "").toUpperCase();
+      const _rrMfeForEtf = Number(openPosition?.maxFavorableExcursion
+        ?? openPosition?.max_favorable_excursion
+        ?? openPosition?.mfe ?? 0);
+      const _rrCheck = EtfProfile.isEtfRideRunnerMode(_rrTickerForEtf, _rrMfeForEtf, pnlPct);
+      if (_rrCheck && _rrCheck.active === true) {
+        tickerData.__etf_ride_runner = true;
+        tickerData.__etf_ride_runner_reason = _rrCheck.reason;
+      } else {
+        tickerData.__etf_ride_runner = false;
+      }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // PHASE C — Stage 1 (2026-05-04) — CONTEXT-AWARE EXIT DOCTRINE.
+    //
+    // Sister gate to setup admission. Decides HOW to manage the open
+    // trade based on (setup × entry_regime × current_regime × MFE × age).
+    // Returns one of: ride_runner / manage_normal / tighten / force_exit.
+    //
+    // If force_exit fires, exit immediately with the doctrine reason.
+    // Otherwise, stash the doctrine output on tickerData so downstream
+    // exit rules can read it as overrides.
+    //
+    // The single highest-leverage rule in the doctrine is the
+    // regime-flip force-exit, which protects ~30% of cumulative P&L per
+    // the canon Jul-Apr loss-anatomy (the 18 catastrophic stale-held
+    // losses that all matched the regime-flip + age + pnl<0 profile).
+    //
+    // Disabled via daCfg.deep_audit_exit_doctrine_enabled = "false".
+    // ═════════════════════════════════════════════════════════════════════════
+    {
+      const _exDocEnabled = String(
+        tickerData?._env?._deepAuditConfig?.deep_audit_exit_doctrine_enabled ?? "true"
+      ) === "true";
+      if (_exDocEnabled) {
+        try {
+          const _setupForDoctrine = String(
+            openPosition?.entryPath || openPosition?.entry_path ||
+            openPosition?.setup_path || openPosition?.setupPath || ""
+          ).toLowerCase();
+          let _entryRegime = String(
+            openPosition?.entryRegime || openPosition?.entry_regime ||
+            openPosition?.regime_at_entry || ""
+          ).toUpperCase();
+          // Fallback: read from entry_signals_json blob (survives D1
+          // round-trips where the in-memory entry_regime field isn't
+          // included in the schema).
+          if (!_entryRegime && openPosition?.entry_signals_json) {
+            try {
+              const _es = typeof openPosition.entry_signals_json === "string"
+                ? JSON.parse(openPosition.entry_signals_json)
+                : openPosition.entry_signals_json;
+              _entryRegime = String(
+                _es?.regime_at_entry ||
+                _es?.entry_regime ||
+                _es?.regime_class ||
+                ""
+              ).toUpperCase();
+            } catch (_) {}
+          }
+          const _currentRegime = String(
+            tickerData?.regime?.combined || tickerData?.regime_combined || ""
+          ).toUpperCase();
+          const _mfe = Number(openPosition?.maxFavorableExcursion
+            ?? openPosition?.max_favorable_excursion
+            ?? openPosition?.mfe ?? 0);
+          // ageMin = positionAgeMin (already computed above)
+          // V15 P0.7.67 (2026-05-05) — TICK/ADD tape capitulation override.
+          // If the broad tape is capitulating against our trade direction
+          // AND the trade is unprofitable AND age >= 1 session, force exit.
+          // Carter's "tape is screaming, get out" rule.
+          const _tapeCtx = tickerData?._env?._tapeContext || null;
+          if (_tapeCtx && tickerData?.__etf_ride_runner !== true) {
+            try {
+              if (MarketInternals.shouldTightenLongsForTape(_tapeCtx)
+                  && direction === "LONG"
+                  && pnlPct < 0
+                  && positionAgeMin >= 60) {
+                tickerData.__exit_reason = "tape_capitulation_force_exit";
+                tickerData.__exit_family = "tape_internals";
+                tickerData.__exit_meta = {
+                  tape_tone: _tapeCtx.tone,
+                  tape_strength: _tapeCtx.strength,
+                  tick_value: _tapeCtx.tick?.value,
+                  add_value: _tapeCtx.add?.value,
+                  pnl_pct: pnlPct,
+                  age_min: positionAgeMin,
+                };
+                return "exit";
+              }
+            } catch (_) {}
+          }
+
+          const _doctrine = ExitDoctrine.chooseExitDoctrine(
+            {
+              ticker: String(tickerData?.ticker || openPosition?.ticker || "").toUpperCase(),
+              setup: _setupForDoctrine,
+              direction,
+              entryRegime: _entryRegime,
+              currentRegime: _currentRegime,
+              mfePct: _mfe,
+              currentPnlPct: pnlPct,
+              ageMin: positionAgeMin,
+              nowMs: now,
+              etfRideRunner: tickerData?.__etf_ride_runner === true,
+              tapeContext: _tapeCtx,
+            },
+            // Pass null doctrine so it uses the embedded default. KV-backed
+            // override is loaded asynchronously via loadExitDoctrine() at the
+            // start of each scoring cycle and cached for 60s.
+            null,
+          );
+          // Stash on tickerData for downstream exit rules to read as overrides.
+          tickerData.__exit_doctrine = _doctrine;
+          if (_doctrine && _doctrine.force_exit === true) {
+            tickerData.__exit_reason = "doctrine_force_exit";
+            tickerData.__exit_family = "doctrine";
+            tickerData.__exit_meta = {
+              doctrine_action: _doctrine.action,
+              doctrine_reason: _doctrine.reason,
+              setup: _setupForDoctrine,
+              entry_regime: _entryRegime,
+              current_regime: _currentRegime,
+              mfe_pct: _mfe,
+              pnl_pct: pnlPct,
+              age_min: positionAgeMin,
+            };
+            return "exit";
+          }
+        } catch (_doctrineErr) {
+          // Doctrine failure must NEVER block legit management. Default to no override.
+          tickerData.__exit_doctrine = null;
+        }
+      }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // PHASE C — Stage 1 (2026-05-05) — ETF STAGNANT-EXIT.
+    //
+    // For ETFs in our profile, fire stagnant-exit faster than stocks:
+    //   - 4h dead-money cut if MFE never cleared 0.3%
+    //   - 8h dead-money cut if MFE never cleared 0.5%
+    //
+    // Stocks default to 24h. SPY/QQQ/IWM trades that just sit at flat
+    // for 24h have already given back any tradable move.
+    // See worker/etf-profile.js getEtfStagnantCheck.
+    // ═════════════════════════════════════════════════════════════════════════
+    {
+      const _etfTickerForStag = String(tickerData?.ticker || openPosition?.ticker || "").toUpperCase();
+      if (EtfProfile.isEtfProfileTicker(_etfTickerForStag)) {
+        try {
+          const _mfeForStag = Number(openPosition?.maxFavorableExcursion
+            ?? openPosition?.max_favorable_excursion
+            ?? openPosition?.mfe ?? 0);
+          const _ageHForStag = positionAgeMin / 60;
+          const _stagCheck = EtfProfile.checkEtfStagnantExit(_etfTickerForStag, _mfeForStag, _ageHForStag, pnlPct);
+          if (_stagCheck && _stagCheck.fire === true) {
+            tickerData.__exit_reason = "etf_stagnant_exit";
+            tickerData.__exit_family = "etf_profile";
+            tickerData.__exit_meta = {
+              etf_stagnant_reason: _stagCheck.reason,
+              ticker: _etfTickerForStag,
+              mfe_pct: _mfeForStag,
+              pnl_pct: pnlPct,
+              age_h: _ageHForStag,
+            };
+            return "exit";
+          }
+        } catch (_etfStagErr) {
+          // Don't block management on errors
+        }
+      }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
     // V13 NON-BYPASSABLE SAFETY NETS (2026-04-24)
     //
     // V13e found two failure modes where trades got stuck OPEN:
@@ -6804,7 +7173,22 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       const _v13SafetyEnabled = String(
         tickerData?._env?._deepAuditConfig?.deep_audit_v13_safety_nets_enabled ?? "true"
       ) === "true";
-      if (_v13SafetyEnabled) {
+      // V15 P0.7.57 (2026-05-04) — Defense-in-depth against wall-clock
+      // force-closes during read-time evaluation of backtest trades.
+      // Root cause: classifyKanbanStage has many callers that don't pass
+      // asOfTs (read-time paths like /timed/all, /timed/prediction-contract,
+      // and possibly the live cron's queued-action path). When called
+      // without asOfTs, `now = Date.now()`, so V13 hard age/pnl evaluates
+      // a 9-month-old replay trade as "30 days expired", force-closes it
+      // at wall-clock time, and corrupts the run.
+      //
+      // Guard: if no asOfTs was passed AND the open trade has a non-null
+      // run_id (= it's a backtest trade, not live), short-circuit V13.
+      // Replay-engine callers ALWAYS pass asOfTs; only read-time / live-
+      // cron callers don't. Live trades have run_id=null so they still
+      // get V13 protection as intended.
+      const _v13IsBacktestRunReadTime = (asOfTs == null) && (openPosition?.run_id || openPosition?.runId);
+      if (_v13SafetyEnabled && !_v13IsBacktestRunReadTime) {
         // Safety 1: absolute pnl floor (V11 NXT went to -10%; should never happen)
         const _v13MaxPnlFloor = Number(
           tickerData?._env?._deepAuditConfig?.deep_audit_v13_max_pnl_floor_pct ?? -4.5
@@ -6902,11 +7286,89 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       const _earlyPdzWindowMin = Number(tickerData?._env?._deepAuditConfig?.deep_audit_max_loss_pdz_window_min) || 390;
       const _earlyPdzToleranceActive = _earlyInFavorableZone && _earlyRegimeConfirms;
       const _earlyPdzWindowOpen = positionAgeMarketMin < _earlyPdzWindowMin;
-      const _earlyMaxLossPct = (_earlyPdzToleranceActive && _earlyPdzWindowOpen) ? _earlyPdzMaxLossPct : _earlyNormalMaxLossPct;
+      let _earlyMaxLossPct = (_earlyPdzToleranceActive && _earlyPdzWindowOpen) ? _earlyPdzMaxLossPct : _earlyNormalMaxLossPct;
+
+      /* V15 P0.7.55 (2026-05-04) — Momentum Buffer.
+         User SNDK Sep-18 case: stock was up 100%+ above daily VWAP, in
+         HTF_BULL_LTF_BULL state, bull_stack=true, EMAs in order, slope
+         rising — a textbook high-momentum runner. We entered at $102.41
+         and bailed at -3.53% same-day via max_loss without giving the
+         pullback the benefit of the doubt. The model captured all the
+         right structural strength signals; we just didn't USE them on
+         the SL side.
+
+         Rule: when the trade is in our workhorse cohort AND the ticker
+         qualifies as Momentum Elite (the existing 🚀 flag from
+         computeMomentumElite() — price>=$4, ADR>=1.5%, avgVol>=2M, AND
+         1-month price change >= +25%), give the trade earned momentum
+         credit on the SL side. Momentum Elite is the right primitive
+         here — it's already battle-tested and specifically captures
+         "leading momentum" which is exactly what SNDK was on Sep-18.
+
+         Complementary structural signals are still required (4+ of 5)
+         so we don't loosen on a Momentum Elite ticker that's lost its
+         structural backing (e.g. Momentum Elite but dropped below e200
+         and bull_stack broken — that would be a real reversal). */
+      const _momBufEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_momentum_buffer_enabled ?? "true") === "true";
+      let _momBufApplied = false;
+      let _momBufWhy = null;
+      if (_momBufEnabled) {
+        const _mbDir = direction;
+        const _mbEntryPath = String(openPosition?.entryPath || openPosition?.entry_path || "").toLowerCase();
+        let _mbPersonality = String(tickerData?.execution_profile?.personality || tickerData?.ticker_character?.personality || "").toUpperCase();
+        if (!_mbPersonality) {
+          try {
+            let _mbEs = openPosition?.entrySignals || openPosition?.entry_signals;
+            if (!_mbEs && openPosition?.entry_signals_json) _mbEs = JSON.parse(openPosition.entry_signals_json);
+            if (_mbEs?.personality) _mbPersonality = String(_mbEs.personality).toUpperCase();
+          } catch (_) {}
+        }
+        const _mbIsCohort = _mbDir === "LONG"
+          && _mbEntryPath === "tt_gap_reversal_long"
+          && _mbPersonality === "VOLATILE_RUNNER";
+        if (_mbIsCohort) {
+          // Primary qualifier: the existing Momentum Elite flag (🚀).
+          // Captures price>=$4, ADR>=1.5%, avgVol>=2M, +1mo change>=25%.
+          const _mbMomentumElite = !!tickerData?.flags?.momentum_elite
+            || !!tickerData?.had_momentum_elite
+            || !!tickerData?.flags?.had_momentum_elite;
+          // Structural backing: must still have the trend intact.
+          const _mbBullStack = !!tickerData?.daily_structure?.bull_stack;
+          const _mbAboveE200 = !!tickerData?.daily_structure?.above_e200;
+          const _mbState = String(tickerData?.state || "").toUpperCase();
+          const _mbHtfBullLtfBull = _mbState.startsWith("HTF_BULL_LTF_BULL");
+          // Optional secondary momentum check from VWAP (extra confirmation).
+          const _mbVwapDDist = Number(tickerData?.vwap?.D?.dist_pct) || 0;
+          const _mbVwapDSlope = Number(tickerData?.vwap?.D?.slope_5bar) || 0;
+          const _mbAdvDiv = !!tickerData?.__entry_divergence_summary?.adverse_phase
+            || !!tickerData?.__entry_divergence_summary?.adverse_rsi;
+          const _mbStructural = [
+            _mbBullStack,
+            _mbAboveE200,
+            _mbHtfBullLtfBull,
+            _mbVwapDDist >= 30 && _mbVwapDSlope > 0,
+            !_mbAdvDiv,
+          ].filter(Boolean);
+          const _mbStructuralThreshold = Number(tickerData?._env?._deepAuditConfig?.deep_audit_momentum_buffer_min_signals) || 3;
+          if (_mbMomentumElite && _mbStructural.length >= _mbStructuralThreshold) {
+            const _mbBuffer = Number(tickerData?._env?._deepAuditConfig?.deep_audit_momentum_buffer_max_loss_pct) || -5.0;
+            _earlyMaxLossPct = Math.min(_earlyMaxLossPct, _mbBuffer); // expand (more negative)
+            _momBufApplied = true;
+            _momBufWhy = `mom_buffer:elite=true vwapD=${_mbVwapDDist.toFixed(0)}% structural=${_mbStructural.length}/5`;
+            tickerData.__momentum_buffer_active = true;
+            tickerData.__momentum_buffer_elite = true;
+            tickerData.__momentum_buffer_structural = _mbStructural.length;
+          }
+        }
+      }
+
       if (pnlPct <= _earlyMaxLossPct) {
+        if (_momBufApplied) {
+          console.log(`[max_loss] ${tickerData?.ticker || "?"} fired at ${pnlPct.toFixed(2)}% despite momentum buffer expanding floor to ${_earlyMaxLossPct.toFixed(1)}% (${_momBufWhy})`);
+        }
         tickerData.__exit_reason = (_earlyPdzToleranceActive && !_earlyPdzWindowOpen)
           ? "max_loss_pdz_window_expired"
-          : "max_loss";
+          : (_momBufApplied ? "max_loss_momentum_buffered" : "max_loss");
         tickerData.__exit_family = "safety";
         return "exit";
       }
@@ -6929,16 +7391,77 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         const _tsMaxLossEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_time_scaled_max_loss_enabled ?? "true") === "true";
         if (_tsMaxLossEnabled && !_earlyPdzToleranceActive) {
           const _agMin = positionAgeMarketMin;
-          const _tsFloor4h = Number(tickerData?._env?._deepAuditConfig?.deep_audit_time_scaled_max_loss_4h_pct) || -2.5;
-          const _tsFloor12h = Number(tickerData?._env?._deepAuditConfig?.deep_audit_time_scaled_max_loss_12h_pct) || -2.0;
-          const _tsFloor24h = Number(tickerData?._env?._deepAuditConfig?.deep_audit_time_scaled_max_loss_24h_pct) || -1.5;
+          let _tsFloor4h = Number(tickerData?._env?._deepAuditConfig?.deep_audit_time_scaled_max_loss_4h_pct) || -2.5;
+          let _tsFloor12h = Number(tickerData?._env?._deepAuditConfig?.deep_audit_time_scaled_max_loss_12h_pct) || -2.0;
+          let _tsFloor24h = Number(tickerData?._env?._deepAuditConfig?.deep_audit_time_scaled_max_loss_24h_pct) || -1.5;
+          // V15 P0.7.55 — momentum buffer extends time-scaled floors too
+          if (_momBufApplied) {
+            const _mbTsExpand = Number(tickerData?._env?._deepAuditConfig?.deep_audit_momentum_buffer_time_scaled_expand_pct) || 1.0;
+            _tsFloor4h = Math.min(_tsFloor4h, _tsFloor4h - _mbTsExpand);
+            _tsFloor12h = Math.min(_tsFloor12h, _tsFloor12h - (_mbTsExpand * 0.6));
+            _tsFloor24h = Math.min(_tsFloor24h, _tsFloor24h - (_mbTsExpand * 0.3));
+          }
           let _tsCurrentFloor = null;
           if (_agMin >= 240 && _agMin < 720) _tsCurrentFloor = _tsFloor4h;
           else if (_agMin >= 720 && _agMin < 1440) _tsCurrentFloor = _tsFloor12h;
           else if (_agMin >= 1440) _tsCurrentFloor = _tsFloor24h;
           if (_tsCurrentFloor != null && pnlPct <= _tsCurrentFloor) {
-            tickerData.__exit_reason = "max_loss_time_scaled";
+            tickerData.__exit_reason = _momBufApplied ? "max_loss_time_scaled_momentum_buffered" : "max_loss_time_scaled";
             tickerData.__exit_family = "safety";
+            return "exit";
+          }
+        }
+      }
+
+      /* V15 P0.7.56 (2026-05-04) — Thesis-Flip Early Exit.
+         XLP Oct-13-15 case: SHORT entered at $77.88 with HTFs already
+         leaning bull (m30/h1/h4/D ST=+1, only m10=-1). Held 2 days
+         waiting for max_loss_time_scaled. The full HTF stack flipped
+         bull within hours of entry — the short thesis was dead and
+         we should have bailed within 1-2 bars instead of grinding.
+
+         Rule: if SHORT entry's HTF SuperTrends are 3-of-4 (30m, 1H,
+         4H, D) AGAINST direction for 2+ consecutive bars after entry
+         AND we're in red, exit immediately. Mirror for LONG. Cap at
+         -1% to avoid firing on micro-wiggles within 30 min of entry.
+
+         Knobs:
+           deep_audit_thesis_flip_enabled (default true)
+           deep_audit_thesis_flip_min_age_min (default 60 — 1H min hold)
+           deep_audit_thesis_flip_min_pnl_pct (default -0.5 — must be red) */
+      {
+        const _tfEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_thesis_flip_enabled ?? "true") === "true";
+        const _tfMinAgeMin = Number(tickerData?._env?._deepAuditConfig?.deep_audit_thesis_flip_min_age_min) || 60;
+        const _tfMinPnlPct = Number(tickerData?._env?._deepAuditConfig?.deep_audit_thesis_flip_min_pnl_pct) || -0.5;
+        // V15 P0.7.66 (2026-05-05) — Tier 1A: skip thesis_flip_htf for ETFs.
+        // ETF audit Path A Jul-Feb: thesis_flip_htf fired 17× on ETFs,
+        // 6% WR, -$1,246. The rule fires on macro noise that doesn't
+        // actually invalidate ETF momentum. Replaced by ETF-specific
+        // structural exits (RSI fuses, ST flip) which work much better
+        // (SOFT_FUSE_RSI_CONFIRMED: 100% WR, +$1,179 on ETFs).
+        const _tfTickerForSkip = String(tickerData?.ticker || "").toUpperCase();
+        const _tfIsEtf = EtfProfile.isEtfProfileTicker(_tfTickerForSkip);
+        if (_tfEnabled && !_tfIsEtf && positionAgeMarketMin >= _tfMinAgeMin && pnlPct <= _tfMinPnlPct) {
+          const _st30 = Number(tickerData?.tf_tech?.["30"]?.stDir) || 0;
+          const _st1H = Number(tickerData?.tf_tech?.["1H"]?.stDir ?? tickerData?.tf_tech?.["60"]?.stDir) || 0;
+          const _st4H = Number(tickerData?.tf_tech?.["4H"]?.stDir ?? tickerData?.tf_tech?.["240"]?.stDir) || 0;
+          const _stD = Number(tickerData?.tf_tech?.D?.stDir) || 0;
+          // For LONG, "against" means stDir = +1 (bear ST signal).
+          // For SHORT, "against" means stDir = -1 (bull ST signal).
+          // (SuperTrend stDir convention: -1 = bullish trend, +1 = bearish trend.)
+          const _againstSign = direction === "LONG" ? 1 : -1;
+          const _flipped = [_st30, _st1H, _st4H, _stD].filter((s) => s === _againstSign).length;
+          if (_flipped >= 3) {
+            tickerData.__exit_reason = "thesis_flip_htf";
+            tickerData.__exit_family = "safety";
+            tickerData.__exit_detail = {
+              direction,
+              flipped_count: _flipped,
+              st30: _st30, st1h: _st1H, st4h: _st4H, stD: _stD,
+              age_market_min: positionAgeMarketMin,
+              pnl_pct: pnlPct,
+            };
+            console.log(`[THESIS_FLIP] ${tickerData?.ticker} ${direction} flipped against on ${_flipped}/4 HTF ST (30m=${_st30} 1H=${_st1H} 4H=${_st4H} D=${_stD}), pnl=${pnlPct.toFixed(2)}%, age=${positionAgeMarketMin}m → exit`);
             return "exit";
           }
         }
@@ -7316,11 +7839,19 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           tickerData?._env?._deepAuditConfig?.deep_audit_winner_protect_big_mfe_enabled ?? "true"
         ) === "true";
         if (_bigMfeEnabled && openPosition && isOpenTradeStatus(openPosition?.status)) {
+          /* V15 P0.7.52 (2026-05-03) — big-MFE protection lowered + tightened.
+             Top-10 MFE trades in Jul-Aug averaged MFE 18.0% with only 7.0%
+             pnl captured (38% capture). Threshold 15% never armed for the
+             8-14% MFE bucket (KTOS, GEV, AVAV, ANET, ALB, LITE) where every
+             fire today gives back >65%. New defaults: armed at 8% MFE
+             (catches the medium bucket), lock at 0.55 of peak (anchors SL
+             tighter so structural-flatten cascade can't fire). Both still
+             override-able via the same DA flags. */
           const _bigMfeThreshold = Number(
-            tickerData?._env?._deepAuditConfig?.deep_audit_winner_protect_big_mfe_threshold_pct ?? 15.0
+            tickerData?._env?._deepAuditConfig?.deep_audit_winner_protect_big_mfe_threshold_pct ?? 8.0
           );
           const _bigMfeLockPct = Math.max(0, Math.min(0.95, Number(
-            tickerData?._env?._deepAuditConfig?.deep_audit_winner_protect_big_mfe_lock_pct ?? 0.60
+            tickerData?._env?._deepAuditConfig?.deep_audit_winner_protect_big_mfe_lock_pct ?? 0.55
           )));
           if (_p3MfeAbs >= _bigMfeThreshold) {
             const _bigMfeEntryPx = Number(openPosition?.entryPrice || openPosition?.avgEntry);
@@ -7654,25 +8185,37 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           // this cut at hour 24+. Cohort analysis showed 6 of 8 such cuts
           // became wins anyway — this rule is killing healthy slow movers.
           {
-            const _structIntactGracePassed = (() => {
-              const _ds = tickerData?.daily_structure || {};
-              const _bullStack = _ds?.bull_stack === true;
-              const _bearStack = _ds?.bear_stack === true;
-              const _e21 = Number(_ds?.e21);
-              const _px = Number(tickerData?.price);
-              const _isLong = direction === "LONG";
-              const _structAligned = _isLong ? _bullStack : _bearStack;
-              const _aboveE21 = (_isLong && _px > _e21) || (!_isLong && _px < _e21);
-              return _structAligned && _aboveE21;
-            })();
-            const _deadMoneyGraceH = _structIntactGracePassed ? 48 : 24;
-            // V15 P0.7.27: runner-protect-active fully skips this tier.
-            if (!_runnerProtectActive
-                && _agH >= _deadMoneyGraceH && _agH < 72 && pnlPct < 0 && _mfeAbs < 1.5) {
-              tickerData.__exit_reason = "phase_i_mfe_dead_money_24h";
-              tickerData.__exit_family = "safety";
-              tickerData.__exit_meta = { age_h: _agH, struct_intact: _structIntactGracePassed };
-              return "exit";
+            // V15 P0.7.66 (2026-05-05) — Tier 1B: skip 24h dead-money for ETFs.
+            // ETF audit: phase_i_mfe_dead_money_24h fired 8× on ETFs and
+            // included 4 trades with MFE >= 1.0% (winners-in-progress). The
+            // ETF-specific etf_stagnant_exit (4h fast-cut + 8h dead-money,
+            // PnL-aware after V15 P0.7.64) handles this better. Skip the
+            // legacy stock 24h rule for ETFs.
+            const _ddTickerForSkip = String(tickerData?.ticker || "").toUpperCase();
+            const _ddIsEtf = EtfProfile.isEtfProfileTicker(_ddTickerForSkip);
+            if (_ddIsEtf) {
+              // ETF-specific stagnant gate already fired above; skip stock rule
+            } else {
+              const _structIntactGracePassed = (() => {
+                const _ds = tickerData?.daily_structure || {};
+                const _bullStack = _ds?.bull_stack === true;
+                const _bearStack = _ds?.bear_stack === true;
+                const _e21 = Number(_ds?.e21);
+                const _px = Number(tickerData?.price);
+                const _isLong = direction === "LONG";
+                const _structAligned = _isLong ? _bullStack : _bearStack;
+                const _aboveE21 = (_isLong && _px > _e21) || (!_isLong && _px < _e21);
+                return _structAligned && _aboveE21;
+              })();
+              const _deadMoneyGraceH = _structIntactGracePassed ? 48 : 24;
+              // V15 P0.7.27: runner-protect-active fully skips this tier.
+              if (!_runnerProtectActive
+                  && _agH >= _deadMoneyGraceH && _agH < 72 && pnlPct < 0 && _mfeAbs < 1.5) {
+                tickerData.__exit_reason = "phase_i_mfe_dead_money_24h";
+                tickerData.__exit_family = "safety";
+                tickerData.__exit_meta = { age_h: _agH, struct_intact: _structIntactGracePassed };
+                return "exit";
+              }
             }
           }
           // Tier 5: 72h — capital locked, any pnl
@@ -8293,7 +8836,33 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
             const _mdPeakMinCfg = Number(tickerData?._env?._deepAuditConfig?.deep_audit_mfe_decay_peak_min);
             const _mdGivebackMaxCfg = Number(tickerData?._env?._deepAuditConfig?.deep_audit_mfe_decay_giveback_pct_max);
             const _mdPeakMin = Number.isFinite(_mdPeakMinCfg) ? _mdPeakMinCfg : 3.0;
-            const _mdGivebackMax = Number.isFinite(_mdGivebackMaxCfg) ? _mdGivebackMaxCfg : 0.6;
+            let _mdGivebackMax = Number.isFinite(_mdGivebackMaxCfg) ? _mdGivebackMaxCfg : 0.6;
+            /* V15 P0.7.52 (2026-05-03) — cohort-scoped giveback relax.
+               Universe-vs-system benchmark + Jul-Aug deep analysis showed
+               every top-15 MFE trade lives in `tt_gap_reversal_long ×
+               VOLATILE_RUNNER`, and three exit rules (this one,
+               PROFIT_GIVEBACK_STAGE_HOLD, SMART_RUNNER_SUPPORT_BREAK_CLOUD)
+               cap their average capture at 22-31%. The rule has ZERO losers
+               in Jul-Aug across 11 fires (n=11 W=11 L=0), so relaxing it
+               for the cohort cannot create losers — only lets the runner
+               run further. Default 0.60 unchanged for everything else. */
+            const _mdEntryPath = String(openPosition?.entryPath || openPosition?.entry_path || "").toLowerCase();
+            let _mdPersonality = String(openPosition?.personality || openPosition?.ticker_personality || "").toUpperCase();
+            if (!_mdPersonality) {
+              try {
+                let _mdEs = openPosition?.entrySignals || openPosition?.entry_signals;
+                if (!_mdEs && openPosition?.entry_signals_json) {
+                  _mdEs = JSON.parse(openPosition.entry_signals_json);
+                }
+                if (_mdEs?.personality) _mdPersonality = String(_mdEs.personality).toUpperCase();
+              } catch (_) {}
+            }
+            const _mdIsVolRunnerGapLong = direction === "LONG" && _mdEntryPath === "tt_gap_reversal_long" && _mdPersonality === "VOLATILE_RUNNER";
+            if (_mdIsVolRunnerGapLong) {
+              const _mdCohortCfg = Number(tickerData?._env?._deepAuditConfig?.deep_audit_mfe_decay_giveback_pct_max_volrunner_gap_long);
+              if (Number.isFinite(_mdCohortCfg)) _mdGivebackMax = _mdCohortCfg;
+              else _mdGivebackMax = 0.75;
+            }
             const _mdMfePct = Math.max(
               Number(openPosition?.maxFavorableExcursion ?? openPosition?.max_favorable_excursion ?? openPosition?.mfePct) || 0,
               Number(openPosition?.__tradeRef?.maxFavorableExcursion ?? openPosition?.__tradeRef?.max_favorable_excursion ?? openPosition?.__tradeRef?.mfePct) || 0,
@@ -11214,7 +11783,7 @@ function formatSetupName(entryPath) {
 // Sizes positions so that if the stop-loss is hit, the account loses
 // a tier-driven percentage of the portfolio value.
 // tierRiskPct is the portfolio % to risk (e.g., 0.01 = 1%).
-function computeRiskBasedSize(confidence, accountValue, entryPrice, stopLoss, vixLevel, env, tierRiskPct) {
+function computeRiskBasedSize(confidence, accountValue, entryPrice, stopLoss, vixLevel, env, tierRiskPct, tapeMultiplier) {
   const cfg = getSizingConfig(env);
   const acctVal = Number.isFinite(accountValue) && accountValue > 0 ? accountValue : PORTFOLIO_START_CASH;
 
@@ -11226,15 +11795,23 @@ function computeRiskBasedSize(confidence, accountValue, entryPrice, stopLoss, vi
     else if (vix > cfg.VIX_HIGH) vixMultiplier = 0.75;
   }
 
+  // 1b. V15 P0.7.67 (2026-05-05) — TICK/ADD tape modulator.
+  // When the broad tape is aligned with the trade direction, scale up.
+  // When disagreeing, scale down. Computed by market-internals.getEntrySizeModulation().
+  // Defaults to 1.0 when not provided / no tape data available.
+  const _tapeMult = Number.isFinite(Number(tapeMultiplier)) && Number(tapeMultiplier) > 0
+    ? Number(tapeMultiplier)
+    : 1.0;
+
   // 2. Max dollar risk — tier-based portfolio % when available, else legacy confidence-to-%
   let riskPct, maxDollarRisk;
   const usingTier = Number.isFinite(tierRiskPct) && tierRiskPct > 0;
   if (usingTier) {
     riskPct = tierRiskPct;
-    maxDollarRisk = acctVal * riskPct * vixMultiplier;
+    maxDollarRisk = acctVal * riskPct * vixMultiplier * _tapeMult;
   } else {
     riskPct = cfg.MIN_RISK_PCT + (cfg.MAX_RISK_PCT - cfg.MIN_RISK_PCT) * clamp(confidence, 0, 1);
-    maxDollarRisk = acctVal * riskPct * vixMultiplier;
+    maxDollarRisk = acctVal * riskPct * vixMultiplier * _tapeMult;
   }
 
   // 3. Risk per share = distance from entry to stop loss
@@ -12974,6 +13551,34 @@ function build3TierTPArray(tickerData, entryPrice, direction) {
     return [];
   }
 
+  // ═════════════════════════════════════════════════════════════════════════
+  // PHASE C — Stage 1 (2026-05-05) — ETF MANAGEMENT PROFILE OVERRIDE.
+  // Per user direction: "we want to be masters of the ETFs."
+  //
+  // For broad-market index ETFs (SPY/QQQ/IWM/DIA), sector ETFs (XL*),
+  // and thematic ETFs (GLD/SLV/USO/KWEB/etc.), use a tighter TP ladder
+  // calibrated to the realities of ETF intraday action:
+  //   - TRIM at +0.6% (vs stocks at +1.5% min)
+  //   - EXIT at +1.2%
+  //   - RUNNER at +2.5%
+  //   - 60% trim at TP1 (vs 50% for stocks — ETF moves give back fast)
+  //
+  // Skipped for: leveraged ETFs (SOXL/TNA/AGQ etc.), volatility products
+  // (VIXY/UVXY), and crypto (BTCUSD/ETHUSD) — those keep stock-style
+  // management per user direction.
+  //
+  // See worker/etf-profile.js for the full classification + parameters.
+  // ═════════════════════════════════════════════════════════════════════════
+  const _etfTickerForTp = String(tickerData?.ticker || tickerData?.sym || "").toUpperCase();
+  if (_etfTickerForTp && EtfProfile.isEtfProfileTicker(_etfTickerForTp)) {
+    const etfTpArray = EtfProfile.buildEtfTpArray(_etfTickerForTp, entryPrice, direction);
+    if (etfTpArray && etfTpArray.length === 3) {
+      // Mark on tickerData so other code paths can detect ETF-managed trades
+      tickerData.__etf_managed = true;
+      return etfTpArray;
+    }
+  }
+
   // ── PRECISION ENGINE: Use ATR Fibonacci level-based TPs if available ──
   // These are computed from daily ATR levels: TRIM=1.5x, EXIT=2.5x, RUNNER=4.0x
   const pTrim = Number(tickerData.tp_trim);
@@ -14423,6 +15028,29 @@ async function processTradeSimulation(
       allTrades = (await kvGetJSON(KV, tradesKey)) || [];
     }
 
+    // Phase C — Stage 1 (2026-05-04) — BACKTEST TRADE PROTECTION.
+    // When called from the live cron (or any non-replay path) we MUST NOT
+    // evaluate trades that belong to a backtest run. Even if d1LoadTrades-
+    // ForSimulation filters by run_id at the source, a stale KV blob in
+    // `timed:trades:all` (or a different code path that constructs allTrades
+    // from elsewhere) can leak backtest trades into this function. Without
+    // this guard, classifyKanbanStage's many wall-clock-time exit rules
+    // (V13 hard age cap, V13 hard pnl floor, HARD_LOSS_CAP, mid-trade
+    // regime flip, atr_day_adverse, etc.) all fire on a 9-month-old open
+    // backtest trade and force-close it at wall-clock prices, corrupting
+    // the run.
+    //
+    // Strip ANY trade with a non-null run_id from allTrades when not in
+    // replay. Replay paths set isReplay=true and pass their own allTrades
+    // via replayCtx, so this guard never fires for legitimate replay work.
+    if (!isReplay && Array.isArray(allTrades) && allTrades.length > 0) {
+      const _origLen = allTrades.length;
+      allTrades = allTrades.filter((t) => !t?.run_id && !t?.runId);
+      if (allTrades.length !== _origLen) {
+        console.log(`[BACKTEST_GUARD] processTradeSimulation(${sym}): stripped ${_origLen - allTrades.length} backtest trades (run_id != null) from live cron evaluation`);
+      }
+    }
+
     const entryTsForTrade = (t) => {
       const et = Number(t?.entry_ts ?? t?.entryTs);
       if (Number.isFinite(et)) return et;
@@ -15378,6 +16006,7 @@ async function processTradeSimulation(
                 value: p * remainingShares,
                 pnl: pnlRemaining,
               },
+              tsMs, // V15 P0.7.97 — actionTs (exit decision time)
             );
             if (!isReplay) {
               const chartUrl = getTradeAutopsyChartUrl(env, trade.id);
@@ -15396,10 +16025,14 @@ async function processTradeSimulation(
                   }))
                 : { ok: false, skipped: true, reason: "critical_only" };
               // Replay/backtest exits should not emit user-facing notifications.
+              // V15 P0.7.97 — exit notification body now includes the
+              // ET clock time of the exit so users can see WHEN the
+              // close happened vs the live market price they see now.
+              const _exitEtTime = formatEtClock(tsMs);
               queueBackground(d1InsertNotification(env, {
                 email: null, type: "trade_exit",
-                title: `EXIT: ${sym} ${String(trade.direction || "").toUpperCase()}`,
-                body: `Closed ${sym} @ $${Number(trade.exitPrice).toFixed(2)} (P&L: ${Number(trade.pnlPct || 0) >= 0 ? "+" : ""}${Number(trade.pnlPct || 0).toFixed(1)}%, ${String(trade.status || "").toUpperCase()})`,
+                title: `EXIT (${String(trade.status || "").toUpperCase()}): ${sym} ${String(trade.direction || "").toUpperCase()} @ $${Number(trade.exitPrice).toFixed(2)}${_exitEtTime ? ` · ${_exitEtTime}` : ""}`,
+                body: `Closed ${sym} ${String(trade.direction || "").toUpperCase()}${_exitEtTime ? ` at ${_exitEtTime}` : ""} · Filled $${Number(trade.exitPrice).toFixed(2)} · P&L ${Number(trade.pnlPct || 0) >= 0 ? "+" : ""}${Number(trade.pnlPct || 0).toFixed(2)}%`,
                 link: `/simulation-dashboard.html`,
               }));
               queueBackground(dispatchTradeAlertEmails(env, {
@@ -15801,7 +16434,7 @@ async function processTradeSimulation(
               dir,
               Number(trade.entryPrice),
               Number(trade.currentPrice || p),
-              Number(trade.tp || p),
+              Number(p), // V15 P0.7.97 — actual fill price for this trim
               Number(pnlRealized || 0),
               Number(pnlPctAtTrim || 0),
               tgt,
@@ -15809,6 +16442,7 @@ async function processTradeSimulation(
               trade,
               delta,
               { qty: trimShares, value: p * trimShares, pnl: pnlRealized },
+              tsMs, // V15 P0.7.97 — pass action ts so embed shows when
             );
             const trimChartUrl = getTradeAutopsyChartUrl(env, trade.id);
             if (trimChartUrl) {
@@ -15822,10 +16456,17 @@ async function processTradeSimulation(
                 }))
               : { ok: false, skipped: true, reason: "critical_only" };
             // In-app notification for trade trim
+            // V15 P0.7.97 — body now includes the fill PRICE and the
+            // ET clock time of the action. Without these, users were
+            // confused by alerts that arrived a few minutes after the
+            // trim and showed only "trimmed to 50%" while the live
+            // market had already drifted.
+            const _trimEtTime = formatEtClock(tsMs);
+            const _trimPriceFmt = Number.isFinite(Number(p)) ? `$${Number(p).toFixed(2)}` : null;
             queueBackground(d1InsertNotification(env, {
               email: null, type: "trade_trim",
-              title: `TRIM: ${sym} ${dir}`,
-              body: `Trimmed ${sym} ${dir} to ${tgt}% (P&L: ${Number(pnlPctAtTrim || 0) >= 0 ? "+" : ""}${Number(pnlPctAtTrim || 0).toFixed(1)}%)`,
+              title: `TRIM: ${sym} ${dir} ${tgt}%${_trimPriceFmt ? ` @ ${_trimPriceFmt}` : ""}`,
+              body: `Trimmed ${sym} ${dir} ${tgt}% of position${_trimPriceFmt ? ` filled at ${_trimPriceFmt}` : ""}${_trimEtTime ? ` (${_trimEtTime})` : ""} — P&L ${Number(pnlPctAtTrim || 0) >= 0 ? "+" : ""}${Number(pnlPctAtTrim || 0).toFixed(2)}%`,
               link: `/index-react.html?ticker=${sym}`,
             }));
             // Email trade alert
@@ -16481,8 +17122,36 @@ async function processTradeSimulation(
       const rsi1H = tickerData?.tf_tech?.["1H"]?.rsi?.r5 ?? 50;
       const rsi4H = tickerData?.tf_tech?.["4H"]?.rsi?.r5 ?? 50;
 
+      /* V15 P0.7.51 (2026-05-03) — setup-aware HARD FUSE thresholds.
+         The universe-vs-system benchmark (tasks/phase-c/universe-benchmark/
+         comparison.md) showed `HARD_FUSE_RSI_EXTREME` was the dominant exit
+         reason on `VOLATILE_RUNNER × TT Tt Gap Reversal Long` mismanaged
+         winners — these tickers (SNDK +82% oracle / 7% captured, BE +63% /
+         -2%, RDDT +59% / 16%, …) regularly run hot RSI for many bars while
+         the trend continues. Default 85/80 thresholds cut them at the
+         start of the move. We raise the bar to 88/83 only for that combo
+         (entry_path = tt_gap_reversal_long AND personality VOLATILE_RUNNER).
+         All other setups keep 85/80, which still protects the 114 'edge'
+         wins (Σ +268% pnl) on PULLBACK_PLAYER × N_TEST and similar. Knobs
+         are exposed via DA so we can tune per leg without redeploying. */
+      let _es = openTrade?.entrySignals || openTrade?.entry_signals || null;
+      if (!_es && openTrade?.entry_signals_json) {
+        try { _es = JSON.parse(openTrade.entry_signals_json); } catch (_) { _es = null; }
+      }
+      _es = _es || {};
+      const _entryPath = String(openTrade?.entry_path || openTrade?.setup_name || "").toLowerCase();
+      const _personality = String(_es?.personality || openTrade?.personality || "").toUpperCase();
+      const _isVolRunnerGapLong = isLong && _entryPath === "tt_gap_reversal_long" && _personality === "VOLATILE_RUNNER";
+      const _hardFuseDaCfg = tickerData?._env?._deepAuditConfig || {};
+      const _hardLongRsi1 = _isVolRunnerGapLong
+        ? (Number(_hardFuseDaCfg.deep_audit_hard_fuse_volrunner_gap_long_rsi1h) || 88)
+        : (Number(_hardFuseDaCfg.deep_audit_hard_fuse_default_rsi1h) || 85);
+      const _hardLongRsi4 = _isVolRunnerGapLong
+        ? (Number(_hardFuseDaCfg.deep_audit_hard_fuse_volrunner_gap_long_rsi4h) || 83)
+        : (Number(_hardFuseDaCfg.deep_audit_hard_fuse_default_rsi4h) || 80);
+
       // Phase 4a: HARD FUSE — double confirmation extreme RSI
-      const hardFuseLong = isLong && rsi1H >= 85 && rsi4H >= 80;
+      const hardFuseLong = isLong && rsi1H >= _hardLongRsi1 && rsi4H >= _hardLongRsi4;
       const hardFuseShort = !isLong && rsi1H <= 15 && rsi4H <= 20;
 
       if (hardFuseLong || hardFuseShort) {
@@ -17268,6 +17937,25 @@ async function processTradeSimulation(
           _gbMinMfe = Math.min(_gbMinMfe, 1.25);
           _gbGivebackRatio = Math.max(_gbGivebackRatio, 0.75);
         }
+        /* V15 P0.7.53 (2026-05-03) — cohort-scoped giveback relax for the
+           workhorse cohort (`tt_gap_reversal_long × VOLATILE_RUNNER × LONG`).
+           August Aug-window data showed PROFIT_GIVEBACK_STAGE_HOLD and the
+           parent PROFIT_GIVEBACK rule cut 5+ workhorse trades at 5-25%
+           capture (NVDA, APP, AEHR×2, IREN, ALB). Lever 1's mfe_decay_*
+           relax fired only ONCE in August, so the previous patch left this
+           cohort's main bleed unaddressed. Same DA flag pattern as P0.7.52:
+           cohort-only override of givebackRatio (default 0.7 → 0.85) and
+           minMfe floor (default 3.0 → 5.0). The required-3.0% MFE floor
+           prevents premature triggering; the 0.85 retention requirement
+           lets runners give back up to 85% before this rule fires. */
+        if (_gbDir === "LONG"
+            && _gbPath === "tt_gap_reversal_long"
+            && _gbVolatileRunner) {
+          const _gbCohortGiveback = Number(tickerData?._env?._deepAuditConfig?.deep_audit_profit_giveback_pct_max_volrunner_gap_long);
+          const _gbCohortMinMfe = Number(tickerData?._env?._deepAuditConfig?.deep_audit_profit_giveback_min_mfe_volrunner_gap_long);
+          _gbGivebackRatio = Math.max(_gbGivebackRatio, Number.isFinite(_gbCohortGiveback) ? _gbCohortGiveback : 0.85);
+          _gbMinMfe = Math.max(_gbMinMfe, Number.isFinite(_gbCohortMinMfe) ? _gbCohortMinMfe : 5.0);
+        }
         if (_gbMfePct >= _gbMinMfe) {
           const _gbProtectionStage = _getProtectionStage();
           const _gbEntry = Number(openTrade.entryPrice);
@@ -17767,7 +18455,22 @@ async function processTradeSimulation(
             : _srePnlPct;
           const _sreDeferPnlGate = _sreTotalTradePnlPct > 0;
 
-          const _sreCanDeferSafetyNet = !_sreCancelDeferral && !_sreTrimThenReassessCloudBreak && _sreDeferPnlGate && (
+          /* V15 P0.7.53 (2026-05-03) — cohort-scoped SMART_RUNNER deferral.
+             Workhorse cohort (`tt_gap_reversal_long × VOLATILE_RUNNER × LONG`)
+             gets a more permissive deferral: total trade PnL doesn't need to
+             be positive, just at least -0.5% (we're willing to risk a small
+             continued bleed for the chance to ride the runner further).
+             Aug data: KTOS at 7.8% capture, AEHR ×2 at 5-15% cap, IREN at
+             5.6% — all in this cohort. Knob: deep_audit_smart_runner_volrunner_gap_long_defer_pnl_floor */
+          const _sreEntryPath = String(openTrade?.entryPath || openTrade?.entry_path || "").toLowerCase();
+          const _sreIsVolRunnerGapLong = isLong && _sreEntryPath === "tt_gap_reversal_long" && _srePersonality === "VOLATILE_RUNNER";
+          const _sreCohortPnlFloor = Number(tickerData?._env?._deepAuditConfig?.deep_audit_smart_runner_volrunner_gap_long_defer_pnl_floor);
+          const _sreCohortFloor = Number.isFinite(_sreCohortPnlFloor) ? _sreCohortPnlFloor : -0.5;
+          const _sreDeferPnlGateCohort = _sreIsVolRunnerGapLong
+            ? _sreTotalTradePnlPct >= _sreCohortFloor
+            : _sreDeferPnlGate;
+
+          const _sreCanDeferSafetyNet = !_sreCancelDeferral && !_sreTrimThenReassessCloudBreak && _sreDeferPnlGateCohort && (
             _peakLockCloudHolding ||
             (_sreCloudAligned && _sreTH.htfIntact) ||
             _sreTH.htfIntact ||
@@ -19416,7 +20119,19 @@ async function processTradeSimulation(
         } else if (Number.isFinite(cash) && cash >= cfg.MIN_NOTIONAL) {
           const accountValue = Number(portfolio.startCash || PORTFOLIO_START_CASH) +
             (allTrades || []).filter(t => t.status === "WIN" || t.status === "LOSS").reduce((sum, t) => sum + (Number(t.realizedPnl) || 0), 0);
-          const sizing = computeRiskBasedSize(confidence, accountValue, entryPx, finalSL, sizingSignals.vixLevel, env, tierRiskPct);
+          // V15 P0.7.67 (2026-05-05) — TICK/ADD tape sizing modulator.
+          // Aligned tape → 1.25× size. Disagreeing tape → 0.5-0.7× size.
+          let _tapeMultEntry = 1.0;
+          try {
+            const _tCtx = tickerData?._env?._tapeContext || null;
+            if (_tCtx) {
+              const _mod = MarketInternals.getEntrySizeModulation({ direction, tapeContext: _tCtx });
+              if (_mod && Number.isFinite(_mod.multiplier)) {
+                _tapeMultEntry = _mod.multiplier;
+              }
+            }
+          } catch (_) {}
+          const sizing = computeRiskBasedSize(confidence, accountValue, entryPx, finalSL, sizingSignals.vixLevel, env, tierRiskPct, _tapeMultEntry);
           const _sizingMults = gatherSizingMultipliers(tickerData);
           const regimeAdjustedNotional = sizing.notional * _sizingMults.combined;
           notional = Math.min(regimeAdjustedNotional, cash);
@@ -19630,6 +20345,21 @@ async function processTradeSimulation(
             if (tickerData?.flags?.st_flip_bull || tickerData?.flags?.st_flip_bear) _whyParts.push("Fresh ST Flip");
             if (tickerData?.flags?.momentum_elite) _whyParts.push("Elite Momentum");
             if (tickerData?.flags?.sq30_release) _whyParts.push("Squeeze Release");
+            // Phase C — Stage 1 (2026-05-05) — ETF SL CLAMP (replay path).
+            if (EtfProfile.isEtfProfileTicker(sym)) {
+              const _etfMaxStop = EtfProfile.computeEtfStopLoss(sym, entryPx, direction);
+              if (Number.isFinite(_etfMaxStop)) {
+                const _origSL = finalSL;
+                if (direction === "LONG" && finalSL < _etfMaxStop) {
+                  finalSL = Math.round(_etfMaxStop * 100) / 100;
+                  console.log(`[ETF_SL_CLAMP] ${sym} LONG (replay): tightened SL ${_origSL.toFixed(2)} → ${finalSL.toFixed(2)} (max 0.7% from entry $${entryPx.toFixed(2)})`);
+                } else if (direction === "SHORT" && finalSL > _etfMaxStop) {
+                  finalSL = Math.round(_etfMaxStop * 100) / 100;
+                  console.log(`[ETF_SL_CLAMP] ${sym} SHORT (replay): tightened SL ${_origSL.toFixed(2)} → ${finalSL.toFixed(2)} (max 0.7% from entry $${entryPx.toFixed(2)})`);
+                }
+              }
+            }
+
             const ev = {
               type: "ENTRY",
               timestamp: entryTime,
@@ -19657,6 +20387,9 @@ async function processTradeSimulation(
               referenceExecution: tickerData?.__reference_execution || null,
               reference_execution: tickerData?.__reference_execution || null,
               entryPath: entryPath || null,
+              entry_path: entryPath || null,
+              entryRegime: String(tickerData?.regime?.combined || tickerData?.regime_combined || "").toUpperCase() || null,
+              entry_regime: String(tickerData?.regime?.combined || tickerData?.regime_combined || "").toUpperCase() || null,
               entryPrice: entryPx,
               entryTime,
               entry_ts: entryTsMs || undefined,
@@ -20165,7 +20898,13 @@ async function processTradeSimulation(
                       qty: Number(trade.shares),
                       value: Number(entryPx) * Number(trade.shares),
                       pnl: 0,
+                      // V15 P0.7.71: pass account_value so the embed can show
+                      // "X% of acct" + scale-to-yours hint in the discord message.
+                      account_value: Number(portfolio?.cash) > 0 || Number(portfolio?.equity) > 0
+                        ? (Number(portfolio.equity) || Number(portfolio.cash) || PORTFOLIO_START_CASH)
+                        : (Number(accountValue) || PORTFOLIO_START_CASH),
                     },
+                    tsMs, // V15 P0.7.97 — actionTs (entry decision time)
                   );
                   const entryChartUrl = getTradeAutopsyChartUrl(env, tradeId);
                   if (entryChartUrl) {
@@ -20188,10 +20927,13 @@ async function processTradeSimulation(
                       }))
                     : { ok: false, skipped: true, reason: "critical_only" };
                   // In-app notification for trade entry
+                  // V15 P0.7.97 — title includes price + ET time so the
+                  // notification is self-explanatory even if delivered late.
+                  const _entryEtTime = formatEtClock(tsMs);
                   queueBackground(d1InsertNotification(env, {
                     email: null, type: "trade_entry",
-                    title: `ENTRY: ${sym} ${direction}`,
-                    body: `Entered ${sym} ${direction} @ $${Number(entryPx).toFixed(2)} (Rank: ${Number(trade.rank || 0)}, R:R: ${Number(trade.rr || 0).toFixed(1)})`,
+                    title: `ENTRY: ${sym} ${direction} @ $${Number(entryPx).toFixed(2)}${_entryEtTime ? ` · ${_entryEtTime}` : ""}`,
+                    body: `Entered ${sym} ${direction}${_entryEtTime ? ` at ${_entryEtTime}` : ""} · Filled $${Number(entryPx).toFixed(2)} · Rank ${Number(trade.rank || 0)} · R:R ${Number(trade.rr || 0).toFixed(1)}`,
                     link: `/index-react.html?ticker=${sym}`,
                   }));
                   // Email trade alert
@@ -21648,6 +22390,7 @@ async function processTradeSimulation(
                   updatedTrade,
                   trimDeltaPctRaw,
                   { qty: trimQtySim, value: trimPriceSim * trimQtySim, pnl },
+                  alertTs, // V15 P0.7.97 — pass action ts so embed shows when
                 );
                 const sendRes = await notifyDiscord(env, embed).catch((err) => {
                   console.error(
@@ -21748,6 +22491,8 @@ async function processTradeSimulation(
                     updatedTrade.rr || existingOpenTrade.rr || 0,
                     tickerData,
                     updatedTrade,
+                    null, // execution
+                    exitTs, // V15 P0.7.97 — actionTs (exit decision time)
                   );
                   const td9Res = await notifyDiscord(env, td9Embed).catch(
                     (err) => {
@@ -22395,6 +23140,32 @@ async function processTradeSimulation(
               }
             }
 
+            // Phase C — Stage 1 (2026-05-05) — ETF SL CLAMP.
+            // For ETFs in our profile, no SL should be wider than the
+            // profile's max_distance_pct (default 0.7%). Wider stops on
+            // ETFs get noise-stopped because intraday range is 0.5-1.5%.
+            // Only TIGHTENS the stop — never loosens it.
+            const _etfClampTicker = String(ticker || tickerData?.ticker || "").toUpperCase();
+            if (EtfProfile.isEtfProfileTicker(_etfClampTicker)) {
+              const _etfMaxStop = EtfProfile.computeEtfStopLoss(_etfClampTicker, entryPrice, direction);
+              if (Number.isFinite(_etfMaxStop)) {
+                const _origSL = finalSL;
+                if (direction === "LONG") {
+                  // For long: max stop is BELOW entry; tighten = move SL UP
+                  if (finalSL < _etfMaxStop) {
+                    finalSL = Math.round(_etfMaxStop * 100) / 100;
+                    console.log(`[ETF_SL_CLAMP] ${_etfClampTicker} LONG: tightened SL ${_origSL.toFixed(2)} → ${finalSL.toFixed(2)} (max 0.7% from entry $${entryPrice.toFixed(2)})`);
+                  }
+                } else {
+                  // For short: max stop is ABOVE entry; tighten = move SL DOWN
+                  if (finalSL > _etfMaxStop) {
+                    finalSL = Math.round(_etfMaxStop * 100) / 100;
+                    console.log(`[ETF_SL_CLAMP] ${_etfClampTicker} SHORT: tightened SL ${_origSL.toFixed(2)} → ${finalSL.toFixed(2)} (max 0.7% from entry $${entryPrice.toFixed(2)})`);
+                  }
+                }
+              }
+            }
+
             const risk = Math.abs(entryPrice - finalSL);
             const gain =
               direction === "LONG" ? maxTP - entryPrice : entryPrice - maxTP;
@@ -22419,6 +23190,9 @@ async function processTradeSimulation(
               scenario_policy: _spResolved || tickerData?.__scenario_policy || null,
               scenario_policy_source: tickerData?.__scenario_policy_source || null,
               entryPath: entryPath || null,  // Track which entry criteria was used
+              entry_path: entryPath || null,
+              entryRegime: String(tickerData?.regime?.combined || tickerData?.regime_combined || "").toUpperCase() || null,
+              entry_regime: String(tickerData?.regime?.combined || tickerData?.regime_combined || "").toUpperCase() || null,
               entryPrice,
               entryTime, // When trade was actually created (ingest time in replay)
               entry_ts: entryTsMs, // Numeric ms for D1/display (ingest time, not replay run time)
@@ -22606,6 +23380,8 @@ async function processTradeSimulation(
                     Number(tickerData.price), // Current price for comparison
                     isBackfill,
                     tickerData, // Pass full ticker data for comprehensive embed
+                    null, // execution
+                    isoToMs(trade.entryTime) || Number(trade.entry_ts) || Date.now(), // V15 P0.7.97 actionTs
                   )
                 : null;
               const sendRes = allowDiscord
@@ -25412,6 +26188,26 @@ async function drainQueuedActions(env) {
   } catch (e) {
     console.error("[QUEUE DRAIN] Fatal error:", e);
     return { executed: 0, expired: 0, error: String(e) };
+  }
+}
+
+/**
+ * V15 P0.7.97 — Format a UTC timestamp as a short ET clock string for
+ * inclusion in user-facing alert bodies. Lets the user see WHEN an
+ * action happened ("filled at 10:31 AM ET") so they don't get confused
+ * when they read the alert later and the live price has drifted.
+ *   formatEtClock(1778164278396) -> "10:31 AM ET"
+ */
+function formatEtClock(tsMs) {
+  if (!Number.isFinite(Number(tsMs))) return null;
+  try {
+    return new Date(Number(tsMs)).toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: "America/New_York",
+    }) + " ET";
+  } catch {
+    return null;
   }
 }
 
@@ -29078,6 +29874,18 @@ function buildDirectionSignalSnapshot(sc, tickerData, entryPathOverride = null) 
     }
   }
   snap.lineage = buildTradeLineageSnapshot(tickerData, entryPathOverride);
+  // Phase C — Stage 1 (2026-05-04) — Persist regime_at_entry on the
+  // trade record so the regime-aware exit doctrine can compare current
+  // regime vs entry regime later. Survives D1 round-trips via the
+  // entry_signals_json blob (the dedicated trade column doesn't exist
+  // yet and a schema migration is risky mid-run).
+  try {
+    snap.regime_at_entry = String(
+      tickerData?.regime?.combined ||
+      tickerData?.regime_combined ||
+      ""
+    ).toUpperCase() || null;
+  } catch (_) {}
   try {
     return JSON.stringify(snap);
   } catch {
@@ -31365,6 +32173,71 @@ async function ensureAccountLedgerSchema(db, KV) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// V15 P0.7.95 — Forensic data audit log
+//
+// Records every destructive operation against trades / positions /
+// account_ledger / execution_actions / direction_accuracy. Lets us
+// trace which endpoint (or cron path) is responsible the next time
+// trade rows or the ledger gets wiped (see incident notes for P0.7.94).
+//
+// Helpers in this section never throw — audit failure must not block
+// the underlying operation. Callers are expected to capture rows
+// affected and pass relevant context (caller URL, user, scope).
+// ─────────────────────────────────────────────────────────────────────────────
+
+let _auditLogSchemaEnsured = false;
+async function ensureDataAuditLogSchema(db) {
+  if (_auditLogSchemaEnsured || !db) return;
+  try {
+    await db.batch([
+      db.prepare(`CREATE TABLE IF NOT EXISTS data_audit_log (
+        audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts INTEGER NOT NULL,
+        op TEXT NOT NULL,
+        scope TEXT,
+        caller TEXT,
+        rows_affected INTEGER,
+        meta_json TEXT
+      )`),
+      db.prepare("CREATE INDEX IF NOT EXISTS idx_data_audit_log_ts ON data_audit_log (ts DESC)"),
+      db.prepare("CREATE INDEX IF NOT EXISTS idx_data_audit_log_op_ts ON data_audit_log (op, ts DESC)"),
+    ]);
+    _auditLogSchemaEnsured = true;
+  } catch (err) {
+    console.error("[AUDIT] schema init failed:", String(err?.message || err).slice(0, 200));
+  }
+}
+
+/**
+ * Append a row to data_audit_log. Best-effort; never throws.
+ *   op            — short token, e.g. "DELETE_TRADES", "DELETE_LEDGER"
+ *   scope         — short context, e.g. "trade_ids=A,B,C", "all", "ticker=CSX"
+ *   callerInfo    — request url, cron name, or "manual"
+ *   rowsAffected  — integer count if known
+ *   meta          — small JSON-serializable object with extra detail
+ */
+async function auditDataChange(env, { op, scope, caller, rowsAffected, meta } = {}) {
+  const db = env?.DB;
+  if (!db || !op) return;
+  try {
+    await ensureDataAuditLogSchema(db);
+    await db.prepare(
+      `INSERT INTO data_audit_log (ts, op, scope, caller, rows_affected, meta_json)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
+    ).bind(
+      Date.now(),
+      String(op).slice(0, 64),
+      scope ? String(scope).slice(0, 256) : null,
+      caller ? String(caller).slice(0, 256) : null,
+      Number.isFinite(rowsAffected) ? Number(rowsAffected) : null,
+      meta ? (() => { try { return JSON.stringify(meta).slice(0, 4000); } catch { return null; } })() : null,
+    ).run();
+  } catch (err) {
+    console.warn("[AUDIT] write failed:", String(err?.message || err).slice(0, 200));
+  }
+}
+
 /**
  * Insert a row into account_ledger. `balance` is the running cash balance AFTER this event.
  */
@@ -31421,6 +32294,357 @@ async function d1GetLedgerBalance(env, mode = "trader") {
   } catch {
     return mode === "trader" ? PORTFOLIO_START_CASH : 100000;
   }
+}
+
+/**
+ * Seed the trader account_ledger from a promoted backtest dataset (V15 P0.7.70).
+ *
+ * The Trades page's Account Value comes from `account_ledger`, which was only
+ * being fed by the live cron's `execution_actions`. Promoted backtest trades
+ * lived in `promoted_trades` and never seeded the ledger, so the headline
+ * Account number didn't reflect the backtest at all.
+ *
+ * This walks the promoted dataset chronologically and emits one ENTRY +
+ * one EXIT per trade so the running balance ends at start_cash + sum(pnl).
+ *
+ * Cash flow model:
+ *   LONG  ENTRY: cash_delta = -shares * entry_price
+ *   LONG  EXIT:  cash_delta = +shares * exit_price,  realized_pnl = pnl
+ *   SHORT ENTRY: cash_delta = +shares * entry_price (proceeds)
+ *   SHORT EXIT:  cash_delta = -shares * exit_price (cover), realized_pnl = pnl
+ *
+ * For accounting purposes we only care that balance(end) == 100k + sum(pnl).
+ * Both directions satisfy that because pnl already reflects direction sign.
+ *
+ * Snapshots in `portfolio_snapshots` are also rebuilt as one EOD point per
+ * unique day so the equity curve renders the full Jul→May arc instead of the
+ * 33-day live-only window.
+ *
+ * @param {object} env - { DB, KV_TIMED }
+ * @param {object} options - { datasetId?: string, startCash?: number }
+ * @returns {Promise<{ ok, dataset_id, trade_count, ledger_inserted, snap_inserted, end_balance, end_pnl }>}
+ */
+async function d1SeedAccountLedgerFromPromoted(env, options = {}) {
+  const db = env?.DB;
+  if (!db) return { ok: false, error: "no_db" };
+
+  const startCash = Number.isFinite(options.startCash) ? Number(options.startCash) : PORTFOLIO_START_CASH;
+  const requestedDatasetId = options.datasetId ? String(options.datasetId) : null;
+
+  await ensureAccountLedgerSchema(db, env?.KV_TIMED);
+  await ensurePortfolioSnapshotsSchema(db, env?.KV_TIMED);
+
+  // Resolve target dataset: requested → active → most recent
+  let dataset = null;
+  if (requestedDatasetId) {
+    dataset = await db.prepare(
+      `SELECT * FROM promoted_trade_datasets WHERE dataset_id = ?1 LIMIT 1`
+    ).bind(requestedDatasetId).first();
+  } else {
+    dataset = await db.prepare(
+      `SELECT * FROM promoted_trade_datasets
+       WHERE status = 'active'
+       ORDER BY promoted_at DESC
+       LIMIT 1`
+    ).first();
+  }
+  if (!dataset?.dataset_id) return { ok: false, error: "no_dataset" };
+
+  // Pull trades in entry order (asc) so the running balance reads forward.
+  const tradeRows = (await db.prepare(
+    `SELECT trade_id, ticker, direction, entry_ts, entry_price, exit_ts, exit_price, shares, notional, pnl, status
+     FROM promoted_trades
+     WHERE dataset_id = ?1
+     ORDER BY entry_ts ASC, trade_id ASC`
+  ).bind(String(dataset.dataset_id)).all())?.results || [];
+
+  // Wipe the trader ledger and trader snapshots so the seed is deterministic.
+  await db.prepare("DELETE FROM account_ledger WHERE mode = 'trader'").run();
+  await db.prepare("DELETE FROM portfolio_snapshots WHERE mode = 'trader'").run();
+
+  let cumulativePnl = 0;
+  const inserts = [];
+
+  // Track day-level open count + EOD equity for snapshot rebuild.
+  // For trade-level seeding we don't have intra-day mark-to-market, so equity
+  // == cash at each step. We snapshot one EOD point per unique day.
+  const eodByDay = new Map(); // key: YYYY-MM-DD → { ts, balance, dayPnl, dayTrades }
+
+  // Two-pass approach: collect events in chronological order so the running
+  // balance honors ENTRY/EXIT interleaving across overlapping positions.
+  const events = [];
+  for (const r of tradeRows) {
+    const ticker = String(r.ticker || "").toUpperCase();
+    const direction = String(r.direction || "LONG").toUpperCase();
+    const entryTs = Number(r.entry_ts) || 0;
+    const exitTs = Number(r.exit_ts) || 0;
+    const entryPrice = Number(r.entry_price) || 0;
+    const exitPrice = Number(r.exit_price) || 0;
+    let shares = Number(r.shares) || 0;
+    if (!Number.isFinite(shares) || shares <= 0) {
+      const notional = Number(r.notional) || 0;
+      if (notional > 0 && entryPrice > 0) shares = notional / entryPrice;
+    }
+    const pnl = Number(r.pnl) || 0;
+    if (!entryTs || !exitTs || !entryPrice || !exitPrice || shares <= 0) continue;
+
+    events.push({ kind: "ENTRY", ts: entryTs, ticker, direction, shares, price: entryPrice, pnl: 0, tradeId: r.trade_id });
+    events.push({ kind: "EXIT", ts: exitTs, ticker, direction, shares, price: exitPrice, pnl, tradeId: r.trade_id });
+  }
+  // ENTRY before EXIT when they share a timestamp.
+  events.sort((a, b) => (a.ts - b.ts) || (a.kind === "ENTRY" ? -1 : 1));
+
+  // Why we don't track raw cash flow:
+  //   `promoted_trades.pnl` is the total realized PnL across trims + final exit,
+  //   but only `entry_price`/`exit_price` are stored — not the trim_price ladder.
+  //   Reconstructing exact cash flow from a single (entry, exit) pair drifts
+  //   whenever a trade had partial trims.
+  //
+  // What matters for the Account Value display is that
+  //   end_balance == start_cash + sum(pnl)
+  // and that EXIT events carry `realized_pnl` so daily PnL queries (used by
+  // `snapshotBothPortfolios` and `/timed/account-summary`) stay correct.
+  //
+  // Approach: balance tracks `start_cash + cumulative_pnl` (PnL realizes on
+  // EXIT). ENTRY rows get a synthetic cash_delta=0 with the entry notional
+  // captured in `qty`/`price` so the audit trail is intact, but they don't
+  // disturb the running balance. This makes the math direction-agnostic and
+  // robust to trim ladders.
+  for (const e of events) {
+    let cashDelta = 0;
+    let realized = 0;
+    if (e.kind === "EXIT") {
+      cumulativePnl += e.pnl;
+      cashDelta = e.pnl;
+      realized = e.pnl;
+    }
+    const balance = startCash + cumulativePnl;
+
+    inserts.push(db.prepare(
+      `INSERT INTO account_ledger (mode, ts, event_type, position_id, ticker, direction, qty, price, cash_delta, realized_pnl, balance, note)
+       VALUES ('trader', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`
+    ).bind(
+      e.ts,
+      e.kind,
+      e.tradeId || null,
+      e.ticker,
+      e.direction,
+      e.shares,
+      e.price,
+      cashDelta,
+      realized,
+      balance,
+      `Promoted ${dataset.dataset_id}`,
+    ));
+
+    if (e.kind === "EXIT") {
+      const exitDate = new Date(e.ts).toISOString().slice(0, 10);
+      let slot = eodByDay.get(exitDate);
+      if (!slot) {
+        const dayMs = new Date(`${exitDate}T20:00:00Z`).getTime();
+        slot = { ts: dayMs, balance, dayPnl: 0, dayTrades: 0 };
+        eodByDay.set(exitDate, slot);
+      }
+      slot.balance = balance; // last exit of the day wins
+      slot.dayPnl += e.pnl;
+      slot.dayTrades += 1;
+    }
+  }
+  const totalRealized = cumulativePnl;
+  const finalBalance = startCash + cumulativePnl;
+
+  // Batch insert ledger rows in chunks of 500 (D1 limit).
+  for (let i = 0; i < inserts.length; i += 500) {
+    await db.batch(inserts.slice(i, i + 500));
+  }
+
+  // Rebuild snapshots from the day map.
+  const snapInserts = [];
+  for (const [date, s] of eodByDay) {
+    snapInserts.push(db.prepare(
+      `INSERT OR REPLACE INTO portfolio_snapshots (id, mode, snap_date, ts, cash, positions_value, total_equity, open_positions, day_realized_pnl, day_trades, created_at)
+       VALUES (?1, 'trader', ?2, ?3, ?4, 0, ?5, 0, ?6, ?7, ?3)`
+    ).bind(
+      `snap-trader-${date}`,
+      date,
+      s.ts,
+      s.balance,
+      s.balance,
+      s.dayPnl,
+      s.dayTrades,
+    ));
+  }
+  for (let i = 0; i < snapInserts.length; i += 500) {
+    await db.batch(snapInserts.slice(i, i + 500));
+  }
+
+  return {
+    ok: true,
+    dataset_id: dataset.dataset_id,
+    trade_count: tradeRows.length,
+    ledger_inserted: inserts.length,
+    snap_inserted: snapInserts.length,
+    start_cash: startCash,
+    end_balance: finalBalance,
+    end_pnl: totalRealized,
+  };
+}
+
+/**
+ * Seed `calibration_trade_autopsy` from a promoted backtest dataset (V15 P0.7.71).
+ *
+ * The System Intelligence Analysis page reads from `calibration_trade_autopsy`,
+ * which is normally populated by `autopsyTradesServerSide(env)` reading from
+ * the live `trades` table. The promoted backtest lives in `promoted_trades`
+ * and never feeds the calibration pipeline, so the Analysis tab shows
+ * generations from before the V15 P0.7.59-67 features shipped (admission
+ * matrix, exit doctrine, ETF profile, cluster throttle, market internals).
+ *
+ * This helper bridges the two: it reads the active promoted dataset and
+ * writes the same shape of row into `calibration_trade_autopsy` with
+ * `scope_id = <run_id>` so calibration can be re-run against just the
+ * promoted set without polluting the live `trades`-driven pipeline.
+ *
+ * Caveats:
+ *   - We don't have intraday MFE/MAE candles on hand; we approximate using
+ *     entry/exit prices, which over-counts "optimal" classifications.
+ *     Setup × regime × WR breakdowns are correct; gave-back/left-money are
+ *     directional estimates only.
+ *   - VIX, htf_score, ltf_score, state are best-effort: pulled from the
+ *     trade row itself when available, otherwise null.
+ *   - This re-runs idempotently. Each call wipes prior rows for the same
+ *     scope_id before inserting.
+ *
+ * @param {object} env - { DB }
+ * @param {object} options - { datasetId?, scopeId? }
+ * @returns {Promise<{ ok, scope_id, dataset_id, autopsy_count, classifications }>}
+ */
+async function d1SeedCalibrationAutopsyFromPromoted(env, options = {}) {
+  const db = env?.DB;
+  if (!db) return { ok: false, error: "no_db" };
+
+  await d1EnsureCalibrationSchema(env);
+
+  // Resolve dataset (requested → active → most recent)
+  let dataset = null;
+  const requested = options.datasetId ? String(options.datasetId) : null;
+  if (requested) {
+    dataset = await db.prepare(
+      `SELECT * FROM promoted_trade_datasets WHERE dataset_id = ?1 LIMIT 1`
+    ).bind(requested).first();
+  } else {
+    dataset = await db.prepare(
+      `SELECT * FROM promoted_trade_datasets
+       WHERE status = 'active'
+       ORDER BY promoted_at DESC LIMIT 1`
+    ).first();
+  }
+  if (!dataset?.dataset_id) return { ok: false, error: "no_dataset" };
+
+  const scopeId = options.scopeId
+    ? String(options.scopeId)
+    : (dataset.source_run_id || dataset.dataset_id);
+
+  const promotedRows = (await db.prepare(
+    `SELECT trade_id, ticker, direction, entry_ts, exit_ts, entry_price, exit_price,
+            pnl, pnl_pct, rank, rr, status, setup_name, setup_grade, exit_reason
+     FROM promoted_trades
+     WHERE dataset_id = ?1
+     ORDER BY entry_ts ASC, trade_id ASC`
+  ).bind(String(dataset.dataset_id)).all())?.results || [];
+
+  if (!promotedRows.length) return { ok: false, error: "no_promoted_trades" };
+
+  // Wipe prior rows for this scope so re-seeding is idempotent.
+  await db.prepare(
+    `DELETE FROM calibration_trade_autopsy WHERE scope_id = ?1`
+  ).bind(scopeId).run();
+
+  const inserts = [];
+  const classCounts = {};
+  for (const r of promotedRows) {
+    const ticker = String(r.ticker || "").toUpperCase();
+    const direction = String(r.direction || "LONG").toUpperCase();
+    const entryTs = Number(r.entry_ts) || 0;
+    const exitTs = Number(r.exit_ts) || 0;
+    const entryPrice = Number(r.entry_price) || 0;
+    const exitPrice = Number(r.exit_price) || 0;
+    const pnlPct = Number(r.pnl_pct) || 0;
+    const status = String(r.status || "").toUpperCase();
+    if (!entryTs || !exitTs || !entryPrice || !exitPrice) continue;
+
+    const isLong = direction === "LONG";
+    // Approximate MFE/MAE using entry/exit only — without intraday candles
+    // we can't compute true excursions, so use the actual realized move as
+    // a lower bound for the favorable side and treat losses as MAE.
+    const moveAbs = Math.abs(exitPrice - entryPrice) / entryPrice * 100;
+    const mfePct = pnlPct > 0 ? Math.max(pnlPct, moveAbs) : 0;
+    const maePct = pnlPct < 0 ? Math.max(Math.abs(pnlPct), moveAbs) : 0;
+    // R-multiple proxy: assume 1R = 1.5% (matches ETF/setup average from
+    // ATR-based sizing in the worker).
+    const rMultiple = pnlPct / 1.5;
+    const exitEfficiency = mfePct > 0 ? Math.max(0, pnlPct) / mfePct : 0;
+
+    let classification;
+    if (status === "WIN" && exitEfficiency >= 0.7) classification = "optimal";
+    else if (status === "WIN" && exitEfficiency < 0.5) classification = "left_money";
+    else if (status === "WIN") classification = "left_money";
+    else if (status === "LOSS" && mfePct > 1) classification = "gave_back";
+    else if (status === "LOSS") classification = "bad_entry";
+    else classification = "noise_trade";
+    classCounts[classification] = (classCounts[classification] || 0) + 1;
+
+    const setupName = String(r.setup_name || "").toLowerCase().replace(/\s+/g, "_") || "unknown";
+    const slPrice = isLong
+      ? entryPrice - (entryPrice * 0.015)
+      : entryPrice + (entryPrice * 0.015);
+
+    inserts.push(db.prepare(
+      `INSERT INTO calibration_trade_autopsy
+        (trade_id, ticker, direction, entry_ts, exit_ts, entry_price, exit_price, sl_price,
+         pnl_pct, r_multiple, mfe_pct, mfe_atr, mae_pct, mae_atr, exit_efficiency, sl_hit_before_mfe,
+         time_to_mfe_min, optimal_hold_min, classification, manual_classification, manual_notes,
+         entry_signals_json, entry_path, rank_at_entry, regime_at_entry,
+         execution_profile_name, execution_profile_confidence, market_state, execution_profile_json,
+         vix_at_entry, htf_score_at_entry, ltf_score_at_entry, state_at_entry,
+         completion_at_entry, phase_at_entry, flags_at_entry, scope_id, created_at)
+       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,
+               ?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35,?36,?37,?38)`
+    ).bind(
+      r.trade_id, ticker, direction, entryTs, exitTs, entryPrice, exitPrice,
+      Math.round(slPrice * 100) / 100,
+      pnlPct, Math.round(rMultiple * 100) / 100,
+      Math.round(mfePct * 100) / 100, 0,
+      Math.round(maePct * 100) / 100, 0,
+      Math.round(exitEfficiency * 100) / 100,
+      maePct > 1.5 ? 1 : 0,
+      Math.max(0, Math.round((exitTs - entryTs) / 60000)),
+      Math.max(0, Math.round((exitTs - entryTs) / 60000)),
+      classification, null, null,
+      null, // entry_signals_json
+      setupName,
+      Number(r.rank) || 0,
+      "unknown",
+      null, null, null, null,
+      null, null, null, null,
+      null, null, null,
+      scopeId,
+      Math.floor(Date.now() / 1000),
+    ));
+  }
+
+  // Batch insert
+  for (let i = 0; i < inserts.length; i += 500) {
+    await db.batch(inserts.slice(i, i + 500));
+  }
+
+  return {
+    ok: true,
+    scope_id: scopeId,
+    dataset_id: dataset.dataset_id,
+    autopsy_count: inserts.length,
+    classifications: classCounts,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -32261,14 +33485,26 @@ async function getOpenPositionAsTrade(env, ticker, direction) {
   };
 }
 
-/** GET /timed/trades?source=positions — Load from positions/lots/execution_actions (Phase 2). Returns same shape as KV. */
+/** GET /timed/trades?source=positions — Load from positions/lots/execution_actions (Phase 2). Returns same shape as KV.
+ *
+ * V15 P0.7.73: filter to status='OPEN' only. The frontend kanban lane
+ * categorizer treats every row from this endpoint as a candidate "active
+ * trade" and applies an override that forces it into HOLD if status isn't
+ * an explicit closed-state. CLOSED/CANCELED positions surfaced as ghost
+ * HOLD entries on the kanban board (issue: HOLD lane showing 13 tickers
+ * with no actually-open positions). Filtering at source makes the
+ * /timed/trades?source=positions contract honest: "currently-open
+ * positions only."
+ */
 async function d1GetAllPositionsAsTrades(env) {
   const db = env?.DB;
   if (!db) return null;
   try {
     const posRes = await db.prepare(
       `SELECT position_id, ticker, direction, status, total_qty, cost_basis, created_at, updated_at, closed_at, script_version, stop_loss, take_profit
-       FROM positions ORDER BY created_at DESC`
+       FROM positions
+       WHERE status = 'OPEN' OR status = 'TP_HIT_TRIM'
+       ORDER BY created_at DESC`
     ).all();
     const positions = Array.isArray(posRes?.results) ? posRes.results : [];
     if (positions.length === 0) return [];
@@ -32391,6 +33627,23 @@ async function d1LoadTradesForSimulation(env) {
   try {
     let rows;
     try {
+      // V15 P0.7.95 — Architectural decoupling of promoted-history from
+      // the live-trades pipeline. Previously the simulation loop joined
+      // trades to backtest_runs WHERE live_config_slot = 1, which mixed
+      // 587 historical backtest rows in with the truly-live trades. That
+      // is what made the May 7 2026 ghost-alert incident possible.
+      //
+      // Live trades have run_id IS NULL by construction (the cron's
+      // processTradeSimulation never stamps a run_id). Backtest trades
+      // get run_id stamped during replay. So the only correct filter is
+      //   WHERE t.run_id IS NULL
+      // Promoted backtest history is consumed via the ledger UNION at
+      // /timed/ledger/trades, NOT by re-feeding it into the live loop.
+      //
+      // The EXISTS-on-execution_actions guard from P0.7.94 stays as a
+      // belt-and-suspenders safety net for any future "OPEN status with
+      // no entry trail" zombie scenario — even live-only.
+      const STALE_LIVE_TRADE_CUTOFF_MS = Date.now() - 30 * 24 * 60 * 60 * 1000;
       const tradesRes = await db.prepare(
         `SELECT t.trade_id, t.ticker, t.direction, t.entry_ts, t.entry_price, t.rank, t.rr, t.status,
           t.exit_ts, t.exit_price, t.exit_reason, t.trimmed_pct, t.pnl, t.pnl_pct,
@@ -32400,19 +33653,34 @@ async function d1LoadTradesForSimulation(env) {
          FROM trades t
          LEFT JOIN positions p ON p.position_id = t.trade_id
          WHERE t.run_id IS NULL
-            OR t.run_id IN (SELECT run_id FROM backtest_runs WHERE live_config_slot = 1)
+           AND (
+             /* Recent trade — let it pass regardless of status */
+             COALESCE(t.entry_ts, 0) >= ?1
+             /* OR an explicitly OPEN/TP_HIT_TRIM trade with a confirmed
+                execution_actions ENTRY row in the last 30 days. */
+             OR (
+               UPPER(COALESCE(t.status, '')) IN ('OPEN', 'TP_HIT_TRIM')
+               AND EXISTS (
+                 SELECT 1 FROM execution_actions ea
+                 WHERE ea.position_id = t.trade_id
+                   AND ea.action_type = 'ENTRY'
+                   AND ea.ts >= ?1
+               )
+             )
+           )
          ORDER BY t.entry_ts DESC`
-      ).all();
+      ).bind(STALE_LIVE_TRADE_CUTOFF_MS).all();
       rows = Array.isArray(tradesRes?.results) ? tradesRes.results : [];
     } catch (joinErr) {
       if ((joinErr?.message || "").includes("no such table") && (joinErr?.message || "").includes("positions")) {
+        // Fallback: positions table missing. Same architectural rule —
+        // live trades only (run_id IS NULL).
         const tradesRes = await db.prepare(
           `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
             exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
             script_version, created_at, updated_at, trim_ts, trim_price, run_id
            FROM trades
            WHERE run_id IS NULL
-              OR run_id IN (SELECT run_id FROM backtest_runs WHERE live_config_slot = 1)
            ORDER BY entry_ts DESC`
         ).all();
         rows = (Array.isArray(tradesRes?.results) ? tradesRes.results : []).map((r) => ({ ...r, pos_qty: 0 }));
@@ -33147,6 +34415,7 @@ function createTradeEntryEmbed(
   isBackfill = false,
   tickerData = null,
   execution = null, // { qty, value, pnl } for verifiable history
+  actionTs = null,  // V15 P0.7.97 — when the entry actually fired
 ) {
   const isLong = direction === "LONG";
   const color = isLong ? 0x22c55e : 0xef4444;
@@ -33154,7 +34423,10 @@ function createTradeEntryEmbed(
 
   // Human-readable description
   const rrLabel = Number.isFinite(rr) && rr > 0 ? ` with a ${rr.toFixed(1)}:1 risk-to-reward ratio` : "";
-  const description = `Opened a **${dirLabel.toLowerCase()}** position at **$${entryPrice.toFixed(2)}**${rrLabel}.`;
+  // V15 P0.7.97 — lead with the fill time so the user can immediately tell
+  // when the action happened, regardless of when the alert is read.
+  const _entryEt = formatEtClock(actionTs) || "now";
+  const description = `Opened a **${dirLabel.toLowerCase()}** position at **$${entryPrice.toFixed(2)}**${rrLabel}.\n_Filled at **$${entryPrice.toFixed(2)}** · ${_entryEt}_`;
 
   const fields = [];
 
@@ -33217,7 +34489,19 @@ function createTradeEntryEmbed(
     summaryLines.push(`Setup:  **${_fmtSetup(_setupName)}** ${_setupGrade ? `(${_setupGrade})` : ""}${riskLabel ? `  |  **${riskLabel}**` : ""}`);
   }
   if (_shares > 0) {
-    summaryLines.push(`Shares:  **${Math.round(_shares)}**  |  Notional:  **$${_notional.toFixed(0)}**`);
+    // V15 P0.7.71: dynamic-sizing transparency. Surface "% of acct" so
+    // discord readers can scale to their own account, plus a perThousand hint.
+    const _acctVal = Number(execution?.account_value) || PORTFOLIO_START_CASH;
+    const _pctOfAcct = _notional > 0 && _acctVal > 0 ? (_notional / _acctVal) * 100 : 0;
+    const _perThousand = _pctOfAcct > 0 ? (_pctOfAcct / 100) * 1000 : 0;
+    let line = `Shares:  **${Math.round(_shares)}**  |  Notional:  **$${_notional.toFixed(0)}**`;
+    if (_pctOfAcct > 0) {
+      line += `  |  **${_pctOfAcct.toFixed(1)}% of acct**`;
+    }
+    summaryLines.push(line);
+    if (_perThousand > 0) {
+      summaryLines.push(`Scale to your own:  ≈ **$${_perThousand.toFixed(0)} per $1k** of your account`);
+    }
   }
   fields.push({ name: "Trade Details", value: summaryLines.join("\n"), inline: false });
 
@@ -33274,12 +34558,12 @@ function createTradeEntryEmbed(
   }
 
   return {
-    title: `${isLong ? "🟢" : "🔴"}  New Trade: ${ticker} ${dirLabel}${isBackfill ? " (backfill)" : ""}`,
+    title: `${isLong ? "🟢" : "🔴"}  New Trade: ${ticker} ${dirLabel} @ $${entryPrice.toFixed(2)}${isBackfill ? " (backfill)" : ""}`,
     description,
     color,
     fields,
-    timestamp: new Date().toISOString(),
-    footer: { text: "Timed Trading Model • Not financial advice" },
+    timestamp: actionTs ? new Date(Number(actionTs)).toISOString() : new Date().toISOString(),
+    footer: { text: `Timed Trading • Filled at $${entryPrice.toFixed(2)} · live price may have moved` },
   };
 }
 
@@ -33297,6 +34581,7 @@ function createTradeTrimmedEmbed(
   trade = null,
   trimDeltaPct = null,
   execution = null, // { qty, value, pnl } for verifiable history
+  actionTs = null,  // V15 P0.7.97 — when the trim actually fired
 ) {
   const trimPercent = Math.round(trimmedPct * 100);
   const remainingPct = Math.round((1 - trimmedPct) * 100);
@@ -33316,15 +34601,27 @@ function createTradeTrimmedEmbed(
   const pnlLabel = pnl >= 0 ? `+$${pnl.toFixed(2)}` : `-$${Math.abs(pnl).toFixed(2)}`;
   const pctLabel = `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`;
   const stepLabel = stepPct ? `${stepPct}%` : `${trimPercent}%`;
-  const description = pnl >= 0
+  // V15 P0.7.97 — Lead with WHEN + WHAT PRICE so the user can immediately
+  // tell whether this is a fresh action or a delayed alert. The fill price
+  // (`currentPrice` here = price snapshot at decision time) is the SAME
+  // value as `tp` for trim execution; we explicitly label it as "filled at"
+  // not "current" so it's not confused with the live market price the user
+  // sees on their charts.
+  const _trimEt = formatEtClock(actionTs) || "now";
+  const fillPrice = Number.isFinite(tp) ? Number(tp) : Number(currentPrice);
+  const description = (pnl >= 0
     ? `Locked in **${pnlLabel}** (${pctLabel}) by trimming **${stepLabel}** of the position. **${remainingPct}%** still running.`
-    : `Reduced exposure by trimming **${stepLabel}** of the position at **${pnlLabel}** (${pctLabel}). **${remainingPct}%** still running.`;
+    : `Reduced exposure by trimming **${stepLabel}** of the position at **${pnlLabel}** (${pctLabel}). **${remainingPct}%** still running.`)
+    + `\n_Filled at **$${fillPrice.toFixed(2)}** · ${_trimEt}_`;
 
   const fields = [];
 
   // 1. Position & P&L
+  // V15 P0.7.97 — relabel "Current" to "Filled at" since this value is the
+  // engine's fill snapshot at decision time (not the live tape, which may
+  // have moved while the alert was in transit).
   const posLines = [
-    `Entry:  **$${entryPrice.toFixed(2)}**  |  Current:  **$${currentPrice.toFixed(2)}**`,
+    `Entry:  **$${entryPrice.toFixed(2)}**  |  Filled at:  **$${fillPrice.toFixed(2)}**`,
     `P&L:  **${pnlLabel}** (${pctLabel})`,
   ];
   if (execution && Number.isFinite(execution.qty)) {
@@ -33403,12 +34700,15 @@ function createTradeTrimmedEmbed(
   const titleAction = isProfit ? "Taking Profit" : "Trimming Position";
 
   return {
-    title: `${titleEmoji}  ${titleAction}: ${ticker} ${direction} — ${stepLabel}`,
+    title: `${titleEmoji}  ${titleAction}: ${ticker} ${direction} — ${stepLabel} @ $${fillPrice.toFixed(2)}`,
     description,
     color: isProfit ? 0xf59e0b : 0xef4444,
     fields,
-    timestamp: new Date().toISOString(),
-    footer: { text: "Timed Trading Model • Not financial advice" },
+    // V15 P0.7.97 — embed timestamp now reflects the ACTION time, not
+    // the embed-render time. Discord renders this as "Today at HH:MM"
+    // so the user can always see when the trim actually fired.
+    timestamp: actionTs ? new Date(Number(actionTs)).toISOString() : new Date().toISOString(),
+    footer: { text: `Timed Trading • Filled at $${fillPrice.toFixed(2)} · live price may have moved` },
   };
 }
 
@@ -33426,6 +34726,7 @@ function createTradeClosedEmbed(
   tickerData = null,
   trade = null,
   execution = null, // { qty, value, pnl } for verifiable history
+  actionTs = null,  // V15 P0.7.97 — when the exit actually fired
 ) {
   const isWin = status === "WIN";
   const isFlat = status === "FLAT";
@@ -33551,14 +34852,18 @@ function createTradeClosedEmbed(
   } else {
     title = `🛑  Stopped Out: ${ticker} ${direction} — Closed ${closedPct}%  —  ${pctLabel}`;
   }
+  // V15 P0.7.97 — append fill price + ET time so the title is self-explanatory
+  title = `${title} @ $${Number(exitPrice).toFixed(2)}`;
+  const _exitEt = formatEtClock(actionTs);
+  if (_exitEt) title = `${title} · ${_exitEt}`;
 
   return {
     title,
     description,
     color,
     fields,
-    timestamp: new Date().toISOString(),
-    footer: { text: "Timed Trading Model • Not financial advice" },
+    timestamp: actionTs ? new Date(Number(actionTs)).toISOString() : new Date().toISOString(),
+    footer: { text: `Timed Trading • Filled at $${Number(exitPrice).toFixed(2)} · live price may have moved` },
   };
 }
 
@@ -34840,8 +36145,77 @@ async function buildTraderPredictionContract(env, ticker) {
     }
     return parts.slice(0, 4).join(" ");
   })();
+  /* V2.1 round 11 (2026-05-04) — Direction-aware risk derivation.
+     Bug: ticker.sl is set by the LONG-biased default scoring path, so on
+     SHORT-bias tickers (e.g. GILD where direction=SHORT but data.sl=$115
+     sits BELOW the ~$131 price), the contract was emitting a stop that
+     would already be in profit territory for the short — which made the
+     entire ladder geometrically wrong.
+     Fix: when the direction conflicts with the geometric position of
+     ticker.sl (LONG with sl > price, OR SHORT with sl < price), derive
+     a corrected stop from atr_levels (preferred) or fall back to a
+     symmetric reflection across price. We also derive direction-aware
+     targets when the contract's tp_trim/exit/runner sit on the wrong
+     side of price. */
+  const _pxNow = Number(data?.price) || 0;
+  const _rawSL = Number.isFinite(Number(data?.sl)) ? Number(data.sl) : null;
+  const _atrDay = (() => {
+    const al = data?.atr_levels;
+    if (!al || typeof al !== "object") return null;
+    const d = al.day || al.D;
+    if (d && Number.isFinite(Number(d.atr))) return Number(d.atr);
+    if (Number.isFinite(Number(data?.atr_d))) return Number(data.atr_d);
+    return null;
+  })();
+  const _slDirCorrect = (() => {
+    if (!_rawSL || !_pxNow) return _rawSL;
+    if (direction === "LONG" && _rawSL >= _pxNow) {
+      // Stop above price for LONG → invalid; flip below price using ATR
+      if (_atrDay > 0) return Math.round((_pxNow - 1.0 * _atrDay) * 100) / 100;
+      return Math.round(_pxNow * 0.97 * 100) / 100;
+    }
+    if (direction === "SHORT" && _rawSL <= _pxNow) {
+      // Stop below price for SHORT → invalid; flip above price using ATR
+      if (_atrDay > 0) return Math.round((_pxNow + 1.0 * _atrDay) * 100) / 100;
+      return Math.round(_pxNow * 1.03 * 100) / 100;
+    }
+    return _rawSL;
+  })();
+  // Direction-aware targets. For SHORT, if data.tp_* sits ABOVE price,
+  // the targets came from a LONG-biased model run — derive proper SHORT
+  // targets from ATR fibs below price.
+  const _rawTrim = Number.isFinite(Number(data?.tp_trim)) ? Number(data.tp_trim) : null;
+  const _rawExit = Number.isFinite(Number(data?.tp_exit)) ? Number(data.tp_exit) : null;
+  const _rawRunner = Number.isFinite(Number(data?.tp_runner)) ? Number(data.tp_runner) : null;
+  const _tpsValid = (tps) => {
+    if (!Array.isArray(tps) || tps.length === 0) return false;
+    if (!_pxNow) return true;
+    if (direction === "LONG") return tps.every((t) => Number(t) > _pxNow);
+    if (direction === "SHORT") return tps.every((t) => Number(t) < _pxNow);
+    return true;
+  };
+  const _legacyTps = [_rawTrim, _rawExit, _rawRunner].filter((t) => Number.isFinite(t) && t > 0);
+  const _useLegacyTargets = _tpsValid(_legacyTps);
+  const _atrFibTargets = (() => {
+    if (_useLegacyTargets) return null;
+    if (!_pxNow || !(_atrDay > 0)) return null;
+    const sign = direction === "SHORT" ? -1 : 1;
+    return [
+      { label: "Trim", price: Math.round((_pxNow + sign * 0.618 * _atrDay) * 100) / 100 },
+      { label: "Exit", price: Math.round((_pxNow + sign * 1.0 * _atrDay) * 100) / 100 },
+      { label: "Runner", price: Math.round((_pxNow + sign * 1.618 * _atrDay) * 100) / 100 },
+    ];
+  })();
+
   const invalidation = [];
-  if (Number.isFinite(Number(data?.sl))) invalidation.push(`Stop loss ${Number(data.sl).toFixed(2)}`);
+  if (Number.isFinite(Number(_slDirCorrect))) {
+    // Direction-aware phrasing so the user reads "above" / "below" right.
+    if (direction === "SHORT") {
+      invalidation.push(`Close above ${Number(_slDirCorrect).toFixed(2)} (stop)`);
+    } else {
+      invalidation.push(`Close below ${Number(_slDirCorrect).toFixed(2)} (stop)`);
+    }
+  }
   invalidation.push(direction === "LONG" ? "Bullish consensus breaks down" : "Bearish consensus breaks down");
   if (regime && regime !== "unknown") invalidation.push(`Regime deteriorates from ${predictionStageLabel(regime)}`);
 
@@ -34881,14 +36255,228 @@ async function buildTraderPredictionContract(env, ticker) {
       data?.rr != null ? `Risk/reward ${Number(data.rr).toFixed(2)}x` : null,
     ]),
     risk: {
-      stop_loss: Number.isFinite(Number(data?.sl)) ? Number(data.sl) : null,
+      stop_loss: Number.isFinite(Number(_slDirCorrect)) ? Number(_slDirCorrect) : null,
+      stop_loss_raw: Number.isFinite(Number(_rawSL)) ? Number(_rawSL) : null,
+      stop_loss_corrected: Number.isFinite(Number(_rawSL)) && Number.isFinite(Number(_slDirCorrect)) && Math.abs(_rawSL - _slDirCorrect) > 0.01,
       rr: Number.isFinite(Number(data?.rr)) ? Number(data.rr) : null,
     },
-    targets: [
-      Number.isFinite(Number(data?.tp_trim)) ? { label: "Trim", price: Number(data.tp_trim) } : null,
-      Number.isFinite(Number(data?.tp_exit)) ? { label: "Exit", price: Number(data.tp_exit) } : null,
-      Number.isFinite(Number(data?.tp_runner)) ? { label: "Runner", price: Number(data.tp_runner) } : null,
-    ].filter(Boolean),
+    targets: _useLegacyTargets
+      ? [
+          Number.isFinite(_rawTrim) ? { label: "Trim", price: Number(_rawTrim) } : null,
+          Number.isFinite(_rawExit) ? { label: "Exit", price: Number(_rawExit) } : null,
+          Number.isFinite(_rawRunner) ? { label: "Runner", price: Number(_rawRunner) } : null,
+        ].filter(Boolean)
+      : (_atrFibTargets || []),
+    targets_basis: _useLegacyTargets ? "model" : (_atrFibTargets ? "atr_projection" : "none"),
+
+    /* V15 P0.7.54 (2026-05-04) — Data-driven Support/Resistance levels.
+       Re-architected per user feedback to use ACTUAL price-action levels
+       (not derived projections like Saty ATR fibs). Sources, in priority:
+         1. PDZ swing structure (real swingHigh / swingLow from price action)
+         2. Recent daily swing pivots from D candles (last 60 bars)
+         3. Prior session high/low (yesterday's range)
+         4. 52-week high/low
+         5. Daily EMAs as secondary "magnet" lines (e21, e48, e200)
+         6. PDZ premium/discount lines (range internals)
+       Each level carries a `weight` 1-10 reflecting how meaningful it is
+       (52w high > recent swing pivot > EMA), `touches` count where derivable,
+       and a clear `kind` so the UI can group/style them sensibly. */
+    levels: await (async () => {
+      const px = Number(data?.price) || 0;
+      if (!(px > 0)) return [];
+      const out = [];
+      const _add = (price, kind, label, weight, opts = {}) => {
+        const v = Number(price);
+        if (!Number.isFinite(v) || v <= 0) return;
+        out.push({
+          price: v,
+          kind,
+          label,
+          weight: weight || 5,
+          touches: opts.touches != null ? opts.touches : null,
+          family: opts.family || kind,
+        });
+      };
+
+      /* V2.1 round 11 (2026-05-04) — Plain-language labels per user:
+         "Retail users will not know what Pivot hi really means." All
+         labels are now full English with no jargon abbreviations. */
+      // ── 1. PDZ swing structure (real price-action highs/lows) ─────────
+      const pdzD = data?.pdz_D || data?.pdz || data?.pdz_d || {};
+      if (typeof pdzD === "object") {
+        _add(pdzD.swingHigh, "swing_high", "Recent Swing High", 9);
+        _add(pdzD.swingLow, "swing_low", "Recent Swing Low", 9);
+        _add(pdzD.premiumLine, "pdz_premium", "Premium (overbought zone)", 6, { family: "pdz" });
+        _add(pdzD.discountLine, "pdz_discount", "Discount (oversold zone)", 6, { family: "pdz" });
+        _add(pdzD.eqHigh, "pdz_eq", "Range Center (upper)", 5, { family: "pdz" });
+        _add(pdzD.eqLow, "pdz_eq", "Range Center (lower)", 5, { family: "pdz" });
+      }
+      const pdz4h = data?.pdz_4h || {};
+      if (typeof pdz4h === "object") {
+        _add(pdz4h.swingHigh, "swing_high_4h", "4H Swing High", 7);
+        _add(pdz4h.swingLow, "swing_low_4h", "4H Swing Low", 7);
+      }
+
+      // ── 2. Recent swing pivots from D candles + prior session range + 52w ──
+      try {
+        const dCandlesRes = await d1GetCandles(env, ticker, "D", 260);
+        const candles = (dCandlesRes?.candles || []).filter((c) => Number.isFinite(c.h) && Number.isFinite(c.l));
+        if (candles.length >= 2) {
+          // Prior session
+          const prior = candles[candles.length - 2];
+          _add(prior.h, "prior_session_high", "Yesterday's High", 8);
+          _add(prior.l, "prior_session_low", "Yesterday's Low", 8);
+          // 52-week extremes (or full window if <252)
+          const recent = candles.slice(-Math.min(252, candles.length));
+          const wkHigh = Math.max(...recent.map((c) => c.h));
+          const wkLow = Math.min(...recent.map((c) => c.l));
+          _add(wkHigh, "year_high", "52-Week High", 10);
+          _add(wkLow, "year_low", "52-Week Low", 10);
+          // Recent swing pivots (last 60 bars). A pivot high = bar's high
+          // is the max over a 5-bar window (2 left, 2 right). Same for lows.
+          // Then count "touches" = subsequent bars whose high|low came
+          // within 0.5% of that pivot.
+          const window = candles.slice(-60);
+          const pivotHighs = [];
+          const pivotLows = [];
+          for (let i = 2; i < window.length - 2; i++) {
+            const c = window[i];
+            const isHigh = c.h >= window[i - 1].h && c.h >= window[i - 2].h && c.h >= window[i + 1].h && c.h >= window[i + 2].h;
+            const isLow = c.l <= window[i - 1].l && c.l <= window[i - 2].l && c.l <= window[i + 1].l && c.l <= window[i + 2].l;
+            if (isHigh) pivotHighs.push({ price: c.h, idx: i });
+            if (isLow) pivotLows.push({ price: c.l, idx: i });
+          }
+          // For each pivot, count touches in the broader 60-bar window
+          const countTouches = (level, isHigh) => {
+            let n = 0;
+            for (const c of window) {
+              const test = isHigh ? c.h : c.l;
+              if (Math.abs(test - level) / level < 0.005) n++;
+            }
+            return n;
+          };
+          // Take top 3 most-touched pivot highs and lows
+          const topHighs = pivotHighs
+            .map((p) => ({ ...p, touches: countTouches(p.price, true) }))
+            .filter((p) => p.touches >= 2)
+            .sort((a, b) => b.touches - a.touches || b.idx - a.idx)
+            .slice(0, 3);
+          const topLows = pivotLows
+            .map((p) => ({ ...p, touches: countTouches(p.price, false) }))
+            .filter((p) => p.touches >= 2)
+            .sort((a, b) => b.touches - a.touches || b.idx - a.idx)
+            .slice(0, 3);
+          for (const p of topHighs) {
+            _add(p.price, "pivot_high", `Resistance Pivot · tested ${p.touches} times`, 7 + Math.min(2, p.touches - 2), { touches: p.touches });
+          }
+          for (const p of topLows) {
+            _add(p.price, "pivot_low", `Support Pivot · tested ${p.touches} times`, 7 + Math.min(2, p.touches - 2), { touches: p.touches });
+          }
+        }
+      } catch (e) {
+        console.warn(`[levels] candle fetch failed for ${ticker}:`, String(e?.message || e).slice(0, 100));
+      }
+
+      // ── 3. Daily EMAs as secondary "magnet" lines ──────────────────────
+      const dEma = data?.tf_tech?.D?.ema || {};
+      _add(dEma.e21, "ema", "21-Day Moving Average", 5);
+      _add(dEma.e48, "ema", "48-Day Moving Average", 5);
+      _add(dEma.e200, "ema", "200-Day Moving Average", 6);
+
+      // Dedup within 0.4% — keep the highest-weight (most meaningful) name
+      const dedup = [];
+      out.sort((a, b) => b.weight - a.weight);
+      for (const lvl of out) {
+        const collision = dedup.find((d) => Math.abs(d.price - lvl.price) / Math.max(1, d.price) < 0.004);
+        if (collision) {
+          // Merge: keep collision (higher weight), but if this is a touch-counted
+          // pivot and collision isn't, append the touch count.
+          if (lvl.touches != null && collision.touches == null) {
+            collision.touches = lvl.touches;
+            collision.label = `${collision.label} · tested ${lvl.touches} times`;
+          }
+        } else {
+          dedup.push(lvl);
+        }
+      }
+
+      // Classify support vs resistance and add distance %
+      for (const lvl of dedup) {
+        const distPct = ((lvl.price - px) / px) * 100;
+        lvl.role = distPct < -0.3 ? "support" : distPct > 0.3 ? "resistance" : "at_price";
+        lvl.dist_pct = Math.round(distPct * 100) / 100;
+      }
+
+      /* V2.1 round 11 (2026-05-04) — Forward-projected ATR levels.
+         Per user: stocks priced far above their historical range (e.g. CAT
+         at $889 with all 52w / pivot levels below) end up with a one-sided
+         ladder that has nothing to plan a target against. When either side
+         (above or below price) has fewer than 2 levels, fill in with
+         ATR-based projections so the user always has reference points
+         on both sides. Marked with kind="atr_projection" so the UI can
+         style them more subtly than tested levels.
+         IMPORTANT: projections are appended AFTER the top-12 cap so they
+         can never be priced-out by stronger historical levels. The cap is
+         applied to the historical set first, then projections fill the
+         deficient side(s). This guarantees the user always sees both
+         sides on the ladder regardless of where price sits in history. */
+      // Apply the top-12 cap to the HISTORICAL levels first.
+      dedup.sort((a, b) => {
+        const sa = (a.weight || 5) - Math.log10(Math.abs(a.dist_pct) + 1);
+        const sb = (b.weight || 5) - Math.log10(Math.abs(b.dist_pct) + 1);
+        return sb - sa;
+      });
+      let top = dedup.slice(0, 12);
+
+      // Now check sidedness on the capped set and inject projections.
+      const aboveCount = top.filter((l) => l.role === "resistance").length;
+      const belowCount = top.filter((l) => l.role === "support").length;
+      if (_atrDay > 0 && (aboveCount < 2 || belowCount < 2)) {
+        const fibs = [
+          { mult: 0.382, label: "+0.38× day ATR" },
+          { mult: 0.618, label: "+0.62× day ATR" },
+          { mult: 1.0,   label: "+1.00× day ATR" },
+          { mult: 1.618, label: "+1.62× day ATR" },
+        ];
+        if (aboveCount < 2) {
+          for (const { mult, label } of fibs) {
+            const proj = px + mult * _atrDay;
+            const distPct = Math.round(((proj - px) / px) * 100 * 100) / 100;
+            top.push({
+              price: Math.round(proj * 100) / 100,
+              kind: "atr_projection",
+              label,
+              weight: 4,
+              touches: null,
+              family: "atr",
+              role: "resistance",
+              dist_pct: distPct,
+            });
+          }
+        }
+        if (belowCount < 2) {
+          for (const { mult, label } of fibs) {
+            const proj = px - mult * _atrDay;
+            if (proj <= 0) continue;
+            const distPct = Math.round(((proj - px) / px) * 100 * 100) / 100;
+            top.push({
+              price: Math.round(proj * 100) / 100,
+              kind: "atr_projection",
+              label: label.replace("+", "−"),
+              weight: 4,
+              touches: null,
+              family: "atr",
+              role: "support",
+              dist_pct: distPct,
+            });
+          }
+        }
+      }
+
+      // Final sort highest-to-lowest price for display
+      top.sort((a, b) => b.price - a.price);
+      return top;
+    })(),
   };
 }
 
@@ -38458,6 +40046,33 @@ export default {
         }
       }
 
+      // GET /timed/ticker-scenario?ticker=SPY
+      // V15 P0.7.72 — Phase 2 Q1 unification.
+      // Canonical per-ticker scenario consumed by both:
+      //   - Daily Brief generator (server-side, embedded in AI prompt)
+      //   - Right Rail Model card / chart Levels overlay (client-side fetch)
+      // Returns price, bias, support/resistance levels (sorted), pivots,
+      // ATR fib, golden gate (when present), and game plan triggers.
+      // Single source = no drift between Brief and Right Rail.
+      if (routeKey === "GET /timed/ticker-scenario") {
+        const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+        const rateLimit = await checkRateLimit(KV, ip, "/timed/ticker-scenario", 600, 3600);
+        if (!rateLimit.allowed) {
+          return sendJSON({ ok: false, error: "rate_limit_exceeded", retryAfter: 3600 }, 429, corsHeaders(env, req));
+        }
+        const ticker = normTicker(url.searchParams.get("ticker"));
+        if (!ticker) return sendJSON({ ok: false, error: "missing ticker" }, 400, corsHeaders(env, req));
+        try {
+          const scenario = await buildTickerScenario(env, ticker);
+          if (!scenario) {
+            return sendJSON({ ok: false, error: "build_failed" }, 500, corsHeaders(env, req));
+          }
+          return sendJSON(scenario, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // GET /timed/latest?ticker=
       if (routeKey === "GET /timed/latest") {
         // Rate limiting
@@ -39245,50 +40860,79 @@ export default {
                     }
                   }
 
-                  // Pick best prev_close: TwelveData pf.pc (authoritative) > daily candle > stored
+                  // P0.7.105 — TwelveData pc preferred (it's the freshest
+                  // and session-aware), with a tightened sanity check that
+                  // rejects any source giving > 8% daily change (was 25%).
+                  // The 25% threshold let yesterday's stale stored values
+                  // (CAT prev_close=$702 vs current $895, a 27% computed
+                  // change) leak through during the 60s before the cron's
+                  // next price-feed update overwrote the bad data. Now we
+                  // OVERWRITE the stored value on every overlay pass with
+                  // the freshest TD value, and fall back to daily candle
+                  // only when TD itself is missing/extreme.
                   const dailyCandlePc = pcCache[sym] || 0;
                   const pfPc = Number(pf.pc);
                   const pfP = Number(pf.p);
                   const pfPcUsable = Number.isFinite(pfPc) && pfPc > 0 && pfP > 0
                     && (Math.abs(pfPc - pfP) / pfP * 100) > 0.05;
-                  let bestPc = pfPcUsable
-                    ? pfPc
-                    : dailyCandlePc > 0
-                      ? dailyCandlePc
-                      : (obj.prev_close || obj._live_prev_close || 0);
-                  // Sanity: skip extreme daily change (>25%)
-                  if (bestPc > 0 && pfP > 0 && Math.abs((pfP - bestPc) / bestPc * 100) > 25) {
-                    bestPc = obj.prev_close || obj._live_prev_close || 0;
+                  let bestPc = 0;
+                  let bestPcSource = "none";
+                  // Priority: TD pc > daily candle > stored
+                  if (pfPcUsable) {
+                    bestPc = pfPc;
+                    bestPcSource = "td";
+                  } else if (dailyCandlePc > 0) {
+                    bestPc = dailyCandlePc;
+                    bestPcSource = "daily_candle";
+                  } else if (obj.prev_close || obj._live_prev_close) {
+                    bestPc = Number(obj.prev_close || obj._live_prev_close) || 0;
+                    bestPcSource = "stored";
                   }
-                  if (bestPc > 0) obj._live_prev_close = bestPc;
+                  // Tightened sanity: any single-day change > 8% is suspect.
+                  // Try the next source down the priority chain.
+                  if (bestPc > 0 && pfP > 0 && Math.abs((pfP - bestPc) / bestPc * 100) > 8) {
+                    if (bestPcSource === "td" && dailyCandlePc > 0
+                        && Math.abs((pfP - dailyCandlePc) / dailyCandlePc * 100) <= 8) {
+                      bestPc = dailyCandlePc;
+                      bestPcSource = "daily_candle_fallback";
+                    } else {
+                      const storedPc = Number(obj.prev_close || obj._live_prev_close) || 0;
+                      if (storedPc > 0 && Math.abs((pfP - storedPc) / storedPc * 100) <= 8) {
+                        bestPc = storedPc;
+                        bestPcSource = "stored_fallback";
+                      } else {
+                        bestPc = 0;
+                        bestPcSource = "rejected_extreme";
+                      }
+                    }
+                  }
+                  // ALWAYS overwrite stored value with the resolved bestPc
+                  // so the next read sees the fresh value (was: only set
+                  // when pfDp was non-zero, which left stale values stuck).
+                  if (bestPc > 0) {
+                    obj._live_prev_close = bestPc;
+                    obj.prev_close = bestPc;
+                  }
 
-                  // Apply daily change from price feed if non-zero
+                  // Apply daily change from price feed when source is TD
+                  // and value is sane; otherwise compute from bestPc.
                   const pfDc = Number(pf.dc);
                   const pfDp = Number(pf.dp);
-                  if (Number.isFinite(pfDp) && pfDp !== 0) {
+                  if (bestPcSource === "td" && Number.isFinite(pfDp) && pfDp !== 0) {
                     obj.day_change_pct = pfDp;
                     obj.change_pct = pfDp;
                     if (Number.isFinite(pfDc) && pfDc !== 0) {
                       obj.day_change = pfDc;
                       obj.change = pfDc;
                     }
-                    // Trust pfPc when price feed has session-aware daily change
-                    const feedPc = pfPcUsable ? pfPc : bestPc;
-                    if (feedPc > 0) { obj.prev_close = feedPc; obj._live_prev_close = feedPc; obj._td_pc_set = true; }
-                  } else if (!Number.isFinite(Number(obj.day_change_pct)) || Number(obj.day_change_pct) === 0) {
-                    // Price feed has no daily change AND snapshot has none — compute from bestPc
-                    if (bestPc > 0 && pfP > 0) {
-                      const computedDc = Math.round((pfP - bestPc) * 100) / 100;
-                      const computedDp = Math.round(((pfP - bestPc) / bestPc) * 10000) / 100;
-                      if (computedDp !== 0) {
-                        obj.day_change = computedDc;
-                        obj.day_change_pct = computedDp;
-                        obj.change = computedDc;
-                        obj.change_pct = computedDp;
-                        obj.prev_close = bestPc;
-                        if (pfPcUsable) obj._td_pc_set = true;
-                      }
-                    }
+                    obj._td_pc_set = true;
+                  } else if (bestPc > 0 && pfP > 0) {
+                    const computedDc = Math.round((pfP - bestPc) * 100) / 100;
+                    const computedDp = Math.round(((pfP - bestPc) / bestPc) * 10000) / 100;
+                    obj.day_change = computedDc;
+                    obj.day_change_pct = computedDp;
+                    obj.change = computedDc;
+                    obj.change_pct = computedDp;
                   }
                 }
                 data._price_overlay = { ok: true, updated_at: pricesUpdatedAt, tickers: Object.keys(livePrices.prices).length };
@@ -39684,38 +41328,31 @@ export default {
               // Canonicalize daily change fields: prefer heartbeat capture semantics (change/change_pct)
               // when stored day_change_pct is poisoned by a bad prev_close anchor.
               try {
+                // P0.7.105 — reconcile logic now defers to dayPct (the
+                // freshly-set TD value) when it's already reasonable.
+                // Was: any time dayPct disagreed with the (often stale)
+                // altPct=change_pct value, this clobbered dayPct →
+                // overwrote the correct TD-derived day change with old
+                // session-snapshot data. SPY observed: dayPct=0.20 (TD,
+                // correct) → overwritten with altPct=4.79 (stale).
+                //
+                // New rule: only USE altPct if dayPct itself is missing
+                // OR is itself absurd (>8%) AND altPct is saner. We
+                // prefer the SMALLER absolute value when both are valid.
                 const dayPct = Number(obj.day_change_pct);
                 const altPct = Number(obj.change_pct);
                 const altChg = Number(obj.change);
                 const price = Number(obj.price);
-                const hasHeartbeatSession =
-                  obj.session != null || obj.is_rth != null;
-                if (hasHeartbeatSession && Number.isFinite(altPct)) {
-                  obj.day_change_pct = altPct;
-                  if (Number.isFinite(altChg)) obj.day_change = altChg;
-                  if (Number.isFinite(price) && Number.isFinite(altChg))
-                    obj.prev_close = price - altChg;
-                }
-                const disagree =
-                  Number.isFinite(dayPct) &&
-                  Number.isFinite(altPct) &&
-                  (dayPct >= 0 !== altPct >= 0 ||
-                    Math.abs(dayPct - altPct) >= 1.5);
-                const absurd = Number.isFinite(dayPct) && Math.abs(dayPct) > 5;
-                const saneAlt =
-                  Number.isFinite(altPct) && Math.abs(altPct) <= 5;
-                if (
-                  (disagree || (absurd && saneAlt)) &&
-                  Number.isFinite(altPct)
-                ) {
-                  obj.day_change_pct = altPct;
-                  if (Number.isFinite(altChg)) obj.day_change = altChg;
-                  if (Number.isFinite(price) && Number.isFinite(altChg))
-                    obj.prev_close = price - altChg;
-                } else if (
-                  !Number.isFinite(dayPct) &&
-                  Number.isFinite(altPct)
-                ) {
+                const dayPctValid = Number.isFinite(dayPct);
+                const altPctValid = Number.isFinite(altPct);
+                const dayPctAbsurd = dayPctValid && Math.abs(dayPct) > 8;
+                const altPctSaner = altPctValid && Math.abs(altPct) < Math.abs(dayPct || 999);
+                const shouldUseAlt =
+                  // dayPct missing → use alt
+                  (!dayPctValid && altPctValid) ||
+                  // dayPct absurd AND alt is saner → use alt
+                  (dayPctAbsurd && altPctValid && Math.abs(altPct) <= 8 && altPctSaner);
+                if (shouldUseAlt) {
                   obj.day_change_pct = altPct;
                   if (Number.isFinite(altChg)) obj.day_change = altChg;
                   if (Number.isFinite(price) && Number.isFinite(altChg))
@@ -40123,47 +41760,63 @@ export default {
                 // ONLY update live price from timed:prices.
                 obj.price = pf.p;
                 obj._live_price = pf.p;
-                // Pick best prev_close: TwelveData pf.pc (authoritative) > daily candle > stored
+                // P0.7.105 — TD pc preferred + 8% sanity floor + always
+                // overwrite stored value. See full comment at the first
+                // occurrence (~line 40863).
                 const dailyCandlePc = allDailyPcMap[sym] || 0;
                 const pfPc = Number(pf.pc);
                 const pfP = Number(pf.p);
                 const pfPcUsable = Number.isFinite(pfPc) && pfPc > 0 && pfP > 0
                   && (Math.abs(pfPc - pfP) / pfP * 100) > 0.05;
-                let bestPc = pfPcUsable
-                  ? pfPc
-                  : dailyCandlePc > 0
-                    ? dailyCandlePc
-                    : (obj.prev_close || obj._live_prev_close || undefined);
-                // Sanity check: if bestPc gives extreme daily change (>25%), skip it
-                if (bestPc > 0 && pf.p > 0 && Math.abs((pf.p - bestPc) / bestPc * 100) > 25) {
-                  bestPc = obj.prev_close || obj._live_prev_close || undefined;
+                let bestPc = 0;
+                let bestPcSource = "none";
+                if (pfPcUsable) {
+                  bestPc = pfPc;
+                  bestPcSource = "td";
+                } else if (dailyCandlePc > 0) {
+                  bestPc = dailyCandlePc;
+                  bestPcSource = "daily_candle";
+                } else if (obj.prev_close || obj._live_prev_close) {
+                  bestPc = Number(obj.prev_close || obj._live_prev_close) || 0;
+                  bestPcSource = "stored";
                 }
-                if (bestPc > 0) obj._live_prev_close = bestPc;
-                // Apply daily change from price feed if it has meaningful non-zero values.
-                // This ensures daily change survives page refresh even when D1/KV stored values are stale.
+                if (bestPc > 0 && pf.p > 0 && Math.abs((pf.p - bestPc) / bestPc * 100) > 8) {
+                  if (bestPcSource === "td" && dailyCandlePc > 0
+                      && Math.abs((pf.p - dailyCandlePc) / dailyCandlePc * 100) <= 8) {
+                    bestPc = dailyCandlePc;
+                    bestPcSource = "daily_candle_fallback";
+                  } else {
+                    const storedPc = Number(obj.prev_close || obj._live_prev_close) || 0;
+                    if (storedPc > 0 && Math.abs((pf.p - storedPc) / storedPc * 100) <= 8) {
+                      bestPc = storedPc;
+                      bestPcSource = "stored_fallback";
+                    } else {
+                      bestPc = 0;
+                      bestPcSource = "rejected_extreme";
+                    }
+                  }
+                }
+                if (bestPc > 0) {
+                  obj._live_prev_close = bestPc;
+                  obj.prev_close = bestPc;
+                }
+
                 const pfDc = Number(pf.dc);
                 const pfDp = Number(pf.dp);
-                if (Number.isFinite(pfDp) && pfDp !== 0) {
+                if (bestPcSource === "td" && Number.isFinite(pfDp) && pfDp !== 0) {
                   obj.day_change_pct = pfDp;
                   obj.change_pct = pfDp;
                   if (Number.isFinite(pfDc) && pfDc !== 0) {
                     obj.day_change = pfDc;
                     obj.change = pfDc;
                   }
-                  if (bestPc > 0) obj.prev_close = bestPc;
-                } else if (!Number.isFinite(Number(obj.day_change_pct)) || Number(obj.day_change_pct) === 0) {
-                  // No price feed daily change AND no stored daily change — compute from bestPc
-                  if (bestPc > 0 && pf.p > 0) {
-                    const computedDc = Math.round((pf.p - bestPc) * 100) / 100;
-                    const computedDp = Math.round(((pf.p - bestPc) / bestPc) * 10000) / 100;
-                    if (computedDp !== 0) {
-                      obj.day_change = computedDc;
-                      obj.day_change_pct = computedDp;
-                      obj.change = computedDc;
-                      obj.change_pct = computedDp;
-                      obj.prev_close = bestPc;
-                    }
-                  }
+                } else if (bestPc > 0 && pf.p > 0) {
+                  const computedDc = Math.round((pf.p - bestPc) * 100) / 100;
+                  const computedDp = Math.round(((pf.p - bestPc) / bestPc) * 10000) / 100;
+                  obj.day_change = computedDc;
+                  obj.day_change_pct = computedDp;
+                  obj.change = computedDc;
+                  obj.change_pct = computedDp;
                 }
                 obj._live_daily_high = pf.dh;
                 obj._live_daily_low = pf.dl;
@@ -41106,6 +42759,471 @@ export default {
           return sendJSON(result, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ─────────────────────────────────────────────────────────────────────
+      // GET /timed/admin/fundamentals?ticker=X
+      // Tenet-style fundamentals snapshot for the Right Rail Fundamentals tab.
+      // Source: TwelveData /profile + /statistics + /earnings (cached in KV).
+      // Cache: kv:timed:fundamentals_v2:<TICKER>, 6h TTL (fundamentals don't move
+      // intraday and TwelveData credits are precious — /statistics alone is 50).
+      // Pass &refresh=1 to bypass cache (admin-only). Pass &nocache=1 for the
+      // same effect.
+      // ─────────────────────────────────────────────────────────────────────
+      if (routeKey === "GET /timed/admin/fundamentals") {
+        try {
+          const authFail = await requireKeyOrAdmin(req, env);
+          if (authFail) return authFail;
+
+          const tickerRaw = url.searchParams.get("ticker") || url.searchParams.get("symbol") || "";
+          const ticker = String(tickerRaw).toUpperCase().trim();
+          if (!ticker || !/^[A-Z0-9._!-]{1,12}$/.test(ticker)) {
+            return sendJSON({ ok: false, error: "missing_or_invalid_ticker" }, 400, corsHeaders(env, req));
+          }
+
+          const refresh = url.searchParams.get("refresh") === "1" || url.searchParams.get("nocache") === "1";
+          const cacheKey = `timed:fundamentals_v2:${ticker}`;
+          const TTL_SECONDS = 6 * 60 * 60; // 6h
+
+          if (!refresh) {
+            const cached = await kvGetJSON(KV, cacheKey);
+            if (cached && cached.as_of && (Date.now() - cached.as_of) < TTL_SECONDS * 1000) {
+              return sendJSON(
+                { ok: true, ...cached, _cache: "hit" },
+                200,
+                { ...corsHeaders(env, req), "Cache-Control": "private, max-age=600" },
+              );
+            }
+          }
+
+          // Fetch all three endpoints in parallel. Each is graceful — a partial
+          // failure shouldn't blow up the whole snapshot.
+          const [profileRes, statsRes, earningsRes] = await Promise.allSettled([
+            tdFetchProfile(env, ticker),
+            tdFetchStatistics(env, ticker),
+            tdFetchEarningsHistory(env, ticker, 12),
+          ]);
+
+          const safe = (s) => (s && s.status === "fulfilled" && s.value && !s.value._error) ? s.value : null;
+          const profile = safe(profileRes);
+          const statsRaw = safe(statsRes);
+          const earningsRaw = safe(earningsRes);
+
+          const stats = statsRaw?.statistics || {};
+          const valuation = stats.valuations_metrics || {};
+          const financials = stats.financials || {};
+          const incomeStmt = financials.income_statement || {};
+          const balanceSheet = financials.balance_sheet || {};
+          const cashFlow = financials.cash_flow || {};
+          const stockStats = stats.stock_statistics || {};
+          const priceSummary = stats.stock_price_summary || {};
+
+          const num = (v) => {
+            const n = Number(v);
+            return Number.isFinite(n) ? n : null;
+          };
+
+          // ── Profile ─────────────────────────────────────────────────────
+          const sector = profile?.sector || statsRaw?.meta?.sector || null;
+          const industry = profile?.industry || null;
+          const exchange = profile?.exchange || statsRaw?.meta?.exchange || null;
+          const companyName = profile?.name || statsRaw?.meta?.name || null;
+
+          // ── Valuation ───────────────────────────────────────────────────
+          const peTtm = num(valuation.trailing_pe);
+          const peForward = num(valuation.forward_pe);
+          const psRatio = num(valuation.price_to_sales_ttm);
+          const pbRatio = num(valuation.price_to_book_mrq);
+          const pegRatio = num(valuation.peg_ratio);
+          const marketCap = num(valuation.market_capitalization);
+          const enterpriseValue = num(valuation.enterprise_value);
+          const evToEbitda = num(valuation.enterprise_to_ebitda);
+
+          // ── Capital structure ───────────────────────────────────────────
+          const float = num(stockStats.float_shares);
+          const sharesOutstanding = num(stockStats.shares_outstanding);
+          const sharesShort = num(stockStats.shares_short);
+          const shortPctOutstanding = num(stockStats.short_percent_of_shares_outstanding);
+          // TwelveData reports "short_percent_of_shares_outstanding" as a fraction
+          // (e.g. 0.0056 = 0.56%). Convert to a percentage for display.
+          const shortPctPct = shortPctOutstanding != null ? shortPctOutstanding * 100 : null;
+          // Short float % uses float (more reliable than outstanding for "real"
+          // short pressure). Approximate when not directly given.
+          const shortFloatPct = (sharesShort && float) ? (sharesShort / float) * 100 : shortPctPct;
+          const totalDebt = num(balanceSheet.total_debt_mrq);
+          const totalCash = num(balanceSheet.total_cash_mrq);
+          const fcfTtm = num(cashFlow.levered_free_cash_flow_ttm);
+          const operatingCashFlow = num(cashFlow.operating_cash_flow_ttm);
+          const cashRich = (totalCash != null && totalDebt != null) ? totalCash > totalDebt : null;
+
+          // ── Growth ──────────────────────────────────────────────────────
+          // TwelveData reports growth as a fraction (0.932 = 93.2%). Convert
+          // to percentage for display + classification.
+          const epsGrowthFrac = num(incomeStmt.quarterly_earnings_growth_yoy);
+          const revGrowthFrac = num(incomeStmt.quarterly_revenue_growth);
+          const epsGrowthPct = epsGrowthFrac != null ? epsGrowthFrac * 100 : null;
+          const revGrowthPct = revGrowthFrac != null ? revGrowthFrac * 100 : null;
+
+          const classifyGrowth = (pct) => {
+            if (pct == null) return "unknown";
+            if (pct > 100) return "explosive";
+            if (pct >= 50) return "exploding";
+            if (pct >= 25) return "strong";
+            if (pct >= 0) return "positive";
+            return "declining";
+          };
+          const epsGrowthClass = classifyGrowth(epsGrowthPct);
+          const revGrowthClass = classifyGrowth(revGrowthPct);
+
+          // ── Earnings history + next quarter projection ─────────────────
+          const earningsRows = Array.isArray(earningsRaw?.earnings) ? earningsRaw.earnings : [];
+          // Sort newest first.
+          const sortedEarnings = [...earningsRows].sort((a, b) => {
+            const da = Date.parse(a?.date || "") || 0;
+            const db = Date.parse(b?.date || "") || 0;
+            return db - da;
+          });
+
+          const todayMs = Date.now();
+          const upcoming = sortedEarnings.filter((e) => {
+            const ms = Date.parse(e?.date || "") || 0;
+            return ms > todayMs && (e.eps_actual == null || e.eps_actual === undefined);
+          });
+          const past = sortedEarnings.filter((e) => {
+            const ms = Date.parse(e?.date || "") || 0;
+            return ms <= todayMs || e.eps_actual != null;
+          });
+
+          // Next earnings: the closest upcoming row, else the last `period=next`-style record.
+          const nextEarnings = upcoming.length > 0 ? upcoming[upcoming.length - 1] : null;
+          // Estimate vs YoY same quarter from history (4 quarters back).
+          const nextEpsEst = nextEarnings ? num(nextEarnings.eps_estimate) : null;
+          const yoyEpsEst = (() => {
+            if (!nextEarnings || nextEpsEst == null || past.length < 4) return null;
+            // Find the same quarter prior year by month.
+            const nextDate = new Date(nextEarnings.date);
+            const targetYear = nextDate.getUTCFullYear() - 1;
+            const targetMonth = nextDate.getUTCMonth();
+            const prior = past.find((p) => {
+              const d = new Date(p.date);
+              return d.getUTCFullYear() === targetYear && d.getUTCMonth() === targetMonth;
+            });
+            const priorActual = prior ? num(prior.eps_actual) : null;
+            if (priorActual == null || priorActual === 0) return null;
+            return ((nextEpsEst - priorActual) / Math.abs(priorActual)) * 100;
+          })();
+
+          // History rows for the table — last 10 quarters, oldest→newest reversed
+          // so the table renders newest-first by default.
+          const history = past.slice(0, 10).map((row, idx) => {
+            const epsActual = num(row.eps_actual);
+            const epsEst = num(row.eps_estimate);
+            const surprisePct = num(row.surprise_prc);
+            // EPS YoY growth: this row vs the row 4 quarters back (if available).
+            const olderIdx = idx + 4;
+            const older = olderIdx < past.length ? past[olderIdx] : null;
+            const olderActual = older ? num(older.eps_actual) : null;
+            let epsGrowthPctRow = null;
+            if (epsActual != null && olderActual != null && olderActual !== 0) {
+              epsGrowthPctRow = ((epsActual - olderActual) / Math.abs(olderActual)) * 100;
+            }
+            // Result classification — beat/miss/inline + raise heuristic.
+            let result = null;
+            if (epsActual != null && epsEst != null) {
+              const diff = epsActual - epsEst;
+              const ref = Math.max(Math.abs(epsEst), 0.01);
+              const surprise = (diff / ref) * 100;
+              if (surprise >= 5 && epsGrowthPctRow != null && epsGrowthPctRow >= 25) result = "beat_raise";
+              else if (surprise >= 1) result = "beat";
+              else if (surprise <= -1) result = "miss";
+              else result = "inline";
+            }
+            return {
+              date: row.date || null,
+              time: row.time || null,
+              eps_actual: epsActual,
+              eps_est: epsEst,
+              surprise_pct: surprisePct,
+              eps_growth_pct: epsGrowthPctRow,
+              result,
+            };
+          });
+
+          // Estimates trending up if next quarter EPS est > most recent quarter EPS actual.
+          const lastActual = past.length > 0 ? num(past[0].eps_actual) : null;
+          const estimatesUp = (nextEpsEst != null && lastActual != null) ? nextEpsEst > lastActual : null;
+          // "Guidance higher" — heuristic: average of last two surprise %s ≥ +5 → company has been
+          // beating consistently, often correlates with raised guidance. Best-effort flag.
+          const guidanceHigher = (() => {
+            const surprises = past.slice(0, 2).map((p) => num(p.surprise_prc)).filter((v) => v != null);
+            if (surprises.length === 0) return null;
+            const avg = surprises.reduce((s, v) => s + v, 0) / surprises.length;
+            return avg >= 5;
+          })();
+
+          // ── Fair Value — multi-method blend ────────────────────────────
+          // Mirrors the methodology in tradingview/PERatioAnalyzer.txt and
+          // tradingview/PricevsEarnings.txt that the user shared as reference.
+          //
+          // CRITICAL FIX (post-GOOGL bug, 2026-05-03): single-quarter EPS YoY
+          // can spike to 80%+ (one-off comparison artifact); using that as if
+          // it were sustained projects unrealistic forward EPS and Fair Value
+          // (e.g. GOOGL at $385 with 81% Q-YoY → forward $642 implies +67%
+          // upside, which is not credible for a mega-cap). We now smooth
+          // growth across the trailing 4 quarters' YoY surprises and cap the
+          // applied growth at ±25% for forward projection, ±50% for the PEG
+          // P/E lookup. The conservative method is also re-anchored to a
+          // sane minimum P/E (12, not the prior min(peTtm,18)×0.85 which
+          // floored most growth stocks below their own intrinsic value).
+          const dilutedEpsTtm = num(incomeStmt.diluted_eps_ttm);
+
+          // Smoothed EPS growth — match each "real quarterly" earnings row
+          // (eps_actual ≥ 0.5 to filter out non-quarterly interim filings)
+          // to the same quarter in the prior year by exact month, compute
+          // YoY % growth, then take the median of the last 4-6 such matches.
+          //
+          // Without month-matching we got hit by bogus filings (e.g. GOOGL
+          // 2026-04-17 $0.15 likely a dividend or interim filing, not real
+          // EPS) and an i vs i+4 offset that misaligned quarters.
+          const smoothedEpsGrowthPct = (() => {
+            const realQuarters = past.filter((p) => {
+              const v = num(p?.eps_actual);
+              return v != null && Math.abs(v) >= 0.5 && p?.date;
+            });
+            const yoyRates = [];
+            for (let i = 0; i < realQuarters.length; i++) {
+              const cur = realQuarters[i];
+              const curDate = new Date(cur.date);
+              if (isNaN(curDate.getTime())) continue;
+              // Find the same calendar month exactly 1 year earlier (±1 month tolerance)
+              const targetYear = curDate.getUTCFullYear() - 1;
+              const targetMonth = curDate.getUTCMonth();
+              const prior = realQuarters.slice(i + 1).find((p) => {
+                const d = new Date(p.date);
+                return d.getUTCFullYear() === targetYear && Math.abs(d.getUTCMonth() - targetMonth) <= 1;
+              });
+              if (!prior) continue;
+              const curEps = num(cur.eps_actual);
+              const priorEps = num(prior.eps_actual);
+              if (priorEps == null || priorEps === 0) continue;
+              const g = ((curEps - priorEps) / Math.abs(priorEps)) * 100;
+              if (Math.abs(g) <= 300) yoyRates.push(g);
+            }
+            if (yoyRates.length >= 2) {
+              const sorted = [...yoyRates].sort((a, b) => a - b);
+              // Use median for robustness to one-off spikes (e.g. GOOGL
+              // 2026-04-29 saw +2738% YoY due to comparison artifact).
+              return sorted[Math.floor(sorted.length / 2)];
+            }
+            return epsGrowthPct;
+          })();
+
+          // Forward EPS — use analyst sum if available (most accurate),
+          // otherwise project TTM × (1 + clamp(growth, ±25%)).
+          let fwdEpsImplied = null;
+          let fwdEpsBasis = null;
+          if (upcoming.length >= 4) {
+            const next4 = upcoming.slice(-4).map((e) => num(e.eps_estimate)).filter((v) => v != null);
+            if (next4.length === 4) {
+              fwdEpsImplied = next4.reduce((s, v) => s + v, 0);
+              fwdEpsBasis = "analyst_next_4q_sum";
+            }
+          }
+          if (fwdEpsImplied == null && dilutedEpsTtm != null && smoothedEpsGrowthPct != null) {
+            // Cap forward growth projection at ±25% — even hot growth stocks
+            // mean-revert. Beyond 25% we defer to the analyst forward P/E.
+            const cappedGrowth = Math.max(-25, Math.min(25, smoothedEpsGrowthPct));
+            fwdEpsImplied = dilutedEpsTtm * (1 + cappedGrowth / 100);
+            fwdEpsBasis = `ttm_eps_x_smoothed_growth_${cappedGrowth.toFixed(0)}pct`;
+          }
+
+          // Method 1 — Forward P/E × forward EPS
+          // Reflects what analysts collectively expect. Use peForward (which is
+          // a reported analyst figure) when available; this is the most defensible
+          // because it sidesteps our growth-projection assumptions entirely.
+          let fvForward = null;
+          if (peForward != null && fwdEpsImplied != null && fwdEpsImplied > 0) {
+            fvForward = peForward * fwdEpsImplied;
+          }
+
+          // Method 2 — Growth-Adjusted PEG (per PricevsEarnings.txt)
+          //   Fair P/E = growth_rate_pct × target_PEG (default PEG=1.0)
+          //   We cap the input growth at 50% (so PEG-justified P/E max-out
+          //   matches the user's indicator's 40 cap rather than running wild).
+          //   Applied to TTM EPS.
+          let fvGrowthPeg = null;
+          let growthAdjustedPe = null;
+          if (smoothedEpsGrowthPct != null && smoothedEpsGrowthPct > 0 && dilutedEpsTtm != null && dilutedEpsTtm > 0) {
+            const targetPeg = 1.0;
+            const cappedGrowthForPe = Math.min(50, smoothedEpsGrowthPct);
+            const rawPe = cappedGrowthForPe * targetPeg;
+            // Floor at TTM P/E × 0.85 (don't say a stock is fair-valued at less
+            // than its current trailing P/E unless growth genuinely warrants it),
+            // ceiling at 40.
+            const minPe = peTtm != null && peTtm > 0 ? Math.max(15, peTtm * 0.85) : 15;
+            const maxPe = 40;
+            growthAdjustedPe = Math.max(minPe, Math.min(rawPe, maxPe));
+            fvGrowthPeg = dilutedEpsTtm * growthAdjustedPe;
+          }
+
+          // Method 3 — Conservative (TTM P/E × 0.80, floored at 12)
+          //   This is the "bargain territory" line — not a fair value, more like
+          //   the price at which a long-term value buyer would step in. Re-anchored
+          //   to the ticker's current trailing P/E (not arbitrary 18) since growth
+          //   stocks legitimately trade at higher trailing P/Es; previously the
+          //   min(peTtm, 18) × 0.85 collapsed GOOGL conservative to $200 vs $385
+          //   actual, which over-stated the discount.
+          let fvConservative = null;
+          if (peTtm != null && peTtm > 0 && dilutedEpsTtm != null && dilutedEpsTtm > 0) {
+            const conservativePe = Math.max(12, peTtm * 0.80);
+            fvConservative = dilutedEpsTtm * conservativePe;
+          }
+
+          // Headline: median of available methods (more robust than any single one)
+          const fvCandidates = [fvForward, fvGrowthPeg, fvConservative].filter((v) => v != null && v > 0);
+          let fairValuePrice = null;
+          let fairValueBasis = null;
+          if (fvCandidates.length >= 2) {
+            const sorted = [...fvCandidates].sort((a, b) => a - b);
+            fairValuePrice = sorted.length === 3
+              ? sorted[1]
+              : (sorted[0] + sorted[1]) / 2;
+            fairValueBasis = "blend_median";
+          } else if (fvCandidates.length === 1) {
+            fairValuePrice = fvCandidates[0];
+            fairValueBasis = fvForward != null ? "forward_pe_x_forward_eps"
+              : fvGrowthPeg != null ? "growth_adjusted_peg"
+              : "conservative_floor";
+          } else if (peTtm != null && dilutedEpsTtm != null && dilutedEpsTtm > 0) {
+            fairValuePrice = peTtm * dilutedEpsTtm;
+            fairValueBasis = "trailing_pe_x_ttm_eps";
+          }
+
+          // Pull the most recent live price from KV so we can report a
+          // premium/discount classification. Do not hard-fail if missing.
+          let currentPrice = null;
+          try {
+            const priceRow = await kvGetJSON(KV, "timed:prices");
+            const prices = priceRow?.prices || priceRow || {};
+            const px = prices?.[ticker]?.p;
+            if (Number.isFinite(Number(px))) currentPrice = Number(px);
+          } catch { /* non-fatal */ }
+
+          let fairValueClass = null;
+          let fairValuePremiumPct = null;
+          if (fairValuePrice != null && currentPrice != null && currentPrice > 0) {
+            fairValuePremiumPct = ((currentPrice - fairValuePrice) / fairValuePrice) * 100;
+            if (fairValuePremiumPct <= -10) fairValueClass = "discount";
+            else if (fairValuePremiumPct >= 10) fairValueClass = "premium";
+            else fairValueClass = "fair";
+          }
+
+          const out = {
+            ticker,
+            as_of: Date.now(),
+            source: "twelvedata",
+            profile: {
+              name: companyName,
+              sector,
+              industry,
+              exchange,
+              ceo: profile?.CEO || null,
+              employees: num(profile?.employees),
+              website: profile?.website || null,
+              description: profile?.description || null,
+            },
+            valuation: {
+              market_cap: marketCap,
+              enterprise_value: enterpriseValue,
+              pe_ttm: peTtm,
+              pe_forward: peForward,
+              ps_ratio: psRatio,
+              pb_ratio: pbRatio,
+              peg_ratio: pegRatio,
+              ev_to_ebitda: evToEbitda,
+              fair_value_price: fairValuePrice != null ? Number(fairValuePrice.toFixed(2)) : null,
+              fair_value_basis: fairValueBasis,
+              fair_value_class: fairValueClass,
+              fair_value_premium_pct: fairValuePremiumPct != null ? Number(fairValuePremiumPct.toFixed(2)) : null,
+              fair_value_methods: {
+                forward: fvForward != null ? Number(fvForward.toFixed(2)) : null,
+                growth_peg: fvGrowthPeg != null ? Number(fvGrowthPeg.toFixed(2)) : null,
+                conservative: fvConservative != null ? Number(fvConservative.toFixed(2)) : null,
+                growth_adjusted_pe: growthAdjustedPe != null ? Number(growthAdjustedPe.toFixed(2)) : null,
+                fwd_eps_implied: fwdEpsImplied != null ? Number(fwdEpsImplied.toFixed(2)) : null,
+                fwd_eps_basis: fwdEpsBasis,
+                smoothed_growth_pct: smoothedEpsGrowthPct != null ? Number(smoothedEpsGrowthPct.toFixed(2)) : null,
+              },
+              current_price: currentPrice,
+            },
+            capital_structure: {
+              shares_outstanding: sharesOutstanding,
+              float,
+              shares_short: sharesShort,
+              short_pct_outstanding: shortPctPct,
+              short_float_pct: shortFloatPct,
+              total_debt: totalDebt,
+              total_cash: totalCash,
+              free_cash_flow_ttm: fcfTtm,
+              operating_cash_flow_ttm: operatingCashFlow,
+              cash_rich: cashRich,
+              insider_pct: num(stockStats.percent_held_by_insiders) != null ? num(stockStats.percent_held_by_insiders) * 100 : null,
+              institution_pct: num(stockStats.percent_held_by_institutions) != null ? num(stockStats.percent_held_by_institutions) * 100 : null,
+            },
+            growth: {
+              eps_growth_pct: epsGrowthPct != null ? Number(epsGrowthPct.toFixed(2)) : null,
+              rev_growth_pct: revGrowthPct != null ? Number(revGrowthPct.toFixed(2)) : null,
+              eps_growth_class: epsGrowthClass,
+              rev_growth_class: revGrowthClass,
+              gross_margin_pct: num(financials.gross_margin),
+              profit_margin_pct: num(financials.profit_margin) != null ? num(financials.profit_margin) * 100 : null,
+              operating_margin_pct: num(financials.operating_margin) != null ? num(financials.operating_margin) * 100 : null,
+              roe_ttm_pct: num(financials.return_on_equity_ttm) != null ? num(financials.return_on_equity_ttm) * 100 : null,
+              roa_ttm_pct: num(financials.return_on_assets_ttm) != null ? num(financials.return_on_assets_ttm) * 100 : null,
+            },
+            earnings: {
+              next_date: nextEarnings?.date || null,
+              next_time: nextEarnings?.time || null,
+              next_quarter_eps_est: nextEpsEst,
+              next_quarter_eps_yoy_pct: yoyEpsEst != null ? Number(yoyEpsEst.toFixed(2)) : null,
+              estimates_up: estimatesUp,
+              guidance_higher: guidanceHigher,
+              eps_ttm: dilutedEpsTtm,
+              fiscal_year_ends: financials.fiscal_year_ends || null,
+              most_recent_quarter: financials.most_recent_quarter || null,
+              history,
+            },
+            price_summary: {
+              fifty_two_week_low: num(priceSummary.fifty_two_week_low),
+              fifty_two_week_high: num(priceSummary.fifty_two_week_high),
+              fifty_two_week_change_pct: num(priceSummary.fifty_two_week_change) != null ? num(priceSummary.fifty_two_week_change) * 100 : null,
+              beta: num(priceSummary.beta),
+              day_50_ma: num(priceSummary.day_50_ma),
+              day_200_ma: num(priceSummary.day_200_ma),
+            },
+            errors: {
+              profile: profileRes.status === "fulfilled" ? (profileRes.value?._error || null) : String(profileRes.reason).slice(0, 80),
+              statistics: statsRes.status === "fulfilled" ? (statsRes.value?._error || null) : String(statsRes.reason).slice(0, 80),
+              earnings: earningsRes.status === "fulfilled" ? (earningsRes.value?._error || null) : String(earningsRes.reason).slice(0, 80),
+            },
+          };
+
+          // Persist to KV for the next 6h. Best-effort.
+          try {
+            await kvPutJSON(KV, cacheKey, out, TTL_SECONDS);
+          } catch (kvErr) {
+            console.warn("[FUNDAMENTALS] KV write failed:", String(kvErr).slice(0, 120));
+          }
+
+          return sendJSON(
+            { ok: true, ...out, _cache: "miss" },
+            200,
+            { ...corsHeaders(env, req), "Cache-Control": "private, max-age=600" },
+          );
+        } catch (e) {
+          console.error("[FUNDAMENTALS] error:", String(e?.stack || e).slice(0, 400));
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
         }
       }
 
@@ -44551,7 +46669,10 @@ export default {
           sinceRaw != null && sinceRaw !== "" ? Number(sinceRaw) : null;
         const until =
           untilRaw != null && untilRaw !== "" ? Number(untilRaw) : null;
-        const limit = Math.max(1, Math.min(1000, Number(limitRaw) || 200));
+        // Cap raised 1000 → 2000 (P0.7.69) so a typical promoted backtest
+        // run (~600 trades) fits in a single round trip from the Trades page.
+        // The frontend hook `useLedgerTrades` will still auto-page beyond this.
+        const limit = Math.max(1, Math.min(2000, Number(limitRaw) || 200));
         const cursor = decodeCursor(cursorRaw);
 
         let where = "WHERE 1=1";
@@ -44668,7 +46789,84 @@ export default {
             throw e;
           }
         }
-        const results = Array.isArray(rows?.results) ? rows.results : [];
+        let results = Array.isArray(rows?.results) ? rows.results : [];
+
+        // V15 P0.7.82: UNION with the active promoted dataset.
+        // The Trades page Performance Overview / Equity Curve / Monthly
+        // tables expect to see ALL trades that contributed to the seeded
+        // account_ledger (including the 587 promoted backtest trades),
+        // not just the post-promotion live trades. Without this merge, the
+        // Trades page showed "19 closed" when the promoted run had 587 +
+        // a handful of live trades after.
+        //
+        // Honors the same ticker/since/until filters. Promoted trades have
+        // their own entry_ts so they sort correctly with the live ones.
+        // The resulting list is a single chronological view of "every trade
+        // that built the current account state." Skipped when the caller
+        // explicitly asks for `include_promoted=false`.
+        const includePromoted = (url.searchParams.get("include_promoted") || "true").toLowerCase() !== "false";
+        if (includePromoted) {
+          try {
+            // Resolve active promoted dataset (most recent active, fall back to most recent)
+            let pdataset = await db.prepare(
+              `SELECT dataset_id FROM promoted_trade_datasets WHERE status = 'active' ORDER BY promoted_at DESC LIMIT 1`
+            ).first();
+            if (!pdataset) {
+              pdataset = await db.prepare(
+                `SELECT dataset_id FROM promoted_trade_datasets ORDER BY promoted_at DESC LIMIT 1`
+              ).first();
+            }
+            if (pdataset?.dataset_id) {
+              let pwhere = "WHERE dataset_id = ?";
+              const pbinds = [String(pdataset.dataset_id)];
+              if (ticker) {
+                pwhere += " AND ticker = ?";
+                pbinds.push(String(ticker).toUpperCase());
+              }
+              if (statusNorm && statusNorm !== "all") {
+                if (statusNorm === "closed") {
+                  pwhere += " AND status IN ('WIN','LOSS','FLAT')";
+                } else if (statusNorm === "open") {
+                  pwhere += " AND (status IS NULL OR status NOT IN ('WIN','LOSS','FLAT'))";
+                } else {
+                  pwhere += " AND status = ?";
+                  pbinds.push(String(statusRaw).toUpperCase());
+                }
+              }
+              if (since != null && Number.isFinite(since)) {
+                pwhere += " AND (exit_ts IS NULL OR exit_ts >= ?)";
+                pbinds.push(Number(since));
+              }
+              if (until != null && Number.isFinite(until)) {
+                pwhere += " AND entry_ts <= ?";
+                pbinds.push(Number(until));
+              }
+              const promotedRows = (await db.prepare(
+                `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+                        exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
+                        script_version, created_at, updated_at, trim_ts, trim_price,
+                        setup_name, setup_grade, risk_budget, shares, notional
+                 FROM promoted_trades
+                 ${pwhere}
+                 ORDER BY entry_ts DESC, trade_id DESC`
+              ).bind(...pbinds).all())?.results || [];
+              // Dedupe by trade_id — live trades override promoted on collision
+              const liveIds = new Set(results.map(r => r.trade_id));
+              for (const pr of promotedRows) {
+                if (!liveIds.has(pr.trade_id)) results.push(pr);
+              }
+              // Re-sort merged set newest first
+              results.sort((a, b) => {
+                const da = Number(b.entry_ts || 0) - Number(a.entry_ts || 0);
+                if (da !== 0) return da;
+                return String(b.trade_id || "").localeCompare(String(a.trade_id || ""));
+              });
+            }
+          } catch (e) {
+            console.warn("[ledger/trades] promoted union failed:", String(e?.message || e).slice(0, 200));
+          }
+        }
+
         const page = results.slice(0, limit);
         const hasMore = results.length > limit;
         const last = page.length > 0 ? page[page.length - 1] : null;
@@ -48128,6 +50326,65 @@ export default {
       } = getReplayExecutorRuntime();
 
       if (routeKey === "POST /timed/admin/candle-replay") {
+        // P0.7.106 — HARD GUARD on cleanSlate.
+        // Three mystery wipes in 24h were traced to
+        //   POST candle-replay?cleanSlate=1&tickers=CSX,CDNS,ORCL,ITT&...
+        // being invoked from scripts/reference-validation-matrix.py
+        // running on the user's Mac (curl/8.7.1). The cron-mute flag
+        // doesn't protect HTTP endpoints — it only halts the scheduled
+        // handler. So a stray script + cleanSlate keeps wiping the
+        // live ledger.
+        //
+        // New rule: cleanSlate=1 now requires BOTH:
+        //   - cron-mute KV flag NOT active (so muting blocks all wipes)
+        //   - confirm_clean_slate=YES_DESTROY query param
+        // Without confirmation we audit and reject 409.
+        const isCleanSlate = url.searchParams.get("cleanSlate") === "1" || url.searchParams.get("cleanSlate") === "true";
+        if (isCleanSlate) {
+          const confirm = url.searchParams.get("confirm_clean_slate");
+          const KV = env?.KV_TIMED;
+          let muted = false;
+          try {
+            const m = KV ? await KV.get("phase-c:cron-mute") : null;
+            muted = !!m;
+          } catch (_) {}
+          if (muted) {
+            await auditDataChange(env, {
+              op: "CANDLE_REPLAY_CLEAN_SLATE_BLOCKED",
+              scope: `date=${url.searchParams.get("date") || "?"} reason=cron_muted`,
+              caller: req?.url || "unknown",
+              rowsAffected: 0,
+              meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search, mute_value: String(muted).slice(0, 80) },
+            });
+            return sendJSON({
+              ok: false,
+              error: "clean_slate_blocked_cron_muted",
+              detail: "cleanSlate=1 is blocked while phase-c:cron-mute is set. Clear the mute via DELETE /timed/admin/cron-mute then retry.",
+            }, 409, corsHeaders(env, req));
+          }
+          if (confirm !== "YES_DESTROY") {
+            await auditDataChange(env, {
+              op: "CANDLE_REPLAY_CLEAN_SLATE_BLOCKED",
+              scope: `date=${url.searchParams.get("date") || "?"} reason=missing_confirmation`,
+              caller: req?.url || "unknown",
+              rowsAffected: 0,
+              meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
+            });
+            return sendJSON({
+              ok: false,
+              error: "clean_slate_requires_confirmation",
+              detail: "cleanSlate=1 wipes ALL trades / positions / account_ledger. Add &confirm_clean_slate=YES_DESTROY to the request to proceed. This guard was added because 3+ mystery wipes today traced to scripts firing this endpoint.",
+            }, 409, corsHeaders(env, req));
+          }
+          // Audit the destructive op (was: P0.7.103 audit-only)
+          await auditDataChange(env, {
+            op: "CANDLE_REPLAY_CLEAN_SLATE",
+            scope: `date=${url.searchParams.get("date") || "?"} confirmed=true`,
+            caller: req?.url || "unknown",
+            rowsAffected: null,
+            meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
+          });
+        }
         return handleCandleReplayRoute({
           req,
           env,
@@ -48138,6 +50395,40 @@ export default {
       }
 
       if (routeKey === "POST /timed/admin/interval-replay") {
+        // P0.7.106 — same hard guard on cleanSlate as candle-replay (above)
+        const isCleanSlate = url.searchParams.get("cleanSlate") === "1" || url.searchParams.get("cleanSlate") === "true";
+        if (isCleanSlate) {
+          const confirm = url.searchParams.get("confirm_clean_slate");
+          const KV = env?.KV_TIMED;
+          let muted = false;
+          try { muted = !!(KV ? await KV.get("phase-c:cron-mute") : null); } catch (_) {}
+          if (muted) {
+            await auditDataChange(env, {
+              op: "INTERVAL_REPLAY_CLEAN_SLATE_BLOCKED",
+              scope: `date=${url.searchParams.get("date") || "?"} reason=cron_muted`,
+              caller: req?.url || "unknown", rowsAffected: 0,
+              meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
+            });
+            return sendJSON({ ok: false, error: "clean_slate_blocked_cron_muted",
+              detail: "cleanSlate=1 blocked while cron-mute is set." }, 409, corsHeaders(env, req));
+          }
+          if (confirm !== "YES_DESTROY") {
+            await auditDataChange(env, {
+              op: "INTERVAL_REPLAY_CLEAN_SLATE_BLOCKED",
+              scope: `date=${url.searchParams.get("date") || "?"} reason=missing_confirmation`,
+              caller: req?.url || "unknown", rowsAffected: 0,
+              meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
+            });
+            return sendJSON({ ok: false, error: "clean_slate_requires_confirmation",
+              detail: "Add &confirm_clean_slate=YES_DESTROY to wipe trades/positions/ledger." }, 409, corsHeaders(env, req));
+          }
+          await auditDataChange(env, {
+            op: "INTERVAL_REPLAY_CLEAN_SLATE",
+            scope: `date=${url.searchParams.get("date") || "?"} confirmed=true`,
+            caller: req?.url || "unknown", rowsAffected: null,
+            meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
+          });
+        }
         return handleIntervalReplayRoute({
           req,
           env,
@@ -48180,6 +50471,14 @@ export default {
 
         // Clean slate: purge trades
         if (cleanSlate) {
+          // P0.7.103 — audit BEFORE nuke
+          await auditDataChange(env, {
+            op: "SNAPSHOT_REPLAY_CLEAN_SLATE",
+            scope: `date=${dateParam}`,
+            caller: req?.url || "unknown",
+            rowsAffected: null,
+            meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
+          });
           await kvPutJSON(KV, "timed:trades:all", []);
           await kvPutJSON(KV, REPLAY_TRADES_KV_KEY, []);
           await kvPutJSON(KV, "timed:portfolio:v1", null);
@@ -48804,6 +51103,14 @@ export default {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
         const db = env?.DB;
+        // P0.7.103 — audit BEFORE the destructive op fires
+        await auditDataChange(env, {
+          op: "RECONCILE_REPLAY",
+          scope: `date=${url.searchParams.get("date") || "?"}`,
+          caller: req?.url || "unknown",
+          rowsAffected: null,
+          meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
+        });
         const KV = env?.KV_TIMED;
         if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
 
@@ -49057,6 +51364,40 @@ export default {
         return sendJSON({ ok: true, released: true }, 200, corsHeaders(env, req));
       }
 
+      // POST /timed/admin/cron-mute?key=...&reason=phase-c-multileg
+      // Hard mute the live cron's trade execution + reconciliation. Distinct
+      // from replay-lock: this stays in effect across replay-lock acquire/
+      // release cycles, designed for the multi-leg backtest orchestrator
+      // that releases the per-leg lock between legs but wants the cron to
+      // stay quiet for the entire multi-leg run.
+      if (routeKey === "POST /timed/admin/cron-mute") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const KV = env?.KV_TIMED;
+        if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+        const reason = url.searchParams.get("reason") || "manual";
+        const muteVal = `${reason}@${new Date().toISOString()}`;
+        // No TTL — explicit DELETE required to clear. Operator responsibility.
+        await KV.put("phase-c:cron-mute", muteVal);
+        return sendJSON({ ok: true, mute: muteVal }, 200, corsHeaders(env, req));
+      }
+      if (routeKey === "GET /timed/admin/cron-mute") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const KV = env?.KV_TIMED;
+        if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+        const m = await KV.get("phase-c:cron-mute");
+        return sendJSON({ ok: true, muted: !!m, mute: m || null }, 200, corsHeaders(env, req));
+      }
+      if (routeKey === "DELETE /timed/admin/cron-mute") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const KV = env?.KV_TIMED;
+        if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+        await KV.delete("phase-c:cron-mute");
+        return sendJSON({ ok: true, released: true }, 200, corsHeaders(env, req));
+      }
+
       // POST /timed/admin/cleanup-orphan-trades?key=...
       // Force-close all trades with status=OPEN and run_id IS NULL that
       // are older than the threshold (default 7 days). These are leftover
@@ -49135,6 +51476,19 @@ export default {
             } catch (kvErr) {
               console.warn("[cleanup-orphan-trades] KV cleanup failed:", String(kvErr?.message || kvErr));
             }
+          }
+          if ((d1Closed + posClosed + kvFound) > 0) {
+            await auditDataChange(env, {
+              op: "CLEANUP_ORPHAN_TRADES",
+              scope: `min_age_days=${minAgeDays}`,
+              caller: req?.url || "unknown",
+              rowsAffected: d1Closed + posClosed + kvFound,
+              meta: {
+                trade_ids_canceled: d1Found.map(r => r.trade_id),
+                position_ids_closed: posFound.map(r => r.position_id),
+                kv_purged: kvFound,
+              },
+            });
           }
           return sendJSON({
             ok: true,
@@ -49419,6 +51773,32 @@ export default {
             fields.push(`params_json = ?${bindIdx++}`);
             values.push(JSON.stringify(nextParams || {}));
           }
+          // V15 P0.7.68 (2026-05-06) — Allow extending the manifest end date
+          // mid-run. Multi-leg backtests sometimes need to add an extra day
+          // (e.g. extending Apr→May by an extra day to capture today's data).
+          // Without this, tradeMatchesReplayScope will silently drop trades
+          // entered after the original endDate. Updates BOTH manifest_json
+          // (used by replay scope filter) AND the top-level start/end_date
+          // columns (used by runs index UI).
+          if (Object.prototype.hasOwnProperty.call(body, "end_date") && body.end_date) {
+            fields.push(`end_date = ?${bindIdx++}`);
+            values.push(String(body.end_date));
+            // Also patch manifest_json
+            try {
+              const existingManifest = await db.prepare(`SELECT manifest_json FROM backtest_runs WHERE run_id = ?1`).bind(runId).first();
+              if (existingManifest?.manifest_json) {
+                const m = JSON.parse(existingManifest.manifest_json);
+                if (m?.dataset) m.dataset.endDate = String(body.end_date);
+                if (m?.params) m.params.endDate = String(body.end_date);
+                fields.push(`manifest_json = ?${bindIdx++}`);
+                values.push(JSON.stringify(m));
+              }
+            } catch (_) {}
+          }
+          if (Object.prototype.hasOwnProperty.call(body, "start_date") && body.start_date) {
+            fields.push(`start_date = ?${bindIdx++}`);
+            values.push(String(body.start_date));
+          }
           fields.push(`updated_at = ?${bindIdx++}`);
           values.push(Date.now());
           await db.prepare(`UPDATE backtest_runs SET ${fields.join(", ")} WHERE run_id = ?1`).bind(...values).run();
@@ -49438,6 +51818,14 @@ export default {
           const body = await req.json().catch(() => ({}));
           if (!body?.run_id) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
           const rid = body.run_id;
+          // P0.7.103 — audit before destructive op
+          await auditDataChange(env, {
+            op: "RUN_DELETE",
+            scope: `run_id=${rid}`,
+            caller: req?.url || "unknown",
+            rowsAffected: null,
+            meta: { user_agent: req?.headers?.get?.("user-agent") || null },
+          });
           await db.prepare(`DELETE FROM backtest_runs WHERE run_id = ?1`).bind(rid).run();
           try { await db.prepare(`DELETE FROM backtest_run_metrics WHERE run_id = ?1`).bind(rid).run(); } catch {}
           try { await db.prepare(`DELETE FROM backtest_run_trades WHERE run_id = ?1`).bind(rid).run(); } catch {}
@@ -49445,6 +51833,868 @@ export default {
           try { await db.prepare(`DELETE FROM backtest_run_annotations WHERE run_id = ?1`).bind(rid).run(); } catch {}
           try { await db.prepare(`DELETE FROM backtest_run_config WHERE run_id = ?1`).bind(rid).run(); } catch {}
           return sendJSON({ ok: true }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/runs/rollback-to-date
+      //
+      // Surgical rollback for a multi-leg backtest. Given:
+      //   { run_id: "...", from_date: "YYYY-MM-DD", dry_run?: true }
+      //
+      // Deletes ALL trades, trade_events, positions, and direction_accuracy
+      // rows where entry_ts >= from_date 00:00 UTC for the given run_id.
+      // Pre-rollback positions (those entered BEFORE from_date) are preserved
+      // — they remain OPEN and can be carried forward by --resume.
+      //
+      // Use cases:
+      //  1. Mid-walk-forward calibration change: deploy a new doctrine /
+      //     admission rule, then rollback the most recent leg + restart.
+      //  2. Bad cluster: a single day's batch went badly; roll back +
+      //     re-run with a config tweak.
+      //  3. Replace bad October with a re-run after fix.
+      //
+      // Returns counts of what was deleted (and a preview if dry_run=true).
+      // The local checkpoint file (`continuous.checkpoint.json`) must also
+      // be reset by the operator — the API only owns server-side state.
+      // ─────────────────────────────────────────────────────────────────
+      if (routeKey === "POST /timed/admin/runs/rollback-to-date") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const body = await req.json().catch(() => ({}));
+          const runId = String(body?.run_id || "").trim();
+          const fromDate = String(body?.from_date || "").trim();
+          const dryRun = body?.dry_run === true;
+          if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate)) {
+            return sendJSON({ ok: false, error: "from_date_required (YYYY-MM-DD)" }, 400, corsHeaders(env, req));
+          }
+          // P0.7.103 — audit destructive op
+          if (!dryRun) {
+            await auditDataChange(env, {
+              op: "RUN_ROLLBACK_TO_DATE",
+              scope: `run_id=${runId} from_date=${fromDate}`,
+              caller: req?.url || "unknown",
+              rowsAffected: null,
+              meta: { user_agent: req?.headers?.get?.("user-agent") || null, body },
+            });
+          }
+          // Convert from_date to UTC midnight ms
+          const cutoffMs = Date.UTC(
+            Number(fromDate.slice(0, 4)),
+            Number(fromDate.slice(5, 7)) - 1,
+            Number(fromDate.slice(8, 10)),
+            0, 0, 0, 0
+          );
+          if (!Number.isFinite(cutoffMs)) {
+            return sendJSON({ ok: false, error: "from_date_invalid" }, 400, corsHeaders(env, req));
+          }
+
+          // Preview counts (always run, useful for dry_run + post-action audit)
+          let preview = {};
+          try {
+            const tradesPrev = await db.prepare(
+              `SELECT COUNT(*) AS n,
+                      SUM(CASE WHEN status='WIN' THEN 1 ELSE 0 END) AS wins,
+                      SUM(CASE WHEN status='LOSS' THEN 1 ELSE 0 END) AS losses,
+                      SUM(CASE WHEN status='OPEN' OR status='TP_HIT_TRIM' THEN 1 ELSE 0 END) AS still_open,
+                      ROUND(COALESCE(SUM(pnl_pct), 0), 2) AS sum_pnl_pct,
+                      ROUND(COALESCE(SUM(pnl), 0), 2) AS sum_pnl_dollar
+                 FROM trades
+                WHERE run_id = ?1 AND entry_ts >= ?2`
+            ).bind(runId, cutoffMs).first();
+            preview.trades = tradesPrev || {};
+          } catch (e) {
+            preview.trades = { error: String(e?.message || e).slice(0, 200) };
+          }
+          try {
+            const archivePrev = await db.prepare(
+              `SELECT COUNT(*) AS n FROM backtest_run_trades WHERE run_id = ?1 AND entry_ts >= ?2`
+            ).bind(runId, cutoffMs).first();
+            preview.archive_trades = archivePrev?.n || 0;
+          } catch (_) { preview.archive_trades = 0; }
+          try {
+            const eventsPrev = await db.prepare(
+              `SELECT COUNT(*) AS n FROM trade_events
+                WHERE trade_id IN (
+                  SELECT trade_id FROM trades WHERE run_id = ?1 AND entry_ts >= ?2
+                )`
+            ).bind(runId, cutoffMs).first();
+            preview.trade_events = eventsPrev?.n || 0;
+          } catch (_) { preview.trade_events = 0; }
+          try {
+            const positionsPrev = await db.prepare(
+              `SELECT COUNT(*) AS n FROM positions
+                WHERE position_id IN (
+                  SELECT trade_id FROM trades WHERE run_id = ?1 AND entry_ts >= ?2
+                )`
+            ).bind(runId, cutoffMs).first();
+            preview.positions = positionsPrev?.n || 0;
+          } catch (_) { preview.positions = 0; }
+          try {
+            const daPrev = await db.prepare(
+              `SELECT COUNT(*) AS n FROM backtest_run_direction_accuracy
+                WHERE run_id = ?1 AND ts >= ?2`
+            ).bind(runId, cutoffMs).first();
+            preview.direction_accuracy = daPrev?.n || 0;
+          } catch (_) { preview.direction_accuracy = 0; }
+          // Hangover trades — entered pre-cutoff but exited post-cutoff.
+          // These get RE-OPENED (not deleted) so the post-rollback re-run
+          // can manage them under the new doctrine/admission rules.
+          try {
+            const { results: hangoverPreview } = await db.prepare(
+              `SELECT trade_id, ticker, status, ROUND(pnl_pct,2) AS pnl_pct,
+                      ROUND(pnl,2) AS pnl, exit_reason, trimmed_pct
+                 FROM trades
+                WHERE run_id = ?1 AND entry_ts < ?2 AND exit_ts >= ?2`
+            ).bind(runId, cutoffMs).all();
+            preview.hangover_trades = {
+              count: (hangoverPreview || []).length,
+              trades: (hangoverPreview || []).slice(0, 30),
+              note: "These will be RE-OPENED (status set to OPEN/TP_HIT_TRIM, exit fields cleared). Post-cutoff trade_events deleted.",
+            };
+          } catch (_) { preview.hangover_trades = { count: 0 }; }
+
+          if (dryRun) {
+            return sendJSON({
+              ok: true,
+              dry_run: true,
+              run_id: runId,
+              from_date: fromDate,
+              cutoff_ms: cutoffMs,
+              preview,
+            }, 200, corsHeaders(env, req));
+          }
+
+          // Execute deletes. Order matters — children before parents.
+          const deleted = {};
+
+          // 1. trade_events first (FK to trades)
+          try {
+            const r = await db.prepare(
+              `DELETE FROM trade_events
+                WHERE trade_id IN (
+                  SELECT trade_id FROM trades WHERE run_id = ?1 AND entry_ts >= ?2
+                )`
+            ).bind(runId, cutoffMs).run();
+            deleted.trade_events = r?.meta?.changes || 0;
+          } catch (e) { deleted.trade_events_error = String(e?.message || e).slice(0, 200); }
+
+          // 2. positions (referenced by trades.trade_id == positions.position_id)
+          try {
+            const r = await db.prepare(
+              `DELETE FROM positions
+                WHERE position_id IN (
+                  SELECT trade_id FROM trades WHERE run_id = ?1 AND entry_ts >= ?2
+                )`
+            ).bind(runId, cutoffMs).run();
+            deleted.positions = r?.meta?.changes || 0;
+          } catch (e) { deleted.positions_error = String(e?.message || e).slice(0, 200); }
+
+          // 3. direction_accuracy (per-trade snapshots)
+          try {
+            const r = await db.prepare(
+              `DELETE FROM direction_accuracy
+                WHERE trade_id IN (
+                  SELECT trade_id FROM trades WHERE run_id = ?1 AND entry_ts >= ?2
+                )`
+            ).bind(runId, cutoffMs).run();
+            deleted.direction_accuracy = r?.meta?.changes || 0;
+          } catch (e) { deleted.direction_accuracy_error = String(e?.message || e).slice(0, 200); }
+          try {
+            const r = await db.prepare(
+              `DELETE FROM backtest_run_direction_accuracy
+                WHERE run_id = ?1 AND ts >= ?2`
+            ).bind(runId, cutoffMs).run();
+            deleted.backtest_run_direction_accuracy = r?.meta?.changes || 0;
+          } catch (_) {}
+
+          // 4. backtest_run_trades archive (mirror of trades for the run)
+          try {
+            const r = await db.prepare(
+              `DELETE FROM backtest_run_trades WHERE run_id = ?1 AND entry_ts >= ?2`
+            ).bind(runId, cutoffMs).run();
+            deleted.backtest_run_trades = r?.meta?.changes || 0;
+          } catch (e) { deleted.backtest_run_trades_error = String(e?.message || e).slice(0, 200); }
+
+          // 5. trades (parent — last in D1)
+          try {
+            const r = await db.prepare(
+              `DELETE FROM trades WHERE run_id = ?1 AND entry_ts >= ?2`
+            ).bind(runId, cutoffMs).run();
+            deleted.trades = r?.meta?.changes || 0;
+          } catch (e) { deleted.trades_error = String(e?.message || e).slice(0, 200); }
+
+          // 5b. KV REPLAY BLOB CLEANUP — `timed:trades:replay` is the
+          //     KV-backed copy used by the trade-autopsy page (source =
+          //     "replay_kv"). It mirrors the in-flight replay's trade
+          //     list and persists across leg boundaries. Without
+          //     cleaning it here, the autopsy UI keeps showing the
+          //     deleted Oct trades + the closed-out hangover state
+          //     even though D1 is clean. Apply the same delete +
+          //     hangover-reopen logic to the KV blob.
+          try {
+            const KV = env?.KV_TIMED;
+            if (KV) {
+              const replayKvKey = "timed:trades:replay";
+              const arr = await kvGetJSON(KV, replayKvKey) || [];
+              if (Array.isArray(arr) && arr.length > 0) {
+                let kvDeleted = 0;
+                let kvReopened = 0;
+                const kept = [];
+                for (const t of arr) {
+                  const tRunId = String(t?.run_id || t?.runId || "");
+                  if (tRunId !== runId) {
+                    kept.push(t);
+                    continue;
+                  }
+                  const entryTs = Number(t?.entry_ts ?? t?.entryTs ?? 0);
+                  const exitTs = Number(t?.exit_ts ?? t?.exitTs ?? 0);
+                  // Trade entered on/after cutoff → delete
+                  if (entryTs >= cutoffMs) {
+                    kvDeleted++;
+                    continue;
+                  }
+                  // Hangover (entered before, exited after cutoff) → re-open
+                  if (entryTs < cutoffMs && exitTs >= cutoffMs) {
+                    const wasPartiallyTrimmed = Number(t?.trimmed_pct ?? t?.trimmedPct ?? 0) > 0
+                      && Number(t?.trimmed_pct ?? t?.trimmedPct ?? 0) < 1;
+                    const restoreStatus = wasPartiallyTrimmed ? "TP_HIT_TRIM" : "OPEN";
+                    const reopened = { ...t };
+                    reopened.status = restoreStatus;
+                    reopened.exit_ts = null; reopened.exitTs = null;
+                    reopened.exit_price = null; reopened.exitPrice = null;
+                    reopened.exit_reason = null; reopened.exitReason = null;
+                    reopened.pnl = null; reopened.pnl_pct = null; reopened.pnlPct = null;
+                    // Trim history events that occurred after cutoff
+                    if (Array.isArray(reopened.history)) {
+                      reopened.history = reopened.history.filter((ev) => {
+                        const evTs = Number(ev?.ts ?? 0);
+                        return evTs > 0 && evTs < cutoffMs;
+                      });
+                    }
+                    kept.push(reopened);
+                    kvReopened++;
+                    continue;
+                  }
+                  // Pre-cutoff trade unaffected
+                  kept.push(t);
+                }
+                await kvPutJSON(KV, replayKvKey, kept);
+                deleted.kv_replay_blob_deleted = kvDeleted;
+                deleted.kv_replay_blob_reopened = kvReopened;
+                deleted.kv_replay_blob_remaining = kept.length;
+              }
+              // Also do the same for timed:trades:all (legacy/live KV blob)
+              const liveKvKey = "timed:trades:all";
+              const liveArr = await kvGetJSON(KV, liveKvKey) || [];
+              if (Array.isArray(liveArr) && liveArr.length > 0) {
+                let liveKvDeleted = 0;
+                let liveKvReopened = 0;
+                const liveKept = [];
+                for (const t of liveArr) {
+                  const tRunId = String(t?.run_id || t?.runId || "");
+                  if (tRunId !== runId) { liveKept.push(t); continue; }
+                  const entryTs = Number(t?.entry_ts ?? t?.entryTs ?? 0);
+                  const exitTs = Number(t?.exit_ts ?? t?.exitTs ?? 0);
+                  if (entryTs >= cutoffMs) { liveKvDeleted++; continue; }
+                  if (entryTs < cutoffMs && exitTs >= cutoffMs) {
+                    const wasPartiallyTrimmed = Number(t?.trimmed_pct ?? t?.trimmedPct ?? 0) > 0
+                      && Number(t?.trimmed_pct ?? t?.trimmedPct ?? 0) < 1;
+                    const restoreStatus = wasPartiallyTrimmed ? "TP_HIT_TRIM" : "OPEN";
+                    const reopened = { ...t, status: restoreStatus };
+                    reopened.exit_ts = null; reopened.exitTs = null;
+                    reopened.exit_price = null; reopened.exitPrice = null;
+                    reopened.exit_reason = null; reopened.exitReason = null;
+                    reopened.pnl = null; reopened.pnl_pct = null; reopened.pnlPct = null;
+                    if (Array.isArray(reopened.history)) {
+                      reopened.history = reopened.history.filter((ev) => {
+                        const evTs = Number(ev?.ts ?? 0);
+                        return evTs > 0 && evTs < cutoffMs;
+                      });
+                    }
+                    liveKept.push(reopened);
+                    liveKvReopened++;
+                    continue;
+                  }
+                  liveKept.push(t);
+                }
+                await kvPutJSON(KV, liveKvKey, liveKept);
+                deleted.kv_trades_all_deleted = liveKvDeleted;
+                deleted.kv_trades_all_reopened = liveKvReopened;
+              }
+            }
+          } catch (e) {
+            deleted.kv_cleanup_error = String(e?.message || e).slice(0, 200);
+          }
+
+          // 6. UN-CLOSE "hangover" trades — those that ENTERED before
+          //    the cutoff but EXITED after it. The Oct re-run needs to
+          //    re-evaluate these as still-open positions under the new
+          //    doctrine. Rolls back their exit fields, re-opens the
+          //    `positions` row, and deletes Oct trade_events for them.
+          let hangoverReopened = 0;
+          let hangoverPositionsReopened = 0;
+          let hangoverEventsDeleted = 0;
+          try {
+            const { results: hangoverRows } = await db.prepare(
+              `SELECT trade_id, ticker, status, entry_price, trim_price, trimmed_pct
+                 FROM trades
+                WHERE run_id = ?1
+                  AND entry_ts < ?2
+                  AND exit_ts >= ?2`
+            ).bind(runId, cutoffMs).all();
+            for (const r of (hangoverRows || [])) {
+              // Decide whether the position was already trimmed (TP_HIT_TRIM)
+              // or fully untrimmed (OPEN) before the bad exit.
+              const wasPartiallyTrimmed = Number(r.trimmed_pct) > 0 && Number(r.trimmed_pct) < 1;
+              const restoreStatus = wasPartiallyTrimmed ? "TP_HIT_TRIM" : "OPEN";
+              try {
+                await db.prepare(
+                  `UPDATE trades
+                      SET status = ?1,
+                          exit_ts = NULL,
+                          exit_price = NULL,
+                          exit_reason = NULL,
+                          pnl = NULL,
+                          pnl_pct = NULL,
+                          updated_at = ?2
+                    WHERE trade_id = ?3`
+                ).bind(restoreStatus, Date.now(), r.trade_id).run();
+                hangoverReopened++;
+              } catch (_) {}
+              // Mirror in backtest_run_trades
+              try {
+                await db.prepare(
+                  `UPDATE backtest_run_trades
+                      SET status = ?1, exit_ts = NULL, exit_price = NULL, exit_reason = NULL,
+                          pnl = NULL, pnl_pct = NULL, updated_at = ?2
+                    WHERE run_id = ?3 AND trade_id = ?4`
+                ).bind(restoreStatus, Date.now(), runId, r.trade_id).run();
+              } catch (_) {}
+              // Delete trade_events that occurred AFTER the cutoff for this trade
+              try {
+                const evDel = await db.prepare(
+                  `DELETE FROM trade_events WHERE trade_id = ?1 AND ts >= ?2`
+                ).bind(r.trade_id, cutoffMs).run();
+                hangoverEventsDeleted += (evDel?.meta?.changes || 0);
+              } catch (_) {}
+              // Re-open positions row if it was closed during Oct
+              try {
+                const posCheck = await db.prepare(
+                  `SELECT position_id, status FROM positions WHERE position_id = ?1`
+                ).bind(r.trade_id).first();
+                if (posCheck && posCheck.status !== "OPEN") {
+                  await db.prepare(
+                    `UPDATE positions SET status='OPEN', closed_at=NULL, updated_at=?1 WHERE position_id=?2`
+                  ).bind(Date.now(), r.trade_id).run();
+                  hangoverPositionsReopened++;
+                }
+              } catch (_) {}
+            }
+            deleted.hangover_trades_reopened = hangoverReopened;
+            deleted.hangover_positions_reopened = hangoverPositionsReopened;
+            deleted.hangover_events_deleted = hangoverEventsDeleted;
+          } catch (e) {
+            deleted.hangover_error = String(e?.message || e).slice(0, 200);
+          }
+
+          // 7. Verify
+          let remaining = null;
+          try {
+            const r = await db.prepare(
+              `SELECT COUNT(*) AS n FROM trades WHERE run_id = ?1 AND entry_ts >= ?2`
+            ).bind(runId, cutoffMs).first();
+            remaining = r?.n || 0;
+          } catch (_) {}
+          let openCarryFwd = null;
+          try {
+            const r = await db.prepare(
+              `SELECT COUNT(*) AS n FROM trades
+                WHERE run_id = ?1 AND entry_ts < ?2
+                  AND (status = 'OPEN' OR status = 'TP_HIT_TRIM')`
+            ).bind(runId, cutoffMs).first();
+            openCarryFwd = r?.n || 0;
+          } catch (_) {}
+
+          return sendJSON({
+            ok: true,
+            run_id: runId,
+            from_date: fromDate,
+            cutoff_ms: cutoffMs,
+            preview,           // pre-delete counts (what was found)
+            deleted,           // post-delete counts (what was actually removed/reopened)
+            remaining_trades_after_cutoff: remaining,
+            open_carry_fwd_pre_cutoff: openCarryFwd,
+            note: "Local continuous.checkpoint.json must also be reset to the date BEFORE from_date for --resume to pick up correctly.",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // Patch the pinned config of an in-progress backtest run. Without this,
+      // mid-stream calibration tweaks only affect runs that re-pin from live
+      // model_config — the active walk-forward backtest keeps reading its
+      // original snapshot. Body: { run_id, updates: [{key, value}, ...] }.
+      // Each value is stored verbatim as TEXT (the loader JSON-parses
+      // opportunistically; pass numerics as quoted strings to preserve them).
+      if (routeKey === "POST /timed/admin/runs/config-patch") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const body = await req.json().catch(() => ({}));
+          const runId = String(body?.run_id || "").trim();
+          if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+          const updates = Array.isArray(body?.updates) ? body.updates : [];
+          if (updates.length === 0) return sendJSON({ ok: false, error: "no_updates" }, 400, corsHeaders(env, req));
+          const applied = [];
+          for (const u of updates) {
+            const key = String(u?.key || "").trim();
+            if (!key) continue;
+            const value = u?.value == null ? null : String(u.value);
+            await db.prepare(
+              `INSERT OR REPLACE INTO backtest_run_config (run_id, config_key, config_value) VALUES (?1, ?2, ?3)`
+            ).bind(runId, key, value).run();
+            applied.push({ key, value });
+          }
+          return sendJSON({ ok: true, run_id: runId, applied }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ── System Intelligence revamp (2026-05-03) ──
+      // GET /timed/admin/system-intelligence/engine-snapshot[?run_id=...]
+      // One call returns everything the new Engine tab needs: the active
+      // run id, run-scoped KPIs (trades, WR, expectancy, R, Sharpe, max
+      // DD, net $), top-5 winners + bottom-5 losers (by realized $),
+      // engine health verdict (green/yellow/red) and Loop 2 pause state.
+      // No reliance on stale calibration generations; this is pulled
+      // direct from `backtest_run_trades` for the in-flight run.
+      if (routeKey === "GET /timed/admin/system-intelligence/engine-snapshot") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        try {
+          let runId = String(url.searchParams.get("run_id") || "").trim();
+          let activeRun = null;
+          let activeSource = null;
+          if (!runId) {
+            const activeState = await loadActiveRunState(db, KV);
+            runId = activeState.activeRunId || activeState.live?.run_id || null;
+            activeRun = activeState.active || activeState.live || null;
+            activeSource = activeState.activeSource || null;
+          }
+          if (!runId) {
+            // Fallback: pick the most recently updated 'running' or 'registered'
+            // run. Covers continuous-leg backtests that release the replay lock
+            // between sessions but are still in flight.
+            try {
+              const row = await db.prepare(
+                `SELECT r.*, m.total_trades, m.wins, m.losses, m.win_rate, m.realized_pnl, m.realized_pnl_pct
+                   FROM backtest_runs r LEFT JOIN backtest_run_metrics m ON r.run_id = m.run_id
+                  WHERE r.status IN ('running', 'registered')
+                  ORDER BY COALESCE(r.updated_at, r.created_at) DESC LIMIT 1`
+              ).first();
+              if (row) { runId = row.run_id; activeRun = row; activeSource = "fallback_running"; }
+            } catch {}
+          }
+          if (runId && !activeRun) {
+            try {
+              activeRun = await db.prepare(
+                `SELECT r.*, m.total_trades, m.wins, m.losses, m.win_rate, m.realized_pnl, m.realized_pnl_pct
+                   FROM backtest_runs r LEFT JOIN backtest_run_metrics m ON r.run_id = m.run_id
+                  WHERE r.run_id = ?1`
+              ).bind(runId).first();
+            } catch {}
+          }
+          if (!runId) return sendJSON({ ok: false, error: "no_active_run" }, 200, corsHeaders(env, req));
+
+          // Pull every trade row for the run. 20 k cap mirrors run-trades.
+          const limit = Math.min(Number(url.searchParams.get("limit")) || 5000, 20000);
+          let trades = [];
+          try {
+            trades = (await db.prepare(
+              `SELECT trade_id, ticker, direction, entry_ts, entry_price, exit_ts, exit_price,
+                      status, exit_reason, pnl, pnl_pct, max_favorable_excursion, max_adverse_excursion,
+                      setup_grade, setup_name, entry_path
+                 FROM backtest_run_trades WHERE run_id = ?1
+                ORDER BY entry_ts ASC LIMIT ?2`
+            ).bind(runId, limit).all())?.results || [];
+          } catch {}
+
+          const closed = trades.filter(t => t.exit_ts && Number.isFinite(Number(t.pnl)));
+          const wins = closed.filter(t => Number(t.pnl) > 0);
+          const losses = closed.filter(t => Number(t.pnl) < 0);
+          const breakevens = closed.filter(t => Number(t.pnl) === 0);
+          const realized = closed.reduce((s, t) => s + Number(t.pnl || 0), 0);
+          const grossProfit = wins.reduce((s, t) => s + Number(t.pnl || 0), 0);
+          const grossLoss = Math.abs(losses.reduce((s, t) => s + Number(t.pnl || 0), 0));
+          const winRate = closed.length ? (wins.length / closed.length) * 100 : 0;
+          const avgWin = wins.length ? grossProfit / wins.length : 0;
+          const avgLoss = losses.length ? grossLoss / losses.length : 0;
+          const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? Infinity : 0);
+          const expectancy = closed.length ? realized / closed.length : 0;
+          // R metric: pnl_pct (per-trade %) → mean / stdev
+          const pcts = closed.map(t => Number(t.pnl_pct || 0));
+          const meanR = pcts.length ? pcts.reduce((s, v) => s + v, 0) / pcts.length : 0;
+          const variance = pcts.length ? pcts.reduce((s, v) => s + Math.pow(v - meanR, 2), 0) / pcts.length : 0;
+          const stdR = Math.sqrt(variance);
+          const sqn = stdR > 0 && pcts.length ? (meanR / stdR) * Math.sqrt(pcts.length) : 0;
+          // Sharpe-ish: scaled mean R / stdev (no risk-free, simple ratio).
+          const sharpe = stdR > 0 ? meanR / stdR : 0;
+          // Max DD: walk realized P&L curve.
+          let peak = 0, dd = 0, maxDD = 0;
+          let runningPnl = 0;
+          const sorted = closed.slice().sort((a, b) => Number(a.exit_ts) - Number(b.exit_ts));
+          for (const t of sorted) {
+            runningPnl += Number(t.pnl || 0);
+            if (runningPnl > peak) peak = runningPnl;
+            dd = peak - runningPnl;
+            if (dd > maxDD) maxDD = dd;
+          }
+          // Consecutive losses (latest streak working backwards).
+          let consecLosses = 0;
+          for (let i = sorted.length - 1; i >= 0; i--) {
+            if (Number(sorted[i].pnl) < 0) consecLosses++;
+            else break;
+          }
+          // Top winners / bottom losers by $ amount.
+          const winnersByDollar = closed.slice().sort((a, b) => Number(b.pnl) - Number(a.pnl)).slice(0, 5).map(t => ({
+            trade_id: t.trade_id, ticker: t.ticker, direction: t.direction,
+            entry_ts: t.entry_ts, exit_ts: t.exit_ts, pnl: Number(t.pnl) || 0,
+            pnl_pct: Number(t.pnl_pct) || 0, exit_reason: t.exit_reason || "", setup_grade: t.setup_grade || "",
+          }));
+          const losersByDollar = closed.slice().sort((a, b) => Number(a.pnl) - Number(b.pnl)).slice(0, 5).map(t => ({
+            trade_id: t.trade_id, ticker: t.ticker, direction: t.direction,
+            entry_ts: t.entry_ts, exit_ts: t.exit_ts, pnl: Number(t.pnl) || 0,
+            pnl_pct: Number(t.pnl_pct) || 0, exit_reason: t.exit_reason || "", setup_grade: t.setup_grade || "",
+          }));
+          // Recent trades (last 10).
+          const recent = sorted.slice(-10).reverse().map(t => ({
+            trade_id: t.trade_id, ticker: t.ticker, direction: t.direction,
+            entry_ts: t.entry_ts, exit_ts: t.exit_ts, pnl: Number(t.pnl) || 0,
+            pnl_pct: Number(t.pnl_pct) || 0, exit_reason: t.exit_reason || "",
+          }));
+
+          // Engine health verdict — start ok, downgrade based on signals.
+          // Pull Loop 2 pause flag via model_config (kvKey loop2 pause).
+          let loop2Paused = false;
+          let loop2Reason = null;
+          try {
+            const cfg = await db.prepare(
+              `SELECT key, value FROM model_config WHERE key IN ('loop2_pause_active', 'loop2_pause_reason', 'loop2_circuit_breaker_paused')`
+            ).all();
+            for (const row of (cfg?.results || [])) {
+              if ((row.key === "loop2_pause_active" || row.key === "loop2_circuit_breaker_paused") && String(row.value).toLowerCase() === "true") loop2Paused = true;
+              if (row.key === "loop2_pause_reason") loop2Reason = row.value;
+            }
+          } catch {}
+          // Health logic:
+          //   red    – Loop 2 paused, OR consecutive losses ≥ 6, OR WR<35%
+          //   yellow – consecutive losses ≥ 3, OR WR < 45%, OR PF < 1.0
+          //   green  – none of the above
+          let healthLabel = "Healthy";
+          let healthLevel = "ok";
+          let healthDetails = [];
+          if (loop2Paused) {
+            healthLabel = "Loop 2 Paused"; healthLevel = "danger"; healthDetails.push(loop2Reason || "Circuit breaker active");
+          } else if (consecLosses >= 6 || (closed.length >= 20 && winRate < 35)) {
+            healthLabel = "At Risk"; healthLevel = "danger";
+            if (consecLosses >= 6) healthDetails.push(`${consecLosses} losses in a row`);
+            if (winRate < 35) healthDetails.push(`WR ${winRate.toFixed(1)}%`);
+          } else if (consecLosses >= 3 || (closed.length >= 20 && winRate < 45) || (closed.length >= 20 && profitFactor < 1.0)) {
+            healthLabel = "Caution"; healthLevel = "warn";
+            if (consecLosses >= 3) healthDetails.push(`${consecLosses} losses in a row`);
+            if (winRate < 45) healthDetails.push(`WR ${winRate.toFixed(1)}%`);
+            if (profitFactor < 1.0) healthDetails.push(`PF ${profitFactor.toFixed(2)}`);
+          } else {
+            healthDetails.push(`${closed.length} closed`);
+            healthDetails.push(`WR ${winRate.toFixed(1)}%`);
+          }
+
+          // Sim progress for active leg.
+          let simProgress = null;
+          if (activeRun?.start_date && activeRun?.end_date) {
+            const start = new Date(`${activeRun.start_date}T00:00:00Z`).getTime();
+            const end = new Date(`${activeRun.end_date}T23:59:59Z`).getTime();
+            // Latest entry_ts in trades is best proxy for "current sim date"
+            const latestEntry = sorted.length ? Number(sorted[sorted.length - 1].exit_ts || sorted[sorted.length - 1].entry_ts) : null;
+            const cur = latestEntry || start;
+            const totalDays = Math.max(1, Math.round((end - start) / 86400000));
+            const elapsedDays = Math.max(0, Math.min(totalDays, Math.round((cur - start) / 86400000)));
+            simProgress = {
+              start_date: activeRun.start_date,
+              end_date: activeRun.end_date,
+              current_sim_ts: cur,
+              current_sim_date: new Date(cur).toISOString().slice(0, 10),
+              total_days: totalDays,
+              elapsed_days: elapsedDays,
+              pct: Math.round((elapsedDays / totalDays) * 1000) / 10,
+            };
+          }
+
+          return sendJSON({
+            ok: true,
+            run_id: runId,
+            run_label: activeRun?.label || null,
+            run_status: activeRun?.status || null,
+            run_description: activeRun?.description || null,
+            active_source: activeSource,
+            generated_at: Date.now(),
+            kpis: {
+              trades_total: trades.length,
+              trades_closed: closed.length,
+              wins: wins.length,
+              losses: losses.length,
+              breakevens: breakevens.length,
+              win_rate: Number(winRate.toFixed(2)),
+              avg_win: Number(avgWin.toFixed(2)),
+              avg_loss: Number(avgLoss.toFixed(2)),
+              expectancy: Number(expectancy.toFixed(2)),
+              avg_r: Number(meanR.toFixed(3)),
+              std_r: Number(stdR.toFixed(3)),
+              sharpe: Number(sharpe.toFixed(3)),
+              sqn: Number(sqn.toFixed(2)),
+              profit_factor: profitFactor === Infinity ? null : Number(profitFactor.toFixed(2)),
+              realized_pnl: Number(realized.toFixed(2)),
+              max_drawdown: Number(maxDD.toFixed(2)),
+              max_drawdown_pct: peak > 0 ? Number(((maxDD / peak) * 100).toFixed(2)) : 0,
+              consec_losses: consecLosses,
+            },
+            health: {
+              label: healthLabel,
+              level: healthLevel,
+              details: healthDetails,
+              loop2_paused: loop2Paused,
+              loop2_reason: loop2Reason,
+            },
+            sim_progress: simProgress,
+            top_winners: winnersByDollar,
+            top_losers: losersByDollar,
+            recent_trades: recent,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/system-intelligence/run-analysis?run_id=...
+      // Wraps `runCalibrationAnalysis` so the operator can fire the
+      // analysis pipeline from the page (no local `node scripts/calibrate.js`
+      // required). Always `diagnostic_only` — never auto-applies; the
+      // proposed deltas surface in the UI for an explicit Apply click.
+      if (routeKey === "POST /timed/admin/system-intelligence/run-analysis") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          const body = await req.json().catch(() => ({}));
+          const runIdParam = String(url.searchParams.get("run_id") || body?.run_id || "").trim();
+          await d1EnsureCalibrationSchema(env);
+          await d1EnsureLearningSchema(env);
+          if (KV) writeCalibrationStatus(KV, "running_analysis", "Analysis triggered from System Intelligence page", { started_at: Date.now(), step: 4, scope_id: runIdParam || "default", scope_kind: runIdParam ? "run" : "legacy", diagnostic_only: true });
+          const report = await runCalibrationAnalysis(env, {
+            scopeId: runIdParam || "default",
+            sourceRunId: runIdParam || null,
+            scopeKind: runIdParam ? "run" : "legacy",
+            diagnosticOnly: true,
+          });
+          if (KV) {
+            writeCalibrationStatus(KV, "done", `Done! Report ${report?.report_id || "?"}.`, {
+              started_at: Date.now(), step: 5,
+              report_id: report?.report_id || null,
+              scope_id: runIdParam || "default",
+              scope_kind: runIdParam ? "run" : "legacy",
+              source_run_id: runIdParam || null,
+              diagnostic_only: true,
+            });
+            await KV.delete("timed:calibration:requested").catch(() => {});
+          }
+          return sendJSON({ ok: true, report }, 200, corsHeaders(env, req));
+        } catch (e) {
+          console.error("[SYSTEM INTELLIGENCE] run-analysis error:", e);
+          if (KV) writeCalibrationStatus(KV, "error", `Error: ${String(e?.message || e).slice(0, 200)}`, { started_at: Date.now() });
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/system-intelligence/calibrate?run_id=...
+      // Returns proposed DA flag deltas based on the active run's trades.
+      // Five rule-based proposals (no ML — keep it deterministic):
+      //   1. If a setup × direction combo at <30% WR with ≥5 samples →
+      //      propose `block_<setup>_<direction>=true`.
+      //   2. If a setup × direction combo at >70% WR with ≥10 samples →
+      //      propose `prefer_<setup>_<direction>=true`.
+      //   3. If a ticker has < -2.5R cumulative across ≥3 trades →
+      //      propose adding to `ticker_blocklist`.
+      //   4. If `consec_losses >= 5` → propose `loop2_circuit_breaker_paused=true`.
+      //   5. If overall WR ≥ 60% & PF ≥ 1.6 with ≥30 trades →
+      //      propose `risk_dial_up_amount=0.0025` (gradual sizing-up).
+      // Returns deltas as JSON; nothing is applied until the operator
+      // clicks "Apply" per delta against `/timed/admin/runs/config-patch`
+      // (or `/timed/admin/model-config` for the live engine).
+      if (routeKey === "POST /timed/admin/system-intelligence/calibrate") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        await d1EnsureBacktestRunsSchema(env);
+        try {
+          let runId = String(url.searchParams.get("run_id") || "").trim();
+          if (!runId) {
+            const activeState = await loadActiveRunState(db, KV);
+            runId = activeState.activeRunId || activeState.live?.run_id || null;
+          }
+          if (!runId) {
+            try {
+              const row = await db.prepare(
+                `SELECT run_id FROM backtest_runs
+                  WHERE status IN ('running', 'registered')
+                  ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 1`
+              ).first();
+              if (row?.run_id) runId = row.run_id;
+            } catch {}
+          }
+          if (!runId) return sendJSON({ ok: false, error: "no_active_run" }, 400, corsHeaders(env, req));
+          const trades = (await db.prepare(
+            `SELECT trade_id, ticker, direction, entry_path, setup_grade, status, pnl, pnl_pct, exit_ts
+               FROM backtest_run_trades WHERE run_id = ?1
+              ORDER BY entry_ts ASC LIMIT 20000`
+          ).bind(runId).all())?.results || [];
+          const closed = trades.filter(t => t.exit_ts && Number.isFinite(Number(t.pnl)));
+          const proposals = [];
+
+          // Rule 1 + 2: setup × direction WR.
+          const comboMap = new Map();
+          for (const t of closed) {
+            const key = `${(t.entry_path || "unknown")}|${t.direction || "?"}`;
+            if (!comboMap.has(key)) comboMap.set(key, { wins: 0, total: 0, pnl: 0 });
+            const m = comboMap.get(key);
+            m.total++;
+            if (Number(t.pnl) > 0) m.wins++;
+            m.pnl += Number(t.pnl || 0);
+          }
+          for (const [key, m] of comboMap.entries()) {
+            const wr = m.total > 0 ? (m.wins / m.total) * 100 : 0;
+            const [path, dir] = key.split("|");
+            if (m.total >= 5 && wr < 30) {
+              proposals.push({
+                id: `block-${path}-${dir}`,
+                rule: "weak_combo_block",
+                title: `Block ${path} (${dir})`,
+                detail: `${m.total} trades at ${wr.toFixed(1)}% WR — net $${m.pnl.toFixed(0)}. Block this combo on the active run.`,
+                impact: "high",
+                target: "run", // applies to backtest_run_config
+                config: {
+                  key: `block_${path}_${dir.toLowerCase()}`,
+                  value: "true",
+                },
+              });
+            } else if (m.total >= 10 && wr > 70) {
+              proposals.push({
+                id: `prefer-${path}-${dir}`,
+                rule: "strong_combo_prefer",
+                title: `Prefer ${path} (${dir})`,
+                detail: `${m.total} trades at ${wr.toFixed(1)}% WR, +$${m.pnl.toFixed(0)} net. Promote this combo with a rank boost.`,
+                impact: "medium",
+                target: "run",
+                config: {
+                  key: `prefer_${path}_${dir.toLowerCase()}`,
+                  value: "true",
+                },
+              });
+            }
+          }
+
+          // Rule 3: ticker blocklist for chronic losers.
+          const tickerMap = new Map();
+          for (const t of closed) {
+            if (!t.ticker) continue;
+            if (!tickerMap.has(t.ticker)) tickerMap.set(t.ticker, { trades: 0, r: 0, pnl: 0 });
+            const m = tickerMap.get(t.ticker);
+            m.trades++;
+            m.r += Number(t.pnl_pct || 0);
+            m.pnl += Number(t.pnl || 0);
+          }
+          for (const [ticker, m] of tickerMap.entries()) {
+            if (m.trades >= 3 && m.r < -2.5) {
+              proposals.push({
+                id: `blocklist-${ticker}`,
+                rule: "ticker_blocklist",
+                title: `Add ${ticker} to ticker blocklist`,
+                detail: `${m.trades} trades, cumulative R ${m.r.toFixed(2)}, net $${m.pnl.toFixed(0)}. Block from new entries on the active run.`,
+                impact: "medium",
+                target: "run",
+                config: {
+                  key: `ticker_blocklist_${ticker.toLowerCase()}`,
+                  value: "true",
+                },
+              });
+            }
+          }
+
+          // Rule 4: loop 2 pause if consecutive losses ≥ 5.
+          const sorted = closed.slice().sort((a, b) => Number(a.exit_ts) - Number(b.exit_ts));
+          let consec = 0;
+          for (let i = sorted.length - 1; i >= 0; i--) {
+            if (Number(sorted[i].pnl) < 0) consec++; else break;
+          }
+          if (consec >= 5) {
+            proposals.push({
+              id: `loop2-pause`,
+              rule: "loop2_circuit_breaker",
+              title: `Pause Loop 2 (${consec} losses in a row)`,
+              detail: `Latest streak: ${consec} consecutive losers. Activate Loop 2 circuit breaker until manual review.`,
+              impact: "high",
+              target: "live", // applies to model_config
+              config: {
+                key: "loop2_circuit_breaker_paused",
+                value: "true",
+              },
+            });
+          }
+
+          // Rule 5: confident size-up.
+          const wins = closed.filter(t => Number(t.pnl) > 0);
+          const losses = closed.filter(t => Number(t.pnl) < 0);
+          const grossProfit = wins.reduce((s, t) => s + Number(t.pnl), 0);
+          const grossLoss = Math.abs(losses.reduce((s, t) => s + Number(t.pnl), 0));
+          const wr = closed.length ? (wins.length / closed.length) * 100 : 0;
+          const pf = grossLoss > 0 ? grossProfit / grossLoss : 0;
+          if (closed.length >= 30 && wr >= 60 && pf >= 1.6) {
+            proposals.push({
+              id: `size-up-prime`,
+              rule: "confident_size_up",
+              title: `Increase Prime tier risk by 0.25%`,
+              detail: `${closed.length} closed at ${wr.toFixed(1)}% WR / PF ${pf.toFixed(2)}. Edge is real — bump Prime tier risk one notch.`,
+              impact: "low",
+              target: "live",
+              config: {
+                key: "tier_risk_prime_bump",
+                value: "0.0025",
+              },
+            });
+          }
+
+          return sendJSON({
+            ok: true,
+            run_id: runId,
+            generated_at: Date.now(),
+            sample: { closed: closed.length, total: trades.length },
+            proposals,
+            note: "Proposals are NOT applied. Click Apply per row to push to backtest_run_config (run target) or model_config (live target).",
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }
@@ -49816,7 +53066,638 @@ export default {
           const dataset = await db.prepare(
             `SELECT * FROM promoted_trade_datasets WHERE dataset_id = ?1`
           ).bind(datasetId).first();
-          return sendJSON({ ok: true, dataset, trade_count: tradeCount }, 200, corsHeaders(env, req));
+
+          // V15 P0.7.70: when activating a promoted dataset, auto-seed the
+          // trader account_ledger so the Trades page Account Value reflects
+          // the backtest from bar 1 (live cron then takes over from there).
+          let seedResult = null;
+          if (activate && parseBool01(body?.seed_account_ledger ?? true) === 1) {
+            try {
+              seedResult = await d1SeedAccountLedgerFromPromoted(env, { datasetId });
+            } catch (e) {
+              seedResult = { ok: false, error: String(e?.message || e).slice(0, 200) };
+            }
+          }
+          return sendJSON({ ok: true, dataset, trade_count: tradeCount, seed: seedResult }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/account-ledger/seed-from-promoted?key=...
+      // Body: { dataset_id?: string, start_cash?: number }
+      // Wipes trader account_ledger + portfolio_snapshots and replays the
+      // promoted dataset to seed both. The Trades page Account Value /
+      // Equity Curve then reflect the backtest. Live cron continues to
+      // append from there.
+      if (routeKey === "POST /timed/admin/account-ledger/seed-from-promoted") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const body = await req.json().catch(() => ({}));
+          const opts = {};
+          if (body?.dataset_id) opts.datasetId = String(body.dataset_id);
+          if (body?.start_cash != null) opts.startCash = Number(body.start_cash);
+          const result = await d1SeedAccountLedgerFromPromoted(env, opts);
+          return sendJSON(result, result?.ok ? 200 : 400, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/activity-feed?limit=50&since=YYYY-MM-DD&key=...
+      // V15 P0.7.86: chronological feed of recent system actions (ENTRY,
+      // TRIM, EXIT, ADD_ENTRY) for the right-side activity drawer. Data
+      // source: execution_actions joined with positions for ticker +
+      // direction. Sorted ts DESC. Returns the unified shape documented
+      // in tasks/phase-c/ACTIVITY_FEED_DESIGN.md.
+      if (routeKey === "GET /timed/admin/activity-feed") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const limitRaw = url.searchParams.get("limit");
+          const sinceRaw = url.searchParams.get("since"); // YYYY-MM-DD
+          const limit = Math.max(1, Math.min(200, Number(limitRaw) || 50));
+          let where = "WHERE 1=1";
+          const binds = [];
+          if (sinceRaw && /^\d{4}-\d{2}-\d{2}$/.test(sinceRaw)) {
+            const sinceMs = new Date(sinceRaw + "T00:00:00Z").getTime();
+            if (Number.isFinite(sinceMs)) {
+              where += " AND ea.ts >= ?";
+              binds.push(sinceMs);
+            }
+          }
+          // V15 P0.7.86: skip events whose parent trade has been CANCELED
+          // (e.g. admin-reversed wall-clock force-closures from P0.7.83).
+          // Also skip wall-clock force-close reasons + EXITs whose parent
+          // position was opened >30 days before the exit (those are
+          // orphans the V13 bug recurs on; the cron force-closes them).
+          where += " AND (t.status IS NULL OR t.status != 'CANCELED')";
+          where += " AND (ea.reason IS NULL OR ea.reason NOT IN ('admin_reversed_wallclock_force_close', 'v13_hard_age_cap', 'v13_hard_pnl_floor'))";
+          // Drop EXITs where the parent position was created > 30 days
+          // before the exit timestamp — that's the wall-clock orphan
+          // pattern. Live trades close within days, not months.
+          where += " AND NOT (ea.action_type = 'EXIT' AND p.created_at IS NOT NULL AND (ea.ts - p.created_at) > 2592000000)";
+          const rows = (await db.prepare(
+            `SELECT ea.action_id, ea.ts, ea.action_type, ea.qty, ea.price, ea.value,
+                    ea.pnl_realized, ea.reason, ea.position_id,
+                    p.ticker, p.direction, p.script_version, p.created_at,
+                    t.setup_name, t.setup_grade, t.status as trade_status
+             FROM execution_actions ea
+             LEFT JOIN positions p ON ea.position_id = p.position_id
+             LEFT JOIN trades t ON t.trade_id = ea.position_id
+             ${where}
+             ORDER BY ea.ts DESC
+             LIMIT ?`
+          ).bind(...binds, limit).all())?.results || [];
+          const events = rows.map(r => ({
+            ts: Number(r.ts),
+            type: String(r.action_type || "").toUpperCase(),
+            ticker: String(r.ticker || "").toUpperCase(),
+            direction: String(r.direction || "").toUpperCase() || null,
+            qty: Number(r.qty) || 0,
+            price: Number(r.price) || 0,
+            value: Number(r.value) || 0,
+            pnl: Number(r.pnl_realized) || 0,
+            reason: r.reason || null,
+            trade_id: r.position_id || null,
+            setup_name: r.setup_name || null,
+            setup_grade: r.setup_grade || null,
+          }));
+          return sendJSON({ ok: true, count: events.length, events }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/cancel-stale-closures?key=...&trade_ids=A,B,C
+      // V15 P0.7.83: surgical reversal of wrongly force-closed orphan
+      // trades. Sets status=CANCELED, pnl=0, pnl_pct=0 and stamps the
+      // reason so the entry doesn't pollute today's PnL or trip Loop 2.
+      if (routeKey === "POST /timed/admin/cancel-stale-closures") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const tradeIdsRaw = url.searchParams.get("trade_ids") || "";
+          const tradeIds = tradeIdsRaw.split(",").map(s => s.trim()).filter(Boolean);
+          if (tradeIds.length === 0) {
+            return sendJSON({ ok: false, error: "trade_ids required" }, 400, corsHeaders(env, req));
+          }
+          let updated = 0;
+          for (const tid of tradeIds) {
+            await db.prepare(
+              `UPDATE trades SET status='CANCELED', pnl=0, pnl_pct=0,
+                                 exit_reason='admin_reversed_wallclock_force_close',
+                                 updated_at=?1 WHERE trade_id=?2`
+            ).bind(Date.now(), tid).run();
+            updated++;
+          }
+          return sendJSON({ ok: true, updated, trade_ids: tradeIds }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/restore-trade-from-da?key=...&trade_ids=A,B,C
+      // V15 P0.7.90: restore trades that got wiped from `trades`+`positions`
+      // tables but still have records in `direction_accuracy` (the canonical
+      // decision log). Reconstructs the trade row + position row so the UI
+      // and live cron see them again.
+      if (routeKey === "POST /timed/admin/restore-trade-from-da") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const tradeIdsRaw = url.searchParams.get("trade_ids") || "";
+          const tradeIds = tradeIdsRaw.split(",").map(s => s.trim()).filter(Boolean);
+          if (tradeIds.length === 0) {
+            return sendJSON({ ok: false, error: "trade_ids required" }, 400, corsHeaders(env, req));
+          }
+          const restored = [];
+          for (const tid of tradeIds) {
+            const da = await db.prepare(
+              `SELECT * FROM direction_accuracy WHERE trade_id = ?1`
+            ).bind(tid).first();
+            if (!da) {
+              restored.push({ trade_id: tid, ok: false, reason: "not_found_in_da" });
+              continue;
+            }
+            const ticker = String(da.ticker || "").toUpperCase();
+            const entryTs = Number(da.ts) || 0;
+            const direction = String(da.traded_direction || "LONG").toUpperCase();
+            const entryPrice = Number(da.entry_price) || 0;
+            const status = String(da.status || "OPEN").toUpperCase();
+            const exitTs = Number(da.exit_ts) || null;
+            const exitPrice = Number(da.exit_price) || 0;
+            const pnl = Number(da.pnl) || 0;
+            const pnlPct = Number(da.pnl_pct) || 0;
+            const entryPath = da.entry_path || null;
+            const rank = Number(da.rank) || 0;
+            const rr = Number(da.rr) || 0;
+            // Insert trade row (idempotent — INSERT OR REPLACE)
+            await db.prepare(
+              `INSERT OR REPLACE INTO trades
+                (trade_id, ticker, direction, entry_ts, entry_price, status,
+                 exit_ts, exit_price, pnl, pnl_pct, rank, rr, entry_path,
+                 created_at, updated_at, run_id)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?4, ?14, NULL)`
+            ).bind(
+              tid, ticker, direction, entryTs, entryPrice, status,
+              exitTs, exitPrice, pnl, pnlPct, rank, rr, entryPath,
+              Date.now(),
+            ).run();
+            // Insert position row if status is OPEN/TP_HIT_TRIM
+            if (status === "OPEN" || status === "TP_HIT_TRIM") {
+              await db.prepare(
+                `INSERT OR REPLACE INTO positions
+                  (position_id, ticker, direction, status, total_qty, cost_basis,
+                   created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)`
+              ).bind(
+                tid, ticker, direction, status,
+                0, // qty unknown — cron will resync from execution_actions if any
+                0, // cost basis
+                entryTs,
+              ).run();
+            }
+            restored.push({ trade_id: tid, ticker, ok: true, status, entry_ts: entryTs, entry_price: entryPrice });
+          }
+          return sendJSON({ ok: true, restored }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/data-audit-log?op=&since_ms=&limit=&key=...
+      // V15 P0.7.95: forensic view of every destructive data change.
+      if (routeKey === "GET /timed/admin/data-audit-log") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          await ensureDataAuditLogSchema(db);
+          const opFilter = (url.searchParams.get("op") || "").trim().toUpperCase();
+          const sinceMs = Number(url.searchParams.get("since_ms")) || 0;
+          const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit")) || 100));
+          let where = "WHERE 1=1";
+          const binds = [];
+          if (opFilter) { where += " AND op = ?"; binds.push(opFilter); }
+          if (sinceMs > 0) { where += " AND ts >= ?"; binds.push(sinceMs); }
+          const rows = (await db.prepare(
+            `SELECT audit_id, ts, op, scope, caller, rows_affected, meta_json
+               FROM data_audit_log
+               ${where}
+               ORDER BY ts DESC
+               LIMIT ?`
+          ).bind(...binds, limit).all())?.results || [];
+          const events = rows.map(r => ({
+            audit_id: r.audit_id,
+            ts: Number(r.ts),
+            iso: r.ts ? new Date(Number(r.ts)).toISOString() : null,
+            op: r.op,
+            scope: r.scope,
+            caller: r.caller,
+            rows_affected: r.rows_affected,
+            meta: r.meta_json ? (() => { try { return JSON.parse(r.meta_json); } catch { return r.meta_json; } })() : null,
+          }));
+          return sendJSON({ ok: true, count: events.length, events }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/close-stale-open-trades?key=...
+      // V15 P0.7.92: dedicated cleanup for trades stuck on status='OPEN'
+      // even though they have exit_ts and pnl populated. These appear when
+      // the backtest finalize step doesn't update status, leaving rows
+      // that pollute /timed/trades?status=OPEN, the kanban OPEN lane, and
+      // any account-summary recomputes that read trades.shares.
+      //
+      // Logic: WHERE status='OPEN' AND exit_ts IS NOT NULL AND exit_ts > 0
+      // → set status to WIN (pnl>0) / LOSS (pnl<0) / FLAT (pnl≈0) so the
+      // status matches the closed reality without inventing new exit data.
+      if (routeKey === "POST /timed/admin/close-stale-open-trades") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const dryRun = url.searchParams.get("dry_run") === "1";
+          const stale = (await db.prepare(
+            `SELECT trade_id, ticker, status, pnl, pnl_pct, exit_ts
+             FROM trades
+             WHERE status = 'OPEN' AND exit_ts IS NOT NULL AND exit_ts > 0`
+          ).all())?.results || [];
+          if (dryRun) {
+            return sendJSON({ ok: true, dry_run: true, count: stale.length, stale }, 200, corsHeaders(env, req));
+          }
+          const now = Date.now();
+          let updated = 0;
+          for (const r of stale) {
+            const pnl = Number(r.pnl) || 0;
+            const newStatus = pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "FLAT";
+            await db.prepare(
+              `UPDATE trades SET status = ?2, updated_at = ?3 WHERE trade_id = ?1`
+            ).bind(r.trade_id, newStatus, now).run();
+            updated++;
+          }
+          return sendJSON({ ok: true, updated, count: stale.length }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/patch-trade-shares?trade_id=X&shares=Y[&notional=Z][&key=...]
+      // V15 P0.7.91: restore qty / cost_basis on a trade row whose original
+      // entry actions were purged (e.g. by purge-orphan-trades). The
+      // /timed/account-summary unrealized PnL formula reads `trades.shares`
+      // and `trades.entry_price` to compute mark-to-market for OPEN/TP_HIT_TRIM
+      // trades. Without `shares`, Open P&L stays $0 even when prices move.
+      //
+      // This endpoint:
+      //   1. Updates trades.shares + trades.notional (notional defaults to
+      //      shares * entry_price if not supplied).
+      //   2. Updates positions.total_qty + positions.cost_basis.
+      //   3. Does NOT touch account_ledger — accountValue = startCash +
+      //      totalRealized + unrealized, so the deduction is already implicit
+      //      in the unrealized recompute.
+      if (routeKey === "POST /timed/admin/patch-trade-shares") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const tid = String(url.searchParams.get("trade_id") || "").trim();
+          const sharesParam = Number(url.searchParams.get("shares"));
+          const notionalParam = Number(url.searchParams.get("notional"));
+          if (!tid) return sendJSON({ ok: false, error: "trade_id required" }, 400, corsHeaders(env, req));
+          if (!Number.isFinite(sharesParam) || sharesParam <= 0) {
+            return sendJSON({ ok: false, error: "shares must be a positive number" }, 400, corsHeaders(env, req));
+          }
+          // Look up the trade so we know entry_price + ticker + direction.
+          const tradeRow = await db.prepare(
+            `SELECT trade_id, ticker, direction, entry_price, status FROM trades WHERE trade_id = ?1`
+          ).bind(tid).first();
+          if (!tradeRow) {
+            return sendJSON({ ok: false, error: "trade_not_found" }, 404, corsHeaders(env, req));
+          }
+          const entryPrice = Number(tradeRow.entry_price) || 0;
+          const notional = Number.isFinite(notionalParam) && notionalParam > 0
+            ? notionalParam
+            : (sharesParam * entryPrice);
+          const costBasis = sharesParam * entryPrice;
+          const now = Date.now();
+          await db.prepare(
+            `UPDATE trades SET shares = ?2, notional = ?3, updated_at = ?4 WHERE trade_id = ?1`
+          ).bind(tid, sharesParam, notional, now).run();
+          // Position row may not exist if trade is closed; only patch if present.
+          const posRow = await db.prepare(
+            `SELECT position_id, status FROM positions WHERE position_id = ?1`
+          ).bind(tid).first();
+          let positionUpdated = false;
+          if (posRow) {
+            await db.prepare(
+              `UPDATE positions SET total_qty = ?2, cost_basis = ?3, updated_at = ?4 WHERE position_id = ?1`
+            ).bind(tid, sharesParam, costBasis, now).run();
+            positionUpdated = true;
+          }
+          // V15 P0.7.92: also write an ENTRY execution_actions row + lot if
+          // none exists. Without this the activity feed stays empty for
+          // restored trades, the audit trail is missing, and account_ledger
+          // backfill skips the entry. INSERT OR IGNORE so re-running is safe.
+          let actionWritten = false;
+          let lotWritten = false;
+          try {
+            const existingAction = await db.prepare(
+              `SELECT action_id FROM execution_actions WHERE position_id = ?1 AND action_type = 'ENTRY' LIMIT 1`
+            ).bind(tid).first();
+            if (!existingAction) {
+              const tradeFull = await db.prepare(
+                `SELECT entry_ts FROM trades WHERE trade_id = ?1`
+              ).bind(tid).first();
+              const entryTs = Number(tradeFull?.entry_ts) || now;
+              const actionId = `${tid}-ENTRY-${entryTs}`;
+              const lotId = `${tid}-lot-${entryTs}`;
+              try {
+                await db.prepare(
+                  `INSERT OR IGNORE INTO lots (lot_id, position_id, ts, qty, price, value, remaining_qty)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
+                ).bind(lotId, tid, entryTs, sharesParam, entryPrice, costBasis, sharesParam).run();
+                lotWritten = true;
+              } catch (_) {}
+              await db.prepare(
+                `INSERT OR IGNORE INTO execution_actions
+                  (action_id, position_id, ts, action_type, qty, price, value, pnl_realized, lot_id, reason, meta_json)
+                 VALUES (?1, ?2, ?3, 'ENTRY', ?4, ?5, ?6, NULL, ?7, 'admin_restore', ?8)`
+              ).bind(
+                actionId, tid, entryTs, sharesParam, entryPrice, costBasis, lotId,
+                JSON.stringify({ source: "patch-trade-shares" }),
+              ).run();
+              actionWritten = true;
+            }
+          } catch (e) {
+            console.warn("[patch-trade-shares] action backfill failed:", String(e?.message || e));
+          }
+          return sendJSON({
+            ok: true,
+            trade_id: tid,
+            ticker: tradeRow.ticker,
+            entry_price: entryPrice,
+            shares: sharesParam,
+            notional,
+            cost_basis: costBasis,
+            position_updated: positionUpdated,
+            action_written: actionWritten,
+            lot_written: lotWritten,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/direction-accuracy/inspect?ticker=APD&since_ms=...&key=...
+      // V15 P0.7.90: forensic helper to inspect direction_accuracy rows
+      // when the live trades table has been wiped. Returns all rows for
+      // a ticker (optionally filtered by entry_ts >= since_ms) so we can
+      // recover trade timestamps + prices when other surfaces are empty.
+      if (routeKey === "GET /timed/admin/direction-accuracy/inspect") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const ticker = (url.searchParams.get("ticker") || "").toUpperCase();
+          const sinceMs = Number(url.searchParams.get("since_ms") || 0) || 0;
+          let where = "WHERE 1=1";
+          const binds = [];
+          if (ticker) { where += " AND ticker = ?"; binds.push(ticker); }
+          if (sinceMs > 0) { where += " AND ts >= ?"; binds.push(sinceMs); }
+          const rows = (await db.prepare(
+            `SELECT trade_id, ticker, ts, traded_direction, entry_path, status, pnl, pnl_pct,
+                    entry_price, exit_ts, exit_price, direction_source, rank, rr
+             FROM direction_accuracy
+             ${where}
+             ORDER BY ts DESC LIMIT 100`
+          ).bind(...binds).all())?.results || [];
+          return sendJSON({ ok: true, count: rows.length, rows }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/seed-direction-accuracy-from-promoted?key=...
+      // POST /timed/admin/refresh-path-performance?key=...
+      // V15 P0.7.89: AI CIO hydration. The CIO's 7-layer memory reads
+      // path_performance which is computed from direction_accuracy. The
+      // live cron's direction_accuracy table is empty (or only has post-
+      // promotion live trades), so the CIO has no historical context.
+      //
+      // seed-direction-accuracy-from-promoted: writes ~587 rows from
+      //   promoted_trades into direction_accuracy with a synthetic
+      //   trade_id prefix ('promo-') so it doesn't collide with live ids.
+      // refresh-path-performance: triggers the existing refreshPathPerformance
+      //   helper to compute path-level WR/expectancy/recent-WR stats.
+      if (routeKey === "POST /timed/admin/seed-direction-accuracy-from-promoted") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          // Resolve active promoted dataset
+          let dataset = await db.prepare(
+            `SELECT * FROM promoted_trade_datasets WHERE status = 'active' ORDER BY promoted_at DESC LIMIT 1`
+          ).first();
+          if (!dataset) {
+            dataset = await db.prepare(
+              `SELECT * FROM promoted_trade_datasets ORDER BY promoted_at DESC LIMIT 1`
+            ).first();
+          }
+          if (!dataset?.dataset_id) return sendJSON({ ok: false, error: "no_dataset" }, 400, corsHeaders(env, req));
+
+          const promotedRows = (await db.prepare(
+            `SELECT trade_id, ticker, direction, entry_ts, exit_ts, entry_price, exit_price,
+                    pnl, pnl_pct, rank, rr, status, setup_name, setup_grade, exit_reason
+             FROM promoted_trades WHERE dataset_id = ?1 ORDER BY entry_ts ASC`
+          ).bind(String(dataset.dataset_id)).all())?.results || [];
+
+          if (promotedRows.length === 0) return sendJSON({ ok: false, error: "no_promoted_trades" }, 400, corsHeaders(env, req));
+
+          // Idempotent: wipe prior 'promo-' rows so re-seeding is safe.
+          await db.prepare(`DELETE FROM direction_accuracy WHERE trade_id LIKE 'promo-%'`).run();
+
+          const inserts = [];
+          for (const r of promotedRows) {
+            const ticker = String(r.ticker || "").toUpperCase();
+            const direction = String(r.direction || "LONG").toUpperCase();
+            const entryTs = Number(r.entry_ts) || 0;
+            const exitTs = Number(r.exit_ts) || 0;
+            const status = String(r.status || "").toUpperCase();
+            if (!entryTs || !ticker) continue;
+            // Prefix trade_id so promoted rows don't collide with live ids.
+            const synthId = `promo-${r.trade_id}`;
+            const pnlPct = Number(r.pnl_pct) || 0;
+            const dirCorrect = (status === "WIN") ? 1 : (status === "LOSS") ? 0 : null;
+            inserts.push(db.prepare(
+              `INSERT INTO direction_accuracy
+                (trade_id, ticker, ts, traded_direction, entry_path, rank, rr,
+                 entry_price, exit_ts, exit_price, pnl, pnl_pct, status,
+                 direction_correct, direction_source)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 'promoted_seed')`
+            ).bind(
+              synthId, ticker, entryTs, direction,
+              String(r.setup_name || "unknown"),
+              Number(r.rank) || 0,
+              Number(r.rr) || 0,
+              Number(r.entry_price) || 0,
+              exitTs || null,
+              Number(r.exit_price) || 0,
+              Number(r.pnl) || 0,
+              pnlPct,
+              status,
+              dirCorrect,
+            ));
+          }
+          for (let i = 0; i < inserts.length; i += 200) {
+            await db.batch(inserts.slice(i, i + 200));
+          }
+          return sendJSON({
+            ok: true,
+            dataset_id: dataset.dataset_id,
+            seeded: inserts.length,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "POST /timed/admin/refresh-path-performance") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const result = await refreshPathPerformance(env);
+          return sendJSON(result, result?.ok ? 200 : 500, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/purge-orphan-trades?key=...&trade_ids=A,B,C
+      // V15 P0.7.88: HARD DELETE orphan trade + position rows.
+      // The CANCEL approach (P0.7.83) wasn't sticking — the live cron
+      // reconciliation kept re-creating these as OPEN positions because
+      // the rows were still findable. This nukes them from `trades`,
+      // `positions`, and `execution_actions` so they can't come back.
+      if (routeKey === "POST /timed/admin/purge-orphan-trades") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const tradeIdsRaw = url.searchParams.get("trade_ids") || "";
+          const tradeIds = tradeIdsRaw.split(",").map(s => s.trim()).filter(Boolean);
+          if (tradeIds.length === 0) {
+            return sendJSON({ ok: false, error: "trade_ids required" }, 400, corsHeaders(env, req));
+          }
+          let tradesDeleted = 0;
+          let positionsDeleted = 0;
+          let actionsDeleted = 0;
+          for (const tid of tradeIds) {
+            // Delete from trades
+            try {
+              const r = await db.prepare(`DELETE FROM trades WHERE trade_id = ?1`).bind(tid).run();
+              tradesDeleted += (r?.meta?.changes || 0);
+            } catch (_) {}
+            // Delete from positions (position_id == trade_id by convention)
+            try {
+              const r = await db.prepare(`DELETE FROM positions WHERE position_id = ?1`).bind(tid).run();
+              positionsDeleted += (r?.meta?.changes || 0);
+            } catch (_) {}
+            // Delete execution_actions linked by position_id
+            try {
+              const r = await db.prepare(`DELETE FROM execution_actions WHERE position_id = ?1`).bind(tid).run();
+              actionsDeleted += (r?.meta?.changes || 0);
+            } catch (_) {}
+            // Also delete from KV (best-effort)
+            try { await env.KV_TIMED?.delete?.(`timed:trade:${tid}`); } catch (_) {}
+          }
+          await auditDataChange(env, {
+            op: "PURGE_ORPHAN_TRADES",
+            scope: `trade_ids=${tradeIds.join(",")}`.slice(0, 256),
+            caller: req?.url || "unknown",
+            rowsAffected: tradesDeleted + positionsDeleted + actionsDeleted,
+            meta: { trade_ids: tradeIds, trades_deleted: tradesDeleted, positions_deleted: positionsDeleted, actions_deleted: actionsDeleted },
+          });
+          return sendJSON({
+            ok: true,
+            trade_ids: tradeIds,
+            trades_deleted: tradesDeleted,
+            positions_deleted: positionsDeleted,
+            actions_deleted: actionsDeleted,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET  /timed/admin/loop2-pause?key=...
+      // POST /timed/admin/loop2-pause/reset?key=...
+      // V15 P0.7.79: surface and clear the Loop 2 circuit-breaker pause.
+      // Stale `tripped_at_ms` from old backtest legs would otherwise leave
+      // the live engine paused forever (the 18h KV TTL doesn't fire when
+      // backtests keep refreshing the key).
+      if (routeKey === "GET /timed/admin/loop2-pause") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const KV = env?.KV_TIMED;
+          if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+          const raw = await KV.get("phase-c:engine-paused", { type: "json" });
+          return sendJSON({ ok: true, paused: !!raw?.paused, state: raw || null }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "POST /timed/admin/loop2-pause/reset") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const KV = env?.KV_TIMED;
+          if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+          const before = await KV.get("phase-c:engine-paused", { type: "json" });
+          await KV.delete("phase-c:engine-paused");
+          return sendJSON({ ok: true, cleared: !!before, before }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/calibration/seed-from-promoted?key=...
+      // Body: { dataset_id?: string, scope_id?: string }
+      // V15 P0.7.71: ingest the promoted backtest into calibration_trade_autopsy
+      // so System Intelligence Analysis (Run Analysis button + Recommendations)
+      // reflect the actual run we promoted. Without this the Analysis page
+      // shows stale recommendations from a months-old generation that doesn't
+      // include the V15 admission matrix / exit doctrine / ETF profile / cluster
+      // throttle / market internals layers.
+      //
+      // After seeding, the user can click "Run Analysis" or hit
+      // /timed/calibration/run with `scope_id=<run_id>` to compute fresh
+      // recommendations against the seeded autopsy rows.
+      if (routeKey === "POST /timed/admin/calibration/seed-from-promoted") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const body = await req.json().catch(() => ({}));
+          const opts = {};
+          if (body?.dataset_id) opts.datasetId = String(body.dataset_id);
+          if (body?.scope_id) opts.scopeId = String(body.scope_id);
+          const result = await d1SeedCalibrationAutopsyFromPromoted(env, opts);
+          return sendJSON(result, result?.ok ? 200 : 400, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }
@@ -54902,10 +58783,12 @@ export default {
           let markToMarket = 0;
 
           if (mode === "trader") {
-            // Use the trades table (actual live trades) instead of positions table
-            // (which may contain stale backtest entries)
+            // V15 P0.7.82: include status='TP_HIT_TRIM' too — trimmed
+            // positions are still half-open and contribute unrealized PnL.
+            // Was: 'WHERE status = OPEN'  → SNDK (TP_HIT_TRIM) was excluded
+            // and Open PnL showed $0 even with two open positions.
             const openTrades = (await db.prepare(
-              "SELECT trade_id, ticker, direction, entry_price, shares, notional FROM trades WHERE status = 'OPEN'"
+              "SELECT trade_id, ticker, direction, entry_price, shares, notional, trimmed_pct FROM trades WHERE status IN ('OPEN', 'TP_HIT_TRIM')"
             ).all())?.results || [];
 
             const pricesRaw = await kvGetJSON(KV, "timed:prices");
@@ -54918,7 +58801,11 @@ export default {
 
             for (const t of openTrades) {
               const px = priceMap[t.ticker] || 0;
-              const qty = Number(t.shares) || 0;
+              const fullQty = Number(t.shares) || 0;
+              // For TP_HIT_TRIM trades the engine doesn't always reduce
+              // `shares`; respect trimmed_pct to size the remaining leg.
+              const trimPct = Math.max(0, Math.min(1, Number(t.trimmed_pct) || 0));
+              const qty = fullQty * (1 - trimPct);
               const entry = Number(t.entry_price) || 0;
               const cb = entry * qty;
               const mtm = px * qty;
@@ -55734,6 +59621,37 @@ export default {
         if (authFail) return authFail;
         const db = env?.DB;
         try {
+          // V15 P0.7.95 — capture pre-reset row counts for forensics so
+          // any future "where did my trades go?" investigation has a
+          // baseline. The audit row is written BEFORE the deletes so we
+          // know exactly how big the wipe was.
+          let preCounts = null;
+          if (db) {
+            try {
+              const [tRow, pRow, eaRow, alRow, daRow] = await Promise.all([
+                db.prepare(`SELECT COUNT(*) as c FROM trades`).first(),
+                db.prepare(`SELECT COUNT(*) as c FROM positions`).first().catch(() => null),
+                db.prepare(`SELECT COUNT(*) as c FROM execution_actions`).first().catch(() => null),
+                db.prepare(`SELECT COUNT(*) as c FROM account_ledger WHERE mode = 'trader'`).first().catch(() => null),
+                db.prepare(`SELECT COUNT(*) as c FROM direction_accuracy`).first().catch(() => null),
+              ]);
+              preCounts = {
+                trades: Number(tRow?.c) || 0,
+                positions: Number(pRow?.c) || 0,
+                execution_actions: Number(eaRow?.c) || 0,
+                account_ledger_trader: Number(alRow?.c) || 0,
+                direction_accuracy: Number(daRow?.c) || 0,
+              };
+            } catch {}
+          }
+          await auditDataChange(env, {
+            op: "RESET_TRADES",
+            scope: "all_trader_data",
+            caller: req?.url || "unknown",
+            rowsAffected: preCounts ? Object.values(preCounts).reduce((a, b) => a + b, 0) : null,
+            meta: { preCounts, user_agent: req?.headers?.get?.("user-agent") || null },
+          });
+
           // 1. Clear KV trade data
           await kvPutJSON(KV, "timed:trades:all", []);
           await kvPutJSON(KV, REPLAY_TRADES_KV_KEY, []);
@@ -55770,7 +59688,7 @@ export default {
             kvPutJSON(KV, PORTFOLIO_KEY, null),
           ]);
           console.log(`[RESET] All trades cleared, account reset to $100K baseline`);
-          return sendJSON({ ok: true, message: "All trades cleared. Account reset to $100,000 baseline." }, 200, corsHeaders(env, req));
+          return sendJSON({ ok: true, message: "All trades cleared. Account reset to $100,000 baseline.", pre_reset_counts: preCounts }, 200, corsHeaders(env, req));
         } catch (e) {
           console.error("[RESET] Error:", e);
           return sendJSON({ ok: false, error: e.message }, 500, corsHeaders(env, req));
@@ -62747,6 +66665,54 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       return;
     }
 
+    // P0.7.103 — DATA INTEGRITY GUARD.
+    // Snapshot trades + account_ledger row counts at every cron tick. If
+    // the count drops by >50% in one cycle, write an audit warning AND
+    // auto-mute the cron so we don't silently lose more data. The user
+    // can manually unmute after investigating. Catches the "mystery
+    // wipe" pattern that has recurred twice in 24h despite earlier
+    // guards (each time wiping APD/SNDK + account_ledger and seeding
+    // CDNS/CSX/ORCL ghosts from positions).
+    try {
+      const KV = env?.KV_TIMED || env?.KV;
+      const db = env?.DB;
+      if (KV && db) {
+        const [tCnt, lCnt] = await Promise.all([
+          db.prepare(`SELECT COUNT(*) AS c FROM trades`).first().catch(() => ({ c: 0 })),
+          db.prepare(`SELECT COUNT(*) AS c FROM account_ledger WHERE mode = 'trader'`).first().catch(() => ({ c: 0 })),
+        ]);
+        const trades = Number(tCnt?.c) || 0;
+        const ledger = Number(lCnt?.c) || 0;
+        const prev = await KV.get("phase-c:integrity:counts", { type: "json" });
+        if (prev && Number.isFinite(Number(prev.trades)) && Number(prev.trades) > 10) {
+          const tradesDrop = (prev.trades - trades) / prev.trades;
+          const ledgerDrop = prev.ledger > 10 ? (prev.ledger - ledger) / prev.ledger : 0;
+          if (tradesDrop > 0.5 || ledgerDrop > 0.5) {
+            console.error(`[INTEGRITY] WIPE DETECTED — trades ${prev.trades} -> ${trades} (drop ${(tradesDrop*100).toFixed(0)}%), ledger ${prev.ledger} -> ${ledger} (drop ${(ledgerDrop*100).toFixed(0)}%). Auto-muting cron.`);
+            await auditDataChange(env, {
+              op: "INTEGRITY_WIPE_DETECTED",
+              scope: `trades_drop=${(tradesDrop*100).toFixed(0)}%,ledger_drop=${(ledgerDrop*100).toFixed(0)}%`,
+              caller: `cron:${event.cron}`,
+              rowsAffected: (prev.trades - trades) + (prev.ledger - ledger),
+              meta: { prev, current: { trades, ledger }, ts: Date.now() },
+            });
+            // Auto-mute so the cron won't keep processing zombie state
+            await KV.put("phase-c:cron-mute", `auto_integrity_wipe@${new Date().toISOString()}`);
+            // P0.7.106 — persist post-wipe counts BEFORE returning so we
+            // don't re-fire the same alert every minute. The new baseline
+            // is the wiped state; next wipe (if any) will compare against
+            // this and only fire if it drops further.
+            await KV.put("phase-c:integrity:counts", JSON.stringify({ trades, ledger, ts: Date.now() }));
+            return;
+          }
+        }
+        // Persist current counts for next tick (only when no wipe detected)
+        await KV.put("phase-c:integrity:counts", JSON.stringify({ trades, ledger, ts: Date.now() }));
+      }
+    } catch (integrityErr) {
+      console.warn("[INTEGRITY] check failed:", String(integrityErr?.message || integrityErr).slice(0, 200));
+    }
+
     const _now = new Date();
     const _utcH = _now.getUTCHours();
     const _utcM = _now.getUTCMinutes();
@@ -64871,9 +68837,21 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     const allowExecution = _cronCalendar ? _calIsWithinOH(_cronCalendar) : executionMarketOpen;
 
     // Replay lock: skip ALL trade simulation / reconciliation while a backtest is running
-    const _replayLock = await KV.get("timed:replay:lock");
+    let _replayLock = await KV.get("timed:replay:lock");
     if (_replayLock) {
       console.log(`[CRON] Replay lock active (${_replayLock}). Skipping trade execution & reconciliation.`);
+    }
+    // Phase C — Stage 1 (2026-05-04) — Hard cron mute.
+    // When `phase-c:cron-mute` is set in KV, behave as if the replay lock
+    // was held: skip ALL trade execution and reconciliation. Used by the
+    // multi-leg backtest orchestrator to prevent the live cron from
+    // racing the backtest in the brief gap between continuous-slice
+    // legs (which release the lock on completion). Stays in effect
+    // across any number of legs until explicitly cleared by an admin.
+    const _cronMute = await KV.get("phase-c:cron-mute");
+    if (_cronMute) {
+      console.log(`[CRON] phase-c:cron-mute active (${_cronMute}). Skipping trade execution & reconciliation.`);
+      _replayLock = _replayLock || _cronMute; // re-use the same downstream gates
     }
 
     if (!allowExecution) {

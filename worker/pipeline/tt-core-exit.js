@@ -138,9 +138,26 @@ export function evaluateExit(ctx, position) {
       const mdPeakMin = Number.isFinite(Number(ctx.config.deepAudit?.deep_audit_mfe_decay_peak_min))
         ? Number(ctx.config.deepAudit.deep_audit_mfe_decay_peak_min)
         : 3.0;
-      const mdGivebackMax = Number.isFinite(Number(ctx.config.deepAudit?.deep_audit_mfe_decay_giveback_pct_max))
+      let mdGivebackMax = Number.isFinite(Number(ctx.config.deepAudit?.deep_audit_mfe_decay_giveback_pct_max))
         ? Number(ctx.config.deepAudit.deep_audit_mfe_decay_giveback_pct_max)
         : 0.6;
+      // V15 P0.7.52 (2026-05-03) — cohort-scoped relax for the workhorse cohort.
+      // Mirror the index.js logic; see that comment for full rationale.
+      const _mdEntryPath = String(position?.entryPath || position?.entry_path || "").toLowerCase();
+      let _mdPersonality = String(position?.personality || position?.ticker_personality || "").toUpperCase();
+      if (!_mdPersonality) {
+        try {
+          let _mdEs = position?.entrySignals || position?.entry_signals;
+          if (!_mdEs && position?.entry_signals_json) {
+            _mdEs = JSON.parse(position.entry_signals_json);
+          }
+          if (_mdEs?.personality) _mdPersonality = String(_mdEs.personality).toUpperCase();
+        } catch (_) {}
+      }
+      if (direction === "LONG" && _mdEntryPath === "tt_gap_reversal_long" && _mdPersonality === "VOLATILE_RUNNER") {
+        const _mdCohortCfg = Number(ctx.config.deepAudit?.deep_audit_mfe_decay_giveback_pct_max_volrunner_gap_long);
+        mdGivebackMax = Number.isFinite(_mdCohortCfg) ? _mdCohortCfg : 0.75;
+      }
       if (mfePct >= mdPeakMin) {
         const retained = mfePct > 0 ? pnlPct / mfePct : 0;
         const giveback = 1 - retained;
