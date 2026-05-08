@@ -943,7 +943,10 @@ const ROUTES = [
   ["POST", "/timed/admin/refresh-path-performance", "POST /timed/admin/refresh-path-performance"],
   ["GET", "/timed/admin/direction-accuracy/inspect", "GET /timed/admin/direction-accuracy/inspect"],
   ["POST", "/timed/admin/restore-trade-from-da", "POST /timed/admin/restore-trade-from-da"],
+  ["POST", "/timed/admin/patch-trade-from-da", "POST /timed/admin/patch-trade-from-da"],
+  ["POST", "/timed/admin/patch-trade-event-reason", "POST /timed/admin/patch-trade-event-reason"],
   ["POST", "/timed/admin/patch-trade-shares", "POST /timed/admin/patch-trade-shares"],
+  ["GET", "/timed/admin/check-stale-tick", "GET /timed/admin/check-stale-tick"],
   ["POST", "/timed/admin/close-stale-open-trades", "POST /timed/admin/close-stale-open-trades"],
   ["GET", "/timed/admin/data-audit-log", "GET /timed/admin/data-audit-log"],
   ["GET", "/timed/admin/activity-feed", "GET /timed/admin/activity-feed"],
@@ -1040,6 +1043,88 @@ function isNyRegularMarketOpen(now = new Date()) {
     return mins >= 570 && mins < 960;
   } catch {
     return true; // fail open
+  }
+}
+
+// V15 P0.7.108 (2026-05-08) — Stale-tick guard at market open.
+//
+// Background: SNDK trim on 2026-05-08 9:31 ET fired with a recorded fill
+// price of $1339.96. The actual 9:30-9:45 ET candle range was $1392-$1429,
+// and $1339.96 happened to be the prev close exactly. The TwelveData /quote
+// feed lagged the open by ~30-90s; during that window pf.p == pf.pc (the
+// system literally re-served yesterday's close as the live price). Trims
+// and exits computed against that price executed at the wrong fill, and
+// realized PnL was computed against a price the market never traded at.
+//
+// Guard heuristics (any one trips it):
+//   1. Price feed timestamp (pf.t) is older than 90s during RTH.
+//   2. Price feed price (pf.p) equals prev_close exactly within 0.05%
+//      AND we are within the first 5 minutes of regular trading hours.
+//   3. The caller's pxNow (which may have been resolved separately
+//      from pf) equals prev_close exactly within 0.05% AND we are
+//      within the first 5 minutes of RTH.
+//
+// Returns {stale: bool, reason?: string, ageSec?: number, prevClose?: number, minsSinceOpen?: number}
+// Off-hours always returns {stale: false}.
+function _minsSinceNyOpen(now = new Date()) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour12: false, hour: "2-digit", minute: "2-digit",
+    }).formatToParts(now);
+    const map = {};
+    for (const p of parts) map[p.type] = Number(p.value);
+    const mins = (map.hour || 0) * 60 + (map.minute || 0);
+    return mins - 570; // 9:30 AM ET = 570 minutes
+  } catch { return null; }
+}
+
+async function checkPriceFeedStale(env, sym, pxNow) {
+  if (!isNyRegularMarketOpen()) return { stale: false };
+  try {
+    const KV = env?.KV_TIMED || env?.KV;
+    if (!KV) return { stale: false };
+    const pf = await kvGetJSON(KV, "timed:prices");
+    const tickerKey = String(sym || "").toUpperCase();
+    if (!pf || typeof pf !== "object") return { stale: false };
+    // timed:prices may be flat ({SYM: {...}}) or wrapped ({prices: {SYM: {...}}})
+    const map = pf.prices && typeof pf.prices === "object" ? pf.prices : pf;
+    const row = map[tickerKey];
+    if (!row || typeof row !== "object") return { stale: false };
+    const wrapperUpdated = Number(pf.updated_at) || 0;
+    const pc = Number(row.pc) || 0;
+    const p = Number(row.p) || Number(row.price) || 0;
+    const minsSinceOpen = _minsSinceNyOpen();
+    // Heuristic 1: cron wrapper update is older than 180s. The cron runs
+    // every 60s during RTH so >3 min means cron has actually stopped — that
+    // alone is concerning enough to defer execution. Per-ticker `t` lags
+    // for low-volume names (TwelveData stamps last-tick time, not poll time)
+    // so we deliberately do NOT use it as a staleness signal.
+    if (wrapperUpdated > 0) {
+      const wrapperAgeSec = (Date.now() - wrapperUpdated) / 1000;
+      if (wrapperAgeSec > 180) {
+        return { stale: true, reason: "price_cron_stalled", wrapperAgeSec, prevClose: pc, minsSinceOpen };
+      }
+    }
+    // Heuristic 2 + 3: price equals prev_close in first 5 min after open.
+    // This is the SNDK 5/8 case — TwelveData's /quote returned the prev
+    // close as the live price during the first ~30-90s of RTH because no
+    // tick had arrived yet. The recorded fill price was stale. Defer
+    // until either the feed price OR the caller's pxNow has moved off
+    // prev_close (= a real tick has arrived).
+    if (Number.isFinite(minsSinceOpen) && minsSinceOpen >= 0 && minsSinceOpen <= 5 && pc > 0) {
+      const eps = pc * 0.0005;
+      if (p > 0 && Math.abs(p - pc) < eps) {
+        return { stale: true, reason: "feed_price_equals_prev_close_at_open", prevClose: pc, feedPrice: p, minsSinceOpen };
+      }
+      const px = Number(pxNow) || 0;
+      if (px > 0 && Math.abs(px - pc) < eps) {
+        return { stale: true, reason: "pxnow_equals_prev_close_at_open", prevClose: pc, pxNow: px, minsSinceOpen };
+      }
+    }
+    return { stale: false };
+  } catch (e) {
+    return { stale: false, reason: "check_failed", error: String(e?.message || e).slice(0, 100) };
   }
 }
 
@@ -18709,10 +18794,54 @@ async function processTradeSimulation(
           }
         }
         if (!_exitCioBlocked) {
-          await closeTradeAtPrice(openTrade, pxNow, exitReasonRaw);
-          const exitExecUpdate = { ...execState, lastExitMs: now };
-          if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, exitExecUpdate);
-          else if (!isReplay) await kvPutJSON(KV, execKey, exitExecUpdate);
+          // V15 P0.7.108 (2026-05-08) — Stale-tick guard. Skip ONLY for soft
+          // exits; hard SL / max-loss / V13 nets must execute even if the
+          // feed looks stale because they are protective. (A stale price
+          // can artificially trip soft signals like a fake giveback, but it
+          // cannot artificially lower a real price below the SL — SL fires
+          // when the displayed price drops below the SL value, and a stale
+          // re-served prev_close just keeps the position appearing "above
+          // SL", which is fine to defer.)
+          let _exitDeferred = false;
+          if (!isReplay && !_exitIsHard) {
+            const _exitStaleCheck = await checkPriceFeedStale(env, sym, pxNow);
+            if (_exitStaleCheck?.stale) {
+              const _staleMeta = {
+                ticker: sym,
+                action: "exit",
+                exit_reason: exitReasonRaw,
+                pxNow,
+                ..._exitStaleCheck,
+              };
+              console.warn(`[STALE_TICK_GUARD] ${sym} soft exit deferred — ${_exitStaleCheck.reason} (pxNow=$${pxNow}, prev_close=$${_exitStaleCheck.prevClose}). Will retry next cycle.`);
+              try {
+                d1QueueAction(env, {
+                  ticker: sym,
+                  action: "exit",
+                  direction: openTrade?.direction,
+                  session: "RTH_OPEN_STALE",
+                  snapshot: _staleMeta,
+                  reason: `stale_tick_at_open_deferred:${_exitStaleCheck.reason}`,
+                }).catch(() => {});
+              } catch (_) {}
+              try {
+                auditDataChange(env, {
+                  op: "STALE_TICK_BLOCKED",
+                  scope: `exit:${sym}`,
+                  caller: "live_cron",
+                  rowsAffected: 0,
+                  meta: _staleMeta,
+                }).catch(() => {});
+              } catch (_) {}
+              _exitDeferred = true;
+            }
+          }
+          if (!_exitDeferred) {
+            await closeTradeAtPrice(openTrade, pxNow, exitReasonRaw);
+            const exitExecUpdate = { ...execState, lastExitMs: now };
+            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, exitExecUpdate);
+            else if (!isReplay) await kvPutJSON(KV, execKey, exitExecUpdate);
+          }
         }
       }
     } else if (isExit && openTrade && outsideRTH && !exitAllowedOutsideRTH && !fuseExitFired) {
@@ -19017,7 +19146,61 @@ async function processTradeSimulation(
         }
       }
       if (target > 0) {
-        await trimTradeToPct(openTrade, target, pxNow, reason);
+        // V15 P0.7.108 (2026-05-08) — Stale-tick guard at market open.
+        // SNDK trim on 5/8 fired at 9:31 ET with pxNow = $1339.96 == prev_close.
+        // Real market candle range was $1392-$1429; TwelveData feed lagged the
+        // open and re-served yesterday's close. The atr_week_618 rule legitimately
+        // fired (weekly target was hit) but execution at the stale price recorded
+        // a -$28.59 realized loss instead of a ~+$165 gain. Defer execution by
+        // one cycle so the rule still wins but executes at the right price.
+        // Live cron only — replay uses backfilled candles and is never stale.
+        if (!isReplay) {
+          const _trimStaleCheck = await checkPriceFeedStale(env, sym, pxNow);
+          if (_trimStaleCheck?.stale) {
+            const _staleMeta = {
+              ticker: sym,
+              action: "trim",
+              target_pct: target,
+              pxNow,
+              ..._trimStaleCheck,
+            };
+            console.warn(`[STALE_TICK_GUARD] ${sym} trim deferred — ${_trimStaleCheck.reason} (pxNow=$${pxNow}, prev_close=$${_trimStaleCheck.prevClose}). Will retry next cycle.`);
+            try {
+              d1QueueAction(env, {
+                ticker: sym,
+                action: "trim",
+                direction: openTrade?.direction,
+                session: "RTH_OPEN_STALE",
+                snapshot: _staleMeta,
+                reason: `stale_tick_at_open_deferred:${_trimStaleCheck.reason}`,
+              }).catch(() => {});
+            } catch (_) {}
+            try {
+              auditDataChange(env, {
+                op: "STALE_TICK_BLOCKED",
+                scope: `trim:${sym}`,
+                caller: "live_cron",
+                rowsAffected: 0,
+                meta: _staleMeta,
+              }).catch(() => {});
+            } catch (_) {}
+            target = 0;
+          }
+        }
+      }
+      if (target > 0) {
+        // V15 P0.7.107 (2026-05-08) — Prefer the specific exit-rule reason
+        // (e.g. "atr_week_618_partial_cloud_hold", "doctrine_giveback_severe",
+        // "etf_stagnant_exit") over the generic kanban-stage fallback
+        // ("KANBAN_TRIM"). Without this, trade history + execution_actions
+        // store "KANBAN_TRIM" while the Discord embed says the rich rule
+        // name — leaving the user with two stories about the same trim and
+        // no audit trail of which rule actually fired. SNDK trim on
+        // 2026-05-08 9:31 ET was the first reported instance.
+        const _trimEventReason = tickerData?.__exit_reason
+          || tickerData?.__trim_reason
+          || reason;
+        await trimTradeToPct(openTrade, target, pxNow, _trimEventReason);
         const trimExecUpdate = { ...execState, lastTrimMs: now, runnerPeakPrice: pxNow };
         if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, trimExecUpdate);
         else if (!isReplay) await kvPutJSON(KV, execKey, trimExecUpdate);
@@ -34677,11 +34860,39 @@ function createTradeTrimmedEmbed(
   }
 
   // 4. Why We Trimmed
+  // V15 P0.7.107 (2026-05-08) — Expanded mapping. Most importantly, added
+  // the atr_week_618_* family (weekly ATR target reached) and the
+  // doctrine_giveback / etf_stagnant rules. Without these, the embed fell
+  // back to "Trim triggered: atr week 618 partial cloud hold" which left
+  // the user wondering what that meant — especially when the position was
+  // at intraday loss but the WEEKLY trend hit a profit target. Each entry
+  // explains both the trigger AND why the trim is the right action even
+  // when the current P&L is negative.
   const trimReason = trade?.exitReason || tickerData?.__exit_reason || null;
   const trimReasonMap = {
     MFE_SAFETY_TRIM: "Locked in profits while the trade was ahead — taking money off the table",
     PHASE_LEAVE_100: "Momentum peaked and is starting to fade — securing gains before reversal",
     RUNNER_PEAK_TRAIL: "Letting the winner run paid off — trailed up and trimmed after pullback from peak",
+    BIG_MFE_PROGRESSIVE_TRIM: "Trade ran far in our favor — taking another chunk off to lock in more of the move",
+    SOFT_FUSE_TRIM: "Momentum signals weakened — trimming to reduce exposure while structure still holds",
+    SOFT_FUSE_CLOUD_TRIM: "Momentum weakened but the EMA cloud is still holding — partial trim, runner stays",
+    ATR_RANGE_EXHAUST: "Price stretched past its normal daily range — trimming because further upside is statistically thin",
+    RSI_DIVERGENCE: "RSI is making lower highs while price makes higher highs — momentum is fading even though price isn't yet",
+    ST_FLIP_4H_TRIM: "4H Supertrend flipped against the position — trimming defensively while the runner waits for confirmation",
+    TD_HTF_EXHAUSTION: "Higher-timeframe TD Sequential signaled exhaustion — trimming before a likely reversal",
+    TD_HTF_EXHAUST_CLOUD_TRIM: "Higher-TF TD exhaustion with cloud still holding — partial trim, leave a runner",
+    PROFIT_PROTECT_TRIM: "Locking in unrealized gains while the structure is still favorable",
+    REFERENCE_TRIM: "Reference setup hit its scheduled trim level — taking the planned partial",
+    atr_week_618_partial_cloud_hold: "Weekly ATR profit target reached — trimming partial because the daily 5/12 EMA cloud is still holding, so 50% stays as a runner. Position may show intraday loss because we're trimming on the WEEKLY scale, not the trade scale.",
+    atr_week_618_full_exit: "Weekly ATR full-exit target reached — closing the runner. The week-to-week move maxed out our risk model and we'd rather book the trade than hope for more.",
+    atr_tp_ladder_tier1_fib0_382: "Daily ATR ladder tier 1 (+0.382 ATR) — first scheduled partial trim",
+    atr_tp_ladder_tier2_fib0_618: "Daily ATR ladder tier 2 (+0.618 ATR) — second scheduled partial trim",
+    atr_tp_ladder_tier3_fib1: "Daily ATR ladder tier 3 (+1.0 ATR) — third scheduled partial trim",
+    atr_tp_ladder_tier4_fib1_236: "Daily ATR ladder tier 4 (+1.236 ATR) — fourth scheduled partial trim",
+    atr_tp_ladder_runner_full: "Daily ATR runner cap (+1.618 ATR) — closing the runner at the top of the ladder",
+    doctrine_giveback_severe_force_exit: "Position gave back most of its peak gains — exit doctrine forced a flatten to protect what's left",
+    doctrine_giveback_force_exit: "Trade gave back too much from its peak — trimming defensively per exit doctrine",
+    etf_stagnant_exit: "ETF position stalled with no meaningful move — closing to free up capital for better setups",
     PRE_EARNINGS_RISK_REDUCTION: "Reduced exposure ahead of earnings because overnight gaps can overwhelm normal stops",
     PRE_EARNINGS_FORCE_EXIT: "Closed the position ahead of earnings because gap risk outweighed holding through the event",
     PRE_CPI_RISK_REDUCTION: "Reduced exposure ahead of CPI because the release can sharply reprice open positions",
@@ -53197,6 +53408,202 @@ export default {
             updated++;
           }
           return sendJSON({ ok: true, updated, trade_ids: tradeIds }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/check-stale-tick?ticker=SNDK[&pxNow=1339.96][&key=...]
+      // V15 P0.7.108 (2026-05-08): unit-test the stale-tick guard helper
+      // without waiting for the next market open. Returns {stale, reason,
+      // ...} per the helper. Useful to confirm the guard would fire on a
+      // synthetic price (e.g. setting pxNow=prev_close to simulate the
+      // SNDK-5/8 case).
+      if (routeKey === "GET /timed/admin/check-stale-tick") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const ticker = String(url.searchParams.get("ticker") || "").toUpperCase();
+          if (!ticker) return sendJSON({ ok: false, error: "ticker required" }, 400, corsHeaders(env, req));
+          const pxNowRaw = url.searchParams.get("pxNow");
+          const pxNow = pxNowRaw != null && pxNowRaw !== "" ? Number(pxNowRaw) : null;
+          const result = await checkPriceFeedStale(env, ticker, pxNow);
+          // Also surface the timed:prices row + isMarketOpen for context
+          let row = null;
+          let wrapperUpdated = null;
+          try {
+            const pf = await kvGetJSON(KV, "timed:prices");
+            const map = pf?.prices && typeof pf.prices === "object" ? pf.prices : pf;
+            row = map?.[ticker] || null;
+            wrapperUpdated = pf?.updated_at || null;
+          } catch (_) {}
+          return sendJSON({
+            ok: true,
+            ticker,
+            pxNow,
+            is_market_open: typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : null,
+            mins_since_ny_open: _minsSinceNyOpen(),
+            wrapper_updated_at: wrapperUpdated,
+            row,
+            result,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/patch-trade-event-reason?trade_id=X&type=TRIM&reason=Y&key=...
+      // V15 P0.7.107 (2026-05-08): one-off patch for the SNDK 5/8/2026
+      // trim event whose reason got stored as the generic "KANBAN_TRIM"
+      // fallback while the live Discord embed correctly showed the rich
+      // rule name ("atr_week_618_partial_cloud_hold"). Updates BOTH the
+      // trade_events.reason column and the embedded meta_json.reason +
+      // meta_json.reason_human + meta_json.note so the Trade Review
+      // modal can render the right "Why We Trimmed" copy. Future trims
+      // are protected by the same-PR fix at line ~19020 that prefers
+      // tickerData.__exit_reason over the kanban fallback.
+      if (routeKey === "POST /timed/admin/patch-trade-event-reason") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const tid = String(url.searchParams.get("trade_id") || "").trim();
+          const eventType = String(url.searchParams.get("type") || "TRIM").toUpperCase();
+          const newReason = String(url.searchParams.get("reason") || "").trim();
+          if (!tid || !newReason) {
+            return sendJSON({ ok: false, error: "trade_id and reason required" }, 400, corsHeaders(env, req));
+          }
+          const events = (await db.prepare(
+            `SELECT event_id, ts, type, price, meta_json, reason
+               FROM trade_events
+               WHERE trade_id = ?1 AND type = ?2`
+          ).bind(tid, eventType).all())?.results || [];
+          const updated = [];
+          for (const ev of events) {
+            let meta = null;
+            try { meta = ev.meta_json ? JSON.parse(ev.meta_json) : {}; } catch { meta = {}; }
+            const oldReason = meta.reason || ev.reason || null;
+            meta.reason = newReason;
+            meta.reason_human = newReason.replace(/_/g, " ");
+            // Update note — preserve everything except the trailing reason in parens
+            if (typeof meta.note === "string" && meta.note.length > 0) {
+              meta.note = meta.note.replace(/\(([^)]*?)\)\s*$/, `(${newReason})`);
+              if (!/\(/.test(meta.note)) {
+                meta.note = `${meta.note} (${newReason})`;
+              }
+            }
+            await db.prepare(
+              `UPDATE trade_events
+                 SET reason = ?2, meta_json = ?3
+                 WHERE event_id = ?1`
+            ).bind(ev.event_id, newReason, JSON.stringify(meta)).run();
+            updated.push({ event_id: ev.event_id, ts: Number(ev.ts), old_reason: oldReason, new_reason: newReason });
+          }
+          // Also patch the matching execution_actions row(s) so the
+          // activity feed and any analytics that read from it agree.
+          const ea = (await db.prepare(
+            `SELECT action_id, ts FROM execution_actions
+               WHERE position_id = ?1 AND action_type = ?2`
+          ).bind(tid, eventType).all())?.results || [];
+          for (const a of ea) {
+            await db.prepare(
+              `UPDATE execution_actions SET reason = ?2 WHERE action_id = ?1`
+            ).bind(a.action_id, newReason).run();
+          }
+          return sendJSON({ ok: true, trade_id: tid, type: eventType, updated_events: updated.length, events: updated, updated_actions: ea.length }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/patch-trade-from-da?trade_ids=A,B,C&key=...
+      // V15 P0.7.107 (2026-05-08): surgical UPDATE (not REPLACE) of
+      // rank / rr / entry_path / setup_name / setup_grade / risk_budget
+      // on an existing trade row, sourcing values from direction_accuracy
+      // and the nearest trail KV snapshot. Use this when a live trade
+      // entered with NULL setup info (the live engine doesn't always
+      // write setup_name/grade for some entry paths) so the Trades page
+      // Trade Review modal can render Setup Name / Rank / Risk %.
+      // Unlike restore-trade-from-da, this does NOT touch shares /
+      // notional / pnl / status — it's a metadata-only patch.
+      if (routeKey === "POST /timed/admin/patch-trade-from-da") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const tradeIdsRaw = url.searchParams.get("trade_ids") || "";
+          const tradeIds = tradeIdsRaw.split(",").map(s => s.trim()).filter(Boolean);
+          if (tradeIds.length === 0) {
+            return sendJSON({ ok: false, error: "trade_ids required" }, 400, corsHeaders(env, req));
+          }
+          const patched = [];
+          for (const tid of tradeIds) {
+            const trade = await db.prepare(
+              `SELECT trade_id, ticker, entry_ts, rank, rr, entry_path, setup_name, setup_grade, risk_budget
+                 FROM trades WHERE trade_id = ?1`
+            ).bind(tid).first();
+            if (!trade) { patched.push({ trade_id: tid, ok: false, reason: "trade_not_found" }); continue; }
+            const da = await db.prepare(
+              `SELECT rank, rr, entry_path, signal_snapshot_json
+                 FROM direction_accuracy WHERE trade_id = ?1`
+            ).bind(tid).first();
+            // Try the nearest trail snapshot for setup_name / setup_grade
+            // when DA doesn't carry them (live engine often omits these).
+            let snap = null;
+            try {
+              if (Number(trade.entry_ts) > 0) {
+                snap = await d1GetNearestTrailPayload(db, String(trade.ticker || "").toUpperCase(), Number(trade.entry_ts), 3 * 60 * 60 * 1000);
+              }
+            } catch (_) { snap = null; }
+            const snapPayload = snap?.payload || null;
+            // Resolution priority: existing non-null trade value, then DA,
+            // then snapshot. Never overwrite a non-null trade value.
+            const resolved = {
+              rank: Number(trade.rank) > 0 ? Number(trade.rank)
+                : Number(da?.rank) > 0 ? Number(da.rank)
+                : Number(snapPayload?.rank) > 0 ? Number(snapPayload.rank)
+                : null,
+              rr: Number(trade.rr) > 0 ? Number(trade.rr)
+                : Number(da?.rr) > 0 ? Number(da.rr)
+                : Number(snapPayload?.rr) > 0 ? Number(snapPayload.rr)
+                : null,
+              entry_path: trade.entry_path || da?.entry_path || snapPayload?.entry_path || snapPayload?.entryPath || null,
+              setup_name: trade.setup_name || snapPayload?.setup_name || snapPayload?.setupName || null,
+              setup_grade: trade.setup_grade || snapPayload?.setup_grade || snapPayload?.setupGrade || null,
+              risk_budget: Number(trade.risk_budget) > 0 ? Number(trade.risk_budget)
+                : Number(snapPayload?.risk_budget) > 0 ? Number(snapPayload.risk_budget)
+                : null,
+            };
+            await db.prepare(
+              `UPDATE trades
+                 SET rank = COALESCE(?2, rank),
+                     rr = COALESCE(?3, rr),
+                     entry_path = COALESCE(?4, entry_path),
+                     setup_name = COALESCE(?5, setup_name),
+                     setup_grade = COALESCE(?6, setup_grade),
+                     risk_budget = COALESCE(?7, risk_budget),
+                     updated_at = ?8
+                WHERE trade_id = ?1`
+            ).bind(
+              tid,
+              resolved.rank,
+              resolved.rr,
+              resolved.entry_path,
+              resolved.setup_name,
+              resolved.setup_grade,
+              resolved.risk_budget,
+              Date.now(),
+            ).run();
+            patched.push({
+              trade_id: tid,
+              ok: true,
+              applied: resolved,
+              source: { had_da: !!da, had_snapshot: !!snapPayload },
+            });
+          }
+          return sendJSON({ ok: true, patched }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
