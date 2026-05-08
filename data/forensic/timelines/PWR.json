@@ -1,0 +1,461 @@
+{
+  "ticker": "PWR",
+  "cohort": "WINNERS",
+  "flavor": "RESILIENT_TREND",
+  "return_pct": 61.67,
+  "max_dd_pct": -11.66,
+  "weekly_ema21_break_streak": 1,
+  "daily_512_cloud_break_streak": 16,
+  "sector": "Industrials",
+  "industry": "Engineering & Construction",
+  "eps_growth_class": "exploding",
+  "fundamentals_today": {
+    "pe_ttm": 102.90522,
+    "pe_forward": 45.94583,
+    "peg": 1.9963612680000002,
+    "fair_value_today": 599.32,
+    "fair_value_class_today": "premium",
+    "current_price": 744.84
+  },
+  "inflections": [
+    {
+      "inflection": "entry_oracle",
+      "gain_pct": 0,
+      "ts": 1751342400000,
+      "date": "2025-07-01",
+      "close": 372.29,
+      "daily": {
+        "ema5": 374.8,
+        "ema12": 369.57,
+        "ema21": 362.47,
+        "ema21_status": "above",
+        "ema50": 339.52,
+        "ema50_status": "above",
+        "cloud_status": "inside",
+        "rsi": 64.52,
+        "atr": 9.05,
+        "atr_pct": 2.43,
+        "st_dir": 1,
+        "st_value": 355.31,
+        "td9_count": 1,
+        "td9_dir": "buy"
+      },
+      "weekly": {
+        "close": 386.51,
+        "ema21": 319.15,
+        "ema21_status": "above",
+        "rsi": 84.5,
+        "st_dir": 1,
+        "td9_count": 11,
+        "td9_dir": "sell"
+      },
+      "monthly": {
+        "st_dir": null
+      },
+      "h4": {
+        "close": 378.08,
+        "ema21": 377.21,
+        "ema21_status": "above",
+        "rsi": 56.24
+      },
+      "fv": {
+        "ttm_eps": 9.34,
+        "pe_mult_used": 45.95,
+        "fv_price": 429.13,
+        "fv_basis": "ttm_eps_x_fwd_pe",
+        "quarters_used": 4
+      },
+      "fv_class": {
+        "ratio": 0.868,
+        "label": "fair"
+      },
+      "sys": null
+    },
+    {
+      "inflection": "+5%",
+      "gain_pct": 5,
+      "ts": 1752724800000,
+      "date": "2025-07-17",
+      "close": 397.9,
+      "daily": {
+        "ema5": 389.95,
+        "ema12": 384.23,
+        "ema21": 377.71,
+        "ema21_status": "above",
+        "ema50": 355.75,
+        "ema50_status": "above",
+        "cloud_status": "above",
+        "rsi": 72.95,
+        "atr": 9.21,
+        "atr_pct": 2.31,
+        "st_dir": 1,
+        "st_value": 365.14,
+        "td9_count": 4,
+        "td9_dir": "sell"
+      },
+      "weekly": {
+        "close": 403.31,
+        "ema21": 332.15,
+        "ema21_status": "above",
+        "rsi": 84.98,
+        "st_dir": 1,
+        "td9_count": 13,
+        "td9_dir": "sell"
+      },
+      "monthly": {
+        "st_dir": null
+      },
+      "h4": {
+        "close": 389.12,
+        "ema21": 385.9,
+        "ema21_status": "above",
+        "rsi": 63.44
+      },
+      "fv": {
+        "ttm_eps": 9.34,
+        "pe_mult_used": 45.95,
+        "fv_price": 429.13,
+        "fv_basis": "ttm_eps_x_fwd_pe",
+        "quarters_used": 4
+      },
+      "fv_class": {
+        "ratio": 0.927,
+        "label": "fair"
+      },
+      "sys": null
+    },
+    {
+      "inflection": "+15%",
+      "gain_pct": 15,
+      "ts": 1759896000000,
+      "date": "2025-10-08",
+      "close": 443.45,
+      "daily": {
+        "ema5": 428.32,
+        "ema12": 416.83,
+        "ema21": 407.75,
+        "ema21_status": "above",
+        "ema50": 394.14,
+        "ema50_status": "above",
+        "cloud_status": "above",
+        "rsi": 74.73,
+        "atr": 12.37,
+        "atr_pct": 2.79,
+        "st_dir": 1,
+        "st_value": 393.65,
+        "td9_count": 15,
+        "td9_dir": "sell"
+      },
+      "weekly": {
+        "close": 417.61,
+        "ema21": 375.82,
+        "ema21_status": "above",
+        "rsi": 73.77,
+        "st_dir": 1,
+        "td9_count": 5,
+        "td9_dir": "sell"
+      },
+      "monthly": {
+        "st_dir": null
+      },
+      "h4": {
+        "close": 421.51,
+        "ema21": 421.42,
+        "ema21_status": "above",
+        "rsi": 52.54
+      },
+      "fv": {
+        "ttm_eps": 9.92,
+        "pe_mult_used": 45.95,
+        "fv_price": 455.78,
+        "fv_basis": "ttm_eps_x_fwd_pe",
+        "quarters_used": 4
+      },
+      "fv_class": {
+        "ratio": 0.973,
+        "label": "fair"
+      },
+      "sys": null
+    },
+    {
+      "inflection": "+30%",
+      "gain_pct": 30,
+      "ts": 1770094800000,
+      "date": "2026-02-03",
+      "close": 488.6,
+      "daily": {
+        "ema5": 480.81,
+        "ema12": 472.28,
+        "ema21": 463.66,
+        "ema21_status": "above",
+        "ema50": 450.71,
+        "ema50_status": "above",
+        "cloud_status": "above",
+        "rsi": 66.21,
+        "atr": 15.22,
+        "atr_pct": 3.12,
+        "st_dir": 1,
+        "st_value": 436.72,
+        "td9_count": 1,
+        "td9_dir": "sell"
+      },
+      "weekly": {
+        "close": 508.11,
+        "ema21": 439.46,
+        "ema21_status": "above",
+        "rsi": 72.87,
+        "st_dir": 1,
+        "td9_count": 4,
+        "td9_dir": "sell"
+      },
+      "monthly": {
+        "st_dir": 1
+      },
+      "h4": {
+        "close": 478.5,
+        "ema21": 476.68,
+        "ema21_status": "above",
+        "rsi": 52.7
+      },
+      "fv": {
+        "ttm_eps": 7.01,
+        "pe_mult_used": 45.95,
+        "fv_price": 322.08,
+        "fv_basis": "ttm_eps_x_fwd_pe",
+        "quarters_used": 4
+      },
+      "fv_class": {
+        "ratio": 1.517,
+        "label": "premium"
+      },
+      "sys": null
+    },
+    {
+      "inflection": "+50%",
+      "gain_pct": 50,
+      "ts": 1771909200000,
+      "date": "2026-02-24",
+      "close": 568.21,
+      "daily": {
+        "ema5": 550.51,
+        "ema12": 531.23,
+        "ema21": 513.55,
+        "ema21_status": "above",
+        "ema50": 483.02,
+        "ema50_status": "above",
+        "cloud_status": "above",
+        "rsi": 74.28,
+        "atr": 20.75,
+        "atr_pct": 3.65,
+        "st_dir": 1,
+        "st_value": 494.73,
+        "td9_count": 4,
+        "td9_dir": "sell"
+      },
+      "weekly": {
+        "close": 563.08,
+        "ema21": 466.41,
+        "ema21_status": "above",
+        "rsi": 79.44,
+        "st_dir": 1,
+        "td9_count": 7,
+        "td9_dir": "sell"
+      },
+      "monthly": {
+        "st_dir": 1
+      },
+      "h4": {
+        "close": 550,
+        "ema21": 547.04,
+        "ema21_status": "above",
+        "rsi": 56.08
+      },
+      "fv": {
+        "ttm_eps": 5.14,
+        "pe_mult_used": 45.95,
+        "fv_price": 236.16,
+        "fv_basis": "ttm_eps_x_fwd_pe",
+        "quarters_used": 4
+      },
+      "fv_class": {
+        "ratio": 2.406,
+        "label": "premium"
+      },
+      "sys": null
+    },
+    {
+      "inflection": "peak",
+      "gain_pct": 61.67,
+      "ts": 1776384000000,
+      "date": "2026-04-17",
+      "close": 601.88,
+      "daily": {
+        "ema5": 592.42,
+        "ema12": 582.46,
+        "ema21": 574.54,
+        "ema21_status": "above",
+        "ema50": 551.01,
+        "ema50_status": "above",
+        "cloud_status": "above",
+        "rsi": 64.53,
+        "atr": 18.85,
+        "atr_pct": 3.13,
+        "st_dir": 1,
+        "st_value": 539.62,
+        "td9_count": 12,
+        "td9_dir": "sell"
+      },
+      "weekly": {
+        "close": 601.88,
+        "ema21": 515.88,
+        "ema21_status": "above",
+        "rsi": 77.25,
+        "st_dir": 1,
+        "td9_count": 3,
+        "td9_dir": "sell"
+      },
+      "monthly": {
+        "st_dir": 1
+      },
+      "h4": {
+        "close": 587.39,
+        "ema21": 579.9,
+        "ema21_status": "above",
+        "rsi": 56.37
+      },
+      "fv": {
+        "ttm_eps": 5.14,
+        "pe_mult_used": 45.95,
+        "fv_price": 236.16,
+        "fv_basis": "ttm_eps_x_fwd_pe",
+        "quarters_used": 4
+      },
+      "fv_class": {
+        "ratio": 2.549,
+        "label": "premium"
+      },
+      "sys": null
+    },
+    {
+      "inflection": "exit_window",
+      "gain_pct": 61.67,
+      "ts": 1776384000000,
+      "date": "2026-04-17",
+      "close": 601.88,
+      "daily": {
+        "ema5": 592.42,
+        "ema12": 582.46,
+        "ema21": 574.54,
+        "ema21_status": "above",
+        "ema50": 551.01,
+        "ema50_status": "above",
+        "cloud_status": "above",
+        "rsi": 64.53,
+        "atr": 18.85,
+        "atr_pct": 3.13,
+        "st_dir": 1,
+        "st_value": 539.62,
+        "td9_count": 12,
+        "td9_dir": "sell"
+      },
+      "weekly": {
+        "close": 601.88,
+        "ema21": 515.88,
+        "ema21_status": "above",
+        "rsi": 77.25,
+        "st_dir": 1,
+        "td9_count": 3,
+        "td9_dir": "sell"
+      },
+      "monthly": {
+        "st_dir": 1
+      },
+      "h4": {
+        "close": 587.39,
+        "ema21": 579.9,
+        "ema21_status": "above",
+        "rsi": 56.37
+      },
+      "fv": {
+        "ttm_eps": 5.14,
+        "pe_mult_used": 45.95,
+        "fv_price": 236.16,
+        "fv_basis": "ttm_eps_x_fwd_pe",
+        "quarters_used": 4
+      },
+      "fv_class": {
+        "ratio": 2.549,
+        "label": "premium"
+      },
+      "sys": null
+    }
+  ],
+  "all_sys_trades": [
+    {
+      "trade_id": "PWR-1773671400000",
+      "direction": "LONG",
+      "entry_date": "2026-03-16",
+      "entry_price": 569.34,
+      "exit_date": "2026-03-17",
+      "exit_price": 565.42,
+      "pnl_pct": -0.69,
+      "setup_name": "TT Tt Ath Breakout",
+      "setup_grade": "Prime",
+      "entry_path": "tt_ath_breakout",
+      "exit_reason": "doctrine_force_exit",
+      "sector": "Industrials",
+      "rank": 100,
+      "rr": 2.3,
+      "mfe_pct": 0.98,
+      "mae_pct": -0.69,
+      "held_days": 1,
+      "personality": "PULLBACK_PLAYER",
+      "regime_class": "TRENDING",
+      "td9_bear_ltf_active": null
+    },
+    {
+      "trade_id": "PWR-1773945000000",
+      "direction": "LONG",
+      "entry_date": "2026-03-19",
+      "entry_price": 572.48,
+      "exit_date": "2026-03-20",
+      "exit_price": 568.28,
+      "pnl_pct": 0.17,
+      "setup_name": "TT Tt Gap Reversal Long",
+      "setup_grade": "Prime",
+      "entry_path": "tt_gap_reversal_long",
+      "exit_reason": "tape_capitulation_force_exit",
+      "sector": "Industrials",
+      "rank": 100,
+      "rr": 3.22,
+      "mfe_pct": 1.08,
+      "mae_pct": -0.73,
+      "held_days": 0.8,
+      "personality": "PULLBACK_PLAYER",
+      "regime_class": "TRENDING",
+      "td9_bear_ltf_active": null
+    },
+    {
+      "trade_id": "PWR-1775831400000",
+      "direction": "LONG",
+      "entry_date": "2026-04-10",
+      "entry_price": 587,
+      "exit_date": "2026-04-29",
+      "exit_price": 635.85,
+      "pnl_pct": 4.42,
+      "setup_name": "TT Tt Momentum",
+      "setup_grade": "Prime",
+      "entry_path": "tt_momentum",
+      "exit_reason": "TP_FULL",
+      "sector": "Industrials",
+      "rank": 100,
+      "rr": 2.42,
+      "mfe_pct": 9.12,
+      "mae_pct": -0.74,
+      "held_days": 19,
+      "personality": "PULLBACK_PLAYER",
+      "regime_class": "TRANSITIONAL",
+      "td9_bear_ltf_active": null
+    }
+  ]
+}
