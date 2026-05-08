@@ -9536,6 +9536,7 @@ const DsCompactCard = React.memo(function DsCompactCard({
     }
   })();
   const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
+  const dayChg = Number.isFinite(dc?.dayChg) ? Number(dc.dayChg) : null;
   const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
   const rank = Number(t?.rank_position ?? t?.rp) || null;
   const score = (() => {
@@ -9840,7 +9841,13 @@ const DsCompactCard = React.memo(function DsCompactCard({
     style: {
       fontSize: 12
     }
-  }, dir === "up" ? "▲" : dir === "dn" ? "▼" : "◆", " ", dayPct >= 0 ? "+" : "", dayPct.toFixed(2), "%"), progressBar, sparkSvg && React.createElement("div", {
+  }, dir === "up" ? "▲" : dir === "dn" ? "▼" : "◆", " ", dayPct >= 0 ? "+" : "", dayPct.toFixed(2), "%", Number.isFinite(dayChg) && Math.abs(dayChg) > 0.001 && React.createElement("span", {
+    style: {
+      marginLeft: 4,
+      opacity: 0.7,
+      fontSize: 10
+    }
+  }, "(", dayChg >= 0 ? "+" : "", "$", Math.abs(dayChg).toFixed(2), ")")), progressBar, sparkSvg && React.createElement("div", {
     className: "ds-tickercard__spark",
     dangerouslySetInnerHTML: {
       __html: sparkSvg

@@ -2755,6 +2755,12 @@
                       {Number.isFinite(v2DayPct) && (
                         <span className={`ds-chip ds-chip--sm ds-chip--${v2SparkDir === "flat" ? "solid" : v2SparkDir}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
                           {v2DayPct >= 0 ? "▲ +" : "▼ "}{v2DayPct.toFixed(2)}%
+                          {/* P0.7.105 — also show $ amount of daily change */}
+                          {Number.isFinite(v2DayChange?.dayChg) && Math.abs(v2DayChange.dayChg) > 0.001 && (
+                            <span style={{ marginLeft: 4, opacity: 0.75, fontSize: "0.85em" }}>
+                              ({v2DayChange.dayChg >= 0 ? "+" : "−"}${Math.abs(v2DayChange.dayChg).toFixed(2)})
+                            </span>
+                          )}
                         </span>
                       )}
                     </div>

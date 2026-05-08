@@ -3203,7 +3203,13 @@
             style: {
               fontFamily: "var(--tt-font-mono)"
             }
-          }, v2DayPct >= 0 ? "▲ +" : "▼ ", v2DayPct.toFixed(2), "%")), (() => {
+          }, v2DayPct >= 0 ? "▲ +" : "▼ ", v2DayPct.toFixed(2), "%", Number.isFinite(v2DayChange?.dayChg) && Math.abs(v2DayChange.dayChg) > 0.001 && React.createElement("span", {
+            style: {
+              marginLeft: 4,
+              opacity: 0.75,
+              fontSize: "0.85em"
+            }
+          }, "(", v2DayChange.dayChg >= 0 ? "+" : "−", "$", Math.abs(v2DayChange.dayChg).toFixed(2), ")"))), (() => {
             const fullName = ticker?.context?.name || ticker?.companyName || latestTicker?.context?.name || null;
             const mktCap = Number(ticker?.market_cap ?? ticker?.marketCap ?? latestTicker?.market_cap);
             const sector = (typeof getTickerSector === "function" ? getTickerSector(tickerSymbol) : null) || ticker?.sector || ticker?.context?.sector || ticker?._sector || null;
