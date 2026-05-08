@@ -943,6 +943,8 @@ const ROUTES = [
   ["POST", "/timed/admin/refresh-path-performance", "POST /timed/admin/refresh-path-performance"],
   ["GET", "/timed/admin/direction-accuracy/inspect", "GET /timed/admin/direction-accuracy/inspect"],
   ["POST", "/timed/admin/restore-trade-from-da", "POST /timed/admin/restore-trade-from-da"],
+  ["POST", "/timed/admin/patch-trade-from-da", "POST /timed/admin/patch-trade-from-da"],
+  ["POST", "/timed/admin/patch-trade-event-reason", "POST /timed/admin/patch-trade-event-reason"],
   ["POST", "/timed/admin/patch-trade-shares", "POST /timed/admin/patch-trade-shares"],
   ["POST", "/timed/admin/close-stale-open-trades", "POST /timed/admin/close-stale-open-trades"],
   ["GET", "/timed/admin/data-audit-log", "GET /timed/admin/data-audit-log"],
@@ -53236,6 +53238,163 @@ export default {
             updated++;
           }
           return sendJSON({ ok: true, updated, trade_ids: tradeIds }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/patch-trade-event-reason?trade_id=X&type=TRIM&reason=Y&key=...
+      // V15 P0.7.107 (2026-05-08): one-off patch for the SNDK 5/8/2026
+      // trim event whose reason got stored as the generic "KANBAN_TRIM"
+      // fallback while the live Discord embed correctly showed the rich
+      // rule name ("atr_week_618_partial_cloud_hold"). Updates BOTH the
+      // trade_events.reason column and the embedded meta_json.reason +
+      // meta_json.reason_human + meta_json.note so the Trade Review
+      // modal can render the right "Why We Trimmed" copy. Future trims
+      // are protected by the same-PR fix at line ~19020 that prefers
+      // tickerData.__exit_reason over the kanban fallback.
+      if (routeKey === "POST /timed/admin/patch-trade-event-reason") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const tid = String(url.searchParams.get("trade_id") || "").trim();
+          const eventType = String(url.searchParams.get("type") || "TRIM").toUpperCase();
+          const newReason = String(url.searchParams.get("reason") || "").trim();
+          if (!tid || !newReason) {
+            return sendJSON({ ok: false, error: "trade_id and reason required" }, 400, corsHeaders(env, req));
+          }
+          const events = (await db.prepare(
+            `SELECT event_id, ts, type, price, meta_json, reason
+               FROM trade_events
+               WHERE trade_id = ?1 AND type = ?2`
+          ).bind(tid, eventType).all())?.results || [];
+          const updated = [];
+          for (const ev of events) {
+            let meta = null;
+            try { meta = ev.meta_json ? JSON.parse(ev.meta_json) : {}; } catch { meta = {}; }
+            const oldReason = meta.reason || ev.reason || null;
+            meta.reason = newReason;
+            meta.reason_human = newReason.replace(/_/g, " ");
+            // Update note — preserve everything except the trailing reason in parens
+            if (typeof meta.note === "string" && meta.note.length > 0) {
+              meta.note = meta.note.replace(/\(([^)]*?)\)\s*$/, `(${newReason})`);
+              if (!/\(/.test(meta.note)) {
+                meta.note = `${meta.note} (${newReason})`;
+              }
+            }
+            await db.prepare(
+              `UPDATE trade_events
+                 SET reason = ?2, meta_json = ?3
+                 WHERE event_id = ?1`
+            ).bind(ev.event_id, newReason, JSON.stringify(meta)).run();
+            updated.push({ event_id: ev.event_id, ts: Number(ev.ts), old_reason: oldReason, new_reason: newReason });
+          }
+          // Also patch the matching execution_actions row(s) so the
+          // activity feed and any analytics that read from it agree.
+          const ea = (await db.prepare(
+            `SELECT action_id, ts FROM execution_actions
+               WHERE position_id = ?1 AND action_type = ?2`
+          ).bind(tid, eventType).all())?.results || [];
+          for (const a of ea) {
+            await db.prepare(
+              `UPDATE execution_actions SET reason = ?2 WHERE action_id = ?1`
+            ).bind(a.action_id, newReason).run();
+          }
+          return sendJSON({ ok: true, trade_id: tid, type: eventType, updated_events: updated.length, events: updated, updated_actions: ea.length }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/patch-trade-from-da?trade_ids=A,B,C&key=...
+      // V15 P0.7.107 (2026-05-08): surgical UPDATE (not REPLACE) of
+      // rank / rr / entry_path / setup_name / setup_grade / risk_budget
+      // on an existing trade row, sourcing values from direction_accuracy
+      // and the nearest trail KV snapshot. Use this when a live trade
+      // entered with NULL setup info (the live engine doesn't always
+      // write setup_name/grade for some entry paths) so the Trades page
+      // Trade Review modal can render Setup Name / Rank / Risk %.
+      // Unlike restore-trade-from-da, this does NOT touch shares /
+      // notional / pnl / status — it's a metadata-only patch.
+      if (routeKey === "POST /timed/admin/patch-trade-from-da") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const tradeIdsRaw = url.searchParams.get("trade_ids") || "";
+          const tradeIds = tradeIdsRaw.split(",").map(s => s.trim()).filter(Boolean);
+          if (tradeIds.length === 0) {
+            return sendJSON({ ok: false, error: "trade_ids required" }, 400, corsHeaders(env, req));
+          }
+          const patched = [];
+          for (const tid of tradeIds) {
+            const trade = await db.prepare(
+              `SELECT trade_id, ticker, entry_ts, rank, rr, entry_path, setup_name, setup_grade, risk_budget
+                 FROM trades WHERE trade_id = ?1`
+            ).bind(tid).first();
+            if (!trade) { patched.push({ trade_id: tid, ok: false, reason: "trade_not_found" }); continue; }
+            const da = await db.prepare(
+              `SELECT rank, rr, entry_path, signal_snapshot_json
+                 FROM direction_accuracy WHERE trade_id = ?1`
+            ).bind(tid).first();
+            // Try the nearest trail snapshot for setup_name / setup_grade
+            // when DA doesn't carry them (live engine often omits these).
+            let snap = null;
+            try {
+              if (Number(trade.entry_ts) > 0) {
+                snap = await d1GetNearestTrailPayload(db, String(trade.ticker || "").toUpperCase(), Number(trade.entry_ts), 3 * 60 * 60 * 1000);
+              }
+            } catch (_) { snap = null; }
+            const snapPayload = snap?.payload || null;
+            // Resolution priority: existing non-null trade value, then DA,
+            // then snapshot. Never overwrite a non-null trade value.
+            const resolved = {
+              rank: Number(trade.rank) > 0 ? Number(trade.rank)
+                : Number(da?.rank) > 0 ? Number(da.rank)
+                : Number(snapPayload?.rank) > 0 ? Number(snapPayload.rank)
+                : null,
+              rr: Number(trade.rr) > 0 ? Number(trade.rr)
+                : Number(da?.rr) > 0 ? Number(da.rr)
+                : Number(snapPayload?.rr) > 0 ? Number(snapPayload.rr)
+                : null,
+              entry_path: trade.entry_path || da?.entry_path || snapPayload?.entry_path || snapPayload?.entryPath || null,
+              setup_name: trade.setup_name || snapPayload?.setup_name || snapPayload?.setupName || null,
+              setup_grade: trade.setup_grade || snapPayload?.setup_grade || snapPayload?.setupGrade || null,
+              risk_budget: Number(trade.risk_budget) > 0 ? Number(trade.risk_budget)
+                : Number(snapPayload?.risk_budget) > 0 ? Number(snapPayload.risk_budget)
+                : null,
+            };
+            await db.prepare(
+              `UPDATE trades
+                 SET rank = COALESCE(?2, rank),
+                     rr = COALESCE(?3, rr),
+                     entry_path = COALESCE(?4, entry_path),
+                     setup_name = COALESCE(?5, setup_name),
+                     setup_grade = COALESCE(?6, setup_grade),
+                     risk_budget = COALESCE(?7, risk_budget),
+                     updated_at = ?8
+                WHERE trade_id = ?1`
+            ).bind(
+              tid,
+              resolved.rank,
+              resolved.rr,
+              resolved.entry_path,
+              resolved.setup_name,
+              resolved.setup_grade,
+              resolved.risk_budget,
+              Date.now(),
+            ).run();
+            patched.push({
+              trade_id: tid,
+              ok: true,
+              applied: resolved,
+              source: { had_da: !!da, had_snapshot: !!snapPayload },
+            });
+          }
+          return sendJSON({ ok: true, patched }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
