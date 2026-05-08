@@ -33751,11 +33751,57 @@ async function d1UpdatePosition(env, position_id, updates) {
 }
 
 /**
+ * V15 P0.7.107 (2026-05-08) — Phase 2 Trend-Hold self-healing schema.
+ *
+ * Mirrors the ensureDataAuditLogSchema pattern: idempotently adds the
+ * trend_hold_* columns to the trades table on first use. Avoids
+ * needing a separate wrangler `d1 execute` migration step — the
+ * worker auto-heals its own schema the first time it tries to write
+ * a Trend-Hold transition.
+ *
+ * Each ALTER TABLE is wrapped in try/catch so "duplicate column"
+ * errors are swallowed (column already exists from a prior cycle).
+ * Other errors are logged but do not throw — Trend-Hold persistence
+ * must NEVER block legitimate trade management.
+ */
+let _trendHoldSchemaEnsured = false;
+async function ensureTrendHoldColumnsSchema(db) {
+  if (_trendHoldSchemaEnsured || !db) return;
+  const stmts = [
+    "ALTER TABLE trades ADD COLUMN trend_hold_state TEXT",
+    "ALTER TABLE trades ADD COLUMN trend_hold_promoted_at INTEGER",
+    "ALTER TABLE trades ADD COLUMN trend_hold_demoted_at INTEGER",
+    "ALTER TABLE trades ADD COLUMN trend_hold_max_mfe_pct REAL",
+    "ALTER TABLE trades ADD COLUMN trend_hold_flavor TEXT",
+    "ALTER TABLE trades ADD COLUMN trend_hold_promote_reason TEXT",
+    "ALTER TABLE trades ADD COLUMN trend_hold_demote_reason TEXT",
+  ];
+  for (const sql of stmts) {
+    try {
+      await db.prepare(sql).run();
+    } catch (err) {
+      const msg = String(err?.message || err);
+      // SQLite reports duplicate columns variously across D1 versions:
+      //   "duplicate column name", "already exists"
+      if (msg.includes("duplicate column") || msg.includes("already exists")) continue;
+      console.warn("[TREND_HOLD SCHEMA] ALTER failed:", sql, "→", msg.slice(0, 200));
+    }
+  }
+  try {
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_trades_trend_hold_state ON trades (trend_hold_state)").run();
+  } catch (_) {}
+  _trendHoldSchemaEnsured = true;
+  console.log("[TREND_HOLD SCHEMA] ensured");
+}
+
+/**
  * V15 P0.7.107 (2026-05-08) — Phase 2 Trend-Hold lifecycle persistence.
  *
  * Updates trend_hold_* columns on a `trades` row. Idempotent.
- * Defensive: returns {ok:false, skipped:true} if the migration
- * (worker/migrations/add-trend-hold-columns.sql) hasn't been applied.
+ * Calls ensureTrendHoldColumnsSchema() lazily so the migration auto-
+ * applies on first use. Defensive: returns {ok:false, skipped:true}
+ * if the schema-ensure failed for some reason and the column truly
+ * doesn't exist.
  *
  * Writes a data_audit_log row for every state transition so the
  * P0.7.103 INTEGRITY GUARD can attribute downstream-row-count changes
@@ -33771,6 +33817,7 @@ async function d1UpdateTradeTrendHoldState(env, trade_id, updates) {
   const db = env?.DB;
   if (!db || !trade_id || !updates) return { ok: false };
   try {
+    await ensureTrendHoldColumnsSchema(db);
     const setClauses = [];
     const params = [trade_id];
     let pIdx = 2;
@@ -54783,6 +54830,50 @@ export default {
         try {
           const result = await refreshPathPerformance(env);
           return sendJSON(result, result?.ok ? 200 : 500, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // POST /timed/admin/ensure-trend-hold-schema?key=...
+      // V15 P0.7.108 (2026-05-08) — One-shot apply of the Trend-Hold ALTER TABLE
+      // migration without needing wrangler `d1 execute`. Idempotent — safe to
+      // call multiple times. Same logic as ensureTrendHoldColumnsSchema()
+      // which auto-runs on first d1UpdateTradeTrendHoldState() call.
+      // ═══════════════════════════════════════════════════════════════════════
+      if (routeKey === "POST /timed/admin/ensure-trend-hold-schema") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          // Force re-run regardless of in-memory cache (operator may have
+          // hit this BEFORE first lifecycle eval and want to verify).
+          _trendHoldSchemaEnsured = false;
+          await ensureTrendHoldColumnsSchema(db);
+          // Verify by querying the schema.
+          const cols = (await db.prepare("PRAGMA table_info(trades)").all())?.results || [];
+          const expected = [
+            "trend_hold_state", "trend_hold_promoted_at", "trend_hold_demoted_at",
+            "trend_hold_max_mfe_pct", "trend_hold_flavor",
+            "trend_hold_promote_reason", "trend_hold_demote_reason",
+          ];
+          const present = cols.map(r => r.name).filter(n => expected.includes(n));
+          const missing = expected.filter(n => !present.includes(n));
+          await auditDataChange(env, {
+            op: "trend_hold_schema_ensured",
+            scope: "trades",
+            caller: req?.url || "unknown",
+            rowsAffected: present.length,
+            meta: { present, missing },
+          });
+          return sendJSON({
+            ok: missing.length === 0,
+            present,
+            missing,
+            total_columns: cols.length,
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
