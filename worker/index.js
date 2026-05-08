@@ -17166,6 +17166,81 @@ async function processTradeSimulation(
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
+    // V15 P0.7.107 (2026-05-08) — PHASE 2 TREND-HOLD LIFECYCLE EVAL
+    //
+    // After MFE/MAE update each tick, evaluate Trend-Hold transitions:
+    //   1. If state=null and gates pass → promote (mark active, stamp flavor)
+    //   2. If state=active and any structural break → demote (drop back to AT)
+    // Both are gated on daCfg.deep_audit_trend_hold_enabled (default 'false').
+    //
+    // The promotion/demotion stamps are written to the trade row in D1
+    // via d1UpdateTradeTrendHoldState() (idempotent). Audit row is written
+    // via auditDataChange() so the integrity guard (P0.7.103) sees every
+    // transition and can attribute behavior changes to this module.
+    //
+    // Source-of-truth thresholds: tasks/phase-c/accumulation-trend-deep-dive.md
+    // Pure logic: worker/trend-hold.js
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (openTrade && isOpenTradeStatus(openTrade.status)) {
+      try {
+        const _thDaCfg = tickerData?._env?._deepAuditConfig || {};
+        if (TrendHold.isTrendHoldEnabled(_thDaCfg)) {
+          const _thCfg = TrendHold.loadTrendHoldConfig(_thDaCfg);
+          const _thSnap = TrendHold.extractTrendSnapshot(tickerData, openTrade);
+          if (_thSnap) {
+            const _thState = String(openTrade.trend_hold_state || "").toLowerCase();
+            if (_thState === "active") {
+              // Track running max-MFE while in active state.
+              const _thCurMfe = Number(openTrade.maxFavorableExcursion) || 0;
+              const _thMaxMfe = Number(openTrade.trend_hold_max_mfe_pct) || 0;
+              if (_thCurMfe > _thMaxMfe) openTrade.trend_hold_max_mfe_pct = _thCurMfe;
+              // Demotion check.
+              const _thDemote = TrendHold.shouldDemoteFromTrendHold(_thSnap, openTrade, _thCfg);
+              if (_thDemote.demote) {
+                openTrade.trend_hold_state = "demoted";
+                openTrade.trend_hold_demoted_at = now;
+                openTrade.trend_hold_demote_reason = _thDemote.reason;
+                console.log(`[TREND_HOLD DEMOTE] ${sym} ${_thDemote.reason}`);
+                if (typeof d1UpdateTradeTrendHoldState === "function") {
+                  await d1UpdateTradeTrendHoldState(env, openTrade.trade_id, {
+                    state: "demoted",
+                    demoted_at: now,
+                    demote_reason: _thDemote.reason,
+                    max_mfe_pct: openTrade.trend_hold_max_mfe_pct,
+                  });
+                }
+              }
+            } else if (!_thState || _thState === "demoted") {
+              // Promotion check (re-promotion respects cooldown via
+              // shouldPromoteToTrendHold's promote_cooldown_after_demote_ms).
+              const _thPromote = TrendHold.shouldPromoteToTrendHold(_thSnap, openTrade, _thCfg);
+              if (_thPromote.promote) {
+                openTrade.trend_hold_state = "active";
+                openTrade.trend_hold_promoted_at = now;
+                openTrade.trend_hold_flavor = _thPromote.flavor;
+                openTrade.trend_hold_promote_reason = _thPromote.reason;
+                openTrade.trend_hold_max_mfe_pct = Number(openTrade.maxFavorableExcursion) || 0;
+                console.log(`[TREND_HOLD PROMOTE] ${sym} ${_thPromote.flavor}: ${_thPromote.reason}`);
+                if (typeof d1UpdateTradeTrendHoldState === "function") {
+                  await d1UpdateTradeTrendHoldState(env, openTrade.trade_id, {
+                    state: "active",
+                    promoted_at: now,
+                    flavor: _thPromote.flavor,
+                    promote_reason: _thPromote.reason,
+                    max_mfe_pct: openTrade.trend_hold_max_mfe_pct,
+                  });
+                }
+              }
+            }
+          }
+        }
+      } catch (_thErr) {
+        // Trend-Hold eval must NEVER block legit management. Log + continue.
+        console.log(`[TREND_HOLD ERROR] ${sym}: ${String(_thErr?.message || _thErr).slice(0, 200)}`);
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // V15 P0.7.17 (2026-04-29): LIVE 30m MANAGEMENT-CADENCE GATE
     //
     // Empirical comparison (v16-fix1-p716-jul July smoke at 30m vs 10m vs 5m)
@@ -33667,6 +33742,90 @@ async function d1UpdatePosition(env, position_id, updates) {
     if (err && (err.message || "").includes("no such table")) return { ok: false, skipped: true };
     console.error("[D1 LEDGER] position update failed:", err);
     return { ok: false, error: String(err) };
+  }
+}
+
+/**
+ * V15 P0.7.107 (2026-05-08) — Phase 2 Trend-Hold lifecycle persistence.
+ *
+ * Updates trend_hold_* columns on a `trades` row. Idempotent.
+ * Defensive: returns {ok:false, skipped:true} if the migration
+ * (worker/migrations/add-trend-hold-columns.sql) hasn't been applied.
+ *
+ * Writes a data_audit_log row for every state transition so the
+ * P0.7.103 INTEGRITY GUARD can attribute downstream-row-count changes
+ * to the Trend-Hold module rather than panicking and muting cron.
+ *
+ * @param {object} env — D1-bound env
+ * @param {string} trade_id
+ * @param {object} updates — any subset of:
+ *   { state, promoted_at, demoted_at, flavor,
+ *     promote_reason, demote_reason, max_mfe_pct }
+ */
+async function d1UpdateTradeTrendHoldState(env, trade_id, updates) {
+  const db = env?.DB;
+  if (!db || !trade_id || !updates) return { ok: false };
+  try {
+    const setClauses = [];
+    const params = [trade_id];
+    let pIdx = 2;
+    if (updates.state !== undefined) {
+      setClauses.push(`trend_hold_state = ?${pIdx++}`);
+      params.push(updates.state == null ? null : String(updates.state));
+    }
+    if (updates.promoted_at !== undefined) {
+      setClauses.push(`trend_hold_promoted_at = ?${pIdx++}`);
+      params.push(updates.promoted_at == null ? null : Number(updates.promoted_at));
+    }
+    if (updates.demoted_at !== undefined) {
+      setClauses.push(`trend_hold_demoted_at = ?${pIdx++}`);
+      params.push(updates.demoted_at == null ? null : Number(updates.demoted_at));
+    }
+    if (updates.flavor !== undefined) {
+      setClauses.push(`trend_hold_flavor = ?${pIdx++}`);
+      params.push(updates.flavor == null ? null : String(updates.flavor));
+    }
+    if (updates.promote_reason !== undefined) {
+      setClauses.push(`trend_hold_promote_reason = ?${pIdx++}`);
+      params.push(updates.promote_reason == null ? null : String(updates.promote_reason).slice(0, 256));
+    }
+    if (updates.demote_reason !== undefined) {
+      setClauses.push(`trend_hold_demote_reason = ?${pIdx++}`);
+      params.push(updates.demote_reason == null ? null : String(updates.demote_reason).slice(0, 256));
+    }
+    if (updates.max_mfe_pct !== undefined) {
+      setClauses.push(`trend_hold_max_mfe_pct = ?${pIdx++}`);
+      params.push(updates.max_mfe_pct == null ? null : Number(updates.max_mfe_pct));
+    }
+    if (setClauses.length === 0) return { ok: false, reason: "no_updates" };
+    const sql = `UPDATE trades SET ${setClauses.join(", ")} WHERE trade_id = ?1`;
+    const r = await db.prepare(sql).bind(...params).run();
+    const rowsAffected = Number(r?.meta?.changes || 0);
+    // Audit every transition for the integrity guard.
+    try {
+      await auditDataChange(env, {
+        op: updates.state === "active" ? "trend_hold_promote" : "trend_hold_demote",
+        scope: `trades:${trade_id}`,
+        caller: "d1UpdateTradeTrendHoldState",
+        rowsAffected,
+        meta: {
+          trade_id,
+          state: updates.state,
+          flavor: updates.flavor,
+          promote_reason: updates.promote_reason,
+          demote_reason: updates.demote_reason,
+        },
+      });
+    } catch (_) { /* audit must never block the update */ }
+    return { ok: true, rowsAffected };
+  } catch (err) {
+    const msg = String(err?.message || err);
+    // Migration not yet applied — return skipped so callers don't blow up.
+    if (msg.includes("no such column") || msg.includes("no such table")) {
+      return { ok: false, skipped: true, reason: "schema_pending_migration" };
+    }
+    console.error("[D1 TREND_HOLD] update failed:", msg);
+    return { ok: false, error: msg };
   }
 }
 
