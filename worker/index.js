@@ -40653,6 +40653,42 @@ export default {
         const capture = await kvGetJSON(KV, `timed:capture:latest:${ticker}`);
         const heartbeat = await kvGetJSON(KV, `timed:heartbeat:${ticker}`);
         if (data) {
+          // V15 P0.7.118 (2026-05-09) — Overlay from timed:prices BEFORE
+          // heartbeat. The price-feed cron writes to timed:prices every
+          // 1 min during RTH (and survives weekends with the last RTH
+          // close), but timed:latest:SYMBOL is only refreshed by the
+          // 5-min scoring cron which doesn't run on weekends. Without
+          // this overlay, /timed/latest could return prices from a
+          // backtest replay or an ancient snapshot for hours/days while
+          // /timed/all (which already overlays from timed:prices) shows
+          // the right price. SNDK 5/9 incident: /timed/latest returned
+          // $46.42 (310 days stale) while /timed/all returned $1562.34.
+          try {
+            const pf = await kvGetJSON(KV, "timed:prices");
+            const pfMap = pf?.prices && typeof pf.prices === "object" ? pf.prices : pf;
+            const row = pfMap?.[String(ticker || "").toUpperCase()];
+            if (row && typeof row === "object") {
+              const pfPrice = Number(row.p) || Number(row.price);
+              const pfPc = Number(row.pc);
+              const pfDc = Number(row.dc);
+              const pfDp = Number(row.dp);
+              const pfTs = Number(row.t);
+              const dataTs = Number(data.ts) || 0;
+              // Use price-feed values when they're FRESHER than the snapshot.
+              if (Number.isFinite(pfPrice) && pfPrice > 0 && (!Number.isFinite(dataTs) || pfTs >= dataTs)) {
+                data.price = pfPrice;
+                if (Number.isFinite(pfPc) && pfPc > 0) data.prev_close = pfPc;
+                if (Number.isFinite(pfDc)) { data.day_change = pfDc; data.change = pfDc; }
+                if (Number.isFinite(pfDp)) { data.day_change_pct = pfDp; data.change_pct = pfDp; }
+                if (Number.isFinite(pfTs)) data.ts = pfTs;
+                if (row.ahp != null) data.ah_price = Number(row.ahp);
+                if (row.ahdp != null) data.ah_change_pct = Number(row.ahdp);
+                if (row.ahdc != null) data.ah_change = Number(row.ahdc);
+              }
+            }
+          } catch (e) {
+            console.warn(`[/timed/latest] price-feed overlay failed for ${ticker}:`, String(e?.message || e).slice(0, 120));
+          }
           // Overlay lightweight heartbeat (KV, 2d TTL) for fresh price/daily change
           if (heartbeat && typeof heartbeat === "object") {
             if (Number.isFinite(Number(heartbeat.price))) data.price = heartbeat.price;
