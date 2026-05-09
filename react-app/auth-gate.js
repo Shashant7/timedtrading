@@ -1043,84 +1043,76 @@
     // Authenticated, tier-authorized, and terms accepted — render children with user context
     const appContent = typeof children === "function" ? children(user) : children;
 
-    // V15 P0.7.115 (2026-05-09) — Single auth-gate footer, slimmed for
-    // mobile, Twelve Data attribution added (rule: "Footer MUST include
-    // 'Market data powered by Twelve Data'"). data-tt-auth-footer
-    // attribute lets index-react.html measure actual height for the
-    // mobile bottom nav clearance.
+    // V15 P0.7.117 (2026-05-09) — Restored the full legal disclaimer
+    // sentence per user request. Now that P0.7.116 made the footer
+    // inline (scrolls with page, not position:fixed), the full text
+    // can wrap freely on narrow viewports without eating any viewport
+    // real estate. Two-line layout: full disclaimer on top, action
+    // links underneath. Twelve Data attribution kept (rule: "Footer
+    // MUST include 'Market data powered by Twelve Data'"). data-tt-
+    // auth-footer attribute preserved for any external measurement.
     const linkStyle = {
-      color: "#4b5563",
-      textDecoration: "none",
-      borderBottom: "1px solid rgba(75,85,99,0.3)",
+      color: "#6b7280",
+      textDecoration: "underline",
+      textUnderlineOffset: "2px",
       transition: "color 0.2s",
     };
-    const sepStyle = { color: "#1f2937" };
+    const sepStyle = { color: "#374151" };
+    const onLinkHover = (e) => { e.currentTarget.style.color = "#9ca3af"; };
+    const onLinkLeave = (e) => { e.currentTarget.style.color = "#6b7280"; };
     return React.createElement(React.Fragment, null,
       appContent,
-      // Inline scoped styles so the footer can shrink itself on mobile
-      // without an external stylesheet.
       React.createElement("style", null, `
-        [data-tt-auth-footer] { gap: 12px; padding: 6px 16px; font-size: 11px; flex-wrap: wrap; }
+        [data-tt-auth-footer] { padding: 10px 16px; font-size: 11px; line-height: 1.5; color: #6b7280; }
+        [data-tt-auth-footer] .tt-foot-disclaimer { max-width: 980px; margin: 0 auto; text-align: center; }
+        [data-tt-auth-footer] .tt-foot-links { margin-top: 6px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
         @media (max-width: 768px) {
-          [data-tt-auth-footer] { gap: 6px; padding: 3px 8px; font-size: 9px; flex-wrap: nowrap; white-space: nowrap; overflow: hidden; }
-          [data-tt-auth-footer] .tt-foot-hide-mobile { display: none; }
+          [data-tt-auth-footer] { padding: 8px 12px; font-size: 10px; line-height: 1.45; }
+          [data-tt-auth-footer] .tt-foot-links { gap: 8px; font-size: 10px; }
         }
       `),
       React.createElement("div", {
         "data-tt-auth-footer": "1",
-        /* V15 P0.7.116 (2026-05-09) — Footer is now PART of the page
-           (static, scrolls with content), not position:fixed at the
-           bottom. User reported the fixed footer permanently ate
-           viewport real estate. The mobile bottom nav remains fixed
-           because it's a primary navigation surface — not informational
-           text. So: nav stays fixed, disclaimer scrolls.
-           --tt-legal-footer-h is set to 0 here since the footer no
-           longer needs height-reservation in the body padding-bottom.
-        */
         style: {
           width: "100%",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
           background: "rgba(11,14,17,0.92)",
           borderTop: "1px solid rgba(255,255,255,0.04)",
           fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
           pointerEvents: "auto",
-          paddingBottom: "max(0px, env(safe-area-inset-bottom))",
+          paddingBottom: "max(8px, env(safe-area-inset-bottom))",
           marginTop: "16px",
         },
       },
-        React.createElement("span", { style: { color: "#374151" } }, "\u00a9 2026 Timed Trading"),
-        React.createElement("a", {
-          href: "/terms.html", target: "_blank", rel: "noopener noreferrer", style: linkStyle,
-          onMouseEnter: (e) => { e.currentTarget.style.color = "#9ca3af"; },
-          onMouseLeave: (e) => { e.currentTarget.style.color = "#4b5563"; },
-        }, "Terms"),
-        React.createElement("span", { style: sepStyle, className: "tt-foot-hide-mobile" }, "\u00b7"),
-        React.createElement("a", {
-          className: "tt-foot-hide-mobile",
-          href: "/faq.html", target: "_blank", rel: "noopener noreferrer", style: linkStyle,
-          onMouseEnter: (e) => { e.currentTarget.style.color = "#9ca3af"; },
-          onMouseLeave: (e) => { e.currentTarget.style.color = "#4b5563"; },
-        }, "FAQ"),
-        React.createElement("span", { style: sepStyle, className: "tt-foot-hide-mobile" }, "\u00b7"),
-        React.createElement("a", {
-          className: "tt-foot-hide-mobile",
-          href: "mailto:support@timed-trading.com", style: linkStyle,
-          onMouseEnter: (e) => { e.currentTarget.style.color = "#9ca3af"; },
-          onMouseLeave: (e) => { e.currentTarget.style.color = "#4b5563"; },
-        }, "Contact"),
-        React.createElement("span", { style: sepStyle }, "\u00b7"),
-        React.createElement("span", { style: { color: "#374151" } }, "Not financial advice"),
-        React.createElement("span", { style: sepStyle }, "\u00b7"),
-        // Twelve Data attribution (licensing requirement) — visible on
-        // every viewport so we don't accidentally drop it on mobile.
-        React.createElement("a", {
-          href: "https://twelvedata.com", target: "_blank", rel: "noopener noreferrer",
-          style: linkStyle, title: "Market data powered by Twelve Data",
-          onMouseEnter: (e) => { e.currentTarget.style.color = "#9ca3af"; },
-          onMouseLeave: (e) => { e.currentTarget.style.color = "#4b5563"; },
-        }, "Twelve Data"),
+        React.createElement("div", { className: "tt-foot-disclaimer" },
+          "For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss."
+        ),
+        React.createElement("div", { className: "tt-foot-links" },
+          React.createElement("span", { style: { color: "#4b5563" } }, "\u00a9 2026 Timed Trading"),
+          React.createElement("span", { style: sepStyle }, "\u00b7"),
+          React.createElement("a", {
+            href: "/terms.html", target: "_blank", rel: "noopener noreferrer", style: linkStyle,
+            onMouseEnter: onLinkHover, onMouseLeave: onLinkLeave,
+          }, "Full Terms"),
+          React.createElement("span", { style: sepStyle }, "\u00b7"),
+          React.createElement("a", {
+            href: "/faq.html", target: "_blank", rel: "noopener noreferrer", style: linkStyle,
+            onMouseEnter: onLinkHover, onMouseLeave: onLinkLeave,
+          }, "FAQ"),
+          React.createElement("span", { style: sepStyle }, "\u00b7"),
+          React.createElement("a", {
+            href: "mailto:support@timed-trading.com", style: linkStyle,
+            onMouseEnter: onLinkHover, onMouseLeave: onLinkLeave,
+          }, "Contact"),
+          React.createElement("span", { style: sepStyle }, "\u00b7"),
+          React.createElement("span", null,
+            "Market data powered by ",
+            React.createElement("a", {
+              href: "https://twelvedata.com", target: "_blank", rel: "noopener noreferrer",
+              style: linkStyle, title: "Market data powered by Twelve Data",
+              onMouseEnter: onLinkHover, onMouseLeave: onLinkLeave,
+            }, "Twelve Data"),
+          ),
+        ),
       ),
     );
   }
