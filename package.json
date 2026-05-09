@@ -6,6 +6,7 @@
     "build:frontend": "node scripts/build-frontend.js",
     "deploy": "npm run build:frontend && node scripts/embed-dashboard.js && cd worker && wrangler deploy --env='' && wrangler deploy --env production",
     "deploy:worker": "npm run build:frontend && node scripts/embed-dashboard.js && cd worker && wrangler deploy --env='' && wrangler deploy --env production",
+    "deploy:preprod": "node scripts/embed-dashboard.js && cd worker && wrangler deploy --env=preprod",
     "deploy:frontend": "bash scripts/deploy-frontend.sh",
     "deploy:all": "npm run deploy:frontend && npm run deploy:worker"
   },

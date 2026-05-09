@@ -809,6 +809,7 @@ const ROUTES = [
   // capture / write-path issues. ?k=<key>&key=<api-key> → { value }
   ["GET", "/timed/admin/kv/get", "GET /timed/admin/kv/get"],
   ["GET", "/timed/admin/kv/list", "GET /timed/admin/kv/list"],
+  ["POST", "/timed/admin/kv/put", "POST /timed/admin/kv/put"],
   ["POST", "/timed/admin/backtests/start", "POST /timed/admin/backtests/start"],
   ["POST", "/timed/admin/backtests/cancel", "POST /timed/admin/backtests/cancel"],
   ["GET", "/timed/admin/backtests/status", "GET /timed/admin/backtests/status"],
@@ -52055,6 +52056,74 @@ export default {
           let parsed = v;
           try { parsed = v != null ? JSON.parse(v) : null; } catch { /* keep raw */ }
           return sendJSON({ ok: true, key: k, value: parsed, raw: v }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // V15 P0.7.118 (2026-05-09) — Phase 3.7 pre-prod env support.
+      // POST /timed/admin/kv/put?k=<key>&key=<api-key>
+      // Body: the value (or { ok:true, value: ... } shape from kv/get for pass-through).
+      // Used by scripts/clone-live-to-preprod.sh to mirror day-state and config
+      // KV blobs from live to preprod. Idempotent (writes overwrite).
+      //
+      // Refused on production env if EXECUTION_MODE !== 'simulation' AND the key
+      // namespace is in the protected set (timed:trades:, account_ledger:, etc.)
+      // — the pre-prod env explicitly sets ENVIRONMENT_LABEL=preprod which
+      // bypasses the production-protection check.
+      if (routeKey === "POST /timed/admin/kv/put") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const KV = env?.KV_TIMED;
+        if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+        try {
+          const k = String(url.searchParams.get("k") || "").trim();
+          if (!k) return sendJSON({ ok: false, error: "k_required" }, 400, corsHeaders(env, req));
+          const isPreprod = String(env?.ENVIRONMENT_LABEL || "").toLowerCase() === "preprod";
+          // On production, refuse writes to anything that touches live trade
+          // state — only the pre-prod env can do those. (Live writes go
+          // through dedicated endpoints with audit_log.)
+          const PROTECTED_PREFIXES = [
+            "timed:trades:",
+            "timed:portfolio:",
+            "timed:activity:",
+            "account_ledger:",
+            "timed:replay:lock", // exception via dedicated endpoint
+          ];
+          if (!isPreprod) {
+            for (const pre of PROTECTED_PREFIXES) {
+              if (k.startsWith(pre)) {
+                return sendJSON({
+                  ok: false,
+                  error: "kv_put_blocked_protected_namespace",
+                  detail: `Key '${k}' starts with protected prefix '${pre}'. Use the dedicated admin endpoint for this state, or call from the preprod env.`,
+                }, 409, corsHeaders(env, req));
+              }
+            }
+          }
+          // Body is either a raw string OR a JSON object. If JSON, look for
+          // a 'value' field (matches kv/get response shape) or 'raw' field.
+          // Otherwise persist the raw text.
+          let body = await req.text();
+          let toWrite = body;
+          try {
+            const parsed = JSON.parse(body);
+            if (parsed && typeof parsed === "object") {
+              if ("raw" in parsed && typeof parsed.raw === "string") toWrite = parsed.raw;
+              else if ("value" in parsed) toWrite = JSON.stringify(parsed.value);
+              else toWrite = JSON.stringify(parsed);
+            }
+          } catch { /* keep raw */ }
+          // Audit every preprod KV write for traceability.
+          await auditDataChange(env, {
+            op: "KV_PUT",
+            scope: `key=${k}`,
+            caller: req?.url || "unknown",
+            rowsAffected: 1,
+            meta: { env_label: env?.ENVIRONMENT_LABEL || "production", size: toWrite?.length || 0 },
+          });
+          await KV.put(k, toWrite);
+          return sendJSON({ ok: true, key: k, size: toWrite.length }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }
