@@ -56,8 +56,30 @@ release_script_lock() {
 acquire_script_lock
 trap release_script_lock EXIT INT TERM
 
-API_BASE="https://timed-trading-ingest.shashant.workers.dev"
-API_KEY="AwesomeSauce"
+# V15 P0.7.119 (2026-05-09) — CRITICAL: respect API_BASE env var override.
+# Previously this was hardcoded to live which CAUSED A CATASTROPHIC LIVE WIPE
+# when an operator passed API_BASE=...preprod... env var to target preprod.
+# The hardcoded value silently overrode the env, the destructive Step 1 reset
+# hit live, and the integrity guard auto-muted the cron after wiping live
+# trades + account_ledger. Recoverable only because promoted_trades was
+# preserved + seed-from-promoted endpoint exists.
+#
+# Now: env API_BASE wins; defaults to live ONLY if not set. Same pattern for
+# API_KEY (read from env first, fall back to the hardcoded sentinel).
+API_BASE="${API_BASE:-https://timed-trading-ingest.shashant.workers.dev}"
+API_KEY="${API_KEY:-${TIMED_API_KEY:-${TIMED_TRADING_API_KEY:-}}}"
+if [[ -z "$API_KEY" ]]; then
+  echo "ERROR: API_KEY env var required (or TIMED_API_KEY / TIMED_TRADING_API_KEY)." >&2
+  echo "       Previously this script defaulted to a hardcoded value, which is now removed" >&2
+  echo "       to prevent secret-leak via repo." >&2
+  exit 2
+fi
+if [[ "$API_BASE" == "https://timed-trading-ingest.shashant.workers.dev" ]]; then
+  echo "⚠️  Targeting LIVE worker (https://timed-trading-ingest.shashant.workers.dev)."
+  echo "    To target pre-prod, set API_BASE before invoking:"
+  echo "    API_BASE=https://timed-trading-ingest-preprod.shashant.workers.dev bash \$0 ..."
+  echo ""
+fi
 DEFAULT_RECOVERED_CONFIG="configs/iter5-runtime-recovered-20260325.json"
 CHECKPOINT_FILE="data/replay-checkpoint.txt"
 HOLIDAYS="2025-07-04 2025-09-01 2025-11-27 2025-12-25 2026-01-01 2026-01-19 2026-02-16 2026-05-25 2026-07-03 2026-09-07 2026-11-26 2026-12-25"
