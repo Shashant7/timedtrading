@@ -54097,6 +54097,32 @@ export default {
                 meta_json: null,
               });
             }
+            // V15 P0.7.121 (2026-05-09) — Build a synthetic TRIM for
+            // open-trimmed trades (status=TP_HIT_TRIM) that have trim_ts +
+            // trim_price + trimmed_pct populated on the trade row but no
+            // matching trade_events.TRIM row. Without this, the second
+            // backtest wipe (5/9 19:32) lost the SNDK trim's +$185.61
+            // realized PnL when sync-trade-to-ledger only synthesized
+            // ENTRY (no closed-trade exit, no trim event).
+            const haveTrimEvent = events.some(e => String(e.type).toUpperCase() === "TRIM");
+            const trimTs = Number(trade.trim_ts) || 0;
+            const trimPrice = Number(trade.trim_price) || 0;
+            const trimmedPct = Number(trade.trimmed_pct) || 0;
+            if (!haveTrimEvent && trimTs > 0 && trimPrice > 0 && trimmedPct > 0 && shares > 0 && entryPrice > 0) {
+              const trimShares = shares * trimmedPct;
+              const direction = String(trade.direction || "LONG").toUpperCase();
+              const sign = direction === "SHORT" ? -1 : 1;
+              const trimRealized = sign * (trimPrice - entryPrice) * trimShares;
+              events.push({
+                ts: trimTs,
+                type: "TRIM",
+                price: trimPrice,
+                qty_pct_delta: trimmedPct, qty_pct_total: trimmedPct,
+                pnl_realized: trimRealized,
+                reason: "trim_synthetic",
+                meta_json: null,
+              });
+            }
             // Build a synthetic EXIT for closed trades that don't have an EXIT event.
             const haveExitEvent = events.some(e => String(e.type).toUpperCase() === "EXIT");
             const tradeStatus = String(trade.status || "").toUpperCase();
