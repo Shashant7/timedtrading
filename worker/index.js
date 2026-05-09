@@ -51901,22 +51901,57 @@ export default {
         return sendJSON({ ok: true, released: true }, 200, corsHeaders(env, req));
       }
 
-      // POST /timed/admin/cron-mute?key=...&reason=phase-c-multileg
+      // POST /timed/admin/cron-mute?key=...&reason=phase-c-multileg[&ttl_hours=N]
       // Hard mute the live cron's trade execution + reconciliation. Distinct
       // from replay-lock: this stays in effect across replay-lock acquire/
       // release cycles, designed for the multi-leg backtest orchestrator
       // that releases the per-leg lock between legs but wants the cron to
       // stay quiet for the entire multi-leg run.
+      //
+      // V15 P0.7.119 (2026-05-09) — TTL added. Default 6 hours unless
+      // ttl_hours is passed (and capped at 168h = 1 week). Persistent
+      // (no-TTL) mute is still available via ttl_hours=0. Background:
+      // the integrity-wipe guard set a mute on 2026-05-08 17:33 UTC that
+      // stayed stuck for ~24 hours because no operator was watching the
+      // audit log. With a default 6h TTL, the mute would have auto-cleared
+      // at ~23:33 UTC and the user wouldn't have woken up to a stale
+      // dashboard the next morning.
+      //
+      // Mute payload format: "{reason}@{startISO}|expires={expISO|never}"
+      // GET response surfaces both fields plus a boolean is_expired so
+      // the UI can show 'auto-clearing in N min' instead of just 'muted'.
       if (routeKey === "POST /timed/admin/cron-mute") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
         const KV = env?.KV_TIMED;
         if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
         const reason = url.searchParams.get("reason") || "manual";
-        const muteVal = `${reason}@${new Date().toISOString()}`;
-        // No TTL — explicit DELETE required to clear. Operator responsibility.
-        await KV.put("phase-c:cron-mute", muteVal);
-        return sendJSON({ ok: true, mute: muteVal }, 200, corsHeaders(env, req));
+        // Default TTL = 6 hours. ttl_hours=0 means persistent (no auto-clear).
+        const ttlRaw = url.searchParams.get("ttl_hours");
+        const ttlHours = ttlRaw != null && ttlRaw !== ""
+          ? Math.max(0, Math.min(168, Number(ttlRaw)))
+          : 6;
+        const startTs = Date.now();
+        const expiresTs = ttlHours > 0 ? startTs + ttlHours * 3600 * 1000 : 0;
+        const expiresISO = expiresTs > 0 ? new Date(expiresTs).toISOString() : "never";
+        const muteVal = `${reason}@${new Date(startTs).toISOString()}|expires=${expiresISO}`;
+        // KV TTL is the hard backstop: even if our parsing fails, KV will
+        // delete the key after ttlHours. expirationTtl must be >= 60s.
+        const kvOpts = ttlHours > 0 ? { expirationTtl: Math.max(60, ttlHours * 3600) } : undefined;
+        if (kvOpts) {
+          await KV.put("phase-c:cron-mute", muteVal, kvOpts);
+        } else {
+          await KV.put("phase-c:cron-mute", muteVal);
+        }
+        return sendJSON({
+          ok: true,
+          mute: muteVal,
+          reason,
+          started_at: new Date(startTs).toISOString(),
+          expires_at: expiresISO,
+          ttl_hours: ttlHours,
+          persistent: ttlHours === 0,
+        }, 200, corsHeaders(env, req));
       }
       if (routeKey === "GET /timed/admin/cron-mute") {
         const authFail = await requireKeyOrAdmin(req, env);
@@ -51924,7 +51959,26 @@ export default {
         const KV = env?.KV_TIMED;
         if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
         const m = await KV.get("phase-c:cron-mute");
-        return sendJSON({ ok: true, muted: !!m, mute: m || null }, 200, corsHeaders(env, req));
+        // Parse the new TTL-aware payload format. Falls back gracefully
+        // for legacy values that pre-date P0.7.119.
+        let parsed = null;
+        if (m) {
+          const expMatch = m.match(/\|expires=(.+)$/);
+          const expiresISO = expMatch ? expMatch[1] : null;
+          const expiresTs = expiresISO && expiresISO !== "never" ? new Date(expiresISO).getTime() : null;
+          const isExpired = expiresTs != null && Number.isFinite(expiresTs) && expiresTs <= Date.now();
+          const minutesLeft = expiresTs != null && Number.isFinite(expiresTs)
+            ? Math.max(0, Math.round((expiresTs - Date.now()) / 60000))
+            : null;
+          parsed = {
+            raw: m,
+            expires_at: expiresISO,
+            is_expired: isExpired,
+            minutes_left: minutesLeft,
+            persistent: expiresISO === "never",
+          };
+        }
+        return sendJSON({ ok: true, muted: !!m, mute: m || null, parsed }, 200, corsHeaders(env, req));
       }
       if (routeKey === "DELETE /timed/admin/cron-mute") {
         const authFail = await requireKeyOrAdmin(req, env);
@@ -68336,8 +68390,15 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               rowsAffected: (prev.trades - trades) + (prev.ledger - ledger),
               meta: { prev, current: { trades, ledger }, ts: Date.now() },
             });
-            // Auto-mute so the cron won't keep processing zombie state
-            await KV.put("phase-c:cron-mute", `auto_integrity_wipe@${new Date().toISOString()}`);
+            // V15 P0.7.119 — Auto-mute with TTL (default 6h, format
+            // matches POST /timed/admin/cron-mute) so we don't get stuck
+            // for ~24h waiting for an operator to manually unmute. KV
+            // expirationTtl is the hard backstop.
+            const _autoMuteHours = 6;
+            const _autoMuteStartTs = Date.now();
+            const _autoMuteExpTs = _autoMuteStartTs + _autoMuteHours * 3600 * 1000;
+            const _autoMuteVal = `auto_integrity_wipe@${new Date(_autoMuteStartTs).toISOString()}|expires=${new Date(_autoMuteExpTs).toISOString()}`;
+            await KV.put("phase-c:cron-mute", _autoMuteVal, { expirationTtl: _autoMuteHours * 3600 });
             // P0.7.106 — persist post-wipe counts BEFORE returning so we
             // don't re-fire the same alert every minute. The new baseline
             // is the wiped state; next wipe (if any) will compare against

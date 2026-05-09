@@ -823,13 +823,27 @@
           max-height: none !important;
           flex-direction: column !important;
         }
+        /* V15 P0.7.119 (2026-05-09) — Filters stay visible on mobile.
+           Previously `.tt-bubble-mobile-collapsed .tt-bubble-chart-wrap`
+           was display:none — which hid the entire wrap including the
+           filter pills above the chart. User reported "I don't see the
+           bubble map filters on mobile". The pills also affect the
+           Viewport list, so they need to be visible regardless of whether
+           the bubble map is expanded.
+           Now: keep the wrap mounted, hide only the canvas (.flex-1
+           below the filter pills). The legend + filter pills stay. */
         .tt-bubble-mobile-collapsed .tt-bubble-chart-wrap {
+          display: flex !important;
+          flex-direction: column !important;
+          min-height: 0;
+          height: auto;
+        }
+        .tt-bubble-mobile-collapsed .tt-bubble-chart-wrap > .flex-1 {
           display: none !important;
         }
-        /* When the bubble map IS shown on mobile, force it visible
-           and give it real chart height (the parent's 700px min-height
-           was leaving an empty void inside the .tt-bubble-chart-wrap
-           since the lg:flex-1 only kicks in >=1024px). */
+        /* When the bubble map IS shown on mobile, give the chart canvas
+           real height (the parent's 700px min-height was leaving an
+           empty void since lg:flex-1 only kicks in >=1024px). */
         .tt-analysis-grid:not(.tt-bubble-mobile-collapsed) .tt-bubble-chart-wrap {
           display: flex !important;
           min-height: 60vh;
@@ -18140,6 +18154,83 @@
         };
       }
 
+      /* V15 P0.7.119 (2026-05-09) — StableTickerLogo: pure-React logo
+         component to fix the SPY/QQQ/IWM (and every other tile)
+         flicker. The previous implementation called window.DS.tickerLogo
+         which created a vanilla DOM element with monogram text and async-
+         loaded an <img>; on every parent re-render React re-mounted the
+         placeholder div + the ref-callback fired again, briefly flashing
+         the monogram before the new image finished loading.
+
+         New approach: render an <img> directly via React, with onError
+         falling back to the monogram. Also cache loaded URLs in a
+         module-scoped Set so subsequent mounts of the same ticker
+         start in the loaded state immediately. Wrapped in React.memo
+         keyed on (sym, size) so re-renders of the parent don't tear
+         down the logo. */
+      const __ttLogoLoaded = (typeof window !== "undefined" && (window.__ttLogoLoaded || (window.__ttLogoLoaded = new Set()))) || new Set();
+      const __ttLogoFailed = (typeof window !== "undefined" && (window.__ttLogoFailed || (window.__ttLogoFailed = new Set()))) || new Set();
+      const StableTickerLogo = React.memo(function StableTickerLogo({ sym, size = 24 }) {
+        const upper = String(sym || "").toUpperCase();
+        const url = upper ? `https://eodhd.com/img/logos/US/${upper}.png` : null;
+        const monogram = upper.slice(0, 2);
+        // Deterministic warm-palette color from the symbol hash so the
+        // monogram fallback (and the plate behind transparent PNGs)
+        // isn't a generic gray.
+        const color = (() => {
+          let hash = 0;
+          for (let i = 0; i < upper.length; i++) hash = ((hash << 5) - hash) + upper.charCodeAt(i);
+          return `hsl(${Math.abs(hash) % 360}, 35%, 28%)`;
+        })();
+        const [loaded, setLoaded] = React.useState(__ttLogoLoaded.has(upper));
+        const [failed, setFailed] = React.useState(__ttLogoFailed.has(upper));
+        const showImg = !!url && !failed;
+        return React.createElement(
+          "div",
+          {
+            className: "ds-tickercard__logo",
+            style: {
+              width: `${size}px`,
+              height: `${size}px`,
+              background: loaded ? "#ffffff" : color,
+              color: "transparent", // hide the monogram text behind the img
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: "50%",
+              overflow: "hidden",
+              flexShrink: 0,
+              position: "relative",
+              fontSize: `${Math.round(size * 0.42)}px`,
+              fontWeight: 700,
+              lineHeight: 1,
+            },
+            "aria-label": upper,
+          },
+          // Always render the monogram text (acts as fallback when img fails).
+          React.createElement("span", { style: { color: failed ? "#fff" : "transparent", letterSpacing: "0.01em" } }, monogram),
+          showImg && React.createElement("img", {
+            src: url,
+            alt: upper,
+            loading: "lazy",
+            decoding: "async",
+            style: {
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              borderRadius: "50%",
+              opacity: loaded ? 1 : 0,
+              transition: "opacity 120ms ease-out",
+            },
+            onLoad: () => { __ttLogoLoaded.add(upper); setLoaded(true); },
+            onError: () => { __ttLogoFailed.add(upper); setFailed(true); },
+          }),
+        );
+      }, (a, b) => a.sym === b.sym && a.size === b.size);
+      if (typeof window !== "undefined") window.StableTickerLogo = StableTickerLogo;
+
       function App() {
         const isAdmin = window._ttIsAdmin;
 
@@ -19759,7 +19850,21 @@
                      * for the wider context (sectors / commodities / crypto).
                      * Each tile = ds-tickercard. Cohesive with Top Movers.
                      * ════════════════════════════════════════════════════════ */
-                    const PriorityTile = ({ sym }) => {
+                    /* V15 P0.7.119 (2026-05-09) — React-controlled logo
+                       to fix the flicker. Previous version called
+                       window.DS.tickerLogo() which creates a vanilla DOM
+                       element + replaceWith(); on every parent re-render
+                       (every price tick, every sparkline update) React
+                       re-mounted the placeholder div + the ref callback
+                       fired again, briefly flashing the monogram before
+                       the new <img> finished loading.
+
+                       New StableTickerLogo: pure React. Renders an <img>
+                       with onError → monogram fallback. Preloads + caches
+                       the loaded state in a module-scoped Set so the
+                       placeholder never appears on second mount of the
+                       same ticker. */
+                    const PriorityTile = React.useCallback(({ sym }) => {
                       const td = allData[sym];
                       const price = Number(td?.price ?? td?.close ?? 0);
                       if (price <= 0) return null;
@@ -19767,12 +19872,9 @@
                       if (td) { const dc = getDailyChange(td); if (dc && Number.isFinite(dc.dayPct)) pct = dc.dayPct; }
                       if (pct === null) pct = 0;
                       const dir = pct > 0.05 ? "up" : pct < -0.05 ? "dn" : "flat";
-                      /* V2.1 (2026-05-01) — sparklines use real 1H closes via ensureSparkline cache.
-                         Per user: "For Sparklines, we use the 1 hour TF". */
                       const cachedSpark = ensureSparkline(sym);
                       const sparkPoints = (() => {
                         if (cachedSpark && cachedSpark.length >= 2) return cachedSpark;
-                        // While fetching, show flat horizontal line at current price (no fake jagged synth)
                         return [price, price];
                       })();
                       const sparkSvg = window.DS ? window.DS.sparklineSvg(sparkPoints, { width: 220, height: 52, direction: dir, strokeWidth: 1.5 }) : "";
@@ -19781,15 +19883,7 @@
                           className="ds-tickercard ds-tickercard--default flex-1 min-w-0"
                           style={{ textAlign: "left" }}>
                           <div className="ds-tickercard__head">
-                            {window.DS ? (
-                              <div className="ds-tickercard__logo" ref={(el) => {
-                                if (el && !el.dataset.dsInit) {
-                                  el.dataset.dsInit = "1";
-                                  const logoEl = window.DS.tickerLogo(sym, { size: 24 });
-                                  el.replaceWith(logoEl);
-                                }
-                              }}>{String(sym).slice(0,2)}</div>
-                            ) : null}
+                            <StableTickerLogo sym={sym} size={24} />
                             <span className="ds-tickercard__symbol">{sym}</span>
                           </div>
                           <div className="ds-tickercard__price">${price.toFixed(2)}</div>
@@ -19801,7 +19895,7 @@
                           )}
                         </button>
                       );
-                    };
+                    }, [allData, handleTickerSelect]);
                     const ContextChip = ({ sym }) => {
                       const td = allData[sym];
                       const price = Number(td?.price ?? td?.close ?? 0);
@@ -20641,18 +20735,57 @@
                           inline styles override Tailwind's lg:hidden, which
                           caused the toggle to leak into desktop and push the
                           Viewport over. Use class-only display switching. */}
+                      {/* V15 P0.7.119 (2026-05-09) — Mobile bubble-map
+                          toggle row. Two changes from the previous version:
+                          1. The "Show Bubble Map" chevron icon LOOKED
+                             like a dropdown but was actually a toggle —
+                             user reported clicking it did nothing visible
+                             because the bubble map appears 100s of pixels
+                             below the viewport list. We now smooth-scroll
+                             to the bubble-chart-wrap after expanding so
+                             the action is visibly confirmed.
+                          2. Renamed "Show Bubble Map" → "View Bubble Map"
+                             and replaced the chevron with a map-icon so
+                             it doesn't look like a non-functional dropdown. */}
                       <div className="lg:hidden tt-bubble-mobile-toggles" style={{ gap: 8, marginBottom: 8 }}>
                         <button
                           type="button"
-                          onClick={() => setBubbleMobileExpanded(v => !v)}
+                          onClick={() => {
+                            const next = !bubbleMobileExpanded;
+                            setBubbleMobileExpanded(next);
+                            if (next) {
+                              // Smooth-scroll to the chart so the user
+                              // sees the action confirm. setTimeout lets
+                              // React commit the class change first so
+                              // the wrap is no longer display:none when
+                              // we measure its position.
+                              setTimeout(() => {
+                                try {
+                                  const el = document.querySelector(".tt-bubble-chart-wrap");
+                                  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+                                } catch (_) {}
+                              }, 80);
+                            }
+                          }}
                           className="tt-bubble-toggle-btn"
                           aria-expanded={bubbleMobileExpanded}
                           style={{ flex: 1, marginBottom: 0 }}
                         >
-                          <span>{bubbleMobileExpanded ? "Hide Bubble Map" : "Show Bubble Map"}</span>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: bubbleMobileExpanded ? "rotate(180deg)" : "none", transition: "transform 200ms" }}>
-                            <polyline points="6 9 12 15 18 9" />
-                          </svg>
+                          {bubbleMobileExpanded ? (
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <line x1="18" y1="6" x2="6" y2="18"/>
+                              <line x1="6" y1="6" x2="18" y2="18"/>
+                            </svg>
+                          ) : (
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <circle cx="12" cy="12" r="3"/>
+                              <circle cx="5" cy="6" r="2"/>
+                              <circle cx="19" cy="17" r="2"/>
+                              <circle cx="17" cy="7" r="1.5"/>
+                              <circle cx="7" cy="17" r="1.5"/>
+                            </svg>
+                          )}
+                          <span>{bubbleMobileExpanded ? "Hide Bubble Map" : "View Bubble Map"}</span>
                         </button>
                         <button
                           type="button"

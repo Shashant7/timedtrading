@@ -14301,6 +14301,73 @@ function createDefaultDashboardFilters() {
     td9Setup: null
   };
 }
+const __ttLogoLoaded = typeof window !== "undefined" && (window.__ttLogoLoaded || (window.__ttLogoLoaded = new Set())) || new Set();
+const __ttLogoFailed = typeof window !== "undefined" && (window.__ttLogoFailed || (window.__ttLogoFailed = new Set())) || new Set();
+const StableTickerLogo = React.memo(function StableTickerLogo({
+  sym,
+  size = 24
+}) {
+  const upper = String(sym || "").toUpperCase();
+  const url = upper ? `https://eodhd.com/img/logos/US/${upper}.png` : null;
+  const monogram = upper.slice(0, 2);
+  const color = (() => {
+    let hash = 0;
+    for (let i = 0; i < upper.length; i++) hash = (hash << 5) - hash + upper.charCodeAt(i);
+    return `hsl(${Math.abs(hash) % 360}, 35%, 28%)`;
+  })();
+  const [loaded, setLoaded] = React.useState(__ttLogoLoaded.has(upper));
+  const [failed, setFailed] = React.useState(__ttLogoFailed.has(upper));
+  const showImg = !!url && !failed;
+  return React.createElement("div", {
+    className: "ds-tickercard__logo",
+    style: {
+      width: `${size}px`,
+      height: `${size}px`,
+      background: loaded ? "#ffffff" : color,
+      color: "transparent",
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: "50%",
+      overflow: "hidden",
+      flexShrink: 0,
+      position: "relative",
+      fontSize: `${Math.round(size * 0.42)}px`,
+      fontWeight: 700,
+      lineHeight: 1
+    },
+    "aria-label": upper
+  }, React.createElement("span", {
+    style: {
+      color: failed ? "#fff" : "transparent",
+      letterSpacing: "0.01em"
+    }
+  }, monogram), showImg && React.createElement("img", {
+    src: url,
+    alt: upper,
+    loading: "lazy",
+    decoding: "async",
+    style: {
+      position: "absolute",
+      inset: 0,
+      width: "100%",
+      height: "100%",
+      objectFit: "cover",
+      borderRadius: "50%",
+      opacity: loaded ? 1 : 0,
+      transition: "opacity 120ms ease-out"
+    },
+    onLoad: () => {
+      __ttLogoLoaded.add(upper);
+      setLoaded(true);
+    },
+    onError: () => {
+      __ttLogoFailed.add(upper);
+      setFailed(true);
+    }
+  }));
+}, (a, b) => a.sym === b.sym && a.size === b.size);
+if (typeof window !== "undefined") window.StableTickerLogo = StableTickerLogo;
 function App() {
   const isAdmin = window._ttIsAdmin;
   const [goProOpen, setGoProOpen] = useState(false);
@@ -16037,7 +16104,7 @@ function App() {
       if (absPct <= 12) return 0.70;
       return 0.85;
     };
-    const PriorityTile = ({
+    const PriorityTile = React.useCallback(({
       sym
     }) => {
       const td = allData[sym];
@@ -16069,18 +16136,10 @@ function App() {
         }
       }, React.createElement("div", {
         className: "ds-tickercard__head"
-      }, window.DS ? React.createElement("div", {
-        className: "ds-tickercard__logo",
-        ref: el => {
-          if (el && !el.dataset.dsInit) {
-            el.dataset.dsInit = "1";
-            const logoEl = window.DS.tickerLogo(sym, {
-              size: 24
-            });
-            el.replaceWith(logoEl);
-          }
-        }
-      }, String(sym).slice(0, 2)) : null, React.createElement("span", {
+      }, React.createElement(StableTickerLogo, {
+        sym: sym,
+        size: 24
+      }), React.createElement("span", {
         className: "ds-tickercard__symbol"
       }, sym)), React.createElement("div", {
         className: "ds-tickercard__price"
@@ -16092,7 +16151,7 @@ function App() {
           __html: sparkSvg
         }
       }));
-    };
+    }, [allData, handleTickerSelect]);
     const ContextChip = ({
       sym
     }) => {
@@ -17046,14 +17105,28 @@ function App() {
     }
   }, React.createElement("button", {
     type: "button",
-    onClick: () => setBubbleMobileExpanded(v => !v),
+    onClick: () => {
+      const next = !bubbleMobileExpanded;
+      setBubbleMobileExpanded(next);
+      if (next) {
+        setTimeout(() => {
+          try {
+            const el = document.querySelector(".tt-bubble-chart-wrap");
+            if (el) el.scrollIntoView({
+              behavior: "smooth",
+              block: "start"
+            });
+          } catch (_) {}
+        }, 80);
+      }
+    },
     className: "tt-bubble-toggle-btn",
     "aria-expanded": bubbleMobileExpanded,
     style: {
       flex: 1,
       marginBottom: 0
     }
-  }, React.createElement("span", null, bubbleMobileExpanded ? "Hide Bubble Map" : "Show Bubble Map"), React.createElement("svg", {
+  }, bubbleMobileExpanded ? React.createElement("svg", {
     width: "14",
     height: "14",
     viewBox: "0 0 24 24",
@@ -17061,14 +17134,47 @@ function App() {
     stroke: "currentColor",
     strokeWidth: "2.5",
     strokeLinecap: "round",
-    strokeLinejoin: "round",
-    style: {
-      transform: bubbleMobileExpanded ? "rotate(180deg)" : "none",
-      transition: "transform 200ms"
-    }
-  }, React.createElement("polyline", {
-    points: "6 9 12 15 18 9"
-  }))), React.createElement("button", {
+    strokeLinejoin: "round"
+  }, React.createElement("line", {
+    x1: "18",
+    y1: "6",
+    x2: "6",
+    y2: "18"
+  }), React.createElement("line", {
+    x1: "6",
+    y1: "6",
+    x2: "18",
+    y2: "18"
+  })) : React.createElement("svg", {
+    width: "14",
+    height: "14",
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "2.5",
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  }, React.createElement("circle", {
+    cx: "12",
+    cy: "12",
+    r: "3"
+  }), React.createElement("circle", {
+    cx: "5",
+    cy: "6",
+    r: "2"
+  }), React.createElement("circle", {
+    cx: "19",
+    cy: "17",
+    r: "2"
+  }), React.createElement("circle", {
+    cx: "17",
+    cy: "7",
+    r: "1.5"
+  }), React.createElement("circle", {
+    cx: "7",
+    cy: "17",
+    r: "1.5"
+  })), React.createElement("span", null, bubbleMobileExpanded ? "Hide Bubble Map" : "View Bubble Map")), React.createElement("button", {
     type: "button",
     onClick: () => setBubbleFullscreen(true),
     className: "tt-bubble-toggle-btn",

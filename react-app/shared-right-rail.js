@@ -1950,9 +1950,26 @@
           return () => { cancelled = true; };
         }, [railTab, tickerSymbol]);
 
+        /* V15 P0.7.119 (2026-05-09) — predictionContract refetch was
+           keyed on `railTab`, so EVERY tab switch (Snapshot → Setup →
+           Technicals etc.) triggered a fetch that started with
+           `setPredictionContract(null)` BEFORE the new fetch resolved.
+           That null briefly emptied subtleKeyLevelLines (the chart's
+           price-line memo) and the PRICE-LINES effect promptly removed
+           every level line from the canvas — then re-added them once
+           the new contract resolved a few hundred ms later. The user
+           saw this as the chart "flickering on tab switch."
+
+           Fix: derive mode (investor|trader) from railTab and key the
+           effect on (mode, tickerSymbol) instead of (railTab, tickerSymbol).
+           Only the INVESTOR tab actually wants the investor contract;
+           every other tab returns the same trader contract, so we don't
+           need to refetch when going Snapshot → Setup → Technicals.
+           Also: don't pre-clear the contract on a refetch — let the
+           old data stay visible while the new one loads, then swap. */
+        const _predictionMode = railTab === "INVESTOR" ? "investor" : "trader";
         useEffect(() => {
           const sym = String(tickerSymbol || "").trim().toUpperCase();
-          const mode = railTab === "INVESTOR" ? "investor" : "trader";
           if (!sym) {
             setPredictionContract(null);
             setPredictionContractError(null);
@@ -1963,10 +1980,12 @@
           const fetchContract = async () => {
             try {
               setPredictionContractLoading(true);
+              // Note: do NOT setPredictionContract(null) here — that would
+              // cause the price lines on the chart to disappear briefly.
               setPredictionContractError(null);
               const qs = new URLSearchParams();
               qs.set("ticker", sym);
-              qs.set("mode", mode);
+              qs.set("mode", _predictionMode);
               const res = await fetch(`${API_BASE}/timed/prediction-contract?${qs.toString()}`, { cache: "no-store" });
               if (!res.ok) throw new Error(`HTTP ${res.status}`);
               const json = await res.json();
@@ -1983,7 +2002,7 @@
           };
           fetchContract();
           return () => { cancelled = true; };
-        }, [railTab, tickerSymbol]);
+        }, [_predictionMode, tickerSymbol]);
 
         // Reset zoom/pan on timeframe change
         useEffect(() => {
