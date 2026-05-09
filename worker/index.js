@@ -958,6 +958,7 @@ const ROUTES = [
   ["GET", "/timed/admin/ledger-inspect", "GET /timed/admin/ledger-inspect"],
   ["POST", "/timed/admin/sync-trade-to-ledger", "POST /timed/admin/sync-trade-to-ledger"],
   ["POST", "/timed/admin/patch-trade-fields", "POST /timed/admin/patch-trade-fields"],
+  ["POST", "/timed/admin/rebuild-snapshots-from-ledger", "POST /timed/admin/rebuild-snapshots-from-ledger"],
   ["POST", "/timed/admin/close-stale-open-trades", "POST /timed/admin/close-stale-open-trades"],
   ["GET", "/timed/admin/data-audit-log", "GET /timed/admin/data-audit-log"],
   ["GET", "/timed/admin/activity-feed", "GET /timed/admin/activity-feed"],
@@ -53686,6 +53687,116 @@ export default {
             });
           } catch (_) {}
           return sendJSON({ ok: true, trade_id: tid, applied }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/rebuild-snapshots-from-ledger?mode=trader[&since=YYYY-MM-DD]&key=...
+      // V15 P0.7.116 (2026-05-09): rebuild portfolio_snapshots so the
+      // equity curve actually shows daily progression.
+      //
+      // Background: snapshotBothPortfolios() reads d1GetLedgerBalance()
+      // (which always returns the LATEST balance) when called for a
+      // historical date during a backtest replay. So every replayed
+      // day's snapshot got stamped with TODAY's cash. Equity curve was
+      // flat at $94k for 203/210 days, then jumped to $140k on the
+      // last few rebuild-from-current days.
+      //
+      // Method: walk account_ledger chronologically, accumulate
+      // realized_pnl per day. Set equity = startCash + cumulative
+      // realized PnL. This matches the account-summary widget's
+      // accountValue formula (modulo unrealized) and is consistent
+      // across BOTH the promoted-seed entries (which write
+      // cash_delta=0 for ENTRY, cash_delta=pnl for EXIT) AND the live
+      // entries (which write real cash flow). Without this, live
+      // ENTRY rows would visually drop equity by the entry notional
+      // while leaving the realized PnL unchanged — confusing the user.
+      //
+      // Idempotent. Doesn't touch account_ledger itself.
+      if (routeKey === "POST /timed/admin/rebuild-snapshots-from-ledger") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const mode = String(url.searchParams.get("mode") || "trader").toLowerCase();
+          const sinceDate = String(url.searchParams.get("since") || "2020-01-01");
+          await ensurePortfolioSnapshotsSchema(db, env?.KV_TIMED);
+          const sinceMs = new Date(`${sinceDate}T00:00:00Z`).getTime() || 0;
+          const rows = (await db.prepare(
+            `SELECT ts, event_type, realized_pnl
+               FROM account_ledger
+               WHERE mode = ?1 AND ts >= ?2
+               ORDER BY ts ASC, ledger_id ASC`
+          ).bind(mode, sinceMs).all())?.results || [];
+          if (rows.length === 0) {
+            return sendJSON({ ok: false, error: "no_ledger_rows", mode }, 404, corsHeaders(env, req));
+          }
+          const startCash = mode === "investor" ? INVESTOR_REPLAY_CAPITAL : PORTFOLIO_START_CASH;
+          // Walk events chronologically, bucket per day, accumulate
+          // realized PnL. equity at each day's EOD = startCash + total
+          // realized PnL up through that day.
+          const byDay = new Map(); // date -> { ts, equity, dayPnl, dayTrades }
+          let cumulativeRealized = 0;
+          for (const r of rows) {
+            const ts = Number(r.ts);
+            if (!Number.isFinite(ts) || ts <= 0) continue;
+            const date = new Date(ts).toISOString().slice(0, 10);
+            const evType = String(r.event_type || "").toUpperCase();
+            const realized = Number(r.realized_pnl) || 0;
+            cumulativeRealized += realized;
+            let slot = byDay.get(date);
+            if (!slot) {
+              const dayMs = new Date(`${date}T20:00:00Z`).getTime();
+              slot = { ts: dayMs, equity: startCash + cumulativeRealized, dayPnl: 0, dayTrades: 0 };
+              byDay.set(date, slot);
+            }
+            slot.equity = startCash + cumulativeRealized; // last entry of day wins
+            if (evType === "EXIT" || evType === "TRIM") {
+              slot.dayPnl += realized;
+              slot.dayTrades += 1;
+            }
+          }
+          // Wipe + repopulate trader snapshots so we don't keep poisoned rows.
+          await db.prepare(`DELETE FROM portfolio_snapshots WHERE mode = ?1 AND snap_date >= ?2`)
+            .bind(mode, sinceDate).run();
+          const inserts = [];
+          for (const [date, s] of byDay) {
+            inserts.push(db.prepare(
+              `INSERT OR REPLACE INTO portfolio_snapshots
+                 (id, mode, snap_date, ts, cash, positions_value, total_equity, open_positions, day_realized_pnl, day_trades, created_at)
+               VALUES (?1, ?2, ?3, ?4, ?5, 0, ?5, 0, ?6, ?7, ?4)`
+            ).bind(`snap-${mode}-${date}`, mode, date, s.ts, s.equity, s.dayPnl, s.dayTrades));
+          }
+          for (let i = 0; i < inserts.length; i += 200) {
+            await db.batch(inserts.slice(i, i + 200));
+          }
+          try {
+            await auditDataChange(env, {
+              op: "REBUILD_PORTFOLIO_SNAPSHOTS",
+              scope: `${mode} since ${sinceDate}`,
+              caller: req.headers.get("CF-Connecting-IP") || "admin",
+              rowsAffected: inserts.length,
+              meta: { mode, since: sinceDate, days_rebuilt: byDay.size },
+            });
+          } catch (_) {}
+          // Surface min/max equity in the response so the caller can
+          // immediately see whether the curve now has progression.
+          let minEq = Infinity, maxEq = -Infinity;
+          for (const s of byDay.values()) {
+            if (s.equity < minEq) minEq = s.equity;
+            if (s.equity > maxEq) maxEq = s.equity;
+          }
+          return sendJSON({
+            ok: true,
+            mode,
+            since: sinceDate,
+            days_rebuilt: byDay.size,
+            min_equity: minEq,
+            max_equity: maxEq,
+            spread: Math.round((maxEq - minEq) * 100) / 100,
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }

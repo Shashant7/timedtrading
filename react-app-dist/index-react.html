@@ -1012,14 +1012,13 @@
           line-height: 1;
         }
 
-        /* P0.7.104 — body padding now clears BOTH bars: the mobile
-           bottom nav (~64px) + the legal footer (~28-32px) + safe area.
-           V15 P0.7.115 — auth-gate footer is now the sole footer on
-           this page (P0.7.114 #legal-footer removed to fix stacking).
-           Auth-gate footer is ~28px tall on mobile. */
+        /* V15 P0.7.116 — body padding only needs to clear the FIXED
+           mobile bottom nav (~64px) + safe area. The auth-gate footer
+           is now inline at the end of page content (scrolls with page),
+           so it doesn't need its own reservation. */
         .tt-page-shell,
         body {
-          padding-bottom: calc(64px + 28px + env(safe-area-inset-bottom)) !important;
+          padding-bottom: calc(64px + env(safe-area-inset-bottom)) !important;
         }
       }
 
@@ -1253,33 +1252,13 @@
           .catch(() => {});
       })();
     </script>
-    <!-- V15 P0.7.115 (2026-05-09) — Removed the P0.7.114 #legal-footer.
-         auth-gate.js auto-injects its OWN fixed-bottom footer (© 2026
-         Timed Trading · Terms · FAQ · Contact · Not financial advice)
-         on every page; mine was a SECOND fixed-bottom footer stacking
-         on top of it. Twelve Data attribution moved into the auth-gate
-         footer instead so we have ONE footer everywhere with all
-         required content. -->
+    <!-- V15 P0.7.116 (2026-05-09) — auth-gate footer is now inline at
+         the end of page content (scrolls with the page). The mobile
+         bottom nav stays fixed at bottom-0 since it's primary nav, not
+         disclaimer text. --tt-legal-footer-h is now 0 because the
+         footer doesn't need height-reservation in body padding. -->
     <script>
-      // Adjust body padding when the auth-gate footer mounts (it may
-      // not yet exist at first paint). The bottom mobile nav reads
-      // var(--tt-legal-footer-h) to clear the footer; auth-gate's
-      // footer is ~28px tall on mobile.
-      (function () {
-        var setVar = function () {
-          var f = document.querySelector('[data-tt-auth-footer]');
-          var h = f ? f.offsetHeight : 28;
-          document.documentElement.style.setProperty('--tt-legal-footer-h', h + 'px');
-        };
-        setVar();
-        // Re-measure after auth-gate finishes mounting.
-        var attempts = 0;
-        var timer = setInterval(function () {
-          attempts++;
-          setVar();
-          if (attempts >= 10) clearInterval(timer);
-        }, 200);
-      })();
+      document.documentElement.style.setProperty('--tt-legal-footer-h', '0px');
     </script>
   </body>
 </html>
