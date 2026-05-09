@@ -78,6 +78,12 @@ SNAPSHOT_REPLAY=false
 INTERVAL_MODE=false
 PARITY_CANONICAL=false
 INTERVAL_COUNT=40
+# V15 P0.7.111 (2026-05-09) — opt-in flag to skip the first-batch
+# cleanSlate=1 wipe. Required when running an additive A/B backtest
+# against the live worker without nuking the live trader account.
+# Combined with the P0.7.106 hard guard, the only safe path to run
+# Phase 3's full Trend-Hold backtest on production D1.
+NO_CLEAN_SLATE=false
 RUN_LABEL=""
 RUN_DESCRIPTION=""
 SNAPSHOT_BEFORE_RESET=true
@@ -91,6 +97,7 @@ while [[ $# -gt 0 ]]; do
   shift
   case "$arg" in
     --resume) RESUME=true ;;
+    --no-clean-slate) NO_CLEAN_SLATE=true ;;
     --trader-only) TRADER_ONLY=true ;;
     --investor-only) INVESTOR_ONLY=true ;;
     --sequence) SEQUENCE=true ;;
@@ -421,6 +428,14 @@ if $RESUME; then
   echo ""
   echo "Step 1.5: SKIPPED (backfill already complete)"
   echo ""
+elif $NO_CLEAN_SLATE; then
+  # V15 P0.7.111 (2026-05-09) — additive run mode. Skip the destructive
+  # reset + first-batch cleanSlate. The run writes new trades scoped to
+  # the active replay-lock's run_id without touching live trader state.
+  echo "Step 1: SKIPPED (--no-clean-slate; additive run, live trades preserved)"
+  echo ""
+  echo "Step 1.5: SKIPPED (preserving existing candle data; --no-clean-slate)"
+  echo ""
 else
   # ─── Step 1: Full reset ────────────────────────────────────────────────────
   if $SNAPSHOT_BEFORE_RESET; then
@@ -695,7 +710,11 @@ while [[ "$CURRENT_DATE" < "$END_DATE" ]] || [[ "$CURRENT_DATE" == "$END_DATE" ]
 
   CLEAN_PARAM=""
   if $IS_FIRST_BATCH; then
-    CLEAN_PARAM="&cleanSlate=1"
+    if $NO_CLEAN_SLATE; then
+      echo "  [no-clean-slate] skipping cleanSlate=1 on first batch (additive run)"
+    else
+      CLEAN_PARAM="&cleanSlate=1"
+    fi
     IS_FIRST_BATCH=false
   fi
   SKIP_INV=""

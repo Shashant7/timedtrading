@@ -62,9 +62,22 @@ export function computeInvestorScore(tickerData, opts = {}) {
   // ── Monthly Trend (20 pts) ──
   const mb = tickerData.monthly_bundle;
   if (mb) {
-    // Monthly SuperTrend direction: +7 bullish, -3 bearish
-    if (mb.supertrend_dir === 1) components.monthlyTrend += 7;
-    else if (mb.supertrend_dir === -1) components.monthlyTrend -= 3;
+    // V15 P0.7.110 (2026-05-08) — Phase 3 fix: monthly_bundle.supertrend_dir
+    // uses PINE convention (-1 = bull, +1 = bear), same as every other stDir
+    // in the worker. Verified empirically against day-state KV: AAPL/MSFT/
+    // SPY/QQQ/NVDA/META/GOOGL all show supertrend_dir = -1 on Jul 1 2025
+    // (clear monthly bull). The misleading "1 = bullish" comment at
+    // worker/indicators.js:5050 is a code-comment bug — bM.stDir comes from
+    // the same Pine SuperTrend pipeline as tf_tech.{D,W,4H,M}.stDir.
+    //
+    // Pre-fix this scoring logic was INVERTED: real bull markets got the
+    // -3 bear penalty instead of the +7 bull bonus, suppressing every
+    // ticker's investor score by 10 pts. As a result no ticker reached the
+    // accumulate-stage threshold and runInvestorDailyReplay returned
+    // opened=0 for every day in the Phase C Jul→May window — the original
+    // "investor-replay returns opened=0" blocker documented in the handoff.
+    if (mb.supertrend_dir === -1) components.monthlyTrend += 7;        // Pine bull
+    else if (mb.supertrend_dir === 1) components.monthlyTrend -= 3;    // Pine bear
 
     // Monthly EMA structure (-1 to +1): map to 0-6 pts
     const mStruct = mb.ema_structure || 0;
@@ -76,8 +89,8 @@ export function computeInvestorScore(tickerData, opts = {}) {
       if (mRsi >= 60) components.monthlyTrend += 5;
       else if (mRsi >= 50) components.monthlyTrend += 4;
       else if (mRsi >= 40) components.monthlyTrend += 2;
-      else if (mRsi < 30 && mb.supertrend_dir === 1) {
-        // Deeply oversold but monthly trend still bullish = contrarian buy
+      else if (mRsi < 30 && mb.supertrend_dir === -1) {
+        // Deeply oversold but monthly trend still bullish (Pine -1) = contrarian buy
         components.monthlyTrend += 3;
       }
     }
@@ -468,8 +481,8 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
     return { stage: "exited", reason: "position_closed" };
   }
 
-  // Monthly SuperTrend bearish = thesis invalidation for any position
-  if (existingPosition && mb && mb.supertrend_dir === -1) {
+  // Monthly SuperTrend bearish (Pine +1) = thesis invalidation for any position
+  if (existingPosition && mb && mb.supertrend_dir === 1) {
     return { stage: "reduce", reason: "monthly_supertrend_bearish" };
   }
 
@@ -503,7 +516,10 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
     if (investorScore < 30 && wStDir !== 1) {
       return { stage: "reduce", reason: "investor_score_very_low" };
     }
-    if (wStDir === -1 && mb?.supertrend_dir !== 1) {
+    // wStDir is tf_tech.W.atr.xs (STANDARD convention: +1=bull, -1=bear).
+    // mb.supertrend_dir is monthly_bundle.supertrend_dir (PINE convention: -1=bull).
+    // "weekly bear AND monthly NOT bull" → reduce. Pine "not bull" = !== -1.
+    if (wStDir === -1 && mb?.supertrend_dir !== -1) {
       return { stage: "reduce", reason: "weekly_supertrend_bearish" };
     }
     if (rsRank < 20 && investorScore < 40) {
@@ -657,7 +673,8 @@ export function detectAccumulationZone(tickerData) {
   }
 
   // ── Monthly trend confirmation bonus ──
-  if (mb && mb.supertrend_dir === 1 && mb.ema_structure > 0) {
+  // Pine convention: monthly_bundle.supertrend_dir === -1 = bull.
+  if (mb && mb.supertrend_dir === -1 && mb.ema_structure > 0) {
     confidence += 10;
     signals.push("monthly_trend_bullish");
   }
@@ -727,11 +744,11 @@ export function generateThesis(tickerData, rsRank = 50) {
   const conditions = [];
   const invalidation = [];
 
-  // Monthly trend
-  if (mb?.supertrend_dir === 1) {
+  // Monthly trend (Pine convention: -1 = bull, +1 = bear)
+  if (mb?.supertrend_dir === -1) {
     conditions.push("Monthly uptrend");
     invalidation.push("Monthly SuperTrend flips bearish");
-  } else if (mb?.supertrend_dir === -1) {
+  } else if (mb?.supertrend_dir === 1) {
     conditions.push("Monthly downtrend (caution)");
   }
 
@@ -803,9 +820,9 @@ export function generateThesis(tickerData, rsRank = 50) {
     thesis,
     invalidation,
     criteria: {
-      monthlyST: mb?.supertrend_dir === 1,
+      monthlyST: mb?.supertrend_dir === -1,    // Pine convention: -1 = bull
       weeklyAbove200: emaW?.structure > 0.5,
-      weeklyST: tfW?.atr?.xs === 1,
+      weeklyST: tfW?.atr?.xs === 1,             // STANDARD convention for atr.xs: +1 = up-cross / bull
       rsRank,
     },
   };
@@ -825,8 +842,8 @@ export function checkThesisHealth(thesisCriteria, currentTickerData, currentRsRa
   const emaW = currentTickerData.ema_map?.W;
   const tfW = currentTickerData.tf_tech?.W;
 
-  // Monthly SuperTrend flip
-  if (thesisCriteria.monthlyST && mb?.supertrend_dir === -1) {
+  // Monthly SuperTrend flip (was bull at thesis time, now bear in Pine = +1)
+  if (thesisCriteria.monthlyST && mb?.supertrend_dir === 1) {
     reasons.push("Monthly SuperTrend flipped bearish");
   }
 

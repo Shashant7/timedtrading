@@ -947,6 +947,8 @@ const ROUTES = [
   ["POST", "/timed/admin/purge-orphan-trades", "POST /timed/admin/purge-orphan-trades"],
   ["POST", "/timed/admin/seed-direction-accuracy-from-promoted", "POST /timed/admin/seed-direction-accuracy-from-promoted"],
   ["POST", "/timed/admin/refresh-path-performance", "POST /timed/admin/refresh-path-performance"],
+  ["POST", "/timed/admin/ensure-trend-hold-schema", "POST /timed/admin/ensure-trend-hold-schema"],
+  ["POST", "/timed/admin/trend-hold-evaluate", "POST /timed/admin/trend-hold-evaluate"],
   ["GET", "/timed/admin/direction-accuracy/inspect", "GET /timed/admin/direction-accuracy/inspect"],
   ["POST", "/timed/admin/restore-trade-from-da", "POST /timed/admin/restore-trade-from-da"],
   ["POST", "/timed/admin/patch-trade-from-da", "POST /timed/admin/patch-trade-from-da"],
@@ -33753,11 +33755,57 @@ async function d1UpdatePosition(env, position_id, updates) {
 }
 
 /**
+ * V15 P0.7.107 (2026-05-08) — Phase 2 Trend-Hold self-healing schema.
+ *
+ * Mirrors the ensureDataAuditLogSchema pattern: idempotently adds the
+ * trend_hold_* columns to the trades table on first use. Avoids
+ * needing a separate wrangler `d1 execute` migration step — the
+ * worker auto-heals its own schema the first time it tries to write
+ * a Trend-Hold transition.
+ *
+ * Each ALTER TABLE is wrapped in try/catch so "duplicate column"
+ * errors are swallowed (column already exists from a prior cycle).
+ * Other errors are logged but do not throw — Trend-Hold persistence
+ * must NEVER block legitimate trade management.
+ */
+let _trendHoldSchemaEnsured = false;
+async function ensureTrendHoldColumnsSchema(db) {
+  if (_trendHoldSchemaEnsured || !db) return;
+  const stmts = [
+    "ALTER TABLE trades ADD COLUMN trend_hold_state TEXT",
+    "ALTER TABLE trades ADD COLUMN trend_hold_promoted_at INTEGER",
+    "ALTER TABLE trades ADD COLUMN trend_hold_demoted_at INTEGER",
+    "ALTER TABLE trades ADD COLUMN trend_hold_max_mfe_pct REAL",
+    "ALTER TABLE trades ADD COLUMN trend_hold_flavor TEXT",
+    "ALTER TABLE trades ADD COLUMN trend_hold_promote_reason TEXT",
+    "ALTER TABLE trades ADD COLUMN trend_hold_demote_reason TEXT",
+  ];
+  for (const sql of stmts) {
+    try {
+      await db.prepare(sql).run();
+    } catch (err) {
+      const msg = String(err?.message || err);
+      // SQLite reports duplicate columns variously across D1 versions:
+      //   "duplicate column name", "already exists"
+      if (msg.includes("duplicate column") || msg.includes("already exists")) continue;
+      console.warn("[TREND_HOLD SCHEMA] ALTER failed:", sql, "→", msg.slice(0, 200));
+    }
+  }
+  try {
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_trades_trend_hold_state ON trades (trend_hold_state)").run();
+  } catch (_) {}
+  _trendHoldSchemaEnsured = true;
+  console.log("[TREND_HOLD SCHEMA] ensured");
+}
+
+/**
  * V15 P0.7.107 (2026-05-08) — Phase 2 Trend-Hold lifecycle persistence.
  *
  * Updates trend_hold_* columns on a `trades` row. Idempotent.
- * Defensive: returns {ok:false, skipped:true} if the migration
- * (worker/migrations/add-trend-hold-columns.sql) hasn't been applied.
+ * Calls ensureTrendHoldColumnsSchema() lazily so the migration auto-
+ * applies on first use. Defensive: returns {ok:false, skipped:true}
+ * if the schema-ensure failed for some reason and the column truly
+ * doesn't exist.
  *
  * Writes a data_audit_log row for every state transition so the
  * P0.7.103 INTEGRITY GUARD can attribute downstream-row-count changes
@@ -33773,6 +33821,7 @@ async function d1UpdateTradeTrendHoldState(env, trade_id, updates) {
   const db = env?.DB;
   if (!db || !trade_id || !updates) return { ok: false };
   try {
+    await ensureTrendHoldColumnsSchema(db);
     const setClauses = [];
     const params = [trade_id];
     let pIdx = 2;
@@ -54963,6 +55012,179 @@ export default {
         try {
           const result = await refreshPathPerformance(env);
           return sendJSON(result, result?.ok ? 200 : 500, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // POST /timed/admin/trend-hold-evaluate?ticker=SNDK&commit=0&key=...
+      // V15 P0.7.108 (2026-05-08) — Phase 3 wiring smoke test.
+      //
+      // Reads the latest timed_trail snapshot for `ticker` and the live
+      // open trade for that ticker (run_id IS NULL). Runs TrendHold's
+      // extractTrendSnapshot + shouldPromoteToTrendHold against them.
+      // Returns the would-promote decision + reason + extracted snapshot
+      // for diagnostic inspection.
+      //
+      // Side-effect free by default. Pass commit=1 to actually stamp the
+      // trade if the gate passes (still respects daCfg flag).
+      //
+      // Use this to validate Phase 2 wiring without depending on a full
+      // multi-leg replay — the gate runs against current real market data.
+      // ═══════════════════════════════════════════════════════════════════════
+      if (routeKey === "POST /timed/admin/trend-hold-evaluate") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const ticker = String(url.searchParams.get("ticker") || "").toUpperCase();
+          const commit = url.searchParams.get("commit") === "1";
+          const autoFallback = url.searchParams.get("autoFallback") !== "0";
+          if (!ticker) return sendJSON({ ok: false, error: "ticker_required" }, 400, corsHeaders(env, req));
+
+          // 1. Get the most recent timed_trail row with payload_json for this ticker.
+          // (Phase-I purge sets payload_json=NULL on older rows to reclaim D1 space;
+          //  recent live rows usually still have it.)
+          let trailRow = await db.prepare(
+            `SELECT ticker, ts, payload_json FROM timed_trail
+             WHERE ticker = ?1 AND payload_json IS NOT NULL
+             ORDER BY ts DESC LIMIT 1`
+          ).bind(ticker).first();
+          let snapshotSourceTicker = ticker;
+          // Auto-fallback: if no payload for the requested ticker, find ANY ticker
+          // with recent payload_json. Caller can disable with autoFallback=0.
+          if (!trailRow?.payload_json && autoFallback) {
+            trailRow = await db.prepare(
+              `SELECT ticker, ts, payload_json FROM timed_trail
+               WHERE payload_json IS NOT NULL
+               ORDER BY ts DESC LIMIT 1`
+            ).first();
+            if (trailRow?.payload_json) snapshotSourceTicker = trailRow.ticker;
+          }
+          if (!trailRow?.payload_json) {
+            return sendJSON({ ok: false, error: "no_recent_snapshot",
+              hint: "no timed_trail.payload_json rows in D1 — Phase-I purge may have nuked them; need fresh ingest" }, 404, corsHeaders(env, req));
+          }
+          let tickerData;
+          try { tickerData = JSON.parse(trailRow.payload_json); }
+          catch (e) {
+            return sendJSON({ ok: false, error: "snapshot_parse_failed", detail: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+          }
+          tickerData.ticker = ticker;
+
+          // 2. Get the live open trade (run_id IS NULL).
+          const openTrade = await db.prepare(
+            `SELECT * FROM trades
+             WHERE ticker = ?1 AND status = 'OPEN' AND run_id IS NULL
+             ORDER BY entry_ts DESC LIMIT 1`
+          ).bind(ticker).first();
+          // Synthetic trade if no live position — lets us test gates against just the snapshot.
+          const tradeForGate = openTrade || {
+            trade_id: `synthetic-${ticker}`,
+            ticker,
+            direction: "LONG",
+            entryPrice: Number(tickerData.price ?? tickerData.priceClose ?? 0),
+            entry_price: Number(tickerData.price ?? tickerData.priceClose ?? 0),
+            maxFavorableExcursion: 10.0, // assume 10% MFE for the synthetic test
+            trimmed_pct: 0,
+            trend_hold_state: null,
+          };
+
+          // 3. Load daCfg (same path as live cron + replay).
+          const daKeys = REPLAY_DA_KEYS;
+          const daRows = (await db.prepare(
+            `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
+          ).bind(...daKeys).all())?.results || [];
+          const daCfg = {};
+          for (const r of daRows) {
+            try { daCfg[r.config_key] = JSON.parse(r.config_value); } catch { daCfg[r.config_key] = r.config_value; }
+          }
+
+          // 4. Run the gates.
+          const cfg = TrendHold.loadTrendHoldConfig(daCfg);
+          const enabled = TrendHold.isTrendHoldEnabled(daCfg);
+          const snap = TrendHold.extractTrendSnapshot(tickerData, tradeForGate);
+          const promoteResult = snap ? TrendHold.shouldPromoteToTrendHold(snap, tradeForGate, cfg) : null;
+          const demoteResult = snap ? TrendHold.shouldDemoteFromTrendHold(snap, tradeForGate, cfg) : null;
+          const dcaResult = snap ? TrendHold.shouldDcaTrendHold(snap, tradeForGate, cfg) : null;
+
+          // 5. Optionally commit if promote=true and a real open trade exists.
+          let committed = null;
+          if (commit && promoteResult?.promote && openTrade?.trade_id) {
+            committed = await d1UpdateTradeTrendHoldState(env, openTrade.trade_id, {
+              state: "active",
+              promoted_at: Date.now(),
+              flavor: promoteResult.flavor,
+              promote_reason: `manual-eval: ${promoteResult.reason}`,
+              max_mfe_pct: Number(openTrade.max_favorable_excursion ?? openTrade.maxFavorableExcursion) || null,
+            });
+          }
+
+          return sendJSON({
+            ok: true,
+            ticker,
+            snapshot_source_ticker: snapshotSourceTicker,
+            snapshot_fallback: snapshotSourceTicker !== ticker,
+            flag_enabled: enabled,
+            cfg_max_positions: cfg.max_simultaneous_positions,
+            snapshot_age_ms: Date.now() - Number(trailRow.ts),
+            snapshot_ts: Number(trailRow.ts),
+            has_open_trade: !!openTrade,
+            open_trade_id: openTrade?.trade_id || null,
+            open_trade_mfe_pct: openTrade ? Number(openTrade.max_favorable_excursion) : null,
+            existing_state: openTrade?.trend_hold_state || null,
+            snapshot: snap,
+            promote: promoteResult,
+            demote: demoteResult,
+            dca: dcaResult,
+            committed,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // POST /timed/admin/ensure-trend-hold-schema?key=...
+      // V15 P0.7.108 (2026-05-08) — One-shot apply of the Trend-Hold ALTER TABLE
+      // migration without needing wrangler `d1 execute`. Idempotent — safe to
+      // call multiple times. Same logic as ensureTrendHoldColumnsSchema()
+      // which auto-runs on first d1UpdateTradeTrendHoldState() call.
+      // ═══════════════════════════════════════════════════════════════════════
+      if (routeKey === "POST /timed/admin/ensure-trend-hold-schema") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          // Force re-run regardless of in-memory cache (operator may have
+          // hit this BEFORE first lifecycle eval and want to verify).
+          _trendHoldSchemaEnsured = false;
+          await ensureTrendHoldColumnsSchema(db);
+          // Verify by querying the schema.
+          const cols = (await db.prepare("PRAGMA table_info(trades)").all())?.results || [];
+          const expected = [
+            "trend_hold_state", "trend_hold_promoted_at", "trend_hold_demoted_at",
+            "trend_hold_max_mfe_pct", "trend_hold_flavor",
+            "trend_hold_promote_reason", "trend_hold_demote_reason",
+          ];
+          const present = cols.map(r => r.name).filter(n => expected.includes(n));
+          const missing = expected.filter(n => !present.includes(n));
+          await auditDataChange(env, {
+            op: "trend_hold_schema_ensured",
+            scope: "trades",
+            caller: req?.url || "unknown",
+            rowsAffected: present.length,
+            meta: { present, missing },
+          });
+          return sendJSON({
+            ok: missing.length === 0,
+            present,
+            missing,
+            total_columns: cols.length,
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
