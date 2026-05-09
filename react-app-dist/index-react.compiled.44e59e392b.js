@@ -16104,7 +16104,7 @@ function App() {
       if (absPct <= 12) return 0.70;
       return 0.85;
     };
-    const PriorityTile = React.useCallback(({
+    const PriorityTile = ({
       sym
     }) => {
       const td = allData[sym];
@@ -16151,7 +16151,7 @@ function App() {
           __html: sparkSvg
         }
       }));
-    }, [allData, handleTickerSelect]);
+    };
     const ContextChip = ({
       sym
     }) => {

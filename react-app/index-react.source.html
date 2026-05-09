@@ -19851,20 +19851,20 @@
                      * Each tile = ds-tickercard. Cohesive with Top Movers.
                      * ════════════════════════════════════════════════════════ */
                     /* V15 P0.7.119 (2026-05-09) — React-controlled logo
-                       to fix the flicker. Previous version called
-                       window.DS.tickerLogo() which creates a vanilla DOM
-                       element + replaceWith(); on every parent re-render
-                       (every price tick, every sparkline update) React
-                       re-mounted the placeholder div + the ref callback
-                       fired again, briefly flashing the monogram before
-                       the new <img> finished loading.
-
-                       New StableTickerLogo: pure React. Renders an <img>
-                       with onError → monogram fallback. Preloads + caches
-                       the loaded state in a module-scoped Set so the
-                       placeholder never appears on second mount of the
-                       same ticker. */
-                    const PriorityTile = React.useCallback(({ sym }) => {
+                       to fix the flicker via StableTickerLogo (defined
+                       at module scope above App).
+                       V15 P0.7.120 (2026-05-09) — REVERTED React.useCallback
+                       wrapping. The previous version wrapped PriorityTile
+                       in useCallback INSIDE an IIFE INSIDE a conditional
+                       ({window._ttIsPro && (() => { ... })()}). That's a
+                       conditional hook call — Rules of Hooks violation —
+                       and React crashes the entire App with error #310
+                       ("Rendered more hooks than during the previous
+                       render") on first render when _ttIsPro is true.
+                       Pure function component now; memoization happens
+                       inside StableTickerLogo (which is at module scope,
+                       safe). */
+                    const PriorityTile = ({ sym }) => {
                       const td = allData[sym];
                       const price = Number(td?.price ?? td?.close ?? 0);
                       if (price <= 0) return null;
@@ -19895,7 +19895,7 @@
                           )}
                         </button>
                       );
-                    }, [allData, handleTickerSelect]);
+                    };
                     const ContextChip = ({ sym }) => {
                       const td = allData[sym];
                       const price = Number(td?.price ?? td?.close ?? 0);
