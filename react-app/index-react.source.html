@@ -1022,35 +1022,14 @@
         }
 
         /* P0.7.104 — body padding now clears BOTH bars: the mobile
-           bottom nav (~64px) + the legal footer (~32px) + safe area.
-           Previously only cleared the bottom nav, so the bottom of
-           page content was hidden behind the legal footer.
-           V15 P0.7.114 — legal footer slimmed to ~20px on mobile so
-           padding tightened from 32px to 22px reservation. */
+           bottom nav (~64px) + the legal footer (~28-32px) + safe area.
+           V15 P0.7.115 — auth-gate footer is now the sole footer on
+           this page (P0.7.114 #legal-footer removed to fix stacking).
+           Auth-gate footer is ~28px tall on mobile. */
         .tt-page-shell,
         body {
-          padding-bottom: calc(64px + 22px + env(safe-area-inset-bottom)) !important;
+          padding-bottom: calc(64px + 28px + env(safe-area-inset-bottom)) !important;
         }
-
-        /* V15 P0.7.114 (2026-05-08) — Slim legal footer on mobile.
-           Previous styling (10px font, 6px padding, line-height 1.4) let
-           the disclaimer wrap to 3 lines (~50-60px) on narrow phones,
-           eating real estate on top of the already-tall mobile bottom
-           nav. Now: 9px font, 2px padding, single-line truncate so the
-           footer is ~18-20px tall regardless of viewport width. The
-           full text is preserved on tap (no information loss) via the
-           "Full" link which opens /terms.html. Desktop is unchanged via
-           the @media (min-width:769px) override below. */
-        #legal-footer {
-          padding: 2px 8px !important;
-          font-size: 9px !important;
-          line-height: 1.3 !important;
-          white-space: nowrap !important;
-          overflow: hidden !important;
-          text-overflow: ellipsis !important;
-        }
-        /* Also bump --tt-legal-footer-h so the bottom nav sits flush. */
-        :root { --tt-legal-footer-h: 22px; }
       }
 
       /* ── Tighter mobile @ 430px (smaller phones) ── */
@@ -22080,25 +22059,33 @@
           .catch(() => {});
       })();
     </script>
-    <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
-      <!-- V15 P0.7.114 (2026-05-08) — Two-mode disclaimer: full sentence
-           on desktop (≥769px), ultra-compact pill on mobile so the footer
-           shrinks from ~50-60px (3-line wrap) to ~18-20px. The mobile
-           short-form keeps every required element (educational use, not
-           advice, full terms link, data attribution) just terser. -->
-      <span class="legal-footer__full">For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> · Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a></span>
-      <span class="legal-footer__short">Educational only · Not advice · <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Terms</a> · <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a></span>
-    </footer>
-    <style>
-      /* V15 P0.7.114 — show the full disclaimer on desktop, the
-         compact pill on mobile. Same a11y content (links present in
-         both forms) — purely a viewport-driven density choice. */
-      .legal-footer__short { display: none; }
-      .legal-footer__full  { display: inline; }
-      @media (max-width: 768px) {
-        .legal-footer__short { display: inline; }
-        .legal-footer__full  { display: none; }
-      }
-    </style>
+    <!-- V15 P0.7.115 (2026-05-09) — Removed the P0.7.114 #legal-footer.
+         auth-gate.js auto-injects its OWN fixed-bottom footer (© 2026
+         Timed Trading · Terms · FAQ · Contact · Not financial advice)
+         on every page; mine was a SECOND fixed-bottom footer stacking
+         on top of it. Twelve Data attribution moved into the auth-gate
+         footer instead so we have ONE footer everywhere with all
+         required content. -->
+    <script>
+      // Adjust body padding when the auth-gate footer mounts (it may
+      // not yet exist at first paint). The bottom mobile nav reads
+      // var(--tt-legal-footer-h) to clear the footer; auth-gate's
+      // footer is ~28px tall on mobile.
+      (function () {
+        var setVar = function () {
+          var f = document.querySelector('[data-tt-auth-footer]');
+          var h = f ? f.offsetHeight : 28;
+          document.documentElement.style.setProperty('--tt-legal-footer-h', h + 'px');
+        };
+        setVar();
+        // Re-measure after auth-gate finishes mounting.
+        var attempts = 0;
+        var timer = setInterval(function () {
+          attempts++;
+          setVar();
+          if (attempts >= 10) clearInterval(timer);
+        }, 200);
+      })();
+    </script>
   </body>
 </html>
