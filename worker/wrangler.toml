@@ -258,7 +258,7 @@ id = "246f397779e44e6bb8853585b74200ff"
 [[env.preprod.d1_databases]]
 binding = "DB"
 database_name = "timed-trading-ledger-preprod"
-database_id = "PLACEHOLDER_TO_BE_FILLED_IN_BY_OPERATOR"
+database_id = "85a9ee08-3e3f-4a73-bb8c-8cd947e9b765"
 
 # Durable Objects — same classes, separate instances per env.
 [[env.preprod.durable_objects.bindings]]
@@ -312,6 +312,9 @@ EMAIL_FROM = "notifications@timed-trading.com"
 # pre-prod data for live.
 ENVIRONMENT_LABEL = "preprod"
 
-# NO triggers block — pre-prod has no scheduled crons. Backtest
-# replays drive all activity.
+# Pre-prod has NO scheduled crons. Backtest replays drive all
+# activity. Empty crons array EXPLICITLY overrides the top-level
+# [triggers] block (which wrangler would otherwise inherit).
+[env.preprod.triggers]
+crons = []
 
