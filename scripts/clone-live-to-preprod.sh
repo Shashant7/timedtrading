@@ -143,32 +143,42 @@ echo "  total trading days to clone: ${#DATES[@]}"
 CLONED=0
 SKIPPED=0
 ERRS=0
+TMPFILE=$(mktemp /tmp/preprod-blob.XXXXXX.json)
+trap "rm -f $TMPFILE" EXIT
 for d in "${DATES[@]}"; do
   KEY="timed:replay:daystate:$d"
-  # Fetch from live.
-  BLOB=$(curl -sS -m 30 "$LIVE_BASE/timed/admin/kv/get?k=$KEY&key=$API_KEY" 2>&1)
-  HAS_VAL=$(echo "$BLOB" | python3 -c "import sys,json; d=json.load(sys.stdin); print('y' if d.get('value') else 'n')" 2>/dev/null || echo "?")
+  # Fetch from live INTO A FILE (day-state blobs are ~500KB; too large
+  # for shell variables on most systems — "Argument list too long").
+  curl -sS -m 60 -o "$TMPFILE" "$LIVE_BASE/timed/admin/kv/get?k=$KEY&key=$API_KEY"
+  HAS_VAL=$(python3 -c "
+import sys, json
+try:
+    with open('$TMPFILE') as f: d = json.load(f)
+    print('y' if d.get('value') else 'n')
+except: print('?')")
   if [[ "$HAS_VAL" != "y" ]]; then
     SKIPPED=$((SKIPPED + 1))
     continue
   fi
-  # Push to preprod via kv/put (need to add this endpoint in Phase 3.7).
-  # For now: skip with a note. The kv/put endpoint is added in worker/index.js
-  # in this branch — check whether it exists on the deployed preprod.
-  PUT_RES=$(curl -sS -m 30 -X POST "$PREPROD_BASE/timed/admin/kv/put?k=$KEY&key=$API_KEY" \
+  # Push to preprod via kv/put — use --data-binary @file to avoid the
+  # shell arg-length limit. The endpoint accepts the kv/get-style
+  # response shape (parses .value or .raw).
+  PUT_HTTP=$(curl -sS -m 60 -X POST "$PREPROD_BASE/timed/admin/kv/put?k=$KEY&key=$API_KEY" \
     -H "content-type: application/json" \
-    -d "$BLOB" 2>&1)
-  PUT_OK=$(echo "$PUT_RES" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ok','false'))" 2>/dev/null || echo "false")
-  if [[ "$PUT_OK" == "True" ]]; then
+    --data-binary "@$TMPFILE" \
+    -w "\n%{http_code}" 2>&1 | tail -1)
+  if [[ "$PUT_HTTP" == "200" ]]; then
     CLONED=$((CLONED + 1))
   else
     ERRS=$((ERRS + 1))
     if [[ "$ERRS" -le 3 ]]; then
-      echo "  $d ERR: $PUT_RES" | head -c 200
-      echo
+      echo "  $d ERR: HTTP $PUT_HTTP"
     fi
   fi
-  sleep 0.1
+  if (( CLONED > 0 && CLONED % 25 == 0 )); then
+    echo "  progress: $CLONED cloned, $SKIPPED skipped, $ERRS errors"
+  fi
+  sleep 0.05
 done
 echo "  done: cloned=$CLONED skipped=$SKIPPED errors=$ERRS"
 

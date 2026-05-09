@@ -195,10 +195,120 @@ D1 idle cost: ~$0.50/mo. KV is free at this scale.
 
 ## Known follow-ups (Phase 3.8+)
 
-1. **Verdict generator multi-base support** — currently reads run-trades from a single API_BASE. Should accept `--trader-api-base` and `--th-api-base` separately so the trader baseline run on live and the TH run on preprod can be compared in one verdict markdown.
-2. **`/admin/model-config?action=list` GET endpoint** — for full bidirectional clone of `model_config` (currently the clone script enumerates a hardcoded key list).
-3. **Phase 2.10 — wire `shouldDcaTrendHold` into the execution loop** — the predicate exists and tests pass but it's never called by `processTradeSimulation`. Add the per-tick eval + actual buy execution. Required for full TH semantics ("ride and add to dip" is half of TH's value, not just "ride").
-4. **`backtest-runner-do.js` integration** — the BacktestRunner DO has an isolated execution context that may give us per-run scope isolation without needing a separate environment. Worth investigating as Phase 3.9 — would let some backtests run on live D1 with stronger isolation than the additive-mode attempt that failed.
+1. **Candle data clone (next-session blocker for the actual backtest)** — preprod has 67 tables but `ticker_candles` is empty. Live's `ticker_candles` has 10M rows / 5.5 GB. The candle-replay endpoint can't drive scoring without raw candles. See "Next-session start" below for the exact commands.
+2. **Verdict generator multi-base support** — currently reads run-trades from a single API_BASE. Should accept `--trader-api-base` and `--th-api-base` separately so the trader baseline run on live and the TH run on preprod can be compared in one verdict markdown.
+3. **`/admin/model-config?action=list` GET endpoint** — for full bidirectional clone of `model_config` (currently the clone script enumerates a hardcoded key list).
+4. **Phase 2.10 — wire `shouldDcaTrendHold` into the execution loop** — the predicate exists and tests pass but it's never called by `processTradeSimulation`. Add the per-tick eval + actual buy execution. Required for full TH semantics ("ride and add to dip" is half of TH's value, not just "ride").
+5. **`backtest-runner-do.js` integration** — the BacktestRunner DO has an isolated execution context that may give us per-run scope isolation without needing a separate environment. Worth investigating as Phase 3.9 — would let some backtests run on live D1 with stronger isolation than the additive-mode attempt that failed.
+
+---
+
+## Next-session start
+
+Pre-prod is functionally complete except for the `ticker_candles` table. **Before running the destructive Phase 3 backtest on preprod**, this is the exact sequence:
+
+### Step 1 — Export Jul 2025+ candles from live, import to preprod (~30-60 min)
+
+```bash
+cd worker && export CLOUDFLARE_API_TOKEN="$CLOUDFLARE_TOKEN"
+
+# Live ticker_candles is 10M rows / 5.5 GB total. Filter to the Phase C
+# window (Jul 1 2025 = 1719792000000 ms) to keep the export to ~3-4 GB.
+# wrangler d1 export streams via R2; tolerates large datasets.
+npx wrangler d1 export timed-trading-ledger --remote \
+  --table ticker_candles \
+  --output /tmp/live-candles-jul2025plus.sql
+
+# Filter the SQL to keep only INSERT rows for ts >= 2025-07-01 cutoff:
+python3 -c "
+import re
+cutoff_ms = 1719792000000  # 2025-07-01 UTC
+kept = 0; skipped = 0
+with open('/tmp/live-candles-jul2025plus.sql') as fi, \
+     open('/tmp/preprod-candles-import.sql', 'w') as fo:
+    for line in fi:
+        if line.startswith('INSERT INTO ticker_candles'):
+            # Look for ts column; assume position-based parse.
+            # Format: INSERT INTO ticker_candles VALUES('TICKER', tf, ts, ...)
+            m = re.search(r\"VALUES\\('[^']+',\\s*'?[^,]+,\\s*(\\d+),\", line)
+            if m and int(m.group(1)) >= cutoff_ms:
+                fo.write(line); kept += 1
+            else: skipped += 1
+        else:
+            fo.write(line)
+print(f'kept INSERTs: {kept}, skipped: {skipped}')
+"
+
+# Import filtered candles to preprod (~5-15 min)
+npx wrangler d1 execute timed-trading-ledger-preprod --remote \
+  --file /tmp/preprod-candles-import.sql
+```
+
+### Step 2 — Single-day candle-replay smoke on preprod (~30 sec)
+
+```bash
+PRE="https://timed-trading-ingest-preprod.shashant.workers.dev"
+curl -X POST "$PRE/timed/admin/candle-replay?date=2025-07-15&tickerOffset=0&tickerBatch=20&intervalMinutes=5&freshRun=1&disableReferenceExecution=1&key=$TIMED_TRADING_API_KEY" | python3 -m json.tool | head -20
+```
+
+**Pass criterion:** `scored > 0` (probably ~1500 = 20 tickers × 79 intervals). If `scored == 0` → candles still not landing for 2025-07-15; check the import.
+
+### Step 3 — Full destructive backtest (~5-7 h, in tmux)
+
+```bash
+SESS="preprod-th-backtest"
+tmux -f /exec-daemon/tmux.portal.conf has-session -t "=$SESS" 2>/dev/null \
+  || tmux -f /exec-daemon/tmux.portal.conf new-session -d -s "$SESS" -c "$PWD" -- bash -l
+
+tmux -f /exec-daemon/tmux.portal.conf send-keys -t "$SESS:0.0" \
+  "cd /workspace && API_BASE=https://timed-trading-ingest-preprod.shashant.workers.dev TIMED_API_KEY=$TIMED_TRADING_API_KEY bash scripts/full-backtest.sh --label=phase-c-stage2-th-jul2025-may2026 --keep-open-at-end 2025-07-01 2026-05-08 20 2>&1 | tee /tmp/preprod-backtest.log" C-m
+```
+
+**Note:** No `--no-clean-slate` flag this time. Preprod tables are empty so the destructive ops are no-ops. The replay accumulates fresh trades into preprod D1 with the new run_id.
+
+### Step 4 — Investor backfill on preprod (~30 min)
+
+```bash
+API_BASE=https://timed-trading-ingest-preprod.shashant.workers.dev \
+TIMED_API_KEY=$TIMED_TRADING_API_KEY \
+  bash scripts/investor-backfill-jul-may.sh 2025-07-01 2026-05-08
+```
+
+Target: with rich monthly_bundle data on preprod (re-populated via the candle-replay) we should see 100-200 entries instead of the 25 we got with the live day-state KV.
+
+### Step 5 — Per-month verdicts + SNDK validation (~5 min)
+
+```bash
+TIMED_API_KEY=$TIMED_TRADING_API_KEY \
+  bash scripts/build-all-investor-verdicts.sh \
+    --trader-run-id phase-c-stage1-jul2025-may2026 \
+    --th-run-id     <run_id from Step 3 output> \
+    --api-base      https://timed-trading-ingest-preprod.shashant.workers.dev
+```
+
+> Caveat: build-all-investor-verdicts.sh currently reads from one API_BASE. The trader-run lives on LIVE; the TH-run lives on PREPROD. Either:
+> (a) Add `--trader-api-base` flag to the script (15 min code change), OR
+> (b) Manually copy the `phase-c-stage1` run-trades JSON from live → preprod via a one-off curl, then run the verdict against preprod for both.
+>
+> Tracked as follow-up #2 above.
+
+### Step 6 — Decide on live promote
+
+Apply PHASE_3_RUNBOOK.md Step 4 hard-pass criteria. If pass → flip TH flag in production model_config + verify via Monday open's cron tick.
+
+---
+
+## Estimated next-session wall time
+
+| step | time |
+|---|---:|
+| Candle export + import | 30-60 min |
+| Smoke + full backtest | 5-7 h |
+| Investor backfill + verdicts | 45 min |
+| Validate + decide | 15 min |
+| **Total** | **6.5-9 h** |
+
+A weekend morning is the right window. **The backtest should NOT be kicked off less than ~7h before market open** to leave buffer for verdict review + flag-flip decision.
 
 ---
 
