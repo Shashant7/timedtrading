@@ -1043,10 +1043,31 @@
     // Authenticated, tier-authorized, and terms accepted — render children with user context
     const appContent = typeof children === "function" ? children(user) : children;
 
-    // Wrap app content with a global footer containing Terms link
+    // V15 P0.7.115 (2026-05-09) — Single auth-gate footer, slimmed for
+    // mobile, Twelve Data attribution added (rule: "Footer MUST include
+    // 'Market data powered by Twelve Data'"). data-tt-auth-footer
+    // attribute lets index-react.html measure actual height for the
+    // mobile bottom nav clearance.
+    const linkStyle = {
+      color: "#4b5563",
+      textDecoration: "none",
+      borderBottom: "1px solid rgba(75,85,99,0.3)",
+      transition: "color 0.2s",
+    };
+    const sepStyle = { color: "#1f2937" };
     return React.createElement(React.Fragment, null,
       appContent,
+      // Inline scoped styles so the footer can shrink itself on mobile
+      // without an external stylesheet.
+      React.createElement("style", null, `
+        [data-tt-auth-footer] { gap: 12px; padding: 6px 16px; font-size: 11px; flex-wrap: wrap; }
+        @media (max-width: 768px) {
+          [data-tt-auth-footer] { gap: 6px; padding: 3px 8px; font-size: 9px; flex-wrap: nowrap; white-space: nowrap; overflow: hidden; }
+          [data-tt-auth-footer] .tt-foot-hide-mobile { display: none; }
+        }
+      `),
       React.createElement("div", {
+        "data-tt-auth-footer": "1",
         style: {
           position: "fixed",
           bottom: 0,
@@ -1055,44 +1076,46 @@
           display: "flex",
           justifyContent: "center",
           alignItems: "center",
-          gap: "16px",
-          padding: "6px 16px",
-          background: "rgba(11,14,17,0.85)",
+          background: "rgba(11,14,17,0.92)",
           backdropFilter: "blur(8px)",
           borderTop: "1px solid rgba(255,255,255,0.04)",
           zIndex: 9999,
           fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-          fontSize: "11px",
           pointerEvents: "auto",
+          paddingBottom: "max(0px, env(safe-area-inset-bottom))",
         },
       },
         React.createElement("span", { style: { color: "#374151" } }, "\u00a9 2026 Timed Trading"),
         React.createElement("a", {
-          href: "/terms.html",
-          target: "_blank",
-          rel: "noopener noreferrer",
-          style: { color: "#4b5563", textDecoration: "none", borderBottom: "1px solid rgba(75,85,99,0.3)", transition: "color 0.2s" },
+          href: "/terms.html", target: "_blank", rel: "noopener noreferrer", style: linkStyle,
           onMouseEnter: (e) => { e.currentTarget.style.color = "#9ca3af"; },
           onMouseLeave: (e) => { e.currentTarget.style.color = "#4b5563"; },
-        }, "Terms of Use"),
-        React.createElement("span", { style: { color: "#1f2937" } }, "\u00b7"),
+        }, "Terms"),
+        React.createElement("span", { style: sepStyle, className: "tt-foot-hide-mobile" }, "\u00b7"),
         React.createElement("a", {
-          href: "/faq.html",
-          target: "_blank",
-          rel: "noopener noreferrer",
-          style: { color: "#4b5563", textDecoration: "none", borderBottom: "1px solid rgba(75,85,99,0.3)", transition: "color 0.2s" },
+          className: "tt-foot-hide-mobile",
+          href: "/faq.html", target: "_blank", rel: "noopener noreferrer", style: linkStyle,
           onMouseEnter: (e) => { e.currentTarget.style.color = "#9ca3af"; },
           onMouseLeave: (e) => { e.currentTarget.style.color = "#4b5563"; },
         }, "FAQ"),
-        React.createElement("span", { style: { color: "#1f2937" } }, "\u00b7"),
+        React.createElement("span", { style: sepStyle, className: "tt-foot-hide-mobile" }, "\u00b7"),
         React.createElement("a", {
-          href: "mailto:support@timed-trading.com",
-          style: { color: "#4b5563", textDecoration: "none", borderBottom: "1px solid rgba(75,85,99,0.3)", transition: "color 0.2s" },
+          className: "tt-foot-hide-mobile",
+          href: "mailto:support@timed-trading.com", style: linkStyle,
           onMouseEnter: (e) => { e.currentTarget.style.color = "#9ca3af"; },
           onMouseLeave: (e) => { e.currentTarget.style.color = "#4b5563"; },
         }, "Contact"),
-        React.createElement("span", { style: { color: "#1f2937" } }, "\u00b7"),
+        React.createElement("span", { style: sepStyle }, "\u00b7"),
         React.createElement("span", { style: { color: "#374151" } }, "Not financial advice"),
+        React.createElement("span", { style: sepStyle }, "\u00b7"),
+        // Twelve Data attribution (licensing requirement) — visible on
+        // every viewport so we don't accidentally drop it on mobile.
+        React.createElement("a", {
+          href: "https://twelvedata.com", target: "_blank", rel: "noopener noreferrer",
+          style: linkStyle, title: "Market data powered by Twelve Data",
+          onMouseEnter: (e) => { e.currentTarget.style.color = "#9ca3af"; },
+          onMouseLeave: (e) => { e.currentTarget.style.color = "#4b5563"; },
+        }, "Twelve Data"),
       ),
     );
   }
@@ -1126,28 +1149,42 @@
     };
 
     if (compact) {
+      /* V15 P0.7.115 (2026-05-09) — Avatar "vertically stretched" fix.
+         The previous P0.7.113 used <button> with aspectRatio + min/max
+         width/height. The user still reported the avatar rendering tall.
+         Root cause hypothesis: <button> elements inherit user-agent
+         default styling (Safari/iOS in particular adds vertical padding
+         + line-height that survives `padding: 0`). Switching to <div>
+         with role="button" + tabIndex + keyboard handlers removes ALL
+         browser button defaults. We also use `lineHeight: "28px"` to
+         exactly match the height (so the inline text "S" can't push the
+         box taller via line-height inflation), `verticalAlign: middle`
+         to lock vertical centering, and keep all the dimension locks. */
+      const onActivate = () => setShowMenu(!showMenu);
       return React.createElement(
         "div",
-        { ref: menuRef, style: { position: "relative", flexShrink: 0 } },
+        { ref: menuRef, style: { position: "relative", flexShrink: 0, display: "inline-flex", alignItems: "center" } },
         React.createElement(
-          "button",
+          "div",
           {
-            onClick: () => setShowMenu(!showMenu),
+            onClick: onActivate,
+            onKeyDown: (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onActivate();
+              }
+            },
+            role: "button",
+            tabIndex: 0,
+            "aria-label": `${displayName} menu`,
             style: {
-              /* V15 P0.7.113 (2026-05-08) — User reported the avatar "S"
-                 looked like an oval on mobile, not a circle. The 28×28
-                 button was getting squeezed by its flex parent (the nav
-                 strip has gap-1.5/2 and other shrinkable children). Lock
-                 dimensions with minWidth/maxWidth + flexShrink:0 +
-                 aspectRatio:1 so it stays a perfect circle at every
-                 viewport size. */
               width: "28px",
               minWidth: "28px",
               maxWidth: "28px",
               height: "28px",
               minHeight: "28px",
               maxHeight: "28px",
-              flexShrink: 0,
+              flex: "0 0 28px",
               aspectRatio: "1 / 1",
               borderRadius: "50%",
               background:
@@ -1157,12 +1194,19 @@
               fontSize: "12px",
               fontWeight: "600",
               cursor: "pointer",
-              display: "inline-flex",
+              display: "flex",
               alignItems: "center",
               justifyContent: "center",
               fontFamily: "inherit",
               padding: 0,
+              margin: 0,
+              lineHeight: "28px",
+              textAlign: "center",
+              verticalAlign: "middle",
               boxSizing: "border-box",
+              overflow: "hidden",
+              userSelect: "none",
+              WebkitUserSelect: "none",
             },
             title: `${displayName} (${user.email})`,
           },
