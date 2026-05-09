@@ -814,13 +814,27 @@
           max-height: none !important;
           flex-direction: column !important;
         }
+        /* V15 P0.7.119 (2026-05-09) — Filters stay visible on mobile.
+           Previously `.tt-bubble-mobile-collapsed .tt-bubble-chart-wrap`
+           was display:none — which hid the entire wrap including the
+           filter pills above the chart. User reported "I don't see the
+           bubble map filters on mobile". The pills also affect the
+           Viewport list, so they need to be visible regardless of whether
+           the bubble map is expanded.
+           Now: keep the wrap mounted, hide only the canvas (.flex-1
+           below the filter pills). The legend + filter pills stay. */
         .tt-bubble-mobile-collapsed .tt-bubble-chart-wrap {
+          display: flex !important;
+          flex-direction: column !important;
+          min-height: 0;
+          height: auto;
+        }
+        .tt-bubble-mobile-collapsed .tt-bubble-chart-wrap > .flex-1 {
           display: none !important;
         }
-        /* When the bubble map IS shown on mobile, force it visible
-           and give it real chart height (the parent's 700px min-height
-           was leaving an empty void inside the .tt-bubble-chart-wrap
-           since the lg:flex-1 only kicks in >=1024px). */
+        /* When the bubble map IS shown on mobile, give the chart canvas
+           real height (the parent's 700px min-height was leaving an
+           empty void since lg:flex-1 only kicks in >=1024px). */
         .tt-analysis-grid:not(.tt-bubble-mobile-collapsed) .tt-bubble-chart-wrap {
           display: flex !important;
           min-height: 60vh;
@@ -1106,7 +1120,7 @@
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-right-rail.compiled.js?v=20260508-daychg"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
-    <script src="index-react.compiled.9f9477dc6c.js"></script>
+    <script src="index-react.compiled.8a2a2ecbb0.js"></script>
 
     <!-- Initialize app - separate script to avoid Babel parsing issues -->
     <script>

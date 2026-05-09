@@ -2472,9 +2472,9 @@
           cancelled = true;
         };
       }, [railTab, tickerSymbol]);
+      const _predictionMode = railTab === "INVESTOR" ? "investor" : "trader";
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
-        const mode = railTab === "INVESTOR" ? "investor" : "trader";
         if (!sym) {
           setPredictionContract(null);
           setPredictionContractError(null);
@@ -2488,7 +2488,7 @@
             setPredictionContractError(null);
             const qs = new URLSearchParams();
             qs.set("ticker", sym);
-            qs.set("mode", mode);
+            qs.set("mode", _predictionMode);
             const res = await fetch(`${API_BASE}/timed/prediction-contract?${qs.toString()}`, {
               cache: "no-store"
             });
@@ -2509,7 +2509,7 @@
         return () => {
           cancelled = true;
         };
-      }, [railTab, tickerSymbol]);
+      }, [_predictionMode, tickerSymbol]);
       useEffect(() => {
         setChartVisibleCount(80);
         setChartEndOffset(0);
