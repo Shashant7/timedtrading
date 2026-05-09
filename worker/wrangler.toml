@@ -221,3 +221,97 @@ crons = [
   "30 * * * *",
 ]
 
+# ─────────────────────────────────────────────────────────────────────
+# PRE-PRODUCTION ENVIRONMENT (Phase 3.7 — 2026-05-09)
+#
+# Isolated environment for destructive backtests, calibration testing,
+# and schema migration validation. Has its OWN D1 database + KV
+# namespace so anything we do here never touches live trader state.
+#
+# IMPORTANT — pre-prod has NO crons. The live cron logic depends on
+# fresh ingest data which only exists in production. Pre-prod is
+# request-driven only (replay endpoints, admin endpoints). This
+# matches the "additive backtest" semantics — you push trades into
+# pre-prod via replay, never via auto-ingest.
+#
+# Deploy: `npm run deploy:preprod` or
+#         `cd worker && wrangler deploy --env=preprod`
+# URL:    https://timed-trading-ingest-preprod.shashant.workers.dev
+#
+# Initial data clone is one-time via `scripts/clone-live-to-preprod.sh`
+# which exports model_config + KV state from live and imports into
+# preprod. Trade data (trades, account_ledger, investor_positions)
+# starts EMPTY on preprod by design — backtest replays populate it.
+# ─────────────────────────────────────────────────────────────────────
+[env.preprod]
+name = "timed-trading-ingest-preprod"
+main = "index.js"
+
+# KV namespace (created 2026-05-09 via wrangler kv namespace create)
+[[env.preprod.kv_namespaces]]
+binding = "KV_TIMED"
+id = "246f397779e44e6bb8853585b74200ff"
+
+# D1 database — replace database_id below with the value returned by:
+#   wrangler d1 create timed-trading-ledger-preprod
+# (or whichever name you choose in the Cloudflare dashboard).
+[[env.preprod.d1_databases]]
+binding = "DB"
+database_name = "timed-trading-ledger-preprod"
+database_id = "PLACEHOLDER_TO_BE_FILLED_IN_BY_OPERATOR"
+
+# Durable Objects — same classes, separate instances per env.
+[[env.preprod.durable_objects.bindings]]
+name = "PRICE_HUB"
+class_name = "PriceHub"
+
+[[env.preprod.durable_objects.bindings]]
+name = "ALPACA_STREAM"
+class_name = "AlpacaStream"
+
+[[env.preprod.durable_objects.bindings]]
+name = "PRICE_STREAM"
+class_name = "PriceStream"
+
+[[env.preprod.durable_objects.bindings]]
+name = "BACKTEST_RUNNER"
+class_name = "BacktestRunner"
+
+# Vars — mirror production EXCEPT:
+#   - EXECUTION_MODE forced to "simulation" (no real broker calls ever)
+#   - DISCORD_ENABLE off (no spam to live channels from preprod)
+#   - EMAIL_ENABLED off (no outbound from preprod)
+#   - DAILY_BRIEF_MODEL set to a smaller model to save tokens
+[env.preprod.vars]
+DISCORD_ENABLE = "false"
+EMAIL_ENABLED = "false"
+ALERT_MIN_RR = "1.5"
+ALERT_MAX_COMPLETION = "0.4"
+ALERT_MAX_PHASE = "0.6"
+ALERT_MIN_RANK = "70"
+OPENAI_MODEL = "gpt-4o-mini"
+DAILY_BRIEF_MODEL = "gpt-4o-mini"
+CORS_ALLOW_ORIGIN = "https://timedtrading.pages.dev,https://timed-trading.com,https://www.timed-trading.com,http://localhost:8788,http://127.0.0.1:8788"
+TV_ACK_ALWAYS_200 = "true"
+ALPACA_ENABLED = "false"
+EXECUTION_MODE = "simulation"
+ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
+DATA_PROVIDER = "twelvedata"
+TWELVEDATA_PLAN = "pro"
+ENTRY_ENGINE = "tt_core"
+MANAGEMENT_ENGINE = "tt_core"
+LEADING_LTF = "10"
+RIPSTER_TUNE_V2 = "true"
+TT_EXIT_DEBOUNCE_BARS = "3"
+LIVE_MANAGE_INTERVAL_MIN = "30"
+CF_ACCESS_TEAM_DOMAIN = "timedtrading"
+ADMIN_EMAIL = "shashant@gmail.com"
+EMAIL_FROM = "notifications@timed-trading.com"
+# Pre-prod marker — the worker can read this to add a banner /
+# disclaimer in any UI surface to make it impossible to confuse
+# pre-prod data for live.
+ENVIRONMENT_LABEL = "preprod"
+
+# NO triggers block — pre-prod has no scheduled crons. Backtest
+# replays drive all activity.
+
