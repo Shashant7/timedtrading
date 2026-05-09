@@ -1068,21 +1068,26 @@
       `),
       React.createElement("div", {
         "data-tt-auth-footer": "1",
+        /* V15 P0.7.116 (2026-05-09) — Footer is now PART of the page
+           (static, scrolls with content), not position:fixed at the
+           bottom. User reported the fixed footer permanently ate
+           viewport real estate. The mobile bottom nav remains fixed
+           because it's a primary navigation surface — not informational
+           text. So: nav stays fixed, disclaimer scrolls.
+           --tt-legal-footer-h is set to 0 here since the footer no
+           longer needs height-reservation in the body padding-bottom.
+        */
         style: {
-          position: "fixed",
-          bottom: 0,
-          left: 0,
-          right: 0,
+          width: "100%",
           display: "flex",
           justifyContent: "center",
           alignItems: "center",
           background: "rgba(11,14,17,0.92)",
-          backdropFilter: "blur(8px)",
           borderTop: "1px solid rgba(255,255,255,0.04)",
-          zIndex: 9999,
           fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
           pointerEvents: "auto",
           paddingBottom: "max(0px, env(safe-area-inset-bottom))",
+          marginTop: "16px",
         },
       },
         React.createElement("span", { style: { color: "#374151" } }, "\u00a9 2026 Timed Trading"),

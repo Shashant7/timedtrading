@@ -5434,7 +5434,13 @@ function TradeReviewChart({
     };
   }, [ticker, tf, entryTs, exitTs]);
   return html`
-          <div className="rounded-md border border-white/[0.04] overflow-hidden">
+          <div className="rounded-md border border-white/[0.04] overflow-hidden tt-trade-review-chart-wrap" style=${{
+    position: "relative",
+    zIndex: 1,
+    isolation: "isolate",
+    flex: "none",
+    display: "block"
+  }}>
             <div className="flex items-center justify-between px-3 py-1.5 bg-white/[0.02] border-b border-white/[0.04]">
               <span className="text-[11px] font-semibold text-[#14b8a6]">${ticker}</span>
               <div className="flex items-center gap-0.5">
@@ -5446,15 +5452,25 @@ function TradeReviewChart({
                 `)}
               </div>
             </div>
-            <div ref=${containerRef} style=${{
+            <div ref=${containerRef} className="tt-trade-review-chart-canvas" style=${{
     position: "relative",
-    height: "320px",
-    background: "#0b0e11"
+    background: "#0b0e11",
+    overflow: "hidden"
   }}>
               ${loading && html`<div className="absolute inset-0 flex items-center justify-center"><span className="text-[10px] text-[#6b7280]">Loading chart…</span></div>`}
               ${error && html`<div className="absolute inset-0 flex items-center justify-center"><span className="text-[10px] text-red-400">${error}</span></div>`}
             </div>
           </div>
+          <style>
+            /* P0.7.116 — responsive chart height. Default = mobile-first 220px;
+               desktop bumps back to 320px. Heights are inline-styled below
+               via the .tt-trade-review-chart-canvas selector so they survive
+               the lightweight-charts canvas reset. */
+            .tt-trade-review-chart-canvas { height: 220px; }
+            @media (min-width: 768px) {
+              .tt-trade-review-chart-canvas { height: 320px; }
+            }
+          </style>
         `;
 }
 function TradeReviewModal({
