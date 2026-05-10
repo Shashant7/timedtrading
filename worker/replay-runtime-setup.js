@@ -674,25 +674,45 @@ export async function loadReplayRuntimeConfig(args = {}) {
 
   let deepAuditConfig = {};
   try {
+    // 2026-05-10 (Phase 3.9 / WR-diagnostic): always populate
+    // `deepAuditConfig` from `model_config` first so that ANY pinned-snapshot
+    // gap silently falls through to the current model_config row instead of
+    // to a hardcoded code default. This was the root cause of the
+    // 19% WR observed on phase-c-stage2-th-do-v3-jul2025-may2026: the
+    // preprod model_config had only 5 rows when the run started, so
+    // `snapshotConfig` pinned 5 rows into backtest_run_config, and the
+    // previous `if (replayRunConfig) … else …` branch loaded 0 deep_audit
+    // values from the pinned snapshot for the ~85 missing keys without
+    // any model_config fallback. See tasks/phase-c/WR_DIAGNOSTIC_2026-05-10.md.
+    const daAllowed = new Set(REPLAY_DA_KEYS);
+    const daRows = (await db.prepare(
+      `SELECT config_key, config_value FROM model_config`
+    ).all())?.results || [];
+    for (const row of daRows) {
+      const key = row?.config_key;
+      if (!key || !daAllowed.has(key)) continue;
+      try { deepAuditConfig[key] = JSON.parse(row.config_value); } catch { deepAuditConfig[key] = row.config_value; }
+    }
+
+    // Layer pinned-snapshot values on top so explicit pinned overrides win.
     if (replayRunConfig) {
+      let pinnedHits = 0;
+      let pinnedMisses = 0;
       for (const key of REPLAY_DA_KEYS) {
         const value = replayConfigValue(key);
-        if (value == null) continue;
+        if (value == null) {
+          pinnedMisses += 1;
+          continue;
+        }
+        pinnedHits += 1;
         try { deepAuditConfig[key] = JSON.parse(value); } catch { deepAuditConfig[key] = value; }
       }
-    } else {
-      // Read all model_config rows and post-filter in JS. The previous
-      // `WHERE config_key IN (?,?,…)` form exceeds D1's bind-parameter cap
-      // once REPLAY_DA_KEYS passes ~90 entries and silently returns nothing,
-      // leaving deepAuditConfig empty for the entire run.
-      const daAllowed = new Set(REPLAY_DA_KEYS);
-      const daRows = (await db.prepare(
-        `SELECT config_key, config_value FROM model_config`
-      ).all())?.results || [];
-      for (const row of daRows) {
-        const key = row?.config_key;
-        if (!key || !daAllowed.has(key)) continue;
-        try { deepAuditConfig[key] = JSON.parse(row.config_value); } catch { deepAuditConfig[key] = row.config_value; }
+      if (pinnedHits > 0 && pinnedMisses > 0) {
+        console.warn(
+          `${logPrefix} deepAuditConfig: pinned snapshot covered ${pinnedHits}/${REPLAY_DA_KEYS.length} keys; ` +
+          `${pinnedMisses} keys filled from live model_config (snapshot is partial — investigate ` +
+          `clone/snapshotConfig path).`
+        );
       }
     }
   } catch (error) {
