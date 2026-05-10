@@ -20861,7 +20861,7 @@
                           2. Renamed "Show Bubble Map" → "View Bubble Map"
                              and replaced the chevron with a map-icon so
                              it doesn't look like a non-functional dropdown. */}
-                      <div className="lg:hidden tt-bubble-mobile-toggles" style={{ gap: 8, marginBottom: 8 }}>
+                      <div className="lg:hidden tt-bubble-mobile-toggles order-1" style={{ gap: 8, marginBottom: 8 }}>
                         <button
                           type="button"
                           onClick={() => {
@@ -20917,8 +20917,13 @@
                           </svg>
                         </button>
                       </div>
-                      {/* Viewport - Left side (shares parent height) */}
-                      <div className="w-full lg:w-[320px] lg:flex-shrink-0 lg:h-full min-h-[400px] lg:min-h-0" data-coachmark="viewport">
+                      {/* Viewport - Left on desktop, BELOW bubble map on mobile.
+                          P0.7.124 (2026-05-10): mobile order swapped so the
+                          Bubble Map sits above the Viewport list (per user
+                          request). order-3 puts viewport last in the mobile
+                          flex-col stack; lg:order-1 restores left position
+                          on desktop's flex-row. */}
+                      <div className="w-full lg:w-[320px] lg:flex-shrink-0 lg:h-full min-h-[400px] lg:min-h-0 order-3 lg:order-1" data-coachmark="viewport">
                         <OpportunitiesPanel
                           tickers={tickersWithRanks}
                           rankPositions={rankedTickerPositions}
@@ -20935,9 +20940,13 @@
                         />
                       </div>
 
-                      {/* Bubble Chart - Center Hero (flexible, takes remaining space) */}
+                      {/* Bubble Chart - Center Hero on desktop, ABOVE Viewport
+                          on mobile. P0.7.124: order-2 keeps it directly under
+                          the toggle row in the mobile flex-col stack;
+                          lg:order-2 keeps it on the right of the desktop
+                          flex-row layout. */}
                       <div
-                        className={`tt-bubble-chart-wrap relative w-full lg:flex-1 lg:min-w-0 lg:h-full flex flex-col transition-[margin] duration-300 ${
+                        className={`tt-bubble-chart-wrap relative w-full lg:flex-1 lg:min-w-0 lg:h-full flex flex-col transition-[margin] duration-300 order-2 lg:order-2 ${
                           selectedTicker ? "lg:mr-[540px] xl:mr-[620px]" : ""
                         }`}
                       >
