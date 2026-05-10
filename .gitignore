@@ -28,6 +28,9 @@ worker/dashboard-html.js
 # Phase B monthly-backdrop TwelveData cache (rebuilt by scripts/build-monthly-backdrop.js)
 data/backdrops/.cache.json
 
+# Phase 3.9b forensic TH dry-run output (reproducible via scripts/forensic-th-dry-run.mjs)
+data/forensic-th-dry-run/
+
 # IDE
 .vscode/
 .idea/
