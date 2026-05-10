@@ -33772,31 +33772,45 @@ async function d1UpdatePosition(env, position_id, updates) {
 let _trendHoldSchemaEnsured = false;
 async function ensureTrendHoldColumnsSchema(db) {
   if (_trendHoldSchemaEnsured || !db) return;
-  const stmts = [
-    "ALTER TABLE trades ADD COLUMN trend_hold_state TEXT",
-    "ALTER TABLE trades ADD COLUMN trend_hold_promoted_at INTEGER",
-    "ALTER TABLE trades ADD COLUMN trend_hold_demoted_at INTEGER",
-    "ALTER TABLE trades ADD COLUMN trend_hold_max_mfe_pct REAL",
-    "ALTER TABLE trades ADD COLUMN trend_hold_flavor TEXT",
-    "ALTER TABLE trades ADD COLUMN trend_hold_promote_reason TEXT",
-    "ALTER TABLE trades ADD COLUMN trend_hold_demote_reason TEXT",
+  // V15 P0.7.121 (2026-05-10) — Phase 2.10: also add columns to
+  // backtest_run_trades. Backtest replays write trades scoped by
+  // run_id to backtest_run_trades, NOT to the live trades table.
+  // Without these columns there, the TH lifecycle eval persists state
+  // to nothing during a backtest. Verdict generation can't see
+  // promote/demote stamps.
+  const TH_COLS = [
+    ["trend_hold_state", "TEXT"],
+    ["trend_hold_promoted_at", "INTEGER"],
+    ["trend_hold_demoted_at", "INTEGER"],
+    ["trend_hold_max_mfe_pct", "REAL"],
+    ["trend_hold_flavor", "TEXT"],
+    ["trend_hold_promote_reason", "TEXT"],
+    ["trend_hold_demote_reason", "TEXT"],
   ];
-  for (const sql of stmts) {
-    try {
-      await db.prepare(sql).run();
-    } catch (err) {
-      const msg = String(err?.message || err);
-      // SQLite reports duplicate columns variously across D1 versions:
-      //   "duplicate column name", "already exists"
-      if (msg.includes("duplicate column") || msg.includes("already exists")) continue;
-      console.warn("[TREND_HOLD SCHEMA] ALTER failed:", sql, "→", msg.slice(0, 200));
+  const TH_TABLES = ["trades", "backtest_run_trades"];
+  for (const table of TH_TABLES) {
+    for (const [col, type] of TH_COLS) {
+      try {
+        await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`).run();
+      } catch (err) {
+        const msg = String(err?.message || err);
+        if (msg.includes("duplicate column") || msg.includes("already exists")) continue;
+        if (msg.includes("no such table")) {
+          // backtest_run_trades may not exist on a brand-new D1 — fine,
+          // schema is auto-ensured elsewhere on first backtest write.
+          break;
+        }
+        console.warn(`[TREND_HOLD SCHEMA] ALTER ${table} failed:`, col, "→", msg.slice(0, 200));
+      }
     }
+    try {
+      await db.prepare(
+        `CREATE INDEX IF NOT EXISTS idx_${table}_trend_hold_state ON ${table} (trend_hold_state)`
+      ).run();
+    } catch (_) {}
   }
-  try {
-    await db.prepare("CREATE INDEX IF NOT EXISTS idx_trades_trend_hold_state ON trades (trend_hold_state)").run();
-  } catch (_) {}
   _trendHoldSchemaEnsured = true;
-  console.log("[TREND_HOLD SCHEMA] ensured");
+  console.log("[TREND_HOLD SCHEMA] ensured on", TH_TABLES.join(", "));
 }
 
 /**
@@ -33855,9 +33869,31 @@ async function d1UpdateTradeTrendHoldState(env, trade_id, updates) {
       params.push(updates.max_mfe_pct == null ? null : Number(updates.max_mfe_pct));
     }
     if (setClauses.length === 0) return { ok: false, reason: "no_updates" };
-    const sql = `UPDATE trades SET ${setClauses.join(", ")} WHERE trade_id = ?1`;
-    const r = await db.prepare(sql).bind(...params).run();
-    const rowsAffected = Number(r?.meta?.changes || 0);
+    // V15 P0.7.121 — UPDATE both `trades` and `backtest_run_trades`.
+    // A trade lives in one or the other depending on context:
+    //   - live cron / live trades: row in `trades` with run_id=NULL
+    //   - backtest replay:        row in `backtest_run_trades` with run_id=<run>
+    // The trade_id is unique enough that we can fan-out the UPDATE; one
+    // table will report 0 changes, the other will report 1.
+    const setSql = setClauses.join(", ");
+    const r1 = await db.prepare(
+      `UPDATE trades SET ${setSql} WHERE trade_id = ?1`
+    ).bind(...params).run();
+    let r2Changes = 0;
+    try {
+      const r2 = await db.prepare(
+        `UPDATE backtest_run_trades SET ${setSql} WHERE trade_id = ?1`
+      ).bind(...params).run();
+      r2Changes = Number(r2?.meta?.changes || 0);
+    } catch (err) {
+      // backtest_run_trades may not exist or may not have TH columns yet
+      // on freshly-created envs. Schema-ensure handles this lazily.
+      const msg = String(err?.message || err);
+      if (!msg.includes("no such table") && !msg.includes("no such column")) {
+        console.warn("[TH] backtest_run_trades update failed:", msg.slice(0, 200));
+      }
+    }
+    const rowsAffected = Number(r1?.meta?.changes || 0) + r2Changes;
     // Audit every transition for the integrity guard.
     try {
       await auditDataChange(env, {
