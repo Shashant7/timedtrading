@@ -9195,39 +9195,31 @@
           {
             title: "Welcome to Timed Trading",
             content: (
-              <div className="space-y-4">
-                <p className="text-[#d1d5db] leading-relaxed">
-                  The system continuously scores every major ticker across multiple timeframes and places them in <strong className="text-white">action lanes</strong> based on where each one is in its trend cycle. Click any ticker to open the <strong className="text-white">Right Rail</strong> with six tabs of deep analysis.
+              <div className="space-y-5">
+                {/* P0.7.126 — Step 1 leads with positioning, not metrics.
+                    Type sized up to a comfortable reading rhythm. The
+                    backtest proof tile now lives on step 5 (You're all
+                    set) where it lands as confidence to act, not as
+                    cold-open math. */}
+                <p className="text-base text-[#e5e7eb] leading-[1.7]">
+                  Timed Trading is a scoring + decision engine that watches the market for you. The system continuously scores every major ticker across multiple timeframes and places them in <strong className="text-white">action lanes</strong> based on where each one is in its trend cycle.
                 </p>
-                {/* P0.7.125 — replaced the three "what each page does" cards with
-                    proof tiles from the Active Trader backtest. New users want
-                    to know "does this work?" before they want to know "what is
-                    the Daily Brief tab?". */}
-                <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4">
-                  <div className="text-[10px] uppercase tracking-[0.10em] text-[#F5C25C] font-semibold mb-2">
-                    Active Trader · backtest Jul 2025 → May 2026
+                <p className="text-base text-[#d1d5db] leading-[1.7]">
+                  This guide walks through the five things you'll use most. It takes about <strong className="text-white">two minutes</strong>, and you can reopen it anytime from the <strong className="text-white">Guide</strong> button in the top nav.
+                </p>
+                <div className="grid grid-cols-3 gap-3 pt-1">
+                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3">
+                    <div className="text-[#F5C25C] text-[11px] font-bold uppercase tracking-wider mb-1">Score</div>
+                    <p className="text-[12px] text-[#9ca3af] leading-snug">Every ticker, every minute, across multiple timeframes.</p>
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div>
-                      <div className="text-xl font-bold text-emerald-300 tabular-nums">+40.0%</div>
-                      <div className="text-[10px] text-[#9ca3af] uppercase tracking-wider mt-0.5">Total Return</div>
-                    </div>
-                    <div>
-                      <div className="text-xl font-bold text-white tabular-nums">4.62</div>
-                      <div className="text-[10px] text-[#9ca3af] uppercase tracking-wider mt-0.5">Sharpe</div>
-                    </div>
-                    <div>
-                      <div className="text-xl font-bold text-rose-300 tabular-nums">−2.7%</div>
-                      <div className="text-[10px] text-[#9ca3af] uppercase tracking-wider mt-0.5">Max DD</div>
-                    </div>
-                    <div>
-                      <div className="text-xl font-bold text-white tabular-nums">52.2%</div>
-                      <div className="text-[10px] text-[#9ca3af] uppercase tracking-wider mt-0.5">Win Rate</div>
-                    </div>
+                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3">
+                    <div className="text-[#F5C25C] text-[11px] font-bold uppercase tracking-wider mb-1">Stage</div>
+                    <p className="text-[12px] text-[#9ca3af] leading-snug">Setup → Enter → Hold → Defend → Trim → Exit.</p>
                   </div>
-                  <p className="text-[10px] text-[#6b7280] mt-3 leading-relaxed">
-                    Simulated. 588 closed trades over 203 trading days. Past performance is not a guarantee.
-                  </p>
+                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3">
+                    <div className="text-[#F5C25C] text-[11px] font-bold uppercase tracking-wider mb-1">Act</div>
+                    <p className="text-[12px] text-[#9ca3af] leading-snug">Daily Brief, alerts, and a fully audited trade ledger.</p>
+                  </div>
                 </div>
               </div>
             ),
@@ -9236,30 +9228,30 @@
             title: "Two modes, one engine",
             content: (
               <div className="space-y-4">
-                <p className="text-[#d1d5db] leading-relaxed">
+                <p className="text-base text-[#e5e7eb] leading-[1.7]">
                   The same scoring engine powers two ways to act on the market. Pick whichever fits your screen-time and risk tolerance.
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="bg-white/[0.03] border border-emerald-500/20 rounded-lg p-4 ring-1 ring-emerald-500/10">
-                    <div className="flex items-center gap-2 mb-1.5">
+                    <div className="flex items-center gap-2 mb-2">
                       <span className="w-2 h-2 rounded-full bg-emerald-400" />
                       <h3 className="text-emerald-400 font-semibold text-sm">Active Trader</h3>
                     </div>
-                    <p className="text-xs text-[#9ca3af] leading-relaxed">
+                    <p className="text-[13px] text-[#a1a8b2] leading-[1.65]">
                       Multi-timeframe entries with explicit stop / take-profit levels, trailing stops, and trims. Daily Brief gives a pre-market game plan and an evening recap.
                     </p>
                   </div>
                   <div className="bg-white/[0.03] border border-violet-500/20 rounded-lg p-4 ring-1 ring-violet-500/10">
-                    <div className="flex items-center gap-2 mb-1.5">
+                    <div className="flex items-center gap-2 mb-2">
                       <span className="w-2 h-2 rounded-full bg-violet-400" />
                       <h3 className="text-violet-300 font-semibold text-sm">Investor (Trend-Hold)</h3>
                     </div>
-                    <p className="text-xs text-[#9ca3af] leading-relaxed">
+                    <p className="text-[13px] text-[#a1a8b2] leading-[1.65]">
                       Longer-horizon accumulation. Stocks flow through Watch → Accumulate → Core Hold → Reduce → Exit, with one decision per day. Built for discipline without daily screen time.
                     </p>
                   </div>
                 </div>
-                <p className="text-xs text-[#6b7280]">
+                <p className="text-[13px] text-[#9ca3af] leading-[1.65]">
                   The <strong className="text-white">Trades</strong> page gives each mode its own Performance Overview — equity curve, monthly P&amp;L, calendar, and win-rate breakdown.
                 </p>
               </div>
@@ -9269,33 +9261,38 @@
             title: "The Right Rail — your deep dive",
             content: (
               <div className="space-y-4">
-                <p className="text-[#d1d5db] leading-relaxed">
+                {/* P0.7.126 — descriptions rewritten from the actual
+                    railTab implementations in shared-right-rail.js so
+                    they match what each tab really shows. Also bumped
+                    label font-size from text-xs to text-sm + body
+                    text-[10px] to text-[12px] for readability. */}
+                <p className="text-base text-[#e5e7eb] leading-[1.7]">
                   Click any ticker to open the <strong className="text-white">Right Rail</strong> — six tabs that give you everything about a stock:
                 </p>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3">
-                    <h3 className="text-amber-300 font-semibold text-xs mb-1">Analysis</h3>
-                    <p className="text-[10px] text-[#9ca3af] leading-relaxed">Score breakdown, management levels (SL/TP), risk/reward, and the system's current recommendation.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-4">
+                    <h3 className="text-amber-300 font-semibold text-sm mb-1.5">Analysis</h3>
+                    <p className="text-[12px] text-[#a1a8b2] leading-[1.6]">Live chart, score breakdown, management levels (SL / TP), risk/reward, and the system's current trade recommendation.</p>
                   </div>
-                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3">
-                    <h3 className="text-amber-300 font-semibold text-xs mb-1">Investor</h3>
-                    <p className="text-[10px] text-[#9ca3af] leading-relaxed">Longer-horizon scoring, accumulation zones, and relative strength vs. the market.</p>
+                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-4">
+                    <h3 className="text-amber-300 font-semibold text-sm mb-1.5">Investor</h3>
+                    <p className="text-[12px] text-[#a1a8b2] leading-[1.6]">Long-term portfolio view: investor score, stage (Watch / Accumulate / Core Hold / Reduce / Exit), Buy Zone, and lot history.</p>
                   </div>
-                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3">
-                    <h3 className="text-amber-300 font-semibold text-xs mb-1">Technicals</h3>
-                    <p className="text-[10px] text-[#9ca3af] leading-relaxed">TD Sequential counts, market state, exhaustion signals, and trigger pattern detection.</p>
+                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-4">
+                    <h3 className="text-amber-300 font-semibold text-sm mb-1.5">Technicals</h3>
+                    <p className="text-[12px] text-[#a1a8b2] leading-[1.6]">Deep multi-timeframe technical analysis with scoring breakdowns across every indicator the engine watches.</p>
                   </div>
-                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3">
-                    <h3 className="text-amber-300 font-semibold text-xs mb-1">Model</h3>
-                    <p className="text-[10px] text-[#9ca3af] leading-relaxed">The system's prediction confidence, pattern library matches, and forward-looking analysis.</p>
+                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-4">
+                    <h3 className="text-amber-300 font-semibold text-sm mb-1.5">Model <span className="text-[9px] uppercase tracking-wider text-amber-400/80 ml-1">Pro</span></h3>
+                    <p className="text-[12px] text-[#a1a8b2] leading-[1.6]">AI model confidence, signal strength, and the engine's entry / exit decision rationale.</p>
                   </div>
-                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3">
-                    <h3 className="text-amber-300 font-semibold text-xs mb-1">Journey</h3>
-                    <p className="text-[10px] text-[#9ca3af] leading-relaxed">Scoring timeline, phase completion, and price performance across 1D to 90D windows.</p>
+                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-4">
+                    <h3 className="text-amber-300 font-semibold text-sm mb-1.5">Journey <span className="text-[9px] uppercase tracking-wider text-amber-400/80 ml-1">Pro</span></h3>
+                    <p className="text-[12px] text-[#a1a8b2] leading-[1.6]">Full ticker journey tracking — historical stage transitions and time-in-stage analytics.</p>
                   </div>
-                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3">
-                    <h3 className="text-amber-300 font-semibold text-xs mb-1">Trades</h3>
-                    <p className="text-[10px] text-[#9ca3af] leading-relaxed">Trade history for this ticker — every entry, exit, P&amp;L, and chart overlay.</p>
+                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-4">
+                    <h3 className="text-amber-300 font-semibold text-sm mb-1.5">Trades <span className="text-[9px] uppercase tracking-wider text-amber-400/80 ml-1">Pro</span></h3>
+                    <p className="text-[12px] text-[#a1a8b2] leading-[1.6]">Complete per-ticker trade ledger — every entry, trim, exit, P&amp;L, and chart overlay.</p>
                   </div>
                 </div>
               </div>
@@ -9305,11 +9302,11 @@
             title: "Build your watchlist",
             content: (
               <div className="space-y-4">
-                <p className="text-[#d1d5db] leading-relaxed">
+                <p className="text-base text-[#e5e7eb] leading-[1.7]">
                   Star any ticker to save it. Use the <strong className="text-white">Saved</strong> filter to see only your watchlist. You can also <strong className="text-white">add custom tickers</strong> via the "+ Add Ticker" button — the system will backfill, score, and start tracking them.
                 </p>
-                <p className="text-sm text-[#6b7280]">
-                  Scroll below to browse the universe and star tickers you want to follow.
+                <p className="text-[13px] text-[#9ca3af] leading-[1.65]">
+                  Browse the universe below and star tickers you want to follow.
                 </p>
                 <div className="max-h-52 overflow-y-auto border border-white/[0.08] rounded-lg p-2 space-y-0.5 bg-white/[0.02]">
                   {universeList.length === 0 ? (
@@ -9346,17 +9343,42 @@
           {
             title: "You're all set",
             content: (
-              <div className="space-y-4">
-                <p className="text-[#d1d5db] leading-relaxed">
-                  Start with the <strong className="text-white">Daily Brief</strong> each morning for market context. Check the <strong className="text-white">Analysis</strong> page for the system's top-ranked setups. Use the <strong className="text-white">Bubble Map</strong> to see the whole universe at a glance.
+              <div className="space-y-5">
+                <p className="text-base text-[#e5e7eb] leading-[1.7]">
+                  Start with the <strong className="text-white">Daily Brief</strong> each morning for context. Check the <strong className="text-white">Analysis</strong> page for the system's top-ranked setups. Use the <strong className="text-white">Bubble Map</strong> to see the whole universe at a glance.
                 </p>
-                <div className="bg-white/[0.03] border border-emerald-500/10 rounded-lg p-4">
-                  <div className="flex items-start gap-2">
-                    <span className="text-emerald-400 text-sm mt-0.5">ℹ</span>
-                    <p className="text-xs text-[#9ca3af] leading-relaxed">
-                      Reopen this guide anytime using the <strong className="text-white">Guide</strong> button in the top navigation. Use <strong className="text-white">Tour</strong> for an interactive walkthrough of the interface. Check the <strong className="text-white">FAQ</strong> for detailed questions.
-                    </p>
+                {/* P0.7.126 — Backtest proof tile moved here from step 1.
+                    Lands as confidence to act on what the user just learned. */}
+                <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4">
+                  <div className="text-[10px] uppercase tracking-[0.10em] text-[#F5C25C] font-semibold mb-3">
+                    Why we built this · Active Trader backtest, Jul 2025 → May 2026
                   </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div>
+                      <div className="text-xl font-bold text-emerald-300 tabular-nums">+40.0%</div>
+                      <div className="text-[10px] text-[#9ca3af] uppercase tracking-wider mt-0.5">Total Return</div>
+                    </div>
+                    <div>
+                      <div className="text-xl font-bold text-white tabular-nums">4.62</div>
+                      <div className="text-[10px] text-[#9ca3af] uppercase tracking-wider mt-0.5">Sharpe</div>
+                    </div>
+                    <div>
+                      <div className="text-xl font-bold text-rose-300 tabular-nums">−2.7%</div>
+                      <div className="text-[10px] text-[#9ca3af] uppercase tracking-wider mt-0.5">Max DD</div>
+                    </div>
+                    <div>
+                      <div className="text-xl font-bold text-white tabular-nums">52.2%</div>
+                      <div className="text-[10px] text-[#9ca3af] uppercase tracking-wider mt-0.5">Win Rate</div>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-[#6b7280] mt-3 leading-relaxed">
+                    Simulated. 588 closed trades over 203 trading days. Past performance is not a guarantee.
+                  </p>
+                </div>
+                <div className="bg-white/[0.03] border border-[#F5C25C]/15 rounded-lg p-4">
+                  <p className="text-sm text-[#d1d5db] leading-[1.7]">
+                    Reopen this guide anytime from the <strong className="text-white">Guide</strong> button. Use <strong className="text-white">Tour</strong> for an interactive walkthrough, or check the <strong className="text-white">FAQ</strong> for detailed questions.
+                  </p>
                 </div>
               </div>
             ),
@@ -19566,10 +19588,21 @@
         return (
           <>
             {/* Welcome Modals */}
+            {/* P0.7.126 — DashboardWelcomeModal previously received
+                Object.values(data), which dropped the symbol key and
+                produced "[object Object]" rows in the universe list
+                because per-ticker payloads don't always carry a
+                .ticker field. Stamp it from the entry key + filter
+                out internal underscore-prefixed keys. */}
             {showWelcomeDashboard && (
               <DashboardWelcomeModal
                 onClose={handleWelcomeDashboardClose}
-                tickers={Object.values(data || {})}
+                tickers={Object.entries(data || {})
+                  .filter(([sym]) => sym && !sym.startsWith("_"))
+                  .map(([sym, t]) => ({
+                    ...(t && typeof t === "object" ? t : {}),
+                    ticker: (t && t.ticker) || sym,
+                  }))}
                 savedTickers={savedTickers}
                 toggleSavedTicker={toggleSavedTicker}
               />

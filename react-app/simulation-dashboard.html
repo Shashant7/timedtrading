@@ -927,9 +927,43 @@
             // Hard upper bound on round trips so a misconfigured server never
             // loops forever. 20 pages * pageSize covers up to 20k rows.
             const maxPages = 20;
+            /* P0.7.126 — fetch with one 429 retry. Without this,
+               any rate-limited page (transient on busy days) blew
+               away the whole trade list and the UI showed empty.
+               On 429: read retryAfter, sleep that long (capped 30s),
+               retry once. Only after the retry fails do we set
+               items=[] and surface the error. */
+            const fetchWith429Retry = async (url) => {
+              for (let attempt = 0; attempt < 2; attempt++) {
+                const res = await fetch(url, { cache: "no-store" });
+                if (res.status !== 429) return res;
+                let waitSec = 5;
+                try {
+                  const eb = await res.clone().json();
+                  waitSec = Math.min(30, Math.max(2, Number(eb.retryAfter) || 10));
+                } catch (_) {}
+                if (attempt === 0) {
+                  console.warn(`[useLedgerTrades] 429 on ${url} — retrying after ${waitSec}s`);
+                  await new Promise(r => setTimeout(r, waitSec * 1000));
+                }
+              }
+              // Both attempts hit 429: fall through with the second response
+              return await fetch(url, { cache: "no-store" });
+            };
             for (let i = 0; i < maxPages; i++) {
-              const res = await fetch(buildUrl(cursorVal), { cache: "no-store" });
-              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const res = await fetchWith429Retry(buildUrl(cursorVal));
+              if (!res.ok) {
+                if (res.status === 429) {
+                  // Surface a friendly message + keep what we have so far
+                  setError("Rate limited. Showing partial results — try refresh in a minute.");
+                  setItems(collected);
+                  setHasMore(false);
+                  setCursor(null);
+                  setLoading(false);
+                  return;
+                }
+                throw new Error(`HTTP ${res.status}`);
+              }
               const json = await res.json();
               if (!json.ok) throw new Error(json.error || "ledger_trades_failed");
               const trades = Array.isArray(json.trades) ? json.trades : [];
@@ -7292,12 +7326,27 @@
         const [portfolioTab, setPortfolioTab] = useState("trader"); // "trader" | "investor"
 
         // Fetch investor trades + open positions eagerly on mount (both columns visible on desktop)
+        // P0.7.126 — added one-shot 429 retry. Previously a transient
+        // rate-limit silently nuked investor data and the column went
+        // blank with no message.
         const fetchInvestorData = useCallback(() => {
           setInvestorTradesLoading(true);
           setInvestorPosLoading(true);
+          const fetchWithRetry = async (url) => {
+            const res = await fetch(url);
+            if (res.status !== 429) return res;
+            let waitSec = 5;
+            try {
+              const eb = await res.clone().json();
+              waitSec = Math.min(30, Math.max(2, Number(eb.retryAfter) || 10));
+            } catch (_) {}
+            console.warn(`[fetchInvestorData] 429 on ${url} — retrying in ${waitSec}s`);
+            await new Promise(r => setTimeout(r, waitSec * 1000));
+            return fetch(url);
+          };
           Promise.all([
-            fetch(`${API_BASE}/timed/ledger/trades?mode=investor&limit=500`).then(r => r.json()),
-            fetch(`${API_BASE}/timed/investor/positions?status=OPEN&compact=true`).then(r => r.json()),
+            fetchWithRetry(`${API_BASE}/timed/ledger/trades?mode=investor&limit=500`).then(r => r.ok ? r.json() : { ok: false }),
+            fetchWithRetry(`${API_BASE}/timed/investor/positions?status=OPEN&compact=true`).then(r => r.ok ? r.json() : { ok: false }),
           ]).then(([tradesJson, posJson]) => {
             if (tradesJson.ok) setInvestorTrades(tradesJson.trades || []);
             if (posJson.ok) setInvestorPositions(posJson.positions || []);
