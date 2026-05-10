@@ -779,6 +779,20 @@ export async function loadReplayRuntimeConfig(args = {}) {
     replayEnv._deepAuditConfig = deepAuditConfig;
     replayEnv._referenceExecutionMap = disableReferenceExecution ? null : referenceExecutionMap;
     replayEnv._scenarioExecutionPolicy = scenarioExecutionPolicy;
+    // Phase 3.9 KV snapshot wiring: callers populate kvSnapshot from the
+    // day-state blob's kv_reads field (replay mode) and / or set
+    // kvCaptureEnabled=true with an empty kvCapture map (capture mode).
+    // The worker/replay-kv-snapshot.js helper consults these when
+    // resolving its mode. When the env flag USE_REPLAY_KV_SNAPSHOT is
+    // not "true" the helper short-circuits to passthrough regardless of
+    // these fields, so this wiring is safe to ship to production with
+    // no behavior change.
+    if (replayEnv.kvSnapshot == null && replayEnv._kvSnapshotInitialized !== true) {
+      replayEnv.kvSnapshot = null;
+      replayEnv.kvCapture = null;
+      replayEnv.kvCaptureEnabled = false;
+      replayEnv._kvSnapshotInitialized = true;
+    }
   }
 
   return {

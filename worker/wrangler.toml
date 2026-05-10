@@ -311,6 +311,13 @@ EMAIL_FROM = "notifications@timed-trading.com"
 # disclaimer in any UI surface to make it impossible to confuse
 # pre-prod data for live.
 ENVIRONMENT_LABEL = "preprod"
+# Phase 3.9 (2026-05-10) — Replay KV snapshot mode. Enables the
+# worker/replay-kv-snapshot.js helper to (a) capture KV reads into
+# per-session day-state during capture runs and (b) replay from
+# captured day-state on subsequent backtests. Production never sets
+# this var; passthrough mode is the default for the live cron path.
+# See tasks/phase-c/PREPROD_KV_SNAPSHOT_2026-05-10.md.
+USE_REPLAY_KV_SNAPSHOT = "true"
 
 # Pre-prod has NO scheduled crons. Backtest replays drive all
 # activity. Empty crons array EXPLICITLY overrides the top-level
