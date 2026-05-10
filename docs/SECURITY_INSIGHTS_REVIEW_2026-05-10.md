@@ -1,5 +1,9 @@
 # Security Insights Review — 2026-05-10
 
+> **Final resolution status: 2026-05-10 23:35 UTC.** All findings actioned.
+> 1 finding remains as accepted false-positive (paid-SaaS architecture).
+> See "Final state" section at the bottom.
+
 Triage of Cloudflare Security Insights for `timed-trading.com` and
 `timed-trading.ai`. Each finding is rated by **real impact** (not Cloudflare's
 generic severity) and assigned an owner, action, and ETA bucket.
@@ -8,15 +12,17 @@ generic severity) and assigned an owner, action, and ETA bucket.
 
 | # | Finding | Real impact | Status |
 |---|---------|-------------|--------|
-| 1 | **Critical: Overprovisioned Access Policies on screener.html** | Real | ⚠️ **Half done** — backend `_worker.js` admin gate shipped (P0.7.127, defense in depth on 8 admin pages). CF Access policy still needs to be tightened in dashboard. |
-| 2 | DMARC Record missing | Real (email spoofing risk) | ⏳ Pending — DNS TXT record (you must add) |
-| 3 | "Always Use HTTPS" / HSTS / TLS missing on 60099094.* and url2336.* | False alarm (SendGrid tracking subs) | ⏳ Pending — verify origin = SendGrid, then dismiss |
+| 1 | **Critical: Overprovisioned Access Policies on screener.html** | Real | ✅ **Done** — Admin Pages app with `Emails: shashant@gmail.com` policy + PR #95 backend gate. Incognito-tested. |
+| — | New Critical: Overprovisioned on `index-react.html` (post-fix scan) | False positive | ⚠️ **Accepted risk** — see Final state section. Paid-SaaS public-dashboard pattern; the Stripe subscription check is the actual paywall. |
+| 2 | DMARC Record missing | Real (email spoofing risk) | ✅ **Done** — `v=DMARC1; p=none;` live; ramp to `p=reject` calendared for +4 weeks |
+| 3 | "Always Use HTTPS" / HSTS / TLS missing on 60099094.* and url2336.* | False alarm (SendGrid tracking subs) | ✅ **Dismissed** — confirmed CNAMEs to `sendgrid.net` |
 | 4 | Bot Fight Mode not enabled (.com + .ai) | Low | ✅ **Done** by user (2026-05-10) |
 | 5 | Block AI bots not enabled (.com + .ai) | Low (revenue protection) | ✅ **Done** by user (2026-05-10) |
 | 6 | Security.txt not configured | Low | ✅ **Done** in PR #93 — `/.well-known/security.txt` live |
-| 7 | AI Labyrinth not enabled (.ai) | Optional | Skip for now |
+| 7 | AI Labyrinth not enabled (.ai) | Optional | Skip — wait for actual scraping pressure |
 | 8 | Turnstile not enabled (account-wide) | Low | Skip until we add a public form |
-| 9 | MFA missing on shashant@gmail.com | **High** (account takeover) | ⏳ Pending — 2 minutes in CF Dashboard |
+| 9 | MFA missing on shashant@gmail.com | **High** (account takeover) | ✅ **Done** — 2FA enabled (2026-05-10) |
+| — | SPF didn't include SendGrid (discovered during DMARC setup) | Real (DKIM-only auth) | ✅ **Done** — SPF now `include:_spf.mx.cloudflare.net include:sendgrid.net ~all` |
 
 ---
 
@@ -288,17 +294,83 @@ After enabling, also flip on the account-level requirement:
 5. Bot Fight Mode enabled (both zones) — 2026-05-10
 6. Block AI bots enabled (both zones) — 2026-05-10
 
-## What still needs you on the Cloudflare Dashboard
+## Final state — 2026-05-10 23:35 UTC
 
-| Action | Where | Time | Why it matters |
-|--------|-------|------|---------------|
-| **Enable 2FA on shashant@gmail.com** | My Profile → Authentication | 2 min | **HIGH** — account compromise = total system takeover |
-| **Tighten Access policy on /screener.html** (and 7 other admin pages) | Zero Trust → Access → Applications | 10 min | First line of defense (the new `_worker.js` gate is the second) |
-| **Add DMARC TXT record** (`p=none` to start) | DNS → Records → Add TXT | 2 min | Stops email spoofing |
-| Verify SendGrid subdomains are DNS-only and dismiss those insights | DNS → Records | 2 min | Cleanup — these are out of CF's reach |
+All findings actioned. Cloudflare Dashboard work completed:
 
-**Total remaining dashboard time: ~16 minutes.**
+### Cloudflare Access — split into two apps
 
-After you complete the dashboard steps, re-run the Security Insights scan
-and the Critical + remaining Moderate items should clear. The SendGrid
-subdomain warnings may persist as informational — that's expected.
+- **`Timed Trading - User Pages`** — destinations: `/index-react.html`,
+  `/simulation-dashboard.html`, `/daily-brief.html`, `/alerts.html`,
+  `/investor-dashboard.html`. Policy `Allow users` with
+  `Include: Everyone` (any user authenticated via Google SSO). This is
+  the paid-user gate; the actual subscription check happens in the
+  worker via Stripe.
+- **`Timed Trading - Admin Pages`** — single regex destination matching
+  the 8 admin HTML files. Policy `Admin Only` with
+  `Include: Emails: shashant@gmail.com`. Confirmed via incognito test:
+  non-admin Google user → "You don't have access to this resource";
+  admin → page loads.
+
+### Email auth (anti-spoofing)
+
+```
+SPF:   v=spf1 include:_spf.mx.cloudflare.net include:sendgrid.net ~all
+DKIM:  s1._domainkey + s2._domainkey CNAMEs to u60099094.wl095.sendgrid.net
+DMARC: v=DMARC1; p=none;
+```
+
+DMARC reporting addresses (`rua/ruf`) intentionally omitted — the user
+opted out of inbound report parsing. Calendar reminders set for the
+ramp:
+
+| +2 weeks | DMARC `p=none` → `p=quarantine; pct=25` |
+| +3 weeks | DMARC → `p=quarantine` (100%) |
+| +4 weeks | DMARC → `p=reject` — full anti-spoofing |
+| +12 weeks | Re-run CF Security Insights scan |
+| Annually | Renew `Expires:` date in `/.well-known/security.txt` |
+
+### Other dashboard items completed
+
+- 2FA enabled on `shashant@gmail.com` ✅
+- Bot Fight Mode enabled on `timed-trading.com` + `timed-trading.ai` ✅
+- Block AI bots enabled on both zones ✅
+- SendGrid subdomain TLS/HSTS/HTTPS warnings dismissed
+  (false positives — SendGrid CNAMEs are DNS-only, out of CF's edge) ✅
+
+## Accepted false positive (1 finding remains)
+
+**Critical: Overprovisioned Access Policies on
+`timed-trading.com/index-react.html`.**
+
+This fires because the `Allow users` policy on the User Pages app uses
+`Include: Everyone` (any user authenticated via Google SSO). Cloudflare's
+automated scanner treats `Include: Everyone` as overprovisioned by default.
+
+**Why we accept it:** `index-react.html` is the public dashboard for a
+paid SaaS product. Anyone with a Google account *should* be able to load
+the page and sign in — that's the signup funnel. The actual access
+control is the Stripe subscription check in the worker (per-feature),
+not at CF Access. Restricting to a fixed email list would break signups.
+
+Defense in depth on this page is layered:
+1. CF Access — identifies the user (Google SSO)
+2. Worker `requireKeyOrAdmin` / Stripe subscription check — gates Pro features
+3. Worker auth middleware — gates raw data API endpoints
+4. PR #95 backend gate — extra layer for admin-only HTML
+
+**Workarounds attempted:** changing `Include: Everyone` →
+`Include: Login Methods: Google` was tried as a more-specific rule, but
+the scanner's heuristic still flagged it. Functionally equivalent.
+Cloudflare doesn't permit hand-dismissing automated infra-security
+findings, so this Critical will continue to surface in scans.
+
+**Action: monitor only.** If Cloudflare ever surfaces additional
+context (e.g. an actual exposed admin endpoint behind this policy),
+revisit. Until then this is accepted-risk and documented here.
+
+## Things shipped to repo
+
+- PR #93: `security.txt` + `robots.txt` + this review doc
+- PR #95: `_worker.js` admin-page gate (defense in depth on 8 admin pages)
+- PR #97 (this commit): final-state update to this doc
