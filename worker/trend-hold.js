@@ -140,6 +140,22 @@ export function loadTrendHoldConfig(daCfg) {
   if (Number.isFinite(capOverride) && capOverride > 0 && capOverride <= 50) {
     cfg.max_simultaneous_positions = capOverride;
   }
+  // Promotion threshold overrides (Phase 3.9b — 2026-05-10).
+  // Forensic dry-run on canonical Phase C `direction_accuracy` (517 trades
+  // across the 14-ticker blueprint cohort, 8 tuning passes) showed the
+  // default weekly TD9-sell ≥ 9 and weekly RSI ≥ 88 gates were rejecting
+  // 51 + 6 should-have-held momentum trades, NOT catching exhaustion tops.
+  // Loosening to td9=12 / rsi=95 triples implied uplift (51 → 154.6 pp)
+  // while LOWERING false-positive rate (11.8% → 7%). Sealed with
+  // `data/forensic-th-dry-run/summary.json`.
+  const td9Override = Number(daCfg.deep_audit_trend_hold_promote_max_weekly_td9_sell_count);
+  if (Number.isFinite(td9Override) && td9Override >= 0 && td9Override <= 13) {
+    cfg.promote_max_weekly_td9_sell_count = td9Override;
+  }
+  const rsiOverride = Number(daCfg.deep_audit_trend_hold_promote_max_weekly_rsi);
+  if (Number.isFinite(rsiOverride) && rsiOverride > 0 && rsiOverride <= 100) {
+    cfg.promote_max_weekly_rsi = rsiOverride;
+  }
   return cfg;
 }
 
