@@ -69,52 +69,88 @@ curl -sS -X POST "$PREPROD_BASE/timed/admin/ensure-trend-hold-schema?key=$API_KE
 
 # 3. Clone model_config rows from live → preprod.
 echo
-echo "[3/5] Cloning model_config..."
-# The live worker exposes the daCfg keys via REPLAY_DA_KEYS, but reading
-# model_config rows directly needs a list-keys endpoint. We use the
-# trend-hold-evaluate endpoint's daCfg-load behavior as a probe to know
-# the keys. For full clone we'd need an /admin/model-config?action=list
-# endpoint; for now we replicate the keys we explicitly know matter for
-# Phase 3 + Phase 4 validation.
-KEYS_TO_CLONE=(
-  "deep_audit_trend_hold_enabled"
-  "deep_audit_trend_hold_max_positions"
-  "deep_audit_exit_doctrine_enabled"
-  "ai_cio_enabled"
-  "ai_cio_replay_enabled"
-  "calibrated_rank_min"
-  "calibrated_sl_atr"
-  "deep_audit_hard_loss_cap"
-  "deep_audit_hard_loss_cap_pct"
-  "deep_audit_max_loss_pct"
-  "tier_risk_map"
-  "grade_risk_map"
-)
-# For each key, fetch from live via a trend-hold-evaluate dump (it returns
-# all the daCfg values it loads). Then push to preprod via model-config.
-LIVE_CFG=$(curl -sS -X POST "$LIVE_BASE/timed/admin/trend-hold-evaluate?ticker=AAPL&autoFallback=1&commit=0&key=$API_KEY" 2>&1)
-# Extract whatever the endpoint exposes. For unknown keys, fall back to defaults.
-echo "  (clone uses trend-hold-evaluate dump as a probe; full model_config"
-echo "   replication requires an /admin/model-config?action=list endpoint —"
-echo "   added in Phase 3.7 alongside this script.)"
+echo "[3/5] Cloning model_config (full dump → restore via wrangler d1)..."
+#
+# 2026-05-10 (Phase 3.9): switched from "12 explicit keys" partial-clone
+# to a full dump-and-restore via the wrangler d1 CLI. The earlier partial
+# approach silently produced a 5-row preprod model_config which then
+# fed the DO backtest path (`backtest-runner-do.js:165 snapshotConfig`),
+# pinning a 5-row backtest_run_config — and `loadReplayRuntimeConfig`
+# (worker/replay-runtime-setup.js:677) treats partial pinned snapshots
+# as authoritative without per-key fallback. Net effect: ~85 deep_audit_*
+# keys silently fell through to hardcoded code defaults, producing the
+# 19% WR observed on `phase-c-stage2-th-do-v3-jul2025-may2026`.
+#
+# Full diagnostic: tasks/phase-c/WR_DIAGNOSTIC_2026-05-10.md
+#
+# Requirements: CLOUDFLARE_API_TOKEN must be set (or CLOUDFLARE_TOKEN is
+# auto-promoted below). Run from repo root.
 
-# Build batch updates payload from KEYS_TO_CLONE with sensible preprod defaults.
-# Trend-Hold flag starts as 'true' on preprod (we WANT to test it here).
-PAYLOAD=$(python3 -c "
+if [[ -z "${CLOUDFLARE_API_TOKEN:-}" && -n "${CLOUDFLARE_TOKEN:-}" ]]; then
+  export CLOUDFLARE_API_TOKEN="$CLOUDFLARE_TOKEN"
+fi
+if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
+  echo "ERROR: CLOUDFLARE_API_TOKEN env required for wrangler d1 access" >&2
+  exit 4
+fi
+
+DUMP_JSON=$(mktemp /tmp/live-model-config-dump.XXXXXX.json)
+SEED_SQL=$(mktemp /tmp/preprod-model-config-seed.XXXXXX.sql)
+trap "rm -f $DUMP_JSON $SEED_SQL" EXIT
+
+echo "  3a. dumping live model_config to $DUMP_JSON ..."
+npx wrangler d1 execute timed-trading-ledger --remote --json \
+  --command="SELECT config_key, config_value, description FROM model_config ORDER BY config_key" \
+  > "$DUMP_JSON" 2>&1
+TOTAL_KEYS=$(jq '.[0].results | length' "$DUMP_JSON" 2>/dev/null || echo "0")
+echo "     dumped $TOTAL_KEYS rows from live model_config"
+if [[ "$TOTAL_KEYS" -lt 100 ]]; then
+  echo "     ERROR: live model_config dump returned $TOTAL_KEYS rows (expected >300)" >&2
+  echo "     (head of dump for inspection):" >&2
+  head -40 "$DUMP_JSON" >&2
+  exit 5
+fi
+
+echo "  3b. building INSERT OR REPLACE SQL ..."
+NOW_MS=$(date +%s)000
+jq -r --arg ts "$NOW_MS" '.[0].results[] | "INSERT OR REPLACE INTO model_config (config_key, config_value, description, updated_at, updated_by) VALUES (" +
+  "'"'"'" + (.config_key | gsub("'"'"'"; "''"))   + "'"'"'," +
+  "'"'"'" + ((.config_value // "") | tostring | gsub("'"'"'"; "''")) + "'"'"'," +
+  "'"'"'" + ((.description // "")   | gsub("'"'"'"; "''"))   + "'"'"'," +
+  ($ts) + "," +
+  "'"'"'cloned-from-live'"'"');"' "$DUMP_JSON" > "$SEED_SQL"
+SQL_LINES=$(wc -l < "$SEED_SQL")
+echo "     built $SQL_LINES INSERT statements"
+
+echo "  3c. applying seed to preprod model_config ..."
+npx wrangler d1 execute timed-trading-ledger-preprod --remote --file="$SEED_SQL" 2>&1 | tail -10
+
+echo "  3d. verifying preprod model_config row count ..."
+PREPROD_COUNT=$(npx wrangler d1 execute timed-trading-ledger-preprod --remote --json \
+  --command="SELECT COUNT(*) AS n FROM model_config" 2>&1 \
+  | jq -r '.[0].results[0].n' 2>/dev/null || echo "0")
+echo "     preprod model_config now has $PREPROD_COUNT rows"
+if [[ "$PREPROD_COUNT" -lt 100 ]]; then
+  echo "     ERROR: preprod model_config has $PREPROD_COUNT rows after clone (expected ~$TOTAL_KEYS)" >&2
+  exit 6
+fi
+
+# 3e. Re-apply preprod-specific experiment overrides on top.
+# These are the 3 keys we want to differ from live so that backtests
+# test the TH module rather than mirror live's dark-feature flag.
+echo "  3e. applying preprod TH experiment overrides ..."
+OVR_PAYLOAD=$(python3 -c "
 import json
 updates = [
-  {'key': 'deep_audit_trend_hold_enabled', 'value': 'true', 'description': 'preprod default — TH on for backtest validation'},
-  {'key': 'deep_audit_trend_hold_max_positions', 'value': 6, 'description': 'preprod default — max 6 simultaneous TH positions'},
-  {'key': 'deep_audit_exit_doctrine_enabled', 'value': 'true', 'description': 'preprod — same as live'},
-  {'key': 'ai_cio_enabled', 'value': 'true', 'description': 'preprod — AI CIO active'},
-  {'key': 'ai_cio_replay_enabled', 'value': 'true', 'description': 'preprod — replay can trigger CIO'},
+  {'key': 'deep_audit_trend_hold_enabled', 'value': 'true', 'description': 'preprod override — TH on for backtest validation (live default false)'},
+  {'key': 'deep_audit_trend_hold_max_positions', 'value': 6, 'description': 'preprod override — max 6 simultaneous TH positions'},
 ]
 print(json.dumps({'updates': updates}))
 ")
-RES=$(curl -sS -X POST "$PREPROD_BASE/timed/admin/model-config?key=$API_KEY" \
+OVR_RES=$(curl -sS -X POST "$PREPROD_BASE/timed/admin/model-config?key=$API_KEY" \
   -H "content-type: application/json" \
-  -d "$PAYLOAD")
-echo "  $RES"
+  -d "$OVR_PAYLOAD")
+echo "     $OVR_RES"
 
 # 4. Clone day-state KV blobs from live → preprod.
 #
