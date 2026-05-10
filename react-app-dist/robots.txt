@@ -1,0 +1,56 @@
+# Timed Trading robots.txt
+# Belt-and-suspenders for Cloudflare's "Block AI bots" feature.
+
+# Block AI training crawlers (we serve product IP, not public knowledge)
+User-agent: GPTBot
+Disallow: /
+
+User-agent: ChatGPT-User
+Disallow: /
+
+User-agent: ClaudeBot
+Disallow: /
+
+User-agent: Claude-Web
+Disallow: /
+
+User-agent: anthropic-ai
+Disallow: /
+
+User-agent: PerplexityBot
+Disallow: /
+
+User-agent: Perplexity-User
+Disallow: /
+
+User-agent: cohere-ai
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: Google-Extended
+Disallow: /
+
+User-agent: Bytespider
+Disallow: /
+
+User-agent: Diffbot
+Disallow: /
+
+User-agent: Omgili
+Disallow: /
+
+# Default: allow indexing of public pages, block admin surfaces
+User-agent: *
+Allow: /
+Disallow: /admin-clients.html
+Disallow: /screener.html
+Disallow: /system-intelligence.html
+Disallow: /trade-autopsy.html
+Disallow: /ticker-management.html
+Disallow: /debug-dashboard.html
+Disallow: /model-dashboard.html
+Disallow: /brand-kit.html
+Disallow: /api/
+Disallow: /timed/

@@ -1,0 +1,26 @@
+# Timed Trading — Vulnerability Disclosure Policy
+# https://www.rfc-editor.org/info/rfc9116
+
+Contact: mailto:security@timed-trading.com
+Contact: mailto:support@timed-trading.com
+Expires: 2027-05-10T00:00:00.000Z
+Preferred-Languages: en
+Canonical: https://timed-trading.com/.well-known/security.txt
+Policy: https://timed-trading.com/terms.html
+
+# If you have discovered a security vulnerability in Timed Trading,
+# please report it to security@timed-trading.com. We aim to respond
+# within 72 hours. Please do not disclose the vulnerability publicly
+# until we have had a chance to investigate and remediate.
+#
+# In scope:
+#   - timed-trading.com  (Cloudflare Pages + Workers)
+#   - timed-trading.ai   (Cloudflare Pages + Workers)
+#   - *.timed-trading.com (subdomains operated by us)
+#
+# Out of scope:
+#   - SendGrid tracking subdomains (managed by SendGrid)
+#   - Third-party SaaS (Stripe, Discord, OpenAI, Anthropic, TwelveData)
+#   - Social engineering of staff or customers
+#   - Physical attacks
+#   - DDoS / volumetric attacks (handled by Cloudflare)
