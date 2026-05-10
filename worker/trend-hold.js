@@ -64,7 +64,24 @@ export const DEFAULT_TREND_HOLD_CONFIG = Object.freeze({
   promote_max_weekly_rsi: 88,           // exhaustion guard on weekly RSI
   promote_min_days_to_earnings: 3,
   promote_disallow_underweight_sector: true,
-  promote_max_trimmed_pct: 0.5,
+  // V15 P0.7.123 (2026-05-10) — Phase 3.8: raise from 0.5 to 0.85.
+  // The first preprod backtest run discovered that the existing TP ladder
+  // trims trades to 50%+ remaining BEFORE the TH lifecycle eval block
+  // gets a chance to evaluate (per-tick ordering in
+  // processTradeSimulation: MFE update → TH eval → exit doctrine →
+  // TP/trim logic). All 20 MFE ≥ 5% candidates in that run had
+  // trimmed_pct in [0.5, 1.0], so the original 0.5 cap rejected
+  // 100% of TH-eligible trades.
+  //
+  // Raising to 0.85 captures partially-trimmed runners (50-85%
+  // trimmed) that still have meaningful upside left. Above 85%
+  // trimmed, the position is too small to materially benefit from
+  // suppression of the giveback exits.
+  //
+  // Longer-term refinement (Phase 3.9): move TH eval BEFORE the TP
+  // ladder fires, so promotion can happen at first MFE >= 5% before
+  // any trim. Tracked in PRE_PROD_ENV_RUNBOOK.md follow-ups.
+  promote_max_trimmed_pct: 0.85,
   // Anti-thrash: a freshly demoted trade can't immediately re-promote.
   promote_cooldown_after_demote_ms: 6 * 60 * 60 * 1000, // 6h
 

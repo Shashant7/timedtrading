@@ -190,11 +190,17 @@ t('promote: rejects pre-earnings (< 3 days)', () => {
   expect(r.reason, 'matches', 'days_to_earnings', 'reason');
 });
 
-t('promote: rejects when already trimmed >= 50%', () => {
-  const snap = fxIdealPromotionSnap(); snap.trimmedPct = 0.6;
-  const r = shouldPromoteToTrendHold(snap, fxOpenTrade({ trimmed_pct: 0.6 }), DEFAULT_TREND_HOLD_CONFIG);
+t('promote: rejects when already trimmed >= 85% (Phase 3.8 raised threshold)', () => {
+  const snap = fxIdealPromotionSnap(); snap.trimmedPct = 0.9;
+  const r = shouldPromoteToTrendHold(snap, fxOpenTrade({ trimmed_pct: 0.9 }), DEFAULT_TREND_HOLD_CONFIG);
   expect(r.promote, '==', false, 'promote');
   expect(r.reason, 'matches', 'trimmed_pct', 'reason');
+});
+
+t('promote: ALLOWS when trimmed_pct = 0.6 (Phase 3.8: was rejected at 0.5 cap)', () => {
+  const snap = fxIdealPromotionSnap(); snap.trimmedPct = 0.6;
+  const r = shouldPromoteToTrendHold(snap, fxOpenTrade({ trimmed_pct: 0.6 }), DEFAULT_TREND_HOLD_CONFIG);
+  expect(r.promote, '==', true, 'promote');
 });
 
 t('promote: rejects within demote cooldown (6h)', () => {
