@@ -4637,7 +4637,11 @@ function EquityCurveChart({
 function PerformanceOverviewSection({
   trades,
   loading,
-  accountStartCash
+  accountStartCash,
+  mode,
+  title,
+  subtitle,
+  accentColor
 }) {
   const TradesPerformance = useMemo(() => {
     const factory = typeof window !== "undefined" && window.TradesPerformanceFactory;
@@ -4655,26 +4659,44 @@ function PerformanceOverviewSection({
   if (!TradesPerformance) {
     return null;
   }
+  const _title = title || "Performance Overview";
+  const _subtitle = subtitle || "Closed trades · 90-day calendar";
+  const _accent = accentColor || "var(--tt-accent)";
   return React.createElement("div", {
     className: "ds-glass",
     style: {
       marginBottom: "var(--ds-space-5)"
     }
   }, React.createElement("div", {
-    className: "ds-glass__head"
-  }, React.createElement("div", {
-    className: "ds-glass__title"
-  }, "Performance Overview"), React.createElement("div", {
+    className: "ds-glass__head",
     style: {
+      display: "flex",
+      alignItems: "center",
+      gap: "var(--ds-space-2)"
+    }
+  }, React.createElement("span", {
+    style: {
+      display: "inline-block",
+      width: "8px",
+      height: "8px",
+      borderRadius: "999px",
+      background: _accent
+    }
+  }), React.createElement("div", {
+    className: "ds-glass__title"
+  }, _title), React.createElement("div", {
+    style: {
+      marginLeft: "auto",
       fontSize: "var(--ds-fs-meta)",
       color: "var(--ds-text-muted)",
       textTransform: "uppercase",
       letterSpacing: "0.08em"
     }
-  }, "Closed trades \xB7 90-day calendar")), React.createElement(TradesPerformance, {
+  }, _subtitle)), React.createElement(TradesPerformance, {
     trades: trades,
     loading: loading,
-    accountStartCash: accountStartCash
+    accountStartCash: accountStartCash,
+    mode: mode
   }));
 }
 function PortfolioColumn({
@@ -4764,6 +4786,19 @@ function PortfolioColumn({
         hour12: true
       });
     };
+    const fmtLotDate = ts => {
+      if (!ts) return "—";
+      const raw = Number(ts);
+      if (!Number.isFinite(raw) || raw <= 0) return "—";
+      const ms = raw < 1e12 ? raw * 1000 : raw;
+      const d = new Date(ms);
+      return d.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "2-digit",
+        timeZone: "UTC"
+      });
+    };
     const all = (trades || []).map(t => {
       const s = String(t.status || "").toUpperCase();
       const act = String(t.action || "").toUpperCase();
@@ -4772,11 +4807,15 @@ function PortfolioColumn({
       const _ep = Number(t.entry_price || 0);
       const _xp = Number(t.exit_price || 0);
       const computedPnlPct = Math.abs(_pnlPct) > 0.001 ? _pnlPct : isClosed && _ep > 0 && _xp > 0 ? String(t.direction || "").toUpperCase() === "LONG" ? (_xp - _ep) / _ep * 100 : (_ep - _xp) / _ep * 100 : 0;
+      const fmtFn = isTrader ? fmtTradeDate : fmtLotDate;
       return {
         ticker: String(t.ticker || "").toUpperCase(),
         direction: String(t.direction || "LONG").toUpperCase(),
-        entryDate: fmtTradeDate(t.entry_ts || t.ts),
-        exitDate: isClosed ? fmtTradeDate(t.exit_ts) : null,
+        action: act,
+        lotPrice: _ep > 0 ? _ep : null,
+        reason: t.reason || "",
+        entryDate: fmtFn(t.entry_ts || t.ts),
+        exitDate: isClosed ? fmtFn(t.exit_ts) : null,
         pnl: isClosed ? Number(t.pnl) || 0 : null,
         pnlPct: isClosed ? computedPnlPct : null,
         setupGrade: t.setup_grade || t.setupGrade || "",
@@ -5027,9 +5066,9 @@ function PortfolioColumn({
                         <tr className="border-b border-white/[0.08] sticky top-0 bg-[var(--tt-bg-surface)] z-10">
                           <th className="py-2 pr-2 text-left font-semibold text-[var(--tt-text-faint)] text-[11px]">Date</th>
                           <th className="py-2 pr-2 text-left font-semibold text-[var(--tt-text-faint)] text-[11px]">Ticker</th>
-                          <th className="py-2 pr-2 text-left font-semibold text-[var(--tt-text-faint)] text-[11px]">Dir</th>
-                          <th className="py-2 pr-2 text-left font-semibold text-[var(--tt-text-faint)] text-[11px]">Tier</th>
-                          <th className="py-2 pr-2 text-right font-semibold text-[var(--tt-text-faint)] text-[11px]">Size</th>
+                          <th className="py-2 pr-2 text-left font-semibold text-[var(--tt-text-faint)] text-[11px]">${isTrader ? "Dir" : "Action"}</th>
+                          <th className="py-2 pr-2 text-left font-semibold text-[var(--tt-text-faint)] text-[11px]">${isTrader ? "Tier" : "Reason"}</th>
+                          <th className="py-2 pr-2 text-right font-semibold text-[var(--tt-text-faint)] text-[11px]">${isTrader ? "Size" : "Shares @ Price"}</th>
                           <th className="py-2 pr-2 text-right font-semibold text-[var(--tt-text-faint)] text-[11px]">P&L</th>
                           <th className="py-2 pr-2 text-right font-semibold text-[var(--tt-text-faint)] text-[11px]">P&L%</th>
                           <th className="py-2 text-center font-semibold text-[var(--tt-text-faint)] text-[11px]">Status</th>
@@ -5037,14 +5076,16 @@ function PortfolioColumn({
                       </thead>
                       <tbody>
                         ${tradeHistory.slice(0, 100).map((h, i) => {
-    const isClosed = h.status === "WIN" || h.status === "LOSS" || h.status === "FLAT";
+    const isClosed = isTrader ? h.status === "WIN" || h.status === "LOSS" || h.status === "FLAT" : h.action === "SELL";
+    const isInvestorBuy = !isTrader && h.action === "BUY";
     const statusColor = h.status === "WIN" ? "text-[var(--tt-accent)]" : h.status === "LOSS" ? "text-[var(--tt-negative)]" : "text-[var(--tt-text-muted)]";
     const pnlColor = h.pnl != null ? h.pnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]" : "text-[var(--tt-text-faint)]";
     const pnlPctColor = h.pnlPct != null ? h.pnlPct >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]" : "text-[var(--tt-text-faint)]";
     const tradeId = h.tradeId || h.raw?.trade_id || h.raw?.id || "";
     const _g = h.setupGrade;
     const gradeCls = _g === "Prime" ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : _g === "Confirmed" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : _g === "Speculative" ? "bg-blue-500/20 text-blue-300 border-emerald-500/30" : "";
-    const rowBg = !isClosed ? "bg-blue-500/[0.03]" : "";
+    const rowBg = isInvestorBuy ? "bg-emerald-500/[0.03]" : !isClosed ? "bg-blue-500/[0.03]" : "";
+    const reasonText = !isTrader && h.reason ? investorReasonLabel(h.reason, h.action) : "";
     return html`<tr
                             key=${i}
                             className=${"border-b border-white/[0.04] hover:bg-[var(--tt-bg-hover)] cursor-pointer transition-colors " + rowBg}
@@ -5056,19 +5097,25 @@ function PortfolioColumn({
       }
     }}
                           >
-                            <td className="py-2 pr-2 text-[var(--tt-text-muted)] whitespace-nowrap">${isClosed ? h.exitDate || h.entryDate : h.entryDate}</td>
+                            <td className="py-2 pr-2 text-[var(--tt-text-muted)] whitespace-nowrap">${isClosed && isTrader ? h.exitDate || h.entryDate : h.entryDate}</td>
                             <td className="py-2 pr-2 font-semibold text-white">${h.ticker}</td>
                             <td className="py-2 pr-2">
-                              <span className=${h.direction === "LONG" ? "text-green-400" : "text-red-400"}>${h.direction}</span>
+                              ${isTrader ? html`<span className=${h.direction === "LONG" ? "text-green-400" : "text-red-400"}>${h.direction}</span>` : html`<span className=${"px-1.5 py-0.5 rounded text-[10px] font-bold border " + (h.action === "BUY" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : "bg-rose-500/20 text-rose-300 border-rose-500/30")}>${h.action}</span>`}
                             </td>
                             <td className="py-2 pr-2">
-                              ${_g ? html`<span className=${"px-1.5 py-0.5 rounded text-[9px] font-bold border " + gradeCls}>${_g}</span>` : html`<span className="text-[var(--tt-text-faint)]">—</span>`}
+                              ${isTrader ? _g ? html`<span className=${"px-1.5 py-0.5 rounded text-[9px] font-bold border " + gradeCls}>${_g}</span>` : html`<span className="text-[var(--tt-text-faint)]">—</span>` : html`<span className="text-[10px] text-[var(--tt-text-muted)]" title=${reasonText}>${reasonText.length > 28 ? reasonText.slice(0, 26) + "…" : reasonText || "—"}</span>`}
                             </td>
                             <td className="py-2 pr-2 text-right font-medium whitespace-nowrap">
                               ${(() => {
       const _s = Number(h.raw?.shares) || 0;
       const _ep = Number(h.raw?.entry_price || h.raw?.entryPrice) || 0;
       if (!_s || !_ep) return html`<span className="text-[var(--tt-text-faint)]">—</span>`;
+      if (!isTrader) {
+        return html`<div className="leading-tight">
+                                    <div className="text-[#a78bfa]">${_s.toFixed(_s >= 100 ? 0 : 2)} sh</div>
+                                    <div className="text-[10px] text-[var(--tt-text-muted)]">@ $${_ep.toFixed(2)}</div>
+                                  </div>`;
+      }
       const _av = Number(window?._ttAccountValue || 100000) || 100000;
       const _ctx = window?.TimedPriceUtils?.computePositionContext ? window.TimedPriceUtils.computePositionContext({
         shares: _s,
@@ -5087,13 +5134,13 @@ function PortfolioColumn({
     })()}
                             </td>
                             <td className=${"py-2 pr-2 text-right font-medium whitespace-nowrap " + pnlColor}>
-                              ${h.pnl != null ? fmtUsd(h.pnl) : "—"}
+                              ${h.pnl != null ? fmtUsd(h.pnl) : isInvestorBuy ? html`<span className="text-[var(--tt-text-faint)] text-[10px]">entry</span>` : "—"}
                             </td>
                             <td className=${"py-2 pr-2 text-right font-medium whitespace-nowrap " + pnlPctColor}>
                               ${h.pnlPct != null ? (h.pnlPct >= 0 ? "+" : "") + h.pnlPct.toFixed(2) + "%" : "—"}
                             </td>
                             <td className="py-2 text-center">
-                              ${isClosed ? html`<span className=${"px-1.5 py-0.5 rounded text-[9px] font-bold border " + (h.status === "WIN" ? "bg-green-500/20 text-green-400 border-green-500/30" : h.status === "LOSS" ? "bg-red-500/20 text-red-400 border-red-500/30" : "bg-[#6b7280]/20 text-[#9ca3af] border-[#6b7280]/30")}>${h.status}</span>` : html`<span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/15 text-blue-300 border border-emerald-500/30">OPEN</span>`}
+                              ${isTrader ? isClosed ? html`<span className=${"px-1.5 py-0.5 rounded text-[9px] font-bold border " + (h.status === "WIN" ? "bg-green-500/20 text-green-400 border-green-500/30" : h.status === "LOSS" ? "bg-red-500/20 text-red-400 border-red-500/30" : "bg-[#6b7280]/20 text-[#9ca3af] border-[#6b7280]/30")}>${h.status}</span>` : html`<span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/15 text-blue-300 border border-emerald-500/30">OPEN</span>` : html`<span className=${"px-1.5 py-0.5 rounded text-[9px] font-bold border " + (h.action === "BUY" ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" : (h.pnl ?? 0) >= 0 ? "bg-green-500/20 text-green-400 border-green-500/30" : "bg-red-500/20 text-red-400 border-red-500/30")}>${h.action === "BUY" ? "OPEN LOT" : (h.pnl ?? 0) >= 0 ? "WIN" : "LOSS"}</span>`}
                             </td>
                           </tr>`;
   })}
@@ -7120,9 +7167,21 @@ function App() {
   })))), React.createElement("div", {
     className: `mt-6 ${selectedTicker || selectedTrade ? "mr-[500px] lg:mr-[660px] xl:mr-[740px] 2xl:mr-[820px]" : ""}`
   }, React.createElement(PerformanceOverviewSection, {
+    mode: "trader",
+    title: "Performance Overview \u2014 Active Trader",
+    subtitle: "Closed trades \xB7 90-day calendar",
+    accentColor: "var(--tt-accent)",
     trades: ledgerFilteredTrades || [],
     loading: (ledgerTrades ?? {}).loading,
     accountStartCash: Number(acctSummary?.startCash) || 100000
+  }), React.createElement(PerformanceOverviewSection, {
+    mode: "investor",
+    title: "Performance Overview \u2014 Investor",
+    subtitle: "Realized lots \xB7 monthly + calendar",
+    accentColor: "#8b5cf6",
+    trades: investorTrades || [],
+    loading: investorTradesLoading,
+    accountStartCash: Number(investorSummary?.startCash) || 100000
   })), (selectedTicker || selectedTrade) && !modalOnly && (() => {
     const handleClose = () => {
       setSelectedTrade(null);
