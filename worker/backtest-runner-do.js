@@ -216,13 +216,51 @@ async function snapshotConfig(db, runId, configOverride, configSourceRunId = nul
   const mode = hasOverride && baseMode === "pinned_run_snapshot" ? "pinned_run_snapshot_with_override"
     : hasOverride ? "explicit_override"
     : baseMode;
-  return {
-    mode,
-    keys: hasOverride ? overrideEntries.length : (baseMode === "pinned_run_snapshot" ? sourceKeyCount : null),
-    sourceRunId: hasSource ? sourceRunId : null,
-    baseMode,
-    overrideKeys: overrideEntries.length,
-  };
+
+  // 2026-05-10 (Phase 3.9 / WR-diagnostic): warn loudly when a snapshot looks
+  // suspiciously thin. The 19% WR run shipped with a 5-row snapshot and a
+  // 5-row model_config; this guard would have surfaced it at run-start
+  // instead of hiding it inside loadReplayRuntimeConfig defaults later.
+  // See tasks/phase-c/WR_DIAGNOSTIC_2026-05-10.md for the full forensic.
+  try {
+    const finalCountRow = await db.prepare(
+      `SELECT COUNT(*) AS cnt FROM backtest_run_config WHERE run_id = ?1`
+    ).bind(runId).first();
+    const finalCount = Number(finalCountRow?.cnt || 0) || 0;
+    const liveCountRow = await db.prepare(
+      `SELECT COUNT(*) AS cnt FROM model_config`
+    ).first();
+    const liveCount = Number(liveCountRow?.cnt || 0) || 0;
+    const ratio = liveCount > 0 ? finalCount / liveCount : 1;
+    if (finalCount < 50 || (liveCount > 0 && ratio < 0.5)) {
+      console.warn(
+        `[BacktestRunner] snapshotConfig: PARTIAL SNAPSHOT for run_id=${runId}: ` +
+        `pinned=${finalCount} keys vs model_config=${liveCount} keys (ratio=${ratio.toFixed(2)}). ` +
+        `Replay will read from live model_config for missing keys, but this almost ` +
+        `certainly means model_config was never seeded. Run scripts/clone-live-to-preprod.sh.`
+      );
+    }
+    return {
+      mode,
+      keys: hasOverride ? overrideEntries.length : (baseMode === "pinned_run_snapshot" ? sourceKeyCount : null),
+      sourceRunId: hasSource ? sourceRunId : null,
+      baseMode,
+      overrideKeys: overrideEntries.length,
+      pinnedKeyCount: finalCount,
+      modelConfigKeyCount: liveCount,
+    };
+  } catch (assertError) {
+    console.warn(
+      `[BacktestRunner] snapshotConfig completeness assertion failed: ${String(assertError?.message || assertError).slice(0, 200)}`
+    );
+    return {
+      mode,
+      keys: hasOverride ? overrideEntries.length : (baseMode === "pinned_run_snapshot" ? sourceKeyCount : null),
+      sourceRunId: hasSource ? sourceRunId : null,
+      baseMode,
+      overrideKeys: overrideEntries.length,
+    };
+  }
 }
 
 async function updateRunRow(db, runId, patch = {}) {
