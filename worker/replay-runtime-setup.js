@@ -418,6 +418,27 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_thesis_flip_enabled",                             // default true
   "deep_audit_thesis_flip_min_age_min",                         // default 60 min market time
   "deep_audit_thesis_flip_min_pnl_pct",                         // default -0.5 (must be in red)
+
+  // ─────────────────────────────────────────────────────────────────────
+  // V15 P0.7.127 (2026-05-10) — Trend-Hold lifecycle module
+  // See: worker/trend-hold.js, tasks/phase-c/PHASE_3_DESIGN.md §1
+  //
+  // CRITICAL: these keys were missing from REPLAY_DA_KEYS prior to P0.7.127,
+  // which silently suppressed TH on live (the request-time loader at
+  // worker/index.js _deepAuditConfig only reads keys IN this list, so any
+  // model_config row outside this list was invisible to the runtime).
+  // Adding all four here also auto-enables them in pinned-replay snapshots.
+  //
+  // Tunable thresholds added 2026-05-10 from forensic dry-run findings
+  // (tasks/phase-c/TH_FORENSIC_DRY_RUN_2026-05-10.md): the empirical Phase
+  // C trade record showed weekly TD9-sell ≥ 9 and weekly RSI ≥ 88 gates
+  // were rejecting healthy momentum trades, not catching exhaustion tops.
+  // Recommended live config: td9 = 12, rsi = 95.
+  // ─────────────────────────────────────────────────────────────────────
+  "deep_audit_trend_hold_enabled",                                       // default 'false'
+  "deep_audit_trend_hold_max_positions",                                 // default 6
+  "deep_audit_trend_hold_promote_max_weekly_td9_sell_count",             // default 8 (recommend 12)
+  "deep_audit_trend_hold_promote_max_weekly_rsi",                        // default 88 (recommend 95)
 ];
 
 const REPLAY_CFG_KEYS = [
