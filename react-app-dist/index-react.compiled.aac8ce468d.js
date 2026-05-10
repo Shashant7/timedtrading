@@ -17239,7 +17239,7 @@ function App() {
       maxHeight: typeof window !== "undefined" && window.innerWidth >= 1024 ? "1200px" : "none"
     }
   }, React.createElement("div", {
-    className: "lg:hidden tt-bubble-mobile-toggles",
+    className: "lg:hidden tt-bubble-mobile-toggles order-1",
     style: {
       gap: 8,
       marginBottom: 8
@@ -17351,7 +17351,7 @@ function App() {
     x2: "10",
     y2: "14"
   })))), React.createElement("div", {
-    className: "w-full lg:w-[320px] lg:flex-shrink-0 lg:h-full min-h-[400px] lg:min-h-0",
+    className: "w-full lg:w-[320px] lg:flex-shrink-0 lg:h-full min-h-[400px] lg:min-h-0 order-3 lg:order-1",
     "data-coachmark": "viewport"
   }, React.createElement(OpportunitiesPanel, {
     tickers: tickersWithRanks,
@@ -17367,7 +17367,7 @@ function App() {
     toggleSavedTicker: toggleSavedTicker,
     addingTicker: userTickers.addingTicker
   })), React.createElement("div", {
-    className: `tt-bubble-chart-wrap relative w-full lg:flex-1 lg:min-w-0 lg:h-full flex flex-col transition-[margin] duration-300 ${selectedTicker ? "lg:mr-[540px] xl:mr-[620px]" : ""}`
+    className: `tt-bubble-chart-wrap relative w-full lg:flex-1 lg:min-w-0 lg:h-full flex flex-col transition-[margin] duration-300 order-2 lg:order-2 ${selectedTicker ? "lg:mr-[540px] xl:mr-[620px]" : ""}`
   }, React.createElement("div", {
     className: "px-3 py-2 mb-1 rounded-lg border border-white/[0.06] bg-white/[0.02]",
     "data-coachmark": "bubble-chart"
