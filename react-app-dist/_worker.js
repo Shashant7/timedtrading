@@ -18,6 +18,30 @@
 const WORKER_ORIGIN = "https://timed-trading-ingest.shashant.workers.dev";
 
 /**
+ * Admin-only HTML pages. Anyone without an admin role gets a 403 instead
+ * of the page HTML. This is defense in depth — Cloudflare Access is the
+ * primary gate (configured in the Zero Trust dashboard); this is the
+ * second gate that runs even if the Access policy is loose. Defends
+ * against the "Critical: Overprovisioned Access Policies" insight by
+ * checking admin status server-side via /timed/me before serving the
+ * static asset.
+ *
+ * Source of truth for which pages are admin-only: scan the codebase for
+ * `data-admin-only="true"` nav links. Keep this list in sync with the
+ * .html files in react-app/.
+ */
+const ADMIN_ONLY_PAGES = new Set([
+  "/admin-clients.html",
+  "/screener.html",
+  "/system-intelligence.html",
+  "/ticker-management.html",
+  "/trade-autopsy.html",
+  "/debug-dashboard.html",
+  "/model-dashboard.html",
+  "/brand-kit.html",
+]);
+
+/**
  * Extract the CF Access JWT from the request.
  * Priority: CF-Access-JWT-Assertion header (set by CF Access on protected paths),
  * then fallback to the CF_Authorization cookie (set domain-wide by CF Access
@@ -30,6 +54,82 @@ function extractJwt(request) {
   const cookies = request.headers.get("Cookie") || "";
   const match = cookies.match(/CF_Authorization=([^;]+)/);
   return match ? match[1] : null;
+}
+
+/**
+ * Server-side admin check: ask the API worker /timed/me whether the
+ * forwarded JWT belongs to an admin user. Returns true only on
+ * affirmative confirmation. Any error / missing JWT / non-admin returns
+ * false, so a failure mode is fail-closed (deny) rather than fail-open.
+ *
+ * Cached in-flight per request (no caching across requests because the
+ * call only fires for admin-only HTML page loads, which are infrequent
+ * and warrant a fresh check each time).
+ */
+async function isAdmin(request) {
+  const jwt = extractJwt(request);
+  if (!jwt) return false;
+  try {
+    const res = await fetch(`${WORKER_ORIGIN}/timed/me`, {
+      headers: {
+        "CF-Access-JWT-Assertion": jwt,
+        "User-Agent": request.headers.get("User-Agent") || "pages-worker",
+      },
+    });
+    if (!res.ok) return false;
+    const json = await res.json();
+    if (!json || !json.ok || !json.user) return false;
+    const u = json.user;
+    return u.role === "admin" || u.tier === "admin";
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * Render a 403 page for non-admin users hitting an admin-only path.
+ * Plain HTML; no React, no JS, no asset deps so it works regardless of
+ * Pages availability.
+ */
+function adminForbiddenResponse() {
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>403 — Admin only</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Inter", sans-serif;
+           background: #0A0D11; color: #e5e7eb; margin: 0;
+           min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .card { max-width: 420px; padding: 40px 32px; text-align: center;
+            background: #13171D; border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 14px; }
+    h1 { font-size: 22px; margin: 0 0 8px; color: #fff; }
+    p { font-size: 14px; line-height: 1.6; color: #9ca3af; margin: 0 0 18px; }
+    a { color: #F5C25C; text-decoration: none; font-weight: 600; }
+    a:hover { text-decoration: underline; }
+    .code { font-family: monospace; font-size: 11px; color: #6b7280; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Admin only</h1>
+    <p>This page requires an administrator account. If you believe this is a mistake, contact <a href="mailto:support@timed-trading.com">support@timed-trading.com</a>.</p>
+    <p><a href="/">&larr; Back to home</a></p>
+    <div class="code">HTTP 403 &middot; admin_required</div>
+  </div>
+</body>
+</html>`;
+  return new Response(html, {
+    status: 403,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "X-Robots-Tag": "noindex,nofollow",
+      "Cache-Control": "no-store",
+    },
+  });
 }
 
 export default {
@@ -123,6 +223,18 @@ export default {
           { status: 502, headers: { "Content-Type": "application/json" } },
         );
       }
+    }
+
+    // ── Admin-only HTML gate (defense in depth for CF Access policy) ────
+    // Cloudflare Access is the primary gate; this is the second one. Any
+    // request for a known admin-only HTML path is checked against
+    // /timed/me before the asset is served. Non-admins see a 403 page
+    // instead of the underlying tool. Only HTML page paths are gated;
+    // chunk JS / CSS / asset requests fall through (they're useless
+    // without the page anyway, and gating them would waste round trips).
+    if (request.method === "GET" && ADMIN_ONLY_PAGES.has(url.pathname)) {
+      const ok = await isAdmin(request);
+      if (!ok) return adminForbiddenResponse();
     }
 
     // ── Everything else: serve static assets (HTML, JS, CSS, etc.) ───────

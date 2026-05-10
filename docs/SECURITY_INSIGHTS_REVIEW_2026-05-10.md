@@ -6,17 +6,17 @@ generic severity) and assigned an owner, action, and ETA bucket.
 
 ## TL;DR
 
-| # | Finding | Real impact | Action |
+| # | Finding | Real impact | Status |
 |---|---------|-------------|--------|
-| 1 | **Critical: Overprovisioned Access Policies on screener.html** | Real | Tighten in CF Dashboard + add belt-and-suspenders backend check |
-| 2 | DMARC Record missing | Real (email spoofing risk) | Add DNS TXT record |
-| 3 | "Always Use HTTPS" / HSTS / TLS missing on 60099094.* and url2336.* | False alarm (SendGrid tracking subs) | Verify origin = SendGrid, then dismiss or remove subdomain |
-| 4 | Bot Fight Mode not enabled (.com + .ai) | Low | Enable in CF Dashboard |
-| 5 | Block AI bots not enabled (.com + .ai) | Low (revenue protection) | Enable in CF Dashboard |
-| 6 | Security.txt not configured | Low | **Done in this commit** — `/.well-known/security.txt` published |
+| 1 | **Critical: Overprovisioned Access Policies on screener.html** | Real | ⚠️ **Half done** — backend `_worker.js` admin gate shipped (P0.7.127, defense in depth on 8 admin pages). CF Access policy still needs to be tightened in dashboard. |
+| 2 | DMARC Record missing | Real (email spoofing risk) | ⏳ Pending — DNS TXT record (you must add) |
+| 3 | "Always Use HTTPS" / HSTS / TLS missing on 60099094.* and url2336.* | False alarm (SendGrid tracking subs) | ⏳ Pending — verify origin = SendGrid, then dismiss |
+| 4 | Bot Fight Mode not enabled (.com + .ai) | Low | ✅ **Done** by user (2026-05-10) |
+| 5 | Block AI bots not enabled (.com + .ai) | Low (revenue protection) | ✅ **Done** by user (2026-05-10) |
+| 6 | Security.txt not configured | Low | ✅ **Done** in PR #93 — `/.well-known/security.txt` live |
 | 7 | AI Labyrinth not enabled (.ai) | Optional | Skip for now |
-| 8 | Turnstile not enabled (account-wide) | Low | Skip until we add a public form (signup is via Stripe Checkout already protected) |
-| 9 | MFA missing on shashant@gmail.com | **High** (account takeover) | Enable Google Authenticator on the CF account today |
+| 8 | Turnstile not enabled (account-wide) | Low | Skip until we add a public form |
+| 9 | MFA missing on shashant@gmail.com | **High** (account takeover) | ⏳ Pending — 2 minutes in CF Dashboard |
 
 ---
 
@@ -35,9 +35,32 @@ which has its own auth check on the worker, so the actual data exposure is
 limited — but the page renders empty/error and reveals the existence of
 the admin tool.
 
-**Recommended fix (do both):**
+**Status.**
 
-a) **Tighten the Access policy** in Cloudflare Dashboard:
+a) ✅ **Backend defense in depth — DONE in P0.7.127.** The Pages
+   `_worker.js` now intercepts GETs for known admin-only HTML paths and
+   calls `/timed/me` to confirm the requester is admin. Non-admins get a
+   403 page (no React, no asset deps, just a plain "Admin only" message)
+   instead of the actual tool's HTML. Pages currently gated:
+
+   ```
+   /admin-clients.html
+   /screener.html
+   /system-intelligence.html
+   /ticker-management.html
+   /trade-autopsy.html
+   /debug-dashboard.html
+   /model-dashboard.html
+   /brand-kit.html
+   ```
+
+   Worker's API endpoints (`/timed/admin/*`, `/timed/screener/*`) were
+   already protected by `requireKeyOrAdmin` (125+ call sites). Nothing
+   changed there. This new gate stops anonymous URL discovery of the
+   admin surface — not just the data behind it.
+
+b) ⏳ **Tighten the Access policy** in Cloudflare Dashboard (still your
+   action):
    - Zero Trust → Access → Applications
    - Find the `timed-trading.com/screener.html` application (or the
      wildcard `*.timed-trading.com/admin/*` if one exists)
@@ -47,21 +70,14 @@ a) **Tighten the Access policy** in Cloudflare Dashboard:
      `/timed/ingest` if needed (already documented in
      `docs/CLOUDFLARE_ACCESS_SETUP.md`).
 
-b) **Add backend guard.** Even if the page loads, the worker should
-   refuse to render screener-only routes when the JWT email is not
-   admin. Open the worker's auth helper and confirm
-   `requireAdmin(req, env)` is enforced on every `/timed/screener/*`
-   route. If it's not, that's the next ticket.
+   Even with the new backend gate, the CF Access policy still matters
+   because it stops requests before they hit our infrastructure
+   (saves bandwidth + invocations, and prevents pre-auth recon). Both
+   gates together = real defense in depth.
 
-This same review should cover the other admin-only pages:
-
-- `system-intelligence.html`
-- `ticker-management.html`
-- `trade-autopsy.html`
-- `admin-clients.html`
-- `debug-dashboard.html`
-- `model-dashboard.html`
-- `brand-kit.html`
+This same admin-page list (the 8 pages above) should be in the Access
+application policy. The frontend nav already hides them via
+`data-admin-only`, but the gate is what enforces it.
 
 Suggested CF Access "Admin" application policy:
 ```
@@ -255,25 +271,34 @@ After enabling, also flip on the account-level requirement:
 
 ---
 
-## What this commit ships
+## What's been shipped (cumulative)
 
-1. `react-app/.well-known/security.txt` (mirrored to `react-app-dist/`)
-2. This review document at `docs/SECURITY_INSIGHTS_REVIEW_2026-05-10.md`
+### PR #93 (merged)
+1. `react-app/.well-known/security.txt` — RFC 9116 disclosure policy
+2. `react-app/robots.txt` — block 13 AI crawlers + admin paths
+3. This review document
 
-## What still needs you to log into Cloudflare Dashboard
+### P0.7.127 (this commit)
+4. `react-app/_worker.js` — admin-page server-side gate. 8 admin-only HTML
+   paths now require an admin role on `/timed/me` before the static asset
+   is served. Non-admins see a clean 403 page. Defense in depth for the
+   CF Access policy.
 
-| Action | Where | Time |
-|--------|-------|------|
-| **Enable 2FA on shashant@gmail.com** | My Profile → Authentication | 2 min |
-| **Tighten Access policy on /screener.html** (and other admin pages) | Zero Trust → Access → Applications | 10 min |
-| **Add DMARC TXT record** (`p=none` to start) | DNS → Records → Add TXT | 2 min |
-| **Enable Bot Fight Mode** (both zones) | Security → Bots | 1 min |
-| **Enable Block AI bots** (both zones) | Security → Bots | 1 min |
-| Verify SendGrid subdomains are DNS-only and dismiss those insights | DNS → Records | 2 min |
+### Done by you on the Cloudflare Dashboard
+5. Bot Fight Mode enabled (both zones) — 2026-05-10
+6. Block AI bots enabled (both zones) — 2026-05-10
 
-Total dashboard time: ~20 minutes.
+## What still needs you on the Cloudflare Dashboard
 
-After you've completed the dashboard steps, re-run the Security Insights
-scan from the CF Dashboard and the Critical + most Moderate items should
-clear. The two SendGrid subdomain warnings will likely persist as
-informational — that's expected.
+| Action | Where | Time | Why it matters |
+|--------|-------|------|---------------|
+| **Enable 2FA on shashant@gmail.com** | My Profile → Authentication | 2 min | **HIGH** — account compromise = total system takeover |
+| **Tighten Access policy on /screener.html** (and 7 other admin pages) | Zero Trust → Access → Applications | 10 min | First line of defense (the new `_worker.js` gate is the second) |
+| **Add DMARC TXT record** (`p=none` to start) | DNS → Records → Add TXT | 2 min | Stops email spoofing |
+| Verify SendGrid subdomains are DNS-only and dismiss those insights | DNS → Records | 2 min | Cleanup — these are out of CF's reach |
+
+**Total remaining dashboard time: ~16 minutes.**
+
+After you complete the dashboard steps, re-run the Security Insights scan
+and the Critical + remaining Moderate items should clear. The SendGrid
+subdomain warnings may persist as informational — that's expected.
