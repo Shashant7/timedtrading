@@ -430,22 +430,58 @@
       );
     }
 
+    /* P0.7.122 — Normalize investor lots into trader-shape so the
+       existing aggregators (which key off status WIN/LOSS/FLAT and
+       exit_ts) work without forking the aggregation code. Each
+       investor SELL becomes a synthetic closed-trade row with:
+         status = WIN if pnl > 0 else (LOSS if pnl < 0 else FLAT)
+         exit_ts = entry_ts (the SELL timestamp)
+       BUY rows are dropped (entries don't realize PnL on their own). */
+    function normalizeInvestorTrades(trades) {
+      const out = [];
+      for (const t of trades || []) {
+        const act = String(t?.action || "").toUpperCase();
+        if (act === "BUY") continue;
+        if (act !== "SELL") {
+          out.push(t);
+          continue;
+        }
+        const pnl = Number(t?.pnl) || 0;
+        const status = pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "FLAT";
+        const sellTs = Number(t?.entry_ts || t?.ts || 0);
+        out.push({
+          ...t,
+          status,
+          exit_ts: sellTs,
+          exit_price: Number(t?.entry_price) || undefined,
+          setup_name: t?.setup_name || t?.entry_path || (t?.reason ? `Investor: ${t.reason}` : "Investor Hold"),
+        });
+      }
+      return out;
+    }
+
     // Main component
-    return function TradesPerformance({ trades, loading, accountStartCash }) {
+    return function TradesPerformance({ trades, loading, accountStartCash, mode }) {
       const startCash = Number.isFinite(Number(accountStartCash)) && Number(accountStartCash) > 0
         ? Number(accountStartCash)
         : 100000;
-      const months = useMemo(() => aggregateMonthly(trades || []), [trades]);
+      const isInvestor = String(mode || "").toLowerCase() === "investor";
+      const normalized = useMemo(
+        () => isInvestor ? normalizeInvestorTrades(trades || []) : (trades || []),
+        [trades, isInvestor]
+      );
+      const months = useMemo(() => aggregateMonthly(normalized), [normalized]);
 
       if (loading) {
         return React.createElement("div", { className: "text-[12px] text-[#6b7280] py-4" }, "Loading performance data…");
       }
-      if (!trades || trades.length === 0) {
-        return React.createElement("div", { className: "text-[12px] text-[#6b7280] py-4" }, "No trades yet.");
+      if (!normalized || normalized.length === 0) {
+        return React.createElement("div", { className: "text-[12px] text-[#6b7280] py-4" },
+          isInvestor ? "No investor lots yet." : "No trades yet.");
       }
 
       // Compute overall summary
-      const closed = trades.filter(t => {
+      const closed = normalized.filter(t => {
         const s = String(t?.status || "").toUpperCase();
         return s === "WIN" || s === "LOSS" || s === "FLAT";
       });
@@ -456,7 +492,9 @@
       // disagrees with the account-summary widget by exactly the trim's
       // realized portion. See realizedFromTrim() comment for the SNDK case.
       const closedPnlUsd = closed.reduce((s, t) => s + (Number(t?.pnl) || 0), 0);
-      const trimPnlUsd = trades.reduce((s, t) => {
+      // Trim-realized only applies to trader trades (TP_HIT_TRIM status);
+      // investor lots realize entirely on SELL.
+      const trimPnlUsd = isInvestor ? 0 : normalized.reduce((s, t) => {
         const tr = realizedFromTrim(t);
         return s + (tr ? tr.realized : 0);
       }, 0);

@@ -17090,11 +17090,152 @@ function App() {
       tickerFilter: ""
     }),
     className: "px-4 py-2 rounded-xl border border-white/[0.10] text-sm text-[#94a3b8] hover:text-white hover:bg-white/[0.05] transition-colors"
-  }, "Clear Search")))) : dashboardMode === "analysis" && React.createElement("div", {
+  }, "Clear Search")))) : dashboardMode === "analysis" && React.createElement(React.Fragment, null, insightChips && insightChips.length > 0 && (() => {
+    const visible = insightChips.filter(c => c.count === null || c.count > 0);
+    const focus = visible.find(c => c.id === "focus");
+    const byGroup = g => visible.filter(c => !c.isSector && c.group === g && c.id !== "focus");
+    const now = byGroup("now");
+    const setups = byGroup("setups");
+    const momentum = byGroup("momentum");
+    const structure = byGroup("structure");
+    const context = visible.filter(c => c.row === 2);
+    const sectorSubs = visible.filter(c => c.isSector);
+    const renderChip = (chip, isSub) => {
+      const isActive = isSub ? activeSubInsight === chip.id : activeInsight === chip.id;
+      return React.createElement("button", {
+        key: chip.id,
+        title: chip.tooltip,
+        onClick: () => {
+          if (isSub) {
+            setActiveSubInsight(prev => prev === chip.id ? null : chip.id);
+          } else {
+            setActiveInsight(prev => prev === chip.id ? null : chip.id);
+            if (chip.id !== "sp_sectors") setActiveSubInsight(null);
+          }
+        },
+        className: `ds-chip ds-chip--sm ${isActive ? "ds-chip--accent" : ""}`
+      }, React.createElement("span", null, chip.label), chip.count !== null && React.createElement("span", {
+        className: "ds-chip__count"
+      }, chip.count));
+    };
+    const focusBucket = [];
+    if (focus) focusBucket.push(focus);
+    for (const c of now) focusBucket.push(c);
+    for (const c of setups) focusBucket.push(c);
+    const Section = ({
+      label,
+      items,
+      accent
+    }) => {
+      const empty = !items || items.length === 0;
+      return React.createElement("div", {
+        className: "ds-glass",
+        style: {
+          padding: "var(--ds-space-2) var(--ds-space-3)",
+          margin: 0,
+          marginTop: 0,
+          minWidth: 0,
+          height: "100%",
+          display: "flex",
+          alignItems: "center",
+          opacity: empty ? 0.55 : 1
+        }
+      }, React.createElement("div", {
+        style: {
+          display: "flex",
+          alignItems: "center",
+          flexWrap: "nowrap",
+          gap: 4,
+          overflowX: "auto",
+          width: "100%"
+        },
+        className: "scrollbar-hide"
+      }, React.createElement("span", {
+        className: "ds-caption",
+        style: {
+          color: accent,
+          marginRight: 6,
+          flexShrink: 0
+        }
+      }, label), empty ? React.createElement("span", {
+        style: {
+          fontSize: 11,
+          color: "var(--ds-text-faint)"
+        }
+      }, "none") : items.map(c => renderChip(c, false))));
+    };
+    return React.createElement("div", {
+      className: "mb-3",
+      style: {
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gridAutoRows: "44px",
+        gap: "var(--ds-space-1)"
+      }
+    }, React.createElement(Section, {
+      label: "Focus",
+      items: focusBucket,
+      accent: "var(--ds-accent)"
+    }), React.createElement(Section, {
+      label: "Momentum",
+      items: momentum,
+      accent: "var(--ds-warn)"
+    }), React.createElement(Section, {
+      label: "Structure",
+      items: structure,
+      accent: "var(--ds-violet)"
+    }), React.createElement(Section, {
+      label: "Context",
+      items: context,
+      accent: "var(--ds-text-muted)"
+    }), activeInsight && React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "flex-end",
+        gridColumn: "1 / -1"
+      }
+    }, React.createElement("button", {
+      onClick: () => {
+        setActiveInsight(null);
+        setActiveSubInsight(null);
+      },
+      className: "ds-chip ds-chip--sm"
+    }, "\u2715 Clear filter")), activeInsight === "sp_sectors" && sectorSubs.length > 0 && React.createElement("div", {
+      className: "ds-glass",
+      style: {
+        padding: "var(--ds-space-2) var(--ds-space-3)",
+        background: "rgba(167,139,250,0.05)",
+        gridColumn: "1 / -1",
+        margin: 0,
+        marginTop: 0
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        flexWrap: "nowrap",
+        gap: 4,
+        overflowX: "auto"
+      },
+      className: "scrollbar-hide"
+    }, React.createElement("span", {
+      className: "ds-caption",
+      style: {
+        color: "var(--ds-violet)",
+        marginRight: 4
+      }
+    }, "Drill"), sectorSubs.map(c => renderChip(c, true)), activeSubInsight && React.createElement("button", {
+      onClick: () => setActiveSubInsight(null),
+      className: "ds-chip ds-chip--sm",
+      style: {
+        marginLeft: 6
+      }
+    }, "\u2715"))));
+  })(), React.createElement("div", {
     className: `tt-analysis-grid flex flex-col lg:flex-row gap-4 ${bubbleMobileExpanded ? "tt-bubble-expanded" : "tt-bubble-mobile-collapsed"}`,
     style: {
-      height: typeof window !== "undefined" && window.innerWidth >= 1024 ? "calc(100vh - 120px)" : "auto",
-      minHeight: typeof window !== "undefined" && window.innerWidth >= 1024 ? "700px" : "auto",
+      height: typeof window !== "undefined" && window.innerWidth >= 1024 ? "calc(100vh - 180px)" : "auto",
+      minHeight: typeof window !== "undefined" && window.innerWidth >= 1024 ? "640px" : "auto",
       maxHeight: typeof window !== "undefined" && window.innerWidth >= 1024 ? "1200px" : "none"
     }
   }, React.createElement("div", {
@@ -17302,148 +17443,7 @@ function App() {
     repeatCount: "indefinite"
   }))), " ", React.createElement("span", {
     className: "text-cyan-300 font-semibold"
-  }, "Pulse = Actionable")))), insightChips.length > 0 && (() => {
-    const visible = insightChips.filter(c => c.count === null || c.count > 0);
-    const focus = visible.find(c => c.id === "focus");
-    const byGroup = g => visible.filter(c => !c.isSector && c.group === g && c.id !== "focus");
-    const now = byGroup("now");
-    const setups = byGroup("setups");
-    const momentum = byGroup("momentum");
-    const structure = byGroup("structure");
-    const context = visible.filter(c => c.row === 2);
-    const sectorSubs = visible.filter(c => c.isSector);
-    const renderChip = (chip, isSub) => {
-      const isActive = isSub ? activeSubInsight === chip.id : activeInsight === chip.id;
-      return React.createElement("button", {
-        key: chip.id,
-        title: chip.tooltip,
-        onClick: () => {
-          if (isSub) {
-            setActiveSubInsight(prev => prev === chip.id ? null : chip.id);
-          } else {
-            setActiveInsight(prev => prev === chip.id ? null : chip.id);
-            if (chip.id !== "sp_sectors") setActiveSubInsight(null);
-          }
-        },
-        className: `ds-chip ds-chip--sm ${isActive ? "ds-chip--accent" : ""}`
-      }, React.createElement("span", null, chip.label), chip.count !== null && React.createElement("span", {
-        className: "ds-chip__count"
-      }, chip.count));
-    };
-    const focusBucket = [];
-    if (focus) focusBucket.push(focus);
-    for (const c of now) focusBucket.push(c);
-    for (const c of setups) focusBucket.push(c);
-    const Section = ({
-      label,
-      items,
-      accent
-    }) => {
-      const empty = !items || items.length === 0;
-      return React.createElement("div", {
-        className: "ds-glass",
-        style: {
-          padding: "var(--ds-space-2) var(--ds-space-3)",
-          margin: 0,
-          marginTop: 0,
-          minWidth: 0,
-          height: "100%",
-          display: "flex",
-          alignItems: "center",
-          opacity: empty ? 0.55 : 1
-        }
-      }, React.createElement("div", {
-        style: {
-          display: "flex",
-          alignItems: "center",
-          flexWrap: "nowrap",
-          gap: 4,
-          overflowX: "auto",
-          width: "100%"
-        },
-        className: "scrollbar-hide"
-      }, React.createElement("span", {
-        className: "ds-caption",
-        style: {
-          color: accent,
-          marginRight: 6,
-          flexShrink: 0
-        }
-      }, label), empty ? React.createElement("span", {
-        style: {
-          fontSize: 11,
-          color: "var(--ds-text-faint)"
-        }
-      }, "none") : items.map(c => renderChip(c, false))));
-    };
-    return React.createElement("div", {
-      className: "mb-2",
-      style: {
-        display: "grid",
-        gridTemplateColumns: "1fr 1fr",
-        gridAutoRows: "44px",
-        gap: "var(--ds-space-1)"
-      }
-    }, React.createElement(Section, {
-      label: "Focus",
-      items: focusBucket,
-      accent: "var(--ds-accent)"
-    }), React.createElement(Section, {
-      label: "Momentum",
-      items: momentum,
-      accent: "var(--ds-warn)"
-    }), React.createElement(Section, {
-      label: "Structure",
-      items: structure,
-      accent: "var(--ds-violet)"
-    }), React.createElement(Section, {
-      label: "Context",
-      items: context,
-      accent: "var(--ds-text-muted)"
-    }), activeInsight && React.createElement("div", {
-      style: {
-        display: "flex",
-        justifyContent: "flex-end",
-        gridColumn: "1 / -1"
-      }
-    }, React.createElement("button", {
-      onClick: () => {
-        setActiveInsight(null);
-        setActiveSubInsight(null);
-      },
-      className: "ds-chip ds-chip--sm"
-    }, "\u2715 Clear filter")), activeInsight === "sp_sectors" && sectorSubs.length > 0 && React.createElement("div", {
-      className: "ds-glass",
-      style: {
-        padding: "var(--ds-space-2) var(--ds-space-3)",
-        background: "rgba(167,139,250,0.05)",
-        gridColumn: "1 / -1",
-        margin: 0,
-        marginTop: 0
-      }
-    }, React.createElement("div", {
-      style: {
-        display: "flex",
-        alignItems: "center",
-        flexWrap: "nowrap",
-        gap: 4,
-        overflowX: "auto"
-      },
-      className: "scrollbar-hide"
-    }, React.createElement("span", {
-      className: "ds-caption",
-      style: {
-        color: "var(--ds-violet)",
-        marginRight: 4
-      }
-    }, "Drill"), sectorSubs.map(c => renderChip(c, true)), activeSubInsight && React.createElement("button", {
-      onClick: () => setActiveSubInsight(null),
-      className: "ds-chip ds-chip--sm",
-      style: {
-        marginLeft: 6
-      }
-    }, "\u2715"))));
-  })(), React.createElement("div", {
+  }, "Pulse = Actionable")))), React.createElement("div", {
     className: "flex-1 min-h-0"
   }, loading && tickers.length === 0 || !_secondaryReady ? React.createElement("div", {
     className: "w-full h-full bg-white/[0.02] rounded-xl border border-white/[0.06] flex items-center justify-center",
@@ -17564,7 +17564,7 @@ function App() {
     className: "text-[9px] text-gray-400 mx-0.5"
   }, "\u2014"), React.createElement("span", {
     className: "text-[10px] font-bold text-amber-400"
-  }, "Go Pro for all")))))), React.createElement(ActivityFeedDrawer, {
+  }, "Go Pro for all"))))))), React.createElement(ActivityFeedDrawer, {
     selectedTicker: selectedTicker,
     onSelectTicker: sym => handleTickerSelect(sym)
   }), selectedTicker && React.createElement(React.Fragment, null, React.createElement("div", {

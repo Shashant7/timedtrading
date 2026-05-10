@@ -20714,6 +20714,118 @@
                         </div>
                       </div>
                     ) : dashboardMode === "analysis" && (
+                    <>
+                    {/* P0.7.123 (2026-05-10) — Bubble Map filter sections
+                        (Focus / Momentum / Structure / Context) lifted OUT
+                        of the bubble-chart-wrap so they render ABOVE the
+                        mobile "Hide / View Bubble Map" toggle. The filters
+                        affect the Viewport list as well as the chart, so
+                        hiding them inside a collapsed bubble-map panel
+                        meant mobile users couldn't reach the filters
+                        without expanding the chart they didn't want. */}
+                    {insightChips && insightChips.length > 0 && (() => {
+                      const visible = insightChips.filter(c => c.count === null || c.count > 0);
+                      const focus = visible.find(c => c.id === "focus");
+                      const byGroup = (g) => visible.filter(c => !c.isSector && c.group === g && c.id !== "focus");
+                      const now = byGroup("now");
+                      const setups = byGroup("setups");
+                      const momentum = byGroup("momentum");
+                      const structure = byGroup("structure");
+                      const context = visible.filter(c => c.row === 2);
+                      const sectorSubs = visible.filter(c => c.isSector);
+                      const renderChip = (chip, isSub) => {
+                        const isActive = isSub ? activeSubInsight === chip.id : activeInsight === chip.id;
+                        return (
+                          <button
+                            key={chip.id}
+                            title={chip.tooltip}
+                            onClick={() => {
+                              if (isSub) {
+                                setActiveSubInsight(prev => prev === chip.id ? null : chip.id);
+                              } else {
+                                setActiveInsight(prev => prev === chip.id ? null : chip.id);
+                                if (chip.id !== "sp_sectors") setActiveSubInsight(null);
+                              }
+                            }}
+                            className={`ds-chip ds-chip--sm ${isActive ? "ds-chip--accent" : ""}`}
+                          >
+                            <span>{chip.label}</span>
+                            {chip.count !== null && <span className="ds-chip__count">{chip.count}</span>}
+                          </button>
+                        );
+                      };
+                      const focusBucket = [];
+                      if (focus) focusBucket.push(focus);
+                      for (const c of now)    focusBucket.push(c);
+                      for (const c of setups) focusBucket.push(c);
+                      const Section = ({ label, items, accent }) => {
+                        const empty = !items || items.length === 0;
+                        return (
+                          <div className="ds-glass" style={{
+                            padding: "var(--ds-space-2) var(--ds-space-3)",
+                            margin: 0,
+                            marginTop: 0,
+                            minWidth: 0,
+                            height: "100%",
+                            display: "flex",
+                            alignItems: "center",
+                            opacity: empty ? 0.55 : 1,
+                          }}>
+                            <div style={{
+                              display: "flex",
+                              alignItems: "center",
+                              flexWrap: "nowrap",
+                              gap: 4,
+                              overflowX: "auto",
+                              width: "100%",
+                            }} className="scrollbar-hide">
+                              <span className="ds-caption" style={{ color: accent, marginRight: 6, flexShrink: 0 }}>{label}</span>
+                              {empty
+                                ? <span style={{ fontSize: 11, color: "var(--ds-text-faint)" }}>none</span>
+                                : items.map(c => renderChip(c, false))}
+                            </div>
+                          </div>
+                        );
+                      };
+                      return (
+                        <div className="mb-3" style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr 1fr",
+                          gridAutoRows: "44px",
+                          gap: "var(--ds-space-1)",
+                        }}>
+                          <Section label="Focus" items={focusBucket} accent="var(--ds-accent)" />
+                          <Section label="Momentum" items={momentum} accent="var(--ds-warn)" />
+                          <Section label="Structure" items={structure} accent="var(--ds-violet)" />
+                          <Section label="Context" items={context} accent="var(--ds-text-muted)" />
+                          {activeInsight && (
+                            <div style={{ display: "flex", justifyContent: "flex-end", gridColumn: "1 / -1" }}>
+                              <button
+                                onClick={() => { setActiveInsight(null); setActiveSubInsight(null); }}
+                                className="ds-chip ds-chip--sm"
+                              >✕ Clear filter</button>
+                            </div>
+                          )}
+                          {activeInsight === "sp_sectors" && sectorSubs.length > 0 && (
+                            <div className="ds-glass" style={{ padding: "var(--ds-space-2) var(--ds-space-3)", background: "rgba(167,139,250,0.05)", gridColumn: "1 / -1", margin: 0, marginTop: 0 }}>
+                              <div style={{
+                                display: "flex",
+                                alignItems: "center",
+                                flexWrap: "nowrap",
+                                gap: 4,
+                                overflowX: "auto",
+                              }} className="scrollbar-hide">
+                                <span className="ds-caption" style={{ color: "var(--ds-violet)", marginRight: 4 }}>Drill</span>
+                                {sectorSubs.map(c => renderChip(c, true))}
+                                {activeSubInsight && (
+                                  <button onClick={() => setActiveSubInsight(null)} className="ds-chip ds-chip--sm" style={{ marginLeft: 6 }}>✕</button>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                     <div
                       className={`tt-analysis-grid flex flex-col lg:flex-row gap-4 ${bubbleMobileExpanded ? "tt-bubble-expanded" : "tt-bubble-mobile-collapsed"}`}
                       style={{
@@ -20721,8 +20833,10 @@
                         // bubble chart fills the screen. On mobile: let the
                         // grid grow naturally so we don't render an empty
                         // 700px void when the chart is collapsed.
-                        height: typeof window !== "undefined" && window.innerWidth >= 1024 ? "calc(100vh - 120px)" : "auto",
-                        minHeight: typeof window !== "undefined" && window.innerWidth >= 1024 ? "700px" : "auto",
+                        // P0.7.123: account for the lifted filter strip
+                        // (~44px + gap) by trimming the desktop height.
+                        height: typeof window !== "undefined" && window.innerWidth >= 1024 ? "calc(100vh - 180px)" : "auto",
+                        minHeight: typeof window !== "undefined" && window.innerWidth >= 1024 ? "640px" : "auto",
                         maxHeight: typeof window !== "undefined" && window.innerWidth >= 1024 ? "1200px" : "none",
                       }}
                     >
@@ -20881,144 +20995,13 @@
                             <span className="flex items-center gap-1 shrink-0" title="Pulsing bubbles are in stages like Enter Now, Trim, Exit, or Defend — the system is telling you to act."><svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.5" fill="rgba(34,211,238,0.25)" stroke="#22d3ee" strokeWidth="0.8"><animate attributeName="r" values="3;4.5;3" dur="2s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.8;0.3;0.8" dur="2s" repeatCount="indefinite"/></circle></svg> <span className="text-cyan-300 font-semibold">Pulse = Actionable</span></span>
                           </div>
                         </div>
-                        {/* Insight Chips — Two rows + dynamic sector sub-group */}
-                        {insightChips.length > 0 && (() => {
-                          /* V15 P0.7.43 (2026-04-30) — tabular grouped filter pills, cohesive with
-                           * Market Pulse pattern. User: "We should add a better tabular view of the
-                           * Filter Pills, much like how the Market Pulse pills were updated, so it
-                           * is cohesive."
-                           *
-                           * Grouping:
-                           *   Focus  → default (Kanban + MP + Saved)
-                           *   Now    → Actionable, High Conviction
-                           *   Setups → Early LONG/SHORT, Corridor, High R:R Early
-                           *   Momentum → Squeeze, Breakout, Accelerating, Mo Elite, Vol Surge
-                           *   Structure → Sector rotation
-                           *   Context (row 2) → Market Pulse, Top Movers, Indexes, Futures, S&P Sectors
-                           */
-                          const visible = insightChips.filter(c => c.count === null || c.count > 0);
-                          const focus = visible.find(c => c.id === "focus");
-                          const byGroup = (g) => visible.filter(c => !c.isSector && c.group === g && c.id !== "focus");
-                          const now = byGroup("now");
-                          const setups = byGroup("setups");
-                          const momentum = byGroup("momentum");
-                          const structure = byGroup("structure");
-                          const context = visible.filter(c => c.row === 2);
-                          const sectorSubs = visible.filter(c => c.isSector);
-                          /* V2 (2026-05-01) — DS chip pattern. All variants resolve
-                             to the same gold-on-active treatment so the bubble-map
-                             filter pills look like the View tabs above (cohesive). */
-                          const renderChip = (chip, isSub) => {
-                            const isActive = isSub ? activeSubInsight === chip.id : activeInsight === chip.id;
-                            return (
-                              <button
-                                key={chip.id}
-                                title={chip.tooltip}
-                                onClick={() => {
-                                  if (isSub) {
-                                    setActiveSubInsight(prev => prev === chip.id ? null : chip.id);
-                                  } else {
-                                    setActiveInsight(prev => prev === chip.id ? null : chip.id);
-                                    if (chip.id !== "sp_sectors") setActiveSubInsight(null);
-                                  }
-                                }}
-                                className={`ds-chip ds-chip--sm ${isActive ? "ds-chip--accent" : ""}`}
-                              >
-                                <span>{chip.label}</span>
-                                {chip.count !== null && <span className="ds-chip__count">{chip.count}</span>}
-                              </button>
-                            );
-                          };
-                          /* V2.1 round 5 (2026-05-01) — Bubble Map filter pills
-                             reorganized into 4 DISTINCT SECTIONS over 2 ROWS:
-                               Row 1 (left): Focus  | Momentum
-                               Row 2 (left): Structure | Context
-                             Each section is its own ds-glass tile with the
-                             label inline. "Now" + "Setups" merge into Focus
-                             (they're all "actionable now" lenses).
-                             Per user: "make it four distinct sections,
-                             across 2 rows: Focus, Momentum, Structure, Context".
-                             */
-                          const focusBucket = [];
-                          if (focus) focusBucket.push(focus);
-                          for (const c of now)    focusBucket.push(c);
-                          for (const c of setups) focusBucket.push(c);
-                          /* V2.1 round 7 (2026-05-01) — equal-height tiles via
-                             CSS Grid 2x2 with fixed cell height. Previous
-                             flexbox approach hit the .ds-glass + .ds-glass
-                             margin rule which misaligned tiles vertically.
-                             Grid guarantees identical row heights regardless
-                             of content, and we force the tile to the row
-                             height with height:100% + display:flex. */
-                          const Section = ({ label, items, accent }) => {
-                            const empty = !items || items.length === 0;
-                            return (
-                              <div className="ds-glass" style={{
-                                padding: "var(--ds-space-2) var(--ds-space-3)",
-                                margin: 0,           // override .ds-glass + .ds-glass margin
-                                marginTop: 0,        // override via grid sibling rule
-                                minWidth: 0,
-                                height: "100%",      // fill grid cell
-                                display: "flex",
-                                alignItems: "center",
-                                opacity: empty ? 0.55 : 1,
-                              }}>
-                                <div style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  flexWrap: "nowrap",
-                                  gap: 4,
-                                  overflowX: "auto",
-                                  width: "100%",
-                                }} className="scrollbar-hide">
-                                  <span className="ds-caption" style={{ color: accent, marginRight: 6, flexShrink: 0 }}>{label}</span>
-                                  {empty
-                                    ? <span style={{ fontSize: 11, color: "var(--ds-text-faint)" }}>none</span>
-                                    : items.map(c => renderChip(c, false))}
-                                </div>
-                              </div>
-                            );
-                          };
-                          return (
-                            <div className="mb-2" style={{
-                              display: "grid",
-                              gridTemplateColumns: "1fr 1fr",
-                              gridAutoRows: "44px",
-                              gap: "var(--ds-space-1)",
-                            }}>
-                              <Section label="Focus" items={focusBucket} accent="var(--ds-accent)" />
-                              <Section label="Momentum" items={momentum} accent="var(--ds-warn)" />
-                              <Section label="Structure" items={structure} accent="var(--ds-violet)" />
-                              <Section label="Context" items={context} accent="var(--ds-text-muted)" />
-                              {/* Active filter affordance + sector drill — span both grid columns */}
-                              {activeInsight && (
-                                <div style={{ display: "flex", justifyContent: "flex-end", gridColumn: "1 / -1" }}>
-                                  <button
-                                    onClick={() => { setActiveInsight(null); setActiveSubInsight(null); }}
-                                    className="ds-chip ds-chip--sm"
-                                  >✕ Clear filter</button>
-                                </div>
-                              )}
-                              {activeInsight === "sp_sectors" && sectorSubs.length > 0 && (
-                                <div className="ds-glass" style={{ padding: "var(--ds-space-2) var(--ds-space-3)", background: "rgba(167,139,250,0.05)", gridColumn: "1 / -1", margin: 0, marginTop: 0 }}>
-                                  <div style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    flexWrap: "nowrap",
-                                    gap: 4,
-                                    overflowX: "auto",
-                                  }} className="scrollbar-hide">
-                                    <span className="ds-caption" style={{ color: "var(--ds-violet)", marginRight: 4 }}>Drill</span>
-                                    {sectorSubs.map(c => renderChip(c, true))}
-                                    {activeSubInsight && (
-                                      <button onClick={() => setActiveSubInsight(null)} className="ds-chip ds-chip--sm" style={{ marginLeft: 6 }}>✕</button>
-                                    )}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()}
+                        {/* P0.7.123 (2026-05-10) — Insight Chips moved
+                            ABOVE the analysis-grid (lifted out of this
+                            bubble-chart-wrap) so the filters affect the
+                            Viewport list as well as the chart, and remain
+                            reachable on mobile when the bubble map is
+                            collapsed. The promoted block lives just before
+                            the tt-analysis-grid <div>. */}
                         <div className="flex-1 min-h-0">
                           {(loading && tickers.length === 0) || !_secondaryReady ? (
                             <div className="w-full h-full bg-white/[0.02] rounded-xl border border-white/[0.06] flex items-center justify-center" style={{ animation: "fadeIn 0.3s ease-out" }}>
@@ -21105,6 +21088,7 @@
                         </div>
                       </div>
                     </div>
+                    </>
                     )}
 
                     {/* Cards / Table View controller — removed; Active Trader always shows cards */}

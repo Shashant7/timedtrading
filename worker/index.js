@@ -41602,14 +41602,40 @@ export default {
                   const todayClose = latestByTicker[sym];
                   const pc = prevCloseByTicker[sym];
                   if (todayClose > 0) {
-                    const liveFreshMs = obj._price_updated_at ? Date.now() - obj._price_updated_at : Infinity;
-                    const liveFresh = liveFreshMs < 30 * 60 * 1000;
-                    if (!rthOpen && !liveFresh) {
-                      obj.price = todayClose;
-                      obj.close = todayClose;
+                    /* P0.7.122 — Daily candle was clobbering fresh
+                       live-overlay prices when the live wrapper was
+                       slightly stale (>30min after hours). Worse, a
+                       bad backtest that wrote into ticker_candles
+                       could poison this overlay (e.g. SNDK showed
+                       $920.99 because a July-2025 replay stamped that
+                       value as "today's" close).
+
+                       New rule: NEVER overwrite obj.price when the
+                       live-prices overlay already set _live_price for
+                       this symbol (the live overlay is the freshest
+                       available source — pre/post-market quotes,
+                       intraday ticks). Daily candle only fills when
+                       no live price was set at all. Sanity-cap any
+                       daily-candle adoption to ±15% from existing
+                       price to refuse obviously-poisoned candles. */
+                    const liveOverlaySet = Number(obj._live_price) > 0;
+                    if (!liveOverlaySet) {
+                      const existingPrice = Number(obj.price) || 0;
+                      const candleDeviates = existingPrice > 0 &&
+                        Math.abs((todayClose - existingPrice) / existingPrice * 100) > 15;
+                      if (!candleDeviates && !rthOpen) {
+                        obj.price = todayClose;
+                        obj.close = todayClose;
+                      }
                     }
                   }
-                  if (pc > 0 && !obj._td_pc_set) {
+                  /* P0.7.122 — Same _live guard for prev_close. The
+                     live overlay sets _live_prev_close from TD's pc
+                     (the freshest, session-aware source). Don't
+                     clobber it with a daily candle that may be 2+
+                     days old or poisoned by a backtest. */
+                  const liveLockedPc = Number(obj._live_prev_close) > 0;
+                  if (pc > 0 && !obj._td_pc_set && !liveLockedPc) {
                     const effectivePrice = Number(obj.price) || obj.close || 0;
                     if (effectivePrice > 0 && Math.abs((effectivePrice - pc) / pc * 100) < 30) {
                       obj.prev_close = pc;
@@ -42475,13 +42501,26 @@ export default {
                 const todayCandle = candles[0];
                 const prevCandle = candles[1];
                 if (!todayCandle || !Number.isFinite(todayCandle.c) || todayCandle.c <= 0) continue;
-                const liveFreshMs = obj._price_updated_at ? Date.now() - obj._price_updated_at : Infinity;
-                const liveFresh = liveFreshMs < 30 * 60 * 1000;
-                if (!rthOpen && !liveFresh) {
-                  obj.price = todayCandle.c;
-                  obj.close = todayCandle.c;
+                /* P0.7.122 — Same daily-candle clobber fix as the
+                   snapshot fast-path. Never overwrite obj.price when
+                   the live overlay set _live_price; sanity-cap any
+                   adoption to ±15% to refuse poisoned candles
+                   (e.g. SNDK $920 stamped by an old replay). */
+                const liveOverlaySet = Number(obj._live_price) > 0;
+                if (!liveOverlaySet) {
+                  const existingPrice = Number(obj.price) || 0;
+                  const candleDeviates = existingPrice > 0 &&
+                    Math.abs((todayCandle.c - existingPrice) / existingPrice * 100) > 15;
+                  if (!candleDeviates && !rthOpen) {
+                    obj.price = todayCandle.c;
+                    obj.close = todayCandle.c;
+                  }
                 }
-                if (prevCandle && Number.isFinite(prevCandle.c) && prevCandle.c > 0) {
+                /* P0.7.122 — Don't clobber a TD-set prev_close with
+                   day-before-yesterday's candle. liveLockedPc means
+                   timed:prices already gave us a fresh pc. */
+                const liveLockedPc = Number(obj._live_prev_close) > 0;
+                if (prevCandle && Number.isFinite(prevCandle.c) && prevCandle.c > 0 && !liveLockedPc) {
                   const effectivePrice = Number(obj.price) || todayCandle.c;
                   const pc = prevCandle.c;
                   if (effectivePrice > 0 && Math.abs((effectivePrice - pc) / pc * 100) < 30) {
