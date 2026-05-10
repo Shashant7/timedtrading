@@ -285,10 +285,11 @@ function nyWallTimeToUtcMs(dayKey, hh = 0, mm = 0, ss = 0) {
   return ts;
 }
 
-function buildSessionReplayUrl(job, sessionDate, cleanSlate = false) {
+function buildSessionReplayUrl(job, sessionDate, cleanSlate = false, tickerOffset = 0) {
   const manifest = job?.contract?.manifest || {};
   const params = manifest?.params || {};
   const tickers = Array.isArray(params?.tickers) ? params.tickers : [];
+  const tickerBatch = Number(manifest?.dataset?.tickerBatch) || 30;
   const url = new URL("https://internal/timed/admin/candle-replay");
   url.searchParams.set("date", String(sessionDate));
   if (tickers.length) url.searchParams.set("tickers", tickers.join(","));
@@ -296,6 +297,14 @@ function buildSessionReplayUrl(job, sessionDate, cleanSlate = false) {
   url.searchParams.set("freshRun", "1");
   url.searchParams.set("runId", String(job?.runId || ""));
   url.searchParams.set("skipInvestor", manifest?.dataset?.traderOnly ? "1" : "0");
+  // V15 P0.7.122 (2026-05-10) — Phase 3.8: ticker pagination across the full
+  // universe. Previously this URL builder didn't pass tickerOffset/tickerBatch,
+  // so the DO's executeCandleReplayStep call processed only the FIRST batch
+  // (~15 tickers) per session. Phase 3 backtest covered only 15/230 tickers
+  // and missed the entire TH-blueprint cohort (SNDK/BE/MU/SOXL/GOOGL).
+  // The session loop now iterates all batches via while(hasMore).
+  url.searchParams.set("tickerOffset", String(tickerOffset));
+  url.searchParams.set("tickerBatch", String(tickerBatch));
   if (params?.disable_reference_execution || params?.disableReferenceExecution) {
     url.searchParams.set("disableReferenceExecution", "1");
   }
@@ -800,11 +809,6 @@ export class BacktestRunner {
       const sessionDate = sessions[sessionIndex];
       const manifest = job?.contract?.manifest || {};
       const params = manifest?.params || {};
-      const replayUrl = buildSessionReplayUrl(
-        job,
-        sessionDate,
-        sessionIndex === 0 && params?.clean_slate === true,
-      );
       // Do NOT re-send config_override in the replay body. snapshotConfig()
       // already merged the source-run snapshot + override into
       // backtest_run_config keyed by runId, and loadReplayRuntimeConfig reads
@@ -840,20 +844,51 @@ export class BacktestRunner {
 
       try {
         const { executeCandleReplayStep } = getReplayExecutorRuntime();
-        const replayRequest = new Request(replayUrl.toString(), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-        });
-        const replayResponse = await executeCandleReplayStep({
-          req: replayRequest,
-          env: { ...this.env, KV },
-          url: replayUrl,
-          body: requestBody,
-        });
-        const data = await replayResponse.json().catch(() => ({ ok: false, error: "invalid_native_replay_response" }));
-        if (!replayResponse.ok || data?.ok === false) {
-          throw new Error(String(data?.error || `http_${replayResponse.status}`));
+        // V15 P0.7.122 — Phase 3.8: paginate ticker batches per session.
+        // Loop while hasMore=true so we cover the full universe (~230 tickers
+        // across ~8 batches at tickerBatch=30) rather than the first batch
+        // only.
+        let tickerOffset = 0;
+        let totalScored = 0;
+        let totalTradesCreated = 0;
+        let lastTotalTrades = 0;
+        let totalErrorsCount = 0;
+        let batchCount = 0;
+        const MAX_BATCHES_PER_SESSION = 50;  // safety guard; ~230 tickers / 30 batch = 8
+        let hasMore = true;
+        let lastData = null;
+        while (hasMore && batchCount < MAX_BATCHES_PER_SESSION) {
+          const replayUrl = buildSessionReplayUrl(
+            job,
+            sessionDate,
+            sessionIndex === 0 && batchCount === 0 && params?.clean_slate === true,
+            tickerOffset,
+          );
+          const replayRequest = new Request(replayUrl.toString(), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+          });
+          const replayResponse = await executeCandleReplayStep({
+            req: replayRequest,
+            env: { ...this.env, KV },
+            url: replayUrl,
+            body: requestBody,
+          });
+          const data = await replayResponse.json().catch(() => ({ ok: false, error: "invalid_native_replay_response" }));
+          if (!replayResponse.ok || data?.ok === false) {
+            throw new Error(String(data?.error || `http_${replayResponse.status}`));
+          }
+          totalScored += Number(data?.scored || 0);
+          totalTradesCreated += Number(data?.tradesCreated || 0);
+          lastTotalTrades = Number(data?.totalTrades || lastTotalTrades);
+          totalErrorsCount += Number(data?.errorsCount || 0);
+          batchCount++;
+          hasMore = !!data?.hasMore;
+          tickerOffset = Number(data?.nextTickerOffset || (tickerOffset + Number(manifest?.dataset?.tickerBatch || 30)));
+          lastData = data;
+          if (!hasMore) break;
         }
+        const data = lastData || {};
         job.retries = 0;
         job.updatedAt = Date.now();
         job.checkpoint = {
@@ -863,10 +898,11 @@ export class BacktestRunner {
           session_index: sessionIndex + 1,
           last_result: {
             date: sessionDate,
-            scored: Number(data?.scored || 0),
-            tradesCreated: Number(data?.tradesCreated || 0),
-            totalTrades: Number(data?.totalTrades || 0),
-            errorsCount: Number(data?.errorsCount || 0),
+            scored: totalScored,
+            tradesCreated: totalTradesCreated,
+            totalTrades: lastTotalTrades,
+            errorsCount: totalErrorsCount,
+            batches: batchCount,
           },
         };
         await this.saveJob(job);
@@ -878,9 +914,10 @@ export class BacktestRunner {
         await this.appendLog(job.runId, "info", "runner_session_complete", `Completed replay session for ${sessionDate}.`, {
           session_index: sessionIndex,
           session_date: sessionDate,
-          scored: Number(data?.scored || 0),
-          trades_created: Number(data?.tradesCreated || 0),
-          total_trades: Number(data?.totalTrades || 0),
+          scored: totalScored,
+          trades_created: totalTradesCreated,
+          total_trades: lastTotalTrades,
+          batches: batchCount,
         });
         await this.state.storage.setAlarm(Date.now() + 100);
       } catch (error) {
