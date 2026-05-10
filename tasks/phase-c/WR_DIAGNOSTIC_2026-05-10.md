@@ -97,22 +97,78 @@ Three failure modes interacted to mask the problem:
 2. **Per-key live-fallback in `loadReplayRuntimeConfig`** when a pinned snapshot lacks a `REPLAY_DA_KEYS` entry — promotes silent defaults to a loud `console.warn` and reads from `model_config` as a backstop. (Risk: low. Behavior change: only fires when a snapshot is partial, which previously produced the silent-default behavior diagnosed above.)
 3. **Snapshot-completeness assertion** at run-start: log a warning if `backtest_run_config` row count for the new run is less than ~80% of the size of `model_config` at start time. (Defensive; cheap.)
 
-## Validation plan for the v4 run
+## Smoke results — config fix is necessary but NOT sufficient
 
-Smoke check on **first 22 sessions** (covering all of July 2025, the same window the v3 run produced its 19% WR slice on). Pass criterion:
+After the model_config clone + clean-slate restart (run `phase-c-stage2-th-do-v5-cfgfix-clean-jul2025-may2026`), preprod's July 2025 cohort still underperforms the live canonical baseline by a wide margin:
 
-- WR ≥ 45% on the July 2025 trade set
-- No new exit reason categories firing that the canonical phase-c-stage1 didn't show
-- TH lifecycle eval is reachable (we expect 1-3 promotions in July; v3 had 0)
+| run | env | Jul 2025 trades | W | L | TT | WR (W/(W+L)) | Σ pnl% (avg×n) |
+|---|---|---:|---:|---:|---:|---:|---:|
+| `phase-c-stage1-jul2025-may2026` (canonical 52.3% WR) | live | **103** | 58 | 45 | 0 | **56.3%** | +118% |
+| `phase-c-stage2-th-do-v3-jul2025-may2026` (5-key snapshot) | preprod | 61 | 18 | 36 | 7 | 33.3% | +31% |
+| `phase-c-stage2-th-do-v5-cfgfix-clean-jul2025-may2026` (433-key snapshot, clean preprod) | preprod | **61** | 18 | 37 | 6 | **32.7%** | **−15%** |
 
-If smoke passes, let v4 run all 220 sessions (~13h). If smoke fails, the v3-style WR is **not** caused by the partial config alone, and we re-investigate (Hypothesis B — TH eval timing — is the next candidate).
+The trade IDs in v3 and v5 are nearly identical — the entry path is producing the same set of entries regardless of which `deep_audit_*` keys are present. The config fix changed pnl values on the TP_HIT_TRIM cohort (and flipped one trade SGI from TT→LOSS) but did not move the headline WR.
 
-After full run completes, validate against `tasks/phase-c/PHASE_3_DESIGN.md` SNDK pass criterion (≥1 SNDK trade with pnl ≥50%, Σ SNDK pnl ≥200%, no SNDK closes via the 5 suppressed reasons) and the March 2026 regression guard (`trader_th_mar pnl% NOT < trader_only_mar - 1.0%`).
+### Ticker-set divergence (the deeper finding)
+
+Distinct tickers traded in July:
+- canonical: 74
+- v5 preprod: 46
+- in canonical but NOT v5 (50): AEHR, AGQ, AGYS, ALB, ALLY, AMD, ANET, APD, APLD, ASTS, AVGO, AXP, AYI, BA, BK, BWXT, CARR, CCJ, CLS, CRS, CRWD, DIA, EME, EMR, ETN, GEV, GLXY, GOOGL, H, IBP, IESC, INTC, IREN, IWM, JPM, KTOS, LITE, LRCX, META, MP, MTZ, NEU, NKE, NVDA, PEGA, PLTR, PNC, PSTG, QQQ, STX, U, XHB
+- in v5 but NOT canonical (24): AXON, BABA, BE, BRK-B, COST, CW, DKNG, DPZ, ELF, EXPE, FLR, GRNY, HII, INTU, J, JCI, KO, LULU, MNST, PWR, STRL, TT, VMI, XYZ
+
+This is a **scoring-input mismatch**, not a config mismatch. Preprod is selecting entirely different names — including missing every Phase C marquee ticker the user cares about (NVDA, GOOGL, META, AVGO, AMD, AEHR, BE).
+
+Inputs verified equal-or-near-equal:
+- `ticker_candles` rows in Jul: live 845,855 / 246 distinct tickers; preprod 844,955 / 245 distinct tickers (Δ 1 ticker, 900 rows — negligible)
+- `model_config`: 433 / 381 deep_audit_* on both (after clone)
+- worker code: latest deployment 2026-05-10 on both (same main)
+- pinned `backtest_run_config` for v5: 433 keys (vs canonical's 428)
+
+Day-state KV (`timed:replay:daystate:YYYY-MM-DD`) is the most likely remaining gap. Sample sizes:
+- Jul 1: live 28.87 MB, preprod 35.62 MB
+- Jul 8: live 28.88 MB, preprod 32.85 MB
+- Jul 15: live 28.90 MB, preprod 33.00 MB
+- Jul 22: live 28.90 MB, preprod 32.98 MB
+- Jul 29: live 28.80 MB, preprod 33.04 MB
+
+Preprod day-state blobs are **larger** than live's, not smaller. This suggests preprod's day-state has been **mutated** by prior preprod backtest runs (each candle-replay rewrites the daystate as it walks forward). The "canonical Phase C trader" day-state cached on live has not been mirrored back; the prior `clone-live-to-preprod.sh` cloned them once, and subsequent preprod runs overwrote them with their own scoring outputs.
+
+If day-state contains the cached scoring inputs (rank, EMA stack, ST direction, etc.) used by the entry decision, then preprod's entry decisions are operating on **different scoring inputs** than canonical. That's the actual cause of the 56% → 33% WR drop.
+
+## Open question: validation strategy
+
+With preprod-fidelity not currently reproducing canonical absolute WR, two paths forward:
+
+### Path A — Fix preprod fidelity, then validate TH on absolute terms
+Re-clone day-state from live (overwrite preprod's mutated copies) AND lock preprod against further day-state mutation during validation runs. Then re-run the trader-only baseline on preprod and confirm WR ≈ 56% before promoting any TH change.
+- Effort: write a fresh `clone-daystate-to-preprod.sh` that overwrites the 220 KV blobs (~6 GB writes). Then mark the day-state cohort read-only somehow (or accept that we can only run ONE backtest before mutation re-corrupts it).
+- Risk: medium — this might still not be sufficient if there are other inputs we haven't enumerated.
+
+### Path B — Validate TH as a relative delta on preprod
+Accept that preprod's WR baseline is whatever it is (~33%). Run two preprod backtests on identical state:
+1. trader-only with `deep_audit_trend_hold_enabled=false`
+2. trader+TH with `deep_audit_trend_hold_enabled=true`
+Compare deltas: did TH lift WR / Σ pnl on its own merit? Did the SNDK / GOOGL / AMD / MU pass criteria fire on Path B given that preprod isn't even entering those names?
+- Issue: preprod doesn't trade SNDK / GOOGL / AMD / MU / META in July (they're in the 50-ticker exclusion list). The pass criteria require these specific names to exist as TH-eligible. Path B can't validate the user's actual goal.
+
+### Path C — Validate TH directly on live, in shadow mode
+Deploy TH evaluation logic to live with `commit=0` (read-only) and log all promotion decisions for 1-2 weeks of live trading. Compare what TH would have promoted vs what the trader path actually did. This sidesteps preprod entirely.
+- Risk: low (no live mutation).
+- Limitation: 1-2 weeks of live data ≠ a full Jul→May validation. SNDK trade count drops on live require historical backfill, not forward observation.
+
+## Recommendation
+
+Path A is the right long-term fix. Path C is the right immediate pragmatic step.
+
+In parallel, surface the issue to the user — **the 19% WR observation was misleading; the actual problem is preprod can only reproduce ~33% WR even with corrected config, while canonical produces 56%. The Trend-Hold strategy hasn't been bench-tested under faithful conditions yet.**
 
 ## State at hand-back
 
 - Live: untouched. Cash $140,786, realized $40,020. Cron unmuted.
 - Preprod model_config: 433 rows (post-clone), 381 deep_audit_*.
-- Preprod v3 run: cancelled at session 24. Trade rows preserved for forensic compare.
-- Preprod v4 run: queued, alarm-driven. Monitor: `https://timed-trading-ingest-preprod.shashant.workers.dev/backtest-monitor?key=…&run_id=phase-c-stage2-th-do-v4-cfgfix-jul2025-may2026`
-- Branch: `cursor/investor-wr-diagnose-bcab` — this doc + the clone-script fix + the per-key fallback.
+- Preprod v3 run: cancelled at session 24. Trade rows preserved for forensic.
+- Preprod v4 run: cancelled. Trades inherited from v3 (clean_slate=false).
+- Preprod v5 run: cancelled at session 2 after smoke confirmed preprod ≠ canonical at the WR level.
+- Preprod working tables: wiped (trades / positions / ledger / lots / events / etc.) prior to v5; safe state for whatever path we choose next.
+- Branch: `cursor/investor-wr-diagnose-bcab` — this doc + the clone-script fix + the per-key fallback + the snapshot-completeness assertion.
