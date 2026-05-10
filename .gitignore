@@ -14,6 +14,11 @@ yarn.lock
 .env
 .env.local
 .wrangler/
+# Wrangler local dev secrets — NEVER commit (bearer creds for Discord, etc.)
+.dev.vars
+.dev.vars.*
+worker/.dev.vars
+worker/.dev.vars.*
 
 # Build outputs
 dist/
