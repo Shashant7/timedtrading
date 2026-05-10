@@ -63,14 +63,62 @@ Phase 3.8's alarm-driven DO assumes each candle-replay batch fits inside the wor
 
 Architectural follow-up: profile `executeCandleReplayStep` with the populated reference tables and identify the slow path. Likely candidate: `direction_accuracy` and `ticker_move_signals` consumption inside the AI CIO scoring path. For now, **set `ticker_batch=10` for any preprod canonical run** until profiled.
 
-## Validation status
+## Smoke results — partial fidelity is the limit
 
-- ✓ 14 D1 tables now byte-identical to live (row counts match exactly)
-- ✓ 211 day-state KV blobs cloned with byte-perfect equivalence (verified on Jul 1)
-- ✓ `model_config` has 433 keys (381 deep_audit_*) with TH override disabled
-- ⏳ Trader-only canonical-mirror baseline: in flight (`preprod-canonical-mirror-v2-smallbatch-jul2025-may2026`) at `ticker_batch=10`. Pass criterion: Jul 2025 W/L ≈ 58/45, WR ≈ 56%, ticker set Jaccard vs canonical ≥ 0.95.
+After running three sequential sync passes (each strictly more comprehensive than the last) and three corresponding canonical-mirror baseline runs:
 
-If the canonical mirror passes, preprod is officially ready to host TH and Investor-Mode experiments as cherry-pickable deltas on top.
+| run | model_config | D1 ref tables | KV day-state | KV other (~1.3k keys) | Jul 1 entries | Jul 1-31 trades | WR | result |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| canonical `phase-c-stage1` (live) | 433 | full | full | full | **25** | 103 | 56.3% | reference |
+| `v1` preprod (5 model_config keys) | 5 | empty | mutated | partial | 6 | 61 | 33% | broken |
+| `v3` preprod (5 model_config + day-state cloned) | 5 | empty | clean | partial | 6 | 61 | 33% | broken |
+| `v5` preprod (full model_config + day-state) | 433 | empty | clean | partial | 6 | 61 | 33% | partial fix |
+| `v3-fullkv` preprod (this PR — full D1 + full KV) | 433 | **14 ✓** | **211 ✓** | **1.3k+ ✓** | **6** | **61** | **33%** | **same** |
+
+**Preprod produces deterministic, identical outputs across every sync iteration.** Same trade IDs, same outcomes, same WR — even after every observable input we could enumerate has been mirrored from live.
+
+### Where the residual gap likely lives
+
+`worker/replay-runtime-setup.js`, `worker/pipeline/tt-core-entry.js`, and the candle-replay path read ~50 KV namespaces and many `model_config`-driven gates. We've now mirrored all the bulk static data. What we **cannot** mirror is the *historical state* of live's non-replay KV namespaces at the moment canonical `phase-c-stage1` ran. The keys under `timed:context:*`, `timed:capture:*`, `timed:internals:*` are mutated continuously by live cron — what's there today is May 2026 sector/breadth state, not the Apr 2026 state that canonical saw at run-time.
+
+When the cohort overlay (`deep_audit_cohort_overlay_enabled = true`) and the cluster throttle (`deep_audit_cluster_throttle_enabled = true`) evaluate at replay time, they read from these "current" KV values. Cohort gates and cluster throttle that were lenient at canonical's run-time may now be strict, blocking entries that canonical admitted. Net: 6 Jul 1 entries on preprod vs 25 on canonical, with the gap concentrated in tickers like NVDA, GOOGL, AMD, META, AVGO that were probably blocked by current cohort overlay state.
+
+This is **not** something the data-sync layer can fix. It's a worker-code property: the replay path treats certain KV reads as "current state" rather than "historical state captured per session". To make preprod fully deterministic-replayable would require auditing every `KV.get(...)` call in the scoring path and routing it through the day-state snapshot when in replay mode.
+
+### Practical implications
+
+- **Preprod is deterministic and reproducible across runs.** That's necessary for relative experiments.
+- **Preprod cannot reproduce canonical absolute WR.** ~33% is its environmental ceiling for July 2025 with today's KV state.
+- **Preprod's universe is narrower than canonical's** (46 vs 74 tickers traded in July). The tickers the user actually wants to validate TH on (SNDK, GOOGL, AMD, MU, META) are mostly NOT in preprod's traded set, because cohort overlay blocks them at entry-time. So even a TH-on / TH-off relative comparison on preprod **cannot fire the SNDK pass criterion** from `PHASE_3_DESIGN.md`.
+
+## What we can validate on this preprod
+
+Despite the absolute-WR gap, the deterministic environment supports **relative-delta experiments** for hypotheses that don't depend on the marquee-ticker cohort:
+1. Trader-only baseline (TH off) → 61 trades, 33% WR (the v3-fullkv numbers above).
+2. Trader+TH (TH on) → comparison run.
+3. Δ trades, Δ WR, Δ pnl → the TH-module's value-add on this universe.
+
+This validates whether TH does no harm and whether it produces meaningful management changes (different exit reasons, longer holds, fewer giveback losses). It does NOT validate the SNDK / GOOGL / AMD pass criterion the user cares about.
+
+## What we'd need for full canonical reproducibility
+
+Code-side change in worker/* — beyond this PR's scope:
+1. Audit every `KV.get(...)` call in the scoring path that reads non-replay namespaces (timed:context:*, timed:capture:*, timed:internals:*).
+2. Route each through a `getReplaySnapshotValue(daystate, key)` helper that prefers the per-session day-state cache over live KV when in replay mode.
+3. On a fresh canonical run, capture a snapshot of all read KV values into the day-state.
+4. Then preprod day-state cloning becomes sufficient for full reproducibility.
+
+This is a non-trivial refactor (~50+ KV.get sites, integration test required, risks of breaking live).
+
+## Recommended path forward
+
+Two options for the user to choose:
+
+**Option 1 — Ship TH on a relative-delta basis.** Accept that the marquee-cohort SNDK criterion isn't testable in preprod's current state. Run trader-only vs trader+TH back-to-back on preprod, look at delta. If delta looks favorable, deploy TH to live in shadow mode (commit=0, log-only) for 1-2 weeks to validate before flipping `deep_audit_trend_hold_enabled = true` on live. This is **Path C** from `WR_DIAGNOSTIC_2026-05-10.md`.
+
+**Option 2 — Do the worker-code refactor first.** Deterministic replay across all KV reads. Higher engineering cost. Lets us validate TH against canonical-equivalent SNDK/GOOGL/AMD outcomes.
+
+Option 1 is cheaper and ships faster but doesn't fully validate. Option 2 is the right architectural answer for long-term backtest infrastructure but is a multi-PR effort.
 
 ## Operational guardrails for keeping preprod faithful
 

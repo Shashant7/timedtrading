@@ -143,16 +143,44 @@ for t in "${TABLES[@]}"; do
 done
 
 # ─────────────────────────────────────────────────────────────────
-# 4. KV: day-state cohort. Delegates to sync-daystate-kv.sh which
-#    already has parallel cloning + retry handling.
+# 4. KV: scoring-relevant prefixes. Delegates to sync-daystate-kv.sh
+#    which is generic on the PREFIX env var. Each prefix is parallel-
+#    cloned by 4 workers; bulky cohorts run sequentially because
+#    each one already saturates parallelism within its prefix.
+#
+#    Why these prefixes matter at backtest time:
+#      timed:replay:daystate:*    — per-day scoring snapshot (largest, ~6GB)
+#      timed:internals:*          — historical market internals per indicator/day
+#      timed:context:*            — per-ticker sector context cache
+#      timed:capture:*            — per-indicator capture trail
+#      timed:sector_map:*         — sector classification
+#      timed:profile:*            — per-ticker profile cache
+#      timed:calibration:*        — calibration golden profiles
+#      phase-c:*                  — Phase C admission/doctrine/loop config blobs
 # ─────────────────────────────────────────────────────────────────
 echo
-echo "[4/6] KV timed:replay:daystate:* (parallel clone)..."
+echo "[4/6] KV: scoring-relevant prefixes..."
 HERE="$(cd "$(dirname "$0")" && pwd)"
-TIMED_API_KEY="$API_KEY" \
-  LIVE_BASE="$LIVE_BASE" \
-  PREPROD_BASE="$PREPROD_BASE" \
-  bash "$HERE/sync-daystate-kv.sh" 2>&1 | grep -E '^\[|^  progress:|^  done:|^  preprod now|^═' | sed 's/^/  /'
+KV_PREFIXES=(
+  "timed:replay:daystate:"
+  "timed:internals:"
+  "timed:context:"
+  "timed:capture:"
+  "timed:sector_map:"
+  "timed:profile:"
+  "timed:calibration:"
+  "phase-c:"
+)
+for prefix in "${KV_PREFIXES[@]}"; do
+  echo "  prefix=$prefix"
+  TIMED_API_KEY="$API_KEY" \
+    LIVE_BASE="$LIVE_BASE" \
+    PREPROD_BASE="$PREPROD_BASE" \
+    PREFIX="$prefix" \
+    bash "$HERE/sync-daystate-kv.sh" 2>&1 \
+      | grep -E '^\[|^  done:|^  preprod now|^═' \
+      | sed 's/^/    /'
+done
 
 # ─────────────────────────────────────────────────────────────────
 # 5. Reapply preprod-specific experiment overrides on model_config.

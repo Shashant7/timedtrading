@@ -43,9 +43,14 @@ LIVE_KEYS=$(curl -sS "$LIVE_BASE/timed/admin/kv/list?prefix=$PREFIX&limit=1000&k
 LIVE_COUNT=$(echo "$LIVE_KEYS" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('keys',[])))")
 LIVE_COMPLETE=$(echo "$LIVE_KEYS" | python3 -c "import sys,json; print(json.load(sys.stdin).get('list_complete'))")
 echo "  live: $LIVE_COUNT keys (list_complete=$LIVE_COMPLETE)"
-if [[ "$LIVE_COUNT" -lt 100 ]]; then
-  echo "ERROR: live returned $LIVE_COUNT keys (expected >100). Check API_KEY / network." >&2
+MIN_KEYS="${MIN_KEYS:-1}"
+if [[ "$LIVE_COUNT" -lt "$MIN_KEYS" ]]; then
+  echo "ERROR: live returned $LIVE_COUNT keys (expected >=$MIN_KEYS). Check API_KEY / network." >&2
   exit 3
+fi
+if [[ "$LIVE_COUNT" -eq 0 ]]; then
+  echo "  (no live keys under prefix — nothing to clone, exiting cleanly)"
+  exit 0
 fi
 
 # 2. Build the work list.
@@ -82,8 +87,7 @@ clone_one() {
     return 1
   fi
   local sz=$(wc -c < "$tmp")
-  if [[ "$sz" -lt 1000 ]]; then
-    # Probably "ok:false" or empty value — skip
+  if [[ "$sz" -lt "${MIN_BYTES:-200}" ]]; then
     rm -f "$tmp"
     echo "SKIP $key size=$sz"
     return 0
@@ -101,7 +105,7 @@ clone_one() {
   echo "OK $key ${sz}B [$idx/$total]"
 }
 export -f clone_one
-export LIVE_BASE PREPROD_BASE API_KEY
+export LIVE_BASE PREPROD_BASE API_KEY MIN_BYTES
 
 # Use xargs to parallelize. Each line of KEYS_FILE becomes a clone_one call.
 # We need to pass index info for progress; do that by piping nl through xargs.
