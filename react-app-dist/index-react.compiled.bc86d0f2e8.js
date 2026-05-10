@@ -6291,68 +6291,68 @@ function DashboardWelcomeModal({
   const allSteps = [{
     title: "Welcome to Timed Trading",
     content: React.createElement("div", {
-      className: "space-y-4"
+      className: "space-y-5"
     }, React.createElement("p", {
-      className: "text-[#d1d5db] leading-relaxed"
-    }, "The system continuously scores every major ticker across multiple timeframes and places them in ", React.createElement("strong", {
+      className: "text-base text-[#e5e7eb] leading-[1.7]"
+    }, "Timed Trading is a scoring + decision engine that watches the market for you. The system continuously scores every major ticker across multiple timeframes and places them in ", React.createElement("strong", {
       className: "text-white"
-    }, "action lanes"), " based on where each one is in its trend cycle. Click any ticker to open the ", React.createElement("strong", {
+    }, "action lanes"), " based on where each one is in its trend cycle."), React.createElement("p", {
+      className: "text-base text-[#d1d5db] leading-[1.7]"
+    }, "This guide walks through the five things you'll use most. It takes about ", React.createElement("strong", {
       className: "text-white"
-    }, "Right Rail"), " with six tabs of deep analysis."), React.createElement("div", {
-      className: "bg-white/[0.02] border border-white/[0.06] rounded-lg p-4"
+    }, "two minutes"), ", and you can reopen it anytime from the ", React.createElement("strong", {
+      className: "text-white"
+    }, "Guide"), " button in the top nav."), React.createElement("div", {
+      className: "grid grid-cols-3 gap-3 pt-1"
     }, React.createElement("div", {
-      className: "text-[10px] uppercase tracking-[0.10em] text-[#F5C25C] font-semibold mb-2"
-    }, "Active Trader \xB7 backtest Jul 2025 \u2192 May 2026"), React.createElement("div", {
-      className: "grid grid-cols-2 sm:grid-cols-4 gap-3"
-    }, React.createElement("div", null, React.createElement("div", {
-      className: "text-xl font-bold text-emerald-300 tabular-nums"
-    }, "+40.0%"), React.createElement("div", {
-      className: "text-[10px] text-[#9ca3af] uppercase tracking-wider mt-0.5"
-    }, "Total Return")), React.createElement("div", null, React.createElement("div", {
-      className: "text-xl font-bold text-white tabular-nums"
-    }, "4.62"), React.createElement("div", {
-      className: "text-[10px] text-[#9ca3af] uppercase tracking-wider mt-0.5"
-    }, "Sharpe")), React.createElement("div", null, React.createElement("div", {
-      className: "text-xl font-bold text-rose-300 tabular-nums"
-    }, "\u22122.7%"), React.createElement("div", {
-      className: "text-[10px] text-[#9ca3af] uppercase tracking-wider mt-0.5"
-    }, "Max DD")), React.createElement("div", null, React.createElement("div", {
-      className: "text-xl font-bold text-white tabular-nums"
-    }, "52.2%"), React.createElement("div", {
-      className: "text-[10px] text-[#9ca3af] uppercase tracking-wider mt-0.5"
-    }, "Win Rate"))), React.createElement("p", {
-      className: "text-[10px] text-[#6b7280] mt-3 leading-relaxed"
-    }, "Simulated. 588 closed trades over 203 trading days. Past performance is not a guarantee.")))
+      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
+    }, React.createElement("div", {
+      className: "text-[#F5C25C] text-[11px] font-bold uppercase tracking-wider mb-1"
+    }, "Score"), React.createElement("p", {
+      className: "text-[12px] text-[#9ca3af] leading-snug"
+    }, "Every ticker, every minute, across multiple timeframes.")), React.createElement("div", {
+      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
+    }, React.createElement("div", {
+      className: "text-[#F5C25C] text-[11px] font-bold uppercase tracking-wider mb-1"
+    }, "Stage"), React.createElement("p", {
+      className: "text-[12px] text-[#9ca3af] leading-snug"
+    }, "Setup \u2192 Enter \u2192 Hold \u2192 Defend \u2192 Trim \u2192 Exit.")), React.createElement("div", {
+      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
+    }, React.createElement("div", {
+      className: "text-[#F5C25C] text-[11px] font-bold uppercase tracking-wider mb-1"
+    }, "Act"), React.createElement("p", {
+      className: "text-[12px] text-[#9ca3af] leading-snug"
+    }, "Daily Brief, alerts, and a fully audited trade ledger."))))
   }, {
     title: "Two modes, one engine",
     content: React.createElement("div", {
       className: "space-y-4"
     }, React.createElement("p", {
-      className: "text-[#d1d5db] leading-relaxed"
+      className: "text-base text-[#e5e7eb] leading-[1.7]"
     }, "The same scoring engine powers two ways to act on the market. Pick whichever fits your screen-time and risk tolerance."), React.createElement("div", {
       className: "grid grid-cols-1 sm:grid-cols-2 gap-3"
     }, React.createElement("div", {
       className: "bg-white/[0.03] border border-emerald-500/20 rounded-lg p-4 ring-1 ring-emerald-500/10"
     }, React.createElement("div", {
-      className: "flex items-center gap-2 mb-1.5"
+      className: "flex items-center gap-2 mb-2"
     }, React.createElement("span", {
       className: "w-2 h-2 rounded-full bg-emerald-400"
     }), React.createElement("h3", {
       className: "text-emerald-400 font-semibold text-sm"
     }, "Active Trader")), React.createElement("p", {
-      className: "text-xs text-[#9ca3af] leading-relaxed"
+      className: "text-[13px] text-[#a1a8b2] leading-[1.65]"
     }, "Multi-timeframe entries with explicit stop / take-profit levels, trailing stops, and trims. Daily Brief gives a pre-market game plan and an evening recap.")), React.createElement("div", {
       className: "bg-white/[0.03] border border-violet-500/20 rounded-lg p-4 ring-1 ring-violet-500/10"
     }, React.createElement("div", {
-      className: "flex items-center gap-2 mb-1.5"
+      className: "flex items-center gap-2 mb-2"
     }, React.createElement("span", {
       className: "w-2 h-2 rounded-full bg-violet-400"
     }), React.createElement("h3", {
       className: "text-violet-300 font-semibold text-sm"
     }, "Investor (Trend-Hold)")), React.createElement("p", {
-      className: "text-xs text-[#9ca3af] leading-relaxed"
+      className: "text-[13px] text-[#a1a8b2] leading-[1.65]"
     }, "Longer-horizon accumulation. Stocks flow through Watch \u2192 Accumulate \u2192 Core Hold \u2192 Reduce \u2192 Exit, with one decision per day. Built for discipline without daily screen time."))), React.createElement("p", {
-      className: "text-xs text-[#6b7280]"
+      className: "text-[13px] text-[#9ca3af] leading-[1.65]"
     }, "The ", React.createElement("strong", {
       className: "text-white"
     }, "Trades"), " page gives each mode its own Performance Overview \u2014 equity curve, monthly P&L, calendar, and win-rate breakdown."))
@@ -6361,61 +6361,67 @@ function DashboardWelcomeModal({
     content: React.createElement("div", {
       className: "space-y-4"
     }, React.createElement("p", {
-      className: "text-[#d1d5db] leading-relaxed"
+      className: "text-base text-[#e5e7eb] leading-[1.7]"
     }, "Click any ticker to open the ", React.createElement("strong", {
       className: "text-white"
     }, "Right Rail"), " \u2014 six tabs that give you everything about a stock:"), React.createElement("div", {
-      className: "grid grid-cols-2 gap-2"
+      className: "grid grid-cols-1 sm:grid-cols-2 gap-3"
     }, React.createElement("div", {
-      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
+      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4"
     }, React.createElement("h3", {
-      className: "text-amber-300 font-semibold text-xs mb-1"
+      className: "text-amber-300 font-semibold text-sm mb-1.5"
     }, "Analysis"), React.createElement("p", {
-      className: "text-[10px] text-[#9ca3af] leading-relaxed"
-    }, "Score breakdown, management levels (SL/TP), risk/reward, and the system's current recommendation.")), React.createElement("div", {
-      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
+      className: "text-[12px] text-[#a1a8b2] leading-[1.6]"
+    }, "Live chart, score breakdown, management levels (SL / TP), risk/reward, and the system's current trade recommendation.")), React.createElement("div", {
+      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4"
     }, React.createElement("h3", {
-      className: "text-amber-300 font-semibold text-xs mb-1"
+      className: "text-amber-300 font-semibold text-sm mb-1.5"
     }, "Investor"), React.createElement("p", {
-      className: "text-[10px] text-[#9ca3af] leading-relaxed"
-    }, "Longer-horizon scoring, accumulation zones, and relative strength vs. the market.")), React.createElement("div", {
-      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
+      className: "text-[12px] text-[#a1a8b2] leading-[1.6]"
+    }, "Long-term portfolio view: investor score, stage (Watch / Accumulate / Core Hold / Reduce / Exit), Buy Zone, and lot history.")), React.createElement("div", {
+      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4"
     }, React.createElement("h3", {
-      className: "text-amber-300 font-semibold text-xs mb-1"
+      className: "text-amber-300 font-semibold text-sm mb-1.5"
     }, "Technicals"), React.createElement("p", {
-      className: "text-[10px] text-[#9ca3af] leading-relaxed"
-    }, "TD Sequential counts, market state, exhaustion signals, and trigger pattern detection.")), React.createElement("div", {
-      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
+      className: "text-[12px] text-[#a1a8b2] leading-[1.6]"
+    }, "Deep multi-timeframe technical analysis with scoring breakdowns across every indicator the engine watches.")), React.createElement("div", {
+      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4"
     }, React.createElement("h3", {
-      className: "text-amber-300 font-semibold text-xs mb-1"
-    }, "Model"), React.createElement("p", {
-      className: "text-[10px] text-[#9ca3af] leading-relaxed"
-    }, "The system's prediction confidence, pattern library matches, and forward-looking analysis.")), React.createElement("div", {
-      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
+      className: "text-amber-300 font-semibold text-sm mb-1.5"
+    }, "Model ", React.createElement("span", {
+      className: "text-[9px] uppercase tracking-wider text-amber-400/80 ml-1"
+    }, "Pro")), React.createElement("p", {
+      className: "text-[12px] text-[#a1a8b2] leading-[1.6]"
+    }, "AI model confidence, signal strength, and the engine's entry / exit decision rationale.")), React.createElement("div", {
+      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4"
     }, React.createElement("h3", {
-      className: "text-amber-300 font-semibold text-xs mb-1"
-    }, "Journey"), React.createElement("p", {
-      className: "text-[10px] text-[#9ca3af] leading-relaxed"
-    }, "Scoring timeline, phase completion, and price performance across 1D to 90D windows.")), React.createElement("div", {
-      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
+      className: "text-amber-300 font-semibold text-sm mb-1.5"
+    }, "Journey ", React.createElement("span", {
+      className: "text-[9px] uppercase tracking-wider text-amber-400/80 ml-1"
+    }, "Pro")), React.createElement("p", {
+      className: "text-[12px] text-[#a1a8b2] leading-[1.6]"
+    }, "Full ticker journey tracking \u2014 historical stage transitions and time-in-stage analytics.")), React.createElement("div", {
+      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4"
     }, React.createElement("h3", {
-      className: "text-amber-300 font-semibold text-xs mb-1"
-    }, "Trades"), React.createElement("p", {
-      className: "text-[10px] text-[#9ca3af] leading-relaxed"
-    }, "Trade history for this ticker \u2014 every entry, exit, P&L, and chart overlay."))))
+      className: "text-amber-300 font-semibold text-sm mb-1.5"
+    }, "Trades ", React.createElement("span", {
+      className: "text-[9px] uppercase tracking-wider text-amber-400/80 ml-1"
+    }, "Pro")), React.createElement("p", {
+      className: "text-[12px] text-[#a1a8b2] leading-[1.6]"
+    }, "Complete per-ticker trade ledger \u2014 every entry, trim, exit, P&L, and chart overlay."))))
   }, {
     title: "Build your watchlist",
     content: React.createElement("div", {
       className: "space-y-4"
     }, React.createElement("p", {
-      className: "text-[#d1d5db] leading-relaxed"
+      className: "text-base text-[#e5e7eb] leading-[1.7]"
     }, "Star any ticker to save it. Use the ", React.createElement("strong", {
       className: "text-white"
     }, "Saved"), " filter to see only your watchlist. You can also ", React.createElement("strong", {
       className: "text-white"
     }, "add custom tickers"), " via the \"+ Add Ticker\" button \u2014 the system will backfill, score, and start tracking them."), React.createElement("p", {
-      className: "text-sm text-[#6b7280]"
-    }, "Scroll below to browse the universe and star tickers you want to follow."), React.createElement("div", {
+      className: "text-[13px] text-[#9ca3af] leading-[1.65]"
+    }, "Browse the universe below and star tickers you want to follow."), React.createElement("div", {
       className: "max-h-52 overflow-y-auto border border-white/[0.08] rounded-lg p-2 space-y-0.5 bg-white/[0.02]"
     }, universeList.length === 0 ? React.createElement("p", {
       className: "text-sm text-[#6b7280] py-4 text-center"
@@ -6445,30 +6451,50 @@ function DashboardWelcomeModal({
   }, {
     title: "You're all set",
     content: React.createElement("div", {
-      className: "space-y-4"
+      className: "space-y-5"
     }, React.createElement("p", {
-      className: "text-[#d1d5db] leading-relaxed"
+      className: "text-base text-[#e5e7eb] leading-[1.7]"
     }, "Start with the ", React.createElement("strong", {
       className: "text-white"
-    }, "Daily Brief"), " each morning for market context. Check the ", React.createElement("strong", {
+    }, "Daily Brief"), " each morning for context. Check the ", React.createElement("strong", {
       className: "text-white"
     }, "Analysis"), " page for the system's top-ranked setups. Use the ", React.createElement("strong", {
       className: "text-white"
     }, "Bubble Map"), " to see the whole universe at a glance."), React.createElement("div", {
-      className: "bg-white/[0.03] border border-emerald-500/10 rounded-lg p-4"
+      className: "bg-white/[0.02] border border-white/[0.06] rounded-lg p-4"
     }, React.createElement("div", {
-      className: "flex items-start gap-2"
-    }, React.createElement("span", {
-      className: "text-emerald-400 text-sm mt-0.5"
-    }, "\u2139"), React.createElement("p", {
-      className: "text-xs text-[#9ca3af] leading-relaxed"
-    }, "Reopen this guide anytime using the ", React.createElement("strong", {
+      className: "text-[10px] uppercase tracking-[0.10em] text-[#F5C25C] font-semibold mb-3"
+    }, "Why we built this \xB7 Active Trader backtest, Jul 2025 \u2192 May 2026"), React.createElement("div", {
+      className: "grid grid-cols-2 sm:grid-cols-4 gap-3"
+    }, React.createElement("div", null, React.createElement("div", {
+      className: "text-xl font-bold text-emerald-300 tabular-nums"
+    }, "+40.0%"), React.createElement("div", {
+      className: "text-[10px] text-[#9ca3af] uppercase tracking-wider mt-0.5"
+    }, "Total Return")), React.createElement("div", null, React.createElement("div", {
+      className: "text-xl font-bold text-white tabular-nums"
+    }, "4.62"), React.createElement("div", {
+      className: "text-[10px] text-[#9ca3af] uppercase tracking-wider mt-0.5"
+    }, "Sharpe")), React.createElement("div", null, React.createElement("div", {
+      className: "text-xl font-bold text-rose-300 tabular-nums"
+    }, "\u22122.7%"), React.createElement("div", {
+      className: "text-[10px] text-[#9ca3af] uppercase tracking-wider mt-0.5"
+    }, "Max DD")), React.createElement("div", null, React.createElement("div", {
+      className: "text-xl font-bold text-white tabular-nums"
+    }, "52.2%"), React.createElement("div", {
+      className: "text-[10px] text-[#9ca3af] uppercase tracking-wider mt-0.5"
+    }, "Win Rate"))), React.createElement("p", {
+      className: "text-[10px] text-[#6b7280] mt-3 leading-relaxed"
+    }, "Simulated. 588 closed trades over 203 trading days. Past performance is not a guarantee.")), React.createElement("div", {
+      className: "bg-white/[0.03] border border-[#F5C25C]/15 rounded-lg p-4"
+    }, React.createElement("p", {
+      className: "text-sm text-[#d1d5db] leading-[1.7]"
+    }, "Reopen this guide anytime from the ", React.createElement("strong", {
       className: "text-white"
-    }, "Guide"), " button in the top navigation. Use ", React.createElement("strong", {
+    }, "Guide"), " button. Use ", React.createElement("strong", {
       className: "text-white"
-    }, "Tour"), " for an interactive walkthrough of the interface. Check the ", React.createElement("strong", {
+    }, "Tour"), " for an interactive walkthrough, or check the ", React.createElement("strong", {
       className: "text-white"
-    }, "FAQ"), " for detailed questions."))))
+    }, "FAQ"), " for detailed questions.")))
   }];
   const steps = allSteps.slice(0, 5);
   const nextStep = () => {
@@ -15587,7 +15613,10 @@ function App() {
   };
   return React.createElement(React.Fragment, null, showWelcomeDashboard && React.createElement(DashboardWelcomeModal, {
     onClose: handleWelcomeDashboardClose,
-    tickers: Object.values(data || {}),
+    tickers: Object.entries(data || {}).filter(([sym]) => sym && !sym.startsWith("_")).map(([sym, t]) => ({
+      ...(t && typeof t === "object" ? t : {}),
+      ticker: t && t.ticker || sym
+    })),
     savedTickers: savedTickers,
     toggleSavedTicker: toggleSavedTicker
   }), showWelcomeTracker && React.createElement(TrackerWelcomeModal, {

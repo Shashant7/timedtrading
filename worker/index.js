@@ -47165,17 +47165,27 @@ export default {
           );
         }
 
+        /* P0.7.126 — bumped the rate limit from 600/hour to 3000/hour.
+           The previous ceiling was burned through quickly by the
+           Trades page's auto-paginated loader (up to 20 pages per
+           dashboard load, 1 trader-mode fetch, 1 investor-mode
+           fetch every 120s, plus refetches on every filter change).
+           A single legit user could hit the 600/hour cap inside ~30
+           minutes of normal browsing. Endpoint is read-only and
+           cheap (D1 SELECT with cursor); 50/min is a more honest
+           ceiling. The 429 retry-after also returns a real value
+           (60s, not 3600s) so the frontend backs off sensibly. */
         const ip = req.headers.get("CF-Connecting-IP") || "unknown";
         const rateLimit = await checkRateLimit(
           KV,
           ip,
           "/timed/ledger/trades",
-          600,
+          3000,
           3600,
         );
         if (!rateLimit.allowed) {
           return sendJSON(
-            { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+            { ok: false, error: "rate_limit_exceeded", retryAfter: 60 },
             429,
             corsHeaders(env, req),
           );

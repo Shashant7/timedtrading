@@ -663,11 +663,39 @@ function useLedgerTrades({
       let lastHasMore = false;
       let lastCursor = null;
       const maxPages = 20;
-      for (let i = 0; i < maxPages; i++) {
-        const res = await fetch(buildUrl(cursorVal), {
+      const fetchWith429Retry = async url => {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const res = await fetch(url, {
+            cache: "no-store"
+          });
+          if (res.status !== 429) return res;
+          let waitSec = 5;
+          try {
+            const eb = await res.clone().json();
+            waitSec = Math.min(30, Math.max(2, Number(eb.retryAfter) || 10));
+          } catch (_) {}
+          if (attempt === 0) {
+            console.warn(`[useLedgerTrades] 429 on ${url} — retrying after ${waitSec}s`);
+            await new Promise(r => setTimeout(r, waitSec * 1000));
+          }
+        }
+        return await fetch(url, {
           cache: "no-store"
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      };
+      for (let i = 0; i < maxPages; i++) {
+        const res = await fetchWith429Retry(buildUrl(cursorVal));
+        if (!res.ok) {
+          if (res.status === 429) {
+            setError("Rate limited. Showing partial results — try refresh in a minute.");
+            setItems(collected);
+            setHasMore(false);
+            setCursor(null);
+            setLoading(false);
+            return;
+          }
+          throw new Error(`HTTP ${res.status}`);
+        }
         const json = await res.json();
         if (!json.ok) throw new Error(json.error || "ledger_trades_failed");
         const trades = Array.isArray(json.trades) ? json.trades : [];
@@ -5861,7 +5889,23 @@ function App() {
   const fetchInvestorData = useCallback(() => {
     setInvestorTradesLoading(true);
     setInvestorPosLoading(true);
-    Promise.all([fetch(`${API_BASE}/timed/ledger/trades?mode=investor&limit=500`).then(r => r.json()), fetch(`${API_BASE}/timed/investor/positions?status=OPEN&compact=true`).then(r => r.json())]).then(([tradesJson, posJson]) => {
+    const fetchWithRetry = async url => {
+      const res = await fetch(url);
+      if (res.status !== 429) return res;
+      let waitSec = 5;
+      try {
+        const eb = await res.clone().json();
+        waitSec = Math.min(30, Math.max(2, Number(eb.retryAfter) || 10));
+      } catch (_) {}
+      console.warn(`[fetchInvestorData] 429 on ${url} — retrying in ${waitSec}s`);
+      await new Promise(r => setTimeout(r, waitSec * 1000));
+      return fetch(url);
+    };
+    Promise.all([fetchWithRetry(`${API_BASE}/timed/ledger/trades?mode=investor&limit=500`).then(r => r.ok ? r.json() : {
+      ok: false
+    }), fetchWithRetry(`${API_BASE}/timed/investor/positions?status=OPEN&compact=true`).then(r => r.ok ? r.json() : {
+      ok: false
+    })]).then(([tradesJson, posJson]) => {
       if (tradesJson.ok) setInvestorTrades(tradesJson.trades || []);
       if (posJson.ok) setInvestorPositions(posJson.positions || []);
     }).catch(() => {}).finally(() => {
