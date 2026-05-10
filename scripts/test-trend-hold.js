@@ -190,11 +190,17 @@ t('promote: rejects pre-earnings (< 3 days)', () => {
   expect(r.reason, 'matches', 'days_to_earnings', 'reason');
 });
 
-t('promote: rejects when already trimmed >= 50%', () => {
-  const snap = fxIdealPromotionSnap(); snap.trimmedPct = 0.6;
-  const r = shouldPromoteToTrendHold(snap, fxOpenTrade({ trimmed_pct: 0.6 }), DEFAULT_TREND_HOLD_CONFIG);
+t('promote: rejects when already trimmed >= 85% (Phase 3.8 raised threshold)', () => {
+  const snap = fxIdealPromotionSnap(); snap.trimmedPct = 0.9;
+  const r = shouldPromoteToTrendHold(snap, fxOpenTrade({ trimmed_pct: 0.9 }), DEFAULT_TREND_HOLD_CONFIG);
   expect(r.promote, '==', false, 'promote');
   expect(r.reason, 'matches', 'trimmed_pct', 'reason');
+});
+
+t('promote: ALLOWS when trimmed_pct = 0.6 (Phase 3.8: was rejected at 0.5 cap)', () => {
+  const snap = fxIdealPromotionSnap(); snap.trimmedPct = 0.6;
+  const r = shouldPromoteToTrendHold(snap, fxOpenTrade({ trimmed_pct: 0.6 }), DEFAULT_TREND_HOLD_CONFIG);
+  expect(r.promote, '==', true, 'promote');
 });
 
 t('promote: rejects within demote cooldown (6h)', () => {
@@ -483,6 +489,60 @@ t('loadTrendHoldConfig: respects deep_audit_trend_hold_max_positions override', 
 t('loadTrendHoldConfig: rejects out-of-range cap (defaults retained)', () => {
   const cfg = loadTrendHoldConfig({ deep_audit_trend_hold_max_positions: 999 });
   expect(cfg.max_simultaneous_positions, '==', DEFAULT_TREND_HOLD_CONFIG.max_simultaneous_positions, 'cap=default');
+});
+
+// Phase 3.9b: weekly TD9 / weekly RSI threshold overrides — Forensic dry-run
+// findings (tasks/phase-c/TH_FORENSIC_DRY_RUN_2026-05-10.md) recommend td9=12
+// and rsi=95 to triple implied uplift while LOWERING false-positive rate.
+t('loadTrendHoldConfig: respects deep_audit_trend_hold_promote_max_weekly_td9_sell_count override', () => {
+  const cfg = loadTrendHoldConfig({ deep_audit_trend_hold_promote_max_weekly_td9_sell_count: 12 });
+  expect(cfg.promote_max_weekly_td9_sell_count, '==', 12, 'td9=12');
+});
+
+t('loadTrendHoldConfig: respects deep_audit_trend_hold_promote_max_weekly_rsi override', () => {
+  const cfg = loadTrendHoldConfig({ deep_audit_trend_hold_promote_max_weekly_rsi: 95 });
+  expect(cfg.promote_max_weekly_rsi, '==', 95, 'rsi=95');
+});
+
+t('loadTrendHoldConfig: rejects out-of-range td9 (defaults retained)', () => {
+  const cfg = loadTrendHoldConfig({ deep_audit_trend_hold_promote_max_weekly_td9_sell_count: 99 });
+  expect(cfg.promote_max_weekly_td9_sell_count, '==', DEFAULT_TREND_HOLD_CONFIG.promote_max_weekly_td9_sell_count, 'td9=default');
+});
+
+t('loadTrendHoldConfig: rejects out-of-range rsi (defaults retained)', () => {
+  const cfg = loadTrendHoldConfig({ deep_audit_trend_hold_promote_max_weekly_rsi: 200 });
+  expect(cfg.promote_max_weekly_rsi, '==', DEFAULT_TREND_HOLD_CONFIG.promote_max_weekly_rsi, 'rsi=default');
+});
+
+t('loadTrendHoldConfig: combined override (recommended live config)', () => {
+  const cfg = loadTrendHoldConfig({
+    deep_audit_trend_hold_max_positions: 6,
+    deep_audit_trend_hold_promote_max_weekly_td9_sell_count: 12,
+    deep_audit_trend_hold_promote_max_weekly_rsi: 95,
+  });
+  expect(cfg.max_simultaneous_positions, '==', 6, 'cap=6');
+  expect(cfg.promote_max_weekly_td9_sell_count, '==', 12, 'td9=12');
+  expect(cfg.promote_max_weekly_rsi, '==', 95, 'rsi=95');
+});
+
+// Verify the override actually changes promotion gating: a snapshot at
+// weekly TD9 = 9 + weekly RSI = 91 (which is in the missed-opportunities
+// table from forensic dry-run) MUST reject under default and ACCEPT under
+// recommended. That's the integration test for the wiring.
+t('shouldPromoteToTrendHold: defaults reject TD9=9 OR RSI=91; recommended config promotes', () => {
+  const snap = fxIdealPromotionSnap();
+  snap.weekly.td9_sell_count = 9;
+  snap.weekly.rsi = 91;
+  const trade = fxOpenTrade();
+  const defaultCfg = loadTrendHoldConfig({});
+  const recCfg = loadTrendHoldConfig({
+    deep_audit_trend_hold_promote_max_weekly_td9_sell_count: 12,
+    deep_audit_trend_hold_promote_max_weekly_rsi: 95,
+  });
+  const dDecision = shouldPromoteToTrendHold(snap, trade, defaultCfg);
+  expect(dDecision.promote, '==', false, 'default rejects');
+  const rDecision = shouldPromoteToTrendHold(snap, trade, recCfg);
+  expect(rDecision.promote, '==', true, 'recommended promotes');
 });
 
 t('isTrendHoldEnabled: default OFF', () => {

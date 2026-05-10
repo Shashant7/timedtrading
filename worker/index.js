@@ -1,5 +1,284 @@
 // Timed Trading Worker — KV latest + trail + rank + top lists + Discord alerts (CORRIDOR-ONLY)
 import { DASHBOARD_HTML } from "./dashboard-html.js";
+
+// V15 P0.7.123 (2026-05-10) — Phase 3.8 backtest monitor HTML.
+// Self-contained polling dashboard for DO-driven backtests. Served at
+// GET /backtest-monitor on both live and preprod workers.
+const BACKTEST_MONITOR_HTML = `<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Backtest Monitor</title>
+<style>
+:root { --bg:#0a0e14; --panel:#11161e; --line:#1f2630; --txt:#cbd5e1; --txt2:#94a3b8; --accent:#10b981; --warn:#f59e0b; --err:#ef4444; --info:#3b82f6; }
+* { box-sizing:border-box; }
+body { margin:0; padding:20px; background:var(--bg); color:var(--txt); font:14px/1.4 'SF Mono','Menlo','Consolas',monospace; }
+h1 { margin:0 0 4px; font-size:18px; font-weight:600; }
+h2 { margin:16px 0 8px; font-size:14px; color:var(--txt2); text-transform:uppercase; letter-spacing:0.05em; }
+.env-banner { display:inline-block; padding:2px 10px; border-radius:4px; font-size:11px; font-weight:700; letter-spacing:0.05em; margin-left:8px; vertical-align:middle; }
+.env-live { background:#7f1d1d; color:#fee2e2; }
+.env-preprod { background:#1e3a8a; color:#dbeafe; }
+.env-unknown { background:#374151; color:#d1d5db; }
+.row { display:flex; gap:16px; flex-wrap:wrap; }
+.panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; flex:1; min-width:260px; }
+.kv { display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--line); }
+.kv:last-child { border:none; }
+.kv .k { color:var(--txt2); }
+.kv .v { color:var(--txt); font-weight:600; }
+.bar { height:8px; background:var(--line); border-radius:4px; overflow:hidden; margin-top:6px; }
+.bar > div { height:100%; background:var(--accent); transition:width 0.3s ease; }
+.dim { color:var(--txt2); }
+.status-running { color:var(--accent); }
+.status-failed { color:var(--err); }
+.status-completed { color:var(--info); }
+.status-queued { color:var(--warn); }
+.status-cancelled { color:var(--txt2); }
+.controls { display:flex; gap:8px; margin:12px 0; align-items:center; }
+input[type=text] { background:#0e131a; border:1px solid var(--line); color:var(--txt); padding:6px 10px; border-radius:4px; font-family:inherit; font-size:13px; min-width:300px; }
+button { background:var(--info); color:white; border:0; padding:6px 14px; border-radius:4px; cursor:pointer; font-family:inherit; font-size:13px; }
+button.secondary { background:var(--line); }
+button.danger { background:var(--err); }
+table { width:100%; border-collapse:collapse; margin-top:8px; }
+th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); font-size:12px; }
+th { color:var(--txt2); font-weight:600; text-transform:uppercase; letter-spacing:0.05em; font-size:11px; }
+tr:hover td { background:#161c25; }
+.log { font-family:'SF Mono','Menlo',monospace; font-size:11px; max-height:240px; overflow-y:auto; background:#0e131a; padding:8px; border-radius:4px; border:1px solid var(--line); white-space:pre-wrap; }
+.log-line { padding:2px 0; }
+.log-info { color:var(--txt2); }
+.log-warn { color:var(--warn); }
+.log-error { color:var(--err); }
+.timestamp { color:var(--txt2); font-size:11px; }
+.muted { opacity:0.6; }
+</style></head><body>
+
+<h1>Backtest Monitor <span id="env-banner" class="env-banner env-unknown">UNKNOWN</span></h1>
+<div class="dim">Polls every 4s — leave open to watch progress.</div>
+
+<div class="controls">
+  <label>API key: <input id="apikey" type="text" placeholder="key=..." /></label>
+  <label>run_id: <input id="runid" type="text" placeholder="(blank = active job)" /></label>
+  <button onclick="refresh()">Refresh</button>
+  <button class="secondary" onclick="toggleAuto()" id="auto-btn">Pause auto</button>
+  <span id="last-poll" class="timestamp"></span>
+</div>
+
+<div class="row">
+  <div class="panel" style="flex:1.5">
+    <h2>Active job</h2>
+    <div id="job-summary">No active job.</div>
+    <div class="bar"><div id="progress-bar" style="width:0%"></div></div>
+    <div id="progress-label" class="dim" style="margin-top:6px;font-size:12px"></div>
+  </div>
+  <div class="panel">
+    <h2>Latest session</h2>
+    <div id="latest-session" class="dim">—</div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="panel">
+    <h2>Trade totals</h2>
+    <div id="trade-totals" class="dim">—</div>
+  </div>
+  <div class="panel">
+    <h2>TH lifecycle</h2>
+    <div id="th-stats" class="dim">—</div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>MFE ≥ 5% candidates (TH-promotion-eligible)</h2>
+  <div id="mfe-candidates" class="dim">—</div>
+</div>
+
+<div class="panel">
+  <h2>Recent logs</h2>
+  <div class="log" id="logs">—</div>
+</div>
+
+<script>
+const API_BASE = "";
+let autoRefresh = true;
+let pollTimer = null;
+const apikeyInput = document.getElementById('apikey');
+const runidInput = document.getElementById('runid');
+
+const url = new URL(window.location.href);
+if (url.searchParams.get('key')) apikeyInput.value = url.searchParams.get('key');
+if (url.searchParams.get('run_id')) runidInput.value = url.searchParams.get('run_id');
+
+function bannerByHost() {
+  const host = window.location.host;
+  const el = document.getElementById('env-banner');
+  if (host.includes('preprod')) { el.textContent = 'PREPROD'; el.className = 'env-banner env-preprod'; }
+  else if (host.includes('timed-trading-ingest')) { el.textContent = 'LIVE'; el.className = 'env-banner env-live'; }
+  else { el.textContent = host; el.className = 'env-banner env-unknown'; }
+}
+bannerByHost();
+
+function k() { return apikeyInput.value.replace(/^key=/, '').trim(); }
+function rid() { return runidInput.value.trim(); }
+function fmtTime(ms) { return ms ? new Date(ms).toISOString().replace('T',' ').slice(0,19) + 'Z' : '—'; }
+
+async function getJson(path) {
+  const sep = path.includes('?') ? '&' : '?';
+  const res = await fetch(\`\${API_BASE}\${path}\${sep}key=\${encodeURIComponent(k())}\`, { credentials:'include' });
+  if (!res.ok) throw new Error(\`http \${res.status}\`);
+  return res.json();
+}
+
+async function refresh() {
+  document.getElementById('last-poll').textContent = 'polling...';
+  try {
+    const status = await getJson('/timed/admin/backtests/status' + (rid() ? '?run_id=' + encodeURIComponent(rid()) : ''));
+    renderJob(status);
+    const targetRunId = rid() || (status?.active?.run_id);
+    if (targetRunId) {
+      const [logs, trades] = await Promise.all([
+        getJson('/timed/admin/backtests/logs?run_id=' + encodeURIComponent(targetRunId) + '&limit=30'),
+        getRunTradeStats(targetRunId),
+      ]);
+      renderLogs(logs);
+      renderTrades(trades);
+    } else {
+      document.getElementById('logs').textContent = 'No run id selected.';
+      document.getElementById('trade-totals').textContent = '—';
+      document.getElementById('th-stats').textContent = '—';
+      document.getElementById('mfe-candidates').textContent = '—';
+    }
+    document.getElementById('last-poll').textContent = 'last poll: ' + new Date().toISOString().slice(11,19) + 'Z';
+  } catch (e) {
+    document.getElementById('last-poll').textContent = 'ERROR: ' + e.message;
+  }
+}
+
+function renderJob(d) {
+  const a = d?.active;
+  if (!a) {
+    document.getElementById('job-summary').textContent = 'No active job.';
+    document.getElementById('progress-bar').style.width = '0%';
+    document.getElementById('progress-label').textContent = '';
+    document.getElementById('latest-session').textContent = '—';
+    return;
+  }
+  const cp = a.checkpoint || {};
+  const lr = cp.last_result || {};
+  const sessionsTotal = cp.sessions_total || a?.contract?.dataset?.sessions || 220;
+  const sessionsDone = Number(cp.session_index || 0);
+  const pct = sessionsTotal > 0 ? (sessionsDone / sessionsTotal * 100) : 0;
+  const elapsed = a.started_at ? (Date.now() - a.started_at) / 1000 : 0;
+  const eta = sessionsDone > 0 ? ((sessionsTotal - sessionsDone) * elapsed / sessionsDone) : 0;
+  document.getElementById('job-summary').innerHTML = \`
+    <div class="kv"><span class="k">run_id</span><span class="v">\${a.run_id}</span></div>
+    <div class="kv"><span class="k">status</span><span class="v status-\${a.status}">\${a.status}</span></div>
+    <div class="kv"><span class="k">phase</span><span class="v">\${a.phase}</span></div>
+    <div class="kv"><span class="k">note</span><span class="v">\${a.status_note || '—'}</span></div>
+    <div class="kv"><span class="k">started</span><span class="v">\${fmtTime(a.started_at)}</span></div>
+    <div class="kv"><span class="k">elapsed</span><span class="v">\${(elapsed/60).toFixed(1)}m</span></div>
+    <div class="kv"><span class="k">ETA</span><span class="v">\${(eta/60).toFixed(1)}m</span></div>
+  \`;
+  document.getElementById('progress-bar').style.width = pct + '%';
+  document.getElementById('progress-label').textContent = \`\${sessionsDone}/\${sessionsTotal} sessions (\${pct.toFixed(1)}%)\`;
+  document.getElementById('latest-session').innerHTML = \`
+    <div class="kv"><span class="k">date</span><span class="v">\${lr.date || '—'}</span></div>
+    <div class="kv"><span class="k">scored</span><span class="v">\${lr.scored ?? '—'}</span></div>
+    <div class="kv"><span class="k">batches</span><span class="v">\${lr.batches ?? '—'}</span></div>
+    <div class="kv"><span class="k">trades created</span><span class="v">\${lr.tradesCreated ?? '—'}</span></div>
+    <div class="kv"><span class="k">total trades</span><span class="v">\${lr.totalTrades ?? '—'}</span></div>
+    <div class="kv"><span class="k">errors</span><span class="v">\${lr.errorsCount ?? '—'}</span></div>
+  \`;
+}
+
+async function getRunTradeStats(runId) {
+  const j = await getJson('/timed/admin/backtests/run-trades?run_id=' + encodeURIComponent(runId) + '&limit=10000');
+  return j?.trades || [];
+}
+
+function renderTrades(trades) {
+  if (!trades.length) {
+    document.getElementById('trade-totals').textContent = 'No trades yet.';
+    document.getElementById('th-stats').textContent = '—';
+    document.getElementById('mfe-candidates').textContent = '—';
+    return;
+  }
+  const total = trades.length;
+  const wins = trades.filter(t => t.status === 'WIN').length;
+  const losses = trades.filter(t => t.status === 'LOSS').length;
+  const opens = trades.filter(t => t.status === 'OPEN').length;
+  const closed = wins + losses;
+  const wr = closed > 0 ? (wins / closed * 100) : 0;
+  const sumPnl = trades.reduce((s,t) => s + (Number(t.pnl_pct) || 0), 0);
+  const sumMfe = trades.reduce((s,t) => s + (Number(t.max_favorable_excursion) || 0), 0);
+  const giveback = sumMfe - sumPnl;
+  const uniqueTickers = new Set(trades.map(t => t.ticker)).size;
+  document.getElementById('trade-totals').innerHTML = \`
+    <div class="kv"><span class="k">trades</span><span class="v">\${total}</span></div>
+    <div class="kv"><span class="k">W / L / OPEN</span><span class="v">\${wins} / \${losses} / \${opens}</span></div>
+    <div class="kv"><span class="k">WR</span><span class="v">\${wr.toFixed(1)}%</span></div>
+    <div class="kv"><span class="k">Σ pnl%</span><span class="v">\${sumPnl.toFixed(2)}</span></div>
+    <div class="kv"><span class="k">Σ MFE%</span><span class="v">\${sumMfe.toFixed(2)}</span></div>
+    <div class="kv"><span class="k">Σ giveback%</span><span class="v">\${giveback.toFixed(2)}</span></div>
+    <div class="kv"><span class="k">unique tickers</span><span class="v">\${uniqueTickers}</span></div>
+  \`;
+  const promoted = trades.filter(t => t.trend_hold_promoted_at != null);
+  const active = trades.filter(t => t.trend_hold_state === 'active');
+  const demoted = trades.filter(t => t.trend_hold_state === 'demoted');
+  const flavors = {};
+  promoted.forEach(t => { const f = t.trend_hold_flavor || 'unknown'; flavors[f] = (flavors[f] || 0) + 1; });
+  document.getElementById('th-stats').innerHTML = \`
+    <div class="kv"><span class="k">ever promoted</span><span class="v">\${promoted.length}</span></div>
+    <div class="kv"><span class="k">currently active</span><span class="v">\${active.length}</span></div>
+    <div class="kv"><span class="k">demoted</span><span class="v">\${demoted.length}</span></div>
+    <div class="kv"><span class="k">CLEAN_TREND</span><span class="v">\${flavors.CLEAN_TREND || 0}</span></div>
+    <div class="kv"><span class="k">RESILIENT_TREND</span><span class="v">\${flavors.RESILIENT_TREND || 0}</span></div>
+  \`;
+  const mfeEligible = trades.filter(t => Number(t.max_favorable_excursion || 0) >= 5).sort((a,b) => Number(b.max_favorable_excursion) - Number(a.max_favorable_excursion));
+  const rows = mfeEligible.slice(0, 30).map(t => {
+    const mfe = Number(t.max_favorable_excursion || 0).toFixed(2);
+    const pnl = Number(t.pnl_pct || 0).toFixed(2);
+    const trim = Number(t.trimmed_pct || 0).toFixed(2);
+    const thState = t.trend_hold_state || '<span class="muted">—</span>';
+    const thFlavor = t.trend_hold_flavor || '';
+    return \`<tr><td>\${t.ticker}</td><td>\${t.status}</td><td>\${pnl}%</td><td>\${mfe}%</td><td>\${trim}</td><td>\${t.exit_reason || ''}</td><td>\${thState}</td><td>\${thFlavor}</td></tr>\`;
+  }).join('');
+  document.getElementById('mfe-candidates').innerHTML = mfeEligible.length === 0
+    ? '<div class="dim">No trades have hit MFE ≥ 5% yet.</div>'
+    : \`<table><thead><tr><th>ticker</th><th>status</th><th>pnl%</th><th>mfe%</th><th>trim</th><th>exit reason</th><th>th state</th><th>flavor</th></tr></thead><tbody>\${rows}</tbody></table>\`
+      + \`<div class="dim" style="margin-top:6px;">total candidates: \${mfeEligible.length}\${mfeEligible.length > 30 ? ' (showing top 30)' : ''}</div>\`;
+}
+
+function renderLogs(d) {
+  const items = d?.logs || d?.entries || [];
+  if (!items.length) {
+    document.getElementById('logs').textContent = 'No log entries.';
+    return;
+  }
+  const html = items.slice(0, 30).map(e => {
+    const ts = e.ts ? new Date(e.ts).toISOString().slice(11,19) : '—';
+    const lvl = (e.level || 'info').toLowerCase();
+    return \`<div class="log-line log-\${lvl}">\${ts} <strong>\${e.event_type || e.event || e.code || '•'}</strong> \${e.message || ''}</div>\`;
+  }).join('');
+  document.getElementById('logs').innerHTML = html;
+}
+
+function toggleAuto() {
+  autoRefresh = !autoRefresh;
+  document.getElementById('auto-btn').textContent = autoRefresh ? 'Pause auto' : 'Resume auto';
+  if (autoRefresh) startPolling();
+  else if (pollTimer) clearInterval(pollTimer);
+}
+
+function startPolling() {
+  refresh();
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(() => { if (autoRefresh) refresh(); }, 4000);
+}
+
+if (apikeyInput.value) startPolling();
+else apikeyInput.addEventListener('change', startPolling, { once:true });
+</script>
+
+</body></html>`;
 import { computeConvictionScore, TT_SELECTED_DEFAULT } from "./focus-tier.js";
 import { getTickerType as getTickerTypeForFocus } from "./sector-mapping.js";
 export { PriceHub } from "./price-hub.js";
@@ -33772,31 +34051,45 @@ async function d1UpdatePosition(env, position_id, updates) {
 let _trendHoldSchemaEnsured = false;
 async function ensureTrendHoldColumnsSchema(db) {
   if (_trendHoldSchemaEnsured || !db) return;
-  const stmts = [
-    "ALTER TABLE trades ADD COLUMN trend_hold_state TEXT",
-    "ALTER TABLE trades ADD COLUMN trend_hold_promoted_at INTEGER",
-    "ALTER TABLE trades ADD COLUMN trend_hold_demoted_at INTEGER",
-    "ALTER TABLE trades ADD COLUMN trend_hold_max_mfe_pct REAL",
-    "ALTER TABLE trades ADD COLUMN trend_hold_flavor TEXT",
-    "ALTER TABLE trades ADD COLUMN trend_hold_promote_reason TEXT",
-    "ALTER TABLE trades ADD COLUMN trend_hold_demote_reason TEXT",
+  // V15 P0.7.121 (2026-05-10) — Phase 2.10: also add columns to
+  // backtest_run_trades. Backtest replays write trades scoped by
+  // run_id to backtest_run_trades, NOT to the live trades table.
+  // Without these columns there, the TH lifecycle eval persists state
+  // to nothing during a backtest. Verdict generation can't see
+  // promote/demote stamps.
+  const TH_COLS = [
+    ["trend_hold_state", "TEXT"],
+    ["trend_hold_promoted_at", "INTEGER"],
+    ["trend_hold_demoted_at", "INTEGER"],
+    ["trend_hold_max_mfe_pct", "REAL"],
+    ["trend_hold_flavor", "TEXT"],
+    ["trend_hold_promote_reason", "TEXT"],
+    ["trend_hold_demote_reason", "TEXT"],
   ];
-  for (const sql of stmts) {
-    try {
-      await db.prepare(sql).run();
-    } catch (err) {
-      const msg = String(err?.message || err);
-      // SQLite reports duplicate columns variously across D1 versions:
-      //   "duplicate column name", "already exists"
-      if (msg.includes("duplicate column") || msg.includes("already exists")) continue;
-      console.warn("[TREND_HOLD SCHEMA] ALTER failed:", sql, "→", msg.slice(0, 200));
+  const TH_TABLES = ["trades", "backtest_run_trades"];
+  for (const table of TH_TABLES) {
+    for (const [col, type] of TH_COLS) {
+      try {
+        await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`).run();
+      } catch (err) {
+        const msg = String(err?.message || err);
+        if (msg.includes("duplicate column") || msg.includes("already exists")) continue;
+        if (msg.includes("no such table")) {
+          // backtest_run_trades may not exist on a brand-new D1 — fine,
+          // schema is auto-ensured elsewhere on first backtest write.
+          break;
+        }
+        console.warn(`[TREND_HOLD SCHEMA] ALTER ${table} failed:`, col, "→", msg.slice(0, 200));
+      }
     }
+    try {
+      await db.prepare(
+        `CREATE INDEX IF NOT EXISTS idx_${table}_trend_hold_state ON ${table} (trend_hold_state)`
+      ).run();
+    } catch (_) {}
   }
-  try {
-    await db.prepare("CREATE INDEX IF NOT EXISTS idx_trades_trend_hold_state ON trades (trend_hold_state)").run();
-  } catch (_) {}
   _trendHoldSchemaEnsured = true;
-  console.log("[TREND_HOLD SCHEMA] ensured");
+  console.log("[TREND_HOLD SCHEMA] ensured on", TH_TABLES.join(", "));
 }
 
 /**
@@ -33855,9 +34148,31 @@ async function d1UpdateTradeTrendHoldState(env, trade_id, updates) {
       params.push(updates.max_mfe_pct == null ? null : Number(updates.max_mfe_pct));
     }
     if (setClauses.length === 0) return { ok: false, reason: "no_updates" };
-    const sql = `UPDATE trades SET ${setClauses.join(", ")} WHERE trade_id = ?1`;
-    const r = await db.prepare(sql).bind(...params).run();
-    const rowsAffected = Number(r?.meta?.changes || 0);
+    // V15 P0.7.121 — UPDATE both `trades` and `backtest_run_trades`.
+    // A trade lives in one or the other depending on context:
+    //   - live cron / live trades: row in `trades` with run_id=NULL
+    //   - backtest replay:        row in `backtest_run_trades` with run_id=<run>
+    // The trade_id is unique enough that we can fan-out the UPDATE; one
+    // table will report 0 changes, the other will report 1.
+    const setSql = setClauses.join(", ");
+    const r1 = await db.prepare(
+      `UPDATE trades SET ${setSql} WHERE trade_id = ?1`
+    ).bind(...params).run();
+    let r2Changes = 0;
+    try {
+      const r2 = await db.prepare(
+        `UPDATE backtest_run_trades SET ${setSql} WHERE trade_id = ?1`
+      ).bind(...params).run();
+      r2Changes = Number(r2?.meta?.changes || 0);
+    } catch (err) {
+      // backtest_run_trades may not exist or may not have TH columns yet
+      // on freshly-created envs. Schema-ensure handles this lazily.
+      const msg = String(err?.message || err);
+      if (!msg.includes("no such table") && !msg.includes("no such column")) {
+        console.warn("[TH] backtest_run_trades update failed:", msg.slice(0, 200));
+      }
+    }
+    const rowsAffected = Number(r1?.meta?.changes || 0) + r2Changes;
     // Audit every transition for the integrity guard.
     try {
       await auditDataChange(env, {
@@ -37048,6 +37363,19 @@ export default {
       // Serve Trade Tracker dashboard at / and /dashboard (no KV required)
       if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/dashboard")) {
         return new Response(DASHBOARD_HTML, {
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        });
+      }
+
+      // V15 P0.7.123 (2026-05-10) — Phase 3.8 backtest monitor.
+      // Self-contained HTML page that polls /timed/admin/backtests/status
+      // + a couple of supporting endpoints to show live progress of an
+      // active DO-driven backtest. No external dependencies; uses
+      // window.fetch with credentials:include and the same-origin worker
+      // URL so it works on both live and preprod URLs identically.
+      // Open at https://<worker>.workers.dev/backtest-monitor?key=<api>
+      if (req.method === "GET" && url.pathname === "/backtest-monitor") {
+        return new Response(BACKTEST_MONITOR_HTML, {
           headers: { "Content-Type": "text/html; charset=utf-8" },
         });
       }

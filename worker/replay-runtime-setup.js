@@ -418,6 +418,24 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_thesis_flip_enabled",                             // default true
   "deep_audit_thesis_flip_min_age_min",                         // default 60 min market time
   "deep_audit_thesis_flip_min_pnl_pct",                         // default -0.5 (must be in red)
+  // V15 P0.7.107 (2026-05-08) — Phase 2 Trend-Hold hybrid lifecycle.
+  // Default 'false' (dark feature). Backtests flip it to 'true' via
+  // INSERT INTO model_config so replay-loaded daCfg activates the
+  // promotion / suppression / DCA paths in worker/trend-hold.js.
+  // See tasks/phase-c/PHASE_3_RUNBOOK.md for the operational flow.
+  "deep_audit_trend_hold_enabled",                              // default false
+  "deep_audit_trend_hold_max_positions",                        // default 6 (range 1..50)
+  // V15 P0.7.127 (2026-05-10) — Phase 3.9b promotion-threshold tunables.
+  // Forensic dry-run on canonical Phase C `direction_accuracy` (517 trades
+  // across the 14-ticker blueprint cohort, 8 tuning passes) showed the
+  // default weekly TD9-sell ≥ 9 and weekly RSI ≥ 88 gates were rejecting
+  // healthy momentum trades, NOT catching exhaustion tops. Loosening to
+  // td9=12 / rsi=95 triples implied uplift (51 → 154.6 pp) while LOWERING
+  // false-positive rate (11.8% → 7%). Sealed with PR #96
+  // (data/forensic-th-dry-run/summary.json) + tests in
+  // scripts/test-trend-hold.js.
+  "deep_audit_trend_hold_promote_max_weekly_td9_sell_count",    // default 8 (recommend 12)
+  "deep_audit_trend_hold_promote_max_weekly_rsi",               // default 88 (recommend 95)
 ];
 
 const REPLAY_CFG_KEYS = [
