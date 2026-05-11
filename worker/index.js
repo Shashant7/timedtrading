@@ -20020,10 +20020,18 @@ async function processTradeSimulation(
               return ts > 0 && new Date(ts).toISOString().slice(0, 10) === dayStart;
             }).length;
           } else if (db) {
-            const today = new Date().toISOString().slice(0, 10);
+            // P0.7.130 — same fix as the /timed/all daily-limit query
+            // (was using non-existent `type` + `day` columns; corrected
+            // to `action_type` + `ts` range).
+            const _todayStartMs = (() => {
+              const d = new Date();
+              d.setUTCHours(0, 0, 0, 0);
+              return d.getTime();
+            })();
             const dailyResult = await db.prepare(
-              `SELECT COUNT(*) as cnt FROM execution_actions WHERE type = 'ENTRY' AND day = ?`
-            ).bind(today).first();
+              `SELECT COUNT(*) as cnt FROM execution_actions
+               WHERE action_type = 'ENTRY' AND ts >= ?`
+            ).bind(_todayStartMs).first();
             dailyCount = Number(dailyResult?.cnt) || 0;
           }
           if (dailyCount >= MAX_DAILY_ENTRIES) {
@@ -42130,21 +42138,44 @@ export default {
             // ── Sparkline enrichment at serve time ──
             // If the snapshot was built before sparklines were added, or if the
             // scoring cron hasn't run since deploy, enrich inline from D1 daily candles.
+            // P0.7.130 — try the cron-built KV cache first, then fall back to a
+            // SCOPED D1 query (only the tickers actually in `data`, not the
+            // entire `tf='D'` partition). The previous unscoped scan fired on
+            // every /timed/all request and could read 10k+ rows per call.
             try {
               const totalTickers = Object.keys(data).length;
               const withSparkline = Object.values(data).filter(d => Array.isArray(d?._sparkline) && d._sparkline.length >= 30).length;
               if (totalTickers > 0 && withSparkline < totalTickers * 0.5 && env?.DB) {
-                const spkLower = Date.now() - 90 * 86400000;
-                const sparkRows = await env.DB.prepare(
-                  `SELECT ticker, ts, c FROM ticker_candles WHERE tf='D' AND ts > ?1 ORDER BY ticker, ts ASC`
-                ).bind(spkLower).all();
-                const sparkMap = {};
-                for (const r of (sparkRows?.results || [])) {
-                  const sym = String(r.ticker).toUpperCase();
-                  if (!sparkMap[sym]) sparkMap[sym] = [];
-                  sparkMap[sym].push(Number(r.c));
+                let sparkMap = null;
+                try {
+                  const cached = await kvGetJSON(KV, "timed:cache:sparklines");
+                  if (cached?.builtAt && (Date.now() - cached.builtAt) < 30 * 60 * 1000 && cached.data) {
+                    sparkMap = cached.data;
+                  }
+                } catch { /* cache miss */ }
+                if (!sparkMap) {
+                  const spkLower = Date.now() - 90 * 86400000;
+                  const _sparkSyms = Object.keys(data).filter(s => s && s.length <= 12 && !s.startsWith("_"));
+                  if (_sparkSyms.length === 0) throw new Error("no_syms_to_spark");
+                  const placeholders = _sparkSyms.map(() => "?").join(",");
+                  const sparkRows = await env.DB.prepare(
+                    `SELECT ticker, ts, c FROM ticker_candles
+                     WHERE tf='D' AND ticker IN (${placeholders}) AND ts > ?
+                     ORDER BY ticker, ts ASC`
+                  ).bind(..._sparkSyms, spkLower).all();
+                  sparkMap = {};
+                  for (const r of (sparkRows?.results || [])) {
+                    const sym = String(r.ticker).toUpperCase();
+                    if (!sparkMap[sym]) sparkMap[sym] = [];
+                    sparkMap[sym].push(Number(r.c));
+                  }
+                  // Cache for downstream callers
+                  try {
+                    await kvPutJSON(KV, "timed:cache:sparklines", { builtAt: Date.now(), data: sparkMap });
+                  } catch { /* best-effort */ }
                 }
-                for (const [sym, closes] of Object.entries(sparkMap)) {
+                // sparkMap is now built (from cache or scoped query). Apply.
+                for (const [sym, closes] of Object.entries(sparkMap || {})) {
                   if (data[sym]) data[sym]._sparkline = closes;
                 }
                 // Async-update KV snapshot with sparklines.
@@ -42158,7 +42189,7 @@ export default {
                     const enrichedSnapshot = {};
                     for (const [sym, payload] of Object.entries(currentSnap.data)) {
                       enrichedSnapshot[sym] = { ...payload };
-                      if (sparkMap[sym]) enrichedSnapshot[sym]._sparkline = sparkMap[sym];
+                      if (sparkMap && sparkMap[sym]) enrichedSnapshot[sym]._sparkline = sparkMap[sym];
                     }
                     await kvPutJSON(KV, "timed:all:snapshot", {
                       data: enrichedSnapshot,
@@ -42306,13 +42337,25 @@ export default {
               execOpenPositions.push({ ticker: sym, direction: pos.direction });
             }
           } catch { /* non-critical */ }
-          // Daily entry count (shared across all tickers)
+          /* P0.7.130 — This query was using `type` (col doesn't exist;
+             schema has `action_type`) and `day` (also doesn't exist —
+             schema only has `ts` numeric epoch ms). It silently caught
+             every invocation and execDailyLimitBlock was always null,
+             but the broken query STILL ate D1 reads via the failed
+             attempt + the catch hid it.
+             Fixed: use `action_type` and a `ts` range bounded to the
+             current trading day. Cheap (point lookup with index). */
           let execDailyLimitBlock = null;
           try {
-            const today = new Date().toISOString().slice(0, 10);
+            const _todayStartMs = (() => {
+              const d = new Date();
+              d.setUTCHours(0, 0, 0, 0);
+              return d.getTime();
+            })();
             const dailyResult = await env.DB.prepare(
-              `SELECT COUNT(*) as cnt FROM execution_actions WHERE type = 'ENTRY' AND day = ?`
-            ).bind(today).first();
+              `SELECT COUNT(*) as cnt FROM execution_actions
+               WHERE action_type = 'ENTRY' AND ts >= ?`
+            ).bind(_todayStartMs).first();
             const dailyCount = Number(dailyResult?.cnt) || 0;
             if (dailyCount >= 10) execDailyLimitBlock = `daily_limit:${dailyCount}/10`;
           } catch { /* non-critical */ }
@@ -47880,6 +47923,17 @@ export default {
                 pwhere += " AND entry_ts <= ?";
                 pbinds.push(Number(until));
               }
+              /* P0.7.130 — Add a LIMIT on promoted_trades pull. The
+                 previous query had no LIMIT and pulled the entire
+                 promoted dataset on every Trades-page request (the
+                 caller paginates AFTER merging with live trades).
+                 At ~600 promoted rows × ~3 polls/min × 60 min × ~10
+                 hours/day = ~1.1M row reads/day for one paint of the
+                 Trades page. Cap at 2× the requested limit (so the
+                 merge has enough headroom after dedupe + dropping
+                 trades that fell outside the cursor window) — 2000
+                 max. The post-merge slice still respects `limit`. */
+              const _pCap = Math.min(2000, Math.max(200, Number(limit) * 2 || 400));
               const promotedRows = (await db.prepare(
                 `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
                         exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
@@ -47887,8 +47941,9 @@ export default {
                         setup_name, setup_grade, risk_budget, shares, notional
                  FROM promoted_trades
                  ${pwhere}
-                 ORDER BY entry_ts DESC, trade_id DESC`
-              ).bind(...pbinds).all())?.results || [];
+                 ORDER BY entry_ts DESC, trade_id DESC
+                 LIMIT ?`
+              ).bind(...pbinds, _pCap).all())?.results || [];
               // Dedupe by trade_id — live trades override promoted on collision
               const liveIds = new Set(results.map(r => r.trade_id));
               for (const pr of promotedRows) {
@@ -70313,6 +70368,26 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     // ── End of hourly handler (briefs + lifecycle + investor) ──
     if (_isHourly) return;
 
+    // P0.7.130 (2026-05-11) — D1 budget fire.
+    //
+    // Bug: wrangler.toml declares 4 cron triggers (every-1m, every-5m,
+    // hourly :00, half-hour :30), but the dispatcher only had
+    // _isEveryMin, _isEvery5Min, _isHourly flags. The half-hour cron
+    // fell through ALL the early-return gates and silently ran the
+    // FULL every-5m scoring pipeline at minute :30 of every hour --
+    // doubling scoring-related D1 reads on top of the 5m runs,
+    // including the heavy sparkline + tf='D' CTEs that scan the
+    // entire daily candle partition.
+    //
+    // Fix: explicitly guard the scoring tail so ONLY the every-5m
+    // cron reaches it. The half-hour slot was reserved for queued
+    // calibration runs, which now happen on demand via
+    // POST /timed/calibration/run, not on a fixed schedule. So it is
+    // a no-op return.
+    //
+    // Estimated savings: ~50% reduction in scoring-cron D1 reads.
+    if (!_isEvery5Min) return;
+
     // ═══════════════════════════════════════════════════════════════════════
     // BELOW: only runs for the */5 cron handler (scoring + AI + ML)
     // ═══════════════════════════════════════════════════════════════════════
@@ -71004,27 +71079,63 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               }
             }
 
-            // Enrich with sparkline data (last 60 daily closes per ticker)
+            /* P0.7.130 — Sparkline enrichment was the #1 D1 row-read
+               offender. The previous CTE scanned the ENTIRE
+               `ticker_candles` daily partition (every ticker × every
+               daily bar in history) on every scoring cron. With ~250
+               tickers × 90+ daily bars × 288 cron cycles/day = ~6.5M
+               row reads/day just for this one query.
+
+               Two fixes:
+                 1. Restrict the inner scan to `activeSyms` (the same
+                    universe the snapshot is built for) via a
+                    `WHERE ticker IN (...)` filter — at most 250 IN
+                    values, dramatically narrows the scan.
+                 2. Cache the resulting sparkMap in KV for 30 min
+                    (`timed:cache:sparklines`). Sparklines are daily
+                    closes — they don't change intra-day, so re-running
+                    this query every 5 min was always wasteful.
+               Net: ~95% reduction in sparkline-related D1 reads. */
             try {
-              const sparkRows = await env.DB.prepare(
-                `WITH deduped AS (
-                  SELECT ticker, ts, c,
-                    ROW_NUMBER() OVER (PARTITION BY ticker, CAST(ts / 86400000 AS INTEGER) ORDER BY ts DESC) as day_rn
-                  FROM ticker_candles WHERE tf = 'D'
-                )
-                SELECT ticker, ts, c FROM (
-                  SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
-                  FROM deduped WHERE day_rn = 1
-                ) WHERE rn <= 60
-                ORDER BY ticker, ts ASC`
-              ).all();
-              const sparkMap = {};
-              for (const r of (sparkRows?.results || [])) {
-                const sym = String(r.ticker).toUpperCase();
-                if (!sparkMap[sym]) sparkMap[sym] = [];
-                sparkMap[sym].push(Number(r.c));
+              const _spkSyms = Array.from(activeSyms || []).filter(s => s && s.length <= 12);
+              let sparkMap = null;
+              // Try cache first (30 min TTL for sparklines is plenty)
+              try {
+                const cached = await kvGetJSON(KV, "timed:cache:sparklines");
+                if (cached?.builtAt && (Date.now() - cached.builtAt) < 30 * 60 * 1000
+                    && cached.data && Object.keys(cached.data).length >= _spkSyms.length * 0.5) {
+                  sparkMap = cached.data;
+                }
+              } catch { /* cache miss is fine */ }
+
+              if (!sparkMap && _spkSyms.length > 0) {
+                // Build placeholders + binds for the scoped IN clause
+                const placeholders = _spkSyms.map(() => "?").join(",");
+                const sparkRows = await env.DB.prepare(
+                  `WITH deduped AS (
+                    SELECT ticker, ts, c,
+                      ROW_NUMBER() OVER (PARTITION BY ticker, CAST(ts / 86400000 AS INTEGER) ORDER BY ts DESC) as day_rn
+                    FROM ticker_candles WHERE tf = 'D' AND ticker IN (${placeholders})
+                  )
+                  SELECT ticker, ts, c FROM (
+                    SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
+                    FROM deduped WHERE day_rn = 1
+                  ) WHERE rn <= 60
+                  ORDER BY ticker, ts ASC`
+                ).bind(..._spkSyms).all();
+                sparkMap = {};
+                for (const r of (sparkRows?.results || [])) {
+                  const sym = String(r.ticker).toUpperCase();
+                  if (!sparkMap[sym]) sparkMap[sym] = [];
+                  sparkMap[sym].push(Number(r.c));
+                }
+                // Cache for 30 min so subsequent crons skip the query
+                try {
+                  await kvPutJSON(KV, "timed:cache:sparklines", { builtAt: Date.now(), data: sparkMap });
+                } catch { /* cache write best-effort */ }
               }
-              for (const [sym, closes] of Object.entries(sparkMap)) {
+
+              for (const [sym, closes] of Object.entries(sparkMap || {})) {
                 if (snapshot[sym]) {
                   snapshot[sym]._sparkline = closes;
                 }
