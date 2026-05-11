@@ -973,14 +973,34 @@ function useTrades(enabled = true) {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch(`${API_BASE}/timed/trades?source=promoted`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      if (json.ok && Array.isArray(json.trades)) {
-        setTrades(json.trades);
-      } else {
-        setTrades([]);
+      const [promRes, posRes] = await Promise.all([fetch(`${API_BASE}/timed/trades?source=promoted`).then(r => r.ok ? r.json() : null).catch(() => null), fetch(`${API_BASE}/timed/trades?source=positions`).then(r => r.ok ? r.json() : null).catch(() => null)]);
+      const merged = [];
+      const seen = new Set();
+      const norm = tr => {
+        const sym = String(tr?.ticker || "").toUpperCase();
+        const dir = String(tr?.direction || "").toUpperCase();
+        const ts = Number(tr?.entry_ts || tr?.entryTime || tr?.created_at || 0);
+        return `${sym}:${dir}:${ts}`;
+      };
+      if (posRes?.ok && Array.isArray(posRes.trades)) {
+        for (const tr of posRes.trades) {
+          const m = {
+            ...tr,
+            entry_price: tr.entry_price ?? tr.entryPrice ?? null,
+            sl: tr.sl ?? tr.stop_loss ?? null,
+            tp: tr.tp ?? tr.take_profit ?? null
+          };
+          merged.push(m);
+          seen.add(norm(m));
+        }
       }
+      if (promRes?.ok && Array.isArray(promRes.trades)) {
+        for (const tr of promRes.trades) {
+          if (seen.has(norm(tr))) continue;
+          merged.push(tr);
+        }
+      }
+      setTrades(merged);
     } catch (err) {
       setError(err.message);
       console.error("Failed to fetch trades:", err);
@@ -1710,6 +1730,9 @@ function groupsForTicker(t) {
 function isTickerTTSelected(t) {
   const T = normTicker(t);
   return GROUPS.UPTICKS?.has(T) || GROUPS.GRNI?.has(T) || GROUPS.GRNJ?.has(T) || GROUPS.GRNY?.has(T);
+}
+if (typeof window !== "undefined") {
+  window.isTickerTTSelected = isTickerTTSelected;
 }
 function isTickerInGroups(t) {
   const T = normTicker(t);
@@ -3515,7 +3538,6 @@ function BubbleChart({
 }) {
   const displayTickers = React.useMemo(() => {
     const list = Array.isArray(tickers) ? tickers : [];
-    if (activeInsightTickers && activeInsightTickers.size > 0) return list;
     if (!selectedTicker) return list;
     const sym = String(selectedTicker).toUpperCase();
     const solo = list.filter(t => String(t?.ticker || "").toUpperCase() === sym);
@@ -4019,7 +4041,7 @@ function BubbleChart({
         style: {
           pointerEvents: "none"
         }
-      }, "LONG ENTRY ZONE"), React.createElement("rect", {
+      }, "BULL SETUP ZONE"), React.createElement("rect", {
         x: shortX,
         y: offsetY + plotHeight / 2,
         width: shortW,
@@ -4039,7 +4061,7 @@ function BubbleChart({
         style: {
           pointerEvents: "none"
         }
-      }, "SHORT ENTRY ZONE"));
+      }, "BEAR SETUP ZONE"));
     })(), crosshairPos && crosshairPos.chartX >= 0 && crosshairPos.chartX <= plotWidth && React.createElement("line", {
       x1: offsetX + crosshairPos.chartX,
       y1: offsetY,
@@ -4338,11 +4360,17 @@ function BubbleChart({
       })(), (() => {
         const b = tooltip.bias_direction || getDirectionFromState(tooltip);
         if (!b) return null;
+        const sym = String(tooltip?.ticker || "").toUpperCase();
+        const tr = typeof tradeByTicker !== "undefined" && tradeByTicker?.get?.(sym) || null;
+        const _trStatus = String(tr?.status || "").toUpperCase();
+        const hasOpenTrade = !!(tr && (_trStatus === "OPEN" || _trStatus === "TP_HIT_TRIM"));
         const l = String(b).toUpperCase() === "LONG";
         const s = String(b).toUpperCase() === "SHORT";
+        const longLabel = hasOpenTrade ? "LONG" : "BULL";
+        const shortLabel = hasOpenTrade ? "SHORT" : "BEAR";
         return React.createElement("span", {
           className: `px-1.5 py-0.5 rounded text-[9px] font-semibold ${l ? "bg-teal-500/20 text-teal-400" : s ? "bg-rose-500/20 text-rose-400" : "bg-white/[0.04] text-[#6b7280]"}`
-        }, l ? "LONG" : s ? "SHORT" : "NEUTRAL");
+        }, l ? longLabel : s ? shortLabel : "NEUTRAL");
       })()), (() => {
         const ingestTime = tooltip.ingest_ts || tooltip.ingest_time || tooltip.ts;
         if (ingestTime) {
@@ -5496,7 +5524,7 @@ function getTradeLifecycleState(ticker, trade) {
   const tradeIsOpen = !tradeIsClosed && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !tradeStatus);
   let effectiveStage = rawStage;
   if (tradeIsOpen) {
-    if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) effectiveStage = "trim";else if (!["defend", "trim", "exit", "hold", "active", "just_entered"].includes(rawStage)) effectiveStage = "hold";
+    if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) effectiveStage = "trim";else if (rawStage === "exit") effectiveStage = "defend";else if (!["defend", "trim", "hold", "active", "just_entered"].includes(rawStage)) effectiveStage = "hold";
   }
   return {
     trade: resolvedTrade,
@@ -6263,94 +6291,125 @@ function DashboardWelcomeModal({
   const allSteps = [{
     title: "Welcome to Timed Trading",
     content: React.createElement("div", {
-      className: "space-y-4"
+      className: "space-y-5"
     }, React.createElement("p", {
-      className: "text-[#d1d5db] leading-relaxed"
-    }, "The system continuously scores every stock across multiple timeframes and places them in ", React.createElement("strong", {
+      className: "text-base text-[#e5e7eb] leading-[1.7]"
+    }, "Timed Trading is a scoring + decision engine that watches the market for you. The system continuously scores every major ticker across multiple timeframes and places them in ", React.createElement("strong", {
       className: "text-white"
-    }, "action lanes"), " based on where each stock is in its trend cycle. Click any ticker to open the ", React.createElement("strong", {
+    }, "action lanes"), " based on where each one is in its trend cycle."), React.createElement("p", {
+      className: "text-base text-[#d1d5db] leading-[1.7]"
+    }, "This guide walks through the five things you'll use most. It takes about ", React.createElement("strong", {
       className: "text-white"
-    }, "Right Rail"), " with six tabs of deep analysis."), React.createElement("div", {
-      className: "grid grid-cols-1 sm:grid-cols-3 gap-3"
+    }, "two minutes"), ", and you can reopen it anytime from the ", React.createElement("strong", {
+      className: "text-white"
+    }, "Guide"), " button in the top nav."), React.createElement("div", {
+      className: "grid grid-cols-3 gap-3 pt-1"
     }, React.createElement("div", {
-      className: "bg-white/[0.03] border border-emerald-500/20 rounded-lg p-4 ring-1 ring-emerald-500/10"
-    }, React.createElement("h3", {
-      className: "text-emerald-400 font-semibold mb-1.5 text-sm"
-    }, "Analysis"), React.createElement("p", {
-      className: "text-xs text-[#9ca3af] leading-relaxed"
-    }, "The primary view. Shows real-time viewport cards, the Bubble Map, and Kanban pipeline. This is your command center.")), React.createElement("div", {
-      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4"
-    }, React.createElement("h3", {
-      className: "text-emerald-400 font-semibold mb-1.5 text-sm"
-    }, "Daily Brief"), React.createElement("p", {
-      className: "text-xs text-[#9ca3af] leading-relaxed"
-    }, "AI-generated morning and evening market analysis. Your pre-market game plan and post-close recap.")), React.createElement("div", {
-      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4"
-    }, React.createElement("h3", {
-      className: "text-emerald-400 font-semibold mb-1.5 text-sm"
-    }, "Trade Autopsy"), React.createElement("p", {
-      className: "text-xs text-[#9ca3af] leading-relaxed"
-    }, "Every trade the system has taken \u2014 entries, trims, exits, P&L, and exit reasons. Learn from every decision."))))
+      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
+    }, React.createElement("div", {
+      className: "text-[#F5C25C] text-[11px] font-bold uppercase tracking-wider mb-1"
+    }, "Score"), React.createElement("p", {
+      className: "text-[12px] text-[#9ca3af] leading-snug"
+    }, "Every ticker, every minute, across multiple timeframes.")), React.createElement("div", {
+      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
+    }, React.createElement("div", {
+      className: "text-[#F5C25C] text-[11px] font-bold uppercase tracking-wider mb-1"
+    }, "Stage"), React.createElement("p", {
+      className: "text-[12px] text-[#9ca3af] leading-snug"
+    }, "Setup \u2192 Enter \u2192 Hold \u2192 Defend \u2192 Trim \u2192 Exit.")), React.createElement("div", {
+      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
+    }, React.createElement("div", {
+      className: "text-[#F5C25C] text-[11px] font-bold uppercase tracking-wider mb-1"
+    }, "Act"), React.createElement("p", {
+      className: "text-[12px] text-[#9ca3af] leading-snug"
+    }, "Daily Brief, alerts, and a fully audited trade ledger."))))
   }, {
-    title: "The Right Rail — Your Deep Dive",
+    title: "Two modes, one engine",
     content: React.createElement("div", {
       className: "space-y-4"
     }, React.createElement("p", {
-      className: "text-[#d1d5db] leading-relaxed"
+      className: "text-base text-[#e5e7eb] leading-[1.7]"
+    }, "The same scoring engine powers two ways to act on the market. Pick whichever fits your screen-time and risk tolerance."), React.createElement("div", {
+      className: "grid grid-cols-1 sm:grid-cols-2 gap-3"
+    }, React.createElement("div", {
+      className: "bg-white/[0.03] border border-emerald-500/20 rounded-lg p-4 ring-1 ring-emerald-500/10"
+    }, React.createElement("div", {
+      className: "flex items-center gap-2 mb-2"
+    }, React.createElement("span", {
+      className: "w-2 h-2 rounded-full bg-emerald-400"
+    }), React.createElement("h3", {
+      className: "text-emerald-400 font-semibold text-sm"
+    }, "Active Trader")), React.createElement("p", {
+      className: "text-[13px] text-[#a1a8b2] leading-[1.65]"
+    }, "Multi-timeframe entries with explicit stop / take-profit levels, trailing stops, and trims. Daily Brief gives a pre-market game plan and an evening recap.")), React.createElement("div", {
+      className: "bg-white/[0.03] border border-violet-500/20 rounded-lg p-4 ring-1 ring-violet-500/10"
+    }, React.createElement("div", {
+      className: "flex items-center gap-2 mb-2"
+    }, React.createElement("span", {
+      className: "w-2 h-2 rounded-full bg-violet-400"
+    }), React.createElement("h3", {
+      className: "text-violet-300 font-semibold text-sm"
+    }, "Investor (Trend-Hold)")), React.createElement("p", {
+      className: "text-[13px] text-[#a1a8b2] leading-[1.65]"
+    }, "Longer-horizon accumulation. Stocks flow through Watch \u2192 Accumulate \u2192 Core Hold \u2192 Reduce \u2192 Exit, with one decision per day. Built for discipline without daily screen time."))), React.createElement("p", {
+      className: "text-[13px] text-[#9ca3af] leading-[1.65]"
+    }, "The ", React.createElement("strong", {
+      className: "text-white"
+    }, "Trades"), " page gives each mode its own Performance Overview \u2014 equity curve, monthly P&L, calendar, and win-rate breakdown."))
+  }, {
+    title: "The Right Rail — your deep dive",
+    content: React.createElement("div", {
+      className: "space-y-4"
+    }, React.createElement("p", {
+      className: "text-base text-[#e5e7eb] leading-[1.7]"
     }, "Click any ticker to open the ", React.createElement("strong", {
       className: "text-white"
-    }, "Right Rail"), " \u2014 six tabs that give you everything about a stock:"), React.createElement("div", {
-      className: "grid grid-cols-2 gap-2"
+    }, "Right Rail"), " \u2014 five tabs that give you everything about a stock:"), React.createElement("div", {
+      className: "grid grid-cols-1 sm:grid-cols-2 gap-3"
     }, React.createElement("div", {
-      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
+      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4"
     }, React.createElement("h3", {
-      className: "text-emerald-400 font-semibold text-xs mb-1"
-    }, "Analysis"), React.createElement("p", {
-      className: "text-[10px] text-[#9ca3af] leading-relaxed"
-    }, "Score breakdown, management levels (SL/TP), risk/reward, and the system's current recommendation.")), React.createElement("div", {
-      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
+      className: "text-amber-300 font-semibold text-sm mb-1.5"
+    }, "Snapshot"), React.createElement("p", {
+      className: "text-[12px] text-[#a1a8b2] leading-[1.6]"
+    }, "Live chart, score breakdown, the system's current trade recommendation, key levels, and the signal radar \u2014 the at-a-glance view of where a ticker stands right now.")), React.createElement("div", {
+      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4"
     }, React.createElement("h3", {
-      className: "text-emerald-400 font-semibold text-xs mb-1"
-    }, "Investor"), React.createElement("p", {
-      className: "text-[10px] text-[#9ca3af] leading-relaxed"
-    }, "Longer-horizon scoring, accumulation zones, and relative strength vs. the market.")), React.createElement("div", {
-      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
+      className: "text-amber-300 font-semibold text-sm mb-1.5"
+    }, "Setup"), React.createElement("p", {
+      className: "text-[12px] text-[#a1a8b2] leading-[1.6]"
+    }, "Risk / reward, management levels (SL / TP), buy zone, and the exact trigger conditions the engine is watching for before it acts.")), React.createElement("div", {
+      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4"
     }, React.createElement("h3", {
-      className: "text-emerald-400 font-semibold text-xs mb-1"
+      className: "text-amber-300 font-semibold text-sm mb-1.5"
     }, "Technicals"), React.createElement("p", {
-      className: "text-[10px] text-[#9ca3af] leading-relaxed"
-    }, "TD Sequential counts, market state, exhaustion signals, and trigger pattern detection.")), React.createElement("div", {
-      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
+      className: "text-[12px] text-[#a1a8b2] leading-[1.6]"
+    }, "Deep multi-timeframe technical analysis with scoring breakdowns across every indicator the engine watches.")), React.createElement("div", {
+      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4"
     }, React.createElement("h3", {
-      className: "text-emerald-400 font-semibold text-xs mb-1"
-    }, "Model"), React.createElement("p", {
-      className: "text-[10px] text-[#9ca3af] leading-relaxed"
-    }, "The system's prediction confidence, pattern library matches, and forward-looking analysis.")), React.createElement("div", {
-      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
+      className: "text-amber-300 font-semibold text-sm mb-1.5"
+    }, "Fundamentals"), React.createElement("p", {
+      className: "text-[12px] text-[#a1a8b2] leading-[1.6]"
+    }, "Tenet-style breakdown \u2014 earnings, valuation, growth metrics, EPS history, and the macro picture behind the ticker.")), React.createElement("div", {
+      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4 sm:col-span-2"
     }, React.createElement("h3", {
-      className: "text-emerald-400 font-semibold text-xs mb-1"
-    }, "Journey"), React.createElement("p", {
-      className: "text-[10px] text-[#9ca3af] leading-relaxed"
-    }, "Scoring timeline, phase completion, and price performance across 1D to 90D windows.")), React.createElement("div", {
-      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
-    }, React.createElement("h3", {
-      className: "text-emerald-400 font-semibold text-xs mb-1"
-    }, "Trades"), React.createElement("p", {
-      className: "text-[10px] text-[#9ca3af] leading-relaxed"
-    }, "Trade history for this ticker \u2014 every entry, exit, P&L, and chart overlay."))))
+      className: "text-amber-300 font-semibold text-sm mb-1.5"
+    }, "History"), React.createElement("p", {
+      className: "text-[12px] text-[#a1a8b2] leading-[1.6]"
+    }, "Complete per-ticker trade ledger with entry / trim / exit markers overlaid on the chart \u2014 every decision the engine made, replayable."))))
   }, {
     title: "Build your watchlist",
     content: React.createElement("div", {
       className: "space-y-4"
     }, React.createElement("p", {
-      className: "text-[#d1d5db] leading-relaxed"
+      className: "text-base text-[#e5e7eb] leading-[1.7]"
     }, "Star any ticker to save it. Use the ", React.createElement("strong", {
       className: "text-white"
     }, "Saved"), " filter to see only your watchlist. You can also ", React.createElement("strong", {
       className: "text-white"
-    }, "add custom tickers"), " via the \"+ Add Ticker\" button \u2014 the system will immediately backfill, score, and start tracking them."), React.createElement("p", {
-      className: "text-sm text-[#6b7280]"
-    }, "Scroll below to browse the universe and star tickers you want to follow."), React.createElement("div", {
+    }, "add custom tickers"), " via the \"+ Add Ticker\" button \u2014 the system will backfill, score, and start tracking them."), React.createElement("p", {
+      className: "text-[13px] text-[#9ca3af] leading-[1.65]"
+    }, "Browse the universe below and star tickers you want to follow."), React.createElement("div", {
       className: "max-h-52 overflow-y-auto border border-white/[0.08] rounded-lg p-2 space-y-0.5 bg-white/[0.02]"
     }, universeList.length === 0 ? React.createElement("p", {
       className: "text-sm text-[#6b7280] py-4 text-center"
@@ -6380,32 +6439,32 @@ function DashboardWelcomeModal({
   }, {
     title: "You're all set",
     content: React.createElement("div", {
-      className: "space-y-4"
+      className: "space-y-5"
     }, React.createElement("p", {
-      className: "text-[#d1d5db] leading-relaxed"
+      className: "text-base text-[#e5e7eb] leading-[1.7]"
     }, "Start with the ", React.createElement("strong", {
       className: "text-white"
-    }, "Daily Brief"), " each morning for market context. Check the ", React.createElement("strong", {
+    }, "Daily Brief"), " each morning for context. Check the ", React.createElement("strong", {
       className: "text-white"
     }, "Analysis"), " page for the system's top-ranked setups. Use the ", React.createElement("strong", {
       className: "text-white"
-    }, "Bubble Map"), " to see the whole universe at a glance."), React.createElement("div", {
-      className: "bg-white/[0.03] border border-emerald-500/10 rounded-lg p-4"
-    }, React.createElement("div", {
-      className: "flex items-start gap-2"
-    }, React.createElement("span", {
-      className: "text-emerald-400 text-sm mt-0.5"
-    }, "\u2139"), React.createElement("p", {
-      className: "text-xs text-[#9ca3af] leading-relaxed"
-    }, "Reopen this guide anytime using the ", React.createElement("strong", {
+    }, "Bubble Map"), " to see the whole universe at a glance."), React.createElement("p", {
+      className: "text-[13px] text-[#9ca3af] leading-[1.65]"
+    }, "Open the ", React.createElement("strong", {
       className: "text-white"
-    }, "Guide"), " button in the top navigation. Use ", React.createElement("strong", {
+    }, "Trades"), " page for the live Performance Overview \u2014 equity curve, monthly P&L, calendar, and win-rate breakdown for both Active Trader and Investor modes."), React.createElement("div", {
+      className: "bg-white/[0.03] border border-[#F5C25C]/15 rounded-lg p-4"
+    }, React.createElement("p", {
+      className: "text-sm text-[#d1d5db] leading-[1.7]"
+    }, "Reopen this guide anytime from the ", React.createElement("strong", {
       className: "text-white"
-    }, "Tour"), " for an interactive walkthrough of the interface. Check the ", React.createElement("strong", {
+    }, "Guide"), " button. Use ", React.createElement("strong", {
       className: "text-white"
-    }, "FAQ"), " for detailed questions."))))
+    }, "Tour"), " for an interactive walkthrough, or check the ", React.createElement("strong", {
+      className: "text-white"
+    }, "FAQ"), " for detailed questions.")))
   }];
-  const steps = allSteps.slice(0, 4);
+  const steps = allSteps.slice(0, 5);
   const nextStep = () => {
     if (currentStep < steps.length - 1) {
       setCurrentStep(currentStep + 1);
@@ -6419,16 +6478,23 @@ function DashboardWelcomeModal({
   return React.createElement("div", {
     className: "fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
   }, React.createElement("div", {
-    className: "bg-[#0f1117] border-2 border-white/[0.06] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-lg"
+    className: "bg-[#13171D] border border-white/[0.06] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl"
   }, React.createElement("div", {
-    className: "bg-gradient-to-r from-emerald-500/15 to-cyan-500/10 border-b border-white/[0.06] p-6 flex items-center justify-between"
+    className: "border-b border-white/[0.06] p-6 flex items-center justify-between",
+    style: {
+      background: "linear-gradient(135deg, rgba(245,194,92,0.10), rgba(245,194,92,0.02))"
+    }
   }, React.createElement("div", null, React.createElement("h2", {
     className: "text-2xl font-bold text-white mb-1"
   }, steps[currentStep].title), React.createElement("div", {
-    className: "flex gap-1"
+    className: "flex gap-1.5"
   }, steps.map((_, i) => React.createElement("div", {
     key: i,
-    className: `h-2 w-2 rounded-full transition-all ${i === currentStep ? "bg-emerald-400 w-8" : i < currentStep ? "bg-emerald-500" : "bg-white/[0.04]"}`
+    className: "h-1.5 rounded-full transition-all",
+    style: {
+      width: i === currentStep ? 28 : 8,
+      background: i === currentStep ? "linear-gradient(90deg, #F5C25C, #D9A93A)" : i < currentStep ? "rgba(245,194,92,0.45)" : "rgba(255,255,255,0.08)"
+    }
   })))), React.createElement("button", {
     onClick: onClose,
     className: "text-[#6b7280] hover:text-white text-2xl font-bold w-8 h-8 flex items-center justify-center rounded hover:bg-white/[0.04] transition-colors",
@@ -6445,10 +6511,18 @@ function DashboardWelcomeModal({
     className: "text-sm text-[#6b7280]"
   }, "Step ", currentStep + 1, " of ", steps.length), currentStep < steps.length - 1 ? React.createElement("button", {
     onClick: nextStep,
-    className: "px-6 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 text-white font-semibold transition-all"
+    className: "px-6 py-2 rounded-lg text-[#0A0D11] font-bold transition-all",
+    style: {
+      background: "linear-gradient(135deg, #F5C25C, #D9A93A)",
+      boxShadow: "0 2px 10px rgba(245,194,92,0.30)"
+    }
   }, "Next \u2192") : React.createElement("button", {
     onClick: onClose,
-    className: "px-6 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 text-white font-semibold transition-all"
+    className: "px-6 py-2 rounded-lg text-[#0A0D11] font-bold transition-all",
+    style: {
+      background: "linear-gradient(135deg, #F5C25C, #D9A93A)",
+      boxShadow: "0 2px 10px rgba(245,194,92,0.30)"
+    }
   }, "Let's go"))));
 }
 function TrackerWelcomeModal({
@@ -9493,9 +9567,12 @@ const CompactCard = React.memo(function CompactCard({
 const DsCompactCard = React.memo(function DsCompactCard({
   t,
   onSelectTicker,
-  tradeByTicker
+  tradeByTicker,
+  savedTickers,
+  toggleSavedTicker
 }) {
   const sym = String(t?.ticker || "").toUpperCase();
+  const isSaved = !!(savedTickers && savedTickers.has && savedTickers.has(sym));
   const price = Number(t?.price ?? t?.close);
   const dc = (() => {
     try {
@@ -9505,24 +9582,52 @@ const DsCompactCard = React.memo(function DsCompactCard({
     }
   })();
   const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
+  const dayChg = Number.isFinite(dc?.dayChg) ? Number(dc.dayChg) : null;
   const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
-  const rank = Number(t?.rank) || null;
+  const rank = Number(t?.rank_position ?? t?.rp) || null;
+  const score = (() => {
+    try {
+      const dyn = typeof rankScoreForTicker === "function" ? Number(rankScoreForTicker(t)) : NaN;
+      if (Number.isFinite(dyn) && dyn !== 0) return Math.round(dyn);
+    } catch (_) {}
+    const fallback = Number(t?.score ?? t?.rank);
+    return Number.isFinite(fallback) && fallback !== 0 ? Math.round(fallback) : null;
+  })();
   const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
   const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
   const rr = Number(t?.rr) || null;
-  const stage = String(t?.kanban_stage || "").toLowerCase();
+  let stage = String(t?.kanban_stage || "").toLowerCase();
   const openTrade = tradeByTicker?.get?.(sym) || null;
   const hasOpen = openTrade && !openTrade.exit_ts;
   const tradeDir = hasOpen ? String(openTrade.direction || "").toUpperCase() : null;
-  const sparkPoints = (() => {
-    const arr = (t?.intraday_5m || t?.intraday || []).slice(-30).map(p => Number(p?.c ?? p)).filter(Number.isFinite);
-    if (arr.length >= 2) return arr;
-    const pc = Number(t?.prev_close ?? t?.pc) || price;
-    return [pc, price];
+  if (hasOpen) {
+    const _st = String(openTrade?.status || "").toUpperCase();
+    const _trim = Number(openTrade?.trimmed_pct ?? openTrade?.trimmedPct ?? 0);
+    if (_st === "TP_HIT_TRIM" || _trim > 0) stage = "trim";else if (stage === "exit") stage = "defend";else if (stage !== "defend" && stage !== "trim" && stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
+  }
+  const isTTSel = typeof isTickerTTSelected === "function" ? isTickerTTSelected(sym) : false;
+  const earnings = typeof window !== "undefined" && window._ttEarningsMap ? window._ttEarningsMap[sym] : null;
+  const earnDays = earnings && Number.isFinite(earnings._daysAway) ? earnings._daysAway : null;
+  const earnLabel = earnDays === 0 ? "Today" : earnDays === 1 ? "Tomorrow" : earnDays != null && earnDays > 0 ? `${earnDays}d` : earnDays != null && earnDays < 0 ? "Past" : null;
+  const state = String(t?.state || "").toUpperCase();
+  const biasLabel = (() => {
+    if (tradeDir) return tradeDir;
+    if (state.startsWith("HTF_BULL")) return "BULL";
+    if (state.startsWith("HTF_BEAR")) return "BEAR";
+    if (state.includes("BULL")) return "BULL";
+    if (state.includes("BEAR")) return "BEAR";
+    return "NEUTRAL";
   })();
-  const sparkSvg = typeof window !== "undefined" && window.DS && Number.isFinite(price) ? window.DS.sparklineSvg(sparkPoints, {
+  const biasChipCls = (() => {
+    if (biasLabel === "LONG" || biasLabel === "BULL") return "ds-chip--up";
+    if (biasLabel === "SHORT" || biasLabel === "BEAR") return "ds-chip--dn";
+    return "ds-chip--solid";
+  })();
+  const cachedSpark = typeof window !== "undefined" && typeof window._dsEnsureSparkline === "function" ? window._dsEnsureSparkline(sym) : null;
+  const sparkPoints = cachedSpark && cachedSpark.length >= 2 ? cachedSpark : [price || 0, price || 0];
+  const sparkSvg = typeof window !== "undefined" && window.DS && Number.isFinite(price) && price > 0 ? window.DS.sparklineSvg(sparkPoints, {
     width: 280,
-    height: 50,
+    height: 44,
     direction: dir,
     strokeWidth: 1.4
   }) : "";
@@ -9553,14 +9658,169 @@ const DsCompactCard = React.memo(function DsCompactCard({
     };
     return null;
   })();
+  const progressBar = (() => {
+    if (!hasOpen) return null;
+    const ep = Number(openTrade.entry_price ?? openTrade.entryPrice) || null;
+    if (!ep) return null;
+    const isLong = tradeDir === "LONG";
+    const sl = Number(openTrade.sl ?? openTrade.stop_loss) || Number(t?.sl) || null;
+    const tpArrRaw = Array.isArray(openTrade.tpArray) ? openTrade.tpArray : Array.isArray(openTrade.tp_array) ? openTrade.tp_array : null;
+    const tps = (() => {
+      if (tpArrRaw && tpArrRaw.length > 0) {
+        return tpArrRaw.map(x => Number(x?.price ?? x)).filter(Number.isFinite);
+      }
+      const single = Number(openTrade.tp) || Number(openTrade.take_profit) || Number(t?.tp) || Number(t?.tp_target_price) || null;
+      return single ? [single] : [];
+    })();
+    const allPx = [ep, price, sl, ...tps].filter(p => Number.isFinite(p) && p > 0);
+    if (allPx.length < 2) return null;
+    const min = Math.min(...allPx);
+    const max = Math.max(...allPx);
+    const padding = (max - min) * 0.05 || 0.5;
+    const lo = min - padding;
+    const hi = max + padding;
+    const xPct = px => Math.max(0, Math.min(100, (px - lo) / (hi - lo) * 100));
+    const pnlPct = isLong ? (price - ep) / ep * 100 : (ep - price) / ep * 100;
+    const ticks = [];
+    if (sl) ticks.push({
+      px: sl,
+      label: "SL",
+      color: "var(--ds-dn)"
+    });
+    ticks.push({
+      px: ep,
+      label: "E",
+      color: "var(--ds-text-muted)"
+    });
+    tps.forEach((tp, i) => ticks.push({
+      px: tp,
+      label: `T${i + 1}`,
+      color: "var(--ds-up)"
+    }));
+    ticks.sort((a, b) => a.px - b.px);
+    const curX = xPct(price);
+    return React.createElement("div", {
+      style: {
+        marginTop: "var(--ds-space-2)",
+        zIndex: 2,
+        position: "relative"
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        fontSize: 9,
+        color: "var(--ds-text-muted)",
+        marginBottom: 4,
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, React.createElement("span", {
+      style: {
+        textTransform: "uppercase",
+        letterSpacing: "0.16em",
+        fontWeight: 700
+      }
+    }, "Position"), React.createElement("span", {
+      style: {
+        color: pnlPct >= 0 ? "var(--ds-up)" : "var(--ds-dn)",
+        fontWeight: 700
+      }
+    }, pnlPct >= 0 ? "+" : "", pnlPct.toFixed(2), "%")), React.createElement("div", {
+      style: {
+        position: "relative",
+        height: 6,
+        background: "var(--ds-bg-glass-hi)",
+        borderRadius: 3,
+        overflow: "visible"
+      }
+    }, (() => {
+      const epX = xPct(ep);
+      const fillStart = Math.min(epX, curX);
+      const fillW = Math.abs(curX - epX);
+      const fillBg = pnlPct >= 0 ? "var(--ds-up-bg)" : "var(--ds-dn-bg)";
+      return React.createElement("div", {
+        style: {
+          position: "absolute",
+          left: `${fillStart}%`,
+          width: `${fillW}%`,
+          top: 0,
+          bottom: 0,
+          background: fillBg,
+          borderRadius: 3
+        }
+      });
+    })(), ticks.map((tick, i) => React.createElement("div", {
+      key: `tick-${i}`,
+      title: `${tick.label}: $${Number(tick.px).toFixed(2)}`,
+      style: {
+        position: "absolute",
+        left: `${xPct(tick.px)}%`,
+        top: -8,
+        bottom: -8,
+        width: 12,
+        transform: "translateX(-6px)",
+        cursor: "help",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center"
+      }
+    }, React.createElement("div", {
+      style: {
+        width: 2,
+        height: "calc(100% - 8px)",
+        background: tick.color
+      }
+    }))), React.createElement("div", {
+      title: `Current: $${Number(price).toFixed(2)} (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%)`,
+      style: {
+        position: "absolute",
+        left: `${curX}%`,
+        top: "50%",
+        transform: "translate(-50%, -50%)",
+        width: 10,
+        height: 10,
+        borderRadius: "50%",
+        background: "var(--ds-accent)",
+        boxShadow: "0 0 0 2px var(--ds-bg-surface), 0 0 0 3px var(--ds-accent-glow)",
+        cursor: "help"
+      }
+    })), React.createElement("div", {
+      style: {
+        position: "relative",
+        height: 12,
+        marginTop: 2,
+        fontFamily: "var(--tt-font-mono)",
+        fontSize: 8,
+        color: "var(--ds-text-muted)"
+      }
+    }, ticks.map((tick, i) => React.createElement("span", {
+      key: `lbl-${i}`,
+      title: `${tick.label}: $${Number(tick.px).toFixed(2)}`,
+      style: {
+        position: "absolute",
+        left: `${xPct(tick.px)}%`,
+        transform: "translateX(-50%)",
+        color: tick.color,
+        fontWeight: 700,
+        whiteSpace: "nowrap",
+        cursor: "help"
+      }
+    }, tick.label))));
+  })();
+  const cardStyle = {
+    width: 280,
+    textAlign: "left",
+    padding: "var(--ds-space-3)",
+    ...(isTTSel ? {
+      borderColor: "var(--ds-accent-dim)",
+      boxShadow: "inset 0 0 0 1px rgba(245,194,92,0.18)"
+    } : {})
+  };
   return React.createElement("button", {
     onClick: () => onSelectTicker && onSelectTicker(sym),
     className: "ds-tickercard",
-    style: {
-      width: 280,
-      textAlign: "left",
-      padding: "var(--ds-space-3)"
-    }
+    style: cardStyle
   }, React.createElement("div", {
     className: "ds-tickercard__head"
   }, React.createElement("div", {
@@ -9584,18 +9844,54 @@ const DsCompactCard = React.memo(function DsCompactCard({
     style: {
       fontSize: 13
     }
-  }, sym), tradeDir && React.createElement("span", {
-    className: `ds-chip ds-chip--sm ${tradeDir === "LONG" ? "ds-chip--up" : "ds-chip--dn"}`,
+  }, sym), React.createElement("span", {
+    className: `ds-chip ds-chip--sm ${biasChipCls}`,
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      marginLeft: 4
+    },
+    title: hasOpen ? "Active trade direction" : "Bias"
+  }, biasLabel), isTTSel && React.createElement("span", {
+    title: "TT Selected",
+    style: {
+      width: 6,
+      height: 6,
+      borderRadius: "50%",
+      background: "var(--ds-accent)",
+      boxShadow: "0 0 0 2px rgba(245,194,92,0.20)",
+      marginLeft: 4,
+      flexShrink: 0
+    }
+  }), earnLabel && React.createElement("span", {
+    className: "ds-chip ds-chip--sm ds-chip--accent",
+    title: `Earnings ${earnings.date} ${earnings.hour || ""}`,
     style: {
       fontFamily: "var(--tt-font-mono)",
       marginLeft: 4
     }
-  }, tradeDir), stageChip && React.createElement("span", {
+  }, "EPS ", earnLabel), stageChip && React.createElement("span", {
     className: `ds-chip ds-chip--sm ${stageChip.cls}`,
     style: {
       marginLeft: "auto"
     }
-  }, stageChip.label)), React.createElement("div", {
+  }, stageChip.label), toggleSavedTicker && React.createElement("button", {
+    onClick: e => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleSavedTicker(sym);
+    },
+    className: "ds-chip ds-chip--sm",
+    style: {
+      marginLeft: stageChip ? 4 : "auto",
+      padding: "0 6px",
+      height: 18,
+      color: isSaved ? "var(--ds-accent)" : "var(--ds-text-muted)",
+      background: isSaved ? "var(--ds-accent-dim)" : "transparent",
+      borderColor: isSaved ? "var(--ds-accent)" : "var(--ds-stroke)"
+    },
+    title: isSaved ? "Saved — click to unsave" : "Save ticker",
+    "aria-label": isSaved ? "Unsave ticker" : "Save ticker"
+  }, isSaved ? "★" : "☆")), React.createElement("div", {
     className: "ds-tickercard__price",
     style: {
       fontSize: 18
@@ -9605,40 +9901,90 @@ const DsCompactCard = React.memo(function DsCompactCard({
     style: {
       fontSize: 12
     }
-  }, dir === "up" ? "▲" : dir === "dn" ? "▼" : "◆", " ", dayPct >= 0 ? "+" : "", dayPct.toFixed(2), "%"), sparkSvg && React.createElement("div", {
+  }, dir === "up" ? "▲" : dir === "dn" ? "▼" : "◆", " ", dayPct >= 0 ? "+" : "", dayPct.toFixed(2), "%", Number.isFinite(dayChg) && Math.abs(dayChg) > 0.001 && React.createElement("span", {
+    style: {
+      marginLeft: 4,
+      opacity: 0.7,
+      fontSize: 10
+    }
+  }, "(", dayChg >= 0 ? "+" : "", "$", Math.abs(dayChg).toFixed(2), ")")), progressBar, sparkSvg && React.createElement("div", {
     className: "ds-tickercard__spark",
     dangerouslySetInnerHTML: {
       __html: sparkSvg
     }
-  }), React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: "var(--ds-space-1)",
-      marginTop: "var(--ds-space-2)",
-      flexWrap: "wrap",
-      zIndex: 2,
-      position: "relative"
+  }), (() => {
+    const tfm = t?.tf_tech || {};
+    const tfList = ["10", "15", "30", "1H", "60", "4H", "240"];
+    let sqState = null;
+    let sqTf = null;
+    for (const tfk of tfList) {
+      const row = tfm[tfk];
+      if (!row?.sq) continue;
+      if (row.sq.r) {
+        sqState = "release";
+        sqTf = tfk;
+        break;
+      }
     }
-  }, rank != null && React.createElement("span", {
-    className: "ds-chip ds-chip--sm",
-    style: {
-      fontFamily: "var(--tt-font-mono)"
-    },
-    title: "Rank"
-  }, "R", rank), conv != null && React.createElement("span", {
-    className: `ds-chip ds-chip--sm ${tier === "A" ? "ds-chip--up" : tier === "B" ? "ds-chip--accent" : "ds-chip--solid"}`,
-    style: {
-      fontFamily: "var(--tt-font-mono)"
-    },
-    title: "Conviction tier"
-  }, tier || "C", "\xB7", Math.round(conv)), rr != null && React.createElement("span", {
-    className: `ds-chip ds-chip--sm ${rr >= 2 ? "ds-chip--up" : rr >= 1.5 ? "ds-chip--accent" : ""}`,
-    style: {
-      fontFamily: "var(--tt-font-mono)"
-    },
-    title: "Risk:Reward"
-  }, rr.toFixed(1), "R")));
+    if (!sqState) {
+      for (const tfk of tfList) {
+        const row = tfm[tfk];
+        if (!row?.sq) continue;
+        if (row.sq.s) {
+          sqState = "on";
+          sqTf = tfk;
+          break;
+        }
+        if (row.sq.c) {
+          sqState = "compressed";
+          sqTf = tfk;
+          break;
+        }
+      }
+    }
+    const sqChip = sqState ? React.createElement("span", {
+      className: `ds-chip ds-chip--sm ${sqState === "release" ? "ds-chip--accent" : sqState === "on" ? "" : "ds-chip--solid"}`,
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: `Squeeze ${sqState} on ${sqTf}`
+    }, "SQ ", sqState === "release" ? "RLS" : sqState === "on" ? "ON" : "CMP") : null;
+    return React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: "var(--ds-space-1)",
+        marginTop: "var(--ds-space-2)",
+        flexWrap: "wrap",
+        zIndex: 2,
+        position: "relative"
+      }
+    }, rank != null && React.createElement("span", {
+      className: `ds-chip ds-chip--sm ${rank <= 10 ? "ds-chip--up" : rank <= 30 ? "ds-chip--accent" : ""}`,
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: `Rank position: ${rank} of all eligible tickers (1 = best). The viewport is sorted by this.`
+    }, "R", rank), score != null && React.createElement("span", {
+      className: `ds-chip ds-chip--sm ${score >= 100 ? "ds-chip--up" : score >= 75 ? "ds-chip--accent" : ""}`,
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: `Score: ${Math.round(score)} (composite alignment score, higher = better). Rank is derived from this.`
+    }, "S", Math.round(score)), conv != null && React.createElement("span", {
+      className: `ds-chip ds-chip--sm ${tier === "A" ? "ds-chip--up" : tier === "B" ? "ds-chip--accent" : "ds-chip--solid"}`,
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: "Conviction tier"
+    }, tier || "C", "\xB7", Math.round(conv)), rr != null && React.createElement("span", {
+      className: `ds-chip ds-chip--sm ${rr >= 2 ? "ds-chip--up" : rr >= 1.5 ? "ds-chip--accent" : ""}`,
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: "Risk:Reward"
+    }, rr.toFixed(1), "R"), sqChip);
+  })());
 });
 function renderCompactCardFn(t, {
   onSelectTicker,
@@ -9652,7 +9998,9 @@ function renderCompactCardFn(t, {
     return React.createElement(DsCompactCard, {
       t: t,
       onSelectTicker: onSelectTicker,
-      tradeByTicker: tradeByTicker
+      tradeByTicker: tradeByTicker,
+      savedTickers: savedTickers,
+      toggleSavedTicker: toggleSavedTicker
     });
   }
   return React.createElement(CompactCard, {
@@ -9825,24 +10173,58 @@ function StatusStrip({
       dayNet: openUnrealized + todayClosedRealized
     };
   }, [trades]);
-  const topOpp = React.useMemo(() => {
-    if (!Array.isArray(allTickersWithRanks) || allTickersWithRanks.length === 0) return null;
+  const topSignals = React.useMemo(() => {
+    if (!Array.isArray(allTickersWithRanks) || allTickersWithRanks.length === 0) return [];
     const openSet = new Set((Array.isArray(trades) ? trades : []).filter(tr => !tr?.exit_ts && !tr?.exit_timestamp).map(tr => String(tr?.ticker || "").toUpperCase()));
-    for (const t of allTickersWithRanks) {
+    const eligible = allTickersWithRanks.filter(t => {
       const sym = String(t?.ticker || "").toUpperCase();
-      if (!sym) continue;
-      if (openSet.has(sym)) continue;
       const rank = Number(t?.rank);
-      if (!Number.isFinite(rank) || rank <= 0) continue;
-      return {
+      return sym && !openSet.has(sym) && Number.isFinite(rank) && rank > 0;
+    });
+    if (eligible.length === 0) return [];
+    const oneHrAgo = Date.now() - 60 * 60 * 1000;
+    const cats = [{
+      kind: "Top Rank",
+      tip: "Highest-ranked ticker not already in an open trade. The model's #1 idea right now.",
+      find: list => list[0] || null
+    }, {
+      kind: "Squeeze Release",
+      tip: "30-min squeeze just released \u2014 explosive move likely. Top-ranked candidate with sq30_release flag.",
+      find: list => list.find(t => t?.flags?.sq30_release === true) || null
+    }, {
+      kind: "Just Flipped",
+      tip: "State changed within the last hour \u2014 fresh idea. Top-ranked candidate that just flipped.",
+      find: list => list.find(t => Number(t?.last_state_change_ts || t?.flip_ts || 0) > oneHrAgo) || null
+    }, {
+      kind: "Momentum Elite",
+      tip: "Multi-TF momentum aligned and accelerating. Top-ranked candidate with momentum_elite flag.",
+      find: list => list.find(t => t?.flags?.momentum_elite === true) || null
+    }, {
+      kind: "High R:R",
+      tip: "Top-ranked candidate with risk:reward >= 2.5 \u2014 best reward-per-unit-risk on the board.",
+      find: list => list.find(t => Number(t?.rr) >= 2.5) || null
+    }];
+    const seen = new Set();
+    const out = [];
+    for (const c of cats) {
+      const t = c.find(eligible);
+      if (!t) continue;
+      const sym = String(t.ticker).toUpperCase();
+      if (seen.has(sym)) continue;
+      seen.add(sym);
+      out.push({
         ticker: sym,
-        rank,
-        dir: t?.direction || t?.consensus_direction || "—",
-        setup: t?.setup_name || t?.entry_path || "—"
-      };
+        rank: Number(t.rank),
+        dir: t.direction || t.consensus_direction || "\u2014",
+        setup: t.setup_name || t.entry_path || "\u2014",
+        kind: c.kind,
+        tip: c.tip
+      });
+      if (out.length >= 5) break;
     }
-    return null;
+    return out;
   }, [allTickersWithRanks, trades]);
+  const topOpp = topSignals[0] || null;
   const toneCls = tone => {
     switch (tone) {
       case "success":
@@ -10034,49 +10416,68 @@ function StatusStrip({
     style: {
       color: "var(--tt-text-4)"
     }
-  }, "L")))), topOpp && React.createElement("button", {
-    onClick: () => onSelectTicker && onSelectTicker(topOpp.ticker),
-    className: "flex flex-col justify-center min-w-0 hover:bg-white/[0.04] transition-colors group text-left",
+  }, "L")))), topSignals && topSignals.map((sig, i) => React.createElement("button", {
+    key: `sig-${sig.kind}-${sig.ticker}`,
+    onClick: () => onSelectTicker && onSelectTicker(sig.ticker),
+    className: `flex flex-col justify-center min-w-0 hover:bg-white/[0.04] transition-colors group text-left ${i >= 1 ? "tt-signal-low-prio" : ""}`,
     style: {
       padding: "6px 14px",
       borderRight: "1px solid var(--tt-border-weak)"
     },
-    title: `Best current opportunity — click to open ${topOpp.ticker}`
+    title: sig.tip || `${sig.kind} \u2014 click to open ${sig.ticker}`
   }, React.createElement("div", {
     className: "tt-label",
     style: {
       fontSize: 9,
       marginBottom: 2
     }
-  }, "Top Signal"), React.createElement("div", {
+  }, sig.kind), React.createElement("div", {
     style: {
       fontSize: 12,
-      lineHeight: 1.2
-    },
-    className: "truncate"
+      lineHeight: 1.2,
+      whiteSpace: "nowrap",
+      display: "flex",
+      alignItems: "center",
+      gap: 6
+    }
   }, React.createElement("span", {
+    className: "ds-tickercard__logo shrink-0",
+    style: {
+      width: 16,
+      height: 16
+    },
+    ref: el => {
+      if (el && !el.dataset.dsInit && window.DS) {
+        el.dataset.dsInit = "1";
+        try {
+          el.replaceWith(window.DS.tickerLogo(sig.ticker, {
+            size: 16
+          }));
+        } catch (_) {}
+      }
+    }
+  }, String(sig.ticker).slice(0, 2)), React.createElement("span", {
     className: "tt-num font-bold text-white group-hover:text-cyan-300 transition-colors"
-  }, topOpp.ticker), React.createElement("span", {
-    className: "tt-num ml-1.5",
+  }, sig.ticker), React.createElement("span", {
+    className: "tt-num",
     style: {
       fontSize: 10.5,
       color: "var(--tt-text-3)"
     }
-  }, "rank ", React.createElement("span", {
+  }, "R", React.createElement("span", {
     className: "font-semibold",
     style: {
       color: "var(--tt-info)"
     }
-  }, topOpp.rank)), topOpp.dir && topOpp.dir !== "—" && React.createElement("span", {
-    className: "ml-1.5",
+  }, sig.rank)), sig.dir && sig.dir !== "\u2014" && React.createElement("span", {
     style: {
       fontSize: 9.5,
       textTransform: "uppercase",
-      letterSpacing: "0.08em",
-      color: String(topOpp.dir).toUpperCase().includes("SHORT") ? "var(--tt-danger)" : "var(--tt-success)"
+      letterSpacing: "0.06em",
+      color: String(sig.dir).toUpperCase().includes("SHORT") ? "var(--tt-danger)" : "var(--tt-success)"
     }
-  }, String(topOpp.dir).toUpperCase().includes("SHORT") ? "short" : "long"))), React.createElement("div", {
-    className: "flex items-center ml-auto",
+  }, String(sig.dir).toUpperCase().includes("SHORT") ? "S" : "L")))), React.createElement("div", {
+    className: "tt-mkt-status-cell flex items-center ml-auto",
     style: {
       padding: "6px 14px"
     }
@@ -10188,10 +10589,10 @@ function ActionCenterPanel({
       if (trade) {
         const st = String(trade.status || "").toUpperCase();
         const trimPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
-        const isClosed = st === "WIN" || st === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs) || trimPct >= 0.9999;
-        const isOpen = !isClosed && (st === "OPEN" || st === "TP_HIT_TRIM" || !st);
+        const isClosed = st === "WIN" || st === "LOSS" || st === "FLAT" || st === "CLOSED" || st === "CANCELED" || !!(trade?.exit_ts ?? trade?.exitTs) || trimPct >= 0.9999;
+        const isOpen = !isClosed && (st === "OPEN" || st === "TP_HIT_TRIM");
         if (isOpen) {
-          if (st === "TP_HIT_TRIM" || trimPct > 0) stage = "trim";else if (stage !== "defend" && stage !== "trim" && stage !== "exit" && stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
+          if (st === "TP_HIT_TRIM" || trimPct > 0) stage = "trim";else if (stage === "exit") stage = "defend";else if (stage !== "defend" && stage !== "trim" && stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
         }
         if (isClosed) {
           const exitMs = Number(trade.exit_ts ?? trade.exitTs ?? 0);
@@ -10309,9 +10710,6 @@ function ActionCenterPanel({
   const activePositionsCount = rows.length;
   const rankTotal = rankPositions && typeof rankPositions === "object" ? Object.keys(rankPositions).length : null;
   const kanbanCount = hasEarlyMovers ? earlyMoversCount : kanbanActiveCount;
-  if (!hasEarlyMovers && !hasKanbanData && activePositionsCount === 0) {
-    return null;
-  }
   const todayLocal = (() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -10344,58 +10742,130 @@ function ActionCenterPanel({
     const s = String(t?.status || "").toUpperCase();
     return s === "OPEN" || s === "TP_HIT_TRIM";
   }).length;
+  const Stat = ({
+    label,
+    value,
+    tone = "default",
+    title = null
+  }) => {
+    const valueColor = tone === "up" ? "var(--ds-up)" : tone === "dn" ? "var(--ds-dn)" : tone === "accent" ? "var(--ds-accent)" : "var(--ds-text-display)";
+    return React.createElement("span", {
+      title: title || undefined,
+      style: {
+        display: "inline-flex",
+        alignItems: "baseline",
+        gap: 6
+      }
+    }, React.createElement("span", {
+      className: "ds-caption",
+      style: {
+        letterSpacing: "0.16em"
+      }
+    }, label), React.createElement("span", {
+      style: {
+        fontFamily: "var(--tt-font-mono)",
+        fontWeight: 700,
+        fontVariantNumeric: "tabular-nums",
+        color: valueColor,
+        fontSize: "var(--ds-fs-body)",
+        letterSpacing: "-0.01em"
+      }
+    }, value));
+  };
+  const fmt = n => typeof fmtUsd === "function" ? fmtUsd(n) : `$${Number(n).toFixed(2)}`;
+  const sign = n => (n >= 0 ? "+" : "") + fmt(n);
   return React.createElement("div", {
     className: "mb-2"
   }, React.createElement("div", {
-    className: "px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06] flex items-center justify-between flex-wrap gap-2"
+    className: "ds-glass",
+    style: {
+      padding: "var(--ds-space-2) var(--ds-space-3)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      flexWrap: "wrap",
+      gap: "var(--ds-space-3)"
+    }
   }, React.createElement("div", {
-    className: "flex items-center gap-5 text-[11px]"
-  }, todayActivityCount > 0 || queuedPendingCount > 0 || queuedPending.length > 0 ? React.createElement(React.Fragment, null, React.createElement("span", {
-    className: "text-[#6b7280]"
-  }, "Entries ", React.createElement("span", {
-    className: "text-white font-bold tabular-nums"
-  }, todayEntries.length)), React.createElement("span", {
-    className: "text-[#6b7280]"
-  }, "Exits ", React.createElement("span", {
-    className: "text-white font-bold tabular-nums"
-  }, todayExits.length)), todayExits.length > 0 && React.createElement("span", {
-    className: "text-[#6b7280]"
-  }, "W/L ", React.createElement("span", {
-    className: "text-teal-400 font-bold tabular-nums"
-  }, todayWins), React.createElement("span", {
-    className: "text-[#4b5563]"
-  }, "/"), React.createElement("span", {
-    className: "text-rose-400 font-bold tabular-nums"
-  }, todayLosses)), (queuedPendingCount > 0 || queuedPending.length > 0) && React.createElement("span", {
-    className: "text-amber-400/80",
-    title: queuedPending.map(a => `${a.ticker}: ${a.action} (${a.reason})`).join("\n")
-  }, "Queued ", React.createElement("span", {
-    className: "text-amber-300 font-bold tabular-nums"
-  }, queuedPendingCount || queuedPending.length)), todayExits.length > 0 && React.createElement("span", {
-    className: "text-[#6b7280]"
-  }, "Today Realized ", React.createElement("span", {
-    className: `font-bold tabular-nums ${todayRealizedPnl >= 0 ? "text-teal-400" : "text-rose-400"}`
-  }, todayRealizedPnl >= 0 ? "+" : "", typeof fmtUsd === "function" ? fmtUsd(todayRealizedPnl) : `$${todayRealizedPnl.toFixed(2)}`))) : React.createElement("span", {
-    className: "text-[#4b5563]"
-  }, "No activity today")), React.createElement("div", {
-    className: "flex items-center gap-5 text-[11px]"
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: "var(--ds-space-4)",
+      flexWrap: "wrap"
+    }
+  }, todayActivityCount > 0 || queuedPendingCount > 0 || queuedPending.length > 0 ? React.createElement(React.Fragment, null, React.createElement(Stat, {
+    label: "Entries",
+    value: todayEntries.length
+  }), React.createElement(Stat, {
+    label: "Exits",
+    value: todayExits.length
+  }), todayExits.length > 0 && React.createElement("span", {
+    style: {
+      display: "inline-flex",
+      alignItems: "baseline",
+      gap: 6
+    }
   }, React.createElement("span", {
-    className: "text-[#6b7280]"
-  }, "Account ", React.createElement("span", {
-    className: "text-white font-bold tabular-nums"
-  }, accountValue != null ? typeof fmtUsd === "function" ? fmtUsd(accountValue) : `$${accountValue.toFixed(0)}` : "Loading...")), React.createElement("span", {
-    className: "text-[#6b7280]"
-  }, "Realized ", React.createElement("span", {
-    className: `font-bold tabular-nums ${allRealizedPnl >= 0 ? "text-teal-400" : "text-rose-400"}`
-  }, allRealizedPnl >= 0 ? "+" : "", typeof fmtUsd === "function" ? fmtUsd(allRealizedPnl) : `$${allRealizedPnl.toFixed(2)}`)), React.createElement("span", {
-    className: "text-[#6b7280]"
-  }, "Open ", React.createElement("span", {
-    className: "text-white font-bold tabular-nums"
-  }, openPositionCount)), React.createElement("span", {
-    className: "text-[#6b7280]"
-  }, "Open P&L ", React.createElement("span", {
-    className: `font-bold tabular-nums ${openPnl >= 0 ? "text-teal-400" : "text-rose-400"}`
-  }, openPnl >= 0 ? "+" : "", typeof fmtUsd === "function" ? fmtUsd(openPnl) : `$${openPnl.toFixed(2)}`)))));
+    className: "ds-caption",
+    style: {
+      letterSpacing: "0.16em"
+    }
+  }, "W/L"), React.createElement("span", {
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      fontWeight: 700,
+      fontVariantNumeric: "tabular-nums",
+      fontSize: "var(--ds-fs-body)"
+    }
+  }, React.createElement("span", {
+    style: {
+      color: "var(--ds-up)"
+    }
+  }, todayWins), React.createElement("span", {
+    style: {
+      color: "var(--ds-text-faint)"
+    }
+  }, "/"), React.createElement("span", {
+    style: {
+      color: "var(--ds-dn)"
+    }
+  }, todayLosses))), (queuedPendingCount > 0 || queuedPending.length > 0) && React.createElement(Stat, {
+    label: "Queued",
+    value: queuedPendingCount || queuedPending.length,
+    tone: "accent",
+    title: queuedPending.map(a => `${a.ticker}: ${a.action} (${a.reason})`).join("\n")
+  }), todayExits.length > 0 && React.createElement(Stat, {
+    label: "Today Realized",
+    value: sign(todayRealizedPnl),
+    tone: todayRealizedPnl >= 0 ? "up" : "dn"
+  })) : React.createElement("span", {
+    className: "ds-caption",
+    style: {
+      color: "var(--ds-text-faint)",
+      letterSpacing: "0.12em"
+    }
+  }, "No activity today")), React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: "var(--ds-space-4)",
+      flexWrap: "wrap"
+    }
+  }, React.createElement(Stat, {
+    label: "Account",
+    value: accountValue != null ? fmt(accountValue) : "—"
+  }), React.createElement(Stat, {
+    label: "Realized",
+    value: sign(allRealizedPnl),
+    tone: allRealizedPnl >= 0 ? "up" : "dn"
+  }), React.createElement(Stat, {
+    label: "Open",
+    value: openPositionCount
+  }), React.createElement(Stat, {
+    label: "Open P&L",
+    value: sign(openPnl),
+    tone: openPnl >= 0 ? "up" : "dn"
+  }))));
 }
 const STAGE_ORDER = {
   watch: 0,
@@ -10942,9 +11412,6 @@ function SimpleKanbanTable({
   }, "R:R"), React.createElement("th", {
     className: "px-1 py-2 text-center text-[11px] font-medium text-gray-400"
   }, "Flags"), React.createElement("th", {
-    className: "px-2 py-2 text-center text-[10px] font-medium text-gray-500 whitespace-nowrap cursor-pointer hover:text-white select-none",
-    onClick: () => handleSort("stage")
-  }, "Active Trader", sortArrow("stage")), React.createElement("th", {
     className: "px-2 py-2 text-center text-[10px] font-medium text-gray-500 whitespace-nowrap"
   }, "Investor"))), React.createElement("tbody", null, filtered.map((t, idx) => {
     const sym = String(t?.ticker || "").toUpperCase();
@@ -11007,7 +11474,7 @@ function SimpleKanbanTable({
       className: "px-2 py-1.5 text-center"
     }, React.createElement("span", {
       className: `text-[11px] font-bold ${dirColor}`
-    }, dir === "L" ? "LONG" : "SHORT")), window._ttIsPro && React.createElement("td", {
+    }, dir === "L" ? hasOpen ? "LONG" : "BULL" : hasOpen ? "SHORT" : "BEAR")), window._ttIsPro && React.createElement("td", {
       className: "px-1 py-1 text-right text-[11px] text-white font-medium tabular-nums"
     }, price > 0 ? `$${price.toFixed(2)}` : React.createElement("span", {
       className: "text-gray-600"
@@ -11066,10 +11533,6 @@ function SimpleKanbanTable({
     }, badges.length > 0 ? badges.join("") : React.createElement("span", {
       className: "text-gray-600"
     }, "\u2014")), React.createElement("td", {
-      className: "px-1 py-1 text-center"
-    }, React.createElement("span", {
-      className: `inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${STAGE_META[stg]?.cls || "bg-gray-700/60 text-gray-300 border-gray-500/40"}`
-    }, STAGE_META[stg]?.icon, " ", STAGE_META[stg]?.label || stg)), React.createElement("td", {
       className: "px-1 py-1 text-center"
     }, (() => {
       const inv = t?.investor_action || t?.investor_stage;
@@ -11340,12 +11803,14 @@ function EarlyMoversPanel({
       const trade = tradeByTicker.get(sym);
       const status = trade ? String(trade.status || "").toUpperCase() : "";
       const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
-      const isClosed = status === "WIN" || status === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs) || trimmedPct >= 0.9999;
-      const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM" || !status);
+      const isClosed = status === "WIN" || status === "LOSS" || status === "FLAT" || status === "CLOSED" || status === "CANCELED" || !!(trade?.exit_ts ?? trade?.exitTs) || trimmedPct >= 0.9999;
+      const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM");
       if (trade && isOpen) {
         if (status === "TP_HIT_TRIM" || Number(trade.trimmed_pct ?? trade.trimmedPct ?? 0) > 0) {
           stage = "trim";
-        } else if (stage === "defend" || stage === "trim" || stage === "exit") {} else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") {
+        } else if (stage === "exit") {
+          stage = "defend";
+        } else if (stage === "defend" || stage === "trim") {} else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") {
           stage = "hold";
         }
       }
@@ -13680,7 +14145,10 @@ const OverlayPortal = ({
   selectedJourneyTs = null,
   earningsMap = null,
   dashboardMode = "trader",
-  addingTicker = null
+  addingTicker = null,
+  savedTickers = null,
+  toggleSavedTicker = null,
+  layoutMode = "modal"
 }) => {
   if (!selectedTicker) return null;
   try {
@@ -13779,7 +14247,10 @@ const OverlayPortal = ({
       effectiveStage: effectiveStage,
       earningsMap: earningsMap,
       initialRailTab: initialRailTab,
-      addingTicker: addingTicker
+      addingTicker: addingTicker,
+      savedTickers: savedTickers,
+      toggleSavedTicker: toggleSavedTicker,
+      layoutMode: layoutMode
     });
   } catch (error) {
     console.error("OverlayPortal error:", error);
@@ -13890,6 +14361,73 @@ function createDefaultDashboardFilters() {
     td9Setup: null
   };
 }
+const __ttLogoLoaded = typeof window !== "undefined" && (window.__ttLogoLoaded || (window.__ttLogoLoaded = new Set())) || new Set();
+const __ttLogoFailed = typeof window !== "undefined" && (window.__ttLogoFailed || (window.__ttLogoFailed = new Set())) || new Set();
+const StableTickerLogo = React.memo(function StableTickerLogo({
+  sym,
+  size = 24
+}) {
+  const upper = String(sym || "").toUpperCase();
+  const url = upper ? `https://eodhd.com/img/logos/US/${upper}.png` : null;
+  const monogram = upper.slice(0, 2);
+  const color = (() => {
+    let hash = 0;
+    for (let i = 0; i < upper.length; i++) hash = (hash << 5) - hash + upper.charCodeAt(i);
+    return `hsl(${Math.abs(hash) % 360}, 35%, 28%)`;
+  })();
+  const [loaded, setLoaded] = React.useState(__ttLogoLoaded.has(upper));
+  const [failed, setFailed] = React.useState(__ttLogoFailed.has(upper));
+  const showImg = !!url && !failed;
+  return React.createElement("div", {
+    className: "ds-tickercard__logo",
+    style: {
+      width: `${size}px`,
+      height: `${size}px`,
+      background: loaded ? "#ffffff" : color,
+      color: "transparent",
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: "50%",
+      overflow: "hidden",
+      flexShrink: 0,
+      position: "relative",
+      fontSize: `${Math.round(size * 0.42)}px`,
+      fontWeight: 700,
+      lineHeight: 1
+    },
+    "aria-label": upper
+  }, React.createElement("span", {
+    style: {
+      color: failed ? "#fff" : "transparent",
+      letterSpacing: "0.01em"
+    }
+  }, monogram), showImg && React.createElement("img", {
+    src: url,
+    alt: upper,
+    loading: "lazy",
+    decoding: "async",
+    style: {
+      position: "absolute",
+      inset: 0,
+      width: "100%",
+      height: "100%",
+      objectFit: "cover",
+      borderRadius: "50%",
+      opacity: loaded ? 1 : 0,
+      transition: "opacity 120ms ease-out"
+    },
+    onLoad: () => {
+      __ttLogoLoaded.add(upper);
+      setLoaded(true);
+    },
+    onError: () => {
+      __ttLogoFailed.add(upper);
+      setFailed(true);
+    }
+  }));
+}, (a, b) => a.sym === b.sym && a.size === b.size);
+if (typeof window !== "undefined") window.StableTickerLogo = StableTickerLogo;
 function App() {
   const isAdmin = window._ttIsAdmin;
   const [goProOpen, setGoProOpen] = useState(false);
@@ -14027,6 +14565,10 @@ function App() {
     return null;
   }, [sparklineCache, fetchSparkline]);
   React.useEffect(() => {
+    window._dsEnsureSparkline = ensureSparkline;
+    window._dsSparklineCache = sparklineCache;
+  }, [ensureSparkline, sparklineCache]);
+  React.useEffect(() => {
     const interval = setInterval(() => {
       const symbols = Object.keys(sparklineCache);
       symbols.forEach(sym => {
@@ -14073,6 +14615,12 @@ function App() {
   const {
     summary: accountSummary
   } = useAccountSummary(accountMode, secondaryDataReady);
+  useEffect(() => {
+    const av = Number(accountSummary?.accountValue);
+    if (Number.isFinite(av) && av > 0) {
+      window._ttAccountValue = av;
+    }
+  }, [accountSummary?.accountValue]);
   const {
     pending: queuedPending,
     pendingCount: queuedPendingCount
@@ -14134,6 +14682,18 @@ function App() {
     });
   }, [dashboardViewMode]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [bubbleMobileExpanded, setBubbleMobileExpanded] = useState(false);
+  const [bubbleFullscreen, setBubbleFullscreen] = useState(false);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  useEffect(() => {
+    const onScroll = () => {
+      setShowScrollTop((window.scrollY || document.documentElement.scrollTop || 0) > 300);
+    };
+    window.addEventListener("scroll", onScroll, {
+      passive: true
+    });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
   const [showAiChat, setShowAiChat] = useState(false);
   const [showAddTicker, setShowAddTicker] = useState(false);
   const [addTickerInput, setAddTickerInput] = useState("");
@@ -14856,8 +15416,8 @@ function App() {
       if (trade) {
         const st = String(trade.status || "").toUpperCase();
         const trimPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
-        const isClosed = st === "WIN" || st === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs) || trimPct >= 0.9999;
-        const isOpen = !isClosed && (st === "OPEN" || st === "TP_HIT_TRIM" || !st);
+        const isClosed = st === "WIN" || st === "LOSS" || st === "FLAT" || st === "CLOSED" || st === "CANCELED" || !!(trade?.exit_ts ?? trade?.exitTs) || trimPct >= 0.9999;
+        const isOpen = !isClosed && (st === "OPEN" || st === "TP_HIT_TRIM");
         if (isOpen) {
           if (st === "TP_HIT_TRIM" || trimPct > 0) stage = "trim";else if (!["defend", "trim", "exit", "hold", "active", "just_entered"].includes(stage)) stage = "hold";
         }
@@ -14868,18 +15428,23 @@ function App() {
   }, [tickers, trades]);
   const traderActionableCount = (_appKanbanCounts.enter || 0) + (_appKanbanCounts.trim || 0) + (_appKanbanCounts.defend || 0) + (_appKanbanCounts.exit || 0);
   const traderHoldCount = _appKanbanCounts.hold || 0;
-  const investorTotalCount = useMemo(() => {
-    try {
-      const etfSet = new Set(["GRNY", "GRNJ", "GLD", "TLT", "DXY"]);
-      const ttSet = new Set(Array.isArray(tickers) ? tickers.map(t => normTicker(t?.ticker)) : []);
-      let n = 0;
-      for (const sym of etfSet) if (ttSet.has(sym)) n++;
-      n += Array.isArray(savedTickers) ? savedTickers.length : 0;
-      return n;
-    } catch (_) {
-      return 0;
+  const _appInvestorCounts = useMemo(() => {
+    const counts = {
+      accumulate: 0,
+      core_hold: 0,
+      watch: 0,
+      reduce: 0
+    };
+    if (!data) return counts;
+    for (const sym of Object.keys(data)) {
+      const stage = String(data[sym]?.investor_stage || "").toLowerCase();
+      if (counts[stage] != null) counts[stage]++;
     }
-  }, [tickers, savedTickers]);
+    return counts;
+  }, [data]);
+  const investorActionableCount = (_appInvestorCounts.accumulate || 0) + (_appInvestorCounts.reduce || 0);
+  const investorHoldCount = _appInvestorCounts.core_hold || 0;
+  const investorTotalCount = investorActionableCount + investorHoldCount;
   const bubbleMapTickers = useMemo(() => {
     let filtered = timeTravelTickers !== null ? timeTravelTickers : applyFilters(data, bubbleMapFilters, trades, socialAdditions, savedTickers);
     if (activeInsightTickers) {
@@ -15035,7 +15600,10 @@ function App() {
   };
   return React.createElement(React.Fragment, null, showWelcomeDashboard && React.createElement(DashboardWelcomeModal, {
     onClose: handleWelcomeDashboardClose,
-    tickers: Object.values(data || {}),
+    tickers: Object.entries(data || {}).filter(([sym]) => sym && !sym.startsWith("_")).map(([sym, t]) => ({
+      ...(t && typeof t === "object" ? t : {}),
+      ticker: t && t.ticker || sym
+    })),
     savedTickers: savedTickers,
     toggleSavedTicker: toggleSavedTicker
   }), showWelcomeTracker && React.createElement(TrackerWelcomeModal, {
@@ -15043,13 +15611,16 @@ function App() {
   }), React.createElement("div", {
     className: "min-h-screen p-0 pt-2 tt-page-shell"
   }, React.createElement("nav", {
-    className: "sticky top-0 z-50 border-b border-white/[0.06]",
+    className: "sticky top-0 z-50 border-b border-white/[0.06] tt-top-nav",
     style: {
       background: "rgba(10,10,15,0.95)",
       backdropFilter: "blur(12px)"
     }
   }, React.createElement("div", {
-    className: "flex items-center justify-between px-4 py-2.5"
+    className: "flex items-center justify-between px-4 py-2.5 md:py-2.5 tt-top-nav__inner",
+    style: {
+      paddingTop: "max(10px, env(safe-area-inset-top))"
+    }
   }, React.createElement("div", {
     className: "flex items-center gap-3 md:gap-5 min-w-0"
   }, React.createElement("a", {
@@ -15405,13 +15976,13 @@ function App() {
       }
     };
     const macroTypeCls = type => ({
-      FOMC: "border-amber-500/30 bg-amber-500/10 text-amber-300",
-      CPI: "border-violet-500/30 bg-violet-500/10 text-violet-300",
-      NFP: "border-sky-500/30 bg-sky-500/10 text-sky-300",
-      PPI: "border-cyan-500/30 bg-cyan-500/10 text-cyan-300",
-      GDP: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
-      PCE: "border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-300"
-    })[type] || "border-white/[0.08] bg-white/[0.03] text-gray-300";
+      FOMC: "ds-chip ds-chip--sm ds-chip--accent",
+      CPI: "ds-chip ds-chip--sm",
+      NFP: "ds-chip ds-chip--sm",
+      PPI: "ds-chip ds-chip--sm",
+      GDP: "ds-chip ds-chip--sm ds-chip--up",
+      PCE: "ds-chip ds-chip--sm"
+    })[type] || "ds-chip ds-chip--sm ds-chip--solid";
     const macroItems = (() => {
       const seen = new Set();
       return (Array.isArray(macroEvents) ? macroEvents : []).filter(ev => {
@@ -15420,67 +15991,170 @@ function App() {
         return true;
       });
     })();
-    const earningItems = (Array.isArray(earningsEvents) ? earningsEvents : []).slice(0, 50);
+    const HOUR_ORDER = h => {
+      const hl = String(h || "").toLowerCase();
+      if (hl.startsWith("bmo") || hl.includes("before")) return 0;
+      if (hl.startsWith("dmh") || hl.includes("during")) return 1;
+      if (hl.startsWith("amc") || hl.includes("after")) return 2;
+      return 3;
+    };
+    const earningsAll = (Array.isArray(earningsEvents) ? earningsEvents : []).slice();
+    earningsAll.sort((a, b) => {
+      const da = String(a?.date || "");
+      const db = String(b?.date || "");
+      if (da !== db) return da.localeCompare(db);
+      const ha = HOUR_ORDER(a?.hour);
+      const hb = HOUR_ORDER(b?.hour);
+      if (ha !== hb) return ha - hb;
+      return String(a?.symbol || "").localeCompare(String(b?.symbol || ""));
+    });
+    const earningItems = earningsAll.slice(0, 50);
+    const earningsByDay = (() => {
+      const out = [];
+      let curr = null;
+      for (const e of earningItems) {
+        if (!curr || curr.date !== e.date) {
+          curr = {
+            date: e.date,
+            items: []
+          };
+          out.push(curr);
+        }
+        curr.items.push(e);
+      }
+      return out;
+    })();
     if (macroItems.length === 0 && earningItems.length === 0) return null;
-    const Row = ({
-      label,
-      sublabel,
-      children
-    }) => React.createElement("div", {
-      className: "flex items-start gap-3 py-1"
-    }, React.createElement("div", {
-      className: "w-32 shrink-0 pt-0.5"
-    }, React.createElement("div", {
-      className: "text-[9px] font-bold uppercase tracking-[0.16em] text-[#6b7280]"
-    }, label), sublabel && React.createElement("div", {
-      className: "text-[8px] text-[#4b5563] tabular-nums"
-    }, sublabel)), React.createElement("div", {
-      className: "flex-1 min-w-0 flex flex-wrap gap-1.5"
-    }, children));
     return React.createElement("div", {
-      className: "mb-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-1.5"
-    }, React.createElement(Row, {
-      label: "Macro",
-      sublabel: macroItems.length > 0 ? `${macroItems.length} this week` : null
-    }, macroItems.length > 0 ? macroItems.map((ev, i) => React.createElement("div", {
-      key: `macro-${ev.type}-${ev.date || i}`,
-      className: `flex items-center gap-1 px-2 py-0.5 rounded-md border ${macroTypeCls(ev.type)}`,
-      title: ev.label || ev.type
-    }, React.createElement("span", {
-      className: "text-[9px] font-bold"
-    }, ev.type), React.createElement("span", {
-      className: "text-[8px] opacity-80"
-    }, formatDayLabel(ev.date)), React.createElement("span", {
-      className: "text-[8px] opacity-60"
-    }, formatMacroTime(ev.ts), " ET"))) : React.createElement("span", {
-      className: "text-[10px] text-[#6b7280]"
-    }, "None")), React.createElement(Row, {
-      label: "Earnings",
-      sublabel: earningItems.length > 0 ? `${earningItems.length} on deck` : null
-    }, earningItems.length > 0 ? earningItems.map((e, i) => {
-      const beatMiss = e.epsActual != null && e.epsEstimate != null ? e.epsActual >= e.epsEstimate ? "Beat" : "Miss" : null;
-      const chipColor = (() => {
-        if (beatMiss === "Beat") return "border-green-500/30 bg-green-500/10 text-green-300";
-        if (beatMiss === "Miss") return "border-rose-500/30 bg-rose-500/10 text-rose-300";
-        if (e.date === todayStr) return "border-amber-500/30 bg-amber-500/10 text-amber-300";
-        return "border-white/[0.08] bg-white/[0.03] text-gray-300";
-      })();
-      return React.createElement("button", {
-        key: `ev-${i}`,
-        onClick: () => handleTickerSelect(e.symbol),
-        className: `flex items-center gap-1 px-2 py-0.5 rounded-md border ${chipColor} hover:brightness-125`
+      className: "mb-2",
+      style: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--ds-space-1)"
+      }
+    }, macroItems.length > 0 && (() => {
+      const _now = Date.now();
+      const _MS_DAY = 86400000;
+      const _withinDays = n => macroItems.filter(ev => {
+        const ts = Number(ev?.ts) || (ev?.date ? new Date(ev.date).getTime() : 0);
+        if (!ts) return false;
+        const days = (ts - _now) / _MS_DAY;
+        return days >= -1 && days <= n;
+      }).length;
+      const _within7 = _withinDays(7);
+      const _within30 = _withinDays(30);
+      const _sublabel = _within7 > 0 ? `${_within7} this week` : _within30 > 0 ? `${_within30} in next 30 days` : `${macroItems.length} upcoming`;
+      return React.createElement("div", {
+        className: "ds-row",
+        style: {
+          alignItems: "flex-start"
+        }
+      }, React.createElement("div", {
+        className: "ds-row__label"
+      }, React.createElement("div", {
+        className: "ds-caption"
+      }, "Macro"), React.createElement("div", {
+        style: {
+          fontSize: "var(--ds-fs-caption)",
+          color: "var(--ds-text-faint)",
+          marginTop: 2,
+          fontVariantNumeric: "tabular-nums"
+        }
+      }, _sublabel)), React.createElement("div", {
+        className: "ds-row__content"
+      }, macroItems.map((ev, i) => React.createElement("span", {
+        key: `macro-${ev.type}-${ev.date || i}`,
+        className: macroTypeCls(ev.type),
+        style: {
+          fontFamily: "var(--tt-font-mono)"
+        },
+        title: ev.label || ev.type
       }, React.createElement("span", {
-        className: "text-[9px] font-bold"
-      }, e.symbol), React.createElement("span", {
-        className: "text-[8px] opacity-70"
-      }, formatDayLabel(e.date)), formatHour(e.hour) && React.createElement("span", {
-        className: "text-[8px] opacity-60"
+        style: {
+          fontWeight: 700
+        }
+      }, ev.type), React.createElement("span", {
+        style: {
+          color: "var(--ds-text-muted)",
+          fontWeight: 500
+        }
+      }, formatDayLabel(ev.date)), React.createElement("span", {
+        style: {
+          color: "var(--ds-text-faint)",
+          fontWeight: 500
+        }
+      }, formatMacroTime(ev.ts), " ET")))));
+    })(), earningItems.length > 0 && React.createElement("div", {
+      className: "ds-row",
+      style: {
+        alignItems: "flex-start"
+      }
+    }, React.createElement("div", {
+      className: "ds-row__label"
+    }, React.createElement("div", {
+      className: "ds-caption"
+    }, "Earnings"), React.createElement("div", {
+      style: {
+        fontSize: "var(--ds-fs-caption)",
+        color: "var(--ds-text-faint)",
+        marginTop: 2,
+        fontVariantNumeric: "tabular-nums"
+      }
+    }, earningItems.length, " on deck \xB7 sorted by date, time, ticker")), React.createElement("div", {
+      className: "ds-row__content tt-earnings-content",
+      style: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--ds-space-1)"
+      }
+    }, earningsByDay.map((day, di) => React.createElement("div", {
+      key: `eday-${day.date}`,
+      className: "tt-earn-day-row",
+      style: {
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 4,
+        alignItems: "center"
+      }
+    }, React.createElement("span", {
+      className: "ds-chip ds-chip--sm",
+      style: {
+        fontFamily: "var(--tt-font-mono)",
+        fontWeight: 700,
+        letterSpacing: "0.08em",
+        color: day.date === todayStr ? "var(--ds-accent)" : "var(--ds-text-display)",
+        borderColor: day.date === todayStr ? "var(--ds-accent)" : "var(--ds-stroke)",
+        background: day.date === todayStr ? "var(--ds-accent-dim)" : "var(--ds-bg-glass-hi)",
+        minWidth: 80,
+        justifyContent: "center"
+      }
+    }, formatDayLabel(day.date), " \xB7 ", day.items.length), day.items.map((e, i) => {
+      const beatMiss = e.epsActual != null && e.epsEstimate != null ? e.epsActual >= e.epsEstimate ? "Beat" : "Miss" : null;
+      const chipCls = beatMiss === "Beat" ? "ds-chip ds-chip--sm ds-chip--up" : beatMiss === "Miss" ? "ds-chip ds-chip--sm ds-chip--dn" : e.date === todayStr ? "ds-chip ds-chip--sm ds-chip--accent" : "ds-chip ds-chip--sm ds-chip--solid";
+      return React.createElement("button", {
+        key: `ev-${di}-${i}`,
+        onClick: () => handleTickerSelect(e.symbol),
+        className: chipCls,
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          textAlign: "left"
+        },
+        title: `${e.symbol} earnings${e.hour ? ` (${formatHour(e.hour)})` : ""}`
+      }, React.createElement("span", {
+        style: {
+          fontWeight: 700
+        }
+      }, e.symbol), formatHour(e.hour) && React.createElement("span", {
+        style: {
+          color: "var(--ds-text-faint)",
+          fontWeight: 500
+        }
       }, formatHour(e.hour)), beatMiss && React.createElement("span", {
-        className: `text-[8px] font-semibold ${beatMiss === "Beat" ? "text-green-400" : "text-rose-400"}`
+        style: {
+          fontWeight: 700
+        }
       }, beatMiss));
-    }) : React.createElement("span", {
-      className: "text-[10px] text-[#6b7280]"
-    }, "None")));
+    }))))));
   })(), window._ttIsPro && (() => {
     const allData = data && typeof data === "object" ? data : {};
     const intensityAlpha = absPct => {
@@ -15530,18 +16204,10 @@ function App() {
         }
       }, React.createElement("div", {
         className: "ds-tickercard__head"
-      }, window.DS ? React.createElement("div", {
-        className: "ds-tickercard__logo",
-        ref: el => {
-          if (el && !el.dataset.dsInit) {
-            el.dataset.dsInit = "1";
-            const logoEl = window.DS.tickerLogo(sym, {
-              size: 24
-            });
-            el.replaceWith(logoEl);
-          }
-        }
-      }, String(sym).slice(0, 2)) : null, React.createElement("span", {
+      }, React.createElement(StableTickerLogo, {
+        sym: sym,
+        size: 24
+      }), React.createElement("span", {
         className: "ds-tickercard__symbol"
       }, sym)), React.createElement("div", {
         className: "ds-tickercard__price"
@@ -15609,19 +16275,19 @@ function App() {
       return `${Math.floor(ago / 3600)}h ago`;
     })();
     return React.createElement("div", {
-      className: "mb-3",
+      className: "mb-3 ds-pulse-section",
       style: {
         display: "flex",
         flexDirection: "column",
         gap: "var(--ds-space-2)"
       }
     }, priorityTiles.length > 0 && React.createElement("div", null, React.createElement("div", {
-      className: "ds-row",
+      className: "ds-row ds-pulse-row",
       style: {
         alignItems: "center"
       }
     }, React.createElement("div", {
-      className: "ds-row__label"
+      className: "ds-row__label ds-pulse-row__label"
     }, React.createElement("div", {
       className: "ds-caption"
     }, "Market Pulse"), freshness && React.createElement("div", {
@@ -15631,14 +16297,14 @@ function App() {
         marginTop: 2
       }
     }, "updated ", freshness)), React.createElement("div", {
-      className: "ds-row__content",
+      className: "ds-row__content ds-pulse-row__content",
       style: {
         gap: "var(--ds-space-2)"
       }
     }, priorityTiles))), contextChips.length > 0 && React.createElement("div", {
-      className: "ds-row"
+      className: "ds-row ds-pulse-context"
     }, React.createElement("div", {
-      className: "ds-row__label"
+      className: "ds-row__label ds-pulse-row__label"
     }, React.createElement("div", {
       className: "ds-caption"
     }, "Context"), React.createElement("div", {
@@ -15723,12 +16389,22 @@ function App() {
     }, items.map(t => chip(t, isGain, pctKey, priceKey))) : React.createElement("div", {
       className: "text-[10px] text-[#6b7280]"
     }, "No movers in this bucket."));
+    const ABS_CAP = sym => CRYPTO_24H.has(sym) ? 200 : 50;
     const rthArr = allArr.map(t => {
       const px = Number(t?.price ?? t?.close);
       if (!Number.isFinite(px) || px <= 0) return null;
       const dc = getDailyChange(t);
       const pct = dc?.dayPct;
       if (!Number.isFinite(pct)) return null;
+      const sym = String(t?.ticker || "").toUpperCase();
+      if (Math.abs(pct) > ABS_CAP(sym)) {
+        if (typeof window !== "undefined" && !window._ttMoversWarned?.has?.(sym)) {
+          if (!window._ttMoversWarned) window._ttMoversWarned = new Set();
+          window._ttMoversWarned.add(sym);
+          console.warn(`[movers] dropped ${sym} dayPct=${pct.toFixed(2)}% (sanity cap ${ABS_CAP(sym)}%) — feed appears stale, will retry silently`);
+        }
+        return null;
+      }
       return {
         ...t,
         _pct: pct,
@@ -15740,13 +16416,18 @@ function App() {
     const rthLosers = rthSorted.slice(-5).reverse();
     const _moversMarketOpen = isNyRegularMarketOpen();
     const ethArr = _moversMarketOpen ? [] : allArr.filter(t => !CRYPTO_24H.has(t?.ticker)).map(t => {
-      const pct = Number(t?._ah_change_pct);
-      if (!Number.isFinite(pct) || pct === 0) return null;
-      const px = Number(t?._ah_price) || Number(t?.price ?? t?.close) || 0;
+      const ahPrice = Number(t?._ah_price);
+      const rthClose = Number(t?.price ?? t?.close);
+      if (!Number.isFinite(ahPrice) || ahPrice <= 0) return null;
+      if (!Number.isFinite(rthClose) || rthClose <= 0) return null;
+      const pct = (ahPrice - rthClose) / rthClose * 100;
+      if (!Number.isFinite(pct) || Math.abs(pct) < 0.05) return null;
+      const sym = String(t?.ticker || "").toUpperCase();
+      if (Math.abs(pct) > ABS_CAP(sym)) return null;
       return {
         ...t,
         _ethPct: pct,
-        _ethPrice: px
+        _ethPrice: ahPrice
       };
     }).filter(Boolean);
     const ethSorted = [...ethArr].sort((a, b) => b._ethPct - a._ethPct);
@@ -15852,8 +16533,13 @@ function App() {
       className: "mb-3",
       style: {
         display: "flex",
-        flexDirection: "column",
+        flexWrap: "wrap",
         gap: "var(--ds-space-1)"
+      }
+    }, React.createElement("div", {
+      style: {
+        flex: hasEth ? "1 1 360px" : "1 1 100%",
+        minWidth: 0
       }
     }, React.createElement(SessionRow, {
       pillLabel: "RTH",
@@ -15862,14 +16548,19 @@ function App() {
       losers: rthLosers,
       pctKey: "_pct",
       priceKey: "_price"
-    }), hasEth && React.createElement(SessionRow, {
+    })), hasEth && React.createElement("div", {
+      style: {
+        flex: "1 1 360px",
+        minWidth: 0
+      }
+    }, React.createElement(SessionRow, {
       pillLabel: "EXT",
       pillCls: "",
       gainers: ethGainers,
       losers: ethLosers,
       pctKey: "_ethPct",
       priceKey: "_ethPrice"
-    }));
+    })));
   })(), (dashboardMode === "trader" || dashboardMode === "investor") && React.createElement("div", {
     className: "mb-4"
   }, React.createElement(ActionCenterPanel, {
@@ -15929,7 +16620,7 @@ function App() {
   })), React.createElement("button", {
     onClick: () => handleDashboardModeChange("investor"),
     className: `ds-tab__item ${dashboardMode === "investor" ? "ds-tab__item--active" : ""}`,
-    title: "Long-term ETF + core-idea positions"
+    title: investorActionableCount > 0 ? `${investorActionableCount} actionable now in Investor (accumulate / reduce)${investorHoldCount > 0 ? ` + ${investorHoldCount} core hold` : ""}` : investorHoldCount > 0 ? `${investorHoldCount} positions on core hold` : "Long-term portfolio: accumulate / core-hold / reduce signals"
   }, React.createElement("svg", {
     className: "w-4 h-4",
     fill: "none",
@@ -15942,7 +16633,10 @@ function App() {
     d: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
   })), React.createElement("span", null, "Investor"), investorTotalCount > 0 && React.createElement("span", {
     className: "ds-tab__count"
-  }, investorTotalCount)), React.createElement("button", {
+  }, investorTotalCount), investorActionableCount > 0 && dashboardMode !== "investor" && React.createElement("span", {
+    className: "ds-tab__dot",
+    "aria-hidden": true
+  })), React.createElement("button", {
     onClick: () => handleDashboardModeChange("all"),
     className: `ds-tab__item ${dashboardMode === "all" ? "ds-tab__item--active" : ""}`,
     title: "Sortable table of every ticker in scope"
@@ -15958,8 +16652,125 @@ function App() {
     d: "M3 10h18M3 6h18M3 14h18M3 18h18"
   })), React.createElement("span", null, "All"), Array.isArray(tickers) && tickers.length > 0 && React.createElement("span", {
     className: "ds-tab__count"
-  }, tickers.length)))), React.createElement("div", {
-    className: "mb-4 rounded-2xl border border-white/[0.08] bg-white/[0.025] p-3 shadow-[0_12px_32px_rgba(0,0,0,0.2)]",
+  }, tickers.length)))), (() => {
+    const activeFilterChips = [];
+    if (filters.search) activeFilterChips.push({
+      key: "search",
+      label: `"${String(filters.search).slice(0, 20)}"`,
+      clear: () => handleFilterChange({
+        search: "",
+        tickerFilter: ""
+      })
+    });
+    if (filters.tickerFilter && filters.tickerFilter !== filters.search) activeFilterChips.push({
+      key: "tickerFilter",
+      label: `tickers: ${String(filters.tickerFilter).slice(0, 20)}`,
+      clear: () => handleFilterChange({
+        tickerFilter: ""
+      })
+    });
+    if (effectiveFilters.group && effectiveFilters.group !== "ALL") {
+      const groupLabel = effectiveFilters.group === "SAVED" ? "⭐ Saved" : effectiveFilters.group === "TT_SELECTED" ? "TT Selected" : effectiveFilters.group === "INVESTOR_ACTIONABLE" ? "Investor Actionable" : effectiveFilters.group;
+      activeFilterChips.push({
+        key: "group",
+        label: groupLabel,
+        clear: () => handleFilterChange({
+          group: "ALL"
+        })
+      });
+    }
+    if (filters.sector) activeFilterChips.push({
+      key: "sector",
+      label: `Sector: ${filters.sector}`,
+      clear: () => handleFilterChange({
+        sector: null
+      })
+    });
+    if (filters.td9Setup) activeFilterChips.push({
+      key: "td9Setup",
+      label: `TD9: ${filters.td9Setup}`,
+      clear: () => handleFilterChange({
+        td9Setup: null
+      })
+    });
+    if (Number(filters.minRank) > 0) activeFilterChips.push({
+      key: "minRank",
+      label: `Rank ≥ ${filters.minRank}`,
+      clear: () => handleFilterChange({
+        minRank: 0
+      })
+    });
+    if (Number(filters.minRR) > 0) activeFilterChips.push({
+      key: "minRR",
+      label: `R:R ≥ ${filters.minRR}`,
+      clear: () => handleFilterChange({
+        minRR: 0
+      })
+    });
+    if (Number(filters.maxCompletion) < 1.01) activeFilterChips.push({
+      key: "maxCompletion",
+      label: `Completion ≤ ${(Number(filters.maxCompletion) * 100).toFixed(0)}%`,
+      clear: () => handleFilterChange({
+        maxCompletion: 1.01
+      })
+    });
+    const _quadDefault = DEFAULT_DASHBOARD_QUADRANTS;
+    const quadActive = Array.isArray(filters.quadrants) && (filters.quadrants.length !== _quadDefault.length || filters.quadrants.some(q => !_quadDefault.includes(q)));
+    if (quadActive) activeFilterChips.push({
+      key: "quadrants",
+      label: `Quadrants: ${(filters.quadrants || []).length}`,
+      clear: () => handleFilterChange({
+        quadrants: [..._quadDefault]
+      })
+    });
+    const activeCount = activeFilterChips.length;
+    return activeCount > 0 && React.createElement("div", {
+      className: "mb-2 px-2.5 py-2 rounded-lg flex items-center flex-wrap gap-1.5",
+      style: {
+        background: "rgba(245,194,92,0.06)",
+        border: "1px solid rgba(245,194,92,0.20)"
+      }
+    }, React.createElement("span", {
+      className: "text-[9px] font-bold uppercase tracking-[0.16em] shrink-0",
+      style: {
+        color: "var(--ds-accent)"
+      }
+    }, activeCount, " filter", activeCount === 1 ? "" : "s", " active"), activeFilterChips.map(chip => React.createElement("button", {
+      key: chip.key,
+      type: "button",
+      onClick: chip.clear,
+      title: `Remove "${chip.label}" filter`,
+      className: "inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors",
+      style: {
+        background: "rgba(245,194,92,0.14)",
+        border: "1px solid rgba(245,194,92,0.28)",
+        color: "var(--ds-accent)",
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, chip.label, React.createElement("span", {
+      style: {
+        opacity: 0.65,
+        marginLeft: 1,
+        fontWeight: 700
+      }
+    }, "\xD7"))), React.createElement("button", {
+      type: "button",
+      onClick: () => resetDashboardFilters(false),
+      className: "ml-auto px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-colors shrink-0",
+      style: {
+        background: "rgba(244,63,94,0.12)",
+        border: "1px solid rgba(244,63,94,0.30)",
+        color: "var(--ds-dn)",
+        fontFamily: "var(--tt-font-mono)",
+        letterSpacing: "0.10em"
+      },
+      title: "Clear all active filters and return to default view"
+    }, "Clear All"));
+  })(), React.createElement("div", {
+    className: "ds-glass mb-4",
+    style: {
+      padding: "var(--ds-space-3)"
+    },
     "data-coachmark": "search-filter"
   }, React.createElement("div", {
     className: "flex flex-col gap-3"
@@ -15978,7 +16789,7 @@ function App() {
     height: "14",
     viewBox: "0 0 24 24",
     fill: "none",
-    stroke: "#6b7280",
+    stroke: "var(--ds-text-faint)",
     strokeWidth: "2.5",
     strokeLinecap: "round",
     strokeLinejoin: "round"
@@ -16010,7 +16821,26 @@ function App() {
         });
       }
     },
-    className: "w-full pl-9 pr-8 py-1.5 bg-white/[0.03] border border-white/[0.08] rounded-2xl text-white text-sm placeholder-[#6b7280] focus:border-white/[0.15] focus:outline-none transition-colors"
+    style: {
+      width: "100%",
+      paddingLeft: 36,
+      paddingRight: 32,
+      paddingTop: 6,
+      paddingBottom: 6,
+      background: "var(--ds-bg-glass-hi)",
+      border: "1px solid var(--ds-stroke)",
+      borderRadius: "var(--ds-radius)",
+      color: "var(--ds-text-display)",
+      fontSize: "var(--ds-fs-body)",
+      outline: "none",
+      transition: "border-color 120ms"
+    },
+    onFocus: e => {
+      e.target.style.borderColor = "var(--ds-stroke-hi)";
+    },
+    onBlur: e => {
+      e.target.style.borderColor = "var(--ds-stroke)";
+    }
   }), filters.search && React.createElement("button", {
     onClick: () => {
       handleFilterChange({
@@ -16094,13 +16924,27 @@ function App() {
     }),
     className: `px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${effectiveFilters.group === "SAVED" ? "bg-amber-500/20 border-amber-500/40 text-amber-300" : "bg-white/[0.02] border-white/[0.06] text-[#6b7280] hover:text-amber-300 hover:bg-amber-500/10"}`,
     title: `Show only saved tickers (${savedTickers.size} saved)`
-  }, "\u2B50 Saved", savedTickers.size > 0 ? ` (${savedTickers.size})` : ""), React.createElement("button", {
-    onClick: () => handleFilterChange({
-      group: effectiveFilters.group === "TT_SELECTED" ? "ALL" : "TT_SELECTED"
-    }),
-    className: `px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors whitespace-nowrap ${effectiveFilters.group === "TT_SELECTED" ? "bg-violet-500/20 border-violet-500/40 text-violet-300" : "bg-white/[0.02] border-white/[0.06] text-[#6b7280] hover:text-violet-300 hover:bg-violet-500/10"}`,
-    title: "Show TT Selected tickers"
-  }, "TT Selected"), (dashboardMode === "investor" || effectiveFilters.group === "INVESTOR_ACTIONABLE") && React.createElement("button", {
+  }, "\u2B50 Saved", savedTickers.size > 0 ? ` (${savedTickers.size})` : ""), (() => {
+    const ttCount = (Array.isArray(tickers) ? tickers : []).filter(t => isTickerTTSelected(t?.ticker)).length;
+    const isActive = effectiveFilters.group === "TT_SELECTED";
+    return React.createElement("button", {
+      onClick: () => handleFilterChange({
+        group: isActive ? "ALL" : "TT_SELECTED"
+      }),
+      className: `px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors whitespace-nowrap inline-flex items-center gap-1.5 ${isActive ? "bg-amber-500/20 border-amber-500/40 text-amber-200" : "bg-white/[0.02] border-white/[0.06] text-[#6b7280] hover:text-amber-200 hover:bg-amber-500/10"}`,
+      title: "Show TT Selected tickers (Fundstrat Direct picks)"
+    }, React.createElement("span", {
+      style: {
+        width: 6,
+        height: 6,
+        borderRadius: "50%",
+        background: "var(--ds-accent)",
+        boxShadow: "0 0 0 2px rgba(245,194,92,0.20)",
+        flexShrink: 0,
+        display: "inline-block"
+      }
+    }), "TT Selected", ttCount > 0 ? ` (${ttCount})` : "");
+  })(), (dashboardMode === "investor" || effectiveFilters.group === "INVESTOR_ACTIONABLE") && React.createElement("button", {
     onClick: () => handleFilterChange({
       group: effectiveFilters.group === "INVESTOR_ACTIONABLE" ? "ALL" : "INVESTOR_ACTIONABLE"
     }),
@@ -16317,15 +17161,268 @@ function App() {
       tickerFilter: ""
     }),
     className: "px-4 py-2 rounded-xl border border-white/[0.10] text-sm text-[#94a3b8] hover:text-white hover:bg-white/[0.05] transition-colors"
-  }, "Clear Search")))) : dashboardMode === "analysis" && React.createElement("div", {
-    className: "flex flex-col lg:flex-row gap-4",
+  }, "Clear Search")))) : dashboardMode === "analysis" && React.createElement(React.Fragment, null, insightChips && insightChips.length > 0 && (() => {
+    const visible = insightChips.filter(c => c.count === null || c.count > 0);
+    const focus = visible.find(c => c.id === "focus");
+    const byGroup = g => visible.filter(c => !c.isSector && c.group === g && c.id !== "focus");
+    const now = byGroup("now");
+    const setups = byGroup("setups");
+    const momentum = byGroup("momentum");
+    const structure = byGroup("structure");
+    const context = visible.filter(c => c.row === 2);
+    const sectorSubs = visible.filter(c => c.isSector);
+    const renderChip = (chip, isSub) => {
+      const isActive = isSub ? activeSubInsight === chip.id : activeInsight === chip.id;
+      return React.createElement("button", {
+        key: chip.id,
+        title: chip.tooltip,
+        onClick: () => {
+          if (isSub) {
+            setActiveSubInsight(prev => prev === chip.id ? null : chip.id);
+          } else {
+            setActiveInsight(prev => prev === chip.id ? null : chip.id);
+            if (chip.id !== "sp_sectors") setActiveSubInsight(null);
+          }
+        },
+        className: `ds-chip ds-chip--sm ${isActive ? "ds-chip--accent" : ""}`
+      }, React.createElement("span", null, chip.label), chip.count !== null && React.createElement("span", {
+        className: "ds-chip__count"
+      }, chip.count));
+    };
+    const focusBucket = [];
+    if (focus) focusBucket.push(focus);
+    for (const c of now) focusBucket.push(c);
+    for (const c of setups) focusBucket.push(c);
+    const Section = ({
+      label,
+      items,
+      accent
+    }) => {
+      const empty = !items || items.length === 0;
+      return React.createElement("div", {
+        className: "ds-glass",
+        style: {
+          padding: "var(--ds-space-2) var(--ds-space-3)",
+          margin: 0,
+          marginTop: 0,
+          minWidth: 0,
+          height: "100%",
+          display: "flex",
+          alignItems: "center",
+          opacity: empty ? 0.55 : 1
+        }
+      }, React.createElement("div", {
+        style: {
+          display: "flex",
+          alignItems: "center",
+          flexWrap: "nowrap",
+          gap: 4,
+          overflowX: "auto",
+          width: "100%"
+        },
+        className: "scrollbar-hide"
+      }, React.createElement("span", {
+        className: "ds-caption",
+        style: {
+          color: accent,
+          marginRight: 6,
+          flexShrink: 0
+        }
+      }, label), empty ? React.createElement("span", {
+        style: {
+          fontSize: 11,
+          color: "var(--ds-text-faint)"
+        }
+      }, "none") : items.map(c => renderChip(c, false))));
+    };
+    return React.createElement("div", {
+      className: "mb-3",
+      style: {
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gridAutoRows: "44px",
+        gap: "var(--ds-space-1)"
+      }
+    }, React.createElement(Section, {
+      label: "Focus",
+      items: focusBucket,
+      accent: "var(--ds-accent)"
+    }), React.createElement(Section, {
+      label: "Momentum",
+      items: momentum,
+      accent: "var(--ds-warn)"
+    }), React.createElement(Section, {
+      label: "Structure",
+      items: structure,
+      accent: "var(--ds-violet)"
+    }), React.createElement(Section, {
+      label: "Context",
+      items: context,
+      accent: "var(--ds-text-muted)"
+    }), activeInsight && React.createElement("div", {
+      style: {
+        display: "flex",
+        justifyContent: "flex-end",
+        gridColumn: "1 / -1"
+      }
+    }, React.createElement("button", {
+      onClick: () => {
+        setActiveInsight(null);
+        setActiveSubInsight(null);
+      },
+      className: "ds-chip ds-chip--sm"
+    }, "\u2715 Clear filter")), activeInsight === "sp_sectors" && sectorSubs.length > 0 && React.createElement("div", {
+      className: "ds-glass",
+      style: {
+        padding: "var(--ds-space-2) var(--ds-space-3)",
+        background: "rgba(167,139,250,0.05)",
+        gridColumn: "1 / -1",
+        margin: 0,
+        marginTop: 0
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        flexWrap: "nowrap",
+        gap: 4,
+        overflowX: "auto"
+      },
+      className: "scrollbar-hide"
+    }, React.createElement("span", {
+      className: "ds-caption",
+      style: {
+        color: "var(--ds-violet)",
+        marginRight: 4
+      }
+    }, "Drill"), sectorSubs.map(c => renderChip(c, true)), activeSubInsight && React.createElement("button", {
+      onClick: () => setActiveSubInsight(null),
+      className: "ds-chip ds-chip--sm",
+      style: {
+        marginLeft: 6
+      }
+    }, "\u2715"))));
+  })(), React.createElement("div", {
+    className: `tt-analysis-grid flex flex-col lg:flex-row gap-4 ${bubbleMobileExpanded ? "tt-bubble-expanded" : "tt-bubble-mobile-collapsed"}`,
     style: {
-      height: "calc(100vh - 120px)",
-      minHeight: "700px",
-      maxHeight: "1200px"
+      height: typeof window !== "undefined" && window.innerWidth >= 1024 ? "calc(100vh - 180px)" : "auto",
+      minHeight: typeof window !== "undefined" && window.innerWidth >= 1024 ? "640px" : "auto",
+      maxHeight: typeof window !== "undefined" && window.innerWidth >= 1024 ? "1200px" : "none"
     }
   }, React.createElement("div", {
-    className: "w-full lg:w-[320px] lg:flex-shrink-0 lg:h-full min-h-[400px] lg:min-h-0",
+    className: "lg:hidden tt-bubble-mobile-toggles order-1",
+    style: {
+      gap: 8,
+      marginBottom: 8
+    }
+  }, React.createElement("button", {
+    type: "button",
+    onClick: () => {
+      const next = !bubbleMobileExpanded;
+      setBubbleMobileExpanded(next);
+      if (next) {
+        setTimeout(() => {
+          try {
+            const el = document.querySelector(".tt-bubble-chart-wrap");
+            if (el) el.scrollIntoView({
+              behavior: "smooth",
+              block: "start"
+            });
+          } catch (_) {}
+        }, 80);
+      }
+    },
+    className: "tt-bubble-toggle-btn",
+    "aria-expanded": bubbleMobileExpanded,
+    style: {
+      flex: 1,
+      marginBottom: 0
+    }
+  }, bubbleMobileExpanded ? React.createElement("svg", {
+    width: "14",
+    height: "14",
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "2.5",
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  }, React.createElement("line", {
+    x1: "18",
+    y1: "6",
+    x2: "6",
+    y2: "18"
+  }), React.createElement("line", {
+    x1: "6",
+    y1: "6",
+    x2: "18",
+    y2: "18"
+  })) : React.createElement("svg", {
+    width: "14",
+    height: "14",
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "2.5",
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  }, React.createElement("circle", {
+    cx: "12",
+    cy: "12",
+    r: "3"
+  }), React.createElement("circle", {
+    cx: "5",
+    cy: "6",
+    r: "2"
+  }), React.createElement("circle", {
+    cx: "19",
+    cy: "17",
+    r: "2"
+  }), React.createElement("circle", {
+    cx: "17",
+    cy: "7",
+    r: "1.5"
+  }), React.createElement("circle", {
+    cx: "7",
+    cy: "17",
+    r: "1.5"
+  })), React.createElement("span", null, bubbleMobileExpanded ? "Hide Bubble Map" : "View Bubble Map")), React.createElement("button", {
+    type: "button",
+    onClick: () => setBubbleFullscreen(true),
+    className: "tt-bubble-toggle-btn",
+    style: {
+      width: "auto",
+      padding: "10px 14px",
+      marginBottom: 0,
+      flex: "0 0 auto"
+    },
+    title: "Open the bubble map in a full-screen view (rotate to landscape for best results)",
+    "aria-label": "Open Bubble Map fullscreen"
+  }, React.createElement("svg", {
+    width: "16",
+    height: "16",
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "2.5",
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  }, React.createElement("polyline", {
+    points: "15 3 21 3 21 9"
+  }), React.createElement("polyline", {
+    points: "9 21 3 21 3 15"
+  }), React.createElement("line", {
+    x1: "21",
+    y1: "3",
+    x2: "14",
+    y2: "10"
+  }), React.createElement("line", {
+    x1: "3",
+    y1: "21",
+    x2: "10",
+    y2: "14"
+  })))), React.createElement("div", {
+    className: "w-full lg:w-[320px] lg:flex-shrink-0 lg:h-full min-h-[400px] lg:min-h-0 order-3 lg:order-1",
     "data-coachmark": "viewport"
   }, React.createElement(OpportunitiesPanel, {
     tickers: tickersWithRanks,
@@ -16341,7 +17438,7 @@ function App() {
     toggleSavedTicker: toggleSavedTicker,
     addingTicker: userTickers.addingTicker
   })), React.createElement("div", {
-    className: `relative w-full lg:flex-1 lg:min-w-0 lg:h-full flex flex-col transition-[margin] duration-300 ${selectedTicker ? "lg:mr-[540px] xl:mr-[620px]" : ""}`
+    className: `tt-bubble-chart-wrap relative w-full lg:flex-1 lg:min-w-0 lg:h-full flex flex-col transition-[margin] duration-300 order-2 lg:order-2 ${selectedTicker ? "lg:mr-[540px] xl:mr-[620px]" : ""}`
   }, React.createElement("div", {
     className: "px-3 py-2 mb-1 rounded-lg border border-white/[0.06] bg-white/[0.02]",
     "data-coachmark": "bubble-chart"
@@ -16417,146 +17514,7 @@ function App() {
     repeatCount: "indefinite"
   }))), " ", React.createElement("span", {
     className: "text-cyan-300 font-semibold"
-  }, "Pulse = Actionable")))), insightChips.length > 0 && (() => {
-    const visible = insightChips.filter(c => c.count === null || c.count > 0);
-    const focus = visible.find(c => c.id === "focus");
-    const byGroup = g => visible.filter(c => !c.isSector && c.group === g && c.id !== "focus");
-    const now = byGroup("now");
-    const setups = byGroup("setups");
-    const momentum = byGroup("momentum");
-    const structure = byGroup("structure");
-    const context = visible.filter(c => c.row === 2);
-    const sectorSubs = visible.filter(c => c.isSector);
-    const renderChip = (chip, isSub) => {
-      const isActive = isSub ? activeSubInsight === chip.id : activeInsight === chip.id;
-      return React.createElement("button", {
-        key: chip.id,
-        title: chip.tooltip,
-        onClick: () => {
-          if (isSub) {
-            setActiveSubInsight(prev => prev === chip.id ? null : chip.id);
-          } else {
-            setActiveInsight(prev => prev === chip.id ? null : chip.id);
-            if (chip.id !== "sp_sectors") setActiveSubInsight(null);
-          }
-        },
-        className: `ds-chip ds-chip--sm ${isActive ? "ds-chip--accent" : ""}`
-      }, React.createElement("span", null, chip.label), chip.count !== null && React.createElement("span", {
-        className: "ds-chip__count"
-      }, chip.count));
-    };
-    const renderGroup = (groupKey, groupChips, accentClass) => {
-      if (!groupChips || groupChips.length === 0) return null;
-      return React.createElement(React.Fragment, {
-        key: `grp-${groupKey}`
-      }, React.createElement("span", {
-        className: "ds-caption",
-        style: {
-          color: accentClass || "var(--ds-text-faint)",
-          marginLeft: 4,
-          marginRight: 4
-        }
-      }, groupKey), groupChips.map(c => renderChip(c, false)), React.createElement("span", {
-        style: {
-          color: "var(--ds-text-faint)",
-          margin: "0 6px",
-          opacity: 0.5
-        }
-      }, "\xB7"));
-    };
-    return React.createElement("div", {
-      className: "mb-2",
-      style: {
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--ds-space-1)"
-      }
-    }, React.createElement("div", {
-      className: "ds-glass",
-      style: {
-        padding: "var(--ds-space-2) var(--ds-space-3)"
-      }
-    }, React.createElement("div", {
-      style: {
-        display: "flex",
-        alignItems: "center",
-        flexWrap: "nowrap",
-        gap: 4,
-        overflowX: "auto",
-        paddingBottom: 2
-      },
-      className: "scrollbar-hide"
-    }, focus && React.createElement(React.Fragment, null, React.createElement("span", {
-      className: "ds-caption",
-      style: {
-        color: "var(--ds-accent)",
-        marginRight: 4
-      }
-    }, "Focus"), renderChip(focus, false), React.createElement("span", {
-      style: {
-        color: "var(--ds-text-faint)",
-        margin: "0 6px",
-        opacity: 0.5
-      }
-    }, "\xB7")), renderGroup("Now", now, "var(--ds-warn)"), renderGroup("Setups", setups, "var(--ds-up)"), renderGroup("Momentum", momentum, "var(--ds-accent)"), renderGroup("Structure", structure, "var(--ds-violet)"), activeInsight && React.createElement("button", {
-      onClick: () => {
-        setActiveInsight(null);
-        setActiveSubInsight(null);
-      },
-      className: "ds-chip ds-chip--sm",
-      style: {
-        marginLeft: "auto",
-        flexShrink: 0
-      }
-    }, "\u2715 Clear"))), context.length > 0 && React.createElement("div", {
-      className: "ds-glass",
-      style: {
-        padding: "var(--ds-space-2) var(--ds-space-3)"
-      }
-    }, React.createElement("div", {
-      style: {
-        display: "flex",
-        alignItems: "center",
-        flexWrap: "nowrap",
-        gap: 4,
-        overflowX: "auto"
-      },
-      className: "scrollbar-hide"
-    }, React.createElement("span", {
-      className: "ds-caption",
-      style: {
-        color: "var(--ds-text-muted)",
-        marginRight: 4
-      }
-    }, "Context"), context.map(c => renderChip(c, false)))), activeInsight === "sp_sectors" && sectorSubs.length > 0 && React.createElement("div", {
-      className: "ds-glass",
-      style: {
-        padding: "var(--ds-space-2) var(--ds-space-3)",
-        background: "rgba(167,139,250,0.05)"
-      }
-    }, React.createElement("div", {
-      style: {
-        display: "flex",
-        alignItems: "center",
-        flexWrap: "nowrap",
-        gap: 4,
-        overflowX: "auto"
-      },
-      className: "scrollbar-hide"
-    }, React.createElement("span", {
-      className: "ds-caption",
-      style: {
-        color: "var(--ds-violet)",
-        marginRight: 4
-      }
-    }, "Drill"), sectorSubs.map(c => renderChip(c, true)), activeSubInsight && React.createElement("button", {
-      onClick: () => setActiveSubInsight(null),
-      className: "ds-chip ds-chip--sm",
-      style: {
-        marginLeft: 6
-      }
-    }, "\u2715"))));
-  })(), React.createElement("div", {
+  }, "Pulse = Actionable")))), React.createElement("div", {
     className: "flex-1 min-h-0"
   }, loading && tickers.length === 0 || !_secondaryReady ? React.createElement("div", {
     className: "w-full h-full bg-white/[0.02] rounded-xl border border-white/[0.06] flex items-center justify-center",
@@ -16677,11 +17635,14 @@ function App() {
     className: "text-[9px] text-gray-400 mx-0.5"
   }, "\u2014"), React.createElement("span", {
     className: "text-[10px] font-bold text-amber-400"
-  }, "Go Pro for all")))))), selectedTicker && React.createElement(React.Fragment, null, React.createElement("div", {
+  }, "Go Pro for all"))))))), React.createElement(ActivityFeedDrawer, {
+    selectedTicker: selectedTicker,
+    onSelectTicker: sym => handleTickerSelect(sym)
+  }), selectedTicker && React.createElement(React.Fragment, null, React.createElement("div", {
     className: "fixed inset-0 z-30",
     onMouseDown: () => handleTickerSelect(null)
   }), React.createElement("div", {
-    className: "fixed right-0 top-[60px] sm:top-[52px] w-full sm:w-[520px] xl:w-[600px] bottom-[64px] sm:bottom-[56px] bg-[#0b0e11] border-l border-white/[0.04] z-40 slide-in-right shadow-xl overflow-y-auto",
+    className: "tt-rail-mobile tt-ticker-workspace-mount fixed right-0 top-[60px] sm:top-[52px] w-full sm:w-[560px] lg:w-[640px] xl:w-[720px] 2xl:w-[800px] bottom-[64px] sm:bottom-[56px] bg-[#0b0e11] border-l border-white/[0.04] z-40 slide-in-right shadow-xl overflow-y-auto",
     onMouseDown: e => e.stopPropagation()
   }, React.createElement(OverlayPortal, {
     selectedTicker: selectedTicker,
@@ -16700,7 +17661,10 @@ function App() {
     selectedJourneyTs: journeySelectedPoint?.ts ?? null,
     earningsMap: earningsMap,
     dashboardMode: dashboardMode,
-    addingTicker: userTickers.addingTicker
+    addingTicker: userTickers.addingTicker,
+    savedTickers: savedTickers,
+    toggleSavedTicker: toggleSavedTicker,
+    layoutMode: typeof window !== "undefined" && window.innerWidth >= 1024 ? "workspace" : "modal"
   }))), dashboardMode === "trader" && !noTickerResults && React.createElement("div", {
     className: "relative pb-12",
     "data-coachmark": "kanban-lanes"
@@ -16819,39 +17783,222 @@ function App() {
     className: "text-[#94a3b8] truncate"
   }, item.message || "Finishing context, profile, and scoring...")), React.createElement("div", {
     className: "text-cyan-300 font-semibold tabular-nums shrink-0"
-  }, Number.isFinite(Number(item.progress)) ? `${Math.round(Number(item.progress) * 100)}%` : ""))))), React.createElement(Coachmarks, null), React.createElement(GoProModal, {
+  }, Number.isFinite(Number(item.progress)) ? `${Math.round(Number(item.progress) * 100)}%` : ""))))), React.createElement("nav", {
+    className: "tt-mobile-bottom-nav",
+    "data-coachmark": "nav-modes",
+    "aria-label": "View modes",
+    style: {
+      display: "none"
+    }
+  }, [{
+    id: "analysis",
+    label: "Analysis",
+    icon: React.createElement("svg", {
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: "2",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      "aria-hidden": "true"
+    }, React.createElement("circle", {
+      cx: "12",
+      cy: "12",
+      r: "10"
+    }), React.createElement("polygon", {
+      points: "16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"
+    })),
+    count: null
+  }, {
+    id: "trader",
+    label: "Trader",
+    icon: React.createElement("svg", {
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: "2",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      "aria-hidden": "true"
+    }, React.createElement("polyline", {
+      points: "23 6 13.5 15.5 8.5 10.5 1 18"
+    }), React.createElement("polyline", {
+      points: "17 6 23 6 23 12"
+    })),
+    count: traderActionableCount + traderHoldCount > 0 ? traderActionableCount + traderHoldCount : null
+  }, {
+    id: "investor",
+    label: "Invest",
+    icon: React.createElement("svg", {
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: "2",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      "aria-hidden": "true"
+    }, React.createElement("rect", {
+      x: "2",
+      y: "7",
+      width: "20",
+      height: "14",
+      rx: "2",
+      ry: "2"
+    }), React.createElement("path", {
+      d: "M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"
+    })),
+    count: investorTotalCount > 0 ? investorTotalCount : null
+  }, {
+    id: "all",
+    label: "All",
+    icon: React.createElement("svg", {
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: "2",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      "aria-hidden": "true"
+    }, React.createElement("line", {
+      x1: "3",
+      y1: "6",
+      x2: "21",
+      y2: "6"
+    }), React.createElement("line", {
+      x1: "3",
+      y1: "12",
+      x2: "21",
+      y2: "12"
+    }), React.createElement("line", {
+      x1: "3",
+      y1: "18",
+      x2: "21",
+      y2: "18"
+    })),
+    count: Array.isArray(tickers) && tickers.length > 0 ? tickers.length : null
+  }].map(item => React.createElement("button", {
+    key: `mbn-${item.id}`,
+    type: "button",
+    className: `tt-mobile-bottom-nav__item ${dashboardMode === item.id ? "tt-mobile-bottom-nav__item--active" : ""}`,
+    onClick: () => handleDashboardModeChange(item.id),
+    "aria-current": dashboardMode === item.id ? "page" : undefined,
+    "aria-label": item.label
+  }, item.icon, React.createElement("span", null, item.label), item.count != null && React.createElement("span", {
+    className: "tt-mobile-bottom-nav__count"
+  }, item.count)))), showScrollTop && React.createElement("button", {
+    type: "button",
+    className: "tt-scroll-top-btn",
+    onClick: () => window.scrollTo({
+      top: 0,
+      behavior: "smooth"
+    }),
+    "aria-label": "Scroll to top"
+  }, React.createElement("svg", {
+    width: "20",
+    height: "20",
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "2.4",
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  }, React.createElement("polyline", {
+    points: "18 15 12 9 6 15"
+  }))), bubbleFullscreen && React.createElement("div", {
+    className: "tt-bubble-fullscreen",
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-label": "Bubble Map"
+  }, React.createElement("div", {
+    className: "tt-bubble-fullscreen__head"
+  }, React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 2
+    }
+  }, React.createElement("span", {
+    style: {
+      fontSize: 14,
+      fontWeight: 700,
+      color: "var(--ds-text-display)",
+      letterSpacing: "0.04em"
+    }
+  }, "Bubble Map"), React.createElement("span", {
+    style: {
+      fontSize: 10,
+      color: "var(--ds-text-muted)",
+      letterSpacing: "0.06em",
+      textTransform: "uppercase"
+    }
+  }, "Rotate phone for landscape view")), React.createElement("button", {
+    type: "button",
+    className: "tt-bubble-fullscreen__close",
+    onClick: () => setBubbleFullscreen(false),
+    "aria-label": "Close"
+  }, React.createElement("svg", {
+    width: "18",
+    height: "18",
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "2.5",
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  }, React.createElement("line", {
+    x1: "18",
+    y1: "6",
+    x2: "6",
+    y2: "18"
+  }), React.createElement("line", {
+    x1: "6",
+    y1: "6",
+    x2: "18",
+    y2: "18"
+  })))), React.createElement("div", {
+    className: "tt-bubble-fullscreen__body"
+  }, React.createElement(BubbleChart, {
+    tickers: tickersWithRanks,
+    selectedTicker: selectedTicker,
+    onSelectTicker: handleTickerSelect,
+    rankPositions: rankedTickerPositions,
+    sectors: sectors,
+    chartView: bubbleLayoutMode,
+    onChartViewChange: setBubbleLayoutMode,
+    showLabels: true
+  }))), React.createElement(Coachmarks, null), React.createElement(GoProModal, {
     open: goProOpen,
     onClose: () => setGoProOpen(false)
   }));
 }
 const COACHMARK_STEPS = [{
   target: "[data-coachmark='nav-modes']",
-  title: "Navigation",
-  body: "Analysis is your command center. Daily Brief delivers AI market commentary each morning and evening. Trades shows your active positions and portfolio performance. Switch between Active Trader and Investor views here.",
+  title: "Three views, one system",
+  body: "Analysis is your command center for live signals. Daily Brief gives an AI morning + evening read of the market. Trader and Invest are two ways to act on the same scoring engine \u2014 short-horizon swings or longer-term Trend-Hold accumulation.",
   position: "bottom",
   icon: "compass"
 }, {
   target: "[data-coachmark='search-filter']",
-  title: "Search & Filter",
-  body: "Type a ticker or comma-separated list. Use the filter bar to narrow by direction (Long/Short), sector, phase, or scoring thresholds. The \u201cSaved\u201d filter shows only your bookmarked tickers.",
+  title: "Search & filter the universe",
+  body: "Type a ticker (or a comma-separated list). The filter bar narrows by direction, sector, phase, score thresholds, R:R, completion, and quadrants. The Bubble Map filters above (Focus / Momentum / Structure / Context) drive both the Viewport and the chart at once.",
   position: "bottom",
   icon: "search"
 }, {
   target: "[data-coachmark='kanban-lanes']",
-  title: "Kanban Pipeline",
-  body: "Tickers flow through stages: Setup \u2192 In Review \u2192 Position Initiated \u2192 Hold \u2192 Defend \u2192 Trim \u2192 Exit. Each lane represents the system\u2019s current recommendation. Counts update in real time as conditions change.",
+  title: "The Kanban pipeline",
+  body: "Tickers flow through stages: Setup \u2192 In Review \u2192 Position Initiated \u2192 Hold \u2192 Defend \u2192 Trim \u2192 Exit. Each lane is the system's current call. Counts update in real time. The Trades page rolls these up into Performance Overviews for both modes \u2014 Active Trader and Investor.",
   position: "top",
   icon: "columns"
 }, {
   target: "[data-coachmark='viewport']",
-  title: "Viewport",
-  body: "Every ticker ranked by score and opportunity. Each card shows price, daily change, mini-chart, and a quick score summary. Click any card to open the Right Rail \u2014 six tabs of deep analysis: Analysis, Investor, Technicals, Model, Journey, and Trades.",
+  title: "The Viewport",
+  body: "Every ticker ranked by score. Each card shows price, daily change, sparkline, and a compact score summary. Tap any card to open the Right Rail \u2014 six tabs of deep analysis: Analysis, Investor, Technicals, Model, Journey, and Trades.",
   position: "right",
   icon: "telescope"
 }, {
   target: "[data-coachmark='bubble-chart']",
-  title: "Bubble Map",
-  body: "The full universe at a glance. X-axis is short-term momentum, Y-axis is long-term trend, and bubble size reflects risk/reward. Green = LONG setups, Red = SHORT setups. Click any bubble to drill in.",
+  title: "The Bubble Map",
+  body: "The full universe at a glance. X = short-term momentum, Y = long-term trend, bubble size = risk/reward. Pulsing bubbles are actionable now (Enter / Trim / Defend / Exit). Green = LONG, Red = SHORT. Click any bubble to drill in.",
   position: "left",
   icon: "scatter"
 }];
@@ -17169,8 +18316,8 @@ function Coachmarks() {
       width: rect.width + pad * 2 + 4,
       height: rect.height + pad * 2 + 4,
       borderRadius: 14,
-      border: "2px solid rgba(52, 211, 153, 0.5)",
-      boxShadow: "0 0 20px rgba(52, 211, 153, 0.2), inset 0 0 20px rgba(52, 211, 153, 0.05)",
+      border: "2px solid rgba(245, 194, 92, 0.55)",
+      boxShadow: "0 0 20px rgba(245, 194, 92, 0.22), inset 0 0 20px rgba(245, 194, 92, 0.06)",
       pointerEvents: "none",
       animation: "coachmark-pulse 2s ease-in-out infinite"
     }
@@ -17184,11 +18331,11 @@ function Coachmarks() {
     }
   }, React.createElement("div", {
     style: {
-      background: "linear-gradient(135deg, rgba(15, 23, 42, 0.97), rgba(15, 23, 42, 0.95))",
-      border: "1px solid rgba(52, 211, 153, 0.25)",
+      background: "linear-gradient(135deg, rgba(19, 23, 29, 0.97), rgba(10, 13, 17, 0.95))",
+      border: "1px solid rgba(245, 194, 92, 0.28)",
       borderRadius: 16,
       padding: "20px 22px 16px",
-      boxShadow: "0 25px 50px rgba(0,0,0,0.5), 0 0 40px rgba(52, 211, 153, 0.08)",
+      boxShadow: "0 25px 50px rgba(0,0,0,0.55), 0 0 40px rgba(245, 194, 92, 0.10)",
       backdropFilter: "blur(20px)"
     }
   }, React.createElement("div", {
@@ -17203,12 +18350,12 @@ function Coachmarks() {
       width: 36,
       height: 36,
       borderRadius: 10,
-      background: "linear-gradient(135deg, rgba(52, 211, 153, 0.15), rgba(16, 185, 129, 0.1))",
-      border: "1px solid rgba(52, 211, 153, 0.2)",
+      background: "linear-gradient(135deg, rgba(245, 194, 92, 0.18), rgba(245, 194, 92, 0.08))",
+      border: "1px solid rgba(245, 194, 92, 0.25)",
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
-      color: "#34d399",
+      color: "#F5C25C",
       flexShrink: 0
     }
   }, COACHMARK_ICONS[currentStep.icon] || COACHMARK_ICONS.compass), React.createElement("div", {
@@ -17268,7 +18415,7 @@ function Coachmarks() {
       width: i === step ? 20 : 6,
       height: 6,
       borderRadius: 3,
-      background: i === step ? "linear-gradient(90deg, #34d399, #10b981)" : i < step ? "rgba(52, 211, 153, 0.4)" : "rgba(255,255,255,0.1)",
+      background: i === step ? "linear-gradient(90deg, #F5C25C, #D9A93A)" : i < step ? "rgba(245, 194, 92, 0.45)" : "rgba(255,255,255,0.1)",
       transition: "all 0.3s ease"
     }
   }))), React.createElement("div", {
@@ -17302,17 +18449,17 @@ function Coachmarks() {
     style: {
       padding: "6px 18px",
       fontSize: 12,
-      fontWeight: 600,
-      color: "#0f172a",
-      background: "linear-gradient(135deg, #34d399, #10b981)",
+      fontWeight: 700,
+      color: "#0A0D11",
+      background: "linear-gradient(135deg, #F5C25C, #D9A93A)",
       border: "none",
       borderRadius: 8,
       cursor: "pointer",
       transition: "all 0.2s",
-      boxShadow: "0 2px 8px rgba(52, 211, 153, 0.3)"
+      boxShadow: "0 2px 8px rgba(245, 194, 92, 0.32)"
     },
-    onMouseEnter: e => e.target.style.boxShadow = "0 4px 16px rgba(52, 211, 153, 0.5)",
-    onMouseLeave: e => e.target.style.boxShadow = "0 2px 8px rgba(52, 211, 153, 0.3)"
+    onMouseEnter: e => e.target.style.boxShadow = "0 4px 16px rgba(245, 194, 92, 0.50)",
+    onMouseLeave: e => e.target.style.boxShadow = "0 2px 8px rgba(245, 194, 92, 0.32)"
   }, step === COACHMARK_STEPS.length - 1 ? "Got it!" : "Next"))), step < COACHMARK_STEPS.length - 1 && React.createElement("div", {
     style: {
       textAlign: "center",
@@ -17333,5 +18480,255 @@ function Coachmarks() {
     onMouseLeave: e => e.target.style.color = "#475569"
   }, "Skip tour"))))), document.body);
 }
+function ActivityFeedDrawer({
+  selectedTicker,
+  onSelectTicker
+}) {
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [collapsed, setCollapsed] = useState(false);
+  const fetchFeed = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/timed/admin/activity-feed?limit=50&_t=${Date.now()}`, {
+        cache: "no-store",
+        credentials: "include"
+      });
+      if (!res.ok) return;
+      const json = await res.json();
+      if (json.ok && Array.isArray(json.events)) setEvents(json.events);
+    } catch (_) {} finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    fetchFeed();
+    const id = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      fetchFeed();
+    }, 30000);
+    return () => clearInterval(id);
+  }, [fetchFeed]);
+  if (selectedTicker) return null;
+  const fmtRelative = ts => {
+    if (!ts) return "—";
+    const ms = Date.now() - Number(ts);
+    const m = Math.round(ms / 60000);
+    if (m < 1) return "now";
+    if (m < 60) return `${m}m ago`;
+    const h = Math.round(m / 60);
+    if (h < 24) return `${h}h ago`;
+    const d = Math.round(h / 24);
+    return `${d}d ago`;
+  };
+  const fmtTime = ts => {
+    if (!ts) return "—";
+    try {
+      return new Date(Number(ts)).toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+        timeZone: "America/New_York"
+      });
+    } catch {
+      return "—";
+    }
+  };
+  const typeMeta = type => {
+    switch (String(type).toUpperCase()) {
+      case "ENTRY":
+        return {
+          label: "ENTER",
+          color: "#34d399",
+          bg: "rgba(52,211,153,0.12)"
+        };
+      case "ADD_ENTRY":
+        return {
+          label: "ADD",
+          color: "#34d399",
+          bg: "rgba(52,211,153,0.12)"
+        };
+      case "TRIM":
+        return {
+          label: "TRIM",
+          color: "#fbbf24",
+          bg: "rgba(251,191,36,0.12)"
+        };
+      case "EXIT":
+        return {
+          label: "EXIT",
+          color: "#f87171",
+          bg: "rgba(248,113,113,0.12)"
+        };
+      default:
+        return {
+          label: type || "—",
+          color: "var(--tt-text-muted)",
+          bg: "rgba(255,255,255,0.04)"
+        };
+    }
+  };
+  const MAX_EVENTS = 10;
+  const visibleEvents = events.slice(0, MAX_EVENTS);
+  return React.createElement("aside", {
+    className: "tt-activity-drawer",
+    style: {
+      position: "fixed",
+      right: 0,
+      top: "340px",
+      width: collapsed ? "28px" : "240px",
+      maxHeight: collapsed ? "120px" : "min(420px, calc(100vh - 360px))",
+      background: collapsed ? "rgba(255,255,255,0.02)" : "rgba(11,14,17,0.78)",
+      borderLeft: "1px solid var(--ds-stroke, rgba(255,255,255,0.05))",
+      borderBottom: "1px solid var(--ds-stroke, rgba(255,255,255,0.05))",
+      borderBottomLeftRadius: 8,
+      backdropFilter: "blur(6px)",
+      WebkitBackdropFilter: "blur(6px)",
+      zIndex: 35,
+      display: "flex",
+      flexDirection: "column",
+      transition: "width 200ms ease, max-height 200ms ease",
+      overflow: "hidden"
+    },
+    "aria-label": "Recent system activity"
+  }, React.createElement("button", {
+    type: "button",
+    onClick: () => setCollapsed(c => !c),
+    title: collapsed ? "Show activity feed" : "Collapse activity feed",
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: collapsed ? "center" : "space-between",
+      padding: collapsed ? "8px 4px" : "6px 10px",
+      background: "transparent",
+      borderBottom: collapsed ? "none" : "1px solid var(--ds-stroke, rgba(255,255,255,0.05))",
+      color: "var(--ds-text-muted)",
+      fontSize: 9,
+      letterSpacing: "0.14em",
+      textTransform: "uppercase",
+      fontWeight: 700,
+      cursor: "pointer",
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, collapsed ? React.createElement("span", {
+    style: {
+      writingMode: "vertical-rl",
+      transform: "rotate(180deg)",
+      fontSize: 8
+    }
+  }, "Activity") : React.createElement(React.Fragment, null, React.createElement("span", null, "Activity"), React.createElement("span", {
+    style: {
+      color: "var(--ds-text-faint)",
+      fontSize: 9
+    }
+  }, visibleEvents.length > 0 ? `${visibleEvents.length}${events.length > MAX_EVENTS ? "+" : ""}` : "", "  \u203A"))), !collapsed && React.createElement("div", {
+    style: {
+      flex: 1,
+      overflowY: "auto",
+      padding: "2px 6px 6px"
+    }
+  }, loading ? React.createElement("div", {
+    style: {
+      padding: "10px 6px",
+      fontSize: 10,
+      color: "var(--ds-text-faint)"
+    }
+  }, "Loading\u2026") : visibleEvents.length === 0 ? React.createElement("div", {
+    style: {
+      padding: "10px 6px",
+      fontSize: 10,
+      color: "var(--ds-text-faint)",
+      lineHeight: 1.5
+    }
+  }, "No recent activity. Last action will appear here.") : React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column"
+    }
+  }, visibleEvents.map((e, i) => {
+    const meta = typeMeta(e.type);
+    const dirIsLong = String(e.direction || "").toUpperCase() === "LONG";
+    const dirIsShort = String(e.direction || "").toUpperCase() === "SHORT";
+    const dirColor = dirIsLong ? "#34d399" : dirIsShort ? "#f87171" : "var(--ds-text-muted)";
+    const pnlColor = e.pnl > 0 ? "#34d399" : e.pnl < 0 ? "#f87171" : "var(--ds-text-muted)";
+    const showPnl = e.type !== "ENTRY" && e.type !== "ADD_ENTRY" && Math.abs(e.pnl) > 0.01;
+    return React.createElement("button", {
+      key: `${e.trade_id}-${i}`,
+      type: "button",
+      onClick: () => onSelectTicker && onSelectTicker(e.ticker),
+      style: {
+        display: "grid",
+        gridTemplateColumns: "auto 1fr auto",
+        alignItems: "center",
+        gap: 6,
+        padding: "5px 6px",
+        background: "transparent",
+        border: "none",
+        borderTop: i > 0 ? "1px solid rgba(255,255,255,0.025)" : "none",
+        textAlign: "left",
+        cursor: "pointer",
+        transition: "background 100ms",
+        fontFamily: "var(--tt-font-mono)"
+      },
+      onMouseEnter: ev => ev.currentTarget.style.background = "rgba(255,255,255,0.03)",
+      onMouseLeave: ev => ev.currentTarget.style.background = "transparent",
+      title: `${e.type} ${e.ticker} ${e.direction || ""} — ${fmtTime(e.ts)} ET${e.reason ? ` — ${e.reason}` : ""}`
+    }, React.createElement("span", {
+      style: {
+        fontSize: 8,
+        fontWeight: 700,
+        letterSpacing: "0.08em",
+        padding: "1px 4px",
+        borderRadius: 2,
+        color: meta.color,
+        background: meta.bg,
+        minWidth: 36,
+        textAlign: "center"
+      }
+    }, meta.label), React.createElement("span", {
+      style: {
+        display: "flex",
+        alignItems: "baseline",
+        gap: 4,
+        minWidth: 0,
+        overflow: "hidden"
+      }
+    }, React.createElement("span", {
+      style: {
+        fontWeight: 700,
+        fontSize: 11,
+        color: "var(--ds-text-display)"
+      }
+    }, e.ticker), e.direction && React.createElement("span", {
+      style: {
+        fontSize: 8,
+        fontWeight: 700,
+        color: dirColor
+      }
+    }, dirIsLong ? "L" : dirIsShort ? "S" : ""), e.qty > 0 && React.createElement("span", {
+      style: {
+        fontSize: 9,
+        color: "var(--ds-text-muted)",
+        fontVariantNumeric: "tabular-nums"
+      }
+    }, e.qty.toFixed(e.qty < 10 ? 1 : 0), "@$", Number(e.price).toFixed(0))), React.createElement("span", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 4,
+        fontSize: 9
+      }
+    }, showPnl && React.createElement("span", {
+      style: {
+        color: pnlColor,
+        fontWeight: 700,
+        fontVariantNumeric: "tabular-nums"
+      }
+    }, e.pnl >= 0 ? "+" : "−", "$", Math.abs(e.pnl).toFixed(0)), React.createElement("span", {
+      style: {
+        color: "var(--ds-text-faint)"
+      }
+    }, fmtRelative(e.ts))));
+  }))));
+}
 window.App = App;
+window.ActivityFeedDrawer = ActivityFeedDrawer;
 window.Coachmarks = Coachmarks;

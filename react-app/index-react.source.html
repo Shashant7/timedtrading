@@ -9261,38 +9261,36 @@
             title: "The Right Rail — your deep dive",
             content: (
               <div className="space-y-4">
-                {/* P0.7.126 — descriptions rewritten from the actual
-                    railTab implementations in shared-right-rail.js so
-                    they match what each tab really shows. Also bumped
-                    label font-size from text-xs to text-sm + body
-                    text-[10px] to text-[12px] for readability. */}
+                {/* P0.7.133 — Step 3 rewritten to match the actual tabs
+                    rendered by shared-right-rail.js (Snapshot / Setup /
+                    Technicals / Fundamentals / History). The previous
+                    copy listed legacy / internal tab names (Analysis,
+                    Investor, Model, Journey, Trades) with Pro badges
+                    that no longer apply — every signed-up user is on
+                    the Pro plan, so there is no free tier to gate. */}
                 <p className="text-base text-[#e5e7eb] leading-[1.7]">
-                  Click any ticker to open the <strong className="text-white">Right Rail</strong> — six tabs that give you everything about a stock:
+                  Click any ticker to open the <strong className="text-white">Right Rail</strong> — five tabs that give you everything about a stock:
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-4">
-                    <h3 className="text-amber-300 font-semibold text-sm mb-1.5">Analysis</h3>
-                    <p className="text-[12px] text-[#a1a8b2] leading-[1.6]">Live chart, score breakdown, management levels (SL / TP), risk/reward, and the system's current trade recommendation.</p>
+                    <h3 className="text-amber-300 font-semibold text-sm mb-1.5">Snapshot</h3>
+                    <p className="text-[12px] text-[#a1a8b2] leading-[1.6]">Live chart, score breakdown, the system's current trade recommendation, key levels, and the signal radar — the at-a-glance view of where a ticker stands right now.</p>
                   </div>
                   <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-4">
-                    <h3 className="text-amber-300 font-semibold text-sm mb-1.5">Investor</h3>
-                    <p className="text-[12px] text-[#a1a8b2] leading-[1.6]">Long-term portfolio view: investor score, stage (Watch / Accumulate / Core Hold / Reduce / Exit), Buy Zone, and lot history.</p>
+                    <h3 className="text-amber-300 font-semibold text-sm mb-1.5">Setup</h3>
+                    <p className="text-[12px] text-[#a1a8b2] leading-[1.6]">Risk / reward, management levels (SL / TP), buy zone, and the exact trigger conditions the engine is watching for before it acts.</p>
                   </div>
                   <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-4">
                     <h3 className="text-amber-300 font-semibold text-sm mb-1.5">Technicals</h3>
                     <p className="text-[12px] text-[#a1a8b2] leading-[1.6]">Deep multi-timeframe technical analysis with scoring breakdowns across every indicator the engine watches.</p>
                   </div>
                   <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-4">
-                    <h3 className="text-amber-300 font-semibold text-sm mb-1.5">Model <span className="text-[9px] uppercase tracking-wider text-amber-400/80 ml-1">Pro</span></h3>
-                    <p className="text-[12px] text-[#a1a8b2] leading-[1.6]">AI model confidence, signal strength, and the engine's entry / exit decision rationale.</p>
+                    <h3 className="text-amber-300 font-semibold text-sm mb-1.5">Fundamentals</h3>
+                    <p className="text-[12px] text-[#a1a8b2] leading-[1.6]">Tenet-style breakdown — earnings, valuation, growth metrics, EPS history, and the macro picture behind the ticker.</p>
                   </div>
-                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-4">
-                    <h3 className="text-amber-300 font-semibold text-sm mb-1.5">Journey <span className="text-[9px] uppercase tracking-wider text-amber-400/80 ml-1">Pro</span></h3>
-                    <p className="text-[12px] text-[#a1a8b2] leading-[1.6]">Full ticker journey tracking — historical stage transitions and time-in-stage analytics.</p>
-                  </div>
-                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-4">
-                    <h3 className="text-amber-300 font-semibold text-sm mb-1.5">Trades <span className="text-[9px] uppercase tracking-wider text-amber-400/80 ml-1">Pro</span></h3>
-                    <p className="text-[12px] text-[#a1a8b2] leading-[1.6]">Complete per-ticker trade ledger — every entry, trim, exit, P&amp;L, and chart overlay.</p>
+                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-4 sm:col-span-2">
+                    <h3 className="text-amber-300 font-semibold text-sm mb-1.5">History</h3>
+                    <p className="text-[12px] text-[#a1a8b2] leading-[1.6]">Complete per-ticker trade ledger with entry / trim / exit markers overlaid on the chart — every decision the engine made, replayable.</p>
                   </div>
                 </div>
               </div>
@@ -9344,37 +9342,19 @@
             title: "You're all set",
             content: (
               <div className="space-y-5">
+                {/* P0.7.133 — Removed the static backtest-proof tile from
+                    this step. The numbers (+40.0% / 4.62 / -2.7% / 52.2%)
+                    were a frozen Jul 2025 → May 2026 snapshot that goes
+                    stale as the engine continues to run. Live performance
+                    is always available on the Trades page Performance
+                    Overview. The guide should orient users on workflow,
+                    not surface frozen marketing stats. */}
                 <p className="text-base text-[#e5e7eb] leading-[1.7]">
                   Start with the <strong className="text-white">Daily Brief</strong> each morning for context. Check the <strong className="text-white">Analysis</strong> page for the system's top-ranked setups. Use the <strong className="text-white">Bubble Map</strong> to see the whole universe at a glance.
                 </p>
-                {/* P0.7.126 — Backtest proof tile moved here from step 1.
-                    Lands as confidence to act on what the user just learned. */}
-                <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4">
-                  <div className="text-[10px] uppercase tracking-[0.10em] text-[#F5C25C] font-semibold mb-3">
-                    Why we built this · Active Trader backtest, Jul 2025 → May 2026
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div>
-                      <div className="text-xl font-bold text-emerald-300 tabular-nums">+40.0%</div>
-                      <div className="text-[10px] text-[#9ca3af] uppercase tracking-wider mt-0.5">Total Return</div>
-                    </div>
-                    <div>
-                      <div className="text-xl font-bold text-white tabular-nums">4.62</div>
-                      <div className="text-[10px] text-[#9ca3af] uppercase tracking-wider mt-0.5">Sharpe</div>
-                    </div>
-                    <div>
-                      <div className="text-xl font-bold text-rose-300 tabular-nums">−2.7%</div>
-                      <div className="text-[10px] text-[#9ca3af] uppercase tracking-wider mt-0.5">Max DD</div>
-                    </div>
-                    <div>
-                      <div className="text-xl font-bold text-white tabular-nums">52.2%</div>
-                      <div className="text-[10px] text-[#9ca3af] uppercase tracking-wider mt-0.5">Win Rate</div>
-                    </div>
-                  </div>
-                  <p className="text-[10px] text-[#6b7280] mt-3 leading-relaxed">
-                    Simulated. 588 closed trades over 203 trading days. Past performance is not a guarantee.
-                  </p>
-                </div>
+                <p className="text-[13px] text-[#9ca3af] leading-[1.65]">
+                  Open the <strong className="text-white">Trades</strong> page for the live Performance Overview — equity curve, monthly P&amp;L, calendar, and win-rate breakdown for both Active Trader and Investor modes.
+                </p>
                 <div className="bg-white/[0.03] border border-[#F5C25C]/15 rounded-lg p-4">
                   <p className="text-sm text-[#d1d5db] leading-[1.7]">
                     Reopen this guide anytime from the <strong className="text-white">Guide</strong> button. Use <strong className="text-white">Tour</strong> for an interactive walkthrough, or check the <strong className="text-white">FAQ</strong> for detailed questions.
@@ -9385,12 +9365,15 @@
           }
         ];
 
-        // P0.7.125 — Guide is now 5 steps:
-        //   1) Welcome (with backtest proof)
-        //   2) Two modes, one engine (NEW — Active Trader vs Investor)
-        //   3) Right Rail tabs
+        // P0.7.133 — Guide is now 5 steps:
+        //   1) Welcome (intro to scoring + decision engine)
+        //   2) Two modes, one engine (Active Trader vs Investor)
+        //   3) Right Rail tabs (Snapshot / Setup / Technicals /
+        //      Fundamentals / History — match the actual tab strip,
+        //      no Pro gating since every signed-up user is Pro)
         //   4) Build your watchlist
-        //   5) You're all set
+        //   5) You're all set (workflow-only — no static performance
+        //      tile; live numbers live on the Trades page)
         const steps = allSteps.slice(0, 5);
 
         const nextStep = () => {
