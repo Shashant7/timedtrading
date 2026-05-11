@@ -27,6 +27,11 @@ class_name = "AlpacaStream"
 name = "PRICE_STREAM"
 class_name = "PriceStream"
 
+# Durable Object: TradovateStream — futures via Tradovate WebSocket
+[[durable_objects.bindings]]
+name = "TRADOVATE_STREAM"
+class_name = "TradovateStream"
+
 [[durable_objects.bindings]]
 name = "BACKTEST_RUNNER"
 class_name = "BacktestRunner"
@@ -47,6 +52,10 @@ new_classes = ["PriceStream"]
 tag = "v4"
 new_classes = ["BacktestRunner"]
 
+[[migrations]]
+tag = "v5"
+new_classes = ["TradovateStream"]
+
 [vars]
 DISCORD_ENABLE = "true"
 ALERT_MIN_RR = "1.5"
@@ -63,6 +72,11 @@ ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
 # ── Data Provider: "twelvedata" or "alpaca" ──
 DATA_PROVIDER = "twelvedata"
 TWELVEDATA_PLAN = "pro"
+# ── Tradovate WebSocket (futures feed; replaces TV webhook) ──
+# Default: disabled. Flip to "true" after adding TRADOVATE_* secrets via
+# Cloudflare Dashboard → Workers → Secrets. See P0.7.132 PR description.
+TRADOVATE_ENABLED = "false"
+TRADOVATE_ENV = "live"
 # ── Engine Selection ──
 # ENTRY_ENGINE: legacy | tt_core | ripster_core (frozen reference)
 # MANAGEMENT_ENGINE: legacy | tt_core | ripster_core (frozen reference)
@@ -150,6 +164,15 @@ class_name = "AlpacaStream"
 name = "PRICE_STREAM"
 class_name = "PriceStream"
 
+# Durable Object: TradovateStream — futures WebSocket price streaming
+# (replacement for fragile TradingView webhook → /timed/heartbeat path).
+# Disabled by default: set TRADOVATE_ENABLED="true" + add TRADOVATE_* secrets
+# (USERNAME, PASSWORD, APP_ID, APP_VERSION, CID, SEC, DEVICE_ID) to enable.
+# See P0.7.132 PR description for setup walkthrough.
+[[env.production.durable_objects.bindings]]
+name = "TRADOVATE_STREAM"
+class_name = "TradovateStream"
+
 [[env.production.durable_objects.bindings]]
 name = "BACKTEST_RUNNER"
 class_name = "BacktestRunner"
@@ -170,6 +193,14 @@ class_name = "BacktestRunner"
 # - ALPACA_API_KEY_ID: Alpaca Markets API Key ID (broker execution only)
 # - ALPACA_API_SECRET_KEY: Alpaca Markets API Secret Key (broker execution only)
 # - TWELVEDATA_API_KEY: TwelveData API key (data feed — Pro or Ultra plan)
+# - TRADOVATE_USERNAME: Tradovate account username (for futures WS feed)
+# - TRADOVATE_PASSWORD: Tradovate account password
+# - TRADOVATE_APP_ID: Tradovate API application ID
+# - TRADOVATE_APP_VERSION: Tradovate API app version (e.g., "1.0")
+# - TRADOVATE_CID: Tradovate API client ID (numeric)
+# - TRADOVATE_SEC: Tradovate API client secret
+# - TRADOVATE_DEVICE_ID: Stable identifier for this worker instance (any unique string,
+#                       defaults to "timed-trading-cf-worker" if unset)
 # - FINNHUB_API_KEY: Finnhub API key for earnings, economic calendar, and news (Daily Brief)
 # - SENDGRID_API_KEY: SendGrid API key for outbound emails
 # - EMAIL_HMAC_SECRET: HMAC secret for unsubscribe token signing
@@ -200,6 +231,9 @@ ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
 # ── Data Provider: "twelvedata" or "alpaca" ──
 DATA_PROVIDER = "twelvedata"
 TWELVEDATA_PLAN = "pro"
+# ── Tradovate WebSocket (futures feed) ──
+TRADOVATE_ENABLED = "false"
+TRADOVATE_ENV = "live"
 # ── Engine Selection ──
 ENTRY_ENGINE = "tt_core"
 MANAGEMENT_ENGINE = "tt_core"
@@ -272,6 +306,10 @@ class_name = "AlpacaStream"
 [[env.preprod.durable_objects.bindings]]
 name = "PRICE_STREAM"
 class_name = "PriceStream"
+
+[[env.preprod.durable_objects.bindings]]
+name = "TRADOVATE_STREAM"
+class_name = "TradovateStream"
 
 [[env.preprod.durable_objects.bindings]]
 name = "BACKTEST_RUNNER"
