@@ -63700,6 +63700,29 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // so detectAccumulationZone uses momentum-runner branch tunables.
           const _invDaCfg2 = (env?._deepAuditConfig) || {};
           const _invCfg2 = loadInvestorConfig(_invDaCfg2);
+
+          // Phase 3.9i (2026-05-11) — load open investor positions and pass
+          // them into classifyInvestorStage so position-aware stages
+          // (core_hold / reduce / exited) actually fire on the Kanban Lanes.
+          //
+          // Pre-3.9i bug: existingPosition was hardcoded to null below,
+          // which forced classifyInvestorStage down its no-position branch
+          // for every ticker. Result: tickers with open investor_positions
+          // showed up as `accumulate` / `watch` / `research_*` instead of
+          // `core_hold` / `reduce`, and the main-page Investor Kanban Lanes
+          // never reflected the actual portfolio.
+          const _invOpenPosByTicker = {};
+          try {
+            const _invOpenPosRows = (await env.DB.prepare(
+              "SELECT id, ticker, status, total_shares, cost_basis, avg_entry, first_entry_ts, last_entry_ts, peak_price, notes FROM investor_positions WHERE status = 'OPEN'"
+            ).all())?.results || [];
+            for (const _p of _invOpenPosRows) {
+              _invOpenPosByTicker[String(_p.ticker || "").toUpperCase()] = _p;
+            }
+          } catch (e) {
+            console.warn("[INVESTOR_COMPUTE] open-positions lookup failed:", String(e?.message || e).slice(0, 200));
+          }
+
           const allInvestorScores = {};
           const allAccumZones = {};
           const allStages = {};
@@ -63718,8 +63741,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             allInvestorScores[ticker] = score;
             allAccumZones[ticker] = accumZone;
 
-            // Investor stage (no position assumed for general compute)
-            const stage = classifyInvestorStage(td, score, null, {
+            // Phase 3.9i — pass real open position (if any) so
+            // classifyInvestorStage can return core_hold / reduce.
+            const _existingPos = _invOpenPosByTicker[ticker] || null;
+            const stage = classifyInvestorStage(td, score, _existingPos, {
               rsRank, marketHealth: marketHealth.score, accumZone, cfg: _invCfg2,
             });
             allStages[ticker] = stage;
@@ -63768,6 +63793,20 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               };
             })();
 
+            // Phase 3.9i — surface position metadata so the UI can show
+            // owned/cost-basis markers on tickers in core_hold / reduce
+            // lanes. Compact shape; do NOT serialize the entire D1 row.
+            const _posMeta = _existingPos ? {
+              owned: true,
+              shares: Number(_existingPos.total_shares) || 0,
+              avg_entry: Number(_existingPos.avg_entry) || 0,
+              cost_basis: Number(_existingPos.cost_basis) || 0,
+              first_entry_ts: Number(_existingPos.first_entry_ts) || null,
+              unrealized_pct: (Number(td?.price) > 0 && Number(_existingPos.avg_entry) > 0)
+                ? ((Number(td.price) - Number(_existingPos.avg_entry)) / Number(_existingPos.avg_entry)) * 100
+                : null,
+            } : { owned: false };
+
             investorResults[ticker] = {
               score, components, accumZone, sector,
               companyName: td?.context?.name || td?.name || null,
@@ -63783,6 +63822,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               thesis: thesis.thesis,
               thesisInvalidation: thesis.invalidation,
               signals: _invSignals,
+              position: _posMeta,
             };
           }
 
