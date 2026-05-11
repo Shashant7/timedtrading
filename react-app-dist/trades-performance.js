@@ -460,8 +460,46 @@
       return out;
     }
 
+    /* P0.7.128 — exposed as a static helper so the parent can compute
+       the same headline summary numbers without re-implementing
+       `realizedFromTrim` / `normalizeInvestorTrades` logic. Used by
+       the new CombinedPerformanceOverview tab strip in
+       simulation-dashboard.html so the trader / investor segment
+       buttons share the SAME numbers the detail panel will show. */
+    function computeSummary(trades, { mode, accountStartCash } = {}) {
+      const startCash = Number.isFinite(Number(accountStartCash)) && Number(accountStartCash) > 0
+        ? Number(accountStartCash)
+        : 100000;
+      const isInvestor = String(mode || "").toLowerCase() === "investor";
+      const normalized = isInvestor ? normalizeInvestorTrades(trades || []) : (trades || []);
+      const closed = normalized.filter(t => {
+        const s = String(t?.status || "").toUpperCase();
+        return s === "WIN" || s === "LOSS" || s === "FLAT";
+      });
+      const totalWins = closed.filter(t => String(t?.status || "").toUpperCase() === "WIN").length;
+      const totalLosses = closed.filter(t => String(t?.status || "").toUpperCase() === "LOSS").length;
+      const closedPnlUsd = closed.reduce((s, t) => s + (Number(t?.pnl) || 0), 0);
+      const trimPnlUsd = isInvestor ? 0 : normalized.reduce((s, t) => {
+        const tr = realizedFromTrim(t);
+        return s + (tr ? tr.realized : 0);
+      }, 0);
+      const totalPnlUsd = closedPnlUsd + trimPnlUsd;
+      const totalPnlPct = startCash > 0 ? (totalPnlUsd / startCash) * 100 : 0;
+      const decisive = totalWins + totalLosses;
+      const overallWr = decisive > 0 ? (totalWins / decisive) * 100 : 0;
+      return {
+        startCash,
+        closedCount: closed.length,
+        wins: totalWins,
+        losses: totalLosses,
+        totalPnlUsd,
+        totalPnlPct,
+        winRatePct: overallWr,
+      };
+    }
+
     // Main component
-    return function TradesPerformance({ trades, loading, accountStartCash, mode }) {
+    function TradesPerformance({ trades, loading, accountStartCash, mode, hideHeadline }) {
       const startCash = Number.isFinite(Number(accountStartCash)) && Number(accountStartCash) > 0
         ? Number(accountStartCash)
         : 100000;
@@ -480,7 +518,8 @@
           isInvestor ? "No investor lots yet." : "No trades yet.");
       }
 
-      // Compute overall summary
+      // Compute overall summary (same logic as computeSummary above; kept
+      // inline so the body section can color/label per local thresholds).
       const closed = normalized.filter(t => {
         const s = String(t?.status || "").toUpperCase();
         return s === "WIN" || s === "LOSS" || s === "FLAT";
@@ -511,50 +550,54 @@
       const wrDeltaClass = overallWr >= 65 ? "up" : overallWr >= 50 ? "accent" : "dn";
       const pnlDeltaClass = totalPnlPct >= 0 ? "up" : "dn";
 
-      return React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "var(--ds-space-5)" } },
-        // Top-line summary — ds-metric grid in a ds-card
-        React.createElement("div", { className: "ds-card",
-          style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "var(--ds-space-3)" }
-        },
-          React.createElement("div", { className: "ds-metric" },
-            React.createElement("div", { className: "ds-metric__label" }, "Closed Trades"),
-            React.createElement("div", { className: "ds-metric__row" },
-              React.createElement("div", { className: "ds-metric__value" }, closed.length)
-            )
-          ),
-          React.createElement("div", { className: "ds-metric" },
-            React.createElement("div", { className: "ds-metric__label" }, "Win Rate"),
-            React.createElement("div", { className: "ds-metric__row" },
-              React.createElement("div", { className: "ds-metric__value" }, `${overallWr.toFixed(1)}%`),
-              React.createElement("div", { className: `ds-metric__delta ds-metric__delta--${wrDeltaClass}` }, wrDelta)
-            )
-          ),
-          React.createElement("div", { className: "ds-metric" },
-            React.createElement("div", { className: "ds-metric__label" }, "Total PnL %"),
-            React.createElement("div", { className: "ds-metric__row" },
-              React.createElement("div", {
-                className: "ds-metric__value",
-                style: { color: totalPnlPct >= 0 ? "var(--ds-up)" : "var(--ds-dn)" },
-              }, fmtPnl(totalPnlPct))
-            )
-          ),
-          React.createElement("div", { className: "ds-metric" },
-            React.createElement("div", { className: "ds-metric__label" }, "Total PnL $"),
-            React.createElement("div", { className: "ds-metric__row" },
-              React.createElement("div", {
-                className: "ds-metric__value",
-                style: { color: totalPnlUsd >= 0 ? "var(--ds-up)" : "var(--ds-dn)" },
-              }, fmtUsd(totalPnlUsd))
-            )
+      /* P0.7.128 — `hideHeadline` lets the parent skip the top-line
+         ds-metric grid (Closed/WR/PnL%/PnL$) when those numbers are
+         already shown elsewhere — e.g. in the new dual-tab segment
+         selector that drives the mode switch. Calendar + Monthly +
+         Setup sections still render below. */
+      const headline = hideHeadline ? null : React.createElement("div", { className: "ds-card",
+        style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "var(--ds-space-3)" }
+      },
+        React.createElement("div", { className: "ds-metric" },
+          React.createElement("div", { className: "ds-metric__label" }, "Closed Trades"),
+          React.createElement("div", { className: "ds-metric__row" },
+            React.createElement("div", { className: "ds-metric__value" }, closed.length)
           )
         ),
+        React.createElement("div", { className: "ds-metric" },
+          React.createElement("div", { className: "ds-metric__label" }, "Win Rate"),
+          React.createElement("div", { className: "ds-metric__row" },
+            React.createElement("div", { className: "ds-metric__value" }, `${overallWr.toFixed(1)}%`),
+            React.createElement("div", { className: `ds-metric__delta ds-metric__delta--${wrDeltaClass}` }, wrDelta)
+          )
+        ),
+        React.createElement("div", { className: "ds-metric" },
+          React.createElement("div", { className: "ds-metric__label" }, "Total PnL %"),
+          React.createElement("div", { className: "ds-metric__row" },
+            React.createElement("div", {
+              className: "ds-metric__value",
+              style: { color: totalPnlPct >= 0 ? "var(--ds-up)" : "var(--ds-dn)" },
+            }, fmtPnl(totalPnlPct))
+          )
+        ),
+        React.createElement("div", { className: "ds-metric" },
+          React.createElement("div", { className: "ds-metric__label" }, "Total PnL $"),
+          React.createElement("div", { className: "ds-metric__row" },
+            React.createElement("div", {
+              className: "ds-metric__value",
+              style: { color: totalPnlUsd >= 0 ? "var(--ds-up)" : "var(--ds-dn)" },
+            }, fmtUsd(totalPnlUsd))
+          )
+        )
+      );
 
+      return React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "var(--ds-space-5)" } },
+        headline,
         // P&L Calendar FIRST (per user reorder V15 P0.7.81 — Calendar
         // before Monthly Performance for at-a-glance day-by-day rhythm).
         React.createElement("div", { className: "ds-glass" },
           React.createElement(PnlCalendar, { trades: closed })
         ),
-
         // Monthly performance + setup breakdown — single ds-glass panel
         React.createElement("div", { className: "ds-glass" },
           React.createElement("div", { className: "ds-glass__head" },
@@ -564,6 +607,14 @@
           React.createElement(SetupBreakdown, { months, startCash })
         )
       );
-    };
+    }
+
+    /* P0.7.128 — Attach static helpers to the component constructor so
+       the parent can compute summary numbers without re-implementing
+       trim-realized math. The factory itself still returns the
+       component (backward compatible with all existing callers). */
+    TradesPerformance.computeSummary = computeSummary;
+    TradesPerformance.normalizeInvestorTrades = normalizeInvestorTrades;
+    return TradesPerformance;
   };
 })();

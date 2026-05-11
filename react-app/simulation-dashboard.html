@@ -6235,6 +6235,166 @@
       }
 
       // ─────────────────────────────────────────────────────────────
+      // CombinedPerformanceOverview — P0.7.128 (2026-05-11)
+      //
+      // Replaces the two stacked PerformanceOverviewSections (one per
+      // mode) with a single panel that:
+      //   1. Renders both modes' headline KPIs as a 2-tile segment
+      //      selector at the top (always visible — quick comparison).
+      //   2. Renders the SELECTED mode's detail (calendar + monthly +
+      //      setup) below.
+      //   3. Defaults to Active Trader.
+      //
+      // Tabs use the gold ds-accent for the active state and a muted
+      // border for inactive. KPI numbers are computed via the static
+      // helper TradesPerformance.computeSummary so the tab numbers
+      // exactly match the detail panel that renders below.
+      // ─────────────────────────────────────────────────────────────
+      function CombinedPerformanceOverview({
+        traderTrades, traderLoading, traderStartCash,
+        investorTrades, investorLoading, investorStartCash,
+      }) {
+        const TradesPerformance = useMemo(() => {
+          const factory = (typeof window !== "undefined") && window.TradesPerformanceFactory;
+          if (!factory) return null;
+          try { return factory({ React, API_BASE }); }
+          catch (e) { console.warn("[CombinedPerf] factory failed:", e); return null; }
+        }, []);
+
+        const [selected, setSelected] = useState("trader");
+
+        if (!TradesPerformance) return null;
+        const computeSummary = TradesPerformance.computeSummary;
+
+        // Compute headline KPIs for BOTH modes so the tabs always show
+        // current numbers, regardless of which detail is rendered below.
+        const traderSummary = useMemo(() => computeSummary
+          ? computeSummary(traderTrades || [], { mode: "trader", accountStartCash: traderStartCash })
+          : null, [traderTrades, traderStartCash, computeSummary]);
+        const investorSummary = useMemo(() => computeSummary
+          ? computeSummary(investorTrades || [], { mode: "investor", accountStartCash: investorStartCash })
+          : null, [investorTrades, investorStartCash, computeSummary]);
+
+        const fmtPnlPct = (v) => Number.isFinite(v) ? `${v >= 0 ? "+" : ""}${v.toFixed(2)}%` : "—";
+        const fmtUsd = (v) => {
+          if (!Number.isFinite(v)) return "—";
+          const sign = v >= 0 ? "+" : "−";
+          return `${sign}$${Math.abs(v).toFixed(0)}`;
+        };
+
+        const TabTile = ({ tabKey, label, accent, summary, loading }) => {
+          const isActive = selected === tabKey;
+          const pnlPct = summary?.totalPnlPct ?? 0;
+          const pnlUsd = summary?.totalPnlUsd ?? 0;
+          const wr = summary?.winRatePct ?? 0;
+          const closed = summary?.closedCount ?? 0;
+          const wins = summary?.wins ?? 0;
+          const losses = summary?.losses ?? 0;
+          return (
+            <button
+              type="button"
+              onClick={() => setSelected(tabKey)}
+              aria-pressed={isActive}
+              className="text-left transition-all"
+              style={{
+                background: isActive
+                  ? "linear-gradient(135deg, rgba(245,194,92,0.10), rgba(245,194,92,0.02))"
+                  : "rgba(255,255,255,0.02)",
+                border: isActive
+                  ? "1px solid rgba(245,194,92,0.45)"
+                  : "1px solid var(--ds-stroke, rgba(255,255,255,0.06))",
+                borderRadius: "var(--ds-radius, 12px)",
+                padding: "var(--ds-space-3)",
+                cursor: "pointer",
+                outline: "none",
+                boxShadow: isActive ? "0 0 0 1px rgba(245,194,92,0.20), 0 6px 20px rgba(0,0,0,0.25)" : "none",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "var(--ds-space-2)" }}>
+                <span style={{ width: 8, height: 8, borderRadius: 999, background: accent, display: "inline-block" }} />
+                <span style={{
+                  fontSize: 11, textTransform: "uppercase", letterSpacing: "0.10em", fontWeight: 700,
+                  color: isActive ? "#F5C25C" : "var(--ds-text-muted)",
+                }}>{label}</span>
+                {isActive && (
+                  <span style={{
+                    marginLeft: "auto", fontSize: 9, color: "#0A0D11", background: "#F5C25C",
+                    padding: "2px 8px", borderRadius: 999, fontWeight: 700, letterSpacing: "0.04em",
+                  }}>Selected</span>
+                )}
+              </div>
+              {loading ? (
+                <div style={{ fontSize: 12, color: "var(--ds-text-muted)" }}>Loading…</div>
+              ) : !summary ? (
+                <div style={{ fontSize: 12, color: "var(--ds-text-muted)" }}>No data yet</div>
+              ) : (
+                <>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 6 }}>
+                    <span style={{
+                      fontSize: 26, fontWeight: 700, lineHeight: 1.1,
+                      color: pnlPct >= 0 ? "var(--ds-up)" : "var(--ds-dn)",
+                      fontVariantNumeric: "tabular-nums",
+                    }}>{fmtPnlPct(pnlPct)}</span>
+                    <span style={{ fontSize: 13, color: "var(--ds-text-muted)", fontVariantNumeric: "tabular-nums" }}>
+                      {fmtUsd(pnlUsd)}
+                    </span>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--ds-space-2)", marginTop: 4 }}>
+                    <div>
+                      <div style={{ fontSize: 9, color: "var(--ds-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Win Rate</div>
+                      <div style={{ fontSize: 14, color: "var(--ds-text)", fontVariantNumeric: "tabular-nums" }}>{wr.toFixed(1)}%</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 9, color: "var(--ds-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Closed</div>
+                      <div style={{ fontSize: 14, color: "var(--ds-text)", fontVariantNumeric: "tabular-nums" }}>
+                        {closed} <span style={{ color: "var(--ds-text-muted)", fontSize: 11 }}>({wins}W·{losses}L)</span>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </button>
+          );
+        };
+
+        const activeTrades = selected === "trader" ? traderTrades : investorTrades;
+        const activeLoading = selected === "trader" ? traderLoading : investorLoading;
+        const activeStartCash = selected === "trader" ? traderStartCash : investorStartCash;
+
+        return (
+          <div className="ds-glass" style={{ marginBottom: "var(--ds-space-5)" }}>
+            <div className="ds-glass__head">
+              <div className="ds-glass__title">Performance Overview</div>
+              <div style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Tap a mode to see its detail
+              </div>
+            </div>
+
+            {/* Two-tile segment selector — always shows both modes' KPIs */}
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: "var(--ds-space-3)",
+              marginBottom: "var(--ds-space-4)",
+            }}>
+              <TabTile tabKey="trader"   label="Active Trader"          accent="var(--ds-up, #22C55E)" summary={traderSummary}   loading={traderLoading} />
+              <TabTile tabKey="investor" label="Investor (Trend-Hold)"  accent="#8b5cf6"               summary={investorSummary} loading={investorLoading} />
+            </div>
+
+            {/* Detail panel for the SELECTED mode only */}
+            <TradesPerformance
+              key={selected}
+              trades={activeTrades || []}
+              loading={activeLoading}
+              accountStartCash={activeStartCash}
+              mode={selected}
+              hideHeadline={true}
+            />
+          </div>
+        );
+      }
+
+      // ─────────────────────────────────────────────────────────────
       // PortfolioColumn — unified column for Active Trader OR Investor
       // Renders: Equity Curve -> Metrics -> Open Positions -> Trade History
       // ─────────────────────────────────────────────────────────────
@@ -8658,29 +8818,22 @@
                     PerformanceOverview duplicate the Account/PnL stats already
                     shown above, so we keep them as a secondary "all-time"
                     rollup beneath the per-mode columns. */}
+                {/* P0.7.128 — replaced the two stacked PerformanceOverview
+                    panels with a single CombinedPerformanceOverview that
+                    shows BOTH modes' headline KPIs at the top as a 2-tile
+                    segment selector (always visible — quick comparison)
+                    and renders the SELECTED mode's calendar / monthly /
+                    setup detail below. Defaults to Active Trader. Saves
+                    a full screen of vertical scroll and makes
+                    Active vs Investor comparison one glance. */}
                 <div className={`mt-6 ${selectedTicker || selectedTrade ? "mr-[500px] lg:mr-[660px] xl:mr-[740px] 2xl:mr-[820px]" : ""}`}>
-                  <PerformanceOverviewSection
-                    mode="trader"
-                    title="Performance Overview — Active Trader"
-                    subtitle="Closed trades · 90-day calendar"
-                    accentColor="var(--tt-accent)"
-                    trades={ledgerFilteredTrades || []}
-                    loading={(ledgerTrades ?? {}).loading}
-                    accountStartCash={Number(acctSummary?.startCash) || 100000}
-                  />
-                  {/* P0.7.122 — Investor Performance Overview. Uses the
-                      same factory as Active Trader but with mode="investor"
-                      so the aggregator treats action=SELL lots as
-                      synthetic closed trades (and ignores BUY entries
-                      that haven't yet been realized). */}
-                  <PerformanceOverviewSection
-                    mode="investor"
-                    title="Performance Overview — Investor"
-                    subtitle="Realized lots · monthly + calendar"
-                    accentColor="#8b5cf6"
-                    trades={investorTrades || []}
-                    loading={investorTradesLoading}
-                    accountStartCash={Number(investorSummary?.startCash) || 100000}
+                  <CombinedPerformanceOverview
+                    traderTrades={ledgerFilteredTrades || []}
+                    traderLoading={(ledgerTrades ?? {}).loading}
+                    traderStartCash={Number(acctSummary?.startCash) || 100000}
+                    investorTrades={investorTrades || []}
+                    investorLoading={investorTradesLoading}
+                    investorStartCash={Number(investorSummary?.startCash) || 100000}
                   />
                 </div>
 
