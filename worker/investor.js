@@ -5,6 +5,62 @@
 // Operates on Weekly/Monthly timeframes with multi-week to multi-month horizons.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 3.9d (2026-05-10) — tunable stage-classification thresholds.
+//
+// Forensic dry-run on canonical Phase C `direction_accuracy` (517 trades on
+// 14-ticker blueprint cohort, see tasks/phase-c/INVESTOR_FORENSIC_DRY_RUN_2026-05-10.md)
+// showed the strong-score → accumulate gate at >= 70 was 5-10 pts too high
+// for momentum-runner cohorts: 51% of trades scored 60-69 (just shy), 0%
+// hit 80+. Lowering to 65 converts ~half of the 60-69 watch population
+// to accumulate, capturing tickers like PLTR (avg 59, 0/49 accumulate)
+// and TSM (avg 62.5, 0/24 accumulate) the gate was missing entirely.
+//
+// All thresholds are overridable via daCfg keys for live A/B without
+// redeploys (mirror of TH config pattern in worker/trend-hold.js).
+// ─────────────────────────────────────────────────────────────────────────────
+export const DEFAULT_INVESTOR_CONFIG = Object.freeze({
+  accumulate_strong_score_min: 65,                    // was 70 hardcoded
+  accumulate_strong_score_market_health_min: 40,      // unchanged
+  accumulate_inzone_score_min: 30,                    // unchanged
+  accumulate_inzone_market_health_min: 30,            // unchanged
+  watch_score_min: 50,                                // unchanged
+  watch_promising_score_min: 60,                      // unchanged
+  research_on_watch_score_min: 40,                    // unchanged
+  research_low_score_min: 30,                         // unchanged
+});
+
+/**
+ * Load runtime investor config with daCfg overrides. Mirror of
+ * loadTrendHoldConfig in worker/trend-hold.js. Bounds-checked.
+ *
+ * Tunable keys (deep_audit_investor_*):
+ *   - deep_audit_investor_accumulate_strong_score_min  (1-99, default 65)
+ *   - deep_audit_investor_watch_score_min              (1-99, default 50)
+ *   - deep_audit_investor_research_on_watch_score_min  (1-99, default 40)
+ *
+ * The remaining thresholds are kept in the config object for future
+ * tuning but are not exposed via daCfg yet (lower priority per Phase
+ * 3.9d findings).
+ */
+export function loadInvestorConfig(daCfg) {
+  const cfg = { ...DEFAULT_INVESTOR_CONFIG };
+  if (!daCfg || typeof daCfg !== "object") return cfg;
+  const strong = Number(daCfg.deep_audit_investor_accumulate_strong_score_min);
+  if (Number.isFinite(strong) && strong > 0 && strong < 100) {
+    cfg.accumulate_strong_score_min = strong;
+  }
+  const watch = Number(daCfg.deep_audit_investor_watch_score_min);
+  if (Number.isFinite(watch) && watch > 0 && watch < 100) {
+    cfg.watch_score_min = watch;
+  }
+  const research = Number(daCfg.deep_audit_investor_research_on_watch_score_min);
+  if (Number.isFinite(research) && research > 0 && research < 100) {
+    cfg.research_on_watch_score_min = research;
+  }
+  return cfg;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // PHASE 1B: computeInvestorScore
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -472,7 +528,7 @@ export function computeMarketHealth(allTickerData, spyData = null, qqqData = nul
  * @returns {{ stage: string, reason: string }}
  */
 export function classifyInvestorStage(tickerData, investorScore, existingPosition = null, opts = {}) {
-  const { rsRank = 50, marketHealth = 50, accumZone = null } = opts;
+  const { rsRank = 50, marketHealth = 50, accumZone = null, cfg = DEFAULT_INVESTOR_CONFIG } = opts;
   const mb = tickerData.monthly_bundle;
   const wStDir = tickerData.tf_tech?.W?.atr?.xs;
 
@@ -568,30 +624,40 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
   // ── Without position ──
 
   // Accumulate: in accumulation zone + decent score + market health okay
-  if (accumZone?.inZone && investorScore >= 30 && marketHealth >= 30) {
+  if (
+    accumZone?.inZone &&
+    investorScore >= cfg.accumulate_inzone_score_min &&
+    marketHealth >= cfg.accumulate_inzone_market_health_min
+  ) {
     return { stage: "accumulate", reason: accumZone.zoneType || "accumulation_zone" };
   }
 
-  // Accumulate: strong score even without perfect zone
-  if (investorScore >= 70 && marketHealth >= 40) {
+  // Accumulate: strong score even without perfect zone.
+  // Phase 3.9d (2026-05-10): default lowered from 70 to 65 based on forensic
+  // dry-run findings (51% of blueprint cohort scored 60-69, just shy of the
+  // old 70 cutoff). Tunable via deep_audit_investor_accumulate_strong_score_min.
+  if (
+    investorScore >= cfg.accumulate_strong_score_min &&
+    marketHealth >= cfg.accumulate_strong_score_market_health_min
+  ) {
     return { stage: "accumulate", reason: "strong_score" };
   }
 
   // Watch: moderate-to-good score, worth monitoring closely
-  if (investorScore >= 50) {
-    return { stage: "watch", reason: investorScore >= 60 ? "promising" : "monitoring" };
+  if (investorScore >= cfg.watch_score_min) {
+    return {
+      stage: "watch",
+      reason: investorScore >= cfg.watch_promising_score_min ? "promising" : "monitoring",
+    };
   }
 
-  // Research sub-classes: below 50 — still in universe, clarity on conviction level
-  // research_on_watch: 40-49 — on the radar, moderate signals
-  if (investorScore >= 40) {
+  // Research sub-classes: below watch — still in universe, conviction-level granularity
+  if (investorScore >= cfg.research_on_watch_score_min) {
     return { stage: "research_on_watch", reason: "moderate_score" };
   }
-  // research_low: 30-39 — low conviction, not actionable yet
-  if (investorScore >= 30) {
+  if (investorScore >= cfg.research_low_score_min) {
     return { stage: "research_low", reason: "low_conviction" };
   }
-  // research_avoid: <30 — avoid, weak signals
   return { stage: "research_avoid", reason: "low_score" };
 }
 

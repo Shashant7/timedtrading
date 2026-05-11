@@ -436,6 +436,17 @@ export const REPLAY_DA_KEYS = [
   // scripts/test-trend-hold.js.
   "deep_audit_trend_hold_promote_max_weekly_td9_sell_count",    // default 8 (recommend 12)
   "deep_audit_trend_hold_promote_max_weekly_rsi",               // default 88 (recommend 95)
+  // V15 P0.7.128 (2026-05-10) — Phase 3.9d Investor-Mode stage tunables.
+  // Forensic dry-run on canonical Phase C entries
+  // (tasks/phase-c/INVESTOR_FORENSIC_DRY_RUN_2026-05-10.md) showed the
+  // strong-score → accumulate gate at >= 70 was 5-10 pts too high for
+  // momentum-runner cohorts: 51% of trades scored 60-69 (just shy), 0%
+  // hit 80+. Default lowered from 70 → 65 (PLTR 0/49 accumulate, TSM
+  // 0/24 — both fixed). Tunable for future calibration. See
+  // worker/investor.js loadInvestorConfig().
+  "deep_audit_investor_accumulate_strong_score_min",            // default 65 (was 70 hardcoded)
+  "deep_audit_investor_watch_score_min",                        // default 50
+  "deep_audit_investor_research_on_watch_score_min",            // default 40
 ];
 
 const REPLAY_CFG_KEYS = [

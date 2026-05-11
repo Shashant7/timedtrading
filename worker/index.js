@@ -437,6 +437,7 @@ import {
   checkThesisHealth,
   computePortfolioAnalytics,
   generateRebalancingSuggestions,
+  loadInvestorConfig,
 } from "./investor.js";
 import {
   generateDailyBrief,
@@ -33323,7 +33324,11 @@ async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMap
   // Get investor ledger balance
   let investorCash = await d1GetLedgerBalance(env, "investor");
 
-  // Compute investor scores for all tickers
+  // Compute investor scores for all tickers.
+  // Phase 3.9d (2026-05-10) — pass loadInvestorConfig(daCfg) into stage
+  // classification so live deep_audit_investor_* keys take effect.
+  const _invDaCfg = (env?._deepAuditConfig) || {};
+  const _invCfg = loadInvestorConfig(_invDaCfg);
   const scoredTickers = [];
   for (const [sym, td] of Object.entries(tickerDataMap)) {
     try {
@@ -33332,7 +33337,7 @@ async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMap
       });
       const existingPos = posByTicker[sym] || null;
       const stage = classifyInvestorStage(td, score, existingPos, {
-        rsRank: 50, marketHealth: 50, accumZone,
+        rsRank: 50, marketHealth: 50, accumZone, cfg: _invCfg,
       });
       scoredTickers.push({ sym, td, score, stage: stage.stage, stageReason: stage.reason, accumZone });
     } catch { /* skip tickers that fail scoring */ }
@@ -63569,7 +63574,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const qqqData = allTickerData.find(td => td.ticker === "QQQ");
           const marketHealth = computeMarketHealth(allTickerData, spyData, qqqData);
 
-          // Phase 5: Compute investor scores + stages for all tickers
+          // Phase 5: Compute investor scores + stages for all tickers.
+          // Phase 3.9d (2026-05-10) — load daCfg-driven stage thresholds
+          // so deep_audit_investor_* keys take effect at request time.
+          const _invDaCfg2 = (env?._deepAuditConfig) || {};
+          const _invCfg2 = loadInvestorConfig(_invDaCfg2);
           const allInvestorScores = {};
           const allAccumZones = {};
           const allStages = {};
@@ -63590,7 +63599,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
             // Investor stage (no position assumed for general compute)
             const stage = classifyInvestorStage(td, score, null, {
-              rsRank, marketHealth: marketHealth.score, accumZone,
+              rsRank, marketHealth: marketHealth.score, accumZone, cfg: _invCfg2,
             });
             allStages[ticker] = stage;
 
