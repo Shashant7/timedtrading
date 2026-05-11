@@ -1014,6 +1014,7 @@ const ROUTES = [
   ["POST", "/timed/tradovate-stream/start", "POST /timed/tradovate-stream/start"],
   ["POST", "/timed/tradovate-stream/stop", "POST /timed/tradovate-stream/stop"],
   ["GET", "/timed/tradovate-stream/token-status", "GET /timed/tradovate-stream/token-status"],
+  ["POST", "/timed/tradovate-stream/auth-debug", "POST /timed/tradovate-stream/auth-debug"],
   ["GET", "/timed/auth", "GET /timed/auth"],
   ["POST", "/timed/purge", "POST /timed/purge"],
   ["POST", "/timed/rebuild-index", "POST /timed/rebuild-index"],
@@ -46414,6 +46415,16 @@ export default {
         const { tradovateTokenStatus } = await import("./tradovate.js");
         const status = await tradovateTokenStatus(env);
         return sendJSON({ ok: true, ...status }, 200, corsHeaders(env, req));
+      }
+      if (routeKey === "POST /timed/tradovate-stream/auth-debug") {
+        // P0.7.132 diag — bypass cache and call /auth/accesstokenrequest
+        // directly so the actual error from Tradovate surfaces in the
+        // response (no wrangler tail required).
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const { tradovateAuthDebug } = await import("./tradovate.js");
+        const result = await tradovateAuthDebug(env);
+        return sendJSON(result, result.ok ? 200 : 400, corsHeaders(env, req));
       }
 
       // GET /timed/health

@@ -315,3 +315,96 @@ export async function tradovateTokenStatus(env) {
     env: isLiveEnv(env) ? "live" : "demo",
   };
 }
+
+/**
+ * P0.7.132 diag — bypass cache and call /auth/accesstokenrequest directly,
+ * returning whatever Tradovate says. Surfaces auth failures (wrong creds,
+ * wrong app id, account not entitled, etc.) so we can debug without
+ * wrangler tail. Also reports which env (live/demo) was used.
+ *
+ * Returns either:
+ *   { ok: true, env, response: { mdAccessToken, expirationTime, hasLive, ... } }
+ *   { ok: false, env, error, status?, body? }
+ */
+export async function tradovateAuthDebug(env) {
+  const which = isLiveEnv(env) ? "live" : "demo";
+  // Surface which credentials are actually present (not values, just presence)
+  const credPresence = {
+    TRADOVATE_USERNAME:    !!env?.TRADOVATE_USERNAME,
+    TRADOVATE_PASSWORD:    !!env?.TRADOVATE_PASSWORD,
+    TRADOVATE_APP_ID:      !!env?.TRADOVATE_APP_ID,
+    TRADOVATE_APP_VERSION: !!env?.TRADOVATE_APP_VERSION,
+    TRADOVATE_DEVICE_ID:   !!env?.TRADOVATE_DEVICE_ID,
+    TRADOVATE_CID:         env?.TRADOVATE_CID != null && env.TRADOVATE_CID !== "",
+    TRADOVATE_SEC:         !!env?.TRADOVATE_SEC,
+  };
+  const missing = Object.entries(credPresence).filter(([_, v]) => !v).map(([k]) => k);
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      env: which,
+      error: "missing_credentials",
+      missing,
+      credPresence,
+    };
+  }
+  const body = {
+    name:        env.TRADOVATE_USERNAME,
+    password:    env.TRADOVATE_PASSWORD,
+    appId:       env.TRADOVATE_APP_ID,
+    appVersion:  env.TRADOVATE_APP_VERSION || "1.0",
+    deviceId:    env.TRADOVATE_DEVICE_ID || "timed-trading-cf-worker",
+    cid:         Number(env.TRADOVATE_CID),
+    sec:         env.TRADOVATE_SEC,
+  };
+  const url = authUrl(env);
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    return { ok: false, env: which, url, error: "fetch_failed", message: String(e).slice(0, 200) };
+  }
+  const txt = await res.text().catch(() => "");
+  let parsed = null;
+  try { parsed = JSON.parse(txt); } catch {}
+  if (!res.ok) {
+    return {
+      ok: false, env: which, url,
+      error: "http_error", status: res.status,
+      body: parsed || txt.slice(0, 500),
+    };
+  }
+  // Success-shape check
+  if (parsed?.errorText) {
+    return { ok: false, env: which, url, error: "tradovate_error", errorText: parsed.errorText };
+  }
+  if (!parsed?.mdAccessToken) {
+    return {
+      ok: false, env: which, url,
+      error: "no_md_token",
+      response: {
+        ...parsed,
+        accessToken: parsed?.accessToken ? "<present>" : null,
+        mdAccessToken: parsed?.mdAccessToken ? "<present>" : null,
+      },
+    };
+  }
+  // SUCCESS — cache the token (so the WS path can reuse it)
+  await _persistToken(env, parsed);
+  return {
+    ok: true, env: which, url,
+    response: {
+      userId: parsed.userId,
+      name: parsed.name,
+      hasLive: parsed.hasLive,
+      hasMarketData: parsed.hasMarketData,
+      expirationTime: parsed.expirationTime,
+      mdAccessToken: "<present>",
+      accessToken: "<present>",
+    },
+  };
+}
