@@ -2110,6 +2110,36 @@
         compact: true
       });
     }
+    const Panel = ({
+      title,
+      action,
+      children
+    }) => React.createElement("div", {
+      className: "ds-glass",
+      style: {
+        marginBottom: "var(--ds-space-3)"
+      }
+    }, (title || action) && React.createElement("div", {
+      className: "ds-glass__head"
+    }, title && React.createElement("div", {
+      className: "ds-glass__title"
+    }, title), action), children);
+    const Metric = ({
+      label,
+      value,
+      delta,
+      deltaClass = "accent"
+    }) => React.createElement("div", {
+      className: "ds-metric"
+    }, React.createElement("div", {
+      className: "ds-metric__label"
+    }, label), React.createElement("div", {
+      className: "ds-metric__row"
+    }, React.createElement("div", {
+      className: "ds-metric__value"
+    }, value), delta != null && delta !== "" && React.createElement("div", {
+      className: `ds-metric__delta ds-metric__delta--${deltaClass}`
+    }, delta)));
     return function TickerDetailRightRail({
       ticker,
       trade = null,
@@ -2593,7 +2623,7 @@
           cancelled = true;
         };
       }, [tickerSymbol, chartTf]);
-      const _contextReady = !!(ticker?.context && typeof ticker.context === "object" && (ticker.context.name || ticker.context.industry || ticker.context.sector || ticker.context.description));
+      const _rrTickerReady = !!(ticker?.context && typeof ticker.context === "object" && (ticker.context.name || ticker.context.industry || ticker.context.sector || ticker.context.description) && ticker?.tf_tech && typeof ticker.tf_tech === "object" && Object.keys(ticker.tf_tech).length > 0);
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
         if (!sym) {
@@ -2602,7 +2632,7 @@
           setLatestTickerLoading(false);
           return;
         }
-        if (_contextReady) {
+        if (_rrTickerReady) {
           setLatestTicker(null);
           setLatestTickerError(null);
           setLatestTickerLoading(false);
@@ -2636,7 +2666,7 @@
         return () => {
           cancelled = true;
         };
-      }, [tickerSymbol, _contextReady]);
+      }, [tickerSymbol, _rrTickerReady]);
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
         if (!sym) {
@@ -2953,36 +2983,6 @@
         })();
         const v2DirChip = v2Dir === "LONG" ? "ds-chip--up" : v2Dir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
         const v2RailTab = ["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY"].includes(railTab) ? railTab : "SNAPSHOT";
-        const Metric = ({
-          label,
-          value,
-          delta,
-          deltaClass = "accent"
-        }) => React.createElement("div", {
-          className: "ds-metric"
-        }, React.createElement("div", {
-          className: "ds-metric__label"
-        }, label), React.createElement("div", {
-          className: "ds-metric__row"
-        }, React.createElement("div", {
-          className: "ds-metric__value"
-        }, value), delta != null && delta !== "" && React.createElement("div", {
-          className: `ds-metric__delta ds-metric__delta--${deltaClass}`
-        }, delta)));
-        const Panel = ({
-          title,
-          action,
-          children
-        }) => React.createElement("div", {
-          className: "ds-glass",
-          style: {
-            marginBottom: "var(--ds-space-3)"
-          }
-        }, (title || action) && React.createElement("div", {
-          className: "ds-glass__head"
-        }, title && React.createElement("div", {
-          className: "ds-glass__title"
-        }, title), action), children);
         const v2Rank = Number(ticker?.rank_position ?? ticker?.rp) || null;
         const v2Score = Number((typeof rankScoreForTicker === "function" ? rankScoreForTicker(ticker) : 0) || ticker?.score || ticker?.rank) || null;
         const v2Conv = Number(ticker?.focus_conviction_score ?? ticker?.__focus_conviction_score) || null;
@@ -4540,379 +4540,435 @@
           className: `ds-chip ds-chip--sm ${(modelSignal.market.netSignal || 0) > 0 ? "ds-chip--up" : (modelSignal.market.netSignal || 0) < 0 ? "ds-chip--dn" : "ds-chip--solid"}`
         }, modelSignal.market.label || "—"), modelSignal.market.riskFlag && React.createElement("span", {
           className: "ds-chip ds-chip--sm ds-chip--dn"
-        }, "RISK"))))), v2RailTab === "TECHNICALS" && React.createElement(React.Fragment, null, (() => {
-          const tfm = ticker?.tf_tech || {};
-          const pcDir = String(predictionContract?.direction || "").toUpperCase();
-          if (!pcDir) return null;
-          const dirSign = pcDir === "LONG" ? 1 : -1;
-          let aligned = 0,
-            opposed = 0,
-            present = 0;
-          for (const k of ["15", "30", "1H", "60", "4H", "240", "D"]) {
-            const r = tfm[k];
-            if (!r) continue;
-            const stack = Number(r?.ema?.stack);
-            if (!Number.isFinite(stack) || stack === 0) continue;
-            present += 1;
-            if (Math.sign(stack) === dirSign) aligned += 1;else opposed += 1;
-          }
-          if (present === 0) return null;
-          const ratio = aligned / present;
-          const status = ratio >= 0.7 ? "aligned" : ratio <= 0.3 ? "conflict" : "mixed";
-          const meta = status === "aligned" ? {
-            cls: "ds-chip--up",
-            color: "var(--ds-up)",
-            bg: "rgba(34,197,94,0.06)",
-            border: "rgba(34,197,94,0.30)",
-            lead: "ALIGNED",
-            txt: `${aligned}/${present} timeframes confirm the ${pcDir} bias — read the call as well-supported.`
-          } : status === "conflict" ? {
-            cls: "ds-chip--dn",
-            color: "var(--ds-dn)",
-            bg: "rgba(244,63,94,0.06)",
-            border: "rgba(244,63,94,0.30)",
-            lead: "CONFLICT",
-            txt: `${opposed}/${present} timeframes oppose the ${pcDir} bias — the model is taking a counter-trend / reversal stance. Wait for confirmation before sizing in.`
-          } : {
-            cls: "ds-chip--accent",
-            color: "var(--ds-accent)",
-            bg: "rgba(245,194,92,0.06)",
-            border: "rgba(245,194,92,0.30)",
-            lead: "MIXED",
-            txt: `${aligned} aligned / ${opposed} opposed across ${present} timeframes — structure is split. Trade smaller and tighter.`
-          };
-          return React.createElement("div", {
-            className: "ds-glass",
-            style: {
-              marginBottom: "var(--ds-space-3)",
-              background: meta.bg,
-              border: `1px solid ${meta.border}`,
-              padding: "var(--ds-space-3)"
+        }, "RISK"))))), v2RailTab === "TECHNICALS" && (parentTicker => {
+          const ticker = (() => {
+            if (!latestTicker || typeof latestTicker !== "object") return parentTicker;
+            if (!parentTicker || typeof parentTicker !== "object") return latestTicker;
+            const out = {
+              ...latestTicker
+            };
+            for (const k of Object.keys(parentTicker)) {
+              if (parentTicker[k] != null) out[k] = parentTicker[k];
             }
-          }, React.createElement("div", {
-            style: {
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              marginBottom: 4
-            }
-          }, React.createElement("span", {
-            className: `ds-chip ds-chip--sm ${meta.cls}`,
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              letterSpacing: "0.10em"
-            }
-          }, "BIAS \xB7 ", meta.lead), React.createElement("span", {
-            style: {
-              fontSize: "var(--ds-fs-caption)",
-              color: "var(--ds-text-muted)",
-              fontFamily: "var(--tt-font-mono)"
-            }
-          }, pcDir)), React.createElement("p", {
-            style: {
-              margin: 0,
-              fontSize: "var(--ds-fs-caption)",
-              color: meta.color,
-              lineHeight: 1.5
-            }
-          }, meta.txt));
-        })(), !ticker?.tf_tech && React.createElement(Panel, {
-          title: "Technical Analysis",
-          action: React.createElement("span", {
-            className: "ds-chip ds-chip--sm",
-            style: {
-              fontFamily: "var(--tt-font-mono)"
-            }
-          }, "NO DATA")
-        }, React.createElement("p", {
-          style: {
-            margin: 0,
-            fontSize: "var(--ds-fs-caption)",
-            color: "var(--ds-text-muted)",
-            lineHeight: 1.5
-          }
-        }, "Multi-timeframe technicals for ", React.createElement("strong", {
-          style: {
-            color: "var(--ds-text-body)",
-            fontFamily: "var(--tt-font-mono)"
-          }
-        }, tickerSymbol), " haven't loaded yet. This usually clears within a few minutes after the next ingest cycle. If it persists, the ticker may be missing intraday candle coverage (worker-side issue).")), ticker?.tf_tech && (() => {
-          const tfm = ticker.tf_tech || {};
-          const sym = tickerSymbol;
-          const pcDir = String(predictionContract?.direction || "").toUpperCase();
-          const dirSign = (() => {
-            if (pcDir === "LONG") return 1;
-            if (pcDir === "SHORT") return -1;
-            const s = String(ticker?.state || "").toUpperCase();
-            if (s.startsWith("HTF_BULL")) return 1;
-            if (s.startsWith("HTF_BEAR")) return -1;
-            const t30 = Number(tfm["30"]?.stDir);
-            const t1h = Number(tfm["1H"]?.stDir || tfm["60"]?.stDir);
-            const tdy = Number(tfm.D?.stDir);
-            const sum = (t30 || 0) + (t1h || 0) + (tdy || 0);
-            return sum > 0 ? 1 : sum < 0 ? -1 : 0;
+            return out;
           })();
-          const dir = dirSign === 1 ? "bullish" : dirSign === -1 ? "bearish" : "mixed";
-          const dirLabel = dirSign === 1 ? "LONG" : dirSign === -1 ? "SHORT" : "MIX";
-          const classify = obsSign => {
-            if (dirSign === 0 || obsSign === 0) return "neutral";
-            return obsSign === dirSign ? "aligned" : "conflicting";
-          };
-          const aligned = [];
-          const conflicting = [];
-          const neutral = [];
-          const dailyStack = Number(tfm.D?.ema?.stack);
-          if (Number.isFinite(dailyStack) && dailyStack !== 0) {
-            const stackSign = Math.sign(dailyStack);
-            const cls = classify(stackSign);
-            let txt = "";
-            if (dailyStack >= 4) txt = `Daily structure is strongly bullish (full EMA stack).`;else if (dailyStack <= -4) txt = `Daily structure is strongly bearish (full EMA stack down).`;else if (dailyStack > 0) txt = `Daily structure leans bullish but not fully stacked.`;else txt = `Daily structure leans bearish but not fully stacked.`;
-            (cls === "aligned" ? aligned : cls === "conflicting" ? conflicting : neutral).push(txt);
-          }
-          const fourhStack = Number(tfm["4H"]?.ema?.stack || tfm["240"]?.ema?.stack);
-          if (Number.isFinite(fourhStack) && Math.sign(fourhStack) !== Math.sign(dailyStack || 0) && fourhStack !== 0) {
-            neutral.push(`4H is moving against the Daily — pullback or counter-rotation in play.`);
-          }
-          const rsi1H = Number(tfm["1H"]?.rsi?.r5 || tfm["60"]?.rsi?.r5);
-          const rsiD = Number(tfm.D?.rsi?.r5);
-          if (Number.isFinite(rsiD) && rsiD >= 70) {
-            const cls = classify(-1);
-            (cls === "aligned" ? aligned : conflicting).push(`Daily RSI ${rsiD.toFixed(0)} is overbought — reversal risk elevated${dirSign === -1 ? " (favors the SHORT)" : dirSign === 1 ? " (extension caution for LONGs)" : ""}.`);
-          } else if (Number.isFinite(rsiD) && rsiD <= 30) {
-            const cls = classify(1);
-            (cls === "aligned" ? aligned : conflicting).push(`Daily RSI ${rsiD.toFixed(0)} is oversold — bounce possible${dirSign === 1 ? " (favors the LONG)" : dirSign === -1 ? " (caution for SHORTs into support)" : ""}.`);
-          }
-          if (Number.isFinite(rsi1H) && rsi1H >= 70 && (!Number.isFinite(rsiD) || rsiD < 70)) {
-            const cls = classify(-1);
-            (cls === "aligned" ? aligned : conflicting).push(`1H RSI ${rsi1H.toFixed(0)} is hot but Daily isn't — short-term overheat.`);
-          }
-          let sqLine = null;
-          for (const k of ["15", "30", "1H", "60", "4H", "240", "D"]) {
-            const sq = tfm[k]?.sq;
-            if (!sq) continue;
-            if (sq.r) {
-              sqLine = `Squeeze just RELEASED on ${k === "60" ? "1H" : k === "240" ? "4H" : k} — expansion in either direction; watch for follow-through that confirms the ${dirLabel} bias.`;
-              break;
-            }
-          }
-          if (!sqLine) {
+          return React.createElement(React.Fragment, null, (() => {
+            const tfm = ticker?.tf_tech || {};
+            const pcDir = String(predictionContract?.direction || "").toUpperCase();
+            if (!pcDir) return null;
+            const dirSign = pcDir === "LONG" ? 1 : -1;
+            let aligned = 0,
+              opposed = 0,
+              present = 0;
             for (const k of ["15", "30", "1H", "60", "4H", "240", "D"]) {
-              const sq = tfm[k]?.sq;
-              if (!sq) continue;
-              if (sq.s) {
-                sqLine = `Volatility coiled with squeeze ON ${k === "60" ? "1H" : k === "240" ? "4H" : k} — expansion in either direction; whichever side breaks gets the move.`;
-                break;
+              const r = tfm[k];
+              if (!r) continue;
+              const stack = Number(r?.ema?.stack);
+              if (!Number.isFinite(stack) || stack === 0) continue;
+              present += 1;
+              if (Math.sign(stack) === dirSign) aligned += 1;else opposed += 1;
+            }
+            if (present === 0) return null;
+            const ratio = aligned / present;
+            const status = ratio >= 0.7 ? "aligned" : ratio <= 0.3 ? "conflict" : "mixed";
+            const meta = status === "aligned" ? {
+              cls: "ds-chip--up",
+              color: "var(--ds-up)",
+              bg: "rgba(34,197,94,0.06)",
+              border: "rgba(34,197,94,0.30)",
+              lead: "ALIGNED",
+              txt: `${aligned}/${present} timeframes confirm the ${pcDir} bias — read the call as well-supported.`
+            } : status === "conflict" ? {
+              cls: "ds-chip--dn",
+              color: "var(--ds-dn)",
+              bg: "rgba(244,63,94,0.06)",
+              border: "rgba(244,63,94,0.30)",
+              lead: "CONFLICT",
+              txt: `${opposed}/${present} timeframes oppose the ${pcDir} bias — the model is taking a counter-trend / reversal stance. Wait for confirmation before sizing in.`
+            } : {
+              cls: "ds-chip--accent",
+              color: "var(--ds-accent)",
+              bg: "rgba(245,194,92,0.06)",
+              border: "rgba(245,194,92,0.30)",
+              lead: "MIXED",
+              txt: `${aligned} aligned / ${opposed} opposed across ${present} timeframes — structure is split. Trade smaller and tighter.`
+            };
+            return React.createElement("div", {
+              className: "ds-glass",
+              style: {
+                marginBottom: "var(--ds-space-3)",
+                background: meta.bg,
+                border: `1px solid ${meta.border}`,
+                padding: "var(--ds-space-3)"
               }
-            }
-          }
-          if (sqLine) neutral.push(sqLine);
-          const rsiDivBear = ticker?.rsi_divergence?.bear?.active || tfm["1H"]?.rsiDiv?.bear?.a;
-          const rsiDivBull = ticker?.rsi_divergence?.bull?.active || tfm["1H"]?.rsiDiv?.bull?.a;
-          if (rsiDivBear) {
-            const cls = classify(-1);
-            (cls === "aligned" ? aligned : conflicting).push(`RSI bearish divergence active — momentum slowing while price still pushes up.`);
-          }
-          if (rsiDivBull) {
-            const cls = classify(1);
-            (cls === "aligned" ? aligned : conflicting).push(`RSI bullish divergence active — selling losing steam, watch for reversal.`);
-          }
-          const tdD = ticker?.td_sequential?.per_tf?.D || ticker?.td_sequential?.per_tf?.["1D"];
-          if (tdD) {
-            const bp = Number(tdD.bullish_prep_count) || 0;
-            const sp = Number(tdD.bearish_prep_count) || 0;
-            if (sp >= 8) {
-              const cls = classify(1);
-              (cls === "aligned" ? aligned : conflicting).push(`Daily TD${sp} setup count is exhaustion-high on the bear side (reversal candidate).`);
-            } else if (bp >= 8) {
-              const cls = classify(-1);
-              (cls === "aligned" ? aligned : conflicting).push(`Daily TD${bp} setup count is exhaustion-high on the bull side (reversal candidate).`);
-            }
-          }
-          if (aligned.length === 0 && conflicting.length === 0 && neutral.length === 0) {
-            neutral.push(`Technicals look balanced — no extreme readings, no exhaustion signals, no fresh squeeze. Waiting for a catalyst.`);
-          }
-          const Bullet = ({
-            icon,
-            text,
-            color
-          }) => React.createElement("li", {
-            style: {
-              display: "flex",
-              gap: 8,
-              alignItems: "flex-start",
-              margin: "4px 0",
-              color: "var(--ds-text-body)",
-              fontSize: "var(--ds-fs-meta)",
-              lineHeight: 1.5
-            }
-          }, React.createElement("span", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontWeight: 700,
-              color,
-              minWidth: 16,
-              textAlign: "center",
-              flexShrink: 0
-            }
-          }, icon), React.createElement("span", null, text));
-          return React.createElement(Panel, {
-            title: `Technical Analysis · ${sym}`,
+            }, React.createElement("div", {
+              style: {
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                marginBottom: 4
+              }
+            }, React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${meta.cls}`,
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                letterSpacing: "0.10em"
+              }
+            }, "BIAS \xB7 ", meta.lead), React.createElement("span", {
+              style: {
+                fontSize: "var(--ds-fs-caption)",
+                color: "var(--ds-text-muted)",
+                fontFamily: "var(--tt-font-mono)"
+              }
+            }, pcDir)), React.createElement("p", {
+              style: {
+                margin: 0,
+                fontSize: "var(--ds-fs-caption)",
+                color: meta.color,
+                lineHeight: 1.5
+              }
+            }, meta.txt));
+          })(), !ticker?.tf_tech && React.createElement(Panel, {
+            title: "Technical Analysis",
             action: React.createElement("span", {
-              className: `ds-chip ds-chip--sm ${dir === "bullish" ? "ds-chip--up" : dir === "bearish" ? "ds-chip--dn" : "ds-chip--solid"}`,
+              className: "ds-chip ds-chip--sm",
               style: {
                 fontFamily: "var(--tt-font-mono)"
               }
-            }, dirLabel, " bias")
-          }, pcDir && pcDir !== "" && dir !== "mixed" && React.createElement("p", {
+            }, "NO DATA")
+          }, React.createElement("p", {
             style: {
-              margin: "0 0 var(--ds-space-2) 0",
+              margin: 0,
               fontSize: "var(--ds-fs-caption)",
               color: "var(--ds-text-muted)",
-              fontStyle: "italic",
               lineHeight: 1.5
             }
-          }, "Read against the model's ", React.createElement("strong", {
+          }, "Multi-timeframe technicals for ", React.createElement("strong", {
             style: {
-              color: dirLabel === "SHORT" ? "var(--ds-dn)" : "var(--ds-up)"
+              color: "var(--ds-text-body)",
+              fontFamily: "var(--tt-font-mono)"
             }
-          }, dirLabel), " bias. Aligned signals support the call; conflicting signals are caveats / reversal triggers."), React.createElement("ul", {
-            style: {
-              listStyle: "none",
-              padding: 0,
-              margin: 0
+          }, tickerSymbol), " haven't loaded yet. This usually clears within a few minutes after the next ingest cycle. If it persists, the ticker may be missing intraday candle coverage (worker-side issue).")), ticker?.tf_tech && (() => {
+            const tfm = ticker.tf_tech || {};
+            const sym = tickerSymbol;
+            const pcDir = String(predictionContract?.direction || "").toUpperCase();
+            const dirSign = (() => {
+              if (pcDir === "LONG") return 1;
+              if (pcDir === "SHORT") return -1;
+              const s = String(ticker?.state || "").toUpperCase();
+              if (s.startsWith("HTF_BULL")) return 1;
+              if (s.startsWith("HTF_BEAR")) return -1;
+              const t30 = Number(tfm["30"]?.stDir);
+              const t1h = Number(tfm["1H"]?.stDir || tfm["60"]?.stDir);
+              const tdy = Number(tfm.D?.stDir);
+              const sum = (t30 || 0) + (t1h || 0) + (tdy || 0);
+              return sum > 0 ? 1 : sum < 0 ? -1 : 0;
+            })();
+            const dir = dirSign === 1 ? "bullish" : dirSign === -1 ? "bearish" : "mixed";
+            const dirLabel = dirSign === 1 ? "LONG" : dirSign === -1 ? "SHORT" : "MIX";
+            const classify = obsSign => {
+              if (dirSign === 0 || obsSign === 0) return "neutral";
+              return obsSign === dirSign ? "aligned" : "conflicting";
+            };
+            const aligned = [];
+            const conflicting = [];
+            const neutral = [];
+            const dailyStack = Number(tfm.D?.ema?.stack);
+            if (Number.isFinite(dailyStack) && dailyStack !== 0) {
+              const stackSign = Math.sign(dailyStack);
+              const cls = classify(stackSign);
+              let txt = "";
+              if (dailyStack >= 4) txt = `Daily structure is strongly bullish (full EMA stack).`;else if (dailyStack <= -4) txt = `Daily structure is strongly bearish (full EMA stack down).`;else if (dailyStack > 0) txt = `Daily structure leans bullish but not fully stacked.`;else txt = `Daily structure leans bearish but not fully stacked.`;
+              (cls === "aligned" ? aligned : cls === "conflicting" ? conflicting : neutral).push(txt);
             }
-          }, aligned.map((t, i) => React.createElement(Bullet, {
-            key: `al-${i}`,
-            icon: "\u2713",
-            text: t,
-            color: "var(--ds-up)"
-          })), conflicting.map((t, i) => React.createElement(Bullet, {
-            key: `cf-${i}`,
-            icon: "\u26A0",
-            text: `Conflicts with ${dirLabel} bias: ${t}`,
-            color: "var(--ds-dn)"
-          })), neutral.map((t, i) => React.createElement(Bullet, {
-            key: `nt-${i}`,
-            icon: "\xB7",
-            text: t,
-            color: "var(--ds-text-muted)"
-          }))), conflicting.length > 0 && aligned.length === 0 && React.createElement("p", {
-            style: {
-              margin: "var(--ds-space-2) 0 0 0",
-              padding: "6px 8px",
-              borderRadius: "var(--ds-radius-xs)",
-              background: "rgba(244,63,94,0.06)",
-              border: "1px solid rgba(244,63,94,0.20)",
-              fontSize: "var(--ds-fs-caption)",
-              color: "var(--ds-dn)",
-              lineHeight: 1.5
+            const fourhStack = Number(tfm["4H"]?.ema?.stack || tfm["240"]?.ema?.stack);
+            if (Number.isFinite(fourhStack) && Math.sign(fourhStack) !== Math.sign(dailyStack || 0) && fourhStack !== 0) {
+              neutral.push(`4H is moving against the Daily — pullback or counter-rotation in play.`);
             }
-          }, "Raw structure runs counter to the ", dirLabel, " bias \u2014 this is a counter-trend / reversal stance. Wait for a confirming break-of-structure before sizing in."));
-        })(), ticker?.tf_tech && (() => {
-          const tfm = ticker.tf_tech || {};
-          const dirSign = (() => {
-            const s = String(ticker?.state || "").toUpperCase();
-            if (s.startsWith("HTF_BULL")) return 1;
-            if (s.startsWith("HTF_BEAR")) return -1;
-            const t30 = Number(tfm["30"]?.stDir);
-            const t1h = Number(tfm["1H"]?.stDir || tfm["60"]?.stDir);
-            const tdy = Number(tfm.D?.stDir);
-            const sum = (t30 || 0) + (t1h || 0) + (tdy || 0);
-            return sum > 0 ? 1 : sum < 0 ? -1 : 0;
-          })();
-          const dirLabel = dirSign === 1 ? "LONG" : dirSign === -1 ? "SHORT" : "MIX";
-          let aligned = 0,
-            opposed = 0,
-            present = 0;
-          for (const k of ["15", "30", "1H", "4H", "D"]) {
-            const r = tfm[k] || tfm[`${k}m`] || (k === "1H" ? tfm["60"] : null) || (k === "4H" ? tfm["240"] : null);
-            if (!r) continue;
-            const stack = Number(r?.ema?.stack);
-            if (!Number.isFinite(stack) || stack === 0) continue;
-            present += 1;
-            if (dirSign !== 0 && Math.sign(stack) === dirSign) aligned += 1;else if (dirSign !== 0 && Math.sign(stack) === -dirSign) opposed += 1;
-          }
-          let sqLine = null;
-          for (const k of ["15", "30", "1H", "60", "4H", "240", "D"]) {
-            const r = tfm[k];
-            const sq = r?.sq;
-            if (!sq) continue;
-            if (sq.r) {
-              sqLine = `Squeeze RELEASE on ${k}`;
-              break;
+            const rsi1H = Number(tfm["1H"]?.rsi?.r5 || tfm["60"]?.rsi?.r5);
+            const rsiD = Number(tfm.D?.rsi?.r5);
+            if (Number.isFinite(rsiD) && rsiD >= 70) {
+              const cls = classify(-1);
+              (cls === "aligned" ? aligned : conflicting).push(`Daily RSI ${rsiD.toFixed(0)} is overbought — reversal risk elevated${dirSign === -1 ? " (favors the SHORT)" : dirSign === 1 ? " (extension caution for LONGs)" : ""}.`);
+            } else if (Number.isFinite(rsiD) && rsiD <= 30) {
+              const cls = classify(1);
+              (cls === "aligned" ? aligned : conflicting).push(`Daily RSI ${rsiD.toFixed(0)} is oversold — bounce possible${dirSign === 1 ? " (favors the LONG)" : dirSign === -1 ? " (caution for SHORTs into support)" : ""}.`);
             }
-          }
-          if (!sqLine) {
+            if (Number.isFinite(rsi1H) && rsi1H >= 70 && (!Number.isFinite(rsiD) || rsiD < 70)) {
+              const cls = classify(-1);
+              (cls === "aligned" ? aligned : conflicting).push(`1H RSI ${rsi1H.toFixed(0)} is hot but Daily isn't — short-term overheat.`);
+            }
+            let sqLine = null;
+            for (const k of ["15", "30", "1H", "60", "4H", "240", "D"]) {
+              const sq = tfm[k]?.sq;
+              if (!sq) continue;
+              if (sq.r) {
+                sqLine = `Squeeze just RELEASED on ${k === "60" ? "1H" : k === "240" ? "4H" : k} — expansion in either direction; watch for follow-through that confirms the ${dirLabel} bias.`;
+                break;
+              }
+            }
+            if (!sqLine) {
+              for (const k of ["15", "30", "1H", "60", "4H", "240", "D"]) {
+                const sq = tfm[k]?.sq;
+                if (!sq) continue;
+                if (sq.s) {
+                  sqLine = `Volatility coiled with squeeze ON ${k === "60" ? "1H" : k === "240" ? "4H" : k} — expansion in either direction; whichever side breaks gets the move.`;
+                  break;
+                }
+              }
+            }
+            if (sqLine) neutral.push(sqLine);
+            const rsiDivBear = ticker?.rsi_divergence?.bear?.active || tfm["1H"]?.rsiDiv?.bear?.a;
+            const rsiDivBull = ticker?.rsi_divergence?.bull?.active || tfm["1H"]?.rsiDiv?.bull?.a;
+            if (rsiDivBear) {
+              const cls = classify(-1);
+              (cls === "aligned" ? aligned : conflicting).push(`RSI bearish divergence active — momentum slowing while price still pushes up.`);
+            }
+            if (rsiDivBull) {
+              const cls = classify(1);
+              (cls === "aligned" ? aligned : conflicting).push(`RSI bullish divergence active — selling losing steam, watch for reversal.`);
+            }
+            const tdD = ticker?.td_sequential?.per_tf?.D || ticker?.td_sequential?.per_tf?.["1D"];
+            if (tdD) {
+              const bp = Number(tdD.bullish_prep_count) || 0;
+              const sp = Number(tdD.bearish_prep_count) || 0;
+              if (sp >= 8) {
+                const cls = classify(1);
+                (cls === "aligned" ? aligned : conflicting).push(`Daily TD${sp} setup count is exhaustion-high on the bear side (reversal candidate).`);
+              } else if (bp >= 8) {
+                const cls = classify(-1);
+                (cls === "aligned" ? aligned : conflicting).push(`Daily TD${bp} setup count is exhaustion-high on the bull side (reversal candidate).`);
+              }
+            }
+            if (aligned.length === 0 && conflicting.length === 0 && neutral.length === 0) {
+              neutral.push(`Technicals look balanced — no extreme readings, no exhaustion signals, no fresh squeeze. Waiting for a catalyst.`);
+            }
+            const Bullet = ({
+              icon,
+              text,
+              color
+            }) => React.createElement("li", {
+              style: {
+                display: "flex",
+                gap: 8,
+                alignItems: "flex-start",
+                margin: "4px 0",
+                color: "var(--ds-text-body)",
+                fontSize: "var(--ds-fs-meta)",
+                lineHeight: 1.5
+              }
+            }, React.createElement("span", {
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                fontWeight: 700,
+                color,
+                minWidth: 16,
+                textAlign: "center",
+                flexShrink: 0
+              }
+            }, icon), React.createElement("span", null, text));
+            return React.createElement(Panel, {
+              title: `Technical Analysis · ${sym}`,
+              action: React.createElement("span", {
+                className: `ds-chip ds-chip--sm ${dir === "bullish" ? "ds-chip--up" : dir === "bearish" ? "ds-chip--dn" : "ds-chip--solid"}`,
+                style: {
+                  fontFamily: "var(--tt-font-mono)"
+                }
+              }, dirLabel, " bias")
+            }, pcDir && pcDir !== "" && dir !== "mixed" && React.createElement("p", {
+              style: {
+                margin: "0 0 var(--ds-space-2) 0",
+                fontSize: "var(--ds-fs-caption)",
+                color: "var(--ds-text-muted)",
+                fontStyle: "italic",
+                lineHeight: 1.5
+              }
+            }, "Read against the model's ", React.createElement("strong", {
+              style: {
+                color: dirLabel === "SHORT" ? "var(--ds-dn)" : "var(--ds-up)"
+              }
+            }, dirLabel), " bias. Aligned signals support the call; conflicting signals are caveats / reversal triggers."), React.createElement("ul", {
+              style: {
+                listStyle: "none",
+                padding: 0,
+                margin: 0
+              }
+            }, aligned.map((t, i) => React.createElement(Bullet, {
+              key: `al-${i}`,
+              icon: "\u2713",
+              text: t,
+              color: "var(--ds-up)"
+            })), conflicting.map((t, i) => React.createElement(Bullet, {
+              key: `cf-${i}`,
+              icon: "\u26A0",
+              text: `Conflicts with ${dirLabel} bias: ${t}`,
+              color: "var(--ds-dn)"
+            })), neutral.map((t, i) => React.createElement(Bullet, {
+              key: `nt-${i}`,
+              icon: "\xB7",
+              text: t,
+              color: "var(--ds-text-muted)"
+            }))), conflicting.length > 0 && aligned.length === 0 && React.createElement("p", {
+              style: {
+                margin: "var(--ds-space-2) 0 0 0",
+                padding: "6px 8px",
+                borderRadius: "var(--ds-radius-xs)",
+                background: "rgba(244,63,94,0.06)",
+                border: "1px solid rgba(244,63,94,0.20)",
+                fontSize: "var(--ds-fs-caption)",
+                color: "var(--ds-dn)",
+                lineHeight: 1.5
+              }
+            }, "Raw structure runs counter to the ", dirLabel, " bias \u2014 this is a counter-trend / reversal stance. Wait for a confirming break-of-structure before sizing in."));
+          })(), ticker?.tf_tech && (() => {
+            const tfm = ticker.tf_tech || {};
+            const dirSign = (() => {
+              const s = String(ticker?.state || "").toUpperCase();
+              if (s.startsWith("HTF_BULL")) return 1;
+              if (s.startsWith("HTF_BEAR")) return -1;
+              const t30 = Number(tfm["30"]?.stDir);
+              const t1h = Number(tfm["1H"]?.stDir || tfm["60"]?.stDir);
+              const tdy = Number(tfm.D?.stDir);
+              const sum = (t30 || 0) + (t1h || 0) + (tdy || 0);
+              return sum > 0 ? 1 : sum < 0 ? -1 : 0;
+            })();
+            const dirLabel = dirSign === 1 ? "LONG" : dirSign === -1 ? "SHORT" : "MIX";
+            let aligned = 0,
+              opposed = 0,
+              present = 0;
+            for (const k of ["15", "30", "1H", "4H", "D"]) {
+              const r = tfm[k] || tfm[`${k}m`] || (k === "1H" ? tfm["60"] : null) || (k === "4H" ? tfm["240"] : null);
+              if (!r) continue;
+              const stack = Number(r?.ema?.stack);
+              if (!Number.isFinite(stack) || stack === 0) continue;
+              present += 1;
+              if (dirSign !== 0 && Math.sign(stack) === dirSign) aligned += 1;else if (dirSign !== 0 && Math.sign(stack) === -dirSign) opposed += 1;
+            }
+            let sqLine = null;
             for (const k of ["15", "30", "1H", "60", "4H", "240", "D"]) {
               const r = tfm[k];
               const sq = r?.sq;
               if (!sq) continue;
-              if (sq.s) {
-                sqLine = `Squeeze ON ${k}`;
-                break;
-              }
-              if (sq.c) {
-                sqLine = `Compressed on ${k}`;
+              if (sq.r) {
+                sqLine = `Squeeze RELEASE on ${k}`;
                 break;
               }
             }
-          }
-          const insight = (() => {
-            if (present === 0) return "Multi-TF data loading…";
-            const pct = Math.round(aligned / Math.max(1, present) * 100);
-            const txt = aligned >= 4 ? `Strongly aligned ${dirLabel} (${aligned}/${present})` : aligned >= 3 ? `Mostly aligned ${dirLabel} (${aligned}/${present})` : opposed >= 3 ? `Conflicted — ${opposed}/${present} against ${dirLabel}` : `Mixed structure (${aligned}↑ / ${opposed}↓ vs ${dirLabel})`;
-            return sqLine ? `${txt} · ${sqLine}` : txt;
-          })();
-          return React.createElement(Panel, {
-            title: "Multi-TF Stack",
-            action: React.createElement("span", {
-              className: `ds-chip ds-chip--sm ${aligned >= 4 ? "ds-chip--up" : opposed >= 3 ? "ds-chip--dn" : "ds-chip--accent"}`
-            }, aligned, "/", present || "?")
-          }, React.createElement("p", {
-            style: {
-              fontSize: "var(--ds-fs-meta)",
-              color: "var(--ds-text-muted)",
-              margin: "0 0 var(--ds-space-2) 0",
-              lineHeight: 1.5
+            if (!sqLine) {
+              for (const k of ["15", "30", "1H", "60", "4H", "240", "D"]) {
+                const r = tfm[k];
+                const sq = r?.sq;
+                if (!sq) continue;
+                if (sq.s) {
+                  sqLine = `Squeeze ON ${k}`;
+                  break;
+                }
+                if (sq.c) {
+                  sqLine = `Compressed on ${k}`;
+                  break;
+                }
+              }
             }
-          }, insight), React.createElement("div", {
-            style: {
-              display: "grid",
-              gridTemplateColumns: "50px repeat(5, 1fr)",
-              gap: "var(--ds-space-1)",
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: "var(--ds-fs-meta)"
-            }
-          }, React.createElement("div", {
-            className: "ds-caption"
-          }, "TF"), React.createElement("div", {
-            className: "ds-caption",
-            style: {
-              textAlign: "right"
-            }
-          }, "RSI"), React.createElement("div", {
-            className: "ds-caption",
-            style: {
-              textAlign: "right"
-            }
-          }, "ATR%"), React.createElement("div", {
-            className: "ds-caption",
-            style: {
-              textAlign: "right"
-            }
-          }, "SQ"), React.createElement("div", {
-            className: "ds-caption",
-            style: {
-              textAlign: "right"
-            }
-          }, "Phase"), React.createElement("div", {
-            className: "ds-caption",
-            style: {
-              textAlign: "right"
-            }
-          }, "Stack"), [["15", "15"], ["30", "30"], ["1H", "1H"], ["4H", "4H"], ["D", "D"]].map(([tfDisp, tfKey]) => {
-            const tfRow = ticker.tf_tech?.[tfKey] || ticker.tf_tech?.[`${tfKey}m`] || (tfKey === "1H" ? ticker.tf_tech?.["60"] : null) || (tfKey === "4H" ? ticker.tf_tech?.["240"] : null);
-            if (!tfRow) {
+            const insight = (() => {
+              if (present === 0) return "Multi-TF data loading…";
+              const pct = Math.round(aligned / Math.max(1, present) * 100);
+              const txt = aligned >= 4 ? `Strongly aligned ${dirLabel} (${aligned}/${present})` : aligned >= 3 ? `Mostly aligned ${dirLabel} (${aligned}/${present})` : opposed >= 3 ? `Conflicted — ${opposed}/${present} against ${dirLabel}` : `Mixed structure (${aligned}↑ / ${opposed}↓ vs ${dirLabel})`;
+              return sqLine ? `${txt} · ${sqLine}` : txt;
+            })();
+            return React.createElement(Panel, {
+              title: "Multi-TF Stack",
+              action: React.createElement("span", {
+                className: `ds-chip ds-chip--sm ${aligned >= 4 ? "ds-chip--up" : opposed >= 3 ? "ds-chip--dn" : "ds-chip--accent"}`
+              }, aligned, "/", present || "?")
+            }, React.createElement("p", {
+              style: {
+                fontSize: "var(--ds-fs-meta)",
+                color: "var(--ds-text-muted)",
+                margin: "0 0 var(--ds-space-2) 0",
+                lineHeight: 1.5
+              }
+            }, insight), React.createElement("div", {
+              style: {
+                display: "grid",
+                gridTemplateColumns: "50px repeat(5, 1fr)",
+                gap: "var(--ds-space-1)",
+                fontFamily: "var(--tt-font-mono)",
+                fontSize: "var(--ds-fs-meta)"
+              }
+            }, React.createElement("div", {
+              className: "ds-caption"
+            }, "TF"), React.createElement("div", {
+              className: "ds-caption",
+              style: {
+                textAlign: "right"
+              }
+            }, "RSI"), React.createElement("div", {
+              className: "ds-caption",
+              style: {
+                textAlign: "right"
+              }
+            }, "ATR%"), React.createElement("div", {
+              className: "ds-caption",
+              style: {
+                textAlign: "right"
+              }
+            }, "SQ"), React.createElement("div", {
+              className: "ds-caption",
+              style: {
+                textAlign: "right"
+              }
+            }, "Phase"), React.createElement("div", {
+              className: "ds-caption",
+              style: {
+                textAlign: "right"
+              }
+            }, "Stack"), [["15", "15"], ["30", "30"], ["1H", "1H"], ["4H", "4H"], ["D", "D"]].map(([tfDisp, tfKey]) => {
+              const tfRow = ticker.tf_tech?.[tfKey] || ticker.tf_tech?.[`${tfKey}m`] || (tfKey === "1H" ? ticker.tf_tech?.["60"] : null) || (tfKey === "4H" ? ticker.tf_tech?.["240"] : null);
+              if (!tfRow) {
+                return React.createElement(React.Fragment, {
+                  key: `tf-${tfDisp}`
+                }, React.createElement("div", {
+                  style: {
+                    color: "var(--ds-text-muted)"
+                  }
+                }, tfDisp), React.createElement("div", {
+                  style: {
+                    textAlign: "right",
+                    color: "var(--ds-text-faint)"
+                  }
+                }, "\u2014"), React.createElement("div", {
+                  style: {
+                    textAlign: "right",
+                    color: "var(--ds-text-faint)"
+                  }
+                }, "\u2014"), React.createElement("div", {
+                  style: {
+                    textAlign: "right",
+                    color: "var(--ds-text-faint)"
+                  }
+                }, "\u2014"), React.createElement("div", {
+                  style: {
+                    textAlign: "right",
+                    color: "var(--ds-text-faint)"
+                  }
+                }, "\u2014"), React.createElement("div", {
+                  style: {
+                    textAlign: "right",
+                    color: "var(--ds-text-faint)"
+                  }
+                }, "\u2014"));
+              }
+              const sq = tfRow.sq || {};
+              const rsiVal = Number(tfRow?.rsi?.r5);
+              const phVal = Number(tfRow?.ph?.v);
+              const stack = Number(tfRow?.ema?.stack);
+              const atrPctTf = Number(tfRow?.atr_pct);
+              const atrPctFallback = Number(ticker?.atr_d_pct ?? ticker?.atr_pct_d ?? (Number(ticker?.atr_d) && Number(ticker?.price) ? Number(ticker.atr_d) / Number(ticker.price) * 100 : NaN));
+              const atrPct = Number.isFinite(atrPctTf) ? atrPctTf : atrPctFallback;
+              const sqLabel = sq.r ? "RLS" : sq.s ? "ON" : sq.c ? "CMP" : "—";
+              const sqColor = sq.r ? "var(--ds-accent)" : sq.s ? "#facc15" : sq.c ? "var(--ds-text-muted)" : "var(--ds-text-faint)";
+              const stackTxt = Number.isFinite(stack) && stack !== 0 ? stack >= 4 ? "BULL" : stack <= -4 ? "BEAR" : stack > 0 ? "+lean" : "-lean" : "MIX";
+              const stackColor = Number.isFinite(stack) && stack >= 4 ? "var(--ds-up)" : Number.isFinite(stack) && stack <= -4 ? "var(--ds-dn)" : "var(--ds-text-muted)";
               return React.createElement(React.Fragment, {
                 key: `tf-${tfDisp}`
               }, React.createElement("div", {
@@ -4922,314 +4978,271 @@
               }, tfDisp), React.createElement("div", {
                 style: {
                   textAlign: "right",
-                  color: "var(--ds-text-faint)"
+                  color: Number.isFinite(rsiVal) ? rsiVal >= 70 ? "var(--ds-up)" : rsiVal <= 30 ? "var(--ds-dn)" : "var(--ds-text-display)" : "var(--ds-text-faint)"
                 }
-              }, "\u2014"), React.createElement("div", {
+              }, Number.isFinite(rsiVal) ? rsiVal.toFixed(1) : "—"), React.createElement("div", {
                 style: {
                   textAlign: "right",
-                  color: "var(--ds-text-faint)"
+                  color: Number.isFinite(atrPct) ? "var(--ds-text-display)" : "var(--ds-text-faint)"
                 }
-              }, "\u2014"), React.createElement("div", {
+              }, Number.isFinite(atrPct) ? atrPct.toFixed(2) : "—"), React.createElement("div", {
                 style: {
                   textAlign: "right",
-                  color: "var(--ds-text-faint)"
+                  color: sqColor
                 }
-              }, "\u2014"), React.createElement("div", {
+              }, sqLabel), React.createElement("div", {
                 style: {
                   textAlign: "right",
-                  color: "var(--ds-text-faint)"
+                  color: Number.isFinite(phVal) ? "var(--ds-text-display)" : "var(--ds-text-faint)"
                 }
-              }, "\u2014"), React.createElement("div", {
+              }, Number.isFinite(phVal) ? phVal.toFixed(0) : "—"), React.createElement("div", {
                 style: {
                   textAlign: "right",
-                  color: "var(--ds-text-faint)"
+                  color: stackColor
                 }
-              }, "\u2014"));
-            }
-            const sq = tfRow.sq || {};
-            const rsiVal = Number(tfRow?.rsi?.r5);
-            const phVal = Number(tfRow?.ph?.v);
-            const stack = Number(tfRow?.ema?.stack);
-            const atrPctTf = Number(tfRow?.atr_pct);
-            const atrPctFallback = Number(ticker?.atr_d_pct ?? ticker?.atr_pct_d ?? (Number(ticker?.atr_d) && Number(ticker?.price) ? Number(ticker.atr_d) / Number(ticker.price) * 100 : NaN));
-            const atrPct = Number.isFinite(atrPctTf) ? atrPctTf : atrPctFallback;
-            const sqLabel = sq.r ? "RLS" : sq.s ? "ON" : sq.c ? "CMP" : "—";
-            const sqColor = sq.r ? "var(--ds-accent)" : sq.s ? "#facc15" : sq.c ? "var(--ds-text-muted)" : "var(--ds-text-faint)";
-            const stackTxt = Number.isFinite(stack) && stack !== 0 ? stack >= 4 ? "BULL" : stack <= -4 ? "BEAR" : stack > 0 ? "+lean" : "-lean" : "MIX";
-            const stackColor = Number.isFinite(stack) && stack >= 4 ? "var(--ds-up)" : Number.isFinite(stack) && stack <= -4 ? "var(--ds-dn)" : "var(--ds-text-muted)";
-            return React.createElement(React.Fragment, {
-              key: `tf-${tfDisp}`
-            }, React.createElement("div", {
-              style: {
-                color: "var(--ds-text-muted)"
-              }
-            }, tfDisp), React.createElement("div", {
-              style: {
-                textAlign: "right",
-                color: Number.isFinite(rsiVal) ? rsiVal >= 70 ? "var(--ds-up)" : rsiVal <= 30 ? "var(--ds-dn)" : "var(--ds-text-display)" : "var(--ds-text-faint)"
-              }
-            }, Number.isFinite(rsiVal) ? rsiVal.toFixed(1) : "—"), React.createElement("div", {
-              style: {
-                textAlign: "right",
-                color: Number.isFinite(atrPct) ? "var(--ds-text-display)" : "var(--ds-text-faint)"
-              }
-            }, Number.isFinite(atrPct) ? atrPct.toFixed(2) : "—"), React.createElement("div", {
-              style: {
-                textAlign: "right",
-                color: sqColor
-              }
-            }, sqLabel), React.createElement("div", {
-              style: {
-                textAlign: "right",
-                color: Number.isFinite(phVal) ? "var(--ds-text-display)" : "var(--ds-text-faint)"
-              }
-            }, Number.isFinite(phVal) ? phVal.toFixed(0) : "—"), React.createElement("div", {
-              style: {
-                textAlign: "right",
-                color: stackColor
-              }
-            }, stackTxt));
-          })));
-        })(), ticker?.rsi != null && React.createElement(Panel, {
-          title: "RSI & Divergence",
-          action: React.createElement("span", {
-            className: `ds-chip ds-chip--sm ${ticker.rsi >= 70 ? "ds-chip--dn" : ticker.rsi <= 30 ? "ds-chip--up" : "ds-chip--solid"}`,
-            style: {
-              fontFamily: "var(--tt-font-mono)"
-            }
-          }, Number(ticker.rsi).toFixed(1))
-        }, React.createElement("div", {
-          style: {
-            position: "relative",
-            height: 24,
-            background: "var(--ds-bg-glass)",
-            borderRadius: "var(--ds-radius-xs)",
-            overflow: "hidden",
-            marginTop: "var(--ds-space-2)"
-          }
-        }, React.createElement("div", {
-          style: {
-            position: "absolute",
-            left: 0,
-            top: 0,
-            bottom: 0,
-            width: "30%",
-            background: "rgba(34,197,94,0.06)"
-          }
-        }), React.createElement("div", {
-          style: {
-            position: "absolute",
-            right: 0,
-            top: 0,
-            bottom: 0,
-            width: "30%",
-            background: "rgba(244,63,94,0.06)"
-          }
-        }), React.createElement("div", {
-          style: {
-            position: "absolute",
-            top: 0,
-            bottom: 0,
-            left: 0,
-            width: `${Math.max(0, Math.min(100, Number(ticker.rsi)))}%`,
-            background: ticker.rsi >= 70 ? "rgba(244,63,94,0.45)" : ticker.rsi <= 30 ? "rgba(34,197,94,0.45)" : "rgba(245,194,92,0.35)"
-          }
-        }), React.createElement("div", {
-          style: {
-            position: "absolute",
-            left: "30%",
-            top: 0,
-            bottom: 0,
-            width: 1,
-            background: "var(--ds-stroke-hi)"
-          }
-        }), React.createElement("div", {
-          style: {
-            position: "absolute",
-            left: "70%",
-            top: 0,
-            bottom: 0,
-            width: 1,
-            background: "var(--ds-stroke-hi)"
-          }
-        })), React.createElement("div", {
-          style: {
-            display: "flex",
-            justifyContent: "space-between",
-            marginTop: 4,
-            fontSize: "var(--ds-fs-caption)",
-            color: "var(--ds-text-faint)",
-            fontFamily: "var(--tt-font-mono)"
-          }
-        }, React.createElement("span", null, "0"), React.createElement("span", null, "30"), React.createElement("span", null, "50"), React.createElement("span", null, "70"), React.createElement("span", null, "100")), (ticker?.rsi_divergence || ticker?.phase_divergence) && React.createElement("div", {
-          style: {
-            marginTop: "var(--ds-space-3)",
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "var(--ds-space-1)"
-          }
-        }, ticker.rsi_divergence?.bull && React.createElement("span", {
-          className: "ds-chip ds-chip--sm ds-chip--up"
-        }, "RSI Bull Div"), ticker.rsi_divergence?.bear && React.createElement("span", {
-          className: "ds-chip ds-chip--sm ds-chip--dn"
-        }, "RSI Bear Div"), ticker.phase_divergence?.bull && React.createElement("span", {
-          className: "ds-chip ds-chip--sm ds-chip--up"
-        }, "Phase Bull Div"), ticker.phase_divergence?.bear && React.createElement("span", {
-          className: "ds-chip ds-chip--sm ds-chip--dn"
-        }, "Phase Bear Div"))), ticker?.td_sequential && (() => {
-          const perTf = ticker.td_sequential.per_tf || {};
-          const TF_DISPLAY = [["15", "15m"], ["30", "30m"], ["60", "1H"], ["240", "4H"], ["D", "D"], ["W", "W"]];
-          const rows = TF_DISPLAY.map(([key, label]) => {
-            const d = perTf[key] || {};
-            const bull = Number(d.bullish_prep_count ?? d.bull_prep) || 0;
-            const bear = Number(d.bearish_prep_count ?? d.bear_prep) || 0;
-            const td9b = !!d.td9_bullish,
-              td9s = !!d.td9_bearish;
-            const td13b = !!d.td13_bullish,
-              td13s = !!d.td13_bearish;
-            return {
-              key,
-              label,
-              bull,
-              bear,
-              td9b,
-              td9s,
-              td13b,
-              td13s
-            };
-          });
-          const peak = rows.reduce((p, r) => {
-            const m = Math.max(r.bull, r.bear);
-            if (m > p.m) return {
-              m,
-              side: r.bull >= r.bear ? "bull" : "bear",
-              tf: r.label
-            };
-            return p;
-          }, {
-            m: 0,
-            side: null,
-            tf: null
-          });
-          const insight = peak.m === 0 ? "No active TD count yet — fresh trend." : peak.m >= 9 ? `TD${peak.m} ${peak.side === "bull" ? "exhaustion HIGH" : "exhaustion LOW"} on ${peak.tf} — reversal watch.` : peak.m >= 7 ? `TD${peak.m} approaching exhaustion on ${peak.tf} (${peak.side}).` : `TD${peak.m} on ${peak.tf} (${peak.side}).`;
-          return React.createElement(Panel, {
-            title: "TD Sequential",
-            action: peak.m >= 7 && React.createElement("span", {
-              className: `ds-chip ds-chip--sm ${peak.m >= 9 ? "ds-chip--accent" : ""}`,
+              }, stackTxt));
+            })));
+          })(), ticker?.rsi != null && React.createElement(Panel, {
+            title: "RSI & Divergence",
+            action: React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${ticker.rsi >= 70 ? "ds-chip--dn" : ticker.rsi <= 30 ? "ds-chip--up" : "ds-chip--solid"}`,
               style: {
                 fontFamily: "var(--tt-font-mono)"
               }
-            }, "TD", peak.m, " ", peak.tf)
-          }, React.createElement("p", {
+            }, Number(ticker.rsi).toFixed(1))
+          }, React.createElement("div", {
             style: {
-              fontSize: "var(--ds-fs-meta)",
-              color: "var(--ds-text-muted)",
-              margin: "0 0 var(--ds-space-2) 0",
-              lineHeight: 1.5
-            }
-          }, insight), React.createElement("div", {
-            style: {
-              display: "grid",
-              gridTemplateColumns: "repeat(2, 1fr)",
-              gap: "var(--ds-space-1)"
-            }
-          }, rows.map(r => React.createElement("div", {
-            key: `td-${r.key}`,
-            style: {
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "6px 10px",
+              position: "relative",
+              height: 24,
               background: "var(--ds-bg-glass)",
               borderRadius: "var(--ds-radius-xs)",
-              fontSize: "var(--ds-fs-meta)",
+              overflow: "hidden",
+              marginTop: "var(--ds-space-2)"
+            }
+          }, React.createElement("div", {
+            style: {
+              position: "absolute",
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: "30%",
+              background: "rgba(34,197,94,0.06)"
+            }
+          }), React.createElement("div", {
+            style: {
+              position: "absolute",
+              right: 0,
+              top: 0,
+              bottom: 0,
+              width: "30%",
+              background: "rgba(244,63,94,0.06)"
+            }
+          }), React.createElement("div", {
+            style: {
+              position: "absolute",
+              top: 0,
+              bottom: 0,
+              left: 0,
+              width: `${Math.max(0, Math.min(100, Number(ticker.rsi)))}%`,
+              background: ticker.rsi >= 70 ? "rgba(244,63,94,0.45)" : ticker.rsi <= 30 ? "rgba(34,197,94,0.45)" : "rgba(245,194,92,0.35)"
+            }
+          }), React.createElement("div", {
+            style: {
+              position: "absolute",
+              left: "30%",
+              top: 0,
+              bottom: 0,
+              width: 1,
+              background: "var(--ds-stroke-hi)"
+            }
+          }), React.createElement("div", {
+            style: {
+              position: "absolute",
+              left: "70%",
+              top: 0,
+              bottom: 0,
+              width: 1,
+              background: "var(--ds-stroke-hi)"
+            }
+          })), React.createElement("div", {
+            style: {
+              display: "flex",
+              justifyContent: "space-between",
+              marginTop: 4,
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-text-faint)",
               fontFamily: "var(--tt-font-mono)"
             }
-          }, React.createElement("span", {
+          }, React.createElement("span", null, "0"), React.createElement("span", null, "30"), React.createElement("span", null, "50"), React.createElement("span", null, "70"), React.createElement("span", null, "100")), (ticker?.rsi_divergence || ticker?.phase_divergence) && React.createElement("div", {
             style: {
-              color: "var(--ds-text-muted)"
+              marginTop: "var(--ds-space-3)",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "var(--ds-space-1)"
             }
-          }, r.label), React.createElement("span", {
+          }, ticker.rsi_divergence?.bull && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--up"
+          }, "RSI Bull Div"), ticker.rsi_divergence?.bear && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--dn"
+          }, "RSI Bear Div"), ticker.phase_divergence?.bull && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--up"
+          }, "Phase Bull Div"), ticker.phase_divergence?.bear && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--dn"
+          }, "Phase Bear Div"))), ticker?.td_sequential && (() => {
+            const perTf = ticker.td_sequential.per_tf || {};
+            const TF_DISPLAY = [["15", "15m"], ["30", "30m"], ["60", "1H"], ["240", "4H"], ["D", "D"], ["W", "W"]];
+            const rows = TF_DISPLAY.map(([key, label]) => {
+              const d = perTf[key] || {};
+              const bull = Number(d.bullish_prep_count ?? d.bull_prep) || 0;
+              const bear = Number(d.bearish_prep_count ?? d.bear_prep) || 0;
+              const td9b = !!d.td9_bullish,
+                td9s = !!d.td9_bearish;
+              const td13b = !!d.td13_bullish,
+                td13s = !!d.td13_bearish;
+              return {
+                key,
+                label,
+                bull,
+                bear,
+                td9b,
+                td9s,
+                td13b,
+                td13s
+              };
+            });
+            const peak = rows.reduce((p, r) => {
+              const m = Math.max(r.bull, r.bear);
+              if (m > p.m) return {
+                m,
+                side: r.bull >= r.bear ? "bull" : "bear",
+                tf: r.label
+              };
+              return p;
+            }, {
+              m: 0,
+              side: null,
+              tf: null
+            });
+            const insight = peak.m === 0 ? "No active TD count yet — fresh trend." : peak.m >= 9 ? `TD${peak.m} ${peak.side === "bull" ? "exhaustion HIGH" : "exhaustion LOW"} on ${peak.tf} — reversal watch.` : peak.m >= 7 ? `TD${peak.m} approaching exhaustion on ${peak.tf} (${peak.side}).` : `TD${peak.m} on ${peak.tf} (${peak.side}).`;
+            return React.createElement(Panel, {
+              title: "TD Sequential",
+              action: peak.m >= 7 && React.createElement("span", {
+                className: `ds-chip ds-chip--sm ${peak.m >= 9 ? "ds-chip--accent" : ""}`,
+                style: {
+                  fontFamily: "var(--tt-font-mono)"
+                }
+              }, "TD", peak.m, " ", peak.tf)
+            }, React.createElement("p", {
+              style: {
+                fontSize: "var(--ds-fs-meta)",
+                color: "var(--ds-text-muted)",
+                margin: "0 0 var(--ds-space-2) 0",
+                lineHeight: 1.5
+              }
+            }, insight), React.createElement("div", {
+              style: {
+                display: "grid",
+                gridTemplateColumns: "repeat(2, 1fr)",
+                gap: "var(--ds-space-1)"
+              }
+            }, rows.map(r => React.createElement("div", {
+              key: `td-${r.key}`,
+              style: {
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "6px 10px",
+                background: "var(--ds-bg-glass)",
+                borderRadius: "var(--ds-radius-xs)",
+                fontSize: "var(--ds-fs-meta)",
+                fontFamily: "var(--tt-font-mono)"
+              }
+            }, React.createElement("span", {
+              style: {
+                color: "var(--ds-text-muted)"
+              }
+            }, r.label), React.createElement("span", {
+              style: {
+                display: "flex",
+                alignItems: "center",
+                gap: 6
+              }
+            }, (r.td13b || r.td13s) && React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${r.td13b ? "ds-chip--up" : "ds-chip--dn"}`,
+              style: {
+                padding: "0 4px",
+                fontSize: 9
+              }
+            }, "13"), (r.td9b || r.td9s) && !(r.td13b || r.td13s) && React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${r.td9b ? "ds-chip--up" : "ds-chip--dn"}`,
+              style: {
+                padding: "0 4px",
+                fontSize: 9
+              }
+            }, "9"), React.createElement("span", {
+              style: {
+                color: r.bull >= 7 ? "var(--ds-accent)" : "var(--ds-up)"
+              }
+            }, "\u2191", r.bull), React.createElement("span", {
+              style: {
+                color: r.bear >= 7 ? "var(--ds-accent)" : "var(--ds-dn)"
+              }
+            }, "\u2193", r.bear))))));
+          })(), (ticker?.daily_ema_cloud || ticker?.fourh_ema_cloud || ticker?.oneh_ema_cloud) && React.createElement(Panel, {
+            title: "EMA Clouds"
+          }, React.createElement("div", {
             style: {
               display: "flex",
-              alignItems: "center",
-              gap: 6
+              flexDirection: "column",
+              gap: "var(--ds-space-1)"
             }
-          }, (r.td13b || r.td13s) && React.createElement("span", {
-            className: `ds-chip ds-chip--sm ${r.td13b ? "ds-chip--up" : "ds-chip--dn"}`,
+          }, [["Daily", ticker.daily_ema_cloud], ["4H", ticker.fourh_ema_cloud], ["1H", ticker.oneh_ema_cloud]].map(([label, c]) => {
+            if (!c) return null;
+            const status = c.status || c.cloud_state || (c.bull ? "bull" : c.bear ? "bear" : "neutral");
+            const cls = status === "bull" || c.bull ? "ds-chip--up" : status === "bear" || c.bear ? "ds-chip--dn" : "ds-chip--solid";
+            return React.createElement("div", {
+              key: `cloud-${label}`,
+              style: {
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--ds-space-2)"
+              }
+            }, React.createElement("span", {
+              className: "ds-caption",
+              style: {
+                minWidth: 48
+              }
+            }, label), React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${cls}`
+            }, String(status).toUpperCase()));
+          }))), ticker?.fundamentals && (ticker.fundamentals.pe || ticker.fundamentals.peg || ticker.fundamentals.eps_growth) && React.createElement(Panel, {
+            title: "Fundamentals",
+            action: React.createElement("button", {
+              className: "ds-chip ds-chip--sm",
+              onClick: () => setRailTab("FUNDAMENTALS"),
+              style: {
+                cursor: "pointer"
+              }
+            }, "Open Fundamentals \u2192")
+          }, React.createElement("div", {
             style: {
-              padding: "0 4px",
-              fontSize: 9
-            }
-          }, "13"), (r.td9b || r.td9s) && !(r.td13b || r.td13s) && React.createElement("span", {
-            className: `ds-chip ds-chip--sm ${r.td9b ? "ds-chip--up" : "ds-chip--dn"}`,
-            style: {
-              padding: "0 4px",
-              fontSize: 9
-            }
-          }, "9"), React.createElement("span", {
-            style: {
-              color: r.bull >= 7 ? "var(--ds-accent)" : "var(--ds-up)"
-            }
-          }, "\u2191", r.bull), React.createElement("span", {
-            style: {
-              color: r.bear >= 7 ? "var(--ds-accent)" : "var(--ds-dn)"
-            }
-          }, "\u2193", r.bear))))));
-        })(), (ticker?.daily_ema_cloud || ticker?.fourh_ema_cloud || ticker?.oneh_ema_cloud) && React.createElement(Panel, {
-          title: "EMA Clouds"
-        }, React.createElement("div", {
-          style: {
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--ds-space-1)"
-          }
-        }, [["Daily", ticker.daily_ema_cloud], ["4H", ticker.fourh_ema_cloud], ["1H", ticker.oneh_ema_cloud]].map(([label, c]) => {
-          if (!c) return null;
-          const status = c.status || c.cloud_state || (c.bull ? "bull" : c.bear ? "bear" : "neutral");
-          const cls = status === "bull" || c.bull ? "ds-chip--up" : status === "bear" || c.bear ? "ds-chip--dn" : "ds-chip--solid";
-          return React.createElement("div", {
-            key: `cloud-${label}`,
-            style: {
-              display: "flex",
-              alignItems: "center",
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
               gap: "var(--ds-space-2)"
             }
-          }, React.createElement("span", {
-            className: "ds-caption",
-            style: {
-              minWidth: 48
-            }
-          }, label), React.createElement("span", {
-            className: `ds-chip ds-chip--sm ${cls}`
-          }, String(status).toUpperCase()));
-        }))), ticker?.fundamentals && (ticker.fundamentals.pe || ticker.fundamentals.peg || ticker.fundamentals.eps_growth) && React.createElement(Panel, {
-          title: "Fundamentals",
-          action: React.createElement("button", {
-            className: "ds-chip ds-chip--sm",
-            onClick: () => setRailTab("FUNDAMENTALS"),
-            style: {
-              cursor: "pointer"
-            }
-          }, "Open Fundamentals \u2192")
-        }, React.createElement("div", {
-          style: {
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: "var(--ds-space-2)"
-          }
-        }, ticker.fundamentals.pe != null && React.createElement(Metric, {
-          label: "P/E",
-          value: Number(ticker.fundamentals.pe).toFixed(1)
-        }), ticker.fundamentals.peg != null && React.createElement(Metric, {
-          label: "PEG",
-          value: Number(ticker.fundamentals.peg).toFixed(2)
-        }), ticker.fundamentals.eps_growth != null && React.createElement(Metric, {
-          label: "EPS Gr",
-          value: `${Number(ticker.fundamentals.eps_growth).toFixed(1)}%`,
-          delta: Number(ticker.fundamentals.eps_growth) > 0 ? "Up" : "Dn",
-          deltaClass: Number(ticker.fundamentals.eps_growth) > 0 ? "up" : "dn"
-        })))), v2RailTab === "FUNDAMENTALS" && (() => {
+          }, ticker.fundamentals.pe != null && React.createElement(Metric, {
+            label: "P/E",
+            value: Number(ticker.fundamentals.pe).toFixed(1)
+          }), ticker.fundamentals.peg != null && React.createElement(Metric, {
+            label: "PEG",
+            value: Number(ticker.fundamentals.peg).toFixed(2)
+          }), ticker.fundamentals.eps_growth != null && React.createElement(Metric, {
+            label: "EPS Gr",
+            value: `${Number(ticker.fundamentals.eps_growth).toFixed(1)}%`,
+            delta: Number(ticker.fundamentals.eps_growth) > 0 ? "Up" : "Dn",
+            deltaClass: Number(ticker.fundamentals.eps_growth) > 0 ? "up" : "dn"
+          }))));
+        })(ticker), v2RailTab === "FUNDAMENTALS" && (() => {
           const F = fundamentals;
           const fmtBigUsd = n => {
             if (!Number.isFinite(Number(n))) return "—";

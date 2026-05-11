@@ -1581,6 +1581,46 @@
       />);
     }
 
+    // P0.7.135 — Stable wrapper components.
+    //
+    // These USED to be declared inside the TickerDetailRightRail render
+    // body (as `const Panel = ...` and `const Metric = ...`). That was a
+    // textbook React anti-pattern: each render created a fresh function
+    // reference, so React's reconciler treated <Panel> on render N and
+    // <Panel> on render N+1 as DIFFERENT component types and force-
+    // unmounted every subtree they wrapped. The chart subtree (which
+    // sits inside `<Panel title="Chart">`) was therefore torn down and
+    // rebuilt from scratch on every single rail-state change — including
+    // every click on the Snapshot / Setup / Technicals / Fundamentals /
+    // History tab strip. That is the "flicker when I change tabs" the
+    // user reported (P0.7.134 / P0.7.135). Moving these out to module
+    // scope makes their identity stable; <Panel> in render N === render
+    // N+1, React keeps the chart instance mounted, and the chart no
+    // longer flashes on tab clicks. The same fix benefits every other
+    // Panel-wrapped subtree (Setup, Technicals, Fundamentals, History).
+    const Panel = ({ title, action, children }) => (
+      <div className="ds-glass" style={{ marginBottom: "var(--ds-space-3)" }}>
+        {(title || action) && (
+          <div className="ds-glass__head">
+            {title && <div className="ds-glass__title">{title}</div>}
+            {action}
+          </div>
+        )}
+        {children}
+      </div>
+    );
+    const Metric = ({ label, value, delta, deltaClass = "accent" }) => (
+      <div className="ds-metric">
+        <div className="ds-metric__label">{label}</div>
+        <div className="ds-metric__row">
+          <div className="ds-metric__value">{value}</div>
+          {delta != null && delta !== "" && (
+            <div className={`ds-metric__delta ds-metric__delta--${deltaClass}`}>{delta}</div>
+          )}
+        </div>
+      </div>
+    );
+
     return function TickerDetailRightRail({
         ticker,
         trade = null,
@@ -2124,18 +2164,31 @@
           };
         }, [tickerSymbol, chartTf]);
 
-        // P0.7.101 — derive contextReady from STABLE primitive values
+        // P0.7.101 — derive readiness from STABLE primitive values
         // (not the ticker object reference). Was: deps included the
         // entire `ticker` prop, which gets a new object reference on
         // every WS price tick (~every 2s). Each tick refired this
         // effect → setLatestTicker → cascading parent re-renders that
         // touched the chart panel and produced the "flash" the user
         // reported. Now the effect only refires when the ticker
-        // SYMBOL changes or when context fields appear/disappear.
-        const _contextReady = !!(
+        // SYMBOL changes or when the readiness fields appear/disappear.
+        //
+        // P0.7.135 — Skip the /timed/latest fetch only when the parent
+        // already supplied BOTH `context` AND `tf_tech`. The previous
+        // check looked at context alone, but the parent's analysis-
+        // snapshot can include context (name / industry / sector) while
+        // still omitting tf_tech for many tickers — which caused the
+        // Technicals tab to render the "NO DATA" empty state forever
+        // because we never fetched the fuller payload that includes
+        // tf_tech. The /timed/latest payload reads from D1/KV and is
+        // cheap; fetching it once per ticker selection is fine.
+        const _rrTickerReady = !!(
           ticker?.context &&
           typeof ticker.context === "object" &&
-          (ticker.context.name || ticker.context.industry || ticker.context.sector || ticker.context.description)
+          (ticker.context.name || ticker.context.industry || ticker.context.sector || ticker.context.description) &&
+          ticker?.tf_tech &&
+          typeof ticker.tf_tech === "object" &&
+          Object.keys(ticker.tf_tech).length > 0
         );
         useEffect(() => {
           const sym = String(tickerSymbol || "")
@@ -2147,7 +2200,7 @@
             setLatestTickerLoading(false);
             return;
           }
-          if (_contextReady) {
+          if (_rrTickerReady) {
             setLatestTicker(null);
             setLatestTickerError(null);
             setLatestTickerLoading(false);
@@ -2188,7 +2241,7 @@
           return () => {
             cancelled = true;
           };
-        }, [tickerSymbol, _contextReady]);
+        }, [tickerSymbol, _rrTickerReady]);
 
         // Fetch model signals (ticker + sector + market level)
         useEffect(() => {
@@ -2590,29 +2643,13 @@
           })();
           const v2DirChip = v2Dir === "LONG" ? "ds-chip--up" : v2Dir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
           const v2RailTab = ["SNAPSHOT","SETUP","TECHNICALS","FUNDAMENTALS","HISTORY"].includes(railTab) ? railTab : "SNAPSHOT";
-          // ds-metric helpers
-          const Metric = ({ label, value, delta, deltaClass = "accent" }) => (
-            <div className="ds-metric">
-              <div className="ds-metric__label">{label}</div>
-              <div className="ds-metric__row">
-                <div className="ds-metric__value">{value}</div>
-                {delta != null && delta !== "" && (
-                  <div className={`ds-metric__delta ds-metric__delta--${deltaClass}`}>{delta}</div>
-                )}
-              </div>
-            </div>
-          );
-          const Panel = ({ title, action, children }) => (
-            <div className="ds-glass" style={{ marginBottom: "var(--ds-space-3)" }}>
-              {(title || action) && (
-                <div className="ds-glass__head">
-                  {title && <div className="ds-glass__title">{title}</div>}
-                  {action}
-                </div>
-              )}
-              {children}
-            </div>
-          );
+          // P0.7.135 — Panel + Metric have been HOISTED to the factory
+          // scope (above `return function TickerDetailRightRail`) so their
+          // component identity is stable across renders. The previous
+          // inline declarations created a fresh function on every render,
+          // forcing React to unmount and remount every Panel-wrapped
+          // subtree — including the chart — on every tab click. See the
+          // long comment at the hoisted definition for the full story.
           // ── Conviction values ──────────────────────────────────────
           /* V2.1 round 7 (2026-05-01) — Rank must be the position
              (1 = best), not the score. Worker emits both:
@@ -3837,7 +3874,29 @@
                   )}
 
                   {/* TECHNICALS TAB */}
-                  {v2RailTab === "TECHNICALS" && (
+                  {v2RailTab === "TECHNICALS" && ((parentTicker) => {
+                    /* P0.7.135 — Shadow `ticker` inside the Technicals
+                       branch with a merged view: parentTicker (live WS-
+                       overlaid price / change) layered ON TOP OF the
+                       full /timed/latest payload (which carries tf_tech,
+                       td_sequential, rsi_divergence, ema clouds, etc.).
+                       Reason: many parent snapshots are slim and omit
+                       tf_tech, which made the Technicals tab render
+                       only the "NO DATA — Multi-timeframe technicals
+                       haven't loaded yet" empty state for normal
+                       tickers like ACN. Merging in latestTicker fields
+                       fills the gap without affecting any other tab
+                       (the shadow is scoped to this IIFE). */
+                    const ticker = (() => {
+                      if (!latestTicker || typeof latestTicker !== "object") return parentTicker;
+                      if (!parentTicker || typeof parentTicker !== "object") return latestTicker;
+                      const out = { ...latestTicker };
+                      for (const k of Object.keys(parentTicker)) {
+                        if (parentTicker[k] != null) out[k] = parentTicker[k];
+                      }
+                      return out;
+                    })();
+                    return (
                     <>
                       {/* V2.1 round 11 (2026-05-04) — Bias Confirmation/Conflict
                           banner. Always renders at the top of Technicals so the
@@ -4342,7 +4401,8 @@
                         </Panel>
                       )}
                     </>
-                  )}
+                    );
+                  })(ticker)}
 
                   {/* FUNDAMENTALS TAB
                       Tenet-style fundamentals breakdown. Sources fundamentals from
