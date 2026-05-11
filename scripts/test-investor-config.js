@@ -15,6 +15,7 @@ import {
   DEFAULT_INVESTOR_CONFIG,
   loadInvestorConfig,
   classifyInvestorStage,
+  detectAccumulationZone,
 } from "../worker/investor.js";
 
 let pass = 0, fail = 0;
@@ -139,6 +140,93 @@ t("classifyInvestorStage: in-zone path still accumulates at score 30+ marketHeal
   const accumZone = { inZone: true, zoneType: "test_zone", confidence: 80 };
   const result = classifyInvestorStage(td, 30, null, { marketHealth: 30, accumZone });
   expect(result.stage, "==", "accumulate", "in-zone accumulate at 30/30");
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Phase 3.9e — detectAccumulationZone momentum-runner branch
+// ─────────────────────────────────────────────────────────────────────
+
+// Fixture: a healthy mid-trend SNDK profile — above weekly+daily EMA21,
+// monthly bull, weekly RSI in 65 (healthy zone), weekly ST bull.
+// Pre-Phase-3.9e this would have inZone=false, confidence=0.
+const fxMomentumRunnerTd = () => ({
+  ticker: "SNDK",
+  price: 200,
+  monthly_bundle: { supertrend_dir: -1, ema_structure: 0.7, rsi: 60, ema_depth: 6 },
+  tf_tech: {
+    W: {
+      ema: { priceAboveEma21: true, depth: 5 },
+      atr: { xs: 1 },                 // weekly ST bull (STD)
+      rsi: { r5: 65 },                // healthy mid-trend
+    },
+    D: {
+      ema: { priceAboveEma21: true, depth: 4 },
+      stDir: -1,                      // daily ST bull (Pine)
+      rsi: { r5: 60 },
+    },
+  },
+  ema_map: { W: { depth: 5, structure: 0.6 } },
+  td_sequential: { per_tf: { W: { bullish_prep_count: 0, bearish_prep_count: 4 } } },
+});
+
+t("detectAccumulationZone: momentum-runner profile fires (Phase 3.9e default)", () => {
+  const z = detectAccumulationZone(fxMomentumRunnerTd());
+  expect(z.inZone, "==", true, "inZone");
+  expect(z.zoneType, "==", "momentum_runner", "zoneType");
+});
+
+t("detectAccumulationZone: weekly RSI=92 (above max 88) → momentum-runner does NOT fire on RSI signal", () => {
+  const td = fxMomentumRunnerTd();
+  td.tf_tech.W.rsi.r5 = 92; // exhausted
+  const z = detectAccumulationZone(td);
+  // Without weekly_rsi_healthy signal, count drops 6→5 (still has 4+ from
+  // the other criteria), confidence still high. Should still fire.
+  expect(z.inZone, "==", true, "still fires on momentum-runner with hot RSI");
+  expect(z.signals.includes("weekly_rsi_healthy"), "==", false, "rsi signal dropped");
+});
+
+t("detectAccumulationZone: oversold profile bypasses momentum-runner branch", () => {
+  // weekly EMA21 below + RSI < 35 → momentum-runner doesn't fire,
+  // existing oversold branch can still fire if other signals present.
+  const td = fxMomentumRunnerTd();
+  td.tf_tech.W.ema.priceAboveEma21 = false;
+  td.tf_tech.D.ema.priceAboveEma21 = false;
+  td.tf_tech.W.rsi.r5 = 30;
+  td.tf_tech.W.atr.xs = -1;
+  td.tf_tech.D.stDir = 1; // bear (Pine +1)
+  const z = detectAccumulationZone(td);
+  expect(z.zoneType, "!=", "momentum_runner", "not momentum-runner");
+});
+
+t("detectAccumulationZone: momentum-runner branch can be disabled via config", () => {
+  const cfg = loadInvestorConfig({ deep_audit_investor_accum_zone_momentum_runner_enabled: "false" });
+  expect(cfg.accum_zone_momentum_runner_enabled, "==", false, "disabled via config");
+  const z = detectAccumulationZone(fxMomentumRunnerTd(), cfg);
+  expect(z.zoneType, "!=", "momentum_runner", "branch disabled — no momentum-runner zone");
+});
+
+t("detectAccumulationZone: stricter min_signals=6 fails on borderline runner", () => {
+  const td = fxMomentumRunnerTd();
+  td.tf_tech.D.stDir = 0; // drop one criterion (daily ST not bull)
+  const cfgStrict = loadInvestorConfig({
+    deep_audit_investor_accum_zone_momentum_runner_min_signals: 6, // require all 6
+  });
+  const z = detectAccumulationZone(td, cfgStrict);
+  expect(z.zoneType, "!=", "momentum_runner", "strict gate rejects borderline");
+});
+
+t("detectAccumulationZone: tunable RSI band — restrict 60-70 → 65-RSI passes, 55 fails", () => {
+  const cfgTight = loadInvestorConfig({
+    deep_audit_investor_accum_zone_momentum_runner_weekly_rsi_min: 60,
+    deep_audit_investor_accum_zone_momentum_runner_weekly_rsi_max: 70,
+  });
+  const td = fxMomentumRunnerTd();
+  td.tf_tech.W.rsi.r5 = 65;
+  let z = detectAccumulationZone(td, cfgTight);
+  expect(z.signals.includes("weekly_rsi_healthy"), "==", true, "65 in 60-70 band");
+  td.tf_tech.W.rsi.r5 = 55;
+  z = detectAccumulationZone(td, cfgTight);
+  expect(z.signals.includes("weekly_rsi_healthy"), "==", false, "55 outside 60-70 band");
 });
 
 // ─────────────────────────────────────────────────────────────────────

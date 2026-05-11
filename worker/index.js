@@ -33327,13 +33327,15 @@ async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMap
   // Compute investor scores for all tickers.
   // Phase 3.9d (2026-05-10) — pass loadInvestorConfig(daCfg) into stage
   // classification so live deep_audit_investor_* keys take effect.
+  // Phase 3.9e (2026-05-11) — also pass cfg into computeInvestorScore so
+  // detectAccumulationZone uses momentum-runner branch tunables.
   const _invDaCfg = (env?._deepAuditConfig) || {};
   const _invCfg = loadInvestorConfig(_invDaCfg);
   const scoredTickers = [];
   for (const [sym, td] of Object.entries(tickerDataMap)) {
     try {
       const { score, components, accumZone } = computeInvestorScore(td, {
-        rsRank: 50, sectorRsRank: 50, marketHealth: 50,
+        rsRank: 50, sectorRsRank: 50, marketHealth: 50, cfg: _invCfg,
       });
       const existingPos = posByTicker[sym] || null;
       const stage = classifyInvestorStage(td, score, existingPos, {
@@ -63577,6 +63579,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // Phase 5: Compute investor scores + stages for all tickers.
           // Phase 3.9d (2026-05-10) — load daCfg-driven stage thresholds
           // so deep_audit_investor_* keys take effect at request time.
+          // Phase 3.9e (2026-05-11) — also pass cfg into computeInvestorScore
+          // so detectAccumulationZone uses momentum-runner branch tunables.
           const _invDaCfg2 = (env?._deepAuditConfig) || {};
           const _invCfg2 = loadInvestorConfig(_invDaCfg2);
           const allInvestorScores = {};
@@ -63591,7 +63595,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             const sectorRsRank = sectorRsRanks[sector] || 50;
 
             const { score, components, accumZone } = computeInvestorScore(td, {
-              rsRank, sectorRsRank, marketHealth: marketHealth.score,
+              rsRank, sectorRsRank, marketHealth: marketHealth.score, cfg: _invCfg2,
             });
 
             allInvestorScores[ticker] = score;

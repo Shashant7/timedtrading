@@ -28,6 +28,26 @@ export const DEFAULT_INVESTOR_CONFIG = Object.freeze({
   watch_promising_score_min: 60,                      // unchanged
   research_on_watch_score_min: 40,                    // unchanged
   research_low_score_min: 30,                         // unchanged
+
+  // Phase 3.9e (2026-05-11) — Momentum-runner accumulation-zone detection.
+  //
+  // The pre-Phase-3.9e detectAccumulationZone was 100% mean-reversion
+  // oriented (near EMA200 / weekly ST support / oversold RSI / TD buyer
+  // exhaustion / Saty ACCUMULATION phase). Forensic dry-run found this
+  // averaged 0.4 of 15 possible contribution on momentum-runner cohorts —
+  // detectors NEVER fire on names like SNDK (avg score 47.8 despite +388%
+  // return), GEV, MU, BE because they're mid-trend, not oversold.
+  //
+  // Phase 3.9e adds a parallel momentum-runner branch that recognizes
+  // healthy mid-trend conditions: above weekly+daily EMA21, monthly bull,
+  // weekly RSI in healthy band (not oversold, not exhausted), daily RSI
+  // above neutral. Each criterion contributes confidence; meeting >=
+  // momentum_runner_min_signals fires inZone=true with zoneType='momentum_runner'.
+  accum_zone_momentum_runner_enabled: true,
+  accum_zone_momentum_runner_min_signals: 5,           // of 6 primary criteria — 5 chosen to filter noise; can tune to 4 for broader catch
+  accum_zone_momentum_runner_min_confidence: 50,       // 10pt step above oversold branch (40) for selectivity
+  accum_zone_momentum_runner_weekly_rsi_min: 50,       // healthy zone floor
+  accum_zone_momentum_runner_weekly_rsi_max: 88,       // exhaustion gate
 });
 
 /**
@@ -58,6 +78,30 @@ export function loadInvestorConfig(daCfg) {
   if (Number.isFinite(research) && research > 0 && research < 100) {
     cfg.research_on_watch_score_min = research;
   }
+  // Phase 3.9e — momentum-runner zone overrides
+  const mrEnabled = daCfg.deep_audit_investor_accum_zone_momentum_runner_enabled;
+  if (mrEnabled === true || mrEnabled === false) {
+    cfg.accum_zone_momentum_runner_enabled = mrEnabled;
+  } else if (typeof mrEnabled === "string") {
+    if (mrEnabled === "true") cfg.accum_zone_momentum_runner_enabled = true;
+    else if (mrEnabled === "false") cfg.accum_zone_momentum_runner_enabled = false;
+  }
+  const mrMinSig = Number(daCfg.deep_audit_investor_accum_zone_momentum_runner_min_signals);
+  if (Number.isFinite(mrMinSig) && mrMinSig >= 1 && mrMinSig <= 10) {
+    cfg.accum_zone_momentum_runner_min_signals = mrMinSig;
+  }
+  const mrMinConf = Number(daCfg.deep_audit_investor_accum_zone_momentum_runner_min_confidence);
+  if (Number.isFinite(mrMinConf) && mrMinConf >= 0 && mrMinConf <= 100) {
+    cfg.accum_zone_momentum_runner_min_confidence = mrMinConf;
+  }
+  const mrRsiMin = Number(daCfg.deep_audit_investor_accum_zone_momentum_runner_weekly_rsi_min);
+  if (Number.isFinite(mrRsiMin) && mrRsiMin >= 0 && mrRsiMin <= 100) {
+    cfg.accum_zone_momentum_runner_weekly_rsi_min = mrRsiMin;
+  }
+  const mrRsiMax = Number(daCfg.deep_audit_investor_accum_zone_momentum_runner_weekly_rsi_max);
+  if (Number.isFinite(mrRsiMax) && mrRsiMax >= 0 && mrRsiMax <= 100) {
+    cfg.accum_zone_momentum_runner_weekly_rsi_max = mrRsiMax;
+  }
   return cfg;
 }
 
@@ -81,6 +125,7 @@ export function loadInvestorConfig(daCfg) {
  * @returns {{ score: number, components: object }}
  */
 export function computeInvestorScore(tickerData, opts = {}) {
+  const _scoreCfg = opts.cfg || DEFAULT_INVESTOR_CONFIG;
   const components = {
     weeklyTrend: 0,
     monthlyTrend: 0,
@@ -169,7 +214,7 @@ export function computeInvestorScore(tickerData, opts = {}) {
   }
 
   // ── Accumulation Signal (15 pts) ──
-  const accumZone = detectAccumulationZone(tickerData);
+  const accumZone = detectAccumulationZone(tickerData, _scoreCfg);
   if (accumZone.inZone) {
     components.accumulationSignal = Math.round(accumZone.confidence * 15 / 100);
   }
@@ -670,20 +715,100 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
  * Detect if a ticker is in an accumulation zone (good buy zone for investors).
  *
  * @param {object} tickerData - assembled ticker payload
+ * @param {object} [cfg] - optional InvestorConfig (defaults to DEFAULT_INVESTOR_CONFIG).
+ *                         Controls Phase 3.9e momentum-runner branch tunables.
  * @returns {{ inZone: boolean, zoneType: string, confidence: number, signals: string[] }}
  */
-export function detectAccumulationZone(tickerData) {
+export function detectAccumulationZone(tickerData, cfg = DEFAULT_INVESTOR_CONFIG) {
   const signals = [];
   let confidence = 0;
 
   const price = tickerData.price;
   const mb = tickerData.monthly_bundle;
   const tfW = tickerData.tf_tech?.W;
+  const tfD = tickerData.tf_tech?.D;
   const emaW = tickerData.ema_map?.W;
   const emaD = tickerData.ema_map?.D;
 
   if (!price || price <= 0) {
     return { inZone: false, zoneType: "none", confidence: 0, signals: [] };
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // Phase 3.9e (2026-05-11) — Momentum-Runner Zone branch.
+  //
+  // Recognize healthy mid-trend conditions on momentum-runner profiles
+  // (SNDK / BE / AEHR class). Pre-Phase-3.9e, the zone detector was 100%
+  // mean-reversion oriented and missed these entirely (avg 0.4 of 15
+  // possible score contribution). Forensic dry-run on canonical Phase C
+  // showed PLTR scoring 0/49 → accumulate, TSM 0/24, SNDK 6/41 (avg 47.8
+  // despite +388% return) — all calibrated below the strong-score gate
+  // because this detector was silent on their profiles.
+  //
+  // Six criteria (each contributing); promote zone when >= min_signals
+  // AND confidence >= min_confidence. Independent of and additive to the
+  // existing oversold-bounce branch below.
+  // ═════════════════════════════════════════════════════════════════════════
+  if (cfg.accum_zone_momentum_runner_enabled) {
+    const mrSignals = [];   // primary criteria (count toward min_signals threshold)
+    const mrBonus = [];     // bonus boosters (confidence-only, not counted)
+    let mrConfidence = 0;
+    // 1. Above weekly EMA21 (close-discipline)
+    if (tfW?.ema?.priceAboveEma21 === true) {
+      mrSignals.push("weekly_above_ema21");
+      mrConfidence += 18;
+    }
+    // 2. Above daily EMA21
+    if (tfD?.ema?.priceAboveEma21 === true) {
+      mrSignals.push("daily_above_ema21");
+      mrConfidence += 12;
+    }
+    // 3. Monthly bull (Pine convention -1 = bull)
+    if (mb?.supertrend_dir === -1) {
+      mrSignals.push("monthly_supertrend_bull");
+      mrConfidence += 14;
+    }
+    // 4. Weekly SuperTrend bull (STANDARD convention: atr.xs === 1)
+    if (tfW?.atr?.xs === 1) {
+      mrSignals.push("weekly_supertrend_bull");
+      mrConfidence += 14;
+    }
+    // 5. Weekly RSI in healthy zone (not oversold, not exhausted)
+    const wRsi5 = Number(tfW?.rsi?.r5);
+    if (
+      Number.isFinite(wRsi5) &&
+      wRsi5 >= cfg.accum_zone_momentum_runner_weekly_rsi_min &&
+      wRsi5 <= cfg.accum_zone_momentum_runner_weekly_rsi_max
+    ) {
+      mrSignals.push("weekly_rsi_healthy");
+      mrConfidence += 12;
+    }
+    // 6. Daily SuperTrend bull (Pine convention -1 = bull)
+    if (tfD?.stDir === -1) {
+      mrSignals.push("daily_supertrend_bull");
+      mrConfidence += 10;
+    }
+    // Bonus boosters — contribute confidence but NOT to the min_signals
+    // count. They make a marginal-pass case more confident, but can't
+    // promote a too-thin signal set on their own.
+    if ((emaW?.depth ?? tfW?.ema?.depth ?? 0) >= 4) {
+      mrBonus.push("weekly_ema_stack_strong");
+      mrConfidence += 8;
+    }
+    if (
+      mrSignals.length >= cfg.accum_zone_momentum_runner_min_signals &&
+      mrConfidence >= cfg.accum_zone_momentum_runner_min_confidence
+    ) {
+      // Momentum-runner zone qualifies. Return early — this profile is
+      // structurally different from the oversold-bounce profile below;
+      // mixing the two would dilute confidence semantics.
+      return {
+        inZone: true,
+        zoneType: "momentum_runner",
+        confidence: Math.min(100, mrConfidence),
+        signals: [...mrSignals, ...mrBonus],
+      };
+    }
   }
 
   // ── Weekly Support Confluence ──

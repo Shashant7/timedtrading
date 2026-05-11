@@ -447,6 +447,18 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_investor_accumulate_strong_score_min",            // default 65 (was 70 hardcoded)
   "deep_audit_investor_watch_score_min",                        // default 50
   "deep_audit_investor_research_on_watch_score_min",            // default 40
+  // V15 P0.7.129 (2026-05-11) — Phase 3.9e momentum-runner accum-zone branch.
+  // Pre-Phase-3.9e detectAccumulationZone was 100% mean-reversion oriented
+  // (oversold bounces, near-EMA200, RSI<40). It missed momentum-runner
+  // profiles entirely: SNDK avg score 47.8 (despite +388%), PLTR 0/49 →
+  // accumulate, TSM 0/24, etc. Phase 3.9e adds a parallel branch that
+  // recognizes healthy mid-trend conditions (above weekly+daily EMA21,
+  // monthly bull, weekly RSI in healthy band). Tunable for live A/B.
+  "deep_audit_investor_accum_zone_momentum_runner_enabled",     // default true
+  "deep_audit_investor_accum_zone_momentum_runner_min_signals", // default 4 (of 6+1 bonus)
+  "deep_audit_investor_accum_zone_momentum_runner_min_confidence", // default 40
+  "deep_audit_investor_accum_zone_momentum_runner_weekly_rsi_min", // default 50
+  "deep_audit_investor_accum_zone_momentum_runner_weekly_rsi_max", // default 88
 ];
 
 const REPLAY_CFG_KEYS = [
