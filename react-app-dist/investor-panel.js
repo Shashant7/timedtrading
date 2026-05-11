@@ -38,6 +38,29 @@
 
     const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
 
+    /* Phase 3.9l (2026-05-11) — owned-position treatment.
+       Position metadata flows from /timed/investor/scores via the worker
+       (Phase 3.9i added the `position` field). When `owned=true` we:
+         1) draw a violet border (matches the Investor mode accent)
+         2) show an OWNED chip in the head row
+         3) render a position-stat strip with shares · avg entry · live PnL%
+       Live PnL is computed from the latest `t.price` (which the panel's
+       merge-prices effect refreshes every 30 s) so the % is always fresh
+       even when the cached `position.unrealized_pct` is stale. */
+    const pos = t.position;
+    const isOwned = !!(pos && pos.owned);
+    const posShares = isOwned ? Number(pos.shares) || 0 : 0;
+    const posAvg = isOwned ? Number(pos.avg_entry) || 0 : 0;
+    const livePnlPct = (isOwned && posAvg > 0 && Number.isFinite(price) && price > 0)
+      ? ((price - posAvg) / posAvg) * 100
+      : null;
+    const livePnlAbs = (livePnlPct != null && posShares > 0)
+      ? (price - posAvg) * posShares
+      : null;
+    const pnlDir = livePnlPct == null
+      ? "flat"
+      : livePnlPct > 0.05 ? "up" : livePnlPct < -0.05 ? "dn" : "flat";
+
     /* Stage chip mapping — colors hint at action */
     const stageChip = (() => {
       if (stage === "accumulate")        return { label: "Accumulate", cls: "ds-chip--up" };
@@ -75,6 +98,13 @@
       width: 280,
       textAlign: "left",
       padding: "var(--ds-space-3)",
+      // Owned positions get a violet halo (matches the Investor mode accent dot
+      // on the section header). Selected / TT Selected take precedence.
+      ...(isOwned && !isSelected && !isTTSel ? {
+        borderColor: "rgba(167,139,250,0.55)",
+        boxShadow: "inset 0 0 0 1px rgba(167,139,250,0.22), 0 0 0 1px rgba(167,139,250,0.08)",
+        background: "linear-gradient(180deg, rgba(167,139,250,0.05) 0%, transparent 35%)",
+      } : {}),
       ...(isSelected ? { borderColor: "var(--ds-text-display)", boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.2)" } : {}),
       ...(isTTSel && !isSelected ? { borderColor: "var(--ds-accent-dim)", boxShadow: "inset 0 0 0 1px rgba(245,194,92,0.18)" } : {}),
     };
@@ -97,6 +127,20 @@
           },
         }, sym.slice(0, 2)),
         React.createElement("span", { className: "ds-tickercard__symbol", style: { fontSize: 13 } }, sym),
+        // OWNED badge — system has an open investor position in this ticker
+        // (Phase 3.9l). Violet to match the Investor mode accent.
+        isOwned && React.createElement("span", {
+          className: "ds-chip ds-chip--sm",
+          style: {
+            fontFamily: "var(--tt-font-mono)", marginLeft: 4,
+            color: "rgb(196,181,253)",
+            background: "rgba(167,139,250,0.15)",
+            borderColor: "rgba(167,139,250,0.45)",
+          },
+          title: posShares > 0 && posAvg > 0
+            ? `Open position: ${posShares.toFixed(posShares >= 10 ? 1 : 4)} shares @ avg $${posAvg.toFixed(2)}`
+            : "Open investor position",
+        }, "OWNED"),
         // RS HIGH badge — investor-specific signal, gold accent
         t.rs?.rsNewHigh3m && React.createElement("span", {
           className: "ds-chip ds-chip--sm ds-chip--accent",
@@ -153,6 +197,51 @@
         style: { fontSize: 12 },
       }, `${dir === "up" ? "\u25B2" : dir === "dn" ? "\u25BC" : "\u25C6"} ${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`),
       sparkSvg && React.createElement("div", { className: "ds-tickercard__spark", dangerouslySetInnerHTML: { __html: sparkSvg } }),
+      // Phase 3.9l — owned-position stat strip. Shares · avg entry · live PnL.
+      // Sits between sparkline and the signal row so it's visually adjacent
+      // to the live price (the user's eye reads down: live price → "vs my
+      // cost" → "open PnL"). Only renders when isOwned.
+      isOwned && React.createElement("div", {
+        style: {
+          display: "flex", alignItems: "center", gap: "var(--ds-space-1)",
+          marginTop: "var(--ds-space-2)",
+          padding: "4px 6px",
+          borderRadius: "4px",
+          background: "rgba(167,139,250,0.07)",
+          border: "1px solid rgba(167,139,250,0.18)",
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: 11,
+          flexWrap: "wrap",
+        },
+        title: posShares > 0 && posAvg > 0 && livePnlPct != null
+          ? `Open position: ${posShares.toFixed(posShares >= 10 ? 1 : 4)} sh @ $${posAvg.toFixed(2)} → live $${(price ?? 0).toFixed(2)} (${livePnlPct >= 0 ? "+" : ""}${livePnlPct.toFixed(2)}%)`
+          : "Open investor position",
+      },
+        React.createElement("span", {
+          style: { color: "rgb(196,181,253)", fontWeight: 600, letterSpacing: "0.04em" },
+        }, "POS"),
+        React.createElement("span", { style: { color: "var(--ds-text-muted)" } },
+          posShares > 0 ? `${posShares >= 10 ? posShares.toFixed(1) : posShares.toFixed(4)} sh` : "—"),
+        React.createElement("span", { style: { color: "var(--ds-text-muted)" } },
+          posAvg > 0 ? `@ $${posAvg.toFixed(2)}` : ""),
+        livePnlPct != null && React.createElement("span", {
+          style: {
+            marginLeft: "auto",
+            color: pnlDir === "up" ? "var(--ds-up, rgb(74,222,128))"
+                 : pnlDir === "dn" ? "var(--ds-dn, rgb(248,113,113))"
+                 : "var(--ds-text-muted)",
+            fontWeight: 700,
+          },
+        }, `${livePnlPct >= 0 ? "+" : ""}${livePnlPct.toFixed(1)}%`),
+        livePnlAbs != null && Math.abs(livePnlAbs) >= 1 && React.createElement("span", {
+          style: {
+            color: pnlDir === "up" ? "var(--ds-up, rgb(74,222,128))"
+                 : pnlDir === "dn" ? "var(--ds-dn, rgb(248,113,113))"
+                 : "var(--ds-text-muted)",
+            opacity: 0.85,
+          },
+        }, `(${livePnlAbs >= 0 ? "+" : ""}$${Math.abs(livePnlAbs).toFixed(0)})`),
+      ),
       // Bottom signal row — Score · RS · 1M · 3M
       React.createElement("div", {
         style: { display: "flex", alignItems: "center", gap: "var(--ds-space-1)", marginTop: "var(--ds-space-2)", flexWrap: "wrap", zIndex: 2, position: "relative" },
@@ -240,6 +329,17 @@
           if (stage === "research") stage = "research_avoid"; // backward compat: old API
           if (grouped[stage]) grouped[stage].push(t);
         }
+    // Phase 3.9l — within each lane, push owned positions to the front so
+    // user's actual portfolio is the first thing they see horizontally.
+    // Stable secondary sort by score (DESC) preserves intra-group ranking.
+    for (const s of stages) {
+      grouped[s].sort((a, b) => {
+        const aOwned = !!(a?.position?.owned);
+        const bOwned = !!(b?.position?.owned);
+        if (aOwned !== bOwned) return aOwned ? -1 : 1;
+        return (Number(b?.score) || 0) - (Number(a?.score) || 0);
+      });
+    }
     const renderCard = (t) => React.createElement(InvestorCard, { key: t.ticker, t, onSelect, selectedTicker, savedTickers: savedTickers || new Set(), toggleSavedTicker });
 
     /* V2.1 round 5 (2026-05-01) — Per user: "nothing is ever in any
