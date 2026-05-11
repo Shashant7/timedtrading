@@ -70268,6 +70268,56 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           console.error("[D1 SYNC] scheduled kickoff failed:", String(e));
         }
       }
+
+      // P0.7.131 (2026-05-11) — WebSocket DO keep-alive.
+      //
+      // The PriceStream Durable Object self-heals via a 5-10s alarm
+      // loop, but the alarm chain only re-arms while isRunning=true.
+      // If CF evicts the DO and there's no in-flight request, the
+      // DO stays stopped until something explicitly calls /start.
+      //
+      // The every-5m cron at line ~69640 is the existing trigger but
+      // leaves up to 5 min of WS dead time per eviction. During that
+      // gap we fall back to the 1-min REST price-feed cron, which is
+      // fine but loses sub-second granularity.
+      //
+      // Fix: per-minute keep-alive ping. Cost = 1 DO RPC/min ~=
+      // 1,440/day, well within the free DO request budget. The DO's
+      // /start handler is idempotent (no-op when isRunning=true) so
+      // this only does work after an actual eviction.
+      //
+      // Gates:
+      //   1. DATA_PROVIDER === 'twelvedata' (skip when on Alpaca)
+      //   2. PRICE_STREAM binding present (skip in pre-prod)
+      //   3. Within operating hours (4 AM - 8 PM ET on weekdays;
+      //      crypto-only outside that, and crypto runs on REST).
+      //   4. Cron not muted (don't restart the DO during a backtest).
+      try {
+        if (_usesTwelveData(env) && env?.PRICE_STREAM && isWithinOperatingHours()) {
+          const _muteCheck = await KV.get("phase-c:cron-mute").catch(() => null);
+          if (!_muteCheck) {
+            ctx.waitUntil((async () => {
+              try {
+                const status = await dataStreamStatus(env);
+                if (status && status.isRunning === false) {
+                  const blocklist = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","HG1!","NG1!","BTCUSD","ETHUSD","US500","VX1!"]);
+                  const userAdded = await d1GetActiveUserTickersCached(env);
+                  const symbols = [...new Set([...Object.keys(SECTOR_MAP), ...userAdded])]
+                    .filter(t => !blocklist.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t));
+                  const startRes = await dataStreamStart(env, symbols);
+                  console.log(`[STREAM keep-alive] DO was stopped → restarted with ${symbols.length} symbols.`,
+                    String(JSON.stringify(startRes)).slice(0, 200));
+                }
+              } catch (e) {
+                console.warn("[STREAM keep-alive] check failed:", String(e?.message || e).slice(0, 200));
+              }
+            })());
+          }
+        }
+      } catch (kaErr) {
+        console.warn("[STREAM keep-alive] outer check failed:", String(kaErr?.message || kaErr).slice(0, 200));
+      }
+
       return;
     }
 
