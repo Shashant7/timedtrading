@@ -1,6 +1,6 @@
 ---
 title: Investor-Mode Forensic Dry-Run (Phase 3.9c)
-generated: 2026-05-10T23:58:37.289Z
+generated: 2026-05-11T01:26:04.849Z
 cohort: SNDK, GOOGL, AMD, MU, META, BE, SOXL, AEHR, NFLX, PLTR, NVDA, AVGO, TSM, GEV
 date_range: 2025-07-01 → 2026-05-08
 ---
@@ -17,9 +17,9 @@ Phase 3.9d landed the **strong-score → accumulate threshold lowered from 70 �
 
 | metric | pre-tuning (default 70) | post-tuning (default 65) | Δ |
 |---|---:|---:|---:|
-| accumulate | 104 (20.1%) | **232 (44.9%)** | +128 (2.2×) |
-| watch | 358 (69.2%) | 230 (44.5%) | -128 |
-| research_* | 55 | 55 | 0 |
+| accumulate | 104 (20.1%) | **444 (85.9%)** | +340 (4.3×) |
+| watch | 358 (69.2%) | 29 (5.6%) | -329 |
+| research_* | 55 | 44 | -11 |
 
 **Per-ticker Δ on the blueprint cohort:**
 
@@ -42,31 +42,31 @@ Phase 3.9d landed the **strong-score → accumulate threshold lowered from 70 �
 | metric | value |
 |---|---:|
 | trades scored | 517 / 517 |
-| classified as accumulate | 232 (**44.9%**) |
-| classified as watch | 230 (44.5%) |
-| classified as research_* | 55 |
+| classified as accumulate | 444 (**85.9%**) |
+| classified as watch | 29 (5.6%) |
+| classified as research_* | 44 |
 
 ## Stage distribution (full cohort)
 
 | stage | n | % |
 |---|---:|---:|
-| accumulate | 232 | 44.9% |
-| watch | 230 | 44.5% |
-| research_avoid | 29 | 5.6% |
+| accumulate | 444 | 85.9% |
+| watch | 29 | 5.6% |
+| research_avoid | 27 | 5.2% |
 | research_on_watch | 16 | 3.1% |
-| research_low | 10 | 1.9% |
+| research_low | 1 | 0.2% |
 
 ## Investor score distribution
 
 | bucket | n | % |
 |---|---:|---:|
-| <30 | 29 | 5.6% |
-| 30-39 | 11 | 2.1% |
-| 40-49 | 30 | 5.8% |
-| 50-59 | 110 | 21.3% |
-| 60-69 | 264 | 51.1% |
-| 70-79 | 73 | 14.1% |
-| 80+ | 0 | 0% |
+| <30 | 27 | 5.2% |
+| 30-39 | 4 | 0.8% |
+| 40-49 | 39 | 7.5% |
+| 50-59 | 25 | 4.8% |
+| 60-69 | 83 | 16.1% |
+| 70-79 | 202 | 39.1% |
+| 80+ | 137 | 26.5% |
 
 ## Avg component contribution to score
 
@@ -77,7 +77,7 @@ Each component's average contribution across the cohort. Components with low ave
 | weeklyTrend | 18.7 | 25 |
 | monthlyTrend | 16.5 | 20 |
 | relativeStrength | 10.4 | 20 |
-| accumulationSignal | 0.4 | 15 |
+| accumulationSignal | 9.5 | 15 |
 | trendDurability | 8.2 | 10 |
 | sectorContext | 4 | 10 |
 | ichimokuConfirm | 0 | 15 |
@@ -88,19 +88,19 @@ Each component's average contribution across the cohort. Components with low ave
 
 | ticker | n | avg score | avg rs_rank | accumulate | watch | research_* |
 |---|---:|---:|---:|---:|---:|---:|
-| AEHR | 37 | 70.4 | 87.2 | 33 | 4 | 0 |
-| AMD | 39 | 64.6 | 66.1 | 29 | 8 | 2 |
-| AVGO | 41 | 58.5 | 43.1 | 6 | 31 | 4 |
-| BE | 52 | 72.5 | 84 | 46 | 6 | 0 |
-| GEV | 52 | 63.6 | 64.3 | 31 | 21 | 0 |
-| GOOGL | 72 | 59 | 48.9 | 29 | 32 | 11 |
-| META | 38 | 42 | 22.7 | 2 | 19 | 17 |
-| MU | 14 | 67.3 | 80.3 | 9 | 5 | 0 |
-| NFLX | 11 | 53.5 | 35.7 | 6 | 2 | 3 |
-| NVDA | 47 | 58.6 | 48.3 | 10 | 34 | 3 |
-| PLTR | 49 | 59.1 | 45.4 | 13 | 32 | 4 |
-| SNDK | 41 | 47.8 | 85.6 | 8 | 22 | 11 |
-| TSM | 24 | 62.5 | 52.8 | 10 | 14 | 0 |
+| AEHR | 37 | 78.5 | 87.2 | 35 | 2 | 0 |
+| AMD | 39 | 74.3 | 66.1 | 37 | 0 | 2 |
+| AVGO | 41 | 67.7 | 43.1 | 37 | 0 | 4 |
+| BE | 52 | 84.1 | 84 | 52 | 0 | 0 |
+| GEV | 52 | 72.7 | 64.3 | 51 | 1 | 0 |
+| GOOGL | 72 | 69.4 | 48.9 | 68 | 4 | 0 |
+| META | 38 | 47.9 | 22.7 | 21 | 0 | 17 |
+| MU | 14 | 79 | 80.3 | 14 | 0 | 0 |
+| NFLX | 11 | 58.1 | 35.7 | 7 | 1 | 3 |
+| NVDA | 47 | 67.8 | 48.3 | 42 | 2 | 3 |
+| PLTR | 49 | 70.2 | 45.4 | 45 | 0 | 4 |
+| SNDK | 41 | 50.8 | 85.6 | 13 | 17 | 11 |
+| TSM | 24 | 73.4 | 52.8 | 22 | 2 | 0 |
 
 ## Sample missed-opportunities (high MFE trader trades NOT classified as accumulate)
 
@@ -108,31 +108,15 @@ These are big-MFE trader entries where investor mode would have STAYED in resear
 
 | ticker | trade_id | mfe% | pnl% | inv_score | stage | reason | rs_rank |
 |---|---|---:|---:|---:|---|---|---:|
-| BE | BE-1751467200000-19bqampl7 | 65.9 | 22.4 | 64 | watch | promising | 31 |
-| BE | BE-1751465400000-9t6ek1qyh | 28.5 | 4.4 | 64 | watch | promising | 31 |
-| SNDK | SNDK-1758893400000 | 26.1 | 14.6 | 53 | watch | monitoring | 100 |
 | SNDK | SNDK-1757944800000 | 22.9 | 8.2 | 53 | watch | monitoring | 100 |
 | SNDK | SNDK-1756319400000 | 19.8 | 10.9 | 20 | research_avoid | low_score | 77 |
-| PLTR | PLTR-1752000000000-7xycojmcs | 18 | -4.7 | 61 | watch | promising | 23 |
-| PLTR | PLTR-1754063400000-tgdxy3swl | 17.2 | 7.6 | 57 | watch | monitoring | 46 |
-| PLTR | PLTR-1754063400000-v6k8pf0jd | 17.2 | 7.6 | 57 | watch | monitoring | 46 |
-| PLTR | PLTR-1754063400000-et42x259q | 17.2 | 7.6 | 57 | watch | monitoring | 46 |
-| PLTR | PLTR-1754063400000-568gxn8cm | 17.2 | 7.6 | 57 | watch | monitoring | 46 |
-| PLTR | PLTR-1754063400000-g9fnu551e | 17.2 | 7.6 | 57 | watch | monitoring | 46 |
-| PLTR | PLTR-1754063400000-dbm9hcear | 17.2 | 7.6 | 57 | watch | monitoring | 46 |
-| PLTR | PLTR-1754063400000-r9m7tvpfl | 17.2 | 7.6 | 57 | watch | monitoring | 46 |
-| PLTR | PLTR-1754063400000-89zaq82g2 | 17.2 | 7.6 | 57 | watch | monitoring | 46 |
-| PLTR | PLTR-1754063400000-op7qmc5ad | 17.2 | 7.6 | 57 | watch | monitoring | 46 |
-| PLTR | PLTR-1754063400000-nrxe6ncr1 | 17.2 | 7.6 | 57 | watch | monitoring | 46 |
-| PLTR | PLTR-1754063400000-8i10gpibi | 17.2 | 7.6 | 57 | watch | monitoring | 46 |
-| GEV | GEV-1770399000000 | 16.3 | 6.6 | 62 | watch | promising | 62 |
 | AEHR | AEHR-1752073200000-qr2cqrlcd | 13.8 | 3.9 | 62 | watch | promising | 85 |
 | SNDK | SNDK-1761679200000 | 13.1 | 4.9 | 53 | watch | monitoring | 100 |
 | META | META-1774450800000 | 12.7 | 5.4 | 18 | research_avoid | low_score | 31 |
 | META | META-1774359000000 | 12.5 | 5.4 | 15 | research_avoid | low_score | 23 |
-| AEHR | AEHR-1768577400000 | 12.4 | 5.1 | 63 | watch | promising | 69 |
 | SNDK | SNDK-1761246000000 | 11.7 | 1.3 | 53 | watch | monitoring | 100 |
-| GOOGL | GOOGL-1751397600000-nzqtjl9ze | 11.2 | 10.2 | 31 | research_low | low_conviction | 8 |
+| SNDK | SNDK-1756922400000 | 10.7 | 5.9 | 48 | research_on_watch | moderate_score | 85 |
+| TSM | TSM-1767106800000 | 10.3 | 4.6 | 61 | watch | promising | 62 |
 
 ## Caveats
 
