@@ -538,8 +538,23 @@ function BriefCard({
       color: "var(--tt-text-0)",
       letterSpacing: "-0.01em"
     }
-  }, dateStr)), brief.esPrediction && React.createElement("div", {
-    className: "mb-4 p-3 rounded-lg",
+  }, dateStr)), (brief.esPrediction || brief.spyPrediction || brief.qqqPrediction || brief.iwmPrediction) && React.createElement("div", {
+    className: "mb-4 grid grid-cols-1 md:grid-cols-2 gap-2"
+  }, [{
+    label: "ES Prediction",
+    body: brief.esPrediction
+  }, {
+    label: "SPY Prediction",
+    body: brief.spyPrediction
+  }, {
+    label: "QQQ Prediction",
+    body: brief.qqqPrediction
+  }, {
+    label: "IWM Prediction",
+    body: brief.iwmPrediction
+  }].filter(p => p.body).map(p => React.createElement("div", {
+    key: p.label,
+    className: "p-3 rounded-lg",
     style: {
       background: bgDim,
       borderLeft: `3px solid ${accentColor}`
@@ -549,12 +564,12 @@ function BriefCard({
     style: {
       color: accentColor
     }
-  }, "ES Prediction"), React.createElement("div", {
+  }, p.label), React.createElement("div", {
     className: "text-[13px] leading-relaxed",
     style: {
       color: "var(--tt-text-1)"
     }
-  }, brief.esPrediction)), React.createElement("hr", {
+  }, p.body)))), React.createElement("hr", {
     className: "tt-divider",
     style: {
       margin: "0 0 18px",

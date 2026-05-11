@@ -2635,10 +2635,23 @@ STYLE RULES: Be direct and actionable. No filler. Every sentence must inform a t
 
 7. **Investor Portfolio** (~80 words) — Each holding: ticker, today's change%, total return%, thesis status. DCA opportunities if any.
 
-End with THREE clear sections:
+End with FOUR clear sections (in this exact order):
+
 - **ES Prediction**: One specific, falsifiable prediction for ES. Include expected range.
-- **Key Levels to Watch (SPY/QQQ/IWM)**: 3-5 most important levels across all three. For each, plain English: "580 — Support floor (daily). Below 580 → acceleration to 573."
-- **Risk Factors**: 1-2 key risks in plain English.`;
+
+- **SPY Prediction**: One specific, falsifiable prediction for SPY in the SAME format as ES — a sentence describing the most likely intraday path with explicit triggers and a 1-day expected range. Plain English. Use ATR fib levels (38.2 / 50 / 61.8) as REFERENCE points feeding your reasoning, NOT as the primary structure. Lead with the structural level (SMC support/resistance, prior day close, ORB high/low, daily pivot) the price is most likely to test, then say what happens if it breaks. Example tone: "SPY likely opens around 736 and tests 734.50 support early; holds → grinds to 738.20 by mid-morning; loses 734 → fast move to 731.60. Expected range: 731.50–738.20."
+
+- **QQQ Prediction**: Same format and structure as SPY Prediction. Custom, holistic, simple to follow.
+
+- **IWM Prediction**: Same format and structure as SPY Prediction.
+
+- **Risk Factors**: 1-2 key risks in plain English.
+
+CRITICAL on the per-ETF predictions:
+- DO NOT just restate the ATR fib table — that's already in the infographic. The prediction must SYNTHESIZE the engine's bias, the SMC level, the ATR target, and the cross-asset / sector context into one actionable sentence per ETF.
+- Triggers are specific prices ("loses 734 →", "breaks 738 →"), not phrases like "if support holds".
+- Expected range MUST be a real range with a low and high, not just one number.
+- Bullish targets MUST be ABOVE current price; bearish targets MUST be BELOW. No exceptions.`;
 }
 
 function buildEveningPrompt(data) {
@@ -2943,7 +2956,7 @@ function sanitizeBriefContent(text) {
  * Build a structured Discord embed for the daily brief notification.
  * Uses embed fields for clean layout on mobile Discord.
  */
-function buildDiscordBriefEmbed(type, data, content, esPrediction) {
+function buildDiscordBriefEmbed(type, data, content, esPrediction, spyPrediction, qqqPrediction, iwmPrediction) {
   const isMorning = type === "morning";
   const fields = [];
 
@@ -2957,30 +2970,68 @@ function buildDiscordBriefEmbed(type, data, content, esPrediction) {
     fields.push({ name: "Market Snapshot", value: mktParts.join(" | "), inline: false });
   }
 
-  // ATR Fibonacci Levels — ES (and SPX same scale), SPY, NQ, QQQ
+  /* P0.7.129 — Layout reordered for the morning brief:
+     1. Per-instrument PREDICTIONS first (ES + SPY + QQQ + IWM) — these
+        are the most actionable thing in the brief. Lead with the
+        synthesized prediction, then back it up with the ATR levels
+        below for reference.
+     2. ATR fib levels rendered as compact `Reference Levels` blocks
+        below — labelled clearly as REFERENCE (not the primary plan)
+        so the user knows the prediction sentence is the action item
+        and the levels are the underpinning math. */
+
+  // 1. Predictions first (each ETF gets its own field, parallel format)
+  if (esPrediction) {
+    fields.push({ name: "📈 ES Prediction", value: esPrediction.slice(0, 380), inline: false });
+  }
+  if (spyPrediction) {
+    fields.push({ name: "📊 SPY Prediction", value: spyPrediction.slice(0, 380), inline: false });
+  }
+  if (qqqPrediction) {
+    fields.push({ name: "📊 QQQ Prediction", value: qqqPrediction.slice(0, 380), inline: false });
+  }
+  if (iwmPrediction) {
+    fields.push({ name: "📊 IWM Prediction", value: iwmPrediction.slice(0, 380), inline: false });
+  }
+
+  // 2. ATR Fibonacci Levels — labelled as REFERENCE LEVELS
+  // Compact format keeps the field tight so the prediction stays the
+  // dominant content above.
   const fmtFib = (fib, label) => {
     if (!fib || !fib.levels) return null;
     const lvl = fib.levels;
     const fibStr = [
-      `38.2%: ${lvl["-38.2%"] ?? "—"} / ${lvl["+38.2%"] ?? "—"}`,
-      `50%: ${lvl["-50%"] ?? "—"} / ${lvl["+50%"] ?? "—"}`,
-      `61.8%: ${lvl["-61.8%"] ?? "—"} / ${lvl["+61.8%"] ?? "—"}`,
-    ].join("\n");
-    const gate = fib.goldenGate === "OPEN_UP" ? "🟢 OPEN UP"
-      : fib.goldenGate === "OPEN_DOWN" ? "🔴 OPEN DOWN"
+      `38.2: ${lvl["-38.2%"] ?? "—"} / ${lvl["+38.2%"] ?? "—"}`,
+      `50.0: ${lvl["-50%"] ?? "—"} / ${lvl["+50%"] ?? "—"}`,
+      `61.8: ${lvl["-61.8%"] ?? "—"} / ${lvl["+61.8%"] ?? "—"}`,
+    ].join("  •  ");
+    const gate = fib.goldenGate === "OPEN_UP" ? "🟢 Open Up"
+      : fib.goldenGate === "OPEN_DOWN" ? "🔴 Open Down"
       : "⚪ Neutral";
-    return { name: `${label} (ATR ${fib.dayAtr?.toFixed?.(1) ?? "—"})`, value: `${gate}\n${fibStr}` };
+    return { name: `${label}  (ATR ${fib.dayAtr?.toFixed?.(1) ?? "—"} · ${gate})`, value: fibStr, inline: false };
   };
   const esFib = data.esTechnical?.atrFibLevels;
   const spyFib = data.spyTechnical?.atrFibLevels;
   const nqFib = data.nqTechnical?.atrFibLevels;
   const qqqFib = data.qqqTechnical?.atrFibLevels;
   const iwmFib = data.iwmTechnical?.atrFibLevels;
-  if (esFib?.levels) fields.push(fmtFib(esFib, "ES / SPX Day Trader Levels"));
-  if (spyFib?.levels) fields.push(fmtFib(spyFib, "SPY Day Trader Levels"));
-  if (nqFib?.levels) fields.push(fmtFib(nqFib, "NQ Day Trader Levels"));
-  if (iwmFib?.levels) fields.push(fmtFib(iwmFib, "IWM Day Trader Levels"));
-  if (qqqFib?.levels) fields.push(fmtFib(qqqFib, "QQQ Day Trader Levels"));
+  // Add a single header field BEFORE the per-instrument reference blocks
+  // so the visual hierarchy is obvious in Discord's rendering.
+  const refBlocks = [
+    esFib?.levels  && fmtFib(esFib,  "ES / SPX · Reference Levels"),
+    spyFib?.levels && fmtFib(spyFib, "SPY · Reference Levels"),
+    nqFib?.levels  && fmtFib(nqFib,  "NQ · Reference Levels"),
+    qqqFib?.levels && fmtFib(qqqFib, "QQQ · Reference Levels"),
+    iwmFib?.levels && fmtFib(iwmFib, "IWM · Reference Levels"),
+  ].filter(Boolean);
+  if (refBlocks.length > 0) {
+    fields.push({
+      name: "─── Reference Levels (ATR fib) ───",
+      value: "_Levels feed the predictions above; not the primary plan._",
+      inline: false,
+    });
+    for (const f of refBlocks) fields.push(f);
+  }
 
   // Economic Events
   const econEvents = (data.todayEconomicEvents || []).slice(0, 3);
@@ -2993,11 +3044,6 @@ function buildDiscordBriefEmbed(type, data, content, esPrediction) {
       return parts.join(", ");
     }).join("\n");
     fields.push({ name: "Economic Data", value: econStr, inline: false });
-  }
-
-  // ES Prediction
-  if (esPrediction) {
-    fields.push({ name: "ES Prediction", value: esPrediction.slice(0, 200), inline: false });
   }
 
   // Open Positions Summary
@@ -3312,10 +3358,37 @@ export async function generateDailyBrief(env, type, opts = {}) {
       return { ok: false, error: "ai_response_too_short" };
     }
 
-    // 3. Extract ES prediction (look for the prediction line)
-    let esPrediction = null;
-    const predMatch = content.match(/ES Prediction[:\s]*(.+?)(?:\n|$)/i);
-    if (predMatch) esPrediction = predMatch[1].trim();
+    // 3. Extract per-instrument predictions (one specific actionable
+    //    sentence per ETF, parallel structure to the existing ES line).
+    //    P0.7.129 — added SPY/QQQ/IWM extraction so the in-app brief and
+    //    the Discord embed can surface a clean prediction for each ETF
+    //    instead of just the raw ATR fib levels.
+    //
+    //    The model is instructed (in buildMorningPrompt) to emit a
+    //    `**SPY Prediction**: …` / `**QQQ Prediction**: …` /
+    //    `**IWM Prediction**: …` line matching the ES one. We capture
+    //    each independently so we don't lose any if one is missing.
+    function extractPredictionLine(label) {
+      // Match `**Label Prediction**: <body>` OR `Label Prediction: <body>`
+      // up to the next blank line / next heading. Markdown bold is optional.
+      const re = new RegExp(
+        `(?:\\*\\*)?${label}\\s+Prediction(?:\\*\\*)?\\s*:\\s*([\\s\\S]+?)(?:\\n\\s*\\n|\\n\\s*[#*\\-]|\\n\\s*\\*\\*[A-Z])`,
+        "i"
+      );
+      const m = content.match(re);
+      if (m && m[1]) return m[1].trim().replace(/\s+$/g, "");
+      // Fallback: single-line capture (no blank-line terminator)
+      const re2 = new RegExp(
+        `(?:\\*\\*)?${label}\\s+Prediction(?:\\*\\*)?\\s*:\\s*(.+?)(?:\\n|$)`,
+        "i"
+      );
+      const m2 = content.match(re2);
+      return m2 && m2[1] ? m2[1].trim() : null;
+    }
+    const esPrediction  = extractPredictionLine("ES");
+    const spyPrediction = extractPredictionLine("SPY");
+    const qqqPrediction = extractPredictionLine("QQQ");
+    const iwmPrediction = extractPredictionLine("IWM");
 
     // 4. For evening brief, get ES close and score morning prediction
     let esClose = null;
@@ -3367,6 +3440,10 @@ export async function generateDailyBrief(env, type, opts = {}) {
       type,
       content,
       esPrediction,
+      // P0.7.129 — per-ETF predictions surfaced alongside the existing ES one.
+      spyPrediction,
+      qqqPrediction,
+      iwmPrediction,
       publishedAt: now,
       infographic,
     };
@@ -3405,7 +3482,8 @@ export async function generateDailyBrief(env, type, opts = {}) {
 
     // 8. Send Discord notification (structured embed)
     if (opts.notifyDiscord) {
-      const embed = buildDiscordBriefEmbed(type, data, content, esPrediction);
+      // P0.7.129 — pass per-ETF predictions so they appear in the embed.
+      const embed = buildDiscordBriefEmbed(type, data, content, esPrediction, spyPrediction, qqqPrediction, iwmPrediction);
       await opts.notifyDiscord(env, embed).catch(e =>
         console.warn("[DAILY BRIEF] Discord notification failed:", String(e).slice(0, 100))
       );
@@ -3413,10 +3491,14 @@ export async function generateDailyBrief(env, type, opts = {}) {
 
     // 9. In-app notification (broadcast to all users)
     if (opts.d1InsertNotification) {
+      // P0.7.129 — prefer the SPY prediction (broadest reach) for the
+      // notification body. Falls back to ES, then a generic message.
+      const notifBody = spyPrediction || esPrediction
+        || `${type === "morning" ? "Morning" : "Evening"} brief published.`;
       await opts.d1InsertNotification(env, {
         email: null, type: "daily_brief",
         title: `${type === "morning" ? "Morning" : "Evening"} Brief — ${data.today}`,
-        body: esPrediction || `${type === "morning" ? "Morning" : "Evening"} brief published.`,
+        body: notifBody,
         link: "/daily-brief.html",
       }).catch(() => {});
     }
