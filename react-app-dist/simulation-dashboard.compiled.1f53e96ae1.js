@@ -4727,6 +4727,226 @@ function PerformanceOverviewSection({
     mode: mode
   }));
 }
+function CombinedPerformanceOverview({
+  traderTrades,
+  traderLoading,
+  traderStartCash,
+  investorTrades,
+  investorLoading,
+  investorStartCash
+}) {
+  const TradesPerformance = useMemo(() => {
+    const factory = typeof window !== "undefined" && window.TradesPerformanceFactory;
+    if (!factory) return null;
+    try {
+      return factory({
+        React,
+        API_BASE
+      });
+    } catch (e) {
+      console.warn("[CombinedPerf] factory failed:", e);
+      return null;
+    }
+  }, []);
+  const [selected, setSelected] = useState("trader");
+  if (!TradesPerformance) return null;
+  const computeSummary = TradesPerformance.computeSummary;
+  const traderSummary = useMemo(() => computeSummary ? computeSummary(traderTrades || [], {
+    mode: "trader",
+    accountStartCash: traderStartCash
+  }) : null, [traderTrades, traderStartCash, computeSummary]);
+  const investorSummary = useMemo(() => computeSummary ? computeSummary(investorTrades || [], {
+    mode: "investor",
+    accountStartCash: investorStartCash
+  }) : null, [investorTrades, investorStartCash, computeSummary]);
+  const fmtPnlPct = v => Number.isFinite(v) ? `${v >= 0 ? "+" : ""}${v.toFixed(2)}%` : "—";
+  const fmtUsd = v => {
+    if (!Number.isFinite(v)) return "—";
+    const sign = v >= 0 ? "+" : "−";
+    return `${sign}$${Math.abs(v).toFixed(0)}`;
+  };
+  const TabTile = ({
+    tabKey,
+    label,
+    accent,
+    summary,
+    loading
+  }) => {
+    const isActive = selected === tabKey;
+    const pnlPct = summary?.totalPnlPct ?? 0;
+    const pnlUsd = summary?.totalPnlUsd ?? 0;
+    const wr = summary?.winRatePct ?? 0;
+    const closed = summary?.closedCount ?? 0;
+    const wins = summary?.wins ?? 0;
+    const losses = summary?.losses ?? 0;
+    return React.createElement("button", {
+      type: "button",
+      onClick: () => setSelected(tabKey),
+      "aria-pressed": isActive,
+      className: "text-left transition-all",
+      style: {
+        background: isActive ? "linear-gradient(135deg, rgba(245,194,92,0.10), rgba(245,194,92,0.02))" : "rgba(255,255,255,0.02)",
+        border: isActive ? "1px solid rgba(245,194,92,0.45)" : "1px solid var(--ds-stroke, rgba(255,255,255,0.06))",
+        borderRadius: "var(--ds-radius, 12px)",
+        padding: "var(--ds-space-3)",
+        cursor: "pointer",
+        outline: "none",
+        boxShadow: isActive ? "0 0 0 1px rgba(245,194,92,0.20), 0 6px 20px rgba(0,0,0,0.25)" : "none"
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        marginBottom: "var(--ds-space-2)"
+      }
+    }, React.createElement("span", {
+      style: {
+        width: 8,
+        height: 8,
+        borderRadius: 999,
+        background: accent,
+        display: "inline-block"
+      }
+    }), React.createElement("span", {
+      style: {
+        fontSize: 11,
+        textTransform: "uppercase",
+        letterSpacing: "0.10em",
+        fontWeight: 700,
+        color: isActive ? "#F5C25C" : "var(--ds-text-muted)"
+      }
+    }, label), isActive && React.createElement("span", {
+      style: {
+        marginLeft: "auto",
+        fontSize: 9,
+        color: "#0A0D11",
+        background: "#F5C25C",
+        padding: "2px 8px",
+        borderRadius: 999,
+        fontWeight: 700,
+        letterSpacing: "0.04em"
+      }
+    }, "Selected")), loading ? React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: "var(--ds-text-muted)"
+      }
+    }, "Loading\u2026") : !summary ? React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: "var(--ds-text-muted)"
+      }
+    }, "No data yet") : React.createElement(React.Fragment, null, React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "baseline",
+        gap: 10,
+        marginBottom: 6
+      }
+    }, React.createElement("span", {
+      style: {
+        fontSize: 26,
+        fontWeight: 700,
+        lineHeight: 1.1,
+        color: pnlPct >= 0 ? "var(--ds-up)" : "var(--ds-dn)",
+        fontVariantNumeric: "tabular-nums"
+      }
+    }, fmtPnlPct(pnlPct)), React.createElement("span", {
+      style: {
+        fontSize: 13,
+        color: "var(--ds-text-muted)",
+        fontVariantNumeric: "tabular-nums"
+      }
+    }, fmtUsd(pnlUsd))), React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: "var(--ds-space-2)",
+        marginTop: 4
+      }
+    }, React.createElement("div", null, React.createElement("div", {
+      style: {
+        fontSize: 9,
+        color: "var(--ds-text-muted)",
+        textTransform: "uppercase",
+        letterSpacing: "0.08em",
+        fontWeight: 600
+      }
+    }, "Win Rate"), React.createElement("div", {
+      style: {
+        fontSize: 14,
+        color: "var(--ds-text)",
+        fontVariantNumeric: "tabular-nums"
+      }
+    }, wr.toFixed(1), "%")), React.createElement("div", null, React.createElement("div", {
+      style: {
+        fontSize: 9,
+        color: "var(--ds-text-muted)",
+        textTransform: "uppercase",
+        letterSpacing: "0.08em",
+        fontWeight: 600
+      }
+    }, "Closed"), React.createElement("div", {
+      style: {
+        fontSize: 14,
+        color: "var(--ds-text)",
+        fontVariantNumeric: "tabular-nums"
+      }
+    }, closed, " ", React.createElement("span", {
+      style: {
+        color: "var(--ds-text-muted)",
+        fontSize: 11
+      }
+    }, "(", wins, "W\xB7", losses, "L)"))))));
+  };
+  const activeTrades = selected === "trader" ? traderTrades : investorTrades;
+  const activeLoading = selected === "trader" ? traderLoading : investorLoading;
+  const activeStartCash = selected === "trader" ? traderStartCash : investorStartCash;
+  return React.createElement("div", {
+    className: "ds-glass",
+    style: {
+      marginBottom: "var(--ds-space-5)"
+    }
+  }, React.createElement("div", {
+    className: "ds-glass__head"
+  }, React.createElement("div", {
+    className: "ds-glass__title"
+  }, "Performance Overview"), React.createElement("div", {
+    style: {
+      fontSize: "var(--ds-fs-meta)",
+      color: "var(--ds-text-muted)",
+      textTransform: "uppercase",
+      letterSpacing: "0.08em"
+    }
+  }, "Tap a mode to see its detail")), React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: "var(--ds-space-3)",
+      marginBottom: "var(--ds-space-4)"
+    }
+  }, React.createElement(TabTile, {
+    tabKey: "trader",
+    label: "Active Trader",
+    accent: "var(--ds-up, #22C55E)",
+    summary: traderSummary,
+    loading: traderLoading
+  }), React.createElement(TabTile, {
+    tabKey: "investor",
+    label: "Investor (Trend-Hold)",
+    accent: "#8b5cf6",
+    summary: investorSummary,
+    loading: investorLoading
+  })), React.createElement(TradesPerformance, {
+    key: selected,
+    trades: activeTrades || [],
+    loading: activeLoading,
+    accountStartCash: activeStartCash,
+    mode: selected,
+    hideHeadline: true
+  }));
+}
 function PortfolioColumn({
   mode,
   summary,
@@ -7210,22 +7430,13 @@ function App() {
     }
   })))), React.createElement("div", {
     className: `mt-6 ${selectedTicker || selectedTrade ? "mr-[500px] lg:mr-[660px] xl:mr-[740px] 2xl:mr-[820px]" : ""}`
-  }, React.createElement(PerformanceOverviewSection, {
-    mode: "trader",
-    title: "Performance Overview \u2014 Active Trader",
-    subtitle: "Closed trades \xB7 90-day calendar",
-    accentColor: "var(--tt-accent)",
-    trades: ledgerFilteredTrades || [],
-    loading: (ledgerTrades ?? {}).loading,
-    accountStartCash: Number(acctSummary?.startCash) || 100000
-  }), React.createElement(PerformanceOverviewSection, {
-    mode: "investor",
-    title: "Performance Overview \u2014 Investor",
-    subtitle: "Realized lots \xB7 monthly + calendar",
-    accentColor: "#8b5cf6",
-    trades: investorTrades || [],
-    loading: investorTradesLoading,
-    accountStartCash: Number(investorSummary?.startCash) || 100000
+  }, React.createElement(CombinedPerformanceOverview, {
+    traderTrades: ledgerFilteredTrades || [],
+    traderLoading: (ledgerTrades ?? {}).loading,
+    traderStartCash: Number(acctSummary?.startCash) || 100000,
+    investorTrades: investorTrades || [],
+    investorLoading: investorTradesLoading,
+    investorStartCash: Number(investorSummary?.startCash) || 100000
   })), (selectedTicker || selectedTrade) && !modalOnly && (() => {
     const handleClose = () => {
       setSelectedTrade(null);
