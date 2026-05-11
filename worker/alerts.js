@@ -81,6 +81,19 @@ export function shouldSendDiscordAlert(env, type, ctx = {}) {
   if (t === "TRADE_EXIT") return true;
 
   if (t === "TRADE_TRIM") {
+    /* P0.7.129 (2026-05-11) — User report: 'Activity Feed and
+       Notification Feed have more events than Discord.' The previous
+       critical-mode filter required total trimmed ≥ 50% OR delta ≥ 20%
+       to send a Discord alert, which suppressed the small step-trims
+       (0.1% / 0.5%) the engine fires for defensive risk management.
+       Those trims STILL appeared in the activity feed and notifications,
+       creating an unexplained gap.
+       New rule: send every TRIM that delivers ANY meaningful realized
+       movement (delta ≥ 1% of position OR total ≥ 10%). Sub-1% delta
+       trims (typically score-recalibration noise) are still skipped to
+       avoid spamming Discord. The 1-minute KV dedupe in
+       `shouldSendTradeDiscordEvent` continues to coalesce rapid-fire
+       trims on the same trade. */
     const rawTotal = Number(ctx.newTrimmedPct);
     const rawDelta = Number(ctx.trimDeltaPctRaw);
     const total =
@@ -89,8 +102,8 @@ export function shouldSendDiscordAlert(env, type, ctx = {}) {
       Number.isFinite(rawDelta) && Math.abs(rawDelta) > 1
         ? rawDelta / 100
         : rawDelta;
-    if (Number.isFinite(total) && total >= 0.5) return true;
-    if (Number.isFinite(delta) && Math.abs(delta) >= 0.2) return true;
+    if (Number.isFinite(total) && total >= 0.10) return true;        // total ≥ 10%
+    if (Number.isFinite(delta) && Math.abs(delta) >= 0.01) return true; // delta ≥ 1%
     return false;
   }
 

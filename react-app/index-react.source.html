@@ -13123,41 +13123,60 @@
                     }} />
                   );
                 })()}
-                {/* Tick marks for SL / E / Tn */}
+                {/* Tick marks for SL / E / Tn — P0.7.129: native title tooltip
+                    + a wider invisible hit-area so a hover near the tick still
+                    triggers the tooltip (the visible tick is only 2px wide). */}
                 {ticks.map((tick, i) => (
-                  <div key={`tick-${i}`} style={{
-                    position: "absolute",
-                    left: `${xPct(tick.px)}%`,
-                    top: -2, bottom: -2,
-                    width: 2,
-                    background: tick.color,
-                    transform: "translateX(-1px)",
-                  }} />
+                  <div key={`tick-${i}`}
+                    title={`${tick.label}: $${Number(tick.px).toFixed(2)}`}
+                    style={{
+                      position: "absolute",
+                      left: `${xPct(tick.px)}%`,
+                      top: -8, bottom: -8,
+                      width: 12,
+                      transform: "translateX(-6px)",
+                      cursor: "help",
+                      display: "flex",
+                      justifyContent: "center",
+                      alignItems: "center",
+                    }}>
+                    <div style={{
+                      width: 2,
+                      height: "calc(100% - 8px)",
+                      background: tick.color,
+                    }} />
+                  </div>
                 ))}
-                {/* Current-price dot */}
-                <div style={{
-                  position: "absolute",
-                  left: `${curX}%`,
-                  top: "50%",
-                  transform: "translate(-50%, -50%)",
-                  width: 10,
-                  height: 10,
-                  borderRadius: "50%",
-                  background: "var(--ds-accent)",
-                  boxShadow: "0 0 0 2px var(--ds-bg-surface), 0 0 0 3px var(--ds-accent-glow)",
-                }} />
+                {/* Current-price dot (P0.7.129: title tooltip with live price + pnl%) */}
+                <div
+                  title={`Current: $${Number(price).toFixed(2)} (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%)`}
+                  style={{
+                    position: "absolute",
+                    left: `${curX}%`,
+                    top: "50%",
+                    transform: "translate(-50%, -50%)",
+                    width: 10,
+                    height: 10,
+                    borderRadius: "50%",
+                    background: "var(--ds-accent)",
+                    boxShadow: "0 0 0 2px var(--ds-bg-surface), 0 0 0 3px var(--ds-accent-glow)",
+                    cursor: "help",
+                  }} />
               </div>
-              {/* Labels under track */}
+              {/* Labels under track — P0.7.129: title tooltip on each label too */}
               <div style={{ position: "relative", height: 12, marginTop: 2, fontFamily: "var(--tt-font-mono)", fontSize: 8, color: "var(--ds-text-muted)" }}>
                 {ticks.map((tick, i) => (
-                  <span key={`lbl-${i}`} style={{
-                    position: "absolute",
-                    left: `${xPct(tick.px)}%`,
-                    transform: "translateX(-50%)",
-                    color: tick.color,
-                    fontWeight: 700,
-                    whiteSpace: "nowrap",
-                  }}>{tick.label}</span>
+                  <span key={`lbl-${i}`}
+                    title={`${tick.label}: $${Number(tick.px).toFixed(2)}`}
+                    style={{
+                      position: "absolute",
+                      left: `${xPct(tick.px)}%`,
+                      transform: "translateX(-50%)",
+                      color: tick.color,
+                      fontWeight: 700,
+                      whiteSpace: "nowrap",
+                      cursor: "help",
+                    }}>{tick.label}</span>
                 ))}
               </div>
             </div>

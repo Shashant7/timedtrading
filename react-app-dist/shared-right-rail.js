@@ -8568,11 +8568,21 @@
                                           const cpPct = isLong ? rawCpPct : (100 - rawCpPct);
                                           const epPct = isLong ? rawEpPct : (100 - rawEpPct);
                                           const isProfit = isLong ? cp >= entryPrice : cp <= entryPrice;
+                                          /* P0.7.129 — title tooltips on the EP tick + the
+                                             current-price dot for at-a-glance hover prices. */
+                                          const pnlPct = isLong
+                                            ? ((cp - entryPrice) / entryPrice * 100)
+                                            : ((entryPrice - cp) / entryPrice * 100);
                                           return (
-                                            <div className="relative h-1.5 rounded-full bg-white/[0.06] overflow-visible mt-1">
+                                            <div className="relative h-1.5 rounded-full bg-white/[0.06] overflow-visible mt-1"
+                                              title={`SL $${slVal.toFixed(2)} · EP $${entryPrice.toFixed(2)} · TP $${tpVal.toFixed(2)}`}>
                                               <div className={`absolute top-0 bottom-0 left-0 rounded-full ${isProfit ? "bg-teal-500/50" : "bg-rose-500/40"}`} style={{width: `${cpPct}%`}} />
-                                              <div className="absolute top-[-2px] bottom-[-2px] w-[2px] bg-white/60 rounded" style={{left: `${epPct}%`}} />
-                                              <div className={`absolute w-[5px] h-[5px] rounded-full border ${isProfit ? "bg-teal-400 border-teal-300" : "bg-rose-400 border-rose-300"}`} style={{left: `calc(${cpPct}% - 2.5px)`, top: "-1px"}} />
+                                              <div className="absolute top-[-2px] bottom-[-2px] w-[2px] bg-white/60 rounded"
+                                                title={`EP: $${entryPrice.toFixed(2)}`}
+                                                style={{left: `${epPct}%`, cursor: "help"}} />
+                                              <div className={`absolute w-[5px] h-[5px] rounded-full border ${isProfit ? "bg-teal-400 border-teal-300" : "bg-rose-400 border-rose-300"}`}
+                                                title={`Current: $${cp.toFixed(2)} (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%)`}
+                                                style={{left: `calc(${cpPct}% - 2.5px)`, top: "-1px", cursor: "help"}} />
                                             </div>
                                           );
                                         })()}

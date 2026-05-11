@@ -750,10 +750,25 @@
                 {dateStr}
               </h2>
             </div>
-            {brief.esPrediction && (
-              <div className="mb-4 p-3 rounded-lg" style={{ background: bgDim, borderLeft: `3px solid ${accentColor}` }}>
-                <div className="text-[9px] font-bold uppercase tracking-widest mb-1" style={{ color: accentColor }}>ES Prediction</div>
-                <div className="text-[13px] leading-relaxed" style={{ color: "var(--tt-text-1)" }}>{brief.esPrediction}</div>
+            {/* P0.7.129 — render all four predictions (ES + SPY + QQQ + IWM)
+                up top, in parallel format. ES leads (broad-market futures
+                anchor), then the three ETFs the user actually trades. */}
+            {(brief.esPrediction || brief.spyPrediction || brief.qqqPrediction || brief.iwmPrediction) && (
+              <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-2">
+                {[
+                  { label: "ES Prediction",  body: brief.esPrediction },
+                  { label: "SPY Prediction", body: brief.spyPrediction },
+                  { label: "QQQ Prediction", body: brief.qqqPrediction },
+                  { label: "IWM Prediction", body: brief.iwmPrediction },
+                ].filter(p => p.body).map(p => (
+                  <div key={p.label} className="p-3 rounded-lg"
+                       style={{ background: bgDim, borderLeft: `3px solid ${accentColor}` }}>
+                    <div className="text-[9px] font-bold uppercase tracking-widest mb-1"
+                         style={{ color: accentColor }}>{p.label}</div>
+                    <div className="text-[13px] leading-relaxed"
+                         style={{ color: "var(--tt-text-1)" }}>{p.body}</div>
+                  </div>
+                ))}
               </div>
             )}
             <hr className="tt-divider" style={{ margin: "0 0 18px", borderColor: bgDim }} />

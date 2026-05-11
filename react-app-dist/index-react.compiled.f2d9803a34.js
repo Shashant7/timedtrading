@@ -9784,16 +9784,27 @@ const DsCompactCard = React.memo(function DsCompactCard({
       });
     })(), ticks.map((tick, i) => React.createElement("div", {
       key: `tick-${i}`,
+      title: `${tick.label}: $${Number(tick.px).toFixed(2)}`,
       style: {
         position: "absolute",
         left: `${xPct(tick.px)}%`,
-        top: -2,
-        bottom: -2,
-        width: 2,
-        background: tick.color,
-        transform: "translateX(-1px)"
+        top: -8,
+        bottom: -8,
+        width: 12,
+        transform: "translateX(-6px)",
+        cursor: "help",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center"
       }
-    })), React.createElement("div", {
+    }, React.createElement("div", {
+      style: {
+        width: 2,
+        height: "calc(100% - 8px)",
+        background: tick.color
+      }
+    }))), React.createElement("div", {
+      title: `Current: $${Number(price).toFixed(2)} (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%)`,
       style: {
         position: "absolute",
         left: `${curX}%`,
@@ -9803,7 +9814,8 @@ const DsCompactCard = React.memo(function DsCompactCard({
         height: 10,
         borderRadius: "50%",
         background: "var(--ds-accent)",
-        boxShadow: "0 0 0 2px var(--ds-bg-surface), 0 0 0 3px var(--ds-accent-glow)"
+        boxShadow: "0 0 0 2px var(--ds-bg-surface), 0 0 0 3px var(--ds-accent-glow)",
+        cursor: "help"
       }
     })), React.createElement("div", {
       style: {
@@ -9816,13 +9828,15 @@ const DsCompactCard = React.memo(function DsCompactCard({
       }
     }, ticks.map((tick, i) => React.createElement("span", {
       key: `lbl-${i}`,
+      title: `${tick.label}: $${Number(tick.px).toFixed(2)}`,
       style: {
         position: "absolute",
         left: `${xPct(tick.px)}%`,
         transform: "translateX(-50%)",
         color: tick.color,
         fontWeight: 700,
-        whiteSpace: "nowrap"
+        whiteSpace: "nowrap",
+        cursor: "help"
       }
     }, tick.label))));
   })();
