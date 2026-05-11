@@ -64995,11 +64995,19 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
       // POST /timed/investor/auto-rebalance — automatically open/add positions for tickers in actionable stages
       // Called by daily cron after scoring. Determines position sizing based on stage, score, and available capital.
+      //
+      // Phase 3.9k (2026-05-11) — query params for cycle composition:
+      //   ?trims=skip  — skip the auto-reduce + event-risk-trim paths
+      //                  (used for the 2nd intraday cycle so trims only fire once per day)
+      //   ?adds=skip   — skip the new-position + add-to-existing paths
+      //                  (used for trim-only cycles if needed)
       if (routeKey === "POST /timed/investor/auto-rebalance") {
         try {
           await ensureInvestorPositionsSchema(env.DB, env.KV_TIMED);
           await ensureAccountLedgerSchema(env.DB, env.KV_TIMED);
           const now = Date.now();
+          const _skipTrims = String(url.searchParams.get("trims") || "").toLowerCase() === "skip";
+          const _skipAdds = String(url.searchParams.get("adds") || "").toLowerCase() === "skip";
 
           // ── Configuration ──
           const INVESTOR_CAPITAL = 100000;                   // Total investable capital
@@ -65057,7 +65065,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           let positionsCount = existingPos.length;
           let remainingCapital = availableCapital;
 
-          for (const t of actionable) {
+          // Phase 3.9k — skip new-position + add-to-existing paths if caller asked
+          for (const t of (_skipAdds ? [] : actionable)) {
             // Determine target allocation
             let targetPct;
             if (t.stage === "accumulate") {
@@ -65155,9 +65164,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           }
 
           // ── Event-risk reductions: trim before earnings and major macro catalysts ──
+          // Phase 3.9k — skip if caller passed ?trims=skip (2nd intraday cycle).
           const eventReduced = [];
           const eventReducedTickers = new Set();
-          for (const pos of existingPos) {
+          for (const pos of (_skipTrims ? [] : existingPos)) {
             const pf = priceMap[pos.ticker];
             const price = pf ? Number(pf.p) : null;
             if (!price || price <= 0 || !(Number(pos.total_shares) > 0)) continue;
@@ -65216,8 +65226,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           }
 
           // ── Auto-reduce: trim positions where score dropped to "reduce" stage ──
+          // Phase 3.9k — skip if caller passed ?trims=skip.
           const reduced = [];
-          for (const pos of existingPos) {
+          for (const pos of (_skipTrims ? [] : existingPos)) {
             if (eventReducedTickers.has(pos.ticker)) continue;
             const data = scores[pos.ticker];
             if (!data || data.stage !== "reduce") continue;
@@ -65275,6 +65286,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             eventReducedCount: eventReduced.length,
             reducedCount: reduced.length,
             skippedCount: skipped.length,
+            cycleMode: { skipTrims: _skipTrims, skipAdds: _skipAdds },
             opened,
             added,
             eventReduced,
@@ -69261,16 +69273,57 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       }
     }
 
-    // ── Investor Intelligence: hourly scoring refresh (top of hour, 9AM-4PM ET, Mon-Fri) ──
+    // ── Investor Intelligence: hourly scoring refresh + intraday auto-rebalance ──
+    //
+    // Cadence (Phase 3.9k, 2026-05-11):
+    //   • compute scores every hour 9 AM – 4 PM ET (informational + Discord alerts)
+    //   • auto-rebalance at 11 AM ET — primary cycle, full (adds + trims + event-risk)
+    //   • auto-rebalance at  2 PM ET — catch-up cycle, ADDS ONLY (?trims=skip)
+    //
+    // Rationale: pre-3.9k design ran the buy cycle at 4:30 PM ET, which
+    //   (a) requires a broker that fills after-hours,
+    //   (b) gives signals up to ~24h to stale before the system acts.
+    // The new schedule moves both cycles into RTH (11 AM = 1 hr after open,
+    // 2 PM = 2 hrs before close), and adds a second pass to catch tickers
+    // that transition to `accumulate` mid-morning.
+    //
+    // Trims fire once per day (11 AM only) because each cycle trims 25%;
+    // running trims twice would cut 44% of a `reduce` position daily —
+    // too aggressive for an investor strategy. The `?trims=skip` flag on
+    // the 2 PM cycle preserves the once-per-day trim cadence.
+    //
     // 13-21 UTC covers both EDT (13=9AM) and EST (14=9AM) through close.
     if (vc.has("0 13-21 * * 1-5")) {
       ctx.waitUntil((async () => {
         try {
           const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
-          console.log("[INVESTOR HOURLY] Triggering investor scoring refresh...");
+          // Use ET-zone hour to decide which actions fire — robust against
+          // EDT/EST transitions without per-DST cron string maintenance.
+          const _etH = parseInt(new Date().toLocaleString("en-US", {
+            timeZone: "America/New_York", hour: "numeric", hour12: false,
+          }), 10);
+
+          // 1. Always recompute scores during RTH (informational + alerts).
+          console.log(`[INVESTOR HOURLY] ET=${_etH}h — Triggering scoring refresh...`);
           const compResp = await fetch(`${selfUrl}/timed/investor/compute`, { method: "POST" });
           const compData = await compResp.json().catch(() => ({}));
-          console.log(`[INVESTOR HOURLY] Done: ${compData.tickers || 0} tickers, regime=${compData.marketHealth?.regime || "?"}`);
+          console.log(`[INVESTOR HOURLY] Compute done: ${compData.tickers || 0} tickers, regime=${compData.marketHealth?.regime || "?"}`);
+
+          // 2. Auto-rebalance at 11 AM ET (full cycle: adds + trims).
+          if (_etH === 11) {
+            console.log(`[INVESTOR HOURLY] ET=11h — Running PRIMARY auto-rebalance (full cycle)`);
+            const rebalResp = await fetch(`${selfUrl}/timed/investor/auto-rebalance`, { method: "POST" });
+            const rebalData = await rebalResp.json().catch(() => ({}));
+            console.log(`[INVESTOR HOURLY] Primary rebalance: ${rebalData.newPositions || 0} new, ${rebalData.addedTo || 0} added, ${rebalData.reducedCount || 0} trimmed (reduce), ${rebalData.eventReducedCount || 0} trimmed (event-risk)`);
+          }
+
+          // 3. Auto-rebalance at 2 PM ET (catch-up — adds only, no trims).
+          if (_etH === 14) {
+            console.log(`[INVESTOR HOURLY] ET=14h — Running CATCH-UP auto-rebalance (adds only, ?trims=skip)`);
+            const rebalResp = await fetch(`${selfUrl}/timed/investor/auto-rebalance?trims=skip`, { method: "POST" });
+            const rebalData = await rebalResp.json().catch(() => ({}));
+            console.log(`[INVESTOR HOURLY] Catch-up rebalance: ${rebalData.newPositions || 0} new, ${rebalData.addedTo || 0} added`);
+          }
         } catch (e) {
           console.warn(`[INVESTOR HOURLY] Failed:`, String(e?.message || e).slice(0, 300));
         }
@@ -69278,26 +69331,22 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       // Don't return — let other cron handlers run too if they match
     }
 
-    // ── Investor Intelligence: daily scoring + DCA execution (4:30 PM ET — 20:30 UTC in EDT, 21:30 UTC in EST) ──
+    // ── Investor Intelligence: daily DCA execution at 4:30 PM ET ──
+    //
+    // Phase 3.9k — DCA only (calendar-based, not signal-based). The
+    // signal-based auto-rebalance was moved to 11 AM + 2 PM ET (above)
+    // so user broker accounts that don't support after-hours trading
+    // can still fill all auto-buy orders within the regular session.
+    //
+    // DCA stays at 4:30 PM ET because (a) it's calendar-based (monthly
+    // / weekly schedules) so timing isn't signal-critical, and (b) by
+    // design DCA orders are typically next-session-fills via dollar-cost
+    // averaging tooling at the user's broker.
     if (vc.has("30 20 * * 1-5") || vc.has("30 21 * * 1-5")) {
       const _dcaEtH = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }), 10);
       if (_dcaEtH === 16) ctx.waitUntil((async () => {
         try {
           const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
-
-          // 1. Run investor compute
-          console.log("[INVESTOR CRON] Triggering daily investor compute...");
-          const compResp = await fetch(`${selfUrl}/timed/investor/compute`, { method: "POST" });
-          const compData = await compResp.json().catch(() => ({}));
-          console.log(`[INVESTOR CRON] Compute done: ${compData.tickers || 0} tickers, market=${compData.marketHealth?.regime || "?"}`);
-
-          // 2. Auto-rebalance: open/add/trim positions based on stages
-          console.log("[INVESTOR CRON] Running auto-rebalance...");
-          const rebalResp = await fetch(`${selfUrl}/timed/investor/auto-rebalance`, { method: "POST" });
-          const rebalData = await rebalResp.json().catch(() => ({}));
-          console.log(`[INVESTOR CRON] Rebalance: ${rebalData.newPositions || 0} new, ${rebalData.addedTo || 0} added, ${rebalData.reducedCount || 0} trimmed`);
-
-          // 3. Execute due DCA buys
           console.log("[INVESTOR CRON] Checking DCA plans...");
           const dcaResp = await fetch(`${selfUrl}/timed/investor/dca/execute`, { method: "POST" });
           const dcaData = await dcaResp.json().catch(() => ({}));
