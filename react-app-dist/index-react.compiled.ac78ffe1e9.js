@@ -15460,18 +15460,23 @@ function App() {
   }, [tickers, trades]);
   const traderActionableCount = (_appKanbanCounts.enter || 0) + (_appKanbanCounts.trim || 0) + (_appKanbanCounts.defend || 0) + (_appKanbanCounts.exit || 0);
   const traderHoldCount = _appKanbanCounts.hold || 0;
-  const investorTotalCount = useMemo(() => {
-    try {
-      const etfSet = new Set(["GRNY", "GRNJ", "GLD", "TLT", "DXY"]);
-      const ttSet = new Set(Array.isArray(tickers) ? tickers.map(t => normTicker(t?.ticker)) : []);
-      let n = 0;
-      for (const sym of etfSet) if (ttSet.has(sym)) n++;
-      n += Array.isArray(savedTickers) ? savedTickers.length : 0;
-      return n;
-    } catch (_) {
-      return 0;
+  const _appInvestorCounts = useMemo(() => {
+    const counts = {
+      accumulate: 0,
+      core_hold: 0,
+      watch: 0,
+      reduce: 0
+    };
+    if (!data) return counts;
+    for (const sym of Object.keys(data)) {
+      const stage = String(data[sym]?.investor_stage || "").toLowerCase();
+      if (counts[stage] != null) counts[stage]++;
     }
-  }, [tickers, savedTickers]);
+    return counts;
+  }, [data]);
+  const investorActionableCount = (_appInvestorCounts.accumulate || 0) + (_appInvestorCounts.reduce || 0);
+  const investorHoldCount = _appInvestorCounts.core_hold || 0;
+  const investorTotalCount = investorActionableCount + investorHoldCount;
   const bubbleMapTickers = useMemo(() => {
     let filtered = timeTravelTickers !== null ? timeTravelTickers : applyFilters(data, bubbleMapFilters, trades, socialAdditions, savedTickers);
     if (activeInsightTickers) {
@@ -16647,7 +16652,7 @@ function App() {
   })), React.createElement("button", {
     onClick: () => handleDashboardModeChange("investor"),
     className: `ds-tab__item ${dashboardMode === "investor" ? "ds-tab__item--active" : ""}`,
-    title: "Long-term ETF + core-idea positions"
+    title: investorActionableCount > 0 ? `${investorActionableCount} actionable now in Investor (accumulate / reduce)${investorHoldCount > 0 ? ` + ${investorHoldCount} core hold` : ""}` : investorHoldCount > 0 ? `${investorHoldCount} positions on core hold` : "Long-term portfolio: accumulate / core-hold / reduce signals"
   }, React.createElement("svg", {
     className: "w-4 h-4",
     fill: "none",
@@ -16660,7 +16665,10 @@ function App() {
     d: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
   })), React.createElement("span", null, "Investor"), investorTotalCount > 0 && React.createElement("span", {
     className: "ds-tab__count"
-  }, investorTotalCount)), React.createElement("button", {
+  }, investorTotalCount), investorActionableCount > 0 && dashboardMode !== "investor" && React.createElement("span", {
+    className: "ds-tab__dot",
+    "aria-hidden": true
+  })), React.createElement("button", {
     onClick: () => handleDashboardModeChange("all"),
     className: `ds-tab__item ${dashboardMode === "all" ? "ds-tab__item--active" : ""}`,
     title: "Sortable table of every ticker in scope"

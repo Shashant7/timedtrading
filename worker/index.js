@@ -63629,7 +63629,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             : canonicalTickers;
           const baseTickers = (Array.isArray(tickerListResp) ? tickerListResp : []).map(t => typeof t === "string" ? t : t.ticker).filter(Boolean);
           const userTickers = await d1GetActiveUserTickersCached(env);
-          const tickerSyms = [...new Set([...baseTickers, ...userTickers])];
+          // Phase 3.9j (2026-05-11) — exclude TradingView continuous futures
+          // (ES1!, NQ1!, RTY1!, YM1!, GC1!) and synthetic CFD-style index
+          // proxies (US500, US100, US30, US2000) from the Investor universe.
+          // These don't fit the long-trend equity profile (rolling-contract
+          // pricing, no thesis, no fundamentals). isInvestorEligibleTicker
+          // is the same gate used in runInvestorDailyReplay (Phase 3.9h.2).
+          const tickerSyms = [...new Set([...baseTickers, ...userTickers])]
+            .filter(isInvestorEligibleTicker);
 
           // Get SPY candles for relative strength
           let spyCandles = [];
@@ -63880,7 +63887,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           await kvPutJSON(env.KV_TIMED, "timed:investor:rs-ranks", rsRanks);
           await kvPutJSON(env.KV_TIMED, "timed:investor:computed-at", Date.now());
 
-          // Merge investor stages into timed:all:snapshot so Table View investor column is consistent
+          // Merge investor stages into timed:all:snapshot so Table View investor column is consistent.
+          // Phase 3.9j — also CLEAR investor_stage / investor_score on tickers
+          // we no longer score (futures, index proxies). Otherwise stale values
+          // from before this filter shipped persist on the snapshot indefinitely.
           try {
             const snapshot = await kvGetJSON(env.KV_TIMED, "timed:all:snapshot");
             if (snapshot?.data) {
@@ -63890,6 +63900,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   snapshot.data[sym].investor_stage = result.stage;
                   snapshot.data[sym].investor_score = result.score;
                   merged++;
+                }
+              }
+              // Clear stale fields on tickers excluded from investor universe
+              const _scoredKeys = new Set(Object.keys(investorResults));
+              for (const [sym, td] of Object.entries(snapshot.data)) {
+                if (!_scoredKeys.has(sym) && (td?.investor_stage || td?.investor_score != null)) {
+                  delete td.investor_stage;
+                  delete td.investor_score;
                 }
               }
               if (merged > 0) {

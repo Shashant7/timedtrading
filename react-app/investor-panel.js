@@ -407,17 +407,31 @@
       return () => { active = false; clearInterval(interval); };
     }, [base, scores?.tickers?.length > 0]);
 
+    // Phase 3.9j (2026-05-11) — defense-in-depth: filter futures + index
+    // proxies on the client even though /timed/investor/compute also
+    // excludes them. Catches stale cache responses that pre-date the
+    // server-side filter.
+    const isInvestorEligibleTicker = (ticker) => {
+      if (!ticker) return false;
+      const t = String(ticker).toUpperCase();
+      if (/[!]$/.test(t)) return false; // ES1!, NQ1!, RTY1!, YM1!, GC1!, etc.
+      if (t === "US500" || t === "US100" || t === "US30" || t === "US2000") return false;
+      return true;
+    };
+
     const allTickers = useMemo(() => {
       if (!scores?.tickers) return [];
-      let list = scores.tickers.map(t => {
-        const sym = String(t.ticker || "").toUpperCase();
-        const mainData = tickerData?.[sym];
-        return {
-          ...t,
-          ticker: sym,
-          _sparkline: mainData?._sparkline || t._sparkline,
-        };
-      });
+      let list = scores.tickers
+        .filter(t => isInvestorEligibleTicker(t?.ticker))
+        .map(t => {
+          const sym = String(t.ticker || "").toUpperCase();
+          const mainData = tickerData?.[sym];
+          return {
+            ...t,
+            ticker: sym,
+            _sparkline: mainData?._sparkline || t._sparkline,
+          };
+        });
       if (!window._ttIsPro && !window._ttIsAdmin) {
         if (!memberTickersLoaded) list = [];
         else if (memberTickers.length > 0) {
