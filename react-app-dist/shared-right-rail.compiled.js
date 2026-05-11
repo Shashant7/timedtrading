@@ -1072,7 +1072,6 @@
               });
               lastAppliedWidth = w;
             }
-            chart.timeScale().fitContent();
           }
           setTimeout(() => {
             if (containerRef.current && chart) {

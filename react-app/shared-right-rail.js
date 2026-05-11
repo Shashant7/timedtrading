@@ -878,6 +878,24 @@
         // yet. Use rAF to sync. Width-only — height is set once at
         // create time from clientHeight; subsequent height changes only
         // happen on window resize (handled by handleWindowResize above).
+        //
+        // P0.7.134 — REMOVED the `chart.timeScale().fitContent()` call
+        // that used to sit at the end of the rAF block. That call was
+        // a leftover from before the CREATE/UPDATE split (P0.7.99), and
+        // because rAF fires AFTER React commits both effects, it ran
+        // immediately AFTER the UPDATE effect's setVisibleLogicalRange
+        // and clobbered it. Users saw the symptom user reported as
+        // "a flash of larger candles and then flashing away":
+        //   1. UPDATE setData(130 candles) + setVisibleLogicalRange to
+        //      last 52 bars → chart paints with 52 wide bars (the
+        //      "larger candles" flash).
+        //   2. CREATE rAF fitContent → all 130 bars compressed into
+        //      the same width → chart re-paints with thinner bars
+        //      ("flashing away" to the default look).
+        // The UPDATE effect already snaps the visible range correctly
+        // on the first data load (and falls back to fitContent for
+        // sparse-history symbols), so we don't need a second snap here.
+        // Keep the width-applyOptions to handle late container sizing.
         requestAnimationFrame(() => {
           if (containerRef.current && chart) {
             const w = containerRef.current.clientWidth;
@@ -885,7 +903,6 @@
               chart.applyOptions({ width: w });
               lastAppliedWidth = w;
             }
-            chart.timeScale().fitContent();
           }
           setTimeout(() => {
             if (containerRef.current && chart) {
