@@ -284,6 +284,7 @@ import { getTickerType as getTickerTypeForFocus } from "./sector-mapping.js";
 export { PriceHub } from "./price-hub.js";
 export { AlpacaStream } from "./alpaca-stream.js";
 export { PriceStream } from "./price-stream.js";
+export { TradovateStream } from "./tradovate-stream.js";
 export { BacktestRunner } from "./backtest-runner-do.js";
 import { parseCandleReplayRequest } from "./backtest-runner-contracts.js";
 import { createReplayExecutors } from "./replay-executors.js";
@@ -802,6 +803,53 @@ async function priceStreamStatus(env) {
   }
 }
 
+// ─── TradovateStream DO helpers (futures WebSocket) ─────────────────────
+async function tradovateStreamStart(env, tvSymbols) {
+  if (!env?.TRADOVATE_STREAM) return null;
+  try {
+    const id = env.TRADOVATE_STREAM.idFromName("global");
+    const stub = env.TRADOVATE_STREAM.get(id);
+    const res = await stub.fetch(new Request("https://internal/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tvSymbols }),
+    }));
+    return res.json();
+  } catch (e) {
+    console.warn("[TRADOVATE_STREAM] start failed:", String(e).slice(0, 200));
+    return null;
+  }
+}
+
+async function tradovateStreamStop(env) {
+  if (!env?.TRADOVATE_STREAM) return null;
+  try {
+    const id = env.TRADOVATE_STREAM.idFromName("global");
+    const stub = env.TRADOVATE_STREAM.get(id);
+    const res = await stub.fetch(new Request("https://internal/stop", { method: "POST" }));
+    return res.json();
+  } catch (e) {
+    console.warn("[TRADOVATE_STREAM] stop failed:", String(e).slice(0, 200));
+    return null;
+  }
+}
+
+async function tradovateStreamStatus(env) {
+  if (!env?.TRADOVATE_STREAM) return { ok: false, error: "not_configured" };
+  try {
+    const id = env.TRADOVATE_STREAM.idFromName("global");
+    const stub = env.TRADOVATE_STREAM.get(id);
+    const res = await stub.fetch(new Request("https://internal/status"));
+    return res.json();
+  } catch (e) {
+    return { ok: false, error: String(e).slice(0, 200) };
+  }
+}
+
+function _isTradovateEnabled(env) {
+  return String(env?.TRADOVATE_ENABLED || "false").toLowerCase() === "true";
+}
+
 // ─── Provider-aware stream routing ──────────────────────────────────────
 function _usesTwelveData(env) {
   return (env?.DATA_PROVIDER || "twelvedata").toLowerCase() === "twelvedata";
@@ -962,6 +1010,10 @@ const ROUTES = [
   ["GET", "/timed/price-stream/status", "GET /timed/price-stream/status"],
   ["POST", "/timed/price-stream/start", "POST /timed/price-stream/start"],
   ["POST", "/timed/price-stream/stop", "POST /timed/price-stream/stop"],
+  ["GET", "/timed/tradovate-stream/status", "GET /timed/tradovate-stream/status"],
+  ["POST", "/timed/tradovate-stream/start", "POST /timed/tradovate-stream/start"],
+  ["POST", "/timed/tradovate-stream/stop", "POST /timed/tradovate-stream/stop"],
+  ["GET", "/timed/tradovate-stream/token-status", "GET /timed/tradovate-stream/token-status"],
   ["GET", "/timed/auth", "GET /timed/auth"],
   ["POST", "/timed/purge", "POST /timed/purge"],
   ["POST", "/timed/rebuild-index", "POST /timed/rebuild-index"],
@@ -46338,6 +46390,32 @@ export default {
         return sendJSON({ ok: true, result, provider: _usesTwelveData(env) ? "twelvedata" : "alpaca" }, 200, corsHeaders(env, req));
       }
 
+      // ── Tradovate WS admin endpoints (P0.7.132) ──
+      if (routeKey === "GET /timed/tradovate-stream/status") {
+        const status = await tradovateStreamStatus(env);
+        return sendJSON({ ...status, enabled: _isTradovateEnabled(env) }, 200, corsHeaders(env, req));
+      }
+      if (routeKey === "POST /timed/tradovate-stream/start") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const tradTracked = (await import("./tradovate.js")).tradovateTrackedTvSymbols();
+        const result = await tradovateStreamStart(env, tradTracked);
+        return sendJSON({ ok: true, result, tvSymbols: tradTracked.length }, 200, corsHeaders(env, req));
+      }
+      if (routeKey === "POST /timed/tradovate-stream/stop") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const result = await tradovateStreamStop(env);
+        return sendJSON({ ok: true, result }, 200, corsHeaders(env, req));
+      }
+      if (routeKey === "GET /timed/tradovate-stream/token-status") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const { tradovateTokenStatus } = await import("./tradovate.js");
+        const status = await tradovateTokenStatus(env);
+        return sendJSON({ ok: true, ...status }, 200, corsHeaders(env, req));
+      }
+
       // GET /timed/health
       if (routeKey === "GET /timed/health") {
         // Rate limiting
@@ -70269,29 +70347,17 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         }
       }
 
-      // P0.7.131 (2026-05-11) — WebSocket DO keep-alive.
+      // P0.7.131 (2026-05-11) — PriceStream (TwelveData equities) keep-alive.
       //
       // The PriceStream Durable Object self-heals via a 5-10s alarm
       // loop, but the alarm chain only re-arms while isRunning=true.
       // If CF evicts the DO and there's no in-flight request, the
       // DO stays stopped until something explicitly calls /start.
       //
-      // The every-5m cron at line ~69640 is the existing trigger but
-      // leaves up to 5 min of WS dead time per eviction. During that
-      // gap we fall back to the 1-min REST price-feed cron, which is
-      // fine but loses sub-second granularity.
-      //
-      // Fix: per-minute keep-alive ping. Cost = 1 DO RPC/min ~=
+      // Per-minute keep-alive ping. Cost = 1 DO RPC/min ~=
       // 1,440/day, well within the free DO request budget. The DO's
       // /start handler is idempotent (no-op when isRunning=true) so
       // this only does work after an actual eviction.
-      //
-      // Gates:
-      //   1. DATA_PROVIDER === 'twelvedata' (skip when on Alpaca)
-      //   2. PRICE_STREAM binding present (skip in pre-prod)
-      //   3. Within operating hours (4 AM - 8 PM ET on weekdays;
-      //      crypto-only outside that, and crypto runs on REST).
-      //   4. Cron not muted (don't restart the DO during a backtest).
       try {
         if (_usesTwelveData(env) && env?.PRICE_STREAM && isWithinOperatingHours()) {
           const _muteCheck = await KV.get("phase-c:cron-mute").catch(() => null);
@@ -70316,6 +70382,38 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         }
       } catch (kaErr) {
         console.warn("[STREAM keep-alive] outer check failed:", String(kaErr?.message || kaErr).slice(0, 200));
+      }
+
+      // P0.7.132 — Tradovate WS keep-alive (futures feed). Sibling to the
+      // PriceStream keep-alive above. Disabled by default until
+      // TRADOVATE_ENABLED="true" + the 6 TRADOVATE_* secrets are in CF
+      // Dashboard. Same idempotent start pattern: cheap NO-OP when the DO
+      // is already running, restarts within ~60s of any CF eviction.
+      // Currently dormant — see the docstring at the top of
+      // worker/tradovate.js for status (blocked on a $290/mo Tradovate
+      // CME data subscription that we decided not to pay for).
+      try {
+        if (_isTradovateEnabled(env) && env?.TRADOVATE_STREAM && isWithinOperatingHours()) {
+          const _muteCheckTv = await KV.get("phase-c:cron-mute").catch(() => null);
+          if (!_muteCheckTv) {
+            ctx.waitUntil((async () => {
+              try {
+                const status = await tradovateStreamStatus(env);
+                if (status && status.isRunning === false) {
+                  const { tradovateTrackedTvSymbols } = await import("./tradovate.js");
+                  const tvSyms = tradovateTrackedTvSymbols();
+                  const startRes = await tradovateStreamStart(env, tvSyms);
+                  console.log(`[TRADOVATE keep-alive] DO was stopped → restarted with ${tvSyms.length} TV symbols.`,
+                    String(JSON.stringify(startRes)).slice(0, 200));
+                }
+              } catch (e) {
+                console.warn("[TRADOVATE keep-alive] check failed:", String(e?.message || e).slice(0, 200));
+              }
+            })());
+          }
+        }
+      } catch (kaErr) {
+        console.warn("[TRADOVATE keep-alive] outer check failed:", String(kaErr?.message || kaErr).slice(0, 200));
       }
 
       return;
