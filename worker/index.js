@@ -33286,6 +33286,75 @@ const INVESTOR_DCA_MIN_GAP_DAYS = 20;
 const INVESTOR_TRAILING_STOP_ATR_MULT = 3.0;
 const INVESTOR_TRAILING_STOP_FIXED_PCT = 0.10;
 
+// ─────────────────────────────────────────────────────────────────────────
+// Phase 3.9h (2026-05-11) — batch historical close fetch from ticker_candles.
+//
+// `dayState[ticker].price` in `timed:replay:daystate:YYYY-MM-DD` KV blobs is
+// continuously rewritten by replay/backfill cycles and cannot be trusted as
+// authoritative historical pricing. Verified empirically: GOOGL Aug 1 2025
+// blob says $397.99 vs actual close $189.13 (110% off); SNDK Jul 1 says
+// $920.99 vs actual $44.96. ticker_candles (D1) is the source of truth for
+// historical OHLC and is replayed from canonical TwelveData ingest.
+//
+// This helper batch-fetches the close at-or-before `ts` for each ticker.
+// Used by runInvestorDailyReplay (transactional pricing) and
+// snapshotBothPortfolios (positions_value mark-to-market).
+// ─────────────────────────────────────────────────────────────────────────
+async function loadHistoricalClosesAt(env, tickers, ts) {
+  const out = {};
+  if (!Array.isArray(tickers) || tickers.length === 0) return out;
+  const db = env?.DB;
+  if (!db) return out;
+  const upTickers = [...new Set(tickers.map((t) => String(t || "").toUpperCase()).filter(Boolean))];
+  if (upTickers.length === 0) return out;
+  // D1 bind-parameter limit is 999. Chunk to be safe.
+  const CHUNK = 200;
+  for (let i = 0; i < upTickers.length; i += CHUNK) {
+    const slice = upTickers.slice(i, i + CHUNK);
+    const placeholders = slice.map((_, idx) => `?${idx + 1}`).join(",");
+    try {
+      // For each ticker get the most-recent D candle at-or-before ts.
+      const rows = (await db.prepare(
+        `SELECT ticker, c
+         FROM ticker_candles
+         WHERE tf = 'D' AND ticker IN (${placeholders}) AND ts <= ?${slice.length + 1}
+         GROUP BY ticker
+         HAVING ts = MAX(ts)`
+      ).bind(...slice, ts).all())?.results || [];
+      for (const r of rows) {
+        const t = String(r?.ticker || "").toUpperCase();
+        const c = Number(r?.c);
+        if (t && Number.isFinite(c) && c > 0) out[t] = c;
+      }
+    } catch (err) {
+      console.warn(`[loadHistoricalClosesAt] chunk failed: ${String(err?.message || err).slice(0, 200)}`);
+    }
+  }
+  return out;
+}
+
+// Phase 3.9h.2 (2026-05-11) — Investor Mode universe filter.
+//
+// Investor Mode is structurally a long-trend equity strategy: monthly
+// SuperTrend gates, fundamental thesis, multi-week-to-multi-month holds.
+// TradingView-derived continuous futures contracts (ES1!, NQ1!, RTY1!,
+// YM1!) and synthetic index proxies (US500, US100, US30, US2000) leak
+// into the universe via SECTOR_MAP but don't fit this profile — they
+// have rolling-contract pricing, no thesis, no dividends, and no real
+// fundamental signal. Exclude them so the strategy invests only in
+// genuine equity instruments (stocks + ETFs).
+//
+// The pattern `[!]$` covers all TradingView continuous-contract suffixes.
+function isInvestorEligibleTicker(ticker) {
+  if (!ticker) return false;
+  const t = String(ticker).toUpperCase();
+  // TradingView continuous futures (ES1!, NQ1!, RTY1!, YM1!, GC1!, CL1!, etc.)
+  if (/[!]$/.test(t)) return false;
+  // Synthetic index proxies (CFD-style)
+  if (t === "US500" || t === "US100" || t === "US30" || t === "US2000") return false;
+  return true;
+}
+
 async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMapOverride) {
   const db = env?.DB;
   if (!db || !KV) return { ok: false, reason: "no_db_or_kv" };
@@ -33309,6 +33378,17 @@ async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMap
         if (td && td.price > 0) tickerDataMap[sym] = td;
       } catch { /* skip */ }
     }
+  }
+
+  // Phase 3.9h.2 — strip futures + index-proxy entries from the investor
+  // universe. Mutates a SHALLOW COPY so the caller's dayState blob isn't
+  // affected (other code paths may legitimately want futures).
+  {
+    const filtered = {};
+    for (const [sym, td] of Object.entries(tickerDataMap)) {
+      if (isInvestorEligibleTicker(sym)) filtered[sym] = td;
+    }
+    tickerDataMap = filtered;
   }
 
   // Load existing open investor positions
@@ -33345,6 +33425,29 @@ async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMap
     } catch { /* skip tickers that fail scoring */ }
   }
 
+  // ─────────────────────────────────────────────────────────────────────
+  // Phase 3.9h (2026-05-11) — load historical D-tf closes from D1 for
+  // every ticker that might transact today (open positions + accumulate
+  // candidates). Use these for ALL transactional pricing instead of
+  // dayState[ticker].price (which is contaminated — see helper docblock).
+  //
+  // Falls back to dayState .price if D1 has no candle for that ticker
+  // at-or-before this day (rare; legitimate for newly-listed names).
+  // ─────────────────────────────────────────────────────────────────────
+  const _invTickersForPricing = new Set();
+  for (const p of openPositions) _invTickersForPricing.add(String(p.ticker).toUpperCase());
+  for (const s of scoredTickers) {
+    if (s.stage === "accumulate") _invTickersForPricing.add(String(s.sym).toUpperCase());
+  }
+  const _invHistPrices = await loadHistoricalClosesAt(env, [..._invTickersForPricing], dayMs);
+  const _invPriceFor = (sym, fallbackTd) => {
+    const t = String(sym || "").toUpperCase();
+    const histP = _invHistPrices[t];
+    if (Number.isFinite(histP) && histP > 0) return histP;
+    const fb = Number(fallbackTd?.price);
+    return Number.isFinite(fb) && fb > 0 ? fb : 0;
+  };
+
   let opened = 0, closed = 0, dcaBuys = 0, trimmed = 0;
 
   // --- EXIT / TRIM existing positions ---
@@ -33353,7 +33456,9 @@ async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMap
     const td = tickerDataMap[sym];
     if (!td) continue;
 
-    const price = Number(td.price);
+    // Phase 3.9h — authoritative historical close from ticker_candles
+    // (dayState[ticker].price has been contaminated; see helper docblock).
+    const price = _invPriceFor(sym, td);
     if (!Number.isFinite(price) || price <= 0) continue;
 
     const scored = scoredTickers.find(s => s.sym === sym);
@@ -33579,7 +33684,8 @@ async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMap
     const daysSinceLast = lastEntry > 0 ? (dayMs - lastEntry) / (86400 * 1000) : 999;
     if (daysSinceLast < INVESTOR_DCA_MIN_GAP_DAYS) continue;
 
-    const price = Number(scored.td.price);
+    // Phase 3.9h — historical close from ticker_candles, not dayState
+    const price = _invPriceFor(sym, scored.td);
     if (!Number.isFinite(price) || price <= 0) continue;
 
     const dcaValue = INVESTOR_REPLAY_CAPITAL * INVESTOR_DCA_PCT;
@@ -33626,7 +33732,8 @@ async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMap
     if (!_stMBull) continue;
     if (_stBullCount < 2) continue;
 
-    const price = Number(c.td.price);
+    // Phase 3.9h — historical close from ticker_candles, not dayState
+    const price = _invPriceFor(c.sym, c.td);
     if (!Number.isFinite(price) || price <= 0) continue;
 
     const allocPct = c.score >= 70 ? INVESTOR_STRONG_ALLOC_PCT : INVESTOR_BASE_ALLOC_PCT;
@@ -33758,6 +33865,9 @@ async function snapshotBothPortfolios(env, KV, replayCtx, dayDate, tickerDataMap
   }
 
   // --- Investor snapshot ---
+  // Phase 3.9h (2026-05-11) — mark-to-market using authoritative D-tf
+  // close from ticker_candles (D1) instead of the contaminated dayState
+  // KV `.price` field. See loadHistoricalClosesAt() docblock.
   let investorCash = await d1GetLedgerBalance(env, "investor");
   let investorPositionsValue = 0;
   let investorOpenCount = 0;
@@ -33766,18 +33876,25 @@ async function snapshotBothPortfolios(env, KV, replayCtx, dayDate, tickerDataMap
       "SELECT ticker, total_shares FROM investor_positions WHERE status = 'OPEN'"
     ).all())?.results || [];
     investorOpenCount = invPos.length;
+    const _snapTickers = invPos
+      .filter((p) => Number(p.total_shares) > 0)
+      .map((p) => String(p.ticker).toUpperCase());
+    const _snapHistPrices = await loadHistoricalClosesAt(env, _snapTickers, dayMs);
     for (const p of invPos) {
       const shares = Number(p.total_shares) || 0;
       if (shares <= 0) continue;
       const ticker = String(p.ticker).toUpperCase();
-      let curPrice = 0;
-      if (tickerDataMapOverride && tickerDataMapOverride[ticker]) {
-        curPrice = Number(tickerDataMapOverride[ticker]?.price) || 0;
-      } else {
-        try {
-          const td = await kvGetJSON(KV, `timed:latest:${p.ticker}`);
-          curPrice = Number(td?.price) || 0;
-        } catch {}
+      let curPrice = _snapHistPrices[ticker] || 0;
+      // Fallback chain (only if D1 has no candle): override → KV latest
+      if (!curPrice) {
+        if (tickerDataMapOverride && tickerDataMapOverride[ticker]) {
+          curPrice = Number(tickerDataMapOverride[ticker]?.price) || 0;
+        } else {
+          try {
+            const td = await kvGetJSON(KV, `timed:latest:${p.ticker}`);
+            curPrice = Number(td?.price) || 0;
+          } catch {}
+        }
       }
       investorPositionsValue += shares * curPrice;
     }
