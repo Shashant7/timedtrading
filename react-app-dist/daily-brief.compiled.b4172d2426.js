@@ -810,12 +810,15 @@ function isMarketOpen() {
   return min >= 570 && min < 960;
 }
 const EMPTY_LEVELS = [];
+const EMPTY_FLASH_MARKERS = [];
 function MiniChart({
   sym,
   label,
   accentColor,
   tf,
-  limit
+  limit,
+  height = 500,
+  flashMarkers = EMPTY_FLASH_MARKERS
 }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
@@ -823,12 +826,22 @@ function MiniChart({
   const firstCandleRef = useRef(null);
   const priceLinesRef = useRef([]);
   const trendlineSeriesRef = useRef([]);
+  const patternMarkersRef = useRef([]);
+  const flashMarkersRef = useRef(flashMarkers);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastPrice, setLastPrice] = useState(null);
   const [change, setChange] = useState(null);
   const [isLive, setIsLive] = useState(false);
   const [patternLabel, setPatternLabel] = useState(null);
+  useEffect(() => {
+    flashMarkersRef.current = flashMarkers;
+    if (!seriesRef.current) return;
+    const combined = [...(patternMarkersRef.current || []), ...(flashMarkers || [])].sort((a, b) => (a.time || 0) - (b.time || 0));
+    try {
+      seriesRef.current.setMarkers(combined);
+    } catch (_) {}
+  }, [flashMarkers]);
   const mapCandles = useCallback(candles => {
     const raw = candles.map(c => {
       const ts = c.ts / 1000;
@@ -904,7 +917,7 @@ function MiniChart({
     }
     const chart = LightweightCharts.createChart(containerRef.current, {
       width: containerRef.current.clientWidth,
-      height: 500,
+      height,
       layout: {
         background: {
           type: "solid",
@@ -1116,17 +1129,23 @@ function MiniChart({
           trendlineSeriesRef.current.push(lineSeries);
         }
         if (overlayData.patterns && overlayData.patterns.length > 0 && seriesRef.current) {
-          const markers = overlayData.patterns.map(p => ({
+          const patternMarkers = overlayData.patterns.map(p => ({
             time: p.ts,
             position: p.bias === "bearish" ? "aboveBar" : "belowBar",
             color: p.bias === "bearish" ? "#ef5350" : p.bias === "bullish" ? "#26a69a" : "#7c8493",
             shape: p.bias === "bearish" ? "arrowDown" : p.bias === "bullish" ? "arrowUp" : "circle",
             text: p.type
           }));
+          patternMarkersRef.current = patternMarkers;
+          const combined = [...patternMarkers, ...(flashMarkersRef.current || [])].sort((a, b) => (a.time || 0) - (b.time || 0));
           try {
-            seriesRef.current.setMarkers(markers);
+            seriesRef.current.setMarkers(combined);
           } catch (_) {}
           setPatternLabel(overlayData.patterns[overlayData.patterns.length - 1]?.type || null);
+        } else if (flashMarkersRef.current && flashMarkersRef.current.length > 0 && seriesRef.current) {
+          try {
+            seriesRef.current.setMarkers([...flashMarkersRef.current]);
+          } catch (_) {}
         }
       };
       const fetchOverlays = async (attempt = 0) => {
@@ -1253,7 +1272,7 @@ function MiniChart({
   }), "Live"))), React.createElement("div", {
     ref: containerRef,
     style: {
-      height: 500
+      height
     }
   }, error && React.createElement("div", {
     className: "flex items-center justify-center h-full"
@@ -1731,6 +1750,33 @@ function IntradayFlash({
   const [expanded, setExpanded] = useState(true);
   if (!entries || entries.length === 0) return null;
   const sorted = [...entries].sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
+  const flashMarkers = useMemo(() => {
+    const FIVE_MIN = 5 * 60;
+    const chrono = [...sorted].sort((a, b) => (a.publishedAt || 0) - (b.publishedAt || 0));
+    return chrono.filter(e => Number.isFinite(Number(e.publishedAt))).map((e, idx) => {
+      const t = Math.floor(Number(e.publishedAt) / 1000);
+      const bucketed = Math.floor(t / FIVE_MIN) * FIVE_MIN;
+      const label = (() => {
+        try {
+          return new Date(e.publishedAt).toLocaleTimeString("en-US", {
+            timeZone: "America/New_York",
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true
+          });
+        } catch {
+          return `Flash ${idx + 1}`;
+        }
+      })();
+      return {
+        time: bucketed,
+        position: "aboveBar",
+        color: "#a78bfa",
+        shape: "circle",
+        text: label
+      };
+    });
+  }, [sorted]);
   return React.createElement("div", {
     className: "mb-8"
   }, React.createElement("div", {
@@ -1775,26 +1821,52 @@ function IntradayFlash({
     }
   }, React.createElement("polyline", {
     points: "6 9 12 15 18 9"
-  }))), expanded && sorted.map((entry, i) => React.createElement("div", {
-    key: entry.id || i,
-    className: "mb-6 pb-5",
+  }))), expanded && React.createElement(React.Fragment, null, React.createElement("div", {
+    className: "mb-5"
+  }, React.createElement("div", {
+    className: "flex items-baseline gap-2 mb-2"
+  }, React.createElement("span", {
+    className: "tt-label-editorial",
     style: {
-      borderBottom: "1px solid var(--tt-border-weak)"
+      fontSize: 10,
+      color: "#a78bfa"
+    }
+  }, "Today's Tape"), React.createElement("span", {
+    className: "text-[11px] text-[#6b7280]"
+  }, "SPY \xB7 5m \xB7 violet dots mark each flash")), React.createElement(MiniChart, {
+    sym: "SPY",
+    label: "SPY",
+    accentColor: "#a78bfa",
+    tf: "5",
+    limit: 156,
+    height: 300,
+    flashMarkers: flashMarkers
+  })), sorted.map((entry, i) => React.createElement("div", {
+    key: entry.id || i,
+    className: "mb-5 rounded-lg border overflow-hidden",
+    style: {
+      background: "linear-gradient(135deg, rgba(139,92,246,0.025), rgba(99,102,241,0.01))",
+      borderColor: "rgba(139,92,246,0.14)"
     }
   }, React.createElement("div", {
-    className: "flex items-baseline gap-2 mb-3"
+    className: "flex items-center gap-2 px-4 py-2 border-b",
+    style: {
+      borderColor: "rgba(139,92,246,0.10)",
+      background: "rgba(139,92,246,0.04)"
+    }
   }, React.createElement("span", {
     className: "tt-heartbeat",
     "aria-hidden": "true"
   }), React.createElement("span", {
     className: "tt-label-editorial",
     style: {
-      fontSize: 10
+      fontSize: 10,
+      color: "#a78bfa"
     }
   }, entry.timeET || "Update"), entry.publishedAt && React.createElement("span", {
     className: "tt-num",
     style: {
-      fontSize: 10,
+      fontSize: 10.5,
       color: "var(--tt-text-4)"
     }
   }, new Date(entry.publishedAt).toLocaleTimeString("en-US", {
@@ -1802,14 +1874,22 @@ function IntradayFlash({
     hour: "numeric",
     minute: "2-digit",
     hour12: true
-  }), " ET")), entry.infographic && React.createElement(IntradayPulse, {
+  }), " ET"), React.createElement("span", {
+    style: {
+      flex: 1
+    }
+  }), React.createElement("span", {
+    className: "text-[9px] uppercase tracking-[0.14em] font-bold text-[#a78bfa]/70"
+  }, "Flash ", sorted.length - i)), React.createElement("div", {
+    className: "px-4 py-4"
+  }, entry.infographic && React.createElement(IntradayPulse, {
     infographic: entry.infographic
   }), React.createElement("div", {
     className: "brief-content",
     dangerouslySetInnerHTML: {
       __html: renderMarkdown(entry.content)
     }
-  }))));
+  }))))));
 }
 function App({
   user

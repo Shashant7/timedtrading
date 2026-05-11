@@ -970,20 +970,38 @@
 
       // Stable empty array reference — avoids useEffect re-runs from levels={[]}
       const EMPTY_LEVELS = [];
+      const EMPTY_FLASH_MARKERS = [];
 
-      function MiniChart({ sym, label, accentColor, tf, limit }) {
+      function MiniChart({ sym, label, accentColor, tf, limit, height = 500, flashMarkers = EMPTY_FLASH_MARKERS }) {
         const containerRef = useRef(null);
         const chartRef = useRef(null);
         const seriesRef = useRef(null);
         const firstCandleRef = useRef(null);
         const priceLinesRef = useRef([]);
         const trendlineSeriesRef = useRef([]);
+        // P0.7.133 — Track pattern markers from overlay engine separately from
+        // the externally-supplied flash markers (used by the Intraday Flash
+        // section to annotate publish times) so the two marker sources can
+        // be merged without either overwriting the other.
+        const patternMarkersRef = useRef([]);
+        const flashMarkersRef = useRef(flashMarkers);
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
         const [lastPrice, setLastPrice] = useState(null);
         const [change, setChange] = useState(null);
         const [isLive, setIsLive] = useState(false);
         const [patternLabel, setPatternLabel] = useState(null);
+
+        // Re-apply combined markers whenever the flash-markers prop changes
+        // OR when the chart series is (re)created. Kept outside the main
+        // chart-init effect so updating markers doesn't tear down the chart.
+        useEffect(() => {
+          flashMarkersRef.current = flashMarkers;
+          if (!seriesRef.current) return;
+          const combined = [...(patternMarkersRef.current || []), ...(flashMarkers || [])]
+            .sort((a, b) => (a.time || 0) - (b.time || 0));
+          try { seriesRef.current.setMarkers(combined); } catch (_) {}
+        }, [flashMarkers]);
 
         const mapCandles = useCallback((candles) => {
           const raw = candles.map(c => {
@@ -1047,7 +1065,7 @@
 
           const chart = LightweightCharts.createChart(containerRef.current, {
             width: containerRef.current.clientWidth,
-            height: 500,
+            height,
             layout: {
               background: { type: "solid", color: "#0b0e11" },
               textColor: "#7c8493",
@@ -1210,17 +1228,25 @@
                 trendlineSeriesRef.current.push(lineSeries);
               }
 
-              // Pattern markers
+              // Pattern markers — stored in patternMarkersRef so they can be
+              // merged with externally-supplied flashMarkers (intraday
+              // publish-time annotations) without either source overwriting
+              // the other.
               if (overlayData.patterns && overlayData.patterns.length > 0 && seriesRef.current) {
-                const markers = overlayData.patterns.map(p => ({
+                const patternMarkers = overlayData.patterns.map(p => ({
                   time: p.ts,
                   position: p.bias === "bearish" ? "aboveBar" : "belowBar",
                   color: p.bias === "bearish" ? "#ef5350" : p.bias === "bullish" ? "#26a69a" : "#7c8493",
                   shape: p.bias === "bearish" ? "arrowDown" : p.bias === "bullish" ? "arrowUp" : "circle",
                   text: p.type,
                 }));
-                try { seriesRef.current.setMarkers(markers); } catch (_) {}
+                patternMarkersRef.current = patternMarkers;
+                const combined = [...patternMarkers, ...(flashMarkersRef.current || [])]
+                  .sort((a, b) => (a.time || 0) - (b.time || 0));
+                try { seriesRef.current.setMarkers(combined); } catch (_) {}
                 setPatternLabel(overlayData.patterns[overlayData.patterns.length - 1]?.type || null);
+              } else if (flashMarkersRef.current && flashMarkersRef.current.length > 0 && seriesRef.current) {
+                try { seriesRef.current.setMarkers([...flashMarkersRef.current]); } catch (_) {}
               }
             };
             const fetchOverlays = async (attempt = 0) => {
@@ -1366,7 +1392,7 @@
                 )}
               </div>
             </div>
-            <div ref={containerRef} style={{ height: 500 }}>
+            <div ref={containerRef} style={{ height }}>
               {error && (
                 <div className="flex items-center justify-center h-full">
                   <span className="text-[11px] text-[#4b5563]">{error}</span>
@@ -1778,10 +1804,56 @@
       }
 
       // ── Intraday Flash Insight Component ──────────────────────────────────
+      //
+      // P0.7.133 — Re-styled per user feedback: "make these briefs more
+      // engaging and visual, accompanied by a chart or something."
+      //
+      // Layout:
+      //  1. Section header (Intraday Flash · Live market pulse)
+      //  2. Single SPY 5m chart spanning today's tape, with markers at the
+      //     publish time of each flash. The chart is the visual anchor —
+      //     traders see WHERE on the tape each take was written, not just
+      //     a wall of timestamps.
+      //  3. Per-entry cards: time badge, pulse strip (VIX/breadth/indices),
+      //     optional "Take" highlight, prose body. Card backgrounds give the
+      //     section a richer rhythm than the previous repeating-paragraphs
+      //     layout.
       function IntradayFlash({ entries }) {
         const [expanded, setExpanded] = useState(true);
         if (!entries || entries.length === 0) return null;
         const sorted = [...entries].sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
+
+        // Build chart markers (one per flash) keyed off publishedAt. The
+        // Lightweight-Charts marker `time` is a Unix-second timestamp; we
+        // align to the start of the 5-minute candle so markers anchor to a
+        // real bar instead of floating between bars.
+        const flashMarkers = useMemo(() => {
+          const FIVE_MIN = 5 * 60;
+          // Newest-first list above is good for rendering, but markers
+          // should be chronological for the chart engine.
+          const chrono = [...sorted].sort((a, b) => (a.publishedAt || 0) - (b.publishedAt || 0));
+          return chrono
+            .filter(e => Number.isFinite(Number(e.publishedAt)))
+            .map((e, idx) => {
+              const t = Math.floor(Number(e.publishedAt) / 1000);
+              const bucketed = Math.floor(t / FIVE_MIN) * FIVE_MIN;
+              const label = (() => {
+                try {
+                  return new Date(e.publishedAt).toLocaleTimeString("en-US", {
+                    timeZone: "America/New_York", hour: "numeric", minute: "2-digit", hour12: true,
+                  });
+                } catch { return `Flash ${idx + 1}`; }
+              })();
+              return {
+                time: bucketed,
+                position: "aboveBar",
+                color: "#a78bfa",
+                shape: "circle",
+                text: label,
+              };
+            });
+        }, [sorted]);
+
         return (
           <div className="mb-8">
             <div
@@ -1802,21 +1874,62 @@
                 <polyline points="6 9 12 15 18 9" />
               </svg>
             </div>
-            {expanded && sorted.map((entry, i) => (
-              <div key={entry.id || i} className="mb-6 pb-5" style={{ borderBottom: "1px solid var(--tt-border-weak)" }}>
-                <div className="flex items-baseline gap-2 mb-3">
-                  <span className="tt-heartbeat" aria-hidden="true" />
-                  <span className="tt-label-editorial" style={{ fontSize: 10 }}>{entry.timeET || "Update"}</span>
-                  {entry.publishedAt && (
-                    <span className="tt-num" style={{ fontSize: 10, color: "var(--tt-text-4)" }}>
-                      {new Date(entry.publishedAt).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit", hour12: true })} ET
-                    </span>
-                  )}
+
+            {expanded && (
+              <>
+                {/* Day's tape — SPY 5m chart with flash publish-time markers.
+                    Acts as the visual anchor for the section so each prose
+                    entry lands against a concrete chart context, not in a
+                    vacuum. */}
+                <div className="mb-5">
+                  <div className="flex items-baseline gap-2 mb-2">
+                    <span className="tt-label-editorial" style={{ fontSize: 10, color: "#a78bfa" }}>Today's Tape</span>
+                    <span className="text-[11px] text-[#6b7280]">SPY · 5m · violet dots mark each flash</span>
+                  </div>
+                  <MiniChart
+                    sym="SPY"
+                    label="SPY"
+                    accentColor="#a78bfa"
+                    tf="5"
+                    limit={156}
+                    height={300}
+                    flashMarkers={flashMarkers}
+                  />
                 </div>
-                {entry.infographic && <IntradayPulse infographic={entry.infographic} />}
-                <div className="brief-content" dangerouslySetInnerHTML={{ __html: renderMarkdown(entry.content) }} />
-              </div>
-            ))}
+
+                {sorted.map((entry, i) => (
+                  <div
+                    key={entry.id || i}
+                    className="mb-5 rounded-lg border overflow-hidden"
+                    style={{
+                      background: "linear-gradient(135deg, rgba(139,92,246,0.025), rgba(99,102,241,0.01))",
+                      borderColor: "rgba(139,92,246,0.14)",
+                    }}
+                  >
+                    <div
+                      className="flex items-center gap-2 px-4 py-2 border-b"
+                      style={{ borderColor: "rgba(139,92,246,0.10)", background: "rgba(139,92,246,0.04)" }}
+                    >
+                      <span className="tt-heartbeat" aria-hidden="true" />
+                      <span className="tt-label-editorial" style={{ fontSize: 10, color: "#a78bfa" }}>
+                        {entry.timeET || "Update"}
+                      </span>
+                      {entry.publishedAt && (
+                        <span className="tt-num" style={{ fontSize: 10.5, color: "var(--tt-text-4)" }}>
+                          {new Date(entry.publishedAt).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit", hour12: true })} ET
+                        </span>
+                      )}
+                      <span style={{ flex: 1 }} />
+                      <span className="text-[9px] uppercase tracking-[0.14em] font-bold text-[#a78bfa]/70">Flash {sorted.length - i}</span>
+                    </div>
+                    <div className="px-4 py-4">
+                      {entry.infographic && <IntradayPulse infographic={entry.infographic} />}
+                      <div className="brief-content" dangerouslySetInnerHTML={{ __html: renderMarkdown(entry.content) }} />
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
           </div>
         );
       }
