@@ -69492,14 +69492,28 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       }
     }
 
-    // ── Intraday Flash Insights: Every hour during market hours (10 AM - 3 PM ET) ──
-    // Runs on the "0 * * * *" schedule; checks ET hour to limit to market hours only
-    if (vc.has("0 13 * * 1-5") || vc.has("0 14 * * 1-5") || vc.has("0 15 * * 1-5") ||
-        vc.has("0 16 * * 1-5") || vc.has("0 17 * * 1-5") || vc.has("0 18 * * 1-5") ||
-        vc.has("0 19 * * 1-5") || vc.has("0 20 * * 1-5")) {
+    // ── Intraday Flash Insights: 11 AM + 2 PM ET (twice per session) ──
+    // Runs on the "0 * * * *" schedule. Pre-filtered via the broad
+    // weekday-hourly virtual cron ("0 14-21 * * 1-5", added above at
+    // line ~69158 whenever UTC hour is 13-21 on a weekday). The real
+    // ET-hour gate below limits firing to exactly 11 AM and 2 PM ET,
+    // matching Daily Brief / Phase-C pulse patterns of "compute via
+    // _isHourly, then narrow by ET hour".
+    //
+    // History: previously fired hourly 10 AM – 3 PM ET. User feedback
+    // (P0.7.133): "happens at 10, 11 and 1, which seems excessive and
+    // tends to be redundant." Trimmed to two flashes:
+    //   • 11 AM ET — post-open consolidation read, after the opening
+    //     hour has set the day's tone (first hour captures ~60% of
+    //     daily range — see SPY notes in daily-brief.js).
+    //   • 2 PM ET — post-lunch / pre-close pivot. Lunch lull is over,
+    //     late-day direction (3-4 PM bias) is starting to form.
+    // These two times bracket the session without flooding the live
+    // feed with near-identical takes 60 minutes apart.
+    if (vc.has("0 14-21 * * 1-5")) {
       const _etFlashStr = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
       const _etFlashH = parseInt(_etFlashStr, 10);
-      if (_etFlashH >= 10 && _etFlashH <= 15 && _etFlashH !== 9 && _etFlashH !== 17) {
+      if (_etFlashH === 11 || _etFlashH === 14) {
         ctx.waitUntil((async () => {
           try {
             console.log(`[INTRADAY FLASH CRON] Generating flash insight at ${_etFlashH}:00 ET...`);
