@@ -26,8 +26,21 @@ const TD_AUTH_URL_DEMO = "https://demo.tradovateapi.com/v1/auth/accesstokenreque
 const TD_RENEW_URL_LIVE = "https://live.tradovateapi.com/v1/auth/renewaccesstoken";
 const TD_RENEW_URL_DEMO = "https://demo.tradovateapi.com/v1/auth/renewaccesstoken";
 
-export const TRADOVATE_WS_URL_LIVE = "wss://md-live.tradovateapi.com/v1/websocket";
-export const TRADOVATE_WS_URL_DEMO = "wss://md-demo.tradovateapi.com/v1/websocket";
+// P0.7.132 — Per https://api.tradovate.com docs ("Directly Accessing the
+// REST API" section), Tradovate splits hosts by SERVICE:
+//
+//   - live.tradovateapi.com  → user/orders/positions for LIVE accounts
+//   - demo.tradovateapi.com  → user/orders/positions for SIM accounts
+//   - md.tradovateapi.com    → market data feed (UNIFIED, no live/demo split)
+//
+// Earlier 404s on subscribeQuote came from connecting to `md-live.*` and
+// `live.*` (both wrong for market data subscribes). The single correct
+// market-data WS endpoint is `wss://md.tradovateapi.com/v1/websocket` —
+// regardless of whether the user has a live or demo trading account.
+// Auth still uses live.* or demo.* per environment (TRADOVATE_ENV var).
+const TRADOVATE_WS_URL = "wss://md.tradovateapi.com/v1/websocket";
+export const TRADOVATE_WS_URL_LIVE = TRADOVATE_WS_URL;
+export const TRADOVATE_WS_URL_DEMO = TRADOVATE_WS_URL;
 
 const KV_TOKEN_KEY = "timed:tradovate:token";
 
@@ -314,6 +327,73 @@ export async function tradovateTokenStatus(env) {
     fetchedAt: cached.fetchedAt || 0,
     env: isLiveEnv(env) ? "live" : "demo",
   };
+}
+
+/**
+ * P0.7.132 diag — list the user's market-data subscriptions. This is what
+ * actually gates WebSocket subscribe permissions. A funded live account
+ * with `hasMarketData: true` may STILL get "UnknownSymbol / mode: None"
+ * on subscribeQuote if they don't have a paid CME data plan attached for
+ * API access. Returns whatever Tradovate's /marketDataSubscription/list
+ * endpoint says.
+ */
+export async function tradovateMdSubscriptions(env) {
+  const accessToken = await tradovateGetAccessTokenRaw(env);
+  if (!accessToken) return { ok: false, error: "no_access_token" };
+  const base = isLiveEnv(env) ? "https://live.tradovateapi.com/v1" : "https://demo.tradovateapi.com/v1";
+  const tries = [
+    "/marketDataSubscription/list",
+    "/secondMarketDataSubscription/list",
+    "/marketDataSubscriptionPlan/list",
+  ];
+  const out = {};
+  for (const ep of tries) {
+    try {
+      const res = await fetch(`${base}${ep}`, {
+        headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+      });
+      const txt = await res.text().catch(() => "");
+      let parsed = null; try { parsed = JSON.parse(txt); } catch {}
+      out[ep] = { status: res.status, ok: res.ok, body: parsed || txt.slice(0, 300) };
+    } catch (e) {
+      out[ep] = { error: String(e).slice(0, 200) };
+    }
+  }
+  return { ok: true, env: isLiveEnv(env) ? "live" : "demo", subscriptions: out };
+}
+
+/**
+ * P0.7.132 diag — query Tradovate's `/contract/suggest` REST endpoint for
+ * a root symbol (e.g. "ES") and return the contracts Tradovate actually
+ * recognizes. Lets us discover the correct symbol format without guessing.
+ * Returns up to 12 matching contracts ordered by Tradovate's relevance.
+ */
+export async function tradovateContractSuggest(env, root) {
+  const accessToken = await tradovateGetAccessTokenRaw(env);
+  if (!accessToken) return { ok: false, error: "no_access_token" };
+  const base = isLiveEnv(env) ? "https://live.tradovateapi.com/v1" : "https://demo.tradovateapi.com/v1";
+  const url = `${base}/contract/suggest?t=${encodeURIComponent(root)}&l=12`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}`, "Accept": "application/json" },
+  });
+  const txt = await res.text().catch(() => "");
+  let parsed = null; try { parsed = JSON.parse(txt); } catch {}
+  if (!res.ok) {
+    return { ok: false, status: res.status, body: parsed || txt.slice(0, 500), url };
+  }
+  return { ok: true, root, url, count: Array.isArray(parsed) ? parsed.length : null, contracts: parsed };
+}
+
+/** Internal — get the regular accessToken (not mdAccessToken) from cache. */
+async function tradovateGetAccessTokenRaw(env) {
+  const KV = env?.KV_TIMED;
+  if (!KV) return null;
+  const cached = await KV.get(KV_TOKEN_KEY, { type: "json" }).catch(() => null);
+  if (cached?.accessToken && cached.expirationMs > Date.now()) return cached.accessToken;
+  // Force refresh by calling the public helper (which seeds the cache)
+  try { await tradovateGetMdAccessToken(env); } catch { return null; }
+  const refreshed = await KV.get(KV_TOKEN_KEY, { type: "json" }).catch(() => null);
+  return refreshed?.accessToken || null;
 }
 
 /**

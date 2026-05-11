@@ -51,11 +51,24 @@ export class TradovateStream {
     this.requestIdCounter = 2; // 0=auth, 1=reserved
     this.subscribedTvSymbols = new Set();
     this.subscribedContractSymbols = new Set(); // Tradovate-format e.g. "ESM6"
-    this.symbolsRoll = new Map(); // tvSym → tradovate contract for current cycle
-    this.symState = {};           // per-tv-symbol latest tick
+    this.symbolsRoll = new Map();    // tvSym → tradovate contract for current cycle
+    this.contractSymbolMap = new Map(); // tradovateContract (e.g. "ESM6") → tvSym (e.g. "ES1!")
+    this.contractIdToTvSym = new Map(); // numeric Tradovate contractId → tvSym
+    this.requestIdToContractSym = new Map(); // reqId → contract symbol (for subscribe response)
+    this.symState = {};                // per-tv-symbol latest tick
     this.pricesReceived = 0;
     this.flushCount = 0;
     this.lastFlush = 0;
+
+    /* P0.7.132 diag — instrumentation so we can see EXACTLY what
+       Tradovate is sending without wrangler tail. Surfaced via /status. */
+    this.framesReceived = 0;
+    this.mdFramesReceived = 0;
+    this.subscribeAcksReceived = 0;
+    this.lastFrameSample = null;
+    this.lastQuoteSample = null;
+    this.lastSubscribeAckSample = null;
+    this.unmatchedQuoteCount = 0;
 
     // Lifecycle log — same pattern as PriceStream DO
     this.state.blockConcurrencyWhile(async () => {
@@ -120,6 +133,7 @@ export class TradovateStream {
   async _onMessage(raw) {
     this.lastServerMessageAt = Date.now();
     const msg = typeof raw === "string" ? raw : new TextDecoder().decode(raw);
+    this.framesReceived++;
 
     // Single-character frames: 'o' = open/heartbeat, 'h' = heartbeat, 'c' = close
     if (msg.length === 1) {
@@ -128,6 +142,10 @@ export class TradovateStream {
       }
       return;
     }
+
+    // Capture a sample of any non-trivial frame so /status can show what
+    // Tradovate is actually sending us, without needing wrangler tail.
+    this.lastFrameSample = msg.slice(0, 400);
 
     // Array messages: 'a[...]'
     if (msg.startsWith("a[")) {
@@ -153,7 +171,6 @@ export class TradovateStream {
       if (m.s === 200) {
         this.isAuthenticated = true;
         console.log("[TradovateStream] authenticated.");
-        // Re-subscribe to all symbols on (re)connect
         this._resubscribeAll();
       } else {
         console.error("[TradovateStream] auth FAILED:", JSON.stringify(m).slice(0, 300));
@@ -161,16 +178,43 @@ export class TradovateStream {
       return;
     }
 
-    // Subscribe response: { i: <reqId>, s: 200, d: {...} } — ignore
-    if (m.s != null && m.i != null && m.i > 0) return;
+    // Subscribe response: { i: <reqId>, s: 200, d: {...} }
+    // P0.7.132 diag — capture the response so we can see the EXACT shape
+    // Tradovate returns. Many SDK examples show d.subscriptionId (numeric
+    // contractId mapping); we save the full body so we can build the
+    // contractId → tvSym map for incoming ticks.
+    if (m.s != null && m.i != null && m.i > 0) {
+      this.subscribeAcksReceived++;
+      this.lastSubscribeAckSample = JSON.stringify(m).slice(0, 400);
+      // Build contractId → tvSym map. Tradovate's subscribe ack returns the
+      // full Quote initial state under d, including either a contractId or
+      // an array of quotes with their contractId. We try both shapes:
+      const contractSym = this.requestIdToContractSym.get(m.i);
+      if (contractSym) {
+        const tvSym = this.contractSymbolMap.get(contractSym);
+        if (tvSym) {
+          // Try to extract a contractId from the response payload
+          const cid = m.d?.contractId
+                  ?? (Array.isArray(m.d?.quotes) ? m.d.quotes[0]?.contractId : null)
+                  ?? (m.d && typeof m.d === "object"
+                        ? Object.values(m.d).find(v => v && typeof v === "object" && v.contractId)?.contractId
+                        : null);
+          if (cid) {
+            this.contractIdToTvSym.set(Number(cid), tvSym);
+          }
+        }
+      }
+      return;
+    }
 
-    // Quote stream: { e: "md", d: { quotes: [{ contractId, timestamp, bid, ask, last, ... }] } }
+    // Quote stream: { e: "md", d: { quotes: [{ contractId, timestamp, ... }] } }
     if (m.e === "md" && m.d) {
-      // Two payload styles:
-      //   d.quotes = [...]                 (per-quote frame)
-      //   d = { quotes: { ESM6: {...} } }  (alt shape)
+      this.mdFramesReceived++;
+      this.lastQuoteSample = JSON.stringify(m).slice(0, 600);
       const quotes = Array.isArray(m.d.quotes) ? m.d.quotes
-                   : (m.d.quotes && typeof m.d.quotes === "object" ? Object.entries(m.d.quotes).map(([k, v]) => ({ ...v, contractName: k })) : null);
+                   : (m.d.quotes && typeof m.d.quotes === "object"
+                       ? Object.entries(m.d.quotes).map(([k, v]) => ({ ...v, contractName: k }))
+                       : null);
       if (!quotes) return;
       for (const q of quotes) {
         this._ingestQuote(q);
@@ -180,12 +224,23 @@ export class TradovateStream {
 
   _ingestQuote(q) {
     // q = { contractId, contractName?, timestamp, bid, ask, last, totalVolume, ... }
-    // For "Last" trades: q.entries.Trade.price OR q.last (depends on format).
-    // We accept several shapes for robustness — Tradovate has a few formats.
-    const tdSym = String(q.contractName || q.symbol || "").toUpperCase();
-    if (!tdSym) return;
-    const tvSym = tvSymbolForTradovate(tdSym, new Date());
-    if (!tvSym) return;
+    //
+    // P0.7.132 diag — Tradovate's quote envelope ALMOST ALWAYS uses the
+    // numeric `contractId`, NOT a contractName string. So we resolve in
+    // priority order: contractId map (built from subscribe acks) → name
+    // string → symbol field.
+    let tvSym = null;
+    if (q.contractId != null) {
+      tvSym = this.contractIdToTvSym.get(Number(q.contractId)) || null;
+    }
+    if (!tvSym) {
+      const tdSym = String(q.contractName || q.symbol || "").toUpperCase();
+      if (tdSym) tvSym = tvSymbolForTradovate(tdSym, new Date());
+    }
+    if (!tvSym) {
+      this.unmatchedQuoteCount++;
+      return;
+    }
 
     const last = Number(
       q.last ??
@@ -231,6 +286,16 @@ export class TradovateStream {
   _sendSubscribe(contractSymbol) {
     if (!this.ws || !this.isAuthenticated) return;
     const reqId = this.requestIdCounter++;
+    // P0.7.132 — record reqId → contractSymbol so we can match the ack
+    // back when Tradovate responds. The ack carries the contractId we
+    // need for ingest-time symbol resolution.
+    this.requestIdToContractSym.set(reqId, contractSymbol);
+    // P0.7.132 — Verb is lowercase per the official Tradovate JS example:
+    //   tradovate/example-api-js/EX-08-Realtime-Market-Data
+    //   url: 'md/subscribequote'
+    // The 404 we saw on first attempt was actually a WS-URL mismatch, not
+    // a verb-name issue — see comment on TRADOVATE_WS_URL_LIVE in
+    // worker/tradovate.js.
     const frame = `md/subscribequote\n${reqId}\n\n${JSON.stringify({ symbol: contractSymbol })}`;
     try {
       this.ws.send(frame);
@@ -242,10 +307,14 @@ export class TradovateStream {
 
   _resubscribeAll() {
     this.subscribedContractSymbols.clear();
+    this.contractSymbolMap.clear();
+    this.contractIdToTvSym.clear();
+    this.requestIdToContractSym.clear();
     for (const tvSym of this.subscribedTvSymbols) {
       const td = tradovateSymbolFor(tvSym, new Date());
       if (td) {
         this.symbolsRoll.set(tvSym, td);
+        this.contractSymbolMap.set(td, tvSym);
         this._sendSubscribe(td);
       }
     }
@@ -403,6 +472,20 @@ export class TradovateStream {
         contractSymbolCount: this.subscribedContractSymbols.size,
         subscriptions,
         provider: "tradovate",
+        // P0.7.132 diag — exposes what Tradovate actually sends so we
+        // can pinpoint where the chain breaks. Will be removed once
+        // the parallel feed is stable.
+        diag: {
+          framesReceived: this.framesReceived,
+          mdFramesReceived: this.mdFramesReceived,
+          subscribeAcksReceived: this.subscribeAcksReceived,
+          unmatchedQuoteCount: this.unmatchedQuoteCount,
+          contractIdToTvSymCount: this.contractIdToTvSym.size,
+          contractIdToTvSymSample: [...this.contractIdToTvSym.entries()].slice(0, 5),
+          lastFrameSample: this.lastFrameSample,
+          lastSubscribeAckSample: this.lastSubscribeAckSample,
+          lastQuoteSample: this.lastQuoteSample,
+        },
         lifecycle: {
           last24h: {
             instantiations: last24h.filter(e => e.event === "instantiated").length,

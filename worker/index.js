@@ -1015,6 +1015,8 @@ const ROUTES = [
   ["POST", "/timed/tradovate-stream/stop", "POST /timed/tradovate-stream/stop"],
   ["GET", "/timed/tradovate-stream/token-status", "GET /timed/tradovate-stream/token-status"],
   ["POST", "/timed/tradovate-stream/auth-debug", "POST /timed/tradovate-stream/auth-debug"],
+  ["GET", "/timed/tradovate-stream/contract-suggest", "GET /timed/tradovate-stream/contract-suggest"],
+  ["GET", "/timed/tradovate-stream/md-subscriptions", "GET /timed/tradovate-stream/md-subscriptions"],
   ["GET", "/timed/auth", "GET /timed/auth"],
   ["POST", "/timed/purge", "POST /timed/purge"],
   ["POST", "/timed/rebuild-index", "POST /timed/rebuild-index"],
@@ -46381,6 +46383,29 @@ export default {
         if (authFail) return authFail;
         const { tradovateAuthDebug } = await import("./tradovate.js");
         const result = await tradovateAuthDebug(env);
+        return sendJSON(result, result.ok ? 200 : 400, corsHeaders(env, req));
+      }
+      if (routeKey === "GET /timed/tradovate-stream/md-subscriptions") {
+        // P0.7.132 diag — list the user's actual market-data subscriptions.
+        // Confirms whether the funded account has a CME data plan attached
+        // for API/WebSocket access (separate from the trader-platform sub).
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const { tradovateMdSubscriptions } = await import("./tradovate.js");
+        const result = await tradovateMdSubscriptions(env);
+        return sendJSON(result, 200, corsHeaders(env, req));
+      }
+      if (routeKey === "GET /timed/tradovate-stream/contract-suggest") {
+        // P0.7.132 diag — query Tradovate's /contract/suggest with a root
+        // (e.g. ?t=ES) to discover what symbol format Tradovate uses for
+        // the current front-month contract. Subscribe acks were returning
+        // "UnknownSymbol" for our `ESM6` guess so we need to see the real
+        // names from the source.
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const root = url.searchParams.get("t") || "ES";
+        const { tradovateContractSuggest } = await import("./tradovate.js");
+        const result = await tradovateContractSuggest(env, root);
         return sendJSON(result, result.ok ? 200 : 400, corsHeaders(env, req));
       }
 
