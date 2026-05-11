@@ -44,6 +44,32 @@ export class PriceStream {
     this.pricesReceived = 0;
     this.snapshotSeeds = 0;
     this.flushCount = 0;
+
+    /* P0.7.130 — Lifecycle log. The DO's in-memory state is reset
+       every time CF evicts the instance and a new request causes a
+       re-instantiation. Every constructor invocation is a "cold
+       start". We persist a rolling log of the last 30 lifecycle
+       events to `state.storage` so we can answer "how often does
+       CF cycle this DO?" via /status. blockConcurrencyWhile defers
+       the first request handler until the log write completes. */
+    this.state.blockConcurrencyWhile(async () => {
+      try {
+        await this._recordLifecycleEvent("instantiated", {});
+      } catch { /* never block startup on logging */ }
+    });
+  }
+
+  /** Append a lifecycle event to durable storage. Keeps the last 30. */
+  async _recordLifecycleEvent(event, meta = {}) {
+    try {
+      const existing = (await this.state.storage.get("lifecycle:history")) || [];
+      const entry = { ts: Date.now(), event, ...meta };
+      const next = [entry, ...existing].slice(0, 30);
+      await this.state.storage.put("lifecycle:history", next);
+    } catch (e) {
+      // Logging must never throw — it would crash the constructor.
+      console.warn("[PriceStream] lifecycle log write failed:", String(e).slice(0, 120));
+    }
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -262,6 +288,13 @@ export class PriceStream {
           await this._seedFromSnapshots();
           await this._connectAll();
           await this.state.storage.setAlarm(Date.now() + 1000);
+          // P0.7.130 — log the start (paired with the constructor's
+          // 'instantiated' log; together they tell us if the DO was
+          // re-instantiated by CF or whether the caller is just
+          // re-issuing /start).
+          await this._recordLifecycleEvent("started", {
+            symbolCount: this.allSymbols.length,
+          });
         } else if (symbols.length > 0) {
           await this._seedFromSnapshots();
         }
@@ -277,13 +310,26 @@ export class PriceStream {
     }
 
     if (request.method === "POST" && url.pathname === "/stop") {
+      const _uptime = this.startedAt > 0 ? Math.round((Date.now() - this.startedAt) / 1000) : 0;
       await this._flushPrices();
       this._disconnectAll();
       this.isRunning = false;
+      await this._recordLifecycleEvent("stopped", { uptime: _uptime, prices: this.pricesReceived });
       return _json({ ok: true, status: "stopped" });
     }
 
     if (url.pathname === "/status") {
+      // P0.7.130 — include the lifecycle history so callers can see
+      // how often the DO has been restarted recently.
+      let lifecycle = [];
+      try {
+        lifecycle = (await this.state.storage.get("lifecycle:history")) || [];
+      } catch { /* status must never fail */ }
+      const now = Date.now();
+      const last24h = lifecycle.filter(e => (now - e.ts) < 86400000);
+      const instantiations24h = last24h.filter(e => e.event === "instantiated").length;
+      const starts24h = last24h.filter(e => e.event === "started").length;
+      const stops24h = last24h.filter(e => e.event === "stopped").length;
       return _json({
         ok: true,
         isRunning: this.isRunning,
@@ -299,8 +345,12 @@ export class PriceStream {
         lastFlush: this.lastFlush,
         lastKvWrite: this.lastKvWrite,
         lastSnapshotRefresh: this.lastSnapshotRefresh,
-        uptime: this.startedAt > 0 ? Math.round((Date.now() - this.startedAt) / 1000) : 0,
+        uptime: this.startedAt > 0 ? Math.round((now - this.startedAt) / 1000) : 0,
         provider: "twelvedata",
+        lifecycle: {
+          last24h: { instantiations: instantiations24h, starts: starts24h, stops: stops24h },
+          recent: lifecycle.slice(0, 10),
+        },
       });
     }
 
