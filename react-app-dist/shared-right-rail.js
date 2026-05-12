@@ -2796,7 +2796,15 @@
                                 || ticker?.context?.sector
                                 || ticker?._sector
                                 || null;
-                    const personality = ticker?._ticker_profile?.behavior_type
+                    // V2.2 (2026-05-12) — prefer the freshly-rebuilt learning_json
+                    // personality (VOLATILE_RUNNER / PULLBACK_PLAYER / SLOW_GRINDER /
+                    // TREND_FOLLOWER / MODERATE) over the legacy column-based
+                    // behavior_type (MOMENTUM / MEAN_REVERT / etc.). The learning
+                    // classifier is rebuilt from the full per-ticker move history
+                    // and reflects current behavior; the column was a sparse seed
+                    // (227/327 tickers) frozen since March 2026.
+                    const personality = ticker?._ticker_profile?.learning?.personality
+                                     || ticker?._ticker_profile?.behavior_type
                                      || ticker?.execution_profile?.personality
                                      || ticker?.ticker_personality
                                      || null;
