@@ -45,6 +45,16 @@ jobs:
   refresh:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Job-level env: secrets are exposed here (not in step-level `if:`,
+    # which is disallowed by GitHub Actions and was the previous failure
+    # mode — the workflow file failed schema validation and every run was
+    # marked "workflow file issue" before any step executed). When the
+    # secrets are unset they expand to empty strings, wrangler fails to
+    # auth, and the Python pipeline silently falls back to cached files
+    # via export_runtime_sources()'s try/except.
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -67,14 +77,13 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Authenticate wrangler (optional runtime export)
-        if: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Wrangler auth status
         run: |
-          echo "CLOUDFLARE_API_TOKEN=$CLOUDFLARE_API_TOKEN" >> $GITHUB_ENV
-          echo "CLOUDFLARE_ACCOUNT_ID=$CLOUDFLARE_ACCOUNT_ID" >> $GITHUB_ENV
+          if [ -n "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "wrangler auth: CLOUDFLARE_API_TOKEN is set — runtime D1 export will be attempted"
+          else
+            echo "wrangler auth: CLOUDFLARE_API_TOKEN is empty — pipeline will fall back to cached files (set CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID secrets to enable fresh exports)"
+          fi
 
       - name: Run reference-intel refresh pipeline
         run: |
