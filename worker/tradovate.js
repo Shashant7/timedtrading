@@ -1,24 +1,71 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-// Tradovate REST helpers — auth, token cache, symbol mapping
+// Tradovate API helpers — auth, token cache, symbol mapping, REST diagnostics
 //
-// Used by:
-//   - TradovateStream (worker/tradovate-stream.js) — the live-data DO
-//   - Admin endpoints in worker/index.js for status / manual control
+// STATUS (2026-05-12)
+//   - Auth flow:       ✅ working live (P0.7.132)
+//   - Symbol mapping:  ✅ verified against /contract/suggest
+//   - REST diagnostics:✅ /md-subscriptions, /contract-suggest, /auth-debug
+//   - Market-data WS:  🔒 dormant — works end-to-end but blocked on a
+//                       Tradovate "Second Market Data Subscription" for API
+//                       (~$290/mo CME Non-Display license). The user
+//                       decided that's not worth it for context-only data;
+//                       we use TradingView webhooks + TwelveData ETF
+//                       proxies (worker/futures-proxy.js) instead.
+//   - Order execution: ⏳ NOT YET BUILT — the auth + symbol foundation
+//                       below is reusable for it. Execution does NOT
+//                       require the $290/mo MD sub; just an active funded
+//                       account with API access (what we already have).
+//                       See "How to add execution" at the bottom.
 //
-// Auth model (from docs/openapi.json + Tradovate WS docs):
-//   1. POST /auth/accesstokenrequest { name, password, appId, appVersion, sec, cid, deviceId }
-//   2. Response includes { accessToken, mdAccessToken, expirationTime, hasLive, hasMarketData }
-//      - accessToken   → general REST API
-//      - mdAccessToken → market data WebSocket (this is the one we send to wss://md-live...)
-//   3. Tokens valid 90 min. Renew at GET /auth/renewaccesstoken ~5 min before expiry.
-//   4. KV cache the token under `timed:tradovate:token` with TTL = (expiry - 5 min).
+// USED BY
+//   - TradovateStream (worker/tradovate-stream.js) — the dormant MD WS DO
+//   - Admin diagnostic endpoints in worker/index.js
+//   - (FUTURE) tradovate-orders.js — strategy execution layer
 //
-// Symbol mapping:
-//   TradingView writes continuous symbols like "ES1!", "NQ1!". Tradovate uses
-//   contract-specific symbols ("ESM6" = ES June 2026). For our use case
-//   (Daily Brief reference + Bubble Map context), the front-month contract is
-//   what we want for every futures ticker. The mapping rolls quarterly for index
-//   futures (H/M/U/Z = Mar/Jun/Sep/Dec) and monthly for energy/metals.
+// AUTH MODEL (from docs/openapi.json + https://api.tradovate.com)
+//   1. POST /auth/accesstokenrequest { name, password, appId, appVersion,
+//      sec, cid, deviceId }
+//   2. Response: { accessToken, mdAccessToken, expirationTime, hasLive,
+//      hasMarketData, userId, ... }
+//      - accessToken   → general REST API (orders, positions, accounts)
+//      - mdAccessToken → market-data WebSocket (only useful with paid MD sub)
+//   3. Tokens valid 90 min. Renew at GET /auth/renewaccesstoken ~5 min
+//      before expiry.
+//   4. KV-cache under `timed:tradovate:token` with TTL = (expiry - 5 min).
+//
+// SYMBOL MAPPING
+//   TradingView writes continuous symbols ("ES1!", "NQ1!"). Tradovate uses
+//   contract-specific symbols ("ESM6" = ES June 2026). For all current
+//   contexts the front-month contract is what we want.
+//   Cycle: quarterly (H/M/U/Z = Mar/Jun/Sep/Dec) for index futures,
+//   even-months (G/J/M/Q/V/Z) for metals, monthly+1 for energy.
+//
+// ═══════════════════════════════════════════════════════════════════════════════
+// HOW TO ADD EXECUTION (when porting a day-trading strategy)
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// Execution does NOT need the dormant market-data DO and does NOT need a
+// CME data sub. The auth flow + token cache below is the only foundation
+// that needs to be in place — and it already is, working live.
+//
+// New helpers to add (suggested module: worker/tradovate-orders.js):
+//   tradovateGetAccounts(env)              GET  /account/list
+//   tradovateGetCashBalance(env, acctId)   POST /cashBalance/getcashbalancesnapshot
+//   tradovateGetPositions(env, acctId)     GET  /position/list
+//   tradovatePlaceOrder(env, opts)         POST /order/placeorder
+//   tradovatePlaceOCO(env, opts)           POST /order/placeoco  (entry + bracket)
+//   tradovateCancelOrder(env, orderId)     POST /order/cancelorder
+//   tradovateModifyOrder(env, orderId, …)  POST /order/modifyorder
+//   tradovateGetFills(env, acctId, since)  GET  /fill/list
+//
+// All use the existing `tradovateGetAccessTokenRaw(env)` helper below
+// to get the regular accessToken from KV. They're plain `fetch()` calls
+// to https://live.tradovateapi.com/v1/* with `Authorization: Bearer …`.
+//
+// User-side WS for live FILL events is also FREE (no MD sub needed):
+//   wss://live.tradovateapi.com/v1/websocket
+// auth with regular accessToken, subscribe to user/syncrequest, receive
+// order + fill push events. Pattern mirrors worker/tradovate-stream.js.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const TD_AUTH_URL_LIVE = "https://live.tradovateapi.com/v1/auth/accesstokenrequest";
