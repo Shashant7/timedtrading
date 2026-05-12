@@ -23,18 +23,49 @@ const getArg = (name, dflt) => {
 const TICKER_FILTER = getArg("ticker", null);
 const WORKER_DIR = path.join(__dirname, "../worker");
 
+function _extractJson(raw) {
+  // wrangler emits ANSI-coloured WARNING blocks before the JSON payload.
+  // Strip those by finding the first '[' or '{' that begins valid JSON.
+  if (!raw) return null;
+  const candidates = [];
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (ch === "[" || ch === "{") { candidates.push(i); break; }
+  }
+  for (const start of candidates) {
+    const slice = raw.slice(start);
+    try { return JSON.parse(slice); } catch (_) { /* try next */ }
+  }
+  return null;
+}
+
 function queryD1(sql, retries = 3) {
   const escaped = sql.replace(/"/g, '\\"');
   const cmd = `cd "${WORKER_DIR}" && npx wrangler d1 execute timed-trading-ledger --remote --env production --json --command "${escaped}"`;
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      const raw = execSync(cmd, { maxBuffer: 100 * 1024 * 1024, encoding: "utf-8" });
-      const parsed = JSON.parse(raw);
+      // Capture stderr separately (wrangler emits ANSI WARNING blocks there).
+      // Buffer is 600MB — the unfiltered ticker_moves+signals join can return
+      // ~280MB of JSON, which silently blew past the previous 100MB cap and
+      // returned [] from the catch block. Detected 2026-05-12.
+      const raw = execSync(cmd, { maxBuffer: 600 * 1024 * 1024, encoding: "utf-8" });
+      const parsed = _extractJson(raw);
+      if (parsed == null) {
+        if (attempt < retries) { execSync("sleep 2"); continue; }
+        console.error(`  ${R}queryD1 parse failure (attempt ${attempt}). Raw head: ${String(raw).slice(0, 200)}${RST}`);
+        return [];
+      }
       if (Array.isArray(parsed) && parsed[0]?.results) return parsed[0].results;
       if (parsed?.results) return parsed.results;
       return [];
     } catch (e) {
       if (attempt < retries) { execSync("sleep 2"); continue; }
+      const stderr = e?.stderr ? String(e.stderr).slice(0, 1500) : "";
+      const stdout = e?.stdout ? String(e.stdout).slice(0, 600) : "";
+      console.error(`  ${R}queryD1 error code=${e?.code} status=${e?.status} signal=${e?.signal}${RST}`);
+      console.error(`  ${R}queryD1 message: ${String(e.message || e).slice(0, 300)}${RST}`);
+      if (stdout) console.error(`  ${R}queryD1 stdout-head: ${stdout}${RST}`);
+      if (stderr) console.error(`  ${R}queryD1 stderr-head: ${stderr}${RST}`);
       return [];
     }
   }
@@ -298,9 +329,7 @@ console.log(`${B}╚════════════════════
 console.log(`${B}═══ Step 1: Loading Moves + Origin Signals ═══${RST}\n`);
 console.log(`  [${elapsed()}] Querying D1...`);
 
-const tickerWhere = TICKER_FILTER ? `AND m.ticker='${TICKER_FILTER}'` : "";
-const movesRaw = queryD1(
-  `SELECT m.ticker, m.direction, m.move_pct, m.move_atr, m.personality,
+const SELECT_COLUMNS = `m.ticker, m.direction, m.move_pct, m.move_atr, m.personality,
           m.duration_days, m.max_pullback_pct, m.pullback_count,
           m.rsi_at_start, m.ema_aligned, m.ema_state, m.atr_at_start, m.start_price,
           m.move_json,
@@ -308,12 +337,41 @@ const movesRaw = queryD1(
           s.ema_cross_d as origin_ema_cross, s.atr_d as origin_atr,
           s.ema21_d as origin_ema21, s.ema48_d as origin_ema48,
           s.rsi_30m as origin_rsi_30m, s.st_dir_30m as origin_st_dir_30m,
-          s.signals_json as origin_signals_json
-   FROM ticker_moves m
-   LEFT JOIN ticker_move_signals s ON s.move_id = m.id AND s.phase = 'origin'
-   WHERE 1=1 ${tickerWhere}
-   ORDER BY m.ticker`
-);
+          s.signals_json as origin_signals_json`;
+
+let movesRaw = [];
+if (TICKER_FILTER) {
+  movesRaw = queryD1(
+    `SELECT ${SELECT_COLUMNS}
+     FROM ticker_moves m
+     LEFT JOIN ticker_move_signals s ON s.move_id = m.id AND s.phase = 'origin'
+     WHERE m.ticker='${TICKER_FILTER}'
+     ORDER BY m.ticker`
+  );
+} else {
+  // Per-ticker chunking. The unfiltered join returns ~280MB of JSON which
+  // blows the execSync buffer / OOMs the next wrangler spawn. Fetch the
+  // ticker list (small query) and stream per-ticker pulls.
+  const tickerRows = queryD1(`SELECT DISTINCT ticker FROM ticker_moves ORDER BY ticker`);
+  console.log(`  [${elapsed()}] ${tickerRows.length} tickers in ticker_moves; loading per-ticker...`);
+  let loadedT = 0;
+  for (const row of tickerRows) {
+    const t = String(row.ticker || "").replace(/'/g, "''");
+    if (!t) continue;
+    const chunk = queryD1(
+      `SELECT ${SELECT_COLUMNS}
+       FROM ticker_moves m
+       LEFT JOIN ticker_move_signals s ON s.move_id = m.id AND s.phase = 'origin'
+       WHERE m.ticker='${t}'
+       ORDER BY m.id`
+    );
+    if (chunk.length) movesRaw = movesRaw.concat(chunk);
+    loadedT++;
+    if (loadedT % 25 === 0) {
+      console.log(`  [${elapsed()}] ${loadedT}/${tickerRows.length} tickers loaded (${movesRaw.length} moves so far)`);
+    }
+  }
+}
 
 console.log(`  [${elapsed()}] ${movesRaw.length} moves loaded\n`);
 

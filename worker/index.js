@@ -15456,6 +15456,21 @@ function analyzeWinningPatterns(tradeHistory, currentTickers) {
 const AI_CIO_TIMEOUT_MS = 15000;
 const AI_CIO_MODEL = _CIO_MODEL;
 
+// P0.7.134 (2026-05-12) — AI CIO Shadow Mode.
+// When ai_cio_enabled=true AND ai_cio_shadow_mode=true (the default), the
+// CIO is fully evaluated and every decision is persisted to D1
+// (ai_cio_decisions.shadow=1), but the decision is NOT acted upon:
+//   - Entry REJECT: trade still enters
+//   - Entry ADJUST: SL/TP/size are NOT mutated
+//   - Exit HOLD (any of 3 sites): the exit still fires
+// This lets us score CIO accuracy on real trades before letting it
+// override the rules. Flip ai_cio_shadow_mode=false in model_config to
+// promote CIO to active. Defaults to true so first-enable is always safe.
+function _cioShadowMode(env) {
+  const v = env?._deepAuditConfig?.ai_cio_shadow_mode;
+  if (v == null) return true;
+  return String(v) === "true" || v === true || v === 1 || v === "1";
+}
 
 function buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tickerData, sizingMeta, confidence, setupGrade, setupName, calculatedRR) {
   return _cioBuildProposal(sym, direction, entryPx, finalSL, validTP, tickerData, sizingMeta, confidence, setupGrade, setupName, calculatedRR, getTickerProfile);
@@ -18827,25 +18842,31 @@ async function processTradeSimulation(
                   risk_flags: Array.isArray(_sfcCio.risk_flags) ? _sfcCio.risk_flags : [],
                   override: _sfcCio.override || null,
                 };
-                console.log(`[AI_CIO_EXIT] ${sym} STALL ${_sfcCio.decision} (conf=${_sfcCio.confidence.toFixed(2)}, edge=${_sfcCio.edge_remaining.toFixed(2)}, ${_sfcCio.latency_ms}ms${_sfcCio.fallback ? " FALLBACK" : ""})`);
+                const _sfcShadow = _cioShadowMode(env);
+                console.log(`[AI_CIO_EXIT] ${sym} STALL ${_sfcCio.decision}${_sfcShadow ? " [SHADOW]" : ""} (conf=${_sfcCio.confidence.toFixed(2)}, edge=${_sfcCio.edge_remaining.toFixed(2)}, ${_sfcCio.latency_ms}ms${_sfcCio.fallback ? " FALLBACK" : ""})`);
                 if (env?.DB && !_sfcCio.fallback) {
                   env.DB.prepare(
-                    `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
+                    `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at, shadow)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`
                   ).bind(
                     `${sym}-${now}-stall-${_sfcCio.decision.toLowerCase()}`, sym, openTrade?.direction || "LONG",
                     `STALL_${_sfcCio.decision}`, _sfcCio.confidence, _sfcCio.reasoning,
                     JSON.stringify(_sfcCio.risk_flags || []), _sfcCio.edge_remaining || 0,
                     _sfcCio.latency_ms, 0, AI_CIO_MODEL,
-                    JSON.stringify(_sfcProposal), JSON.stringify(_sfcCio.override || {}), Date.now()
+                    JSON.stringify(_sfcProposal), JSON.stringify(_sfcCio.override || {}), Date.now(),
+                    _sfcShadow ? 1 : 0
                   ).run().catch(e => console.warn("[AI_CIO_EXIT] D1 stall insert failed:", e));
                 }
                 if (_sfcCio.decision === "HOLD" && !_sfcCio.fallback) {
-                  console.log(`[AI_CIO_EXIT] ${sym} STALL HOLD — delaying close (cooldown 30m): ${_sfcCio.reasoning}`);
-                  _sfcCioHold = true;
-                  const _sfcHoldExec = { ...execState, _cioExitHoldMs: now };
-                  if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _sfcHoldExec);
-                  else if (!isReplay) await kvPutJSON(KV, execKey, _sfcHoldExec);
+                  if (_sfcShadow) {
+                    console.log(`[AI_CIO_EXIT] ${sym} STALL HOLD [SHADOW] — captured but exit will still fire: ${_sfcCio.reasoning}`);
+                  } else {
+                    console.log(`[AI_CIO_EXIT] ${sym} STALL HOLD — delaying close (cooldown 30m): ${_sfcCio.reasoning}`);
+                    _sfcCioHold = true;
+                    const _sfcHoldExec = { ...execState, _cioExitHoldMs: now };
+                    if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _sfcHoldExec);
+                    else if (!isReplay) await kvPutJSON(KV, execKey, _sfcHoldExec);
+                  }
                 }
               } catch (_sfcCioErr) {
                 console.warn(`[AI_CIO_EXIT] STALL exception ${sym}: ${String(_sfcCioErr).slice(0, 150)}`);
@@ -18906,25 +18927,31 @@ async function processTradeSimulation(
                   risk_flags: Array.isArray(_rsfcCio.risk_flags) ? _rsfcCio.risk_flags : [],
                   override: _rsfcCio.override || null,
                 };
-                console.log(`[AI_CIO_EXIT] ${sym} RUNNER_STALE ${_rsfcCio.decision} (conf=${_rsfcCio.confidence.toFixed(2)}, edge=${_rsfcCio.edge_remaining.toFixed(2)}, ${_rsfcCio.latency_ms}ms${_rsfcCio.fallback ? " FALLBACK" : ""})`);
+                const _rsfcShadow = _cioShadowMode(env);
+                console.log(`[AI_CIO_EXIT] ${sym} RUNNER_STALE ${_rsfcCio.decision}${_rsfcShadow ? " [SHADOW]" : ""} (conf=${_rsfcCio.confidence.toFixed(2)}, edge=${_rsfcCio.edge_remaining.toFixed(2)}, ${_rsfcCio.latency_ms}ms${_rsfcCio.fallback ? " FALLBACK" : ""})`);
                 if (env?.DB && !_rsfcCio.fallback) {
                   env.DB.prepare(
-                    `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
+                    `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at, shadow)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`
                   ).bind(
                     `${sym}-${now}-runner-${_rsfcCio.decision.toLowerCase()}`, sym, openTrade?.direction || "LONG",
                     `RUNNER_STALE_${_rsfcCio.decision}`, _rsfcCio.confidence, _rsfcCio.reasoning,
                     JSON.stringify(_rsfcCio.risk_flags || []), _rsfcCio.edge_remaining || 0,
                     _rsfcCio.latency_ms, 0, AI_CIO_MODEL,
-                    JSON.stringify(_rsfcProposal), JSON.stringify(_rsfcCio.override || {}), Date.now()
+                    JSON.stringify(_rsfcProposal), JSON.stringify(_rsfcCio.override || {}), Date.now(),
+                    _rsfcShadow ? 1 : 0
                   ).run().catch(e => console.warn("[AI_CIO_EXIT] runner stale insert failed:", e));
                 }
                 if (_rsfcCio.decision === "HOLD" && !_rsfcCio.fallback) {
-                  console.log(`[AI_CIO_EXIT] ${sym} RUNNER_STALE HOLD — delaying close (cooldown 30m): ${_rsfcCio.reasoning}`);
-                  _rsfcCioHold = true;
-                  const _rsfcHoldExec = { ...execState, _cioExitHoldMs: now };
-                  if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _rsfcHoldExec);
-                  else if (!isReplay) await kvPutJSON(KV, execKey, _rsfcHoldExec);
+                  if (_rsfcShadow) {
+                    console.log(`[AI_CIO_EXIT] ${sym} RUNNER_STALE HOLD [SHADOW] — captured but exit will still fire: ${_rsfcCio.reasoning}`);
+                  } else {
+                    console.log(`[AI_CIO_EXIT] ${sym} RUNNER_STALE HOLD — delaying close (cooldown 30m): ${_rsfcCio.reasoning}`);
+                    _rsfcCioHold = true;
+                    const _rsfcHoldExec = { ...execState, _cioExitHoldMs: now };
+                    if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _rsfcHoldExec);
+                    else if (!isReplay) await kvPutJSON(KV, execKey, _rsfcHoldExec);
+                  }
                 }
               } catch (_rsfcCioErr) {
                 console.warn(`[AI_CIO_EXIT] RUNNER_STALE exception ${sym}: ${String(_rsfcCioErr).slice(0, 150)}`);
@@ -19332,25 +19359,31 @@ async function processTradeSimulation(
               risk_flags: Array.isArray(_exitCio.risk_flags) ? _exitCio.risk_flags : [],
               override: _exitCio.override || null,
             };
-            console.log(`[AI_CIO_EXIT] ${sym} ${_exitCio.decision} exit reason=${exitReasonRaw} (conf=${_exitCio.confidence.toFixed(2)}, edge=${_exitCio.edge_remaining.toFixed(2)}, latency=${_exitCio.latency_ms}ms${_exitCio.fallback ? " FALLBACK" : ""})`);
+            const _exitShadow = _cioShadowMode(env);
+            console.log(`[AI_CIO_EXIT] ${sym} ${_exitCio.decision}${_exitShadow ? " [SHADOW]" : ""} exit reason=${exitReasonRaw} (conf=${_exitCio.confidence.toFixed(2)}, edge=${_exitCio.edge_remaining.toFixed(2)}, latency=${_exitCio.latency_ms}ms${_exitCio.fallback ? " FALLBACK" : ""})`);
             if (env?.DB && !_exitCio.fallback) {
               env.DB.prepare(
-                `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
+                `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at, shadow)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`
               ).bind(
                 `${sym}-${now}-exit-${_exitCio.decision.toLowerCase()}`, sym, openTrade?.direction || "LONG",
                 `EXIT_${_exitCio.decision}`, _exitCio.confidence, _exitCio.reasoning,
                 JSON.stringify(_exitCio.risk_flags || []), _exitCio.edge_remaining || 0,
                 _exitCio.latency_ms, 0, AI_CIO_MODEL,
-                JSON.stringify(_exitProposal), JSON.stringify(_exitCio.override || {}), Date.now()
+                JSON.stringify(_exitProposal), JSON.stringify(_exitCio.override || {}), Date.now(),
+                _exitShadow ? 1 : 0
               ).run().catch(e => console.warn("[AI_CIO_EXIT] D1 insert failed:", e));
             }
             if (_exitCio.decision === "HOLD" && !_exitCio.fallback) {
-              console.log(`[AI_CIO_EXIT] ${sym} HOLD — delaying exit (cooldown 30m): ${_exitCio.reasoning}`);
-              _exitCioBlocked = true;
-              const _holdExec = { ...execState, _cioExitHoldMs: now };
-              if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _holdExec);
-              else if (!isReplay) await kvPutJSON(KV, execKey, _holdExec);
+              if (_exitShadow) {
+                console.log(`[AI_CIO_EXIT] ${sym} HOLD [SHADOW] — captured but exit will still fire: ${_exitCio.reasoning}`);
+              } else {
+                console.log(`[AI_CIO_EXIT] ${sym} HOLD — delaying exit (cooldown 30m): ${_exitCio.reasoning}`);
+                _exitCioBlocked = true;
+                const _holdExec = { ...execState, _cioExitHoldMs: now };
+                if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _holdExec);
+                else if (!isReplay) await kvPutJSON(KV, execKey, _holdExec);
+              }
             }
           } catch (cioExitErr) {
             console.warn(`[AI_CIO_EXIT] Exception ${sym}: ${String(cioExitErr).slice(0, 150)}`);
@@ -19682,26 +19715,36 @@ async function processTradeSimulation(
               risk_flags: Array.isArray(_trimCio.risk_flags) ? _trimCio.risk_flags : [],
               override: _trimCio.override || null,
             };
-            console.log(`[AI_CIO_TRIM] ${sym} ${_trimCio.decision} trim ${(target*100).toFixed(0)}%→${_trimCio.decision === "OVERRIDE" && _trimCio.override?.trim_pct != null ? ((_trimCio.override.trim_pct*100).toFixed(0)+"%") : "as-is"} (conf=${_trimCio.confidence.toFixed(2)}, latency=${_trimCio.latency_ms}ms${_trimCio.fallback ? " FALLBACK" : ""})`);
+            const _trimShadow = _cioShadowMode(env);
+            console.log(`[AI_CIO_TRIM] ${sym} ${_trimCio.decision}${_trimShadow ? " [SHADOW]" : ""} trim ${(target*100).toFixed(0)}%→${_trimCio.decision === "OVERRIDE" && _trimCio.override?.trim_pct != null ? ((_trimCio.override.trim_pct*100).toFixed(0)+"%") : "as-is"} (conf=${_trimCio.confidence.toFixed(2)}, latency=${_trimCio.latency_ms}ms${_trimCio.fallback ? " FALLBACK" : ""})`);
             if (env?.DB && !_trimCio.fallback) {
               env.DB.prepare(
-                `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
+                `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at, shadow)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`
               ).bind(
                 `${sym}-${now}-trim-${_trimCio.decision.toLowerCase()}`, sym, openTrade?.direction || "LONG",
                 `TRIM_${_trimCio.decision}`, _trimCio.confidence, _trimCio.reasoning,
                 JSON.stringify(_trimCio.risk_flags || []), _trimCio.edge_remaining || 0,
                 _trimCio.latency_ms, 0, AI_CIO_MODEL,
-                JSON.stringify(_trimProposal), JSON.stringify(_trimCio.override || {}), Date.now()
+                JSON.stringify(_trimProposal), JSON.stringify(_trimCio.override || {}), Date.now(),
+                _trimShadow ? 1 : 0
               ).run().catch(e => console.warn("[AI_CIO_TRIM] D1 insert failed:", e));
             }
             if (_trimCio.decision === "HOLD" && !_trimCio.fallback) {
-              console.log(`[AI_CIO_TRIM] ${sym} HOLD — skipping trim: ${_trimCio.reasoning}`);
-              target = 0;
+              if (_trimShadow) {
+                console.log(`[AI_CIO_TRIM] ${sym} HOLD [SHADOW] — captured but trim will still fire: ${_trimCio.reasoning}`);
+              } else {
+                console.log(`[AI_CIO_TRIM] ${sym} HOLD — skipping trim: ${_trimCio.reasoning}`);
+                target = 0;
+              }
             } else if (_trimCio.decision === "OVERRIDE" && !_trimCio.fallback && _trimCio.override?.trim_pct != null) {
-              const _prevTarget = target;
-              target = Math.max(Number(openTrade?.trimmedPct) || 0, _trimCio.override.trim_pct);
-              console.log(`[AI_CIO_TRIM] ${sym} OVERRIDE trim ${(_prevTarget*100).toFixed(0)}%→${(target*100).toFixed(0)}%: ${_trimCio.reasoning}`);
+              if (_trimShadow) {
+                console.log(`[AI_CIO_TRIM] ${sym} OVERRIDE [SHADOW] proposed ${(_trimCio.override.trim_pct*100).toFixed(0)}% — captured but trim runs as-is: ${_trimCio.reasoning}`);
+              } else {
+                const _prevTarget = target;
+                target = Math.max(Number(openTrade?.trimmedPct) || 0, _trimCio.override.trim_pct);
+                console.log(`[AI_CIO_TRIM] ${sym} OVERRIDE trim ${(_prevTarget*100).toFixed(0)}%→${(target*100).toFixed(0)}%: ${_trimCio.reasoning}`);
+              }
             }
           } catch (cioTrimErr) {
             console.warn(`[AI_CIO_TRIM] Exception ${sym}: ${String(cioTrimErr).slice(0, 150)}`);
@@ -20940,13 +20983,18 @@ async function processTradeSimulation(
                   applied: null,
                 };
 
+                const _entryShadow = _cioShadowMode(env);
+                if (tickerData.__cio_entry_decision && typeof tickerData.__cio_entry_decision === "object") {
+                  tickerData.__cio_entry_decision.shadow = _entryShadow;
+                }
+
                 if (_cioDecision.decision === "REJECT" && !_cioDecision.fallback) {
-                  console.log(`[AI_CIO] REJECTED ${sym} ${direction}: ${_cioDecision.reasoning} (latency=${_cioDecision.latency_ms}ms)`);
-                  // Persist rejection for accuracy tracking
+                  console.log(`[AI_CIO] REJECTED${_entryShadow ? " [SHADOW]" : ""} ${sym} ${direction}: ${_cioDecision.reasoning} (latency=${_cioDecision.latency_ms}ms)`);
+                  // Persist rejection for accuracy tracking (always — including shadow)
                   if (env?.DB) {
                     env.DB.prepare(
-                      `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at)
-                       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
+                      `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at, shadow)
+                       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`
                     ).bind(
                       `${sym}-${now}-rejected`,
                       sym, direction, "REJECT",
@@ -20958,11 +21006,14 @@ async function processTradeSimulation(
                       0, _cioDecision.model || AI_CIO_MODEL,
                       JSON.stringify(proposal),
                       null,
-                      Date.now()
+                      Date.now(),
+                      _entryShadow ? 1 : 0
                     ).run().catch(e => console.warn("[AI_CIO] D1 insert failed:", e));
                   }
-                  // Accumulate in-memory for replay CIO self-accuracy
-                  if (isReplay && replayCtx?.cioMemoryCache) {
+                  // Accumulate in-memory for replay CIO self-accuracy (only when not shadow —
+                  // shadow REJECT does not block the trade, so it's not a "real" rejection
+                  // for the purposes of replay self-accuracy).
+                  if (!_entryShadow && isReplay && replayCtx?.cioMemoryCache) {
                     if (!replayCtx.cioMemoryCache.cioDecisions) replayCtx.cioMemoryCache.cioDecisions = [];
                     replayCtx.cioMemoryCache.cioDecisions.push({
                       ticker: sym, direction, decision: "REJECT",
@@ -20971,102 +21022,127 @@ async function processTradeSimulation(
                       trade_outcome: undefined,
                     });
                   }
-                  // ── CIO REJECT → roll Kanban back to "setup" ──
-                  // The ticker was in "in_review"; CIO said no. Update KV so the
-                  // UI immediately reflects Setup (with block reason), not a stale
-                  // "In Review" card that implies the system might still act.
-                  if (!isReplay && KV) {
-                    try {
-                      const _cioLatestKey = `timed:latest:${sym}`;
-                      const _cioPayload = await kvGetJSON(KV, _cioLatestKey);
-                      const _cioKs = String(_cioPayload?.kanban_stage || "").toLowerCase();
-                      if (_cioPayload && (_cioKs === "in_review" || _cioKs === "enter")) {
-                        _cioPayload.prev_kanban_stage = _cioPayload.kanban_stage;
-                        _cioPayload.prev_kanban_stage_ts = Date.now();
-                        _cioPayload.kanban_stage = "setup";
-                        _cioPayload.__cio_blocked = true;
-                        _cioPayload.__cio_block_reason = _cioDecision.reasoning;
-                        _cioPayload.__cio_block_ts = Date.now();
-                        _cioPayload.__cio_block_flags = (_cioDecision.risk_flags || []).join(", ");
-                        _cioPayload.__setup_reason = `cio_rejected:${(_cioDecision.risk_flags || []).slice(0, 3).join("+")}`;
-                        _cioPayload.kanban_meta = deriveKanbanMeta(_cioPayload, "setup");
-                        await kvPutJSON(KV, _cioLatestKey, _cioPayload);
-                        console.log(`[CIO_REJECT→SETUP] ${sym} rolled in_review→setup: ${_cioDecision.reasoning.slice(0, 80)}`);
-                      }
-                    } catch (_cioKvErr) {
-                      console.warn(`[CIO_REJECT→SETUP] ${sym} KV update failed:`, String(_cioKvErr).slice(0, 100));
-                    }
-                  }
-                  // Notify Discord of CIO rejection (content-based dedup: suppress if same reason as last)
-                  if (env) {
-                    const _cioDedupeKey = `timed:cio:last_reject:${sym}:${direction}`;
-                    const _cioRejectFingerprint = `${(_cioDecision.risk_flags || []).sort().join(",")}|${Math.round((_cioDecision.confidence || 0) * 100)}`;
-                    let _cioDuped = false;
-                    if (KV) {
+                  if (_entryShadow) {
+                    // SHADOW MODE: capture decision, but DO NOT roll Kanban back, DO NOT
+                    // notify Discord (avoids spamming users while CIO is being scored),
+                    // and DO NOT clear shares/notional. The trade enters as the rules
+                    // would have decided. We log so it shows up in the live cron tail.
+                    console.log(`[AI_CIO] SHADOW REJECT ${sym} ${direction} captured — trade WILL enter (CIO is observed-only)`);
+                  } else {
+                    // ── CIO REJECT → roll Kanban back to "setup" ──
+                    // The ticker was in "in_review"; CIO said no. Update KV so the
+                    // UI immediately reflects Setup (with block reason), not a stale
+                    // "In Review" card that implies the system might still act.
+                    if (!isReplay && KV) {
                       try {
-                        const _lastReject = await KV.get(_cioDedupeKey);
-                        if (_lastReject === _cioRejectFingerprint) { _cioDuped = true; }
-                        else { await kvPutText(KV, _cioDedupeKey, _cioRejectFingerprint, 14400); }
-                      } catch (_) { /* best-effort */ }
+                        const _cioLatestKey = `timed:latest:${sym}`;
+                        const _cioPayload = await kvGetJSON(KV, _cioLatestKey);
+                        const _cioKs = String(_cioPayload?.kanban_stage || "").toLowerCase();
+                        if (_cioPayload && (_cioKs === "in_review" || _cioKs === "enter")) {
+                          _cioPayload.prev_kanban_stage = _cioPayload.kanban_stage;
+                          _cioPayload.prev_kanban_stage_ts = Date.now();
+                          _cioPayload.kanban_stage = "setup";
+                          _cioPayload.__cio_blocked = true;
+                          _cioPayload.__cio_block_reason = _cioDecision.reasoning;
+                          _cioPayload.__cio_block_ts = Date.now();
+                          _cioPayload.__cio_block_flags = (_cioDecision.risk_flags || []).join(", ");
+                          _cioPayload.__setup_reason = `cio_rejected:${(_cioDecision.risk_flags || []).slice(0, 3).join("+")}`;
+                          _cioPayload.kanban_meta = deriveKanbanMeta(_cioPayload, "setup");
+                          await kvPutJSON(KV, _cioLatestKey, _cioPayload);
+                          console.log(`[CIO_REJECT→SETUP] ${sym} rolled in_review→setup: ${_cioDecision.reasoning.slice(0, 80)}`);
+                        }
+                      } catch (_cioKvErr) {
+                        console.warn(`[CIO_REJECT→SETUP] ${sym} KV update failed:`, String(_cioKvErr).slice(0, 100));
+                      }
                     }
-                    if (!_cioDuped) {
-                      notifyDiscord(env, {
-                        title: `🛑 AI CIO REJECTED: ${sym} ${direction}`,
-                        description: _cioDecision.reasoning,
-                        color: 0xff4444,
-                        fields: [
-                          { name: "Confidence", value: `${(_cioDecision.confidence * 100).toFixed(0)}%`, inline: true },
-                          { name: "Edge Score", value: `${(_cioDecision.edge_score * 100).toFixed(0)}%`, inline: true },
-                          { name: "Risk Flags", value: (_cioDecision.risk_flags || []).join(", ") || "—", inline: false },
-                          { name: "Setup", value: `${setupName} (${setupGrade})`, inline: true },
-                          { name: "R:R", value: `${calculatedRR.toFixed(1)}:1`, inline: true },
-                        ],
-                      }).catch(() => {});
+                    // Notify Discord of CIO rejection (content-based dedup: suppress if same reason as last)
+                    if (env) {
+                      const _cioDedupeKey = `timed:cio:last_reject:${sym}:${direction}`;
+                      const _cioRejectFingerprint = `${(_cioDecision.risk_flags || []).sort().join(",")}|${Math.round((_cioDecision.confidence || 0) * 100)}`;
+                      let _cioDuped = false;
+                      if (KV) {
+                        try {
+                          const _lastReject = await KV.get(_cioDedupeKey);
+                          if (_lastReject === _cioRejectFingerprint) { _cioDuped = true; }
+                          else { await kvPutText(KV, _cioDedupeKey, _cioRejectFingerprint, 14400); }
+                        } catch (_) { /* best-effort */ }
+                      }
+                      if (!_cioDuped) {
+                        notifyDiscord(env, {
+                          title: `🛑 AI CIO REJECTED: ${sym} ${direction}`,
+                          description: _cioDecision.reasoning,
+                          color: 0xff4444,
+                          fields: [
+                            { name: "Confidence", value: `${(_cioDecision.confidence * 100).toFixed(0)}%`, inline: true },
+                            { name: "Edge Score", value: `${(_cioDecision.edge_score * 100).toFixed(0)}%`, inline: true },
+                            { name: "Risk Flags", value: (_cioDecision.risk_flags || []).join(", ") || "—", inline: false },
+                            { name: "Setup", value: `${setupName} (${setupGrade})`, inline: true },
+                            { name: "R:R", value: `${calculatedRR.toFixed(1)}:1`, inline: true },
+                          ],
+                        }).catch(() => {});
+                      }
                     }
+                    // Skip trade creation — model override
+                    shares = null;
+                    notional = null;
                   }
-                  // Skip trade creation — model override
-                  shares = null;
-                  notional = null;
                 }
 
                 if (_cioDecision.decision === "ADJUST" && !_cioDecision.fallback && _cioDecision.adjustments) {
                   const adj = _cioDecision.adjustments;
                   const _cioApplied = { sl: null, tp: null, size_mult: null };
+                  const _adjPreview = { sl: null, tp: null, size_mult: null };
                   if (adj.sl != null && Number.isFinite(adj.sl) && adj.sl > 0) {
                     const validSL = direction === "LONG" ? adj.sl < entryPx : adj.sl > entryPx;
                     if (validSL) {
-                      console.log(`[AI_CIO] ADJUST SL ${sym}: ${finalSL.toFixed(2)} → ${adj.sl.toFixed(2)} (${adj.reason})`);
-                      finalSL = Math.round(adj.sl * 100) / 100;
-                      _cioApplied.sl = finalSL;
+                      if (_entryShadow) {
+                        console.log(`[AI_CIO] ADJUST SL [SHADOW] ${sym}: would be ${finalSL.toFixed(2)} → ${adj.sl.toFixed(2)} (${adj.reason}) — keeping rule SL`);
+                        _adjPreview.sl = Math.round(adj.sl * 100) / 100;
+                      } else {
+                        console.log(`[AI_CIO] ADJUST SL ${sym}: ${finalSL.toFixed(2)} → ${adj.sl.toFixed(2)} (${adj.reason})`);
+                        finalSL = Math.round(adj.sl * 100) / 100;
+                        _cioApplied.sl = finalSL;
+                      }
                     }
                   }
                   if (adj.tp != null && Number.isFinite(adj.tp) && adj.tp > 0) {
                     const validTP2 = direction === "LONG" ? adj.tp > entryPx : adj.tp < entryPx;
                     if (validTP2) {
-                      console.log(`[AI_CIO] ADJUST TP ${sym}: ${validTP.toFixed(2)} → ${adj.tp.toFixed(2)} (${adj.reason})`);
-                      validTP = Math.round(adj.tp * 100) / 100;
-                      _cioApplied.tp = validTP;
+                      if (_entryShadow) {
+                        console.log(`[AI_CIO] ADJUST TP [SHADOW] ${sym}: would be ${validTP.toFixed(2)} → ${adj.tp.toFixed(2)} (${adj.reason}) — keeping rule TP`);
+                        _adjPreview.tp = Math.round(adj.tp * 100) / 100;
+                      } else {
+                        console.log(`[AI_CIO] ADJUST TP ${sym}: ${validTP.toFixed(2)} → ${adj.tp.toFixed(2)} (${adj.reason})`);
+                        validTP = Math.round(adj.tp * 100) / 100;
+                        _cioApplied.tp = validTP;
+                      }
                     }
                   }
                   if (adj.size_mult != null && Number.isFinite(adj.size_mult)) {
-                    const adjNotional = notional * adj.size_mult;
-                    const adjShares = adjNotional / entryPx;
-                    console.log(`[AI_CIO] ADJUST SIZE ${sym}: ${shares.toFixed(2)} → ${adjShares.toFixed(2)} shares (${adj.size_mult}x, ${adj.reason})`);
-                    shares = adjShares;
-                    notional = adjNotional;
-                    _cioApplied.size_mult = adj.size_mult;
+                    if (_entryShadow) {
+                      console.log(`[AI_CIO] ADJUST SIZE [SHADOW] ${sym}: would be ${shares.toFixed(2)} → ${(shares * adj.size_mult).toFixed(2)} shares (${adj.size_mult}x, ${adj.reason}) — keeping rule size`);
+                      _adjPreview.size_mult = adj.size_mult;
+                    } else {
+                      const adjNotional = notional * adj.size_mult;
+                      const adjShares = adjNotional / entryPx;
+                      console.log(`[AI_CIO] ADJUST SIZE ${sym}: ${shares.toFixed(2)} → ${adjShares.toFixed(2)} shares (${adj.size_mult}x, ${adj.reason})`);
+                      shares = adjShares;
+                      notional = adjNotional;
+                      _cioApplied.size_mult = adj.size_mult;
+                    }
                   }
                   if (tickerData.__cio_entry_decision && typeof tickerData.__cio_entry_decision === "object") {
-                    tickerData.__cio_entry_decision.applied = _cioApplied;
+                    tickerData.__cio_entry_decision.applied = _entryShadow ? null : _cioApplied;
+                    if (_entryShadow) tickerData.__cio_entry_decision.shadow_preview = _adjPreview;
                   }
                 }
 
                 if (_cioDecision.decision === "APPROVE" || _cioDecision.decision === "ADJUST") {
-                  console.log(`[AI_CIO] ${_cioDecision.decision} ${sym} ${direction} (conf=${_cioDecision.confidence.toFixed(2)}, edge=${_cioDecision.edge_score.toFixed(2)}, latency=${_cioDecision.latency_ms}ms${_cioDecision.fallback ? ", FALLBACK" : ""})`);
+                  console.log(`[AI_CIO] ${_cioDecision.decision}${_entryShadow ? " [SHADOW]" : ""} ${sym} ${direction} (conf=${_cioDecision.confidence.toFixed(2)}, edge=${_cioDecision.edge_score.toFixed(2)}, latency=${_cioDecision.latency_ms}ms${_cioDecision.fallback ? ", FALLBACK" : ""})`);
                   if (env?.DB && !_cioDecision.fallback) {
                     env.DB.prepare(
-                      `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at)
-                       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
+                      `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at, shadow)
+                       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`
                     ).bind(
                       `${sym}-${now}-${_cioDecision.decision.toLowerCase()}`,
                       sym, direction, _cioDecision.decision,
@@ -21078,7 +21154,8 @@ async function processTradeSimulation(
                       0, _cioDecision.model || AI_CIO_MODEL,
                       JSON.stringify(_cioDecision.proposal || {}),
                       _cioDecision.decision === "ADJUST" ? JSON.stringify(_cioDecision.adjustments || {}) : null,
-                      Date.now()
+                      Date.now(),
+                      _entryShadow ? 1 : 0
                     ).run().catch(e => console.warn("[AI_CIO] D1 insert failed:", e));
                   }
                 }
@@ -21546,8 +21623,8 @@ async function processTradeSimulation(
             // Persist AI CIO decision for accuracy tracking
             if (_cioDecision && !_cioDecision.fallback && env?.DB) {
               env.DB.prepare(
-                `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
+                `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at, shadow)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`
               ).bind(
                 tradeId, sym, direction, _cioDecision.decision,
                 _cioDecision.confidence,
@@ -21558,7 +21635,8 @@ async function processTradeSimulation(
                 0, _cioDecision.model || AI_CIO_MODEL,
                 JSON.stringify(_cioDecision.proposal || {}),
                 _cioDecision.adjustments ? JSON.stringify(_cioDecision.adjustments) : null,
-                Date.now()
+                Date.now(),
+                _cioShadowMode(env) ? 1 : 0
               ).run().catch(e => console.warn("[AI_CIO] D1 insert failed:", e));
             }
             // Accumulate in-memory for replay CIO self-accuracy (Layer 5)
@@ -28429,6 +28507,15 @@ async function d1EnsureLearningSchema(env) {
         created_at INTEGER NOT NULL
       )`).run();
     } catch { /* table may already exist */ }
+    // P0.7.134 (2026-05-12): shadow column lets us mark decisions captured
+    // while ai_cio_shadow_mode=true (CIO is observed-only). Filter on
+    // shadow=0 to score "decisions that actually moved the system."
+    try {
+      await db.prepare(`ALTER TABLE ai_cio_decisions ADD COLUMN shadow INTEGER DEFAULT 0`).run();
+    } catch { /* column may already exist */ }
+    try {
+      await db.prepare(`CREATE INDEX IF NOT EXISTS idx_ai_cio_decisions_shadow ON ai_cio_decisions(shadow, created_at DESC)`).run();
+    } catch { /* index may already exist */ }
     // Three-tier awareness: ticker + sector profiles
     try {
       await db.batch([
@@ -50350,6 +50437,7 @@ export default {
       }
 
       // GET /timed/admin/ai-cio/decisions — List all AI CIO decisions
+      // ?shadow=1 → only shadow-mode rows; ?shadow=0 → only acted-upon rows; omit → all
       if (routeKey === "GET /timed/admin/ai-cio/decisions") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
@@ -50357,24 +50445,52 @@ export default {
         if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
         try {
           const limit = Math.min(500, Number(url.searchParams.get("limit")) || 100);
-          const { results } = await db.prepare(
-            `SELECT * FROM ai_cio_decisions ORDER BY created_at DESC LIMIT ?1`
-          ).bind(limit).all();
-          return sendJSON({ ok: true, decisions: results || [] }, 200, corsHeaders(env, req));
+          const shadowParam = url.searchParams.get("shadow");
+          let query = `SELECT * FROM ai_cio_decisions`;
+          const binds = [];
+          if (shadowParam === "1" || shadowParam === "0") {
+            query += ` WHERE shadow = ?${binds.length + 1}`;
+            binds.push(Number(shadowParam));
+          }
+          query += ` ORDER BY created_at DESC LIMIT ?${binds.length + 1}`;
+          binds.push(limit);
+          const { results } = await db.prepare(query).bind(...binds).all();
+          // Read effective config (whether CIO is enabled + shadow mode is on right now)
+          let _cfgEnabled = false, _cfgShadow = true;
+          try {
+            const { results: cfgRows } = await db.prepare(
+              `SELECT config_key, config_value FROM model_config WHERE config_key IN ('ai_cio_enabled','ai_cio_shadow_mode')`
+            ).all();
+            for (const r of (cfgRows || [])) {
+              const v = r.config_value;
+              if (r.config_key === "ai_cio_enabled") _cfgEnabled = String(v) === "true" || v === "1" || v === 1 || v === true;
+              if (r.config_key === "ai_cio_shadow_mode") _cfgShadow = String(v) === "true" || v === "1" || v === 1 || v === true;
+            }
+          } catch (_) {}
+          return sendJSON({
+            ok: true,
+            decisions: results || [],
+            config: { ai_cio_enabled: _cfgEnabled, ai_cio_shadow_mode: _cfgShadow },
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
         }
       }
 
       // GET /timed/admin/ai-cio/accuracy — AI CIO accuracy report
+      // ?shadow=1 → only shadow rows; ?shadow=0 → only acted-upon rows; omit → both groups returned
       if (routeKey === "GET /timed/admin/ai-cio/accuracy") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
         const db = env?.DB;
         if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
         try {
+          const shadowParam = url.searchParams.get("shadow");
+          const filterClause = (shadowParam === "1" || shadowParam === "0")
+            ? ` WHERE shadow = ${Number(shadowParam)}`
+            : "";
           const { results: totals } = await db.prepare(
-            `SELECT decision,
+            `SELECT decision, COALESCE(shadow, 0) AS shadow,
                     COUNT(*) as count,
                     SUM(CASE WHEN trade_outcome = 'WIN' THEN 1 ELSE 0 END) as wins,
                     SUM(CASE WHEN trade_outcome = 'LOSS' THEN 1 ELSE 0 END) as losses,
@@ -50382,19 +50498,21 @@ export default {
                     AVG(confidence) as avg_confidence,
                     AVG(edge_score) as avg_edge_score,
                     AVG(latency_ms) as avg_latency_ms
-             FROM ai_cio_decisions
-             GROUP BY decision`
+             FROM ai_cio_decisions${filterClause}
+             GROUP BY decision, COALESCE(shadow, 0)
+             ORDER BY shadow DESC, decision ASC`
           ).all();
           const { results: rejectedTrades } = await db.prepare(
-            `SELECT ticker, direction, reasoning, risk_flags, confidence, edge_score, created_at
+            `SELECT ticker, direction, reasoning, risk_flags, confidence, edge_score, created_at, COALESCE(shadow, 0) AS shadow
              FROM ai_cio_decisions
-             WHERE decision = 'REJECT' AND fallback = 0
+             WHERE decision = 'REJECT' AND fallback = 0${(shadowParam === "1" || shadowParam === "0") ? ` AND shadow = ${Number(shadowParam)}` : ""}
              ORDER BY created_at DESC LIMIT 20`
           ).all();
           return sendJSON({
             ok: true,
             summary: totals || [],
             recent_rejections: rejectedTrades || [],
+            note: "summary rows include shadow column (0=acted upon, 1=shadow-mode capture only). Filter with ?shadow=0 or ?shadow=1.",
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));

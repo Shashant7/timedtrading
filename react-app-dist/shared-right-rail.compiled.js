@@ -3685,7 +3685,84 @@
         }, String(ticker.state).replace(/_/g, " ")), ticker?.kanban_stage && React.createElement("span", {
           className: "ds-chip ds-chip--sm ds-chip--accent",
           title: "Active management stage"
-        }, String(ticker.kanban_stage).replace(/_/g, " ")))), predictionContract && (() => {
+        }, String(ticker.kanban_stage).replace(/_/g, " ")))), (() => {
+          const tp = ticker?._ticker_profile;
+          const learn = tp?.learning;
+          if (!learn) return null;
+          const personality = learn.personality || tp?.behavior_type || null;
+          if (!personality) return null;
+          const labelArch = a => {
+            if (!a) return null;
+            const map = {
+              trend_continuation_runner: "Trend Runner",
+              pullback_reclaim: "Pullback Reclaim",
+              fast_impulse_fragile: "Fast Impulse",
+              exhaustion_reversal: "Exhaustion Reversal",
+              liquidity_sweep_reclaim: "Sweep Reclaim",
+              orb_expansion: "Opening Range Break"
+            };
+            return map[String(a)] || String(a).replace(/_/g, " ");
+          };
+          const personalityCopy = p => {
+            switch (String(p)) {
+              case "VOLATILE_RUNNER":
+                return "Big swings, fast moves. Best for breakouts; risky to chase late.";
+              case "PULLBACK_PLAYER":
+                return "Trends with regular pullbacks. Best entries are dips, not chases.";
+              case "SLOW_GRINDER":
+                return "Methodical mover. Targets land in time but stops need patience.";
+              case "TREND_FOLLOWER":
+                return "Strong directional persistence. Hold winners through pullbacks.";
+              case "MODERATE":
+                return "Balanced behavior — neither breakout-heavy nor mean-reverting.";
+              case "MOMENTUM":
+                return "Trends in one direction once it moves. Trade with the trend.";
+              case "MEAN_REVERT":
+                return "Bounces between levels. Better for buying dips, selling rips.";
+              default:
+                return null;
+            }
+          };
+          const longArch = learn.archetypes?.long?.dominant || learn.entry_params?.long_dominant_archetype || null;
+          const shortArch = learn.archetypes?.short?.dominant || learn.entry_params?.short_dominant_archetype || null;
+          const totalMoves = Number(learn.total_moves);
+          const upMoves = Number(learn.up_moves);
+          const dnMoves = Number(learn.dn_moves);
+          const copy = personalityCopy(personality);
+          return React.createElement(Panel, {
+            title: "Behavior",
+            action: Number.isFinite(totalMoves) && totalMoves > 0 ? React.createElement("span", {
+              className: "ds-chip ds-chip--sm",
+              style: {
+                fontFamily: "var(--tt-font-mono)"
+              },
+              title: "Number of distinct moves the engine has labelled for this ticker"
+            }, totalMoves, " moves", Number.isFinite(upMoves) && Number.isFinite(dnMoves) ? ` · ${upMoves}↑/${dnMoves}↓` : "") : null
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "var(--ds-space-1)",
+              marginBottom: copy ? "var(--ds-space-2)" : 0
+            }
+          }, React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--accent",
+            title: "Engine-learned personality classification (from per-ticker move history)"
+          }, String(personality).replace(/_/g, " ")), longArch && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--up",
+            title: "Dominant move archetype on UP moves"
+          }, "L: ", labelArch(longArch)), shortArch && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--dn",
+            title: "Dominant move archetype on DOWN moves"
+          }, "S: ", labelArch(shortArch))), copy && React.createElement("p", {
+            style: {
+              margin: 0,
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-text-muted)",
+              lineHeight: 1.5
+            }
+          }, copy));
+        })(), predictionContract && (() => {
           const pcDirRaw = String(predictionContract?.direction || "").toUpperCase();
           const pcDir = pcDirRaw === "LONG" || pcDirRaw === "SHORT" ? pcDirRaw : null;
           const dirChipCls = pcDir === "LONG" ? "ds-chip--up" : pcDir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
@@ -4497,21 +4574,75 @@
             l: l,
             side: "sup"
           }))));
-        })(), ticker?._ticker_profile && React.createElement(Panel, {
-          title: "Profile"
-        }, React.createElement("div", {
-          style: {
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "var(--ds-space-1)"
-          }
-        }, ticker._ticker_profile.behavior_type && React.createElement("span", {
-          className: "ds-chip ds-chip--sm ds-chip--solid"
-        }, String(ticker._ticker_profile.behavior_type).replace(/_/g, " ")), ticker._ticker_profile.atr_pct_p50 != null && React.createElement("span", {
-          className: "ds-chip ds-chip--sm"
-        }, "ATR p50: ", Number(ticker._ticker_profile.atr_pct_p50).toFixed(2), "%"), ticker._ticker_profile.trend_persistence != null && React.createElement("span", {
-          className: "ds-chip ds-chip--sm"
-        }, "Persistence: ", Number(ticker._ticker_profile.trend_persistence).toFixed(2)))), (modelSignal?.sector || modelSignal?.market) && React.createElement(Panel, {
+        })(), ticker?._ticker_profile && (() => {
+          const tp = ticker._ticker_profile;
+          const learn = tp.learning || null;
+          const labelArchetype = a => {
+            if (!a) return null;
+            const map = {
+              trend_continuation_runner: "Trend Runner",
+              pullback_reclaim: "Pullback Reclaim",
+              fast_impulse_fragile: "Fast Impulse",
+              exhaustion_reversal: "Exhaustion Reversal",
+              liquidity_sweep_reclaim: "Sweep Reclaim",
+              orb_expansion: "Opening Range Break"
+            };
+            return map[String(a)] || String(a).replace(/_/g, " ");
+          };
+          const personalityLearn = learn?.personality || null;
+          const longArch = learn?.archetypes?.long?.dominant || learn?.entry_params?.long_dominant_archetype || null;
+          const shortArch = learn?.archetypes?.short?.dominant || learn?.entry_params?.short_dominant_archetype || null;
+          const pullback = Number(learn?.entry_params?.typical_pullback_pct);
+          const slAtr = Number(learn?.entry_params?.sl_atr_mult);
+          const tpAtr = Number(learn?.entry_params?.tp_atr_mult);
+          const totalMoves = Number(learn?.total_moves);
+          const upMoves = Number(learn?.up_moves);
+          const dnMoves = Number(learn?.dn_moves);
+          const hasAnything = !!(tp.behavior_type || tp.atr_pct_p50 != null || tp.trend_persistence != null || personalityLearn || longArch || shortArch || Number.isFinite(pullback) || Number.isFinite(slAtr) || Number.isFinite(tpAtr));
+          if (!hasAnything) return null;
+          return React.createElement(Panel, {
+            title: "Profile",
+            action: Number.isFinite(totalMoves) && totalMoves > 0 ? React.createElement("span", {
+              className: "ds-chip ds-chip--sm",
+              style: {
+                fontFamily: "var(--tt-font-mono)"
+              }
+            }, totalMoves, " moves", Number.isFinite(upMoves) && Number.isFinite(dnMoves) ? ` · ${upMoves}↑/${dnMoves}↓` : "") : null
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "var(--ds-space-1)"
+            }
+          }, personalityLearn && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--accent",
+            title: "Engine-learned personality classification (from per-ticker move history)"
+          }, String(personalityLearn).replace(/_/g, " ")), tp.behavior_type && tp.behavior_type !== personalityLearn && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--solid",
+            title: "Legacy behavior classification (column-based)"
+          }, String(tp.behavior_type).replace(/_/g, " ")), longArch && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--up",
+            title: "Dominant move archetype on UP moves"
+          }, "L: ", labelArchetype(longArch)), shortArch && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--dn",
+            title: "Dominant move archetype on DOWN moves"
+          }, "S: ", labelArchetype(shortArch)), tp.atr_pct_p50 != null && React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            title: "Median daily ATR as % of price"
+          }, "ATR p50: ", Number(tp.atr_pct_p50).toFixed(2), "%"), tp.trend_persistence != null && React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            title: "0\u20131 score; higher = trends persist longer"
+          }, "Persistence: ", Number(tp.trend_persistence).toFixed(2)), Number.isFinite(pullback) && pullback > 0 && React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            title: "Typical pullback inside an established move"
+          }, "Pullback: ", pullback.toFixed(1), "%"), Number.isFinite(slAtr) && slAtr > 0 && React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            title: "Suggested SL distance in ATRs (from this ticker's history)"
+          }, "SL: ", slAtr.toFixed(1), "\xD7 ATR"), Number.isFinite(tpAtr) && tpAtr > 0 && React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            title: "Suggested TP distance in ATRs (from this ticker's history)"
+          }, "TP: ", tpAtr.toFixed(1), "\xD7 ATR")));
+        })(), (modelSignal?.sector || modelSignal?.market) && React.createElement(Panel, {
           title: "Sector & Market"
         }, React.createElement("div", {
           style: {
@@ -4617,6 +4748,365 @@
               lineHeight: 1.5
             }
           }, meta.txt));
+        })(), (() => {
+          const tp = ticker?._ticker_profile;
+          const learn = tp?.learning;
+          if (!learn) return null;
+          const personality = learn.personality || tp?.behavior_type || null;
+          if (!personality) return null;
+          const labelArch = a => {
+            if (!a) return null;
+            const map = {
+              trend_continuation_runner: "Trend Runner",
+              pullback_reclaim: "Pullback Reclaim",
+              fast_impulse_fragile: "Fast Impulse",
+              exhaustion_reversal: "Exhaustion Reversal",
+              liquidity_sweep_reclaim: "Sweep Reclaim",
+              orb_expansion: "Opening Range Break"
+            };
+            return map[String(a)] || String(a).replace(/_/g, " ");
+          };
+          const personalityMeta = p => {
+            switch (String(p)) {
+              case "VOLATILE_RUNNER":
+                return {
+                  color: "#fcd34d",
+                  bg: "rgba(252,211,77,0.06)",
+                  border: "rgba(252,211,77,0.30)",
+                  copy: "Big swings, fast moves. Best for breakouts; risky to chase late."
+                };
+              case "PULLBACK_PLAYER":
+                return {
+                  color: "#60a5fa",
+                  bg: "rgba(96,165,250,0.06)",
+                  border: "rgba(96,165,250,0.30)",
+                  copy: "Trends with regular pullbacks. Best entries are dips, not chases."
+                };
+              case "SLOW_GRINDER":
+                return {
+                  color: "#a78bfa",
+                  bg: "rgba(167,139,250,0.06)",
+                  border: "rgba(167,139,250,0.30)",
+                  copy: "Methodical mover. Targets land in time but stops need patience."
+                };
+              case "TREND_FOLLOWER":
+                return {
+                  color: "#34d399",
+                  bg: "rgba(52,211,153,0.06)",
+                  border: "rgba(52,211,153,0.30)",
+                  copy: "Strong directional persistence. Hold winners through pullbacks."
+                };
+              case "MODERATE":
+                return {
+                  color: "var(--ds-text-body)",
+                  bg: "rgba(148,163,184,0.06)",
+                  border: "rgba(148,163,184,0.30)",
+                  copy: "Balanced behavior — neither breakout-heavy nor mean-reverting."
+                };
+              case "MOMENTUM":
+                return {
+                  color: "#60a5fa",
+                  bg: "rgba(96,165,250,0.06)",
+                  border: "rgba(96,165,250,0.30)",
+                  copy: "Trends in one direction once it moves. Trade with the trend."
+                };
+              case "MEAN_REVERT":
+                return {
+                  color: "#a78bfa",
+                  bg: "rgba(167,139,250,0.06)",
+                  border: "rgba(167,139,250,0.30)",
+                  copy: "Bounces between levels. Better for buying dips, selling rips."
+                };
+              default:
+                return {
+                  color: "var(--ds-text-body)",
+                  bg: "rgba(148,163,184,0.06)",
+                  border: "rgba(148,163,184,0.30)",
+                  copy: null
+                };
+            }
+          };
+          const meta = personalityMeta(personality);
+          const dailyRangePct = Number(tp?.atr_pct_p50);
+          const trendP = Number(tp?.trend_persistence);
+          const ichResp = Number(tp?.ichimoku_responsiveness);
+          const slMult = Number(tp?.sl_mult);
+          const tpMult = Number(tp?.tp_mult);
+          const slAtr = Number(learn.entry_params?.sl_atr_mult);
+          const tpAtr = Number(learn.entry_params?.tp_atr_mult);
+          const pullback = Number(learn.entry_params?.typical_pullback_pct);
+          const longArch = learn.archetypes?.long?.dominant || learn.entry_params?.long_dominant_archetype || null;
+          const shortArch = learn.archetypes?.short?.dominant || learn.entry_params?.short_dominant_archetype || null;
+          const longRsiZone = learn.long_profile?.rsi_at_origin?.best_zone || null;
+          const shortRsiZone = learn.short_profile?.rsi_at_origin?.best_zone || null;
+          const longEmaPct = Number(learn.long_profile?.ema_precision?.aligned_pct);
+          const shortEmaPct = Number(learn.short_profile?.ema_precision?.aligned_pct);
+          const totalMoves = Number(learn.total_moves);
+          const trendLabel = v => v >= 0.6 ? "Sticky" : v <= 0.35 ? "Choppy" : "Average";
+          const respLabel = v => v >= 0.6 ? "Reliable" : v <= 0.35 ? "Erratic" : "Moderate";
+          const slWidthLabel = Number.isFinite(slAtr) && slAtr > 0 ? `${slAtr.toFixed(1)}× ATR` : Number.isFinite(slMult) ? slMult > 1.05 ? "Wider" : slMult < 0.95 ? "Tighter" : "Standard" : null;
+          const tpWidthLabel = Number.isFinite(tpAtr) && tpAtr > 0 ? `${tpAtr.toFixed(1)}× ATR` : Number.isFinite(tpMult) ? tpMult > 1.05 ? "Extended" : tpMult < 0.95 ? "Closer" : "Standard" : null;
+          return React.createElement("div", {
+            className: "ds-glass",
+            style: {
+              marginBottom: "var(--ds-space-3)",
+              background: meta.bg,
+              border: `1px solid ${meta.border}`,
+              padding: "var(--ds-space-3)"
+            }
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 8,
+              marginBottom: 6
+            }
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flexWrap: "wrap"
+            }
+          }, React.createElement("span", {
+            style: {
+              fontSize: 10,
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700,
+              letterSpacing: "0.12em",
+              color: meta.color,
+              textTransform: "uppercase"
+            },
+            title: "Engine-learned personality classification"
+          }, String(personality).replace(/_/g, " ")), React.createElement("span", {
+            style: {
+              fontSize: 9,
+              fontFamily: "var(--tt-font-mono)",
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.10em"
+            }
+          }, "BEHAVIOR PROFILE")), Number.isFinite(totalMoves) && totalMoves > 0 && React.createElement("span", {
+            style: {
+              fontSize: 9,
+              fontFamily: "var(--tt-font-mono)",
+              color: "var(--ds-text-faint)"
+            },
+            title: "Distinct moves used to learn this profile"
+          }, "n=", totalMoves)), meta.copy && React.createElement("p", {
+            style: {
+              margin: "0 0 var(--ds-space-2) 0",
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-text-muted)",
+              lineHeight: 1.5
+            }
+          }, meta.copy), (longArch || shortArch) && React.createElement("div", {
+            style: {
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "var(--ds-space-1)",
+              marginBottom: "var(--ds-space-2)"
+            }
+          }, longArch && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--up",
+            title: "Dominant move archetype on UP moves"
+          }, "L: ", labelArch(longArch)), shortArch && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--dn",
+            title: "Dominant move archetype on DOWN moves"
+          }, "S: ", labelArch(shortArch))), React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: "var(--ds-space-2)",
+              marginBottom: "var(--ds-space-2)"
+            }
+          }, React.createElement("div", {
+            style: {
+              padding: "6px 8px",
+              borderRadius: "var(--ds-radius-xs)",
+              background: "rgba(255,255,255,0.03)",
+              textAlign: "center"
+            },
+            title: "Median daily ATR as % of price"
+          }, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              textTransform: "uppercase",
+              letterSpacing: "0.08em"
+            }
+          }, "Daily Range"), React.createElement("div", {
+            style: {
+              fontSize: 13,
+              fontWeight: 700,
+              fontFamily: "var(--tt-font-mono)",
+              color: "var(--ds-text-display)"
+            }
+          }, Number.isFinite(dailyRangePct) && dailyRangePct > 0 ? `${dailyRangePct.toFixed(2)}%` : "—")), React.createElement("div", {
+            style: {
+              padding: "6px 8px",
+              borderRadius: "var(--ds-radius-xs)",
+              background: "rgba(255,255,255,0.03)",
+              textAlign: "center"
+            },
+            title: "0\u20131 score; higher = trends persist longer"
+          }, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              textTransform: "uppercase",
+              letterSpacing: "0.08em"
+            }
+          }, "Trend Follow"), React.createElement("div", {
+            style: {
+              fontSize: 13,
+              fontWeight: 700,
+              fontFamily: "var(--tt-font-mono)",
+              color: Number.isFinite(trendP) ? trendP >= 0.6 ? "var(--ds-up)" : trendP <= 0.35 ? "var(--ds-dn)" : "var(--ds-text-display)" : "var(--ds-text-faint)"
+            }
+          }, Number.isFinite(trendP) ? `${(trendP * 100).toFixed(0)}%` : "—"), Number.isFinite(trendP) && React.createElement("div", {
+            style: {
+              fontSize: 8,
+              color: "var(--ds-text-faint)",
+              marginTop: 2
+            }
+          }, trendLabel(trendP))), React.createElement("div", {
+            style: {
+              padding: "6px 8px",
+              borderRadius: "var(--ds-radius-xs)",
+              background: "rgba(255,255,255,0.03)",
+              textAlign: "center"
+            },
+            title: "Ichimoku responsiveness: how reliably the stock respects indicator signals"
+          }, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              textTransform: "uppercase",
+              letterSpacing: "0.08em"
+            }
+          }, "Predictability"), React.createElement("div", {
+            style: {
+              fontSize: 13,
+              fontWeight: 700,
+              fontFamily: "var(--tt-font-mono)",
+              color: Number.isFinite(ichResp) ? ichResp >= 0.6 ? "var(--ds-up)" : ichResp <= 0.35 ? "var(--ds-dn)" : "var(--ds-text-display)" : "var(--ds-text-faint)"
+            }
+          }, Number.isFinite(ichResp) ? `${(ichResp * 100).toFixed(0)}%` : "—"), Number.isFinite(ichResp) && React.createElement("div", {
+            style: {
+              fontSize: 8,
+              color: "var(--ds-text-faint)",
+              marginTop: 2
+            }
+          }, respLabel(ichResp)))), React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: "var(--ds-space-2)"
+            }
+          }, React.createElement("div", {
+            style: {
+              padding: "6px 8px",
+              borderRadius: "var(--ds-radius-xs)",
+              background: "rgba(255,255,255,0.03)",
+              textAlign: "center"
+            },
+            title: "Stop-loss distance the engine recommends for this ticker"
+          }, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              textTransform: "uppercase",
+              letterSpacing: "0.08em"
+            }
+          }, "Stop Width"), React.createElement("div", {
+            style: {
+              fontSize: 12,
+              fontWeight: 700,
+              fontFamily: "var(--tt-font-mono)",
+              color: "var(--ds-text-display)"
+            }
+          }, slWidthLabel || "—")), React.createElement("div", {
+            style: {
+              padding: "6px 8px",
+              borderRadius: "var(--ds-radius-xs)",
+              background: "rgba(255,255,255,0.03)",
+              textAlign: "center"
+            },
+            title: "Take-profit distance the engine recommends for this ticker"
+          }, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              textTransform: "uppercase",
+              letterSpacing: "0.08em"
+            }
+          }, "Target"), React.createElement("div", {
+            style: {
+              fontSize: 12,
+              fontWeight: 700,
+              fontFamily: "var(--tt-font-mono)",
+              color: "var(--ds-text-display)"
+            }
+          }, tpWidthLabel || "—")), React.createElement("div", {
+            style: {
+              padding: "6px 8px",
+              borderRadius: "var(--ds-radius-xs)",
+              background: "rgba(255,255,255,0.03)",
+              textAlign: "center"
+            },
+            title: "Typical pullback inside an established move (re-entry hint)"
+          }, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              textTransform: "uppercase",
+              letterSpacing: "0.08em"
+            }
+          }, "Pullback"), React.createElement("div", {
+            style: {
+              fontSize: 12,
+              fontWeight: 700,
+              fontFamily: "var(--tt-font-mono)",
+              color: "var(--ds-text-display)"
+            }
+          }, Number.isFinite(pullback) && pullback > 0 ? `${pullback.toFixed(1)}%` : "—"))), (longRsiZone || shortRsiZone || Number.isFinite(longEmaPct) || Number.isFinite(shortEmaPct)) && React.createElement("div", {
+            style: {
+              marginTop: "var(--ds-space-2)",
+              paddingTop: "var(--ds-space-2)",
+              borderTop: "1px solid rgba(255,255,255,0.06)",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "var(--ds-space-2)",
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-text-muted)",
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, longRsiZone && React.createElement("span", {
+            title: "RSI band that produced the strongest UP moves historically"
+          }, "L RSI: ", React.createElement("span", {
+            style: {
+              color: "var(--ds-up)"
+            }
+          }, String(longRsiZone))), shortRsiZone && React.createElement("span", {
+            title: "RSI band that produced the strongest DOWN moves historically"
+          }, "S RSI: ", React.createElement("span", {
+            style: {
+              color: "var(--ds-dn)"
+            }
+          }, String(shortRsiZone))), Number.isFinite(longEmaPct) && React.createElement("span", {
+            title: "% of UP moves that started with EMA structure aligned to the move"
+          }, "L EMA aligned: ", React.createElement("span", {
+            style: {
+              color: "var(--ds-text-display)"
+            }
+          }, longEmaPct.toFixed(0), "%")), Number.isFinite(shortEmaPct) && React.createElement("span", {
+            title: "% of DOWN moves that started with EMA structure aligned to the move"
+          }, "S EMA aligned: ", React.createElement("span", {
+            style: {
+              color: "var(--ds-text-display)"
+            }
+          }, shortEmaPct.toFixed(0), "%"))));
         })(), !ticker?.tf_tech && React.createElement(Panel, {
           title: "Technical Analysis",
           action: React.createElement("span", {
