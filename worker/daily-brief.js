@@ -858,6 +858,9 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     iwmCandlesH4,
     esCandlesW,
     spyCandlesW,
+    qqqCandlesW,
+    iwmCandlesW,
+    nqCandlesW,
     priceFeedRaw,
   ] = await Promise.all([
     // Market pulse tickers
@@ -959,12 +962,26 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     db && opts.d1GetCandles
       ? opts.d1GetCandles(env, "IWM", "240", 40).catch(() => ({ candles: [] }))
       : Promise.resolve({ candles: [] }),
-    // Weekly candles for higher-timeframe SMC levels
+    // Weekly candles for higher-timeframe SMC levels + Saty Multi-Day ATR.
+    // P0.7.135 (2026-05-12) — added QQQ/IWM/NQ weekly fetches so the
+    // Saty Multi-Day Mode anchor (prior weekly close) and weekly ATR(14)
+    // can be computed for every index card. Prior to this, only ES + SPY
+    // had weekly bars and QQQ/IWM/NQ silently fell back to the
+    // dailyATR·√5 path, which was acceptable but loses precision.
     db && opts.d1GetCandles
       ? opts.d1GetCandles(env, "ES1!", "W", 20).catch(() => ({ candles: [] }))
       : Promise.resolve({ candles: [] }),
     db && opts.d1GetCandles
       ? opts.d1GetCandles(env, "SPY", "W", 20).catch(() => ({ candles: [] }))
+      : Promise.resolve({ candles: [] }),
+    db && opts.d1GetCandles
+      ? opts.d1GetCandles(env, "QQQ", "W", 20).catch(() => ({ candles: [] }))
+      : Promise.resolve({ candles: [] }),
+    db && opts.d1GetCandles
+      ? opts.d1GetCandles(env, "IWM", "W", 20).catch(() => ({ candles: [] }))
+      : Promise.resolve({ candles: [] }),
+    db && opts.d1GetCandles
+      ? opts.d1GetCandles(env, "NQ1!", "W", 20).catch(() => ({ candles: [] }))
       : Promise.resolve({ candles: [] }),
     // Reliable price feed data (TwelveData via cron) for cross-referencing
     kvGetJSON(KV, "timed:prices").catch(() => null),
@@ -1229,7 +1246,8 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
 
   const nqTechnical = summarizeTechnical(
     nqCandles?.candles || [], nqCandlesH1?.candles || [],
-    nqCandlesM5?.candles || [], nqData, nqCandlesH4?.candles || [], []
+    nqCandlesM5?.candles || [], nqData, nqCandlesH4?.candles || [],
+    nqCandlesW?.candles || []
   );
 
   const spyTechnical = summarizeTechnical(
@@ -1240,12 +1258,14 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
 
   const qqqTechnical = summarizeTechnical(
     qqqCandles?.candles || [], qqqCandlesH1?.candles || [],
-    qqqCandlesM5?.candles || [], qqqData, qqqCandlesH4?.candles || [], []
+    qqqCandlesM5?.candles || [], qqqData, qqqCandlesH4?.candles || [],
+    qqqCandlesW?.candles || []
   );
 
   const iwmTechnical = summarizeTechnical(
     iwmCandles?.candles || [], iwmCandlesH1?.candles || [],
-    iwmCandlesM5?.candles || [], iwmData, iwmCandlesH4?.candles || [], []
+    iwmCandlesM5?.candles || [], iwmData, iwmCandlesH4?.candles || [],
+    iwmCandlesW?.candles || []
   );
 
   // V15 P0.7.72 — Phase 2 Q1 unification.
@@ -1492,6 +1512,206 @@ function nyMinutesFromMs(ms) {
   const hour = Number(get("hour"));
   const minute = Number(get("minute"));
   return Number.isFinite(hour) && Number.isFinite(minute) ? hour * 60 + minute : null;
+}
+
+// ── Saty ATR Levels — Multi-Day Mode ────────────────────────────────────
+//
+// Implements Saty Pirzadeh's "Saty ATR Levels" indicator in Multi-Day
+// Trader Mode. Returns the wire shape consumed by daily-brief's
+// multiDayAtrLevels payload (anchor / weekAtr / levels / goldenGate /
+// goldenGateNote / goldenGateProbability / currentPrice).
+//
+// Anchor selection (Saty spec):
+//   * Multi-Day Mode anchors on the previous WEEKLY CLOSE — the close of
+//     the most recently *completed* weekly bar (last Friday's close, or
+//     the close of the last trading day before this Monday).
+//   * Source priority: weekly bars when available; otherwise reconstruct
+//     from daily bars by walking backward until we cross a week boundary
+//     (Sunday → Saturday in NY time, matching CBOE/CME equity weeks).
+//
+// ATR calculation (Saty spec):
+//   * ATR(14) on weekly bars when ≥5 weekly bars are available
+//     (Saty's indicator uses RMA but a Wilder TR average over 14 weeks is
+//     within rounding for the public-facing levels).
+//   * Fallback: dailyATR(14) · √5 — Saty's documented approximation
+//     when weekly bars aren't loaded.
+//
+// Level ladder (Saty spec):
+//   anchor ± weekATR · {0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.236, 1.618}
+// Trigger zone (Golden Gate):
+//   ±0.382 = "Lower Trigger", ±0.618 = "Upper Trigger".  Price above
+//   +0.382 → OPEN_UP; below -0.382 → OPEN_DOWN; otherwise NEUTRAL.
+function _nyDateKey(ms) {
+  const k = nyDateKeyFromMs(ms);
+  return k || null;
+}
+function _nyDayOfWeek(ms) {
+  // 0 = Sunday … 6 = Saturday in NY time.
+  if (!Number.isFinite(ms)) return null;
+  const wd = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short" }).format(ms);
+  return ({ Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 })[wd] ?? null;
+}
+function _candleTsMs(candle) {
+  return dailyBriefTsMs(candle?.ts ?? candle?.t ?? candle?.time ?? candle?.date);
+}
+function _atrWilder(period, candles) {
+  const series = Array.isArray(candles) ? candles.filter(Boolean) : [];
+  if (series.length < 2) return 0;
+  const trs = [];
+  for (let i = 1; i < series.length; i++) {
+    const h = Number(series[i].h);
+    const l = Number(series[i].l);
+    const pc = Number(series[i - 1].c);
+    if (!Number.isFinite(h) || !Number.isFinite(l) || !Number.isFinite(pc)) continue;
+    trs.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+  }
+  if (trs.length === 0) return 0;
+  const n = Math.min(period, trs.length);
+  // Wilder's RMA: seed with simple average over first n, then smooth.
+  let atr = trs.slice(0, n).reduce((s, x) => s + x, 0) / n;
+  for (let i = n; i < trs.length; i++) {
+    atr = (atr * (n - 1) + trs[i]) / n;
+  }
+  return atr;
+}
+function _resolveWeeklyAnchorFromDaily(dailyCandles, currentPriceTs) {
+  // Walk backward through daily bars and pick the close of the LAST bar
+  // that belongs to the most recently *completed* week (i.e. the close
+  // before this week's Monday). NY-time week boundaries.
+  const daily = Array.isArray(dailyCandles) ? dailyCandles : [];
+  if (daily.length === 0) return { anchor: 0, anchorDateKey: null };
+  const nowMs = Number.isFinite(currentPriceTs) ? currentPriceTs : Date.now();
+  const nowDow = _nyDayOfWeek(nowMs);
+  if (nowDow == null) return { anchor: Number(daily[daily.length - 1]?.c) || 0, anchorDateKey: null };
+  // Days back from "now" to the most recent Saturday (end of last week).
+  const daysToLastWeekEnd = nowDow === 0 ? 1 : nowDow; // Sun→1, Mon→1, …, Sat→6
+  const lastWeekEndMs = nowMs - daysToLastWeekEnd * 24 * 3600 * 1000;
+  const lastWeekEndDateKey = _nyDateKey(lastWeekEndMs);
+  // Find the most recent daily bar with NY date <= lastWeekEndDateKey.
+  let pick = null;
+  for (let i = daily.length - 1; i >= 0; i--) {
+    const ts = _candleTsMs(daily[i]);
+    const dk = _nyDateKey(ts);
+    if (!dk) continue;
+    if (dk <= lastWeekEndDateKey) {
+      pick = { candle: daily[i], dateKey: dk };
+      break;
+    }
+  }
+  if (!pick) {
+    // All bars are inside this week — use the earliest one's close as a
+    // best-effort fallback (still wrong but bounded).
+    pick = { candle: daily[0], dateKey: _nyDateKey(_candleTsMs(daily[0])) };
+  }
+  return { anchor: Number(pick.candle?.c) || 0, anchorDateKey: pick.dateKey };
+}
+function computeSatyMultiDayLevels({ weeklyCandles, dailyCandles, currentPrice, dayAtr14Fallback }) {
+  const weekly = Array.isArray(weeklyCandles) ? weeklyCandles : [];
+  const daily = Array.isArray(dailyCandles) ? dailyCandles : [];
+  const curPx = Number(currentPrice) || 0;
+  if (curPx <= 0 || daily.length === 0) return null;
+
+  // 1) Anchor — prior weekly close.
+  let anchor = 0;
+  let anchorSource = null;
+  if (weekly.length >= 2) {
+    // Last fully-closed weekly bar = weekly[length - 2] (length - 1 may
+    // be the in-progress current week).
+    anchor = Number(weekly[weekly.length - 2]?.c) || 0;
+    anchorSource = "weekly_bar";
+  }
+  if (anchor <= 0) {
+    const fallback = _resolveWeeklyAnchorFromDaily(daily, _candleTsMs(daily[daily.length - 1]) || Date.now());
+    anchor = fallback.anchor;
+    anchorSource = "daily_walkback";
+  }
+  if (anchor <= 0) return null;
+
+  // 2) Weekly ATR(14).
+  let weekAtr = 0;
+  let atrSource = null;
+  if (weekly.length >= 5) {
+    weekAtr = _atrWilder(14, weekly);
+    atrSource = "weekly_atr14";
+  }
+  if (weekAtr <= 0) {
+    const dayAtr = Number(dayAtr14Fallback) > 0 ? Number(dayAtr14Fallback) : _atrWilder(14, daily);
+    weekAtr = dayAtr * Math.sqrt(5);
+    atrSource = "day_atr_sqrt5";
+  }
+  if (weekAtr <= 0) return null;
+
+  // 3) Saty fib ladder — both sides.
+  const SATY_FIBS = [0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.236, 1.618];
+  const labelOf = (f) => (f * 100).toFixed(1).replace(/\.0$/, "");
+  const levels = {};
+  for (const f of SATY_FIBS) {
+    levels[`+${labelOf(f)}%`] = anchor + weekAtr * f;
+    levels[`-${labelOf(f)}%`] = anchor - weekAtr * f;
+  }
+
+  // 4) Golden Gate state (Saty's ±0.382 trigger band).
+  const wUpGate = anchor + weekAtr * 0.382;
+  const wDnGate = anchor - weekAtr * 0.382;
+  let goldenGate = "NEUTRAL";
+  if (curPx > wUpGate) goldenGate = "OPEN_UP";
+  else if (curPx < wDnGate) goldenGate = "OPEN_DOWN";
+
+  const _r = (v) => Math.round(v * 100) / 100;
+  const goldenGateNote = goldenGate === "OPEN_UP"
+    ? `Week price ${_r(curPx)} above weekly +38.2% trigger at ${_r(wUpGate)}. Saty Multi-Day: +50% ${_r(anchor + weekAtr * 0.5)}, +61.8% ${_r(anchor + weekAtr * 0.618)}, +100% ${_r(anchor + weekAtr)}.`
+    : goldenGate === "OPEN_DOWN"
+    ? `Week price ${_r(curPx)} below weekly -38.2% trigger at ${_r(wDnGate)}. Saty Multi-Day: -50% ${_r(anchor - weekAtr * 0.5)}, -61.8% ${_r(anchor - weekAtr * 0.618)}, -100% ${_r(anchor - weekAtr)}.`
+    : `Week price ${_r(curPx)} inside the weekly Saty Golden Gate (±38.2% triggers ${_r(wDnGate)} – ${_r(wUpGate)}).`;
+
+  // 5) Week-close GG probability — same heuristic as before but operating
+  // on the corrected anchor/ATR.
+  const _atrUsedAbs = Math.abs(curPx - anchor);
+  const _atrUsed = weekAtr > 0 ? _atrUsedAbs / weekAtr : 0;
+  const dow = _nyDayOfWeek(Date.now());
+  // Trading days remaining INCLUDING today: Mon→5, Tue→4, Wed→3, Thu→2, Fri→1, Sat/Sun→1.
+  const _daysRemaining = dow == null ? 1 : Math.max(1, 6 - Math.max(1, Math.min(5, dow)));
+  const _weekTimeRemaining = _daysRemaining / 5;
+  const wggUpProb = (() => {
+    if (curPx <= wUpGate) return 0;
+    const target = anchor + weekAtr * 0.5;
+    if (curPx >= target) return 1;
+    const dist = (target - curPx) / weekAtr;
+    return Math.max(0, Math.min(1, 0.5 + (_weekTimeRemaining - dist) * 0.5));
+  })();
+  const wggDnProb = (() => {
+    if (curPx >= wDnGate) return 0;
+    const target = anchor - weekAtr * 0.5;
+    if (curPx <= target) return 1;
+    const dist = (curPx - target) / weekAtr;
+    return Math.max(0, Math.min(1, 0.5 + (_weekTimeRemaining - dist) * 0.5));
+  })();
+  const wProb = goldenGate === "OPEN_UP" ? wggUpProb : goldenGate === "OPEN_DOWN" ? wggDnProb : 0;
+
+  return {
+    anchor,
+    weekAtr,
+    dayAtrInWeekTerms: 0, // filled in by caller
+    currentPrice: curPx,
+    levels,
+    goldenGate,
+    goldenGateNote,
+    goldenGateProbability: {
+      week: Math.round(wProb * 100) / 100,
+      weekLabel: wProb >= 0.6 ? "HIGH" : wProb >= 0.3 ? "MODERATE" : "LOW",
+      weekAtrUsedPct: Math.round(_atrUsed * 100),
+      daysRemaining: _daysRemaining,
+    },
+    saty: {
+      mode: "multi_day",
+      anchorSource,
+      atrSource,
+      weeklyBarsAvailable: weekly.length,
+      fibLadder: SATY_FIBS,
+      lowerTrigger: wDnGate,
+      upperTrigger: wUpGate,
+    },
+  };
 }
 
 function pickCanonicalSessionClose(targetDate, dailyCandles, intradayCandles, ticker = "?") {
@@ -1842,98 +2062,52 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
     };
   }
 
-  // ── Multi-day (Weekly) ATR Levels — V15 P0.7.42 (2026-04-30) ─────────
+  // ── Multi-day (Weekly) ATR Levels — Saty ATR Levels · Multi-Day Mode ──
   //
-  // Per user request: "We should reference both the DAY ATR Levels and
-  // the MultiDay ATR Levels". The DAY ATR Levels are above (atrFibLevels);
-  // here we compute a parallel structure using a 5-day TR ATR anchored
-  // at the start-of-week price for swing/positional context.
+  // P0.7.135 (2026-05-12) — Rewritten to follow Saty Pirzadeh's "Saty
+  // ATR Levels" indicator (Multi-Day Trader Mode) instead of the previous
+  // ad-hoc 5-day-TR projection.
   //
-  // Use case: a trade may be in the middle of the day's range (NEUTRAL on
-  // day GG) but already broken above the week's +38.2% level — different
-  // narrative. Both views are surfaced for the brief.
+  // Saty Multi-Day Mode spec:
+  //   * ANCHOR  = previous weekly CLOSE (close of the most recently
+  //     completed weekly bar, i.e. last Friday's close).
+  //   * ATR     = ATR(14) computed on WEEKLY bars (Wilder's true range
+  //     averaged over 14 weekly bars).  When fewer than 5 weekly bars are
+  //     available the function falls back to dailyATR(14) · √5 — Saty's
+  //     own documented approximation when weekly data isn't loaded.
+  //   * LEVELS  = anchor ± ATR · {0.236, 0.382, 0.5, 0.618, 0.786, 1.0,
+  //     1.236, 1.618}.  ±0.382 is the "Lower Trigger" and ±0.618 is the
+  //     "Upper Trigger" — the band between them is Saty's Golden Gate.
+  //
+  // Why the rewrite (the previous code had three real bugs):
+  //   1. Anchor was `last5[0]?.o` — the OPEN of the candle 5 daily bars
+  //      back, NOT prior week's close. With even mildly stale daily data
+  //      the anchor drifted weeks behind price (SPY showing wkAnchor
+  //      $677 while price was $739, observed 2026-05-12).
+  //   2. ATR was an average of last-5-day TR — that's a *daily* ATR, not
+  //      a weekly ATR. Saty Multi-Day uses ATR of weekly bars.
+  //   3. Fib set was missing 0.786, 1.236, 1.618 — Saty's full Multi-Day
+  //      ladder includes those for swing targets and stretch extensions.
+  //
+  // V15 P0.7.62 fix retained: `rnd` is declared locally to avoid the
+  // earlier ReferenceError that crashed brief generation.
   let multiDayAtrLevels = null;
   if (recent.length >= 5 && anchor > 0) {
-    // V15 P0.7.62 (2026-05-05) — bug fix: `rnd` was declared inside the
-    // earlier `atrFibLevels` block (line ~1696) and is out of scope here.
-    // This block was crashing the entire daily brief generation with
-    // `ReferenceError: rnd is not defined`, blocking all morning/evening
-    // briefs since the V15 P0.7.42 multi-day-ATR block was added.
     const rnd = (v) => Math.round(v * 100) / 100;
-    // 5-day TR ATR (already approximates "week ATR" since recent has ~10 daily bars)
-    const last5 = recent.slice(-5);
-    let weekAtrSum = 0; let weekAtrCount = 0;
-    for (let i = 1; i < last5.length; i++) {
-      const h = Number(last5[i].h);
-      const l = Number(last5[i].l);
-      const pc = Number(last5[i - 1].c);
-      const tr = Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
-      if (tr > 0) { weekAtrSum += tr; weekAtrCount++; }
-    }
-    const weekAtr = weekAtrCount > 0 ? weekAtrSum / weekAtrCount : 0;
-    // Anchor the week from Monday's open (or earliest available)
-    const weekAnchor = Number(last5[0]?.o ?? last5[0]?.c) || anchor;
-    if (weekAtr > 0 && weekAnchor > 0) {
-      const fibsW = [0.236, 0.382, 0.500, 0.618, 1.0];
-      multiDayAtrLevels = {
-        anchor: rnd(weekAnchor),
-        weekAtr: rnd(weekAtr),
-        dayAtrInWeekTerms: rnd(atr14 * Math.sqrt(5)),  // approx weekly = day*sqrt(5)
-        currentPrice: Number(latestData?.price) || null,
-        levels: {},
-      };
-      for (const f of fibsW) {
-        const label = (f * 100).toFixed(1).replace(/\.0$/, "");
-        multiDayAtrLevels.levels[`+${label}%`] = rnd(weekAnchor + weekAtr * f);
-        multiDayAtrLevels.levels[`-${label}%`] = rnd(weekAnchor - weekAtr * f);
-      }
-      // Multi-day Golden Gate (weekly 38.2%)
-      const wUpGate = weekAnchor + weekAtr * 0.382;
-      const wDnGate = weekAnchor - weekAtr * 0.382;
-      const curPx = Number(latestData?.price) || 0;
-      if (curPx > 0) {
-        if (curPx > wUpGate) {
-          multiDayAtrLevels.goldenGate = "OPEN_UP";
-          multiDayAtrLevels.goldenGateNote = `Week price ${rnd(curPx)} above weekly +38.2% gate at ${rnd(wUpGate)}. Weekly target +50% at ${rnd(weekAnchor + weekAtr * 0.5)}, +61.8% at ${rnd(weekAnchor + weekAtr * 0.618)}.`;
-        } else if (curPx < wDnGate) {
-          multiDayAtrLevels.goldenGate = "OPEN_DOWN";
-          multiDayAtrLevels.goldenGateNote = `Week price ${rnd(curPx)} below weekly -38.2% gate at ${rnd(wDnGate)}. Weekly target -50% at ${rnd(weekAnchor - weekAtr * 0.5)}, -61.8% at ${rnd(weekAnchor - weekAtr * 0.618)}.`;
-        } else {
-          multiDayAtrLevels.goldenGate = "NEUTRAL";
-          multiDayAtrLevels.goldenGateNote = `Week price ${rnd(curPx)} between weekly 38.2% gates (${rnd(wDnGate)} - ${rnd(wUpGate)}).`;
-        }
-
-        // Week-close GG probability — uses days remaining in the week
-        // (Mon=5 days remaining, Fri=1 day) blended with weekly ATR usage.
-        const _wAtrUsedAbs = Math.abs(curPx - weekAnchor);
-        const _wAtrUsed = weekAtr > 0 ? _wAtrUsedAbs / weekAtr : 0;
-        const _now = new Date();
-        const _dow = _now.getUTCDay();  // 1-5 trading days
-        // Friday close = end of week. Days remaining (incl today)
-        const _daysRemaining = Math.max(1, 6 - Math.max(1, Math.min(5, _dow)));
-        const _weekTimeRemaining = _daysRemaining / 5;  // 0..1
-        const wggUpProb = (() => {
-          if (curPx <= wUpGate) return 0;
-          const target = weekAnchor + weekAtr * 0.5;
-          if (curPx >= target) return 1;
-          const dist = (target - curPx) / weekAtr;
-          return Math.max(0, Math.min(1, 0.5 + (_weekTimeRemaining - dist) * 0.5));
-        })();
-        const wggDnProb = (() => {
-          if (curPx >= wDnGate) return 0;
-          const target = weekAnchor - weekAtr * 0.5;
-          if (curPx <= target) return 1;
-          const dist = (curPx - target) / weekAtr;
-          return Math.max(0, Math.min(1, 0.5 + (_weekTimeRemaining - dist) * 0.5));
-        })();
-        const wProb = multiDayAtrLevels.goldenGate === "OPEN_UP" ? wggUpProb
-                    : multiDayAtrLevels.goldenGate === "OPEN_DOWN" ? wggDnProb : 0;
-        multiDayAtrLevels.goldenGateProbability = {
-          week: rnd(wProb * 100) / 100,
-          weekLabel: wProb >= 0.6 ? "HIGH" : wProb >= 0.3 ? "MODERATE" : "LOW",
-          weekAtrUsedPct: rnd(_wAtrUsed * 100),
-          daysRemaining: _daysRemaining,
-        };
+    multiDayAtrLevels = computeSatyMultiDayLevels({
+      weeklyCandles: Array.isArray(weeklyCandles) ? weeklyCandles : [],
+      dailyCandles,
+      currentPrice: Number(latestData?.price) || 0,
+      dayAtr14Fallback: atr14,
+    });
+    if (multiDayAtrLevels) {
+      // Round display fields (helper returns raw numbers so internal math
+      // stays precise; the wire format expects 2-dp values).
+      multiDayAtrLevels.anchor = rnd(multiDayAtrLevels.anchor);
+      multiDayAtrLevels.weekAtr = rnd(multiDayAtrLevels.weekAtr);
+      multiDayAtrLevels.dayAtrInWeekTerms = rnd(atr14 * Math.sqrt(5));
+      for (const k of Object.keys(multiDayAtrLevels.levels)) {
+        multiDayAtrLevels.levels[k] = rnd(multiDayAtrLevels.levels[k]);
       }
     }
   }
