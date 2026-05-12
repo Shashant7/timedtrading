@@ -1751,11 +1751,11 @@ function IntradayFlash({
   if (!entries || entries.length === 0) return null;
   const sorted = [...entries].sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
   const flashMarkers = useMemo(() => {
-    const FIVE_MIN = 5 * 60;
+    const FIFTEEN_MIN = 15 * 60;
     const chrono = [...sorted].sort((a, b) => (a.publishedAt || 0) - (b.publishedAt || 0));
     return chrono.filter(e => Number.isFinite(Number(e.publishedAt))).map((e, idx) => {
       const t = Math.floor(Number(e.publishedAt) / 1000);
-      const bucketed = Math.floor(t / FIVE_MIN) * FIVE_MIN;
+      const bucketed = Math.floor(t / FIFTEEN_MIN) * FIFTEEN_MIN;
       const label = (() => {
         try {
           return new Date(e.publishedAt).toLocaleTimeString("en-US", {
@@ -1777,12 +1777,39 @@ function IntradayFlash({
       };
     });
   }, [sorted]);
+  const TODAYS_TAPE_TICKERS = useMemo(() => [{
+    sym: "SPY",
+    label: "SPY",
+    sub: "broad market",
+    accentColor: "#a78bfa"
+  }, {
+    sym: "QQQ",
+    label: "QQQ",
+    sub: "tech",
+    accentColor: "#60a5fa"
+  }, {
+    sym: "IWM",
+    label: "IWM",
+    sub: "small caps",
+    accentColor: "#fbbf24"
+  }, {
+    sym: "VIXY",
+    label: "VIXY",
+    sub: "vol proxy",
+    accentColor: "#f87171"
+  }], []);
   return React.createElement("div", {
-    className: "mb-8"
+    className: "tt-card mb-8",
+    style: {
+      padding: "var(--ds-space-4, 18px)"
+    }
   }, React.createElement("div", {
-    className: "flex items-baseline gap-3 mb-4 cursor-pointer select-none",
+    className: "flex items-baseline gap-3 cursor-pointer select-none",
     onClick: () => setExpanded(v => !v),
-    title: expanded ? "Collapse intraday flashes" : "Expand intraday flashes"
+    title: expanded ? "Collapse intraday flashes" : "Expand intraday flashes",
+    style: {
+      marginBottom: expanded ? "var(--ds-space-3, 14px)" : 0
+    }
   }, React.createElement("span", {
     className: "tt-label-editorial"
   }, "Intraday Flash"), React.createElement("h2", {
@@ -1833,15 +1860,35 @@ function IntradayFlash({
     }
   }, "Today's Tape"), React.createElement("span", {
     className: "text-[11px] text-[#6b7280]"
-  }, "SPY \xB7 5m \xB7 violet dots mark each flash")), React.createElement(MiniChart, {
-    sym: "SPY",
-    label: "SPY",
-    accentColor: "#a78bfa",
-    tf: "5",
-    limit: 156,
-    height: 300,
+  }, "SPY \xB7 QQQ \xB7 IWM \xB7 VIXY \xB7 15m \xB7 violet dots mark each flash")), React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-2 gap-3"
+  }, TODAYS_TAPE_TICKERS.map(t => React.createElement("div", {
+    key: t.sym
+  }, React.createElement("div", {
+    className: "flex items-baseline gap-2 mb-1"
+  }, React.createElement("span", {
+    style: {
+      fontSize: 11,
+      fontWeight: 700,
+      color: t.accentColor,
+      letterSpacing: "0.04em"
+    }
+  }, t.label), React.createElement("span", {
+    style: {
+      fontSize: 9.5,
+      color: "#6b7280",
+      textTransform: "uppercase",
+      letterSpacing: "0.10em"
+    }
+  }, t.sub)), React.createElement(MiniChart, {
+    sym: t.sym,
+    label: t.label,
+    accentColor: t.accentColor,
+    tf: "15",
+    limit: 140,
+    height: 220,
     flashMarkers: flashMarkers
-  })), sorted.map((entry, i) => React.createElement("div", {
+  }))))), sorted.map((entry, i) => React.createElement("div", {
     key: entry.id || i,
     className: "mb-5 rounded-lg border overflow-hidden",
     style: {

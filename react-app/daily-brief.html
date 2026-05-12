@@ -1808,13 +1808,21 @@
       // P0.7.133 — Re-styled per user feedback: "make these briefs more
       // engaging and visual, accompanied by a chart or something."
       //
-      // Layout:
-      //  1. Section header (Intraday Flash · Live market pulse)
-      //  2. Single SPY 5m chart spanning today's tape, with markers at the
-      //     publish time of each flash. The chart is the visual anchor —
-      //     traders see WHERE on the tape each take was written, not just
-      //     a wall of timestamps.
-      //  3. Per-entry cards: time badge, pulse strip (VIX/breadth/indices),
+      // P0.7.135 (2026-05-12) updates:
+      //   * Wrapped the whole component in a tt-card so the collapsed
+      //     header no longer visually bleeds into the next section
+      //     (Morning Brief was reading as if it were nested inside the
+      //     Intraday Flash card).
+      //   * Replaced the single SPY 5m chart with a 4-up grid showing
+      //     SPY / QQQ / IWM / VIX at 15m. The 5m timeframe was rejected
+      //     by /timed/candles for non-admin callers (RESTRICTED_TFS), so
+      //     the previous chart was always empty for users; 15m is the
+      //     finest TF the public endpoint serves and is plenty granular
+      //     for a "today's tape" view. Showing the full index trio + VIX
+      //     gives the reader the same context the Morning Brief writes
+      //     against, so each flash lands on a real chart anchor rather
+      //     than a stale rectangle.
+      //   * Per-entry cards: time badge, pulse strip (VIX/breadth/indices),
       //     optional "Take" highlight, prose body. Card backgrounds give the
       //     section a richer rhythm than the previous repeating-paragraphs
       //     layout.
@@ -1825,10 +1833,10 @@
 
         // Build chart markers (one per flash) keyed off publishedAt. The
         // Lightweight-Charts marker `time` is a Unix-second timestamp; we
-        // align to the start of the 5-minute candle so markers anchor to a
-        // real bar instead of floating between bars.
+        // align to the start of the 15-minute candle so markers anchor to
+        // a real bar instead of floating between bars.
         const flashMarkers = useMemo(() => {
-          const FIVE_MIN = 5 * 60;
+          const FIFTEEN_MIN = 15 * 60;
           // Newest-first list above is good for rendering, but markers
           // should be chronological for the chart engine.
           const chrono = [...sorted].sort((a, b) => (a.publishedAt || 0) - (b.publishedAt || 0));
@@ -1836,7 +1844,7 @@
             .filter(e => Number.isFinite(Number(e.publishedAt)))
             .map((e, idx) => {
               const t = Math.floor(Number(e.publishedAt) / 1000);
-              const bucketed = Math.floor(t / FIVE_MIN) * FIVE_MIN;
+              const bucketed = Math.floor(t / FIFTEEN_MIN) * FIFTEEN_MIN;
               const label = (() => {
                 try {
                   return new Date(e.publishedAt).toLocaleTimeString("en-US", {
@@ -1854,12 +1862,28 @@
             });
         }, [sorted]);
 
+        // 4-up grid: SPY (broad), QQQ (tech), IWM (small caps), VIXY (vol).
+        // Each gets its own MiniChart at 15m with the same flash markers
+        // so the user can scan each tape against the publish times. VIXY
+        // is the tradeable VIX-futures ETF used as a vol proxy because the
+        // raw VIX index isn't persisted as candles in the price pipeline
+        // (it's a calculated index, not a tradeable instrument). VIXY
+        // tracks intraday vol direction faithfully enough for "is the
+        // tape risk-on or risk-off right now" reads.
+        const TODAYS_TAPE_TICKERS = useMemo(() => ([
+          { sym: "SPY",  label: "SPY",  sub: "broad market",  accentColor: "#a78bfa" },
+          { sym: "QQQ",  label: "QQQ",  sub: "tech",          accentColor: "#60a5fa" },
+          { sym: "IWM",  label: "IWM",  sub: "small caps",    accentColor: "#fbbf24" },
+          { sym: "VIXY", label: "VIXY", sub: "vol proxy",     accentColor: "#f87171" },
+        ]), []);
+
         return (
-          <div className="mb-8">
+          <div className="tt-card mb-8" style={{ padding: "var(--ds-space-4, 18px)" }}>
             <div
-              className="flex items-baseline gap-3 mb-4 cursor-pointer select-none"
+              className="flex items-baseline gap-3 cursor-pointer select-none"
               onClick={() => setExpanded(v => !v)}
               title={expanded ? "Collapse intraday flashes" : "Expand intraday flashes"}
+              style={{ marginBottom: expanded ? "var(--ds-space-3, 14px)" : 0 }}
             >
               <span className="tt-label-editorial">Intraday Flash</span>
               <h2 className="tt-editorial m-0" style={{ fontSize: 20, lineHeight: 1.15, color: "var(--tt-text-1)", letterSpacing: "-0.01em" }}>
@@ -1877,24 +1901,36 @@
 
             {expanded && (
               <>
-                {/* Day's tape — SPY 5m chart with flash publish-time markers.
-                    Acts as the visual anchor for the section so each prose
-                    entry lands against a concrete chart context, not in a
-                    vacuum. */}
+                {/* Today's tape — 4-up grid (SPY / QQQ / IWM / VIX) at 15m.
+                    Each chart shares the same flash publish-time markers,
+                    so the reader can scan all four tapes against the same
+                    timeline of intraday updates. 15m is the finest TF the
+                    public /timed/candles endpoint serves; finer (1/5/10m)
+                    is admin-gated and was returning empty for users. */}
                 <div className="mb-5">
                   <div className="flex items-baseline gap-2 mb-2">
                     <span className="tt-label-editorial" style={{ fontSize: 10, color: "#a78bfa" }}>Today's Tape</span>
-                    <span className="text-[11px] text-[#6b7280]">SPY · 5m · violet dots mark each flash</span>
+                    <span className="text-[11px] text-[#6b7280]">SPY · QQQ · IWM · VIXY · 15m · violet dots mark each flash</span>
                   </div>
-                  <MiniChart
-                    sym="SPY"
-                    label="SPY"
-                    accentColor="#a78bfa"
-                    tf="5"
-                    limit={156}
-                    height={300}
-                    flashMarkers={flashMarkers}
-                  />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {TODAYS_TAPE_TICKERS.map(t => (
+                      <div key={t.sym}>
+                        <div className="flex items-baseline gap-2 mb-1">
+                          <span style={{ fontSize: 11, fontWeight: 700, color: t.accentColor, letterSpacing: "0.04em" }}>{t.label}</span>
+                          <span style={{ fontSize: 9.5, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.10em" }}>{t.sub}</span>
+                        </div>
+                        <MiniChart
+                          sym={t.sym}
+                          label={t.label}
+                          accentColor={t.accentColor}
+                          tf="15"
+                          limit={140}
+                          height={220}
+                          flashMarkers={flashMarkers}
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 {sorted.map((entry, i) => (

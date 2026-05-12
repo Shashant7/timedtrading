@@ -1514,33 +1514,48 @@ function nyMinutesFromMs(ms) {
   return Number.isFinite(hour) && Number.isFinite(minute) ? hour * 60 + minute : null;
 }
 
-// ── Saty ATR Levels — Multi-Day Mode ────────────────────────────────────
+// ── Saty ATR Levels — shared helpers (Day Mode + Multi-Day Mode) ───────
 //
-// Implements Saty Pirzadeh's "Saty ATR Levels" indicator in Multi-Day
-// Trader Mode. Returns the wire shape consumed by daily-brief's
-// multiDayAtrLevels payload (anchor / weekAtr / levels / goldenGate /
-// goldenGateNote / goldenGateProbability / currentPrice).
+// Implements Saty Pirzadeh's "Saty ATR Levels" indicator. Two modes:
+//   * Day Mode      — anchor = prior daily close, ATR = ATR(14) on daily.
+//   * Multi-Day Mode — anchor = prior weekly close, ATR = ATR(14) on weekly.
 //
-// Anchor selection (Saty spec):
-//   * Multi-Day Mode anchors on the previous WEEKLY CLOSE — the close of
-//     the most recently *completed* weekly bar (last Friday's close, or
-//     the close of the last trading day before this Monday).
+// Saty terminology (P0.7.135 follow-up — corrects the original draft):
+//   * Trigger        = ±0.236 (Saty's smallest level — early break of range)
+//   * Golden Gate    = ±0.382 (when price crosses → "GG Open")
+//   * Mid            = ±0.500
+//   * GG Completion  = ±0.618 (when price touches → "GG Complete")
+//   * Stretch        = ±0.786
+//   * Range          = ±1.000 (full ATR projection)
+//   * Extension      = ±1.236
+//   * Far Extension  = ±1.618
+//
+// Golden Gate states (per Saty's published guidance, confirmed by user):
+//   * NEUTRAL     — price inside ±0.382 (no GG event yet)
+//   * OPEN_UP     — price has crossed above +0.382 (long GG opened)
+//   * OPEN_DOWN   — price has crossed below -0.382 (short GG opened)
+//   * COMPLETE_UP — price has touched +0.618 (long GG target hit)
+//   * COMPLETE_DN — price has touched -0.618 (short GG target hit)
+//
+// COMPLETE_* is a strict superset of OPEN_*: once the gate is complete the
+// state is COMPLETE_*, but downstream consumers that only care about the
+// open/close direction can read `goldenGateDirection` ("UP" / "DOWN" /
+// "NEUTRAL") for a 3-state simplification.
+//
+// Multi-Day Anchor selection:
 //   * Source priority: weekly bars when available; otherwise reconstruct
 //     from daily bars by walking backward until we cross a week boundary
 //     (Sunday → Saturday in NY time, matching CBOE/CME equity weeks).
 //
-// ATR calculation (Saty spec):
+// Multi-Day ATR calculation:
 //   * ATR(14) on weekly bars when ≥5 weekly bars are available
 //     (Saty's indicator uses RMA but a Wilder TR average over 14 weeks is
 //     within rounding for the public-facing levels).
 //   * Fallback: dailyATR(14) · √5 — Saty's documented approximation
 //     when weekly bars aren't loaded.
 //
-// Level ladder (Saty spec):
-//   anchor ± weekATR · {0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.236, 1.618}
-// Trigger zone (Golden Gate):
-//   ±0.382 = "Lower Trigger", ±0.618 = "Upper Trigger".  Price above
-//   +0.382 → OPEN_UP; below -0.382 → OPEN_DOWN; otherwise NEUTRAL.
+// Level ladder is identical in both modes:
+//   anchor ± ATR · {0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.236, 1.618}
 function _nyDateKey(ms) {
   const k = nyDateKeyFromMs(ms);
   return k || null;
@@ -1605,6 +1620,73 @@ function _resolveWeeklyAnchorFromDaily(dailyCandles, currentPriceTs) {
   }
   return { anchor: Number(pick.candle?.c) || 0, anchorDateKey: pick.dateKey };
 }
+// Saty's full fib ladder. Used by both Day Mode and Multi-Day Mode.
+const SATY_FIBS = [0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.236, 1.618];
+
+function _satyFibLabel(f) {
+  return (f * 100).toFixed(1).replace(/\.0$/, "");
+}
+
+function _buildSatyLadder(anchor, atr) {
+  const levels = {};
+  for (const f of SATY_FIBS) {
+    levels[`+${_satyFibLabel(f)}%`] = anchor + atr * f;
+    levels[`-${_satyFibLabel(f)}%`] = anchor - atr * f;
+  }
+  return levels;
+}
+
+// Resolve Saty Golden Gate state from anchor/ATR/price.
+// Returns { state, direction, gateOpen, gateComplete, ggLevels: { trigger, gate, mid, ggCompletion, range, ext, farExt } }
+function _satyGoldenGateState(anchor, atr, curPx) {
+  const ggUp = anchor + atr * 0.382;       // GG Open level (long)
+  const ggDn = anchor - atr * 0.382;       // GG Open level (short)
+  const ggCompUp = anchor + atr * 0.618;   // GG Completion level (long target)
+  const ggCompDn = anchor - atr * 0.618;   // GG Completion level (short target)
+  const triggerUp = anchor + atr * 0.236;  // Saty Trigger (smaller break)
+  const triggerDn = anchor - atr * 0.236;
+  const midUp = anchor + atr * 0.5;
+  const midDn = anchor - atr * 0.5;
+
+  let state = "NEUTRAL";
+  let direction = "NEUTRAL";
+  let gateOpen = false;
+  let gateComplete = false;
+
+  if (curPx >= ggCompUp) {
+    state = "COMPLETE_UP";
+    direction = "UP";
+    gateOpen = true;
+    gateComplete = true;
+  } else if (curPx > ggUp) {
+    state = "OPEN_UP";
+    direction = "UP";
+    gateOpen = true;
+  } else if (curPx <= ggCompDn) {
+    state = "COMPLETE_DN";
+    direction = "DOWN";
+    gateOpen = true;
+    gateComplete = true;
+  } else if (curPx < ggDn) {
+    state = "OPEN_DOWN";
+    direction = "DOWN";
+    gateOpen = true;
+  }
+
+  return {
+    state,
+    direction,
+    gateOpen,
+    gateComplete,
+    ggLevels: {
+      triggerUp, triggerDn,
+      gateUp: ggUp, gateDn: ggDn,
+      midUp, midDn,
+      completionUp: ggCompUp, completionDn: ggCompDn,
+    },
+  };
+}
+
 function computeSatyMultiDayLevels({ weeklyCandles, dailyCandles, currentPrice, dayAtr14Fallback }) {
   const weekly = Array.isArray(weeklyCandles) ? weeklyCandles : [];
   const daily = Array.isArray(dailyCandles) ? dailyCandles : [];
@@ -1641,31 +1723,24 @@ function computeSatyMultiDayLevels({ weeklyCandles, dailyCandles, currentPrice, 
   }
   if (weekAtr <= 0) return null;
 
-  // 3) Saty fib ladder — both sides.
-  const SATY_FIBS = [0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.236, 1.618];
-  const labelOf = (f) => (f * 100).toFixed(1).replace(/\.0$/, "");
-  const levels = {};
-  for (const f of SATY_FIBS) {
-    levels[`+${labelOf(f)}%`] = anchor + weekAtr * f;
-    levels[`-${labelOf(f)}%`] = anchor - weekAtr * f;
-  }
+  // 3) Saty fib ladder.
+  const levels = _buildSatyLadder(anchor, weekAtr);
 
-  // 4) Golden Gate state (Saty's ±0.382 trigger band).
-  const wUpGate = anchor + weekAtr * 0.382;
-  const wDnGate = anchor - weekAtr * 0.382;
-  let goldenGate = "NEUTRAL";
-  if (curPx > wUpGate) goldenGate = "OPEN_UP";
-  else if (curPx < wDnGate) goldenGate = "OPEN_DOWN";
+  // 4) Golden Gate state (Saty's ±0.382 = GG Open, ±0.618 = GG Completion).
+  const gg = _satyGoldenGateState(anchor, weekAtr, curPx);
 
   const _r = (v) => Math.round(v * 100) / 100;
-  const goldenGateNote = goldenGate === "OPEN_UP"
-    ? `Week price ${_r(curPx)} above weekly +38.2% trigger at ${_r(wUpGate)}. Saty Multi-Day: +50% ${_r(anchor + weekAtr * 0.5)}, +61.8% ${_r(anchor + weekAtr * 0.618)}, +100% ${_r(anchor + weekAtr)}.`
-    : goldenGate === "OPEN_DOWN"
-    ? `Week price ${_r(curPx)} below weekly -38.2% trigger at ${_r(wDnGate)}. Saty Multi-Day: -50% ${_r(anchor - weekAtr * 0.5)}, -61.8% ${_r(anchor - weekAtr * 0.618)}, -100% ${_r(anchor - weekAtr)}.`
-    : `Week price ${_r(curPx)} inside the weekly Saty Golden Gate (±38.2% triggers ${_r(wDnGate)} – ${_r(wUpGate)}).`;
+  const goldenGateNote = (() => {
+    if (gg.state === "COMPLETE_UP") return `Week price ${_r(curPx)} has touched the +61.8% GG completion at ${_r(gg.ggLevels.completionUp)} — Saty Multi-Day long Golden Gate is COMPLETE. Stretch +78.6% ${_r(anchor + weekAtr * 0.786)}, range +100% ${_r(anchor + weekAtr)}.`;
+    if (gg.state === "OPEN_UP") return `Week price ${_r(curPx)} above the +38.2% Golden Gate at ${_r(gg.ggLevels.gateUp)} — long GG OPEN. Completion target +61.8% ${_r(gg.ggLevels.completionUp)}, mid +50% ${_r(gg.ggLevels.midUp)}.`;
+    if (gg.state === "COMPLETE_DN") return `Week price ${_r(curPx)} has touched the -61.8% GG completion at ${_r(gg.ggLevels.completionDn)} — Saty Multi-Day short Golden Gate is COMPLETE. Stretch -78.6% ${_r(anchor - weekAtr * 0.786)}, range -100% ${_r(anchor - weekAtr)}.`;
+    if (gg.state === "OPEN_DOWN") return `Week price ${_r(curPx)} below the -38.2% Golden Gate at ${_r(gg.ggLevels.gateDn)} — short GG OPEN. Completion target -61.8% ${_r(gg.ggLevels.completionDn)}, mid -50% ${_r(gg.ggLevels.midDn)}.`;
+    return `Week price ${_r(curPx)} inside the weekly Golden Gate (±38.2% gates ${_r(gg.ggLevels.gateDn)} – ${_r(gg.ggLevels.gateUp)}). Saty Triggers ±23.6% at ${_r(gg.ggLevels.triggerDn)} – ${_r(gg.ggLevels.triggerUp)}.`;
+  })();
 
   // 5) Week-close GG probability — same heuristic as before but operating
-  // on the corrected anchor/ATR.
+  // on the corrected anchor/ATR. Probability of *completing* the gate
+  // (touching +/-61.8%) given current position and time remaining.
   const _atrUsedAbs = Math.abs(curPx - anchor);
   const _atrUsed = weekAtr > 0 ? _atrUsedAbs / weekAtr : 0;
   const dow = _nyDayOfWeek(Date.now());
@@ -1673,20 +1748,20 @@ function computeSatyMultiDayLevels({ weeklyCandles, dailyCandles, currentPrice, 
   const _daysRemaining = dow == null ? 1 : Math.max(1, 6 - Math.max(1, Math.min(5, dow)));
   const _weekTimeRemaining = _daysRemaining / 5;
   const wggUpProb = (() => {
-    if (curPx <= wUpGate) return 0;
-    const target = anchor + weekAtr * 0.5;
+    if (curPx <= gg.ggLevels.gateUp) return 0;
+    const target = gg.ggLevels.completionUp;
     if (curPx >= target) return 1;
     const dist = (target - curPx) / weekAtr;
     return Math.max(0, Math.min(1, 0.5 + (_weekTimeRemaining - dist) * 0.5));
   })();
   const wggDnProb = (() => {
-    if (curPx >= wDnGate) return 0;
-    const target = anchor - weekAtr * 0.5;
+    if (curPx >= gg.ggLevels.gateDn) return 0;
+    const target = gg.ggLevels.completionDn;
     if (curPx <= target) return 1;
     const dist = (curPx - target) / weekAtr;
     return Math.max(0, Math.min(1, 0.5 + (_weekTimeRemaining - dist) * 0.5));
   })();
-  const wProb = goldenGate === "OPEN_UP" ? wggUpProb : goldenGate === "OPEN_DOWN" ? wggDnProb : 0;
+  const wProb = gg.direction === "UP" ? wggUpProb : gg.direction === "DOWN" ? wggDnProb : 0;
 
   return {
     anchor,
@@ -1694,7 +1769,11 @@ function computeSatyMultiDayLevels({ weeklyCandles, dailyCandles, currentPrice, 
     dayAtrInWeekTerms: 0, // filled in by caller
     currentPrice: curPx,
     levels,
-    goldenGate,
+    goldenGate: gg.state,                  // legacy — kept for back-compat
+    goldenGateState: gg.state,             // canonical — NEUTRAL/OPEN_*/COMPLETE_*
+    goldenGateDirection: gg.direction,     // NEUTRAL/UP/DOWN (ignores complete)
+    goldenGateOpen: gg.gateOpen,           // bool
+    goldenGateComplete: gg.gateComplete,   // bool
     goldenGateNote,
     goldenGateProbability: {
       week: Math.round(wProb * 100) / 100,
@@ -1708,8 +1787,11 @@ function computeSatyMultiDayLevels({ weeklyCandles, dailyCandles, currentPrice, 
       atrSource,
       weeklyBarsAvailable: weekly.length,
       fibLadder: SATY_FIBS,
-      lowerTrigger: wDnGate,
-      upperTrigger: wUpGate,
+      // Per-Saty named levels:
+      trigger:    { up: gg.ggLevels.triggerUp,    dn: gg.ggLevels.triggerDn },     // ±23.6%
+      gate:       { up: gg.ggLevels.gateUp,       dn: gg.ggLevels.gateDn },        // ±38.2% (Golden Gate)
+      mid:        { up: gg.ggLevels.midUp,        dn: gg.ggLevels.midDn },         // ±50%
+      completion: { up: gg.ggLevels.completionUp, dn: gg.ggLevels.completionDn },  // ±61.8% (GG Completion)
     },
   };
 }
@@ -1947,37 +2029,50 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
     }
 
     const rnd = (v) => Math.round(v * 100) / 100;
-    // Match client-side fibs exactly (no 0.786)
-    const fibs = [0.236, 0.382, 0.500, 0.618, 1.0];
+    // P0.7.135 (2026-05-12) — Saty Day Mode.
+    // Day Mode anchors on prior daily close (Saty spec: prior session close)
+    // and uses the daily ATR(14) we already computed above. This block was
+    // already structurally correct on those two axes; the upgrade here is
+    // (a) full Saty fib ladder including 0.786 / 1.236 / 1.618, and
+    // (b) proper GG terminology (Trigger / GG Open / GG Completion) so the
+    // Day card matches the Multi-Day card's vocabulary.
+    const dayLevels = _buildSatyLadder(anchor, dayAtr);
+    const curPrice = Number(latestData?.price) || 0;
+    const dayGg = curPrice > 0 ? _satyGoldenGateState(anchor, dayAtr, curPrice) : null;
 
     atrFibLevels = {
       anchor: rnd(anchor),
       dayAtr: rnd(dayAtr),
       m5Atr: rnd(m5Atr),
-      currentPrice: Number(latestData?.price) || null,
+      currentPrice: curPrice || null,
       levels: {},
     };
+    for (const k of Object.keys(dayLevels)) atrFibLevels.levels[k] = rnd(dayLevels[k]);
 
-    for (const f of fibs) {
-      const label = (f * 100).toFixed(1).replace(/\.0$/, "");
-      atrFibLevels.levels[`+${label}%`] = rnd(anchor + dayAtr * f);
-      atrFibLevels.levels[`-${label}%`] = rnd(anchor - dayAtr * f);
-    }
-
-    const curPrice = Number(latestData?.price) || 0;
-    const upGate = anchor + dayAtr * 0.382;
-    const dnGate = anchor - dayAtr * 0.382;
-    if (curPrice > 0) {
-      if (curPrice > upGate) {
-        atrFibLevels.goldenGate = "OPEN_UP";
-        atrFibLevels.goldenGateNote = `Price ${rnd(curPrice)} has crossed +38.2% at ${rnd(upGate)}. Target +50% at ${rnd(anchor + dayAtr * 0.5)} and +61.8% at ${rnd(anchor + dayAtr * 0.618)}.`;
-      } else if (curPrice < dnGate) {
-        atrFibLevels.goldenGate = "OPEN_DOWN";
-        atrFibLevels.goldenGateNote = `Price ${rnd(curPrice)} has crossed -38.2% at ${rnd(dnGate)}. Target -50% at ${rnd(anchor - dayAtr * 0.5)} and -61.8% at ${rnd(anchor - dayAtr * 0.618)}.`;
-      } else {
-        atrFibLevels.goldenGate = "NEUTRAL";
-        atrFibLevels.goldenGateNote = `Price ${rnd(curPrice)} is between the 38.2% gates (${rnd(dnGate)} - ${rnd(upGate)}). Watch for a breakout.`;
-      }
+    if (dayGg) {
+      const _l = dayGg.ggLevels;
+      atrFibLevels.goldenGate = dayGg.state;                  // legacy — back-compat
+      atrFibLevels.goldenGateState = dayGg.state;             // NEUTRAL/OPEN_*/COMPLETE_*
+      atrFibLevels.goldenGateDirection = dayGg.direction;     // NEUTRAL/UP/DOWN
+      atrFibLevels.goldenGateOpen = dayGg.gateOpen;
+      atrFibLevels.goldenGateComplete = dayGg.gateComplete;
+      atrFibLevels.goldenGateNote = (() => {
+        if (dayGg.state === "COMPLETE_UP") return `Price ${rnd(curPrice)} has touched the +61.8% GG completion at ${rnd(_l.completionUp)} — Saty Day long Golden Gate is COMPLETE. Stretch +78.6% ${rnd(anchor + dayAtr * 0.786)}, range +100% ${rnd(anchor + dayAtr)}.`;
+        if (dayGg.state === "OPEN_UP") return `Price ${rnd(curPrice)} above the +38.2% Golden Gate at ${rnd(_l.gateUp)} — long GG OPEN. Completion target +61.8% ${rnd(_l.completionUp)}, mid +50% ${rnd(_l.midUp)}.`;
+        if (dayGg.state === "COMPLETE_DN") return `Price ${rnd(curPrice)} has touched the -61.8% GG completion at ${rnd(_l.completionDn)} — Saty Day short Golden Gate is COMPLETE. Stretch -78.6% ${rnd(anchor - dayAtr * 0.786)}, range -100% ${rnd(anchor - dayAtr)}.`;
+        if (dayGg.state === "OPEN_DOWN") return `Price ${rnd(curPrice)} below the -38.2% Golden Gate at ${rnd(_l.gateDn)} — short GG OPEN. Completion target -61.8% ${rnd(_l.completionDn)}, mid -50% ${rnd(_l.midDn)}.`;
+        return `Price ${rnd(curPrice)} inside the daily Golden Gate (±38.2% gates ${rnd(_l.gateDn)} – ${rnd(_l.gateUp)}). Saty Triggers ±23.6% at ${rnd(_l.triggerDn)} – ${rnd(_l.triggerUp)}.`;
+      })();
+      atrFibLevels.saty = {
+        mode: "day",
+        anchorSource: latestData?.prev_close ? "prev_close_field" : "candle_fallback",
+        atrSource: "day_atr14",
+        fibLadder: SATY_FIBS,
+        trigger:    { up: rnd(_l.triggerUp),    dn: rnd(_l.triggerDn) },     // ±23.6%
+        gate:       { up: rnd(_l.gateUp),       dn: rnd(_l.gateDn) },        // ±38.2% (Golden Gate)
+        mid:        { up: rnd(_l.midUp),        dn: rnd(_l.midDn) },         // ±50%
+        completion: { up: rnd(_l.completionUp), dn: rnd(_l.completionDn) },  // ±61.8% (GG Completion)
+      };
     }
 
     // V15 P0.7.42 (2026-04-30) — Golden Gate close probability
