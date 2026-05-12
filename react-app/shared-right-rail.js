@@ -1812,16 +1812,22 @@
         const [autopsyModalLoading, setAutopsyModalLoading] = useState(false);
         const [autopsyModalProfile, setAutopsyModalProfile] = useState(null);
 
-        // Auto-open autopsy modal when parent passes a closed trade via openAutopsyForTrade
-        useEffect(() => {
-          if (!openAutopsyForTrade) return;
-          const t = openAutopsyForTrade;
+        // Reusable opener for the in-rail trade-autopsy modal. Used by:
+        //  (1) the prop-driven auto-open path below (parent-trigger),
+        //  (2) the History tab's row click (in-tab trigger), AND
+        //  (3) any per-trade "Trade Autopsy" buttons elsewhere in the rail.
+        // The modal itself is the same TradeReviewModal-style component
+        // rendered in the simulation-dashboard's Trade History; this
+        // callback hydrates it with full trade-autopsy + ticker-profile
+        // context so all three call sites get the rich view.
+        const _openAutopsy = useCallback((t) => {
+          if (!t) return;
           setAutopsyModal(t);
           setAutopsyModalLoading(true);
           setAutopsyModalData(null);
           setAutopsyModalProfile(null);
           const _tid = t.trade_id || t.id || "";
-          const _tk = String(t.ticker || "").toUpperCase();
+          const _tk = String(t.ticker || tickerSymbol || "").toUpperCase();
           fetch(`${API_BASE}/timed/admin/trade-autopsy/trades?key=${encodeURIComponent(window._ttApiKey || "")}`)
             .then(r => r.json())
             .then(d => {
@@ -1833,7 +1839,13 @@
             .catch(() => { setAutopsyModalData(t); setAutopsyModalLoading(false); });
           if (_tk) fetch(`${API_BASE}/timed/profile/${encodeURIComponent(_tk)}`, { cache: "no-store" })
             .then(r => { if (!r.ok) return null; return r.json(); }).then(d => { if (d?.ok) setAutopsyModalProfile(d.profile || d); }).catch(() => {});
-        }, [openAutopsyForTrade]);
+        }, [tickerSymbol]);
+
+        // Auto-open autopsy modal when parent passes a closed trade via openAutopsyForTrade
+        useEffect(() => {
+          if (!openAutopsyForTrade) return;
+          _openAutopsy(openAutopsyForTrade);
+        }, [openAutopsyForTrade, _openAutopsy]);
 
         // Price source: always use the ticker prop (same object the Card renders)
         // for price/change display. latestTicker is only for context/scoring data.
@@ -5075,7 +5087,8 @@
                               const dt = new Date(Number(t.entry_ts || t.exit_ts || 0));
                               return (
                                 <div key={`tr-${i}`}
-                                  onClick={() => openAutopsyForTrade && openAutopsyForTrade(t)}
+                                  onClick={() => _openAutopsy(t)}
+                                  title="Click to open Trade Autopsy"
                                   style={{
                                     display: "flex",
                                     alignItems: "center",
@@ -5083,9 +5096,12 @@
                                     padding: "8px 10px",
                                     background: "var(--ds-bg-glass)",
                                     borderRadius: "var(--ds-radius-xs)",
-                                    cursor: openAutopsyForTrade ? "pointer" : "default",
+                                    cursor: "pointer",
                                     fontSize: "var(--ds-fs-meta)",
+                                    transition: "background 120ms ease",
                                   }}
+                                  onMouseEnter={(e) => { e.currentTarget.style.background = "var(--ds-bg-elevated)"; }}
+                                  onMouseLeave={(e) => { e.currentTarget.style.background = "var(--ds-bg-glass)"; }}
                                 >
                                   <div style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-2)" }}>
                                     <span className={`ds-chip ds-chip--sm ${isWin ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>{t.direction || "?"}</span>
@@ -8881,26 +8897,7 @@
                                   {/* Footer: Trade Autopsy */}
                                   <div className="px-3 pb-2.5 pt-1 border-t border-white/[0.05] flex items-center justify-between">
                                     <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setAutopsyModal(t);
-                                        setAutopsyModalLoading(true);
-                                        setAutopsyModalData(null);
-                                        setAutopsyModalProfile(null);
-                                        const _tid = t.trade_id || t.id || "";
-                                        const _tk = String(t.ticker || "").toUpperCase();
-                                        fetch(`${API_BASE}/timed/admin/trade-autopsy/trades?key=${encodeURIComponent(window._ttApiKey || "")}`)
-                                          .then(r => r.json())
-                                          .then(d => {
-                                            const allTrades = Array.isArray(d?.trades) ? d.trades : [];
-                                            const match = _tid ? allTrades.find(tr => String(tr.trade_id || "") === String(_tid)) : null;
-                                            setAutopsyModalData(match || d?.trade || t);
-                                            setAutopsyModalLoading(false);
-                                          })
-                                          .catch(() => { setAutopsyModalData(t); setAutopsyModalLoading(false); });
-                                        if (_tk) fetch(`${API_BASE}/timed/profile/${encodeURIComponent(_tk)}`, { cache: "no-store" })
-                                          .then(r => { if (!r.ok) return null; return r.json(); }).then(d => { if (d?.ok) setAutopsyModalProfile(d.profile || d); }).catch(() => {});
-                                      }}
+                                      onClick={(e) => { e.stopPropagation(); _openAutopsy(t); }}
                                       className="text-[10px] px-2.5 py-1 rounded-md bg-[#1a2332] border border-[#60a5fa]/20 text-[#93b8f7] hover:text-white hover:bg-[#60a5fa]/15 hover:border-[#60a5fa]/40 transition-all inline-flex items-center gap-1"
                                     >
                                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
