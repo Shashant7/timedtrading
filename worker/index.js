@@ -1017,6 +1017,8 @@ const ROUTES = [
   ["POST", "/timed/tradovate-stream/auth-debug", "POST /timed/tradovate-stream/auth-debug"],
   ["GET", "/timed/tradovate-stream/contract-suggest", "GET /timed/tradovate-stream/contract-suggest"],
   ["GET", "/timed/tradovate-stream/md-subscriptions", "GET /timed/tradovate-stream/md-subscriptions"],
+  ["GET", "/timed/futures-proxy/health", "GET /timed/futures-proxy/health"],
+  ["GET", "/timed/futures-proxy/registry", "GET /timed/futures-proxy/registry"],
   ["GET", "/timed/auth", "GET /timed/auth"],
   ["POST", "/timed/purge", "POST /timed/purge"],
   ["POST", "/timed/rebuild-index", "POST /timed/rebuild-index"],
@@ -2353,7 +2355,11 @@ async function etfAutoAddTickers(env, tickers, weightMap, ctx) {
 const MARKET_PULSE_SYMS = [
   "SPX","US500","ES1!","NQ1!","RTY1!","YM1!","VX1!",
   "CL1!","GC1!","SI1!","HG1!","NG1!",
-  "GLD","SLV","USO","VIXY","DIA",
+  // P0.7.133 — proxy ETFs for the futures above. SPY/QQQ/DIA/IWM track
+  // ES/NQ/YM/RTY 1:1 directionally; UNG/CPER added for NG/HG so the
+  // futures-proxy fallback (worker/futures-proxy.js) has data when TV
+  // alerts pause. GLD/SLV/USO/DIA were already here.
+  "GLD","SLV","USO","UNG","CPER","VIXY","DIA",
   "BTCUSD","ETHUSD",
 ];
 
@@ -36222,6 +36228,12 @@ const SECTOR_MAP = {
   SLV: "Commodity ETF",
   USO: "Commodity ETF",
   VIXY: "Commodity ETF",
+  // P0.7.133 — UNG (NG1! proxy) + CPER (HG1! proxy). Required so the
+  // futures-proxy fallback (worker/futures-proxy.js) has TD-served
+  // backup data when TradingView alerts pause for natural-gas /
+  // copper futures.
+  UNG: "Commodity ETF",
+  CPER: "Commodity ETF",
   // ── Index ETFs (broad-market, tradeable as of Phase-E) ──
   // Each is its OWN risk vehicle — SPY ≠ QQQ ≠ IWM ≠ DIA from a
   // concentration standpoint. They are NOT the same "sector" as the
@@ -46384,6 +46396,25 @@ export default {
         const { tradovateAuthDebug } = await import("./tradovate.js");
         const result = await tradovateAuthDebug(env);
         return sendJSON(result, result.ok ? 200 : 400, corsHeaders(env, req));
+      }
+      // ── Futures-proxy admin endpoints (P0.7.133) ──
+      if (routeKey === "GET /timed/futures-proxy/registry") {
+        // Public: just the documented mapping. No KV reads, no auth needed.
+        const { FUTURES_PROXY_MAP } = await import("./futures-proxy.js");
+        return sendJSON({
+          ok: true,
+          map: FUTURES_PROXY_MAP,
+          count: Object.keys(FUTURES_PROXY_MAP).length,
+          note: "TwelveData ETF proxies for TV-fed futures. Used as a SAFETY NET if TV alerts pause; this endpoint does not mutate any heartbeat KV.",
+        }, 200, corsHeaders(env, req));
+      }
+      if (routeKey === "GET /timed/futures-proxy/health") {
+        // Per-ticker freshness — TV vs TD proxy side-by-side. Admin only.
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const { getFuturesProxyHealth } = await import("./futures-proxy.js");
+        const result = await getFuturesProxyHealth(env);
+        return sendJSON(result, 200, corsHeaders(env, req));
       }
       if (routeKey === "GET /timed/tradovate-stream/md-subscriptions") {
         // P0.7.132 diag — list the user's actual market-data subscriptions.
