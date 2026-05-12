@@ -3213,7 +3213,7 @@
             const fullName = ticker?.context?.name || ticker?.companyName || latestTicker?.context?.name || null;
             const mktCap = Number(ticker?.market_cap ?? ticker?.marketCap ?? latestTicker?.market_cap);
             const sector = (typeof getTickerSector === "function" ? getTickerSector(tickerSymbol) : null) || ticker?.sector || ticker?.context?.sector || ticker?._sector || null;
-            const personality = ticker?._ticker_profile?.behavior_type || ticker?.execution_profile?.personality || ticker?.ticker_personality || null;
+            const personality = ticker?._ticker_profile?.learning?.personality || ticker?._ticker_profile?.behavior_type || ticker?.execution_profile?.personality || ticker?.ticker_personality || null;
             const fmtMcap = n => {
               if (!Number.isFinite(n) || n <= 0) return null;
               if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
