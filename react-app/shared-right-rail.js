@@ -3174,6 +3174,65 @@
                         </Panel>
                       )}
 
+                      {/* Behavior — V2.2 (2026-05-12) — surface the engine's
+                          per-ticker personality + dominant archetype + sample
+                          size right at the top of Snapshot, so a reader can
+                          frame the rest of the rail (Conviction, Setup, Levels)
+                          against "this ticker's typical behavior." Sourced from
+                          the freshly-rebuilt ticker_profiles.learning_json. */}
+                      {(() => {
+                        const tp = ticker?._ticker_profile;
+                        const learn = tp?.learning;
+                        if (!learn) return null;
+                        const personality = learn.personality || tp?.behavior_type || null;
+                        if (!personality) return null;
+                        const labelArch = (a) => {
+                          if (!a) return null;
+                          const map = {
+                            trend_continuation_runner: "Trend Runner",
+                            pullback_reclaim: "Pullback Reclaim",
+                            fast_impulse_fragile: "Fast Impulse",
+                            exhaustion_reversal: "Exhaustion Reversal",
+                            liquidity_sweep_reclaim: "Sweep Reclaim",
+                            orb_expansion: "Opening Range Break",
+                          };
+                          return map[String(a)] || String(a).replace(/_/g, " ");
+                        };
+                        const personalityCopy = (p) => {
+                          switch (String(p)) {
+                            case "VOLATILE_RUNNER": return "Big swings, fast moves. Best for breakouts; risky to chase late.";
+                            case "PULLBACK_PLAYER": return "Trends with regular pullbacks. Best entries are dips, not chases.";
+                            case "SLOW_GRINDER":    return "Methodical mover. Targets land in time but stops need patience.";
+                            case "TREND_FOLLOWER":  return "Strong directional persistence. Hold winners through pullbacks.";
+                            case "MODERATE":        return "Balanced behavior — neither breakout-heavy nor mean-reverting.";
+                            case "MOMENTUM":        return "Trends in one direction once it moves. Trade with the trend.";
+                            case "MEAN_REVERT":     return "Bounces between levels. Better for buying dips, selling rips.";
+                            default: return null;
+                          }
+                        };
+                        const longArch = learn.archetypes?.long?.dominant || learn.entry_params?.long_dominant_archetype || null;
+                        const shortArch = learn.archetypes?.short?.dominant || learn.entry_params?.short_dominant_archetype || null;
+                        const totalMoves = Number(learn.total_moves);
+                        const upMoves = Number(learn.up_moves);
+                        const dnMoves = Number(learn.dn_moves);
+                        const copy = personalityCopy(personality);
+                        return (
+                          <Panel title="Behavior" action={Number.isFinite(totalMoves) && totalMoves > 0
+                            ? <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }} title="Number of distinct moves the engine has labelled for this ticker">{totalMoves} moves{Number.isFinite(upMoves) && Number.isFinite(dnMoves) ? ` · ${upMoves}↑/${dnMoves}↓` : ""}</span>
+                            : null
+                          }>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)", marginBottom: copy ? "var(--ds-space-2)" : 0 }}>
+                              <span className="ds-chip ds-chip--sm ds-chip--accent" title="Engine-learned personality classification (from per-ticker move history)">{String(personality).replace(/_/g, " ")}</span>
+                              {longArch && <span className="ds-chip ds-chip--sm ds-chip--up" title="Dominant move archetype on UP moves">L: {labelArch(longArch)}</span>}
+                              {shortArch && <span className="ds-chip ds-chip--sm ds-chip--dn" title="Dominant move archetype on DOWN moves">S: {labelArch(shortArch)}</span>}
+                            </div>
+                            {copy && (
+                              <p style={{ margin: 0, fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", lineHeight: 1.5 }}>{copy}</p>
+                            )}
+                          </Panel>
+                        );
+                      })()}
+
                       {/* Model Guidance — moved to top of snapshot.
                           Header surfaces R{rank} so it reconciles with the
                           Conviction panel below (single source of truth). */}
@@ -3781,16 +3840,57 @@
                         );
                       })()}
 
-                      {/* Profile */}
-                      {ticker?._ticker_profile && (
-                        <Panel title="Profile">
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
-                            {ticker._ticker_profile.behavior_type && <span className="ds-chip ds-chip--sm ds-chip--solid">{String(ticker._ticker_profile.behavior_type).replace(/_/g, " ")}</span>}
-                            {ticker._ticker_profile.atr_pct_p50 != null && <span className="ds-chip ds-chip--sm">ATR p50: {Number(ticker._ticker_profile.atr_pct_p50).toFixed(2)}%</span>}
-                            {ticker._ticker_profile.trend_persistence != null && <span className="ds-chip ds-chip--sm">Persistence: {Number(ticker._ticker_profile.trend_persistence).toFixed(2)}</span>}
-                          </div>
-                        </Panel>
-                      )}
+                      {/* Profile — V2.2 (2026-05-12) — extended to include the
+                          freshly-rebuilt learning_json fields (personality, dominant
+                          archetypes, typical pullback, ATR-multiple SL/TP guidance)
+                          alongside the column-based behavior/persistence chips.
+                          Only renders when at least one field is present. */}
+                      {ticker?._ticker_profile && (() => {
+                        const tp = ticker._ticker_profile;
+                        const learn = tp.learning || null;
+                        const labelArchetype = (a) => {
+                          if (!a) return null;
+                          const map = {
+                            trend_continuation_runner: "Trend Runner",
+                            pullback_reclaim: "Pullback Reclaim",
+                            fast_impulse_fragile: "Fast Impulse",
+                            exhaustion_reversal: "Exhaustion Reversal",
+                            liquidity_sweep_reclaim: "Sweep Reclaim",
+                            orb_expansion: "Opening Range Break",
+                          };
+                          return map[String(a)] || String(a).replace(/_/g, " ");
+                        };
+                        const personalityLearn = learn?.personality || null;
+                        const longArch = learn?.archetypes?.long?.dominant || learn?.entry_params?.long_dominant_archetype || null;
+                        const shortArch = learn?.archetypes?.short?.dominant || learn?.entry_params?.short_dominant_archetype || null;
+                        const pullback = Number(learn?.entry_params?.typical_pullback_pct);
+                        const slAtr = Number(learn?.entry_params?.sl_atr_mult);
+                        const tpAtr = Number(learn?.entry_params?.tp_atr_mult);
+                        const totalMoves = Number(learn?.total_moves);
+                        const upMoves = Number(learn?.up_moves);
+                        const dnMoves = Number(learn?.dn_moves);
+                        const hasAnything = !!(tp.behavior_type || tp.atr_pct_p50 != null || tp.trend_persistence != null
+                          || personalityLearn || longArch || shortArch || Number.isFinite(pullback) || Number.isFinite(slAtr) || Number.isFinite(tpAtr));
+                        if (!hasAnything) return null;
+                        return (
+                          <Panel title="Profile" action={Number.isFinite(totalMoves) && totalMoves > 0
+                            ? <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }}>{totalMoves} moves{Number.isFinite(upMoves) && Number.isFinite(dnMoves) ? ` · ${upMoves}↑/${dnMoves}↓` : ""}</span>
+                            : null
+                          }>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
+                              {personalityLearn && <span className="ds-chip ds-chip--sm ds-chip--accent" title="Engine-learned personality classification (from per-ticker move history)">{String(personalityLearn).replace(/_/g, " ")}</span>}
+                              {tp.behavior_type && tp.behavior_type !== personalityLearn && <span className="ds-chip ds-chip--sm ds-chip--solid" title="Legacy behavior classification (column-based)">{String(tp.behavior_type).replace(/_/g, " ")}</span>}
+                              {longArch && <span className="ds-chip ds-chip--sm ds-chip--up" title="Dominant move archetype on UP moves">L: {labelArchetype(longArch)}</span>}
+                              {shortArch && <span className="ds-chip ds-chip--sm ds-chip--dn" title="Dominant move archetype on DOWN moves">S: {labelArchetype(shortArch)}</span>}
+                              {tp.atr_pct_p50 != null && <span className="ds-chip ds-chip--sm" title="Median daily ATR as % of price">ATR p50: {Number(tp.atr_pct_p50).toFixed(2)}%</span>}
+                              {tp.trend_persistence != null && <span className="ds-chip ds-chip--sm" title="0–1 score; higher = trends persist longer">Persistence: {Number(tp.trend_persistence).toFixed(2)}</span>}
+                              {Number.isFinite(pullback) && pullback > 0 && <span className="ds-chip ds-chip--sm" title="Typical pullback inside an established move">Pullback: {pullback.toFixed(1)}%</span>}
+                              {Number.isFinite(slAtr) && slAtr > 0 && <span className="ds-chip ds-chip--sm" title="Suggested SL distance in ATRs (from this ticker's history)">SL: {slAtr.toFixed(1)}× ATR</span>}
+                              {Number.isFinite(tpAtr) && tpAtr > 0 && <span className="ds-chip ds-chip--sm" title="Suggested TP distance in ATRs (from this ticker's history)">TP: {tpAtr.toFixed(1)}× ATR</span>}
+                            </div>
+                          </Panel>
+                        );
+                      })()}
 
                       {/* Sector & Market context */}
                       {(modelSignal?.sector || modelSignal?.market) && (
@@ -3863,6 +3963,151 @@
                               <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)" }}>{pcDir}</span>
                             </div>
                             <p style={{ margin: 0, fontSize: "var(--ds-fs-caption)", color: meta.color, lineHeight: 1.5 }}>{meta.txt}</p>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Behavior Profile — V2.2 (2026-05-12) — port of the
+                          legacy V1 "Three-Tier Awareness" card, now rebound to
+                          ticker_profiles.learning_json so the rich engine-learned
+                          fields (personality, RSI sweet spot, EMA precision,
+                          archetype recommendations) are surfaced in the V2 layout.
+                          Renders only when learning_json is present (327/327 tickers
+                          after the 2026-05-12 regen). */}
+                      {(() => {
+                        const tp = ticker?._ticker_profile;
+                        const learn = tp?.learning;
+                        if (!learn) return null;
+                        const personality = learn.personality || tp?.behavior_type || null;
+                        if (!personality) return null;
+
+                        // Mapping helpers
+                        const labelArch = (a) => {
+                          if (!a) return null;
+                          const map = {
+                            trend_continuation_runner: "Trend Runner",
+                            pullback_reclaim: "Pullback Reclaim",
+                            fast_impulse_fragile: "Fast Impulse",
+                            exhaustion_reversal: "Exhaustion Reversal",
+                            liquidity_sweep_reclaim: "Sweep Reclaim",
+                            orb_expansion: "Opening Range Break",
+                          };
+                          return map[String(a)] || String(a).replace(/_/g, " ");
+                        };
+                        const personalityMeta = (p) => {
+                          switch (String(p)) {
+                            case "VOLATILE_RUNNER": return { color: "#fcd34d", bg: "rgba(252,211,77,0.06)", border: "rgba(252,211,77,0.30)", copy: "Big swings, fast moves. Best for breakouts; risky to chase late." };
+                            case "PULLBACK_PLAYER": return { color: "#60a5fa", bg: "rgba(96,165,250,0.06)", border: "rgba(96,165,250,0.30)", copy: "Trends with regular pullbacks. Best entries are dips, not chases." };
+                            case "SLOW_GRINDER":    return { color: "#a78bfa", bg: "rgba(167,139,250,0.06)", border: "rgba(167,139,250,0.30)", copy: "Methodical mover. Targets land in time but stops need patience." };
+                            case "TREND_FOLLOWER":  return { color: "#34d399", bg: "rgba(52,211,153,0.06)", border: "rgba(52,211,153,0.30)", copy: "Strong directional persistence. Hold winners through pullbacks." };
+                            case "MODERATE":        return { color: "var(--ds-text-body)", bg: "rgba(148,163,184,0.06)", border: "rgba(148,163,184,0.30)", copy: "Balanced behavior — neither breakout-heavy nor mean-reverting." };
+                            case "MOMENTUM":        return { color: "#60a5fa", bg: "rgba(96,165,250,0.06)", border: "rgba(96,165,250,0.30)", copy: "Trends in one direction once it moves. Trade with the trend." };
+                            case "MEAN_REVERT":     return { color: "#a78bfa", bg: "rgba(167,139,250,0.06)", border: "rgba(167,139,250,0.30)", copy: "Bounces between levels. Better for buying dips, selling rips." };
+                            default: return { color: "var(--ds-text-body)", bg: "rgba(148,163,184,0.06)", border: "rgba(148,163,184,0.30)", copy: null };
+                          }
+                        };
+                        const meta = personalityMeta(personality);
+
+                        // Numeric fields with sensible fallbacks across legacy column + learning_json
+                        const dailyRangePct = Number(tp?.atr_pct_p50);
+                        const trendP = Number(tp?.trend_persistence);
+                        const ichResp = Number(tp?.ichimoku_responsiveness);
+                        const slMult = Number(tp?.sl_mult);
+                        const tpMult = Number(tp?.tp_mult);
+                        const slAtr = Number(learn.entry_params?.sl_atr_mult);
+                        const tpAtr = Number(learn.entry_params?.tp_atr_mult);
+                        const pullback = Number(learn.entry_params?.typical_pullback_pct);
+                        const longArch = learn.archetypes?.long?.dominant || learn.entry_params?.long_dominant_archetype || null;
+                        const shortArch = learn.archetypes?.short?.dominant || learn.entry_params?.short_dominant_archetype || null;
+                        const longRsiZone = learn.long_profile?.rsi_at_origin?.best_zone || null;
+                        const shortRsiZone = learn.short_profile?.rsi_at_origin?.best_zone || null;
+                        const longEmaPct = Number(learn.long_profile?.ema_precision?.aligned_pct);
+                        const shortEmaPct = Number(learn.short_profile?.ema_precision?.aligned_pct);
+                        const totalMoves = Number(learn.total_moves);
+
+                        const trendLabel = (v) => v >= 0.6 ? "Sticky" : v <= 0.35 ? "Choppy" : "Average";
+                        const respLabel = (v) => v >= 0.6 ? "Reliable" : v <= 0.35 ? "Erratic" : "Moderate";
+                        const slWidthLabel = Number.isFinite(slAtr) && slAtr > 0
+                          ? `${slAtr.toFixed(1)}× ATR`
+                          : (Number.isFinite(slMult) ? (slMult > 1.05 ? "Wider" : slMult < 0.95 ? "Tighter" : "Standard") : null);
+                        const tpWidthLabel = Number.isFinite(tpAtr) && tpAtr > 0
+                          ? `${tpAtr.toFixed(1)}× ATR`
+                          : (Number.isFinite(tpMult) ? (tpMult > 1.05 ? "Extended" : tpMult < 0.95 ? "Closer" : "Standard") : null);
+
+                        return (
+                          <div className="ds-glass" style={{
+                            marginBottom: "var(--ds-space-3)",
+                            background: meta.bg,
+                            border: `1px solid ${meta.border}`,
+                            padding: "var(--ds-space-3)",
+                          }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                <span style={{
+                                  fontSize: 10,
+                                  fontFamily: "var(--tt-font-mono)",
+                                  fontWeight: 700,
+                                  letterSpacing: "0.12em",
+                                  color: meta.color,
+                                  textTransform: "uppercase",
+                                }} title="Engine-learned personality classification">{String(personality).replace(/_/g, " ")}</span>
+                                <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", color: "var(--ds-text-faint)", letterSpacing: "0.10em" }}>BEHAVIOR PROFILE</span>
+                              </div>
+                              {Number.isFinite(totalMoves) && totalMoves > 0 && (
+                                <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", color: "var(--ds-text-faint)" }} title="Distinct moves used to learn this profile">n={totalMoves}</span>
+                              )}
+                            </div>
+                            {meta.copy && (
+                              <p style={{ margin: "0 0 var(--ds-space-2) 0", fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", lineHeight: 1.5 }}>{meta.copy}</p>
+                            )}
+                            {(longArch || shortArch) && (
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)", marginBottom: "var(--ds-space-2)" }}>
+                                {longArch && <span className="ds-chip ds-chip--sm ds-chip--up" title="Dominant move archetype on UP moves">L: {labelArch(longArch)}</span>}
+                                {shortArch && <span className="ds-chip ds-chip--sm ds-chip--dn" title="Dominant move archetype on DOWN moves">S: {labelArch(shortArch)}</span>}
+                              </div>
+                            )}
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--ds-space-2)", marginBottom: "var(--ds-space-2)" }}>
+                              <div style={{ padding: "6px 8px", borderRadius: "var(--ds-radius-xs)", background: "rgba(255,255,255,0.03)", textAlign: "center" }} title="Median daily ATR as % of price">
+                                <div style={{ fontSize: 9, color: "var(--ds-text-faint)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Daily Range</div>
+                                <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "var(--tt-font-mono)", color: "var(--ds-text-display)" }}>{Number.isFinite(dailyRangePct) && dailyRangePct > 0 ? `${dailyRangePct.toFixed(2)}%` : "—"}</div>
+                              </div>
+                              <div style={{ padding: "6px 8px", borderRadius: "var(--ds-radius-xs)", background: "rgba(255,255,255,0.03)", textAlign: "center" }} title="0–1 score; higher = trends persist longer">
+                                <div style={{ fontSize: 9, color: "var(--ds-text-faint)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Trend Follow</div>
+                                <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "var(--tt-font-mono)", color: Number.isFinite(trendP) ? (trendP >= 0.6 ? "var(--ds-up)" : trendP <= 0.35 ? "var(--ds-dn)" : "var(--ds-text-display)") : "var(--ds-text-faint)" }}>{Number.isFinite(trendP) ? `${(trendP * 100).toFixed(0)}%` : "—"}</div>
+                                {Number.isFinite(trendP) && (
+                                  <div style={{ fontSize: 8, color: "var(--ds-text-faint)", marginTop: 2 }}>{trendLabel(trendP)}</div>
+                                )}
+                              </div>
+                              <div style={{ padding: "6px 8px", borderRadius: "var(--ds-radius-xs)", background: "rgba(255,255,255,0.03)", textAlign: "center" }} title="Ichimoku responsiveness: how reliably the stock respects indicator signals">
+                                <div style={{ fontSize: 9, color: "var(--ds-text-faint)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Predictability</div>
+                                <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "var(--tt-font-mono)", color: Number.isFinite(ichResp) ? (ichResp >= 0.6 ? "var(--ds-up)" : ichResp <= 0.35 ? "var(--ds-dn)" : "var(--ds-text-display)") : "var(--ds-text-faint)" }}>{Number.isFinite(ichResp) ? `${(ichResp * 100).toFixed(0)}%` : "—"}</div>
+                                {Number.isFinite(ichResp) && (
+                                  <div style={{ fontSize: 8, color: "var(--ds-text-faint)", marginTop: 2 }}>{respLabel(ichResp)}</div>
+                                )}
+                              </div>
+                            </div>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--ds-space-2)" }}>
+                              <div style={{ padding: "6px 8px", borderRadius: "var(--ds-radius-xs)", background: "rgba(255,255,255,0.03)", textAlign: "center" }} title="Stop-loss distance the engine recommends for this ticker">
+                                <div style={{ fontSize: 9, color: "var(--ds-text-faint)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Stop Width</div>
+                                <div style={{ fontSize: 12, fontWeight: 700, fontFamily: "var(--tt-font-mono)", color: "var(--ds-text-display)" }}>{slWidthLabel || "—"}</div>
+                              </div>
+                              <div style={{ padding: "6px 8px", borderRadius: "var(--ds-radius-xs)", background: "rgba(255,255,255,0.03)", textAlign: "center" }} title="Take-profit distance the engine recommends for this ticker">
+                                <div style={{ fontSize: 9, color: "var(--ds-text-faint)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Target</div>
+                                <div style={{ fontSize: 12, fontWeight: 700, fontFamily: "var(--tt-font-mono)", color: "var(--ds-text-display)" }}>{tpWidthLabel || "—"}</div>
+                              </div>
+                              <div style={{ padding: "6px 8px", borderRadius: "var(--ds-radius-xs)", background: "rgba(255,255,255,0.03)", textAlign: "center" }} title="Typical pullback inside an established move (re-entry hint)">
+                                <div style={{ fontSize: 9, color: "var(--ds-text-faint)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Pullback</div>
+                                <div style={{ fontSize: 12, fontWeight: 700, fontFamily: "var(--tt-font-mono)", color: "var(--ds-text-display)" }}>{Number.isFinite(pullback) && pullback > 0 ? `${pullback.toFixed(1)}%` : "—"}</div>
+                              </div>
+                            </div>
+                            {(longRsiZone || shortRsiZone || Number.isFinite(longEmaPct) || Number.isFinite(shortEmaPct)) && (
+                              <div style={{ marginTop: "var(--ds-space-2)", paddingTop: "var(--ds-space-2)", borderTop: "1px solid rgba(255,255,255,0.06)", display: "flex", flexWrap: "wrap", gap: "var(--ds-space-2)", fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)" }}>
+                                {longRsiZone && <span title="RSI band that produced the strongest UP moves historically">L RSI: <span style={{ color: "var(--ds-up)" }}>{String(longRsiZone)}</span></span>}
+                                {shortRsiZone && <span title="RSI band that produced the strongest DOWN moves historically">S RSI: <span style={{ color: "var(--ds-dn)" }}>{String(shortRsiZone)}</span></span>}
+                                {Number.isFinite(longEmaPct) && <span title="% of UP moves that started with EMA structure aligned to the move">L EMA aligned: <span style={{ color: "var(--ds-text-display)" }}>{longEmaPct.toFixed(0)}%</span></span>}
+                                {Number.isFinite(shortEmaPct) && <span title="% of DOWN moves that started with EMA structure aligned to the move">S EMA aligned: <span style={{ color: "var(--ds-text-display)" }}>{shortEmaPct.toFixed(0)}%</span></span>}
+                              </div>
+                            )}
                           </div>
                         );
                       })()}
