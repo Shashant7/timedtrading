@@ -2334,15 +2334,14 @@
       const [autopsyModalData, setAutopsyModalData] = useState(null);
       const [autopsyModalLoading, setAutopsyModalLoading] = useState(false);
       const [autopsyModalProfile, setAutopsyModalProfile] = useState(null);
-      useEffect(() => {
-        if (!openAutopsyForTrade) return;
-        const t = openAutopsyForTrade;
+      const _openAutopsy = useCallback(t => {
+        if (!t) return;
         setAutopsyModal(t);
         setAutopsyModalLoading(true);
         setAutopsyModalData(null);
         setAutopsyModalProfile(null);
         const _tid = t.trade_id || t.id || "";
-        const _tk = String(t.ticker || "").toUpperCase();
+        const _tk = String(t.ticker || tickerSymbol || "").toUpperCase();
         fetch(`${API_BASE}/timed/admin/trade-autopsy/trades?key=${encodeURIComponent(window._ttApiKey || "")}`).then(r => r.json()).then(d => {
           const allTrades = Array.isArray(d?.trades) ? d.trades : [];
           const match = _tid ? allTrades.find(tr => String(tr.trade_id || "") === String(_tid)) : null;
@@ -2360,7 +2359,11 @@
         }).then(d => {
           if (d?.ok) setAutopsyModalProfile(d.profile || d);
         }).catch(() => {});
-      }, [openAutopsyForTrade]);
+      }, [tickerSymbol]);
+      useEffect(() => {
+        if (!openAutopsyForTrade) return;
+        _openAutopsy(openAutopsyForTrade);
+      }, [openAutopsyForTrade, _openAutopsy]);
       const priceSrc = ticker || {};
       useEffect(() => {
         setCrosshair(null);
@@ -6596,7 +6599,8 @@
           const dt = new Date(Number(t.entry_ts || t.exit_ts || 0));
           return React.createElement("div", {
             key: `tr-${i}`,
-            onClick: () => openAutopsyForTrade && openAutopsyForTrade(t),
+            onClick: () => _openAutopsy(t),
+            title: "Click to open Trade Autopsy",
             style: {
               display: "flex",
               alignItems: "center",
@@ -6604,8 +6608,15 @@
               padding: "8px 10px",
               background: "var(--ds-bg-glass)",
               borderRadius: "var(--ds-radius-xs)",
-              cursor: openAutopsyForTrade ? "pointer" : "default",
-              fontSize: "var(--ds-fs-meta)"
+              cursor: "pointer",
+              fontSize: "var(--ds-fs-meta)",
+              transition: "background 120ms ease"
+            },
+            onMouseEnter: e => {
+              e.currentTarget.style.background = "var(--ds-bg-elevated)";
+            },
+            onMouseLeave: e => {
+              e.currentTarget.style.background = "var(--ds-bg-glass)";
             }
           }, React.createElement("div", {
             style: {
@@ -10370,29 +10381,7 @@
         }, React.createElement("button", {
           onClick: e => {
             e.stopPropagation();
-            setAutopsyModal(t);
-            setAutopsyModalLoading(true);
-            setAutopsyModalData(null);
-            setAutopsyModalProfile(null);
-            const _tid = t.trade_id || t.id || "";
-            const _tk = String(t.ticker || "").toUpperCase();
-            fetch(`${API_BASE}/timed/admin/trade-autopsy/trades?key=${encodeURIComponent(window._ttApiKey || "")}`).then(r => r.json()).then(d => {
-              const allTrades = Array.isArray(d?.trades) ? d.trades : [];
-              const match = _tid ? allTrades.find(tr => String(tr.trade_id || "") === String(_tid)) : null;
-              setAutopsyModalData(match || d?.trade || t);
-              setAutopsyModalLoading(false);
-            }).catch(() => {
-              setAutopsyModalData(t);
-              setAutopsyModalLoading(false);
-            });
-            if (_tk) fetch(`${API_BASE}/timed/profile/${encodeURIComponent(_tk)}`, {
-              cache: "no-store"
-            }).then(r => {
-              if (!r.ok) return null;
-              return r.json();
-            }).then(d => {
-              if (d?.ok) setAutopsyModalProfile(d.profile || d);
-            }).catch(() => {});
+            _openAutopsy(t);
           },
           className: "text-[10px] px-2.5 py-1 rounded-md bg-[#1a2332] border border-[#60a5fa]/20 text-[#93b8f7] hover:text-white hover:bg-[#60a5fa]/15 hover:border-[#60a5fa]/40 transition-all inline-flex items-center gap-1"
         }, React.createElement("svg", {

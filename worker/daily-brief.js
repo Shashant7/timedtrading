@@ -1521,6 +1521,7 @@ function nyMinutesFromMs(ms) {
 //   * Multi-Day Mode — anchor = prior weekly close, ATR = ATR(14) on weekly.
 //
 // Saty terminology (P0.7.135 follow-up — corrects the original draft):
+//   * Pivot          = Level 0 (the anchor itself — prior period close)
 //   * Trigger        = ±0.236 (Saty's smallest level — early break of range)
 //   * Golden Gate    = ±0.382 (when price crosses → "GG Open")
 //   * Mid            = ±0.500
@@ -1629,6 +1630,13 @@ function _satyFibLabel(f) {
 
 function _buildSatyLadder(anchor, atr) {
   const levels = {};
+  // Level 0 — the Pivot (Saty's anchor). For Day Mode this is the prior
+  // daily close; for Multi-Day Mode it's the prior weekly close. Exposing
+  // it as an explicit "0%" key lets any consumer that iterates
+  // Object.entries(levels) render it alongside the +/- ladder; the
+  // saty.pivot field on the wire payload carries the same value for
+  // consumers that want it by name.
+  levels["0%"] = anchor;
   for (const f of SATY_FIBS) {
     levels[`+${_satyFibLabel(f)}%`] = anchor + atr * f;
     levels[`-${_satyFibLabel(f)}%`] = anchor - atr * f;
@@ -1788,6 +1796,7 @@ function computeSatyMultiDayLevels({ weeklyCandles, dailyCandles, currentPrice, 
       weeklyBarsAvailable: weekly.length,
       fibLadder: SATY_FIBS,
       // Per-Saty named levels:
+      pivot:      anchor,                                                          // Level 0 (anchor)
       trigger:    { up: gg.ggLevels.triggerUp,    dn: gg.ggLevels.triggerDn },     // ±23.6%
       gate:       { up: gg.ggLevels.gateUp,       dn: gg.ggLevels.gateDn },        // ±38.2% (Golden Gate)
       mid:        { up: gg.ggLevels.midUp,        dn: gg.ggLevels.midDn },         // ±50%
@@ -2068,6 +2077,7 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
         anchorSource: latestData?.prev_close ? "prev_close_field" : "candle_fallback",
         atrSource: "day_atr14",
         fibLadder: SATY_FIBS,
+        pivot:      rnd(anchor),                                             // Level 0 (prior daily close)
         trigger:    { up: rnd(_l.triggerUp),    dn: rnd(_l.triggerDn) },     // ±23.6%
         gate:       { up: rnd(_l.gateUp),       dn: rnd(_l.gateDn) },        // ±38.2% (Golden Gate)
         mid:        { up: rnd(_l.midUp),        dn: rnd(_l.midDn) },         // ±50%
