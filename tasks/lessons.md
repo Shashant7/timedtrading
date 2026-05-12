@@ -5,6 +5,68 @@
 
 ---
 
+## Live-system hardening session [2026-05-11 / 12]
+
+Big reliability + cost session. Five PRs landed (#114, #116 still open at time of write); user concerns surfaced sequentially: SNDK price stale, D1 cost spike, fragile TV webhooks, missing telemetry. All addressed without regressions. Lessons from the work (so future sessions don't relitigate the same decisions):
+
+### D1 cost engineering
+
+- **D1 charges per ROW READ, not per query — unbounded scans dominate.** A single `SELECT … FROM ticker_candles WHERE tf='D'` with no per-ticker filter scans the entire daily partition (~22k rows in this universe) on every cron tick. Multiplied by `*/5` cron = ~6.5M reads/day from ONE query. Always filter by indexed columns (`ticker`, `tf`, `ts` range) and add per-ticker `WHERE x IN (?,?,...)` placeholders for analytics queries. [P0.7.130]
+- **Wrangler "ghost cron" pattern**: declaring 4 cron triggers in `wrangler.toml` while the dispatcher only branches on 3 of them silently runs the FULL non-matching tail on every invocation of the unmatched cron. The half-hour `30 * * * *` had no `_isHalfHour` flag and fell through ALL early-returns, doubling scoring D1 reads at minute :30. Rule: every declared cron MUST have an explicit dispatcher guard with an `if (cron === X) { ... return; }` block, OR add a final `if (!_isExpectedCron) return;` before any tail logic. [P0.7.130]
+- **Silent SQL errors waste D1 reads via failed attempts**: `SELECT … FROM execution_actions WHERE type = 'ENTRY' AND day = ?` referenced two non-existent columns (`type` should be `action_type`, `day` doesn't exist — only `ts` numeric). The query threw inside `try/catch` and the daily-limit guard silently never fired AND every failed attempt counted toward the read budget. Audit: grep for `try { … env.DB.prepare(…) … } catch { /* non-critical */ }` in critical paths and verify the inner SQL actually matches the schema. [P0.7.130]
+- **Cache results that don't change frequently in KV with a long TTL.** Sparkline data (daily closes) doesn't change intra-day, yet was being re-scanned every 5 min on the scoring cron. KV-caching with a 30-min TTL eliminated ~95% of those reads. Pattern: `cached = await KV.get('cache:X', {type:'json'}); if (fresh) return cached; …compute…; await KV.put('cache:X', JSON.stringify(result));`. [P0.7.130]
+- **Don't pull entire datasets when callers paginate AFTER the merge**: `/timed/ledger/trades` was pulling ALL `promoted_trades` rows on every Trades-page poll, even though the caller would only show the first 50 after merging with live trades. ~1M reads/day saved by adding `LIMIT min(2000, max(200, limit*2))` so the merge has headroom but never goes unbounded. [P0.7.130]
+
+### Cloudflare Wrangler / DO behavior
+
+- **Variables vs Secrets in Cloudflare Dashboard**: "Variable (plain text)" entries get WIPED on every `wrangler deploy` because `wrangler.toml`'s `[vars]` block is treated as the source of truth. "Secret (encrypted)" entries are preserved. Always add API credentials via `wrangler secret put` OR explicitly select "Secret" type in the dashboard dropdown. The user added Tradovate credentials as Variables; subsequent deploys nuked them and cost an hour of debugging. [P0.7.132]
+- **Durable Objects can't see CF env vars in the constructor's first synchronous tick**, BUT they can use `state.blockConcurrencyWhile(async () => { … })` to run async init that completes before the first request. Useful for lifecycle logging (record the "instantiated" event) so you can answer "how often does CF cycle this DO?" without external monitoring. [P0.7.130, P0.7.131]
+- **DOs self-heal via `state.storage.setAlarm()` only WHILE `isRunning=true`.** When CF evicts an idle DO, the alarm chain breaks. If no in-flight request comes in, the DO stays stopped indefinitely. For "always running" DOs (like the WS price stream), you need an external keep-alive — a per-1m cron tick that calls `/start` (idempotent — no-op when already running). Costs ~1,440 DO RPCs/day = trivial. [P0.7.131, P0.7.132]
+- **`/timed/all` snapshot fast-path serves from a 24h-TTL KV cache off-hours.** An overlay layer applies live `timed:prices` ON TOP of the snapshot for fresh prices, but a daily-candle overlay was clobbering `obj.price` and `obj.prev_close` from `ticker_candles` AFTER the live overlay ran. When `ticker_candles` got poisoned by a backtest replay, that poisoned data leaked into `/timed/all` for hours. Rule: any post-overlay code that touches `obj.price` MUST check `obj._live_price` and skip if it's set; same for `prev_close` / `_live_prev_close`. Cap any non-live daily-candle adoption to ±15% deviation as a guard against future poisoning. [P0.7.122]
+
+### TradingView vs broker WebSockets
+
+- **TradingView webhook alerts are fragile by design**: they pause silently on indicator failure, network blips, or TV alert quota throttling. Acceptable for context data (Daily Brief, Bubble Map overlay), NOT acceptable for execution-grade signals. Always document a fallback path. [P0.7.132, P0.7.133]
+- **Tradovate splits API hosts by service**: `live.tradovateapi.com` (user/orders, live), `demo.tradovateapi.com` (sim), `md.tradovateapi.com` (market data, UNIFIED — no live/demo split). The market-data WebSocket is `wss://md.tradovateapi.com/v1/websocket`, NOT `wss://md-live.tradovateapi.com/v1/websocket` (which exists and accepts auth but doesn't expose `md/subscribequote`). Returns `404 Not found: md/subscribequote` on the wrong host — easy to misdiagnose as a verb-name issue. [P0.7.132]
+- **Tradovate's market-data API requires a SEPARATE "Second Market Data Subscription"** ($290+/mo for CME Non-Display licensing) on top of the trader-platform subscription. `hasMarketData: true` in the auth response is a generic flag — actually subscribing to quotes via WS returns `errorText: "Symbol is inaccessible", errorCode: "UnknownSymbol", mode: "None"` if the second sub isn't attached. Trader-app data ≠ API data on Tradovate. [P0.7.132]
+- **Execution-only Tradovate use does NOT need the data subscription.** Order placement (`/order/placeorder`), position queries, fill webhooks (via the user-WS at `wss://live.tradovateapi.com/v1/websocket`) — all free with just the funded API account. If we ever port a futures-trading strategy, the auth + symbol scaffolding from #114 is reusable as-is. [P0.7.132]
+- **Document fallback proxies for any externally-fed data, even when not auto-substituted.** Built `worker/futures-proxy.js` with a 12-symbol map (ES1!→SPY, NQ1!→QQQ, GC1!→GLD, etc.) — does NOT auto-substitute (would pollute data + confuse downstream logic), but exposes `getFuturesProxyPrice(env, futuresSym)` and `/timed/futures-proxy/health` so consumers can opt in and operators can answer "what would happen if TV failed RIGHT NOW?" at any time. [P0.7.133]
+
+### Frontend hygiene
+
+- **Native `title=` attribute is the simplest hover-tooltip mechanism** — works on any device, no JS, no React state, no perf cost. For 2px tick markers on a price progress bar, wrap them in a 12px invisible hit-area `<div>` with `cursor: help` so the hover surface is large enough to land. [P0.7.129]
+- **JSX `<></>` fragment is the right pattern for mobile-only reordering**, combined with Tailwind `order-N` / `lg:order-N` utilities. Lets you control mobile flex-col stacking order independent of desktop flex-row position, with zero state changes (CSS-only reordering preserves component instances — no remount). [P0.7.124]
+- **React error #310 (conditional `useCallback`) crashes the entire app**: never wrap `useCallback` in a conditional IIFE like `{cond && (() => { const fn = useCallback(…) })()}`. Hooks must be called in the same order on every render. Memoize at module scope or wrap the conditional component itself instead. [P0.7.120]
+- **`/timed/ledger/trades` rate-limit math**: with auto-paginating UI loaders (up to 20 pages per refetch), per-IP limits below 3000/hr will burn through within 30 min of normal browsing. Always sanity-check rate-limit ceilings against the WORST-case caller pattern, not the average. Frontend should also retry once on 429 with backoff and KEEP partial results instead of wiping `items=[]`. [P0.7.126]
+
+### Documentation patterns
+
+- **Every code path that depends on external billing should declare its cost in the docstring.** When `worker/tradovate-stream.js` was set up, the file had no warning that the WS path required a $290/mo subscription — the user only discovered it when trying to enable it. Pattern: add a "STATUS" block at the top with `✅ working`, `🔒 dormant — blocked on $X external cost`, `⏳ planned`, etc. Saves the next reader from rediscovering the wall. [P0.7.132 docstring]
+- **For dormant scaffolding, document "How to extend" in the same file** so future-you doesn't re-derive the integration plan. The `worker/tradovate.js` docstring lists the 8 specific REST endpoints needed for execution helpers, with their Tradovate paths and expected helper names. Halves the cost of picking the work back up months later.
+
+### Email / DMARC operational
+
+- **Two DMARC TXT records = no DMARC.** Per RFC 7489, receivers MUST treat multiple `v=DMARC1` records as if no record exists. Always `dig +short TXT _dmarc.<domain>` and confirm exactly ONE record before considering DMARC active. [P0.7 security review]
+- **DMARC ramp must be staged**: `p=none` → `p=quarantine; pct=25` → `p=quarantine` → `p=reject`, with at least a week between steps. Going straight to `p=reject` can drop legitimate mail if SPF or DKIM has a misconfig you didn't know about. [P0.7 security review]
+- **SPF must include EVERY sender** including incidental ones: Cloudflare Email Routing, SendGrid, etc. We had `include:_spf.mx.cloudflare.net` but not `include:sendgrid.net` — DKIM saved us, but adding both was a 30-second fix that hardened the whole flow. [P0.7 security review]
+
+### Security posture (Cloudflare)
+
+- **CF Access "overprovisioned" = paid SaaS public dashboard**. Cloudflare's automated security scanner flags any application with `Include: Everyone` as overprovisioned. For a paid SaaS where the dashboard MUST be reachable by any signed-in user (with the actual paywall as a downstream Stripe check), `Include: Everyone` IS correct. Document as "accepted risk" with the 4-layer defense in depth (CF Access for identity, Stripe for paywall, worker auth middleware, backend page gate). The Critical will keep firing — that's expected. [P0.7 security review]
+- **Add backend defense-in-depth even when CF Access is correctly configured.** The Pages worker (`react-app/_worker.js`) checks `/timed/me` for admin role on a list of admin-only HTML paths. Even if the CF Access policy is wide-open by mistake, non-admins see a 403 page instead of the admin tool's HTML. Costs one round trip per admin page load (only fires for those 8 paths), adds a meaningful safety net. [P0.7 security review]
+
+### Code freeze checklist (for next time we want to assess "is the live system working?")
+
+1. **Worker version pinned**: `wrangler deploy` returns the version ID; record it in CONTEXT.md so any regression bisect has a known-good anchor.
+2. **D1 dashboard freshly checked**: row-read curve should be flat / declining vs the prior week. Red flag = a single query type dominating.
+3. **DO lifecycle logs**: `/timed/price-stream/status?key=…` and `/timed/tradovate-stream/status?key=…` should show `lifecycle.last24h.{instantiations,starts,stops}` matched (each instantiation paired with a start within 60s).
+4. **CF Security Insights**: re-scan and confirm no NEW critical/high findings appeared. The known accepted-risk Critical (User Pages overprovisioned) is documented and expected to persist.
+5. **Daily Brief**: at least one morning + evening brief generated since the last deploy, with the new SPY/QQQ/IWM prediction format.
+6. **Trade ledger**: `/timed/ledger/trades?limit=10` returns the most recent trades with the cleaned setup names (no "TT Tt" prefix).
+7. **No unmerged stale PRs**: open PRs older than 14 days should either be closed or rebased.
+
+---
+
 ## Forensic-driven model tuning (new 2026-04-30)
 
 - **`setup_snapshot` field schema must be inspected before writing cohort filters**: During the post-canon autopsy the first pass returned several EMPTY cohorts (TD9 bullish, supportive RSI, PDZ stack) because I assumed the field names. Reality: TD uses `td9_bull` not `td9_bullish`, PDZ uses `h4` not `4h`, and divergence sub-fields like `adverse_rsi` are *objects* (with `count` / `strongest`) or `null`, not booleans. The cohort SQL/Python is brittle to schema drift; always sample one trade's `setup_snapshot` first and document the actual field names before running counts. Saved one round-trip on this work; would have lost a half-day if it had landed in a paper. [2026-04-30]

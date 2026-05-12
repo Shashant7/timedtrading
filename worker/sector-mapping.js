@@ -259,6 +259,11 @@ const SECTOR_MAP = {
   'SLV': 'Commodity ETF',
   'USO': 'Commodity ETF',
   'VIXY': 'Commodity ETF',
+  // P0.7.133 — added so the price-feed cron polls UNG (NG1! proxy) and
+  // CPER (HG1! proxy). Required for the futures-proxy fallback registry
+  // in worker/futures-proxy.js to have data when TV alerts pause.
+  'UNG':  'Commodity ETF',
+  'CPER': 'Commodity ETF',
 
 };
 
