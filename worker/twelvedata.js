@@ -26,15 +26,23 @@ const TD_TO_CRYPTO = Object.fromEntries(
   Object.entries(CRYPTO_TO_TD).map(([k, v]) => [v, k]),
 );
 
-// Symbol normalization: BRK-B → BRK.B (some APIs need dot-separated class)
-const SYM_NORMALIZE = { "BRK-B": "BRK.B" };
+// Symbol normalization: internal symbol → TwelveData symbol.
+// P0.7.132 — VX1! (TV-style VIX futures) maps to "VIX" (the underlying index
+// TD serves natively). Inverse map lets us write back to KV under VX1!.
+const SYM_NORMALIZE = {
+  "BRK-B": "BRK.B",
+  "VX1!":  "VIX",
+};
 const SYM_REVERSE = Object.fromEntries(
   Object.entries(SYM_NORMALIZE).map(([k, v]) => [v, k]),
 );
 
-// Non-equity tickers that TwelveData cannot serve
+// Non-equity tickers that TwelveData cannot serve.
+// P0.7.132 — VX1! REMOVED from skip list. TD serves the VIX index ("VIX")
+// natively, and we now route VX1! through the standard TD price-feed path
+// (mapped to "VIX") instead of the fragile TradingView webhook.
 const SKIP_TICKERS = new Set([
-  "ES1!", "NQ1!", "GOLD", "SILVER", "VX1!", "US500", "GC1!", "SI1!",
+  "ES1!", "NQ1!", "GOLD", "SILVER", "US500", "GC1!", "SI1!",
 ]);
 
 function getApiKey(env) {
