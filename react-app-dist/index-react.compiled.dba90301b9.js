@@ -11994,10 +11994,24 @@ function EarlyMoversPanel({
     }, renderCompactCard(t)))));
   }
   const _atrBrief = (() => {
-    const openTrades = (Array.isArray(trades) ? trades : []).filter(t => {
+    const _opensRaw = (Array.isArray(trades) ? trades : []).filter(t => {
       const s = String(t?.status || "").toUpperCase();
       return s === "OPEN" || s === "TP_HIT_TRIM" || !s && !(t?.exit_ts ?? t?.exitTs);
     });
+    const _bySymBrief = new Map();
+    for (const t of _opensRaw) {
+      const sym = String(t?.ticker || "").toUpperCase();
+      if (!sym) continue;
+      const ets = Number(t?.entry_ts ?? t?.entryTs ?? 0);
+      const prev = _bySymBrief.get(sym);
+      if (!prev) {
+        _bySymBrief.set(sym, t);
+        continue;
+      }
+      const pets = Number(prev?.entry_ts ?? prev?.entryTs ?? 0);
+      if (ets > pets) _bySymBrief.set(sym, t);
+    }
+    const openTrades = Array.from(_bySymBrief.values());
     const tickerByTicker = new Map();
     for (const t of Array.isArray(tickers) ? tickers : []) {
       const sym = String(t?.ticker || "").toUpperCase();

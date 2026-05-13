@@ -21630,19 +21630,30 @@ async function processTradeSimulation(
             console.log(`[ENTRY_CREATED] ${sym} dir=${direction} entry=${entryPx} sl=${finalSL} tp=${validTP} shares=${shares.toFixed(2)} notional=$${notional.toFixed(0)} conf=${confidence.toFixed(2)} method=${sizingMeta.method} risk=${((sizingMeta.riskPct || 0) * 100).toFixed(1)}% isReplay=${isReplay}${_cioDecision && !_cioDecision.fallback ? ` cio=${_cioDecision.decision}` : ""}`);
             d1LogDirectionAccuracy(env, trade, tickerData, entryPath).catch(() => {});
 
-            // Persist AI CIO decision for accuracy tracking
-            if (_cioDecision && !_cioDecision.fallback && env?.DB) {
+            // Persist AI CIO decision for accuracy tracking.
+            //
+            // V15 P0.7.146 (2026-05-13) — also persist FALLBACK rows
+            // (no_api_key, api_error_*, parse failures, etc.) so the
+            // operator can answer "did AI CIO actually run for this
+            // trade?" by querying the table. Previously fallback rows
+            // were silently dropped, which made AI CIO entirely
+            // invisible when the API key was missing or OpenAI was
+            // erroring — the user couldn't tell if CIO had been
+            // disabled, or if every trade was getting a true APPROVE.
+            if (_cioDecision && env?.DB) {
+              const _isFallback = _cioDecision.fallback === true;
               env.DB.prepare(
                 `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at, shadow)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`
               ).bind(
                 tradeId, sym, direction, _cioDecision.decision,
-                _cioDecision.confidence,
-                _cioDecision.reasoning,
-                JSON.stringify(_cioDecision.risk_flags),
-                _cioDecision.edge_score,
-                _cioDecision.latency_ms,
-                0, _cioDecision.model || AI_CIO_MODEL,
+                _cioDecision.confidence ?? null,
+                _isFallback ? `[fallback:${_cioDecision.reason || "unknown"}] ${_cioDecision.reasoning || ""}` : _cioDecision.reasoning,
+                JSON.stringify(_cioDecision.risk_flags || []),
+                _cioDecision.edge_score ?? null,
+                _cioDecision.latency_ms ?? null,
+                _isFallback ? 1 : 0,
+                _cioDecision.model || AI_CIO_MODEL,
                 JSON.stringify(_cioDecision.proposal || {}),
                 _cioDecision.adjustments ? JSON.stringify(_cioDecision.adjustments) : null,
                 Date.now(),
