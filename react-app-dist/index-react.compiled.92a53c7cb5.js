@@ -12031,7 +12031,7 @@ function EarlyMoversPanel({
     }));
     const setupBull = (Array.isArray(setup) ? setup : []).filter(t => String(t?.state || "").startsWith("HTF_BULL")).length;
     const setupBear = (Array.isArray(setup) ? setup : []).length - setupBull;
-    const _spy = data && (data.SPY || data["SPY"]) || null;
+    const _spy = tickerByTicker.get("SPY") || null;
     const _spyDc = _spy ? getDailyChange(_spy) : null;
     const _spyPct = Number(_spyDc?.dayPct);
     const regimeWord = (() => {
