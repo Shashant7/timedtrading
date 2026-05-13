@@ -2681,28 +2681,41 @@
 
           setTradeChartSelection(null); // clear so default will be first of new list
           let cancelled = false;
+          // V15 P0.7.143 (2026-05-13) — fetch BOTH trader and investor
+          // trade histories so the History tab shows the full picture
+          // when a ticker is held in both modes (e.g. INFL active + AAPL
+          // investor). Previously only trader history was shown, which
+          // was confusing when opening Right Rail from the Investor view.
           const fetchLedgerTrades = async () => {
             try {
               setLedgerTradesLoading(true);
               setLedgerTradesError(null);
-              const qs = new URLSearchParams();
-              qs.set("ticker", sym);
-              qs.set("limit", "20");
-              const res = await fetch(
-                `${API_BASE}/timed/ledger/trades?${qs.toString()}`,
-                { cache: "no-store" },
-              );
-              if (!res.ok) throw new Error(`HTTP ${res.status}`);
-              const json = await res.json();
-              if (!json.ok)
-                throw new Error(json.error || "ledger_trades_failed");
-              const trades = Array.isArray(json.trades) ? json.trades : [];
-              // Filter out archived trades
-              const activeTrades = trades.filter(t => {
-                const status = String(t.status || "").toUpperCase();
-                return status !== "ARCHIVED";
-              });
-              if (!cancelled) setLedgerTrades(activeTrades);
+              const buildQs = (mode) => {
+                const qs = new URLSearchParams();
+                qs.set("ticker", sym);
+                qs.set("limit", "20");
+                if (mode) qs.set("mode", mode);
+                return qs.toString();
+              };
+              const [traderRes, investorRes] = await Promise.allSettled([
+                fetch(`${API_BASE}/timed/ledger/trades?${buildQs("trader")}`, { cache: "no-store" }),
+                fetch(`${API_BASE}/timed/ledger/trades?${buildQs("investor")}`, { cache: "no-store" }),
+              ]);
+              const parse = async (settled) => {
+                if (settled.status !== "fulfilled" || !settled.value.ok) return [];
+                try {
+                  const json = await settled.value.json();
+                  if (!json.ok) return [];
+                  return Array.isArray(json.trades) ? json.trades : [];
+                } catch { return []; }
+              };
+              const traderTrades = (await parse(traderRes)).map(t => ({ ...t, _source_mode: "trader" }));
+              const investorTrades = (await parse(investorRes)).map(t => ({ ...t, _source_mode: "investor" }));
+              // Drop archived; combine; sort newest-first by entry_ts.
+              const merged = [...traderTrades, ...investorTrades]
+                .filter(t => String(t.status || "").toUpperCase() !== "ARCHIVED")
+                .sort((a, b) => Number(b.entry_ts || 0) - Number(a.entry_ts || 0));
+              if (!cancelled) setLedgerTrades(merged);
             } catch (e) {
               if (!cancelled) {
                 setLedgerTrades([]);
@@ -5770,12 +5783,22 @@
                           <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-1)" }}>
                             {ledgerTrades.slice(0, 10).map((t, i) => {
                               const pnlPct = Number(t.pnl_pct ?? t.pnlPct) || 0;
+                              const pnlAbs = Number(t.pnl) || 0;
                               const isWin = String(t.status || "").toUpperCase() === "WIN";
                               const dt = new Date(Number(t.entry_ts || t.exit_ts || 0));
+                              const isInvestor = t._source_mode === "investor";
+                              // For investor lots, the row is a single BUY/SELL/DCA, not a closed trade.
+                              const action = String(t.action || "").toUpperCase();
+                              const investorLabel = isInvestor
+                                ? (action === "SELL" ? "SELL" : action === "DCA_BUY" ? "DCA" : "BUY")
+                                : null;
+                              const showPnl = !isInvestor || action === "SELL";
                               return (
-                                <div key={`tr-${i}`}
+                                <div key={`tr-${i}-${t._source_mode || "x"}`}
                                   onClick={() => _openAutopsy(t)}
-                                  title="Click to open Trade Autopsy"
+                                  title={isInvestor
+                                    ? `Investor lot: ${action} ${t.shares ? Number(t.shares).toFixed(2) + " sh" : ""}${t.reason ? " — " + t.reason : ""}`
+                                    : "Click to open Trade Autopsy"}
                                   style={{
                                     display: "flex",
                                     alignItems: "center",
@@ -5786,17 +5809,31 @@
                                     cursor: "pointer",
                                     fontSize: "var(--ds-fs-meta)",
                                     transition: "background 120ms ease",
+                                    borderLeft: isInvestor ? "2px solid rgba(139,92,246,0.55)" : "none",
+                                    paddingLeft: isInvestor ? "8px" : "10px",
                                   }}
                                   onMouseEnter={(e) => { e.currentTarget.style.background = "var(--ds-bg-elevated)"; }}
                                   onMouseLeave={(e) => { e.currentTarget.style.background = "var(--ds-bg-glass)"; }}
                                 >
                                   <div style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-2)" }}>
-                                    <span className={`ds-chip ds-chip--sm ${isWin ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>{t.direction || "?"}</span>
+                                    {isInvestor ? (
+                                      <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)", background: "rgba(139,92,246,0.14)", color: "#c4b5fd", borderColor: "rgba(139,92,246,0.30)" }}>
+                                        INV {investorLabel}
+                                      </span>
+                                    ) : (
+                                      <span className={`ds-chip ds-chip--sm ${isWin ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>{t.direction || "?"}</span>
+                                    )}
                                     <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)" }}>{dt.toLocaleDateString()}</span>
                                   </div>
-                                  <span className={`ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
-                                    {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%
-                                  </span>
+                                  {showPnl ? (
+                                    <span className={`ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
+                                      {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%
+                                    </span>
+                                  ) : (
+                                    <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", fontSize: "11px" }}>
+                                      {Number(t.shares) > 0 ? Number(t.shares).toFixed(1) + " sh" : "—"}
+                                    </span>
+                                  )}
                                 </div>
                               );
                             })}
@@ -9443,8 +9480,14 @@
 
                             {/* All trades unified (open + closed, newest first) */}
                             {ledgerTrades.slice(0, 10).map((t) => {
+                              // V15 P0.7.143 (2026-05-13) — investor lots are
+                              // single-leg events (BUY / SELL / DCA), not
+                              // closed trades. Render with a violet INV badge
+                              // and skip the close-status / TP-hit logic that
+                              // assumes a paired entry+exit.
+                              const isInvestor = t._source_mode === "investor";
                               const trimmedPct = Number(t.trimmed_pct || t.trimmedPct || 0);
-                              const isClosed = t.status === "WIN" || t.status === "LOSS" || t.status === "FLAT" || trimmedPct >= 0.9999;
+                              const isClosed = !isInvestor && (t.status === "WIN" || t.status === "LOSS" || t.status === "FLAT" || trimmedPct >= 0.9999);
                               const rawExitPrice = Number(t.exit_price || 0);
                               const exitPriceMissing = isClosed && rawExitPrice <= 0;
                               const pnl = exitPriceMissing ? 0 : Number(t.pnl || 0);
@@ -9518,13 +9561,22 @@
                                   {/* Row 1: Status + Direction + P&L */}
                                   <div className="flex items-center justify-between px-3 pt-2.5 pb-1">
                                     <div className="flex items-center gap-1.5">
-                                      {isClosed ? (
+                                      {isInvestor ? (
+                                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold border bg-violet-500/20 text-violet-300 border-violet-500/30">
+                                          INV {String(t.action || "BUY").toUpperCase().replace("DCA_BUY", "DCA")}
+                                        </span>
+                                      ) : isClosed ? (
                                         <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${statusCls}`}>{statusLabel}</span>
                                       ) : (
                                         <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30">OPEN</span>
                                       )}
-                                      <span className={`text-[11px] font-bold ${t.direction === "LONG" ? "text-green-400" : "text-red-400"}`}>{t.direction}</span>
-                                      {_grade && <span className={`px-1 py-0.5 rounded text-[8px] font-bold border ${gradeCls}`} title={t.setup_name || t.setupName || ""}>TT {_grade}</span>}
+                                      {!isInvestor && <span className={`text-[11px] font-bold ${t.direction === "LONG" ? "text-green-400" : "text-red-400"}`}>{t.direction}</span>}
+                                      {!isInvestor && _grade && <span className={`px-1 py-0.5 rounded text-[8px] font-bold border ${gradeCls}`} title={t.setup_name || t.setupName || ""}>TT {_grade}</span>}
+                                      {isInvestor && t.reason && (
+                                        <span className="text-[9px] text-violet-300/80 truncate max-w-[180px]" title={t.reason}>
+                                          {String(t.reason).replace(/_/g, " ")}
+                                        </span>
+                                      )}
                                     </div>
                                     <div className="flex items-center gap-1.5">
                                       {isClosed && Math.abs(pnl) > 0.01 && (

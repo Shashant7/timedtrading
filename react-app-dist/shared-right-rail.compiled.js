@@ -3119,21 +3119,38 @@
           try {
             setLedgerTradesLoading(true);
             setLedgerTradesError(null);
-            const qs = new URLSearchParams();
-            qs.set("ticker", sym);
-            qs.set("limit", "20");
-            const res = await fetch(`${API_BASE}/timed/ledger/trades?${qs.toString()}`, {
+            const buildQs = mode => {
+              const qs = new URLSearchParams();
+              qs.set("ticker", sym);
+              qs.set("limit", "20");
+              if (mode) qs.set("mode", mode);
+              return qs.toString();
+            };
+            const [traderRes, investorRes] = await Promise.allSettled([fetch(`${API_BASE}/timed/ledger/trades?${buildQs("trader")}`, {
               cache: "no-store"
-            });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const json = await res.json();
-            if (!json.ok) throw new Error(json.error || "ledger_trades_failed");
-            const trades = Array.isArray(json.trades) ? json.trades : [];
-            const activeTrades = trades.filter(t => {
-              const status = String(t.status || "").toUpperCase();
-              return status !== "ARCHIVED";
-            });
-            if (!cancelled) setLedgerTrades(activeTrades);
+            }), fetch(`${API_BASE}/timed/ledger/trades?${buildQs("investor")}`, {
+              cache: "no-store"
+            })]);
+            const parse = async settled => {
+              if (settled.status !== "fulfilled" || !settled.value.ok) return [];
+              try {
+                const json = await settled.value.json();
+                if (!json.ok) return [];
+                return Array.isArray(json.trades) ? json.trades : [];
+              } catch {
+                return [];
+              }
+            };
+            const traderTrades = (await parse(traderRes)).map(t => ({
+              ...t,
+              _source_mode: "trader"
+            }));
+            const investorTrades = (await parse(investorRes)).map(t => ({
+              ...t,
+              _source_mode: "investor"
+            }));
+            const merged = [...traderTrades, ...investorTrades].filter(t => String(t.status || "").toUpperCase() !== "ARCHIVED").sort((a, b) => Number(b.entry_ts || 0) - Number(a.entry_ts || 0));
+            if (!cancelled) setLedgerTrades(merged);
           } catch (e) {
             if (!cancelled) {
               setLedgerTrades([]);
@@ -7354,12 +7371,17 @@
           }
         }, ledgerTrades.slice(0, 10).map((t, i) => {
           const pnlPct = Number(t.pnl_pct ?? t.pnlPct) || 0;
+          const pnlAbs = Number(t.pnl) || 0;
           const isWin = String(t.status || "").toUpperCase() === "WIN";
           const dt = new Date(Number(t.entry_ts || t.exit_ts || 0));
+          const isInvestor = t._source_mode === "investor";
+          const action = String(t.action || "").toUpperCase();
+          const investorLabel = isInvestor ? action === "SELL" ? "SELL" : action === "DCA_BUY" ? "DCA" : "BUY" : null;
+          const showPnl = !isInvestor || action === "SELL";
           return React.createElement("div", {
-            key: `tr-${i}`,
+            key: `tr-${i}-${t._source_mode || "x"}`,
             onClick: () => _openAutopsy(t),
-            title: "Click to open Trade Autopsy",
+            title: isInvestor ? `Investor lot: ${action} ${t.shares ? Number(t.shares).toFixed(2) + " sh" : ""}${t.reason ? " — " + t.reason : ""}` : "Click to open Trade Autopsy",
             style: {
               display: "flex",
               alignItems: "center",
@@ -7369,7 +7391,9 @@
               borderRadius: "var(--ds-radius-xs)",
               cursor: "pointer",
               fontSize: "var(--ds-fs-meta)",
-              transition: "background 120ms ease"
+              transition: "background 120ms ease",
+              borderLeft: isInvestor ? "2px solid rgba(139,92,246,0.55)" : "none",
+              paddingLeft: isInvestor ? "8px" : "10px"
             },
             onMouseEnter: e => {
               e.currentTarget.style.background = "var(--ds-bg-elevated)";
@@ -7383,7 +7407,15 @@
               alignItems: "center",
               gap: "var(--ds-space-2)"
             }
-          }, React.createElement("span", {
+          }, isInvestor ? React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              background: "rgba(139,92,246,0.14)",
+              color: "#c4b5fd",
+              borderColor: "rgba(139,92,246,0.30)"
+            }
+          }, "INV ", investorLabel) : React.createElement("span", {
             className: `ds-chip ds-chip--sm ${isWin ? "ds-chip--up" : "ds-chip--dn"}`,
             style: {
               fontFamily: "var(--tt-font-mono)"
@@ -7393,12 +7425,18 @@
               color: "var(--ds-text-muted)",
               fontFamily: "var(--tt-font-mono)"
             }
-          }, dt.toLocaleDateString())), React.createElement("span", {
+          }, dt.toLocaleDateString())), showPnl ? React.createElement("span", {
             className: `ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
             style: {
               fontFamily: "var(--tt-font-mono)"
             }
-          }, pnlPct >= 0 ? "+" : "", pnlPct.toFixed(2), "%"));
+          }, pnlPct >= 0 ? "+" : "", pnlPct.toFixed(2), "%") : React.createElement("span", {
+            style: {
+              color: "var(--ds-text-muted)",
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "11px"
+            }
+          }, Number(t.shares) > 0 ? Number(t.shares).toFixed(1) + " sh" : "—"));
         }))), candlePerf && Object.keys(candlePerf).length > 0 && React.createElement(Panel, {
           title: "Performance"
         }, React.createElement("div", {
@@ -10963,8 +11001,9 @@
           className: "text-[#6b7280]"
         }, flat, " flat")));
       })(), ledgerTrades.slice(0, 10).map(t => {
+        const isInvestor = t._source_mode === "investor";
         const trimmedPct = Number(t.trimmed_pct || t.trimmedPct || 0);
-        const isClosed = t.status === "WIN" || t.status === "LOSS" || t.status === "FLAT" || trimmedPct >= 0.9999;
+        const isClosed = !isInvestor && (t.status === "WIN" || t.status === "LOSS" || t.status === "FLAT" || trimmedPct >= 0.9999);
         const rawExitPrice = Number(t.exit_price || 0);
         const exitPriceMissing = isClosed && rawExitPrice <= 0;
         const pnl = exitPriceMissing ? 0 : Number(t.pnl || 0);
@@ -11047,16 +11086,21 @@
           className: "flex items-center justify-between px-3 pt-2.5 pb-1"
         }, React.createElement("div", {
           className: "flex items-center gap-1.5"
-        }, isClosed ? React.createElement("span", {
+        }, isInvestor ? React.createElement("span", {
+          className: "px-1.5 py-0.5 rounded text-[9px] font-bold border bg-violet-500/20 text-violet-300 border-violet-500/30"
+        }, "INV ", String(t.action || "BUY").toUpperCase().replace("DCA_BUY", "DCA")) : isClosed ? React.createElement("span", {
           className: `px-1.5 py-0.5 rounded text-[9px] font-bold border ${statusCls}`
         }, statusLabel) : React.createElement("span", {
           className: "px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30"
-        }, "OPEN"), React.createElement("span", {
+        }, "OPEN"), !isInvestor && React.createElement("span", {
           className: `text-[11px] font-bold ${t.direction === "LONG" ? "text-green-400" : "text-red-400"}`
-        }, t.direction), _grade && React.createElement("span", {
+        }, t.direction), !isInvestor && _grade && React.createElement("span", {
           className: `px-1 py-0.5 rounded text-[8px] font-bold border ${gradeCls}`,
           title: t.setup_name || t.setupName || ""
-        }, "TT ", _grade)), React.createElement("div", {
+        }, "TT ", _grade), isInvestor && t.reason && React.createElement("span", {
+          className: "text-[9px] text-violet-300/80 truncate max-w-[180px]",
+          title: t.reason
+        }, String(t.reason).replace(/_/g, " "))), React.createElement("div", {
           className: "flex items-center gap-1.5"
         }, isClosed && Math.abs(pnl) > 0.01 && React.createElement("span", {
           className: `text-[11px] font-bold ${computedPnlPct >= 0 ? "text-green-400" : "text-red-400"}`

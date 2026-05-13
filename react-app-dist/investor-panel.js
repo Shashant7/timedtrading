@@ -61,6 +61,44 @@
       ? "flat"
       : livePnlPct > 0.05 ? "up" : livePnlPct < -0.05 ? "dn" : "flat";
 
+    /* V15 P0.7.143 (2026-05-13) — Last-action trace for owned positions.
+       Shows the user when (and what) the model last did, so a "Reduce"
+       lane card with no recent SELL is visibly different from one where
+       the model already trimmed yesterday. Prevents the "GOOGL has been
+       in Reduce for 7 days, did anything happen?" confusion. */
+    const lastActionType = isOwned ? String(pos?.last_action_type || "") : "";
+    const lastActionTs = isOwned ? Number(pos?.last_action_ts) || 0 : 0;
+    const lastActionShares = isOwned ? Number(pos?.last_action_shares) || 0 : 0;
+    const lastActionAgoMs = lastActionTs > 0 ? (Date.now() - lastActionTs) : 0;
+    const lastActionAgoLabel = (() => {
+      if (!lastActionTs) return null;
+      const days = Math.floor(lastActionAgoMs / (24 * 3600 * 1000));
+      const hours = Math.floor(lastActionAgoMs / (3600 * 1000));
+      const mins = Math.floor(lastActionAgoMs / 60000);
+      if (days >= 1) return `${days}d ago`;
+      if (hours >= 1) return `${hours}h ago`;
+      if (mins >= 1) return `${mins}m ago`;
+      return "just now";
+    })();
+    /* "Pending" = stage recommends an action that hasn't fired since the
+       last lot. accumulate after no recent BUY / DCA, OR reduce after
+       no recent SELL. We use 24h as the "fresh enough" cutoff so a same-
+       day execution still reads as fresh. */
+    const pendingLabel = (() => {
+      if (!isOwned) return null;
+      if (stage === "reduce") {
+        if (lastActionType !== "SELL" || lastActionAgoMs > 24 * 3600 * 1000) {
+          return "Awaiting trim";
+        }
+      }
+      if (stage === "accumulate") {
+        if (!["BUY", "DCA_BUY"].includes(lastActionType) || lastActionAgoMs > 24 * 3600 * 1000) {
+          return "Awaiting buy";
+        }
+      }
+      return null;
+    })();
+
     /* Stage chip mapping — colors hint at action */
     const stageChip = (() => {
       if (stage === "accumulate")        return { label: "Accumulate", cls: "ds-chip--up" };
@@ -241,6 +279,35 @@
             opacity: 0.85,
           },
         }, `(${livePnlAbs >= 0 ? "+" : ""}$${Math.abs(livePnlAbs).toFixed(0)})`),
+      ),
+      // V15 P0.7.143 — Last-action trace for owned positions. Shows the
+      // most recent investor lot action AND a pending hint when the
+      // current stage recommends an action the model hasn't executed.
+      isOwned && (lastActionAgoLabel || pendingLabel) && React.createElement("div", {
+        style: {
+          display: "flex", alignItems: "center", gap: 6,
+          marginTop: 4,
+          padding: "3px 6px",
+          borderRadius: "4px",
+          background: pendingLabel ? "rgba(245,158,11,0.08)" : "rgba(167,139,250,0.05)",
+          border: `1px solid ${pendingLabel ? "rgba(245,158,11,0.22)" : "rgba(167,139,250,0.14)"}`,
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: 10,
+          color: pendingLabel ? "rgb(252,211,77)" : "var(--ds-text-muted)",
+          lineHeight: 1.2,
+        },
+        title: pendingLabel
+          ? `${pendingLabel}: model recommends "${stage}" but no matching lot action in the last 24h. Last action: ${lastActionType || "none"}${lastActionTs ? ` (${new Date(lastActionTs).toLocaleDateString()})` : ""}.`
+          : `Last model action: ${lastActionType} ${lastActionShares > 0 ? lastActionShares.toFixed(2) + " sh" : ""} on ${new Date(lastActionTs).toLocaleString()}.`,
+      },
+        React.createElement("span", { style: { fontWeight: 700, letterSpacing: "0.04em" } },
+          pendingLabel ? "PENDING" : "LAST"),
+        React.createElement("span", { style: { opacity: 0.95 } },
+          pendingLabel
+            ? pendingLabel
+            : `${lastActionType}${lastActionShares > 0 ? " " + lastActionShares.toFixed(lastActionShares >= 10 ? 1 : 2) + "sh" : ""}`),
+        lastActionAgoLabel && React.createElement("span", { style: { marginLeft: "auto", opacity: 0.75 } },
+          lastActionAgoLabel),
       ),
       // Bottom signal row — Score · RS · 1M · 3M
       React.createElement("div", {

@@ -64721,6 +64721,44 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             for (const _p of _invOpenPosRows) {
               _invOpenPosByTicker[String(_p.ticker || "").toUpperCase()] = _p;
             }
+            // V15 P0.7.143 (2026-05-13) — attach last-action summary to
+            // each open position. Used by InvestorCard to render a
+            // "LAST: SELL 25sh 2d ago" / "PENDING: Awaiting trim" hint
+            // so the user can see whether the model has acted on the
+            // current stage. One UNION query covers all positions; cheap.
+            try {
+              const _posIds = _invOpenPosRows.map(p => p.id);
+              if (_posIds.length > 0) {
+                // GROUP BY position_id with MAX(ts) — gets last lot per position.
+                const _lastLots = (await env.DB.prepare(
+                  `SELECT l.position_id, l.action, l.shares, l.price, l.ts, l.reason
+                     FROM investor_lots l
+                     INNER JOIN (
+                       SELECT position_id, MAX(ts) AS max_ts
+                         FROM investor_lots
+                        GROUP BY position_id
+                     ) lm ON l.position_id = lm.position_id AND l.ts = lm.max_ts
+                    WHERE l.position_id IN (${_posIds.map((_, i) => `?${i + 1}`).join(",")})`
+                ).bind(..._posIds).all())?.results || [];
+                const _lastByPos = {};
+                for (const ll of _lastLots) _lastByPos[ll.position_id] = ll;
+                for (const _p of _invOpenPosRows) {
+                  const ll = _lastByPos[_p.id];
+                  if (ll) {
+                    const tk = String(_p.ticker || "").toUpperCase();
+                    if (_invOpenPosByTicker[tk]) {
+                      _invOpenPosByTicker[tk].last_action_type = String(ll.action || "").toUpperCase();
+                      _invOpenPosByTicker[tk].last_action_ts = Number(ll.ts) || null;
+                      _invOpenPosByTicker[tk].last_action_shares = Number(ll.shares) || null;
+                      _invOpenPosByTicker[tk].last_action_price = Number(ll.price) || null;
+                      _invOpenPosByTicker[tk].last_action_reason = ll.reason || null;
+                    }
+                  }
+                }
+              }
+            } catch (lotErr) {
+              console.warn("[INVESTOR_COMPUTE] last-action lookup failed:", String(lotErr?.message || lotErr).slice(0, 200));
+            }
           } catch (e) {
             console.warn("[INVESTOR_COMPUTE] open-positions lookup failed:", String(e?.message || e).slice(0, 200));
           }
@@ -64807,6 +64845,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               unrealized_pct: (Number(td?.price) > 0 && Number(_existingPos.avg_entry) > 0)
                 ? ((Number(td.price) - Number(_existingPos.avg_entry)) / Number(_existingPos.avg_entry)) * 100
                 : null,
+              // V15 P0.7.143 (2026-05-13) — last-action trace for the
+              // InvestorCard pending/last hint.
+              last_action_type: _existingPos.last_action_type || null,
+              last_action_ts: _existingPos.last_action_ts || null,
+              last_action_shares: _existingPos.last_action_shares || null,
+              last_action_reason: _existingPos.last_action_reason || null,
             } : { owned: false };
 
             investorResults[ticker] = {
@@ -65520,6 +65564,25 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               ).bind(p.id).all())?.results || [];
               item.lots = lots;
             }
+
+            // V15 P0.7.143 (2026-05-13) — even in compact mode, surface
+            // the most recent investor lot action so the Investor cards
+            // can show "Last: SELL 25% 2d ago" / "No action since BUY 4/6".
+            // Without this the user sees the stage chip ("Reduce") for
+            // days with no idea whether the model has actually executed
+            // anything. One D1 SELECT per position; cheap.
+            try {
+              const lastLot = await env.DB.prepare(
+                "SELECT action, shares, price, value, ts, reason FROM investor_lots WHERE position_id = ?1 ORDER BY ts DESC LIMIT 1"
+              ).bind(p.id).first();
+              if (lastLot) {
+                item.last_action_type = String(lastLot.action || "").toUpperCase();
+                item.last_action_ts = Number(lastLot.ts) || null;
+                item.last_action_shares = Number(lastLot.shares) || null;
+                item.last_action_price = Number(lastLot.price) || null;
+                item.last_action_reason = lastLot.reason || null;
+              }
+            } catch (_) { /* best effort */ }
 
             enriched.push(item);
           }
