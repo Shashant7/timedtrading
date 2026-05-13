@@ -9663,16 +9663,21 @@ const DsCompactCard = React.memo(function DsCompactCard({
     const ep = Number(openTrade.entry_price ?? openTrade.entryPrice) || null;
     if (!ep) return null;
     const isLong = tradeDir === "LONG";
-    const sl = Number(openTrade.sl ?? openTrade.stop_loss) || Number(t?.sl) || null;
+    const tickerDir = String(t?.direction || t?.consensus_direction || "").toUpperCase();
+    const tickerAgrees = tickerDir === tradeDir;
+    const sl = Number(openTrade.sl ?? openTrade.stop_loss) || (tickerAgrees ? Number(t?.sl) || null : null);
     const tpArrRaw = Array.isArray(openTrade.tpArray) ? openTrade.tpArray : Array.isArray(openTrade.tp_array) ? openTrade.tp_array : null;
     const tps = (() => {
       if (tpArrRaw && tpArrRaw.length > 0) {
         return tpArrRaw.map(x => Number(x?.price ?? x)).filter(Number.isFinite);
       }
-      const single = Number(openTrade.tp) || Number(openTrade.take_profit) || Number(t?.tp) || Number(t?.tp_target_price) || null;
+      const single = Number(openTrade.tp) || Number(openTrade.take_profit) || (tickerAgrees ? Number(t?.tp) || Number(t?.tp_target_price) : null) || null;
       return single ? [single] : [];
     })();
-    const allPx = [ep, price, sl, ...tps].filter(p => Number.isFinite(p) && p > 0);
+    const slValid = sl == null || (isLong ? sl < ep : sl > ep);
+    const slToUse = slValid ? sl : null;
+    const tpsValid = tps.filter(tp => isLong ? tp > ep : tp < ep);
+    const allPx = [ep, price, slToUse, ...tpsValid].filter(p => Number.isFinite(p) && p > 0);
     if (allPx.length < 2) return null;
     const min = Math.min(...allPx);
     const max = Math.max(...allPx);
@@ -9682,8 +9687,8 @@ const DsCompactCard = React.memo(function DsCompactCard({
     const xPct = px => Math.max(0, Math.min(100, (px - lo) / (hi - lo) * 100));
     const pnlPct = isLong ? (price - ep) / ep * 100 : (ep - price) / ep * 100;
     const ticks = [];
-    if (sl) ticks.push({
-      px: sl,
+    if (slToUse) ticks.push({
+      px: slToUse,
       label: "SL",
       color: "var(--ds-dn)"
     });
@@ -9692,7 +9697,7 @@ const DsCompactCard = React.memo(function DsCompactCard({
       label: "E",
       color: "var(--ds-text-muted)"
     });
-    tps.forEach((tp, i) => ticks.push({
+    tpsValid.forEach((tp, i) => ticks.push({
       px: tp,
       label: `T${i + 1}`,
       color: "var(--ds-up)"
