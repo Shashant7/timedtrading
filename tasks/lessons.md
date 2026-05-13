@@ -840,6 +840,8 @@ Based on manual classification of 373 trades (140 bad_trade, 131 bad_exit, 85 go
 
 ### Right Rail Chart Stability [2026-05-13]
 - **Render only confirmed intraday candles in `LWChart`**: The `/timed/candles` rail feed can briefly include the still-forming interval while upstream OHLC is reconciling. Drawing that open bucket causes random candle flashes that disappear on the next correction. The live price strip should handle live ticks; the chart should render completed bars only.
+- **Never call `fitContent()` from delayed chart settle/resize paths**: It resets the user's visible range after layout changes and makes tab switches/resizes feel like the chart snapped back. Capture `timeScale().getVisibleLogicalRange()` / subscribe to range changes, restore that range after `setData()` and resize `applyOptions()`, and reserve `fitContent()` for the first data load only.
+- **Chart event listeners must be removable**: Inline `mousedown`/wheel/price-scale callbacks accumulate across chart recreations and make flicker worse the longer the page stays open. Store handler references and unsubscribe/remove them in the `LWChart` cleanup.
 - **Right-rail asset changes require cache-buster bumps**: After editing `react-app/shared-right-rail.js`, run `npm run build:rail` and update every `shared-right-rail.compiled.js?v=...` reference (`index-react*`, `simulation-dashboard`, `alerts`) so browsers do not keep the older compiled rail.
 
 ### EMA Cloud Structure in Soft-Fuse Deferral [2026-04-03]

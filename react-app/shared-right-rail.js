@@ -562,6 +562,7 @@
       const firstDataLoadAppliedRef = useRef(false);
       const externalPriceLinesRef = useRef([]);
       const tdSeqMarkersRef = useRef([]);
+      const lastVisibleLogicalRangeRef = useRef(null);
       // V15 P0.7.99-r2 — content signature of the last applied mapped
       // dataset. UPDATE effect short-circuits when content is identical
       // even if the array reference changed (defends against any spurious
@@ -571,6 +572,9 @@
       const [patternLabel, setPatternLabel] = useState(null);
 
       const LWC = typeof LightweightCharts !== "undefined" ? LightweightCharts : null;
+      const propTickerSymbol = typeof propTicker === "string"
+        ? propTicker
+        : String(propTicker?.ticker || propTicker?.symbol || propTicker?.sym || "");
 
       // Normalize candles and sanitize ghost wicks
       const mapped = useMemo(() => {
@@ -824,29 +828,39 @@
         // chart instance would never receive any candles).
         lastMappedSigRef.current = null;
 
+        const restoreVisibleRange = () => {
+          const range = lastVisibleLogicalRangeRef.current;
+          if (!range || range.from == null || range.to == null) return;
+          try { chart.timeScale().setVisibleLogicalRange(range); } catch (_) {}
+        };
+
         // P0.7.102 — Detect user interaction with the price axis and
         // disable autoScale so subsequent data updates don't re-fit
         // the price range. Without this, manually zooming vertically
         // would "snap back" to autoScale on the next data refresh.
+        let axisWheelHandler = null;
+        let axisPointerHandler = null;
+        let priceScaleChangeHandler = null;
         try {
           const priceScale = chart.priceScale("right");
+          const axisInteract = () => {
+            try { chart.priceScale("right").applyOptions({ autoScale: false }); } catch (_) {}
+          };
           if (priceScale && typeof priceScale.subscribePriceScaleChanged === "function") {
             // newer LWC versions
-            priceScale.subscribePriceScaleChanged(() => {
-              try { priceScale.applyOptions({ autoScale: false }); } catch (_) {}
-            });
+            priceScaleChangeHandler = axisInteract;
+            priceScale.subscribePriceScaleChanged(priceScaleChangeHandler);
           } else {
             // Fallback: detect mousewheel + drag on the chart container
             // and turn off autoScale manually.
-            const axisInteract = () => {
-              try { chart.priceScale("right").applyOptions({ autoScale: false }); } catch (_) {}
-            };
-            containerRef.current.addEventListener("wheel", axisInteract, { passive: true });
-            containerRef.current.addEventListener("mousedown", (ev) => {
+            axisWheelHandler = axisInteract;
+            axisPointerHandler = (ev) => {
               // only fire on price-axis side (right ~70px of chart)
               const rect = containerRef.current.getBoundingClientRect();
               if (ev.clientX > rect.right - 80) axisInteract();
-            });
+            };
+            containerRef.current.addEventListener("wheel", axisWheelHandler, { passive: true });
+            containerRef.current.addEventListener("mousedown", axisPointerHandler);
           }
         } catch (_) {}
 
@@ -874,6 +888,15 @@
         // preserve whatever range the user has scrolled/zoomed to).
         const _tfBarSpacing = String(chartTf) === "D" ? 12 : String(chartTf) === "60" ? 8 : 6;
         chart.applyOptions({ timeScale: { rightOffset: 5, barSpacing: _tfBarSpacing } });
+        let visibleRangeHandler = null;
+        try {
+          visibleRangeHandler = (range) => {
+            if (range && range.from != null && range.to != null) {
+              lastVisibleLogicalRangeRef.current = { from: range.from, to: range.to };
+            }
+          };
+          chart.timeScale().subscribeVisibleLogicalRangeChange(visibleRangeHandler);
+        } catch (_) {}
 
         // Resize — use ResizeObserver for portal/modal mount detection + window fallback.
         // V15 P0.7.77: debounce + only fire when width actually changes by ≥1px.
@@ -896,6 +919,7 @@
               }
               if (opts.width != null) {
                 chart.applyOptions(opts);
+                restoreVisibleRange();
               }
             }
           });
@@ -918,6 +942,7 @@
             }
             if (opts.width != null || opts.height != null) {
               chart.applyOptions(opts);
+              restoreVisibleRange();
             }
           }
         };
@@ -942,7 +967,7 @@
               chart.applyOptions({ width: w });
               lastAppliedWidth = w;
             }
-            chart.timeScale().fitContent();
+            restoreVisibleRange();
           }
           settleTimeout = setTimeout(() => {
             if (containerRef.current && chart) {
@@ -950,6 +975,7 @@
               if (w > 0 && Math.abs(w - lastAppliedWidth) >= 1) {
                 chart.applyOptions({ width: w });
                 lastAppliedWidth = w;
+                restoreVisibleRange();
               }
             }
           }, 150);
@@ -963,6 +989,18 @@
           cancelAnimationFrame(settleRaf);
           if (settleTimeout) clearTimeout(settleTimeout);
           if (resizeObserver) resizeObserver.disconnect();
+          if (containerRef.current && axisWheelHandler) containerRef.current.removeEventListener("wheel", axisWheelHandler);
+          if (containerRef.current && axisPointerHandler) containerRef.current.removeEventListener("mousedown", axisPointerHandler);
+          try {
+            if (priceScaleChangeHandler && typeof chart.priceScale("right").unsubscribePriceScaleChanged === "function") {
+              chart.priceScale("right").unsubscribePriceScaleChanged(priceScaleChangeHandler);
+            }
+          } catch (_) {}
+          try {
+            if (visibleRangeHandler && typeof chart.timeScale().unsubscribeVisibleLogicalRangeChange === "function") {
+              chart.timeScale().unsubscribeVisibleLogicalRangeChange(visibleRangeHandler);
+            }
+          } catch (_) {}
           levelPriceLinesRef.current = [];
           levelTrendSeriesRef.current = [];
           // P0.7.136 (2026-05-13) — clear signature refs so a recreated
@@ -985,7 +1023,7 @@
          object reference change) no longer trigger chart.remove() +
          createChart() — they at most cause a setData() call that
          preserves the user's zoom/scroll state. */
-      }, [chartTf, LWC, propHeight, propTicker?.ticker]);
+      }, [chartTf, LWC, propHeight, propTickerSymbol]);
 
       // V15 P0.7.99 — UPDATE effect: hydrates the candle series + indicator
       // overlays + markers without recreating the chart instance. Runs on
@@ -1015,10 +1053,15 @@
         }
         lastMappedSigRef.current = sig;
 
+        const shouldRestoreRange = firstDataLoadAppliedRef.current && lastVisibleLogicalRangeRef.current;
+
         // Push current candle data
         try {
           candleSeries.setData(mapped);
         } catch (_) { /* fall through; series will recover on next ref */ }
+        if (shouldRestoreRange) {
+          try { chart.timeScale().setVisibleLogicalRange(lastVisibleLogicalRangeRef.current); } catch (_) {}
+        }
 
         // Replace overlay (EMA / SuperTrend) line series. We remove + add
         // because indicatorData can include arbitrary segments per cycle.
@@ -1076,6 +1119,10 @@
           } else {
             try { chart.timeScale().fitContent(); } catch (_) {}
           }
+          try {
+            const range = chart.timeScale().getVisibleLogicalRange?.();
+            if (range && range.from != null && range.to != null) lastVisibleLogicalRangeRef.current = { from: range.from, to: range.to };
+          } catch (_) {}
         }
       }, [mapped, indicatorData, propMarkers, chartTf, LWC]);
 
@@ -1087,10 +1134,10 @@
         const chart = chartInstanceRef.current;
         const candleSeries = candleSeriesRef.current;
         if (!chart || !candleSeries || !LWC || mapped.length < 15) return;
-        if (!propTicker || overlays?.levels === false) return;
+        if (!propTickerSymbol || overlays?.levels === false) return;
 
         let cancelled = false;
-        _rrFetchChartLevels(propTicker, String(chartTf), mapped).then(ovData => {
+        _rrFetchChartLevels(propTickerSymbol, String(chartTf), mapped).then(ovData => {
           if (cancelled || !ovData) return;
           const styleMap = { dotted: LWC.LineStyle.Dotted, dashed: LWC.LineStyle.Dashed, solid: LWC.LineStyle.Solid };
           const newLevels = Array.isArray(ovData.levels) ? ovData.levels : [];
@@ -1182,7 +1229,7 @@
       // (once when chart mounts with no data, once when data arrives).
       // Per-ticker freshness is still preserved by the 5-minute success
       // cache and 60-second negative cache inside _rrFetchChartLevels.
-      }, [propTicker?.ticker, chartTf, LWC, overlays?.levels, mapped.length >= 15 ? 1 : 0]);
+      }, [propTickerSymbol, chartTf, LWC, overlays?.levels, mapped.length >= 15 ? 1 : 0]);
 
       // V15 P0.7.99 — PRICE-LINES effect: applies external SL/TP/Entry lines
       // passed via propPriceLines. Decoupled from the chart instance so
@@ -1354,8 +1401,8 @@
       if (prev.overlays !== next.overlays) return false;
       if (prev.height !== next.height) return false;
       if ((prev.hideOverlayToggles || false) !== (next.hideOverlayToggles || false)) return false;
-      const prevSym = prev.ticker?.ticker || "";
-      const nextSym = next.ticker?.ticker || "";
+      const prevSym = typeof prev.ticker === "string" ? prev.ticker : (prev.ticker?.ticker || prev.ticker?.symbol || "");
+      const nextSym = typeof next.ticker === "string" ? next.ticker : (next.ticker?.ticker || next.ticker?.symbol || "");
       if (prevSym !== nextSym) return false;
       // Candles: try reference equality first; if that fails, do a
       // shallow structural check on length + last bar (cheap, ~1µs)

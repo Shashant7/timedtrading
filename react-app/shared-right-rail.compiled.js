@@ -98,11 +98,11 @@ const levelSigRef=useRef(null);const levelTrendSigRef=useRef(null);// V15 P0.7.9
 // back to default view), and the price lines added from external SL/
 // TP/Entry props (so they can be cleaned up when those props change
 // without recreating the chart).
-const firstDataLoadAppliedRef=useRef(false);const externalPriceLinesRef=useRef([]);const tdSeqMarkersRef=useRef([]);// V15 P0.7.99-r2 — content signature of the last applied mapped
+const firstDataLoadAppliedRef=useRef(false);const externalPriceLinesRef=useRef([]);const tdSeqMarkersRef=useRef([]);const lastVisibleLogicalRangeRef=useRef(null);// V15 P0.7.99-r2 — content signature of the last applied mapped
 // dataset. UPDATE effect short-circuits when content is identical
 // even if the array reference changed (defends against any spurious
 // useMemo re-runs that might otherwise trigger a brief redraw).
-const lastMappedSigRef=useRef(null);const[ohlcHeader,setOhlcHeader]=useState(null);const[patternLabel,setPatternLabel]=useState(null);const LWC=typeof LightweightCharts!=="undefined"?LightweightCharts:null;// Normalize candles and sanitize ghost wicks
+const lastMappedSigRef=useRef(null);const[ohlcHeader,setOhlcHeader]=useState(null);const[patternLabel,setPatternLabel]=useState(null);const LWC=typeof LightweightCharts!=="undefined"?LightweightCharts:null;const propTickerSymbol=typeof propTicker==="string"?propTicker:String(propTicker?.ticker||propTicker?.symbol||propTicker?.sym||"");// Normalize candles and sanitize ghost wicks
 const mapped=useMemo(()=>{if(!rawCandles||rawCandles.length<2)return[];const tfMinutes=Number(chartTf);const isIntradayTf=Number.isFinite(tfMinutes)&&tfMinutes>0;const toSec=v=>{if(!v)return 0;const n=Number(v);return n>1e12?Math.floor(n/1000):n>1e9?n:0;};let raw=rawCandles.map(c=>{const ts=toSec(c.ts??c.t??c.time??c.timestamp);const o=Number(c.o??c.open);const h=Number(c.h??c.high);const l=Number(c.l??c.low);const cl=Number(c.c??c.close);if(!ts||!Number.isFinite(o)||!Number.isFinite(h))return null;return{time:ts,open:o,high:h,low:l,close:cl};}).filter(Boolean).sort((a,b)=>a.time-b.time).filter((c,i,arr)=>i===arr.length-1||c.time!==arr[i+1].time);// P0.7.145 (2026-05-13) — only draw confirmed intraday candles.
 // The candle endpoint can briefly expose the still-forming bar while
 // the upstream feed is reconciling OHLC. Those transient bars were
@@ -167,30 +167,30 @@ const candleSeries=chart.addCandlestickSeries({upColor:"#26a69a",downColor:"#ef5
 firstDataLoadAppliedRef.current=false;// Reset mapped-content signature so the UPDATE effect's short-
 // circuit runs the FIRST data load through (otherwise the new
 // chart instance would never receive any candles).
-lastMappedSigRef.current=null;// P0.7.102 — Detect user interaction with the price axis and
+lastMappedSigRef.current=null;const restoreVisibleRange=()=>{const range=lastVisibleLogicalRangeRef.current;if(!range||range.from==null||range.to==null)return;try{chart.timeScale().setVisibleLogicalRange(range);}catch(_){}};// P0.7.102 — Detect user interaction with the price axis and
 // disable autoScale so subsequent data updates don't re-fit
 // the price range. Without this, manually zooming vertically
 // would "snap back" to autoScale on the next data refresh.
-try{const priceScale=chart.priceScale("right");if(priceScale&&typeof priceScale.subscribePriceScaleChanged==="function"){// newer LWC versions
-priceScale.subscribePriceScaleChanged(()=>{try{priceScale.applyOptions({autoScale:false});}catch(_){}});}else{// Fallback: detect mousewheel + drag on the chart container
+let axisWheelHandler=null;let axisPointerHandler=null;let priceScaleChangeHandler=null;try{const priceScale=chart.priceScale("right");const axisInteract=()=>{try{chart.priceScale("right").applyOptions({autoScale:false});}catch(_){}};if(priceScale&&typeof priceScale.subscribePriceScaleChanged==="function"){// newer LWC versions
+priceScaleChangeHandler=axisInteract;priceScale.subscribePriceScaleChanged(priceScaleChangeHandler);}else{// Fallback: detect mousewheel + drag on the chart container
 // and turn off autoScale manually.
-const axisInteract=()=>{try{chart.priceScale("right").applyOptions({autoScale:false});}catch(_){}};containerRef.current.addEventListener("wheel",axisInteract,{passive:true});containerRef.current.addEventListener("mousedown",ev=>{// only fire on price-axis side (right ~70px of chart)
-const rect=containerRef.current.getBoundingClientRect();if(ev.clientX>rect.right-80)axisInteract();});}}catch(_){}// Crosshair move → OHLC header
+axisWheelHandler=axisInteract;axisPointerHandler=ev=>{// only fire on price-axis side (right ~70px of chart)
+const rect=containerRef.current.getBoundingClientRect();if(ev.clientX>rect.right-80)axisInteract();};containerRef.current.addEventListener("wheel",axisWheelHandler,{passive:true});containerRef.current.addEventListener("mousedown",axisPointerHandler);}}catch(_){}// Crosshair move → OHLC header
 chart.subscribeCrosshairMove(param=>{if(!param.time||!param.seriesData){setOhlcHeader(null);return;}const candleData=param.seriesData.get(candleSeries);if(candleData){setOhlcHeader({time:param.time,o:candleData.open,h:candleData.high,l:candleData.low,c:candleData.close});}});// V15 P0.7.99 — TF-specific bar spacing applied here once. The
 // visible logical range is set in the UPDATE effect after data is
 // populated (and only on the FIRST data load — subsequent updates
 // preserve whatever range the user has scrolled/zoomed to).
-const _tfBarSpacing=String(chartTf)==="D"?12:String(chartTf)==="60"?8:6;chart.applyOptions({timeScale:{rightOffset:5,barSpacing:_tfBarSpacing}});// Resize — use ResizeObserver for portal/modal mount detection + window fallback.
+const _tfBarSpacing=String(chartTf)==="D"?12:String(chartTf)==="60"?8:6;chart.applyOptions({timeScale:{rightOffset:5,barSpacing:_tfBarSpacing}});let visibleRangeHandler=null;try{visibleRangeHandler=range=>{if(range&&range.from!=null&&range.to!=null){lastVisibleLogicalRangeRef.current={from:range.from,to:range.to};}};chart.timeScale().subscribeVisibleLogicalRangeChange(visibleRangeHandler);}catch(_){}// Resize — use ResizeObserver for portal/modal mount detection + window fallback.
 // V15 P0.7.77: debounce + only fire when width actually changes by ≥1px.
 // Prior version called chart.applyOptions() on every ResizeObserver tick,
 // which fired on every layout reflow (account value updating, levels
 // refresh, etc.) and caused a visible flicker as the chart redrew.
-let resizeObserver=null;let resizeDebounce=null;let settleTimeout=null;let lastAppliedWidth=0;let lastAppliedHeight=0;const handleResize=()=>{if(resizeDebounce)cancelAnimationFrame(resizeDebounce);resizeDebounce=requestAnimationFrame(()=>{if(containerRef.current&&chart){const w=Math.round(containerRef.current.clientWidth);const opts={};if(w>0&&Math.abs(w-lastAppliedWidth)>=1){lastAppliedWidth=w;opts.width=w;}if(opts.width!=null){chart.applyOptions(opts);}}});};// P0.7.100-r2 — height changes are handled separately via the
+let resizeObserver=null;let resizeDebounce=null;let settleTimeout=null;let lastAppliedWidth=0;let lastAppliedHeight=0;const handleResize=()=>{if(resizeDebounce)cancelAnimationFrame(resizeDebounce);resizeDebounce=requestAnimationFrame(()=>{if(containerRef.current&&chart){const w=Math.round(containerRef.current.clientWidth);const opts={};if(w>0&&Math.abs(w-lastAppliedWidth)>=1){lastAppliedWidth=w;opts.width=w;}if(opts.width!=null){chart.applyOptions(opts);restoreVisibleRange();}}});};// P0.7.100-r2 — height changes are handled separately via the
 // window 'resize' listener below (NOT the ResizeObserver), which
 // breaks the feedback loop where chart.applyOptions({height})
 // would itself fire the observer and trigger another applyOptions
 // call. The window event only fires on actual viewport changes.
-const handleWindowResize=()=>{if(containerRef.current&&chart){const w=Math.round(containerRef.current.clientWidth);const h=Math.round(containerRef.current.clientHeight);const opts={};if(w>0&&Math.abs(w-lastAppliedWidth)>=1){lastAppliedWidth=w;opts.width=w;}if(!propHeight&&h>0&&Math.abs(h-lastAppliedHeight)>=4){lastAppliedHeight=h;opts.height=h;}if(opts.width!=null||opts.height!=null){chart.applyOptions(opts);}}};if(typeof ResizeObserver!=="undefined"&&containerRef.current){resizeObserver=new ResizeObserver(handleResize);resizeObserver.observe(containerRef.current);}// Width-only on window resize is redundant with ResizeObserver,
+const handleWindowResize=()=>{if(containerRef.current&&chart){const w=Math.round(containerRef.current.clientWidth);const h=Math.round(containerRef.current.clientHeight);const opts={};if(w>0&&Math.abs(w-lastAppliedWidth)>=1){lastAppliedWidth=w;opts.width=w;}if(!propHeight&&h>0&&Math.abs(h-lastAppliedHeight)>=4){lastAppliedHeight=h;opts.height=h;}if(opts.width!=null||opts.height!=null){chart.applyOptions(opts);restoreVisibleRange();}}};if(typeof ResizeObserver!=="undefined"&&containerRef.current){resizeObserver=new ResizeObserver(handleResize);resizeObserver.observe(containerRef.current);}// Width-only on window resize is redundant with ResizeObserver,
 // but we ALSO add the window listener for height (which is NOT
 // tracked by the observer to avoid the feedback loop).
 window.addEventListener("resize",handleWindowResize);// Settle: when chart mounts inside a React portal (expanded modal)
@@ -198,8 +198,8 @@ window.addEventListener("resize",handleWindowResize);// Settle: when chart mount
 // yet. Use rAF to sync. Width-only — height is set once at
 // create time from clientHeight; subsequent height changes only
 // happen on window resize (handled by handleWindowResize above).
-const settleRaf=requestAnimationFrame(()=>{if(containerRef.current&&chart){const w=containerRef.current.clientWidth;if(w>0){chart.applyOptions({width:w});lastAppliedWidth=w;}chart.timeScale().fitContent();}settleTimeout=setTimeout(()=>{if(containerRef.current&&chart){const w=containerRef.current.clientWidth;if(w>0&&Math.abs(w-lastAppliedWidth)>=1){chart.applyOptions({width:w});lastAppliedWidth=w;}}},150);});// Track initial height so window-resize comparator works
-lastAppliedHeight=containerRef.current.clientHeight||chartHeight;return()=>{window.removeEventListener("resize",handleWindowResize);if(resizeDebounce)cancelAnimationFrame(resizeDebounce);cancelAnimationFrame(settleRaf);if(settleTimeout)clearTimeout(settleTimeout);if(resizeObserver)resizeObserver.disconnect();levelPriceLinesRef.current=[];levelTrendSeriesRef.current=[];// P0.7.136 (2026-05-13) — clear signature refs so a recreated
+const settleRaf=requestAnimationFrame(()=>{if(containerRef.current&&chart){const w=containerRef.current.clientWidth;if(w>0){chart.applyOptions({width:w});lastAppliedWidth=w;}restoreVisibleRange();}settleTimeout=setTimeout(()=>{if(containerRef.current&&chart){const w=containerRef.current.clientWidth;if(w>0&&Math.abs(w-lastAppliedWidth)>=1){chart.applyOptions({width:w});lastAppliedWidth=w;restoreVisibleRange();}}},150);});// Track initial height so window-resize comparator works
+lastAppliedHeight=containerRef.current.clientHeight||chartHeight;return()=>{window.removeEventListener("resize",handleWindowResize);if(resizeDebounce)cancelAnimationFrame(resizeDebounce);cancelAnimationFrame(settleRaf);if(settleTimeout)clearTimeout(settleTimeout);if(resizeObserver)resizeObserver.disconnect();if(containerRef.current&&axisWheelHandler)containerRef.current.removeEventListener("wheel",axisWheelHandler);if(containerRef.current&&axisPointerHandler)containerRef.current.removeEventListener("mousedown",axisPointerHandler);try{if(priceScaleChangeHandler&&typeof chart.priceScale("right").unsubscribePriceScaleChanged==="function"){chart.priceScale("right").unsubscribePriceScaleChanged(priceScaleChangeHandler);}}catch(_){}try{if(visibleRangeHandler&&typeof chart.timeScale().unsubscribeVisibleLogicalRangeChange==="function"){chart.timeScale().unsubscribeVisibleLogicalRangeChange(visibleRangeHandler);}}catch(_){}levelPriceLinesRef.current=[];levelTrendSeriesRef.current=[];// P0.7.136 (2026-05-13) — clear signature refs so a recreated
 // chart instance forces a fresh draw of all levels (otherwise
 // the new chart would have empty refs but a non-null sig and
 // skip the level rebuild on first run).
@@ -211,7 +211,7 @@ levelSigRef.current=null;levelTrendSigRef.current=null;chart.remove();chartInsta
          previously sneaking through the React.memo on the parent ticker
          object reference change) no longer trigger chart.remove() +
          createChart() — they at most cause a setData() call that
-         preserves the user's zoom/scroll state. */},[chartTf,LWC,propHeight,propTicker?.ticker]);// V15 P0.7.99 — UPDATE effect: hydrates the candle series + indicator
+         preserves the user's zoom/scroll state. */},[chartTf,LWC,propHeight,propTickerSymbol]);// V15 P0.7.99 — UPDATE effect: hydrates the candle series + indicator
 // overlays + markers without recreating the chart instance. Runs on
 // every data change but is cheap (just setData + line series adds).
 // V15 P0.7.99-r2: short-circuit if mapped content hasn't changed.
@@ -226,19 +226,19 @@ useEffect(()=>{const chart=chartInstanceRef.current;const candleSeries=candleSer
 const last=mapped[mapped.length-1];const first=mapped[0];const sig=`${mapped.length}|${first?.time}|${first?.close}|${last?.time}|${last?.open}|${last?.high}|${last?.low}|${last?.close}`;if(lastMappedSigRef.current===sig){// Mapped reference changed but content is identical — chart is
 // already showing this data. Leave it alone (no setData call,
 // no overlay rebuild → no flicker).
-return;}lastMappedSigRef.current=sig;// Push current candle data
-try{candleSeries.setData(mapped);}catch(_){/* fall through; series will recover on next ref */}// Replace overlay (EMA / SuperTrend) line series. We remove + add
+return;}lastMappedSigRef.current=sig;const shouldRestoreRange=firstDataLoadAppliedRef.current&&lastVisibleLogicalRangeRef.current;// Push current candle data
+try{candleSeries.setData(mapped);}catch(_){/* fall through; series will recover on next ref */}if(shouldRestoreRange){try{chart.timeScale().setVisibleLogicalRange(lastVisibleLogicalRangeRef.current);}catch(_){}}// Replace overlay (EMA / SuperTrend) line series. We remove + add
 // because indicatorData can include arbitrary segments per cycle.
 for(const k of Object.keys(overlaySeriesRef.current)){const v=overlaySeriesRef.current[k];if(Array.isArray(v)){for(const s of v)try{chart.removeSeries(s);}catch(_){}}else if(v)try{chart.removeSeries(v);}catch(_){}}const addedSeries={};if(indicatorData.ema21?.length>0){const s=chart.addLineSeries({color:"#fbbf24",lineWidth:1,priceLineVisible:false,lastValueVisible:false});s.setData(indicatorData.ema21);addedSeries.ema21=s;}if(indicatorData.ema48?.length>0){const s=chart.addLineSeries({color:"#a78bfa",lineWidth:1,priceLineVisible:false,lastValueVisible:false});s.setData(indicatorData.ema48);addedSeries.ema48=s;}if(indicatorData.ema200?.length>0){const s=chart.addLineSeries({color:"#f87171",lineWidth:1,priceLineVisible:false,lastValueVisible:false});s.setData(indicatorData.ema200);addedSeries.ema200=s;}if(indicatorData.stSegments?.length>0){const stList=[];for(const seg of indicatorData.stSegments){if(!seg.data?.length)continue;const s=chart.addLineSeries({color:seg.color,lineWidth:2,priceLineVisible:false,lastValueVisible:false});s.setData(seg.data);stList.push(s);}addedSeries.stSegments=stList;}overlaySeriesRef.current=addedSeries;// TD Sequential markers + external markers + (later) pattern markers
 // are merged in the LEVELS effect; here we just record the TD/
 // external set so LEVELS can re-merge with patterns when fresh.
 const baseMarkers=[...(indicatorData.tdMarkers||[]),...(Array.isArray(propMarkers)?propMarkers:[])].sort((a,b)=>a.time-b.time);tdSeqMarkersRef.current=baseMarkers;if(baseMarkers.length>0){try{candleSeries.setMarkers(baseMarkers);}catch(_){}}else{try{candleSeries.setMarkers([]);}catch(_){}}// First data load: snap to TF-appropriate visible range. Subsequent
 // data updates keep whatever range the user has scrolled/zoomed.
-if(!firstDataLoadAppliedRef.current){firstDataLoadAppliedRef.current=true;const _visibleBars={"5":156,"15":52,"30":26,"60":20,"240":60,"D":30,"W":52};const _barsToShow=_visibleBars[String(chartTf)]||mapped.length;if(mapped.length>_barsToShow){try{chart.timeScale().setVisibleLogicalRange({from:mapped.length-_barsToShow,to:mapped.length+5});}catch(_){}}else{try{chart.timeScale().fitContent();}catch(_){}}}},[mapped,indicatorData,propMarkers,chartTf,LWC]);// V15 P0.7.99 — LEVELS effect: fetches canonical S/R + trendlines +
+if(!firstDataLoadAppliedRef.current){firstDataLoadAppliedRef.current=true;const _visibleBars={"5":156,"15":52,"30":26,"60":20,"240":60,"D":30,"W":52};const _barsToShow=_visibleBars[String(chartTf)]||mapped.length;if(mapped.length>_barsToShow){try{chart.timeScale().setVisibleLogicalRange({from:mapped.length-_barsToShow,to:mapped.length+5});}catch(_){}}else{try{chart.timeScale().fitContent();}catch(_){}}try{const range=chart.timeScale().getVisibleLogicalRange?.();if(range&&range.from!=null&&range.to!=null)lastVisibleLogicalRangeRef.current={from:range.from,to:range.to};}catch(_){}}},[mapped,indicatorData,propMarkers,chartTf,LWC]);// V15 P0.7.99 — LEVELS effect: fetches canonical S/R + trendlines +
 // patterns from /timed/ticker-scenario and applies them as horizontal
 // price lines + dashed line series + arrow markers (Double Top /
 // Double Bottom / Bull Flag etc — same set the Daily Brief draws).
-useEffect(()=>{const chart=chartInstanceRef.current;const candleSeries=candleSeriesRef.current;if(!chart||!candleSeries||!LWC||mapped.length<15)return;if(!propTicker||overlays?.levels===false)return;let cancelled=false;_rrFetchChartLevels(propTicker,String(chartTf),mapped).then(ovData=>{if(cancelled||!ovData)return;const styleMap={dotted:LWC.LineStyle.Dotted,dashed:LWC.LineStyle.Dashed,solid:LWC.LineStyle.Solid};const newLevels=Array.isArray(ovData.levels)?ovData.levels:[];// P0.7.136 (2026-05-13) — second flicker guard.
+useEffect(()=>{const chart=chartInstanceRef.current;const candleSeries=candleSeriesRef.current;if(!chart||!candleSeries||!LWC||mapped.length<15)return;if(!propTickerSymbol||overlays?.levels===false)return;let cancelled=false;_rrFetchChartLevels(propTickerSymbol,String(chartTf),mapped).then(ovData=>{if(cancelled||!ovData)return;const styleMap={dotted:LWC.LineStyle.Dotted,dashed:LWC.LineStyle.Dashed,solid:LWC.LineStyle.Solid};const newLevels=Array.isArray(ovData.levels)?ovData.levels:[];// P0.7.136 (2026-05-13) — second flicker guard.
 // Even with the dep array fixed (one effect run per ticker/TF),
 // a re-render can still trigger this branch — and the previous
 // code unconditionally removed every existing price line and
@@ -265,7 +265,7 @@ if(ovData.patterns?.length>0){const pMarkers=ovData.patterns.map(p=>({time:p.ts,
 // (once when chart mounts with no data, once when data arrives).
 // Per-ticker freshness is still preserved by the 5-minute success
 // cache and 60-second negative cache inside _rrFetchChartLevels.
-},[propTicker?.ticker,chartTf,LWC,overlays?.levels,mapped.length>=15?1:0]);// V15 P0.7.99 — PRICE-LINES effect: applies external SL/TP/Entry lines
+},[propTickerSymbol,chartTf,LWC,overlays?.levels,mapped.length>=15?1:0]);// V15 P0.7.99 — PRICE-LINES effect: applies external SL/TP/Entry lines
 // passed via propPriceLines. Decoupled from the chart instance so
 // these can update without recreating the canvas.
 //
@@ -319,7 +319,7 @@ React.createElement("div",{className:"mt-1 text-[10px] text-[#6b7280] flex items
 // that the user sees as flicker. New rule: skip render if the
 // candle data is STRUCTURALLY identical (same length, last bar
 // time + close + open) — even if the array reference changed.
-if(prev.chartTf!==next.chartTf)return false;if(prev.overlays!==next.overlays)return false;if(prev.height!==next.height)return false;if((prev.hideOverlayToggles||false)!==(next.hideOverlayToggles||false))return false;const prevSym=prev.ticker?.ticker||"";const nextSym=next.ticker?.ticker||"";if(prevSym!==nextSym)return false;// Candles: try reference equality first; if that fails, do a
+if(prev.chartTf!==next.chartTf)return false;if(prev.overlays!==next.overlays)return false;if(prev.height!==next.height)return false;if((prev.hideOverlayToggles||false)!==(next.hideOverlayToggles||false))return false;const prevSym=typeof prev.ticker==="string"?prev.ticker:prev.ticker?.ticker||prev.ticker?.symbol||"";const nextSym=typeof next.ticker==="string"?next.ticker:next.ticker?.ticker||next.ticker?.symbol||"";if(prevSym!==nextSym)return false;// Candles: try reference equality first; if that fails, do a
 // shallow structural check on length + last bar (cheap, ~1µs)
 // so a fresh-but-identical array doesn't trigger a redraw.
 const pc=Array.isArray(prev.candles)?prev.candles:[];const nc=Array.isArray(next.candles)?next.candles:[];if(pc!==nc){if(pc.length!==nc.length)return false;if(pc.length>0){const a=pc[pc.length-1];const b=nc[nc.length-1];const aTs=a?.ts??a?.t??a?.time;const bTs=b?.ts??b?.t??b?.time;if(Number(aTs)!==Number(bTs))return false;if(Number(a?.c??a?.close)!==Number(b?.c??b?.close))return false;if(Number(a?.o??a?.open)!==Number(b?.o??b?.open))return false;if(Number(a?.h??a?.high)!==Number(b?.h??b?.high))return false;if(Number(a?.l??a?.low)!==Number(b?.l??b?.low))return false;}}// Deep-equal on priceLines: every price value must match.

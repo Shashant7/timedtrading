@@ -751,10 +751,12 @@
       const firstDataLoadAppliedRef = useRef(false);
       const externalPriceLinesRef = useRef([]);
       const tdSeqMarkersRef = useRef([]);
+      const lastVisibleLogicalRangeRef = useRef(null);
       const lastMappedSigRef = useRef(null);
       const [ohlcHeader, setOhlcHeader] = useState(null);
       const [patternLabel, setPatternLabel] = useState(null);
       const LWC = typeof LightweightCharts !== "undefined" ? LightweightCharts : null;
+      const propTickerSymbol = typeof propTicker === "string" ? propTicker : String(propTicker?.ticker || propTicker?.symbol || propTicker?.sym || "");
       const mapped = useMemo(() => {
         if (!rawCandles || rawCandles.length < 2) return [];
         const tfMinutes = Number(chartTf);
@@ -993,31 +995,38 @@
         candleSeriesRef.current = candleSeries;
         firstDataLoadAppliedRef.current = false;
         lastMappedSigRef.current = null;
+        const restoreVisibleRange = () => {
+          const range = lastVisibleLogicalRangeRef.current;
+          if (!range || range.from == null || range.to == null) return;
+          try {
+            chart.timeScale().setVisibleLogicalRange(range);
+          } catch (_) {}
+        };
+        let axisWheelHandler = null;
+        let axisPointerHandler = null;
+        let priceScaleChangeHandler = null;
         try {
           const priceScale = chart.priceScale("right");
+          const axisInteract = () => {
+            try {
+              chart.priceScale("right").applyOptions({
+                autoScale: false
+              });
+            } catch (_) {}
+          };
           if (priceScale && typeof priceScale.subscribePriceScaleChanged === "function") {
-            priceScale.subscribePriceScaleChanged(() => {
-              try {
-                priceScale.applyOptions({
-                  autoScale: false
-                });
-              } catch (_) {}
-            });
+            priceScaleChangeHandler = axisInteract;
+            priceScale.subscribePriceScaleChanged(priceScaleChangeHandler);
           } else {
-            const axisInteract = () => {
-              try {
-                chart.priceScale("right").applyOptions({
-                  autoScale: false
-                });
-              } catch (_) {}
-            };
-            containerRef.current.addEventListener("wheel", axisInteract, {
-              passive: true
-            });
-            containerRef.current.addEventListener("mousedown", ev => {
+            axisWheelHandler = axisInteract;
+            axisPointerHandler = ev => {
               const rect = containerRef.current.getBoundingClientRect();
               if (ev.clientX > rect.right - 80) axisInteract();
+            };
+            containerRef.current.addEventListener("wheel", axisWheelHandler, {
+              passive: true
             });
+            containerRef.current.addEventListener("mousedown", axisPointerHandler);
           }
         } catch (_) {}
         chart.subscribeCrosshairMove(param => {
@@ -1043,6 +1052,18 @@
             barSpacing: _tfBarSpacing
           }
         });
+        let visibleRangeHandler = null;
+        try {
+          visibleRangeHandler = range => {
+            if (range && range.from != null && range.to != null) {
+              lastVisibleLogicalRangeRef.current = {
+                from: range.from,
+                to: range.to
+              };
+            }
+          };
+          chart.timeScale().subscribeVisibleLogicalRangeChange(visibleRangeHandler);
+        } catch (_) {}
         let resizeObserver = null;
         let resizeDebounce = null;
         let settleTimeout = null;
@@ -1060,6 +1081,7 @@
               }
               if (opts.width != null) {
                 chart.applyOptions(opts);
+                restoreVisibleRange();
               }
             }
           });
@@ -1079,6 +1101,7 @@
             }
             if (opts.width != null || opts.height != null) {
               chart.applyOptions(opts);
+              restoreVisibleRange();
             }
           }
         };
@@ -1096,7 +1119,7 @@
               });
               lastAppliedWidth = w;
             }
-            chart.timeScale().fitContent();
+            restoreVisibleRange();
           }
           settleTimeout = setTimeout(() => {
             if (containerRef.current && chart) {
@@ -1106,6 +1129,7 @@
                   width: w
                 });
                 lastAppliedWidth = w;
+                restoreVisibleRange();
               }
             }
           }, 150);
@@ -1117,6 +1141,18 @@
           cancelAnimationFrame(settleRaf);
           if (settleTimeout) clearTimeout(settleTimeout);
           if (resizeObserver) resizeObserver.disconnect();
+          if (containerRef.current && axisWheelHandler) containerRef.current.removeEventListener("wheel", axisWheelHandler);
+          if (containerRef.current && axisPointerHandler) containerRef.current.removeEventListener("mousedown", axisPointerHandler);
+          try {
+            if (priceScaleChangeHandler && typeof chart.priceScale("right").unsubscribePriceScaleChanged === "function") {
+              chart.priceScale("right").unsubscribePriceScaleChanged(priceScaleChangeHandler);
+            }
+          } catch (_) {}
+          try {
+            if (visibleRangeHandler && typeof chart.timeScale().unsubscribeVisibleLogicalRangeChange === "function") {
+              chart.timeScale().unsubscribeVisibleLogicalRangeChange(visibleRangeHandler);
+            }
+          } catch (_) {}
           levelPriceLinesRef.current = [];
           levelTrendSeriesRef.current = [];
           levelSigRef.current = null;
@@ -1126,7 +1162,7 @@
           candleSeriesRef.current = null;
           overlaySeriesRef.current = {};
         };
-      }, [chartTf, LWC, propHeight, propTicker?.ticker]);
+      }, [chartTf, LWC, propHeight, propTickerSymbol]);
       useEffect(() => {
         const chart = chartInstanceRef.current;
         const candleSeries = candleSeriesRef.current;
@@ -1138,9 +1174,15 @@
           return;
         }
         lastMappedSigRef.current = sig;
+        const shouldRestoreRange = firstDataLoadAppliedRef.current && lastVisibleLogicalRangeRef.current;
         try {
           candleSeries.setData(mapped);
         } catch (_) {}
+        if (shouldRestoreRange) {
+          try {
+            chart.timeScale().setVisibleLogicalRange(lastVisibleLogicalRangeRef.current);
+          } catch (_) {}
+        }
         for (const k of Object.keys(overlaySeriesRef.current)) {
           const v = overlaySeriesRef.current[k];
           if (Array.isArray(v)) {
@@ -1233,15 +1275,22 @@
               chart.timeScale().fitContent();
             } catch (_) {}
           }
+          try {
+            const range = chart.timeScale().getVisibleLogicalRange?.();
+            if (range && range.from != null && range.to != null) lastVisibleLogicalRangeRef.current = {
+              from: range.from,
+              to: range.to
+            };
+          } catch (_) {}
         }
       }, [mapped, indicatorData, propMarkers, chartTf, LWC]);
       useEffect(() => {
         const chart = chartInstanceRef.current;
         const candleSeries = candleSeriesRef.current;
         if (!chart || !candleSeries || !LWC || mapped.length < 15) return;
-        if (!propTicker || overlays?.levels === false) return;
+        if (!propTickerSymbol || overlays?.levels === false) return;
         let cancelled = false;
-        _rrFetchChartLevels(propTicker, String(chartTf), mapped).then(ovData => {
+        _rrFetchChartLevels(propTickerSymbol, String(chartTf), mapped).then(ovData => {
           if (cancelled || !ovData) return;
           const styleMap = {
             dotted: LWC.LineStyle.Dotted,
@@ -1317,7 +1366,7 @@
         return () => {
           cancelled = true;
         };
-      }, [propTicker?.ticker, chartTf, LWC, overlays?.levels, mapped.length >= 15 ? 1 : 0]);
+      }, [propTickerSymbol, chartTf, LWC, overlays?.levels, mapped.length >= 15 ? 1 : 0]);
       const _propPriceLinesSig = useMemo(() => {
         if (!Array.isArray(propPriceLines)) return "empty";
         return propPriceLines.map(pl => {
@@ -1466,8 +1515,8 @@
       if (prev.overlays !== next.overlays) return false;
       if (prev.height !== next.height) return false;
       if ((prev.hideOverlayToggles || false) !== (next.hideOverlayToggles || false)) return false;
-      const prevSym = prev.ticker?.ticker || "";
-      const nextSym = next.ticker?.ticker || "";
+      const prevSym = typeof prev.ticker === "string" ? prev.ticker : prev.ticker?.ticker || prev.ticker?.symbol || "";
+      const nextSym = typeof next.ticker === "string" ? next.ticker : next.ticker?.ticker || next.ticker?.symbol || "";
       if (prevSym !== nextSym) return false;
       const pc = Array.isArray(prev.candles) ? prev.candles : [];
       const nc = Array.isArray(next.candles) ? next.candles : [];
