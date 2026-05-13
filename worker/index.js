@@ -1291,6 +1291,9 @@ const ROUTES = [
   ["POST", "/timed/admin/restore-trade-from-da", "POST /timed/admin/restore-trade-from-da"],
   // P0.7.138 — bulk recovery from promoted_trades after a wipe.
   ["POST", "/timed/admin/restore-trades-from-promoted", "POST /timed/admin/restore-trades-from-promoted"],
+  // P0.7.141 — reconstruct entry-time shares / notional / SL / TPs for
+  // OPEN trades whose sizing fields were left NULL by an upstream restore.
+  ["POST", "/timed/admin/restore-trade-shares-from-trail", "POST /timed/admin/restore-trade-shares-from-trail"],
   ["POST", "/timed/admin/patch-trade-from-da", "POST /timed/admin/patch-trade-from-da"],
   ["POST", "/timed/admin/patch-trade-event-reason", "POST /timed/admin/patch-trade-event-reason"],
   ["POST", "/timed/admin/patch-trade-event-price", "POST /timed/admin/patch-trade-event-price"],
@@ -55802,6 +55805,401 @@ export default {
         }
       }
 
+      // POST /timed/admin/restore-trade-shares-from-trail
+      //   ?key=...                 (admin auth — also accepts admin cookie)
+      //   &trade_ids=A,B,C         (specific trade IDs; omit to scan all
+      //                             OPEN/TP_HIT_TRIM trades whose
+      //                             shares IS NULL or shares = 0)
+      //   &dry_run=1               (preview without writing)
+      //   &acct_value=112000       (override account_value used for sizing —
+      //                             defaults to account_ledger balance at
+      //                             entry_ts, falling back to most-recent
+      //                             balance, falling back to PORTFOLIO_START_CASH)
+      //   &min_atr_days=5          (minimum daily candles required to
+      //                             compute ATR; defaults to 5. Fewer
+      //                             than this skips the trade.)
+      //
+      // V15 P0.7.141 (2026-05-13) — Trail-walk shares + level restore.
+      //
+      // After the May 12-13 data wipe, the restore-trade-from-da path
+      // brought back trade rows with status / entry_price / setup info,
+      // but `shares` and `notional` were left NULL because DA does not
+      // store sizing. The Open Positions UI then rendered those trades
+      // with no progress bar (no SL / E / TP markers) and the trade
+      // tile said "Size —". This endpoint reconstructs the entry-time
+      // sizing and the SL / TP ladder using the same formulas the live
+      // entry pipeline uses:
+      //
+      //   1. Pull entry_price + risk_budget + direction from `trades`
+      //      (or fall back to `direction_accuracy`).
+      //   2. Compute Wilder ATR(14) on Daily candles ending at entry_ts
+      //      from `ticker_candles` (tf='D'). At least `min_atr_days`
+      //      candles must precede entry_ts.
+      //   3. Resolve `sl_atr_mult` from `ticker_profiles.sl_mult` — the
+      //      column-based fallback. Defaults to 1.5 when the profile is
+      //      missing or zero.
+      //   4. SL = entry ∓ atr × sl_atr_mult (LONG subtracts, SHORT adds).
+      //   5. TP1 / TP2 / TP3 = entry ± atr × {0.618, 1.0, 1.618} —
+      //      Saty-style fib ladder, same multipliers used by
+      //      `build3TierTPArray()` precision branch.
+      //   6. shares = (acct_value × risk_budget) / |entry - sl|.
+      //      Capped at 20% of acct_value notional (matches the live
+      //      sizing helper). Floored to MIN_NOTIONAL when the result
+      //      would be sub-tier.
+      //   7. notional = shares × entry_price.
+      //
+      // The endpoint UPDATEs (does NOT replace) `trades` setting only
+      // `shares` and `notional`. SL / TP estimates are returned in the
+      // response and (optionally) stamped into `entry_signals_json` for
+      // future read paths to consume. The endpoint is idempotent:
+      // re-running it on a trade with non-zero shares is a no-op
+      // unless `?force=1` is passed.
+      //
+      // Audited via `data_audit_log` op `RESTORE_TRADE_SHARES`.
+      if (routeKey === "POST /timed/admin/restore-trade-shares-from-trail") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const dryRun = url.searchParams.get("dry_run") === "1";
+          const force = url.searchParams.get("force") === "1";
+          const minAtrDays = Math.max(2, Number(url.searchParams.get("min_atr_days")) || 5);
+          const acctOverride = Number(url.searchParams.get("acct_value")) || 0;
+          const stampEntrySignals = url.searchParams.get("stamp_meta") !== "0"; // default ON
+
+          const tradeIdsRaw = url.searchParams.get("trade_ids") || "";
+          const tradeIds = tradeIdsRaw.split(",").map(s => s.trim()).filter(Boolean);
+
+          // Discover candidates: explicit list OR all open trades with
+          // missing shares/notional. We do NOT scan WIN/LOSS trades —
+          // closed trades' shares are baked into `pnl` and rewriting
+          // them would desync the ledger.
+          let candidates = [];
+          if (tradeIds.length > 0) {
+            const placeholders = tradeIds.map((_, i) => `?${i + 1}`).join(",");
+            const sql = `SELECT trade_id, ticker, direction, entry_ts, entry_price,
+                                shares, notional, status, risk_budget, setup_grade
+                           FROM trades WHERE trade_id IN (${placeholders})`;
+            candidates = (await db.prepare(sql).bind(...tradeIds).all())?.results || [];
+          } else {
+            const sql = `SELECT trade_id, ticker, direction, entry_ts, entry_price,
+                                shares, notional, status, risk_budget, setup_grade
+                           FROM trades
+                          WHERE status IN ('OPEN','TP_HIT_TRIM')
+                            AND (shares IS NULL OR shares = 0
+                                 OR notional IS NULL OR notional = 0
+                                 OR entry_price IS NULL OR entry_price = 0)`;
+            candidates = (await db.prepare(sql).all())?.results || [];
+          }
+
+          if (candidates.length === 0) {
+            return sendJSON({
+              ok: true,
+              dry_run: dryRun,
+              candidates: 0,
+              restored: [],
+              note: tradeIds.length > 0
+                ? "no trades matched the supplied trade_ids"
+                : "no OPEN/TP_HIT_TRIM trades have NULL shares/notional/entry_price",
+            }, 200, corsHeaders(env, req));
+          }
+
+          // Resolve fallback acct_value once (most recent ledger balance).
+          let fallbackAcctValue = acctOverride > 0 ? acctOverride : 0;
+          if (fallbackAcctValue <= 0) {
+            try {
+              const last = await db.prepare(
+                `SELECT balance FROM account_ledger WHERE mode = 'live' ORDER BY ts DESC LIMIT 1`
+              ).first();
+              if (last && Number(last.balance) > 0) fallbackAcctValue = Number(last.balance);
+            } catch (_) {}
+          }
+          if (fallbackAcctValue <= 0) fallbackAcctValue = PORTFOLIO_START_CASH;
+
+          const restored = [];
+          const SL_DEFAULT_MULT = 1.5;
+
+          // Saty-style fib ladder used by build3TierTPArray() precision branch.
+          const TP_FIB_MULTS = { TP1: 0.618, TP2: 1.0, TP3: 1.618 };
+
+          for (const t of candidates) {
+            const tid = String(t.trade_id || "");
+            const ticker = String(t.ticker || "").toUpperCase();
+            const direction = String(t.direction || "LONG").toUpperCase();
+            const isLong = direction === "LONG";
+            const entryTs = Number(t.entry_ts) || 0;
+
+            if (!tid || !ticker || entryTs <= 0) {
+              restored.push({ trade_id: tid, ok: false, reason: "missing_id_or_ticker_or_entry_ts" });
+              continue;
+            }
+
+            // Skip already-sized trades unless force=1.
+            const haveShares = Number(t.shares) > 0;
+            const haveNotional = Number(t.notional) > 0;
+            if (!force && haveShares && haveNotional && Number(t.entry_price) > 0) {
+              restored.push({ trade_id: tid, ticker, ok: true, skipped: true, reason: "already_sized" });
+              continue;
+            }
+
+            // Pull DA for the canonical entry context (entry_price, risk_budget).
+            const da = await db.prepare(
+              `SELECT entry_price, risk_budget, traded_direction, rr, setup_grade
+                 FROM direction_accuracy WHERE trade_id = ?1`
+            ).bind(tid).first();
+
+            const entryPrice = Number(t.entry_price) > 0
+              ? Number(t.entry_price)
+              : Number(da?.entry_price) || 0;
+            if (!(entryPrice > 0)) {
+              restored.push({ trade_id: tid, ticker, ok: false, reason: "no_entry_price_in_trades_or_da" });
+              continue;
+            }
+
+            // Risk budget: prefer trades.risk_budget, then DA, then tier default.
+            // Tier defaults match `getRiskTierByGrade()`/`computeRiskBasedSize`
+            // expectations: Prime 2%, Confirmed 1%, Speculative 0.5%, else 1%.
+            const setupGrade = String(t.setup_grade || da?.setup_grade || "").toLowerCase();
+            const tierDefault = setupGrade.includes("prime") ? 0.02
+              : setupGrade.includes("speculative") ? 0.005
+              : 0.01;
+            const riskBudget = Number(t.risk_budget) > 0
+              ? Number(t.risk_budget)
+              : Number(da?.risk_budget) > 0 ? Number(da.risk_budget)
+              : tierDefault;
+
+            // Wilder ATR(14) on Daily candles ENDING AT (i.e., last bar
+            // closed at or before) entry_ts.
+            const dailyRows = (await db.prepare(
+              `SELECT ts, h, l, c FROM ticker_candles
+                 WHERE ticker = ?1 AND tf = 'D' AND ts <= ?2
+                 ORDER BY ts DESC LIMIT 60`
+            ).bind(ticker, entryTs).all())?.results || [];
+            if (dailyRows.length < minAtrDays) {
+              restored.push({
+                trade_id: tid, ticker, ok: false,
+                reason: `insufficient_daily_candles_${dailyRows.length}_of_${minAtrDays}`,
+              });
+              continue;
+            }
+            // Reverse to chronological order before ATR computation.
+            const dailyChrono = dailyRows.slice().reverse();
+            const atr = (() => {
+              if (dailyChrono.length < 2) return 0;
+              const trs = [];
+              for (let i = 1; i < dailyChrono.length; i++) {
+                const h = Number(dailyChrono[i].h);
+                const l = Number(dailyChrono[i].l);
+                const pc = Number(dailyChrono[i - 1].c);
+                if (!Number.isFinite(h) || !Number.isFinite(l) || !Number.isFinite(pc)) continue;
+                trs.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+              }
+              if (trs.length === 0) return 0;
+              const n = Math.min(14, trs.length);
+              let a = trs.slice(0, n).reduce((s, x) => s + x, 0) / n;
+              for (let i = n; i < trs.length; i++) {
+                a = (a * (n - 1) + trs[i]) / n;
+              }
+              return a;
+            })();
+            if (!(atr > 0)) {
+              restored.push({ trade_id: tid, ticker, ok: false, reason: "atr_compute_failed" });
+              continue;
+            }
+
+            // Resolve sl_atr_mult from ticker_profiles.sl_mult (legacy
+            // column). If we extend `learning_json.entry_params.sl_atr_mult`
+            // resolution later, layer it in here. Default 1.5x ATR.
+            let slAtrMult = SL_DEFAULT_MULT;
+            try {
+              const prof = await db.prepare(
+                `SELECT sl_mult FROM ticker_profiles WHERE ticker = ?1`
+              ).bind(ticker).first();
+              if (prof && Number(prof.sl_mult) > 0) slAtrMult = Number(prof.sl_mult);
+            } catch (_) {}
+
+            const slDist = atr * slAtrMult;
+            const sl = isLong
+              ? Math.round((entryPrice - slDist) * 100) / 100
+              : Math.round((entryPrice + slDist) * 100) / 100;
+            const tp1 = isLong
+              ? Math.round((entryPrice + atr * TP_FIB_MULTS.TP1) * 100) / 100
+              : Math.round((entryPrice - atr * TP_FIB_MULTS.TP1) * 100) / 100;
+            const tp2 = isLong
+              ? Math.round((entryPrice + atr * TP_FIB_MULTS.TP2) * 100) / 100
+              : Math.round((entryPrice - atr * TP_FIB_MULTS.TP2) * 100) / 100;
+            const tp3 = isLong
+              ? Math.round((entryPrice + atr * TP_FIB_MULTS.TP3) * 100) / 100
+              : Math.round((entryPrice - atr * TP_FIB_MULTS.TP3) * 100) / 100;
+
+            // Resolve account_value at entry time from account_ledger.
+            let acctValue = acctOverride > 0 ? acctOverride : 0;
+            if (acctValue <= 0) {
+              try {
+                const bal = await db.prepare(
+                  `SELECT balance FROM account_ledger
+                     WHERE mode = 'live' AND ts <= ?1
+                     ORDER BY ts DESC LIMIT 1`
+                ).bind(entryTs).first();
+                if (bal && Number(bal.balance) > 0) acctValue = Number(bal.balance);
+              } catch (_) {}
+            }
+            if (acctValue <= 0) acctValue = fallbackAcctValue;
+
+            // Compute shares from risk-based sizing (no VIX dampener,
+            // no tape modulator — both unknown after-the-fact, both
+            // would only reduce size, so omitting them is conservative
+            // for this approximate restore).
+            const riskPerShare = Math.abs(entryPrice - sl);
+            if (!(riskPerShare > 0)) {
+              restored.push({ trade_id: tid, ticker, ok: false, reason: "zero_risk_per_share" });
+              continue;
+            }
+            const maxDollarRisk = acctValue * riskBudget;
+            let shares = maxDollarRisk / riskPerShare;
+            let notional = shares * entryPrice;
+
+            // 20% position cap (matches `computeRiskBasedSize`).
+            const maxPosNotional = acctValue * 0.20;
+            if (notional > maxPosNotional) {
+              notional = maxPosNotional;
+              shares = notional / entryPrice;
+            }
+            // Round shares to 4dp for fractional brokers, notional to 2dp.
+            shares = Math.round(shares * 10000) / 10000;
+            notional = Math.round(notional * 100) / 100;
+
+            // Build the meta payload that we (optionally) stamp into
+            // entry_signals_json so future restores can replay this
+            // exact reconstruction without reparsing.
+            const reconstructionMeta = {
+              source: "restore-trade-shares-from-trail",
+              reconstructed_at: Date.now(),
+              entry_price: entryPrice,
+              direction,
+              acct_value_used: acctValue,
+              risk_budget_used: riskBudget,
+              atr_used: Math.round(atr * 100) / 100,
+              sl_atr_mult_used: slAtrMult,
+              daily_candles_in_atr: dailyChrono.length,
+              shares_computed: shares,
+              notional_computed: notional,
+              sl_estimate: sl,
+              tp1_estimate: tp1,
+              tp2_estimate: tp2,
+              tp3_estimate: tp3,
+              tp_ladder_mults: TP_FIB_MULTS,
+              note: "Sizing approximated — VIX dampener / tape modulator / Kijun blend / structure shifts ignored. SL/TP are first-pass estimates; live engine will refine on next mgmt tick.",
+            };
+
+            if (!dryRun) {
+              if (stampEntrySignals) {
+                // Merge into existing entry_signals_json if present.
+                let existing = null;
+                try {
+                  const cur = await db.prepare(
+                    `SELECT entry_signals_json FROM trades WHERE trade_id = ?1`
+                  ).bind(tid).first();
+                  if (cur?.entry_signals_json) {
+                    try { existing = JSON.parse(cur.entry_signals_json); } catch { existing = null; }
+                  }
+                } catch (_) {}
+                const merged = existing && typeof existing === "object"
+                  ? { ...existing, _trail_walk_restore: reconstructionMeta }
+                  : { _trail_walk_restore: reconstructionMeta };
+                await db.prepare(
+                  `UPDATE trades
+                     SET entry_price = COALESCE(NULLIF(entry_price, 0), ?2),
+                         shares = ?3,
+                         notional = ?4,
+                         entry_signals_json = ?5,
+                         updated_at = ?6
+                   WHERE trade_id = ?1`
+                ).bind(tid, entryPrice, shares, notional, JSON.stringify(merged), Date.now()).run();
+              } else {
+                await db.prepare(
+                  `UPDATE trades
+                     SET entry_price = COALESCE(NULLIF(entry_price, 0), ?2),
+                         shares = ?3,
+                         notional = ?4,
+                         updated_at = ?5
+                   WHERE trade_id = ?1`
+                ).bind(tid, entryPrice, shares, notional, Date.now()).run();
+              }
+              // Sync positions row total_qty + cost_basis so the UI's
+              // remaining-shares math (positions.total_qty * (1-trimmed_pct))
+              // resolves to a meaningful number.
+              try {
+                await db.prepare(
+                  `UPDATE positions
+                     SET total_qty = ?2,
+                         cost_basis = ?3,
+                         updated_at = ?4
+                   WHERE position_id = ?1`
+                ).bind(tid, shares, entryPrice, Date.now()).run();
+              } catch (_) {}
+            }
+
+            restored.push({
+              trade_id: tid,
+              ticker,
+              ok: true,
+              dry_run: dryRun,
+              direction,
+              entry_price: entryPrice,
+              acct_value: acctValue,
+              risk_budget: riskBudget,
+              atr: Math.round(atr * 100) / 100,
+              sl_atr_mult: slAtrMult,
+              shares,
+              notional,
+              sl,
+              tp1,
+              tp2,
+              tp3,
+            });
+          }
+
+          // Audit (only when we actually wrote).
+          if (!dryRun) {
+            const wrote = restored.filter(r => r.ok && !r.skipped).length;
+            await auditDataChange(env, {
+              op: "RESTORE_TRADE_SHARES",
+              scope: tradeIds.length > 0
+                ? `trade_ids=${tradeIds.slice(0, 8).join(",")}${tradeIds.length > 8 ? "…" : ""}`
+                : "all_open_with_missing_shares",
+              caller: req?.url || "unknown",
+              rowsAffected: wrote,
+              meta: {
+                user_agent: req?.headers?.get?.("user-agent") || null,
+                acct_value_override: acctOverride || null,
+                candidates: candidates.length,
+                wrote,
+                skipped: restored.filter(r => r.skipped).length,
+                failed: restored.filter(r => !r.ok).length,
+              },
+            });
+          }
+
+          return sendJSON({
+            ok: true,
+            dry_run: dryRun,
+            candidates: candidates.length,
+            wrote: dryRun ? 0 : restored.filter(r => r.ok && !r.skipped).length,
+            skipped: restored.filter(r => r.skipped).length,
+            failed: restored.filter(r => !r.ok).length,
+            restored,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({
+            ok: false,
+            error: String(e?.message || e).slice(0, 300),
+            stack: String(e?.stack || "").slice(0, 600),
+          }, 500, corsHeaders(env, req));
+        }
+      }
+
       // GET /timed/admin/data-audit-log?op=&since_ms=&limit=&key=...
       // V15 P0.7.95: forensic view of every destructive data change.
       if (routeKey === "GET /timed/admin/data-audit-log") {
@@ -69722,7 +70120,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   ORDER BY exit_ts DESC
                   LIMIT 30`
               ).all())?.results || [];
-              const pulse = PhaseCLoops.loop2ComputePulse(recentRows, { window: 10 });
+              // V15 P0.7.141 (2026-05-13) — restore-aware WR/consec window.
+              // `loop2_breaker_max_age_hours` (default 168) lets DA tune the
+              // recency filter; pass through here so cron picks it up.
+              const _maxAgeHours = Number(_daCfg?.loop2_breaker_max_age_hours) || PhaseCLoops.LOOP2_DEFAULT_BREAKER_MAX_AGE_HOURS;
+              const pulse = PhaseCLoops.loop2ComputePulse(recentRows, { window: 10, maxAgeHours: _maxAgeHours });
               const evalRes = PhaseCLoops.loop2EvaluatePulse(pulse, _daCfg);
               await PhaseCLoops.loop2WritePulse(KV, pulse, evalRes, _daCfg);
               if (evalRes.trip) {
