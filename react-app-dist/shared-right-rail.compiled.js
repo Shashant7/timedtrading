@@ -746,6 +746,8 @@
       const overlaySeriesRef = useRef({});
       const levelPriceLinesRef = useRef([]);
       const levelTrendSeriesRef = useRef([]);
+      const levelSigRef = useRef(null);
+      const levelTrendSigRef = useRef(null);
       const firstDataLoadAppliedRef = useRef(false);
       const externalPriceLinesRef = useRef([]);
       const tdSeqMarkersRef = useRef([]);
@@ -1106,6 +1108,8 @@
           if (resizeObserver) resizeObserver.disconnect();
           levelPriceLinesRef.current = [];
           levelTrendSeriesRef.current = [];
+          levelSigRef.current = null;
+          levelTrendSigRef.current = null;
           chart.remove();
           chartInstanceRef.current = null;
           candleSeriesRef.current = null;
@@ -1228,50 +1232,60 @@
         let cancelled = false;
         _rrFetchChartLevels(propTicker, String(chartTf), mapped).then(ovData => {
           if (cancelled || !ovData) return;
-          for (const pl of levelPriceLinesRef.current) {
-            try {
-              candleSeries.removePriceLine(pl);
-            } catch (_) {}
-          }
-          levelPriceLinesRef.current = [];
-          for (const ls of levelTrendSeriesRef.current) {
-            try {
-              chart.removeSeries(ls);
-            } catch (_) {}
-          }
-          levelTrendSeriesRef.current = [];
           const styleMap = {
             dotted: LWC.LineStyle.Dotted,
             dashed: LWC.LineStyle.Dashed,
             solid: LWC.LineStyle.Solid
           };
-          for (const lvl of ovData.levels || []) {
-            try {
-              const pl = candleSeries.createPriceLine({
-                price: lvl.price,
-                color: lvl.color || "rgba(255,255,255,0.2)",
-                lineWidth: lvl.lineWidth || 1,
-                lineStyle: styleMap[lvl.style] || LWC.LineStyle.Dashed,
-                axisLabelVisible: true,
-                title: lvl.label || ""
-              });
-              levelPriceLinesRef.current.push(pl);
-            } catch (_) {}
+          const newLevels = Array.isArray(ovData.levels) ? ovData.levels : [];
+          const newSig = newLevels.map(l => `${Number(l.price).toFixed(4)}|${l.label || ""}|${l.style || ""}`).join(";");
+          if (levelSigRef.current !== newSig || levelPriceLinesRef.current.length !== newLevels.length) {
+            for (const pl of levelPriceLinesRef.current) {
+              try {
+                candleSeries.removePriceLine(pl);
+              } catch (_) {}
+            }
+            levelPriceLinesRef.current = [];
+            for (const lvl of newLevels) {
+              try {
+                const pl = candleSeries.createPriceLine({
+                  price: lvl.price,
+                  color: lvl.color || "rgba(255,255,255,0.2)",
+                  lineWidth: lvl.lineWidth || 1,
+                  lineStyle: styleMap[lvl.style] || LWC.LineStyle.Dashed,
+                  axisLabelVisible: true,
+                  title: lvl.label || ""
+                });
+                levelPriceLinesRef.current.push(pl);
+              } catch (_) {}
+            }
+            levelSigRef.current = newSig;
           }
-          for (const tl of ovData.trendlines || []) {
-            if (!tl.points || tl.points.length < 2) continue;
-            try {
-              const ls = chart.addLineSeries({
-                color: tl.color || "rgba(255,255,255,0.3)",
-                lineWidth: 2,
-                lineStyle: LWC.LineStyle.LargeDashed,
-                crosshairMarkerVisible: false,
-                priceLineVisible: false,
-                lastValueVisible: false
-              });
-              ls.setData(tl.points);
-              levelTrendSeriesRef.current.push(ls);
-            } catch (_) {}
+          const newTrendlines = Array.isArray(ovData.trendlines) ? ovData.trendlines : [];
+          const newTrendSig = newTrendlines.map(tl => `${tl.color || ""}|${(tl.points || []).map(p => `${p.time}:${Number(p.value).toFixed(4)}`).join(",")}`).join(";");
+          if (levelTrendSigRef.current !== newTrendSig || levelTrendSeriesRef.current.length !== newTrendlines.length) {
+            for (const ls of levelTrendSeriesRef.current) {
+              try {
+                chart.removeSeries(ls);
+              } catch (_) {}
+            }
+            levelTrendSeriesRef.current = [];
+            for (const tl of newTrendlines) {
+              if (!tl.points || tl.points.length < 2) continue;
+              try {
+                const ls = chart.addLineSeries({
+                  color: tl.color || "rgba(255,255,255,0.3)",
+                  lineWidth: 2,
+                  lineStyle: LWC.LineStyle.LargeDashed,
+                  crosshairMarkerVisible: false,
+                  priceLineVisible: false,
+                  lastValueVisible: false
+                });
+                ls.setData(tl.points);
+                levelTrendSeriesRef.current.push(ls);
+              } catch (_) {}
+            }
+            levelTrendSigRef.current = newTrendSig;
           }
           if (ovData.patterns?.length > 0) {
             const pMarkers = ovData.patterns.map(p => ({
@@ -1292,7 +1306,7 @@
         return () => {
           cancelled = true;
         };
-      }, [propTicker?.ticker, chartTf, mapped.length, LWC, overlays?.levels]);
+      }, [propTicker?.ticker, chartTf, LWC, overlays?.levels, mapped.length >= 15 ? 1 : 0]);
       useEffect(() => {
         const candleSeries = candleSeriesRef.current;
         if (!candleSeries) return;
@@ -4706,55 +4720,82 @@
           const isShort = pcDir === "SHORT";
           const aboveLabel = isShort ? "Invalidation Zone" : "Resistance";
           const belowLabel = isShort ? "Target Zones" : "Support";
-          const kindMeta = kind => {
-            if (kind === "year_high" || kind === "year_low") return {
-              color: "#f87171",
-              letter: "52W",
-              desc: "52-week extreme"
-            };
-            if (kind === "swing_high" || kind === "swing_low") return {
-              color: "#fbbf24",
-              letter: "SW",
-              desc: "Swing structure (D)"
-            };
-            if (kind === "swing_high_4h" || kind === "swing_low_4h") return {
-              color: "#fcd34d",
-              letter: "4H",
-              desc: "Swing structure (4H)"
-            };
-            if (kind === "prior_session_high" || kind === "prior_session_low") return {
-              color: "#a78bfa",
-              letter: "PD",
-              desc: "Prior day range"
-            };
-            if (kind === "pivot_high" || kind === "pivot_low") return {
-              color: "#34d399",
-              letter: "PV",
-              desc: "Multi-tested pivot"
-            };
-            if (kind === "pdz_premium" || kind === "pdz_discount" || kind === "pdz_eq") return {
-              color: "#60a5fa",
-              letter: "PDZ",
-              desc: "Premium/Discount/Equilibrium"
-            };
-            if (kind === "ema") return {
-              color: "rgba(96,165,250,0.6)",
-              letter: "EMA",
-              desc: "Daily EMA magnet"
-            };
+          const HIGH_KINDS = new Set(["year_high", "swing_high", "swing_high_4h", "prior_session_high", "pivot_high", "pdz_premium"]);
+          const LOW_KINDS = new Set(["year_low", "swing_low", "swing_low_4h", "prior_session_low", "pivot_low", "pdz_discount"]);
+          const isBroken = l => {
+            if (!l || !l.kind) return false;
+            if (HIGH_KINDS.has(l.kind) && l.role === "support") return true;
+            if (LOW_KINDS.has(l.kind) && l.role === "resistance") return true;
+            return false;
+          };
+          const kindMeta = (kind, broken) => {
+            const base = (() => {
+              if (kind === "year_high" || kind === "year_low") return {
+                color: "#f87171",
+                letter: "52W",
+                desc: "52-week extreme"
+              };
+              if (kind === "swing_high" || kind === "swing_low") return {
+                color: "#fbbf24",
+                letter: "SW",
+                desc: "Swing structure (D)"
+              };
+              if (kind === "swing_high_4h" || kind === "swing_low_4h") return {
+                color: "#fcd34d",
+                letter: "4H",
+                desc: "Swing structure (4H)"
+              };
+              if (kind === "prior_session_high" || kind === "prior_session_low") return {
+                color: "#a78bfa",
+                letter: "PD",
+                desc: "Prior day range"
+              };
+              if (kind === "pivot_high" || kind === "pivot_low") return {
+                color: "#34d399",
+                letter: "PV",
+                desc: "Multi-tested pivot"
+              };
+              if (kind === "pdz_premium" || kind === "pdz_discount" || kind === "pdz_eq") return {
+                color: "#60a5fa",
+                letter: "PDZ",
+                desc: "Premium/Discount/Equilibrium"
+              };
+              if (kind === "ema") return {
+                color: "rgba(96,165,250,0.6)",
+                letter: "EMA",
+                desc: "Daily EMA magnet"
+              };
+              return {
+                color: "var(--ds-text-muted)",
+                letter: "—",
+                desc: "Level"
+              };
+            })();
+            if (broken) {
+              const isHighKind = HIGH_KINDS.has(kind);
+              return {
+                ...base,
+                broken: true,
+                suffix: isHighKind ? " (broken — now support)" : " (broken — now resistance)",
+                desc: `${base.desc} · price has crossed this level — now acting as ${isHighKind ? "support" : "resistance"}`
+              };
+            }
             return {
-              color: "var(--ds-text-muted)",
-              letter: "—",
-              desc: "Level"
+              ...base,
+              broken: false,
+              suffix: ""
             };
           };
           const LevelRow = ({
             l,
             side
           }) => {
-            const m = kindMeta(l.kind);
+            const broken = isBroken(l);
+            const m = kindMeta(l.kind, broken);
             const dist = (Number(l.price) - px) / px * 100;
             const distColor = side === "res" ? "var(--ds-dn)" : "var(--ds-up)";
+            const borderColor = broken ? "rgba(156,163,175,0.40)" : m.color;
+            const labelColor = broken ? "var(--ds-text-faint)" : "var(--ds-text-body)";
             return React.createElement("div", {
               style: {
                 display: "grid",
@@ -4764,7 +4805,7 @@
                 padding: "5px 8px",
                 borderRadius: "var(--ds-radius-xs)",
                 background: "rgba(255,255,255,0.02)",
-                borderLeft: `3px solid ${m.color}`
+                borderLeft: `3px solid ${borderColor}`
               },
               title: `${m.desc} · weight ${l.weight}`
             }, React.createElement("span", {
@@ -4774,18 +4815,19 @@
                 fontWeight: 700,
                 color: m.color,
                 letterSpacing: "0.06em",
-                textAlign: "center"
+                textAlign: "center",
+                opacity: broken ? 0.65 : 1
               }
-            }, m.letter), React.createElement("span", {
+            }, broken ? "↻" : m.letter), React.createElement("span", {
               style: {
                 fontSize: "var(--ds-fs-meta)",
-                color: "var(--ds-text-body)",
+                color: labelColor,
                 fontFamily: "var(--tt-font-mono)"
               }
-            }, l.label || ""), React.createElement("span", {
+            }, l.label || "", m.suffix), React.createElement("span", {
               style: {
                 fontSize: "var(--ds-fs-meta)",
-                color: "var(--ds-text-display)",
+                color: broken ? "var(--ds-text-muted)" : "var(--ds-text-display)",
                 fontFamily: "var(--tt-font-mono)",
                 fontWeight: 700,
                 textAlign: "right"
@@ -4795,7 +4837,8 @@
                 fontSize: 9,
                 color: distColor,
                 fontFamily: "var(--tt-font-mono)",
-                textAlign: "right"
+                textAlign: "right",
+                opacity: broken ? 0.7 : 1
               }
             }, dist >= 0 ? "+" : "", dist.toFixed(2), "%"));
           };
@@ -8126,55 +8169,82 @@
         const isShort = pcDir === "SHORT";
         const aboveLabel = isShort ? "Invalidation Zone" : "Resistance";
         const belowLabel = isShort ? "Target Zones" : "Support";
-        const kindMeta = kind => {
-          if (kind === "year_high" || kind === "year_low") return {
-            color: "#f87171",
-            letter: "52W",
-            desc: "52-week extreme"
-          };
-          if (kind === "swing_high" || kind === "swing_low") return {
-            color: "#fbbf24",
-            letter: "SW",
-            desc: "Swing structure (D)"
-          };
-          if (kind === "swing_high_4h" || kind === "swing_low_4h") return {
-            color: "#fcd34d",
-            letter: "4H",
-            desc: "Swing structure (4H)"
-          };
-          if (kind === "prior_session_high" || kind === "prior_session_low") return {
-            color: "#a78bfa",
-            letter: "PD",
-            desc: "Prior day range"
-          };
-          if (kind === "pivot_high" || kind === "pivot_low") return {
-            color: "#34d399",
-            letter: "PV",
-            desc: "Multi-tested pivot"
-          };
-          if (kind === "pdz_premium" || kind === "pdz_discount" || kind === "pdz_eq") return {
-            color: "#60a5fa",
-            letter: "PDZ",
-            desc: "Premium/Discount/Equilibrium"
-          };
-          if (kind === "ema") return {
-            color: "rgba(96,165,250,0.6)",
-            letter: "EMA",
-            desc: "Daily EMA magnet"
-          };
+        const HIGH_KINDS = new Set(["year_high", "swing_high", "swing_high_4h", "prior_session_high", "pivot_high", "pdz_premium"]);
+        const LOW_KINDS = new Set(["year_low", "swing_low", "swing_low_4h", "prior_session_low", "pivot_low", "pdz_discount"]);
+        const isBroken = l => {
+          if (!l || !l.kind) return false;
+          if (HIGH_KINDS.has(l.kind) && l.role === "support") return true;
+          if (LOW_KINDS.has(l.kind) && l.role === "resistance") return true;
+          return false;
+        };
+        const kindMeta = (kind, broken) => {
+          const base = (() => {
+            if (kind === "year_high" || kind === "year_low") return {
+              color: "#f87171",
+              letter: "52W",
+              desc: "52-week extreme"
+            };
+            if (kind === "swing_high" || kind === "swing_low") return {
+              color: "#fbbf24",
+              letter: "SW",
+              desc: "Swing structure (D)"
+            };
+            if (kind === "swing_high_4h" || kind === "swing_low_4h") return {
+              color: "#fcd34d",
+              letter: "4H",
+              desc: "Swing structure (4H)"
+            };
+            if (kind === "prior_session_high" || kind === "prior_session_low") return {
+              color: "#a78bfa",
+              letter: "PD",
+              desc: "Prior day range"
+            };
+            if (kind === "pivot_high" || kind === "pivot_low") return {
+              color: "#34d399",
+              letter: "PV",
+              desc: "Multi-tested pivot"
+            };
+            if (kind === "pdz_premium" || kind === "pdz_discount" || kind === "pdz_eq") return {
+              color: "#60a5fa",
+              letter: "PDZ",
+              desc: "Premium/Discount/Equilibrium"
+            };
+            if (kind === "ema") return {
+              color: "rgba(96,165,250,0.6)",
+              letter: "EMA",
+              desc: "Daily EMA magnet"
+            };
+            return {
+              color: "var(--ds-text-muted)",
+              letter: "—",
+              desc: "Level"
+            };
+          })();
+          if (broken) {
+            const isHighKind = HIGH_KINDS.has(kind);
+            return {
+              ...base,
+              broken: true,
+              suffix: isHighKind ? " (broken — now support)" : " (broken — now resistance)",
+              desc: `${base.desc} · price has crossed this level — now acting as ${isHighKind ? "support" : "resistance"}`
+            };
+          }
           return {
-            color: "var(--ds-text-muted)",
-            letter: "—",
-            desc: "Level"
+            ...base,
+            broken: false,
+            suffix: ""
           };
         };
         const LevelRow = ({
           l,
           side
         }) => {
-          const m = kindMeta(l.kind);
+          const broken = isBroken(l);
+          const m = kindMeta(l.kind, broken);
           const dist = (Number(l.price) - px) / px * 100;
           const distColor = side === "res" ? "var(--ds-dn)" : "var(--ds-up)";
+          const borderColor = broken ? "rgba(156,163,175,0.40)" : m.color;
+          const labelColor = broken ? "var(--ds-text-faint)" : "var(--ds-text-body)";
           return React.createElement("div", {
             style: {
               display: "grid",
@@ -8184,7 +8254,7 @@
               padding: "5px 8px",
               borderRadius: "var(--ds-radius-xs)",
               background: "rgba(255,255,255,0.02)",
-              borderLeft: `3px solid ${m.color}`
+              borderLeft: `3px solid ${borderColor}`
             },
             title: `${m.desc} · weight ${l.weight}`
           }, React.createElement("span", {
@@ -8194,18 +8264,19 @@
               fontWeight: 700,
               color: m.color,
               letterSpacing: "0.06em",
-              textAlign: "center"
+              textAlign: "center",
+              opacity: broken ? 0.65 : 1
             }
-          }, m.letter), React.createElement("span", {
+          }, broken ? "↻" : m.letter), React.createElement("span", {
             style: {
               fontSize: "var(--ds-fs-meta)",
-              color: "var(--ds-text-body)",
+              color: labelColor,
               fontFamily: "var(--tt-font-mono)"
             }
-          }, l.label || ""), React.createElement("span", {
+          }, l.label || "", m.suffix), React.createElement("span", {
             style: {
               fontSize: "var(--ds-fs-meta)",
-              color: "var(--ds-text-display)",
+              color: broken ? "var(--ds-text-muted)" : "var(--ds-text-display)",
               fontFamily: "var(--tt-font-mono)",
               fontWeight: 700,
               textAlign: "right"
@@ -8215,7 +8286,8 @@
               fontSize: 9,
               color: distColor,
               fontFamily: "var(--tt-font-mono)",
-              textAlign: "right"
+              textAlign: "right",
+              opacity: broken ? 0.7 : 1
             }
           }, dist >= 0 ? "+" : "", dist.toFixed(2), "%"));
         };
