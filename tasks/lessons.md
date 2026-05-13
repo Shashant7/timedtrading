@@ -5,6 +5,49 @@
 
 ---
 
+## Trail-walk restore + restore-aware Loop 2 [2026-05-13]
+
+Session goal: close the remaining gaps from PR #124 (May 12-13 wipe recovery). Two surgical fixes shipped, then a third post-deploy fix when the live apply exposed an existing data-model bug.
+
+### `positions.cost_basis` is TOTAL cost, NOT per-share — convention bug pattern
+
+The codebase reads `entry_price = cost_basis / total_qty` in two places:
+- The API surface (line 34747 in `worker/index.js`, returned to frontend as the displayed entry price for open positions).
+- The management cron, which then UPSERTs the recomputed entry_price back into `trades` via `d1UpsertTrade`.
+
+So the convention is `positions.cost_basis = TOTAL cost (= shares × entry_price)`. If you write per-share by mistake, the corruption cascades within ~30 minutes:
+1. UI immediately displays bogus per-share entry (e.g. `$53.06 / 528 = $0.10`).
+2. Management cron recomputes and UPSERTs that bogus value into `trades.entry_price`.
+3. PnL calculations (`current_price - bogus_entry × shares`) explode (a $0.10 entry vs $53 current shows +52,000% gain).
+
+**Rule**: any write to `positions.cost_basis` MUST be `shares × entry_price`, and any restore endpoint that touches both `trades` and `positions` should sanity-check `entry_price >= $0.50` (penny stock floor) before propagating. Got bitten by this in `restore-trade-shares-from-trail` on first apply; repaired by re-binding `notional` (already `shares × entry_price`) to the cost_basis bind slot.
+
+### Sanity guards on restore endpoints — prefer DA over trades on the second pass
+
+When a restore endpoint runs against a partially-corrupted state, the trades table can carry already-bogus `entry_price` values (e.g. the cost_basis-cascade pattern above). If the endpoint's resolution order is `trades.entry_price ?? da.entry_price`, it inherits the corruption. Flip the order: **prefer DA** (canonical, write-once at entry time, never recomputed) and fall through to `trades` only when DA is missing. Add a hard floor (`< $0.50`) that refuses to apply, with a reason like `entry_price_below_floor_0.5_likely_corruption` so the operator gets a loud signal instead of a silent re-corruption.
+
+### Loop 2 circuit breaker needs a recency window after bulk restores
+
+`loop2ComputePulse` originally took the most-recent-by-exit_ts 10 closed trades regardless of when those exits actually happened. After a bulk historical restore, "the most recent 10 closed trades" can include 7-day-old losses that just landed in the trades table 30 seconds ago. The breaker reads them as "the engine's current performance" and trips immediately.
+
+**Fix**: filter the rolling WR + consec-loss windows to trades whose `exit_ts` falls within the last `loop2_breaker_max_age_hours` hours (default 168 = 7 days; covers a long weekend without dragging in last week's drawdown). And require at least `loop2_breaker_min_recent_for_wr` trades (default 5) inside the recency window before tripping on WR — protects against a 1-restore-loss firing 0% WR over n=1.
+
+Today-PnL is unchanged because it already filters by wall-clock today (naturally restore-safe).
+
+Backtest replay uses the same recency filter against simulated `nowMs`, which matches the intended sequential-session behavior.
+
+### Hardcoded "replay_entry" in code paths shared by live + replay
+
+`runInvestorDailyReplay()` is named "Replay" but is actually the daily investor-rebalance entry path used by BOTH historical replays AND the live cron. It hard-coded `reason='replay_entry'` on every BUY lot. The Lot History tab in production then read like a backtest.
+
+**Pattern**: if a function takes a `replayCtx` parameter and uses it elsewhere (e.g. to skip dispatching trade-alert emails during replay), use it ALSO to gate any audit-trail string that ends up in the user-facing UI. Live writes get `'investor_buy'`; replay writes get `'replay_entry'`. Apply the same scrutiny to any other shared-code-path string literal that the operator will read.
+
+### Workflow: dry-run BEFORE apply on every restore endpoint
+
+The `?dry_run=1` parameter on `restore-trade-shares-from-trail` saved a much bigger blast radius. Every destructive admin endpoint with sizing/PnL implications should support dry-run as a first-class parameter, return the same response shape (just with `dry_run: true`), and emit no audit-log row when dry. Operators learn fast to default to dry-run first; the cost of `?dry_run=1` is one curl flag and saves multi-hour D1 surgery on the bad path.
+
+---
+
 ## Live-system hardening session [2026-05-11 / 12]
 
 Big reliability + cost session. Five PRs landed (#114, #116 still open at time of write); user concerns surfaced sequentially: SNDK price stale, D1 cost spike, fragile TV webhooks, missing telemetry. All addressed without regressions. Lessons from the work (so future sessions don't relitigate the same decisions):
