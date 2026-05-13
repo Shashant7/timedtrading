@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Timed Trading — Live Proof</title>
+  <meta name="description" content="Live equity curve, win rate, and trade ledger for Timed Trading's Active Trader system. Updated daily. Not financial advice." />
+  <meta property="og:title" content="Timed Trading — Live Proof" />
+  <meta property="og:description" content="Audited live performance — equity curve, win rate, and 30-day top wins + losses. Updated daily. Not financial advice." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://timed-trading.com/proof.html" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="preconnect" href="https://timed-trading-ingest.shashant.workers.dev" />
+  <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+  <style>
+    :root {
+      --bg-canvas: #0A0D11;
+      --bg-surface: #13171D;
+      --bg-glass: rgba(255, 255, 255, 0.02);
+      --border: rgba(255, 255, 255, 0.06);
+      --border-strong: rgba(255, 255, 255, 0.10);
+      --text-0: #ffffff;
+      --text-1: #e5e7eb;
+      --text-2: #9ca3af;
+      --text-3: #6b7280;
+      --text-4: #4b5563;
+      --accent: #F5C25C;
+      --up: #22c55e;
+      --dn: #ef4444;
+      --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Helvetica, Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg-canvas); color: var(--text-1);
+                 font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .hdr {
+      border-bottom: 1px solid var(--border);
+      padding: 18px 24px;
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      flex-wrap: wrap;
+    }
+    .hdr-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; color: var(--text-0); }
+    .hdr-brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+    .hdr-meta { font-family: var(--mono); font-size: 11px; color: var(--text-3); letter-spacing: 0.04em; }
+    .hdr-cta { display: flex; gap: 8px; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 14px; border-radius: 8px;
+      font-size: 13px; font-weight: 600;
+      border: 1px solid var(--border-strong);
+      background: var(--bg-glass);
+      color: var(--text-1);
+      transition: all 120ms ease;
+    }
+    .btn:hover { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.18); text-decoration: none; }
+    .btn-primary { background: var(--accent); color: #0A0D11; border-color: var(--accent); }
+    .btn-primary:hover { background: #ffd47a; color: #0A0D11; }
+
+    .container { max-width: 1100px; margin: 0 auto; padding: 32px 24px 80px; }
+    .eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
+               color: var(--accent); margin-bottom: 8px; }
+    h1 { font-size: 28px; font-weight: 700; margin: 0 0 6px; color: var(--text-0); letter-spacing: -0.01em; }
+    .lede { font-size: 14px; color: var(--text-2); line-height: 1.6; margin: 0 0 24px; max-width: 720px; }
+    .lede strong { color: var(--text-1); }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .kpi {
+      padding: 16px 18px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    .kpi-label { font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase;
+                 color: var(--text-3); margin-bottom: 6px; }
+    .kpi-value { font-family: var(--mono); font-size: 22px; font-weight: 700; color: var(--text-0);
+                 line-height: 1.1; letter-spacing: -0.01em; }
+    .kpi-sub { font-family: var(--mono); font-size: 10px; color: var(--text-3); margin-top: 4px; }
+    .up { color: var(--up); }
+    .dn { color: var(--dn); }
+
+    .panel {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px 20px 16px;
+      margin-bottom: 18px;
+    }
+    .panel-hdr {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .panel-title { font-size: 13px; font-weight: 700; color: var(--text-1); letter-spacing: -0.01em; }
+    .panel-meta { font-family: var(--mono); font-size: 10px; color: var(--text-3); letter-spacing: 0.06em; }
+
+    #equityChart { width: 100%; height: 320px; border-radius: 6px; overflow: hidden; }
+
+    .twocol { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    @media (max-width: 740px) { .twocol { grid-template-columns: 1fr; } }
+
+    .trade-list { display: flex; flex-direction: column; gap: 6px; }
+    .trade-row {
+      display: grid;
+      grid-template-columns: 60px 1fr 80px 80px;
+      gap: 10px;
+      padding: 8px 10px;
+      background: var(--bg-glass);
+      border-radius: 6px;
+      align-items: center;
+      font-size: 12px;
+    }
+    .trade-row .ticker { font-family: var(--mono); font-weight: 700; color: var(--text-0); font-size: 13px; }
+    .trade-row .date { font-family: var(--mono); color: var(--text-3); font-size: 11px; }
+    .trade-row .pnl { font-family: var(--mono); font-weight: 700; text-align: right; }
+    .trade-row .pct { font-family: var(--mono); font-weight: 600; text-align: right; font-size: 11px; }
+
+    .loading { color: var(--text-3); font-size: 12px; padding: 8px 0; }
+    .error { color: var(--dn); font-size: 12px; padding: 8px 0; }
+
+    .disclaimer {
+      margin-top: 32px; padding: 14px 16px;
+      background: var(--bg-glass); border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 11px; color: var(--text-3); line-height: 1.6;
+    }
+    .disclaimer strong { color: var(--text-2); }
+    footer { margin-top: 24px; text-align: center; font-size: 11px; color: var(--text-4); }
+    footer a { color: var(--text-3); }
+  </style>
+</head>
+<body>
+
+<header class="hdr">
+  <div class="hdr-brand">
+    <span class="hdr-brand-dot"></span>
+    <span>Timed Trading</span>
+    <span class="hdr-meta" id="updatedAt">Loading…</span>
+  </div>
+  <div class="hdr-cta">
+    <a class="btn" href="/">Home</a>
+    <a class="btn btn-primary" href="/?utm_source=proof&utm_medium=page&utm_campaign=cta">Get the Daily Brief →</a>
+  </div>
+</header>
+
+<main class="container">
+  <div class="eyebrow">Live Proof</div>
+  <h1>The actual performance of the live system.</h1>
+  <p class="lede">
+    Audited equity curve, win rate, and trade ledger for the Active Trader system since
+    <strong>July 1, 2025</strong>. No backtest, no cherry picks, no hindsight. Updated every day after the close.
+    Both wins <strong>and losses</strong> shown.
+  </p>
+
+  <div class="kpi-grid" id="kpiGrid">
+    <div class="kpi"><div class="kpi-label">Account Value</div><div class="kpi-value" id="kpiAccount">—</div><div class="kpi-sub" id="kpiAccountSub">$100K start</div></div>
+    <div class="kpi"><div class="kpi-label">Total P&amp;L</div><div class="kpi-value" id="kpiTotal">—</div><div class="kpi-sub" id="kpiTotalSub">since Jul 1, 2025</div></div>
+    <div class="kpi"><div class="kpi-label">Realized P&amp;L</div><div class="kpi-value" id="kpiRealized">—</div><div class="kpi-sub" id="kpiRealizedSub">closed trades</div></div>
+    <div class="kpi"><div class="kpi-label">Closed Trades</div><div class="kpi-value" id="kpiTrades">—</div><div class="kpi-sub" id="kpiTradesSub">—</div></div>
+    <div class="kpi"><div class="kpi-label">Win Rate</div><div class="kpi-value" id="kpiWR">—</div><div class="kpi-sub" id="kpiWRSub">—</div></div>
+    <div class="kpi"><div class="kpi-label">Max Drawdown</div><div class="kpi-value" id="kpiDD">—</div><div class="kpi-sub" id="kpiDDSub">peak-to-trough</div></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hdr">
+      <div class="panel-title">Equity Curve</div>
+      <div class="panel-meta" id="curveRange">—</div>
+    </div>
+    <div id="equityChart"></div>
+    <div id="curveError" class="error" style="display:none"></div>
+  </div>
+
+  <div class="twocol">
+    <div class="panel">
+      <div class="panel-hdr">
+        <div class="panel-title">Top 5 Wins · Last 30 Days</div>
+        <div class="panel-meta">Real trades</div>
+      </div>
+      <div class="trade-list" id="topWins"><div class="loading">Loading…</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-hdr">
+        <div class="panel-title">Top 5 Losses · Last 30 Days</div>
+        <div class="panel-meta">No selection bias</div>
+      </div>
+      <div class="trade-list" id="topLosses"><div class="loading">Loading…</div></div>
+    </div>
+  </div>
+
+  <div class="disclaimer">
+    <strong>For informational and educational purposes only.</strong> Not investment advice.
+    Past performance does not guarantee future results. All trading involves risk of loss.
+    Numbers reflect a system-managed paper-traded account starting from $100,000 USD on July 1, 2025;
+    they do not include broker fees, slippage on live execution, or taxes. The system is operated by
+    Timed Trading and is not personalised to any individual investor's circumstances.
+    Market data powered by Twelve Data.
+  </div>
+
+  <footer>
+    <a href="/">timed-trading.com</a> · <a href="mailto:support@timed-trading.com">support@timed-trading.com</a> ·
+    <a href="/faq.html">FAQ</a>
+  </footer>
+</main>
+
+<script>
+(() => {
+  const API = "https://timed-trading-ingest.shashant.workers.dev";
+
+  const fmtUsd = (n) => {
+    if (!Number.isFinite(n)) return "—";
+    const abs = Math.abs(n);
+    const sign = n < 0 ? "-" : "";
+    if (abs >= 1_000_000) return `${sign}$${(abs / 1e6).toFixed(2)}M`;
+    if (abs >= 10_000) return `${sign}$${(abs / 1000).toFixed(1)}K`;
+    if (abs >= 1000) return `${sign}$${abs.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+    return `${sign}$${abs.toFixed(2)}`;
+  };
+  const fmtPct = (p) => Number.isFinite(p) ? `${p >= 0 ? "+" : ""}${p.toFixed(2)}%` : "—";
+  const fmtPctNoSign = (p) => Number.isFinite(p) ? `${p.toFixed(2)}%` : "—";
+  const fmtDate = (s) => {
+    try {
+      const d = new Date(s);
+      return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    } catch { return s || "—"; }
+  };
+  const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  const setHTML = (id, v) => { const el = document.getElementById(id); if (el) el.innerHTML = v; };
+  const setClass = (id, cls) => { const el = document.getElementById(id); if (el) el.className = cls; };
+
+  // ── KPIs from /timed/account-summary ─────────────────────────────────
+  async function loadAccount() {
+    try {
+      const res = await fetch(`${API}/timed/account-summary?mode=trader`, { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const j = await res.json();
+      if (!j.ok) throw new Error(j.error || "no_data");
+      const startCash = Number(j.startCash) || 100000;
+      const account = Number(j.accountValue) || 0;
+      const realized = Number(j.totalRealized) || 0;
+      const unrealized = Number(j.unrealized) || 0;
+      const total = realized + unrealized;
+      const totalPct = startCash > 0 ? (total / startCash) * 100 : 0;
+      setText("kpiAccount", fmtUsd(account));
+      setText("kpiTotal", `${total >= 0 ? "+" : ""}${fmtUsd(total)}`);
+      setText("kpiTotalSub", `${fmtPct(totalPct)} since Jul 1, 2025`);
+      const totalEl = document.getElementById("kpiTotal");
+      if (totalEl) totalEl.classList.add(total >= 0 ? "up" : "dn");
+      setText("kpiRealized", `${realized >= 0 ? "+" : ""}${fmtUsd(realized)}`);
+      const realEl = document.getElementById("kpiRealized");
+      if (realEl) realEl.classList.add(realized >= 0 ? "up" : "dn");
+      setText("kpiRealizedSub", `${unrealized >= 0 ? "+" : ""}${fmtUsd(unrealized)} unrealized open`);
+      // Header timestamp
+      try {
+        const ts = new Date(j.generated_at);
+        setText("updatedAt", `Updated ${ts.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" })}`);
+      } catch (_) {}
+    } catch (e) {
+      setText("kpiAccount", "—");
+    }
+  }
+
+  // ── Equity curve from /timed/portfolio/equity-curve ──────────────────
+  async function loadEquityCurve() {
+    try {
+      const res = await fetch(`${API}/timed/portfolio/equity-curve?mode=trader`, { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const j = await res.json();
+      const tr = j.trader || {};
+      const points = Array.isArray(tr.points) ? tr.points : [];
+      if (points.length < 2) {
+        document.getElementById("curveError").style.display = "block";
+        document.getElementById("curveError").textContent = "No equity-curve data yet.";
+        return;
+      }
+      // Drawdown across full history
+      let peak = -Infinity;
+      let maxDD = 0;
+      for (const p of points) {
+        const eq = Number(p.equity) || 0;
+        if (eq > peak) peak = eq;
+        if (peak > 0) {
+          const dd = ((eq - peak) / peak) * 100;
+          if (dd < maxDD) maxDD = dd;
+        }
+      }
+      setText("kpiDD", fmtPctNoSign(maxDD));
+      setClass("kpiDD", "kpi-value " + (maxDD < -1 ? "dn" : ""));
+
+      const first = points[0];
+      const last = points[points.length - 1];
+      setText("curveRange", `${fmtDate(first.date)} → ${fmtDate(last.date)} · ${points.length} sessions`);
+
+      // Render LightweightCharts area chart
+      const el = document.getElementById("equityChart");
+      el.innerHTML = "";
+      const chart = LightweightCharts.createChart(el, {
+        layout: { background: { color: "transparent" }, textColor: "#9ca3af", fontFamily: "var(--mono)" },
+        grid: { vertLines: { color: "rgba(255,255,255,0.04)" }, horzLines: { color: "rgba(255,255,255,0.04)" } },
+        rightPriceScale: { borderColor: "rgba(255,255,255,0.08)" },
+        timeScale: { borderColor: "rgba(255,255,255,0.08)", timeVisible: false },
+        crosshair: { mode: 1 },
+        height: 320,
+        autoSize: true,
+      });
+      const lastEq = Number(last.equity) || 100000;
+      const startEq = Number(first.equity) || 100000;
+      const isUp = lastEq >= startEq;
+      const series = chart.addAreaSeries({
+        lineColor: isUp ? "#22c55e" : "#ef4444",
+        topColor: isUp ? "rgba(34,197,94,0.30)" : "rgba(239,68,68,0.30)",
+        bottomColor: isUp ? "rgba(34,197,94,0.02)" : "rgba(239,68,68,0.02)",
+        lineWidth: 2,
+      });
+      series.setData(points.map((p) => ({ time: p.date, value: Number(p.equity) || 0 })));
+      // baseline at start cash
+      try {
+        const baseline = chart.addLineSeries({
+          color: "rgba(245,194,92,0.40)",
+          lineWidth: 1,
+          lineStyle: 2,
+          priceLineVisible: false,
+          lastValueVisible: false,
+        });
+        baseline.setData([
+          { time: points[0].date, value: 100000 },
+          { time: points[points.length - 1].date, value: 100000 },
+        ]);
+      } catch (_) {}
+      chart.timeScale().fitContent();
+
+      // Resize handler
+      const ro = new ResizeObserver(() => {
+        try { chart.applyOptions({ width: el.clientWidth, height: 320 }); } catch (_) {}
+      });
+      ro.observe(el);
+    } catch (e) {
+      const ee = document.getElementById("curveError");
+      if (ee) { ee.style.display = "block"; ee.textContent = "Equity-curve failed to load."; }
+    }
+  }
+
+  // ── Closed trades → KPI win rate + top wins/losses (last 30d) ────────
+  async function loadTrades() {
+    try {
+      const since = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      const res = await fetch(
+        `${API}/timed/ledger/trades?status=WIN,LOSS&limit=500`,
+        { cache: "no-store" },
+      );
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const j = await res.json();
+      const all = (j.trades || []).filter((t) => {
+        const s = String(t.status || "").toUpperCase();
+        return s === "WIN" || s === "LOSS";
+      });
+      // Closed-trades KPI uses ALL closed (since launch)
+      const wins = all.filter((t) => String(t.status).toUpperCase() === "WIN").length;
+      const losses = all.length - wins;
+      const wr = all.length > 0 ? (wins / all.length) * 100 : 0;
+      setText("kpiTrades", String(all.length));
+      setText("kpiTradesSub", `${wins}W · ${losses}L`);
+      setText("kpiWR", `${wr.toFixed(1)}%`);
+      setText("kpiWRSub", `${wins} wins / ${all.length} trades`);
+
+      // Top 5 wins / losses for the last 30 days, by absolute PnL %
+      const recent = all.filter((t) => Number(t.exit_ts || 0) >= since);
+      const sortedByPnlPct = [...recent].sort((a, b) => (Number(b.pnl_pct) || 0) - (Number(a.pnl_pct) || 0));
+      const topWins = sortedByPnlPct.slice(0, 5);
+      const topLosses = sortedByPnlPct.slice(-5).reverse();
+
+      const renderRow = (t) => {
+        const pnl = Number(t.pnl) || 0;
+        const pct = Number(t.pnl_pct) || 0;
+        const cls = pnl >= 0 ? "up" : "dn";
+        const dt = t.exit_ts ? fmtDate(new Date(Number(t.exit_ts)).toISOString()) : "—";
+        const ticker = String(t.ticker || "—").toUpperCase();
+        return `<div class="trade-row">
+          <span class="ticker">${ticker}</span>
+          <span class="date">${dt}</span>
+          <span class="pnl ${cls}">${pnl >= 0 ? "+" : ""}${fmtUsd(pnl)}</span>
+          <span class="pct ${cls}">${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%</span>
+        </div>`;
+      };
+      setHTML("topWins", topWins.length > 0 ? topWins.map(renderRow).join("") : '<div class="loading">No wins in the last 30 days.</div>');
+      setHTML("topLosses", topLosses.length > 0 ? topLosses.map(renderRow).join("") : '<div class="loading">No losses in the last 30 days.</div>');
+    } catch (e) {
+      setHTML("topWins", '<div class="error">Trade ledger unavailable.</div>');
+      setHTML("topLosses", '<div class="error">Trade ledger unavailable.</div>');
+    }
+  }
+
+  // Kick everything off in parallel.
+  loadAccount();
+  loadEquityCurve();
+  loadTrades();
+  // Refresh every 5 minutes (the source endpoints update on cron tick).
+  setInterval(() => { loadAccount(); loadEquityCurve(); loadTrades(); }, 5 * 60 * 1000);
+})();
+</script>
+
+</body>
+</html>
