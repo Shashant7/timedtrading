@@ -148,10 +148,30 @@ const LOOP2_PAUSE_KEY = "phase-c:engine-paused";
 const LOOP2_DEFAULT_BREAKER_WR = 0.30;       // last-10 WR < 30% → trip
 const LOOP2_DEFAULT_BREAKER_DAY_PNL = -1.5;  // today PnL < -1.5% → trip
 const LOOP2_DEFAULT_BREAKER_CONSEC_LOSS = 4; // 4 consecutive losses → trip
+// V15 P0.7.141 (2026-05-13) — restore-aware time window. Trades whose
+// `exit_ts` is older than this max-age are excluded from the rolling
+// WR / consec-loss window. Without this guard, a bulk restore that
+// re-inserts historical closed trades into the ledger trips the
+// breaker the next time the pulse fires, even though those losses
+// happened weeks ago. Default 7 days covers a long weekend without
+// counting last week's drawdown as "right now". Live wall-clock by
+// default; backtests use the simulated `nowMs`.
+const LOOP2_DEFAULT_BREAKER_MAX_AGE_HOURS = 168; // 7 days
+// And: don't trip the WR rule unless the recency-filtered window has
+// at least this many trades. Prevents the breaker from firing off a
+// 1-trade restore that happens to be a loss.
+const LOOP2_DEFAULT_BREAKER_MIN_RECENT_FOR_WR = 5;
 
 /**
  * Compute the pulse from the most recent N closed trades.
  * `trades` is a chronological list with status, pnl_pct, exit_ts.
+ *
+ * `opts.maxAgeHours` lets the caller scope the WR / consecutive-loss
+ * windows to trades that ACTUALLY exited recently. This prevents bulk
+ * historical restores (e.g. re-inserting last week's closed losses
+ * after a wipe) from pretending to be "the engine's current
+ * performance". Default 168h (7 days). Live wall-clock by default.
+ * Set to 0 to disable the recency filter (legacy behavior).
  */
 function loop2ComputePulse(trades, opts = {}) {
   const window = Number(opts.window) || 10;
@@ -159,27 +179,44 @@ function loop2ComputePulse(trades, opts = {}) {
   // instead of the wall-clock date. Live cron leaves it undefined so it
   // continues to use real Date.now().
   const nowMs = Number(opts.nowMs) || Date.now();
-  const closed = (Array.isArray(trades) ? trades : [])
+  const maxAgeHours = Number.isFinite(Number(opts.maxAgeHours))
+    ? Number(opts.maxAgeHours)
+    : LOOP2_DEFAULT_BREAKER_MAX_AGE_HOURS;
+  const maxAgeMs = maxAgeHours > 0 ? maxAgeHours * 60 * 60 * 1000 : 0;
+  const earliestRecentMs = maxAgeMs > 0 ? (nowMs - maxAgeMs) : 0;
+
+  const closedAll = (Array.isArray(trades) ? trades : [])
     .filter((t) => {
       const s = String(t.status || "").toUpperCase();
       return s === "WIN" || s === "LOSS" || s === "FLAT";
     })
     .sort((a, b) => Number(a.exit_ts || 0) - Number(b.exit_ts || 0));
+
+  // Recency-filtered set used by the rolling WR + consec-loss windows.
+  // We do NOT touch the today-PnL set — that already filters by today's
+  // boundary so it's naturally restore-safe.
+  const closed = earliestRecentMs > 0
+    ? closedAll.filter((t) => Number(t.exit_ts || 0) >= earliestRecentMs && Number(t.exit_ts || 0) <= nowMs)
+    : closedAll;
+
   const last = closed.slice(-window);
   const wins = last.filter((t) => String(t.status).toUpperCase() === "WIN").length;
   const last10WR = last.length > 0 ? wins / last.length : null;
 
-  // Today P&L: sum pnl_pct of trades that exited today (NY tz, but UTC date is fine for engine purposes)
+  // Today P&L: sum pnl_pct of trades that exited today (NY tz, but UTC date is fine for engine purposes).
+  // Always read from `closedAll`; today's window already restricts to wall-clock today, so a recency
+  // filter would be redundant.
   const todayBoundaryMs = (() => {
     const d = new Date(nowMs);
     return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
   })();
-  const todayClosed = closed.filter(
+  const todayClosed = closedAll.filter(
     (t) => Number(t.exit_ts || 0) >= todayBoundaryMs && Number(t.exit_ts || 0) <= nowMs
   );
   const todayPnl = todayClosed.reduce((s, t) => s + (Number(t.pnl_pct) || 0), 0);
 
-  // Consecutive losses going back from most recent
+  // Consecutive losses going back from most recent — bound to the recency window so a bulk
+  // historical restore can't pretend the cluster is "currently happening".
   let consecLoss = 0;
   for (let i = closed.length - 1; i >= 0; i--) {
     if (String(closed[i].status).toUpperCase() === "LOSS") consecLoss += 1;
@@ -193,6 +230,11 @@ function loop2ComputePulse(trades, opts = {}) {
     today_n: todayClosed.length,
     consec_losses: consecLoss,
     pulse_ts_ms: nowMs,
+    // Restore-aware diagnostics. Lets the evaluator + UI explain WHY a
+    // pulse looks healthy even if the raw ledger row count is large.
+    recent_max_age_hours: maxAgeHours,
+    closed_total: closedAll.length,
+    closed_recent: closed.length,
   };
 }
 
@@ -205,7 +247,13 @@ function loop2EvaluatePulse(pulse, daCfg) {
   const wrCap = Number(daCfg?.loop2_breaker_wr) || LOOP2_DEFAULT_BREAKER_WR;
   const dayCap = Number(daCfg?.loop2_breaker_day_pnl) || LOOP2_DEFAULT_BREAKER_DAY_PNL;
   const consecCap = Number(daCfg?.loop2_breaker_consec_loss) || LOOP2_DEFAULT_BREAKER_CONSEC_LOSS;
-  if (pulse.last10_n >= 10 && pulse.last10_wr != null && pulse.last10_wr < wrCap) {
+  // V15 P0.7.141 (2026-05-13) — minimum recent-window size before the
+  // WR rule can trip. Without this, a single recent loss inside a 7d
+  // window (because most ledger losses are older than 7d after a
+  // restore) reads as 0% WR over n=1 and trips immediately.
+  const minRecentForWr = Number(daCfg?.loop2_breaker_min_recent_for_wr)
+    || LOOP2_DEFAULT_BREAKER_MIN_RECENT_FOR_WR;
+  if (pulse.last10_n >= Math.max(10, minRecentForWr) && pulse.last10_wr != null && pulse.last10_wr < wrCap) {
     return { trip: true, reason: `wr_${(pulse.last10_wr * 100).toFixed(0)}` };
   }
   if (pulse.today_n >= 3 && pulse.today_pnl_pct < dayCap) {
@@ -458,6 +506,8 @@ export {
   loop2ReadPause,
   loop2AdviseEntry,
   loop2ResetBreaker,
+  LOOP2_DEFAULT_BREAKER_MAX_AGE_HOURS,
+  LOOP2_DEFAULT_BREAKER_MIN_RECENT_FOR_WR,
   // Loop 3
   loop3ProfileFor,
   loop3ShouldCutFlat,

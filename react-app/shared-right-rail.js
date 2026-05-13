@@ -1169,6 +1169,25 @@
       // V15 P0.7.99 — PRICE-LINES effect: applies external SL/TP/Entry lines
       // passed via propPriceLines. Decoupled from the chart instance so
       // these can update without recreating the canvas.
+      //
+      // V15 P0.7.144 (2026-05-13) — flicker fix. Even though the parent
+      // memoizes propPriceLines, the array reference changes every cron
+      // tick when ticker.sl / ticker.tp_* are recomputed (even if the
+      // numeric values don't change). React fires the effect with a new
+      // reference, the effect calls removePriceLine() on every line and
+      // re-creates them, and the user sees a 100ms flash on every tick
+      // (visible as a per-second flicker on the right rail). Fix: build
+      // a structural signature (rounded price + title per line) and bail
+      // early if it matches the previous render. Same pattern used for
+      // the LEVELS effect above.
+      const _propPriceLinesSig = useMemo(() => {
+        if (!Array.isArray(propPriceLines)) return "empty";
+        return propPriceLines.map((pl) => {
+          if (!pl || !Number.isFinite(pl.price) || pl.price <= 0) return "x";
+          const px = Math.round(pl.price * 1000) / 1000;
+          return `${px}|${pl.title || ""}|${pl.color || ""}|${pl.lineStyle ?? 2}|${pl.lineWidth ?? 1}`;
+        }).join(";");
+      }, [propPriceLines]);
       useEffect(() => {
         const candleSeries = candleSeriesRef.current;
         if (!candleSeries) return;
@@ -1193,7 +1212,10 @@
             } catch (_) {}
           }
         }
-      }, [propPriceLines]);
+        // Dependency on the signature, NOT the array reference, so a
+        // new-but-identical array doesn't re-run the effect.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [_propPriceLinesSig]);
 
       if (!LWC) {
         return React.createElement("div", { className: "text-xs text-[#6b7280]" }, "Charts library not loaded.");
@@ -2032,9 +2054,32 @@
           const _ticker = String(mt.ticker || "").toUpperCase();
           const _entry = Number(mt.entryPrice || mt.entry_price) || 0;
           const _exit = Number(mt.exitPrice || mt.exit_price) || 0;
-          const _pnl = Number(mt.pnl || mt.realized_pnl) || 0;
-          const _pnlPct = Number(mt.pnlPct || mt.pnl_pct) || 0;
           const _status = String(mt.status || "").toUpperCase();
+          const _isOpenStatus = _status === "OPEN" || _status === "TP_HIT_TRIM" || (!_status && !(mt.exit_ts ?? mt.exitTs));
+          // V15 P0.7.144 (2026-05-13) — live PnL for open positions.
+          // Previously the modal showed "$0.00" for OPEN trades because
+          // pnl is only set on close. Now we mark-to-market against the
+          // live ticker price (from the right-rail's ticker prop) when
+          // the trade is still open. Closed trades keep their realized
+          // pnl as-is.
+          const _shares = Number(mt.shares || mt.quantity) || 0;
+          const _trimPctMt = Number(mt.trimmed_pct || mt.trimmedPct || 0);
+          const _liveCurrentPx = Number(ticker?.price ?? ticker?.close) || 0;
+          const _livePnl = (() => {
+            if (!_isOpenStatus) return Number(mt.pnl || mt.realized_pnl) || 0;
+            if (!(_entry > 0) || !(_liveCurrentPx > 0) || !(_shares > 0)) return 0;
+            const dirMul = _dir === "SHORT" ? -1 : 1;
+            const remShares = _shares * (1 - Math.min(_trimPctMt, 1));
+            return (_liveCurrentPx - _entry) * remShares * dirMul;
+          })();
+          const _livePnlPct = (() => {
+            if (!_isOpenStatus) return Number(mt.pnlPct || mt.pnl_pct) || 0;
+            if (!(_entry > 0) || !(_liveCurrentPx > 0)) return 0;
+            const dirMul = _dir === "SHORT" ? -1 : 1;
+            return ((_liveCurrentPx - _entry) / _entry) * 100 * dirMul;
+          })();
+          const _pnl = _livePnl;
+          const _pnlPct = _livePnlPct;
           const _grade = mt.setup_grade || mt.setupGrade || "";
           const _riskBudget = mt.risk_budget || mt.riskBudget || "";
           const _exitReason = mt.exitReason || mt.exit_reason || "";
@@ -2092,6 +2137,12 @@
                         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#f59e0b]/15 border border-[#f59e0b]/30">
                           <span className="text-[10px] font-semibold text-[#f59e0b] uppercase tracking-wider shrink-0">Exit</span>
                           <span className="text-[13px] font-semibold text-white truncate">{_formatDate(mt.exit_ts)} @ {_exit > 0 ? fmtUsd(_exit) : "\u2014"}</span>
+                        </div>
+                      )}
+                      {_isOpenStatus && _liveCurrentPx > 0 && (
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#22c55e]/15 border border-[#22c55e]/30">
+                          <span className="text-[10px] font-semibold text-[#22c55e] uppercase tracking-wider shrink-0">Live</span>
+                          <span className="text-[13px] font-semibold text-white truncate">{fmtUsd(_liveCurrentPx)}</span>
                         </div>
                       )}
                       {(() => {
@@ -2681,28 +2732,41 @@
 
           setTradeChartSelection(null); // clear so default will be first of new list
           let cancelled = false;
+          // V15 P0.7.143 (2026-05-13) — fetch BOTH trader and investor
+          // trade histories so the History tab shows the full picture
+          // when a ticker is held in both modes (e.g. INFL active + AAPL
+          // investor). Previously only trader history was shown, which
+          // was confusing when opening Right Rail from the Investor view.
           const fetchLedgerTrades = async () => {
             try {
               setLedgerTradesLoading(true);
               setLedgerTradesError(null);
-              const qs = new URLSearchParams();
-              qs.set("ticker", sym);
-              qs.set("limit", "20");
-              const res = await fetch(
-                `${API_BASE}/timed/ledger/trades?${qs.toString()}`,
-                { cache: "no-store" },
-              );
-              if (!res.ok) throw new Error(`HTTP ${res.status}`);
-              const json = await res.json();
-              if (!json.ok)
-                throw new Error(json.error || "ledger_trades_failed");
-              const trades = Array.isArray(json.trades) ? json.trades : [];
-              // Filter out archived trades
-              const activeTrades = trades.filter(t => {
-                const status = String(t.status || "").toUpperCase();
-                return status !== "ARCHIVED";
-              });
-              if (!cancelled) setLedgerTrades(activeTrades);
+              const buildQs = (mode) => {
+                const qs = new URLSearchParams();
+                qs.set("ticker", sym);
+                qs.set("limit", "20");
+                if (mode) qs.set("mode", mode);
+                return qs.toString();
+              };
+              const [traderRes, investorRes] = await Promise.allSettled([
+                fetch(`${API_BASE}/timed/ledger/trades?${buildQs("trader")}`, { cache: "no-store" }),
+                fetch(`${API_BASE}/timed/ledger/trades?${buildQs("investor")}`, { cache: "no-store" }),
+              ]);
+              const parse = async (settled) => {
+                if (settled.status !== "fulfilled" || !settled.value.ok) return [];
+                try {
+                  const json = await settled.value.json();
+                  if (!json.ok) return [];
+                  return Array.isArray(json.trades) ? json.trades : [];
+                } catch { return []; }
+              };
+              const traderTrades = (await parse(traderRes)).map(t => ({ ...t, _source_mode: "trader" }));
+              const investorTrades = (await parse(investorRes)).map(t => ({ ...t, _source_mode: "investor" }));
+              // Drop archived; combine; sort newest-first by entry_ts.
+              const merged = [...traderTrades, ...investorTrades]
+                .filter(t => String(t.status || "").toUpperCase() !== "ARCHIVED")
+                .sort((a, b) => Number(b.entry_ts || 0) - Number(a.entry_ts || 0));
+              if (!cancelled) setLedgerTrades(merged);
             } catch (e) {
               if (!cancelled) {
                 setLedgerTrades([]);
@@ -5770,12 +5834,22 @@
                           <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-1)" }}>
                             {ledgerTrades.slice(0, 10).map((t, i) => {
                               const pnlPct = Number(t.pnl_pct ?? t.pnlPct) || 0;
+                              const pnlAbs = Number(t.pnl) || 0;
                               const isWin = String(t.status || "").toUpperCase() === "WIN";
                               const dt = new Date(Number(t.entry_ts || t.exit_ts || 0));
+                              const isInvestor = t._source_mode === "investor";
+                              // For investor lots, the row is a single BUY/SELL/DCA, not a closed trade.
+                              const action = String(t.action || "").toUpperCase();
+                              const investorLabel = isInvestor
+                                ? (action === "SELL" ? "SELL" : action === "DCA_BUY" ? "DCA" : "BUY")
+                                : null;
+                              const showPnl = !isInvestor || action === "SELL";
                               return (
-                                <div key={`tr-${i}`}
+                                <div key={`tr-${i}-${t._source_mode || "x"}`}
                                   onClick={() => _openAutopsy(t)}
-                                  title="Click to open Trade Autopsy"
+                                  title={isInvestor
+                                    ? `Investor lot: ${action} ${t.shares ? Number(t.shares).toFixed(2) + " sh" : ""}${t.reason ? " — " + t.reason : ""}`
+                                    : "Click to open Trade Autopsy"}
                                   style={{
                                     display: "flex",
                                     alignItems: "center",
@@ -5786,17 +5860,31 @@
                                     cursor: "pointer",
                                     fontSize: "var(--ds-fs-meta)",
                                     transition: "background 120ms ease",
+                                    borderLeft: isInvestor ? "2px solid rgba(139,92,246,0.55)" : "none",
+                                    paddingLeft: isInvestor ? "8px" : "10px",
                                   }}
                                   onMouseEnter={(e) => { e.currentTarget.style.background = "var(--ds-bg-elevated)"; }}
                                   onMouseLeave={(e) => { e.currentTarget.style.background = "var(--ds-bg-glass)"; }}
                                 >
                                   <div style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-2)" }}>
-                                    <span className={`ds-chip ds-chip--sm ${isWin ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>{t.direction || "?"}</span>
+                                    {isInvestor ? (
+                                      <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)", background: "rgba(139,92,246,0.14)", color: "#c4b5fd", borderColor: "rgba(139,92,246,0.30)" }}>
+                                        INV {investorLabel}
+                                      </span>
+                                    ) : (
+                                      <span className={`ds-chip ds-chip--sm ${isWin ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>{t.direction || "?"}</span>
+                                    )}
                                     <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)" }}>{dt.toLocaleDateString()}</span>
                                   </div>
-                                  <span className={`ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
-                                    {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%
-                                  </span>
+                                  {showPnl ? (
+                                    <span className={`ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
+                                      {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%
+                                    </span>
+                                  ) : (
+                                    <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", fontSize: "11px" }}>
+                                      {Number(t.shares) > 0 ? Number(t.shares).toFixed(1) + " sh" : "—"}
+                                    </span>
+                                  )}
                                 </div>
                               );
                             })}
@@ -9443,8 +9531,14 @@
 
                             {/* All trades unified (open + closed, newest first) */}
                             {ledgerTrades.slice(0, 10).map((t) => {
+                              // V15 P0.7.143 (2026-05-13) — investor lots are
+                              // single-leg events (BUY / SELL / DCA), not
+                              // closed trades. Render with a violet INV badge
+                              // and skip the close-status / TP-hit logic that
+                              // assumes a paired entry+exit.
+                              const isInvestor = t._source_mode === "investor";
                               const trimmedPct = Number(t.trimmed_pct || t.trimmedPct || 0);
-                              const isClosed = t.status === "WIN" || t.status === "LOSS" || t.status === "FLAT" || trimmedPct >= 0.9999;
+                              const isClosed = !isInvestor && (t.status === "WIN" || t.status === "LOSS" || t.status === "FLAT" || trimmedPct >= 0.9999);
                               const rawExitPrice = Number(t.exit_price || 0);
                               const exitPriceMissing = isClosed && rawExitPrice <= 0;
                               const pnl = exitPriceMissing ? 0 : Number(t.pnl || 0);
@@ -9518,13 +9612,22 @@
                                   {/* Row 1: Status + Direction + P&L */}
                                   <div className="flex items-center justify-between px-3 pt-2.5 pb-1">
                                     <div className="flex items-center gap-1.5">
-                                      {isClosed ? (
+                                      {isInvestor ? (
+                                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold border bg-violet-500/20 text-violet-300 border-violet-500/30">
+                                          INV {String(t.action || "BUY").toUpperCase().replace("DCA_BUY", "DCA")}
+                                        </span>
+                                      ) : isClosed ? (
                                         <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${statusCls}`}>{statusLabel}</span>
                                       ) : (
                                         <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30">OPEN</span>
                                       )}
-                                      <span className={`text-[11px] font-bold ${t.direction === "LONG" ? "text-green-400" : "text-red-400"}`}>{t.direction}</span>
-                                      {_grade && <span className={`px-1 py-0.5 rounded text-[8px] font-bold border ${gradeCls}`} title={t.setup_name || t.setupName || ""}>TT {_grade}</span>}
+                                      {!isInvestor && <span className={`text-[11px] font-bold ${t.direction === "LONG" ? "text-green-400" : "text-red-400"}`}>{t.direction}</span>}
+                                      {!isInvestor && _grade && <span className={`px-1 py-0.5 rounded text-[8px] font-bold border ${gradeCls}`} title={t.setup_name || t.setupName || ""}>TT {_grade}</span>}
+                                      {isInvestor && t.reason && (
+                                        <span className="text-[9px] text-violet-300/80 truncate max-w-[180px]" title={t.reason}>
+                                          {String(t.reason).replace(/_/g, " ")}
+                                        </span>
+                                      )}
                                     </div>
                                     <div className="flex items-center gap-1.5">
                                       {isClosed && Math.abs(pnl) > 0.01 && (

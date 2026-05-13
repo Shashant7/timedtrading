@@ -5,6 +5,67 @@
 
 ---
 
+## Trail-walk restore + restore-aware Loop 2 [2026-05-13]
+
+Session goal: close the remaining gaps from PR #124 (May 12-13 wipe recovery). Two surgical fixes shipped, then a third post-deploy fix when the live apply exposed an existing data-model bug.
+
+### `positions.cost_basis` is TOTAL cost, NOT per-share — convention bug pattern
+
+The codebase reads `entry_price = cost_basis / total_qty` in two places:
+- The API surface (line 34747 in `worker/index.js`, returned to frontend as the displayed entry price for open positions).
+- The management cron, which then UPSERTs the recomputed entry_price back into `trades` via `d1UpsertTrade`.
+
+So the convention is `positions.cost_basis = TOTAL cost (= shares × entry_price)`. If you write per-share by mistake, the corruption cascades within ~30 minutes:
+1. UI immediately displays bogus per-share entry (e.g. `$53.06 / 528 = $0.10`).
+2. Management cron recomputes and UPSERTs that bogus value into `trades.entry_price`.
+3. PnL calculations (`current_price - bogus_entry × shares`) explode (a $0.10 entry vs $53 current shows +52,000% gain).
+
+**Rule**: any write to `positions.cost_basis` MUST be `shares × entry_price`, and any restore endpoint that touches both `trades` and `positions` should sanity-check `entry_price >= $0.50` (penny stock floor) before propagating. Got bitten by this in `restore-trade-shares-from-trail` on first apply; repaired by re-binding `notional` (already `shares × entry_price`) to the cost_basis bind slot.
+
+### Sanity guards on restore endpoints — prefer DA over trades on the second pass
+
+When a restore endpoint runs against a partially-corrupted state, the trades table can carry already-bogus `entry_price` values (e.g. the cost_basis-cascade pattern above). If the endpoint's resolution order is `trades.entry_price ?? da.entry_price`, it inherits the corruption. Flip the order: **prefer DA** (canonical, write-once at entry time, never recomputed) and fall through to `trades` only when DA is missing. Add a hard floor (`< $0.50`) that refuses to apply, with a reason like `entry_price_below_floor_0.5_likely_corruption` so the operator gets a loud signal instead of a silent re-corruption.
+
+### Loop 2 circuit breaker needs a recency window after bulk restores
+
+`loop2ComputePulse` originally took the most-recent-by-exit_ts 10 closed trades regardless of when those exits actually happened. After a bulk historical restore, "the most recent 10 closed trades" can include 7-day-old losses that just landed in the trades table 30 seconds ago. The breaker reads them as "the engine's current performance" and trips immediately.
+
+**Fix**: filter the rolling WR + consec-loss windows to trades whose `exit_ts` falls within the last `loop2_breaker_max_age_hours` hours (default 168 = 7 days; covers a long weekend without dragging in last week's drawdown). And require at least `loop2_breaker_min_recent_for_wr` trades (default 5) inside the recency window before tripping on WR — protects against a 1-restore-loss firing 0% WR over n=1.
+
+Today-PnL is unchanged because it already filters by wall-clock today (naturally restore-safe).
+
+Backtest replay uses the same recency filter against simulated `nowMs`, which matches the intended sequential-session behavior.
+
+### Hardcoded "replay_entry" in code paths shared by live + replay
+
+`runInvestorDailyReplay()` is named "Replay" but is actually the daily investor-rebalance entry path used by BOTH historical replays AND the live cron. It hard-coded `reason='replay_entry'` on every BUY lot. The Lot History tab in production then read like a backtest.
+
+**Pattern**: if a function takes a `replayCtx` parameter and uses it elsewhere (e.g. to skip dispatching trade-alert emails during replay), use it ALSO to gate any audit-trail string that ends up in the user-facing UI. Live writes get `'investor_buy'`; replay writes get `'replay_entry'`. Apply the same scrutiny to any other shared-code-path string literal that the operator will read.
+
+### Workflow: dry-run BEFORE apply on every restore endpoint
+
+The `?dry_run=1` parameter on `restore-trade-shares-from-trail` saved a much bigger blast radius. Every destructive admin endpoint with sizing/PnL implications should support dry-run as a first-class parameter, return the same response shape (just with `dry_run: true`), and emit no audit-log row when dry. Operators learn fast to default to dry-run first; the cost of `?dry_run=1` is one curl flag and saves multi-hour D1 surgery on the bad path.
+
+### Live alerts (Discord) are the canonical sizing source after a wipe
+
+After a destructive wipe destroys execution_actions and trade_events, the trades / direction_accuracy / positions tables don't carry enough information to reconstruct entry-time `shares` and `notional`. Even `signal_snapshot_json` only carries the multipliers used (sl_atr_mult, etc.), not the resolved SL price or the share count. The live system caches `MIN_NOTIONAL = $7,500` (~7.5% of the $100k start cash) for most positions, but high-priced volatile names (e.g. SNDK at $1,348) can run higher. **The Discord trim alerts the user already has in their channel ARE the truth** — they include the trim qty, the percentage trimmed, and the cumulative trim status, which is enough to back out the original total share count. Always ask the operator to share the relevant Discord alerts before guessing sizing from defaults; we lost half a debugging cycle assuming everything was sized at 20% of running balance ($28k each) when actual was ~$7.5k each.
+
+### Phantom realized PnL: corrupted entry_price → trim cron writes huge wrong PnL
+
+When trades.entry_price is corrupted to a small value (e.g. $0.28 NFLX, $64.87 SNDK from the cost_basis-cascade bug), the next management cron tick that fires a TRIM will compute `realized_pnl = (current_price - bogus_entry) × shares` and write it to `account_ledger.realized_pnl`. In one 27-second window the live cron wrote 4 such phantom entries totaling +$35,057 into the trader ledger:
+- NFLX TRIM 158.7 sh @ $87.19 vs entry $0.28 → +$13,793 (real should have been ~+$0)
+- NFLX TRIM 79.4 sh @ $87.19 vs entry $0.28 → +$6,896
+- SNDK TRIM 10.4 sh @ $1447.31 vs entry $64.87 → +$14,365
+- SNDK TRIM 0.016 sh @ $1452.05 vs entry $1346 → +$2 (this last one was after my entry_price fix; correct)
+
+Repair: identify the inflated rows in `account_ledger` (look for `realized_pnl` writes that don't match the trade's actual exit-price math), `DELETE FROM account_ledger WHERE ledger_id IN (...)`. The next read of `/timed/account-summary` recomputes balance from the surviving rows. **Lesson**: any restore endpoint that writes to `trades` or `positions` MUST run with cron-mute set, OR ship with strong sanity guards on the inputs (entry_price floor, cost_basis = shares × entry validation), so the next cron tick can't compound the corruption into the audit-of-record account ledger.
+
+### `positions.total_qty` is REMAINING shares, not total at entry — `trades.shares` mirrors it after a cron sweep
+
+The trades table has BOTH `shares` (intended: total at entry) and `trimmed_pct` (intended: cumulative trim %). The remaining qty is supposed to be `shares × (1 - trimmed_pct)`. But the management cron rewrites `trades.shares = positions.total_qty` and resets `trimmed_pct = 0` after each tick, collapsing the "total + pct" model into a "remaining-only" model in the trades row. The mark-to-market math in `/timed/account-summary` (line 61944) handles BOTH conventions correctly — `qty = shares × (1 - trimmed_pct)` works whether trimmed_pct is 0 (collapsed) or non-zero (in-flight). When manually repairing trades rows, set them in the collapsed form: `shares = remaining`, `trimmed_pct = 0`, `notional = remaining × entry_price`. Otherwise the next cron sweep will silently overwrite half of what you wrote.
+
+---
+
 ## Live-system hardening session [2026-05-11 / 12]
 
 Big reliability + cost session. Five PRs landed (#114, #116 still open at time of write); user concerns surfaced sequentially: SNDK price stale, D1 cost spike, fragile TV webhooks, missing telemetry. All addressed without regressions. Lessons from the work (so future sessions don't relitigate the same decisions):
