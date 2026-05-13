@@ -4073,23 +4073,22 @@
                           (above all tab gates). See `tt-rail-levels-block`
                           near the chart. */}
 
-                      {/* Risk & Targets — vertical price ladder.
-                          V2.1 round 10 (2026-05-04) — Direction-aware, prediction-contract-first.
-                          BUG FIX: previous version pulled `ticker.sl` / `ticker.tp_*` blindly,
-                          which on SHORT-bias tickers (e.g. GILD where sl=$114 was actually a
-                          LONG-trade stop sitting BELOW price) showed an upside-down ladder
-                          with the stop in profit territory and targets above price.
-                          New ordering of truth (highest priority first):
-                            1. predictionContract.risk.stop_loss + .targets[]  (direction-aware,
-                               always correct: SHORT stops sit ABOVE price, targets BELOW;
-                               LONG stops sit BELOW, targets ABOVE)
-                            2. trade.tpArray + trade.sl (when an active trade exists)
-                            3. ticker.sl / tp_trim / tp_exit / tp_max (legacy fallback only when
-                               there's an open position with matching direction)
-                          When there's no active trade, the panel renders as a "PROPOSED PLAN"
-                          eyebrow with a clear "model-derived levels" disclaimer so the user
-                          doesn't read R:R as an active commitment. */}
-                      {(() => {
+                      {/* V15 P0.7.146 (2026-05-13) — Risk & Targets vertical
+                          ladder removed (was redundant with the Trade Plan
+                          panel below). Both panels read from the same
+                          direction-aware predictionContract source and
+                          showed identical SL + TP1/TP2/TP3 numbers, just
+                          in different layouts. The Trade Plan's flat
+                          ABOVE/BELOW grouping is the canonical view going
+                          forward — it maps 1:1 with the chart price
+                          lines and is easier to scan. The R:R chip moved
+                          to the Trade Plan panel header.
+
+                          Old ladder code retained inside this no-render
+                          IIFE so reverting (or re-introducing the ladder
+                          as a Snapshot-tab compact widget) is a one-flag
+                          flip. To restore: change `false &&` to `true &&`. */}
+                      {false && (() => {
                         const pcSL = predictionContract?.risk?.stop_loss != null ? Number(predictionContract.risk.stop_loss) : NaN;
                         const pcTargets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
                         const pcRR = predictionContract?.risk?.rr != null ? Number(predictionContract.risk.rr) : NaN;
@@ -4418,10 +4417,23 @@
                           );
                         };
 
+                        // V15 P0.7.146 — R:R chip moved here from the
+                        // (now-removed) Risk & Targets panel. Pulls
+                        // prediction contract first, then ticker.rr.
+                        const _pcRR = Number(predictionContract?.risk?.rr);
+                        const _rr = Number.isFinite(_pcRR) && _pcRR > 0 ? _pcRR : (Number(ticker?.rr) || NaN);
+                        const _rrChip = (Number.isFinite(_rr) && _rr > 0) ? (
+                          <span className={`ds-chip ds-chip--sm ${_rr >= 2 ? "ds-chip--up" : "ds-chip--accent"}`}
+                                style={{ fontFamily: "var(--tt-font-mono)" }}
+                                title={tradeIsProposed ? "Model-derived reward-to-risk — entry not triggered" : "Active reward-to-risk for the open trade"}>
+                            R:R {_rr.toFixed(2)}
+                          </span>
+                        ) : null;
                         return (
                           <Panel title="Trade Plan" action={
                             <span style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 9, fontFamily: "var(--tt-font-mono)", letterSpacing: "0.10em" }}>
                               <span className={`ds-chip ds-chip--sm ${isLong ? "ds-chip--up" : "ds-chip--dn"}`} title="Bias direction">{dir}</span>
+                              {_rrChip}
                               <span style={{ color: eyebrowColor, fontWeight: 700 }}>{eyebrow}</span>
                             </span>
                           }>
@@ -4470,7 +4482,10 @@
                                 <TpRow key={`below-${i}-${row.px}`} row={row} side="below" />
                               ))}
                               <div style={{ marginTop: "var(--ds-space-2)", padding: "0 4px", fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", lineHeight: 1.5, fontStyle: "italic" }}>
-                                Same SL/TP plan the chart and Risk &amp; Targets ladder use. Levels below are extra context (52W high, prior session, pivots).
+                                {tradeIsProposed
+                                  ? `Model-derived ${dir} plan — entry not triggered. ${dir === "SHORT" ? "Targets sit BELOW price; stop sits ABOVE (invalidates the short)." : "Targets sit ABOVE price; stop sits BELOW (invalidates the long)."}`
+                                  : `Active ${dir} plan — ${dir === "SHORT" ? "stop above price, targets below." : "stop below price, targets above."}`}
+                                {" "}Reference Levels below add S/R context (52W high, prior session, pivots).
                               </div>
                             </div>
                           </Panel>

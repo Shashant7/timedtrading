@@ -1299,6 +1299,10 @@ const ROUTES = [
   // reads trades.shares; without this the Size column shows "—" for every
   // closed trade we don't have execution_actions for.
   ["POST", "/timed/admin/backfill-closed-trade-shares", "POST /timed/admin/backfill-closed-trade-shares"],
+  // P0.7.146 — synthetic AI CIO probe so the operator can verify
+  // OPENAI_API_KEY + the CIO call chain works end-to-end without
+  // waiting for a real entry to fire.
+  ["GET", "/timed/admin/ai-cio/probe", "GET /timed/admin/ai-cio/probe"],
   ["POST", "/timed/admin/patch-trade-from-da", "POST /timed/admin/patch-trade-from-da"],
   ["POST", "/timed/admin/patch-trade-event-reason", "POST /timed/admin/patch-trade-event-reason"],
   ["POST", "/timed/admin/patch-trade-event-price", "POST /timed/admin/patch-trade-event-price"],
@@ -56246,6 +56250,92 @@ export default {
         } catch (e) {
           return sendJSON({
             ok: false,
+            error: String(e?.message || e).slice(0, 300),
+            stack: String(e?.stack || "").slice(0, 600),
+          }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/ai-cio/probe?key=...&ticker=AAPL&direction=LONG
+      //
+      // V15 P0.7.146 (2026-05-13) — synthetic AI CIO probe. Builds a
+      // minimal proposal (no real ticker required), calls
+      // evaluateWithAICIO, returns the raw decision. Lets the operator
+      // answer questions like:
+      //   - Is OPENAI_API_KEY actually present in the deployed worker?
+      //     (response includes `_apiKeyDetected: true|false`)
+      //   - Is the OpenAI endpoint reachable?
+      //     (fallback `reason` will contain api_error_* / timeout)
+      //   - What model is being called? (response includes `model`)
+      //   - What's the round-trip latency? (response includes `latency_ms`)
+      //
+      // This endpoint does NOT persist anything to ai_cio_decisions;
+      // it's purely diagnostic. Safe to call repeatedly.
+      if (routeKey === "GET /timed/admin/ai-cio/probe") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const probeStart = Date.now();
+          const sym = String(url.searchParams.get("ticker") || "AAPL").toUpperCase();
+          const direction = String(url.searchParams.get("direction") || "LONG").toUpperCase();
+          const _apiKeyDetected = !!env?.OPENAI_API_KEY;
+          // Minimal synthetic proposal — just enough fields that the
+          // CIO prompt builder doesn't error. Real entries pass much
+          // richer context, but for a probe we only need to verify the
+          // OpenAI call succeeds.
+          const probeProposal = {
+            ticker: sym,
+            direction,
+            entry: 100.00,
+            sl: 98.00,
+            tp: 105.00,
+            rr: 2.5,
+            confidence: 0.7,
+            shares: 100,
+            notional: 10000,
+            setup: { name: "probe_setup", grade: "Confirmed" },
+            ticker_profile: { personality: "MIXED", sl_atr_mult: 1.5, tp_atr_mult: 2.0 },
+            sizing: { method: "risk_based", riskPct: 0.01 },
+            note: "synthetic probe — not a real trade",
+          };
+          const probeMemory = {
+            ticker_history: [],
+            regime_context: { regime: "TRANSITIONAL" },
+            entry_path_track_record: null,
+            franchise: { franchise: false, blacklist: false },
+            cio_self_accuracy: null,
+            episodic_market_backdrop: [],
+            event_driven_context: { events: [] },
+          };
+          const probeDecision = await evaluateWithAICIO(env, probeProposal, probeMemory, null);
+          probeDecision.latency_ms = Date.now() - probeStart;
+          return sendJSON({
+            ok: true,
+            probe: true,
+            ticker: sym,
+            direction,
+            _apiKeyDetected,
+            _apiKeyEnvVar: _apiKeyDetected ? "OPENAI_API_KEY (present)" : "OPENAI_API_KEY (MISSING — set via wrangler secret put)",
+            decision: probeDecision.decision,
+            fallback: probeDecision.fallback === true,
+            fallbackReason: probeDecision.reason || null,
+            confidence: probeDecision.confidence ?? null,
+            edge_score: probeDecision.edge_score ?? null,
+            reasoning: probeDecision.reasoning || null,
+            risk_flags: probeDecision.risk_flags || [],
+            adjustments: probeDecision.adjustments || null,
+            model: probeDecision.model || AI_CIO_MODEL,
+            latency_ms: probeDecision.latency_ms,
+            _interpretation: !_apiKeyDetected
+              ? "OPENAI_API_KEY not detected on the deployed worker. Add via `wrangler secret put OPENAI_API_KEY`."
+              : probeDecision.fallback
+              ? `CIO returned fallback (${probeDecision.reason || "unknown"}). Check OpenAI API status / quota.`
+              : "CIO is healthy and returning real decisions.",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({
+            ok: false,
+            probe: true,
             error: String(e?.message || e).slice(0, 300),
             stack: String(e?.stack || "").slice(0, 600),
           }, 500, corsHeaders(env, req));
