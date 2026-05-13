@@ -2180,35 +2180,101 @@
       const [predictionContract, setPredictionContract] = useState(null);
       const [predictionContractLoading, setPredictionContractLoading] = useState(false);
       const [predictionContractError, setPredictionContractError] = useState(null);
-      const subtleKeyLevelLines = useMemo(() => {
-        if (!Array.isArray(predictionContract?.levels)) return EMPTY_PRICE_LINES;
-        const px = Number(predictionContract?.current_price) || Number(ticker?.price) || 0;
-        if (!(px > 0)) return EMPTY_PRICE_LINES;
-        const above = predictionContract.levels.filter(l => l.role === "resistance" && Number.isFinite(Number(l.price)) && Number(l.price) > px).sort((a, b) => Number(a.price) - Number(b.price)).slice(0, 3);
-        const below = predictionContract.levels.filter(l => l.role === "support" && Number.isFinite(Number(l.price)) && Number(l.price) < px).sort((a, b) => Number(b.price) - Number(a.price)).slice(0, 3);
+      const tradeplanPriceLines = useMemo(() => {
         const out = [];
-        for (const l of above) {
+        const pcDir = String(predictionContract?.direction || "").toUpperCase();
+        const tradeStatus = String(trade?.status || "").toUpperCase();
+        const tradeIsOpen = !!(trade && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS"));
+        const dir = pcDir === "LONG" || pcDir === "SHORT" ? pcDir : tradeIsOpen ? String(trade?.direction || "").toUpperCase() : null;
+        if (!dir) return EMPTY_PRICE_LINES;
+        const isLong = dir === "LONG";
+        const pcSL = Number(predictionContract?.risk?.stop_loss);
+        const sl = (() => {
+          if (Number.isFinite(pcSL) && pcSL > 0) return pcSL;
+          if (tradeIsOpen) return Number(trade?.sl) || 0;
+          return Number(ticker?.sl ?? ticker?.sl_dynamic ?? ticker?.stop_loss) || 0;
+        })();
+        const pcTargets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
+        const tpLevels = (() => {
+          const list = [];
+          if (pcTargets.length > 0) {
+            pcTargets.forEach((tp, i) => {
+              const px = Number(tp?.price);
+              if (!Number.isFinite(px) || px <= 0) return;
+              const tier = tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner");
+              list.push({
+                label: i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`,
+                desc: tier,
+                px
+              });
+            });
+          } else if (tradeIsOpen && Array.isArray(trade?.tpArray) && trade.tpArray.length > 0) {
+            trade.tpArray.forEach((tp, i) => {
+              const px = Number(tp?.price ?? tp);
+              if (!Number.isFinite(px) || px <= 0) return;
+              list.push({
+                label: tp?.tier || (i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`),
+                desc: tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner"),
+                px
+              });
+            });
+          } else if (tradeIsOpen) {
+            const tp1 = Number(ticker?.tp_trim) || 0;
+            const tp2 = Number(ticker?.tp_exit) || Number(ticker?.tp_target_price) || Number(ticker?.tp) || 0;
+            const tpMax = Number(ticker?.tp_max) || Number(ticker?.tp_runner) || 0;
+            if (tp1 > 0) list.push({
+              label: "TP1",
+              desc: "Trim",
+              px: tp1
+            });
+            if (tp2 > 0 && tp2 !== tp1) list.push({
+              label: "TP2",
+              desc: "Exit",
+              px: tp2
+            });
+            if (tpMax > 0 && tpMax !== tp1 && tpMax !== tp2) list.push({
+              label: "TP3",
+              desc: "Runner",
+              px: tpMax
+            });
+          }
+          return list;
+        })();
+        if (sl > 0) {
           out.push({
-            price: Number(l.price),
-            color: "rgba(244,63,94,0.55)",
-            lineWidth: 1,
-            lineStyle: 2,
+            price: sl,
+            color: "rgba(239,68,68,0.85)",
+            lineWidth: 2,
+            lineStyle: 0,
             axisLabelVisible: true,
-            title: (l.label || "").replace(/Recent /i, "").replace(/Yesterday's /i, "Y'day ").slice(0, 24)
+            title: `SL $${sl.toFixed(2)}`
           });
         }
-        for (const l of below) {
+        const tpColors = ["rgba(252,211,77,0.80)", "rgba(245,158,11,0.80)", "rgba(34,197,94,0.85)"];
+        tpLevels.slice(0, 3).forEach((tp, i) => {
           out.push({
-            price: Number(l.price),
-            color: "rgba(38,166,154,0.55)",
-            lineWidth: 1,
+            price: tp.px,
+            color: tpColors[i] || tpColors[2],
+            lineWidth: i === 2 ? 2 : 1,
             lineStyle: 2,
             axisLabelVisible: true,
-            title: (l.label || "").replace(/Recent /i, "").replace(/Yesterday's /i, "Y'day ").slice(0, 24)
+            title: `${tp.label} ${tp.desc}`
+          });
+        });
+        const entry = tradeIsOpen ? Number(trade?.entry_price ?? trade?.entryPrice) || 0 : 0;
+        if (entry > 0) {
+          out.push({
+            price: entry,
+            color: "rgba(96,165,250,0.70)",
+            lineWidth: 1,
+            lineStyle: 0,
+            axisLabelVisible: true,
+            title: `Entry $${entry.toFixed(2)}`
           });
         }
-        return out;
-      }, [predictionContract, ticker?.price]);
+        return out.length > 0 ? out : EMPTY_PRICE_LINES;
+      }, [predictionContract, trade, ticker?.sl, ticker?.tp_trim, ticker?.tp_exit, ticker?.tp_max, ticker?.tp_runner]);
+      const subtleKeyLevelLines = tradeplanPriceLines;
       const [fundamentals, setFundamentals] = useState(null);
       const [fundamentalsLoading, setFundamentalsLoading] = useState(false);
       const [fundamentalsError, setFundamentalsError] = useState(null);
@@ -4710,6 +4776,304 @@
               }, pct >= 0 ? "+" : "", pct.toFixed(2), "%");
             })());
           })));
+        })(), (() => {
+          const px = Number(v2Price) || Number(ticker?.price) || 0;
+          if (!(px > 0)) return null;
+          const pcSL = Number(predictionContract?.risk?.stop_loss);
+          const pcTargets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
+          const pcDirRaw = String(predictionContract?.direction || "").toUpperCase();
+          const tradeStatus = String(trade?.status || "").toUpperCase();
+          const tradeIsOpen = !!(trade && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS"));
+          const dir = pcDirRaw === "LONG" || pcDirRaw === "SHORT" ? pcDirRaw : tradeIsOpen ? String(trade?.direction || "").toUpperCase() : null;
+          if (!dir) return null;
+          const isLong = dir === "LONG";
+          const sl = (() => {
+            if (Number.isFinite(pcSL) && pcSL > 0) return pcSL;
+            if (tradeIsOpen) return Number(trade?.sl) || 0;
+            return Number(ticker?.sl ?? ticker?.sl_dynamic ?? ticker?.stop_loss) || 0;
+          })();
+          const entry = tradeIsOpen ? Number(trade?.entry_price ?? trade?.entryPrice) || 0 : 0;
+          const tps = (() => {
+            const list = [];
+            if (pcTargets.length > 0) {
+              pcTargets.forEach((tp, i) => {
+                const tpPx = Number(tp?.price);
+                if (!Number.isFinite(tpPx) || tpPx <= 0) return;
+                list.push({
+                  label: i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`,
+                  desc: tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner"),
+                  px: tpPx
+                });
+              });
+            } else if (tradeIsOpen && Array.isArray(trade?.tpArray) && trade.tpArray.length > 0) {
+              trade.tpArray.forEach((tp, i) => {
+                const tpPx = Number(tp?.price ?? tp);
+                if (!Number.isFinite(tpPx) || tpPx <= 0) return;
+                list.push({
+                  label: tp?.tier || (i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`),
+                  desc: tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner"),
+                  px: tpPx
+                });
+              });
+            } else if (tradeIsOpen) {
+              const tp1 = Number(ticker?.tp_trim) || 0;
+              const tp2 = Number(ticker?.tp_exit) || Number(ticker?.tp_target_price) || Number(ticker?.tp) || 0;
+              const tpMax = Number(ticker?.tp_max) || Number(ticker?.tp_runner) || 0;
+              if (tp1 > 0) list.push({
+                label: "TP1",
+                desc: "Trim",
+                px: tp1
+              });
+              if (tp2 > 0 && tp2 !== tp1) list.push({
+                label: "TP2",
+                desc: "Exit",
+                px: tp2
+              });
+              if (tpMax > 0 && tpMax !== tp1 && tpMax !== tp2) list.push({
+                label: "TP3",
+                desc: "Runner",
+                px: tpMax
+              });
+            }
+            return list;
+          })();
+          if (!(sl > 0) && tps.length === 0) return null;
+          const above = [];
+          const below = [];
+          for (const tp of tps) {
+            const row = {
+              kind: "tp",
+              label: tp.label,
+              desc: tp.desc,
+              px: tp.px
+            };
+            if (tp.px > px) above.push(row);else below.push(row);
+          }
+          if (sl > 0) {
+            const slRow = {
+              kind: "sl",
+              label: "SL",
+              desc: "Stop loss",
+              px: sl
+            };
+            if (sl > px) above.push(slRow);else below.push(slRow);
+          }
+          above.sort((a, b) => a.px - b.px);
+          below.sort((a, b) => b.px - a.px);
+          const tradeIsProposed = !tradeIsOpen;
+          const eyebrow = tradeIsProposed ? "PROPOSED" : "ACTIVE";
+          const eyebrowColor = tradeIsProposed ? "var(--ds-text-muted)" : "var(--ds-accent)";
+          const labelOfTp = (label, desc) => `${label} · ${desc}`;
+          const TpRow = ({
+            row,
+            side
+          }) => {
+            const isSl = row.kind === "sl";
+            const palette = (() => {
+              if (isSl) return {
+                border: "rgba(239,68,68,0.85)",
+                label: "var(--ds-dn)",
+                letter: "SL",
+                letterColor: "#ef4444"
+              };
+              if (row.label === "TP1") return {
+                border: "rgba(252,211,77,0.85)",
+                label: "#fcd34d",
+                letter: "T1",
+                letterColor: "#fcd34d"
+              };
+              if (row.label === "TP2") return {
+                border: "rgba(245,158,11,0.85)",
+                label: "#f59e0b",
+                letter: "T2",
+                letterColor: "#f59e0b"
+              };
+              return {
+                border: "rgba(34,197,94,0.85)",
+                label: "#22c55e",
+                letter: "T3",
+                letterColor: "#22c55e"
+              };
+            })();
+            const dist = (row.px - px) / px * 100;
+            const distColor = side === "above" ? "var(--ds-up)" : side === "below" ? "var(--ds-dn)" : "var(--ds-text-muted)";
+            return React.createElement("div", {
+              style: {
+                display: "grid",
+                gridTemplateColumns: "32px 1fr 64px 44px",
+                gap: "var(--ds-space-2)",
+                alignItems: "center",
+                padding: "5px 8px",
+                borderRadius: "var(--ds-radius-xs)",
+                background: "rgba(255,255,255,0.02)",
+                borderLeft: `3px solid ${palette.border}`
+              },
+              title: `${row.label} · ${row.desc} · $${Number(row.px).toFixed(2)}`
+            }, React.createElement("span", {
+              style: {
+                fontSize: 9,
+                fontFamily: "var(--tt-font-mono)",
+                fontWeight: 700,
+                color: palette.letterColor,
+                letterSpacing: "0.06em",
+                textAlign: "center"
+              }
+            }, palette.letter), React.createElement("span", {
+              style: {
+                fontSize: "var(--ds-fs-meta)",
+                color: palette.label,
+                fontFamily: "var(--tt-font-mono)",
+                fontWeight: 600
+              }
+            }, labelOfTp(row.label, row.desc)), React.createElement("span", {
+              style: {
+                fontSize: "var(--ds-fs-meta)",
+                color: "var(--ds-text-display)",
+                fontFamily: "var(--tt-font-mono)",
+                fontWeight: 700,
+                textAlign: "right"
+              }
+            }, "$", Number(row.px).toFixed(2)), React.createElement("span", {
+              style: {
+                fontSize: 9,
+                color: distColor,
+                fontFamily: "var(--tt-font-mono)",
+                textAlign: "right"
+              }
+            }, dist >= 0 ? "+" : "", dist.toFixed(2), "%"));
+          };
+          return React.createElement(Panel, {
+            title: "Trade Plan",
+            action: React.createElement("span", {
+              style: {
+                display: "flex",
+                gap: 6,
+                alignItems: "center",
+                fontSize: 9,
+                fontFamily: "var(--tt-font-mono)",
+                letterSpacing: "0.10em"
+              }
+            }, React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${isLong ? "ds-chip--up" : "ds-chip--dn"}`,
+              title: "Bias direction"
+            }, dir), React.createElement("span", {
+              style: {
+                color: eyebrowColor,
+                fontWeight: 700
+              }
+            }, eyebrow))
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              flexDirection: "column",
+              gap: 3
+            }
+          }, above.length > 0 && React.createElement("div", {
+            style: {
+              padding: "4px 8px 2px",
+              display: "flex",
+              alignItems: "baseline",
+              gap: "var(--ds-space-2)"
+            }
+          }, React.createElement("span", {
+            style: {
+              fontSize: 9,
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700,
+              letterSpacing: "0.16em",
+              textTransform: "uppercase",
+              color: "var(--ds-up)"
+            }
+          }, "Above"), React.createElement("span", {
+            style: {
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, isLong ? "profit-taking targets" : "stop above price")), above.length > 0 && above.slice().reverse().map((row, i) => React.createElement(TpRow, {
+            key: `above-${i}-${row.px}`,
+            row: row,
+            side: "above"
+          })), React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "32px 1fr 64px 44px",
+              gap: "var(--ds-space-2)",
+              alignItems: "center",
+              padding: "8px 8px",
+              borderRadius: "var(--ds-radius-xs)",
+              background: "rgba(245,194,92,0.10)",
+              border: "1px solid rgba(245,194,92,0.30)",
+              margin: "2px 0"
+            }
+          }, React.createElement("span", {
+            style: {
+              fontSize: 9,
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700,
+              color: "var(--ds-accent)",
+              letterSpacing: "0.06em",
+              textAlign: "center"
+            }
+          }, "NOW"), React.createElement("span", {
+            style: {
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-accent)",
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700
+            }
+          }, "Current Price", entry > 0 ? ` · entry $${entry.toFixed(2)}` : ""), React.createElement("span", {
+            style: {
+              fontSize: "var(--ds-fs-body)",
+              color: "var(--ds-accent)",
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700,
+              textAlign: "right"
+            }
+          }, "$", px.toFixed(2)), React.createElement("span", {
+            style: {
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              fontFamily: "var(--tt-font-mono)",
+              textAlign: "right"
+            }
+          }, entry > 0 ? `${(px - entry) / entry * 100 * (isLong ? 1 : -1) >= 0 ? "+" : ""}${((px - entry) / entry * 100 * (isLong ? 1 : -1)).toFixed(2)}%` : "—")), below.length > 0 && React.createElement("div", {
+            style: {
+              padding: "4px 8px 2px",
+              display: "flex",
+              alignItems: "baseline",
+              gap: "var(--ds-space-2)"
+            }
+          }, React.createElement("span", {
+            style: {
+              fontSize: 9,
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700,
+              letterSpacing: "0.16em",
+              textTransform: "uppercase",
+              color: "var(--ds-dn)"
+            }
+          }, "Below"), React.createElement("span", {
+            style: {
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, isLong ? "stop / invalidation" : "profit-taking targets")), below.length > 0 && below.map((row, i) => React.createElement(TpRow, {
+            key: `below-${i}-${row.px}`,
+            row: row,
+            side: "below"
+          })), React.createElement("div", {
+            style: {
+              marginTop: "var(--ds-space-2)",
+              padding: "0 4px",
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              fontFamily: "var(--tt-font-mono)",
+              lineHeight: 1.5,
+              fontStyle: "italic"
+            }
+          }, "Same SL/TP plan the chart and Risk & Targets ladder use. Levels below are extra context (52W high, prior session, pivots).")));
         })(), Array.isArray(predictionContract?.levels) && predictionContract.levels.length > 0 && (() => {
           const px = Number(v2Price) || Number(ticker?.price) || 0;
           if (!(px > 0)) return null;
@@ -4843,7 +5207,7 @@
             }, dist >= 0 ? "+" : "", dist.toFixed(2), "%"));
           };
           return React.createElement(Panel, {
-            title: "Key Levels",
+            title: "Reference Levels",
             action: React.createElement("span", {
               style: {
                 display: "flex",
@@ -4867,7 +5231,16 @@
               flexDirection: "column",
               gap: 3
             }
-          }, resistance.length > 0 && React.createElement("div", {
+          }, React.createElement("div", {
+            style: {
+              padding: "0 4px 6px",
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              fontFamily: "var(--tt-font-mono)",
+              lineHeight: 1.5,
+              fontStyle: "italic"
+            }
+          }, "Structural S/R from candles + recent tape \u2014 supplements the Trade Plan above."), resistance.length > 0 && React.createElement("div", {
             style: {
               padding: "4px 8px 2px",
               display: "flex",

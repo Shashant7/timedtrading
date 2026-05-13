@@ -1714,46 +1714,123 @@
         // and use very low opacity (0.18) so the lines don't compete with
         // the candles. Reference is memoized so the LWChart's PRICE-LINES
         // effect only runs when the underlying levels actually change.
-        const subtleKeyLevelLines = useMemo(() => {
-          if (!Array.isArray(predictionContract?.levels)) return EMPTY_PRICE_LINES;
-          const px = Number(predictionContract?.current_price)
-            || Number(ticker?.price) || 0;
-          if (!(px > 0)) return EMPTY_PRICE_LINES;
-          const above = predictionContract.levels
-            .filter((l) => l.role === "resistance" && Number.isFinite(Number(l.price)) && Number(l.price) > px)
-            .sort((a, b) => Number(a.price) - Number(b.price))
-            .slice(0, 3);
-          const below = predictionContract.levels
-            .filter((l) => l.role === "support" && Number.isFinite(Number(l.price)) && Number(l.price) < px)
-            .sort((a, b) => Number(b.price) - Number(a.price))
-            .slice(0, 3);
+        // P0.7.137 (2026-05-13) — Trade Plan price lines.
+        // User feedback: "what I am looking for from levels are clear easy
+        // to understand levels that users can consider as support or
+        // resistance. We can show the SL/TP levels which are universal,
+        // rather than have them make sense of ATR levels."
+        // The previous `subtleKeyLevelLines` rendered the top 3 above + 3
+        // below from predictionContract.levels — many of which had
+        // ATR-jargon labels (+1.62× day ATR, etc) that non-traders had to
+        // decode. Replace with the SL + TP1/TP2/TP3 from the same
+        // direction-aware source the Risk & Targets panel uses, so the
+        // chart shows the universally-understood trade plan instead.
+        const tradeplanPriceLines = useMemo(() => {
           const out = [];
-          // P0.7.102 — bumped opacity 0.22 -> 0.45 + lineWidth 1 -> 1
-          // (kept thin) so the lines are clearly visible on the chart
-          // but still subtle. Also use Dashed (style 2) instead of
-          // Dotted (1) for better visibility on dark backgrounds.
-          for (const l of above) {
+          // Resolve direction (prediction contract first, then active trade)
+          const pcDir = String(predictionContract?.direction || "").toUpperCase();
+          const tradeStatus = String(trade?.status || "").toUpperCase();
+          const tradeIsOpen = !!(trade && (
+            tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" ||
+            (!(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS")
+          ));
+          const dir = (pcDir === "LONG" || pcDir === "SHORT")
+            ? pcDir
+            : (tradeIsOpen ? String(trade?.direction || "").toUpperCase() : null);
+          if (!dir) return EMPTY_PRICE_LINES;
+          const isLong = dir === "LONG";
+
+          // Stop loss (priority: prediction contract → active trade → ticker fallback)
+          const pcSL = Number(predictionContract?.risk?.stop_loss);
+          const sl = (() => {
+            if (Number.isFinite(pcSL) && pcSL > 0) return pcSL;
+            if (tradeIsOpen) return Number(trade?.sl) || 0;
+            return Number(ticker?.sl ?? ticker?.sl_dynamic ?? ticker?.stop_loss) || 0;
+          })();
+
+          // TP targets (priority: prediction contract → active trade tpArray → legacy fields)
+          const pcTargets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
+          const tpLevels = (() => {
+            const list = [];
+            if (pcTargets.length > 0) {
+              pcTargets.forEach((tp, i) => {
+                const px = Number(tp?.price);
+                if (!Number.isFinite(px) || px <= 0) return;
+                const tier = tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner");
+                list.push({
+                  label: i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`,
+                  desc: tier,
+                  px,
+                });
+              });
+            } else if (tradeIsOpen && Array.isArray(trade?.tpArray) && trade.tpArray.length > 0) {
+              trade.tpArray.forEach((tp, i) => {
+                const px = Number(tp?.price ?? tp);
+                if (!Number.isFinite(px) || px <= 0) return;
+                list.push({
+                  label: tp?.tier || (i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`),
+                  desc: tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner"),
+                  px,
+                });
+              });
+            } else if (tradeIsOpen) {
+              const tp1 = Number(ticker?.tp_trim) || 0;
+              const tp2 = Number(ticker?.tp_exit) || Number(ticker?.tp_target_price) || Number(ticker?.tp) || 0;
+              const tpMax = Number(ticker?.tp_max) || Number(ticker?.tp_runner) || 0;
+              if (tp1 > 0) list.push({ label: "TP1", desc: "Trim", px: tp1 });
+              if (tp2 > 0 && tp2 !== tp1) list.push({ label: "TP2", desc: "Exit", px: tp2 });
+              if (tpMax > 0 && tpMax !== tp1 && tpMax !== tp2) list.push({ label: "TP3", desc: "Runner", px: tpMax });
+            }
+            return list;
+          })();
+
+          // SL — solid red, thicker. Universal "do not cross" line.
+          if (sl > 0) {
             out.push({
-              price: Number(l.price),
-              color: "rgba(244,63,94,0.55)",
-              lineWidth: 1,
-              lineStyle: 2, // Dashed
+              price: sl,
+              color: "rgba(239,68,68,0.85)",
+              lineWidth: 2,
+              lineStyle: 0, // Solid
               axisLabelVisible: true,
-              title: (l.label || "").replace(/Recent /i, "").replace(/Yesterday's /i, "Y'day ").slice(0, 24),
+              title: `SL $${sl.toFixed(2)}`,
             });
           }
-          for (const l of below) {
+          // TP1 → TP3 — graduated greens (LONG) or graduated reds (SHORT bias
+          // would still want greens for the *targets* since they're the
+          // profit zones). All targets are profit-side regardless of dir.
+          const tpColors = ["rgba(252,211,77,0.80)", "rgba(245,158,11,0.80)", "rgba(34,197,94,0.85)"];
+          tpLevels.slice(0, 3).forEach((tp, i) => {
             out.push({
-              price: Number(l.price),
-              color: "rgba(38,166,154,0.55)",
-              lineWidth: 1,
+              price: tp.px,
+              color: tpColors[i] || tpColors[2],
+              lineWidth: i === 2 ? 2 : 1,
               lineStyle: 2, // Dashed
               axisLabelVisible: true,
-              title: (l.label || "").replace(/Recent /i, "").replace(/Yesterday's /i, "Y'day ").slice(0, 24),
+              title: `${tp.label} ${tp.desc}`,
+            });
+          });
+          // Entry (when active trade) — thin blue solid as a reference
+          // anchor so the user sees how far price has run from entry.
+          const entry = tradeIsOpen
+            ? (Number(trade?.entry_price ?? trade?.entryPrice) || 0)
+            : 0;
+          if (entry > 0) {
+            out.push({
+              price: entry,
+              color: "rgba(96,165,250,0.70)",
+              lineWidth: 1,
+              lineStyle: 0, // Solid
+              axisLabelVisible: true,
+              title: `Entry $${entry.toFixed(2)}`,
             });
           }
-          return out;
-        }, [predictionContract, ticker?.price]);
+          return out.length > 0 ? out : EMPTY_PRICE_LINES;
+        }, [predictionContract, trade, ticker?.sl, ticker?.tp_trim, ticker?.tp_exit, ticker?.tp_max, ticker?.tp_runner]);
+
+        // Legacy: previous level overlay kept available behind a flag
+        // for users who want the prediction-contract S/R on the chart.
+        // Currently unused — the chart now shows tradeplanPriceLines.
+        const subtleKeyLevelLines = tradeplanPriceLines;
 
         // Fundamentals tab: per-ticker data from /timed/admin/fundamentals.
         // Cached client-side per ticker for 5min so flipping between Snapshot
@@ -4140,6 +4217,184 @@
                         );
                       })()}
 
+                      {/* P0.7.137 (2026-05-13) — Trade Plan summary.
+                          User feedback: "what I am looking for from levels
+                          are clear easy to understand levels that users can
+                          consider as support or resistance. We can show the
+                          SL/TP levels which are universal, rather than have
+                          them make sense of ATR levels."
+                          This panel surfaces the SL + TP1/TP2/TP3 from the
+                          same direction-aware source the Risk & Targets
+                          ladder uses — but laid out as a flat S/R-style
+                          list (above-price targets / current / below-price
+                          stop) that maps 1:1 with the chart's price lines.
+                          The detailed Reference Levels panel below (52W
+                          high, PDZ, prior session high, pivots) stays as
+                          secondary context. */}
+                      {(() => {
+                        const px = Number(v2Price) || Number(ticker?.price) || 0;
+                        if (!(px > 0)) return null;
+
+                        const pcSL = Number(predictionContract?.risk?.stop_loss);
+                        const pcTargets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
+                        const pcDirRaw = String(predictionContract?.direction || "").toUpperCase();
+                        const tradeStatus = String(trade?.status || "").toUpperCase();
+                        const tradeIsOpen = !!(trade && (
+                          tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" ||
+                          (!(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS")
+                        ));
+                        const dir = (pcDirRaw === "LONG" || pcDirRaw === "SHORT")
+                          ? pcDirRaw
+                          : (tradeIsOpen ? String(trade?.direction || "").toUpperCase() : null);
+                        if (!dir) return null;
+                        const isLong = dir === "LONG";
+
+                        const sl = (() => {
+                          if (Number.isFinite(pcSL) && pcSL > 0) return pcSL;
+                          if (tradeIsOpen) return Number(trade?.sl) || 0;
+                          return Number(ticker?.sl ?? ticker?.sl_dynamic ?? ticker?.stop_loss) || 0;
+                        })();
+                        const entry = tradeIsOpen ? (Number(trade?.entry_price ?? trade?.entryPrice) || 0) : 0;
+                        const tps = (() => {
+                          const list = [];
+                          if (pcTargets.length > 0) {
+                            pcTargets.forEach((tp, i) => {
+                              const tpPx = Number(tp?.price);
+                              if (!Number.isFinite(tpPx) || tpPx <= 0) return;
+                              list.push({ label: i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`, desc: tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner"), px: tpPx });
+                            });
+                          } else if (tradeIsOpen && Array.isArray(trade?.tpArray) && trade.tpArray.length > 0) {
+                            trade.tpArray.forEach((tp, i) => {
+                              const tpPx = Number(tp?.price ?? tp);
+                              if (!Number.isFinite(tpPx) || tpPx <= 0) return;
+                              list.push({ label: tp?.tier || (i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`), desc: tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner"), px: tpPx });
+                            });
+                          } else if (tradeIsOpen) {
+                            const tp1 = Number(ticker?.tp_trim) || 0;
+                            const tp2 = Number(ticker?.tp_exit) || Number(ticker?.tp_target_price) || Number(ticker?.tp) || 0;
+                            const tpMax = Number(ticker?.tp_max) || Number(ticker?.tp_runner) || 0;
+                            if (tp1 > 0) list.push({ label: "TP1", desc: "Trim", px: tp1 });
+                            if (tp2 > 0 && tp2 !== tp1) list.push({ label: "TP2", desc: "Exit", px: tp2 });
+                            if (tpMax > 0 && tpMax !== tp1 && tpMax !== tp2) list.push({ label: "TP3", desc: "Runner", px: tpMax });
+                          }
+                          return list;
+                        })();
+
+                        if (!(sl > 0) && tps.length === 0) return null;
+
+                        // Above and below split for LONG and SHORT bias.
+                        // LONG: TPs above, SL below.   SHORT: TPs below, SL above.
+                        // Sort each side by distance to current price.
+                        const above = [];
+                        const below = [];
+                        for (const tp of tps) {
+                          const row = { kind: "tp", label: tp.label, desc: tp.desc, px: tp.px };
+                          if (tp.px > px) above.push(row); else below.push(row);
+                        }
+                        if (sl > 0) {
+                          const slRow = { kind: "sl", label: "SL", desc: "Stop loss", px: sl };
+                          if (sl > px) above.push(slRow); else below.push(slRow);
+                        }
+                        above.sort((a, b) => a.px - b.px);
+                        below.sort((a, b) => b.px - a.px);
+
+                        const tradeIsProposed = !tradeIsOpen;
+                        const eyebrow = tradeIsProposed ? "PROPOSED" : "ACTIVE";
+                        const eyebrowColor = tradeIsProposed ? "var(--ds-text-muted)" : "var(--ds-accent)";
+
+                        const labelOfTp = (label, desc) => `${label} · ${desc}`;
+                        const TpRow = ({ row, side }) => {
+                          const isSl = row.kind === "sl";
+                          // Visual hierarchy:
+                          //   SL  → red border + red label, always solid weight.
+                          //   TP1 → amber, TP2 → orange, TP3 → green.
+                          //   Entry-side row (when present) → faint blue.
+                          const palette = (() => {
+                            if (isSl) return { border: "rgba(239,68,68,0.85)", label: "var(--ds-dn)", letter: "SL", letterColor: "#ef4444" };
+                            if (row.label === "TP1") return { border: "rgba(252,211,77,0.85)", label: "#fcd34d", letter: "T1", letterColor: "#fcd34d" };
+                            if (row.label === "TP2") return { border: "rgba(245,158,11,0.85)", label: "#f59e0b", letter: "T2", letterColor: "#f59e0b" };
+                            return { border: "rgba(34,197,94,0.85)", label: "#22c55e", letter: "T3", letterColor: "#22c55e" };
+                          })();
+                          const dist = ((row.px - px) / px) * 100;
+                          const distColor = side === "above" ? "var(--ds-up)" : side === "below" ? "var(--ds-dn)" : "var(--ds-text-muted)";
+                          return (
+                            <div style={{
+                              display: "grid",
+                              gridTemplateColumns: "32px 1fr 64px 44px",
+                              gap: "var(--ds-space-2)",
+                              alignItems: "center",
+                              padding: "5px 8px",
+                              borderRadius: "var(--ds-radius-xs)",
+                              background: "rgba(255,255,255,0.02)",
+                              borderLeft: `3px solid ${palette.border}`,
+                            }} title={`${row.label} · ${row.desc} · $${Number(row.px).toFixed(2)}`}>
+                              <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, color: palette.letterColor, letterSpacing: "0.06em", textAlign: "center" }}>{palette.letter}</span>
+                              <span style={{ fontSize: "var(--ds-fs-meta)", color: palette.label, fontFamily: "var(--tt-font-mono)", fontWeight: 600 }}>{labelOfTp(row.label, row.desc)}</span>
+                              <span style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-display)", fontFamily: "var(--tt-font-mono)", fontWeight: 700, textAlign: "right" }}>${Number(row.px).toFixed(2)}</span>
+                              <span style={{ fontSize: 9, color: distColor, fontFamily: "var(--tt-font-mono)", textAlign: "right" }}>{dist >= 0 ? "+" : ""}{dist.toFixed(2)}%</span>
+                            </div>
+                          );
+                        };
+
+                        return (
+                          <Panel title="Trade Plan" action={
+                            <span style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 9, fontFamily: "var(--tt-font-mono)", letterSpacing: "0.10em" }}>
+                              <span className={`ds-chip ds-chip--sm ${isLong ? "ds-chip--up" : "ds-chip--dn"}`} title="Bias direction">{dir}</span>
+                              <span style={{ color: eyebrowColor, fontWeight: 700 }}>{eyebrow}</span>
+                            </span>
+                          }>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                              {above.length > 0 && (
+                                <div style={{ padding: "4px 8px 2px", display: "flex", alignItems: "baseline", gap: "var(--ds-space-2)" }}>
+                                  <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-up)" }}>Above</span>
+                                  <span style={{ fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" }}>
+                                    {isLong ? "profit-taking targets" : "stop above price"}
+                                  </span>
+                                </div>
+                              )}
+                              {above.length > 0 && above.slice().reverse().map((row, i) => (
+                                <TpRow key={`above-${i}-${row.px}`} row={row} side="above" />
+                              ))}
+                              {/* Current price + Entry row */}
+                              <div style={{
+                                display: "grid",
+                                gridTemplateColumns: "32px 1fr 64px 44px",
+                                gap: "var(--ds-space-2)",
+                                alignItems: "center",
+                                padding: "8px 8px",
+                                borderRadius: "var(--ds-radius-xs)",
+                                background: "rgba(245,194,92,0.10)",
+                                border: "1px solid rgba(245,194,92,0.30)",
+                                margin: "2px 0",
+                              }}>
+                                <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, color: "var(--ds-accent)", letterSpacing: "0.06em", textAlign: "center" }}>NOW</span>
+                                <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-accent)", fontFamily: "var(--tt-font-mono)", fontWeight: 700 }}>
+                                  Current Price{entry > 0 ? ` · entry $${entry.toFixed(2)}` : ""}
+                                </span>
+                                <span style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-accent)", fontFamily: "var(--tt-font-mono)", fontWeight: 700, textAlign: "right" }}>${px.toFixed(2)}</span>
+                                <span style={{ fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", textAlign: "right" }}>
+                                  {entry > 0 ? `${((px - entry) / entry * 100 * (isLong ? 1 : -1)) >= 0 ? "+" : ""}${((px - entry) / entry * 100 * (isLong ? 1 : -1)).toFixed(2)}%` : "—"}
+                                </span>
+                              </div>
+                              {below.length > 0 && (
+                                <div style={{ padding: "4px 8px 2px", display: "flex", alignItems: "baseline", gap: "var(--ds-space-2)" }}>
+                                  <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-dn)" }}>Below</span>
+                                  <span style={{ fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" }}>
+                                    {isLong ? "stop / invalidation" : "profit-taking targets"}
+                                  </span>
+                                </div>
+                              )}
+                              {below.length > 0 && below.map((row, i) => (
+                                <TpRow key={`below-${i}-${row.px}`} row={row} side="below" />
+                              ))}
+                              <div style={{ marginTop: "var(--ds-space-2)", padding: "0 4px", fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", lineHeight: 1.5, fontStyle: "italic" }}>
+                                Same SL/TP plan the chart and Risk &amp; Targets ladder use. Levels below are extra context (52W high, prior session, pivots).
+                              </div>
+                            </div>
+                          </Panel>
+                        );
+                      })()}
+
                       {/* V15 P0.7.99 — KEY LEVELS in v2 SETUP tab.
                           Sits between Risk & Targets and Profile so all
                           trade-decision data lives in one tab and the
@@ -4236,13 +4491,23 @@
                           );
                         };
                         return (
-                          <Panel title="Key Levels" action={
+                          <Panel title="Reference Levels" action={
                             <span style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 9, fontFamily: "var(--tt-font-mono)", color: "var(--ds-text-faint)", letterSpacing: "0.10em" }}>
                               {pcDir && <span className={`ds-chip ds-chip--sm ${isShort ? "ds-chip--dn" : "ds-chip--up"}`} title="Bias direction" style={{ fontSize: 9 }}>{pcDir}</span>}
                               <span>{resistance.length} above · {support.length} below</span>
                             </span>
                           }>
                             <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                              {/* P0.7.137 (2026-05-13) — clarifying caption.
+                                  This panel sits BELOW the Trade Plan panel
+                                  and serves as supporting context (52W high,
+                                  prior-session range, multi-tested pivots,
+                                  PDZ premium/discount). The Trade Plan panel
+                                  above carries the universal SL/TP that the
+                                  user actually trades against. */}
+                              <div style={{ padding: "0 4px 6px", fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", lineHeight: 1.5, fontStyle: "italic" }}>
+                                Structural S/R from candles + recent tape — supplements the Trade Plan above.
+                              </div>
                               {resistance.length > 0 && (
                                 <div style={{ padding: "4px 8px 2px", display: "flex", alignItems: "baseline", gap: "var(--ds-space-2)" }}>
                                   <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-dn)" }}>{aboveLabel}</span>
