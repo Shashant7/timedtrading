@@ -34043,9 +34043,15 @@ async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMap
        VALUES (?1, ?2, 'OPEN', ?3, ?4, ?5, ?6, ?6, 'accumulate', ?7, ?6, ?6)`
     ).bind(posId, c.sym, shares, targetValue, price, dayMs, allocPct).run();
 
+    // V15 P0.7.141 (2026-05-13) — distinguish live entries from replay
+    // entries on the lot reason. Previously hardcoded 'replay_entry' even
+    // for live cron buys, which made the Lot History tab read like a
+    // backtest in production. `replayCtx` is non-null only during
+    // historical replay; the live cron leaves it null.
+    const _entryReason = replayCtx ? "replay_entry" : "investor_buy";
     await db.prepare(
-      "INSERT OR IGNORE INTO investor_lots (id, position_id, ticker, action, shares, price, value, ts, reason, created_at) VALUES (?1, ?2, ?3, 'BUY', ?4, ?5, ?6, ?7, 'replay_entry', ?7)"
-    ).bind(lotId, posId, c.sym, shares, price, targetValue, dayMs).run();
+      "INSERT OR IGNORE INTO investor_lots (id, position_id, ticker, action, shares, price, value, ts, reason, created_at) VALUES (?1, ?2, ?3, 'BUY', ?4, ?5, ?6, ?7, ?8, ?7)"
+    ).bind(lotId, posId, c.sym, shares, price, targetValue, dayMs, _entryReason).run();
 
     investorCash -= targetValue;
     currentPosTickers.add(c.sym);
@@ -55906,11 +55912,15 @@ export default {
           }
 
           // Resolve fallback acct_value once (most recent ledger balance).
+          // The trader-mode ledger uses `mode='trader'`, not `live`. Accept
+          // either to be defensive against future mode renaming.
           let fallbackAcctValue = acctOverride > 0 ? acctOverride : 0;
           if (fallbackAcctValue <= 0) {
             try {
               const last = await db.prepare(
-                `SELECT balance FROM account_ledger WHERE mode = 'live' ORDER BY ts DESC LIMIT 1`
+                `SELECT balance FROM account_ledger
+                   WHERE mode IN ('trader','live')
+                   ORDER BY ts DESC LIMIT 1`
               ).first();
               if (last && Number(last.balance) > 0) fallbackAcctValue = Number(last.balance);
             } catch (_) {}
@@ -55949,11 +55959,29 @@ export default {
                  FROM direction_accuracy WHERE trade_id = ?1`
             ).bind(tid).first();
 
-            const entryPrice = Number(t.entry_price) > 0
-              ? Number(t.entry_price)
-              : Number(da?.entry_price) || 0;
+            // Resolve entry_price from DA first (canonical source — trades
+            // can be corrupted by upstream cost_basis swap), fall back to
+            // trades only if DA is missing. Sanity-check both: refuse any
+            // value < $0.50 unless it's a known penny stock — protects
+            // against the "cost_basis as per-share" corruption pattern.
+            const PENNY_STOCK_FLOOR = 0.50;
+            const daEntry = Number(da?.entry_price) || 0;
+            const tradeEntry = Number(t.entry_price) || 0;
+            const tradeEntrySane = tradeEntry >= PENNY_STOCK_FLOOR;
+            const daEntrySane = daEntry >= PENNY_STOCK_FLOOR;
+            const entryPrice = daEntrySane
+              ? daEntry
+              : (tradeEntrySane ? tradeEntry : (daEntry > 0 ? daEntry : tradeEntry));
             if (!(entryPrice > 0)) {
               restored.push({ trade_id: tid, ticker, ok: false, reason: "no_entry_price_in_trades_or_da" });
+              continue;
+            }
+            if (entryPrice < PENNY_STOCK_FLOOR) {
+              restored.push({
+                trade_id: tid, ticker, ok: false,
+                reason: `entry_price_below_floor_${PENNY_STOCK_FLOOR}_likely_corruption`,
+                trade_entry: tradeEntry, da_entry: daEntry,
+              });
               continue;
             }
 
@@ -56033,13 +56061,15 @@ export default {
               ? Math.round((entryPrice + atr * TP_FIB_MULTS.TP3) * 100) / 100
               : Math.round((entryPrice - atr * TP_FIB_MULTS.TP3) * 100) / 100;
 
-            // Resolve account_value at entry time from account_ledger.
+            // Resolve account_value at entry time from account_ledger
+            // (mode `trader` is the live trader account; legacy `live`
+            // is also accepted defensively).
             let acctValue = acctOverride > 0 ? acctOverride : 0;
             if (acctValue <= 0) {
               try {
                 const bal = await db.prepare(
                   `SELECT balance FROM account_ledger
-                     WHERE mode = 'live' AND ts <= ?1
+                     WHERE mode IN ('trader','live') AND ts <= ?1
                      ORDER BY ts DESC LIMIT 1`
                 ).bind(entryTs).first();
                 if (bal && Number(bal.balance) > 0) acctValue = Number(bal.balance);
@@ -56130,6 +56160,12 @@ export default {
               // Sync positions row total_qty + cost_basis so the UI's
               // remaining-shares math (positions.total_qty * (1-trimmed_pct))
               // resolves to a meaningful number.
+              //
+              // CRITICAL: positions.cost_basis is TOTAL cost (= shares × entry_price),
+              // NOT per-share. Downstream read paths compute the displayed entry
+              // price as `cost_basis / total_qty`, and the management cron uses
+              // the same fallback. Writing per-share here corrupts both UI and
+              // any subsequent UPSERT into trades.entry_price.
               try {
                 await db.prepare(
                   `UPDATE positions
@@ -56137,7 +56173,7 @@ export default {
                          cost_basis = ?3,
                          updated_at = ?4
                    WHERE position_id = ?1`
-                ).bind(tid, shares, entryPrice, Date.now()).run();
+                ).bind(tid, shares, notional, Date.now()).run();
               } catch (_) {}
             }
 
