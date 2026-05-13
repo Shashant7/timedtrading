@@ -4596,7 +4596,7 @@
           style: {
             alignSelf: "flex-start"
           }
-        }, ticker.setup_grade))), (() => {
+        }, ticker.setup_grade))), false && (() => {
           const pcSL = predictionContract?.risk?.stop_loss != null ? Number(predictionContract.risk.stop_loss) : NaN;
           const pcTargets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
           const pcRR = predictionContract?.risk?.rr != null ? Number(predictionContract.risk.rr) : NaN;
@@ -4990,6 +4990,15 @@
               }
             }, dist >= 0 ? "+" : "", dist.toFixed(2), "%"));
           };
+          const _pcRR = Number(predictionContract?.risk?.rr);
+          const _rr = Number.isFinite(_pcRR) && _pcRR > 0 ? _pcRR : Number(ticker?.rr) || NaN;
+          const _rrChip = Number.isFinite(_rr) && _rr > 0 ? React.createElement("span", {
+            className: `ds-chip ds-chip--sm ${_rr >= 2 ? "ds-chip--up" : "ds-chip--accent"}`,
+            style: {
+              fontFamily: "var(--tt-font-mono)"
+            },
+            title: tradeIsProposed ? "Model-derived reward-to-risk — entry not triggered" : "Active reward-to-risk for the open trade"
+          }, "R:R ", _rr.toFixed(2)) : null;
           return React.createElement(Panel, {
             title: "Trade Plan",
             action: React.createElement("span", {
@@ -5004,7 +5013,7 @@
             }, React.createElement("span", {
               className: `ds-chip ds-chip--sm ${isLong ? "ds-chip--up" : "ds-chip--dn"}`,
               title: "Bias direction"
-            }, dir), React.createElement("span", {
+            }, dir), _rrChip, React.createElement("span", {
               style: {
                 color: eyebrowColor,
                 fontWeight: 700
@@ -5121,7 +5130,7 @@
               lineHeight: 1.5,
               fontStyle: "italic"
             }
-          }, "Same SL/TP plan the chart and Risk & Targets ladder use. Levels below are extra context (52W high, prior session, pivots).")));
+          }, tradeIsProposed ? `Model-derived ${dir} plan — entry not triggered. ${dir === "SHORT" ? "Targets sit BELOW price; stop sits ABOVE (invalidates the short)." : "Targets sit ABOVE price; stop sits BELOW (invalidates the long)."}` : `Active ${dir} plan — ${dir === "SHORT" ? "stop above price, targets below." : "stop below price, targets above."}`, " ", "Reference Levels below add S/R context (52W high, prior session, pivots).")));
         })(), Array.isArray(predictionContract?.levels) && predictionContract.levels.length > 0 && (() => {
           const px = Number(v2Price) || Number(ticker?.price) || 0;
           if (!(px > 0)) return null;
