@@ -9258,6 +9258,67 @@
             ),
           },
           {
+            // V15 P0.7.145 (2026-05-13) — new "Read the Kanban Lanes"
+            // step. Most users learn the modes (step 2) and then have
+            // to figure out the lanes by trial-and-error. Make it
+            // explicit: each lane is a state in the trade lifecycle,
+            // and what to DO in each one.
+            title: "Read the Kanban Lanes",
+            content: (
+              <div className="space-y-4">
+                <p className="text-base text-[#e5e7eb] leading-[1.7]">
+                  Every ticker lives in one of seven lanes. Lanes group tickers by what the engine wants you to <strong className="text-white">do next</strong>, not by direction. Read top-to-bottom: discovery → entry → management.
+                </p>
+                <div className="space-y-2">
+                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3">
+                    <div className="text-[10px] font-bold uppercase tracking-widest text-[#a78bfa] mb-1.5">DISCOVERY → ENTRY</div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[12px]">
+                      <div>
+                        <div className="font-semibold text-white mb-0.5">Setup</div>
+                        <div className="text-[#9ca3af] leading-snug">Entry conditions are forming. <em>Watch — don't trade yet.</em></div>
+                      </div>
+                      <div>
+                        <div className="font-semibold text-[#f59e0b] mb-0.5">In Review</div>
+                        <div className="text-[#9ca3af] leading-snug">Technicals qualified. AI CIO is evaluating. <em>Trade may be opened next tick.</em></div>
+                      </div>
+                      <div>
+                        <div className="font-semibold text-[#22d3ee] mb-0.5">Position Initiated</div>
+                        <div className="text-[#9ca3af] leading-snug">Trade just placed. <em>Engine is now managing it.</em></div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3">
+                    <div className="text-[10px] font-bold uppercase tracking-widest text-[#34d399] mb-1.5">MANAGE</div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[12px]">
+                      <div>
+                        <div className="font-semibold text-[#34d399] mb-0.5">Hold</div>
+                        <div className="text-[#9ca3af] leading-snug">Position healthy, signals strong. <em>Let it run; do nothing.</em></div>
+                      </div>
+                      <div>
+                        <div className="font-semibold text-[#fb923c] mb-0.5">Defend</div>
+                        <div className="text-[#9ca3af] leading-snug">Warning indicators firing. <em>Engine has tightened stops.</em></div>
+                      </div>
+                      <div>
+                        <div className="font-semibold text-[#fbbf24] mb-0.5">Trim</div>
+                        <div className="text-[#9ca3af] leading-snug">Near a TP target. <em>Engine is taking partial profits.</em></div>
+                      </div>
+                      <div>
+                        <div className="font-semibold text-[#9ca3af] mb-0.5">Exit</div>
+                        <div className="text-[#9ca3af] leading-snug">Stop hit or thesis invalidated. <em>Position is closing now.</em></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-violet-500/[0.06] border border-violet-500/15 rounded-lg p-3 text-[12px] text-[#d1d5db] leading-[1.65]">
+                  <strong className="text-violet-300">Investor Mode lanes are different.</strong> Read <em>Buy Zone → Core Hold → Hold &amp; Watch → Reduce</em> for owned names, and <em>On Radar → Low Conv → Avoid</em> for prospects. Hover any lane label to see its full description.
+                </div>
+                <p className="text-[12px] text-[#9ca3af] leading-[1.6]">
+                  Tip: every owned position carries a <strong className="text-white">LAST</strong> chip showing the model's most recent action and a <strong className="text-white">WATCHING</strong> chip when the model is monitoring for a trigger condition. The Active Trader Brief above the lanes summarizes everything in one glance.
+                </p>
+              </div>
+            ),
+          },
+          {
             title: "The Right Rail — your deep dive",
             content: (
               <div className="space-y-4">
@@ -9365,16 +9426,16 @@
           }
         ];
 
-        // P0.7.133 — Guide is now 5 steps:
+        // P0.7.133 / V15 P0.7.145 — Guide is now 6 steps:
         //   1) Welcome (intro to scoring + decision engine)
         //   2) Two modes, one engine (Active Trader vs Investor)
-        //   3) Right Rail tabs (Snapshot / Setup / Technicals /
-        //      Fundamentals / History — match the actual tab strip,
-        //      no Pro gating since every signed-up user is Pro)
-        //   4) Build your watchlist
-        //   5) You're all set (workflow-only — no static performance
-        //      tile; live numbers live on the Trades page)
-        const steps = allSteps.slice(0, 5);
+        //   3) Read the Kanban Lanes (NEW — explains discovery → entry →
+        //      manage flow + Investor lane vocabulary)
+        //   4) Right Rail tabs (Snapshot / Setup / Technicals /
+        //      Fundamentals / History)
+        //   5) Build your watchlist
+        //   6) You're all set (workflow-only)
+        const steps = allSteps.slice(0, 6);
 
         const nextStep = () => {
           if (currentStep < steps.length - 1) {
@@ -15023,8 +15084,188 @@
           );
         }
 
+        // V15 P0.7.145 (2026-05-13) — Active Trader Brief
+        // Analogous to the Investor Brief on the investor view. Surfaces:
+        //   - Market context (regime + breadth)
+        //   - Open positions status (one chip per OPEN/TP_HIT_TRIM trade
+        //     with current management lane: hold / defend / trim / exit)
+        //   - In Review pipeline (count + top setups by rank)
+        //   - Pending entries note when nothing has fired today
+        // Goal: a single glance tells the user (a) what the market is
+        // doing, (b) what the model is doing with their trades, and
+        // (c) what is in the queue for new positions. Mirrors the
+        // Investor Brief structure for visual consistency across modes.
+        const _atrBrief = (() => {
+          const openTrades = (Array.isArray(trades) ? trades : []).filter((t) => {
+            const s = String(t?.status || "").toUpperCase();
+            return s === "OPEN" || s === "TP_HIT_TRIM" || (!s && !(t?.exit_ts ?? t?.exitTs));
+          });
+          const tickerByTicker = new Map();
+          for (const t of (Array.isArray(tickers) ? tickers : [])) {
+            const sym = String(t?.ticker || "").toUpperCase();
+            if (sym) tickerByTicker.set(sym, t);
+          }
+          const openPositionLanes = openTrades.map((tr) => {
+            const sym = String(tr?.ticker || "").toUpperCase();
+            const tk = tickerByTicker.get(sym) || {};
+            const tradeStatus = String(tr?.status || "").toUpperCase();
+            const trimmed = Number(tr?.trimmed_pct || tr?.trimmedPct || 0);
+            const rawStage = String(tk?.kanban_stage || "").toLowerCase();
+            let lane = rawStage;
+            if (tradeStatus === "TP_HIT_TRIM" || trimmed > 0) lane = "trim";
+            else if (rawStage === "exit") lane = "defend";
+            else if (!["defend","trim","hold","active","just_entered"].includes(rawStage)) lane = "hold";
+            const px = Number(tk?.price || tk?.close) || 0;
+            const ep = Number(tr?.entry_price || tr?.entryPrice) || 0;
+            const dir = String(tr?.direction || "").toUpperCase();
+            const dirMul = dir === "SHORT" ? -1 : 1;
+            const livePct = (px > 0 && ep > 0) ? ((px - ep) / ep) * 100 * dirMul : 0;
+            return { ticker: sym, lane, livePct, dir };
+          });
+          const laneCount = (lk) => openPositionLanes.filter((p) => p.lane === lk).length;
+          // Top 3 In-Review (qualified, awaiting CIO / trigger). Pull
+          // from the `enter` lane categories already destructured above.
+          const topInReview = (Array.isArray(enter) ? enter : []).slice(0, 4).map((t) => ({
+            ticker: String(t?.ticker || "").toUpperCase(),
+            rank: Number(t?.rank) || 0,
+            dir: String(t?.state || "").startsWith("HTF_BULL") ? "LONG" : (String(t?.state || "").startsWith("HTF_BEAR") ? "SHORT" : ""),
+          }));
+          // Setup shows the count + an estimate of how many are bullish/bearish.
+          const setupBull = (Array.isArray(setup) ? setup : []).filter((t) => String(t?.state || "").startsWith("HTF_BULL")).length;
+          const setupBear = (Array.isArray(setup) ? setup : []).length - setupBull;
+          // Market regime: read from data via StatusStrip's regime calc
+          // is too coupled; instead surface a coarse SPY-based read here.
+          const _spy = (data && (data.SPY || data["SPY"])) || null;
+          const _spyDc = _spy ? getDailyChange(_spy) : null;
+          const _spyPct = Number(_spyDc?.dayPct);
+          const regimeWord = (() => {
+            if (!Number.isFinite(_spyPct)) return "Mixed";
+            if (_spyPct > 0.3) return "Risk-On";
+            if (_spyPct < -0.3) return "Risk-Off";
+            return "Mixed";
+          })();
+          const regimeColor = regimeWord === "Risk-On" ? "rgb(74,222,128)"
+                            : regimeWord === "Risk-Off" ? "rgb(248,113,113)"
+                            : "rgb(252,211,77)";
+          return {
+            openCount: openPositionLanes.length,
+            holdN: laneCount("hold") + laneCount("active") + laneCount("just_entered"),
+            defendN: laneCount("defend"),
+            trimN: laneCount("trim"),
+            exitN: laneCount("exit"),
+            openPositionLanes,
+            inReviewCount: Array.isArray(enter) ? enter.length : 0,
+            setupCount: Array.isArray(setup) ? setup.length : 0,
+            setupBull, setupBear,
+            topInReview,
+            regimeWord, regimeColor, spyPct: _spyPct,
+          };
+        })();
         return (
           <div>
+            {/* V15 P0.7.145 — Active Trader Brief */}
+            <div className="mb-2 px-3 py-2.5 rounded-xl border border-white/[0.06] bg-white/[0.02]">
+              <div className="flex items-baseline gap-3 mb-2">
+                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#a78bfa]">Active Trader Brief</span>
+                <span className="text-[10px] text-[#6b7280]">Snapshot of what the model is doing right now</span>
+              </div>
+              <div className="space-y-2">
+                {/* Line 1: Market regime + open-position summary */}
+                <div className="flex items-center gap-3 flex-wrap text-[12px]" style={{ color: "var(--ds-text-body, #d1d5db)" }}>
+                  <span>
+                    Market: <span style={{ color: _atrBrief.regimeColor, fontWeight: 600 }}>{_atrBrief.regimeWord}</span>
+                    {Number.isFinite(_atrBrief.spyPct) && (
+                      <span className="text-[#6b7280] ml-1">
+                        (SPY {_atrBrief.spyPct >= 0 ? "+" : ""}{_atrBrief.spyPct.toFixed(2)}%)
+                      </span>
+                    )}.
+                  </span>
+                  <span>
+                    {_atrBrief.openCount === 0
+                      ? <span className="text-[#9ca3af]">No open positions.</span>
+                      : (
+                          <>
+                            <span className="font-semibold text-white">{_atrBrief.openCount}</span> open —
+                            {_atrBrief.holdN   > 0 && <span className="text-[#34d399] ml-1">{_atrBrief.holdN} hold</span>}
+                            {_atrBrief.defendN > 0 && <span className="text-[#fb923c] ml-1">{_atrBrief.defendN} defend</span>}
+                            {_atrBrief.trimN   > 0 && <span className="text-[#fbbf24] ml-1">{_atrBrief.trimN} trim</span>}
+                            {_atrBrief.exitN   > 0 && <span className="text-[#9ca3af] ml-1">{_atrBrief.exitN} exit</span>}
+                            <span className="text-[#6b7280]">.</span>
+                          </>
+                        )}
+                  </span>
+                </div>
+
+                {/* Line 2: per-position chips */}
+                {_atrBrief.openPositionLanes.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5" style={{ fontFamily: "var(--tt-font-mono, monospace)" }}>
+                    <span className="text-[9px] font-bold uppercase tracking-widest text-[#6b7280] mr-1">POSITIONS</span>
+                    {_atrBrief.openPositionLanes.map((p) => {
+                      const laneColor = p.lane === "defend" ? "#fb923c"
+                                      : p.lane === "trim"   ? "#fbbf24"
+                                      : p.lane === "exit"   ? "#9ca3af"
+                                      : "#34d399";
+                      const laneLabel = p.lane === "defend" ? "DEFEND"
+                                      : p.lane === "trim"   ? "TRIM"
+                                      : p.lane === "exit"   ? "EXIT"
+                                      : "HOLD";
+                      const pnlColor = p.livePct >= 0 ? "#22c55e" : "#ef4444";
+                      return (
+                        <span key={p.ticker}
+                              onClick={() => onSelectTicker?.(p.ticker)}
+                              style={{
+                                cursor: "pointer",
+                                display: "inline-flex", alignItems: "center", gap: 6,
+                                padding: "2px 7px",
+                                borderRadius: 4,
+                                border: `1px solid ${laneColor}33`,
+                                background: `${laneColor}0d`,
+                                fontSize: 10,
+                              }}>
+                          <span style={{ color: "white", fontWeight: 700 }}>{p.ticker}</span>
+                          <span style={{ color: laneColor, fontWeight: 600 }}>{laneLabel}</span>
+                          {Number.isFinite(p.livePct) && (
+                            <span style={{ color: pnlColor }}>
+                              {p.livePct >= 0 ? "+" : ""}{p.livePct.toFixed(2)}%
+                            </span>
+                          )}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Line 3: pipeline + top in-review */}
+                <div className="flex items-center gap-3 flex-wrap text-[11px]" style={{ color: "var(--ds-text-muted, #9ca3af)" }}>
+                  <span>
+                    Pipeline:
+                    <span className="font-semibold text-white ml-1">{_atrBrief.setupCount}</span> setup
+                    <span className="text-[#6b7280] ml-0.5">({_atrBrief.setupBull} bull / {_atrBrief.setupBear} bear)</span>
+                    {", "}
+                    <span className="font-semibold text-white ml-1">{_atrBrief.inReviewCount}</span> in review.
+                  </span>
+                  {_atrBrief.topInReview.length > 0 ? (
+                    <span style={{ fontFamily: "var(--tt-font-mono, monospace)" }}>
+                      <span className="text-[#6b7280] mr-1">Watch:</span>
+                      {_atrBrief.topInReview.map((t, i) => (
+                        <span key={t.ticker}
+                              onClick={() => onSelectTicker?.(t.ticker)}
+                              className="cursor-pointer hover:text-white"
+                              style={{ marginLeft: i > 0 ? 6 : 0 }}>
+                          {t.ticker}
+                          {t.dir && <span style={{ color: t.dir === "LONG" ? "#34d399" : "#f87171", marginLeft: 3, fontSize: 9 }}>{t.dir === "LONG" ? "L" : "S"}</span>}
+                          {t.rank > 0 && <span className="text-[#6b7280] ml-0.5">#{t.rank}</span>}
+                        </span>
+                      ))}
+                    </span>
+                  ) : (
+                    _atrBrief.inReviewCount === 0 && _atrBrief.setupCount > 0 && (
+                      <span className="text-[#fbbf24]">No setups have qualified for entry yet — model is being selective.</span>
+                    )
+                  )}
+                </div>
+              </div>
+            </div>
             {/* Legend: Lanes + Badges (Active Trader Cards view) — V15 P0.7.43 polish */}
             <div className="mb-2 space-y-1">
               <div className="px-2.5 py-1.5 rounded-xl border border-white/[0.06] bg-white/[0.02] flex items-center flex-nowrap gap-x-3 text-[10px] text-[#9ca3af] overflow-x-auto">
