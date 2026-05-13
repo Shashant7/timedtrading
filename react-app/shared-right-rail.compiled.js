@@ -98,7 +98,7 @@ const levelSigRef=useRef(null);const levelTrendSigRef=useRef(null);// V15 P0.7.9
 // back to default view), and the price lines added from external SL/
 // TP/Entry props (so they can be cleaned up when those props change
 // without recreating the chart).
-const firstDataLoadAppliedRef=useRef(false);const externalPriceLinesRef=useRef([]);const tdSeqMarkersRef=useRef([]);const lastVisibleLogicalRangeRef=useRef(null);// V15 P0.7.99-r2 — content signature of the last applied mapped
+const firstDataLoadAppliedRef=useRef(false);const externalPriceLinesRef=useRef([]);const tdSeqMarkersRef=useRef([]);const lastVisibleLogicalRangeRef=useRef(null);const userInteractedWithChartRef=useRef(false);// V15 P0.7.99-r2 — content signature of the last applied mapped
 // dataset. UPDATE effect short-circuits when content is identical
 // even if the array reference changed (defends against any spurious
 // useMemo re-runs that might otherwise trigger a brief redraw).
@@ -167,15 +167,15 @@ const candleSeries=chart.addCandlestickSeries({upColor:"#26a69a",downColor:"#ef5
 firstDataLoadAppliedRef.current=false;// Reset mapped-content signature so the UPDATE effect's short-
 // circuit runs the FIRST data load through (otherwise the new
 // chart instance would never receive any candles).
-lastMappedSigRef.current=null;const restoreVisibleRange=()=>{const range=lastVisibleLogicalRangeRef.current;if(!range||range.from==null||range.to==null)return;try{chart.timeScale().setVisibleLogicalRange(range);}catch(_){}};// P0.7.102 — Detect user interaction with the price axis and
+lastMappedSigRef.current=null;const restoreVisibleRange=()=>{const range=lastVisibleLogicalRangeRef.current;if(!range||range.from==null||range.to==null)return;try{chart.timeScale().setVisibleLogicalRange(range);}catch(_){}};const lockPriceScaleIfUserAdjusted=()=>{if(!userInteractedWithChartRef.current)return;try{chart.priceScale("right").applyOptions({autoScale:false});}catch(_){}};const markChartInteraction=()=>{userInteractedWithChartRef.current=true;lockPriceScaleIfUserAdjusted();};// P0.7.102 — Detect user interaction with the price axis and
 // disable autoScale so subsequent data updates don't re-fit
 // the price range. Without this, manually zooming vertically
 // would "snap back" to autoScale on the next data refresh.
-let axisWheelHandler=null;let axisPointerHandler=null;let priceScaleChangeHandler=null;try{const priceScale=chart.priceScale("right");const axisInteract=()=>{try{chart.priceScale("right").applyOptions({autoScale:false});}catch(_){}};if(priceScale&&typeof priceScale.subscribePriceScaleChanged==="function"){// newer LWC versions
+let axisWheelHandler=null;let axisPointerHandler=null;let priceScaleChangeHandler=null;try{const priceScale=chart.priceScale("right");const axisInteract=()=>{markChartInteraction();};if(priceScale&&typeof priceScale.subscribePriceScaleChanged==="function"){// newer LWC versions
 priceScaleChangeHandler=axisInteract;priceScale.subscribePriceScaleChanged(priceScaleChangeHandler);}else{// Fallback: detect mousewheel + drag on the chart container
 // and turn off autoScale manually.
 axisWheelHandler=axisInteract;axisPointerHandler=ev=>{// only fire on price-axis side (right ~70px of chart)
-const rect=containerRef.current.getBoundingClientRect();if(ev.clientX>rect.right-80)axisInteract();};containerRef.current.addEventListener("wheel",axisWheelHandler,{passive:true});containerRef.current.addEventListener("mousedown",axisPointerHandler);}}catch(_){}// Crosshair move → OHLC header
+const rect=containerRef.current.getBoundingClientRect();if(ev.clientX>rect.right-80)axisInteract();};containerRef.current.addEventListener("wheel",axisWheelHandler,{passive:true});containerRef.current.addEventListener("mousedown",axisPointerHandler);}}catch(_){}containerRef.current.addEventListener("wheel",markChartInteraction,{passive:true});containerRef.current.addEventListener("mousedown",markChartInteraction);containerRef.current.addEventListener("touchstart",markChartInteraction,{passive:true});// Crosshair move → OHLC header
 chart.subscribeCrosshairMove(param=>{if(!param.time||!param.seriesData){setOhlcHeader(null);return;}const candleData=param.seriesData.get(candleSeries);if(candleData){setOhlcHeader({time:param.time,o:candleData.open,h:candleData.high,l:candleData.low,c:candleData.close});}});// V15 P0.7.99 — TF-specific bar spacing applied here once. The
 // visible logical range is set in the UPDATE effect after data is
 // populated (and only on the FIRST data load — subsequent updates
@@ -185,12 +185,12 @@ const _tfBarSpacing=String(chartTf)==="D"?12:String(chartTf)==="60"?8:6;chart.ap
 // Prior version called chart.applyOptions() on every ResizeObserver tick,
 // which fired on every layout reflow (account value updating, levels
 // refresh, etc.) and caused a visible flicker as the chart redrew.
-let resizeObserver=null;let resizeDebounce=null;let settleTimeout=null;let lastAppliedWidth=0;let lastAppliedHeight=0;const handleResize=()=>{if(resizeDebounce)cancelAnimationFrame(resizeDebounce);resizeDebounce=requestAnimationFrame(()=>{if(containerRef.current&&chart){const w=Math.round(containerRef.current.clientWidth);const opts={};if(w>0&&Math.abs(w-lastAppliedWidth)>=1){lastAppliedWidth=w;opts.width=w;}if(opts.width!=null){chart.applyOptions(opts);restoreVisibleRange();}}});};// P0.7.100-r2 — height changes are handled separately via the
+let resizeObserver=null;let resizeDebounce=null;let settleTimeout=null;let lastAppliedWidth=0;let lastAppliedHeight=0;const handleResize=()=>{if(resizeDebounce)cancelAnimationFrame(resizeDebounce);resizeDebounce=requestAnimationFrame(()=>{if(containerRef.current&&chart){const w=Math.round(containerRef.current.clientWidth);const opts={};if(w>0&&Math.abs(w-lastAppliedWidth)>=1){lastAppliedWidth=w;opts.width=w;}if(opts.width!=null){chart.applyOptions(opts);restoreVisibleRange();lockPriceScaleIfUserAdjusted();}}});};// P0.7.100-r2 — height changes are handled separately via the
 // window 'resize' listener below (NOT the ResizeObserver), which
 // breaks the feedback loop where chart.applyOptions({height})
 // would itself fire the observer and trigger another applyOptions
 // call. The window event only fires on actual viewport changes.
-const handleWindowResize=()=>{if(containerRef.current&&chart){const w=Math.round(containerRef.current.clientWidth);const h=Math.round(containerRef.current.clientHeight);const opts={};if(w>0&&Math.abs(w-lastAppliedWidth)>=1){lastAppliedWidth=w;opts.width=w;}if(!propHeight&&h>0&&Math.abs(h-lastAppliedHeight)>=4){lastAppliedHeight=h;opts.height=h;}if(opts.width!=null||opts.height!=null){chart.applyOptions(opts);restoreVisibleRange();}}};if(typeof ResizeObserver!=="undefined"&&containerRef.current){resizeObserver=new ResizeObserver(handleResize);resizeObserver.observe(containerRef.current);}// Width-only on window resize is redundant with ResizeObserver,
+const handleWindowResize=()=>{if(containerRef.current&&chart){const w=Math.round(containerRef.current.clientWidth);const h=Math.round(containerRef.current.clientHeight);const opts={};if(w>0&&Math.abs(w-lastAppliedWidth)>=1){lastAppliedWidth=w;opts.width=w;}if(!propHeight&&h>0&&Math.abs(h-lastAppliedHeight)>=4){lastAppliedHeight=h;opts.height=h;}if(opts.width!=null||opts.height!=null){chart.applyOptions(opts);restoreVisibleRange();lockPriceScaleIfUserAdjusted();}}};if(typeof ResizeObserver!=="undefined"&&containerRef.current){resizeObserver=new ResizeObserver(handleResize);resizeObserver.observe(containerRef.current);}// Width-only on window resize is redundant with ResizeObserver,
 // but we ALSO add the window listener for height (which is NOT
 // tracked by the observer to avoid the feedback loop).
 window.addEventListener("resize",handleWindowResize);// Settle: when chart mounts inside a React portal (expanded modal)
@@ -198,8 +198,8 @@ window.addEventListener("resize",handleWindowResize);// Settle: when chart mount
 // yet. Use rAF to sync. Width-only — height is set once at
 // create time from clientHeight; subsequent height changes only
 // happen on window resize (handled by handleWindowResize above).
-const settleRaf=requestAnimationFrame(()=>{if(containerRef.current&&chart){const w=containerRef.current.clientWidth;if(w>0){chart.applyOptions({width:w});lastAppliedWidth=w;}restoreVisibleRange();}settleTimeout=setTimeout(()=>{if(containerRef.current&&chart){const w=containerRef.current.clientWidth;if(w>0&&Math.abs(w-lastAppliedWidth)>=1){chart.applyOptions({width:w});lastAppliedWidth=w;restoreVisibleRange();}}},150);});// Track initial height so window-resize comparator works
-lastAppliedHeight=containerRef.current.clientHeight||chartHeight;return()=>{window.removeEventListener("resize",handleWindowResize);if(resizeDebounce)cancelAnimationFrame(resizeDebounce);cancelAnimationFrame(settleRaf);if(settleTimeout)clearTimeout(settleTimeout);if(resizeObserver)resizeObserver.disconnect();if(containerRef.current&&axisWheelHandler)containerRef.current.removeEventListener("wheel",axisWheelHandler);if(containerRef.current&&axisPointerHandler)containerRef.current.removeEventListener("mousedown",axisPointerHandler);try{if(priceScaleChangeHandler&&typeof chart.priceScale("right").unsubscribePriceScaleChanged==="function"){chart.priceScale("right").unsubscribePriceScaleChanged(priceScaleChangeHandler);}}catch(_){}try{if(visibleRangeHandler&&typeof chart.timeScale().unsubscribeVisibleLogicalRangeChange==="function"){chart.timeScale().unsubscribeVisibleLogicalRangeChange(visibleRangeHandler);}}catch(_){}levelPriceLinesRef.current=[];levelTrendSeriesRef.current=[];// P0.7.136 (2026-05-13) — clear signature refs so a recreated
+const settleRaf=requestAnimationFrame(()=>{if(containerRef.current&&chart){const w=containerRef.current.clientWidth;if(w>0){chart.applyOptions({width:w});lastAppliedWidth=w;}restoreVisibleRange();lockPriceScaleIfUserAdjusted();}settleTimeout=setTimeout(()=>{if(containerRef.current&&chart){const w=containerRef.current.clientWidth;if(w>0&&Math.abs(w-lastAppliedWidth)>=1){chart.applyOptions({width:w});lastAppliedWidth=w;restoreVisibleRange();lockPriceScaleIfUserAdjusted();}}},150);});// Track initial height so window-resize comparator works
+lastAppliedHeight=containerRef.current.clientHeight||chartHeight;return()=>{window.removeEventListener("resize",handleWindowResize);if(resizeDebounce)cancelAnimationFrame(resizeDebounce);cancelAnimationFrame(settleRaf);if(settleTimeout)clearTimeout(settleTimeout);if(resizeObserver)resizeObserver.disconnect();if(containerRef.current&&axisWheelHandler)containerRef.current.removeEventListener("wheel",axisWheelHandler);if(containerRef.current&&axisPointerHandler)containerRef.current.removeEventListener("mousedown",axisPointerHandler);if(containerRef.current){containerRef.current.removeEventListener("wheel",markChartInteraction);containerRef.current.removeEventListener("mousedown",markChartInteraction);containerRef.current.removeEventListener("touchstart",markChartInteraction);}try{if(priceScaleChangeHandler&&typeof chart.priceScale("right").unsubscribePriceScaleChanged==="function"){chart.priceScale("right").unsubscribePriceScaleChanged(priceScaleChangeHandler);}}catch(_){}try{if(visibleRangeHandler&&typeof chart.timeScale().unsubscribeVisibleLogicalRangeChange==="function"){chart.timeScale().unsubscribeVisibleLogicalRangeChange(visibleRangeHandler);}}catch(_){}levelPriceLinesRef.current=[];levelTrendSeriesRef.current=[];// P0.7.136 (2026-05-13) — clear signature refs so a recreated
 // chart instance forces a fresh draw of all levels (otherwise
 // the new chart would have empty refs but a non-null sig and
 // skip the level rebuild on first run).
@@ -227,7 +227,7 @@ const last=mapped[mapped.length-1];const first=mapped[0];const sig=`${mapped.len
 // already showing this data. Leave it alone (no setData call,
 // no overlay rebuild → no flicker).
 return;}lastMappedSigRef.current=sig;const shouldRestoreRange=firstDataLoadAppliedRef.current&&lastVisibleLogicalRangeRef.current;// Push current candle data
-try{candleSeries.setData(mapped);}catch(_){/* fall through; series will recover on next ref */}if(shouldRestoreRange){try{chart.timeScale().setVisibleLogicalRange(lastVisibleLogicalRangeRef.current);}catch(_){}}// Replace overlay (EMA / SuperTrend) line series. We remove + add
+try{candleSeries.setData(mapped);}catch(_){/* fall through; series will recover on next ref */}if(shouldRestoreRange){try{chart.timeScale().setVisibleLogicalRange(lastVisibleLogicalRangeRef.current);}catch(_){}}if(userInteractedWithChartRef.current){try{chart.priceScale("right").applyOptions({autoScale:false});}catch(_){}}// Replace overlay (EMA / SuperTrend) line series. We remove + add
 // because indicatorData can include arbitrary segments per cycle.
 for(const k of Object.keys(overlaySeriesRef.current)){const v=overlaySeriesRef.current[k];if(Array.isArray(v)){for(const s of v)try{chart.removeSeries(s);}catch(_){}}else if(v)try{chart.removeSeries(v);}catch(_){}}const addedSeries={};if(indicatorData.ema21?.length>0){const s=chart.addLineSeries({color:"#fbbf24",lineWidth:1,priceLineVisible:false,lastValueVisible:false});s.setData(indicatorData.ema21);addedSeries.ema21=s;}if(indicatorData.ema48?.length>0){const s=chart.addLineSeries({color:"#a78bfa",lineWidth:1,priceLineVisible:false,lastValueVisible:false});s.setData(indicatorData.ema48);addedSeries.ema48=s;}if(indicatorData.ema200?.length>0){const s=chart.addLineSeries({color:"#f87171",lineWidth:1,priceLineVisible:false,lastValueVisible:false});s.setData(indicatorData.ema200);addedSeries.ema200=s;}if(indicatorData.stSegments?.length>0){const stList=[];for(const seg of indicatorData.stSegments){if(!seg.data?.length)continue;const s=chart.addLineSeries({color:seg.color,lineWidth:2,priceLineVisible:false,lastValueVisible:false});s.setData(seg.data);stList.push(s);}addedSeries.stSegments=stList;}overlaySeriesRef.current=addedSeries;// TD Sequential markers + external markers + (later) pattern markers
 // are merged in the LEVELS effect; here we just record the TD/
@@ -422,7 +422,7 @@ const _shares=Number(mt.shares||mt.quantity)||0;const _trimPctMt=Number(mt.trimm
 // This guarantees the right rail shows identical values to the card.
 const priceSrc=ticker||{};// Prevent stale crosshair data from crashing renders when switching
 // tickers/timeframes/tabs quickly (e.g. clicking Chart right after selecting a ticker).
-useEffect(()=>{setCrosshair(null);},[tickerSymbol,chartTf,railTab]);// Default tab: use initialRailTab when provided (Investor mode → INVESTOR,
+useEffect(()=>{setCrosshair(null);},[tickerSymbol,chartTf]);// Default tab: use initialRailTab when provided (Investor mode → INVESTOR,
 // Trade Tracker → HISTORY), else Snapshot.
 //
 // P0.7.146 (2026-05-13): do not leave the state at legacy
@@ -457,12 +457,10 @@ const cached=fundamentalsCacheRef.current.get(sym);if(cached&&Date.now()-cached.
            old data stay visible while the new one loads, then swap. */const _predictionMode=railTab==="INVESTOR"?"investor":"trader";useEffect(()=>{const sym=String(tickerSymbol||"").trim().toUpperCase();if(!sym){setPredictionContract(null);setPredictionContractError(null);setPredictionContractLoading(false);return;}let cancelled=false;const fetchContract=async()=>{try{setPredictionContractLoading(true);// Note: do NOT setPredictionContract(null) here — that would
 // cause the price lines on the chart to disappear briefly.
 setPredictionContractError(null);const qs=new URLSearchParams();qs.set("ticker",sym);qs.set("mode",_predictionMode);const res=await fetch(`${API_BASE}/timed/prediction-contract?${qs.toString()}`,{cache:"no-store"});if(!res.ok)throw new Error(`HTTP ${res.status}`);const json=await res.json();if(!json.ok)throw new Error(json.error||"prediction_contract_failed");if(!cancelled)setPredictionContract(json.contract||null);}catch(e){if(!cancelled){setPredictionContract(null);setPredictionContractError(String(e?.message||e));}}finally{if(!cancelled)setPredictionContractLoading(false);}};fetchContract();return()=>{cancelled=true;};},[_predictionMode,tickerSymbol]);// Reset zoom/pan on timeframe change
-useEffect(()=>{setChartVisibleCount(80);setChartEndOffset(0);},[chartTf]);// Auto-scroll chart to most recent candle when data loads
-// Use multiple attempts with cleanup to handle rendering timing
-useEffect(()=>{if(chartCandles.length>0&&railTab==="ANALYSIS"){const scrollToEnd=()=>{if(chartScrollRef.current){chartScrollRef.current.scrollLeft=chartScrollRef.current.scrollWidth;}};// Immediate attempt
-scrollToEnd();// Delayed attempts for after layout computation
-const t1=setTimeout(scrollToEnd,50);const t2=setTimeout(scrollToEnd,200);const t3=setTimeout(scrollToEnd,500);// Use requestAnimationFrame for after-render scroll
-const raf1=requestAnimationFrame(()=>{scrollToEnd();requestAnimationFrame(scrollToEnd);});return()=>{clearTimeout(t1);clearTimeout(t2);clearTimeout(t3);cancelAnimationFrame(raf1);};}},[chartCandles.length,railTab,chartTf]);// In-memory candle cache: key = "TICKER:TF", value = { data, ts }
+useEffect(()=>{setChartVisibleCount(80);setChartEndOffset(0);},[chartTf]);// Legacy SVG chart auto-scroll removed for workspace rail. The active
+// chart is Lightweight Charts and owns its own visible range; running
+// delayed scroll timers on tab changes caused extra rail renders.
+// In-memory candle cache: key = "TICKER:TF", value = { data, ts }
 const candleCacheRef=useRef({});useEffect(()=>{const sym=String(tickerSymbol||"").trim().toUpperCase();/* V15 P0.7.84: chart is now lifted OUT of tab gates and rendered
              persistently above all tabs (P0.7.74). The previous tab guard
              ('if railTab not in [ANALYSIS, SETUP] return') and the railTab

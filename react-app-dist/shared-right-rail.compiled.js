@@ -752,6 +752,7 @@
       const externalPriceLinesRef = useRef([]);
       const tdSeqMarkersRef = useRef([]);
       const lastVisibleLogicalRangeRef = useRef(null);
+      const userInteractedWithChartRef = useRef(false);
       const lastMappedSigRef = useRef(null);
       const [ohlcHeader, setOhlcHeader] = useState(null);
       const [patternLabel, setPatternLabel] = useState(null);
@@ -1002,17 +1003,25 @@
             chart.timeScale().setVisibleLogicalRange(range);
           } catch (_) {}
         };
+        const lockPriceScaleIfUserAdjusted = () => {
+          if (!userInteractedWithChartRef.current) return;
+          try {
+            chart.priceScale("right").applyOptions({
+              autoScale: false
+            });
+          } catch (_) {}
+        };
+        const markChartInteraction = () => {
+          userInteractedWithChartRef.current = true;
+          lockPriceScaleIfUserAdjusted();
+        };
         let axisWheelHandler = null;
         let axisPointerHandler = null;
         let priceScaleChangeHandler = null;
         try {
           const priceScale = chart.priceScale("right");
           const axisInteract = () => {
-            try {
-              chart.priceScale("right").applyOptions({
-                autoScale: false
-              });
-            } catch (_) {}
+            markChartInteraction();
           };
           if (priceScale && typeof priceScale.subscribePriceScaleChanged === "function") {
             priceScaleChangeHandler = axisInteract;
@@ -1029,6 +1038,13 @@
             containerRef.current.addEventListener("mousedown", axisPointerHandler);
           }
         } catch (_) {}
+        containerRef.current.addEventListener("wheel", markChartInteraction, {
+          passive: true
+        });
+        containerRef.current.addEventListener("mousedown", markChartInteraction);
+        containerRef.current.addEventListener("touchstart", markChartInteraction, {
+          passive: true
+        });
         chart.subscribeCrosshairMove(param => {
           if (!param.time || !param.seriesData) {
             setOhlcHeader(null);
@@ -1082,6 +1098,7 @@
               if (opts.width != null) {
                 chart.applyOptions(opts);
                 restoreVisibleRange();
+                lockPriceScaleIfUserAdjusted();
               }
             }
           });
@@ -1102,6 +1119,7 @@
             if (opts.width != null || opts.height != null) {
               chart.applyOptions(opts);
               restoreVisibleRange();
+              lockPriceScaleIfUserAdjusted();
             }
           }
         };
@@ -1120,6 +1138,7 @@
               lastAppliedWidth = w;
             }
             restoreVisibleRange();
+            lockPriceScaleIfUserAdjusted();
           }
           settleTimeout = setTimeout(() => {
             if (containerRef.current && chart) {
@@ -1130,6 +1149,7 @@
                 });
                 lastAppliedWidth = w;
                 restoreVisibleRange();
+                lockPriceScaleIfUserAdjusted();
               }
             }
           }, 150);
@@ -1143,6 +1163,11 @@
           if (resizeObserver) resizeObserver.disconnect();
           if (containerRef.current && axisWheelHandler) containerRef.current.removeEventListener("wheel", axisWheelHandler);
           if (containerRef.current && axisPointerHandler) containerRef.current.removeEventListener("mousedown", axisPointerHandler);
+          if (containerRef.current) {
+            containerRef.current.removeEventListener("wheel", markChartInteraction);
+            containerRef.current.removeEventListener("mousedown", markChartInteraction);
+            containerRef.current.removeEventListener("touchstart", markChartInteraction);
+          }
           try {
             if (priceScaleChangeHandler && typeof chart.priceScale("right").unsubscribePriceScaleChanged === "function") {
               chart.priceScale("right").unsubscribePriceScaleChanged(priceScaleChangeHandler);
@@ -1181,6 +1206,13 @@
         if (shouldRestoreRange) {
           try {
             chart.timeScale().setVisibleLogicalRange(lastVisibleLogicalRangeRef.current);
+          } catch (_) {}
+        }
+        if (userInteractedWithChartRef.current) {
+          try {
+            chart.priceScale("right").applyOptions({
+              autoScale: false
+            });
           } catch (_) {}
         }
         for (const k of Object.keys(overlaySeriesRef.current)) {
@@ -2881,7 +2913,7 @@
       const priceSrc = ticker || {};
       useEffect(() => {
         setCrosshair(null);
-      }, [tickerSymbol, chartTf, railTab]);
+      }, [tickerSymbol, chartTf]);
       useEffect(() => {
         const def = String(initialRailTab || "SNAPSHOT").toUpperCase();
         const normalized = def === "INVESTOR" ? "INVESTOR" : def === "TRADE_HISTORY" ? "HISTORY" : def === "ANALYSIS" ? "SNAPSHOT" : def;
@@ -3032,29 +3064,6 @@
         setChartVisibleCount(80);
         setChartEndOffset(0);
       }, [chartTf]);
-      useEffect(() => {
-        if (chartCandles.length > 0 && railTab === "ANALYSIS") {
-          const scrollToEnd = () => {
-            if (chartScrollRef.current) {
-              chartScrollRef.current.scrollLeft = chartScrollRef.current.scrollWidth;
-            }
-          };
-          scrollToEnd();
-          const t1 = setTimeout(scrollToEnd, 50);
-          const t2 = setTimeout(scrollToEnd, 200);
-          const t3 = setTimeout(scrollToEnd, 500);
-          const raf1 = requestAnimationFrame(() => {
-            scrollToEnd();
-            requestAnimationFrame(scrollToEnd);
-          });
-          return () => {
-            clearTimeout(t1);
-            clearTimeout(t2);
-            clearTimeout(t3);
-            cancelAnimationFrame(raf1);
-          };
-        }
-      }, [chartCandles.length, railTab, chartTf]);
       const candleCacheRef = useRef({});
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();

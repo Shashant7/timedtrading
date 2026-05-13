@@ -563,6 +563,7 @@
       const externalPriceLinesRef = useRef([]);
       const tdSeqMarkersRef = useRef([]);
       const lastVisibleLogicalRangeRef = useRef(null);
+      const userInteractedWithChartRef = useRef(false);
       // V15 P0.7.99-r2 — content signature of the last applied mapped
       // dataset. UPDATE effect short-circuits when content is identical
       // even if the array reference changed (defends against any spurious
@@ -833,6 +834,14 @@
           if (!range || range.from == null || range.to == null) return;
           try { chart.timeScale().setVisibleLogicalRange(range); } catch (_) {}
         };
+        const lockPriceScaleIfUserAdjusted = () => {
+          if (!userInteractedWithChartRef.current) return;
+          try { chart.priceScale("right").applyOptions({ autoScale: false }); } catch (_) {}
+        };
+        const markChartInteraction = () => {
+          userInteractedWithChartRef.current = true;
+          lockPriceScaleIfUserAdjusted();
+        };
 
         // P0.7.102 — Detect user interaction with the price axis and
         // disable autoScale so subsequent data updates don't re-fit
@@ -844,7 +853,7 @@
         try {
           const priceScale = chart.priceScale("right");
           const axisInteract = () => {
-            try { chart.priceScale("right").applyOptions({ autoScale: false }); } catch (_) {}
+            markChartInteraction();
           };
           if (priceScale && typeof priceScale.subscribePriceScaleChanged === "function") {
             // newer LWC versions
@@ -863,6 +872,9 @@
             containerRef.current.addEventListener("mousedown", axisPointerHandler);
           }
         } catch (_) {}
+        containerRef.current.addEventListener("wheel", markChartInteraction, { passive: true });
+        containerRef.current.addEventListener("mousedown", markChartInteraction);
+        containerRef.current.addEventListener("touchstart", markChartInteraction, { passive: true });
 
         // Crosshair move → OHLC header
         chart.subscribeCrosshairMove(param => {
@@ -920,6 +932,7 @@
               if (opts.width != null) {
                 chart.applyOptions(opts);
                 restoreVisibleRange();
+                lockPriceScaleIfUserAdjusted();
               }
             }
           });
@@ -943,6 +956,7 @@
             if (opts.width != null || opts.height != null) {
               chart.applyOptions(opts);
               restoreVisibleRange();
+              lockPriceScaleIfUserAdjusted();
             }
           }
         };
@@ -968,6 +982,7 @@
               lastAppliedWidth = w;
             }
             restoreVisibleRange();
+            lockPriceScaleIfUserAdjusted();
           }
           settleTimeout = setTimeout(() => {
             if (containerRef.current && chart) {
@@ -976,6 +991,7 @@
                 chart.applyOptions({ width: w });
                 lastAppliedWidth = w;
                 restoreVisibleRange();
+                lockPriceScaleIfUserAdjusted();
               }
             }
           }, 150);
@@ -991,6 +1007,11 @@
           if (resizeObserver) resizeObserver.disconnect();
           if (containerRef.current && axisWheelHandler) containerRef.current.removeEventListener("wheel", axisWheelHandler);
           if (containerRef.current && axisPointerHandler) containerRef.current.removeEventListener("mousedown", axisPointerHandler);
+          if (containerRef.current) {
+            containerRef.current.removeEventListener("wheel", markChartInteraction);
+            containerRef.current.removeEventListener("mousedown", markChartInteraction);
+            containerRef.current.removeEventListener("touchstart", markChartInteraction);
+          }
           try {
             if (priceScaleChangeHandler && typeof chart.priceScale("right").unsubscribePriceScaleChanged === "function") {
               chart.priceScale("right").unsubscribePriceScaleChanged(priceScaleChangeHandler);
@@ -1061,6 +1082,9 @@
         } catch (_) { /* fall through; series will recover on next ref */ }
         if (shouldRestoreRange) {
           try { chart.timeScale().setVisibleLogicalRange(lastVisibleLogicalRangeRef.current); } catch (_) {}
+        }
+        if (userInteractedWithChartRef.current) {
+          try { chart.priceScale("right").applyOptions({ autoScale: false }); } catch (_) {}
         }
 
         // Replace overlay (EMA / SuperTrend) line series. We remove + add
@@ -2417,7 +2441,7 @@
         // tickers/timeframes/tabs quickly (e.g. clicking Chart right after selecting a ticker).
         useEffect(() => {
           setCrosshair(null);
-        }, [tickerSymbol, chartTf, railTab]);
+        }, [tickerSymbol, chartTf]);
 
         // Default tab: use initialRailTab when provided (Investor mode → INVESTOR,
         // Trade Tracker → HISTORY), else Snapshot.
@@ -2596,34 +2620,9 @@
           setChartEndOffset(0);
         }, [chartTf]);
 
-        // Auto-scroll chart to most recent candle when data loads
-        // Use multiple attempts with cleanup to handle rendering timing
-        useEffect(() => {
-          if (chartCandles.length > 0 && railTab === "ANALYSIS") {
-            const scrollToEnd = () => {
-              if (chartScrollRef.current) {
-                chartScrollRef.current.scrollLeft = chartScrollRef.current.scrollWidth;
-              }
-            };
-            // Immediate attempt
-            scrollToEnd();
-            // Delayed attempts for after layout computation
-            const t1 = setTimeout(scrollToEnd, 50);
-            const t2 = setTimeout(scrollToEnd, 200);
-            const t3 = setTimeout(scrollToEnd, 500);
-            // Use requestAnimationFrame for after-render scroll
-            const raf1 = requestAnimationFrame(() => {
-              scrollToEnd();
-              requestAnimationFrame(scrollToEnd);
-            });
-            return () => {
-              clearTimeout(t1);
-              clearTimeout(t2);
-              clearTimeout(t3);
-              cancelAnimationFrame(raf1);
-            };
-          }
-        }, [chartCandles.length, railTab, chartTf]);
+        // Legacy SVG chart auto-scroll removed for workspace rail. The active
+        // chart is Lightweight Charts and owns its own visible range; running
+        // delayed scroll timers on tab changes caused extra rail renders.
 
         // In-memory candle cache: key = "TICKER:TF", value = { data, ts }
         const candleCacheRef = useRef({});
