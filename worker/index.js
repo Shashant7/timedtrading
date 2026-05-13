@@ -1289,6 +1289,8 @@ const ROUTES = [
   ["POST", "/timed/admin/trend-hold-evaluate", "POST /timed/admin/trend-hold-evaluate"],
   ["GET", "/timed/admin/direction-accuracy/inspect", "GET /timed/admin/direction-accuracy/inspect"],
   ["POST", "/timed/admin/restore-trade-from-da", "POST /timed/admin/restore-trade-from-da"],
+  // P0.7.138 — bulk recovery from promoted_trades after a wipe.
+  ["POST", "/timed/admin/restore-trades-from-promoted", "POST /timed/admin/restore-trades-from-promoted"],
   ["POST", "/timed/admin/patch-trade-from-da", "POST /timed/admin/patch-trade-from-da"],
   ["POST", "/timed/admin/patch-trade-event-reason", "POST /timed/admin/patch-trade-event-reason"],
   ["POST", "/timed/admin/patch-trade-event-price", "POST /timed/admin/patch-trade-event-price"],
@@ -33080,6 +33082,77 @@ async function auditDataChange(env, { op, scope, caller, rowsAffected, meta } = 
 }
 
 /**
+ * P0.7.139 (2026-05-13) — Shared destructive-op interlock.
+ *
+ * Five separate "mystery wipe" incidents in the past 6 days all traced to
+ * different admin endpoints with subtly different guard policies. This
+ * helper is the canonical interlock: every endpoint that wipes shared
+ * state (trades / account_ledger / positions across all tickers) MUST
+ * call this and bail when it returns a Response.
+ *
+ * Returns:
+ *   - null      → all guards passed, caller may proceed.
+ *   - Response  → caller must `return` this immediately. Audit row has
+ *                 already been written.
+ *
+ * Guards (must ALL pass):
+ *   1. phase-c:cron-mute KV flag is NOT set.
+ *      Why: muting the cron must also mute destructive admin paths.
+ *      Otherwise a stray script can keep wiping while the user thinks
+ *      everything is paused.
+ *   2. confirm_destroy=YES_DESTROY query param is present.
+ *      Why: prevents accidental copy-paste / curl-replay disasters.
+ *      Same string used for /candle-replay's confirm_clean_slate so the
+ *      operator's muscle memory is consistent.
+ *
+ * On the success path the caller is responsible for writing a SECOND
+ * audit row scoped to the actual op (e.g. ADMIN_RESET_LEDGER) right
+ * before the destructive SQL runs. This helper only audits the BLOCK
+ * decisions, not the GO decision, so the success-path audit can include
+ * pre-wipe row counts that aren't available here.
+ */
+async function requireDestructiveConfirm(env, req, url, opName, sendJSON, corsHeaders) {
+  const KV = env?.KV_TIMED || env?.KV;
+  // 1. cron-mute interlock
+  let muted = false;
+  try {
+    const m = KV ? await KV.get("phase-c:cron-mute") : null;
+    muted = !!m;
+  } catch (_) {}
+  if (muted) {
+    await auditDataChange(env, {
+      op: `${opName}_BLOCKED`,
+      scope: "reason=cron_muted",
+      caller: req?.url || "unknown",
+      rowsAffected: 0,
+      meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
+    });
+    return sendJSON({
+      ok: false,
+      error: `${opName.toLowerCase()}_blocked_cron_muted`,
+      detail: "Destructive operation blocked while phase-c:cron-mute is set. Clear the mute via DELETE /timed/admin/cron-mute then retry.",
+    }, 409, corsHeaders(env, req));
+  }
+  // 2. confirm_destroy interlock
+  const confirm = url.searchParams.get("confirm_destroy");
+  if (confirm !== "YES_DESTROY") {
+    await auditDataChange(env, {
+      op: `${opName}_BLOCKED`,
+      scope: "reason=missing_confirmation",
+      caller: req?.url || "unknown",
+      rowsAffected: 0,
+      meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
+    });
+    return sendJSON({
+      ok: false,
+      error: `${opName.toLowerCase()}_requires_confirmation`,
+      detail: "This endpoint wipes shared trader state. Add &confirm_destroy=YES_DESTROY to the request to proceed. Guard added because 5+ mystery wipes in 6 days traced to scripts firing destructive endpoints without confirmation.",
+    }, 409, corsHeaders(env, req));
+  }
+  return null;
+}
+
+/**
  * Insert a row into account_ledger. `balance` is the running cash balance AFTER this event.
  */
 async function d1InsertLedgerEntry(env, row) {
@@ -47186,6 +47259,26 @@ export default {
         const url = new URL(req.url || `https://x/${req.url}`);
         const strictPurge = url.searchParams.get("strict") === "1";
 
+        // P0.7.139 — strictPurge=1 hard-deletes trades / positions /
+        // execution_actions / lots for every ticker not in the
+        // approvedTickers set. Same destructive-blast-radius as
+        // candle-replay's cleanSlate. Apply the same interlock so a
+        // mistakenly-narrowed approvedTickers list can't quietly nuke
+        // the live ledger.
+        if (strictPurge) {
+          const blocked = await requireDestructiveConfirm(env, req, url, "CLEANUP_TICKERS_STRICT_PURGE", sendJSON, corsHeaders);
+          if (blocked) return blocked;
+          // Audit BEFORE the loop runs (we don't know rows_affected
+          // until the loop completes; capture intent + caller now).
+          await auditDataChange(env, {
+            op: "CLEANUP_TICKERS_STRICT_PURGE",
+            scope: "confirmed=true",
+            caller: req?.url || "unknown",
+            rowsAffected: null,
+            meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
+          });
+        }
+
         // Approved ticker list — WATCHLIST_Q1_2026
         const approvedTickers = new Set([
           "AAPL", "AEHR", "AGQ", "ALB", "ALLY", "AMD", "AMGN", "AMZN", "ANET", "APLD", "APP", "ASTS",
@@ -51828,10 +51921,14 @@ export default {
 
         // Clean slate: purge trades
         if (cleanSlate) {
-          // P0.7.103 — audit BEFORE nuke
+          // P0.7.139 — destructive interlock (cron-mute + confirm_destroy).
+          // Same guard as candle-replay / admin/reset?resetLedger=1.
+          const blocked = await requireDestructiveConfirm(env, req, url, "SNAPSHOT_REPLAY_CLEAN_SLATE", sendJSON, corsHeaders);
+          if (blocked) return blocked;
+          // Audit BEFORE nuke (post-confirmation)
           await auditDataChange(env, {
             op: "SNAPSHOT_REPLAY_CLEAN_SLATE",
-            scope: `date=${dateParam}`,
+            scope: `date=${dateParam} confirmed=true`,
             caller: req?.url || "unknown",
             rowsAffected: null,
             meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
@@ -52460,10 +52557,16 @@ export default {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
         const db = env?.DB;
-        // P0.7.103 — audit BEFORE the destructive op fires
+        // P0.7.139 — destructive interlock (cron-mute + confirm_destroy).
+        // This endpoint clears account_ledger trader-mode and force-closes
+        // every open position. Same blast radius as snapshot-replay
+        // cleanSlate, so apply the same guard.
+        const blocked = await requireDestructiveConfirm(env, req, url, "RECONCILE_REPLAY", sendJSON, corsHeaders);
+        if (blocked) return blocked;
+        // Audit BEFORE the destructive op fires (post-confirmation)
         await auditDataChange(env, {
           op: "RECONCILE_REPLAY",
-          scope: `date=${url.searchParams.get("date") || "?"}`,
+          scope: `date=${url.searchParams.get("date") || "?"} confirmed=true`,
           caller: req?.url || "unknown",
           rowsAffected: null,
           meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
@@ -55648,16 +55751,33 @@ export default {
             const entryPath = da.entry_path || null;
             const rank = Number(da.rank) || 0;
             const rr = Number(da.rr) || 0;
-            // Insert trade row (idempotent — INSERT OR REPLACE)
+            // P0.7.140 (2026-05-13) — also pull setup metadata from DA.
+            // The previous restore only carried entry/exit/PnL fields,
+            // leaving the trade row's `setup_name` / `setup_grade` /
+            // `risk_budget` columns NULL. The Open Positions and Trade
+            // History UIs both render those fields and looked broken
+            // ("Setup —", "Tier —", "Size —") for every restored trade.
+            // DA carries these for live trades (the cron writes them on
+            // entry); pull them through.
+            const setupName = da.setup_name || null;
+            const setupGrade = da.setup_grade || null;
+            const riskBudget = Number(da.risk_budget) || 0;
+            // Insert trade row (idempotent — INSERT OR REPLACE).
+            // Also set updated_at = entryTs so the trade looks
+            // "freshly written" rather than stamped at restore time.
             await db.prepare(
               `INSERT OR REPLACE INTO trades
                 (trade_id, ticker, direction, entry_ts, entry_price, status,
                  exit_ts, exit_price, pnl, pnl_pct, rank, rr, entry_path,
+                 setup_name, setup_grade, risk_budget,
                  created_at, updated_at, run_id)
-               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?4, ?14, NULL)`
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+                       ?14, ?15, ?16,
+                       ?4, ?17, NULL)`
             ).bind(
               tid, ticker, direction, entryTs, entryPrice, status,
               exitTs, exitPrice, pnl, pnlPct, rank, rr, entryPath,
+              setupName, setupGrade, riskBudget,
               Date.now(),
             ).run();
             // Insert position row if status is OPEN/TP_HIT_TRIM
@@ -69254,14 +69374,93 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       // Optional (DANGEROUS; opt-in via query params):
       // - resetMl=1      -> clears ML model + training queue
       // - resetLedger=1  -> clears D1 ledger tables (alerts/trades/events)
+      //
+      // P0.7.138 (2026-05-13) — HARD GUARD on resetLedger=1.
+      // The 4th mystery wipe (May 13 09:20 UTC) traced to this endpoint
+      // — a script (curl/8.5.0) was firing `?resetLedger=1` and silently
+      // nuking the trader ledger because this endpoint had NO confirm
+      // requirement, NO cron-mute check, and (worst of all) NO audit
+      // entry written before the deletes. The integrity guard at the
+      // next */5 cron tick detected the wipe AFTER the fact, but the
+      // 587 trades + 1188 ledger rows were already gone.
+      //
+      // The candle-replay endpoint already has this exact guard
+      // (P0.7.106). Bring this one to parity:
+      //   - cron-mute KV flag NOT active
+      //   - confirm_destroy=YES_DESTROY query param
+      //   - audit BEFORE the destructive op (so we always have a
+      //     fingerprint even if the op itself fails halfway through)
       if (routeKey === "POST /timed/admin/reset") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
+        const wantsLedgerWipe = parseQueryBool(url.searchParams, "resetLedger");
+        if (wantsLedgerWipe) {
+          // 1) cron-mute interlock — same flag /timed/admin/candle-replay reads
+          let muted = false;
+          try {
+            const m = KV ? await KV.get("phase-c:cron-mute") : null;
+            muted = !!m;
+          } catch (_) {}
+          if (muted) {
+            await auditDataChange(env, {
+              op: "ADMIN_RESET_LEDGER_BLOCKED",
+              scope: "reason=cron_muted",
+              caller: req?.url || "unknown",
+              rowsAffected: 0,
+              meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search, mute_value: String(muted).slice(0, 80) },
+            });
+            return sendJSON({
+              ok: false,
+              error: "reset_ledger_blocked_cron_muted",
+              detail: "resetLedger=1 is blocked while phase-c:cron-mute is set. Clear the mute via DELETE /timed/admin/cron-mute then retry.",
+            }, 409, corsHeaders(env, req));
+          }
+          // 2) confirm_destroy interlock — must explicitly opt-in
+          const confirm = url.searchParams.get("confirm_destroy");
+          if (confirm !== "YES_DESTROY") {
+            await auditDataChange(env, {
+              op: "ADMIN_RESET_LEDGER_BLOCKED",
+              scope: "reason=missing_confirmation",
+              caller: req?.url || "unknown",
+              rowsAffected: 0,
+              meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
+            });
+            return sendJSON({
+              ok: false,
+              error: "reset_ledger_requires_confirmation",
+              detail: "resetLedger=1 wipes ALL trades / positions / account_ledger. Add &confirm_destroy=YES_DESTROY to the request to proceed. This guard was added because a script was silently firing this endpoint and wiping the live ledger.",
+            }, 409, corsHeaders(env, req));
+          }
+          // 3) Audit BEFORE the destructive op + capture row counts
+          let preCounts = null;
+          try {
+            const db = env?.DB;
+            if (db) {
+              const [tRow, alRow, pRow] = await Promise.all([
+                db.prepare(`SELECT COUNT(*) as c FROM trades`).first().catch(() => null),
+                db.prepare(`SELECT COUNT(*) as c FROM account_ledger WHERE mode = 'trader'`).first().catch(() => null),
+                db.prepare(`SELECT COUNT(*) as c FROM positions`).first().catch(() => null),
+              ]);
+              preCounts = {
+                trades: Number(tRow?.c) || 0,
+                account_ledger_trader: Number(alRow?.c) || 0,
+                positions: Number(pRow?.c) || 0,
+              };
+            }
+          } catch (_) {}
+          await auditDataChange(env, {
+            op: "ADMIN_RESET_LEDGER",
+            scope: `confirmed=true${preCounts ? ` trades=${preCounts.trades} ledger=${preCounts.account_ledger_trader}` : ""}`,
+            caller: req?.url || "unknown",
+            rowsAffected: preCounts ? Object.values(preCounts).reduce((a, b) => a + b, 0) : null,
+            meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search, preCounts },
+          });
+        }
         const result = await resetReplayState({
           env,
           KV,
           now: Date.now(),
-          resetLedger: parseQueryBool(url.searchParams, "resetLedger"),
+          resetLedger: wantsLedgerWipe,
           resetMl: parseQueryBool(url.searchParams, "resetMl"),
           skipTickerLatest: parseQueryBool(url.searchParams, "skipTickerLatest") || parseQueryBool(url.searchParams, "replayOnly"),
           deps: {
@@ -69278,6 +69477,83 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           },
         });
         return sendJSON(result, 200, corsHeaders(env, req));
+      }
+
+      // POST /timed/admin/restore-trades-from-promoted?key=...
+      // P0.7.138 (2026-05-13) — One-shot recovery for the next mystery wipe.
+      // The 5+ wipes since May 8 followed the same recovery pattern:
+      //   1. INSERT INTO trades FROM promoted_trades (canonical backup)
+      //   2. d1SeedAccountLedgerFromPromoted (rebuild ledger from same source)
+      //   3. rebuild-snapshots-from-ledger (rebuild equity-curve points)
+      // Bundle all three behind a single endpoint so the recovery is
+      // copy-paste-able under stress instead of an ad-hoc SQL session.
+      if (routeKey === "POST /timed/admin/restore-trades-from-promoted") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 503, corsHeaders(env, req));
+        try {
+          const datasetIdRaw = url.searchParams.get("dataset_id");
+          // Resolve target dataset: explicit param → active flag → most recent
+          const dataset = datasetIdRaw
+            ? await db.prepare(`SELECT * FROM promoted_trade_datasets WHERE dataset_id = ?1 LIMIT 1`).bind(String(datasetIdRaw)).first()
+            : await db.prepare(`SELECT * FROM promoted_trade_datasets WHERE status='active' ORDER BY promoted_at DESC LIMIT 1`).first();
+          if (!dataset?.dataset_id) {
+            return sendJSON({ ok: false, error: "no_active_dataset" }, 404, corsHeaders(env, req));
+          }
+          // Pre-state for the audit
+          const preTradeRow = await db.prepare(`SELECT COUNT(*) as c FROM trades WHERE run_id IS NULL OR run_id = ''`).first().catch(() => ({ c: 0 }));
+          const prePromoted = await db.prepare(`SELECT COUNT(*) as c FROM promoted_trades WHERE dataset_id = ?1`).bind(String(dataset.dataset_id)).first();
+          const preTrades = Number(preTradeRow?.c) || 0;
+          const promotedCount = Number(prePromoted?.c) || 0;
+          if (promotedCount === 0) {
+            return sendJSON({ ok: false, error: "promoted_dataset_empty", dataset_id: dataset.dataset_id }, 400, corsHeaders(env, req));
+          }
+          // Step 1: rebuild trades. INSERT OR REPLACE so partial-restore
+          // is safe; existing rows with the same trade_id get refreshed
+          // from the canonical promoted snapshot.
+          const insertResult = await db.prepare(
+            `INSERT OR REPLACE INTO trades (
+               trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+               exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
+               script_version, created_at, updated_at, trim_ts, trim_price,
+               run_id, setup_name, setup_grade, risk_budget, shares, notional
+             )
+             SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+                    exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
+                    script_version, created_at, updated_at, trim_ts, trim_price,
+                    NULL AS run_id,
+                    setup_name, setup_grade, risk_budget, shares, notional
+             FROM promoted_trades
+             WHERE dataset_id = ?1`
+          ).bind(String(dataset.dataset_id)).run();
+          const tradesRestored = insertResult?.meta?.changes ?? null;
+          // Step 2: rebuild account_ledger from the same dataset
+          const seedResult = await d1SeedAccountLedgerFromPromoted(env, { datasetId: dataset.dataset_id });
+          // Audit the recovery
+          await auditDataChange(env, {
+            op: "RESTORE_TRADES_FROM_PROMOTED",
+            scope: `dataset=${dataset.dataset_id} restored=${tradesRestored ?? "?"}`,
+            caller: req?.url || "unknown",
+            rowsAffected: tradesRestored,
+            meta: {
+              user_agent: req?.headers?.get?.("user-agent") || null,
+              dataset_id: dataset.dataset_id,
+              pre: { trades: preTrades, promoted: promotedCount },
+              seed: seedResult,
+            },
+          });
+          return sendJSON({
+            ok: true,
+            dataset_id: dataset.dataset_id,
+            trades_restored: tradesRestored,
+            ledger: seedResult,
+            pre: { trades: preTrades, promoted: promotedCount },
+            next_step: "POST /timed/admin/rebuild-snapshots-from-ledger?mode=trader to refresh the equity-curve snapshots.",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
       }
 
       return sendJSON(
