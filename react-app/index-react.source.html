@@ -15096,10 +15096,28 @@
         // (c) what is in the queue for new positions. Mirrors the
         // Investor Brief structure for visual consistency across modes.
         const _atrBrief = (() => {
-          const openTrades = (Array.isArray(trades) ? trades : []).filter((t) => {
+          // V15 P0.7.146 (2026-05-13) — defensive dedup by ticker.
+          // The Brief was double-counting APD because two trades for
+          // the same ticker were OPEN at the same time (one real, one
+          // a ghost from a stale positions row). Even after fixing the
+          // upstream source, keep the dedup so a future stale row
+          // can't re-create the visual confusion. Prefer the most
+          // recent entry_ts when collisions happen.
+          const _opensRaw = (Array.isArray(trades) ? trades : []).filter((t) => {
             const s = String(t?.status || "").toUpperCase();
             return s === "OPEN" || s === "TP_HIT_TRIM" || (!s && !(t?.exit_ts ?? t?.exitTs));
           });
+          const _bySymBrief = new Map();
+          for (const t of _opensRaw) {
+            const sym = String(t?.ticker || "").toUpperCase();
+            if (!sym) continue;
+            const ets = Number(t?.entry_ts ?? t?.entryTs ?? 0);
+            const prev = _bySymBrief.get(sym);
+            if (!prev) { _bySymBrief.set(sym, t); continue; }
+            const pets = Number(prev?.entry_ts ?? prev?.entryTs ?? 0);
+            if (ets > pets) _bySymBrief.set(sym, t);
+          }
+          const openTrades = Array.from(_bySymBrief.values());
           const tickerByTicker = new Map();
           for (const t of (Array.isArray(tickers) ? tickers : [])) {
             const sym = String(t?.ticker || "").toUpperCase();
@@ -15133,9 +15151,11 @@
           // Setup shows the count + an estimate of how many are bullish/bearish.
           const setupBull = (Array.isArray(setup) ? setup : []).filter((t) => String(t?.state || "").startsWith("HTF_BULL")).length;
           const setupBear = (Array.isArray(setup) ? setup : []).length - setupBull;
-          // Market regime: read from data via StatusStrip's regime calc
-          // is too coupled; instead surface a coarse SPY-based read here.
-          const _spy = (data && (data.SPY || data["SPY"])) || null;
+          // Market regime: read SPY from the tickers array (it lives in
+          // the same array as everything else). EarlyMoversPanel doesn't
+          // receive the parent `data` map; using `data` here threw a
+          // ReferenceError that crashed the Active Trader tab.
+          const _spy = tickerByTicker.get("SPY") || null;
           const _spyDc = _spy ? getDailyChange(_spy) : null;
           const _spyPct = Number(_spyDc?.dayPct);
           const regimeWord = (() => {
