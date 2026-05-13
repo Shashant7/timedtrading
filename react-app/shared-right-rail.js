@@ -1936,6 +1936,21 @@
            User wants "default to 30m timeframe with indicators OFF" so the
            chart shows clean candles first; toggles enable any with one click. */
         const [chartOverlays, setChartOverlays] = useState({ ema21: false, ema48: false, ema200: false, supertrend: false, tdSequential: false });
+
+        // V15 P0.7.148 (2026-05-13) — memoized rail chart element.
+        // The persistent chart at the top of the rail used to re-render
+        // on every tab switch because the parent re-renders on
+        // v2RailTab change and passed a new `ticker` object reference
+        // each time, defeating the LWChart React.memo comparator and
+        // causing the UPDATE/LEVELS effects to briefly fire (visible
+        // as a 100-200ms flash on tab change). Memoizing the element
+        // at component scope means tab switches re-use the prior
+        // element directly — no comparator round-trip, no effect runs,
+        // no flicker. The deps are the actual content drivers so the
+        // chart still updates on real data changes (new candles,
+        // ticker switch, TF change, overlays toggle, price-lines
+        // change). `ticker?.ticker` is the symbol string, stable
+        // across object-reference changes for the same ticker.
         const [chartExpanded, setChartExpanded] = useState(false);
         const [modalTf, setModalTf] = useState("30");
         const [modalCandles, setModalCandles] = useState([]);
@@ -1956,6 +1971,28 @@
             setModalCandles([]);
           }
         }, [chartExpanded]);
+
+        // V15 P0.7.148 — memoized rail chart element (see comment at
+        // chartOverlays declaration). Re-uses the prior React element
+        // across tab switches so the persistent chart never sees a
+        // spurious render-cycle.
+        const _railChartElement = useMemo(
+          () => React.createElement(LWChart, {
+            candles: chartCandles,
+            chartTf,
+            overlays: chartOverlays,
+            priceLines: subtleKeyLevelLines,
+            ticker,
+            hideOverlayToggles: true,
+          }),
+          [
+            chartCandles,
+            chartTf,
+            chartOverlays,
+            subtleKeyLevelLines,
+            ticker?.ticker,
+          ],
+        );
 
         // Fetch candles for expanded chart modal
         useEffect(() => {
@@ -3546,14 +3583,17 @@
                               expects a symbol STRING. The function now
                               normalises either shape; this comment notes
                               the deliberate dual usage. */}
-                          {React.createElement(LWChart, {
-                            candles: chartCandles,
-                            chartTf,
-                            overlays: chartOverlays,
-                            priceLines: subtleKeyLevelLines,
-                            ticker,
-                            hideOverlayToggles: true,
-                          })}
+                          {/* V15 P0.7.148 (2026-05-13) — flicker on tab
+                              switch fix. The actual React.createElement
+                              call lives inside _railChartElement
+                              (memoized at component scope) so that
+                              switching v2RailTab does not re-create the
+                              chart subtree element, does not bail the
+                              LWChart React.memo comparator on a new
+                              ticker reference, and does not cause the
+                              UPDATE / LEVELS effects inside _LWChartImpl
+                              to fire on every tab change. */}
+                          {_railChartElement}
                         </div>
                       </Panel>
                     </div>

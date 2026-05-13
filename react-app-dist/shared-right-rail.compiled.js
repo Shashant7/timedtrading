@@ -2399,6 +2399,14 @@
           setModalCandles([]);
         }
       }, [chartExpanded]);
+      const _railChartElement = useMemo(() => React.createElement(LWChart, {
+        candles: chartCandles,
+        chartTf,
+        overlays: chartOverlays,
+        priceLines: subtleKeyLevelLines,
+        ticker,
+        hideOverlayToggles: true
+      }), [chartCandles, chartTf, chartOverlays, subtleKeyLevelLines, ticker?.ticker]);
       useEffect(() => {
         if (!chartExpanded || !tickerSymbol) return;
         let cancelled = false;
@@ -3868,14 +3876,7 @@
               }, "\u2922"))
             }, React.createElement("div", {
               className: "tt-rail-chart-canvas"
-            }, React.createElement(LWChart, {
-              candles: chartCandles,
-              chartTf,
-              overlays: chartOverlays,
-              priceLines: subtleKeyLevelLines,
-              ticker,
-              hideOverlayToggles: true
-            }))))
+            }, _railChartElement)))
           );
         })(), false && Array.isArray(predictionContract?.levels) && predictionContract.levels.length > 0 && (() => {
           const px = Number(v2Price) || Number(ticker?.price) || 0;
