@@ -510,8 +510,13 @@
       };
     }
     async function _rrFetchChartLevels(sym, chartTf, chartCandles) {
-      const ck = `${sym}-${chartTf}`;
+      const symStr = (typeof sym === "string" ? sym : sym && (sym.ticker || sym.symbol || sym.sym)) || "";
+      if (!symStr || typeof symStr !== "string") return null;
+      const ck = `${symStr}-${chartTf}`;
       if (_rrLevelsCache[ck] && Date.now() - _rrLevelsCache[ck].ts < 300000) return _rrLevelsCache[ck].data;
+      const _negKey = `__neg__${ck}`;
+      if (_rrLevelsCache[_negKey] && Date.now() - _rrLevelsCache[_negKey].ts < 60000) return null;
+      sym = symStr;
       try {
         let canonical = null;
         try {
@@ -525,7 +530,12 @@
           cache: "no-store"
         });
         const d = await res.json();
-        if (!d.ok || !d.candles || d.candles.length < 5) return null;
+        if (!d.ok || !d.candles || d.candles.length < 5) {
+          _rrLevelsCache[`__neg__${ck}`] = {
+            ts: Date.now()
+          };
+          return null;
+        }
         const dailies = d.candles;
         const rnd = v => Math.round(v * 100) / 100;
         let atrSum = 0,
@@ -673,6 +683,9 @@
         return result;
       } catch (e) {
         console.error(`[RR] Chart levels error ${sym}:`, e);
+        _rrLevelsCache[`__neg__${ck}`] = {
+          ts: Date.now()
+        };
         return null;
       }
     }
@@ -2355,7 +2368,7 @@
           cache: "no-store"
         }).then(r => {
           if (!r.ok) return null;
-          return r.json();
+          return r.json().catch(() => null);
         }).then(d => {
           if (d?.ok) setAutopsyModalProfile(d.profile || d);
         }).catch(() => {});
@@ -2364,6 +2377,336 @@
         if (!openAutopsyForTrade) return;
         _openAutopsy(openAutopsyForTrade);
       }, [openAutopsyForTrade, _openAutopsy]);
+      function renderAutopsyOverlay() {
+        if (!autopsyModal) return null;
+        const mt = autopsyModalData || autopsyModal;
+        const _dir = String(mt.direction || "").toUpperCase();
+        const _ticker = String(mt.ticker || "").toUpperCase();
+        const _entry = Number(mt.entryPrice || mt.entry_price) || 0;
+        const _exit = Number(mt.exitPrice || mt.exit_price) || 0;
+        const _pnl = Number(mt.pnl || mt.realized_pnl) || 0;
+        const _pnlPct = Number(mt.pnlPct || mt.pnl_pct) || 0;
+        const _status = String(mt.status || "").toUpperCase();
+        const _grade = mt.setup_grade || mt.setupGrade || "";
+        const _riskBudget = mt.risk_budget || mt.riskBudget || "";
+        const _exitReason = mt.exitReason || mt.exit_reason || "";
+        const _mfe = Number(mt.max_favorable_excursion);
+        const _mae = Number(mt.max_adverse_excursion);
+        const _entryPath = mt.entry_path || "";
+        const _statusCls = _status === "WIN" ? "text-green-400" : _status === "LOSS" ? "text-red-400" : "text-[#93b8f7]";
+        const _gradeCls = _grade === "Prime" ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : _grade === "Confirmed" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : _grade === "Speculative" ? "bg-blue-500/20 text-blue-300 border-blue-500/30" : "bg-white/10 text-white/60 border-white/10";
+        const entrySnap = _parseSnapshot(mt.signal_snapshot_json || mt.signalSnapshot);
+        const tfStack = _parseTfStack(mt.tf_stack_json || mt.tfStack);
+        const learningCtx = (() => {
+          try {
+            const raw = mt.signal_snapshot_json || mt.signalSnapshot;
+            const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+            return parsed?.precision?.learningContext || parsed?.learningContext || null;
+          } catch (_) {
+            return null;
+          }
+        })();
+        const _lineage = (() => {
+          try {
+            const raw = mt.signal_snapshot_json || mt.signalSnapshot;
+            const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+            return parsed?.lineage || null;
+          } catch (_) {
+            return null;
+          }
+        })();
+        const closeAutopsyModal = () => {
+          setAutopsyModal(null);
+          if (modalOnly && typeof onClose === "function") onClose();
+        };
+        return React.createElement("div", {
+          className: "fixed inset-0 z-[9999] flex items-center justify-center md:p-4",
+          style: {
+            background: "rgba(0,0,0,0.7)",
+            backdropFilter: "blur(4px)"
+          },
+          onClick: closeAutopsyModal
+        }, React.createElement("div", {
+          className: "w-full h-full md:h-auto md:max-w-[85vw] md:max-h-[88vh] overflow-hidden flex flex-col rounded-none md:rounded-2xl border-0 md:border border-white/[0.1] bg-[#0b0e11] shadow-2xl",
+          onClick: e => e.stopPropagation()
+        }, React.createElement("div", {
+          className: "flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06] shrink-0",
+          style: {
+            background: "var(--tt-bg-surface, #0b0e11)"
+          }
+        }, React.createElement("h2", {
+          className: "text-[15px] font-semibold text-white truncate mr-2"
+        }, _ticker, " ", _dir, " \u2014 Trade Review"), React.createElement("button", {
+          onClick: closeAutopsyModal,
+          className: "p-2 -mr-1 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06] shrink-0"
+        }, "\u2715")), autopsyModalLoading ? React.createElement("div", {
+          className: "p-4 flex-1"
+        }, React.createElement(SkeletonBlock, {
+          height: 200,
+          lines: 6
+        })) : React.createElement("div", {
+          className: "p-3 md:p-4 flex-1 min-h-0 overflow-y-auto flex flex-col gap-3"
+        }, React.createElement("div", {
+          className: "flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-2 sm:gap-3 shrink-0"
+        }, React.createElement("div", {
+          className: "flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#60a5fa]/15 border border-[#60a5fa]/30"
+        }, React.createElement("span", {
+          className: "text-[10px] font-semibold text-[#60a5fa] uppercase tracking-wider shrink-0"
+        }, "Entry"), React.createElement("span", {
+          className: "text-[13px] font-semibold text-white truncate"
+        }, _formatDate(mt.entry_ts), " @ ", fmtUsd(_entry))), (_exit > 0 || mt.exit_ts) && React.createElement("div", {
+          className: "flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#f59e0b]/15 border border-[#f59e0b]/30"
+        }, React.createElement("span", {
+          className: "text-[10px] font-semibold text-[#f59e0b] uppercase tracking-wider shrink-0"
+        }, "Exit"), React.createElement("span", {
+          className: "text-[13px] font-semibold text-white truncate"
+        }, _formatDate(mt.exit_ts), " @ ", _exit > 0 ? fmtUsd(_exit) : "\u2014")), (() => {
+          const _sh = Number(mt.shares ?? mt.quantity ?? 0);
+          if (!_sh || !Number.isFinite(_sh) || _sh <= 0) return null;
+          const _trimPct = Number(mt.trimmed_pct || mt.trimmedPct || 0);
+          const _trimmed = Math.round(_sh * Math.min(_trimPct, 1));
+          const _remaining = Math.max(0, Math.round(_sh) - _trimmed);
+          return React.createElement("div", {
+            className: "flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#a78bfa]/15 border border-[#a78bfa]/30"
+          }, React.createElement("span", {
+            className: "text-[10px] font-semibold text-[#a78bfa] uppercase tracking-wider shrink-0"
+          }, "Shares"), React.createElement("span", {
+            className: "text-[13px] font-semibold text-white"
+          }, Math.round(_sh)), _trimmed > 0 && React.createElement("span", {
+            className: "text-[11px] text-[#a78bfa]/70"
+          }, "(", _trimmed, " trimmed \xB7 ", _remaining, " left)"));
+        })(), React.createElement("div", {
+          className: "flex items-center gap-3"
+        }, React.createElement("div", {
+          className: "text-[12px] text-[#9ca3af]"
+        }, "P&L: ", React.createElement("span", {
+          className: _pnl >= 0 ? "text-[#22c55e] font-semibold" : "text-[#ef4444] font-semibold"
+        }, fmtUsd(_pnl))), _pnlPct ? React.createElement("span", {
+          className: `text-[11px] ${_statusCls}`
+        }, "(", _pnlPct > 0 ? "+" : "", _pnlPct.toFixed(2), "%)") : null, _status && React.createElement("span", {
+          className: `text-[12px] font-semibold ${_statusCls}`
+        }, _status))), React.createElement("div", {
+          className: "grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 lg:flex-1 lg:min-h-0"
+        }, React.createElement("div", {
+          className: "lg:col-span-1 flex flex-col gap-3 min-h-0 lg:overflow-y-auto order-2 lg:order-1"
+        }, (entrySnap || tfStack || _entryPath || _grade) && React.createElement("div", {
+          className: "rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0"
+        }, React.createElement("div", {
+          className: "text-[11px] font-semibold text-[#14b8a6] uppercase tracking-wider mb-2"
+        }, "Signal snapshot at entry"), (_entryPath || _grade) && React.createElement("div", {
+          className: "mb-3 px-2.5 py-1.5 rounded-lg bg-[#14b8a6]/10 border border-[#14b8a6]/20"
+        }, React.createElement("span", {
+          className: "text-[10px] text-[#9ca3af] uppercase tracking-wider"
+        }, "Setup"), React.createElement("div", {
+          className: "text-[13px] font-semibold text-white mt-0.5 flex items-center gap-2 flex-wrap"
+        }, _entryPath ? _formatPath(_entryPath) : mt.setup_name ? _formatPath(mt.setup_name) : null, _grade && React.createElement("span", {
+          className: `px-1.5 py-0.5 rounded text-[10px] font-bold border ${_gradeCls}`
+        }, "TT ", _grade), Number(_riskBudget) > 0.001 && React.createElement("span", {
+          className: "text-[10px] text-[#6b7280]"
+        }, Number(_riskBudget) < 1 ? `${(Number(_riskBudget) * 100).toFixed(1)}% risk` : `$${_riskBudget} risk`))), tfStack && tfStack.length > 0 && React.createElement("div", {
+          className: "mb-3"
+        }, React.createElement("span", {
+          className: "text-[10px] text-[#9ca3af] uppercase tracking-wider block mb-1.5"
+        }, "Timeframe bias"), React.createElement("div", {
+          className: "flex flex-wrap gap-1.5"
+        }, tfStack.map(({
+          tf: tfLabel,
+          bias
+        }) => {
+          const b = String(bias || "").toLowerCase();
+          const isBull = b === "bullish";
+          const isBear = b === "bearish";
+          const label = isBull ? "Bullish" : isBear ? "Bearish" : bias || "\u2014";
+          const style = isBull ? "bg-[#22c55e]/15 text-[#22c55e]" : isBear ? "bg-[#ef4444]/15 text-[#ef4444]" : "bg-white/[0.06] text-[#9ca3af]";
+          return React.createElement("span", {
+            key: tfLabel,
+            className: `inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium ${style}`
+          }, React.createElement("span", {
+            className: "opacity-80"
+          }, tfLabel), React.createElement("span", null, label));
+        }))), entrySnap && entrySnap.length > 0 && React.createElement("div", null, React.createElement("span", {
+          className: "text-[10px] text-[#9ca3af] uppercase tracking-wider block mb-1.5"
+        }, "Indicators by timeframe"), React.createElement("div", {
+          className: "space-y-2"
+        }, entrySnap.map(({
+          tf: tfLabel,
+          signals
+        }) => React.createElement("div", {
+          key: tfLabel,
+          className: "px-2 py-1.5 rounded-md bg-white/[0.03] border border-white/[0.06]"
+        }, React.createElement("div", {
+          className: "text-[10px] font-medium text-[#9ca3af] mb-1"
+        }, tfLabel), React.createElement("div", {
+          className: "flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]"
+        }, Object.entries(signals).filter(([, v]) => v != null && Number.isFinite(v)).map(([k, v]) => React.createElement("span", {
+          key: k,
+          className: "flex items-center gap-1"
+        }, React.createElement("span", {
+          className: "text-[#6b7280]"
+        }, SIGNAL_LABELS[k] || k, ":"), React.createElement("span", {
+          className: _signalValueColor(k, v)
+        }, _signalValueLabel(k, v)))))))))), _lineage && (_lineage.regime_class || _lineage.execution_profile || _lineage.vix_at_entry) && React.createElement("div", {
+          className: "rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0"
+        }, React.createElement("div", {
+          className: "text-[11px] font-semibold text-[#f59e0b] uppercase tracking-wider mb-2"
+        }, "Context at entry"), React.createElement("div", {
+          className: "grid grid-cols-2 gap-2 text-[12px]"
+        }, _lineage.regime_class && (() => {
+          const rc = _lineage.regime_class;
+          const rcColor = rc === "TRENDING" ? "#22c55e" : rc === "TRANSITIONAL" ? "#f59e0b" : rc === "CHOPPY" ? "#ef4444" : "#9ca3af";
+          return React.createElement("div", {
+            className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
+          }, React.createElement("div", {
+            className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
+          }, "Regime"), React.createElement("div", {
+            className: "mt-0.5"
+          }, React.createElement("span", {
+            className: "px-1.5 py-0.5 rounded text-[10px] font-bold",
+            style: {
+              background: rcColor + "22",
+              color: rcColor,
+              border: `1px solid ${rcColor}44`
+            }
+          }, rc)), _lineage.regime_score != null && React.createElement("div", {
+            className: "text-[10px] text-[#6b7280] mt-1"
+          }, "Score: ", _lineage.regime_score));
+        })(), _lineage.execution_profile && React.createElement("div", {
+          className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
+        }, React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
+        }, "Execution Profile"), React.createElement("div", {
+          className: "text-white font-semibold mt-0.5 text-[11px]"
+        }, (_lineage.execution_profile.active_profile || "").replace(/_/g, " ")), _lineage.execution_profile.confidence && React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] mt-1"
+        }, Math.round(_lineage.execution_profile.confidence * 100), "% conf")), _lineage.market_internals && React.createElement("div", {
+          className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
+        }, React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
+        }, "Market State"), React.createElement("div", {
+          className: "text-white font-semibold mt-0.5 text-[11px]"
+        }, (_lineage.market_internals.overall || "").replace(/_/g, " ")), _lineage.market_internals.score != null && React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] mt-1"
+        }, "Score: ", _lineage.market_internals.score)), _lineage.vix_at_entry && React.createElement("div", {
+          className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
+        }, React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
+        }, "VIX at Entry"), React.createElement("div", {
+          className: "text-white font-semibold mt-0.5"
+        }, Number(_lineage.vix_at_entry).toFixed(1)), React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] mt-1"
+        }, _lineage.vix_at_entry < 15 ? "Low" : _lineage.vix_at_entry < 22 ? "Medium" : _lineage.vix_at_entry < 30 ? "High" : "Extreme")), _lineage.state && React.createElement("div", {
+          className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06] col-span-2"
+        }, React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
+        }, "HTF/LTF State"), React.createElement("div", {
+          className: "text-white font-semibold mt-0.5 text-[11px]"
+        }, _lineage.state.replace(/_/g, " "))))), learningCtx && React.createElement("div", {
+          className: "rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0"
+        }, React.createElement("div", {
+          className: "text-[11px] font-semibold text-[#a78bfa] uppercase tracking-wider mb-2"
+        }, "Ticker Learning Profile"), React.createElement("div", {
+          className: "text-[12px] text-[#d1d5db] space-y-1.5"
+        }, learningCtx.personality && (() => {
+          const pColor = learningCtx.personality === "VOLATILE_RUNNER" ? "#ef4444" : learningCtx.personality === "PULLBACK_PLAYER" ? "#f59e0b" : learningCtx.personality === "SLOW_GRINDER" ? "#60a5fa" : "#a78bfa";
+          return React.createElement("div", {
+            className: "flex items-center gap-2"
+          }, React.createElement("span", {
+            className: "text-[#9ca3af]"
+          }, "Personality:"), React.createElement("span", {
+            className: "px-1.5 py-0.5 rounded text-[10px] font-semibold",
+            style: {
+              background: pColor + "22",
+              color: pColor,
+              border: `1px solid ${pColor}44`
+            }
+          }, learningCtx.personality.replace(/_/g, " ")));
+        })(), learningCtx.trail_style && React.createElement("div", null, React.createElement("span", {
+          className: "text-[#9ca3af]"
+        }, "Trail style:"), " ", learningCtx.trail_style), learningCtx.tp_mult && React.createElement("div", null, React.createElement("span", {
+          className: "text-[#9ca3af]"
+        }, "Expected TP:"), " ", learningCtx.tp_mult, "x ATR"), learningCtx.sl_mult && React.createElement("div", null, React.createElement("span", {
+          className: "text-[#9ca3af]"
+        }, "Expected SL:"), " ", learningCtx.sl_mult, "x ATR"), learningCtx.boost != null && learningCtx.boost !== 0 && React.createElement("div", null, React.createElement("span", {
+          className: "text-[#9ca3af]"
+        }, "Learning boost:"), " ", React.createElement("span", {
+          className: learningCtx.boost > 0 ? "text-[#22c55e]" : "text-[#ef4444]"
+        }, learningCtx.boost > 0 ? "+" : "", learningCtx.boost)))), autopsyModalProfile && React.createElement("div", {
+          className: "rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0"
+        }, React.createElement("div", {
+          className: "text-[11px] font-semibold text-[#60a5fa] uppercase tracking-wider mb-2"
+        }, "Canonical ticker context"), React.createElement("div", {
+          className: "space-y-2"
+        }, React.createElement("div", {
+          className: "grid grid-cols-2 gap-2 text-[12px]"
+        }, React.createElement("div", {
+          className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
+        }, React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
+        }, "Personality"), React.createElement("div", {
+          className: "text-white font-semibold mt-0.5"
+        }, (autopsyModalProfile.personality || "\u2014").replace(/_/g, " ")), React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] mt-1"
+        }, (autopsyModalProfile.behavior_type || "\u2014").replace(/_/g, " "))), React.createElement("div", {
+          className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
+        }, React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
+        }, "Context sample"), React.createElement("div", {
+          className: "text-white font-semibold mt-0.5"
+        }, autopsyModalProfile.contract?.context?.sample_count ?? "\u2014", " trades"), React.createElement("div", {
+          className: "text-[10px] text-[#6b7280] mt-1"
+        }, _fmtPct(autopsyModalProfile.contract?.context?.win_rate), " WR"))), (() => {
+          const ctx = autopsyModalProfile.contract?.context;
+          const exec = autopsyModalProfile.contract?.execution;
+          if (!ctx && !exec) return null;
+          const favRegime = ctx?.favored_regime || "\u2014";
+          const favVix = ctx?.favored_vix_bucket || "\u2014";
+          const favPath = ctx?.favored_entry_path || null;
+          return React.createElement("div", {
+            className: "flex flex-wrap gap-1.5"
+          }, React.createElement("span", {
+            className: "px-2 py-1 rounded-md bg-[#22c55e]/10 border border-[#22c55e]/20 text-[#86efac] text-[11px]"
+          }, "Regime: ", favRegime), React.createElement("span", {
+            className: "px-2 py-1 rounded-md bg-[#a78bfa]/10 border border-[#a78bfa]/20 text-[#c4b5fd] text-[11px]"
+          }, "VIX: ", favVix), favPath && React.createElement("span", {
+            className: "px-2 py-1 rounded-md bg-[#14b8a6]/10 border border-[#14b8a6]/20 text-[#5eead4] text-[11px]"
+          }, "Path: ", _formatPath(favPath)));
+        })())), (_exitReason || Number.isFinite(_mfe) || Number.isFinite(_mae)) && React.createElement("div", {
+          className: "rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0"
+        }, React.createElement("div", {
+          className: "text-[11px] font-semibold text-[#f59e0b] uppercase tracking-wider mb-2"
+        }, "Exit context"), React.createElement("div", {
+          className: "text-[12px] text-[#d1d5db] space-y-1"
+        }, _exitReason && React.createElement("div", {
+          style: {
+            overflowWrap: "anywhere"
+          }
+        }, React.createElement("span", {
+          className: "text-[#9ca3af]"
+        }, "Reason:"), " ", _exitReason.replace(/,/g, ", ")), Number.isFinite(_mfe) && React.createElement("div", null, React.createElement("span", {
+          className: "text-[#9ca3af]"
+        }, "MFE:"), " ", React.createElement("span", {
+          className: "text-[#22c55e]"
+        }, _mfe.toFixed(2), "%")), Number.isFinite(_mae) && React.createElement("div", null, React.createElement("span", {
+          className: "text-[#9ca3af]"
+        }, "MAE:"), " ", React.createElement("span", {
+          className: "text-[#ef4444]"
+        }, _mae.toFixed(2), "%"))))), React.createElement("div", {
+          className: "lg:col-span-2 min-h-[240px] md:min-h-[300px] flex flex-col order-1 lg:order-2"
+        }, React.createElement(AutopsyChart, {
+          ticker: _ticker,
+          entryPrice: _entry,
+          exitPrice: _exit,
+          entryTs: mt.entry_ts,
+          exitTs: mt.exit_ts,
+          trimTs: mt.trim_ts,
+          slPrice: mt.sl || mt.stop_loss || mt.sl_price,
+          tpPrices: mt.tpArray || mt.tp_array || (mt.tp_price ? [{
+            price: mt.tp_price,
+            label: "TP"
+          }] : null),
+          height: typeof window !== "undefined" && window.innerWidth < 768 ? 220 : 320
+        }))))));
+      }
       const priceSrc = ticker || {};
       useEffect(() => {
         setCrosshair(null);
@@ -6671,7 +7014,7 @@
           style: {
             display: "inline-flex"
           }
-        }, "Open in TradingView \u2197"))));
+        }, "Open in TradingView \u2197"))), renderAutopsyOverlay());
       }
       return React.createElement(React.Fragment, null, React.createElement("div", {
         className: "w-full h-full flex flex-col",
@@ -11018,335 +11361,7 @@
           markers: modalMarkers,
           ticker: tickerSymbol
         }))));
-      })()), autopsyModal && (() => {
-        const mt = autopsyModalData || autopsyModal;
-        const _dir = String(mt.direction || "").toUpperCase();
-        const _ticker = String(mt.ticker || "").toUpperCase();
-        const _entry = Number(mt.entryPrice || mt.entry_price) || 0;
-        const _exit = Number(mt.exitPrice || mt.exit_price) || 0;
-        const _pnl = Number(mt.pnl || mt.realized_pnl) || 0;
-        const _pnlPct = Number(mt.pnlPct || mt.pnl_pct) || 0;
-        const _status = String(mt.status || "").toUpperCase();
-        const _grade = mt.setup_grade || mt.setupGrade || "";
-        const _riskBudget = mt.risk_budget || mt.riskBudget || "";
-        const _exitReason = mt.exitReason || mt.exit_reason || "";
-        const _mfe = Number(mt.max_favorable_excursion);
-        const _mae = Number(mt.max_adverse_excursion);
-        const _entryPath = mt.entry_path || "";
-        const _statusCls = _status === "WIN" ? "text-green-400" : _status === "LOSS" ? "text-red-400" : "text-[#93b8f7]";
-        const _gradeCls = _grade === "Prime" ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : _grade === "Confirmed" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : _grade === "Speculative" ? "bg-blue-500/20 text-blue-300 border-blue-500/30" : "bg-white/10 text-white/60 border-white/10";
-        const entrySnap = _parseSnapshot(mt.signal_snapshot_json || mt.signalSnapshot);
-        const tfStack = _parseTfStack(mt.tf_stack_json || mt.tfStack);
-        const learningCtx = (() => {
-          try {
-            const raw = mt.signal_snapshot_json || mt.signalSnapshot;
-            const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
-            return parsed?.precision?.learningContext || parsed?.learningContext || null;
-          } catch (_) {
-            return null;
-          }
-        })();
-        const _lineage = (() => {
-          try {
-            const raw = mt.signal_snapshot_json || mt.signalSnapshot;
-            const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
-            return parsed?.lineage || null;
-          } catch (_) {
-            return null;
-          }
-        })();
-        const closeAutopsyModal = () => {
-          setAutopsyModal(null);
-          if (modalOnly && typeof onClose === "function") onClose();
-        };
-        return React.createElement("div", {
-          className: "fixed inset-0 z-[9999] flex items-center justify-center md:p-4",
-          style: {
-            background: "rgba(0,0,0,0.7)",
-            backdropFilter: "blur(4px)"
-          },
-          onClick: closeAutopsyModal
-        }, React.createElement("div", {
-          className: "w-full h-full md:h-auto md:max-w-[85vw] md:max-h-[88vh] overflow-hidden flex flex-col rounded-none md:rounded-2xl border-0 md:border border-white/[0.1] bg-[#0b0e11] shadow-2xl",
-          onClick: e => e.stopPropagation()
-        }, React.createElement("div", {
-          className: "flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06] shrink-0",
-          style: {
-            background: "var(--tt-bg-surface, #0b0e11)"
-          }
-        }, React.createElement("h2", {
-          className: "text-[15px] font-semibold text-white truncate mr-2"
-        }, _ticker, " ", _dir, " \u2014 Trade Review"), React.createElement("button", {
-          onClick: closeAutopsyModal,
-          className: "p-2 -mr-1 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06] shrink-0"
-        }, "\u2715")), autopsyModalLoading ? React.createElement("div", {
-          className: "p-4 flex-1"
-        }, React.createElement(SkeletonBlock, {
-          height: 200,
-          lines: 6
-        })) : React.createElement("div", {
-          className: "p-3 md:p-4 flex-1 min-h-0 overflow-y-auto flex flex-col gap-3"
-        }, React.createElement("div", {
-          className: "flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-2 sm:gap-3 shrink-0"
-        }, React.createElement("div", {
-          className: "flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#60a5fa]/15 border border-[#60a5fa]/30"
-        }, React.createElement("span", {
-          className: "text-[10px] font-semibold text-[#60a5fa] uppercase tracking-wider shrink-0"
-        }, "Entry"), React.createElement("span", {
-          className: "text-[13px] font-semibold text-white truncate"
-        }, _formatDate(mt.entry_ts), " @ ", fmtUsd(_entry))), (_exit > 0 || mt.exit_ts) && React.createElement("div", {
-          className: "flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#f59e0b]/15 border border-[#f59e0b]/30"
-        }, React.createElement("span", {
-          className: "text-[10px] font-semibold text-[#f59e0b] uppercase tracking-wider shrink-0"
-        }, "Exit"), React.createElement("span", {
-          className: "text-[13px] font-semibold text-white truncate"
-        }, _formatDate(mt.exit_ts), " @ ", _exit > 0 ? fmtUsd(_exit) : "\u2014")), (() => {
-          const _sh = Number(mt.shares ?? mt.quantity ?? 0);
-          if (!_sh || !Number.isFinite(_sh) || _sh <= 0) return null;
-          const _trimPct = Number(mt.trimmed_pct || mt.trimmedPct || 0);
-          const _trimmed = Math.round(_sh * Math.min(_trimPct, 1));
-          const _remaining = Math.max(0, Math.round(_sh) - _trimmed);
-          return React.createElement("div", {
-            className: "flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#a78bfa]/15 border border-[#a78bfa]/30"
-          }, React.createElement("span", {
-            className: "text-[10px] font-semibold text-[#a78bfa] uppercase tracking-wider shrink-0"
-          }, "Shares"), React.createElement("span", {
-            className: "text-[13px] font-semibold text-white"
-          }, Math.round(_sh)), _trimmed > 0 && React.createElement("span", {
-            className: "text-[11px] text-[#a78bfa]/70"
-          }, "(", _trimmed, " trimmed \xB7 ", _remaining, " left)"));
-        })(), React.createElement("div", {
-          className: "flex items-center gap-3"
-        }, React.createElement("div", {
-          className: "text-[12px] text-[#9ca3af]"
-        }, "P&L: ", React.createElement("span", {
-          className: _pnl >= 0 ? "text-[#22c55e] font-semibold" : "text-[#ef4444] font-semibold"
-        }, fmtUsd(_pnl))), _pnlPct ? React.createElement("span", {
-          className: `text-[11px] ${_statusCls}`
-        }, "(", _pnlPct > 0 ? "+" : "", _pnlPct.toFixed(2), "%)") : null, _status && React.createElement("span", {
-          className: `text-[12px] font-semibold ${_statusCls}`
-        }, _status))), React.createElement("div", {
-          className: "grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 lg:flex-1 lg:min-h-0"
-        }, React.createElement("div", {
-          className: "lg:col-span-1 flex flex-col gap-3 min-h-0 lg:overflow-y-auto order-2 lg:order-1"
-        }, (entrySnap || tfStack || _entryPath || _grade) && React.createElement("div", {
-          className: "rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0"
-        }, React.createElement("div", {
-          className: "text-[11px] font-semibold text-[#14b8a6] uppercase tracking-wider mb-2"
-        }, "Signal snapshot at entry"), (_entryPath || _grade) && React.createElement("div", {
-          className: "mb-3 px-2.5 py-1.5 rounded-lg bg-[#14b8a6]/10 border border-[#14b8a6]/20"
-        }, React.createElement("span", {
-          className: "text-[10px] text-[#9ca3af] uppercase tracking-wider"
-        }, "Setup"), React.createElement("div", {
-          className: "text-[13px] font-semibold text-white mt-0.5 flex items-center gap-2 flex-wrap"
-        }, _entryPath ? _formatPath(_entryPath) : mt.setup_name ? _formatPath(mt.setup_name) : null, _grade && React.createElement("span", {
-          className: `px-1.5 py-0.5 rounded text-[10px] font-bold border ${_gradeCls}`
-        }, "TT ", _grade), Number(_riskBudget) > 0.001 && React.createElement("span", {
-          className: "text-[10px] text-[#6b7280]"
-        }, Number(_riskBudget) < 1 ? `${(Number(_riskBudget) * 100).toFixed(1)}% risk` : `$${_riskBudget} risk`))), tfStack && tfStack.length > 0 && React.createElement("div", {
-          className: "mb-3"
-        }, React.createElement("span", {
-          className: "text-[10px] text-[#9ca3af] uppercase tracking-wider block mb-1.5"
-        }, "Timeframe bias"), React.createElement("div", {
-          className: "flex flex-wrap gap-1.5"
-        }, tfStack.map(({
-          tf: tfLabel,
-          bias
-        }) => {
-          const b = String(bias || "").toLowerCase();
-          const isBull = b === "bullish";
-          const isBear = b === "bearish";
-          const label = isBull ? "Bullish" : isBear ? "Bearish" : bias || "\u2014";
-          const style = isBull ? "bg-[#22c55e]/15 text-[#22c55e]" : isBear ? "bg-[#ef4444]/15 text-[#ef4444]" : "bg-white/[0.06] text-[#9ca3af]";
-          return React.createElement("span", {
-            key: tfLabel,
-            className: `inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium ${style}`
-          }, React.createElement("span", {
-            className: "opacity-80"
-          }, tfLabel), React.createElement("span", null, label));
-        }))), entrySnap && entrySnap.length > 0 && React.createElement("div", null, React.createElement("span", {
-          className: "text-[10px] text-[#9ca3af] uppercase tracking-wider block mb-1.5"
-        }, "Indicators by timeframe"), React.createElement("div", {
-          className: "space-y-2"
-        }, entrySnap.map(({
-          tf: tfLabel,
-          signals
-        }) => React.createElement("div", {
-          key: tfLabel,
-          className: "px-2 py-1.5 rounded-md bg-white/[0.03] border border-white/[0.06]"
-        }, React.createElement("div", {
-          className: "text-[10px] font-medium text-[#9ca3af] mb-1"
-        }, tfLabel), React.createElement("div", {
-          className: "flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]"
-        }, Object.entries(signals).filter(([, v]) => v != null && Number.isFinite(v)).map(([k, v]) => React.createElement("span", {
-          key: k,
-          className: "flex items-center gap-1"
-        }, React.createElement("span", {
-          className: "text-[#6b7280]"
-        }, SIGNAL_LABELS[k] || k, ":"), React.createElement("span", {
-          className: _signalValueColor(k, v)
-        }, _signalValueLabel(k, v)))))))))), _lineage && (_lineage.regime_class || _lineage.execution_profile || _lineage.vix_at_entry) && React.createElement("div", {
-          className: "rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0"
-        }, React.createElement("div", {
-          className: "text-[11px] font-semibold text-[#f59e0b] uppercase tracking-wider mb-2"
-        }, "Context at entry"), React.createElement("div", {
-          className: "grid grid-cols-2 gap-2 text-[12px]"
-        }, _lineage.regime_class && (() => {
-          const rc = _lineage.regime_class;
-          const rcColor = rc === "TRENDING" ? "#22c55e" : rc === "TRANSITIONAL" ? "#f59e0b" : rc === "CHOPPY" ? "#ef4444" : "#9ca3af";
-          return React.createElement("div", {
-            className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
-          }, React.createElement("div", {
-            className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
-          }, "Regime"), React.createElement("div", {
-            className: "mt-0.5"
-          }, React.createElement("span", {
-            className: "px-1.5 py-0.5 rounded text-[10px] font-bold",
-            style: {
-              background: rcColor + "22",
-              color: rcColor,
-              border: `1px solid ${rcColor}44`
-            }
-          }, rc)), _lineage.regime_score != null && React.createElement("div", {
-            className: "text-[10px] text-[#6b7280] mt-1"
-          }, "Score: ", _lineage.regime_score));
-        })(), _lineage.execution_profile && React.createElement("div", {
-          className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
-        }, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
-        }, "Execution Profile"), React.createElement("div", {
-          className: "text-white font-semibold mt-0.5 text-[11px]"
-        }, (_lineage.execution_profile.active_profile || "").replace(/_/g, " ")), _lineage.execution_profile.confidence && React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] mt-1"
-        }, Math.round(_lineage.execution_profile.confidence * 100), "% conf")), _lineage.market_internals && React.createElement("div", {
-          className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
-        }, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
-        }, "Market State"), React.createElement("div", {
-          className: "text-white font-semibold mt-0.5 text-[11px]"
-        }, (_lineage.market_internals.overall || "").replace(/_/g, " ")), _lineage.market_internals.score != null && React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] mt-1"
-        }, "Score: ", _lineage.market_internals.score)), _lineage.vix_at_entry && React.createElement("div", {
-          className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
-        }, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
-        }, "VIX at Entry"), React.createElement("div", {
-          className: "text-white font-semibold mt-0.5"
-        }, Number(_lineage.vix_at_entry).toFixed(1)), React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] mt-1"
-        }, _lineage.vix_at_entry < 15 ? "Low" : _lineage.vix_at_entry < 22 ? "Medium" : _lineage.vix_at_entry < 30 ? "High" : "Extreme")), _lineage.state && React.createElement("div", {
-          className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06] col-span-2"
-        }, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
-        }, "HTF/LTF State"), React.createElement("div", {
-          className: "text-white font-semibold mt-0.5 text-[11px]"
-        }, _lineage.state.replace(/_/g, " "))))), learningCtx && React.createElement("div", {
-          className: "rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0"
-        }, React.createElement("div", {
-          className: "text-[11px] font-semibold text-[#a78bfa] uppercase tracking-wider mb-2"
-        }, "Ticker Learning Profile"), React.createElement("div", {
-          className: "text-[12px] text-[#d1d5db] space-y-1.5"
-        }, learningCtx.personality && (() => {
-          const pColor = learningCtx.personality === "VOLATILE_RUNNER" ? "#ef4444" : learningCtx.personality === "PULLBACK_PLAYER" ? "#f59e0b" : learningCtx.personality === "SLOW_GRINDER" ? "#60a5fa" : "#a78bfa";
-          return React.createElement("div", {
-            className: "flex items-center gap-2"
-          }, React.createElement("span", {
-            className: "text-[#9ca3af]"
-          }, "Personality:"), React.createElement("span", {
-            className: "px-1.5 py-0.5 rounded text-[10px] font-semibold",
-            style: {
-              background: pColor + "22",
-              color: pColor,
-              border: `1px solid ${pColor}44`
-            }
-          }, learningCtx.personality.replace(/_/g, " ")));
-        })(), learningCtx.trail_style && React.createElement("div", null, React.createElement("span", {
-          className: "text-[#9ca3af]"
-        }, "Trail style:"), " ", learningCtx.trail_style), learningCtx.tp_mult && React.createElement("div", null, React.createElement("span", {
-          className: "text-[#9ca3af]"
-        }, "Expected TP:"), " ", learningCtx.tp_mult, "x ATR"), learningCtx.sl_mult && React.createElement("div", null, React.createElement("span", {
-          className: "text-[#9ca3af]"
-        }, "Expected SL:"), " ", learningCtx.sl_mult, "x ATR"), learningCtx.boost != null && learningCtx.boost !== 0 && React.createElement("div", null, React.createElement("span", {
-          className: "text-[#9ca3af]"
-        }, "Learning boost:"), " ", React.createElement("span", {
-          className: learningCtx.boost > 0 ? "text-[#22c55e]" : "text-[#ef4444]"
-        }, learningCtx.boost > 0 ? "+" : "", learningCtx.boost)))), autopsyModalProfile && React.createElement("div", {
-          className: "rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0"
-        }, React.createElement("div", {
-          className: "text-[11px] font-semibold text-[#60a5fa] uppercase tracking-wider mb-2"
-        }, "Canonical ticker context"), React.createElement("div", {
-          className: "space-y-2"
-        }, React.createElement("div", {
-          className: "grid grid-cols-2 gap-2 text-[12px]"
-        }, React.createElement("div", {
-          className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
-        }, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
-        }, "Personality"), React.createElement("div", {
-          className: "text-white font-semibold mt-0.5"
-        }, (autopsyModalProfile.personality || "\u2014").replace(/_/g, " ")), React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] mt-1"
-        }, (autopsyModalProfile.behavior_type || "\u2014").replace(/_/g, " "))), React.createElement("div", {
-          className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
-        }, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
-        }, "Context sample"), React.createElement("div", {
-          className: "text-white font-semibold mt-0.5"
-        }, autopsyModalProfile.contract?.context?.sample_count ?? "\u2014", " trades"), React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] mt-1"
-        }, _fmtPct(autopsyModalProfile.contract?.context?.win_rate), " WR"))), (() => {
-          const ctx = autopsyModalProfile.contract?.context;
-          const exec = autopsyModalProfile.contract?.execution;
-          if (!ctx && !exec) return null;
-          const favRegime = ctx?.favored_regime || "\u2014";
-          const favVix = ctx?.favored_vix_bucket || "\u2014";
-          const favPath = ctx?.favored_entry_path || null;
-          return React.createElement("div", {
-            className: "flex flex-wrap gap-1.5"
-          }, React.createElement("span", {
-            className: "px-2 py-1 rounded-md bg-[#22c55e]/10 border border-[#22c55e]/20 text-[#86efac] text-[11px]"
-          }, "Regime: ", favRegime), React.createElement("span", {
-            className: "px-2 py-1 rounded-md bg-[#a78bfa]/10 border border-[#a78bfa]/20 text-[#c4b5fd] text-[11px]"
-          }, "VIX: ", favVix), favPath && React.createElement("span", {
-            className: "px-2 py-1 rounded-md bg-[#14b8a6]/10 border border-[#14b8a6]/20 text-[#5eead4] text-[11px]"
-          }, "Path: ", _formatPath(favPath)));
-        })())), (_exitReason || Number.isFinite(_mfe) || Number.isFinite(_mae)) && React.createElement("div", {
-          className: "rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0"
-        }, React.createElement("div", {
-          className: "text-[11px] font-semibold text-[#f59e0b] uppercase tracking-wider mb-2"
-        }, "Exit context"), React.createElement("div", {
-          className: "text-[12px] text-[#d1d5db] space-y-1"
-        }, _exitReason && React.createElement("div", {
-          style: {
-            overflowWrap: "anywhere"
-          }
-        }, React.createElement("span", {
-          className: "text-[#9ca3af]"
-        }, "Reason:"), " ", _exitReason.replace(/,/g, ", ")), Number.isFinite(_mfe) && React.createElement("div", null, React.createElement("span", {
-          className: "text-[#9ca3af]"
-        }, "MFE:"), " ", React.createElement("span", {
-          className: "text-[#22c55e]"
-        }, _mfe.toFixed(2), "%")), Number.isFinite(_mae) && React.createElement("div", null, React.createElement("span", {
-          className: "text-[#9ca3af]"
-        }, "MAE:"), " ", React.createElement("span", {
-          className: "text-[#ef4444]"
-        }, _mae.toFixed(2), "%"))))), React.createElement("div", {
-          className: "lg:col-span-2 min-h-[240px] md:min-h-[300px] flex flex-col order-1 lg:order-2"
-        }, React.createElement(AutopsyChart, {
-          ticker: _ticker,
-          entryPrice: _entry,
-          exitPrice: _exit,
-          entryTs: mt.entry_ts,
-          exitTs: mt.exit_ts,
-          trimTs: mt.trim_ts,
-          slPrice: mt.sl || mt.stop_loss || mt.sl_price,
-          tpPrices: mt.tpArray || mt.tp_array || (mt.tp_price ? [{
-            price: mt.tp_price,
-            label: "TP"
-          }] : null),
-          height: typeof window !== "undefined" && window.innerWidth < 768 ? 220 : 320
-        }))))));
-      })());
+      })()), renderAutopsyOverlay());
     };
   };
 })();

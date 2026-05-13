@@ -350,8 +350,36 @@
     }
 
     async function _rrFetchChartLevels(sym, chartTf, chartCandles) {
-      const ck = `${sym}-${chartTf}`;
+      // P0.7.135 follow-up (2026-05-12) — defensive symbol normalization.
+      // LWChart's `propTicker` prop is sometimes an object ({ticker:"APD",
+      // ...}) and sometimes a bare string ("APD"). The two call sites in
+      // shared-right-rail.js disagree:
+      //   line ~3318: passes the whole object (workspace tab chart)
+      //   line ~6616 / ~9852: pass tickerSymbol (a string)
+      // When called with the object, encodeURIComponent stringified it to
+      // "[object Object]", the URL became /timed/ticker-scenario?ticker=
+      // %5Bobject%20Object%5D, the worker rate-limited the malformed
+      // request, the LEGACY local-computation fallback also failed (its
+      // own /timed/candles call had the same bad URL), the function
+      // returned null WITHOUT writing the cache, and the next render's
+      // LEVELS effect immediately re-fired the same broken request —
+      // producing the 429 flood the user saw on 2026-05-12.
+      // Normalize here so both call shapes work and the cache key uses
+      // the actual symbol string.
+      const symStr = (typeof sym === "string"
+        ? sym
+        : (sym && (sym.ticker || sym.symbol || sym.sym))
+      ) || "";
+      if (!symStr || typeof symStr !== "string") return null;
+      const ck = `${symStr}-${chartTf}`;
       if (_rrLevelsCache[ck] && Date.now() - _rrLevelsCache[ck].ts < 300000) return _rrLevelsCache[ck].data;
+      // Negative cache: if the previous fetch failed, don't hammer the
+      // endpoint — wait 60s before retrying. Without this, a transient
+      // 429 / 5xx triggers an immediate re-fetch on the next render.
+      const _negKey = `__neg__${ck}`;
+      if (_rrLevelsCache[_negKey] && Date.now() - _rrLevelsCache[_negKey].ts < 60000) return null;
+      // Replace `sym` with the normalized string for the rest of the function.
+      sym = symStr;
       try {
         // V15 P0.7.72 — Phase 2 Q1 unification.
         // Try the canonical /timed/ticker-scenario endpoint FIRST. The Daily
@@ -368,7 +396,11 @@
 
         const res = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=D&limit=40`, { cache: "no-store" });
         const d = await res.json();
-        if (!d.ok || !d.candles || d.candles.length < 5) return null;
+        if (!d.ok || !d.candles || d.candles.length < 5) {
+          // Negative-cache so we don't re-hit the candles endpoint on every render.
+          _rrLevelsCache[`__neg__${ck}`] = { ts: Date.now() };
+          return null;
+        }
         const dailies = d.candles;
         const rnd = v => Math.round(v * 100) / 100;
         let atrSum = 0, atrN = 0;
@@ -448,6 +480,9 @@
         return result;
       } catch (e) {
         console.error(`[RR] Chart levels error ${sym}:`, e);
+        // Negative-cache the failure so the next render doesn't immediately
+        // re-fire the same broken fetch.
+        _rrLevelsCache[`__neg__${ck}`] = { ts: Date.now() };
         return null;
       }
     }
@@ -1837,8 +1872,18 @@
               setAutopsyModalLoading(false);
             })
             .catch(() => { setAutopsyModalData(t); setAutopsyModalLoading(false); });
+          // /timed/profile/:ticker legitimately 404s for tickers without a
+          // behavioral profile yet (most freshly-onboarded tickers). Catch
+          // the rejection AND swallow the response error so the browser
+          // console stays quiet — the modal still opens, it just renders
+          // without the "Canonical ticker context" panel.
           if (_tk) fetch(`${API_BASE}/timed/profile/${encodeURIComponent(_tk)}`, { cache: "no-store" })
-            .then(r => { if (!r.ok) return null; return r.json(); }).then(d => { if (d?.ok) setAutopsyModalProfile(d.profile || d); }).catch(() => {});
+            .then(r => {
+              if (!r.ok) return null;
+              return r.json().catch(() => null);
+            })
+            .then(d => { if (d?.ok) setAutopsyModalProfile(d.profile || d); })
+            .catch(() => { /* silent — endpoint may not have data for this ticker */ });
         }, [tickerSymbol]);
 
         // Auto-open autopsy modal when parent passes a closed trade via openAutopsyForTrade
@@ -1846,6 +1891,281 @@
           if (!openAutopsyForTrade) return;
           _openAutopsy(openAutopsyForTrade);
         }, [openAutopsyForTrade, _openAutopsy]);
+
+        // Hoisted modal renderer — declared as a function declaration so it's
+        // hoisted to the top of the component scope and available from BOTH
+        // the workspace-layout return (line ~2639) and the legacy/modal-layout
+        // return (line ~5147). Without hoisting, the History tab's row click
+        // would call setAutopsyModal(t) but the modal JSX (which lived only
+        // inside the legacy return) would never render in workspace mode —
+        // exactly the bug reported on 2026-05-12: "Selecting a Trade Row
+        // is not opening up the Modal with that trade detail."
+        function renderAutopsyOverlay() {
+          if (!autopsyModal) return null;
+          const mt = autopsyModalData || autopsyModal;
+          const _dir = String(mt.direction || "").toUpperCase();
+          const _ticker = String(mt.ticker || "").toUpperCase();
+          const _entry = Number(mt.entryPrice || mt.entry_price) || 0;
+          const _exit = Number(mt.exitPrice || mt.exit_price) || 0;
+          const _pnl = Number(mt.pnl || mt.realized_pnl) || 0;
+          const _pnlPct = Number(mt.pnlPct || mt.pnl_pct) || 0;
+          const _status = String(mt.status || "").toUpperCase();
+          const _grade = mt.setup_grade || mt.setupGrade || "";
+          const _riskBudget = mt.risk_budget || mt.riskBudget || "";
+          const _exitReason = mt.exitReason || mt.exit_reason || "";
+          const _mfe = Number(mt.max_favorable_excursion);
+          const _mae = Number(mt.max_adverse_excursion);
+          const _entryPath = mt.entry_path || "";
+          const _statusCls = _status === "WIN" ? "text-green-400" : _status === "LOSS" ? "text-red-400" : "text-[#93b8f7]";
+          const _gradeCls = _grade === "Prime" ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : _grade === "Confirmed" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : _grade === "Speculative" ? "bg-blue-500/20 text-blue-300 border-blue-500/30" : "bg-white/10 text-white/60 border-white/10";
+          const entrySnap = _parseSnapshot(mt.signal_snapshot_json || mt.signalSnapshot);
+          const tfStack = _parseTfStack(mt.tf_stack_json || mt.tfStack);
+          const learningCtx = (() => {
+            try {
+              const raw = mt.signal_snapshot_json || mt.signalSnapshot;
+              const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+              return parsed?.precision?.learningContext || parsed?.learningContext || null;
+            } catch (_) { return null; }
+          })();
+          const _lineage = (() => {
+            try {
+              const raw = mt.signal_snapshot_json || mt.signalSnapshot;
+              const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+              return parsed?.lineage || null;
+            } catch (_) { return null; }
+          })();
+          const closeAutopsyModal = () => {
+            setAutopsyModal(null);
+            if (modalOnly && typeof onClose === "function") onClose();
+          };
+          return (
+            <div
+              className="fixed inset-0 z-[9999] flex items-center justify-center md:p-4"
+              style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
+              onClick={closeAutopsyModal}
+            >
+              <div
+                className="w-full h-full md:h-auto md:max-w-[85vw] md:max-h-[88vh] overflow-hidden flex flex-col rounded-none md:rounded-2xl border-0 md:border border-white/[0.1] bg-[#0b0e11] shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06] shrink-0" style={{ background: "var(--tt-bg-surface, #0b0e11)" }}>
+                  <h2 className="text-[15px] font-semibold text-white truncate mr-2">
+                    {_ticker} {_dir} — Trade Review
+                  </h2>
+                  <button onClick={closeAutopsyModal} className="p-2 -mr-1 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06] shrink-0">✕</button>
+                </div>
+                {autopsyModalLoading ? (
+                  React.createElement("div", { className: "p-4 flex-1" }, React.createElement(SkeletonBlock, { height: 200, lines: 6 }))
+                ) : (
+                  <div className="p-3 md:p-4 flex-1 min-h-0 overflow-y-auto flex flex-col gap-3">
+                    <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-2 sm:gap-3 shrink-0">
+                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#60a5fa]/15 border border-[#60a5fa]/30">
+                        <span className="text-[10px] font-semibold text-[#60a5fa] uppercase tracking-wider shrink-0">Entry</span>
+                        <span className="text-[13px] font-semibold text-white truncate">{_formatDate(mt.entry_ts)} @ {fmtUsd(_entry)}</span>
+                      </div>
+                      {(_exit > 0 || mt.exit_ts) && (
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#f59e0b]/15 border border-[#f59e0b]/30">
+                          <span className="text-[10px] font-semibold text-[#f59e0b] uppercase tracking-wider shrink-0">Exit</span>
+                          <span className="text-[13px] font-semibold text-white truncate">{_formatDate(mt.exit_ts)} @ {_exit > 0 ? fmtUsd(_exit) : "\u2014"}</span>
+                        </div>
+                      )}
+                      {(() => {
+                        const _sh = Number(mt.shares ?? mt.quantity ?? 0);
+                        if (!_sh || !Number.isFinite(_sh) || _sh <= 0) return null;
+                        const _trimPct = Number(mt.trimmed_pct || mt.trimmedPct || 0);
+                        const _trimmed = Math.round(_sh * Math.min(_trimPct, 1));
+                        const _remaining = Math.max(0, Math.round(_sh) - _trimmed);
+                        return (
+                          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#a78bfa]/15 border border-[#a78bfa]/30">
+                            <span className="text-[10px] font-semibold text-[#a78bfa] uppercase tracking-wider shrink-0">Shares</span>
+                            <span className="text-[13px] font-semibold text-white">{Math.round(_sh)}</span>
+                            {_trimmed > 0 && <span className="text-[11px] text-[#a78bfa]/70">({_trimmed} trimmed · {_remaining} left)</span>}
+                          </div>
+                        );
+                      })()}
+                      <div className="flex items-center gap-3">
+                        <div className="text-[12px] text-[#9ca3af]">P&L: <span className={_pnl >= 0 ? "text-[#22c55e] font-semibold" : "text-[#ef4444] font-semibold"}>{fmtUsd(_pnl)}</span></div>
+                        {_pnlPct ? <span className={`text-[11px] ${_statusCls}`}>({_pnlPct > 0 ? "+" : ""}{_pnlPct.toFixed(2)}%)</span> : null}
+                        {_status && <span className={`text-[12px] font-semibold ${_statusCls}`}>{_status}</span>}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 lg:flex-1 lg:min-h-0">
+                      <div className="lg:col-span-1 flex flex-col gap-3 min-h-0 lg:overflow-y-auto order-2 lg:order-1">
+                        {(entrySnap || tfStack || _entryPath || _grade) && (
+                          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0">
+                            <div className="text-[11px] font-semibold text-[#14b8a6] uppercase tracking-wider mb-2">Signal snapshot at entry</div>
+                            {(_entryPath || _grade) && (
+                              <div className="mb-3 px-2.5 py-1.5 rounded-lg bg-[#14b8a6]/10 border border-[#14b8a6]/20">
+                                <span className="text-[10px] text-[#9ca3af] uppercase tracking-wider">Setup</span>
+                                <div className="text-[13px] font-semibold text-white mt-0.5 flex items-center gap-2 flex-wrap">
+                                  {_entryPath ? _formatPath(_entryPath) : (mt.setup_name ? _formatPath(mt.setup_name) : null)}
+                                  {_grade && <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${_gradeCls}`}>TT {_grade}</span>}
+                                  {Number(_riskBudget) > 0.001 && <span className="text-[10px] text-[#6b7280]">{Number(_riskBudget) < 1 ? `${(Number(_riskBudget) * 100).toFixed(1)}% risk` : `$${_riskBudget} risk`}</span>}
+                                </div>
+                              </div>
+                            )}
+                            {tfStack && tfStack.length > 0 && (
+                              <div className="mb-3">
+                                <span className="text-[10px] text-[#9ca3af] uppercase tracking-wider block mb-1.5">Timeframe bias</span>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {tfStack.map(({ tf: tfLabel, bias }) => {
+                                    const b = String(bias || "").toLowerCase();
+                                    const isBull = b === "bullish";
+                                    const isBear = b === "bearish";
+                                    const label = isBull ? "Bullish" : isBear ? "Bearish" : (bias || "\u2014");
+                                    const style = isBull ? "bg-[#22c55e]/15 text-[#22c55e]" : isBear ? "bg-[#ef4444]/15 text-[#ef4444]" : "bg-white/[0.06] text-[#9ca3af]";
+                                    return (<span key={tfLabel} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium ${style}`}><span className="opacity-80">{tfLabel}</span><span>{label}</span></span>);
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                            {entrySnap && entrySnap.length > 0 && (
+                              <div>
+                                <span className="text-[10px] text-[#9ca3af] uppercase tracking-wider block mb-1.5">Indicators by timeframe</span>
+                                <div className="space-y-2">
+                                  {entrySnap.map(({ tf: tfLabel, signals }) => (
+                                    <div key={tfLabel} className="px-2 py-1.5 rounded-md bg-white/[0.03] border border-white/[0.06]">
+                                      <div className="text-[10px] font-medium text-[#9ca3af] mb-1">{tfLabel}</div>
+                                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
+                                        {Object.entries(signals).filter(([, v]) => v != null && Number.isFinite(v)).map(([k, v]) => (
+                                          <span key={k} className="flex items-center gap-1">
+                                            <span className="text-[#6b7280]">{SIGNAL_LABELS[k] || k}:</span>
+                                            <span className={_signalValueColor(k, v)}>{_signalValueLabel(k, v)}</span>
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {_lineage && (_lineage.regime_class || _lineage.execution_profile || _lineage.vix_at_entry) && (
+                          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0">
+                            <div className="text-[11px] font-semibold text-[#f59e0b] uppercase tracking-wider mb-2">Context at entry</div>
+                            <div className="grid grid-cols-2 gap-2 text-[12px]">
+                              {_lineage.regime_class && (() => {
+                                const rc = _lineage.regime_class;
+                                const rcColor = rc === "TRENDING" ? "#22c55e" : rc === "TRANSITIONAL" ? "#f59e0b" : rc === "CHOPPY" ? "#ef4444" : "#9ca3af";
+                                return (
+                                  <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                                    <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Regime</div>
+                                    <div className="mt-0.5"><span className="px-1.5 py-0.5 rounded text-[10px] font-bold" style={{ background: rcColor + "22", color: rcColor, border: `1px solid ${rcColor}44` }}>{rc}</span></div>
+                                    {_lineage.regime_score != null && <div className="text-[10px] text-[#6b7280] mt-1">Score: {_lineage.regime_score}</div>}
+                                  </div>
+                                );
+                              })()}
+                              {_lineage.execution_profile && (
+                                <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                                  <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Execution Profile</div>
+                                  <div className="text-white font-semibold mt-0.5 text-[11px]">{(_lineage.execution_profile.active_profile || "").replace(/_/g, " ")}</div>
+                                  {_lineage.execution_profile.confidence && <div className="text-[10px] text-[#6b7280] mt-1">{Math.round(_lineage.execution_profile.confidence * 100)}% conf</div>}
+                                </div>
+                              )}
+                              {_lineage.market_internals && (
+                                <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                                  <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Market State</div>
+                                  <div className="text-white font-semibold mt-0.5 text-[11px]">{(_lineage.market_internals.overall || "").replace(/_/g, " ")}</div>
+                                  {_lineage.market_internals.score != null && <div className="text-[10px] text-[#6b7280] mt-1">Score: {_lineage.market_internals.score}</div>}
+                                </div>
+                              )}
+                              {_lineage.vix_at_entry && (
+                                <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                                  <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">VIX at Entry</div>
+                                  <div className="text-white font-semibold mt-0.5">{Number(_lineage.vix_at_entry).toFixed(1)}</div>
+                                  <div className="text-[10px] text-[#6b7280] mt-1">{_lineage.vix_at_entry < 15 ? "Low" : _lineage.vix_at_entry < 22 ? "Medium" : _lineage.vix_at_entry < 30 ? "High" : "Extreme"}</div>
+                                </div>
+                              )}
+                              {_lineage.state && (
+                                <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06] col-span-2">
+                                  <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">HTF/LTF State</div>
+                                  <div className="text-white font-semibold mt-0.5 text-[11px]">{_lineage.state.replace(/_/g, " ")}</div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        {learningCtx && (
+                          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0">
+                            <div className="text-[11px] font-semibold text-[#a78bfa] uppercase tracking-wider mb-2">Ticker Learning Profile</div>
+                            <div className="text-[12px] text-[#d1d5db] space-y-1.5">
+                              {learningCtx.personality && (() => {
+                                const pColor = learningCtx.personality === "VOLATILE_RUNNER" ? "#ef4444" : learningCtx.personality === "PULLBACK_PLAYER" ? "#f59e0b" : learningCtx.personality === "SLOW_GRINDER" ? "#60a5fa" : "#a78bfa";
+                                return (<div className="flex items-center gap-2"><span className="text-[#9ca3af]">Personality:</span><span className="px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: pColor + "22", color: pColor, border: `1px solid ${pColor}44` }}>{learningCtx.personality.replace(/_/g, " ")}</span></div>);
+                              })()}
+                              {learningCtx.trail_style && <div><span className="text-[#9ca3af]">Trail style:</span> {learningCtx.trail_style}</div>}
+                              {learningCtx.tp_mult && <div><span className="text-[#9ca3af]">Expected TP:</span> {learningCtx.tp_mult}x ATR</div>}
+                              {learningCtx.sl_mult && <div><span className="text-[#9ca3af]">Expected SL:</span> {learningCtx.sl_mult}x ATR</div>}
+                              {learningCtx.boost != null && learningCtx.boost !== 0 && <div><span className="text-[#9ca3af]">Learning boost:</span> <span className={learningCtx.boost > 0 ? "text-[#22c55e]" : "text-[#ef4444]"}>{learningCtx.boost > 0 ? "+" : ""}{learningCtx.boost}</span></div>}
+                            </div>
+                          </div>
+                        )}
+                        {autopsyModalProfile && (
+                          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0">
+                            <div className="text-[11px] font-semibold text-[#60a5fa] uppercase tracking-wider mb-2">Canonical ticker context</div>
+                            <div className="space-y-2">
+                              <div className="grid grid-cols-2 gap-2 text-[12px]">
+                                <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                                  <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Personality</div>
+                                  <div className="text-white font-semibold mt-0.5">{(autopsyModalProfile.personality || "\u2014").replace(/_/g, " ")}</div>
+                                  <div className="text-[10px] text-[#6b7280] mt-1">{(autopsyModalProfile.behavior_type || "\u2014").replace(/_/g, " ")}</div>
+                                </div>
+                                <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                                  <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Context sample</div>
+                                  <div className="text-white font-semibold mt-0.5">{autopsyModalProfile.contract?.context?.sample_count ?? "\u2014"} trades</div>
+                                  <div className="text-[10px] text-[#6b7280] mt-1">{_fmtPct(autopsyModalProfile.contract?.context?.win_rate)} WR</div>
+                                </div>
+                              </div>
+                              {(() => {
+                                const ctx = autopsyModalProfile.contract?.context;
+                                const exec = autopsyModalProfile.contract?.execution;
+                                if (!ctx && !exec) return null;
+                                const favRegime = ctx?.favored_regime || "\u2014";
+                                const favVix = ctx?.favored_vix_bucket || "\u2014";
+                                const favPath = ctx?.favored_entry_path || null;
+                                return (
+                                  <div className="flex flex-wrap gap-1.5">
+                                    <span className="px-2 py-1 rounded-md bg-[#22c55e]/10 border border-[#22c55e]/20 text-[#86efac] text-[11px]">Regime: {favRegime}</span>
+                                    <span className="px-2 py-1 rounded-md bg-[#a78bfa]/10 border border-[#a78bfa]/20 text-[#c4b5fd] text-[11px]">VIX: {favVix}</span>
+                                    {favPath && <span className="px-2 py-1 rounded-md bg-[#14b8a6]/10 border border-[#14b8a6]/20 text-[#5eead4] text-[11px]">Path: {_formatPath(favPath)}</span>}
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          </div>
+                        )}
+                        {(_exitReason || Number.isFinite(_mfe) || Number.isFinite(_mae)) && (
+                          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0">
+                            <div className="text-[11px] font-semibold text-[#f59e0b] uppercase tracking-wider mb-2">Exit context</div>
+                            <div className="text-[12px] text-[#d1d5db] space-y-1">
+                              {_exitReason && <div style={{ overflowWrap: "anywhere" }}><span className="text-[#9ca3af]">Reason:</span> {_exitReason.replace(/,/g, ", ")}</div>}
+                              {Number.isFinite(_mfe) && <div><span className="text-[#9ca3af]">MFE:</span> <span className="text-[#22c55e]">{_mfe.toFixed(2)}%</span></div>}
+                              {Number.isFinite(_mae) && <div><span className="text-[#9ca3af]">MAE:</span> <span className="text-[#ef4444]">{_mae.toFixed(2)}%</span></div>}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      <div className="lg:col-span-2 min-h-[240px] md:min-h-[300px] flex flex-col order-1 lg:order-2">
+                        <AutopsyChart
+                          ticker={_ticker}
+                          entryPrice={_entry}
+                          exitPrice={_exit}
+                          entryTs={mt.entry_ts}
+                          exitTs={mt.exit_ts}
+                          trimTs={mt.trim_ts}
+                          slPrice={mt.sl || mt.stop_loss || mt.sl_price}
+                          tpPrices={mt.tpArray || mt.tp_array || (mt.tp_price ? [{ price: mt.tp_price, label: "TP" }] : null)}
+                          height={typeof window !== "undefined" && window.innerWidth < 768 ? 220 : 320}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        }
 
         // Price source: always use the ticker prop (same object the Card renders)
         // for price/change display. latestTicker is only for context/scoring data.
@@ -3030,6 +3350,13 @@
                                 desktop (single col): fixed 380px
                                 workspace mode: flex:1 → fills the entire
                                 left pane minus the Panel header. */}
+                          {/* P0.7.135 follow-up — `ticker` (the OBJECT) is also
+                              passed as a richer prop so other LWChart effects
+                              (chart title, hover tooltip) can read its fields,
+                              but the LEVELS effect's _rrFetchChartLevels
+                              expects a symbol STRING. The function now
+                              normalises either shape; this comment notes
+                              the deliberate dual usage. */}
                           {React.createElement(LWChart, {
                             candles: chartCandles,
                             chartTf,
@@ -5140,6 +5467,13 @@
                   </a>
                 </div>
               </div>
+              {/* P0.7.135 follow-up — autopsy modal sibling. Without this the
+                  History tab's row click would call setAutopsyModal(t) but
+                  the modal JSX (which lived only inside the legacy return)
+                  would never render in workspace mode. The renderAutopsyOverlay
+                  helper is hoisted at the top of this component so both
+                  return paths can call it. */}
+              {renderAutopsyOverlay()}
             </>
           );
         }
@@ -9576,292 +9910,7 @@
 
           </div>
 
-          {autopsyModal && (() => {
-              const mt = autopsyModalData || autopsyModal;
-              const _dir = String(mt.direction || "").toUpperCase();
-              const _ticker = String(mt.ticker || "").toUpperCase();
-              const _entry = Number(mt.entryPrice || mt.entry_price) || 0;
-              const _exit = Number(mt.exitPrice || mt.exit_price) || 0;
-              const _pnl = Number(mt.pnl || mt.realized_pnl) || 0;
-              const _pnlPct = Number(mt.pnlPct || mt.pnl_pct) || 0;
-              const _status = String(mt.status || "").toUpperCase();
-              const _grade = mt.setup_grade || mt.setupGrade || "";
-              const _riskBudget = mt.risk_budget || mt.riskBudget || "";
-              const _exitReason = mt.exitReason || mt.exit_reason || "";
-              const _mfe = Number(mt.max_favorable_excursion);
-              const _mae = Number(mt.max_adverse_excursion);
-              const _entryPath = mt.entry_path || "";
-              const _statusCls = _status === "WIN" ? "text-green-400" : _status === "LOSS" ? "text-red-400" : "text-[#93b8f7]";
-              const _gradeCls = _grade === "Prime" ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : _grade === "Confirmed" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : _grade === "Speculative" ? "bg-blue-500/20 text-blue-300 border-blue-500/30" : "bg-white/10 text-white/60 border-white/10";
-              const entrySnap = _parseSnapshot(mt.signal_snapshot_json || mt.signalSnapshot);
-              const tfStack = _parseTfStack(mt.tf_stack_json || mt.tfStack);
-              const learningCtx = (() => {
-                try {
-                  const raw = mt.signal_snapshot_json || mt.signalSnapshot;
-                  const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
-                  return parsed?.precision?.learningContext || parsed?.learningContext || null;
-                } catch (_) { return null; }
-              })();
-              const _lineage = (() => {
-                try {
-                  const raw = mt.signal_snapshot_json || mt.signalSnapshot;
-                  const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
-                  return parsed?.lineage || null;
-                } catch (_) { return null; }
-              })();
-
-              const closeAutopsyModal = () => {
-                setAutopsyModal(null);
-                if (modalOnly && typeof onClose === "function") onClose();
-              };
-
-              return (
-                <div
-                  className="fixed inset-0 z-[9999] flex items-center justify-center md:p-4"
-                  style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
-                  onClick={closeAutopsyModal}
-                >
-                  <div
-                    className="w-full h-full md:h-auto md:max-w-[85vw] md:max-h-[88vh] overflow-hidden flex flex-col rounded-none md:rounded-2xl border-0 md:border border-white/[0.1] bg-[#0b0e11] shadow-2xl"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {/* Header */}
-                    <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06] shrink-0" style={{ background: "var(--tt-bg-surface, #0b0e11)" }}>
-                      <h2 className="text-[15px] font-semibold text-white truncate mr-2">
-                        {_ticker} {_dir} — Trade Review
-                      </h2>
-                      <button onClick={closeAutopsyModal} className="p-2 -mr-1 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06] shrink-0">✕</button>
-                    </div>
-
-                    {autopsyModalLoading ? (
-                      React.createElement("div", { className: "p-4 flex-1" }, React.createElement(SkeletonBlock, { height: 200, lines: 6 }))
-                    ) : (
-                      <div className="p-3 md:p-4 flex-1 min-h-0 overflow-y-auto flex flex-col gap-3">
-                        {/* Entry/Exit summary badges */}
-                        <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-2 sm:gap-3 shrink-0">
-                          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#60a5fa]/15 border border-[#60a5fa]/30">
-                            <span className="text-[10px] font-semibold text-[#60a5fa] uppercase tracking-wider shrink-0">Entry</span>
-                            <span className="text-[13px] font-semibold text-white truncate">{_formatDate(mt.entry_ts)} @ {fmtUsd(_entry)}</span>
-                          </div>
-                          {(_exit > 0 || mt.exit_ts) && (
-                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#f59e0b]/15 border border-[#f59e0b]/30">
-                              <span className="text-[10px] font-semibold text-[#f59e0b] uppercase tracking-wider shrink-0">Exit</span>
-                              <span className="text-[13px] font-semibold text-white truncate">{_formatDate(mt.exit_ts)} @ {_exit > 0 ? fmtUsd(_exit) : "\u2014"}</span>
-                            </div>
-                          )}
-                          {(() => {
-                            const _sh = Number(mt.shares ?? mt.quantity ?? 0);
-                            if (!_sh || !Number.isFinite(_sh) || _sh <= 0) return null;
-                            const _trimPct = Number(mt.trimmed_pct || mt.trimmedPct || 0);
-                            const _trimmed = Math.round(_sh * Math.min(_trimPct, 1));
-                            const _remaining = Math.max(0, Math.round(_sh) - _trimmed);
-                            return (
-                              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#a78bfa]/15 border border-[#a78bfa]/30">
-                                <span className="text-[10px] font-semibold text-[#a78bfa] uppercase tracking-wider shrink-0">Shares</span>
-                                <span className="text-[13px] font-semibold text-white">{Math.round(_sh)}</span>
-                                {_trimmed > 0 && <span className="text-[11px] text-[#a78bfa]/70">({_trimmed} trimmed · {_remaining} left)</span>}
-                              </div>
-                            );
-                          })()}
-                          <div className="flex items-center gap-3">
-                            <div className="text-[12px] text-[#9ca3af]">P&L: <span className={_pnl >= 0 ? "text-[#22c55e] font-semibold" : "text-[#ef4444] font-semibold"}>{fmtUsd(_pnl)}</span></div>
-                            {_pnlPct ? <span className={`text-[11px] ${_statusCls}`}>({_pnlPct > 0 ? "+" : ""}{_pnlPct.toFixed(2)}%)</span> : null}
-                            {_status && <span className={`text-[12px] font-semibold ${_statusCls}`}>{_status}</span>}
-                          </div>
-                        </div>
-
-                        {/* 3-column grid: sidebar + chart */}
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 lg:flex-1 lg:min-h-0">
-                          {/* Left sidebar */}
-                          <div className="lg:col-span-1 flex flex-col gap-3 min-h-0 lg:overflow-y-auto order-2 lg:order-1">
-                            {/* Signal Snapshot at Entry */}
-                            {(entrySnap || tfStack || _entryPath || _grade) && (
-                              <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0">
-                                <div className="text-[11px] font-semibold text-[#14b8a6] uppercase tracking-wider mb-2">Signal snapshot at entry</div>
-                                {(_entryPath || _grade) && (
-                                  <div className="mb-3 px-2.5 py-1.5 rounded-lg bg-[#14b8a6]/10 border border-[#14b8a6]/20">
-                                    <span className="text-[10px] text-[#9ca3af] uppercase tracking-wider">Setup</span>
-                                    <div className="text-[13px] font-semibold text-white mt-0.5 flex items-center gap-2 flex-wrap">
-                                      {_entryPath ? _formatPath(_entryPath) : (mt.setup_name ? _formatPath(mt.setup_name) : null)}
-                                      {_grade && <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${_gradeCls}`}>TT {_grade}</span>}
-                                      {Number(_riskBudget) > 0.001 && <span className="text-[10px] text-[#6b7280]">{Number(_riskBudget) < 1 ? `${(Number(_riskBudget) * 100).toFixed(1)}% risk` : `$${_riskBudget} risk`}</span>}
-                                    </div>
-                                  </div>
-                                )}
-                                {tfStack && tfStack.length > 0 && (
-                                  <div className="mb-3">
-                                    <span className="text-[10px] text-[#9ca3af] uppercase tracking-wider block mb-1.5">Timeframe bias</span>
-                                    <div className="flex flex-wrap gap-1.5">
-                                      {tfStack.map(({ tf: tfLabel, bias }) => {
-                                        const b = String(bias || "").toLowerCase();
-                                        const isBull = b === "bullish";
-                                        const isBear = b === "bearish";
-                                        const label = isBull ? "Bullish" : isBear ? "Bearish" : (bias || "\u2014");
-                                        const style = isBull ? "bg-[#22c55e]/15 text-[#22c55e]" : isBear ? "bg-[#ef4444]/15 text-[#ef4444]" : "bg-white/[0.06] text-[#9ca3af]";
-                                        return (<span key={tfLabel} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium ${style}`}><span className="opacity-80">{tfLabel}</span><span>{label}</span></span>);
-                                      })}
-                                    </div>
-                                  </div>
-                                )}
-                                {entrySnap && entrySnap.length > 0 && (
-                                  <div>
-                                    <span className="text-[10px] text-[#9ca3af] uppercase tracking-wider block mb-1.5">Indicators by timeframe</span>
-                                    <div className="space-y-2">
-                                      {entrySnap.map(({ tf: tfLabel, signals }) => (
-                                        <div key={tfLabel} className="px-2 py-1.5 rounded-md bg-white/[0.03] border border-white/[0.06]">
-                                          <div className="text-[10px] font-medium text-[#9ca3af] mb-1">{tfLabel}</div>
-                                          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
-                                            {Object.entries(signals).filter(([, v]) => v != null && Number.isFinite(v)).map(([k, v]) => (
-                                              <span key={k} className="flex items-center gap-1">
-                                                <span className="text-[#6b7280]">{SIGNAL_LABELS[k] || k}:</span>
-                                                <span className={_signalValueColor(k, v)}>{_signalValueLabel(k, v)}</span>
-                                              </span>
-                                            ))}
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-
-                            {/* Context at Entry */}
-                            {_lineage && (_lineage.regime_class || _lineage.execution_profile || _lineage.vix_at_entry) && (
-                              <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0">
-                                <div className="text-[11px] font-semibold text-[#f59e0b] uppercase tracking-wider mb-2">Context at entry</div>
-                                <div className="grid grid-cols-2 gap-2 text-[12px]">
-                                  {_lineage.regime_class && (() => {
-                                    const rc = _lineage.regime_class;
-                                    const rcColor = rc === "TRENDING" ? "#22c55e" : rc === "TRANSITIONAL" ? "#f59e0b" : rc === "CHOPPY" ? "#ef4444" : "#9ca3af";
-                                    return (
-                                      <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-                                        <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Regime</div>
-                                        <div className="mt-0.5"><span className="px-1.5 py-0.5 rounded text-[10px] font-bold" style={{ background: rcColor + "22", color: rcColor, border: `1px solid ${rcColor}44` }}>{rc}</span></div>
-                                        {_lineage.regime_score != null && <div className="text-[10px] text-[#6b7280] mt-1">Score: {_lineage.regime_score}</div>}
-                                      </div>
-                                    );
-                                  })()}
-                                  {_lineage.execution_profile && (
-                                    <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-                                      <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Execution Profile</div>
-                                      <div className="text-white font-semibold mt-0.5 text-[11px]">{(_lineage.execution_profile.active_profile || "").replace(/_/g, " ")}</div>
-                                      {_lineage.execution_profile.confidence && <div className="text-[10px] text-[#6b7280] mt-1">{Math.round(_lineage.execution_profile.confidence * 100)}% conf</div>}
-                                    </div>
-                                  )}
-                                  {_lineage.market_internals && (
-                                    <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-                                      <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Market State</div>
-                                      <div className="text-white font-semibold mt-0.5 text-[11px]">{(_lineage.market_internals.overall || "").replace(/_/g, " ")}</div>
-                                      {_lineage.market_internals.score != null && <div className="text-[10px] text-[#6b7280] mt-1">Score: {_lineage.market_internals.score}</div>}
-                                    </div>
-                                  )}
-                                  {_lineage.vix_at_entry && (
-                                    <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-                                      <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">VIX at Entry</div>
-                                      <div className="text-white font-semibold mt-0.5">{Number(_lineage.vix_at_entry).toFixed(1)}</div>
-                                      <div className="text-[10px] text-[#6b7280] mt-1">{_lineage.vix_at_entry < 15 ? "Low" : _lineage.vix_at_entry < 22 ? "Medium" : _lineage.vix_at_entry < 30 ? "High" : "Extreme"}</div>
-                                    </div>
-                                  )}
-                                  {_lineage.state && (
-                                    <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06] col-span-2">
-                                      <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">HTF/LTF State</div>
-                                      <div className="text-white font-semibold mt-0.5 text-[11px]">{_lineage.state.replace(/_/g, " ")}</div>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Ticker Learning Profile */}
-                            {learningCtx && (
-                              <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0">
-                                <div className="text-[11px] font-semibold text-[#a78bfa] uppercase tracking-wider mb-2">Ticker Learning Profile</div>
-                                <div className="text-[12px] text-[#d1d5db] space-y-1.5">
-                                  {learningCtx.personality && (() => {
-                                    const pColor = learningCtx.personality === "VOLATILE_RUNNER" ? "#ef4444" : learningCtx.personality === "PULLBACK_PLAYER" ? "#f59e0b" : learningCtx.personality === "SLOW_GRINDER" ? "#60a5fa" : "#a78bfa";
-                                    return (<div className="flex items-center gap-2"><span className="text-[#9ca3af]">Personality:</span><span className="px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: pColor + "22", color: pColor, border: `1px solid ${pColor}44` }}>{learningCtx.personality.replace(/_/g, " ")}</span></div>);
-                                  })()}
-                                  {learningCtx.trail_style && <div><span className="text-[#9ca3af]">Trail style:</span> {learningCtx.trail_style}</div>}
-                                  {learningCtx.tp_mult && <div><span className="text-[#9ca3af]">Expected TP:</span> {learningCtx.tp_mult}x ATR</div>}
-                                  {learningCtx.sl_mult && <div><span className="text-[#9ca3af]">Expected SL:</span> {learningCtx.sl_mult}x ATR</div>}
-                                  {learningCtx.boost != null && learningCtx.boost !== 0 && <div><span className="text-[#9ca3af]">Learning boost:</span> <span className={learningCtx.boost > 0 ? "text-[#22c55e]" : "text-[#ef4444]"}>{learningCtx.boost > 0 ? "+" : ""}{learningCtx.boost}</span></div>}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Canonical Ticker Context */}
-                            {autopsyModalProfile && (
-                              <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0">
-                                <div className="text-[11px] font-semibold text-[#60a5fa] uppercase tracking-wider mb-2">Canonical ticker context</div>
-                                <div className="space-y-2">
-                                  <div className="grid grid-cols-2 gap-2 text-[12px]">
-                                    <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-                                      <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Personality</div>
-                                      <div className="text-white font-semibold mt-0.5">{(autopsyModalProfile.personality || "\u2014").replace(/_/g, " ")}</div>
-                                      <div className="text-[10px] text-[#6b7280] mt-1">{(autopsyModalProfile.behavior_type || "\u2014").replace(/_/g, " ")}</div>
-                                    </div>
-                                    <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-                                      <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Context sample</div>
-                                      <div className="text-white font-semibold mt-0.5">{autopsyModalProfile.contract?.context?.sample_count ?? "\u2014"} trades</div>
-                                      <div className="text-[10px] text-[#6b7280] mt-1">{_fmtPct(autopsyModalProfile.contract?.context?.win_rate)} WR</div>
-                                    </div>
-                                  </div>
-                                  {(() => {
-                                    const ctx = autopsyModalProfile.contract?.context;
-                                    const exec = autopsyModalProfile.contract?.execution;
-                                    if (!ctx && !exec) return null;
-                                    const favRegime = ctx?.favored_regime || "\u2014";
-                                    const favVix = ctx?.favored_vix_bucket || "\u2014";
-                                    const favPath = ctx?.favored_entry_path || null;
-                                    return (
-                                      <div className="flex flex-wrap gap-1.5">
-                                        <span className="px-2 py-1 rounded-md bg-[#22c55e]/10 border border-[#22c55e]/20 text-[#86efac] text-[11px]">Regime: {favRegime}</span>
-                                        <span className="px-2 py-1 rounded-md bg-[#a78bfa]/10 border border-[#a78bfa]/20 text-[#c4b5fd] text-[11px]">VIX: {favVix}</span>
-                                        {favPath && <span className="px-2 py-1 rounded-md bg-[#14b8a6]/10 border border-[#14b8a6]/20 text-[#5eead4] text-[11px]">Path: {_formatPath(favPath)}</span>}
-                                      </div>
-                                    );
-                                  })()}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Exit Context */}
-                            {(_exitReason || Number.isFinite(_mfe) || Number.isFinite(_mae)) && (
-                              <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0">
-                                <div className="text-[11px] font-semibold text-[#f59e0b] uppercase tracking-wider mb-2">Exit context</div>
-                                <div className="text-[12px] text-[#d1d5db] space-y-1">
-                                  {_exitReason && <div style={{ overflowWrap: "anywhere" }}><span className="text-[#9ca3af]">Reason:</span> {_exitReason.replace(/,/g, ", ")}</div>}
-                                  {Number.isFinite(_mfe) && <div><span className="text-[#9ca3af]">MFE:</span> <span className="text-[#22c55e]">{_mfe.toFixed(2)}%</span></div>}
-                                  {Number.isFinite(_mae) && <div><span className="text-[#9ca3af]">MAE:</span> <span className="text-[#ef4444]">{_mae.toFixed(2)}%</span></div>}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Chart area (2 cols) */}
-                          <div className="lg:col-span-2 min-h-[240px] md:min-h-[300px] flex flex-col order-1 lg:order-2">
-                            <AutopsyChart
-                              ticker={_ticker}
-                              entryPrice={_entry}
-                              exitPrice={_exit}
-                              entryTs={mt.entry_ts}
-                              exitTs={mt.exit_ts}
-                              trimTs={mt.trim_ts}
-                              slPrice={mt.sl || mt.stop_loss || mt.sl_price}
-                              tpPrices={mt.tpArray || mt.tp_array || (mt.tp_price ? [{ price: mt.tp_price, label: "TP" }] : null)}
-                              height={typeof window !== "undefined" && window.innerWidth < 768 ? 220 : 320}
-                            />
-                          </div>
-                        </div>
-
-                        
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
+          {renderAutopsyOverlay()}
           </>
         );
       }
