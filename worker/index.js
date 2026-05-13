@@ -1294,6 +1294,11 @@ const ROUTES = [
   // P0.7.141 — reconstruct entry-time shares / notional / SL / TPs for
   // OPEN trades whose sizing fields were left NULL by an upstream restore.
   ["POST", "/timed/admin/restore-trade-shares-from-trail", "POST /timed/admin/restore-trade-shares-from-trail"],
+  // P0.7.142 — backfill shares for CLOSED trades with NULL shares using
+  // shares = |pnl / (exit_price - entry_price)|. The Trade History column
+  // reads trades.shares; without this the Size column shows "—" for every
+  // closed trade we don't have execution_actions for.
+  ["POST", "/timed/admin/backfill-closed-trade-shares", "POST /timed/admin/backfill-closed-trade-shares"],
   ["POST", "/timed/admin/patch-trade-from-da", "POST /timed/admin/patch-trade-from-da"],
   ["POST", "/timed/admin/patch-trade-event-reason", "POST /timed/admin/patch-trade-event-reason"],
   ["POST", "/timed/admin/patch-trade-event-price", "POST /timed/admin/patch-trade-event-price"],
@@ -56231,6 +56236,124 @@ export default {
           return sendJSON({
             ok: false,
             error: String(e?.message || e).slice(0, 300),
+            stack: String(e?.stack || "").slice(0, 600),
+          }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/backfill-closed-trade-shares
+      //   ?key=...                 (admin auth)
+      //   &since_ts_ms=...         (default: 0 = all closed trades)
+      //   &until_ts_ms=...         (default: now)
+      //   &ticker=AAPL,MSFT        (optional CSV filter)
+      //   &dry_run=1               (preview without writing)
+      //   &min_pnl_abs=0.50        (skip near-flat trades where the math
+      //                             rounds to garbage; default 0.50)
+      //
+      // V15 P0.7.142 (2026-05-13) — derive shares for any CLOSED trade
+      // (status WIN / LOSS / FLAT) whose shares column is NULL/0 but
+      // whose entry_price / exit_price / pnl are all populated. The
+      // formula is universal:
+      //   shares = |pnl / (exit_price - entry_price)|
+      // Direction flip (LONG vs SHORT) is implicit because pnl carries
+      // the sign already; we take the absolute value of both sides so
+      // the result is always positive.
+      //
+      // After the May 12-13 wipe and restore-from-DA cycle, ~10 May
+      // closed trades have entry_price + exit_price + pnl but no shares,
+      // so the Trade History "Size" column is blank for them. This
+      // helper fills them in idempotently. Audited via op
+      // RESTORE_CLOSED_SHARES.
+      if (routeKey === "POST /timed/admin/backfill-closed-trade-shares") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const dryRun = url.searchParams.get("dry_run") === "1";
+          const sinceMs = Number(url.searchParams.get("since_ts_ms")) || 0;
+          const untilMs = Number(url.searchParams.get("until_ts_ms")) || Date.now();
+          const minPnlAbs = Math.max(0.01, Number(url.searchParams.get("min_pnl_abs")) || 0.5);
+          const tickerFilter = (url.searchParams.get("ticker") || "")
+            .split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
+
+          let where = `status IN ('WIN','LOSS','FLAT')
+                       AND (shares IS NULL OR shares = 0)
+                       AND entry_price > 0 AND exit_price > 0
+                       AND ABS(exit_price - entry_price) > 0.005
+                       AND ABS(pnl) >= ?1
+                       AND entry_ts >= ?2 AND entry_ts <= ?3`;
+          const binds = [minPnlAbs, sinceMs, untilMs];
+          if (tickerFilter.length > 0) {
+            const placeholders = tickerFilter.map((_, i) => `?${i + 4}`).join(",");
+            where += ` AND ticker IN (${placeholders})`;
+            binds.push(...tickerFilter);
+          }
+
+          const candidates = (await db.prepare(
+            `SELECT trade_id, ticker, direction, entry_price, exit_price, pnl
+               FROM trades WHERE ${where} ORDER BY entry_ts ASC LIMIT 1000`
+          ).bind(...binds).all())?.results || [];
+
+          if (candidates.length === 0) {
+            return sendJSON({
+              ok: true, dry_run: dryRun, candidates: 0, wrote: 0, results: [],
+              note: "no closed trades match the filter (need entry+exit+pnl all populated, and shares NULL/0)",
+            }, 200, corsHeaders(env, req));
+          }
+
+          const results = [];
+          let wrote = 0;
+          for (const t of candidates) {
+            const entry = Number(t.entry_price);
+            const exit = Number(t.exit_price);
+            const pnl = Number(t.pnl);
+            const priceDiff = exit - entry;
+            // Universal formula — pnl already carries the sign for direction.
+            const shares = Math.round(Math.abs(pnl / priceDiff) * 10000) / 10000;
+            if (!(shares > 0) || !Number.isFinite(shares)) {
+              results.push({ trade_id: t.trade_id, ok: false, reason: "shares_compute_nan" });
+              continue;
+            }
+            const notional = Math.round(shares * entry * 100) / 100;
+            if (!dryRun) {
+              await db.prepare(
+                `UPDATE trades SET shares = ?2, notional = ?3, updated_at = ?4 WHERE trade_id = ?1`
+              ).bind(t.trade_id, shares, notional, Date.now()).run();
+              wrote++;
+            }
+            results.push({
+              trade_id: t.trade_id, ticker: t.ticker, ok: true,
+              entry, exit, pnl, shares, notional,
+            });
+          }
+
+          if (!dryRun && wrote > 0) {
+            await auditDataChange(env, {
+              op: "RESTORE_CLOSED_SHARES",
+              scope: tickerFilter.length > 0 ? `ticker=${tickerFilter.join(",")}` : "all_closed_with_null_shares",
+              caller: req?.url || "unknown",
+              rowsAffected: wrote,
+              meta: {
+                user_agent: req?.headers?.get?.("user-agent") || null,
+                candidates: candidates.length,
+                wrote,
+                since_ts_ms: sinceMs,
+                until_ts_ms: untilMs,
+              },
+            });
+          }
+
+          return sendJSON({
+            ok: true, dry_run: dryRun,
+            candidates: candidates.length,
+            wrote: dryRun ? 0 : wrote,
+            failed: results.filter(r => !r.ok).length,
+            results,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({
+            ok: false, error: String(e?.message || e).slice(0, 300),
             stack: String(e?.stack || "").slice(0, 600),
           }, 500, corsHeaders(env, req));
         }
