@@ -510,8 +510,13 @@
       };
     }
     async function _rrFetchChartLevels(sym, chartTf, chartCandles) {
-      const ck = `${sym}-${chartTf}`;
+      const symStr = (typeof sym === "string" ? sym : sym && (sym.ticker || sym.symbol || sym.sym)) || "";
+      if (!symStr || typeof symStr !== "string") return null;
+      const ck = `${symStr}-${chartTf}`;
       if (_rrLevelsCache[ck] && Date.now() - _rrLevelsCache[ck].ts < 300000) return _rrLevelsCache[ck].data;
+      const _negKey = `__neg__${ck}`;
+      if (_rrLevelsCache[_negKey] && Date.now() - _rrLevelsCache[_negKey].ts < 60000) return null;
+      sym = symStr;
       try {
         let canonical = null;
         try {
@@ -525,7 +530,12 @@
           cache: "no-store"
         });
         const d = await res.json();
-        if (!d.ok || !d.candles || d.candles.length < 5) return null;
+        if (!d.ok || !d.candles || d.candles.length < 5) {
+          _rrLevelsCache[`__neg__${ck}`] = {
+            ts: Date.now()
+          };
+          return null;
+        }
         const dailies = d.candles;
         const rnd = v => Math.round(v * 100) / 100;
         let atrSum = 0,
@@ -673,6 +683,9 @@
         return result;
       } catch (e) {
         console.error(`[RR] Chart levels error ${sym}:`, e);
+        _rrLevelsCache[`__neg__${ck}`] = {
+          ts: Date.now()
+        };
         return null;
       }
     }

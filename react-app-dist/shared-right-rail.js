@@ -350,8 +350,36 @@
     }
 
     async function _rrFetchChartLevels(sym, chartTf, chartCandles) {
-      const ck = `${sym}-${chartTf}`;
+      // P0.7.135 follow-up (2026-05-12) — defensive symbol normalization.
+      // LWChart's `propTicker` prop is sometimes an object ({ticker:"APD",
+      // ...}) and sometimes a bare string ("APD"). The two call sites in
+      // shared-right-rail.js disagree:
+      //   line ~3318: passes the whole object (workspace tab chart)
+      //   line ~6616 / ~9852: pass tickerSymbol (a string)
+      // When called with the object, encodeURIComponent stringified it to
+      // "[object Object]", the URL became /timed/ticker-scenario?ticker=
+      // %5Bobject%20Object%5D, the worker rate-limited the malformed
+      // request, the LEGACY local-computation fallback also failed (its
+      // own /timed/candles call had the same bad URL), the function
+      // returned null WITHOUT writing the cache, and the next render's
+      // LEVELS effect immediately re-fired the same broken request —
+      // producing the 429 flood the user saw on 2026-05-12.
+      // Normalize here so both call shapes work and the cache key uses
+      // the actual symbol string.
+      const symStr = (typeof sym === "string"
+        ? sym
+        : (sym && (sym.ticker || sym.symbol || sym.sym))
+      ) || "";
+      if (!symStr || typeof symStr !== "string") return null;
+      const ck = `${symStr}-${chartTf}`;
       if (_rrLevelsCache[ck] && Date.now() - _rrLevelsCache[ck].ts < 300000) return _rrLevelsCache[ck].data;
+      // Negative cache: if the previous fetch failed, don't hammer the
+      // endpoint — wait 60s before retrying. Without this, a transient
+      // 429 / 5xx triggers an immediate re-fetch on the next render.
+      const _negKey = `__neg__${ck}`;
+      if (_rrLevelsCache[_negKey] && Date.now() - _rrLevelsCache[_negKey].ts < 60000) return null;
+      // Replace `sym` with the normalized string for the rest of the function.
+      sym = symStr;
       try {
         // V15 P0.7.72 — Phase 2 Q1 unification.
         // Try the canonical /timed/ticker-scenario endpoint FIRST. The Daily
@@ -368,7 +396,11 @@
 
         const res = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=D&limit=40`, { cache: "no-store" });
         const d = await res.json();
-        if (!d.ok || !d.candles || d.candles.length < 5) return null;
+        if (!d.ok || !d.candles || d.candles.length < 5) {
+          // Negative-cache so we don't re-hit the candles endpoint on every render.
+          _rrLevelsCache[`__neg__${ck}`] = { ts: Date.now() };
+          return null;
+        }
         const dailies = d.candles;
         const rnd = v => Math.round(v * 100) / 100;
         let atrSum = 0, atrN = 0;
@@ -448,6 +480,9 @@
         return result;
       } catch (e) {
         console.error(`[RR] Chart levels error ${sym}:`, e);
+        // Negative-cache the failure so the next render doesn't immediately
+        // re-fire the same broken fetch.
+        _rrLevelsCache[`__neg__${ck}`] = { ts: Date.now() };
         return null;
       }
     }
@@ -3315,6 +3350,13 @@
                                 desktop (single col): fixed 380px
                                 workspace mode: flex:1 → fills the entire
                                 left pane minus the Panel header. */}
+                          {/* P0.7.135 follow-up — `ticker` (the OBJECT) is also
+                              passed as a richer prop so other LWChart effects
+                              (chart title, hover tooltip) can read its fields,
+                              but the LEVELS effect's _rrFetchChartLevels
+                              expects a symbol STRING. The function now
+                              normalises either shape; this comment notes
+                              the deliberate dual usage. */}
                           {React.createElement(LWChart, {
                             candles: chartCandles,
                             chartTf,
