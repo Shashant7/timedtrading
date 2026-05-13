@@ -15656,9 +15656,6 @@ function App() {
       return timeTravelTickers;
     }
     let filtered = applyFilters(data, effectiveFilters, trades, socialAdditions, savedTickers);
-    if (activeInsightTickers) {
-      filtered = filtered.filter(t => activeInsightTickers.has(normTicker(t?.ticker || "")));
-    }
     if (!window._ttIsPro && window._ttMemberTickerSet) {
       filtered = filtered.filter(t => window._ttMemberTickerSet.has(String(t?.ticker || "").toUpperCase()));
     }
@@ -15666,7 +15663,11 @@ function App() {
       filtered = filtered.filter(t => !GROUPS.Futures.has(normTicker(t?.ticker || "")));
     }
     return filtered;
-  }, [data, effectiveFilters, trades, socialAdditions, timeTravelTickers, savedTickers, activeInsightTickers]);
+  }, [data, effectiveFilters, trades, socialAdditions, timeTravelTickers, savedTickers]);
+  const viewportTickers = useMemo(() => {
+    if (!activeInsightTickers) return tickers;
+    return tickers.filter(t => activeInsightTickers.has(normTicker(t?.ticker || "")));
+  }, [tickers, activeInsightTickers]);
   const _appKanbanCounts = useMemo(() => {
     const counts = {
       setup: 0,
@@ -15721,7 +15722,8 @@ function App() {
   }, [data]);
   const investorActionableCount = (_appInvestorCounts.accumulate || 0) + (_appInvestorCounts.reduce || 0);
   const investorHoldCount = _appInvestorCounts.core_hold || 0;
-  const investorTotalCount = investorActionableCount + investorHoldCount;
+  const investorWatchCount = _appInvestorCounts.watch || 0;
+  const investorTotalCount = investorActionableCount + investorHoldCount + investorWatchCount;
   const bubbleMapTickers = useMemo(() => {
     let filtered = timeTravelTickers !== null ? timeTravelTickers : applyFilters(data, bubbleMapFilters, trades, socialAdditions, savedTickers);
     if (activeInsightTickers) {
@@ -15799,11 +15801,11 @@ function App() {
     };
   }, [allTickersWithRanks, rankAsOfMs]);
   const tickersWithRanks = useMemo(() => {
-    return tickers.map(t => ({
+    return viewportTickers.map(t => ({
       ...t,
       dynamicRank: t.dynamicScore || computeDynamicRank(t)
     }));
-  }, [tickers]);
+  }, [viewportTickers]);
   const primeTickers = useMemo(() => tickersWithRanks.filter(isPrimeBubble), [tickersWithRanks]);
   const searchValue = String(filters.search || "").trim();
   const normalizedSearchTicker = searchValue.toUpperCase();
@@ -16897,7 +16899,7 @@ function App() {
   })), React.createElement("button", {
     onClick: () => handleDashboardModeChange("investor"),
     className: `ds-tab__item ${dashboardMode === "investor" ? "ds-tab__item--active" : ""}`,
-    title: investorActionableCount > 0 ? `${investorActionableCount} actionable now in Investor (accumulate / reduce)${investorHoldCount > 0 ? ` + ${investorHoldCount} core hold` : ""}` : investorHoldCount > 0 ? `${investorHoldCount} positions on core hold` : "Long-term portfolio: accumulate / core-hold / reduce signals"
+    title: investorTotalCount > 0 ? `${investorTotalCount} owned investor position${investorTotalCount === 1 ? "" : "s"}` + (investorActionableCount > 0 ? ` — ${investorActionableCount} actionable (Buy Zone / Reduce)` : "") + (investorWatchCount > 0 ? ` · ${investorWatchCount} Hold & Watch` : "") + (investorHoldCount > 0 ? ` · ${investorHoldCount} Core Hold` : "") : "Long-term portfolio: Buy Zone / Core Hold / Hold & Watch / Reduce signals"
   }, React.createElement("svg", {
     className: "w-4 h-4",
     fill: "none",
