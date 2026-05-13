@@ -1,13 +1,13 @@
 {
-  "generated_at_utc": "2026-04-15T22:18:59.185312+00:00",
-  "overall_pass": true,
+  "generated_at_utc": "2026-05-13T09:22:11.771918+00:00",
+  "overall_pass": false,
   "gates": [
     {
       "gate": "candidate_has_trades",
-      "value": 1,
+      "value": 0,
       "threshold": 1,
       "operator": ">=",
-      "pass": true
+      "pass": false
     },
     {
       "gate": "candidate_pnl_not_materially_worse",

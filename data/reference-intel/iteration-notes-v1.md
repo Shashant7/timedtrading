@@ -1,6 +1,6 @@
 # Iteration Notes v1
 
-Generated: 2026-04-15T22:18:59.186679+00:00
+Generated: 2026-05-13T09:22:11.772313+00:00
 
 ## Window
 - Dates: 2025-07-31 → 2025-08-01
@@ -17,4 +17,4 @@ Generated: 2026-04-15T22:18:59.186679+00:00
 - realized_pnl_delta: 0.0
 
 ## Outcome
-- go_no_go: PASS
+- go_no_go: FAIL

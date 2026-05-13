@@ -1,185 +1,185 @@
 {
-  "generated_at_utc": "2026-04-16T10:20:52.935641+00:00",
-  "runs_scanned": 612,
-  "runs_with_data": 490,
-  "row_count": 10928,
-  "unique_tickers": 217,
+  "generated_at_utc": "2026-05-13T09:19:11.177364+00:00",
+  "runs_scanned": 169,
+  "runs_with_data": 153,
+  "row_count": 6785,
+  "unique_tickers": 211,
   "status_counts": {
-    "WIN": 5101,
-    "LOSS": 3979,
-    "FLAT": 485,
-    "OPEN": 884,
-    "TP_HIT_TRIM": 453,
+    "WIN": 2811,
+    "LOSS": 2703,
+    "FLAT": 408,
+    "OPEN": 711,
+    "TP_HIT_TRIM": 145,
     "": 1,
-    "ARCHIVED": 25
+    "ARCHIVED": 6
   },
   "exit_class_counts": {
-    "other": 6790,
-    "loss_protect": 2399,
-    "tp_full": 298,
-    "regime_reversal": 248,
-    "fuse": 548,
-    "trim_related": 102,
-    "unknown": 543
+    "other": 4106,
+    "loss_protect": 1837,
+    "tp_full": 189,
+    "regime_reversal": 225,
+    "fuse": 248,
+    "trim_related": 19,
+    "unknown": 161
   },
   "top_tickers": [
     [
-      "RIOT",
-      486
-    ],
-    [
-      "FIX",
-      454
-    ],
-    [
-      "GRNY",
-      428
-    ],
-    [
-      "PH",
-      278
-    ],
-    [
-      "IESC",
-      252
-    ],
-    [
-      "AGQ",
-      249
-    ],
-    [
       "CAT",
-      244
+      210
     ],
     [
       "ULTA",
-      225
+      187
     ],
     [
-      "CDNS",
-      222
+      "FIX",
+      178
     ],
     [
       "H",
-      199
-    ],
-    [
-      "ETN",
-      195
-    ],
-    [
-      "AMZN",
-      189
-    ],
-    [
-      "WMT",
-      177
-    ],
-    [
-      "CSX",
       167
     ],
     [
-      "MTZ",
-      156
+      "AMZN",
+      159
     ],
     [
-      "ORCL",
-      156
+      "CSX",
+      151
+    ],
+    [
+      "WMT",
+      148
     ],
     [
       "AAPL",
-      143
-    ],
-    [
-      "XLY",
-      135
-    ],
-    [
-      "SGI",
-      132
+      140
     ],
     [
       "COST",
-      125
+      118
+    ],
+    [
+      "PH",
+      106
     ],
     [
       "HII",
-      123
+      101
     ],
     [
       "TSLA",
-      121
-    ],
-    [
-      "MNST",
-      116
+      99
     ],
     [
       "APP",
-      114
+      88
     ],
     [
       "GE",
-      106
+      87
+    ],
+    [
+      "KLAC",
+      86
+    ],
+    [
+      "BABA",
+      84
+    ],
+    [
+      "EXPE",
+      81
+    ],
+    [
+      "MNST",
+      80
+    ],
+    [
+      "ETN",
+      80
+    ],
+    [
+      "ELF",
+      80
+    ],
+    [
+      "IESC",
+      79
+    ],
+    [
+      "PWR",
+      79
+    ],
+    [
+      "DY",
+      73
+    ],
+    [
+      "ORCL",
+      71
+    ],
+    [
+      "KO",
+      68
     ]
   ],
   "top_sectors": [
     [
       "Industrials",
-      3427
-    ],
-    [
-      "Consumer Discretionary",
-      2061
+      2119
     ],
     [
       "Information Technology",
-      1970
+      1350
+    ],
+    [
+      "Consumer Discretionary",
+      1223
     ],
     [
       "Consumer Staples",
-      713
-    ],
-    [
-      "Crypto",
-      522
+      549
     ],
     [
       "Basic Materials",
-      426
+      344
     ],
     [
       "Financials",
-      395
+      329
     ],
     [
       "ETF",
-      388
-    ],
-    [
-      "Precious Metals",
-      313
+      235
     ],
     [
       "Energy",
-      258
+      200
     ],
     [
       "Communication Services",
-      204
+      168
     ],
     [
       "Healthcare",
-      120
+      80
     ],
     [
       "Health Care",
-      98
+      72
+    ],
+    [
+      "Precious Metals",
+      53
+    ],
+    [
+      "Crypto",
+      41
     ],
     [
       "Commodity ETF",
-      28
+      17
     ],
     [
       "unknown",
@@ -196,24 +196,12 @@
       704
     ],
     [
-      "iter5-source-run-export-20260402",
-      580
-    ],
-    [
       "doa-gate-v2--20260318-101738",
       326
     ],
     [
       "15m-profile-lineage-jul1-mar4--20260311-133409",
       237
-    ],
-    [
-      "golden-julaug-fullbatch-recovery-v5--20260402-182308",
-      229
-    ],
-    [
-      "iter5-jul1-apr1-mar31-fullrun-export-20260402",
-      218
     ],
     [
       "15m-backtest--20260309-003059",
@@ -264,10 +252,6 @@
       80
     ],
     [
-      "focused-jul-oct-cumulative-julsep-anchor-v1--20260413-233052",
-      79
-    ],
-    [
       "variant-a-intel-driven--20260311-232337",
       78
     ],
@@ -292,10 +276,6 @@
       72
     ],
     [
-      "focused-july-mainline-reanchor-v1--20260406-184246",
-      67
-    ],
-    [
       "liq-sweep-tuned-v1--20260317-191052",
       67
     ],
@@ -305,10 +285,6 @@
     ],
     [
       "15m-calibration-only-jul1-mar4--20260307-235702",
-      65
-    ],
-    [
-      "focused-jul1-oct15-fullbasket-agqtrace-v2--20260415-201911",
       65
     ],
     [
@@ -324,22 +300,6 @@
       62
     ],
     [
-      "focused-jul-sep-cumulative-julaug-anchor-v3-livefix--20260413-200322",
-      61
-    ],
-    [
-      "focused-jul-sep-mainline-deterministic-postdeploy-v1-20260411--20260411-082805",
-      61
-    ],
-    [
-      "focused-jul-sep-mainline-deterministic-v1-20260410--20260410-134007",
-      61
-    ],
-    [
-      "focused-julsep-mainline-agq-exception-v2-20260412--20260411-225718",
-      60
-    ],
-    [
       "doa-gate-v1--20260317-210746",
       59
     ],
@@ -352,20 +312,8 @@
       58
     ],
     [
-      "focused-jul-oct-cumulative-julsep-anchor-v2-sessionseed--20260414-221523",
-      57
-    ],
-    [
-      "focused-jul-oct-cumulative-julsep-anchor-v3-carriedsessiononly--20260414-232611",
-      57
-    ],
-    [
       "roadmap-runtime-smoke--20260323-071101",
       56
-    ],
-    [
-      "focused-jul-oct-cumulative-julsep-anchor-v4-c512revert-rerun--20260415-065321",
-      55
     ],
     [
       "15m-backtest--20260310-081413",
@@ -386,13 +334,65 @@
     [
       "calibrated-v5--20260315-213634",
       44
+    ],
+    [
+      "locked-validation-v2--20260323-090109",
+      44
+    ],
+    [
+      "clean-launch-v1--20260315-101522",
+      41
+    ],
+    [
+      "doa-gate-v1--20260317-210827",
+      41
+    ],
+    [
+      "paragon-legacy-dynamic-v4--20260321-212405",
+      41
+    ],
+    [
+      "ab-swingcheck-control-jul2025--20260306-085816",
+      40
+    ],
+    [
+      "calibrated-from-winners-v1--20260316-142623",
+      40
+    ],
+    [
+      "calibration-post-should-have-held--20260306-160337",
+      38
+    ],
+    [
+      "exit-upgrade-v3--20260315-094435",
+      38
+    ],
+    [
+      "july-rsi-posttrim-v1--20260305-212137",
+      38
+    ],
+    [
+      "variant-b-guarded--20260312-081509",
+      36
+    ],
+    [
+      "focused-golden-julaug-focused-recovery-v1--20260402-160626",
+      35
+    ],
+    [
+      "phase-osc-v1--20260312-221824",
+      34
+    ],
+    [
+      "15m-july-canonical-restored-baseline--20260311-140711",
+      33
     ]
   ],
   "lineage_missing_rates": {
-    "has_entry_path": 0.3115,
-    "has_signal_snapshot": 0.3152,
-    "has_tf_stack": 0.3152,
-    "has_mfe_mae": 0.446,
-    "has_exit_reason": 0.0497
+    "has_entry_path": 0.4321,
+    "has_signal_snapshot": 0.438,
+    "has_tf_stack": 0.438,
+    "has_mfe_mae": 0.596,
+    "has_exit_reason": 0.0237
   }
 }

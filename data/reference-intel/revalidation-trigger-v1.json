@@ -1,20 +1,20 @@
 {
-  "generated_at_utc": "2026-04-16T10:25:37.052917+00:00",
-  "refresh_cycle_ts": "20260416-102051",
+  "generated_at_utc": "2026-05-13T09:22:11.779913+00:00",
+  "refresh_cycle_ts": "20260513-091910",
   "runtime_source_mode": "cached_files",
-  "baseline_selection_file": "data/reference-intel/history/reference-selection-20260416-102051.json",
+  "baseline_selection_file": "data/reference-intel/history/reference-selection-20260513-091910.json",
   "candidate_selection_file": "data/reference-intel/reference-selection-v1.json",
   "alerts": {
-    "reference_drift_alert": false,
+    "reference_drift_alert": true,
     "cio_drift_alert": false,
     "validation_gates_pass": true,
     "matrix_go_no_go_pass": false,
     "cio_drift_monitor_ok": true,
-    "matrix_run_ok": false
+    "matrix_run_ok": true
   },
   "actions": {
-    "should_revalidate": false,
-    "should_block_promotion": false,
-    "next_step": "eligible_for_promotion_review"
+    "should_revalidate": true,
+    "should_block_promotion": true,
+    "next_step": "run_validation_matrix"
   }
 }
