@@ -19599,6 +19599,28 @@
 
         const bubbleMapFilters = bubbleMapUniverseFilters;
 
+        // V15 P0.7.147 (2026-05-13) — filter scope cleanup.
+        //
+        // Two distinct filter categories:
+        //
+        //   CROSS-APP (apply everywhere — kanban, counts, bubble, viewport):
+        //     - filters.search
+        //     - filters.group (Saved, TT Selected, etc.)
+        //     - member-tier / futures gating
+        //     - time-travel
+        //
+        //   VIZ-ONLY (apply only to bubble map + analysis viewport):
+        //     - activeInsight chips (Focused, Actionable, Early Short, …)
+        //
+        // Previously activeInsightTickers also narrowed `tickers`, which
+        // meant clicking a Focused / Actionable insight chip would
+        // shrink the Active Trader kanban AND the View-tab badge counts.
+        // That broke the user's mental model — the insight is a
+        // visualization aid, not a watchlist edit.
+        //
+        // `tickers` now only reflects cross-app filters. New
+        // `viewportTickers` derives from tickers + activeInsight
+        // narrowing for OpportunitiesPanel + bubble map consumption.
         const tickers = useMemo(() => {
           // If time travel is active, use time travel tickers, otherwise use filtered tickers
           if (timeTravelTickers !== null) {
@@ -19606,11 +19628,6 @@
           }
 
           let filtered = applyFilters(data, effectiveFilters, trades, socialAdditions, savedTickers);
-          if (activeInsightTickers) {
-            filtered = filtered.filter((t) =>
-              activeInsightTickers.has(normTicker(t?.ticker || "")),
-            );
-          }
           if (!window._ttIsPro && window._ttMemberTickerSet) {
             filtered = filtered.filter(t => window._ttMemberTickerSet.has(String(t?.ticker || "").toUpperCase()));
           }
@@ -19618,7 +19635,18 @@
             filtered = filtered.filter(t => !GROUPS.Futures.has(normTicker(t?.ticker || "")));
           }
           return filtered;
-        }, [data, effectiveFilters, trades, socialAdditions, timeTravelTickers, savedTickers, activeInsightTickers]);
+        }, [data, effectiveFilters, trades, socialAdditions, timeTravelTickers, savedTickers]);
+
+        // viewportTickers = tickers + activeInsight narrowing.
+        // Used by the Analysis viewport (OpportunitiesPanel) and as the
+        // base for bubbleMapTickers. Active Trader kanban / All-table /
+        // header counts read from `tickers` (cross-app only).
+        const viewportTickers = useMemo(() => {
+          if (!activeInsightTickers) return tickers;
+          return tickers.filter((t) =>
+            activeInsightTickers.has(normTicker(t?.ticker || "")),
+          );
+        }, [tickers, activeInsightTickers]);
 
         // V15 P0.7.43 (2026-04-30) — App-scope counts for the View tab badges.
         // These were originally inside ActionCenterPanel which broke the badges
@@ -19681,7 +19709,18 @@
         }, [data]);
         const investorActionableCount = (_appInvestorCounts.accumulate || 0) + (_appInvestorCounts.reduce || 0);
         const investorHoldCount = _appInvestorCounts.core_hold || 0;
-        const investorTotalCount = investorActionableCount + investorHoldCount;
+        // V15 P0.7.147 (2026-05-13) — include `watch` (Hold & Watch lane)
+        // in the tab badge total. The previous count excluded watch
+        // entirely, so the badge would disappear when the model wasn't
+        // actively recommending Buy Zone or Reduce — even if the user had
+        // 9 owned positions sitting in Hold & Watch. Now the badge
+        // reflects the COUNT OF OWNED INVESTOR POSITIONS across all
+        // four owned-lane stages (accumulate / core_hold / watch / reduce).
+        // Anything in research_* is "not owned, on radar" and stays out
+        // of the tab total — it's already visible inside the Investor
+        // panel's On-Radar lane for browsing.
+        const investorWatchCount = _appInvestorCounts.watch || 0;
+        const investorTotalCount = investorActionableCount + investorHoldCount + investorWatchCount;
 
         const bubbleMapTickers = useMemo(() => {
           let filtered =
@@ -19800,13 +19839,19 @@
             return { ranked, positions };
           }, [allTickersWithRanks, rankAsOfMs]);
 
-        // Use dynamicScore from API (backend calculation) - no frontend calculation needed
+        // Use dynamicScore from API (backend calculation) - no frontend calculation needed.
+        // V15 P0.7.147 — `tickersWithRanks` is consumed by OpportunitiesPanel
+        // (Analysis viewport), which DOES respect the activeInsight chips.
+        // Source from `viewportTickers` (= tickers + activeInsight narrowing)
+        // so a Focused / Actionable / Early Short chip narrows the
+        // viewport list along with the bubble map, but does NOT affect
+        // the Active Trader kanban or the View tab counts.
         const tickersWithRanks = useMemo(() => {
-          return tickers.map((t) => ({
+          return viewportTickers.map((t) => ({
             ...t,
             dynamicRank: t.dynamicScore || computeDynamicRank(t), // Use API value, fallback to calculation if missing
           }));
-        }, [tickers]);
+        }, [viewportTickers]);
 
         const primeTickers = useMemo(
           () => tickersWithRanks.filter(isPrimeBubble),
@@ -20622,11 +20667,12 @@
                       <button
                         onClick={() => handleDashboardModeChange("investor")}
                         className={`ds-tab__item ${dashboardMode === "investor" ? "ds-tab__item--active" : ""}`}
-                        title={investorActionableCount > 0
-                          ? `${investorActionableCount} actionable now in Investor (accumulate / reduce)${investorHoldCount > 0 ? ` + ${investorHoldCount} core hold` : ""}`
-                          : (investorHoldCount > 0
-                              ? `${investorHoldCount} positions on core hold`
-                              : "Long-term portfolio: accumulate / core-hold / reduce signals")}
+                        title={investorTotalCount > 0
+                          ? `${investorTotalCount} owned investor position${investorTotalCount === 1 ? "" : "s"}` +
+                            (investorActionableCount > 0 ? ` — ${investorActionableCount} actionable (Buy Zone / Reduce)` : "") +
+                            (investorWatchCount > 0 ? ` · ${investorWatchCount} Hold & Watch` : "") +
+                            (investorHoldCount > 0 ? ` · ${investorHoldCount} Core Hold` : "")
+                          : "Long-term portfolio: Buy Zone / Core Hold / Hold & Watch / Reduce signals"}
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                         <span>Investor</span>
