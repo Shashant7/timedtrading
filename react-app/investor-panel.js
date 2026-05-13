@@ -80,20 +80,23 @@
       if (mins >= 1) return `${mins}m ago`;
       return "just now";
     })();
-    /* "Pending" = stage recommends an action that hasn't fired since the
-       last lot. accumulate after no recent BUY / DCA, OR reduce after
-       no recent SELL. We use 24h as the "fresh enough" cutoff so a same-
-       day execution still reads as fresh. */
-    const pendingLabel = (() => {
+    /* V15 P0.7.144 (2026-05-13) — "Watching" = stage signal active but
+       no matching lot action in the last 24h. The previous label
+       ("PENDING Awaiting trim 29d ago") read like a system failure;
+       the model hasn't failed, it's MONITORING for the right trigger
+       condition. Reword as a neutral wait state and lose the "29d ago"
+       (the user reads that as "this trim has been broken for 29d"
+       when really it's just the time since the BUY entry). */
+    const watchingLabel = (() => {
       if (!isOwned) return null;
       if (stage === "reduce") {
         if (lastActionType !== "SELL" || lastActionAgoMs > 24 * 3600 * 1000) {
-          return "Awaiting trim";
+          return "Trim signal — monitoring for trigger";
         }
       }
       if (stage === "accumulate") {
         if (!["BUY", "DCA_BUY"].includes(lastActionType) || lastActionAgoMs > 24 * 3600 * 1000) {
-          return "Awaiting buy";
+          return "Buy signal — monitoring for trigger";
         }
       }
       return null;
@@ -280,34 +283,58 @@
           },
         }, `(${livePnlAbs >= 0 ? "+" : ""}$${Math.abs(livePnlAbs).toFixed(0)})`),
       ),
-      // V15 P0.7.143 — Last-action trace for owned positions. Shows the
-      // most recent investor lot action AND a pending hint when the
-      // current stage recommends an action the model hasn't executed.
-      isOwned && (lastActionAgoLabel || pendingLabel) && React.createElement("div", {
-        style: {
-          display: "flex", alignItems: "center", gap: 6,
-          marginTop: 4,
-          padding: "3px 6px",
-          borderRadius: "4px",
-          background: pendingLabel ? "rgba(245,158,11,0.08)" : "rgba(167,139,250,0.05)",
-          border: `1px solid ${pendingLabel ? "rgba(245,158,11,0.22)" : "rgba(167,139,250,0.14)"}`,
-          fontFamily: "var(--tt-font-mono)",
-          fontSize: 10,
-          color: pendingLabel ? "rgb(252,211,77)" : "var(--ds-text-muted)",
-          lineHeight: 1.2,
-        },
-        title: pendingLabel
-          ? `${pendingLabel}: model recommends "${stage}" but no matching lot action in the last 24h. Last action: ${lastActionType || "none"}${lastActionTs ? ` (${new Date(lastActionTs).toLocaleDateString()})` : ""}.`
-          : `Last model action: ${lastActionType} ${lastActionShares > 0 ? lastActionShares.toFixed(2) + " sh" : ""} on ${new Date(lastActionTs).toLocaleString()}.`,
+      // V15 P0.7.143/.144 — Last-action trace for owned positions.
+      //
+      // Two stacked lines when both apply:
+      //   Line 1: WATCHING — "Trim signal — monitoring for trigger"
+      //           (only when stage recommends action with no recent lot)
+      //   Line 2: LAST — actual most-recent lot ("Bought 17sh · 28d ago")
+      //
+      // The wording deliberately does NOT use "PENDING" or "Awaiting"
+      // (which the user read as "the model failed to act"). The model
+      // is doing exactly what it should: waiting for the trigger
+      // condition. The age-since-last-action stays on the LAST line, not
+      // the watching line, so it reads as factual context rather than
+      // an alarm clock.
+      isOwned && (watchingLabel || lastActionAgoLabel) && React.createElement("div", {
+        style: { marginTop: 4, display: "flex", flexDirection: "column", gap: 2 },
       },
-        React.createElement("span", { style: { fontWeight: 700, letterSpacing: "0.04em" } },
-          pendingLabel ? "PENDING" : "LAST"),
-        React.createElement("span", { style: { opacity: 0.95 } },
-          pendingLabel
-            ? pendingLabel
-            : `${lastActionType}${lastActionShares > 0 ? " " + lastActionShares.toFixed(lastActionShares >= 10 ? 1 : 2) + "sh" : ""}`),
-        lastActionAgoLabel && React.createElement("span", { style: { marginLeft: "auto", opacity: 0.75 } },
-          lastActionAgoLabel),
+        watchingLabel && React.createElement("div", {
+          style: {
+            display: "flex", alignItems: "center", gap: 6,
+            padding: "3px 6px",
+            borderRadius: "4px",
+            background: "rgba(96,165,250,0.06)",
+            border: "1px solid rgba(96,165,250,0.18)",
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: 10,
+            color: "rgb(147,197,253)",
+            lineHeight: 1.2,
+          },
+          title: `Model recommends "${stage}" \u2014 watching for the trigger condition. Last lot action was ${lastActionType || "none"}${lastActionTs ? ` on ${new Date(lastActionTs).toLocaleDateString()}` : ""}.`,
+        },
+          React.createElement("span", { style: { fontWeight: 700, letterSpacing: "0.04em" } }, "WATCHING"),
+          React.createElement("span", { style: { opacity: 0.95 } }, watchingLabel),
+        ),
+        lastActionAgoLabel && React.createElement("div", {
+          style: {
+            display: "flex", alignItems: "center", gap: 6,
+            padding: "3px 6px",
+            borderRadius: "4px",
+            background: "rgba(167,139,250,0.05)",
+            border: "1px solid rgba(167,139,250,0.14)",
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: 10,
+            color: "var(--ds-text-muted)",
+            lineHeight: 1.2,
+          },
+          title: `Last model action: ${lastActionType} ${lastActionShares > 0 ? lastActionShares.toFixed(2) + " sh" : ""} on ${new Date(lastActionTs).toLocaleString()}.`,
+        },
+          React.createElement("span", { style: { fontWeight: 700, letterSpacing: "0.04em" } }, "LAST"),
+          React.createElement("span", { style: { opacity: 0.95 } },
+            `${lastActionType === "DCA_BUY" ? "DCA" : lastActionType}${lastActionShares > 0 ? " " + lastActionShares.toFixed(lastActionShares >= 10 ? 1 : 2) + "sh" : ""}`),
+          React.createElement("span", { style: { marginLeft: "auto", opacity: 0.75 } }, lastActionAgoLabel),
+        ),
       ),
       // Bottom signal row — Score · RS · 1M · 3M
       React.createElement("div", {
@@ -337,7 +364,7 @@
     );
   }
 
-  function InvestorKanbanColumn({ laneKey, title, icon, color, count, items, renderCard, laneScrollRef }) {
+  function InvestorKanbanColumn({ laneKey, title, hint, icon, color, count, items, renderCard, laneScrollRef }) {
     const listRef = useRef(null);
     useEffect(() => {
       try {
@@ -349,12 +376,16 @@
     }, [laneKey, items?.map(i => i.ticker).join(",")]);
 
     return React.createElement("div", { className: "flex items-stretch gap-0 mb-0.5 kanban-lane" },
+      // V15 P0.7.144 (2026-05-13) — wider lane gutter (56→78px) so labels
+      // like "Buy Zone" / "Hold & Watch" / "On Radar" don't truncate.
+      // Also added a one-line hint under the title so new users get an
+      // immediate explanation of what to do with each lane.
       React.createElement("div", {
-        className: "flex flex-col justify-center items-center min-w-[56px] w-[56px] shrink-0 border-r border-r-white/[0.04] px-1 py-2",
+        className: "flex flex-col justify-center items-center min-w-[78px] w-[78px] shrink-0 border-r border-r-white/[0.04] px-1.5 py-2",
         style: { background: "transparent" },
-        title: title,
+        title: hint || title,
       },
-        React.createElement("span", { className: "text-[9px] font-bold uppercase tracking-widest text-[#4b5563] text-center leading-tight break-words" }, title),
+        React.createElement("span", { className: "text-[9px] font-bold uppercase tracking-wider text-[#4b5563] text-center leading-tight break-words" }, title),
         React.createElement("span", { className: `text-[11px] font-bold tabular-nums mt-0.5 ${count > 0 ? "text-[#e5e7eb]" : "text-[#2a2e35]"}` }, count),
       ),
       React.createElement("div", {
@@ -380,14 +411,25 @@
   function ActionKanban({ tickers, onSelect, selectedTicker, savedTickers, toggleSavedTicker }) {
     const laneScrollRef = useRef({});
     const stages = ["accumulate", "core_hold", "watch", "reduce", "research_on_watch", "research_low", "research_avoid"];
+    /* V15 P0.7.144 (2026-05-13) — clearer lane labels.
+       The user flagged that:
+         - "Watch" (owned, signals mixed) and "On Watch" (not owned, on
+           the radar) read as the same word. The semantic distinction
+           is owned-vs-radar, not "watch level". Rename "On Watch" to
+           "On Radar" so the difference is obvious.
+         - "Accumulate" was getting cut off in the 56px lane gutter.
+           Use "Buy Zone" — same meaning, fits in 70px gutter.
+         - Add a longer hint string so the column header tooltip + the
+           inline help row both teach the user what to do.
+    */
     const stageMeta = {
-      accumulate: { label: "Accumulate", icon: "", color: "transparent", title: "Consider buying — price is in a favorable zone" },
-      core_hold: { label: "Core Hold", icon: "", color: "transparent", title: "Keep holding — trend and strength are solid" },
-      watch: { label: "Watch", icon: "", color: "transparent", title: "Wait and monitor — signals are mixed" },
-      reduce: { label: "Reduce", icon: "", color: "transparent", title: "Consider selling — showing signs of weakness" },
-      research_on_watch: { label: "On Watch", icon: "", color: "transparent", title: "On the radar — moderate score, worth tracking" },
-      research_low: { label: "Low Conv", icon: "", color: "transparent", title: "Low conviction — not actionable yet" },
-      research_avoid: { label: "Avoid", icon: "", color: "transparent", title: "Weak signals — system advises caution" },
+      accumulate: { label: "Buy Zone", icon: "", color: "transparent", title: "Owned or on radar — price entered a favorable zone. Model says: consider buying or adding here." },
+      core_hold: { label: "Core Hold", icon: "", color: "transparent", title: "Owned core position — trend and strength remain solid. Model says: do nothing, let it run." },
+      watch: { label: "Hold & Watch", icon: "", color: "transparent", title: "Owned — signals are mixed. Model says: stay with current position, don't add or trim." },
+      reduce: { label: "Reduce", icon: "", color: "transparent", title: "Owned — showing weakness. Model says: trim or exit when the trigger condition fires." },
+      research_on_watch: { label: "On Radar", icon: "", color: "transparent", title: "Not owned — moderate score. Worth tracking; revisit if it moves into the Buy Zone." },
+      research_low: { label: "Low Conv", icon: "", color: "transparent", title: "Not owned — low conviction. Not actionable yet." },
+      research_avoid: { label: "Avoid", icon: "", color: "transparent", title: "Not owned — weak signals. System advises caution." },
     };
     const grouped = {};
     for (const s of stages) grouped[s] = [];
@@ -423,6 +465,7 @@
           key: stage,
           laneKey: stage,
           title: stageMeta[stage].label,
+          hint: stageMeta[stage].title,
           icon: stageMeta[stage].icon,
           color: stageMeta[stage].color,
           count: grouped[stage].length,
@@ -653,47 +696,69 @@
        Daily Brief". Builds a short, plain-language paragraph from
        MarketHealth + lane counts + top-conviction names so users get
        context without having to read the chart. */
+    /* V15 P0.7.144 (2026-05-13) — split the Investor Brief into:
+       - Market summary (one sentence on regime + breadth)
+       - Action summary (lane counts in plain English)
+       - Recent actions (last 3 model lot actions across all owned positions)
+       - Watchlist highlights (buy zone + RS new highs)
+       Returned as a structured object so the UI can render each piece
+       in its own block (previous single-string layout was getting cut
+       off at narrow widths). */
     const narrative = useMemo(() => {
       if (!allTickers.length) return null;
       const counts = { accumulate: 0, core_hold: 0, watch: 0, reduce: 0, research_on_watch: 0, research_low: 0, research_avoid: 0 };
       const buyZone = [];
       const rsHigh = [];
+      const recentActions = [];
       for (const t of allTickers) {
         const s = String(t.stage || "research_avoid");
         if (counts[s] != null) counts[s] += 1;
         if (t.accumZone?.inZone) buyZone.push(t.ticker);
         if (t.rs?.rsNewHigh3m) rsHigh.push(t.ticker);
+        const lat = Number(t.position?.last_action_ts) || 0;
+        const lact = String(t.position?.last_action_type || "");
+        if (lat > 0 && lact && t.position?.owned) {
+          recentActions.push({
+            ticker: t.ticker, action: lact,
+            shares: Number(t.position.last_action_shares) || 0,
+            ts: lat,
+          });
+        }
       }
+      recentActions.sort((a, b) => b.ts - a.ts);
       const regimeWord = health?.regime === "RISK_ON" ? "bullish"
                        : health?.regime === "RISK_OFF" ? "bearish"
                        : "cautious";
       const score = Number(health?.score);
       const breadthPct = Number(health?.breadth?.pctAboveD200);
-      const lines = [];
-      lines.push(
-        `Market is ${regimeWord}${Number.isFinite(score) ? ` (Health ${Math.round(score)}/100)` : ""}` +
-        `${Number.isFinite(breadthPct) ? `, with ${Math.round(breadthPct)}% of stocks above their 200-day MA` : ""}.`
-      );
+      const marketLine = `Market is ${regimeWord}${Number.isFinite(score) ? ` (Health ${Math.round(score)}/100)` : ""}` +
+        `${Number.isFinite(breadthPct) ? `, with ${Math.round(breadthPct)}% of stocks above their 200-day MA` : ""}.`;
       const actionable = counts.accumulate + counts.reduce;
-      if (actionable > 0) {
-        const acc = counts.accumulate, red = counts.reduce;
-        lines.push(
-          `${actionable} name${actionable === 1 ? " is" : "s are"} actionable — ` +
-          `${acc} to accumulate, ${red} to reduce.`
-        );
-      } else {
-        lines.push(`No accumulate / reduce signals firing right now — system suggests holding existing core positions and waiting for setups.`);
-      }
-      if (buyZone.length > 0) {
-        lines.push(`In the buy zone: ${buyZone.slice(0, 6).join(", ")}${buyZone.length > 6 ? "…" : ""}.`);
-      }
-      if (rsHigh.length > 0) {
-        lines.push(`Relative strength making fresh 3-month highs: ${rsHigh.slice(0, 6).join(", ")}${rsHigh.length > 6 ? "…" : ""}.`);
-      }
-      if (counts.core_hold > 0) {
-        lines.push(`${counts.core_hold} core positions remain on the hold list — trend and strength still constructive.`);
-      }
-      return lines.join(" ");
+      const actionLine = actionable > 0
+        ? `${actionable} ${actionable === 1 ? "name is" : "names are"} actionable — ${counts.accumulate} in Buy Zone, ${counts.reduce} flagged for Reduce. ${counts.core_hold} core hold${counts.core_hold === 1 ? "" : "s"}.`
+        : `No actionable Buy Zone or Reduce signals right now — model is letting current positions run.`;
+      const formatAgo = (ms) => {
+        const d = Math.floor(ms / 86400000);
+        if (d >= 1) return `${d}d ago`;
+        const h = Math.floor(ms / 3600000);
+        if (h >= 1) return `${h}h ago`;
+        const m = Math.floor(ms / 60000);
+        return m >= 1 ? `${m}m ago` : "just now";
+      };
+      const recentText = recentActions.slice(0, 3).map((a) => {
+        const lbl = a.action === "DCA_BUY" ? "DCA" : a.action;
+        const sh = a.shares > 0 ? ` ${a.shares.toFixed(a.shares >= 10 ? 1 : 2)}sh` : "";
+        return `${lbl} ${a.ticker}${sh} ${formatAgo(Date.now() - a.ts)}`;
+      });
+      return {
+        marketLine,
+        actionLine,
+        recentActions: recentText,
+        buyZone: buyZone.slice(0, 8),
+        buyZoneOverflow: Math.max(0, buyZone.length - 8),
+        rsHigh: rsHigh.slice(0, 8),
+        rsHighOverflow: Math.max(0, rsHigh.length - 8),
+      };
     }, [allTickers, health]);
 
     return React.createElement("div", { className: "space-y-4" },
@@ -709,7 +774,11 @@
         }, loading ? "Loading\u2026" : "\u21BB Refresh"),
       ),
       React.createElement(MarketHealthBar, { health, loading }),
-      /* Narrative panel — Daily-Brief-style commentary above the lanes */
+      /* Narrative panel — Daily-Brief-style commentary above the lanes.
+         V15 P0.7.144 — multi-line layout so nothing gets cut off.
+         Order: Market summary → Actionable counts → Recent model actions
+         → Watchlist highlights. Each block is its own line so width
+         constraints don't truncate the others. */
       narrative && React.createElement("div", {
         className: "ds-glass",
         style: { padding: "var(--ds-space-3) var(--ds-space-4)" },
@@ -718,14 +787,48 @@
           className: "ds-caption",
           style: { marginBottom: "var(--ds-space-2)", color: "var(--ds-accent)" },
         }, "Investor Brief"),
-        React.createElement("p", {
+        React.createElement("div", {
           style: {
-            margin: 0,
+            display: "flex", flexDirection: "column", gap: "var(--ds-space-2)",
             fontSize: "var(--ds-fs-body)",
-            lineHeight: 1.6,
+            lineHeight: 1.55,
             color: "var(--ds-text-body)",
           },
-        }, narrative),
+        },
+          React.createElement("div", null, narrative.marketLine),
+          React.createElement("div", null, narrative.actionLine),
+          narrative.recentActions.length > 0 && React.createElement("div", {
+            style: {
+              display: "flex", alignItems: "center", flexWrap: "wrap", gap: "var(--ds-space-2)",
+              fontSize: "var(--ds-fs-meta)",
+              fontFamily: "var(--tt-font-mono)",
+              color: "var(--ds-text-muted)",
+              padding: "6px 8px",
+              borderLeft: "2px solid rgba(167,139,250,0.4)",
+              background: "rgba(167,139,250,0.04)",
+              borderRadius: "0 4px 4px 0",
+            },
+          },
+            React.createElement("span", { style: { color: "rgb(196,181,253)", fontWeight: 700 } }, "RECENT"),
+            ...narrative.recentActions.map((line, i) => React.createElement("span", { key: `ra${i}`, style: { color: "var(--ds-text-body)" } }, line)),
+          ),
+          (narrative.buyZone.length > 0 || narrative.rsHigh.length > 0) && React.createElement("div", {
+            style: {
+              display: "flex", flexDirection: "column", gap: 4,
+              fontSize: "var(--ds-fs-meta)",
+              color: "var(--ds-text-muted)",
+            },
+          },
+            narrative.buyZone.length > 0 && React.createElement("div", null,
+              React.createElement("span", { style: { color: "var(--ds-up)", fontWeight: 700 } }, "Buy Zone: "),
+              `${narrative.buyZone.join(", ")}${narrative.buyZoneOverflow > 0 ? ` +${narrative.buyZoneOverflow} more` : ""}.`,
+            ),
+            narrative.rsHigh.length > 0 && React.createElement("div", null,
+              React.createElement("span", { style: { color: "var(--ds-accent)", fontWeight: 700 } }, "Fresh 3M-high RS: "),
+              `${narrative.rsHigh.join(", ")}${narrative.rsHighOverflow > 0 ? ` +${narrative.rsHighOverflow} more` : ""}.`,
+            ),
+          ),
+        ),
       ),
       allTickers.length > 0
         ? React.createElement(ActionKanban, {

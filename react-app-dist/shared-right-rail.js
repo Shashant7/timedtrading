@@ -1169,6 +1169,25 @@
       // V15 P0.7.99 — PRICE-LINES effect: applies external SL/TP/Entry lines
       // passed via propPriceLines. Decoupled from the chart instance so
       // these can update without recreating the canvas.
+      //
+      // V15 P0.7.144 (2026-05-13) — flicker fix. Even though the parent
+      // memoizes propPriceLines, the array reference changes every cron
+      // tick when ticker.sl / ticker.tp_* are recomputed (even if the
+      // numeric values don't change). React fires the effect with a new
+      // reference, the effect calls removePriceLine() on every line and
+      // re-creates them, and the user sees a 100ms flash on every tick
+      // (visible as a per-second flicker on the right rail). Fix: build
+      // a structural signature (rounded price + title per line) and bail
+      // early if it matches the previous render. Same pattern used for
+      // the LEVELS effect above.
+      const _propPriceLinesSig = useMemo(() => {
+        if (!Array.isArray(propPriceLines)) return "empty";
+        return propPriceLines.map((pl) => {
+          if (!pl || !Number.isFinite(pl.price) || pl.price <= 0) return "x";
+          const px = Math.round(pl.price * 1000) / 1000;
+          return `${px}|${pl.title || ""}|${pl.color || ""}|${pl.lineStyle ?? 2}|${pl.lineWidth ?? 1}`;
+        }).join(";");
+      }, [propPriceLines]);
       useEffect(() => {
         const candleSeries = candleSeriesRef.current;
         if (!candleSeries) return;
@@ -1193,7 +1212,10 @@
             } catch (_) {}
           }
         }
-      }, [propPriceLines]);
+        // Dependency on the signature, NOT the array reference, so a
+        // new-but-identical array doesn't re-run the effect.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [_propPriceLinesSig]);
 
       if (!LWC) {
         return React.createElement("div", { className: "text-xs text-[#6b7280]" }, "Charts library not loaded.");
@@ -2032,9 +2054,32 @@
           const _ticker = String(mt.ticker || "").toUpperCase();
           const _entry = Number(mt.entryPrice || mt.entry_price) || 0;
           const _exit = Number(mt.exitPrice || mt.exit_price) || 0;
-          const _pnl = Number(mt.pnl || mt.realized_pnl) || 0;
-          const _pnlPct = Number(mt.pnlPct || mt.pnl_pct) || 0;
           const _status = String(mt.status || "").toUpperCase();
+          const _isOpenStatus = _status === "OPEN" || _status === "TP_HIT_TRIM" || (!_status && !(mt.exit_ts ?? mt.exitTs));
+          // V15 P0.7.144 (2026-05-13) — live PnL for open positions.
+          // Previously the modal showed "$0.00" for OPEN trades because
+          // pnl is only set on close. Now we mark-to-market against the
+          // live ticker price (from the right-rail's ticker prop) when
+          // the trade is still open. Closed trades keep their realized
+          // pnl as-is.
+          const _shares = Number(mt.shares || mt.quantity) || 0;
+          const _trimPctMt = Number(mt.trimmed_pct || mt.trimmedPct || 0);
+          const _liveCurrentPx = Number(ticker?.price ?? ticker?.close) || 0;
+          const _livePnl = (() => {
+            if (!_isOpenStatus) return Number(mt.pnl || mt.realized_pnl) || 0;
+            if (!(_entry > 0) || !(_liveCurrentPx > 0) || !(_shares > 0)) return 0;
+            const dirMul = _dir === "SHORT" ? -1 : 1;
+            const remShares = _shares * (1 - Math.min(_trimPctMt, 1));
+            return (_liveCurrentPx - _entry) * remShares * dirMul;
+          })();
+          const _livePnlPct = (() => {
+            if (!_isOpenStatus) return Number(mt.pnlPct || mt.pnl_pct) || 0;
+            if (!(_entry > 0) || !(_liveCurrentPx > 0)) return 0;
+            const dirMul = _dir === "SHORT" ? -1 : 1;
+            return ((_liveCurrentPx - _entry) / _entry) * 100 * dirMul;
+          })();
+          const _pnl = _livePnl;
+          const _pnlPct = _livePnlPct;
           const _grade = mt.setup_grade || mt.setupGrade || "";
           const _riskBudget = mt.risk_budget || mt.riskBudget || "";
           const _exitReason = mt.exitReason || mt.exit_reason || "";
@@ -2092,6 +2137,12 @@
                         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#f59e0b]/15 border border-[#f59e0b]/30">
                           <span className="text-[10px] font-semibold text-[#f59e0b] uppercase tracking-wider shrink-0">Exit</span>
                           <span className="text-[13px] font-semibold text-white truncate">{_formatDate(mt.exit_ts)} @ {_exit > 0 ? fmtUsd(_exit) : "\u2014"}</span>
+                        </div>
+                      )}
+                      {_isOpenStatus && _liveCurrentPx > 0 && (
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#22c55e]/15 border border-[#22c55e]/30">
+                          <span className="text-[10px] font-semibold text-[#22c55e] uppercase tracking-wider shrink-0">Live</span>
+                          <span className="text-[13px] font-semibold text-white truncate">{fmtUsd(_liveCurrentPx)}</span>
                         </div>
                       )}
                       {(() => {

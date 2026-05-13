@@ -14370,7 +14370,26 @@ function createDefaultDashboardFilters() {
   };
 }
 const __ttLogoLoaded = typeof window !== "undefined" && (window.__ttLogoLoaded || (window.__ttLogoLoaded = new Set())) || new Set();
-const __ttLogoFailed = typeof window !== "undefined" && (window.__ttLogoFailed || (window.__ttLogoFailed = new Set())) || new Set();
+const __ttLogoFailed = (() => {
+  if (typeof window === "undefined") return new Set();
+  if (window.__ttLogoFailed) return window.__ttLogoFailed;
+  let initial = [];
+  try {
+    const raw = sessionStorage.getItem("tt:logo:failed:v1");
+    if (raw) initial = JSON.parse(raw);
+  } catch (_) {}
+  const set = new Set(Array.isArray(initial) ? initial : []);
+  const _origAdd = set.add.bind(set);
+  set.add = function (k) {
+    const ret = _origAdd(k);
+    try {
+      sessionStorage.setItem("tt:logo:failed:v1", JSON.stringify(Array.from(set)));
+    } catch (_) {}
+    return ret;
+  };
+  window.__ttLogoFailed = set;
+  return set;
+})();
 const StableTickerLogo = React.memo(function StableTickerLogo({
   sym,
   size = 24

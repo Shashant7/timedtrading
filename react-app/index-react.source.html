@@ -18286,7 +18286,31 @@
          keyed on (sym, size) so re-renders of the parent don't tear
          down the logo. */
       const __ttLogoLoaded = (typeof window !== "undefined" && (window.__ttLogoLoaded || (window.__ttLogoLoaded = new Set()))) || new Set();
-      const __ttLogoFailed = (typeof window !== "undefined" && (window.__ttLogoFailed || (window.__ttLogoFailed = new Set()))) || new Set();
+      // V15 P0.7.144 (2026-05-13) — persist the failed-logo set in
+      // sessionStorage so page reloads don't re-attempt + re-spam the
+      // console with CORS warnings for the same dozen tickers each
+      // time. eodhd's CDN returns 404 (no CORS header) for tickers
+      // it doesn't have a logo for; the browser logs that as a CORS
+      // error even though our onError handler catches it cleanly.
+      const __ttLogoFailed = (() => {
+        if (typeof window === "undefined") return new Set();
+        if (window.__ttLogoFailed) return window.__ttLogoFailed;
+        let initial = [];
+        try {
+          const raw = sessionStorage.getItem("tt:logo:failed:v1");
+          if (raw) initial = JSON.parse(raw);
+        } catch (_) {}
+        const set = new Set(Array.isArray(initial) ? initial : []);
+        // Wrap .add so we persist whenever a new failure is recorded.
+        const _origAdd = set.add.bind(set);
+        set.add = function (k) {
+          const ret = _origAdd(k);
+          try { sessionStorage.setItem("tt:logo:failed:v1", JSON.stringify(Array.from(set))); } catch (_) {}
+          return ret;
+        };
+        window.__ttLogoFailed = set;
+        return set;
+      })();
       const StableTickerLogo = React.memo(function StableTickerLogo({ sym, size = 24 }) {
         const upper = String(sym || "").toUpperCase();
         const url = upper ? `https://eodhd.com/img/logos/US/${upper}.png` : null;
