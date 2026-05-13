@@ -1,8 +1,10 @@
-# Timed Trading — Marketing / Go-Live Agent Prompt
+# Timed Trading — Marketing Agent Prompt (Annex)
+
+> **Read [`marketing-canonical-plan.md`](./marketing-canonical-plan.md) first.** That doc is the single source of truth for positioning, personas, channels, cadence, pricing, compliance, voice, and the standing X agent design. This file is the **agent operationalization layer** — model recommendation rationale + the copy-paste-ready prompt block + setup checklist. The two are designed to be read together.
 
 ## How to use this file
 
-Open a fresh agent (NOT a continuation of any of the engineering threads) with this prompt as the first message. The agent is responsible for **content marketing only** — emails, X (Twitter) posts, Reddit posts, YouTube scripts, copy edits — and should NOT touch the trading engine, the cron, or the worker code. Re-invoke for each batch (weekly cadence works well).
+Open a fresh agent (NOT a continuation of any of the engineering threads) with the prompt block below as the first message. The agent is responsible for **content marketing only** — emails, X (Twitter) posts, Reddit posts, YouTube scripts, copy edits — and should NOT touch the trading engine, the cron, or the worker code. Re-invoke for each batch (weekly cadence works well).
 
 ## Recommended model
 
