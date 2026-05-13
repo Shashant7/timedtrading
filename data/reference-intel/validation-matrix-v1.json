@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-05-13T09:22:11.771532+00:00",
+  "generated_at_utc": "2026-05-13T20:12:48.562032+00:00",
   "window": {
     "start_date": "2025-07-31",
     "end_date": "2025-08-01",
@@ -14,7 +14,7 @@
   "legs": [
     {
       "name": "control_ref_priors_off",
-      "reset_ok": true,
+      "reset_ok": false,
       "days": [
         {
           "date": "2025-07-31",
@@ -46,7 +46,7 @@
     },
     {
       "name": "candidate_ref_priors_on",
-      "reset_ok": true,
+      "reset_ok": false,
       "days": [
         {
           "date": "2025-07-31",

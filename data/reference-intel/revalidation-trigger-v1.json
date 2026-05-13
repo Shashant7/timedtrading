@@ -1,11 +1,11 @@
 {
-  "generated_at_utc": "2026-05-13T09:22:11.779913+00:00",
-  "refresh_cycle_ts": "20260513-091910",
+  "generated_at_utc": "2026-05-13T20:12:48.570210+00:00",
+  "refresh_cycle_ts": "20260513-201117",
   "runtime_source_mode": "cached_files",
-  "baseline_selection_file": "data/reference-intel/history/reference-selection-20260513-091910.json",
+  "baseline_selection_file": "data/reference-intel/history/reference-selection-20260513-201117.json",
   "candidate_selection_file": "data/reference-intel/reference-selection-v1.json",
   "alerts": {
-    "reference_drift_alert": true,
+    "reference_drift_alert": false,
     "cio_drift_alert": false,
     "validation_gates_pass": true,
     "matrix_go_no_go_pass": false,
@@ -13,8 +13,8 @@
     "matrix_run_ok": true
   },
   "actions": {
-    "should_revalidate": true,
+    "should_revalidate": false,
     "should_block_promotion": true,
-    "next_step": "run_validation_matrix"
+    "next_step": "hold_promotion_fix_gates"
   }
 }
