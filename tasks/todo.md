@@ -8,6 +8,11 @@
 
 ## Round 3 UI + post-canon model gates [2026-04-30]
 
+### Right rail chart flicker investigation [2026-05-13]
+- [ ] Trace remaining chart data/update paths in `react-app/shared-right-rail.js` that can redraw candles after the initial anti-flicker fixes.
+- [ ] Patch the smallest stable fix for transient candle flashes without changing chart design or trading behavior.
+- [ ] Rebuild compiled right-rail assets and run focused verification.
+
 ### Gate 0 — UI live validation (now)
 - [ ] User signs off on PR #49 preview (https://cursor-round3-ui-relaunch-2e.timedtrading.pages.dev/) or flags pixel fixes.
 - [ ] Merge PR #49 → main → Pages auto-deploy to production.
