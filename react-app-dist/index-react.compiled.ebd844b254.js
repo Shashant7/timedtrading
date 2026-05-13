@@ -11019,6 +11019,9 @@ function SimpleKanbanTable({
           uiStage = "watch";
           break;
       }
+      if (sym.endsWith("1!") || t?.watch_only === true || t?.is_futures === true) {
+        uiStage = "watch";
+      }
       return {
         ...t,
         _stage: uiStage

@@ -14152,6 +14152,21 @@
               case "exit": uiStage = "exit"; break;
               default: uiStage = "watch"; break;
             }
+            // P0.7.140 (2026-05-13) — futures contracts (ES1!, NQ1!, YM1!,
+            // RTY1!, CL1!, VX1!, etc.) are scored for daily-brief and
+            // market-pulse context but cannot be traded through the same
+            // discrete-share path the kanban actionable lanes assume. Pin
+            // them to the "watch" lane so they don't get TT-Selected /
+            // entry-ready badges or appear in In Review / Defend / Trim.
+            // Same goes for any symbol explicitly tagged via the legacy
+            // `t.watch_only` / `t.is_futures` fields the worker stamps.
+            if (
+              sym.endsWith("1!") ||
+              t?.watch_only === true ||
+              t?.is_futures === true
+            ) {
+              uiStage = "watch";
+            }
             return { ...t, _stage: uiStage };
           });
         }, [tickers, tradeByTicker]);

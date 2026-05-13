@@ -2105,6 +2105,18 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
       // RTH 13:30 UTC (9:30 ET EDT) → 20:00 UTC (4:00 PM ET EDT). Approx.
       let _sessionFrac = (_utcHour - 13.5) / (20 - 13.5);
       _sessionFrac = Math.max(0, Math.min(1, _sessionFrac));
+      // P0.7.140 (2026-05-13) — bug fix: this block referenced `upGate`
+      // and `dnGate` which were defined inline by the OLD atrFibLevels
+      // path. The Saty Day Mode rewrite (P0.7.135) replaced that path
+      // with a single _satyGoldenGateState() call returning a `dayGg`
+      // object — but this probability block wasn't migrated, leaving
+      // `upGate`/`dnGate` as stale references. Daily-brief generation
+      // crashed with "ReferenceError: upGate is not defined" every
+      // morning since the rewrite landed. Pull the gates from dayGg
+      // with a fallback to the raw anchor + ATR projection in case
+      // dayGg is null (e.g. curPrice missing earlier in the block).
+      const upGate = dayGg?.ggLevels?.gateUp ?? (anchor + dayAtr * 0.382);
+      const dnGate = dayGg?.ggLevels?.gateDn ?? (anchor - dayAtr * 0.382);
       // Distance from the active gate target (50%/61.8% past the gate)
       // If GG is OPEN_UP, target is +50%-+61.8%; if NEUTRAL, both gates equal
       const _ggUpProb = (() => {
@@ -2153,8 +2165,12 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
     const oLo = overnightRange?.low || curPrice;
     const bullTrig = Math.max(rnd(oHi), rnd(curPrice + dayAtr * 0.25));
     const bearTrig = Math.min(rnd(oLo), rnd(curPrice - dayAtr * 0.25));
-    const allUpFibs = fibs.map(f => rnd(anchor + dayAtr * f));
-    const allDnFibs = fibs.map(f => rnd(anchor - dayAtr * f));
+    // P0.7.140 (2026-05-13) — bug fix: same root cause as the upGate
+    // ReferenceError above. The Saty Day Mode rewrite removed the local
+    // `fibs` array (renamed to module-level SATY_FIBS) but this game-plan
+    // block kept reading the dead local. Use SATY_FIBS directly.
+    const allUpFibs = SATY_FIBS.map(f => rnd(anchor + dayAtr * f));
+    const allDnFibs = SATY_FIBS.map(f => rnd(anchor - dayAtr * f));
     const bullTargetFib = allUpFibs.find(t => t > bullTrig);
     const bearTargetFib = allDnFibs.slice().reverse().find(t => t < bearTrig);
     const bullTgt = bullTargetFib != null ? bullTargetFib : rnd(bullTrig + dayAtr * 0.75);

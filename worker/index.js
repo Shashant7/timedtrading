@@ -33082,6 +33082,77 @@ async function auditDataChange(env, { op, scope, caller, rowsAffected, meta } = 
 }
 
 /**
+ * P0.7.139 (2026-05-13) — Shared destructive-op interlock.
+ *
+ * Five separate "mystery wipe" incidents in the past 6 days all traced to
+ * different admin endpoints with subtly different guard policies. This
+ * helper is the canonical interlock: every endpoint that wipes shared
+ * state (trades / account_ledger / positions across all tickers) MUST
+ * call this and bail when it returns a Response.
+ *
+ * Returns:
+ *   - null      → all guards passed, caller may proceed.
+ *   - Response  → caller must `return` this immediately. Audit row has
+ *                 already been written.
+ *
+ * Guards (must ALL pass):
+ *   1. phase-c:cron-mute KV flag is NOT set.
+ *      Why: muting the cron must also mute destructive admin paths.
+ *      Otherwise a stray script can keep wiping while the user thinks
+ *      everything is paused.
+ *   2. confirm_destroy=YES_DESTROY query param is present.
+ *      Why: prevents accidental copy-paste / curl-replay disasters.
+ *      Same string used for /candle-replay's confirm_clean_slate so the
+ *      operator's muscle memory is consistent.
+ *
+ * On the success path the caller is responsible for writing a SECOND
+ * audit row scoped to the actual op (e.g. ADMIN_RESET_LEDGER) right
+ * before the destructive SQL runs. This helper only audits the BLOCK
+ * decisions, not the GO decision, so the success-path audit can include
+ * pre-wipe row counts that aren't available here.
+ */
+async function requireDestructiveConfirm(env, req, url, opName, sendJSON, corsHeaders) {
+  const KV = env?.KV_TIMED || env?.KV;
+  // 1. cron-mute interlock
+  let muted = false;
+  try {
+    const m = KV ? await KV.get("phase-c:cron-mute") : null;
+    muted = !!m;
+  } catch (_) {}
+  if (muted) {
+    await auditDataChange(env, {
+      op: `${opName}_BLOCKED`,
+      scope: "reason=cron_muted",
+      caller: req?.url || "unknown",
+      rowsAffected: 0,
+      meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
+    });
+    return sendJSON({
+      ok: false,
+      error: `${opName.toLowerCase()}_blocked_cron_muted`,
+      detail: "Destructive operation blocked while phase-c:cron-mute is set. Clear the mute via DELETE /timed/admin/cron-mute then retry.",
+    }, 409, corsHeaders(env, req));
+  }
+  // 2. confirm_destroy interlock
+  const confirm = url.searchParams.get("confirm_destroy");
+  if (confirm !== "YES_DESTROY") {
+    await auditDataChange(env, {
+      op: `${opName}_BLOCKED`,
+      scope: "reason=missing_confirmation",
+      caller: req?.url || "unknown",
+      rowsAffected: 0,
+      meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
+    });
+    return sendJSON({
+      ok: false,
+      error: `${opName.toLowerCase()}_requires_confirmation`,
+      detail: "This endpoint wipes shared trader state. Add &confirm_destroy=YES_DESTROY to the request to proceed. Guard added because 5+ mystery wipes in 6 days traced to scripts firing destructive endpoints without confirmation.",
+    }, 409, corsHeaders(env, req));
+  }
+  return null;
+}
+
+/**
  * Insert a row into account_ledger. `balance` is the running cash balance AFTER this event.
  */
 async function d1InsertLedgerEntry(env, row) {
@@ -47188,6 +47259,26 @@ export default {
         const url = new URL(req.url || `https://x/${req.url}`);
         const strictPurge = url.searchParams.get("strict") === "1";
 
+        // P0.7.139 — strictPurge=1 hard-deletes trades / positions /
+        // execution_actions / lots for every ticker not in the
+        // approvedTickers set. Same destructive-blast-radius as
+        // candle-replay's cleanSlate. Apply the same interlock so a
+        // mistakenly-narrowed approvedTickers list can't quietly nuke
+        // the live ledger.
+        if (strictPurge) {
+          const blocked = await requireDestructiveConfirm(env, req, url, "CLEANUP_TICKERS_STRICT_PURGE", sendJSON, corsHeaders);
+          if (blocked) return blocked;
+          // Audit BEFORE the loop runs (we don't know rows_affected
+          // until the loop completes; capture intent + caller now).
+          await auditDataChange(env, {
+            op: "CLEANUP_TICKERS_STRICT_PURGE",
+            scope: "confirmed=true",
+            caller: req?.url || "unknown",
+            rowsAffected: null,
+            meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
+          });
+        }
+
         // Approved ticker list — WATCHLIST_Q1_2026
         const approvedTickers = new Set([
           "AAPL", "AEHR", "AGQ", "ALB", "ALLY", "AMD", "AMGN", "AMZN", "ANET", "APLD", "APP", "ASTS",
@@ -51830,10 +51921,14 @@ export default {
 
         // Clean slate: purge trades
         if (cleanSlate) {
-          // P0.7.103 — audit BEFORE nuke
+          // P0.7.139 — destructive interlock (cron-mute + confirm_destroy).
+          // Same guard as candle-replay / admin/reset?resetLedger=1.
+          const blocked = await requireDestructiveConfirm(env, req, url, "SNAPSHOT_REPLAY_CLEAN_SLATE", sendJSON, corsHeaders);
+          if (blocked) return blocked;
+          // Audit BEFORE nuke (post-confirmation)
           await auditDataChange(env, {
             op: "SNAPSHOT_REPLAY_CLEAN_SLATE",
-            scope: `date=${dateParam}`,
+            scope: `date=${dateParam} confirmed=true`,
             caller: req?.url || "unknown",
             rowsAffected: null,
             meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
@@ -52462,10 +52557,16 @@ export default {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
         const db = env?.DB;
-        // P0.7.103 — audit BEFORE the destructive op fires
+        // P0.7.139 — destructive interlock (cron-mute + confirm_destroy).
+        // This endpoint clears account_ledger trader-mode and force-closes
+        // every open position. Same blast radius as snapshot-replay
+        // cleanSlate, so apply the same guard.
+        const blocked = await requireDestructiveConfirm(env, req, url, "RECONCILE_REPLAY", sendJSON, corsHeaders);
+        if (blocked) return blocked;
+        // Audit BEFORE the destructive op fires (post-confirmation)
         await auditDataChange(env, {
           op: "RECONCILE_REPLAY",
-          scope: `date=${url.searchParams.get("date") || "?"}`,
+          scope: `date=${url.searchParams.get("date") || "?"} confirmed=true`,
           caller: req?.url || "unknown",
           rowsAffected: null,
           meta: { user_agent: req?.headers?.get?.("user-agent") || null, search: url.search },
@@ -55650,16 +55751,33 @@ export default {
             const entryPath = da.entry_path || null;
             const rank = Number(da.rank) || 0;
             const rr = Number(da.rr) || 0;
-            // Insert trade row (idempotent — INSERT OR REPLACE)
+            // P0.7.140 (2026-05-13) — also pull setup metadata from DA.
+            // The previous restore only carried entry/exit/PnL fields,
+            // leaving the trade row's `setup_name` / `setup_grade` /
+            // `risk_budget` columns NULL. The Open Positions and Trade
+            // History UIs both render those fields and looked broken
+            // ("Setup —", "Tier —", "Size —") for every restored trade.
+            // DA carries these for live trades (the cron writes them on
+            // entry); pull them through.
+            const setupName = da.setup_name || null;
+            const setupGrade = da.setup_grade || null;
+            const riskBudget = Number(da.risk_budget) || 0;
+            // Insert trade row (idempotent — INSERT OR REPLACE).
+            // Also set updated_at = entryTs so the trade looks
+            // "freshly written" rather than stamped at restore time.
             await db.prepare(
               `INSERT OR REPLACE INTO trades
                 (trade_id, ticker, direction, entry_ts, entry_price, status,
                  exit_ts, exit_price, pnl, pnl_pct, rank, rr, entry_path,
+                 setup_name, setup_grade, risk_budget,
                  created_at, updated_at, run_id)
-               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?4, ?14, NULL)`
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+                       ?14, ?15, ?16,
+                       ?4, ?17, NULL)`
             ).bind(
               tid, ticker, direction, entryTs, entryPrice, status,
               exitTs, exitPrice, pnl, pnlPct, rank, rr, entryPath,
+              setupName, setupGrade, riskBudget,
               Date.now(),
             ).run();
             // Insert position row if status is OPEN/TP_HIT_TRIM
