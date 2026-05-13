@@ -2241,7 +2241,7 @@
       const [bubbleJourneyError, setBubbleJourneyError] = useState(null);
       const [candlePerf, setCandlePerf] = useState(null);
       const [candlePerfLoading, setCandlePerfLoading] = useState(false);
-      const [railTab, setRailTab] = useState("ANALYSIS");
+      const [railTab, setRailTab] = useState("SNAPSHOT");
       const [investorData, setInvestorData] = useState(null);
       const [investorLoading, setInvestorLoading] = useState(false);
       const [investorError, setInvestorError] = useState(null);
@@ -2883,8 +2883,9 @@
         setCrosshair(null);
       }, [tickerSymbol, chartTf, railTab]);
       useEffect(() => {
-        const def = initialRailTab || "ANALYSIS";
-        setRailTab(def === "INVESTOR" ? "INVESTOR" : def);
+        const def = String(initialRailTab || "SNAPSHOT").toUpperCase();
+        const normalized = def === "INVESTOR" ? "INVESTOR" : def === "TRADE_HISTORY" ? "HISTORY" : def === "ANALYSIS" ? "SNAPSHOT" : def;
+        setRailTab(normalized);
       }, [tickerSymbol, initialRailTab]);
       useEffect(() => {
         const isHistoryTab = railTab === "TRADE_HISTORY" || railTab === "HISTORY";
@@ -8223,7 +8224,7 @@
           key: i,
           className: "text-[11px] text-red-400/80 pl-2"
         }, "\u2022 ", inv)))));
-      })()) : railTab === "ANALYSIS" ? React.createElement(React.Fragment, null, (() => {
+      })()) : !_isWorkspace && railTab === "ANALYSIS" ? React.createElement(React.Fragment, null, (() => {
         const baseCtx = ticker?.context && typeof ticker.context === "object" ? ticker.context : null;
         const mergedCtx = latestTicker?.context && typeof latestTicker.context === "object" ? latestTicker.context : null;
         const ctx = mergedCtx || baseCtx;
@@ -8919,6 +8920,7 @@
           side: "sup"
         })))));
       })(), (() => {
+        if (_isWorkspace) return null;
         if (chartLoading) return React.createElement(SkeletonBlock, {
           height: 200,
           lines: 0,

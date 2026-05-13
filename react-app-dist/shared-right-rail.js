@@ -1783,7 +1783,7 @@
         const [candlePerf, setCandlePerf] = useState(null);
         const [candlePerfLoading, setCandlePerfLoading] = useState(false);
 
-        const [railTab, setRailTab] = useState("ANALYSIS"); // ANALYSIS | TECHNICALS | MODEL | JOURNEY | TRADE_HISTORY | INVESTOR
+        const [railTab, setRailTab] = useState("SNAPSHOT"); // SNAPSHOT | SETUP | TECHNICALS | FUNDAMENTALS | HISTORY | INVESTOR
 
         // Investor tab: per-ticker data from /timed/investor/ticker
         const [investorData, setInvestorData] = useState(null);
@@ -2419,10 +2419,23 @@
           setCrosshair(null);
         }, [tickerSymbol, chartTf, railTab]);
 
-        // Default tab: use initialRailTab when provided (Investor mode → INVESTOR, Trade Tracker → TRADE_HISTORY), else Analysis
+        // Default tab: use initialRailTab when provided (Investor mode → INVESTOR,
+        // Trade Tracker → HISTORY), else Snapshot.
+        //
+        // P0.7.146 (2026-05-13): do not leave the state at legacy
+        // "ANALYSIS". v2 maps ANALYSIS → SNAPSHOT for the tab highlight, but
+        // the old legacy ANALYSIS branch below also renders when railTab is
+        // literally "ANALYSIS" and mounts a second LWChart ("Mini Chart").
+        // Switching tabs then unmounts/remounts that hidden chart and produces
+        // the visible flicker reported in the rail chart.
         useEffect(() => {
-          const def = initialRailTab || "ANALYSIS";
-          setRailTab(def === "INVESTOR" ? "INVESTOR" : def);
+          const def = String(initialRailTab || "SNAPSHOT").toUpperCase();
+          const normalized =
+            def === "INVESTOR" ? "INVESTOR" :
+            def === "TRADE_HISTORY" ? "HISTORY" :
+            def === "ANALYSIS" ? "SNAPSHOT" :
+            def;
+          setRailTab(normalized);
         }, [tickerSymbol, initialRailTab]);
 
         // Trade History: default chart selection to first trade when trades load
@@ -6501,7 +6514,7 @@
                         </div>
                       );
                     })()
-                  ) : railTab === "ANALYSIS" ? (
+                  ) : !_isWorkspace && railTab === "ANALYSIS" ? (
                     <>
                       {/* ═══════════════════════════════════════════════════════════ */}
                       {/* 1. CONTEXT                                                  */}
@@ -7151,6 +7164,12 @@
                       {/* 5b. MINI PRICE CHART (SL / TP1 / Entry overlay)            */}
                       {/* ═══════════════════════════════════════════════════════════ */}
                       {(() => {
+                        // Workspace mode already has the persistent left-pane
+                        // chart. Rendering this legacy Mini Chart creates a
+                        // second Lightweight Charts instance for the same
+                        // ticker, which flickers when v2 tabs mount/unmount
+                        // legacy ANALYSIS content.
+                        if (_isWorkspace) return null;
                         if (chartLoading) return React.createElement(SkeletonBlock, { height: 200, lines: 0, style: { background: "rgba(255,255,255,0.02)" } });
                         if (!Array.isArray(chartCandles) || chartCandles.length < 2) return null;
 
