@@ -6357,6 +6357,67 @@ function DashboardWelcomeModal({
       className: "text-white"
     }, "Trades"), " page gives each mode its own Performance Overview \u2014 equity curve, monthly P&L, calendar, and win-rate breakdown."))
   }, {
+    title: "Read the Kanban Lanes",
+    content: React.createElement("div", {
+      className: "space-y-4"
+    }, React.createElement("p", {
+      className: "text-base text-[#e5e7eb] leading-[1.7]"
+    }, "Every ticker lives in one of seven lanes. Lanes group tickers by what the engine wants you to ", React.createElement("strong", {
+      className: "text-white"
+    }, "do next"), ", not by direction. Read top-to-bottom: discovery \u2192 entry \u2192 management."), React.createElement("div", {
+      className: "space-y-2"
+    }, React.createElement("div", {
+      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
+    }, React.createElement("div", {
+      className: "text-[10px] font-bold uppercase tracking-widest text-[#a78bfa] mb-1.5"
+    }, "DISCOVERY \u2192 ENTRY"), React.createElement("div", {
+      className: "grid grid-cols-1 sm:grid-cols-3 gap-2 text-[12px]"
+    }, React.createElement("div", null, React.createElement("div", {
+      className: "font-semibold text-white mb-0.5"
+    }, "Setup"), React.createElement("div", {
+      className: "text-[#9ca3af] leading-snug"
+    }, "Entry conditions are forming. ", React.createElement("em", null, "Watch \u2014 don't trade yet."))), React.createElement("div", null, React.createElement("div", {
+      className: "font-semibold text-[#f59e0b] mb-0.5"
+    }, "In Review"), React.createElement("div", {
+      className: "text-[#9ca3af] leading-snug"
+    }, "Technicals qualified. AI CIO is evaluating. ", React.createElement("em", null, "Trade may be opened next tick."))), React.createElement("div", null, React.createElement("div", {
+      className: "font-semibold text-[#22d3ee] mb-0.5"
+    }, "Position Initiated"), React.createElement("div", {
+      className: "text-[#9ca3af] leading-snug"
+    }, "Trade just placed. ", React.createElement("em", null, "Engine is now managing it."))))), React.createElement("div", {
+      className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-3"
+    }, React.createElement("div", {
+      className: "text-[10px] font-bold uppercase tracking-widest text-[#34d399] mb-1.5"
+    }, "MANAGE"), React.createElement("div", {
+      className: "grid grid-cols-1 sm:grid-cols-2 gap-2 text-[12px]"
+    }, React.createElement("div", null, React.createElement("div", {
+      className: "font-semibold text-[#34d399] mb-0.5"
+    }, "Hold"), React.createElement("div", {
+      className: "text-[#9ca3af] leading-snug"
+    }, "Position healthy, signals strong. ", React.createElement("em", null, "Let it run; do nothing."))), React.createElement("div", null, React.createElement("div", {
+      className: "font-semibold text-[#fb923c] mb-0.5"
+    }, "Defend"), React.createElement("div", {
+      className: "text-[#9ca3af] leading-snug"
+    }, "Warning indicators firing. ", React.createElement("em", null, "Engine has tightened stops."))), React.createElement("div", null, React.createElement("div", {
+      className: "font-semibold text-[#fbbf24] mb-0.5"
+    }, "Trim"), React.createElement("div", {
+      className: "text-[#9ca3af] leading-snug"
+    }, "Near a TP target. ", React.createElement("em", null, "Engine is taking partial profits."))), React.createElement("div", null, React.createElement("div", {
+      className: "font-semibold text-[#9ca3af] mb-0.5"
+    }, "Exit"), React.createElement("div", {
+      className: "text-[#9ca3af] leading-snug"
+    }, "Stop hit or thesis invalidated. ", React.createElement("em", null, "Position is closing now.")))))), React.createElement("div", {
+      className: "bg-violet-500/[0.06] border border-violet-500/15 rounded-lg p-3 text-[12px] text-[#d1d5db] leading-[1.65]"
+    }, React.createElement("strong", {
+      className: "text-violet-300"
+    }, "Investor Mode lanes are different."), " Read ", React.createElement("em", null, "Buy Zone \u2192 Core Hold \u2192 Hold & Watch \u2192 Reduce"), " for owned names, and ", React.createElement("em", null, "On Radar \u2192 Low Conv \u2192 Avoid"), " for prospects. Hover any lane label to see its full description."), React.createElement("p", {
+      className: "text-[12px] text-[#9ca3af] leading-[1.6]"
+    }, "Tip: every owned position carries a ", React.createElement("strong", {
+      className: "text-white"
+    }, "LAST"), " chip showing the model's most recent action and a ", React.createElement("strong", {
+      className: "text-white"
+    }, "WATCHING"), " chip when the model is monitoring for a trigger condition. The Active Trader Brief above the lanes summarizes everything in one glance."))
+  }, {
     title: "The Right Rail — your deep dive",
     content: React.createElement("div", {
       className: "space-y-4"
@@ -6464,7 +6525,7 @@ function DashboardWelcomeModal({
       className: "text-white"
     }, "FAQ"), " for detailed questions.")))
   }];
-  const steps = allSteps.slice(0, 5);
+  const steps = allSteps.slice(0, 6);
   const nextStep = () => {
     if (currentStep < steps.length - 1) {
       setCurrentStep(currentStep + 1);
@@ -11932,7 +11993,182 @@ function EarlyMoversPanel({
       className: "w-[280px] shrink-0 opacity-80"
     }, renderCompactCard(t)))));
   }
+  const _atrBrief = (() => {
+    const openTrades = (Array.isArray(trades) ? trades : []).filter(t => {
+      const s = String(t?.status || "").toUpperCase();
+      return s === "OPEN" || s === "TP_HIT_TRIM" || !s && !(t?.exit_ts ?? t?.exitTs);
+    });
+    const tickerByTicker = new Map();
+    for (const t of Array.isArray(tickers) ? tickers : []) {
+      const sym = String(t?.ticker || "").toUpperCase();
+      if (sym) tickerByTicker.set(sym, t);
+    }
+    const openPositionLanes = openTrades.map(tr => {
+      const sym = String(tr?.ticker || "").toUpperCase();
+      const tk = tickerByTicker.get(sym) || {};
+      const tradeStatus = String(tr?.status || "").toUpperCase();
+      const trimmed = Number(tr?.trimmed_pct || tr?.trimmedPct || 0);
+      const rawStage = String(tk?.kanban_stage || "").toLowerCase();
+      let lane = rawStage;
+      if (tradeStatus === "TP_HIT_TRIM" || trimmed > 0) lane = "trim";else if (rawStage === "exit") lane = "defend";else if (!["defend", "trim", "hold", "active", "just_entered"].includes(rawStage)) lane = "hold";
+      const px = Number(tk?.price || tk?.close) || 0;
+      const ep = Number(tr?.entry_price || tr?.entryPrice) || 0;
+      const dir = String(tr?.direction || "").toUpperCase();
+      const dirMul = dir === "SHORT" ? -1 : 1;
+      const livePct = px > 0 && ep > 0 ? (px - ep) / ep * 100 * dirMul : 0;
+      return {
+        ticker: sym,
+        lane,
+        livePct,
+        dir
+      };
+    });
+    const laneCount = lk => openPositionLanes.filter(p => p.lane === lk).length;
+    const topInReview = (Array.isArray(enter) ? enter : []).slice(0, 4).map(t => ({
+      ticker: String(t?.ticker || "").toUpperCase(),
+      rank: Number(t?.rank) || 0,
+      dir: String(t?.state || "").startsWith("HTF_BULL") ? "LONG" : String(t?.state || "").startsWith("HTF_BEAR") ? "SHORT" : ""
+    }));
+    const setupBull = (Array.isArray(setup) ? setup : []).filter(t => String(t?.state || "").startsWith("HTF_BULL")).length;
+    const setupBear = (Array.isArray(setup) ? setup : []).length - setupBull;
+    const _spy = data && (data.SPY || data["SPY"]) || null;
+    const _spyDc = _spy ? getDailyChange(_spy) : null;
+    const _spyPct = Number(_spyDc?.dayPct);
+    const regimeWord = (() => {
+      if (!Number.isFinite(_spyPct)) return "Mixed";
+      if (_spyPct > 0.3) return "Risk-On";
+      if (_spyPct < -0.3) return "Risk-Off";
+      return "Mixed";
+    })();
+    const regimeColor = regimeWord === "Risk-On" ? "rgb(74,222,128)" : regimeWord === "Risk-Off" ? "rgb(248,113,113)" : "rgb(252,211,77)";
+    return {
+      openCount: openPositionLanes.length,
+      holdN: laneCount("hold") + laneCount("active") + laneCount("just_entered"),
+      defendN: laneCount("defend"),
+      trimN: laneCount("trim"),
+      exitN: laneCount("exit"),
+      openPositionLanes,
+      inReviewCount: Array.isArray(enter) ? enter.length : 0,
+      setupCount: Array.isArray(setup) ? setup.length : 0,
+      setupBull,
+      setupBear,
+      topInReview,
+      regimeWord,
+      regimeColor,
+      spyPct: _spyPct
+    };
+  })();
   return React.createElement("div", null, React.createElement("div", {
+    className: "mb-2 px-3 py-2.5 rounded-xl border border-white/[0.06] bg-white/[0.02]"
+  }, React.createElement("div", {
+    className: "flex items-baseline gap-3 mb-2"
+  }, React.createElement("span", {
+    className: "text-[10px] font-bold uppercase tracking-[0.18em] text-[#a78bfa]"
+  }, "Active Trader Brief"), React.createElement("span", {
+    className: "text-[10px] text-[#6b7280]"
+  }, "Snapshot of what the model is doing right now")), React.createElement("div", {
+    className: "space-y-2"
+  }, React.createElement("div", {
+    className: "flex items-center gap-3 flex-wrap text-[12px]",
+    style: {
+      color: "var(--ds-text-body, #d1d5db)"
+    }
+  }, React.createElement("span", null, "Market: ", React.createElement("span", {
+    style: {
+      color: _atrBrief.regimeColor,
+      fontWeight: 600
+    }
+  }, _atrBrief.regimeWord), Number.isFinite(_atrBrief.spyPct) && React.createElement("span", {
+    className: "text-[#6b7280] ml-1"
+  }, "(SPY ", _atrBrief.spyPct >= 0 ? "+" : "", _atrBrief.spyPct.toFixed(2), "%)"), "."), React.createElement("span", null, _atrBrief.openCount === 0 ? React.createElement("span", {
+    className: "text-[#9ca3af]"
+  }, "No open positions.") : React.createElement(React.Fragment, null, React.createElement("span", {
+    className: "font-semibold text-white"
+  }, _atrBrief.openCount), " open \u2014", _atrBrief.holdN > 0 && React.createElement("span", {
+    className: "text-[#34d399] ml-1"
+  }, _atrBrief.holdN, " hold"), _atrBrief.defendN > 0 && React.createElement("span", {
+    className: "text-[#fb923c] ml-1"
+  }, _atrBrief.defendN, " defend"), _atrBrief.trimN > 0 && React.createElement("span", {
+    className: "text-[#fbbf24] ml-1"
+  }, _atrBrief.trimN, " trim"), _atrBrief.exitN > 0 && React.createElement("span", {
+    className: "text-[#9ca3af] ml-1"
+  }, _atrBrief.exitN, " exit"), React.createElement("span", {
+    className: "text-[#6b7280]"
+  }, ".")))), _atrBrief.openPositionLanes.length > 0 && React.createElement("div", {
+    className: "flex flex-wrap items-center gap-1.5",
+    style: {
+      fontFamily: "var(--tt-font-mono, monospace)"
+    }
+  }, React.createElement("span", {
+    className: "text-[9px] font-bold uppercase tracking-widest text-[#6b7280] mr-1"
+  }, "POSITIONS"), _atrBrief.openPositionLanes.map(p => {
+    const laneColor = p.lane === "defend" ? "#fb923c" : p.lane === "trim" ? "#fbbf24" : p.lane === "exit" ? "#9ca3af" : "#34d399";
+    const laneLabel = p.lane === "defend" ? "DEFEND" : p.lane === "trim" ? "TRIM" : p.lane === "exit" ? "EXIT" : "HOLD";
+    const pnlColor = p.livePct >= 0 ? "#22c55e" : "#ef4444";
+    return React.createElement("span", {
+      key: p.ticker,
+      onClick: () => onSelectTicker?.(p.ticker),
+      style: {
+        cursor: "pointer",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "2px 7px",
+        borderRadius: 4,
+        border: `1px solid ${laneColor}33`,
+        background: `${laneColor}0d`,
+        fontSize: 10
+      }
+    }, React.createElement("span", {
+      style: {
+        color: "white",
+        fontWeight: 700
+      }
+    }, p.ticker), React.createElement("span", {
+      style: {
+        color: laneColor,
+        fontWeight: 600
+      }
+    }, laneLabel), Number.isFinite(p.livePct) && React.createElement("span", {
+      style: {
+        color: pnlColor
+      }
+    }, p.livePct >= 0 ? "+" : "", p.livePct.toFixed(2), "%"));
+  })), React.createElement("div", {
+    className: "flex items-center gap-3 flex-wrap text-[11px]",
+    style: {
+      color: "var(--ds-text-muted, #9ca3af)"
+    }
+  }, React.createElement("span", null, "Pipeline:", React.createElement("span", {
+    className: "font-semibold text-white ml-1"
+  }, _atrBrief.setupCount), " setup", React.createElement("span", {
+    className: "text-[#6b7280] ml-0.5"
+  }, "(", _atrBrief.setupBull, " bull / ", _atrBrief.setupBear, " bear)"), ", ", React.createElement("span", {
+    className: "font-semibold text-white ml-1"
+  }, _atrBrief.inReviewCount), " in review."), _atrBrief.topInReview.length > 0 ? React.createElement("span", {
+    style: {
+      fontFamily: "var(--tt-font-mono, monospace)"
+    }
+  }, React.createElement("span", {
+    className: "text-[#6b7280] mr-1"
+  }, "Watch:"), _atrBrief.topInReview.map((t, i) => React.createElement("span", {
+    key: t.ticker,
+    onClick: () => onSelectTicker?.(t.ticker),
+    className: "cursor-pointer hover:text-white",
+    style: {
+      marginLeft: i > 0 ? 6 : 0
+    }
+  }, t.ticker, t.dir && React.createElement("span", {
+    style: {
+      color: t.dir === "LONG" ? "#34d399" : "#f87171",
+      marginLeft: 3,
+      fontSize: 9
+    }
+  }, t.dir === "LONG" ? "L" : "S"), t.rank > 0 && React.createElement("span", {
+    className: "text-[#6b7280] ml-0.5"
+  }, "#", t.rank)))) : _atrBrief.inReviewCount === 0 && _atrBrief.setupCount > 0 && React.createElement("span", {
+    className: "text-[#fbbf24]"
+  }, "No setups have qualified for entry yet \u2014 model is being selective.")))), React.createElement("div", {
     className: "mb-2 space-y-1"
   }, React.createElement("div", {
     className: "px-2.5 py-1.5 rounded-xl border border-white/[0.06] bg-white/[0.02] flex items-center flex-nowrap gap-x-3 text-[10px] text-[#9ca3af] overflow-x-auto"

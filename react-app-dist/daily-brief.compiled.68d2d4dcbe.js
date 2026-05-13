@@ -818,7 +818,8 @@ function MiniChart({
   tf,
   limit,
   height = 500,
-  flashMarkers = EMPTY_FLASH_MARKERS
+  flashMarkers = EMPTY_FLASH_MARKERS,
+  gamePlanLevels = null
 }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
@@ -1190,6 +1191,37 @@ function MiniChart({
       firstCandleRef.current = null;
     };
   }, [sym, tf, limit, fetchCandles, mapCandles]);
+  const gamePlanLinesRef = useRef([]);
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series) return;
+    for (const pl of gamePlanLinesRef.current) {
+      try {
+        series.removePriceLine(pl);
+      } catch (_) {}
+    }
+    gamePlanLinesRef.current = [];
+    if (!gamePlanLevels) return;
+    const bull = "#22c55e";
+    const bear = "#ef4444";
+    const _add = (price, color, lineWidth, lineStyle, title) => {
+      if (!Number.isFinite(price) || price <= 0) return;
+      try {
+        gamePlanLinesRef.current.push(series.createPriceLine({
+          price,
+          color,
+          lineWidth,
+          lineStyle,
+          axisLabelVisible: true,
+          title
+        }));
+      } catch (_) {}
+    };
+    _add(gamePlanLevels.bullTrigger, bull, 2, LightweightCharts.LineStyle.Solid, `Bull Trigger ${Number(gamePlanLevels.bullTrigger).toFixed(2)}`);
+    _add(gamePlanLevels.bullTarget, bull, 1, LightweightCharts.LineStyle.Dashed, `Bull Target ${Number(gamePlanLevels.bullTarget).toFixed(2)}`);
+    _add(gamePlanLevels.bearTrigger, bear, 2, LightweightCharts.LineStyle.Solid, `Bear Trigger ${Number(gamePlanLevels.bearTrigger).toFixed(2)}`);
+    _add(gamePlanLevels.bearTarget, bear, 1, LightweightCharts.LineStyle.Dashed, `Bear Target ${Number(gamePlanLevels.bearTarget).toFixed(2)}`);
+  }, [gamePlanLevels?.bullTrigger, gamePlanLevels?.bullTarget, gamePlanLevels?.bearTrigger, gamePlanLevels?.bearTarget, sym, tf]);
   useEffect(() => {
     if (!isLive) return;
     const poll = async () => {
@@ -1604,12 +1636,32 @@ async function fetchChartLevels(sym, chartTf, chartCandles) {
     return null;
   }
 }
-function MarketCharts() {
+function MarketCharts({
+  briefIndices = null
+}) {
   const [tf, setTf] = useState("15");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const tfConfig = TF_OPTIONS.find(t => t.value === tf) || TF_OPTIONS[0];
   const isAdmin = _isAdminCharts();
   const primarySymbols = isAdmin ? CHART_SYMBOLS_PRIMARY_ADMIN : CHART_SYMBOLS_PRIMARY_USER;
+  const gamePlanBySym = useMemo(() => {
+    const map = {};
+    if (Array.isArray(briefIndices)) {
+      for (const idx of briefIndices) {
+        const s = String(idx?.sym || "").toUpperCase();
+        const gp = idx?.levels?.gamePlan;
+        if (s && gp && (Number.isFinite(Number(gp.bullTrigger)) || Number.isFinite(Number(gp.bearTrigger)))) {
+          map[s] = {
+            bullTrigger: Number(gp.bullTrigger) || null,
+            bullTarget: Number(gp.bullTarget) || null,
+            bearTrigger: Number(gp.bearTrigger) || null,
+            bearTarget: Number(gp.bearTarget) || null
+          };
+        }
+      }
+    }
+    return map;
+  }, [briefIndices]);
   return React.createElement("div", {
     className: "mb-6"
   }, React.createElement("div", {
@@ -1629,7 +1681,20 @@ function MarketCharts() {
     key: opt.value,
     onClick: () => setTf(opt.value),
     className: `px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${tf === opt.value ? "bg-white/[0.08] text-white" : "text-[#6b7280] hover:text-white hover:bg-white/[0.04]"}`
-  }, opt.label))))), React.createElement("div", {
+  }, opt.label))))), Object.keys(gamePlanBySym).length > 0 && React.createElement("div", {
+    className: "mb-2 px-3 py-1.5 rounded-md text-[10px]",
+    style: {
+      background: "rgba(167,139,250,0.06)",
+      border: "1px solid rgba(167,139,250,0.18)",
+      color: "var(--tt-text-3, #9ca3af)"
+    }
+  }, React.createElement("span", {
+    className: "font-bold uppercase tracking-widest text-[#a78bfa] mr-2"
+  }, "Daily Brief"), "Bull/Bear levels from the morning prediction are annotated on each chart \u2014", React.createElement("span", {
+    className: "text-[#22c55e] font-semibold"
+  }, " green = bull"), " (solid trigger / dashed target),", React.createElement("span", {
+    className: "text-[#ef4444] font-semibold"
+  }, " red = bear"), "."), React.createElement("div", {
     className: "grid grid-cols-1 gap-4"
   }, primarySymbols.map(({
     sym,
@@ -1641,7 +1706,8 @@ function MarketCharts() {
     label: label,
     accentColor: color,
     tf: tfConfig.value,
-    limit: tfConfig.limit
+    limit: tfConfig.limit,
+    gamePlanLevels: gamePlanBySym[sym] || null
   }))), isAdmin && showAdvanced && React.createElement("div", {
     className: "grid grid-cols-1 gap-4 mt-4"
   }, CHART_SYMBOLS_ADVANCED.map(({
@@ -2378,7 +2444,9 @@ function App({
     }
   }, today)), loading && React.createElement("div", {
     className: "loading-spinner"
-  })), React.createElement(MarketCharts, null), loading ? React.createElement("div", {
+  })), React.createElement(MarketCharts, {
+    briefIndices: brief?.morning?.infographic?.indices || brief?.infographic?.indices || null
+  }), loading ? React.createElement("div", {
     className: "flex items-center justify-center py-20"
   }, React.createElement("div", {
     className: "loading-spinner mr-3"
