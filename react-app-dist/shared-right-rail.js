@@ -575,12 +575,14 @@
       // Normalize candles and sanitize ghost wicks
       const mapped = useMemo(() => {
         if (!rawCandles || rawCandles.length < 2) return [];
+        const tfMinutes = Number(chartTf);
+        const isIntradayTf = Number.isFinite(tfMinutes) && tfMinutes > 0;
         const toSec = (v) => {
           if (!v) return 0;
           const n = Number(v);
           return n > 1e12 ? Math.floor(n / 1000) : n > 1e9 ? n : 0;
         };
-        const raw = rawCandles
+        let raw = rawCandles
           .map(c => {
             const ts = toSec(c.ts ?? c.t ?? c.time ?? c.timestamp);
             const o = Number(c.o ?? c.open);
@@ -593,6 +595,19 @@
           .filter(Boolean)
           .sort((a, b) => a.time - b.time)
           .filter((c, i, arr) => i === arr.length - 1 || c.time !== arr[i + 1].time);
+
+        // P0.7.145 (2026-05-13) — only draw confirmed intraday candles.
+        // The candle endpoint can briefly expose the still-forming bar while
+        // the upstream feed is reconciling OHLC. Those transient bars were
+        // the "random candle flashes then reverts" symptom on the right rail.
+        // Keep the rail chart stable by excluding the currently-open bucket;
+        // the live price strip remains the source for tick-by-tick movement.
+        if (isIntradayTf && raw.length > 2) {
+          const tfSec = tfMinutes * 60;
+          const nowSec = Math.floor(Date.now() / 1000);
+          const last = raw[raw.length - 1];
+          if (last && last.time + tfSec > nowSec + 5) raw = raw.slice(0, -1);
+        }
 
         // Pass 1: clamp wicks that are wildly wider than the body
         for (let i = 0; i < raw.length; i++) {
@@ -622,7 +637,7 @@
         }
 
         return raw;
-      }, [rawCandles]);
+      }, [rawCandles, chartTf]);
 
       // Compute indicator overlays
       const indicatorData = useMemo(() => {
@@ -867,6 +882,7 @@
         // refresh, etc.) and caused a visible flicker as the chart redrew.
         let resizeObserver = null;
         let resizeDebounce = null;
+        let settleTimeout = null;
         let lastAppliedWidth = 0;
         let lastAppliedHeight = 0;
         const handleResize = () => {
@@ -919,7 +935,7 @@
         // yet. Use rAF to sync. Width-only — height is set once at
         // create time from clientHeight; subsequent height changes only
         // happen on window resize (handled by handleWindowResize above).
-        requestAnimationFrame(() => {
+        const settleRaf = requestAnimationFrame(() => {
           if (containerRef.current && chart) {
             const w = containerRef.current.clientWidth;
             if (w > 0) {
@@ -928,7 +944,7 @@
             }
             chart.timeScale().fitContent();
           }
-          setTimeout(() => {
+          settleTimeout = setTimeout(() => {
             if (containerRef.current && chart) {
               const w = containerRef.current.clientWidth;
               if (w > 0 && Math.abs(w - lastAppliedWidth) >= 1) {
@@ -944,6 +960,8 @@
         return () => {
           window.removeEventListener("resize", handleWindowResize);
           if (resizeDebounce) cancelAnimationFrame(resizeDebounce);
+          cancelAnimationFrame(settleRaf);
+          if (settleTimeout) clearTimeout(settleTimeout);
           if (resizeObserver) resizeObserver.disconnect();
           levelPriceLinesRef.current = [];
           levelTrendSeriesRef.current = [];

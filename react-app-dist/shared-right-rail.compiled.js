@@ -757,12 +757,14 @@
       const LWC = typeof LightweightCharts !== "undefined" ? LightweightCharts : null;
       const mapped = useMemo(() => {
         if (!rawCandles || rawCandles.length < 2) return [];
+        const tfMinutes = Number(chartTf);
+        const isIntradayTf = Number.isFinite(tfMinutes) && tfMinutes > 0;
         const toSec = v => {
           if (!v) return 0;
           const n = Number(v);
           return n > 1e12 ? Math.floor(n / 1000) : n > 1e9 ? n : 0;
         };
-        const raw = rawCandles.map(c => {
+        let raw = rawCandles.map(c => {
           const ts = toSec(c.ts ?? c.t ?? c.time ?? c.timestamp);
           const o = Number(c.o ?? c.open);
           const h = Number(c.h ?? c.high);
@@ -777,6 +779,12 @@
             close: cl
           };
         }).filter(Boolean).sort((a, b) => a.time - b.time).filter((c, i, arr) => i === arr.length - 1 || c.time !== arr[i + 1].time);
+        if (isIntradayTf && raw.length > 2) {
+          const tfSec = tfMinutes * 60;
+          const nowSec = Math.floor(Date.now() / 1000);
+          const last = raw[raw.length - 1];
+          if (last && last.time + tfSec > nowSec + 5) raw = raw.slice(0, -1);
+        }
         for (let i = 0; i < raw.length; i++) {
           const c = raw[i];
           const body = Math.abs(c.open - c.close) || c.close * 0.001;
@@ -807,7 +815,7 @@
           }
         }
         return raw;
-      }, [rawCandles]);
+      }, [rawCandles, chartTf]);
       const indicatorData = useMemo(() => {
         if (mapped.length < 5) return {};
         const closes = mapped.map(c => c.close);
@@ -1037,6 +1045,7 @@
         });
         let resizeObserver = null;
         let resizeDebounce = null;
+        let settleTimeout = null;
         let lastAppliedWidth = 0;
         let lastAppliedHeight = 0;
         const handleResize = () => {
@@ -1078,7 +1087,7 @@
           resizeObserver.observe(containerRef.current);
         }
         window.addEventListener("resize", handleWindowResize);
-        requestAnimationFrame(() => {
+        const settleRaf = requestAnimationFrame(() => {
           if (containerRef.current && chart) {
             const w = containerRef.current.clientWidth;
             if (w > 0) {
@@ -1089,7 +1098,7 @@
             }
             chart.timeScale().fitContent();
           }
-          setTimeout(() => {
+          settleTimeout = setTimeout(() => {
             if (containerRef.current && chart) {
               const w = containerRef.current.clientWidth;
               if (w > 0 && Math.abs(w - lastAppliedWidth) >= 1) {
@@ -1105,6 +1114,8 @@
         return () => {
           window.removeEventListener("resize", handleWindowResize);
           if (resizeDebounce) cancelAnimationFrame(resizeDebounce);
+          cancelAnimationFrame(settleRaf);
+          if (settleTimeout) clearTimeout(settleTimeout);
           if (resizeObserver) resizeObserver.disconnect();
           levelPriceLinesRef.current = [];
           levelTrendSeriesRef.current = [];
