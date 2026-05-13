@@ -46,6 +46,24 @@ Backtest replay uses the same recency filter against simulated `nowMs`, which ma
 
 The `?dry_run=1` parameter on `restore-trade-shares-from-trail` saved a much bigger blast radius. Every destructive admin endpoint with sizing/PnL implications should support dry-run as a first-class parameter, return the same response shape (just with `dry_run: true`), and emit no audit-log row when dry. Operators learn fast to default to dry-run first; the cost of `?dry_run=1` is one curl flag and saves multi-hour D1 surgery on the bad path.
 
+### Live alerts (Discord) are the canonical sizing source after a wipe
+
+After a destructive wipe destroys execution_actions and trade_events, the trades / direction_accuracy / positions tables don't carry enough information to reconstruct entry-time `shares` and `notional`. Even `signal_snapshot_json` only carries the multipliers used (sl_atr_mult, etc.), not the resolved SL price or the share count. The live system caches `MIN_NOTIONAL = $7,500` (~7.5% of the $100k start cash) for most positions, but high-priced volatile names (e.g. SNDK at $1,348) can run higher. **The Discord trim alerts the user already has in their channel ARE the truth** — they include the trim qty, the percentage trimmed, and the cumulative trim status, which is enough to back out the original total share count. Always ask the operator to share the relevant Discord alerts before guessing sizing from defaults; we lost half a debugging cycle assuming everything was sized at 20% of running balance ($28k each) when actual was ~$7.5k each.
+
+### Phantom realized PnL: corrupted entry_price → trim cron writes huge wrong PnL
+
+When trades.entry_price is corrupted to a small value (e.g. $0.28 NFLX, $64.87 SNDK from the cost_basis-cascade bug), the next management cron tick that fires a TRIM will compute `realized_pnl = (current_price - bogus_entry) × shares` and write it to `account_ledger.realized_pnl`. In one 27-second window the live cron wrote 4 such phantom entries totaling +$35,057 into the trader ledger:
+- NFLX TRIM 158.7 sh @ $87.19 vs entry $0.28 → +$13,793 (real should have been ~+$0)
+- NFLX TRIM 79.4 sh @ $87.19 vs entry $0.28 → +$6,896
+- SNDK TRIM 10.4 sh @ $1447.31 vs entry $64.87 → +$14,365
+- SNDK TRIM 0.016 sh @ $1452.05 vs entry $1346 → +$2 (this last one was after my entry_price fix; correct)
+
+Repair: identify the inflated rows in `account_ledger` (look for `realized_pnl` writes that don't match the trade's actual exit-price math), `DELETE FROM account_ledger WHERE ledger_id IN (...)`. The next read of `/timed/account-summary` recomputes balance from the surviving rows. **Lesson**: any restore endpoint that writes to `trades` or `positions` MUST run with cron-mute set, OR ship with strong sanity guards on the inputs (entry_price floor, cost_basis = shares × entry validation), so the next cron tick can't compound the corruption into the audit-of-record account ledger.
+
+### `positions.total_qty` is REMAINING shares, not total at entry — `trades.shares` mirrors it after a cron sweep
+
+The trades table has BOTH `shares` (intended: total at entry) and `trimmed_pct` (intended: cumulative trim %). The remaining qty is supposed to be `shares × (1 - trimmed_pct)`. But the management cron rewrites `trades.shares = positions.total_qty` and resets `trimmed_pct = 0` after each tick, collapsing the "total + pct" model into a "remaining-only" model in the trades row. The mark-to-market math in `/timed/account-summary` (line 61944) handles BOTH conventions correctly — `qty = shares × (1 - trimmed_pct)` works whether trimmed_pct is 0 (collapsed) or non-zero (in-flight). When manually repairing trades rows, set them in the collapsed form: `shares = remaining`, `trimmed_pct = 0`, `notional = remaining × entry_price`. Otherwise the next cron sweep will silently overwrite half of what you wrote.
+
 ---
 
 ## Live-system hardening session [2026-05-11 / 12]
