@@ -1315,6 +1315,9 @@ const ROUTES = [
   // P0.7.154 — surface cron failure tombstones so the operator can
   // grep "what's been silently broken?" without trawling logs.
   ["GET", "/timed/admin/cron-status", "GET /timed/admin/cron-status"],
+  // P0.7.156 — candle freshness probe. Returns the worst-stale ticker
+  // per TF so the operator can spot a dead backfill cron at a glance.
+  ["GET", "/timed/admin/candle-freshness", "GET /timed/admin/candle-freshness"],
   ["POST", "/timed/admin/patch-trade-from-da", "POST /timed/admin/patch-trade-from-da"],
   ["POST", "/timed/admin/patch-trade-event-reason", "POST /timed/admin/patch-trade-event-reason"],
   ["POST", "/timed/admin/patch-trade-event-price", "POST /timed/admin/patch-trade-event-price"],
@@ -50057,7 +50060,21 @@ export default {
         const batchOffset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
         const rawLimit = url.searchParams.get("limit");
         const batchLimit = rawLimit ? Math.max(1, Math.min(200, Number(rawLimit) || 0)) : 0;
+        // P0.7.156 (2026-05-14) — `?include_user=1` adds ALL active user-added
+        // tickers to the backfill universe. Default OFF for backward compat,
+        // but the operator should pass it for any wholesale-stale-data
+        // recovery (the recent 27-day stream-skip-REST gap affected canonical
+        // AND user tickers equally; see comment in BAR CRON block).
+        const includeUser = String(url.searchParams.get("include_user") || "").toLowerCase() === "1";
         let allTickers = tickerParam ? [tickerParam] : Object.keys(SECTOR_MAP);
+        if (!tickerParam && includeUser) {
+          try {
+            const userTickers = await d1GetActiveUserTickersCached(env);
+            allTickers = [...new Set([...allTickers, ...userTickers])];
+          } catch (e) {
+            console.warn(`[BACKFILL] Failed to load user tickers: ${String(e?.message || e).slice(0, 200)}`);
+          }
+        }
         if (!tickerParam && batchLimit > 0) {
           allTickers = allTickers.slice(batchOffset, batchOffset + batchLimit);
         }
@@ -52416,6 +52433,61 @@ export default {
         } catch (err) {
           console.warn("[INVESTOR-DAILY-EVAL] Failed:", String(err).slice(0, 300));
           return sendJSON({ ok: false, error: String(err?.message || err).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/candle-freshness?key=...
+      //
+      // P0.7.156 (2026-05-14) — surface stale-candle counts per TF so the
+      // operator can spot a dead backfill cron without combing logs.
+      // Returns:
+      //   {
+      //     ok, ts,
+      //     by_tf: { D: { worst_stale_days, worst_ticker, p95_days, total }, ... }
+      //     stale_tickers_d: [ {ticker, days_stale}, ... ]   // top 20 worst
+      //   }
+      // The previous 27-day-silent-stale incident (April 17 → May 14) would
+      // have been caught instantly with this probe at any point during the
+      // window.
+      if (routeKey === "GET /timed/admin/candle-freshness") {
+        const _cfAuthFail = await requireKeyOrAdmin(req, env);
+        if (_cfAuthFail) return _cfAuthFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const tfsToCheck = ["5", "10", "15", "30", "60", "240", "D", "W"];
+          const nowMs = Date.now();
+          const by_tf = {};
+          let staleD = [];
+          for (const tf of tfsToCheck) {
+            try {
+              const rows = (await db.prepare(
+                `SELECT ticker, MAX(ts) as max_ts FROM ticker_candles WHERE tf = ?1 GROUP BY ticker`
+              ).bind(tf).all())?.results || [];
+              if (rows.length === 0) {
+                by_tf[tf] = { total: 0, worst_stale_days: null, worst_ticker: null, p95_days: null };
+                continue;
+              }
+              const stale = rows.map(r => ({
+                ticker: r.ticker,
+                days_stale: (nowMs - Number(r.max_ts)) / 86400000,
+              })).sort((a, b) => b.days_stale - a.days_stale);
+              const worst = stale[0];
+              const p95Idx = Math.floor(stale.length * 0.05);
+              by_tf[tf] = {
+                total: rows.length,
+                worst_stale_days: Math.round(worst.days_stale * 10) / 10,
+                worst_ticker: worst.ticker,
+                p95_days: Math.round(stale[p95Idx].days_stale * 10) / 10,
+              };
+              if (tf === "D") staleD = stale.slice(0, 20).map(x => ({ ticker: x.ticker, days_stale: Math.round(x.days_stale * 10) / 10 }));
+            } catch (e) {
+              by_tf[tf] = { error: String(e?.message || e).slice(0, 200) };
+            }
+          }
+          return sendJSON({ ok: true, ts: nowMs, by_tf, stale_tickers_d: staleD }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
       }
 
@@ -71316,15 +71388,37 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           console.warn("[STREAM] Lifecycle error:", String(streamErr).slice(0, 200));
         }
 
-        // ── Bar cron: skip REST when WS stream is actively delivering bars ──
+        // ── Bar cron: skip REST INTRADAY fetches when WS stream is delivering ──
+        //
+        // P0.7.156 (2026-05-14) — CRITICAL FIX. Was previously
+        //   if (streamActive) { console.log("Skipping..."); }
+        //   else if (useTD)   { fetch all TFs }
+        // which silently dropped ALL bar refreshes — including the aggregated
+        // D / 60 / 240 candles — whenever the WS stream was connected. The
+        // stream only delivers minute bars (5/10/15/30); D/60/240 are
+        // aggregated server-side and require REST. Result: every ticker's
+        // higher-TF candles got frozen at whenever the stream first came up
+        // consistently (~April 17, 2026 — same date as the dead investor
+        // cron). For 27+ days the model has been computing EMAs / structure /
+        // bias / ATR / Saty levels off stale candles. Reported by user:
+        // "DBA shows SHORT bias but the chart is clearly bullish."
+        //
+        // Fix: stream suppresses ONLY the intraday REST path (5/10/15/30/240).
+        // The aggregated daily/weekly/monthly path still runs at top-of-hour
+        // because the stream literally cannot provide those bars.
         let streamActive = false;
         try {
           const st = await dataStreamStatus(env);
           streamActive = st.isRunning && st.barsReceived > 0;
         } catch (_) {}
 
-        if (streamActive) {
-          console.log(`[BAR CRON] Skipping REST bar fetch — ${useTD ? "PriceStream" : "AlpacaStream"} is active`);
+        const _utcMin = new Date().getUTCMinutes();
+        const _isTopOfHour = _utcMin < 5;
+
+        if (streamActive && !_isTopOfHour) {
+          // Stream is feeding minute bars; intraday REST is redundant.
+          // Top-of-hour REST still needed for D/W/M aggregated candles.
+          console.log(`[BAR CRON] Skipping intraday REST bar fetch — ${useTD ? "PriceStream" : "AlpacaStream"} is active (will still run aggregated D/W/M at top of hour)`);
         } else if (useTD) {
           // ── TwelveData REST bar fetch ──
           try {
