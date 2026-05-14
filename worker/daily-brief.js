@@ -3650,7 +3650,31 @@ export async function generateDailyBrief(env, type, opts = {}) {
     const prompt = type === "morning" ? buildMorningPrompt(data) : buildEveningPrompt(data);
     const content = await callOpenAI(env, ANALYST_SYSTEM_PROMPT, prompt);
     if (!content || content.length < 100) {
-      return { ok: false, error: "ai_response_too_short" };
+      // P0.7.154 (2026-05-14) — persist a stub so the operator has a
+      // forensic artifact when the brief silently doesn't generate.
+      // Without this, "why was there no morning brief?" forces a log
+      // dive. With this, /timed/admin/daily-brief?type=morning returns
+      // the stub and surfaces the failure reason inline.
+      const _stubBlob = {
+        ok: false,
+        type,
+        error: "ai_response_too_short",
+        ai_content_length: content?.length || 0,
+        prompt_length: (prompt || "").length,
+        ts: Date.now(),
+        date_et: data?.date_et || null,
+      };
+      try {
+        const KV = env?.KV_TIMED;
+        if (KV) {
+          await KV.put(
+            `timed:brief:stub:${type}:${data?.date_et || "unknown"}`,
+            JSON.stringify(_stubBlob),
+            { expirationTtl: 3 * 86400 },
+          );
+        }
+      } catch {}
+      return { ok: false, error: "ai_response_too_short", stub: _stubBlob };
     }
 
     // 3. Extract per-instrument predictions (one specific actionable
@@ -4116,7 +4140,28 @@ export async function generateIntradayBrief(env, opts = {}) {
     const prompt = buildIntradayPrompt(data);
     const content = await callOpenAI(env, INTRADAY_SYSTEM_PROMPT, prompt);
     if (!content || content.length < 50) {
-      return { ok: false, error: "ai_response_too_short" };
+      // P0.7.154 (2026-05-14) — persist a stub so silent intraday-flash
+      // failures leave a forensic trail. Same pattern as morning brief.
+      const _stubBlob = {
+        ok: false,
+        type: "intraday",
+        error: "ai_response_too_short",
+        ai_content_length: content?.length || 0,
+        prompt_length: (prompt || "").length,
+        ts: Date.now(),
+        date_et: data?.date_et || null,
+      };
+      try {
+        const KV = env?.KV_TIMED;
+        if (KV) {
+          await KV.put(
+            `timed:brief:stub:intraday:${data?.date_et || "unknown"}-${Date.now()}`,
+            JSON.stringify(_stubBlob),
+            { expirationTtl: 3 * 86400 },
+          );
+        }
+      } catch {}
+      return { ok: false, error: "ai_response_too_short", stub: _stubBlob };
     }
 
     // 2026-04-23: attach a compact "pulse" infographic to the intraday

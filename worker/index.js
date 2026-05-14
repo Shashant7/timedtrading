@@ -350,6 +350,8 @@ import {
   generateProactiveAlerts,
   createWeeklyDigestEmbed,
   createInvestorAlertEmbed,
+  recordCronFailure,
+  recordCronSuccess,
 } from "./alerts.js";
 import {
   alpacaCronFetchLatest,
@@ -1310,6 +1312,9 @@ const ROUTES = [
   // operator can smoke it manually first before promoting to a
   // daily cron.
   ["POST", "/timed/admin/investor-daily-eval", "POST /timed/admin/investor-daily-eval"],
+  // P0.7.154 — surface cron failure tombstones so the operator can
+  // grep "what's been silently broken?" without trawling logs.
+  ["GET", "/timed/admin/cron-status", "GET /timed/admin/cron-status"],
   ["POST", "/timed/admin/patch-trade-from-da", "POST /timed/admin/patch-trade-from-da"],
   ["POST", "/timed/admin/patch-trade-event-reason", "POST /timed/admin/patch-trade-event-reason"],
   ["POST", "/timed/admin/patch-trade-event-price", "POST /timed/admin/patch-trade-event-price"],
@@ -52414,6 +52419,59 @@ export default {
         }
       }
 
+      // GET /timed/admin/cron-status?key=...
+      //
+      // P0.7.154 (2026-05-14) — list cron failure tombstones so the
+      // operator can spot a silently-broken job without combing logs.
+      // Returns one row per `op` with the most recent failure (or
+      // last_ok_ts if it's currently healthy). 7-day retention via
+      // KV TTL on the underlying tombstone keys.
+      //
+      // Response shape:
+      //   { ok: true, ops: [
+      //     { op, error, ts, count, last_ok_ts, status: "FAILING"|"HEALTHY" }, ...
+      //   ] }
+      if (routeKey === "GET /timed/admin/cron-status") {
+        const _csAuthFail = await requireKeyOrAdmin(req, env);
+        if (_csAuthFail) return _csAuthFail;
+        const KV = env?.KV_TIMED;
+        if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+        try {
+          const ops = [];
+          let cursor = undefined;
+          // List all tombstone keys (cap iterations to be polite)
+          for (let i = 0; i < 10; i++) {
+            const list = await KV.list({ prefix: "timed:cron:failure:", cursor });
+            for (const k of (list?.keys || [])) {
+              try {
+                const row = await KV.get(k.name, "json");
+                if (!row) continue;
+                ops.push({
+                  op: row.op || k.name.replace(/^timed:cron:failure:/, ""),
+                  error: row.error || null,
+                  ts: row.ts || null,
+                  count: Number(row.count) || 0,
+                  last_ok_ts: row.last_ok_ts || null,
+                  caller: row.caller || null,
+                  status: (Number(row.count) || 0) > 0 ? "FAILING" : "HEALTHY",
+                });
+              } catch {}
+            }
+            if (list?.list_complete) break;
+            cursor = list?.cursor;
+            if (!cursor) break;
+          }
+          // Sort: failing first (by descending count), then healthy
+          ops.sort((a, b) => {
+            if (a.status !== b.status) return a.status === "FAILING" ? -1 : 1;
+            return (b.count || 0) - (a.count || 0);
+          });
+          return sendJSON({ ok: true, ops, count: ops.length, ts: Date.now() }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // POST /timed/admin/reopen-stale-exits?exitDate=YYYY-MM-DD&key=...
       // Resets trades that were erroneously closed on the given date back to OPEN.
       if (routeKey === "POST /timed/admin/reopen-stale-exits") {
@@ -53066,6 +53124,13 @@ export default {
       if (routeKey === "POST /timed/admin/cleanup-orphan-trades") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
+        // P0.7.154 (2026-05-14) — HARDENING. Default min_age_days=7 means
+        // any open trade older than a week gets force-closed when this is
+        // called without args. A misfired script with the admin key could
+        // silently kill legitimate week-old swing trades. Require explicit
+        // confirm_destroy=YES_DESTROY — operator must opt-in per-call.
+        const _coBlocked = await requireDestructiveConfirm(env, req, url, "CLEANUP_ORPHAN_TRADES", sendJSON, corsHeaders);
+        if (_coBlocked) return _coBlocked;
         const db = env?.DB;
         const KV = env?.KV_TIMED;
         try {
@@ -63098,9 +63163,19 @@ export default {
       }
 
       // POST /timed/trades/reset — Clear all trades and reset to $100K baseline (API key or admin session)
+      //
+      // P0.7.154 (2026-05-14) — HARDENING. Has had auditDataChange since
+      // P0.7.95 but was missing the confirm_destroy=YES_DESTROY interlock,
+      // which means ANY script with the API key (or an admin session
+      // accidentally re-using a stale tab) could wipe live trader state in
+      // a single POST. Multiple mystery wipes over the past two weeks have
+      // traced back to unguarded scripts hitting this exact route. Now
+      // requires the same confirm_destroy interlock as cleanSlate paths.
       if (routeKey === "POST /timed/trades/reset") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
+        const _trBlocked = await requireDestructiveConfirm(env, req, url, "TRADES_RESET", sendJSON, corsHeaders);
+        if (_trBlocked) return _trBlocked;
         const db = env?.DB;
         try {
           // V15 P0.7.95 — capture pre-reset row counts for forensics so
@@ -64876,11 +64951,17 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const allRS3m = [];
           const rsMap = {};
           const investorResults = {};
+          // P0.7.154 (2026-05-14) — track skipped tickers so the operator
+          // can spot a price-feed regression. Previously skipped silently.
+          const _skippedNoPrice = [];
 
           // Phase 1: Fetch all ticker data + compute RS
           for (const ticker of tickerSyms) {
             const td = await kvGetJSON(env.KV_TIMED, `timed:latest:${ticker}`);
-            if (!td || !td.price) continue;
+            if (!td || !td.price) {
+              _skippedNoPrice.push(ticker);
+              continue;
+            }
             td._sector = SECTOR_MAP[ticker] || "Unknown";
             allTickerData.push(td);
 
@@ -65188,6 +65269,21 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             console.warn("[INVESTOR COMPUTE] Snapshot merge failed:", String(e?.message || e).slice(0, 200));
           }
 
+          // P0.7.154 — surface skipped tickers so a price-feed regression
+          // doesn't silently drop ~half the universe from investor scoring.
+          if (_skippedNoPrice.length > 0) {
+            const _skipPct = Math.round((_skippedNoPrice.length / tickerSyms.length) * 100);
+            console.warn(`[INVESTOR COMPUTE] Skipped ${_skippedNoPrice.length}/${tickerSyms.length} tickers (${_skipPct}%) due to missing timed:latest:* price. First 10: ${_skippedNoPrice.slice(0, 10).join(", ")}`);
+            // 25% threshold = something is meaningfully wrong upstream
+            if (_skipPct >= 25) {
+              recordCronFailure(env, {
+                op: "investor_compute_price_feed",
+                error: `Skipped ${_skippedNoPrice.length}/${tickerSyms.length} (${_skipPct}%) — price feed regression`,
+                caller: "investor_compute",
+              }).catch(() => {});
+            }
+          }
+
           return sendJSON({
             ok: true,
             tickers: Object.keys(investorResults).length,
@@ -65198,6 +65294,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               .map(([t]) => ({ ticker: t, score: allInvestorScores[t], rsRank: rsRanks[t] }))
               .sort((a, b) => b.score - a.score)
               .slice(0, 10),
+            skipped_no_price: {
+              count: _skippedNoPrice.length,
+              total: tickerSyms.length,
+              first10: _skippedNoPrice.slice(0, 10),
+            },
           }, 200, corsHeaders(env, req));
         } catch (err) {
           return sendJSON({ ok: false, error: err.message }, 500, corsHeaders(env, req));
@@ -66009,13 +66110,45 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       }
 
       // DELETE /timed/investor/purge-ticker — admin: completely remove a ticker from investor tables
+      //
+      // P0.7.154 (2026-05-14) — HARDENING. Was previously unauthenticated AND
+      // had no destructive-confirm guard. Anyone who knew the URL could wipe
+      // an investor ticker's lots / positions / ledger entries with a single
+      // DELETE request. Now requires admin/key + confirm_destroy=YES_DESTROY,
+      // and writes an audit row before deleting so future investigations have
+      // a trail.
       if (routeKey === "DELETE /timed/investor/purge-ticker") {
+        const _ptAuthFail = await requireKeyOrAdmin(req, env);
+        if (_ptAuthFail) return _ptAuthFail;
+        const _ptBlocked = await requireDestructiveConfirm(env, req, url, "INVESTOR_PURGE_TICKER", sendJSON, corsHeaders);
+        if (_ptBlocked) return _ptBlocked;
         try {
           const body = await req.json();
           const tickerRaw = body?.ticker;
           if (!tickerRaw) return sendJSON({ ok: false, error: "ticker required" }, 400, corsHeaders(env, req));
           const sym = tickerRaw.toUpperCase();
           const db = env.DB;
+          // Pre-delete row counts for forensics
+          let _ptPreCounts = null;
+          try {
+            const [_lotRow, _posRow, _ledRow] = await Promise.all([
+              db.prepare("SELECT COUNT(*) as c FROM investor_lots WHERE ticker = ?1").bind(sym).first().catch(() => null),
+              db.prepare("SELECT COUNT(*) as c FROM investor_positions WHERE ticker = ?1").bind(sym).first().catch(() => null),
+              db.prepare("SELECT COUNT(*) as c FROM account_ledger WHERE mode = 'investor' AND ticker = ?1").bind(sym).first().catch(() => null),
+            ]);
+            _ptPreCounts = {
+              lots: Number(_lotRow?.c) || 0,
+              positions: Number(_posRow?.c) || 0,
+              ledger: Number(_ledRow?.c) || 0,
+            };
+          } catch {}
+          await auditDataChange(env, {
+            op: "INVESTOR_PURGE_TICKER",
+            scope: `ticker=${sym}`,
+            caller: req?.url || "unknown",
+            rowsAffected: _ptPreCounts ? Object.values(_ptPreCounts).reduce((a, b) => a + b, 0) : null,
+            meta: { preCounts: _ptPreCounts, user_agent: req?.headers?.get?.("user-agent") || null },
+          }).catch(() => {});
 
           // 1. Delete investor_lots for this ticker
           const lotsResult = await db.prepare("DELETE FROM investor_lots WHERE ticker = ?1").bind(sym).run();
@@ -70823,10 +70956,24 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               }
             } catch (e) {
               console.warn(`[INVESTOR HOURLY] Daily eval check failed:`, String(e?.message || e).slice(0, 200));
+              recordCronFailure(env, {
+                op: "investor_daily_eval",
+                error: String(e?.message || e),
+                caller: "investor_hourly_cron",
+              }).catch(() => {});
             }
           }
+          // Mark hourly cron tick successful (resets the failure counter
+          // tracked by recordCronSuccess so the operator can see how
+          // long the cron has been healthy).
+          recordCronSuccess(env, "investor_hourly").catch(() => {});
         } catch (e) {
           console.warn(`[INVESTOR HOURLY] Failed:`, String(e?.message || e).slice(0, 300));
+          recordCronFailure(env, {
+            op: "investor_hourly",
+            error: String(e?.message || e),
+            caller: "scheduled_event",
+          }).catch(() => {});
         }
       })());
       // Don't return — let other cron handlers run too if they match
@@ -70853,8 +71000,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const dcaResp = await fetch(`${selfUrl}/timed/investor/dca/execute${_dcaKey}`, { method: "POST" });
           const dcaData = await dcaResp.json().catch(() => ({}));
           console.log(`[INVESTOR CRON] DCA: ${dcaData.executed || 0} executed, ${dcaData.skipped || 0} skipped`);
+          recordCronSuccess(env, "investor_dca").catch(() => {});
         } catch (e) {
           console.warn(`[INVESTOR CRON] Failed:`, String(e?.message || e).slice(0, 300));
+          recordCronFailure(env, {
+            op: "investor_dca",
+            error: String(e?.message || e),
+            caller: "scheduled_event",
+          }).catch(() => {});
         }
       })());
       // Don't return — let other cron handlers run too if they match
@@ -70871,8 +71024,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const resp = await fetch(`${selfUrl}/timed/investor/weekly-digest${_digKey}`, { method: "POST" });
           const data = await resp.json().catch(() => ({}));
           console.log(`[INVESTOR DIGEST] Done: ${data.ok ? "sent" : "failed"}`);
+          recordCronSuccess(env, "investor_digest").catch(() => {});
         } catch (e) {
           console.warn(`[INVESTOR DIGEST] Failed:`, String(e?.message || e).slice(0, 300));
+          recordCronFailure(env, {
+            op: "investor_digest",
+            error: String(e?.message || e),
+            caller: "scheduled_event",
+          }).catch(() => {});
         }
       })());
       // Don't return — allow other handlers
@@ -70965,8 +71124,22 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               d1InsertNotification,
             });
             console.log(`[DAILY BRIEF CRON] Morning: ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
+            if (result?.ok) {
+              recordCronSuccess(env, "daily_brief_morning").catch(() => {});
+            } else {
+              recordCronFailure(env, {
+                op: "daily_brief_morning",
+                error: result?.error || "unknown",
+                caller: "scheduled_event",
+              }).catch(() => {});
+            }
           } catch (e) {
             console.error("[DAILY BRIEF CRON] Morning failed:", String(e).slice(0, 300));
+            recordCronFailure(env, {
+              op: "daily_brief_morning",
+              error: String(e?.message || e),
+              caller: "scheduled_event",
+            }).catch(() => {});
           }
         })());
       }
@@ -70988,8 +71161,22 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               d1InsertNotification,
             });
             console.log(`[DAILY BRIEF CRON] Evening: ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
+            if (result?.ok) {
+              recordCronSuccess(env, "daily_brief_evening").catch(() => {});
+            } else {
+              recordCronFailure(env, {
+                op: "daily_brief_evening",
+                error: result?.error || "unknown",
+                caller: "scheduled_event",
+              }).catch(() => {});
+            }
           } catch (e) {
             console.error("[DAILY BRIEF CRON] Evening failed:", String(e).slice(0, 300));
+            recordCronFailure(env, {
+              op: "daily_brief_evening",
+              error: String(e?.message || e),
+              caller: "scheduled_event",
+            }).catch(() => {});
           }
         })());
       }
@@ -71022,8 +71209,22 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             console.log(`[INTRADAY FLASH CRON] Generating flash insight at ${_etFlashH}:00 ET...`);
             const result = await generateIntradayBrief(env, { SECTOR_MAP, d1GetCandles });
             console.log(`[INTRADAY FLASH CRON] ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
+            if (result?.ok) {
+              recordCronSuccess(env, "intraday_flash").catch(() => {});
+            } else {
+              recordCronFailure(env, {
+                op: "intraday_flash",
+                error: result?.error || "unknown",
+                caller: "scheduled_event",
+              }).catch(() => {});
+            }
           } catch (e) {
             console.error("[INTRADAY FLASH CRON] Failed:", String(e).slice(0, 300));
+            recordCronFailure(env, {
+              op: "intraday_flash",
+              error: String(e?.message || e),
+              caller: "scheduled_event",
+            }).catch(() => {});
           }
         })());
       }
