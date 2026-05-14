@@ -6040,7 +6040,42 @@
                   )}
                 </div>
                 {/* ─── Footer ───────────────────────────────────────── */}
-                <div style={{ borderTop: "1px solid var(--ds-stroke)", padding: "var(--ds-space-3) var(--ds-space-4)" }}>
+                <div style={{ borderTop: "1px solid var(--ds-stroke)", padding: "var(--ds-space-3) var(--ds-space-4)", display: "flex", alignItems: "center", gap: 8 }}>
+                  {/* V15 P0.7.159 (2026-05-14) — prominent CHART action in
+                      the rail's persistent footer. The previous in-header
+                      "CHART ⤢" button (line ~3589) sits inside the chart
+                      panel and scrolls out of view as soon as the user
+                      moves to a tab. Mobile users reported "I dont see
+                      the Chart FAB on Mobile at all". Putting the button
+                      in the footer (always visible because the footer is
+                      the last child of the rail's overflow container)
+                      gives a one-tap path to the fullscreen chart from
+                      ANY tab without z-index war. */}
+                  <button
+                    type="button"
+                    onClick={() => setChartExpanded(true)}
+                    className="ds-chip ds-chip--sm"
+                    title={`View fullscreen chart for ${tickerSymbol}`}
+                    aria-label={`View fullscreen chart for ${tickerSymbol}`}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "0 12px",
+                      height: 30,
+                      fontSize: 12,
+                      fontWeight: 800,
+                      letterSpacing: "0.04em",
+                      color: "#051a10",
+                      background: "linear-gradient(135deg, rgba(34, 197, 94, 0.96), rgba(16, 185, 129, 0.96))",
+                      border: "1px solid rgba(34, 197, 94, 0.85)",
+                      boxShadow: "0 2px 10px rgba(34, 197, 94, 0.35)",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <span style={{ fontSize: 14, lineHeight: 1 }}>⤢</span>
+                    <span>CHART</span>
+                  </button>
                   <a href={`https://www.tradingview.com/symbols/${tickerSymbol}/`} target="_blank" rel="noopener noreferrer" className="ds-chip ds-chip--sm" style={{ display: "inline-flex" }}>
                     Open in TradingView ↗
                   </a>

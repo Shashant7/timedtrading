@@ -52987,8 +52987,13 @@ export default {
                     ROUND(SUM(COALESCE(pnl, 0)), 2) AS pnl_usd
              FROM trades WHERE status IN ('WIN','LOSS','FLAT')`
           ).first().catch(() => null);
+          // P0.7.159 — count both OPEN and TP_HIT_TRIM as "open positions".
+          // TP_HIT_TRIM means TP1 was hit and we trimmed but the runner is
+          // still active. Previously only counting status='OPEN' under-
+          // reported the number of live trades by ~70% (user reported 2
+          // shown vs 9 actually open).
           const openCount = await db.prepare(
-            `SELECT COUNT(*) AS n FROM trades WHERE status='OPEN'`
+            `SELECT COUNT(*) AS n FROM trades WHERE status IN ('OPEN', 'TP_HIT_TRIM')`
           ).first().catch(() => null);
           // AI CIO health (last 7 days)
           let aicio = null;
@@ -53172,14 +53177,16 @@ export default {
         const _sec5 = (async () => {
         // ─ Section 5: positions ──
         try {
+          // P0.7.159 — same TP_HIT_TRIM inclusion fix for the position list.
           const [atOpen, atTotalNotional, invOpen, invTotalCost, recentFills] = await Promise.all([
             db.prepare(
-              `SELECT ticker, direction, shares, entry_price, ROUND(notional, 2) AS notional, entry_ts, setup_name, setup_grade
-               FROM trades WHERE status='OPEN' ORDER BY entry_ts DESC`
+              `SELECT ticker, direction, shares, entry_price, ROUND(notional, 2) AS notional, entry_ts, setup_name, setup_grade, status,
+                      ROUND(COALESCE(trimmed_pct, 0) * 100, 0) AS trimmed_pct
+               FROM trades WHERE status IN ('OPEN', 'TP_HIT_TRIM') ORDER BY entry_ts DESC`
             ).all().catch(() => ({ results: [] })),
             db.prepare(
-              `SELECT ROUND(SUM(COALESCE(notional, shares * entry_price)), 2) AS total
-               FROM trades WHERE status='OPEN'`
+              `SELECT ROUND(SUM(COALESCE(notional, shares * entry_price) * (1 - COALESCE(trimmed_pct, 0))), 2) AS total
+               FROM trades WHERE status IN ('OPEN', 'TP_HIT_TRIM')`
             ).first().catch(() => null),
             db.prepare(
               `SELECT ticker, total_shares AS shares, avg_entry, ROUND(cost_basis, 2) AS cost_basis, last_entry_ts

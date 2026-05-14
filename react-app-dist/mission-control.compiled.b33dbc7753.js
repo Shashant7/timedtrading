@@ -49,8 +49,10 @@ function MissionControl({
   const [refreshTs, setRefreshTs] = useState(Date.now());
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [backfillBusy, setBackfillBusy] = useState(false);
+  const [backfillBusy, setBackfillBusy] = useState(null);
+  const [backfillElapsed, setBackfillElapsed] = useState(0);
   const [backfillMsg, setBackfillMsg] = useState(null);
+  const [backfillHistory, setBackfillHistory] = useState([]);
   const fetchData = useCallback(async () => {
     setRefreshing(true);
     try {
@@ -81,11 +83,19 @@ function MissionControl({
     }, 30000);
     return () => clearInterval(id);
   }, [autoRefresh, fetchData]);
+  useEffect(() => {
+    if (!backfillBusy) return;
+    const start = Date.now();
+    setBackfillElapsed(0);
+    const id = setInterval(() => setBackfillElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [backfillBusy]);
   const triggerBackfill = useCallback(async tf => {
     if (backfillBusy) return;
-    if (!confirm(`Trigger ${tf} backfill for the full universe (canonical + user-added) covering the last 35 days? This may take several minutes.`)) return;
-    setBackfillBusy(true);
-    setBackfillMsg(`Backfill ${tf} in progress…`);
+    if (!confirm(`Trigger ${tf} backfill for the full universe (canonical + user-added) covering the last 35 days?\n\nLarger TFs (D, 240) take 30-60 seconds.\nSmaller TFs (60) can take 1-2 minutes.\n\nThe page will show progress while it runs.`)) return;
+    setBackfillBusy(tf);
+    setBackfillMsg(`Backfill ${tf} in progress — this can take 30s to 2 minutes. Do not refresh.`);
+    const start = Date.now();
     try {
       const res = await fetch(`${API_BASE}/timed/admin/alpaca-backfill?tf=${tf}&sinceDays=35&include_user=1`, {
         method: "POST",
@@ -96,16 +106,27 @@ function MissionControl({
         body: "{}"
       });
       const j = await res.json();
+      const elapsed = Math.floor((Date.now() - start) / 1000);
       if (j.ok) {
-        setBackfillMsg(`Backfill ${tf} done: ${j.upserted || 0} candles upserted across ${j.tickers || 0} tickers.`);
-        fetchData();
+        const msg = `✓ Backfill ${tf} done in ${elapsed}s — ${j.upserted || 0} candles upserted across ${j.tickers || 0} tickers (${j.errors || 0} errors).`;
+        setBackfillMsg(msg);
+        setBackfillHistory(h => [{
+          tf,
+          elapsed,
+          upserted: j.upserted || 0,
+          errors: j.errors || 0,
+          ts: Date.now()
+        }, ...h].slice(0, 5));
+        setTimeout(() => fetchData(), 800);
       } else {
-        setBackfillMsg(`Backfill ${tf} failed: ${j.error || "unknown"}`);
+        setBackfillMsg(`✗ Backfill ${tf} failed after ${elapsed}s: ${j.error || "unknown"}`);
       }
     } catch (e) {
-      setBackfillMsg(`Backfill ${tf} failed: ${String(e.message || e)}`);
+      const elapsed = Math.floor((Date.now() - start) / 1000);
+      setBackfillMsg(`✗ Backfill ${tf} failed after ${elapsed}s: ${String(e.message || e)}`);
     } finally {
-      setBackfillBusy(false);
+      setBackfillBusy(null);
+      setBackfillElapsed(0);
     }
   }, [backfillBusy, fetchData]);
   if (loading && !data) {
@@ -436,11 +457,41 @@ function MissionControl({
     }, d.worst_stale?.ticker || "—"), React.createElement("td", null, React.createElement("button", {
       className: "mc-btn",
       onClick: () => triggerBackfill(tf),
-      disabled: backfillBusy
-    }, "Backfill ", tf)));
+      disabled: !!backfillBusy,
+      style: backfillBusy === tf ? {
+        background: "rgba(245, 158, 11, 0.15)",
+        borderColor: "rgba(245, 158, 11, 0.5)",
+        color: "#f59e0b"
+      } : {}
+    }, backfillBusy === tf ? `⏳ Backfilling… ${backfillElapsed}s` : `Backfill ${tf}`)));
   })))), backfillMsg && React.createElement("div", {
-    className: "mt-3 text-xs mc-mute"
-  }, backfillMsg))), React.createElement("div", {
+    className: `mt-3 text-xs ${backfillMsg.startsWith("✓") ? "mc-pos" : backfillMsg.startsWith("✗") ? "mc-neg" : "mc-warn"}`,
+    style: {
+      padding: "8px 12px",
+      background: "rgba(255,255,255,0.02)",
+      border: "1px solid rgba(255,255,255,0.05)",
+      borderRadius: 6
+    }
+  }, backfillMsg), backfillHistory.length > 0 && React.createElement("div", {
+    className: "mt-3"
+  }, React.createElement("div", {
+    className: "text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold"
+  }, "Recent Backfills (this session)"), React.createElement("div", {
+    className: "text-[11px] space-y-1"
+  }, backfillHistory.map((h, i) => React.createElement("div", {
+    key: i,
+    className: "mc-mute"
+  }, React.createElement("span", {
+    className: "font-mono mr-2"
+  }, new Date(h.ts).toLocaleTimeString()), React.createElement("span", {
+    className: "font-bold text-white"
+  }, h.tf), " — ", React.createElement("span", {
+    className: "mc-pos"
+  }, h.upserted, " upserted"), h.errors > 0 && React.createElement("span", {
+    className: "mc-neg"
+  }, " \xB7 ", h.errors, " errors"), React.createElement("span", {
+    className: "ml-2"
+  }, "in ", h.elapsed, "s"))))))), React.createElement("div", {
     className: "mc-card mb-5"
   }, React.createElement("div", {
     className: "mc-section-title"
@@ -587,13 +638,18 @@ function MissionControl({
     }
   }, React.createElement("table", {
     className: "mc-table"
-  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Ticker"), React.createElement("th", null, "Dir"), React.createElement("th", null, "Shares"), React.createElement("th", null, "Entry"), React.createElement("th", null, "Notional"), React.createElement("th", null, "Setup"), React.createElement("th", null, "Age"))), React.createElement("tbody", null, (po.active_trader?.positions || []).map((p, i) => React.createElement("tr", {
+  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Ticker"), React.createElement("th", null, "Dir"), React.createElement("th", null, "State"), React.createElement("th", null, "Shares"), React.createElement("th", null, "Entry"), React.createElement("th", null, "Notional"), React.createElement("th", null, "Setup"), React.createElement("th", null, "Age"))), React.createElement("tbody", null, (po.active_trader?.positions || []).map((p, i) => React.createElement("tr", {
     key: i
   }, React.createElement("td", {
     className: "font-mono font-bold"
   }, p.ticker), React.createElement("td", null, React.createElement("span", {
     className: `mc-pill ${p.direction === "LONG" ? "mc-pill-ok" : "mc-pill-fail"}`
-  }, p.direction || "—")), React.createElement("td", null, p.shares || 0), React.createElement("td", null, fmtUsd(p.entry_price, 2)), React.createElement("td", null, fmtUsd(p.notional)), React.createElement("td", {
+  }, p.direction || "—")), React.createElement("td", null, p.status === "TP_HIT_TRIM" ? React.createElement("span", {
+    className: "mc-pill mc-pill-warn",
+    title: `TP1 hit, ${p.trimmed_pct || 0}% trimmed, runner active`
+  }, "TRIM ", p.trimmed_pct ? `${p.trimmed_pct}%` : "") : React.createElement("span", {
+    className: "mc-pill mc-pill-ok"
+  }, "OPEN")), React.createElement("td", null, Number(p.shares || 0).toFixed(2)), React.createElement("td", null, fmtUsd(p.entry_price, 2)), React.createElement("td", null, fmtUsd(p.notional)), React.createElement("td", {
     className: "text-[11px] mc-mute"
   }, p.setup_name || "—", p.setup_grade ? ` · ${p.setup_grade}` : ""), React.createElement("td", {
     className: "text-xs mc-mute"

@@ -7547,9 +7547,38 @@
         }))))), React.createElement("div", {
           style: {
             borderTop: "1px solid var(--ds-stroke)",
-            padding: "var(--ds-space-3) var(--ds-space-4)"
+            padding: "var(--ds-space-3) var(--ds-space-4)",
+            display: "flex",
+            alignItems: "center",
+            gap: 8
           }
-        }, React.createElement("a", {
+        }, React.createElement("button", {
+          type: "button",
+          onClick: () => setChartExpanded(true),
+          className: "ds-chip ds-chip--sm",
+          title: `View fullscreen chart for ${tickerSymbol}`,
+          "aria-label": `View fullscreen chart for ${tickerSymbol}`,
+          style: {
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "0 12px",
+            height: 30,
+            fontSize: 12,
+            fontWeight: 800,
+            letterSpacing: "0.04em",
+            color: "#051a10",
+            background: "linear-gradient(135deg, rgba(34, 197, 94, 0.96), rgba(16, 185, 129, 0.96))",
+            border: "1px solid rgba(34, 197, 94, 0.85)",
+            boxShadow: "0 2px 10px rgba(34, 197, 94, 0.35)",
+            flexShrink: 0
+          }
+        }, React.createElement("span", {
+          style: {
+            fontSize: 14,
+            lineHeight: 1
+          }
+        }, "\u2922"), React.createElement("span", null, "CHART")), React.createElement("a", {
           href: `https://www.tradingview.com/symbols/${tickerSymbol}/`,
           target: "_blank",
           rel: "noopener noreferrer",

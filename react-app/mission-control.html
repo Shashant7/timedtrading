@@ -127,8 +127,13 @@
         const [autoRefresh, setAutoRefresh] = useState(true);
         const [refreshing, setRefreshing] = useState(false);
         // Backfill in-flight state
-        const [backfillBusy, setBackfillBusy] = useState(false);
+        // P0.7.159 — track per-TF state separately so the user can see
+        // which timeframe is currently running + elapsed time. Previous
+        // single-flag approach made it look like nothing happened.
+        const [backfillBusy, setBackfillBusy] = useState(null); // null | tf string
+        const [backfillElapsed, setBackfillElapsed] = useState(0);
         const [backfillMsg, setBackfillMsg] = useState(null);
+        const [backfillHistory, setBackfillHistory] = useState([]);
 
         const fetchData = useCallback(async () => {
           setRefreshing(true);
@@ -162,11 +167,21 @@
           return () => clearInterval(id);
         }, [autoRefresh, fetchData]);
 
+        // P0.7.159 — visible elapsed-time tick while backfill is in-flight
+        useEffect(() => {
+          if (!backfillBusy) return;
+          const start = Date.now();
+          setBackfillElapsed(0);
+          const id = setInterval(() => setBackfillElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
+          return () => clearInterval(id);
+        }, [backfillBusy]);
+
         const triggerBackfill = useCallback(async (tf) => {
           if (backfillBusy) return;
-          if (!confirm(`Trigger ${tf} backfill for the full universe (canonical + user-added) covering the last 35 days? This may take several minutes.`)) return;
-          setBackfillBusy(true);
-          setBackfillMsg(`Backfill ${tf} in progress…`);
+          if (!confirm(`Trigger ${tf} backfill for the full universe (canonical + user-added) covering the last 35 days?\n\nLarger TFs (D, 240) take 30-60 seconds.\nSmaller TFs (60) can take 1-2 minutes.\n\nThe page will show progress while it runs.`)) return;
+          setBackfillBusy(tf);
+          setBackfillMsg(`Backfill ${tf} in progress — this can take 30s to 2 minutes. Do not refresh.`);
+          const start = Date.now();
           try {
             const res = await fetch(`${API_BASE}/timed/admin/alpaca-backfill?tf=${tf}&sinceDays=35&include_user=1`, {
               method: "POST",
@@ -175,16 +190,22 @@
               body: "{}",
             });
             const j = await res.json();
+            const elapsed = Math.floor((Date.now() - start) / 1000);
             if (j.ok) {
-              setBackfillMsg(`Backfill ${tf} done: ${j.upserted || 0} candles upserted across ${j.tickers || 0} tickers.`);
-              fetchData();
+              const msg = `✓ Backfill ${tf} done in ${elapsed}s — ${j.upserted || 0} candles upserted across ${j.tickers || 0} tickers (${j.errors || 0} errors).`;
+              setBackfillMsg(msg);
+              setBackfillHistory(h => [{ tf, elapsed, upserted: j.upserted || 0, errors: j.errors || 0, ts: Date.now() }, ...h].slice(0, 5));
+              // Re-fetch Mission Control data so the freshness numbers refresh
+              setTimeout(() => fetchData(), 800);
             } else {
-              setBackfillMsg(`Backfill ${tf} failed: ${j.error || "unknown"}`);
+              setBackfillMsg(`✗ Backfill ${tf} failed after ${elapsed}s: ${j.error || "unknown"}`);
             }
           } catch (e) {
-            setBackfillMsg(`Backfill ${tf} failed: ${String(e.message || e)}`);
+            const elapsed = Math.floor((Date.now() - start) / 1000);
+            setBackfillMsg(`✗ Backfill ${tf} failed after ${elapsed}s: ${String(e.message || e)}`);
           } finally {
-            setBackfillBusy(false);
+            setBackfillBusy(null);
+            setBackfillElapsed(0);
           }
         }, [backfillBusy, fetchData]);
 
@@ -536,9 +557,16 @@
                                 <button
                                   className="mc-btn"
                                   onClick={() => triggerBackfill(tf)}
-                                  disabled={backfillBusy}
+                                  disabled={!!backfillBusy}
+                                  style={backfillBusy === tf ? {
+                                    background: "rgba(245, 158, 11, 0.15)",
+                                    borderColor: "rgba(245, 158, 11, 0.5)",
+                                    color: "#f59e0b",
+                                  } : {}}
                                 >
-                                  Backfill {tf}
+                                  {backfillBusy === tf
+                                    ? `⏳ Backfilling… ${backfillElapsed}s`
+                                    : `Backfill ${tf}`}
                                 </button>
                               </td>
                             </tr>
@@ -548,7 +576,28 @@
                     </table>
                   </div>
                   {backfillMsg && (
-                    <div className="mt-3 text-xs mc-mute">{backfillMsg}</div>
+                    <div className={`mt-3 text-xs ${backfillMsg.startsWith("✓") ? "mc-pos" : backfillMsg.startsWith("✗") ? "mc-neg" : "mc-warn"}`} style={{ padding: "8px 12px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 6 }}>
+                      {backfillMsg}
+                    </div>
+                  )}
+                  {backfillHistory.length > 0 && (
+                    <div className="mt-3">
+                      <div className="text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold">
+                        Recent Backfills (this session)
+                      </div>
+                      <div className="text-[11px] space-y-1">
+                        {backfillHistory.map((h, i) => (
+                          <div key={i} className="mc-mute">
+                            <span className="font-mono mr-2">{new Date(h.ts).toLocaleTimeString()}</span>
+                            <span className="font-bold text-white">{h.tf}</span>
+                            {" — "}
+                            <span className="mc-pos">{h.upserted} upserted</span>
+                            {h.errors > 0 && <span className="mc-neg"> · {h.errors} errors</span>}
+                            <span className="ml-2">in {h.elapsed}s</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </>
               )}
@@ -690,6 +739,7 @@
                               <tr>
                                 <th>Ticker</th>
                                 <th>Dir</th>
+                                <th>State</th>
                                 <th>Shares</th>
                                 <th>Entry</th>
                                 <th>Notional</th>
@@ -706,7 +756,18 @@
                                       {p.direction || "—"}
                                     </span>
                                   </td>
-                                  <td>{p.shares || 0}</td>
+                                  <td>
+                                    {/* P0.7.159 — surface OPEN vs TP_HIT_TRIM so the operator
+                                        knows which positions have already had their first trim */}
+                                    {p.status === "TP_HIT_TRIM" ? (
+                                      <span className="mc-pill mc-pill-warn" title={`TP1 hit, ${p.trimmed_pct || 0}% trimmed, runner active`}>
+                                        TRIM {p.trimmed_pct ? `${p.trimmed_pct}%` : ""}
+                                      </span>
+                                    ) : (
+                                      <span className="mc-pill mc-pill-ok">OPEN</span>
+                                    )}
+                                  </td>
+                                  <td>{Number(p.shares || 0).toFixed(2)}</td>
                                   <td>{fmtUsd(p.entry_price, 2)}</td>
                                   <td>{fmtUsd(p.notional)}</td>
                                   <td className="text-[11px] mc-mute">
