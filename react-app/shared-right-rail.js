@@ -3369,6 +3369,37 @@
                           <path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" />
                         </svg>
                       </button>
+                      {/* V15 P0.7.157 (2026-05-14) — Mobile-only CHART button in
+                          the sticky header. On screens <1024px the entire left
+                          pane (containing the in-panel CHART button) is hidden by
+                          CSS, so this duplicate in the header is the only way for
+                          mobile users to reach the fullscreen chart modal.
+                          tt-rail-header-chart-btn is hidden via CSS at ≥1024px
+                          so desktop sees only the in-panel button. */}
+                      <button
+                        className="ds-chip ds-chip--sm tt-rail-header-chart-btn"
+                        onClick={() => setChartExpanded(true)}
+                        title="View fullscreen chart"
+                        aria-label="View fullscreen chart"
+                        style={{
+                          fontFamily: "var(--tt-font-mono)",
+                          padding: "0 10px",
+                          height: 26,
+                          fontSize: 11,
+                          fontWeight: 800,
+                          letterSpacing: "0.05em",
+                          color: "#051a10",
+                          background: "linear-gradient(135deg, rgba(34, 197, 94, 0.96), rgba(16, 185, 129, 0.96))",
+                          border: "1px solid rgba(34, 197, 94, 0.85)",
+                          boxShadow: "0 2px 8px rgba(34, 197, 94, 0.35)",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <span style={{ fontSize: 13, lineHeight: 1 }}>⤢</span>
+                        <span>CHART</span>
+                      </button>
                       <button className="ds-chip ds-chip--sm" onClick={onClose} title="Close">✕</button>
                     </div>
                   </div>

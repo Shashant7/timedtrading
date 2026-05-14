@@ -337,6 +337,14 @@
           display: none !important;
         }
       }
+      /* V15 P0.7.157 — Header CHART button is only for mobile (<1024px).
+         At ≥1024px the in-panel CHART button inside tt-rail-area-left-pane
+         is visible, so we hide the header duplicate to avoid redundancy. */
+      @media (min-width: 1024px) {
+        .tt-rail-header-chart-btn {
+          display: none !important;
+        }
+      }
 
       @keyframes fadeIn {
         from { opacity: 0; }
@@ -959,6 +967,12 @@
         }
         .tt-scroll-top-btn:active { transform: scale(0.95); }
 
+        /* tt-mobile-chart-fab CSS removed (P0.7.156 follow-up, 2026-05-14).
+           The floating FAB approach lost two stacking-context fights with
+           the right-rail's slide-in transform. Replaced by a prominent
+           "CHART" button inside the rail's chart panel header — see
+           shared-right-rail.js. */
+
         /* ── Mobile bottom navigation bar ──
            P0.7.104 — bottom shifted UP from 0 to var(--tt-legal-footer-h)
            so the View tabs (Analysis / Active Trader / Investor / All)
@@ -1120,9 +1134,9 @@
     <script src="ds-components.js?v=20260501a"></script>
     <script src="investor-panel.js?v=20260226a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260513-flicker"></script>
+    <script src="shared-right-rail.compiled.js?v=20260514-mobile-chart-btn"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
-    <script src="./index-react.compiled.66213eb0bb.js"></script>
+    <script src="./index-react.compiled.15c23ab1db.js"></script>
 
     <!-- Initialize app - separate script to avoid Babel parsing issues -->
     <script>
