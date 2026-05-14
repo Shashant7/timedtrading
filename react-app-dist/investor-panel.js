@@ -751,8 +751,24 @@
       for (const t of allTickers) {
         const s = String(t.stage || "research_avoid");
         if (counts[s] != null) counts[s] += 1;
-        if (t.accumZone?.inZone) buyZone.push(t.ticker);
-        if (t.rs?.rsNewHigh3m) rsHigh.push(t.ticker);
+        // V15 P0.7.155 (2026-05-14) — align "Buy Zone" in the brief with
+        // the Accumulate lane in the kanban. Previously listed any ticker
+        // with t.accumZone?.inZone === true, which is a pure technical
+        // signal (price-action accumulation pattern) decoupled from the
+        // stage classifier — so a ticker could land in the Brief's Buy
+        // Zone while sitting in the Avoid lane (HIMX example reported by
+        // the user). The user-facing contract is "Brief Buy Zone =
+        // Accumulate lane", so gate on stage. Also exclude owned
+        // positions — model handles adds via auto-rebalance, suggesting
+        // them as fresh buys is misleading.
+        const _isOwned = !!t.position?.owned;
+        if (s === "accumulate" && t.accumZone?.inZone && !_isOwned) {
+          buyZone.push(t.ticker);
+        }
+        // RS-new-high stays as-is (pure technical watchlist signal,
+        // independent of lane), but exclude Avoid lane so we don't
+        // surface "watch" tickers the model has flagged as caution.
+        if (t.rs?.rsNewHigh3m && s !== "research_avoid") rsHigh.push(t.ticker);
         const lat = Number(t.position?.last_action_ts) || 0;
         const lact = String(t.position?.last_action_type || "");
         if (lat > 0 && lact && t.position?.owned) {
