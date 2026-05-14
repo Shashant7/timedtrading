@@ -2044,6 +2044,14 @@
         // Fetch candles for expanded chart modal
         useEffect(() => {
           if (!chartExpanded || !tickerSymbol) return;
+          // V15 P0.7.159 — Seed the modal immediately with whatever candles
+          // we already have from the persistent left-pane chart. This makes
+          // the fullscreen chart show instantly on tap instead of staying
+          // blank while the higher-resolution fetch is in flight. The fetch
+          // below will then update to full 500-bar data.
+          if (chartCandles.length >= 2) {
+            setModalCandles(chartCandles);
+          }
           let cancelled = false;
           const run = async () => {
             try {
@@ -2058,7 +2066,8 @@
               if (!json.ok) throw new Error(json.error || "candles_failed");
               if (!cancelled) setModalCandles(Array.isArray(json.candles) ? json.candles : []);
             } catch (e) {
-              if (!cancelled) setModalCandles([]);
+              // On fetch failure keep the seeded chartCandles if we have them
+              if (!cancelled && chartCandles.length < 2) setModalCandles([]);
             } finally {
               if (!cancelled) setModalLoading(false);
             }
@@ -3599,7 +3608,15 @@
                                 actionable and can't be missed. */}
                             <button
                               className="ds-chip ds-chip--sm"
-                              onClick={() => setChartExpanded(true)}
+                              onClick={() => {
+                                setChartExpanded(true);
+                                try {
+                                  const _sym = String(tickerSymbol || "").toUpperCase();
+                                  if (_sym && typeof window !== "undefined") {
+                                    window.dispatchEvent(new CustomEvent("tt:open-chart", { detail: { ticker: _sym } }));
+                                  }
+                                } catch (_) {}
+                              }}
                               title="View fullscreen chart"
                               aria-label="View fullscreen chart"
                               style={{
@@ -6051,7 +6068,19 @@
                   </a>
                   <button
                     className="ds-chip ds-chip--sm"
-                    onClick={() => setChartExpanded(true)}
+                    onClick={() => {
+                      // Primary: direct state update
+                      setChartExpanded(true);
+                      // Belt-and-suspenders: also fire the global event so
+                      // the listener-based path triggers even if the direct
+                      // call somehow misses (e.g. stale closure edge case).
+                      try {
+                        const _sym = String(tickerSymbol || "").toUpperCase();
+                        if (_sym && typeof window !== "undefined") {
+                          window.dispatchEvent(new CustomEvent("tt:open-chart", { detail: { ticker: _sym } }));
+                        }
+                      } catch (_) {}
+                    }}
                     title="View fullscreen chart"
                     aria-label="View fullscreen chart"
                     style={{

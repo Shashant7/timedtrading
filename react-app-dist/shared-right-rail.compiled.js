@@ -2440,6 +2440,9 @@
       }), [chartCandles, chartTf, chartOverlays, subtleKeyLevelLines, ticker?.ticker]);
       useEffect(() => {
         if (!chartExpanded || !tickerSymbol) return;
+        if (chartCandles.length >= 2) {
+          setModalCandles(chartCandles);
+        }
         let cancelled = false;
         const run = async () => {
           try {
@@ -2456,7 +2459,7 @@
             if (!json.ok) throw new Error(json.error || "candles_failed");
             if (!cancelled) setModalCandles(Array.isArray(json.candles) ? json.candles : []);
           } catch (e) {
-            if (!cancelled) setModalCandles([]);
+            if (!cancelled && chartCandles.length < 2) setModalCandles([]);
           } finally {
             if (!cancelled) setModalLoading(false);
           }
@@ -3898,7 +3901,19 @@
                 }
               }, tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`))), React.createElement("button", {
                 className: "ds-chip ds-chip--sm",
-                onClick: () => setChartExpanded(true),
+                onClick: () => {
+                  setChartExpanded(true);
+                  try {
+                    const _sym = String(tickerSymbol || "").toUpperCase();
+                    if (_sym && typeof window !== "undefined") {
+                      window.dispatchEvent(new CustomEvent("tt:open-chart", {
+                        detail: {
+                          ticker: _sym
+                        }
+                      }));
+                    }
+                  } catch (_) {}
+                },
                 title: "View fullscreen chart",
                 "aria-label": "View fullscreen chart",
                 style: {
@@ -7562,7 +7577,19 @@
           }
         }, "Open in TradingView \u2197"), React.createElement("button", {
           className: "ds-chip ds-chip--sm",
-          onClick: () => setChartExpanded(true),
+          onClick: () => {
+            setChartExpanded(true);
+            try {
+              const _sym = String(tickerSymbol || "").toUpperCase();
+              if (_sym && typeof window !== "undefined") {
+                window.dispatchEvent(new CustomEvent("tt:open-chart", {
+                  detail: {
+                    ticker: _sym
+                  }
+                }));
+              }
+            } catch (_) {}
+          },
           title: "View fullscreen chart",
           "aria-label": "View fullscreen chart",
           style: {
