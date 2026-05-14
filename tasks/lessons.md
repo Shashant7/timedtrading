@@ -5,6 +5,14 @@
 
 ---
 
+## Always rebuild react-app-dist after frontend source changes [2026-05-14]
+
+Cloudflare Pages serves from `react-app-dist/` (`pages_build_output_dir = "react-app-dist"` in `wrangler.toml`). Both directories are tracked in git. Editing `react-app/` source files (including `shared-right-rail.js`, `index-react.source.html`) does NOT update `react-app-dist/` automatically.
+
+**Rule**: After any change to `react-app/` source files, always run `node scripts/build-frontend.js` (or `npm run build:frontend`) to rebuild `react-app-dist/`, then commit and push BOTH the source changes AND the dist changes. Running only `node scripts/compile-right-rail.js` or `node scripts/build-index-react.js` only updates `react-app/` — it does not touch `react-app-dist/`.
+
+---
+
 ## Trail-walk restore + restore-aware Loop 2 [2026-05-13]
 
 Session goal: close the remaining gaps from PR #124 (May 12-13 wipe recovery). Two surgical fixes shipped, then a third post-deploy fix when the live apply exposed an existing data-model bug.
