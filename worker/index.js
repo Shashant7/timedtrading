@@ -44101,8 +44101,20 @@ export default {
       // ─────────────────────────────────────────────────────────────────────
       if (routeKey === "GET /timed/admin/fundamentals") {
         try {
-          const authFail = await requireKeyOrAdmin(req, env);
+          // V15 P0.7.150 (2026-05-13) — Right Rail Fundamentals tab
+          // is a paid feature, not an admin-only one. Was returning
+          // 401 to Pro users (frontend showed a generic error
+          // banner). Move auth from admin-gate → tier:pro gate so
+          // any authenticated Pro/VIP user can read the cached
+          // snapshot. Admin-only protections remain on:
+          //   - ?refresh=1 / ?nocache=1 (TwelveData credits are
+          //     precious; only admin can force-refetch)
+          //   - per-user 60 calls/hour rate limit (cache hits are
+          //     cheap, but uncached cold-start calls cost ~50 TD
+          //     credits each, so cap blast radius)
+          const [authedUser, authFail] = await requireUser(req, env, { tier: "pro" });
           if (authFail) return authFail;
+          const isAdminUser = authedUser?.role === "admin" || authedUser?.tier === "admin" || authedUser?.email === env.ADMIN_EMAIL;
 
           const tickerRaw = url.searchParams.get("ticker") || url.searchParams.get("symbol") || "";
           const ticker = String(tickerRaw).toUpperCase().trim();
@@ -44110,7 +44122,24 @@ export default {
             return sendJSON({ ok: false, error: "missing_or_invalid_ticker" }, 400, corsHeaders(env, req));
           }
 
-          const refresh = url.searchParams.get("refresh") === "1" || url.searchParams.get("nocache") === "1";
+          // refresh / nocache stay admin-only (would burn TwelveData credits).
+          const refreshParam = url.searchParams.get("refresh") === "1" || url.searchParams.get("nocache") === "1";
+          const refresh = refreshParam && isAdminUser;
+
+          // Per-user rate limit on uncached reads. Admin bypasses.
+          if (!isAdminUser) {
+            try {
+              const _userId = authedUser?.email || "anon";
+              const _rl = await checkRateLimit(KV, _userId, "fundamentals", 60, 3600);
+              if (!_rl.allowed) {
+                return sendJSON(
+                  { ok: false, error: "rate_limit_exceeded", retryAfter: 60 },
+                  429,
+                  corsHeaders(env, req),
+                );
+              }
+            } catch (_) { /* fail-open if rate-limit infra hiccups */ }
+          }
           const cacheKey = `timed:fundamentals_v2:${ticker}`;
           const TTL_SECONDS = 6 * 60 * 60; // 6h
 
