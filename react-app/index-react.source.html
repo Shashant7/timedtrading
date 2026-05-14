@@ -966,6 +966,43 @@
         }
         .tt-scroll-top-btn:active { transform: scale(0.95); }
 
+        /* ── Mobile Chart FAB (P0.7.153, 2026-05-14) ──
+           Surfaces a one-tap path to the fullscreen chart for the
+           currently-selected ticker on mobile. The right rail's chart
+           panel is only 240px tall on phones and gets buried under
+           tabs; this FAB lets the user jump straight to a real chart
+           view without scrolling.
+
+           Placement: bottom-LEFT (avoids colliding with tt-scroll-top-btn
+           on the right). Sits above the bottom nav (~72px) and the
+           safe-area inset. Hidden on desktop via @media block below. */
+        .tt-mobile-chart-fab {
+          position: fixed;
+          left: 14px;
+          bottom: calc(72px + env(safe-area-inset-bottom));
+          height: 44px;
+          padding: 0 14px 0 12px;
+          border-radius: 22px;
+          background: linear-gradient(135deg, rgba(34, 197, 94, 0.92), rgba(16, 185, 129, 0.92));
+          border: 1px solid rgba(34, 197, 94, 0.6);
+          color: #051a10;
+          z-index: 55;
+          box-shadow: 0 8px 24px rgba(34, 197, 94, 0.35);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          cursor: pointer;
+          font-weight: 700;
+          font-size: 13px;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
+        }
+        .tt-mobile-chart-fab:active { transform: scale(0.95); }
+        .tt-mobile-chart-fab svg { width: 18px; height: 18px; }
+
         /* ── Mobile bottom navigation bar ──
            P0.7.104 — bottom shifted UP from 0 to var(--tt-legal-footer-h)
            so the View tabs (Analysis / Active Trader / Investor / All)
@@ -1060,6 +1097,7 @@
       @media (min-width: 769px) {
         .tt-mobile-bottom-nav { display: none !important; }
         .tt-scroll-top-btn { display: none !important; }
+        .tt-mobile-chart-fab { display: none !important; }
       }
     </style>
   </head>
@@ -19641,12 +19679,29 @@
         // Used by the Analysis viewport (OpportunitiesPanel) and as the
         // base for bubbleMapTickers. Active Trader kanban / All-table /
         // header counts read from `tickers` (cross-app only).
+        //
+        // V15 P0.7.151 (2026-05-14) — Search escapes the insight chips.
+        //
+        // The user model: Search + Viewport are paired. When the user
+        // types a ticker into Search, the viewport must show the
+        // result regardless of which insight chip (Focused / Actionable
+        // / Early Short / etc.) is currently active on the bubble map.
+        // Otherwise typing AAPL while the Focused chip is on returns
+        // an empty viewport — the user-added ticker isn't in the
+        // chip's set so it gets dropped.
+        //
+        // Fix: when search is non-empty, bypass the activeInsight
+        // narrowing for viewportTickers. The bubble map keeps its own
+        // chip-narrowed pipeline (so the visualization isn't
+        // disturbed); the viewport reflects the search intent.
         const viewportTickers = useMemo(() => {
           if (!activeInsightTickers) return tickers;
+          const searchActive = String(effectiveFilters?.search || filters?.search || "").trim().length > 0;
+          if (searchActive) return tickers;
           return tickers.filter((t) =>
             activeInsightTickers.has(normTicker(t?.ticker || "")),
           );
-        }, [tickers, activeInsightTickers]);
+        }, [tickers, activeInsightTickers, effectiveFilters?.search, filters?.search]);
 
         // V15 P0.7.43 (2026-04-30) — App-scope counts for the View tab badges.
         // These were originally inside ActionCenterPanel which broke the badges
@@ -21577,11 +21632,19 @@
 
                     {/* V15 P0.7.86 — Activity Feed drawer (right side).
                         Vertical 300px strip showing recent ENTRY/TRIM/EXIT
-                        events. Hidden when ticker rail is open. */}
-                    <ActivityFeedDrawer
-                      selectedTicker={selectedTicker}
-                      onSelectTicker={(sym) => handleTickerSelect(sym)}
-                    />
+                        events. Hidden when ticker rail is open.
+
+                        P0.7.153 (2026-05-14) — gate to admin only. The drawer
+                        polls /timed/admin/activity-feed which 401s for non-admin
+                        users, producing console noise + an empty UI element.
+                        Surface only for admins until a non-admin equivalent
+                        endpoint is shipped. */}
+                    {window._ttIsAdmin && (
+                      <ActivityFeedDrawer
+                        selectedTicker={selectedTicker}
+                        onSelectTicker={(sym) => handleTickerSelect(sym)}
+                      />
+                    )}
 
                     {/* Right Rail - Detail View (slides in from right, fixed to viewport) */}
                     {selectedTicker && (
@@ -21819,6 +21882,51 @@
                 </svg>
               </button>
             )}
+
+            {/* ── Mobile Chart FAB (P0.7.153, 2026-05-14) ──
+                Surfaces a one-tap path to a fullscreen chart for the
+                currently-selected ticker. Visible only on mobile (CSS).
+                On tap: ensures a ticker is selected (uses the first
+                visible kanban ticker as fallback) then dispatches the
+                "open chart" intent. The right-rail consumes the intent
+                and pops its existing chartExpanded fullscreen modal. */}
+            <button
+              type="button"
+              className="tt-mobile-chart-fab"
+              onClick={() => {
+                const _ttPick = (() => {
+                  if (selectedTicker) return selectedTicker;
+                  try {
+                    if (Array.isArray(tickers) && tickers.length > 0) return tickers[0]?.ticker || null;
+                  } catch {}
+                  return null;
+                })();
+                if (!_ttPick) {
+                  // No ticker available — flash the bottom nav guide instead.
+                  try {
+                    if (typeof handleDashboardModeChange === "function") handleDashboardModeChange("trader");
+                  } catch {}
+                  return;
+                }
+                if (_ttPick !== selectedTicker) {
+                  try { handleTickerSelect(_ttPick); } catch {}
+                }
+                // Set pending intent + dispatch event so whichever
+                // wins (mount vs already-mounted) picks it up.
+                try { window._ttPendingChartOpen = String(_ttPick).toUpperCase(); } catch {}
+                try {
+                  window.dispatchEvent(new CustomEvent("tt:open-chart", { detail: { ticker: _ttPick } }));
+                } catch {}
+              }}
+              aria-label="View chart"
+              title="View chart"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="3 17 9 11 13 15 21 7" />
+                <polyline points="14 7 21 7 21 14" />
+              </svg>
+              Chart
+            </button>
 
             {/* ── Bubble Map full-screen mobile modal ─────────────────
                 Tappable launcher on the bubble toggle row opens this.

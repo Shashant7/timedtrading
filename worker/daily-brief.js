@@ -3650,7 +3650,31 @@ export async function generateDailyBrief(env, type, opts = {}) {
     const prompt = type === "morning" ? buildMorningPrompt(data) : buildEveningPrompt(data);
     const content = await callOpenAI(env, ANALYST_SYSTEM_PROMPT, prompt);
     if (!content || content.length < 100) {
-      return { ok: false, error: "ai_response_too_short" };
+      // P0.7.154 (2026-05-14) — persist a stub so the operator has a
+      // forensic artifact when the brief silently doesn't generate.
+      // Without this, "why was there no morning brief?" forces a log
+      // dive. With this, /timed/admin/daily-brief?type=morning returns
+      // the stub and surfaces the failure reason inline.
+      const _stubBlob = {
+        ok: false,
+        type,
+        error: "ai_response_too_short",
+        ai_content_length: content?.length || 0,
+        prompt_length: (prompt || "").length,
+        ts: Date.now(),
+        date_et: data?.date_et || null,
+      };
+      try {
+        const KV = env?.KV_TIMED;
+        if (KV) {
+          await KV.put(
+            `timed:brief:stub:${type}:${data?.date_et || "unknown"}`,
+            JSON.stringify(_stubBlob),
+            { expirationTtl: 3 * 86400 },
+          );
+        }
+      } catch {}
+      return { ok: false, error: "ai_response_too_short", stub: _stubBlob };
     }
 
     // 3. Extract per-instrument predictions (one specific actionable
@@ -4077,12 +4101,22 @@ export async function generateIntradayBrief(env, opts = {}) {
     }
 
     // Gather TT universe top movers from timed:prices KV
+    //
+    // P0.7.153 (2026-05-14) — BUG FIX. The KV blob shape is
+    //   { prices: { TICKER: {...}, ... }, ts, ... }
+    // Iterating Object.entries(priceData) at the top level only
+    // sees keys like "prices", "ts" — never the actual ticker rows
+    // — so this loop produced ZERO movers. Fix: drill into
+    // `priceData.prices` first.
     try {
       const priceData = await kvGetJSON(KV, "timed:prices");
-      if (priceData && typeof priceData === "object") {
+      const priceMap = (priceData && typeof priceData === "object")
+        ? (priceData.prices && typeof priceData.prices === "object" ? priceData.prices : priceData)
+        : null;
+      if (priceMap && typeof priceMap === "object") {
         const movers = [];
         const skipTickers = new Set(["SPY", "QQQ", "VX1!", "ES1!", "NQ1!", "VIX", "IWM", "DIA", "XLE", "XLK", "XLF", "XLU", "XLP", "XLY", "XLI", "XLV", "XLB", "XLRE", "XLC", "GLD", "TLT", "CL1!", "GC1!", "SI1!"]);
-        for (const [ticker, d] of Object.entries(priceData)) {
+        for (const [ticker, d] of Object.entries(priceMap)) {
           if (skipTickers.has(ticker) || !d || typeof d !== "object") continue;
           const pct = Number(d.dp) || 0;
           const price = Number(d.p) || 0;
@@ -4106,7 +4140,28 @@ export async function generateIntradayBrief(env, opts = {}) {
     const prompt = buildIntradayPrompt(data);
     const content = await callOpenAI(env, INTRADAY_SYSTEM_PROMPT, prompt);
     if (!content || content.length < 50) {
-      return { ok: false, error: "ai_response_too_short" };
+      // P0.7.154 (2026-05-14) — persist a stub so silent intraday-flash
+      // failures leave a forensic trail. Same pattern as morning brief.
+      const _stubBlob = {
+        ok: false,
+        type: "intraday",
+        error: "ai_response_too_short",
+        ai_content_length: content?.length || 0,
+        prompt_length: (prompt || "").length,
+        ts: Date.now(),
+        date_et: data?.date_et || null,
+      };
+      try {
+        const KV = env?.KV_TIMED;
+        if (KV) {
+          await KV.put(
+            `timed:brief:stub:intraday:${data?.date_et || "unknown"}-${Date.now()}`,
+            JSON.stringify(_stubBlob),
+            { expirationTtl: 3 * 86400 },
+          );
+        }
+      } catch {}
+      return { ok: false, error: "ai_response_too_short", stub: _stubBlob };
     }
 
     // 2026-04-23: attach a compact "pulse" infographic to the intraday

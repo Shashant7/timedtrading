@@ -1982,6 +1982,35 @@
           return () => window.removeEventListener("keydown", onKey);
         }, [chartExpanded]);
 
+        // V15 P0.7.153 — listen for global "open chart" intent + check
+        // pending intent set before mount. The mobile Chart button on
+        // kanban cards selects a ticker and signals "open chart"; the
+        // rail consumes either the live event (if already mounted) or
+        // the pending flag (if just mounted) and pops the fullscreen
+        // chart modal. tickerSymbol filter prevents cross-rail leakage.
+        useEffect(() => {
+          // 1. Consume pending intent if it matches this rail.
+          try {
+            const pending = (typeof window !== "undefined" && window._ttPendingChartOpen) || "";
+            const havSym = String(tickerSymbol || "").toUpperCase();
+            if (pending && havSym && String(pending).toUpperCase() === havSym) {
+              window._ttPendingChartOpen = null;
+              setChartExpanded(true);
+            }
+          } catch {}
+          // 2. Listen for live "open chart" events.
+          const onOpenChart = (e) => {
+            try {
+              const wantSym = String(e?.detail?.ticker || "").toUpperCase();
+              const havSym = String(tickerSymbol || "").toUpperCase();
+              if (!wantSym || !havSym || wantSym !== havSym) return;
+              setChartExpanded(true);
+            } catch {}
+          };
+          window.addEventListener("tt:open-chart", onOpenChart);
+          return () => window.removeEventListener("tt:open-chart", onOpenChart);
+        }, [tickerSymbol]);
+
         // Sync modal TF with mini-chart TF when modal opens
         useEffect(() => {
           if (chartExpanded) {

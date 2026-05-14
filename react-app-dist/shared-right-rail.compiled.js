@@ -2405,6 +2405,26 @@
         return () => window.removeEventListener("keydown", onKey);
       }, [chartExpanded]);
       useEffect(() => {
+        try {
+          const pending = typeof window !== "undefined" && window._ttPendingChartOpen || "";
+          const havSym = String(tickerSymbol || "").toUpperCase();
+          if (pending && havSym && String(pending).toUpperCase() === havSym) {
+            window._ttPendingChartOpen = null;
+            setChartExpanded(true);
+          }
+        } catch {}
+        const onOpenChart = e => {
+          try {
+            const wantSym = String(e?.detail?.ticker || "").toUpperCase();
+            const havSym = String(tickerSymbol || "").toUpperCase();
+            if (!wantSym || !havSym || wantSym !== havSym) return;
+            setChartExpanded(true);
+          } catch {}
+        };
+        window.addEventListener("tt:open-chart", onOpenChart);
+        return () => window.removeEventListener("tt:open-chart", onOpenChart);
+      }, [tickerSymbol]);
+      useEffect(() => {
         if (chartExpanded) {
           setModalTf(chartTf);
           setModalCandles([]);

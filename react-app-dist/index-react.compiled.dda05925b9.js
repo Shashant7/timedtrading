@@ -15666,8 +15666,10 @@ function App() {
   }, [data, effectiveFilters, trades, socialAdditions, timeTravelTickers, savedTickers]);
   const viewportTickers = useMemo(() => {
     if (!activeInsightTickers) return tickers;
+    const searchActive = String(effectiveFilters?.search || filters?.search || "").trim().length > 0;
+    if (searchActive) return tickers;
     return tickers.filter(t => activeInsightTickers.has(normTicker(t?.ticker || "")));
-  }, [tickers, activeInsightTickers]);
+  }, [tickers, activeInsightTickers, effectiveFilters?.search, filters?.search]);
   const _appKanbanCounts = useMemo(() => {
     const counts = {
       setup: 0,
@@ -17914,7 +17916,7 @@ function App() {
     className: "text-[9px] text-gray-400 mx-0.5"
   }, "\u2014"), React.createElement("span", {
     className: "text-[10px] font-bold text-amber-400"
-  }, "Go Pro for all"))))))), React.createElement(ActivityFeedDrawer, {
+  }, "Go Pro for all"))))))), window._ttIsAdmin && React.createElement(ActivityFeedDrawer, {
     selectedTicker: selectedTicker,
     onSelectTicker: sym => handleTickerSelect(sym)
   }), selectedTicker && React.createElement(React.Fragment, null, React.createElement("div", {
@@ -18183,7 +18185,54 @@ function App() {
     strokeLinejoin: "round"
   }, React.createElement("polyline", {
     points: "18 15 12 9 6 15"
-  }))), bubbleFullscreen && React.createElement("div", {
+  }))), React.createElement("button", {
+    type: "button",
+    className: "tt-mobile-chart-fab",
+    onClick: () => {
+      const _ttPick = (() => {
+        if (selectedTicker) return selectedTicker;
+        try {
+          if (Array.isArray(tickers) && tickers.length > 0) return tickers[0]?.ticker || null;
+        } catch {}
+        return null;
+      })();
+      if (!_ttPick) {
+        try {
+          if (typeof handleDashboardModeChange === "function") handleDashboardModeChange("trader");
+        } catch {}
+        return;
+      }
+      if (_ttPick !== selectedTicker) {
+        try {
+          handleTickerSelect(_ttPick);
+        } catch {}
+      }
+      try {
+        window._ttPendingChartOpen = String(_ttPick).toUpperCase();
+      } catch {}
+      try {
+        window.dispatchEvent(new CustomEvent("tt:open-chart", {
+          detail: {
+            ticker: _ttPick
+          }
+        }));
+      } catch {}
+    },
+    "aria-label": "View chart",
+    title: "View chart"
+  }, React.createElement("svg", {
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "2.4",
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    "aria-hidden": "true"
+  }, React.createElement("polyline", {
+    points: "3 17 9 11 13 15 21 7"
+  }), React.createElement("polyline", {
+    points: "14 7 21 7 21 14"
+  })), "Chart"), bubbleFullscreen && React.createElement("div", {
     className: "tt-bubble-fullscreen",
     role: "dialog",
     "aria-modal": "true",

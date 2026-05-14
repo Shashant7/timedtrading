@@ -64,6 +64,79 @@ export async function notifyDiscord(env, embed) {
   }
 }
 
+/**
+ * P0.7.154 (2026-05-14) — record a cron / system failure with a forensic
+ * trail. Writes a tombstone to KV (so the operator can grep "what failed
+ * recently?") and fires a Discord alert (so the operator hears about it
+ * within the hour, not when a customer reports it).
+ *
+ * Both writes are best-effort — if KV is wedged or Discord is down, this
+ * helper still returns; never blocks the caller.
+ *
+ * Tombstone format (KV key `timed:cron:failure:{op}`):
+ *   { op, error, ts, caller, count }   // count auto-increments per op
+ *
+ * `op` should be a short stable label like "investor_hourly" or
+ * "daily_brief" — it's used as the KV key suffix.
+ */
+export async function recordCronFailure(env, opts) {
+  const op = String(opts?.op || "unknown").slice(0, 64).replace(/[^a-z0-9_]/gi, "_");
+  const error = String(opts?.error || "").slice(0, 500);
+  const caller = String(opts?.caller || "").slice(0, 200) || null;
+  const ts = Date.now();
+
+  // 1. KV tombstone (with auto-incrementing count per op)
+  try {
+    const KV = env?.KV_TIMED;
+    if (KV) {
+      const key = `timed:cron:failure:${op}`;
+      let prev = null;
+      try { prev = await KV.get(key, "json"); } catch {}
+      const count = (Number(prev?.count) || 0) + 1;
+      const tombstone = { op, error, ts, caller, count, last_ok_ts: prev?.last_ok_ts || null };
+      try {
+        await KV.put(key, JSON.stringify(tombstone), { expirationTtl: 7 * 86400 });
+      } catch {}
+    }
+  } catch {}
+
+  // 2. Discord alert (best-effort)
+  try {
+    if (!opts?.skipDiscord) {
+      await notifyDiscord(env, {
+        title: `⚠️ Cron Failure: ${op}`,
+        description: `\`${error}\``,
+        color: 0xef4444,
+        timestamp: new Date(ts).toISOString(),
+        footer: { text: caller ? `caller=${caller}` : "no caller" },
+      });
+    }
+  } catch {}
+
+  return { ok: true, op, ts };
+}
+
+/**
+ * Mirror of recordCronFailure that records a successful run. Resets the
+ * KV tombstone count and stamps `last_ok_ts` so persistent-failure
+ * detection later can compute "how long has this been broken?".
+ */
+export async function recordCronSuccess(env, op) {
+  try {
+    const KV = env?.KV_TIMED;
+    if (!KV) return;
+    const safe = String(op || "unknown").slice(0, 64).replace(/[^a-z0-9_]/gi, "_");
+    const key = `timed:cron:failure:${safe}`;
+    let prev = null;
+    try { prev = await KV.get(key, "json"); } catch {}
+    if (!prev || (prev.count || 0) === 0) return;
+    await KV.put(key, JSON.stringify({
+      op: safe, error: null, ts: prev.ts, caller: prev.caller,
+      count: 0, last_ok_ts: Date.now(),
+    }), { expirationTtl: 7 * 86400 });
+  } catch {}
+}
+
 /** Get Discord alert mode: "critical" (default) or "all". */
 export function getDiscordAlertMode(env) {
   const raw = String(env?.DISCORD_ALERT_MODE || "critical")

@@ -5360,7 +5360,7 @@ function App() {
     if (!confirm("This will permanently delete ALL trades and reset the account to $100,000. Continue?")) return;
     setResetting(true); setResetMsg(null); setError(null);
     try {
-      const res = await fetch(`${API_BASE}/timed/trades/reset`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", credentials: "include" });
+      const res = await fetch(`${API_BASE}/timed/trades/reset?confirm_destroy=YES_DESTROY`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", credentials: "include" });
       const data = await res.json();
       if (data.ok) { setResetMsg(data.message || "Account reset to $100,000."); setReport(null); setRecs(null); fetchData(); }
       else setError(data.error || "Reset failed");
