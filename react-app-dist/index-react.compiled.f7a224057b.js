@@ -16048,11 +16048,16 @@ function App() {
     href: "trade-autopsy.html",
     "data-admin-only": "true",
     className: "px-3 py-1 rounded-md text-[13px] text-[#14b8a6]/80 hover:text-[#14b8a6] hover:bg-[#14b8a6]/[0.06] transition-all font-medium"
-  }, "Trade Autopsy"), (window.TimedAuthHelpers?.getStoredSession()?.role === "admin" || window.TimedAuthHelpers?.getStoredSession()?.tier === "admin") && React.createElement("a", {
+  }, "Trade Autopsy"), (window.TimedAuthHelpers?.getStoredSession()?.role === "admin" || window.TimedAuthHelpers?.getStoredSession()?.tier === "admin") && React.createElement(React.Fragment, null, React.createElement("a", {
+    href: "mission-control.html",
+    "data-admin-only": "true",
+    className: "px-3 py-1 rounded-md text-[13px] text-[#34d399]/90 hover:text-[#34d399] hover:bg-[#34d399]/[0.06] transition-all font-medium",
+    title: "Mission Control: model perf, system health, data coverage, users, positions"
+  }, "Mission Control"), React.createElement("a", {
     href: "admin-clients.html",
     "data-admin-only": "true",
     className: "px-3 py-1 rounded-md text-[13px] text-[#a78bfa]/80 hover:text-[#a78bfa] hover:bg-[#a78bfa]/[0.06] transition-all font-medium"
-  }, "Admin"), React.createElement("a", {
+  }, "Admin")), React.createElement("a", {
     href: "daily-brief.html",
     id: "nav-daily-brief",
     className: "relative px-3 py-1 rounded-md text-[13px] text-[#f59e0b]/80 hover:text-[#f59e0b] hover:bg-[#f59e0b]/[0.06] transition-all font-medium"
@@ -16169,12 +16174,17 @@ function App() {
     "data-admin-only": "true",
     className: "px-3 py-2 rounded-md text-[13px] text-[#14b8a6]/80 hover:text-[#14b8a6] font-medium",
     onClick: () => setMobileMenuOpen(false)
-  }, "Trade Autopsy"), (window.TimedAuthHelpers?.getStoredSession()?.role === "admin" || window.TimedAuthHelpers?.getStoredSession()?.tier === "admin") && React.createElement("a", {
+  }, "Trade Autopsy"), (window.TimedAuthHelpers?.getStoredSession()?.role === "admin" || window.TimedAuthHelpers?.getStoredSession()?.tier === "admin") && React.createElement(React.Fragment, null, React.createElement("a", {
+    href: "mission-control.html",
+    "data-admin-only": "true",
+    className: "px-3 py-2 rounded-md text-[13px] text-[#34d399]/90 hover:text-[#34d399] hover:bg-[#34d399]/[0.06] transition-all font-medium",
+    onClick: () => setMobileMenuOpen(false)
+  }, "Mission Control"), React.createElement("a", {
     href: "admin-clients.html",
     "data-admin-only": "true",
     className: "px-3 py-2 rounded-md text-[13px] text-[#a78bfa]/80 hover:text-[#a78bfa] hover:bg-[#a78bfa]/[0.06] transition-all font-medium",
     onClick: () => setMobileMenuOpen(false)
-  }, "Admin"), React.createElement("a", {
+  }, "Admin")), React.createElement("a", {
     href: "daily-brief.html",
     className: "px-3 py-2 rounded-md text-[13px] text-[#f59e0b]/80 hover:text-[#f59e0b] hover:bg-[#f59e0b]/[0.06] transition-all font-medium",
     onClick: () => setMobileMenuOpen(false)
@@ -18185,38 +18195,7 @@ function App() {
     strokeLinejoin: "round"
   }, React.createElement("polyline", {
     points: "18 15 12 9 6 15"
-  }))), selectedTicker && typeof ReactDOM !== "undefined" && ReactDOM.createPortal && document?.body && ReactDOM.createPortal(React.createElement("button", {
-    type: "button",
-    className: "tt-mobile-chart-fab",
-    onClick: () => {
-      const _ttPick = selectedTicker;
-      if (!_ttPick) return;
-      try {
-        window._ttPendingChartOpen = String(_ttPick).toUpperCase();
-      } catch {}
-      try {
-        window.dispatchEvent(new CustomEvent("tt:open-chart", {
-          detail: {
-            ticker: _ttPick
-          }
-        }));
-      } catch {}
-    },
-    "aria-label": `View ${selectedTicker} chart`,
-    title: `View ${selectedTicker} chart`
-  }, React.createElement("svg", {
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: "2.4",
-    strokeLinecap: "round",
-    strokeLinejoin: "round",
-    "aria-hidden": "true"
-  }, React.createElement("polyline", {
-    points: "3 17 9 11 13 15 21 7"
-  }), React.createElement("polyline", {
-    points: "14 7 21 7 21 14"
-  })), "Chart"), document.body), bubbleFullscreen && React.createElement("div", {
+  }))), bubbleFullscreen && React.createElement("div", {
     className: "tt-bubble-fullscreen",
     role: "dialog",
     "aria-modal": "true",

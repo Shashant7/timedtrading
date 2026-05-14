@@ -32,6 +32,7 @@ const WORKER_ORIGIN = "https://timed-trading-ingest.shashant.workers.dev";
  */
 const ADMIN_ONLY_PAGES = new Set([
   "/admin-clients.html",
+  "/mission-control.html",
   "/screener.html",
   "/system-intelligence.html",
   "/ticker-management.html",
