@@ -176,33 +176,79 @@
           return () => clearInterval(id);
         }, [backfillBusy]);
 
+        // P0.7.160 — batched backfill loop. The previous single-call attempt
+        // timed out at 2min on the worker side (245 tickers x 1 TF requires
+        // 245 sequential TwelveData calls = ~37s API time + processing,
+        // which exceeded the wall-time budget). The endpoint already
+        // supports ?offset=N&limit=20 pagination — Mission Control now
+        // walks the universe in batches of 20, surfacing batch-level
+        // progress so the user can see actual movement.
         const triggerBackfill = useCallback(async (tf) => {
           if (backfillBusy) return;
-          if (!confirm(`Trigger ${tf} backfill for the full universe (canonical + user-added) covering the last 35 days?\n\nLarger TFs (D, 240) take 30-60 seconds.\nSmaller TFs (60) can take 1-2 minutes.\n\nThe page will show progress while it runs.`)) return;
+          // Universe size = SECTOR_MAP (~245) + user-added (~13) ≈ 260.
+          // Round up to 280 to be safe — extra empty batches return fast.
+          const UNIVERSE_MAX = 280;
+          const BATCH_SIZE = 20;
+          const TOTAL_BATCHES = Math.ceil(UNIVERSE_MAX / BATCH_SIZE);
+          if (!confirm(
+            `Trigger ${tf} backfill for the full universe (canonical + user-added) covering the last 35 days?\n\n` +
+            `Will run in ${TOTAL_BATCHES} batches of ${BATCH_SIZE} tickers each.\n` +
+            `Each batch takes 10-25 seconds. Total ${tf} backfill ≈ ${Math.round(TOTAL_BATCHES * 0.3)}-${Math.round(TOTAL_BATCHES * 0.5)} minutes.\n\n` +
+            `Progress will tick after every batch. Do not refresh the page.`
+          )) return;
           setBackfillBusy(tf);
-          setBackfillMsg(`Backfill ${tf} in progress — this can take 30s to 2 minutes. Do not refresh.`);
+          setBackfillMsg(`Backfill ${tf} starting (batch 0/${TOTAL_BATCHES})…`);
           const start = Date.now();
+          let totalUpserted = 0, totalErrors = 0, totalTickers = 0, batchesCompleted = 0;
           try {
-            const res = await fetch(`${API_BASE}/timed/admin/alpaca-backfill?tf=${tf}&sinceDays=35&include_user=1`, {
-              method: "POST",
-              credentials: "include",
-              headers: { "Content-Type": "application/json" },
-              body: "{}",
-            });
-            const j = await res.json();
-            const elapsed = Math.floor((Date.now() - start) / 1000);
-            if (j.ok) {
-              const msg = `✓ Backfill ${tf} done in ${elapsed}s — ${j.upserted || 0} candles upserted across ${j.tickers || 0} tickers (${j.errors || 0} errors).`;
-              setBackfillMsg(msg);
-              setBackfillHistory(h => [{ tf, elapsed, upserted: j.upserted || 0, errors: j.errors || 0, ts: Date.now() }, ...h].slice(0, 5));
-              // Re-fetch Mission Control data so the freshness numbers refresh
-              setTimeout(() => fetchData(), 800);
-            } else {
-              setBackfillMsg(`✗ Backfill ${tf} failed after ${elapsed}s: ${j.error || "unknown"}`);
+            for (let offset = 0; offset < UNIVERSE_MAX; offset += BATCH_SIZE) {
+              const batchIdx = Math.floor(offset / BATCH_SIZE) + 1;
+              const elapsedSec = Math.floor((Date.now() - start) / 1000);
+              setBackfillMsg(`Backfill ${tf} batch ${batchIdx}/${TOTAL_BATCHES}… (${totalUpserted} upserted so far, ${elapsedSec}s elapsed)`);
+              const url = `${API_BASE}/timed/admin/alpaca-backfill?tf=${tf}&sinceDays=35&include_user=1&offset=${offset}&limit=${BATCH_SIZE}`;
+              try {
+                const res = await fetch(url, {
+                  method: "POST",
+                  credentials: "include",
+                  headers: { "Content-Type": "application/json" },
+                  body: "{}",
+                });
+                if (!res.ok) {
+                  console.warn(`[BACKFILL] batch ${batchIdx} HTTP ${res.status}`);
+                  totalErrors++;
+                  continue;
+                }
+                const j = await res.json().catch(() => ({}));
+                if (j.ok) {
+                  totalUpserted += Number(j.upserted) || 0;
+                  totalErrors += Number(j.errors) || 0;
+                  totalTickers += Number(j.tickers) || 0;
+                  batchesCompleted++;
+                  // If a batch returned 0 tickers, we've walked past the end of
+                  // the universe — stop early instead of grinding through
+                  // empty batches.
+                  if ((Number(j.tickers) || 0) === 0) break;
+                } else {
+                  console.warn(`[BACKFILL] batch ${batchIdx} failed:`, j.error);
+                  totalErrors++;
+                }
+              } catch (be) {
+                console.warn(`[BACKFILL] batch ${batchIdx} threw:`, String(be.message || be));
+                totalErrors++;
+              }
             }
+            const elapsed = Math.floor((Date.now() - start) / 1000);
+            const ok = batchesCompleted > 0 && totalUpserted > 0;
+            const msg = ok
+              ? `✓ Backfill ${tf} done in ${elapsed}s — ${totalUpserted} candles upserted across ${totalTickers} tickers (${batchesCompleted} batches, ${totalErrors} errors).`
+              : `✗ Backfill ${tf} finished in ${elapsed}s with no upserts — ${totalErrors} batch errors. Check worker logs.`;
+            setBackfillMsg(msg);
+            setBackfillHistory(h => [{ tf, elapsed, upserted: totalUpserted, errors: totalErrors, ts: Date.now() }, ...h].slice(0, 5));
+            // Re-fetch Mission Control data so the freshness numbers refresh
+            setTimeout(() => fetchData(), 800);
           } catch (e) {
             const elapsed = Math.floor((Date.now() - start) / 1000);
-            setBackfillMsg(`✗ Backfill ${tf} failed after ${elapsed}s: ${String(e.message || e)}`);
+            setBackfillMsg(`✗ Backfill ${tf} crashed after ${elapsed}s: ${String(e.message || e)}`);
           } finally {
             setBackfillBusy(null);
             setBackfillElapsed(0);

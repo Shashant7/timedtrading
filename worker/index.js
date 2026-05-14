@@ -15166,19 +15166,61 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
 
   const trimmedPct = existingTrade ? existingTrade.trimmedPct || 0 : 0;
 
+  // P0.7.160 (2026-05-14) — minimum-distance enforcement on TP1 so the
+  // first trim doesn't fire near entry price. User reported: "we tend
+  // to trim nearly immediately 10% of the position even at the same
+  // price as entry price".
+  //
+  // Root cause: SWING/POSITIONAL trimLevels are [0.1, 0.25, 0.5, 1.0]
+  // so TP1 is a 10% scale-out. When the TP-selection picks a confluence
+  // zone close to entry (e.g., a recent VWAP or session high right
+  // above entry), TP1 lands very close to entry price and the first
+  // tick past it triggers a trim with effectively zero PnL.
+  //
+  // Two-layer defense applied below in the hit-detection loop:
+  //
+  //   (a) MIN_TP1_PCT — require TP1 to be at least 0.75% from entry.
+  //       If the stored TP1 is closer, push it out to that floor.
+  //       Picks up any cases where the upstream TP builder didn't
+  //       enforce the horizon's minDistancePct (e.g. legacy stored
+  //       plans, fragile-mode overrides, etc.).
+  //
+  //   (b) MIN_PNL_FOR_TRIM — even if a TP level is "hit", refuse to
+  //       trim unless the position has at least 0.5% unrealized PnL.
+  //       Mirrors the canTakeInitialSignalTrim guard for the SL/SOFT
+  //       paths, which previously had no equivalent here.
+  const MIN_TP1_PCT = 0.0075;     // TP1 must be ≥ 0.75% from entry
+  const MIN_PNL_FOR_TRIM = 0.005; // 0.5% unrealized before any trim
+
   // Check which TP levels have been hit (sorted by trim percentage)
   const hitTPLevels = [];
-  for (const tpLevel of tpArray) {
-    const tpPrice = Number(tpLevel.price);
+  for (let i = 0; i < tpArray.length; i++) {
+    const tpLevel = tpArray[i];
+    let tpPrice = Number(tpLevel.price);
     if (!Number.isFinite(tpPrice)) continue;
 
-    const hit = isLong ? currentPrice >= tpPrice : currentPrice <= tpPrice;
-    if (hit) {
-      hitTPLevels.push({
-        ...tpLevel,
-        price: tpPrice,
-      });
+    // (a) Min-distance floor on TP1 (the closest, smallest-trim level)
+    if (i === 0 && entryPrice > 0) {
+      const minTpDist = entryPrice * MIN_TP1_PCT;
+      const actualDist = isLong ? (tpPrice - entryPrice) : (entryPrice - tpPrice);
+      if (actualDist < minTpDist) {
+        tpPrice = isLong ? entryPrice + minTpDist : entryPrice - minTpDist;
+      }
     }
+
+    const hit = isLong ? currentPrice >= tpPrice : currentPrice <= tpPrice;
+    if (!hit) continue;
+
+    // (b) Min-PnL gate — refuse the trim even on hit if PnL is negligible
+    const unrealizedPnlPct = isLong
+      ? (currentPrice - entryPrice) / entryPrice
+      : (entryPrice - currentPrice) / entryPrice;
+    if (unrealizedPnlPct < MIN_PNL_FOR_TRIM) continue;
+
+    hitTPLevels.push({
+      ...tpLevel,
+      price: tpPrice,
+    });
   }
 
   // Sort hit TPs by trim percentage (ascending)

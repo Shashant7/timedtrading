@@ -10664,7 +10664,7 @@ function ActionCenterPanel({
           const exitMs = Number(trade.exit_ts ?? trade.exitTs ?? 0);
           const scorerStage = String(t?.kanban_stage || "");
           const newOpportunity = ["setup", "in_review", "enter", "enter_now", "just_flipped"].includes(scorerStage);
-          if (exitMs > 0 && Date.now() - exitMs < 24 * 60 * 60 * 1000 && !newOpportunity) stage = "exit";
+          if (exitMs > 0 && Date.now() - exitMs < 72 * 60 * 60 * 1000 && !newOpportunity) stage = "exit";
         }
       }
       if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") counts.setup++;else if (stage === "in_review" || stage === "enter" || stage === "enter_now" || stage === "just_flipped") counts.enter++;else if (stage === "active" || stage === "just_entered" || stage === "hold") counts.hold++;else if (stage === "defend") counts.defend++;else if (stage === "trim") counts.trim++;else if (stage === "exit") counts.exit++;
@@ -11050,7 +11050,7 @@ function SimpleKanbanTable({
         const exitMs = Number(trade.exit_ts ?? trade.exitTs ?? 0);
         const scorerStage = String(t?.kanban_stage || "");
         const newOpportunity = ["setup", "enter", "enter_now", "just_flipped"].includes(scorerStage);
-        if (exitMs > 0 && Date.now() - exitMs < 24 * 60 * 60 * 1000 && !newOpportunity) stage = "exit";
+        if (exitMs > 0 && Date.now() - exitMs < 72 * 60 * 60 * 1000 && !newOpportunity) stage = "exit";
       }
       let uiStage;
       switch (stage) {
@@ -11887,7 +11887,7 @@ function EarlyMoversPanel({
         const exitMs = Number(trade.exit_ts ?? trade.exitTs ?? 0);
         const scorerStage = String(t?.kanban_stage || "");
         const newOpportunity = ["setup", "enter", "enter_now", "just_flipped"].includes(scorerStage);
-        if (exitMs > 0 && Date.now() - exitMs < 24 * 60 * 60 * 1000 && !newOpportunity) stage = "exit";
+        if (exitMs > 0 && Date.now() - exitMs < 72 * 60 * 60 * 1000 && !newOpportunity) stage = "exit";
       }
       switch (stage) {
         case "setup":
@@ -14475,7 +14475,7 @@ const OverlayPortal = ({
       if (isOpen) return trade;
       if (isClosed) {
         const exitMs = Number(trade.exit_ts ?? trade.exitTs ?? 0);
-        if (exitMs > 0 && Date.now() - exitMs < 24 * 60 * 60 * 1000) return trade;
+        if (exitMs > 0 && Date.now() - exitMs < 72 * 60 * 60 * 1000) return trade;
       }
       return null;
     })();
@@ -15661,6 +15661,40 @@ function App() {
     }
     if (!window._ttIsAdmin && GROUPS.Futures) {
       filtered = filtered.filter(t => !GROUPS.Futures.has(normTicker(t?.ticker || "")));
+    }
+    try {
+      const RECENT_EXIT_WINDOW_MS = 72 * 60 * 60 * 1000;
+      const nowMs = Date.now();
+      const inViewSet = new Set(filtered.map(t => String(t?.ticker || "").toUpperCase()));
+      const dataMap = data && typeof data === "object" ? Array.isArray(data) ? null : data : null;
+      const dataIndex = sym => {
+        if (!dataMap) return null;
+        const k = String(sym || "").toUpperCase();
+        return dataMap[k] || dataMap[k.toLowerCase()] || null;
+      };
+      for (const tr of trades || []) {
+        const sym = String(tr?.ticker || "").toUpperCase();
+        if (!sym || inViewSet.has(sym)) continue;
+        const exitTs = Number(tr?.exit_ts ?? tr?.exitTs ?? 0);
+        const status = String(tr?.status || "").toUpperCase();
+        const isClosed = status === "WIN" || status === "LOSS" || status === "FLAT" || exitTs > 0;
+        if (!isClosed) continue;
+        if (exitTs <= 0 || nowMs - exitTs > RECENT_EXIT_WINDOW_MS) continue;
+        const td = dataIndex(sym);
+        const stub = td || {
+          ticker: sym,
+          _injected_from_closed_trade: true,
+          price: tr.exit_price ?? tr.exitPrice ?? null,
+          kanban_stage: null
+        };
+        filtered.push({
+          ...stub,
+          _from_closed_trade: true
+        });
+        inViewSet.add(sym);
+      }
+    } catch (e) {
+      console.warn("[EXIT-LANE INJECT] failed:", String(e?.message || e).slice(0, 200));
     }
     return filtered;
   }, [data, effectiveFilters, trades, socialAdditions, timeTravelTickers, savedTickers]);

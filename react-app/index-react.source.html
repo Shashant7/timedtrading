@@ -13865,7 +13865,7 @@
                 const exitMs = Number(trade.exit_ts ?? trade.exitTs ?? 0);
                 const scorerStage = String(t?.kanban_stage || "");
                 const newOpportunity = ["setup", "in_review", "enter", "enter_now", "just_flipped"].includes(scorerStage);
-                if (exitMs > 0 && (Date.now() - exitMs) < 24 * 60 * 60 * 1000 && !newOpportunity) stage = "exit";
+                if (exitMs > 0 && (Date.now() - exitMs) < 72 * 60 * 60 * 1000 && !newOpportunity) stage = "exit";
               }
             }
             if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") counts.setup++;
@@ -14224,7 +14224,7 @@
               const exitMs = Number(trade.exit_ts ?? trade.exitTs ?? 0);
               const scorerStage = String(t?.kanban_stage || "");
               const newOpportunity = ["setup", "enter", "enter_now", "just_flipped"].includes(scorerStage);
-              if (exitMs > 0 && (Date.now() - exitMs) < 24 * 60 * 60 * 1000 && !newOpportunity) stage = "exit";
+              if (exitMs > 0 && (Date.now() - exitMs) < 72 * 60 * 60 * 1000 && !newOpportunity) stage = "exit";
             }
             // Map server stages to UI stages
             let uiStage;
@@ -14962,7 +14962,7 @@
               const exitMs = Number(trade.exit_ts ?? trade.exitTs ?? 0);
               const scorerStage = String(t?.kanban_stage || "");
               const newOpportunity = ["setup", "enter", "enter_now", "just_flipped"].includes(scorerStage);
-              if (exitMs > 0 && (Date.now() - exitMs) < 24 * 60 * 60 * 1000 && !newOpportunity) stage = "exit";
+              if (exitMs > 0 && (Date.now() - exitMs) < 72 * 60 * 60 * 1000 && !newOpportunity) stage = "exit";
             }
 
             // Map server stages to UI lanes
@@ -18365,11 +18365,13 @@
             const status = String(trade.status || "").toUpperCase();
             const isClosed = status === "WIN" || status === "LOSS" || !!(trade.exit_ts ?? trade.exitTs) || Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0) >= 0.9999;
             const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM" || !status);
-            // Return open trades, or recently closed trades (< 24h) for Exit lane visibility
+            // Return open trades, or recently closed trades (< 72h) for Exit lane visibility
+            // P0.7.160 — extended from 24h to 72h to span weekends so Friday
+            // exits remain visible Monday morning.
             if (isOpen) return trade;
             if (isClosed) {
               const exitMs = Number(trade.exit_ts ?? trade.exitTs ?? 0);
-              if (exitMs > 0 && (Date.now() - exitMs) < 24 * 60 * 60 * 1000) return trade;
+              if (exitMs > 0 && (Date.now() - exitMs) < 72 * 60 * 60 * 1000) return trade;
             }
             return null;
           })();
@@ -19640,6 +19642,55 @@
           if (!window._ttIsAdmin && GROUPS.Futures) {
             filtered = filtered.filter(t => !GROUPS.Futures.has(normTicker(t?.ticker || "")));
           }
+
+          // V15 P0.7.160 (2026-05-14) — inject recently-closed-trade tickers
+          // into the universe so the Exit lane actually has something to
+          // render. Previously, when a position closed and the scorer
+          // dropped the ticker from the live snapshot, it disappeared from
+          // every kanban view including Exit — even though the kanban
+          // classifier has 24h Exit-lane logic ready to tag it. Now we
+          // pull the closed trade's last-known data from the global
+          // ticker map and re-attach it so the user can see "we just
+          // exited NFLX 2 hours ago" in the Exit lane.
+          //
+          // Window: 72 hours. Long enough to span a weekend (Fri close →
+          // Mon open) so users see Friday's exits when they log in
+          // Monday morning.
+          try {
+            const RECENT_EXIT_WINDOW_MS = 72 * 60 * 60 * 1000;
+            const nowMs = Date.now();
+            const inViewSet = new Set(filtered.map(t => String(t?.ticker || "").toUpperCase()));
+            const dataMap = (data && typeof data === "object")
+              ? (Array.isArray(data) ? null : data)
+              : null;
+            const dataIndex = (sym) => {
+              if (!dataMap) return null;
+              const k = String(sym || "").toUpperCase();
+              return dataMap[k] || dataMap[k.toLowerCase()] || null;
+            };
+            for (const tr of (trades || [])) {
+              const sym = String(tr?.ticker || "").toUpperCase();
+              if (!sym || inViewSet.has(sym)) continue;
+              const exitTs = Number(tr?.exit_ts ?? tr?.exitTs ?? 0);
+              const status = String(tr?.status || "").toUpperCase();
+              const isClosed = status === "WIN" || status === "LOSS" || status === "FLAT" || exitTs > 0;
+              if (!isClosed) continue;
+              if (exitTs <= 0 || (nowMs - exitTs) > RECENT_EXIT_WINDOW_MS) continue;
+              // Pull last-known ticker payload so the card has price/sector
+              // info — fall back to a minimal stub if not available.
+              const td = dataIndex(sym);
+              const stub = td || {
+                ticker: sym, _injected_from_closed_trade: true,
+                price: tr.exit_price ?? tr.exitPrice ?? null,
+                kanban_stage: null, // classifier picks "exit" via the trade
+              };
+              filtered.push({ ...stub, _from_closed_trade: true });
+              inViewSet.add(sym);
+            }
+          } catch (e) {
+            console.warn("[EXIT-LANE INJECT] failed:", String(e?.message || e).slice(0, 200));
+          }
+
           return filtered;
         }, [data, effectiveFilters, trades, socialAdditions, timeTravelTickers, savedTickers]);
 
