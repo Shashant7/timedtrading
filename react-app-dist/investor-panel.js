@@ -86,17 +86,39 @@
        the model hasn't failed, it's MONITORING for the right trigger
        condition. Reword as a neutral wait state and lose the "29d ago"
        (the user reads that as "this trim has been broken for 29d"
-       when really it's just the time since the BUY entry). */
+       when really it's just the time since the BUY entry).
+
+       V15 P0.7.152 (2026-05-14) — additionally surface a STALE chip
+       when an Accumulate / Reduce signal has been active for more
+       than 7 days without firing. Catches the GOOGL-style case
+       (Reduce since April 6, no SELL fired in 37 days) so the user
+       can see at a glance that the model's recommendation hasn't
+       executed and may need attention.
+    */
+    const STALE_DAYS = 7;
+    const isAccumulateOrReduce = stage === "reduce" || stage === "accumulate";
+    const isStaleSignal = isOwned
+      && isAccumulateOrReduce
+      && lastActionTs > 0
+      && lastActionAgoMs > STALE_DAYS * 24 * 3600 * 1000
+      && (
+        (stage === "reduce" && lastActionType !== "SELL") ||
+        (stage === "accumulate" && !["BUY", "DCA_BUY"].includes(lastActionType))
+      );
     const watchingLabel = (() => {
       if (!isOwned) return null;
       if (stage === "reduce") {
         if (lastActionType !== "SELL" || lastActionAgoMs > 24 * 3600 * 1000) {
-          return "Trim signal — monitoring for trigger";
+          return isStaleSignal
+            ? `Trim signal active ${Math.floor(lastActionAgoMs / 86400000)}d — trigger not yet hit`
+            : "Trim signal — monitoring for trigger";
         }
       }
       if (stage === "accumulate") {
         if (!["BUY", "DCA_BUY"].includes(lastActionType) || lastActionAgoMs > 24 * 3600 * 1000) {
-          return "Buy signal — monitoring for trigger";
+          return isStaleSignal
+            ? `Buy signal active ${Math.floor(lastActionAgoMs / 86400000)}d — trigger not yet hit`
+            : "Buy signal — monitoring for trigger";
         }
       }
       return null;
@@ -304,16 +326,16 @@
             display: "flex", alignItems: "center", gap: 6,
             padding: "3px 6px",
             borderRadius: "4px",
-            background: "rgba(96,165,250,0.06)",
-            border: "1px solid rgba(96,165,250,0.18)",
+            background: isStaleSignal ? "rgba(245,158,11,0.10)" : "rgba(96,165,250,0.06)",
+            border: `1px solid ${isStaleSignal ? "rgba(245,158,11,0.30)" : "rgba(96,165,250,0.18)"}`,
             fontFamily: "var(--tt-font-mono)",
             fontSize: 10,
-            color: "rgb(147,197,253)",
+            color: isStaleSignal ? "rgb(252,211,77)" : "rgb(147,197,253)",
             lineHeight: 1.2,
           },
-          title: `Model recommends "${stage}" \u2014 watching for the trigger condition. Last lot action was ${lastActionType || "none"}${lastActionTs ? ` on ${new Date(lastActionTs).toLocaleDateString()}` : ""}.`,
+          title: `Model recommends "${stage}" \u2014 watching for the trigger condition. Last lot action was ${lastActionType || "none"}${lastActionTs ? ` on ${new Date(lastActionTs).toLocaleDateString()}` : ""}.${isStaleSignal ? " Signal is stale (>7d) — trailing-stop / consecutive-day trigger has not yet fired." : ""}`,
         },
-          React.createElement("span", { style: { fontWeight: 700, letterSpacing: "0.04em" } }, "WATCHING"),
+          React.createElement("span", { style: { fontWeight: 700, letterSpacing: "0.04em" } }, isStaleSignal ? "STALE" : "WATCHING"),
           React.createElement("span", { style: { opacity: 0.95 } }, watchingLabel),
         ),
         lastActionAgoLabel && React.createElement("div", {
@@ -364,7 +386,7 @@
     );
   }
 
-  function InvestorKanbanColumn({ laneKey, title, hint, icon, color, count, items, renderCard, laneScrollRef }) {
+  function InvestorKanbanColumn({ laneKey, title, hint, action, actionColor, icon, color, count, items, renderCard, laneScrollRef }) {
     const listRef = useRef(null);
     useEffect(() => {
       try {
@@ -376,17 +398,28 @@
     }, [laneKey, items?.map(i => i.ticker).join(",")]);
 
     return React.createElement("div", { className: "flex items-stretch gap-0 mb-0.5 kanban-lane" },
-      // V15 P0.7.144 (2026-05-13) — wider lane gutter (56→78px) so labels
-      // like "Buy Zone" / "Hold & Watch" / "On Radar" don't truncate.
-      // Also added a one-line hint under the title so new users get an
-      // immediate explanation of what to do with each lane.
+      // V15 P0.7.144/.152 — gutter shows lane title + action chip +
+      // count. The action chip ("BUY NOW" / "HOLDING" / "TRIM SOON" /
+      // "WAIT" / "SKIP") is the one-glance answer to "what do I do
+      // with this lane?". Color-coded so the user's eye lands on
+      // green BUY-NOW and amber TRIM-SOON without reading.
       React.createElement("div", {
-        className: "flex flex-col justify-center items-center min-w-[78px] w-[78px] shrink-0 border-r border-r-white/[0.04] px-1.5 py-2",
+        className: "flex flex-col justify-center items-center min-w-[88px] w-[88px] shrink-0 border-r border-r-white/[0.04] px-1.5 py-2",
         style: { background: "transparent" },
         title: hint || title,
       },
         React.createElement("span", { className: "text-[9px] font-bold uppercase tracking-wider text-[#4b5563] text-center leading-tight break-words" }, title),
-        React.createElement("span", { className: `text-[11px] font-bold tabular-nums mt-0.5 ${count > 0 ? "text-[#e5e7eb]" : "text-[#2a2e35]"}` }, count),
+        action && React.createElement("span", {
+          className: "text-[8px] font-bold tabular-nums mt-1 px-1 py-[1px] rounded",
+          style: {
+            color: actionColor,
+            background: `${actionColor}14`,
+            border: `1px solid ${actionColor}30`,
+            letterSpacing: "0.04em",
+            fontFamily: "var(--tt-font-mono)",
+          },
+        }, action),
+        React.createElement("span", { className: `text-[11px] font-bold tabular-nums mt-1 ${count > 0 ? "text-[#e5e7eb]" : "text-[#2a2e35]"}` }, count),
       ),
       React.createElement("div", {
         ref: listRef,
@@ -410,26 +443,29 @@
 
   function ActionKanban({ tickers, onSelect, selectedTicker, savedTickers, toggleSavedTicker }) {
     const laneScrollRef = useRef({});
-    const stages = ["accumulate", "core_hold", "watch", "reduce", "research_on_watch", "research_low", "research_avoid"];
-    /* V15 P0.7.144 (2026-05-13) — clearer lane labels.
-       The user flagged that:
-         - "Watch" (owned, signals mixed) and "On Watch" (not owned, on
-           the radar) read as the same word. The semantic distinction
-           is owned-vs-radar, not "watch level". Rename "On Watch" to
-           "On Radar" so the difference is obvious.
-         - "Accumulate" was getting cut off in the 56px lane gutter.
-           Use "Buy Zone" — same meaning, fits in 70px gutter.
-         - Add a longer hint string so the column header tooltip + the
-           inline help row both teach the user what to do.
+    /* V15 P0.7.152 (2026-05-14) — lane order follows the action arc.
+       User spec: "We need to present the lanes in order of action:
+       On Radar → Accumulate → Core Hold → Hold & Watch → Reduce →
+       Low Conviction → Avoid."
+       The reasoning: the user reads top-down and the lanes should
+       trace the lifecycle of a name from "I'm watching this"
+       through "I own it and the model is managing it" through "the
+       model has cooled off on this".
+    */
+    const stages = ["research_on_watch", "accumulate", "core_hold", "watch", "reduce", "research_low", "research_avoid"];
+    /* V15 P0.7.144/.152 — lane labels + per-lane action chip.
+       The action chip ("BUY NOW" / "HOLDING" / etc.) sits next to
+       the lane title so a new user can answer "what should I do
+       with this lane?" in 1 second without reading the tooltip.
     */
     const stageMeta = {
-      accumulate: { label: "Buy Zone", icon: "", color: "transparent", title: "Owned or on radar — price entered a favorable zone. Model says: consider buying or adding here." },
-      core_hold: { label: "Core Hold", icon: "", color: "transparent", title: "Owned core position — trend and strength remain solid. Model says: do nothing, let it run." },
-      watch: { label: "Hold & Watch", icon: "", color: "transparent", title: "Owned — signals are mixed. Model says: stay with current position, don't add or trim." },
-      reduce: { label: "Reduce", icon: "", color: "transparent", title: "Owned — showing weakness. Model says: trim or exit when the trigger condition fires." },
-      research_on_watch: { label: "On Radar", icon: "", color: "transparent", title: "Not owned — moderate score. Worth tracking; revisit if it moves into the Buy Zone." },
-      research_low: { label: "Low Conv", icon: "", color: "transparent", title: "Not owned — low conviction. Not actionable yet." },
-      research_avoid: { label: "Avoid", icon: "", color: "transparent", title: "Not owned — weak signals. System advises caution." },
+      research_on_watch: { label: "On Radar", action: "WAIT", actionColor: "#9ca3af", title: "Not owned — moderate score. Worth tracking; revisit if it moves into Accumulate." },
+      accumulate:        { label: "Accumulate", action: "BUY NOW", actionColor: "#22c55e", title: "Owned or on radar — price entered a favorable zone. Model says: consider buying or adding here." },
+      core_hold:         { label: "Core Hold", action: "HOLDING", actionColor: "#60a5fa", title: "Owned core position — trend and strength remain solid. Model says: do nothing, let it run." },
+      watch:             { label: "Hold & Watch", action: "HOLDING", actionColor: "#60a5fa", title: "Owned — signals are mixed. Model says: stay with current position, don't add or trim." },
+      reduce:            { label: "Reduce", action: "TRIM SOON", actionColor: "#fb923c", title: "Owned — showing weakness. Model says: trim or exit when the trigger condition fires." },
+      research_low:      { label: "Low Conviction", action: "WAIT", actionColor: "#9ca3af", title: "Not owned — low conviction. Not actionable yet." },
+      research_avoid:    { label: "Avoid", action: "SKIP", actionColor: "#6b7280", title: "Not owned — weak signals. System advises caution." },
     };
     const grouped = {};
     for (const s of stages) grouped[s] = [];
@@ -466,6 +502,8 @@
           laneKey: stage,
           title: stageMeta[stage].label,
           hint: stageMeta[stage].title,
+          action: stageMeta[stage].action,
+          actionColor: stageMeta[stage].actionColor,
           icon: stageMeta[stage].icon,
           color: stageMeta[stage].color,
           count: grouped[stage].length,
