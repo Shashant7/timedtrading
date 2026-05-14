@@ -3248,7 +3248,7 @@
                   (header / chart / levels / tabnav / tabbody). In modal
                   mode (default) the same JSX flows as a single column. */}
               <div
-                className={`w-full h-full flex flex-col tt-rail-shell ${_isWorkspace ? "tt-rail-shell--workspace" : ""}`}
+                className={`w-full h-full flex flex-col tt-rail-shell ${_isWorkspace ? "tt-rail-shell--workspace" : ""} ${chartExpanded && !_isWorkspace ? "tt-rail-chart-active" : ""}`}
                 style={{ background: "var(--ds-bg-canvas)", borderRadius: "var(--ds-radius-lg)", border: "1px solid var(--ds-stroke)" }}
               >
                 {/* ─── Sticky header ─────────────────────────────────── */}
@@ -3581,6 +3581,38 @@
                     <div className="tt-rail-chart-block" style={{
                       marginBottom: "var(--ds-space-3)",
                     }}>
+                      {/* V15 P0.7.160 — Mobile-only "← Back" bar.
+                          Shown when the chart pane is toggled visible on
+                          mobile (tt-rail-chart-active). Lets the user
+                          return to the Snapshot/Setup tabs without tapping
+                          the header close button. Hidden on desktop where
+                          the chart pane is always visible in workspace. */}
+                      {chartExpanded && (
+                        <div
+                          className="tt-rail-chart-back-bar"
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            padding: "8px var(--ds-space-4)",
+                            borderBottom: "1px solid var(--ds-stroke)",
+                            marginBottom: "var(--ds-space-2)",
+                            background: "var(--ds-bg-canvas)",
+                          }}
+                        >
+                          <button
+                            className="ds-chip ds-chip--sm"
+                            onClick={() => setChartExpanded(false)}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+                          >
+                            <span>←</span>
+                            <span>Back to tabs</span>
+                          </button>
+                          <span style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)" }}>
+                            {tickerSymbol} Chart
+                          </span>
+                        </div>
+                      )}
                       <Panel
                         title="Chart"
                         action={
@@ -3608,15 +3640,7 @@
                                 actionable and can't be missed. */}
                             <button
                               className="ds-chip ds-chip--sm"
-                              onClick={() => {
-                                setChartExpanded(true);
-                                try {
-                                  const _sym = String(tickerSymbol || "").toUpperCase();
-                                  if (_sym && typeof window !== "undefined") {
-                                    window.dispatchEvent(new CustomEvent("tt:open-chart", { detail: { ticker: _sym } }));
-                                  }
-                                } catch (_) {}
-                              }}
+                              onClick={() => setChartExpanded(true)}
                               title="View fullscreen chart"
                               aria-label="View fullscreen chart"
                               style={{
@@ -6068,21 +6092,9 @@
                   </a>
                   <button
                     className="ds-chip ds-chip--sm"
-                    onClick={() => {
-                      // Primary: direct state update
-                      setChartExpanded(true);
-                      // Belt-and-suspenders: also fire the global event so
-                      // the listener-based path triggers even if the direct
-                      // call somehow misses (e.g. stale closure edge case).
-                      try {
-                        const _sym = String(tickerSymbol || "").toUpperCase();
-                        if (_sym && typeof window !== "undefined") {
-                          window.dispatchEvent(new CustomEvent("tt:open-chart", { detail: { ticker: _sym } }));
-                        }
-                      } catch (_) {}
-                    }}
-                    title="View fullscreen chart"
-                    aria-label="View fullscreen chart"
+                    onClick={() => setChartExpanded(true)}
+                    title="View chart"
+                    aria-label="View chart"
                     style={{
                       fontFamily: "var(--tt-font-mono)",
                       padding: "0 12px",
