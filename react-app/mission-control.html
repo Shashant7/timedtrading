@@ -1,0 +1,732 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mission Control — Timed Trading</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2048%2048%27%20fill%3D%27none%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27r%27%20x1%3D%276%27%20y1%3D%2742%27%20x2%3D%2742%27%20y2%3D%276%27%3E%3Cstop%20offset%3D%270%25%27%20stop-color%3D%27%2334d399%27%2F%3E%3Cstop%20offset%3D%27100%25%27%20stop-color%3D%27%2367e8f9%27%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20width%3D%2748%27%20height%3D%2748%27%20rx%3D%2711%27%20fill%3D%27%23000%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%2717%27%20stroke%3D%27url%28%23r%29%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%273.2%27%20fill%3D%27%2330d158%27%2F%3E%3C%2Fsvg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260507-r5" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="auth-gate.js?v=20260317a"></script>
+    <style>
+      body { margin: 0; background: #0a0a0f; color: #e5e7eb; font-family: 'Inter', sans-serif; min-height: 100vh; }
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+      ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+      .mc-card {
+        background: linear-gradient(180deg, rgba(20, 22, 30, 0.95), rgba(15, 17, 24, 0.95));
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 14px;
+        padding: 18px 20px;
+      }
+      .mc-section-title {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #94a3b8;
+        margin-bottom: 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .mc-section-title .mc-dot {
+        width: 6px; height: 6px; border-radius: 50%;
+        background: #34d399; box-shadow: 0 0 6px rgba(52, 211, 153, 0.6);
+      }
+      .mc-kpi {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.04);
+        border-radius: 10px;
+        padding: 12px 14px;
+      }
+      .mc-kpi-label {
+        font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
+        text-transform: uppercase; color: #6b7280; margin-bottom: 4px;
+      }
+      .mc-kpi-value {
+        font-size: 22px; font-weight: 800; color: #f0f6fc; letter-spacing: -0.02em;
+        font-variant-numeric: tabular-nums;
+      }
+      .mc-kpi-sub { font-size: 10px; color: #6b7280; margin-top: 2px; }
+      .mc-pos { color: #22c55e; }
+      .mc-neg { color: #ef4444; }
+      .mc-warn { color: #f59e0b; }
+      .mc-mute { color: #6b7280; }
+      .mc-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+      .mc-table th { text-align: left; font-size: 10px; font-weight: 700;
+        letter-spacing: 0.08em; text-transform: uppercase; color: #6b7280;
+        padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+      .mc-table td { padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.03);
+        color: #d1d5db; font-variant-numeric: tabular-nums; }
+      .mc-table tr:hover td { background: rgba(255,255,255,0.02); }
+      .mc-pill { display: inline-block; padding: 2px 7px; border-radius: 4px;
+        font-size: 10px; font-weight: 700; letter-spacing: 0.04em; }
+      .mc-pill-ok { color: #34d399; background: rgba(52, 211, 153, 0.1); border: 1px solid rgba(52, 211, 153, 0.25); }
+      .mc-pill-fail { color: #ef4444; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); }
+      .mc-pill-warn { color: #f59e0b; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.25); }
+      .mc-pill-mute { color: #6b7280; background: rgba(107, 114, 128, 0.08); border: 1px solid rgba(107, 114, 128, 0.2); }
+      .mc-btn { padding: 6px 12px; border-radius: 6px; font-size: 11px; font-weight: 600;
+        background: rgba(52, 211, 153, 0.12); border: 1px solid rgba(52, 211, 153, 0.3);
+        color: #34d399; cursor: pointer; transition: all 0.15s; }
+      .mc-btn:hover { background: rgba(52, 211, 153, 0.2); }
+      .mc-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+      @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+      .mc-loading { animation: pulse 1.4s ease-in-out infinite; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="text/babel">
+      const { useState, useEffect, useMemo, useCallback, useRef } = React;
+      const API_BASE = "";
+      const AuthGate = window.TimedAuthGate;
+
+      function fmtUsd(n, decimals = 0) {
+        if (!Number.isFinite(Number(n))) return "—";
+        const v = Number(n);
+        const sign = v < 0 ? "-" : "";
+        const abs = Math.abs(v);
+        if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(2)}M`;
+        if (abs >= 1e3) return `${sign}$${(abs / 1e3).toFixed(decimals === 0 ? 1 : decimals)}K`;
+        return `${sign}$${abs.toFixed(decimals)}`;
+      }
+      function fmtPct(n, decimals = 1) {
+        if (!Number.isFinite(Number(n))) return "—";
+        const v = Number(n);
+        return `${v >= 0 ? "+" : ""}${v.toFixed(decimals)}%`;
+      }
+      function fmtAgo(ts) {
+        if (!ts) return "—";
+        const ms = Date.now() - Number(ts);
+        if (ms < 60000) return "just now";
+        const m = Math.floor(ms / 60000);
+        if (m < 60) return `${m}m ago`;
+        const h = Math.floor(ms / 3600000);
+        if (h < 24) return `${h}h ago`;
+        const d = Math.floor(ms / 86400000);
+        return `${d}d ago`;
+      }
+      function fmtDate(ts) {
+        if (!ts) return "—";
+        return new Date(Number(ts)).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      }
+
+      function MissionControl({ user }) {
+        const [data, setData] = useState(null);
+        const [loading, setLoading] = useState(true);
+        const [err, setErr] = useState(null);
+        const [refreshTs, setRefreshTs] = useState(Date.now());
+        const [autoRefresh, setAutoRefresh] = useState(true);
+        const [refreshing, setRefreshing] = useState(false);
+        // Backfill in-flight state
+        const [backfillBusy, setBackfillBusy] = useState(false);
+        const [backfillMsg, setBackfillMsg] = useState(null);
+
+        const fetchData = useCallback(async () => {
+          setRefreshing(true);
+          try {
+            const res = await fetch(`${API_BASE}/timed/admin/mission-control?_t=${Date.now()}`, {
+              credentials: "include",
+              cache: "no-store",
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const j = await res.json();
+            if (!j.ok) throw new Error(j.error || "fetch failed");
+            setData(j);
+            setErr(null);
+          } catch (e) {
+            setErr(String(e.message || e));
+          } finally {
+            setLoading(false);
+            setRefreshing(false);
+          }
+        }, []);
+
+        useEffect(() => { fetchData(); }, [fetchData]);
+
+        // Auto-refresh every 30s for system health + data coverage parts
+        useEffect(() => {
+          if (!autoRefresh) return;
+          const id = setInterval(() => {
+            fetchData();
+            setRefreshTs(Date.now());
+          }, 30000);
+          return () => clearInterval(id);
+        }, [autoRefresh, fetchData]);
+
+        const triggerBackfill = useCallback(async (tf) => {
+          if (backfillBusy) return;
+          if (!confirm(`Trigger ${tf} backfill for the full universe (canonical + user-added) covering the last 35 days? This may take several minutes.`)) return;
+          setBackfillBusy(true);
+          setBackfillMsg(`Backfill ${tf} in progress…`);
+          try {
+            const res = await fetch(`${API_BASE}/timed/admin/alpaca-backfill?tf=${tf}&sinceDays=35&include_user=1`, {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: "{}",
+            });
+            const j = await res.json();
+            if (j.ok) {
+              setBackfillMsg(`Backfill ${tf} done: ${j.upserted || 0} candles upserted across ${j.tickers || 0} tickers.`);
+              fetchData();
+            } else {
+              setBackfillMsg(`Backfill ${tf} failed: ${j.error || "unknown"}`);
+            }
+          } catch (e) {
+            setBackfillMsg(`Backfill ${tf} failed: ${String(e.message || e)}`);
+          } finally {
+            setBackfillBusy(false);
+          }
+        }, [backfillBusy, fetchData]);
+
+        if (loading && !data) {
+          return (
+            <div className="min-h-screen flex items-center justify-center">
+              <div className="mc-loading text-sm text-[#6b7280]">Loading Mission Control…</div>
+            </div>
+          );
+        }
+        if (err && !data) {
+          return (
+            <div className="min-h-screen flex items-center justify-center">
+              <div className="mc-card max-w-md text-center">
+                <div className="text-red-400 text-sm font-semibold mb-2">Mission Control unavailable</div>
+                <div className="text-[#6b7280] text-xs mb-4">{err}</div>
+                <button className="mc-btn" onClick={fetchData}>Retry</button>
+              </div>
+            </div>
+          );
+        }
+
+        const mp = data?.model_perf || {};
+        const sh = data?.system_health || {};
+        const dc = data?.data_coverage || {};
+        const us = data?.users || {};
+        const po = data?.positions || {};
+        const allTimePnl = Number(mp?.all_time?.pnl_usd) || 0;
+        const allTimeWR = mp?.all_time?.total > 0
+          ? (Number(mp.all_time.wins) || 0) / Number(mp.all_time.total) * 100
+          : null;
+        const trailing = mp?.trailing || {};
+
+        return (
+          <div className="min-h-screen p-5 md:p-8 max-w-[1500px] mx-auto">
+            {/* ── Header ── */}
+            <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+              <div>
+                <div className="flex items-center gap-2.5">
+                  <a href="/index-react.html" className="text-[#6b7280] hover:text-white text-xs">← Dashboard</a>
+                  <span className="text-[#374151]">/</span>
+                  <h1 className="text-xl md:text-2xl font-bold tracking-tight text-white">Mission Control</h1>
+                  <span className="mc-pill mc-pill-ok">LIVE</span>
+                </div>
+                <div className="text-[11px] text-[#6b7280] mt-1">
+                  Updated {fmtAgo(data?.ts)} · {data?.elapsed_ms || 0}ms · auto-refresh{" "}
+                  <button
+                    className="underline hover:text-[#22c55e]"
+                    onClick={() => setAutoRefresh(!autoRefresh)}
+                  >{autoRefresh ? "ON" : "OFF"}</button>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {refreshing && <span className="text-[10px] text-[#6b7280] mc-loading">refreshing…</span>}
+                <button className="mc-btn" onClick={fetchData} disabled={refreshing}>↻ Refresh</button>
+              </div>
+            </div>
+
+            {/* ── Section 1: Model Performance ── */}
+            <div className="mc-card mb-5">
+              <div className="mc-section-title">
+                <span className="mc-dot"></span>
+                1. Model Performance
+              </div>
+              {mp.error ? (
+                <div className="text-red-400 text-xs">{mp.error}</div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                    <div className="mc-kpi">
+                      <div className="mc-kpi-label">All-Time PnL</div>
+                      <div className={`mc-kpi-value ${allTimePnl >= 0 ? "mc-pos" : "mc-neg"}`}>
+                        {fmtUsd(allTimePnl)}
+                      </div>
+                      <div className="mc-kpi-sub">{Number(mp.all_time?.total) || 0} closed trades</div>
+                    </div>
+                    <div className="mc-kpi">
+                      <div className="mc-kpi-label">All-Time Win Rate</div>
+                      <div className="mc-kpi-value">{allTimeWR != null ? `${allTimeWR.toFixed(1)}%` : "—"}</div>
+                      <div className="mc-kpi-sub">{Number(mp.all_time?.wins) || 0} wins</div>
+                    </div>
+                    <div className="mc-kpi">
+                      <div className="mc-kpi-label">Open Trades (Live)</div>
+                      <div className="mc-kpi-value">{Number(mp.open_count) || 0}</div>
+                      <div className="mc-kpi-sub">Active Trader</div>
+                    </div>
+                    <div className="mc-kpi">
+                      <div className="mc-kpi-label">Last Calibration</div>
+                      <div className="mc-kpi-value text-[16px]">
+                        {mp.last_calibration?.days_ago != null
+                          ? `${mp.last_calibration.days_ago}d ago`
+                          : "—"}
+                      </div>
+                      <div className="mc-kpi-sub">
+                        {mp.last_calibration?.days_ago != null && mp.last_calibration.days_ago > 14
+                          ? <span className="mc-warn">Due (>14d)</span>
+                          : "Healthy"}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                    {[7, 14, 30].map(d => {
+                      const t = trailing[`d${d}`] || {};
+                      const total = Number(t.total) || 0;
+                      const wins = Number(t.wins) || 0;
+                      const pnlUsd = Number(t.pnl_usd) || 0;
+                      const wr = total > 0 ? (wins / total * 100) : null;
+                      return (
+                        <div key={d} className="mc-kpi">
+                          <div className="mc-kpi-label">Trailing {d}d</div>
+                          <div className="flex items-baseline gap-3 mt-1">
+                            <span className={`text-lg font-bold ${pnlUsd >= 0 ? "mc-pos" : "mc-neg"}`}>{fmtUsd(pnlUsd)}</span>
+                            <span className="text-xs mc-mute">·</span>
+                            <span className="text-sm">{wr != null ? `${wr.toFixed(0)}% WR` : "—"}</span>
+                            <span className="text-xs mc-mute">·</span>
+                            <span className="text-xs mc-mute">{total} trades</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {mp.ai_cio_7d && (
+                    <div className="mc-kpi">
+                      <div className="mc-kpi-label">AI CIO Activity (7d)</div>
+                      <div className="flex items-baseline gap-4 mt-1 flex-wrap text-xs">
+                        <span><b className="text-white">{Number(mp.ai_cio_7d.total) || 0}</b> decisions</span>
+                        <span className="mc-mute">|</span>
+                        <span>{Number(mp.ai_cio_7d.shadow) || 0} shadow</span>
+                        <span>{Number(mp.ai_cio_7d.fallback) || 0} fallback</span>
+                        <span className="mc-pos">{Number(mp.ai_cio_7d.enter) || 0} enter</span>
+                        <span className="mc-neg">{Number(mp.ai_cio_7d.block) || 0} block</span>
+                        <span className="mc-mute">·</span>
+                        <span className="mc-mute">
+                          {Number(mp.ai_cio_7d.total) === 0
+                            ? "No CIO activity in last 7d — entry engine may be quiet"
+                            : Number(mp.ai_cio_7d.fallback) > Number(mp.ai_cio_7d.total) * 0.5
+                              ? <span className="mc-warn">⚠ More than half are fallbacks — check OpenAI key</span>
+                              : "Healthy"}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* ── Section 2: System Health ── */}
+            <div className="mc-card mb-5">
+              <div className="mc-section-title">
+                <span className="mc-dot" style={{ background: sh.failing_count > 0 ? "#ef4444" : "#34d399" }}></span>
+                2. System Health
+                {sh.failing_count > 0 && (
+                  <span className="mc-pill mc-pill-fail ml-2">{sh.failing_count} FAILING</span>
+                )}
+              </div>
+              {sh.error ? (
+                <div className="text-red-400 text-xs">{sh.error}</div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 md:grid-cols-6 gap-2 mb-4">
+                    {[
+                      { k: "twelvedata_configured", label: "TwelveData" },
+                      { k: "alpaca_configured", label: "Alpaca" },
+                      { k: "openai_configured", label: "OpenAI" },
+                      { k: "stripe_configured", label: "Stripe" },
+                      { k: "sendgrid_configured", label: "Email" },
+                      { k: "discord_enabled", label: "Discord" },
+                    ].map(d => (
+                      <div key={d.k} className="mc-kpi text-center">
+                        <div className="mc-kpi-label">{d.label}</div>
+                        <div className={`text-lg font-bold ${sh[d.k] ? "mc-pos" : "mc-mute"}`}>
+                          {sh[d.k] ? "✓" : "—"}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold">
+                    Cron Tombstones (last 7 days)
+                  </div>
+                  {(sh.cron_ops || []).length === 0 ? (
+                    <div className="text-xs mc-mute py-3">No cron history recorded yet — check back after the next scheduled tick.</div>
+                  ) : (
+                    <div style={{ overflowX: "auto" }}>
+                      <table className="mc-table">
+                        <thead>
+                          <tr>
+                            <th>Op</th>
+                            <th>Status</th>
+                            <th>Failures</th>
+                            <th>Last Failure</th>
+                            <th>Last OK</th>
+                            <th>Error (truncated)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(sh.cron_ops || []).slice(0, 25).map((o, i) => (
+                            <tr key={i}>
+                              <td className="font-mono text-[11px]">{o.op}</td>
+                              <td>
+                                <span className={`mc-pill ${o.status === "FAILING" ? "mc-pill-fail" : "mc-pill-ok"}`}>
+                                  {o.status}
+                                </span>
+                              </td>
+                              <td>{o.count || 0}</td>
+                              <td className="text-xs mc-mute">{fmtAgo(o.ts)}</td>
+                              <td className="text-xs mc-mute">{fmtAgo(o.last_ok_ts)}</td>
+                              <td className="text-[11px] text-red-400" style={{ maxWidth: 380, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {o.error || "—"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* ── Section 3: Data Coverage ── */}
+            <div className="mc-card mb-5">
+              <div className="mc-section-title">
+                <span className="mc-dot"></span>
+                3. Data Coverage
+              </div>
+              {dc.error ? (
+                <div className="text-red-400 text-xs">{dc.error}</div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                    <div className="mc-kpi">
+                      <div className="mc-kpi-label">Tickers Tracked</div>
+                      <div className="mc-kpi-value">{Number(dc.sector_map_count) || 0}</div>
+                      <div className="mc-kpi-sub">canonical universe</div>
+                    </div>
+                    <div className="mc-kpi">
+                      <div className="mc-kpi-label">User-Added</div>
+                      <div className="mc-kpi-value">{Number(dc.user_added_tickers) || 0}</div>
+                      <div className="mc-kpi-sub">members + admin</div>
+                    </div>
+                    <div className="mc-kpi">
+                      <div className="mc-kpi-label">D1 DB Size</div>
+                      <div className="mc-kpi-value">{dc.db_size_mb != null ? `${dc.db_size_mb}` : "—"}</div>
+                      <div className="mc-kpi-sub">MB</div>
+                    </div>
+                    <div className="mc-kpi">
+                      <div className="mc-kpi-label">Worst-Stale (D)</div>
+                      <div className={`mc-kpi-value text-[16px] ${(dc.by_tf?.D?.worst_stale?.days_stale || 0) > 5 ? "mc-warn" : "mc-pos"}`}>
+                        {dc.by_tf?.D?.worst_stale?.days_stale != null
+                          ? `${dc.by_tf.D.worst_stale.days_stale}d`
+                          : "—"}
+                      </div>
+                      <div className="mc-kpi-sub">{dc.by_tf?.D?.worst_stale?.ticker || "—"}</div>
+                    </div>
+                  </div>
+                  <div style={{ overflowX: "auto" }}>
+                    <table className="mc-table">
+                      <thead>
+                        <tr>
+                          <th>TF</th>
+                          <th>Tickers</th>
+                          <th>Rows</th>
+                          <th>Worst Stale</th>
+                          <th>Worst Ticker</th>
+                          <th>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {["D", "60", "240"].map(tf => {
+                          const d = dc.by_tf?.[tf] || {};
+                          const stale = d.worst_stale?.days_stale;
+                          const tooStale = (tf === "D" && stale > 5) || (tf !== "D" && stale > 2);
+                          return (
+                            <tr key={tf}>
+                              <td className="font-mono font-bold">{tf}</td>
+                              <td>{d.tickers || 0}</td>
+                              <td>{d.rows || 0}</td>
+                              <td className={tooStale ? "mc-warn font-semibold" : "mc-pos"}>
+                                {stale != null ? `${stale}d` : "—"}
+                              </td>
+                              <td className="text-[11px] mc-mute">{d.worst_stale?.ticker || "—"}</td>
+                              <td>
+                                <button
+                                  className="mc-btn"
+                                  onClick={() => triggerBackfill(tf)}
+                                  disabled={backfillBusy}
+                                >
+                                  Backfill {tf}
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  {backfillMsg && (
+                    <div className="mt-3 text-xs mc-mute">{backfillMsg}</div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* ── Section 4: Users ── */}
+            <div className="mc-card mb-5">
+              <div className="mc-section-title">
+                <span className="mc-dot"></span>
+                4. User Activity
+              </div>
+              {us.error ? (
+                <div className="text-red-400 text-xs">{us.error}</div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                    <div className="mc-kpi">
+                      <div className="mc-kpi-label">Total Users</div>
+                      <div className="mc-kpi-value">{Number(us.total) || 0}</div>
+                      <div className="mc-kpi-sub">all-time signups</div>
+                    </div>
+                    <div className="mc-kpi">
+                      <div className="mc-kpi-label">Active 30d</div>
+                      <div className="mc-kpi-value">{Number(us.active_30d) || 0}</div>
+                      <div className="mc-kpi-sub">last login ≤30d</div>
+                    </div>
+                    <div className="mc-kpi">
+                      <div className="mc-kpi-label">New Today</div>
+                      <div className={`mc-kpi-value ${Number(us.new_today) > 0 ? "mc-pos" : ""}`}>{Number(us.new_today) || 0}</div>
+                      <div className="mc-kpi-sub">signups since 00:00 UTC</div>
+                    </div>
+                    <div className="mc-kpi">
+                      <div className="mc-kpi-label">New 7d</div>
+                      <div className={`mc-kpi-value ${Number(us.new_7d) > 0 ? "mc-pos" : ""}`}>{Number(us.new_7d) || 0}</div>
+                      <div className="mc-kpi-sub">signups last 7 days</div>
+                    </div>
+                  </div>
+                  <div className="text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold">
+                    Recent Logins (top 25)
+                  </div>
+                  {(us.recent_logins || []).length === 0 ? (
+                    <div className="text-xs mc-mute py-3">No recent login data yet.</div>
+                  ) : (
+                    <div style={{ overflowX: "auto" }}>
+                      <table className="mc-table">
+                        <thead>
+                          <tr>
+                            <th>Email</th>
+                            <th>Tier</th>
+                            <th>Last Login</th>
+                            <th>Joined</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(us.recent_logins || []).map((u, i) => (
+                            <tr key={i}>
+                              <td className="text-xs">{u.email || "—"}</td>
+                              <td>
+                                <span className={`mc-pill ${u.tier === "admin" ? "mc-pill-warn" : u.tier === "pro" || u.tier === "vip" ? "mc-pill-ok" : "mc-pill-mute"}`}>
+                                  {(u.tier || "free").toUpperCase()}
+                                </span>
+                              </td>
+                              <td className="text-xs mc-mute">{fmtAgo(u.last_login_at)}</td>
+                              <td className="text-xs mc-mute">{fmtDate(u.created_at)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* ── Section 5: Open Positions ── */}
+            <div className="mc-card mb-5">
+              <div className="mc-section-title">
+                <span className="mc-dot"></span>
+                5. Open Positions
+              </div>
+              {po.error ? (
+                <div className="text-red-400 text-xs">{po.error}</div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                    <div className="mc-kpi">
+                      <div className="mc-kpi-label">Active Trader Open</div>
+                      <div className="mc-kpi-value">{po.active_trader?.count || 0}</div>
+                      <div className="mc-kpi-sub">{fmtUsd(po.active_trader?.total_notional)} notional</div>
+                    </div>
+                    <div className="mc-kpi">
+                      <div className="mc-kpi-label">Investor Open</div>
+                      <div className="mc-kpi-value">{po.investor?.count || 0}</div>
+                      <div className="mc-kpi-sub">{fmtUsd(po.investor?.total_cost)} cost basis</div>
+                    </div>
+                    <div className="mc-kpi">
+                      <div className="mc-kpi-label">Investor Lots 24h</div>
+                      <div className={`mc-kpi-value ${(po.recent_investor_lots_24h?.length || 0) > 0 ? "mc-pos" : ""}`}>
+                        {po.recent_investor_lots_24h?.length || 0}
+                      </div>
+                      <div className="mc-kpi-sub">BUY/SELL/DCA fills</div>
+                    </div>
+                    <div className="mc-kpi">
+                      <div className="mc-kpi-label">Total Exposure</div>
+                      <div className="mc-kpi-value">
+                        {fmtUsd((Number(po.active_trader?.total_notional) || 0) + (Number(po.investor?.total_cost) || 0))}
+                      </div>
+                      <div className="mc-kpi-sub">AT + Investor</div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div>
+                      <div className="text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold">
+                        Active Trader Positions
+                      </div>
+                      {(po.active_trader?.positions || []).length === 0 ? (
+                        <div className="text-xs mc-mute py-3">No open trader positions.</div>
+                      ) : (
+                        <div style={{ overflowX: "auto" }}>
+                          <table className="mc-table">
+                            <thead>
+                              <tr>
+                                <th>Ticker</th>
+                                <th>Dir</th>
+                                <th>Shares</th>
+                                <th>Entry</th>
+                                <th>Notional</th>
+                                <th>Setup</th>
+                                <th>Age</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(po.active_trader?.positions || []).map((p, i) => (
+                                <tr key={i}>
+                                  <td className="font-mono font-bold">{p.ticker}</td>
+                                  <td>
+                                    <span className={`mc-pill ${p.direction === "LONG" ? "mc-pill-ok" : "mc-pill-fail"}`}>
+                                      {p.direction || "—"}
+                                    </span>
+                                  </td>
+                                  <td>{p.shares || 0}</td>
+                                  <td>{fmtUsd(p.entry_price, 2)}</td>
+                                  <td>{fmtUsd(p.notional)}</td>
+                                  <td className="text-[11px] mc-mute">
+                                    {p.setup_name || "—"}{p.setup_grade ? ` · ${p.setup_grade}` : ""}
+                                  </td>
+                                  <td className="text-xs mc-mute">{fmtAgo(p.entry_ts)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <div className="text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold">
+                        Investor Positions
+                      </div>
+                      {(po.investor?.positions || []).length === 0 ? (
+                        <div className="text-xs mc-mute py-3">No open investor positions.</div>
+                      ) : (
+                        <div style={{ overflowX: "auto" }}>
+                          <table className="mc-table">
+                            <thead>
+                              <tr>
+                                <th>Ticker</th>
+                                <th>Shares</th>
+                                <th>Avg Entry</th>
+                                <th>Cost Basis</th>
+                                <th>Last Buy</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(po.investor?.positions || []).map((p, i) => (
+                                <tr key={i}>
+                                  <td className="font-mono font-bold">{p.ticker}</td>
+                                  <td>{p.shares != null ? Number(p.shares).toFixed(2) : "—"}</td>
+                                  <td>{fmtUsd(p.avg_entry, 2)}</td>
+                                  <td>{fmtUsd(p.cost_basis)}</td>
+                                  <td className="text-xs mc-mute">{fmtAgo(p.last_entry_ts)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {(po.recent_investor_lots_24h || []).length > 0 && (
+                    <>
+                      <div className="text-[11px] mc-mute mb-2 mt-4 uppercase tracking-wider font-semibold">
+                        Recent Investor Lot Activity (24h)
+                      </div>
+                      <div style={{ overflowX: "auto" }}>
+                        <table className="mc-table">
+                          <thead>
+                            <tr>
+                              <th>When</th>
+                              <th>Ticker</th>
+                              <th>Action</th>
+                              <th>Shares</th>
+                              <th>Price</th>
+                              <th>Reason</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(po.recent_investor_lots_24h || []).map((l, i) => (
+                              <tr key={i}>
+                                <td className="text-xs mc-mute">{fmtAgo(l.ts)}</td>
+                                <td className="font-mono font-bold">{l.ticker}</td>
+                                <td>
+                                  <span className={`mc-pill ${l.action === "BUY" || l.action === "DCA_BUY" ? "mc-pill-ok" : l.action === "SELL" ? "mc-pill-fail" : "mc-pill-mute"}`}>
+                                    {l.action}
+                                  </span>
+                                </td>
+                                <td>{l.shares != null ? Number(l.shares).toFixed(2) : "—"}</td>
+                                <td>{fmtUsd(l.price, 2)}</td>
+                                <td className="text-[11px] mc-mute">{l.reason || "—"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* ── Footer ── */}
+            <div className="text-center text-[10px] mc-mute mt-6 mb-4">
+              Mission Control · admin only · auto-refreshes every 30s when enabled<br />
+              Weekly retrospective + automated user-facing report coming next iteration
+            </div>
+          </div>
+        );
+      }
+
+      const root = ReactDOM.createRoot(document.getElementById("root"));
+      root.render(
+        <AuthGate apiBase={API_BASE} requiredTier="admin">
+          {(user) => <MissionControl user={user} />}
+        </AuthGate>
+      );
+    </script>
+  </body>
+</html>

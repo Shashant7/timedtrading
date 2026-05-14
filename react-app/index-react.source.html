@@ -966,54 +966,11 @@
         }
         .tt-scroll-top-btn:active { transform: scale(0.95); }
 
-        /* ── Mobile Chart FAB (P0.7.153, 2026-05-14) ──
-           Surfaces a one-tap path to the fullscreen chart for the
-           currently-selected ticker on mobile. The right rail's chart
-           panel is only 240px tall on phones and gets buried under
-           tabs; this FAB lets the user jump straight to a real chart
-           view without scrolling.
-
-           Placement: bottom-LEFT (away from tt-scroll-top-btn on the right).
-           Sits above the bottom nav (~72px) and the safe-area inset.
-           Hidden on desktop via @media block below.
-
-           z-index 9999 + isolation (P0.7.156, 2026-05-14): the slide-in
-           rail wrapper uses a CSS transform for its slide-in animation
-           which creates a NEW stacking context. Previously z:55 was being
-           occluded by the rail's content even though the rail's own root
-           was z-40 — the transform-induced context flipped the effective
-           paint order, so the FAB rendered BEHIND the rail's chart canvas
-           and tabs (user reported it as 'shows up briefly then is covered
-           and untappable'). z-index 9999 + isolation: isolate forces the
-           FAB into the topmost stacking context regardless of any parent
-           transforms, animations, or overflow contexts. */
-        .tt-mobile-chart-fab {
-          position: fixed;
-          left: 14px;
-          bottom: calc(80px + env(safe-area-inset-bottom));
-          height: 44px;
-          padding: 0 14px 0 12px;
-          border-radius: 22px;
-          background: linear-gradient(135deg, rgba(34, 197, 94, 0.96), rgba(16, 185, 129, 0.96));
-          border: 1px solid rgba(34, 197, 94, 0.85);
-          color: #051a10;
-          z-index: 9999;
-          isolation: isolate;
-          box-shadow: 0 8px 28px rgba(34, 197, 94, 0.55), 0 0 0 2px rgba(0, 0, 0, 0.4);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 6px;
-          cursor: pointer;
-          font-weight: 800;
-          font-size: 13px;
-          letter-spacing: 0.04em;
-          text-transform: uppercase;
-          backdrop-filter: blur(10px);
-          -webkit-backdrop-filter: blur(10px);
-        }
-        .tt-mobile-chart-fab:active { transform: scale(0.95); }
-        .tt-mobile-chart-fab svg { width: 18px; height: 18px; }
+        /* tt-mobile-chart-fab CSS removed (P0.7.156 follow-up, 2026-05-14).
+           The floating FAB approach lost two stacking-context fights with
+           the right-rail's slide-in transform. Replaced by a prominent
+           "CHART" button inside the rail's chart panel header — see
+           shared-right-rail.js. */
 
         /* ── Mobile bottom navigation bar ──
            P0.7.104 — bottom shifted UP from 0 to var(--tt-legal-footer-h)
@@ -1109,7 +1066,6 @@
       @media (min-width: 769px) {
         .tt-mobile-bottom-nav { display: none !important; }
         .tt-scroll-top-btn { display: none !important; }
-        .tt-mobile-chart-fab { display: none !important; }
       }
     </style>
   </head>
@@ -20081,7 +20037,10 @@
                       <a href="ticker-management.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
                       <a href="trade-autopsy.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#14b8a6]/80 hover:text-[#14b8a6] hover:bg-[#14b8a6]/[0.06] transition-all font-medium">Trade Autopsy</a>
                       {(window.TimedAuthHelpers?.getStoredSession()?.role === "admin" || window.TimedAuthHelpers?.getStoredSession()?.tier === "admin") && (
-                        <a href="admin-clients.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#a78bfa]/80 hover:text-[#a78bfa] hover:bg-[#a78bfa]/[0.06] transition-all font-medium">Admin</a>
+                        <>
+                          <a href="mission-control.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#34d399]/90 hover:text-[#34d399] hover:bg-[#34d399]/[0.06] transition-all font-medium" title="Mission Control: model perf, system health, data coverage, users, positions">Mission Control</a>
+                          <a href="admin-clients.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#a78bfa]/80 hover:text-[#a78bfa] hover:bg-[#a78bfa]/[0.06] transition-all font-medium">Admin</a>
+                        </>
                       )}
                       <a href="daily-brief.html" id="nav-daily-brief" className="relative px-3 py-1 rounded-md text-[13px] text-[#f59e0b]/80 hover:text-[#f59e0b] hover:bg-[#f59e0b]/[0.06] transition-all font-medium">
                         Daily Brief
@@ -20117,7 +20076,10 @@
                     <a href="ticker-management.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Tickers</a>
                     <a href="trade-autopsy.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#14b8a6]/80 hover:text-[#14b8a6] font-medium" onClick={() => setMobileMenuOpen(false)}>Trade Autopsy</a>
                     {(window.TimedAuthHelpers?.getStoredSession()?.role === "admin" || window.TimedAuthHelpers?.getStoredSession()?.tier === "admin") && (
-                      <a href="admin-clients.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#a78bfa]/80 hover:text-[#a78bfa] hover:bg-[#a78bfa]/[0.06] transition-all font-medium" onClick={() => setMobileMenuOpen(false)}>Admin</a>
+                      <>
+                        <a href="mission-control.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#34d399]/90 hover:text-[#34d399] hover:bg-[#34d399]/[0.06] transition-all font-medium" onClick={() => setMobileMenuOpen(false)}>Mission Control</a>
+                        <a href="admin-clients.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#a78bfa]/80 hover:text-[#a78bfa] hover:bg-[#a78bfa]/[0.06] transition-all font-medium" onClick={() => setMobileMenuOpen(false)}>Admin</a>
+                      </>
                     )}
                     <a href="daily-brief.html" className="px-3 py-2 rounded-md text-[13px] text-[#f59e0b]/80 hover:text-[#f59e0b] hover:bg-[#f59e0b]/[0.06] transition-all font-medium" onClick={() => setMobileMenuOpen(false)}>Daily Brief</a>
                     <div className="border-t border-white/[0.06] mt-1 pt-1 flex items-center gap-2">
@@ -21895,49 +21857,16 @@
               </button>
             )}
 
-            {/* ── Mobile Chart FAB (P0.7.153, 2026-05-14) ──
-                Surfaces a one-tap path to a fullscreen chart for the
-                currently-selected ticker. Visible only on mobile (CSS).
-
-                P0.7.155 (2026-05-14) — gated to selectedTicker.
-                P0.7.156 (2026-05-14) — rendered through ReactDOM.createPortal
-                directly to document.body so it escapes the dashboard's
-                parent stacking contexts. The right-rail wrapper uses a
-                CSS transform for its slide-in animation, which creates
-                a new containing block for any descendant `position: fixed`
-                element (well-known CSS gotcha). Even with z-index 9999,
-                the FAB was rendering BEHIND the rail's chart canvas
-                because both shared an ancestor whose transform reset the
-                fixed-positioning reference. Portal lifts the FAB onto
-                document.body which has no transformed ancestors, so the
-                fixed positioning + z-index work as intended. */}
-            {selectedTicker && typeof ReactDOM !== "undefined" && ReactDOM.createPortal && document?.body && (
-              ReactDOM.createPortal(
-                <button
-                  type="button"
-                  className="tt-mobile-chart-fab"
-                  onClick={() => {
-                    const _ttPick = selectedTicker;
-                    if (!_ttPick) return;
-                    // Set pending intent + dispatch event so whichever
-                    // wins (mount vs already-mounted) picks it up.
-                    try { window._ttPendingChartOpen = String(_ttPick).toUpperCase(); } catch {}
-                    try {
-                      window.dispatchEvent(new CustomEvent("tt:open-chart", { detail: { ticker: _ttPick } }));
-                    } catch {}
-                  }}
-                  aria-label={`View ${selectedTicker} chart`}
-                  title={`View ${selectedTicker} chart`}
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <polyline points="3 17 9 11 13 15 21 7" />
-                    <polyline points="14 7 21 7 21 14" />
-                  </svg>
-                  Chart
-                </button>,
-                document.body,
-              )
-            )}
+            {/* ── Mobile Chart FAB removed (P0.7.156 follow-up, 2026-05-14) ──
+                Two iterations of FAB attempts (z-index 9999 + portal-to-body)
+                both got covered by the right-rail on mobile. The rail's
+                slide-in transform creates a stacking context that even
+                portals through document.body couldn't reliably escape on
+                some Safari/Chrome mobile builds. Ditched the FAB approach
+                entirely in favor of a prominent "CHART" button INSIDE
+                the rail's chart panel header (see shared-right-rail.js
+                line ~3589) — it lives in the same DOM subtree as the
+                chart so there's no stacking war to lose. */}
 
             {/* ── Bubble Map full-screen mobile modal ─────────────────
                 Tappable launcher on the bubble toggle row opens this.

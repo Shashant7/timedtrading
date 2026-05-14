@@ -1318,6 +1318,12 @@ const ROUTES = [
   // P0.7.156 — candle freshness probe. Returns the worst-stale ticker
   // per TF so the operator can spot a dead backfill cron at a glance.
   ["GET", "/timed/admin/candle-freshness", "GET /timed/admin/candle-freshness"],
+  // P0.7.157 — Mission Control aggregate. One call returns model perf
+  // (7/14/30d WR + PnL), system health (cron tombstones), data coverage
+  // (DB + ticker counts + worst-stale), user activity (active +
+  // new-today), and open position counts (Active Trader + Investor).
+  // Used by /mission-control.html to render the operator dashboard.
+  ["GET", "/timed/admin/mission-control", "GET /timed/admin/mission-control"],
   ["POST", "/timed/admin/patch-trade-from-da", "POST /timed/admin/patch-trade-from-da"],
   ["POST", "/timed/admin/patch-trade-event-reason", "POST /timed/admin/patch-trade-event-reason"],
   ["POST", "/timed/admin/patch-trade-event-price", "POST /timed/admin/patch-trade-event-price"],
@@ -52434,6 +52440,278 @@ export default {
           console.warn("[INVESTOR-DAILY-EVAL] Failed:", String(err).slice(0, 300));
           return sendJSON({ ok: false, error: String(err?.message || err).slice(0, 200) }, 500, corsHeaders(env, req));
         }
+      }
+
+      // GET /timed/admin/mission-control?key=...
+      //
+      // P0.7.157 (2026-05-14) — Mission Control unified aggregate. One
+      // call returns the data for all 5 dashboard sections so the page
+      // can render fast without N parallel fetches. Each section degrades
+      // gracefully — a single subquery failure annotates that section
+      // with `error` but doesn't break the whole response.
+      //
+      // Sections:
+      //   model_perf:    WR + PnL trailing 7/14/30 days, daily counts,
+      //                  AI CIO summary (decisions / accuracy if any),
+      //                  most-recent calibration timestamp
+      //   system_health: cron failure tombstones (FAILING + HEALTHY),
+      //                  Discord enabled flag, KV approximate size
+      //   data_coverage: D1 row counts, ticker count, worst-stale candle
+      //                  per TF (D + 60), staleness summary
+      //   users:         total clients, active 30d, new today, new this week
+      //   positions:     open AT + Investor counts, total notional, recent
+      //                  fills last 24h
+      if (routeKey === "GET /timed/admin/mission-control") {
+        const _mcAuthFail = await requireKeyOrAdmin(req, env);
+        if (_mcAuthFail) return _mcAuthFail;
+        const db = env?.DB;
+        const KV = env?.KV_TIMED;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        const _mcStart = Date.now();
+        const out = { ok: true, ts: _mcStart };
+
+        // ─ Section 1: model_perf ──
+        try {
+          const nowMs = Date.now();
+          const winRows = await Promise.all([7, 14, 30].map(d =>
+            db.prepare(
+              `SELECT
+                 COUNT(*) AS total,
+                 SUM(CASE WHEN status='WIN' THEN 1 ELSE 0 END) AS wins,
+                 SUM(CASE WHEN status='LOSS' THEN 1 ELSE 0 END) AS losses,
+                 ROUND(SUM(COALESCE(pnl, 0)), 2) AS pnl_usd,
+                 ROUND(SUM(COALESCE(pnl_pct, 0)), 2) AS pnl_pct
+               FROM trades
+               WHERE status IN ('WIN','LOSS','FLAT')
+                 AND exit_ts >= ?1`
+            ).bind(nowMs - d * 86400000).first().catch(() => null)
+          ));
+          const trailing = { d7: winRows[0], d14: winRows[1], d30: winRows[2] };
+          // All-time + open
+          const allTime = await db.prepare(
+            `SELECT COUNT(*) AS total,
+                    SUM(CASE WHEN status='WIN' THEN 1 ELSE 0 END) AS wins,
+                    ROUND(SUM(COALESCE(pnl, 0)), 2) AS pnl_usd
+             FROM trades WHERE status IN ('WIN','LOSS','FLAT')`
+          ).first().catch(() => null);
+          const openCount = await db.prepare(
+            `SELECT COUNT(*) AS n FROM trades WHERE status='OPEN'`
+          ).first().catch(() => null);
+          // AI CIO health (last 7 days)
+          let aicio = null;
+          try {
+            const cutoff = nowMs - 7 * 86400000;
+            const cioRow = await db.prepare(
+              `SELECT
+                 COUNT(*) AS total,
+                 SUM(CASE WHEN shadow=1 THEN 1 ELSE 0 END) AS shadow,
+                 SUM(CASE WHEN fallback=1 THEN 1 ELSE 0 END) AS fallback,
+                 SUM(CASE WHEN action='enter' THEN 1 ELSE 0 END) AS enter,
+                 SUM(CASE WHEN action='block' THEN 1 ELSE 0 END) AS block
+               FROM ai_cio_decisions WHERE ts >= ?1`
+            ).bind(cutoff).first().catch(() => null);
+            aicio = cioRow || { total: 0, shadow: 0, fallback: 0, enter: 0, block: 0 };
+          } catch {}
+          // Latest calibration run (if calibration_runs table exists)
+          let lastCalibration = null;
+          try {
+            const calRow = await db.prepare(
+              `SELECT MAX(created_at) AS last_ts FROM calibration_runs`
+            ).first().catch(() => null);
+            if (calRow?.last_ts) {
+              lastCalibration = {
+                ts: Number(calRow.last_ts),
+                days_ago: Math.round((nowMs - Number(calRow.last_ts)) / 86400000),
+              };
+            }
+          } catch {}
+          out.model_perf = {
+            trailing,
+            all_time: allTime,
+            open_count: Number(openCount?.n) || 0,
+            ai_cio_7d: aicio,
+            last_calibration: lastCalibration,
+          };
+        } catch (e) {
+          out.model_perf = { error: String(e?.message || e).slice(0, 200) };
+        }
+
+        // ─ Section 2: system_health ──
+        try {
+          const ops = [];
+          if (KV) {
+            try {
+              let cursor;
+              for (let i = 0; i < 5; i++) {
+                const list = await KV.list({ prefix: "timed:cron:failure:", cursor });
+                for (const k of (list?.keys || [])) {
+                  try {
+                    const row = await KV.get(k.name, "json");
+                    if (!row) continue;
+                    ops.push({
+                      op: row.op || k.name.replace(/^timed:cron:failure:/, ""),
+                      error: row.error || null,
+                      ts: row.ts || null,
+                      count: Number(row.count) || 0,
+                      last_ok_ts: row.last_ok_ts || null,
+                      status: (Number(row.count) || 0) > 0 ? "FAILING" : "HEALTHY",
+                    });
+                  } catch {}
+                }
+                if (list?.list_complete) break;
+                cursor = list?.cursor;
+                if (!cursor) break;
+              }
+              ops.sort((a, b) => {
+                if (a.status !== b.status) return a.status === "FAILING" ? -1 : 1;
+                return (b.count || 0) - (a.count || 0);
+              });
+            } catch {}
+          }
+          out.system_health = {
+            cron_ops: ops,
+            failing_count: ops.filter(o => o.status === "FAILING").length,
+            discord_enabled: env?.DISCORD_ENABLE === "true",
+            twelvedata_configured: !!env?.TWELVEDATA_API_KEY,
+            openai_configured: !!env?.OPENAI_API_KEY,
+            alpaca_configured: !!(env?.ALPACA_API_KEY_ID && env?.ALPACA_API_SECRET_KEY),
+            stripe_configured: !!env?.STRIPE_SECRET_KEY,
+            sendgrid_configured: !!(env?.SENDGRID_API_KEY || env?.RESEND_API_KEY),
+          };
+        } catch (e) {
+          out.system_health = { error: String(e?.message || e).slice(0, 200) };
+        }
+
+        // ─ Section 3: data_coverage ──
+        try {
+          const tfsToCheck = ["D", "60", "240"];
+          const by_tf = {};
+          for (const tf of tfsToCheck) {
+            try {
+              const row = await db.prepare(
+                `SELECT COUNT(DISTINCT ticker) AS n_tickers,
+                        COUNT(*) AS n_rows,
+                        MAX(ts) AS max_ts,
+                        MIN(ts) AS min_ts
+                 FROM ticker_candles WHERE tf = ?1`
+              ).bind(tf).first();
+              const worst = await db.prepare(
+                `SELECT ticker, MAX(ts) AS max_ts FROM ticker_candles
+                 WHERE tf = ?1 GROUP BY ticker ORDER BY max_ts ASC LIMIT 1`
+              ).bind(tf).first();
+              by_tf[tf] = {
+                tickers: Number(row?.n_tickers) || 0,
+                rows: Number(row?.n_rows) || 0,
+                max_ts: Number(row?.max_ts) || null,
+                min_ts: Number(row?.min_ts) || null,
+                worst_stale: worst ? {
+                  ticker: worst.ticker,
+                  days_stale: Math.round((Date.now() - Number(worst.max_ts)) / 8640000) / 10,
+                } : null,
+              };
+            } catch (e) {
+              by_tf[tf] = { error: String(e?.message || e).slice(0, 150) };
+            }
+          }
+          // User-added ticker count
+          let userTickerCount = 0;
+          try {
+            const r = await db.prepare(
+              `SELECT COUNT(DISTINCT ticker) AS n FROM user_tickers`
+            ).first().catch(() => null);
+            userTickerCount = Number(r?.n) || 0;
+          } catch {}
+          // Approximate D1 size
+          let dbSizeMb = null;
+          try {
+            const sz = await db.prepare(
+              `SELECT page_count * page_size AS bytes FROM pragma_page_count(), pragma_page_size()`
+            ).first().catch(() => null);
+            if (sz?.bytes) dbSizeMb = Math.round(Number(sz.bytes) / 1024 / 1024 * 10) / 10;
+          } catch {}
+          out.data_coverage = {
+            by_tf,
+            user_added_tickers: userTickerCount,
+            db_size_mb: dbSizeMb,
+            sector_map_count: Object.keys(SECTOR_MAP || {}).length,
+          };
+        } catch (e) {
+          out.data_coverage = { error: String(e?.message || e).slice(0, 200) };
+        }
+
+        // ─ Section 4: users ──
+        try {
+          const nowMs = Date.now();
+          const todayStart = new Date(); todayStart.setUTCHours(0, 0, 0, 0);
+          const weekStart = nowMs - 7 * 86400000;
+          const monthStart = nowMs - 30 * 86400000;
+          const [total, activeMonth, newToday, newWeek] = await Promise.all([
+            db.prepare(`SELECT COUNT(*) AS n FROM users`).first().catch(() => null),
+            db.prepare(`SELECT COUNT(*) AS n FROM users WHERE last_login_at >= ?1`).bind(monthStart).first().catch(() => null),
+            db.prepare(`SELECT COUNT(*) AS n FROM users WHERE created_at >= ?1`).bind(todayStart.getTime()).first().catch(() => null),
+            db.prepare(`SELECT COUNT(*) AS n FROM users WHERE created_at >= ?1`).bind(weekStart).first().catch(() => null),
+          ]);
+          // Top engagement (last login + tier)
+          const topUsers = (await db.prepare(
+            `SELECT email, tier, COALESCE(last_login_at, 0) AS last_login_at, created_at
+             FROM users
+             WHERE last_login_at IS NOT NULL
+             ORDER BY last_login_at DESC LIMIT 25`
+          ).all().catch(() => null))?.results || [];
+          out.users = {
+            total: Number(total?.n) || 0,
+            active_30d: Number(activeMonth?.n) || 0,
+            new_today: Number(newToday?.n) || 0,
+            new_7d: Number(newWeek?.n) || 0,
+            recent_logins: topUsers,
+          };
+        } catch (e) {
+          out.users = { error: String(e?.message || e).slice(0, 200) };
+        }
+
+        // ─ Section 5: positions ──
+        try {
+          const [atOpen, atTotalNotional, invOpen, invTotalCost, recentFills] = await Promise.all([
+            db.prepare(
+              `SELECT ticker, direction, shares, entry_price, ROUND(notional, 2) AS notional, entry_ts, setup_name, setup_grade
+               FROM trades WHERE status='OPEN' ORDER BY entry_ts DESC`
+            ).all().catch(() => ({ results: [] })),
+            db.prepare(
+              `SELECT ROUND(SUM(COALESCE(notional, shares * entry_price)), 2) AS total
+               FROM trades WHERE status='OPEN'`
+            ).first().catch(() => null),
+            db.prepare(
+              `SELECT ticker, total_shares AS shares, avg_entry, ROUND(cost_basis, 2) AS cost_basis, last_entry_ts
+               FROM investor_positions WHERE status='OPEN' ORDER BY cost_basis DESC`
+            ).all().catch(() => ({ results: [] })),
+            db.prepare(
+              `SELECT ROUND(SUM(cost_basis), 2) AS total
+               FROM investor_positions WHERE status='OPEN'`
+            ).first().catch(() => null),
+            db.prepare(
+              `SELECT ticker, action, shares, ROUND(price, 2) AS price, ts, reason
+               FROM investor_lots WHERE ts >= ?1 ORDER BY ts DESC LIMIT 20`
+            ).bind(Date.now() - 24 * 3600 * 1000).all().catch(() => ({ results: [] })),
+          ]);
+          out.positions = {
+            active_trader: {
+              count: (atOpen?.results || []).length,
+              total_notional: Number(atTotalNotional?.total) || 0,
+              positions: atOpen?.results || [],
+            },
+            investor: {
+              count: (invOpen?.results || []).length,
+              total_cost: Number(invTotalCost?.total) || 0,
+              positions: invOpen?.results || [],
+            },
+            recent_investor_lots_24h: recentFills?.results || [],
+          };
+        } catch (e) {
+          out.positions = { error: String(e?.message || e).slice(0, 200) };
+        }
+
+        out.elapsed_ms = Date.now() - _mcStart;
+        return sendJSON(out, 200, corsHeaders(env, req));
       }
 
       // GET /timed/admin/candle-freshness?key=...
