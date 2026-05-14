@@ -33,6 +33,34 @@ export async function d1EnsureBriefSchema(env) {
     await db.prepare(`
       CREATE INDEX IF NOT EXISTS idx_daily_briefs_date ON daily_briefs (date DESC)
     `).run();
+    // P0.7.158 (2026-05-14) — extend daily_briefs with structured prediction
+    // levels per index so the evening evaluator can compute hit/miss without
+    // re-parsing the markdown. Each ALTER is idempotent (try/catch). Added
+    // as user-requested deferred item: "Was the Daily Brief Predictions
+    // correct?" — surfaces in Mission Control after the 4:30 PM ET evaluator.
+    try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN spy_bull_trigger REAL`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN spy_bull_target  REAL`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN spy_bear_trigger REAL`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN spy_bear_target  REAL`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN qqq_bull_trigger REAL`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN qqq_bull_target  REAL`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN qqq_bear_trigger REAL`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN qqq_bear_target  REAL`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN iwm_bull_trigger REAL`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN iwm_bull_target  REAL`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN iwm_bear_trigger REAL`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN iwm_bear_target  REAL`).run(); } catch {}
+    // Open price (used as the reference for hit/miss; defaults to overnight close)
+    try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN spy_open  REAL`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN qqq_open  REAL`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN iwm_open  REAL`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN spy_close REAL`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN qqq_close REAL`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN iwm_close REAL`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN spy_score REAL`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN qqq_score REAL`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN iwm_score REAL`).run(); } catch {}
+    try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN evaluated_at INTEGER`).run(); } catch {}
     await db.prepare(`
       CREATE TABLE IF NOT EXISTS daily_market_snapshots (
         date TEXT PRIMARY KEY,
@@ -3774,15 +3802,65 @@ export async function generateDailyBrief(env, type, opts = {}) {
     // 7. Archive in D1
     if (db) {
       await d1EnsureBriefSchema(env);
+      // P0.7.158 — capture per-index bull/bear trigger + target levels from the
+      // infographic's gamePlan so the evening evaluator can compute hit-rate
+      // without re-parsing the markdown. Falls back to NULL if any index lacks
+      // a gamePlan (rare; typically means scenario didn't load for that index).
+      const _indices = (infographic && infographic.indices) || [];
+      const _gp = (sym) => {
+        const r = _indices.find(i => String(i?.sym || "").toUpperCase() === sym);
+        return (r && r.levels && r.levels.gamePlan) ? r.levels.gamePlan : null;
+      };
+      const _open = (sym) => {
+        const r = _indices.find(i => String(i?.sym || "").toUpperCase() === sym);
+        const px = Number(r?.levels?.currentPrice ?? r?.price ?? r?.last);
+        return Number.isFinite(px) ? px : null;
+      };
+      const spyGp = _gp("SPY"), qqqGp = _gp("QQQ"), iwmGp = _gp("IWM");
       await db.prepare(`
-        INSERT INTO daily_briefs (id, date, type, content, es_prediction, es_prediction_correct, es_close, published_at, created_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, ?8)
+        INSERT INTO daily_briefs (
+          id, date, type, content, es_prediction, es_prediction_correct, es_close,
+          spy_bull_trigger, spy_bull_target, spy_bear_trigger, spy_bear_target,
+          qqq_bull_trigger, qqq_bull_target, qqq_bear_trigger, qqq_bear_target,
+          iwm_bull_trigger, iwm_bull_target, iwm_bear_trigger, iwm_bear_target,
+          spy_open, qqq_open, iwm_open,
+          published_at, created_at
+        ) VALUES (
+          ?1, ?2, ?3, ?4, ?5, NULL, ?6,
+          ?7, ?8, ?9, ?10,
+          ?11, ?12, ?13, ?14,
+          ?15, ?16, ?17, ?18,
+          ?19, ?20, ?21,
+          ?22, ?23
+        )
         ON CONFLICT(id) DO UPDATE SET
           content = excluded.content,
           es_prediction = excluded.es_prediction,
           es_close = excluded.es_close,
+          spy_bull_trigger = COALESCE(excluded.spy_bull_trigger, daily_briefs.spy_bull_trigger),
+          spy_bull_target  = COALESCE(excluded.spy_bull_target,  daily_briefs.spy_bull_target),
+          spy_bear_trigger = COALESCE(excluded.spy_bear_trigger, daily_briefs.spy_bear_trigger),
+          spy_bear_target  = COALESCE(excluded.spy_bear_target,  daily_briefs.spy_bear_target),
+          qqq_bull_trigger = COALESCE(excluded.qqq_bull_trigger, daily_briefs.qqq_bull_trigger),
+          qqq_bull_target  = COALESCE(excluded.qqq_bull_target,  daily_briefs.qqq_bull_target),
+          qqq_bear_trigger = COALESCE(excluded.qqq_bear_trigger, daily_briefs.qqq_bear_trigger),
+          qqq_bear_target  = COALESCE(excluded.qqq_bear_target,  daily_briefs.qqq_bear_target),
+          iwm_bull_trigger = COALESCE(excluded.iwm_bull_trigger, daily_briefs.iwm_bull_trigger),
+          iwm_bull_target  = COALESCE(excluded.iwm_bull_target,  daily_briefs.iwm_bull_target),
+          iwm_bear_trigger = COALESCE(excluded.iwm_bear_trigger, daily_briefs.iwm_bear_trigger),
+          iwm_bear_target  = COALESCE(excluded.iwm_bear_target,  daily_briefs.iwm_bear_target),
+          spy_open = COALESCE(daily_briefs.spy_open, excluded.spy_open),
+          qqq_open = COALESCE(daily_briefs.qqq_open, excluded.qqq_open),
+          iwm_open = COALESCE(daily_briefs.iwm_open, excluded.iwm_open),
           published_at = excluded.published_at
-      `).bind(briefId, data.today, type, content, esPrediction, esClose, now, now).run();
+      `).bind(
+        briefId, data.today, type, content, esPrediction, esClose,
+        spyGp?.bullTrigger ?? null, spyGp?.bullTarget ?? null, spyGp?.bearTrigger ?? null, spyGp?.bearTarget ?? null,
+        qqqGp?.bullTrigger ?? null, qqqGp?.bullTarget ?? null, qqqGp?.bearTrigger ?? null, qqqGp?.bearTarget ?? null,
+        iwmGp?.bullTrigger ?? null, iwmGp?.bullTarget ?? null, iwmGp?.bearTrigger ?? null, iwmGp?.bearTarget ?? null,
+        _open("SPY"), _open("QQQ"), _open("IWM"),
+        now, now
+      ).run();
     }
 
     // 7b. Persist structured market snapshot + events for CIO episodic memory

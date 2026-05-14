@@ -3899,12 +3899,29 @@
               }, tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`))), React.createElement("button", {
                 className: "ds-chip ds-chip--sm",
                 onClick: () => setChartExpanded(true),
-                title: "Expand chart",
+                title: "View fullscreen chart",
+                "aria-label": "View fullscreen chart",
                 style: {
                   fontFamily: "var(--tt-font-mono)",
-                  padding: "0 8px"
+                  padding: "0 10px",
+                  height: 26,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: "0.05em",
+                  color: "#051a10",
+                  background: "linear-gradient(135deg, rgba(34, 197, 94, 0.96), rgba(16, 185, 129, 0.96))",
+                  border: "1px solid rgba(34, 197, 94, 0.85)",
+                  boxShadow: "0 2px 8px rgba(34, 197, 94, 0.35)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4
                 }
-              }, "\u2922"))
+              }, React.createElement("span", {
+                style: {
+                  fontSize: 13,
+                  lineHeight: 1
+                }
+              }, "\u2922"), React.createElement("span", null, "CHART")))
             }, React.createElement("div", {
               className: "tt-rail-chart-canvas"
             }, _railChartElement)))
