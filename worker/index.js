@@ -52579,36 +52579,54 @@ export default {
 
           // Pull the day's OHLC for SPY / QQQ / IWM from ticker_candles.
           // The 'D' candle for `dateParam` represents that trading day's
-          // session aggregate. ts is stored as the day's UTC midnight ms.
-          const dayMs = Date.UTC(
+          // session aggregate. P0.7.161 (2026-05-14) — Alpaca-sourced
+          // D bars are stamped at NY midnight (UTC midnight + 4–5h) not
+          // UTC midnight, so an exact ts = midnight_utc match missed every
+          // single D candle and the route always returned no_d_candle.
+          // Use a date-range query (UTC midnight ± 24h) instead.
+          const dayStartMs = Date.UTC(
             Number(dateParam.slice(0, 4)),
             Number(dateParam.slice(5, 7)) - 1,
             Number(dateParam.slice(8, 10))
           );
+          const dayEndMs = dayStartMs + 86400000;
           const _scoreIdx = async (sym, gp, openFromBrief) => {
             try {
               const row = await db.prepare(
-                `SELECT o, h, l, c FROM ticker_candles WHERE ticker = ?1 AND tf = 'D' AND ts = ?2 LIMIT 1`
-              ).bind(sym, dayMs).first();
+                `SELECT o, h, l, c FROM ticker_candles
+                 WHERE ticker = ?1 AND tf = 'D' AND ts >= ?2 AND ts < ?3
+                 ORDER BY ts ASC LIMIT 1`
+              ).bind(sym, dayStartMs, dayEndMs).first();
               if (!row) return { score: null, reason: "no_d_candle", close: null };
               const o = Number(row.o), h = Number(row.h), l = Number(row.l), c = Number(row.c);
               const open = Number(openFromBrief) > 0 ? Number(openFromBrief) : o;
+              // P0.7.161 (2026-05-14) — only score against triggers that
+              // were ACTUALLY set by the brief. Number(null) === 0 and
+              // h >= 0 is trivially true, which used to score 1.0 against
+              // a brief that had no triggers at all (NULL columns). Guard
+              // each side independently: a missing bull trigger doesn't
+              // mean "bull never triggered" — it means "we have no bull
+              // prediction to score".
               const bullTrig = Number(gp.bullTrig);
               const bullTarg = Number(gp.bullTarg);
               const bearTrig = Number(gp.bearTrig);
               const bearTarg = Number(gp.bearTarg);
-              const hadBullTrig = Number.isFinite(bullTrig) && h >= bullTrig;
-              const hadBullTarg = Number.isFinite(bullTarg) && h >= bullTarg;
-              const hadBearTrig = Number.isFinite(bearTrig) && l <= bearTrig;
-              const hadBearTarg = Number.isFinite(bearTarg) && l <= bearTarg;
+              const bullTrigValid = Number.isFinite(bullTrig) && bullTrig > 0;
+              const bullTargValid = Number.isFinite(bullTarg) && bullTarg > 0;
+              const bearTrigValid = Number.isFinite(bearTrig) && bearTrig > 0;
+              const bearTargValid = Number.isFinite(bearTarg) && bearTarg > 0;
+              const hadBullTrig = bullTrigValid && h >= bullTrig;
+              const hadBullTarg = bullTargValid && h >= bullTarg;
+              const hadBearTrig = bearTrigValid && l <= bearTrig;
+              const hadBearTarg = bearTargValid && l <= bearTarg;
               // Score the predicted side that actually played out. If both
               // sides triggered (range day), credit the one whose target
               // was hit; if neither target hit, average partial credit.
               let bullScore = null, bearScore = null;
-              if (Number.isFinite(bullTrig)) {
+              if (bullTrigValid) {
                 bullScore = hadBullTarg ? 1.0 : (hadBullTrig ? 0.5 : 0.0);
               }
-              if (Number.isFinite(bearTrig)) {
+              if (bearTrigValid) {
                 bearScore = hadBearTarg ? 1.0 : (hadBearTrig ? 0.5 : 0.0);
               }
               const score = (bullScore == null && bearScore == null)
