@@ -52470,6 +52470,13 @@ export default {
         const _mcStart = Date.now();
         const out = { ok: true, ts: _mcStart };
 
+        // P0.7.157.r2 (2026-05-14) — parallelize all 5 sections via
+        // Promise.all. Sequential call took ~27s (live measurement) on
+        // the first hit because the per-TF GROUP BY queries on
+        // ticker_candles are slow. Parallel reduces total to the slowest
+        // single section. Each section is independent — one failure
+        // doesn't poison others.
+        const _sec1 = (async () => {
         // ─ Section 1: model_perf ──
         try {
           const nowMs = Date.now();
@@ -52536,6 +52543,8 @@ export default {
           out.model_perf = { error: String(e?.message || e).slice(0, 200) };
         }
 
+        })();
+        const _sec2 = (async () => {
         // ─ Section 2: system_health ──
         try {
           const ops = [];
@@ -52582,6 +52591,8 @@ export default {
           out.system_health = { error: String(e?.message || e).slice(0, 200) };
         }
 
+        })();
+        const _sec3 = (async () => {
         // ─ Section 3: data_coverage ──
         try {
           const tfsToCheck = ["D", "60", "240"];
@@ -52639,6 +52650,8 @@ export default {
           out.data_coverage = { error: String(e?.message || e).slice(0, 200) };
         }
 
+        })();
+        const _sec4 = (async () => {
         // ─ Section 4: users ──
         try {
           const nowMs = Date.now();
@@ -52669,6 +52682,8 @@ export default {
           out.users = { error: String(e?.message || e).slice(0, 200) };
         }
 
+        })();
+        const _sec5 = (async () => {
         // ─ Section 5: positions ──
         try {
           const [atOpen, atTotalNotional, invOpen, invTotalCost, recentFills] = await Promise.all([
@@ -52710,6 +52725,8 @@ export default {
           out.positions = { error: String(e?.message || e).slice(0, 200) };
         }
 
+        })();
+        await Promise.all([_sec1, _sec2, _sec3, _sec4, _sec5]);
         out.elapsed_ms = Date.now() - _mcStart;
         return sendJSON(out, 200, corsHeaders(env, req));
       }
