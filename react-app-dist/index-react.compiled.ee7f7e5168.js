@@ -15666,8 +15666,10 @@ function App() {
   }, [data, effectiveFilters, trades, socialAdditions, timeTravelTickers, savedTickers]);
   const viewportTickers = useMemo(() => {
     if (!activeInsightTickers) return tickers;
+    const searchActive = String(effectiveFilters?.search || filters?.search || "").trim().length > 0;
+    if (searchActive) return tickers;
     return tickers.filter(t => activeInsightTickers.has(normTicker(t?.ticker || "")));
-  }, [tickers, activeInsightTickers]);
+  }, [tickers, activeInsightTickers, effectiveFilters?.search, filters?.search]);
   const _appKanbanCounts = useMemo(() => {
     const counts = {
       setup: 0,

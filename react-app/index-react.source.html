@@ -19641,12 +19641,29 @@
         // Used by the Analysis viewport (OpportunitiesPanel) and as the
         // base for bubbleMapTickers. Active Trader kanban / All-table /
         // header counts read from `tickers` (cross-app only).
+        //
+        // V15 P0.7.151 (2026-05-14) — Search escapes the insight chips.
+        //
+        // The user model: Search + Viewport are paired. When the user
+        // types a ticker into Search, the viewport must show the
+        // result regardless of which insight chip (Focused / Actionable
+        // / Early Short / etc.) is currently active on the bubble map.
+        // Otherwise typing AAPL while the Focused chip is on returns
+        // an empty viewport — the user-added ticker isn't in the
+        // chip's set so it gets dropped.
+        //
+        // Fix: when search is non-empty, bypass the activeInsight
+        // narrowing for viewportTickers. The bubble map keeps its own
+        // chip-narrowed pipeline (so the visualization isn't
+        // disturbed); the viewport reflects the search intent.
         const viewportTickers = useMemo(() => {
           if (!activeInsightTickers) return tickers;
+          const searchActive = String(effectiveFilters?.search || filters?.search || "").trim().length > 0;
+          if (searchActive) return tickers;
           return tickers.filter((t) =>
             activeInsightTickers.has(normTicker(t?.ticker || "")),
           );
-        }, [tickers, activeInsightTickers]);
+        }, [tickers, activeInsightTickers, effectiveFilters?.search, filters?.search]);
 
         // V15 P0.7.43 (2026-04-30) — App-scope counts for the View tab badges.
         // These were originally inside ActionCenterPanel which broke the badges
