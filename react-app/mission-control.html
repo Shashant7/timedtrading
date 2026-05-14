@@ -310,27 +310,40 @@
                       );
                     })}
                   </div>
-                  {mp.ai_cio_7d && (
-                    <div className="mc-kpi mb-3">
-                      <div className="mc-kpi-label">AI CIO Activity (7d)</div>
-                      <div className="flex items-baseline gap-4 mt-1 flex-wrap text-xs">
-                        <span><b className="text-white">{Number(mp.ai_cio_7d.total) || 0}</b> decisions</span>
-                        <span className="mc-mute">|</span>
-                        <span>{Number(mp.ai_cio_7d.shadow) || 0} shadow</span>
-                        <span>{Number(mp.ai_cio_7d.fallback) || 0} fallback</span>
-                        <span className="mc-pos">{Number(mp.ai_cio_7d.enter) || 0} enter</span>
-                        <span className="mc-neg">{Number(mp.ai_cio_7d.block) || 0} block</span>
-                        <span className="mc-mute">·</span>
-                        <span className="mc-mute">
-                          {Number(mp.ai_cio_7d.total) === 0
-                            ? "No CIO activity in last 7d — entry engine may be quiet"
-                            : Number(mp.ai_cio_7d.fallback) > Number(mp.ai_cio_7d.total) * 0.5
-                              ? <span className="mc-warn">⚠ More than half are fallbacks — check OpenAI key</span>
-                              : "Healthy"}
-                        </span>
+                  {mp.ai_cio_7d && (() => {
+                    /* P0.7.161 (2026-05-14) — Distinguish "engine quiet"
+                       (no entries fired at all) from "CIO not wired"
+                       (entries fired but CIO never invoked). The latter
+                       is a regression worth surfacing loudly. */
+                    const cioTotal = Number(mp.ai_cio_7d.total) || 0;
+                    const tradeTotal7d = Number(mp?.trailing?.d7?.total) || 0;
+                    const fallbacks = Number(mp.ai_cio_7d.fallback) || 0;
+                    let status;
+                    if (cioTotal === 0 && tradeTotal7d === 0) {
+                      status = <span className="mc-mute">No CIO activity in last 7d — entry engine had no entries to evaluate</span>;
+                    } else if (cioTotal === 0 && tradeTotal7d > 0) {
+                      status = <span className="mc-neg">⚠ {tradeTotal7d} trade(s) entered but 0 CIO decisions — CIO is NOT being invoked on entries (run /timed/admin/ai-cio/probe to verify the route, then check that processTradeSimulation reaches the AI CIO block)</span>;
+                    } else if (fallbacks > cioTotal * 0.5) {
+                      status = <span className="mc-warn">⚠ More than half are fallbacks — check OpenAI key + rate limit</span>;
+                    } else {
+                      status = <span className="mc-pos">Healthy</span>;
+                    }
+                    return (
+                      <div className="mc-kpi mb-3">
+                        <div className="mc-kpi-label">AI CIO Activity (7d)</div>
+                        <div className="flex items-baseline gap-4 mt-1 flex-wrap text-xs">
+                          <span><b className="text-white">{cioTotal}</b> decisions</span>
+                          <span className="mc-mute">|</span>
+                          <span>{Number(mp.ai_cio_7d.shadow) || 0} shadow</span>
+                          <span>{fallbacks} fallback</span>
+                          <span className="mc-pos">{Number(mp.ai_cio_7d.enter) || 0} enter</span>
+                          <span className="mc-neg">{Number(mp.ai_cio_7d.block) || 0} block</span>
+                          <span className="mc-mute">·</span>
+                          {status}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                   {/* P0.7.158 — Daily Brief prediction accuracy (30d) */}
                   <div className="mc-kpi">
                     <div className="mc-kpi-label">Daily Brief Accuracy (30d)</div>

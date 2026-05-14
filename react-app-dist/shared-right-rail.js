@@ -3186,7 +3186,7 @@
             return [pc, v2Price];
           })();
           const v2DirChip = v2Dir === "LONG" ? "ds-chip--up" : v2Dir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
-          const v2RailTab = ["SNAPSHOT","SETUP","TECHNICALS","FUNDAMENTALS","HISTORY"].includes(railTab) ? railTab : "SNAPSHOT";
+          const v2RailTab = ["SNAPSHOT","SETUP","TECHNICALS","FUNDAMENTALS","HISTORY","CHART"].includes(railTab) ? railTab : "SNAPSHOT";
           // ds-metric helpers
           const Metric = ({ label, value, delta, deltaClass = "accent" }) => (
             <div className="ds-metric">
@@ -3500,7 +3500,15 @@
                       justifyContent: "flex-end",
                     }}
                   >
-                    {[["SNAPSHOT","Snapshot"],["SETUP","Setup"],["TECHNICALS","Technicals"],["FUNDAMENTALS","Fundamentals"],["HISTORY","History"]].map(([key, label]) => (
+                    {/* V15 P0.7.161 (2026-05-14) — CHART is a real tab now.
+                        Previous attempts (floating FAB, position:fixed modal,
+                        inline pane swap) all lost stacking-context fights on
+                        iOS Safari inside .tt-rail-mobile (overflow-y:auto +
+                        slide-in transform). A regular tab body has none of
+                        those problems — it renders in the same right pane
+                        that's already showing Snapshot/Setup/etc., so tapping
+                        Chart just swaps the tab body content. */}
+                    {[["SNAPSHOT","Snapshot"],["CHART","Chart"],["SETUP","Setup"],["TECHNICALS","Technicals"],["FUNDAMENTALS","Fundamentals"],["HISTORY","History"]].map(([key, label]) => (
                       <button
                         key={key}
                         className={`ds-tab__item ${v2RailTab === key ? "ds-tab__item--active" : ""}`}
@@ -3510,6 +3518,13 @@
                           justifyContent: "center",
                           padding: "6px 12px",
                           scrollSnapAlign: "start",
+                          /* Accent the CHART tab so the primary chart-access
+                             point on mobile is visually obvious without having
+                             to fight a button-vs-pane layout. */
+                          ...(key === "CHART" ? {
+                            color: "#34d399",
+                            fontWeight: 700,
+                          } : {}),
                         }}
                       >
                         <span>{label}</span>
@@ -3640,7 +3655,18 @@
                                 actionable and can't be missed. */}
                             <button
                               className="ds-chip ds-chip--sm"
-                              onClick={() => setChartExpanded(true)}
+                              onClick={() => {
+                                /* V15 P0.7.161 (2026-05-14) — On desktop the
+                                   workspace shows the chart in the left pane,
+                                   so we open the fullscreen modal (legacy
+                                   behavior). On mobile/tablet we switch to
+                                   the CHART tab, which renders the same chart
+                                   in the right pane without any stacking-
+                                   context war. */
+                                const isMobile = typeof window !== "undefined" && window.innerWidth < 1024;
+                                if (isMobile) setRailTab("CHART");
+                                else setChartExpanded(true);
+                              }}
                               title="View fullscreen chart"
                               aria-label="View fullscreen chart"
                               style={{
@@ -3845,6 +3871,64 @@
                     own scroll. In modal mode it just continues the body
                     flow as before. */}
                 <div className="tt-rail-area-right-pane flex-1 overflow-y-auto tt-rail-body" style={{ padding: "var(--ds-space-4)" }}>
+                  {/* CHART TAB (V15 P0.7.161, 2026-05-14)
+                      Pure tab body — renders the price chart inside the same
+                      right pane that hosts every other tab. No portal, no
+                      position:fixed, no CSS pane-swap. Works identically on
+                      iOS Safari, Chrome, desktop, etc. because it's just the
+                      active tab content.
+
+                      The chart subtree itself is the memoized `_railChartElement`
+                      (already used by the desktop workspace left pane), so
+                      flipping to this tab does NOT re-create the chart React
+                      element or refetch candles — the same instance just gets
+                      rendered in a different position in the JSX tree. */}
+                  {v2RailTab === "CHART" && (
+                    <>
+                      {chartCandles && chartCandles.length >= 2 ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-3)" }}>
+                          {/* Timeframe selector — mirrors the desktop chart-panel
+                              header so mobile users get the same control. */}
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+                            <span style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", letterSpacing: "0.06em" }}>
+                              {tickerSymbol} · {chartTf === "D" ? "Daily" : chartTf === "60" ? "1H" : chartTf === "240" ? "4H" : `${chartTf}m`}
+                            </span>
+                            <div className="ds-chipgroup" style={{ padding: 2 }}>
+                              {["15", "30", "60", "240", "D"].map((tf) => (
+                                <button
+                                  key={`charttab-tf-${tf}`}
+                                  onClick={() => setChartTf(tf)}
+                                  className={`ds-chipgroup__item ${chartTf === tf ? "ds-chipgroup__item--active" : ""}`}
+                                  style={{ padding: "3px 8px", fontSize: 10 }}
+                                >{tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`}</button>
+                              ))}
+                            </div>
+                          </div>
+                          {/* The chart canvas. tt-rail-chart-canvas controls
+                              height per breakpoint (see index-react.html). */}
+                          <div className="tt-rail-chart-canvas" style={{ minHeight: 320 }}>
+                            {_railChartElement}
+                          </div>
+                          <a
+                            href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tickerSymbol)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="ds-chip ds-chip--sm"
+                            style={{ alignSelf: "flex-start", fontFamily: "var(--tt-font-mono)" }}
+                          >
+                            Open in TradingView ↗
+                          </a>
+                        </div>
+                      ) : (
+                        <Panel title="Chart">
+                          <div style={{ padding: "20px 12px", textAlign: "center", color: "var(--ds-text-muted)", fontSize: "var(--ds-fs-body)" }}>
+                            Loading price candles…
+                          </div>
+                        </Panel>
+                      )}
+                    </>
+                  )}
+
                   {/* SNAPSHOT TAB
                       V2.1 round 3 (2026-05-01) — Reorganized per user feedback:
                        1. Today (regime/state/stage chips)
@@ -6090,9 +6174,14 @@
                   <a href={`https://www.tradingview.com/symbols/${tickerSymbol}/`} target="_blank" rel="noopener noreferrer" className="ds-chip ds-chip--sm" style={{ display: "inline-flex" }}>
                     Open in TradingView ↗
                   </a>
+                  {/* V15 P0.7.161 (2026-05-14) — Tap CHART button switches
+                      to the CHART tab (added to the tab nav above). No more
+                      position:fixed / portal / pane-swap dance — just a normal
+                      tab change. Works reliably on iOS Safari because there's
+                      nothing to fight a stacking context. */}
                   <button
                     className="ds-chip ds-chip--sm"
-                    onClick={() => setChartExpanded(true)}
+                    onClick={() => setRailTab("CHART")}
                     title="View chart"
                     aria-label="View chart"
                     style={{

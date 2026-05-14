@@ -3469,7 +3469,7 @@
           return [pc, v2Price];
         })();
         const v2DirChip = v2Dir === "LONG" ? "ds-chip--up" : v2Dir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
-        const v2RailTab = ["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY"].includes(railTab) ? railTab : "SNAPSHOT";
+        const v2RailTab = ["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY", "CHART"].includes(railTab) ? railTab : "SNAPSHOT";
         const Metric = ({
           label,
           value,
@@ -3800,7 +3800,7 @@
               scrollbarWidth: "none",
               justifyContent: "flex-end"
             }
-          }, [["SNAPSHOT", "Snapshot"], ["SETUP", "Setup"], ["TECHNICALS", "Technicals"], ["FUNDAMENTALS", "Fundamentals"], ["HISTORY", "History"]].map(([key, label]) => React.createElement("button", {
+          }, [["SNAPSHOT", "Snapshot"], ["CHART", "Chart"], ["SETUP", "Setup"], ["TECHNICALS", "Technicals"], ["FUNDAMENTALS", "Fundamentals"], ["HISTORY", "History"]].map(([key, label]) => React.createElement("button", {
             key: key,
             className: `ds-tab__item ${v2RailTab === key ? "ds-tab__item--active" : ""}`,
             onClick: () => setRailTab(key),
@@ -3808,7 +3808,11 @@
               flex: "0 0 auto",
               justifyContent: "center",
               padding: "6px 12px",
-              scrollSnapAlign: "start"
+              scrollSnapAlign: "start",
+              ...(key === "CHART" ? {
+                color: "#34d399",
+                fontWeight: 700
+              } : {})
             }
           }, React.createElement("span", null, label)))));
         })(), React.createElement("div", {
@@ -3926,7 +3930,10 @@
                 }
               }, tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`))), React.createElement("button", {
                 className: "ds-chip ds-chip--sm",
-                onClick: () => setChartExpanded(true),
+                onClick: () => {
+                  const isMobile = typeof window !== "undefined" && window.innerWidth < 1024;
+                  if (isMobile) setRailTab("CHART");else setChartExpanded(true);
+                },
                 title: "View fullscreen chart",
                 "aria-label": "View fullscreen chart",
                 style: {
@@ -4219,7 +4226,63 @@
           style: {
             padding: "var(--ds-space-4)"
           }
-        }, v2RailTab === "SNAPSHOT" && React.createElement(React.Fragment, null, (ticker?.regime_class || ticker?.state || ticker?.kanban_stage) && React.createElement(Panel, {
+        }, v2RailTab === "CHART" && React.createElement(React.Fragment, null, chartCandles && chartCandles.length >= 2 ? React.createElement("div", {
+          style: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--ds-space-3)"
+          }
+        }, React.createElement("div", {
+          style: {
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 6
+          }
+        }, React.createElement("span", {
+          style: {
+            fontSize: "var(--ds-fs-meta)",
+            color: "var(--ds-text-muted)",
+            fontFamily: "var(--tt-font-mono)",
+            letterSpacing: "0.06em"
+          }
+        }, tickerSymbol, " \xB7 ", chartTf === "D" ? "Daily" : chartTf === "60" ? "1H" : chartTf === "240" ? "4H" : `${chartTf}m`), React.createElement("div", {
+          className: "ds-chipgroup",
+          style: {
+            padding: 2
+          }
+        }, ["15", "30", "60", "240", "D"].map(tf => React.createElement("button", {
+          key: `charttab-tf-${tf}`,
+          onClick: () => setChartTf(tf),
+          className: `ds-chipgroup__item ${chartTf === tf ? "ds-chipgroup__item--active" : ""}`,
+          style: {
+            padding: "3px 8px",
+            fontSize: 10
+          }
+        }, tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`)))), React.createElement("div", {
+          className: "tt-rail-chart-canvas",
+          style: {
+            minHeight: 320
+          }
+        }, _railChartElement), React.createElement("a", {
+          href: `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tickerSymbol)}`,
+          target: "_blank",
+          rel: "noopener noreferrer",
+          className: "ds-chip ds-chip--sm",
+          style: {
+            alignSelf: "flex-start",
+            fontFamily: "var(--tt-font-mono)"
+          }
+        }, "Open in TradingView \u2197")) : React.createElement(Panel, {
+          title: "Chart"
+        }, React.createElement("div", {
+          style: {
+            padding: "20px 12px",
+            textAlign: "center",
+            color: "var(--ds-text-muted)",
+            fontSize: "var(--ds-fs-body)"
+          }
+        }, "Loading price candles\u2026"))), v2RailTab === "SNAPSHOT" && React.createElement(React.Fragment, null, (ticker?.regime_class || ticker?.state || ticker?.kanban_stage) && React.createElement(Panel, {
           title: "Today"
         }, React.createElement("div", {
           style: {
@@ -7590,7 +7653,7 @@
           }
         }, "Open in TradingView \u2197"), React.createElement("button", {
           className: "ds-chip ds-chip--sm",
-          onClick: () => setChartExpanded(true),
+          onClick: () => setRailTab("CHART"),
           title: "View chart",
           "aria-label": "View chart",
           style: {

@@ -239,27 +239,46 @@ function MissionControl({
     }, "\xB7"), React.createElement("span", {
       className: "text-xs mc-mute"
     }, total, " trades")));
-  })), mp.ai_cio_7d && React.createElement("div", {
-    className: "mc-kpi mb-3"
-  }, React.createElement("div", {
-    className: "mc-kpi-label"
-  }, "AI CIO Activity (7d)"), React.createElement("div", {
-    className: "flex items-baseline gap-4 mt-1 flex-wrap text-xs"
-  }, React.createElement("span", null, React.createElement("b", {
-    className: "text-white"
-  }, Number(mp.ai_cio_7d.total) || 0), " decisions"), React.createElement("span", {
-    className: "mc-mute"
-  }, "|"), React.createElement("span", null, Number(mp.ai_cio_7d.shadow) || 0, " shadow"), React.createElement("span", null, Number(mp.ai_cio_7d.fallback) || 0, " fallback"), React.createElement("span", {
-    className: "mc-pos"
-  }, Number(mp.ai_cio_7d.enter) || 0, " enter"), React.createElement("span", {
-    className: "mc-neg"
-  }, Number(mp.ai_cio_7d.block) || 0, " block"), React.createElement("span", {
-    className: "mc-mute"
-  }, "\xB7"), React.createElement("span", {
-    className: "mc-mute"
-  }, Number(mp.ai_cio_7d.total) === 0 ? "No CIO activity in last 7d — entry engine may be quiet" : Number(mp.ai_cio_7d.fallback) > Number(mp.ai_cio_7d.total) * 0.5 ? React.createElement("span", {
-    className: "mc-warn"
-  }, "\u26A0 More than half are fallbacks \u2014 check OpenAI key") : "Healthy"))), React.createElement("div", {
+  })), mp.ai_cio_7d && (() => {
+    const cioTotal = Number(mp.ai_cio_7d.total) || 0;
+    const tradeTotal7d = Number(mp?.trailing?.d7?.total) || 0;
+    const fallbacks = Number(mp.ai_cio_7d.fallback) || 0;
+    let status;
+    if (cioTotal === 0 && tradeTotal7d === 0) {
+      status = React.createElement("span", {
+        className: "mc-mute"
+      }, "No CIO activity in last 7d \u2014 entry engine had no entries to evaluate");
+    } else if (cioTotal === 0 && tradeTotal7d > 0) {
+      status = React.createElement("span", {
+        className: "mc-neg"
+      }, "\u26A0 ", tradeTotal7d, " trade(s) entered but 0 CIO decisions \u2014 CIO is NOT being invoked on entries (run /timed/admin/ai-cio/probe to verify the route, then check that processTradeSimulation reaches the AI CIO block)");
+    } else if (fallbacks > cioTotal * 0.5) {
+      status = React.createElement("span", {
+        className: "mc-warn"
+      }, "\u26A0 More than half are fallbacks \u2014 check OpenAI key + rate limit");
+    } else {
+      status = React.createElement("span", {
+        className: "mc-pos"
+      }, "Healthy");
+    }
+    return React.createElement("div", {
+      className: "mc-kpi mb-3"
+    }, React.createElement("div", {
+      className: "mc-kpi-label"
+    }, "AI CIO Activity (7d)"), React.createElement("div", {
+      className: "flex items-baseline gap-4 mt-1 flex-wrap text-xs"
+    }, React.createElement("span", null, React.createElement("b", {
+      className: "text-white"
+    }, cioTotal), " decisions"), React.createElement("span", {
+      className: "mc-mute"
+    }, "|"), React.createElement("span", null, Number(mp.ai_cio_7d.shadow) || 0, " shadow"), React.createElement("span", null, fallbacks, " fallback"), React.createElement("span", {
+      className: "mc-pos"
+    }, Number(mp.ai_cio_7d.enter) || 0, " enter"), React.createElement("span", {
+      className: "mc-neg"
+    }, Number(mp.ai_cio_7d.block) || 0, " block"), React.createElement("span", {
+      className: "mc-mute"
+    }, "\xB7"), status));
+  })(), React.createElement("div", {
     className: "mc-kpi"
   }, React.createElement("div", {
     className: "mc-kpi-label"
