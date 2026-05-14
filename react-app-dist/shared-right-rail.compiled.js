@@ -3528,7 +3528,7 @@
         }) : "";
         const _isWorkspace = layoutMode === "workspace";
         return React.createElement(React.Fragment, null, React.createElement("div", {
-          className: `w-full h-full flex flex-col tt-rail-shell ${_isWorkspace ? "tt-rail-shell--workspace" : ""}`,
+          className: `w-full h-full flex flex-col tt-rail-shell ${_isWorkspace ? "tt-rail-shell--workspace" : ""} ${chartExpanded && !_isWorkspace ? "tt-rail-chart-active" : ""}`,
           style: {
             background: "var(--ds-bg-canvas)",
             borderRadius: "var(--ds-radius-lg)",
@@ -3878,7 +3878,32 @@
               style: {
                 marginBottom: "var(--ds-space-3)"
               }
-            }, React.createElement(Panel, {
+            }, chartExpanded && React.createElement("div", {
+              className: "tt-rail-chart-back-bar",
+              style: {
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "8px var(--ds-space-4)",
+                borderBottom: "1px solid var(--ds-stroke)",
+                marginBottom: "var(--ds-space-2)",
+                background: "var(--ds-bg-canvas)"
+              }
+            }, React.createElement("button", {
+              className: "ds-chip ds-chip--sm",
+              onClick: () => setChartExpanded(false),
+              style: {
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4
+              }
+            }, React.createElement("span", null, "\u2190"), React.createElement("span", null, "Back to tabs")), React.createElement("span", {
+              style: {
+                fontSize: "var(--ds-fs-meta)",
+                color: "var(--ds-text-muted)",
+                fontFamily: "var(--tt-font-mono)"
+              }
+            }, tickerSymbol, " Chart")), React.createElement(Panel, {
               title: "Chart",
               action: React.createElement("div", {
                 style: {
@@ -3901,19 +3926,7 @@
                 }
               }, tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`))), React.createElement("button", {
                 className: "ds-chip ds-chip--sm",
-                onClick: () => {
-                  setChartExpanded(true);
-                  try {
-                    const _sym = String(tickerSymbol || "").toUpperCase();
-                    if (_sym && typeof window !== "undefined") {
-                      window.dispatchEvent(new CustomEvent("tt:open-chart", {
-                        detail: {
-                          ticker: _sym
-                        }
-                      }));
-                    }
-                  } catch (_) {}
-                },
+                onClick: () => setChartExpanded(true),
                 title: "View fullscreen chart",
                 "aria-label": "View fullscreen chart",
                 style: {
@@ -7577,21 +7590,9 @@
           }
         }, "Open in TradingView \u2197"), React.createElement("button", {
           className: "ds-chip ds-chip--sm",
-          onClick: () => {
-            setChartExpanded(true);
-            try {
-              const _sym = String(tickerSymbol || "").toUpperCase();
-              if (_sym && typeof window !== "undefined") {
-                window.dispatchEvent(new CustomEvent("tt:open-chart", {
-                  detail: {
-                    ticker: _sym
-                  }
-                }));
-              }
-            } catch (_) {}
-          },
-          title: "View fullscreen chart",
-          "aria-label": "View fullscreen chart",
+          onClick: () => setChartExpanded(true),
+          title: "View chart",
+          "aria-label": "View chart",
           style: {
             fontFamily: "var(--tt-font-mono)",
             padding: "0 12px",
