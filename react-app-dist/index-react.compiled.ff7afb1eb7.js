@@ -18185,28 +18185,12 @@ function App() {
     strokeLinejoin: "round"
   }, React.createElement("polyline", {
     points: "18 15 12 9 6 15"
-  }))), React.createElement("button", {
+  }))), selectedTicker && React.createElement("button", {
     type: "button",
     className: "tt-mobile-chart-fab",
     onClick: () => {
-      const _ttPick = (() => {
-        if (selectedTicker) return selectedTicker;
-        try {
-          if (Array.isArray(tickers) && tickers.length > 0) return tickers[0]?.ticker || null;
-        } catch {}
-        return null;
-      })();
-      if (!_ttPick) {
-        try {
-          if (typeof handleDashboardModeChange === "function") handleDashboardModeChange("trader");
-        } catch {}
-        return;
-      }
-      if (_ttPick !== selectedTicker) {
-        try {
-          handleTickerSelect(_ttPick);
-        } catch {}
-      }
+      const _ttPick = selectedTicker;
+      if (!_ttPick) return;
       try {
         window._ttPendingChartOpen = String(_ttPick).toUpperCase();
       } catch {}
@@ -18218,8 +18202,8 @@ function App() {
         }));
       } catch {}
     },
-    "aria-label": "View chart",
-    title: "View chart"
+    "aria-label": `View ${selectedTicker} chart`,
+    title: `View ${selectedTicker} chart`
   }, React.createElement("svg", {
     viewBox: "0 0 24 24",
     fill: "none",
