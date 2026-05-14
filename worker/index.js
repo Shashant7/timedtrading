@@ -1303,6 +1303,13 @@ const ROUTES = [
   // OPENAI_API_KEY + the CIO call chain works end-to-end without
   // waiting for a real entry to fire.
   ["GET", "/timed/admin/ai-cio/probe", "GET /timed/admin/ai-cio/probe"],
+  // P0.7.153 — daily investor evaluator. Wraps runInvestorDailyReplay
+  // with live ticker data (no replayCtx). Fires the regime-exit,
+  // trailing-stop, 2-day-reduce-confirm, signal-trim, and DCA logic
+  // that auto-rebalance does NOT cover. Behind a feature flag so the
+  // operator can smoke it manually first before promoting to a
+  // daily cron.
+  ["POST", "/timed/admin/investor-daily-eval", "POST /timed/admin/investor-daily-eval"],
   ["POST", "/timed/admin/patch-trade-from-da", "POST /timed/admin/patch-trade-from-da"],
   ["POST", "/timed/admin/patch-trade-event-reason", "POST /timed/admin/patch-trade-event-reason"],
   ["POST", "/timed/admin/patch-trade-event-price", "POST /timed/admin/patch-trade-event-price"],
@@ -52329,6 +52336,84 @@ export default {
         }
       }
 
+      // POST /timed/admin/investor-daily-eval?key=... [&dry_run=1]
+      //
+      // P0.7.153 (2026-05-14) — live wrapper around runInvestorDailyReplay.
+      // Fires the regime-exit, trailing-stop, 2-day-reduce-confirm,
+      // signal-trim, and DCA logic that auto-rebalance does NOT cover.
+      // Uses today's date in NY tz and pulls live ticker data from
+      // timed:latest:* (passing tickerDataMapOverride=null lets the
+      // function build the map itself).
+      //
+      // Idempotent within a day (the function tracks position state
+      // and won't double-exit). Safe to call repeatedly.
+      //
+      // ?dry_run=1 — short-circuits before any D1/KV writes by setting a
+      //   sentinel env._investorDailyDryRun flag. Currently logs the
+      //   intent only; full dry-run support requires changes inside
+      //   runInvestorDailyReplay (deferred — P0.7.153.followup).
+      if (routeKey === "POST /timed/admin/investor-daily-eval") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        const db = env?.DB;
+        const KV = env?.KV_TIMED;
+        if (!db || !KV) return sendJSON({ ok: false, error: "no_db_or_kv" }, 500, corsHeaders(env, req));
+
+        // Today's date in NY tz (YYYY-MM-DD)
+        const _nyParts = new Date().toLocaleString("en-US", {
+          timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+        }).split("/");
+        const _nyDate = `${_nyParts[2]}-${_nyParts[0]}-${_nyParts[1]}`;
+        const dateParam = url.searchParams.get("date") || _nyDate;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+          return sendJSON({ ok: false, error: "bad_date_format" }, 400, corsHeaders(env, req));
+        }
+
+        const dryRun = String(url.searchParams.get("dry_run") || "").toLowerCase() === "1";
+        if (dryRun) {
+          // For now, dry-run just reports intent without executing. Full
+          // dry-run requires runInvestorDailyReplay to honor a flag.
+          return sendJSON({
+            ok: true,
+            dry_run: true,
+            note: "Dry run not yet wired through runInvestorDailyReplay. Use ?dry_run=1 once that flag is plumbed.",
+            date: dateParam,
+          }, 200, corsHeaders(env, req));
+        }
+
+        try {
+          const t0 = Date.now();
+          // tickerDataMapOverride=null → function reads timed:latest:* itself
+          const invResult = await runInvestorDailyReplay(env, KV, null, dateParam, null);
+          const elapsedMs = Date.now() - t0;
+
+          // Snapshot portfolio after the eval so the equity curve picks up
+          // any closes/trims/dcas. Failure here shouldn't fail the eval.
+          let snapErr = null;
+          try {
+            await snapshotBothPortfolios(env, KV, null, dateParam, null);
+          } catch (e) {
+            snapErr = String(e?.message || e).slice(0, 200);
+          }
+
+          if (invResult?.opened || invResult?.closed || invResult?.dcaBuys || invResult?.trimmed) {
+            console.log(`[INVESTOR-DAILY-EVAL] ${dateParam}: +${invResult.opened || 0} -${invResult.closed || 0} dca=${invResult.dcaBuys || 0} trim=${invResult.trimmed || 0} (${elapsedMs}ms)`);
+          }
+
+          return sendJSON({
+            ok: true,
+            date: dateParam,
+            elapsed_ms: elapsedMs,
+            investor: invResult || {},
+            snapshot_error: snapErr,
+          }, 200, corsHeaders(env, req));
+        } catch (err) {
+          console.warn("[INVESTOR-DAILY-EVAL] Failed:", String(err).slice(0, 300));
+          return sendJSON({ ok: false, error: String(err?.message || err).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // POST /timed/admin/reopen-stale-exits?exitDate=YYYY-MM-DD&key=...
       // Resets trades that were erroneously closed on the given date back to OPEN.
       if (routeKey === "POST /timed/admin/reopen-stale-exits") {
@@ -61290,6 +61375,8 @@ export default {
       // GET /timed/admin/grade-config — fetch grade risk map + trade stats by grade
       // ═══════════════════════════════════════════════════════════════════════
       if (routeKey === "GET /timed/admin/grade-config") {
+        const _gcAuthFail = await requireKeyOrAdmin(req, env);
+        if (_gcAuthFail) return _gcAuthFail;
         try {
           const db = env?.DB;
           if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
@@ -61332,6 +61419,8 @@ export default {
       // ═══════════════════════════════════════════════════════════════════════
 
       if (routeKey === "GET /timed/system/dashboard") {
+        const _sdAuthFail = await requireKeyOrAdmin(req, env);
+        if (_sdAuthFail) return _sdAuthFail;
         try {
           const db = env?.DB;
           if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
@@ -61495,6 +61584,8 @@ export default {
       }
 
       if (routeKey === "GET /timed/system/history") {
+        const _shAuthFail = await requireKeyOrAdmin(req, env);
+        if (_shAuthFail) return _shAuthFail;
         try {
           const db = env?.DB;
           if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
@@ -61546,6 +61637,8 @@ export default {
       }
 
       if (routeKey === "GET /timed/system/ticker-profiles") {
+        const _stpAuthFail = await requireKeyOrAdmin(req, env);
+        if (_stpAuthFail) return _stpAuthFail;
         try {
           const db = env?.DB;
           if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
@@ -64745,7 +64838,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
       // POST /timed/investor/compute — Compute all investor scores + market health
       // This runs the full investor scoring pipeline and stores results in KV
+      //
+      // P0.7.153 (2026-05-14) — lock down. This route does heavy D1 +
+      // KV work and was previously open to anyone who knew the URL,
+      // letting an outsider DoS the credits / strain D1. Internal cron
+      // callers now pass `?key=${TIMED_API_KEY}`.
       if (routeKey === "POST /timed/investor/compute") {
+        const _authFail = requireKeyOr401(req, env);
+        if (_authFail) return _authFail;
         try {
           const canonicalTickers = Object.keys(SECTOR_MAP);
           const kvTickers = (await kvGetJSON(env.KV_TIMED, "timed:tickers")) || [];
@@ -65580,6 +65680,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
       // POST /timed/investor/weekly-digest — Generate and send weekly investor digest to Discord
       if (routeKey === "POST /timed/investor/weekly-digest") {
+        const _authFail = requireKeyOr401(req, env);
+        if (_authFail) return _authFail;
         try {
           const scores = await kvGetJSON(env.KV_TIMED, "timed:investor:scores") || {};
           const health = await kvGetJSON(env.KV_TIMED, "timed:investor:market-health");
@@ -66078,6 +66180,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
       // POST /timed/investor/dca/execute — execute all due DCA buys (called by cron or manually)
       if (routeKey === "POST /timed/investor/dca/execute") {
+        const _authFail = requireKeyOr401(req, env);
+        if (_authFail) return _authFail;
         try {
           await ensureInvestorPositionsSchema(env.DB, env.KV_TIMED);
           const now = Date.now();
@@ -66190,6 +66294,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       //   ?adds=skip   — skip the new-position + add-to-existing paths
       //                  (used for trim-only cycles if needed)
       if (routeKey === "POST /timed/investor/auto-rebalance") {
+        const _authFail = requireKeyOr401(req, env);
+        if (_authFail) return _authFail;
         try {
           await ensureInvestorPositionsSchema(env.DB, env.KV_TIMED);
           await ensureAccountLedgerSchema(env.DB, env.KV_TIMED);
@@ -70641,10 +70747,26 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     // the 2 PM cycle preserves the once-per-day trim cadence.
     //
     // 13-21 UTC covers both EDT (13=9AM) and EST (14=9AM) through close.
-    if (vc.has("0 13-21 * * 1-5")) {
+    //
+    // P0.7.153 (2026-05-14) — BUG FIX. This gate was previously
+    //   `vc.has("0 13-21 * * 1-5")` which is never registered (only
+    //   `"0 14-21 * * 1-5"` is added on line 70591). That meant the
+    //   ENTIRE investor hourly cron (compute + 11AM rebalance + 2PM
+    //   catch-up) has been silently DEAD since the gate was introduced
+    //   — explaining why no auto-rebalance has fired since April 16
+    //   despite the function itself working perfectly when called
+    //   manually. The label `"0 14-21 * * 1-5"` already covers UTC
+    //   hours 13-21 (the inner registration uses `_utcH >= 13 && _utcH <= 21`),
+    //   so this single-line rename restores the cron without changing
+    //   schedule semantics.
+    if (vc.has("0 14-21 * * 1-5")) {
       ctx.waitUntil((async () => {
         try {
           const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
+          // P0.7.153 — pass internal API key on subrequests so the
+          // newly-locked-down /timed/investor/* POSTs let the cron in.
+          const _invKey = env?.TIMED_API_KEY ? `?key=${encodeURIComponent(env.TIMED_API_KEY)}` : "";
+          const _invKeyAmp = env?.TIMED_API_KEY ? `&key=${encodeURIComponent(env.TIMED_API_KEY)}` : "";
           // Use ET-zone hour to decide which actions fire — robust against
           // EDT/EST transitions without per-DST cron string maintenance.
           const _etH = parseInt(new Date().toLocaleString("en-US", {
@@ -70653,14 +70775,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
           // 1. Always recompute scores during RTH (informational + alerts).
           console.log(`[INVESTOR HOURLY] ET=${_etH}h — Triggering scoring refresh...`);
-          const compResp = await fetch(`${selfUrl}/timed/investor/compute`, { method: "POST" });
+          const compResp = await fetch(`${selfUrl}/timed/investor/compute${_invKey}`, { method: "POST" });
           const compData = await compResp.json().catch(() => ({}));
           console.log(`[INVESTOR HOURLY] Compute done: ${compData.tickers || 0} tickers, regime=${compData.marketHealth?.regime || "?"}`);
 
           // 2. Auto-rebalance at 11 AM ET (full cycle: adds + trims).
           if (_etH === 11) {
             console.log(`[INVESTOR HOURLY] ET=11h — Running PRIMARY auto-rebalance (full cycle)`);
-            const rebalResp = await fetch(`${selfUrl}/timed/investor/auto-rebalance`, { method: "POST" });
+            const rebalResp = await fetch(`${selfUrl}/timed/investor/auto-rebalance${_invKey}`, { method: "POST" });
             const rebalData = await rebalResp.json().catch(() => ({}));
             console.log(`[INVESTOR HOURLY] Primary rebalance: ${rebalData.newPositions || 0} new, ${rebalData.addedTo || 0} added, ${rebalData.reducedCount || 0} trimmed (reduce), ${rebalData.eventReducedCount || 0} trimmed (event-risk)`);
           }
@@ -70668,9 +70790,40 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // 3. Auto-rebalance at 2 PM ET (catch-up — adds only, no trims).
           if (_etH === 14) {
             console.log(`[INVESTOR HOURLY] ET=14h — Running CATCH-UP auto-rebalance (adds only, ?trims=skip)`);
-            const rebalResp = await fetch(`${selfUrl}/timed/investor/auto-rebalance?trims=skip`, { method: "POST" });
+            const rebalResp = await fetch(`${selfUrl}/timed/investor/auto-rebalance?trims=skip${_invKeyAmp}`, { method: "POST" });
             const rebalData = await rebalResp.json().catch(() => ({}));
             console.log(`[INVESTOR HOURLY] Catch-up rebalance: ${rebalData.newPositions || 0} new, ${rebalData.addedTo || 0} added`);
+          }
+
+          // 4. Daily evaluator at 4 PM ET (post-close).
+          //
+          // P0.7.153 (2026-05-14) — fires the regime-exit, trailing-stop,
+          // 2-day-reduce-confirm, signal-trim, and DCA logic that
+          // auto-rebalance does NOT cover. Behind a feature flag in
+          // model_config so the operator can verify via manual smoke
+          // (POST /timed/admin/investor-daily-eval) before promoting.
+          //
+          // Default OFF. To enable:
+          //   UPDATE model_config SET value='1', updated_at=strftime('%s','now')*1000
+          //   WHERE key='investor_daily_eval_enabled';
+          if (_etH === 16) {
+            try {
+              const flagRow = await env.DB.prepare(
+                "SELECT value FROM model_config WHERE key = 'investor_daily_eval_enabled' LIMIT 1"
+              ).first();
+              const enabled = String(flagRow?.value ?? "0") === "1";
+              if (enabled) {
+                console.log(`[INVESTOR HOURLY] ET=16h — Running DAILY EVAL (regime exits, trailing stops, DCA)`);
+                const evalKey = env.TIMED_API_KEY ? `?key=${encodeURIComponent(env.TIMED_API_KEY)}` : "";
+                const evalResp = await fetch(`${selfUrl}/timed/admin/investor-daily-eval${evalKey}`, { method: "POST" });
+                const evalData = await evalResp.json().catch(() => ({}));
+                console.log(`[INVESTOR HOURLY] Daily eval: opened=${evalData?.investor?.opened || 0} closed=${evalData?.investor?.closed || 0} dca=${evalData?.investor?.dcaBuys || 0} trim=${evalData?.investor?.trimmed || 0}`);
+              } else {
+                console.log(`[INVESTOR HOURLY] ET=16h — Daily eval skipped (flag investor_daily_eval_enabled=0)`);
+              }
+            } catch (e) {
+              console.warn(`[INVESTOR HOURLY] Daily eval check failed:`, String(e?.message || e).slice(0, 200));
+            }
           }
         } catch (e) {
           console.warn(`[INVESTOR HOURLY] Failed:`, String(e?.message || e).slice(0, 300));
@@ -70696,7 +70849,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         try {
           const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
           console.log("[INVESTOR CRON] Checking DCA plans...");
-          const dcaResp = await fetch(`${selfUrl}/timed/investor/dca/execute`, { method: "POST" });
+          const _dcaKey = env?.TIMED_API_KEY ? `?key=${encodeURIComponent(env.TIMED_API_KEY)}` : "";
+          const dcaResp = await fetch(`${selfUrl}/timed/investor/dca/execute${_dcaKey}`, { method: "POST" });
           const dcaData = await dcaResp.json().catch(() => ({}));
           console.log(`[INVESTOR CRON] DCA: ${dcaData.executed || 0} executed, ${dcaData.skipped || 0} skipped`);
         } catch (e) {
@@ -70713,7 +70867,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         try {
           console.log("[INVESTOR DIGEST] Triggering weekly digest...");
           const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
-          const resp = await fetch(`${selfUrl}/timed/investor/weekly-digest`, { method: "POST" });
+          const _digKey = env?.TIMED_API_KEY ? `?key=${encodeURIComponent(env.TIMED_API_KEY)}` : "";
+          const resp = await fetch(`${selfUrl}/timed/investor/weekly-digest${_digKey}`, { method: "POST" });
           const data = await resp.json().catch(() => ({}));
           console.log(`[INVESTOR DIGEST] Done: ${data.ok ? "sent" : "failed"}`);
         } catch (e) {
