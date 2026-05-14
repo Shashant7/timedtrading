@@ -3279,47 +3279,19 @@ function sanitizeBriefContent(text) {
  * Build a structured Discord embed for the daily brief notification.
  * Uses embed fields for clean layout on mobile Discord.
  */
-function buildDiscordBriefEmbed(type, data, content, esPrediction, spyPrediction, qqqPrediction, iwmPrediction) {
+function buildDiscordBriefEmbed(type, data, content, esPrediction, spyPrediction, qqqPrediction, iwmPrediction, infographic) {
   const isMorning = type === "morning";
   const fields = [];
-
-  // Market Snapshot
   const m = data.market || {};
-  const fmtMkt = (sym, d) => d ? `${sym} ${d.price?.toFixed?.(2) ?? d.price} (${d.dayChangePct >= 0 ? "+" : ""}${d.dayChangePct?.toFixed?.(2) ?? "0"}%)` : null;
-  const mktParts = [
-    fmtMkt("ES", m.ES), fmtMkt("NQ", m.NQ), fmtMkt("VX1!", m["VX1!"]),
-  ].filter(Boolean);
-  if (mktParts.length > 0) {
-    fields.push({ name: "Market Snapshot", value: mktParts.join(" | "), inline: false });
-  }
 
-  /* P0.7.129 — Layout reordered for the morning brief:
-     1. Per-instrument PREDICTIONS first (ES + SPY + QQQ + IWM) — these
-        are the most actionable thing in the brief. Lead with the
-        synthesized prediction, then back it up with the ATR levels
-        below for reference.
-     2. ATR fib levels rendered as compact `Reference Levels` blocks
-        below — labelled clearly as REFERENCE (not the primary plan)
-        so the user knows the prediction sentence is the action item
-        and the levels are the underpinning math. */
-
-  // 1. Predictions first (each ETF gets its own field, parallel format)
-  if (esPrediction) {
-    fields.push({ name: "📈 ES Prediction", value: esPrediction.slice(0, 380), inline: false });
-  }
-  if (spyPrediction) {
-    fields.push({ name: "📊 SPY Prediction", value: spyPrediction.slice(0, 380), inline: false });
-  }
-  if (qqqPrediction) {
-    fields.push({ name: "📊 QQQ Prediction", value: qqqPrediction.slice(0, 380), inline: false });
-  }
-  if (iwmPrediction) {
-    fields.push({ name: "📊 IWM Prediction", value: iwmPrediction.slice(0, 380), inline: false });
-  }
-
-  // 2. ATR Fibonacci Levels — labelled as REFERENCE LEVELS
-  // Compact format keeps the field tight so the prediction stays the
-  // dominant content above.
+  // ── Helper: format a price/change pair ──────────────────────────────────
+  const fmtMkt = (sym, d) => {
+    if (!d) return null;
+    const px = d.price?.toFixed?.(2) ?? d.price ?? "—";
+    const chg = Number(d.dayChangePct);
+    const chgStr = Number.isFinite(chg) ? `${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%` : "";
+    return `${sym} ${px}${chgStr ? ` (${chgStr})` : ""}`;
+  };
   const fmtFib = (fib, label) => {
     if (!fib || !fib.levels) return null;
     const lvl = fib.levels;
@@ -3333,19 +3305,68 @@ function buildDiscordBriefEmbed(type, data, content, esPrediction, spyPrediction
       : "⚪ Neutral";
     return { name: `${label}  (ATR ${fib.dayAtr?.toFixed?.(1) ?? "—"} · ${gate})`, value: fibStr, inline: false };
   };
-  const esFib = data.esTechnical?.atrFibLevels;
-  const spyFib = data.spyTechnical?.atrFibLevels;
-  const nqFib = data.nqTechnical?.atrFibLevels;
-  const qqqFib = data.qqqTechnical?.atrFibLevels;
-  const iwmFib = data.iwmTechnical?.atrFibLevels;
-  // Add a single header field BEFORE the per-instrument reference blocks
-  // so the visual hierarchy is obvious in Discord's rendering.
+  const fib = {
+    es:  data.esTechnical?.atrFibLevels,
+    spy: data.spyTechnical?.atrFibLevels,
+    nq:  data.nqTechnical?.atrFibLevels,
+    qqq: data.qqqTechnical?.atrFibLevels,
+    iwm: data.iwmTechnical?.atrFibLevels,
+  };
+
+  // ── Description: Today's Three + closing line ────────────────────────────
+  // These come from the AI content (extracted in generateDailyBrief) and
+  // give the reader the 3-sentence "why today matters" before the numbers.
+  let description = "";
+  const topThree = infographic?.topThree;
+  if (Array.isArray(topThree) && topThree.length === 3) {
+    description = topThree.map(t => `**${t.n}.** ${t.label ? `**${t.label}:** ` : ""}${t.body}`).join("\n");
+  }
+  const closingLine = infographic?.closingLine;
+  if (closingLine) {
+    description += (description ? "\n\n" : "") + `_"${closingLine}"_`;
+  }
+
+  // ── 1. Market Snapshot — ES / NQ / SPY / QQQ / IWM ─────────────────────
+  const mktParts = [
+    fmtMkt("ES", m.ES), fmtMkt("NQ", m.NQ),
+    fmtMkt("SPY", m.SPY), fmtMkt("QQQ", m.QQQ), fmtMkt("IWM", m.IWM),
+  ].filter(Boolean);
+  if (mktParts.length > 0) {
+    // Split across two lines for readability: futures first, ETFs second
+    const futuresPart = [fmtMkt("ES", m.ES), fmtMkt("NQ", m.NQ)].filter(Boolean).join(" | ");
+    const etfPart = [fmtMkt("SPY", m.SPY), fmtMkt("QQQ", m.QQQ), fmtMkt("IWM", m.IWM)].filter(Boolean).join(" | ");
+    const snapshotVal = [futuresPart, etfPart].filter(Boolean).join("\n");
+    if (snapshotVal) fields.push({ name: "Market Snapshot", value: snapshotVal, inline: false });
+  }
+
+  // ── 2. Index Outlook — compact direction chips per ETF ───────────────────
+  // Derived from the engine's golden-gate bias (reliable structured data)
+  // rather than AI text extraction. Always shows even if predictions fail.
+  const gateLabel = (g) => g === "OPEN_UP" ? "🟢 Open Up" : g === "OPEN_DOWN" ? "🔴 Open Down" : "⚪ Neutral";
+  const outlookParts = [
+    fib.spy?.goldenGate ? `SPY ${gateLabel(fib.spy.goldenGate)}` : null,
+    fib.qqq?.goldenGate ? `QQQ ${gateLabel(fib.qqq.goldenGate)}` : null,
+    fib.iwm?.goldenGate ? `IWM ${gateLabel(fib.iwm.goldenGate)}` : null,
+  ].filter(Boolean);
+  if (outlookParts.length > 0) {
+    fields.push({ name: "Today's Outlook", value: outlookParts.join("  ·  "), inline: false });
+  }
+
+  // ── 3. Predictions (ES / SPY / QQQ / IWM) ───────────────────────────────
+  // Extracted from AI content via regex. Present when the model emits
+  // "**X Prediction**: ..." lines. Keep them brief — 1–2 sentences max.
+  if (esPrediction)   fields.push({ name: "📈 ES",  value: esPrediction.slice(0, 380),  inline: false });
+  if (spyPrediction)  fields.push({ name: "📊 SPY", value: spyPrediction.slice(0, 380), inline: false });
+  if (qqqPrediction)  fields.push({ name: "📊 QQQ", value: qqqPrediction.slice(0, 380), inline: false });
+  if (iwmPrediction)  fields.push({ name: "📊 IWM", value: iwmPrediction.slice(0, 380), inline: false });
+
+  // ── 4. ATR Reference Levels ──────────────────────────────────────────────
   const refBlocks = [
-    esFib?.levels  && fmtFib(esFib,  "ES / SPX · Reference Levels"),
-    spyFib?.levels && fmtFib(spyFib, "SPY · Reference Levels"),
-    nqFib?.levels  && fmtFib(nqFib,  "NQ · Reference Levels"),
-    qqqFib?.levels && fmtFib(qqqFib, "QQQ · Reference Levels"),
-    iwmFib?.levels && fmtFib(iwmFib, "IWM · Reference Levels"),
+    fib.es?.levels  && fmtFib(fib.es,  "ES / SPX · Reference Levels"),
+    fib.spy?.levels && fmtFib(fib.spy, "SPY · Reference Levels"),
+    fib.nq?.levels  && fmtFib(fib.nq,  "NQ · Reference Levels"),
+    fib.qqq?.levels && fmtFib(fib.qqq, "QQQ · Reference Levels"),
+    fib.iwm?.levels && fmtFib(fib.iwm, "IWM · Reference Levels"),
   ].filter(Boolean);
   if (refBlocks.length > 0) {
     fields.push({
@@ -3356,31 +3377,30 @@ function buildDiscordBriefEmbed(type, data, content, esPrediction, spyPrediction
     for (const f of refBlocks) fields.push(f);
   }
 
-  // Economic Events
+  // ── 5. Economic Events ───────────────────────────────────────────────────
   const econEvents = (data.todayEconomicEvents || []).slice(0, 3);
   if (econEvents.length > 0) {
     const econStr = econEvents.map(e => {
       const parts = [e.event];
-      if (e.actual != null && e.actual !== "") parts.push(`Act: ${e.actual}${e.unit || ""}`);
+      if (e.actual   != null && e.actual   !== "") parts.push(`Act: ${e.actual}${e.unit || ""}`);
       if (e.estimate != null && e.estimate !== "") parts.push(`Est: ${e.estimate}${e.unit || ""}`);
-      if (e.prev != null && e.prev !== "") parts.push(`Prev: ${e.prev}${e.unit || ""}`);
+      if (e.prev     != null && e.prev     !== "") parts.push(`Prev: ${e.prev}${e.unit || ""}`);
       return parts.join(", ");
     }).join("\n");
     fields.push({ name: "Economic Data", value: econStr, inline: false });
   }
 
-  // Open Positions Summary
+  // ── 6. Open Positions ────────────────────────────────────────────────────
   if (data.openTrades && data.openTrades.length > 0) {
     const posStr = data.openTrades.slice(0, 5).map(t =>
-      `${t.ticker} ${t.direction} ${t.pnlPct != null ? (t.pnlPct >= 0 ? "+" : "") + t.pnlPct.toFixed(1) + "%" : ""}`
+      `${t.ticker} ${t.direction}${t.pnlPct != null ? ` ${t.pnlPct >= 0 ? "+" : ""}${t.pnlPct.toFixed(1)}%` : ""}`
     ).join(" | ");
     fields.push({ name: "Open Positions", value: posStr, inline: false });
   }
 
   return {
-    title: isMorning
-      ? `☀️ Morning Brief — ${data.today}`
-      : `🌙 Evening Brief — ${data.today}`,
+    title: isMorning ? `☀️ Morning Brief — ${data.today}` : `🌙 Evening Brief — ${data.today}`,
+    description: description || undefined,
     color: isMorning ? 0xf59e0b : 0x6366f1,
     fields,
     footer: { text: "Timed Trading • Daily Brief" },
@@ -3879,8 +3899,8 @@ export async function generateDailyBrief(env, type, opts = {}) {
 
     // 8. Send Discord notification (structured embed)
     if (opts.notifyDiscord) {
-      // P0.7.129 — pass per-ETF predictions so they appear in the embed.
-      const embed = buildDiscordBriefEmbed(type, data, content, esPrediction, spyPrediction, qqqPrediction, iwmPrediction);
+      // Pass infographic so topThree/closingLine appear in the description.
+      const embed = buildDiscordBriefEmbed(type, data, content, esPrediction, spyPrediction, qqqPrediction, iwmPrediction, infographic);
       await opts.notifyDiscord(env, embed).catch(e =>
         console.warn("[DAILY BRIEF] Discord notification failed:", String(e).slice(0, 100))
       );
