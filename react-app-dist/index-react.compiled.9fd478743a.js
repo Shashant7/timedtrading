@@ -18185,7 +18185,7 @@ function App() {
     strokeLinejoin: "round"
   }, React.createElement("polyline", {
     points: "18 15 12 9 6 15"
-  }))), selectedTicker && React.createElement("button", {
+  }))), selectedTicker && typeof ReactDOM !== "undefined" && ReactDOM.createPortal && document?.body && ReactDOM.createPortal(React.createElement("button", {
     type: "button",
     className: "tt-mobile-chart-fab",
     onClick: () => {
@@ -18216,7 +18216,7 @@ function App() {
     points: "3 17 9 11 13 15 21 7"
   }), React.createElement("polyline", {
     points: "14 7 21 7 21 14"
-  })), "Chart"), bubbleFullscreen && React.createElement("div", {
+  })), "Chart"), document.body), bubbleFullscreen && React.createElement("div", {
     className: "tt-bubble-fullscreen",
     role: "dialog",
     "aria-modal": "true",
