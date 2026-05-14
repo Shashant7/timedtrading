@@ -212,6 +212,10 @@
         const dc = data?.data_coverage || {};
         const us = data?.users || {};
         const po = data?.positions || {};
+        const ba = data?.brief_accuracy || {};
+        const eg = data?.engagement || {};
+        const wr = data?.weekly_retro || {};
+        const ab = data?.abuse || {};
         const allTimePnl = Number(mp?.all_time?.pnl_usd) || 0;
         const allTimeWR = mp?.all_time?.total > 0
           ? (Number(mp.all_time.wins) || 0) / Number(mp.all_time.total) * 100
@@ -307,7 +311,7 @@
                     })}
                   </div>
                   {mp.ai_cio_7d && (
-                    <div className="mc-kpi">
+                    <div className="mc-kpi mb-3">
                       <div className="mc-kpi-label">AI CIO Activity (7d)</div>
                       <div className="flex items-baseline gap-4 mt-1 flex-wrap text-xs">
                         <span><b className="text-white">{Number(mp.ai_cio_7d.total) || 0}</b> decisions</span>
@@ -327,6 +331,33 @@
                       </div>
                     </div>
                   )}
+                  {/* P0.7.158 — Daily Brief prediction accuracy (30d) */}
+                  <div className="mc-kpi">
+                    <div className="mc-kpi-label">Daily Brief Accuracy (30d)</div>
+                    {ba.error ? (
+                      <div className="text-red-400 text-xs">{ba.error}</div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-1">
+                        {["spy", "qqq", "iwm"].map(sym => {
+                          const s = ba[sym] || {};
+                          const pct = Number.isFinite(s.mean) ? Math.round(s.mean * 100) : null;
+                          const cls = pct == null ? "" : pct >= 60 ? "mc-pos" : pct >= 40 ? "mc-warn" : "mc-neg";
+                          return (
+                            <div key={sym}>
+                              <div className="text-[10px] mc-mute uppercase">{sym}</div>
+                              <div className={`text-lg font-bold ${cls}`}>{pct != null ? `${pct}%` : "—"}</div>
+                              <div className="text-[10px] mc-mute">{s.n || 0} scored</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {ba.latest && (
+                      <div className="mt-2 text-[10px] mc-mute">
+                        Most-recent scored: {ba.latest.date} · SPY {Number.isFinite(ba.latest.spy_score) ? `${Math.round(ba.latest.spy_score * 100)}%` : "—"} · QQQ {Number.isFinite(ba.latest.qqq_score) ? `${Math.round(ba.latest.qqq_score * 100)}%` : "—"} · IWM {Number.isFinite(ba.latest.iwm_score) ? `${Math.round(ba.latest.iwm_score * 100)}%` : "—"}
+                      </div>
+                    )}
+                  </div>
                 </>
               )}
             </div>
@@ -338,6 +369,11 @@
                 2. System Health
                 {sh.failing_count > 0 && (
                   <span className="mc-pill mc-pill-fail ml-2">{sh.failing_count} FAILING</span>
+                )}
+                {Number(ab.total_blocks_24h) > 0 && (
+                  <span className="mc-pill mc-pill-warn ml-2" title="Public-endpoint requests blocked by per-IP rate limiter">
+                    {ab.total_blocks_24h} ABUSE BLOCKS 24h
+                  </span>
                 )}
               </div>
               {sh.error ? (
@@ -361,6 +397,36 @@
                       </div>
                     ))}
                   </div>
+                  {/* P0.7.158 — abuse / DoS counters from per-IP rate limiter */}
+                  {Array.isArray(ab.endpoints) && ab.endpoints.length > 0 && (
+                    <div className="mb-4">
+                      <div className="text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold">
+                        Public-Endpoint Abuse Blocks (24h)
+                      </div>
+                      <div style={{ overflowX: "auto" }}>
+                        <table className="mc-table">
+                          <thead>
+                            <tr>
+                              <th>Endpoint</th>
+                              <th>Blocked Requests</th>
+                              <th>Last IP</th>
+                              <th>Last Block</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {ab.endpoints.slice(0, 10).map((e, i) => (
+                              <tr key={i}>
+                                <td className="font-mono text-[11px]">{e.endpoint}</td>
+                                <td><span className={e.count > 50 ? "mc-warn" : "mc-mute"}>{e.count}</span></td>
+                                <td className="font-mono text-[11px] mc-mute">{e.last_ip || "—"}</td>
+                                <td className="text-xs mc-mute">{fmtAgo(e.last_ts)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
                   <div className="text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold">
                     Cron Tombstones (last 7 days)
                   </div>
@@ -520,6 +586,23 @@
                       <div className="mc-kpi-sub">signups last 7 days</div>
                     </div>
                   </div>
+                  {/* P0.7.158 — engagement breakdown (composite score 0-100) */}
+                  {eg.buckets && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                      {[
+                        { k: "power",   label: "Power",   sub: "score 80+", cls: "mc-pos"  },
+                        { k: "engaged", label: "Engaged", sub: "score 50-79", cls: "mc-pos"  },
+                        { k: "casual",  label: "Casual",  sub: "score 20-49", cls: "mc-warn" },
+                        { k: "dormant", label: "Dormant", sub: "score <20",   cls: "mc-mute" },
+                      ].map(b => (
+                        <div key={b.k} className="mc-kpi">
+                          <div className="mc-kpi-label">{b.label}</div>
+                          <div className={`mc-kpi-value ${b.cls}`}>{Number(eg.buckets[b.k]) || 0}</div>
+                          <div className="mc-kpi-sub">{b.sub}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div className="text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold">
                     Recent Logins (top 25)
                   </div>
@@ -712,10 +795,69 @@
               )}
             </div>
 
+            {/* ── Section 6: Weekly Retrospective (P0.7.158) ── */}
+            <div className="mc-card mb-5">
+              <div className="mc-section-title">
+                <span className="mc-dot"></span>
+                6. Weekly Retrospective
+                {wr?.generated_at && (
+                  <span className="text-[10px] mc-mute ml-2">
+                    Last: {fmtAgo(wr.generated_at)}
+                  </span>
+                )}
+              </div>
+              {wr?.error ? (
+                <div className="text-red-400 text-xs">{wr.error}</div>
+              ) : !wr?.markdown ? (
+                <div className="text-xs mc-mute py-3">
+                  No weekly retrospective generated yet. Cron runs every Sunday at 6 PM ET.
+                  Set <code className="text-[#34d399]">model_config.weekly_retro_enabled = '1'</code> to
+                  enable email distribution; report is generated regardless and stored at
+                  <code className="ml-1">timed:retro:weekly:latest</code>.
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                    <div className="mc-kpi">
+                      <div className="mc-kpi-label">Window</div>
+                      <div className="mc-kpi-value text-[14px]">{wr.window?.label || "—"}</div>
+                    </div>
+                    <div className="mc-kpi">
+                      <div className="mc-kpi-label">Closed Trades</div>
+                      <div className="mc-kpi-value">{Number(wr.stats?.trades?.total) || 0}</div>
+                      <div className="mc-kpi-sub">
+                        {Number(wr.stats?.trades?.wins) || 0}W / {Number(wr.stats?.trades?.losses) || 0}L
+                      </div>
+                    </div>
+                    <div className="mc-kpi">
+                      <div className="mc-kpi-label">Net P&L</div>
+                      <div className={`mc-kpi-value ${Number(wr.stats?.trades?.pnl_usd) >= 0 ? "mc-pos" : "mc-neg"}`}>
+                        {fmtUsd(wr.stats?.trades?.pnl_usd)}
+                      </div>
+                    </div>
+                    <div className="mc-kpi">
+                      <div className="mc-kpi-label">Brief Avg</div>
+                      <div className="mc-kpi-value">
+                        {Number.isFinite(wr.stats?.brief?.mean)
+                          ? `${Math.round(wr.stats.brief.mean * 100)}%`
+                          : "—"}
+                      </div>
+                      <div className="mc-kpi-sub">{wr.stats?.brief?.total || 0} predictions scored</div>
+                    </div>
+                  </div>
+                  <div className="text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold">
+                    Markdown Report
+                  </div>
+                  <pre className="text-[11px] text-[#d1d5db] whitespace-pre-wrap font-mono leading-snug" style={{ maxHeight: 380, overflowY: "auto", background: "rgba(0,0,0,0.3)", padding: 12, borderRadius: 8, border: "1px solid rgba(255,255,255,0.04)" }}>{wr.markdown}</pre>
+                </>
+              )}
+            </div>
+
             {/* ── Footer ── */}
             <div className="text-center text-[10px] mc-mute mt-6 mb-4">
               Mission Control · admin only · auto-refreshes every 30s when enabled<br />
-              Weekly retrospective + automated user-facing report coming next iteration
+              Weekly retrospective fires Sunday 6 PM ET · brief accuracy evaluator runs at 4:30 PM ET<br />
+              Daily candle auto-refresh runs at 6 AM ET · Public reads rate-limited to 120/hr per IP
             </div>
           </div>
         );

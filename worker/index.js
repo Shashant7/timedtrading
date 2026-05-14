@@ -1324,6 +1324,24 @@ const ROUTES = [
   // new-today), and open position counts (Active Trader + Investor).
   // Used by /mission-control.html to render the operator dashboard.
   ["GET", "/timed/admin/mission-control", "GET /timed/admin/mission-control"],
+  // P0.7.158 — Daily Brief prediction accuracy evaluator. Reads each
+  // morning brief's bull/bear triggers + targets and scores against the
+  // actual session OHLC. Idempotent per (date, type). Wired into a 4:30
+  // PM ET cron tick.
+  ["POST", "/timed/admin/brief-eval-accuracy", "POST /timed/admin/brief-eval-accuracy"],
+  // P0.7.158 — Brief accuracy summary endpoint for Mission Control +
+  // future user-facing report. Returns trailing 30/14/7-day hit rate
+  // per index plus the most-recent N daily scores.
+  ["GET", "/timed/admin/brief-accuracy", "GET /timed/admin/brief-accuracy"],
+  // P0.7.158 — Weekly retrospective: aggregate the past 7 days of
+  // trades + brief accuracy + system health into a markdown summary,
+  // store it in KV, and email it to opted-in users. Wired into a
+  // Sunday 6 PM ET cron tick.
+  ["POST", "/timed/admin/weekly-retrospective", "POST /timed/admin/weekly-retrospective"],
+  // P0.7.158 — Engagement metrics for Mission Control user table.
+  // Per-user composite of login frequency, page-visit count (when
+  // tracked), days_active, etc.
+  ["GET", "/timed/admin/engagement", "GET /timed/admin/engagement"],
   ["POST", "/timed/admin/patch-trade-from-da", "POST /timed/admin/patch-trade-from-da"],
   ["POST", "/timed/admin/patch-trade-event-reason", "POST /timed/admin/patch-trade-event-reason"],
   ["POST", "/timed/admin/patch-trade-event-price", "POST /timed/admin/patch-trade-event-price"],
@@ -33155,6 +33173,62 @@ async function auditDataChange(env, { op, scope, caller, rowsAffected, meta } = 
  * decisions, not the GO decision, so the success-path audit can include
  * pre-wipe row counts that aren't available here.
  */
+/**
+ * P0.7.158 (2026-05-14) — per-IP rate limit + abuse tracking for public
+ * read endpoints (proof.html data feeds, portfolio/equity-curve, ledger/
+ * trades). Now that we have users on the site, an unauthenticated reader
+ * could DoS our D1 read budget by hitting these in a loop.
+ *
+ * Returns a 429 Response if the IP is over its budget; null otherwise.
+ *
+ * Default: 120 req/hr per IP per endpoint (= 2 req/min sustained, plenty
+ * for a normal browser refresh + dashboard loop, blocks scripted abuse).
+ *
+ * Each blocked request increments `timed:abuse:counter:{endpoint}` so the
+ * Mission Control System Health section can surface "30 abuse blocks in
+ * the last hour" as an attack signal. KV write per block is acceptable
+ * because the rate limiter ALREADY denied D1/expensive work upstream.
+ */
+async function publicRateLimit(req, env, endpoint, limitPerHour, sendJSON, corsHeaders) {
+  try {
+    const ip = req.headers.get("CF-Connecting-IP") ||
+               (req.headers.get("X-Forwarded-For") || "").split(",")[0].trim() ||
+               "unknown";
+    const cap = Number(limitPerHour) > 0 ? Number(limitPerHour) : 120;
+    const rl = await checkRateLimit(env?.KV_TIMED, ip, endpoint, cap, 3600);
+    if (rl && rl.allowed === false) {
+      // Bump abuse counter (best-effort, fail-open)
+      try {
+        const KV = env?.KV_TIMED;
+        if (KV) {
+          const counterKey = `timed:abuse:counter:${endpoint}`;
+          const existing = await KV.get(counterKey, "json").catch(() => null);
+          const next = {
+            endpoint,
+            count: (Number(existing?.count) || 0) + 1,
+            last_ip: ip,
+            last_ts: Date.now(),
+            first_ts: existing?.first_ts || Date.now(),
+          };
+          await KV.put(counterKey, JSON.stringify(next), { expirationTtl: 24 * 3600 }).catch(() => {});
+        }
+      } catch {}
+      const headers = {
+        ...corsHeaders(env, req),
+        "Retry-After": String(Math.max(60, Math.floor((rl.resetAt - Date.now()) / 1000))),
+      };
+      return sendJSON({
+        ok: false, error: "rate_limited", endpoint,
+        limit_per_hour: cap, retry_after_sec: Math.max(60, Math.floor((rl.resetAt - Date.now()) / 1000)),
+      }, 429, headers);
+    }
+  } catch (e) {
+    // Never let the rate limiter itself fail the request — fail open.
+    console.warn(`[PUBLIC RL] check failed for ${endpoint}:`, String(e?.message || e).slice(0, 200));
+  }
+  return null;
+}
+
 async function requireDestructiveConfirm(env, req, url, opName, sendJSON, corsHeaders) {
   const KV = env?.KV_TIMED || env?.KV;
   // 1. cron-mute interlock
@@ -48055,6 +48129,9 @@ export default {
 
       // GET /timed/ledger/trades?since&until&ticker&status&limit&cursor&mode=trader|investor
       if (routeKey === "GET /timed/ledger/trades") {
+        // P0.7.158 — rate-limit unauthenticated reads (proof.html etc.)
+        const _ltRl = await publicRateLimit(req, env, "ledger_trades", 120, sendJSON, corsHeaders);
+        if (_ltRl) return _ltRl;
         const db = env?.DB;
         if (!db) {
           return sendJSON(
@@ -52442,6 +52519,415 @@ export default {
         }
       }
 
+      // POST /timed/admin/brief-eval-accuracy?key=...&date=YYYY-MM-DD
+      //
+      // P0.7.158 (2026-05-14) — Daily Brief accuracy evaluator. Reads the
+      // morning brief for the given date (or today's date in NY tz if
+      // omitted) and scores its per-index bull/bear trigger + target
+      // predictions against the actual session OHLC pulled from the D1
+      // ticker_candles table.
+      //
+      // Score is in [0..1]:
+      //   0.0  — neither side's trigger hit, OR price moved against the
+      //          predicted direction with no trigger pierce
+      //   0.5  — bull/bear trigger hit but target not reached
+      //   1.0  — full hit (trigger AND target on the predicted side)
+      //
+      // Stored on daily_briefs row as spy_score / qqq_score / iwm_score
+      // plus the actual close prices. Idempotent — re-running on the same
+      // date overwrites the scores so manual recalc is safe.
+      if (routeKey === "POST /timed/admin/brief-eval-accuracy") {
+        const _baAuthFail = await requireKeyOrAdmin(req, env);
+        if (_baAuthFail) return _baAuthFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+
+        // Default date = today in NY tz
+        const _nyParts = new Date().toLocaleString("en-US", {
+          timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+        }).split("/");
+        const _nyDate = `${_nyParts[2]}-${_nyParts[0]}-${_nyParts[1]}`;
+        const dateParam = url.searchParams.get("date") || _nyDate;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+          return sendJSON({ ok: false, error: "bad_date" }, 400, corsHeaders(env, req));
+        }
+
+        try {
+          const brief = await db.prepare(
+            `SELECT * FROM daily_briefs WHERE date = ?1 AND type = 'morning' LIMIT 1`
+          ).bind(dateParam).first();
+          if (!brief) {
+            return sendJSON({ ok: false, error: "no_brief", date: dateParam }, 404, corsHeaders(env, req));
+          }
+
+          // Pull the day's OHLC for SPY / QQQ / IWM from ticker_candles.
+          // The 'D' candle for `dateParam` represents that trading day's
+          // session aggregate. ts is stored as the day's UTC midnight ms.
+          const dayMs = Date.UTC(
+            Number(dateParam.slice(0, 4)),
+            Number(dateParam.slice(5, 7)) - 1,
+            Number(dateParam.slice(8, 10))
+          );
+          const _scoreIdx = async (sym, gp, openFromBrief) => {
+            try {
+              const row = await db.prepare(
+                `SELECT o, h, l, c FROM ticker_candles WHERE ticker = ?1 AND tf = 'D' AND ts = ?2 LIMIT 1`
+              ).bind(sym, dayMs).first();
+              if (!row) return { score: null, reason: "no_d_candle", close: null };
+              const o = Number(row.o), h = Number(row.h), l = Number(row.l), c = Number(row.c);
+              const open = Number(openFromBrief) > 0 ? Number(openFromBrief) : o;
+              const bullTrig = Number(gp.bullTrig);
+              const bullTarg = Number(gp.bullTarg);
+              const bearTrig = Number(gp.bearTrig);
+              const bearTarg = Number(gp.bearTarg);
+              const hadBullTrig = Number.isFinite(bullTrig) && h >= bullTrig;
+              const hadBullTarg = Number.isFinite(bullTarg) && h >= bullTarg;
+              const hadBearTrig = Number.isFinite(bearTrig) && l <= bearTrig;
+              const hadBearTarg = Number.isFinite(bearTarg) && l <= bearTarg;
+              // Score the predicted side that actually played out. If both
+              // sides triggered (range day), credit the one whose target
+              // was hit; if neither target hit, average partial credit.
+              let bullScore = null, bearScore = null;
+              if (Number.isFinite(bullTrig)) {
+                bullScore = hadBullTarg ? 1.0 : (hadBullTrig ? 0.5 : 0.0);
+              }
+              if (Number.isFinite(bearTrig)) {
+                bearScore = hadBearTarg ? 1.0 : (hadBearTrig ? 0.5 : 0.0);
+              }
+              const score = (bullScore == null && bearScore == null)
+                ? null
+                : Math.max(bullScore || 0, bearScore || 0);
+              return {
+                score, close: c, open, high: h, low: l,
+                hadBullTrig, hadBullTarg, hadBearTrig, hadBearTarg,
+                bullTrig, bullTarg, bearTrig, bearTarg,
+              };
+            } catch (e) {
+              return { score: null, reason: String(e?.message || e).slice(0, 100), close: null };
+            }
+          };
+
+          const spy = await _scoreIdx("SPY", {
+            bullTrig: brief.spy_bull_trigger, bullTarg: brief.spy_bull_target,
+            bearTrig: brief.spy_bear_trigger, bearTarg: brief.spy_bear_target,
+          }, brief.spy_open);
+          const qqq = await _scoreIdx("QQQ", {
+            bullTrig: brief.qqq_bull_trigger, bullTarg: brief.qqq_bull_target,
+            bearTrig: brief.qqq_bear_trigger, bearTarg: brief.qqq_bear_target,
+          }, brief.qqq_open);
+          const iwm = await _scoreIdx("IWM", {
+            bullTrig: brief.iwm_bull_trigger, bullTarg: brief.iwm_bull_target,
+            bearTrig: brief.iwm_bear_trigger, bearTarg: brief.iwm_bear_target,
+          }, brief.iwm_open);
+
+          const now = Date.now();
+          await db.prepare(
+            `UPDATE daily_briefs
+             SET spy_close = ?1, qqq_close = ?2, iwm_close = ?3,
+                 spy_score = ?4, qqq_score = ?5, iwm_score = ?6,
+                 evaluated_at = ?7
+             WHERE date = ?8 AND type = 'morning'`
+          ).bind(
+            spy.close, qqq.close, iwm.close,
+            spy.score, qqq.score, iwm.score,
+            now, dateParam
+          ).run();
+
+          return sendJSON({
+            ok: true, date: dateParam,
+            spy, qqq, iwm,
+            avg_score: [spy.score, qqq.score, iwm.score].filter(s => Number.isFinite(s))
+              .reduce((a, b, _, arr) => a + b / arr.length, 0) || null,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/brief-accuracy?key=...&days=30
+      //
+      // P0.7.158 (2026-05-14) — read-side aggregate of brief predictions.
+      // Returns trailing-N-day hit rate per index (count, mean score) plus
+      // the most-recent N daily rows for charting.
+      if (routeKey === "GET /timed/admin/brief-accuracy") {
+        const _bAuthFail = await requireKeyOrAdmin(req, env);
+        if (_bAuthFail) return _bAuthFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        const days = Math.max(1, Math.min(180, Number(url.searchParams.get("days")) || 30));
+        try {
+          const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+          const rows = (await db.prepare(
+            `SELECT date, spy_score, qqq_score, iwm_score, spy_open, spy_close,
+                    qqq_open, qqq_close, iwm_open, iwm_close, evaluated_at
+             FROM daily_briefs
+             WHERE type = 'morning' AND date >= ?1 AND evaluated_at IS NOT NULL
+             ORDER BY date DESC`
+          ).bind(cutoff).all().catch(() => null))?.results || [];
+          // Per-index trailing summary
+          const summarize = (key) => {
+            const scored = rows.map(r => Number(r[key])).filter(s => Number.isFinite(s));
+            if (scored.length === 0) return { n: 0, mean: null, hits: 0, half: 0, miss: 0 };
+            const hits = scored.filter(s => s >= 1).length;
+            const half = scored.filter(s => s >= 0.5 && s < 1).length;
+            const miss = scored.filter(s => s < 0.5).length;
+            const mean = scored.reduce((a, b) => a + b, 0) / scored.length;
+            return { n: scored.length, mean: Math.round(mean * 1000) / 1000, hits, half, miss };
+          };
+          return sendJSON({
+            ok: true, window_days: days,
+            spy: summarize("spy_score"),
+            qqq: summarize("qqq_score"),
+            iwm: summarize("iwm_score"),
+            recent: rows.slice(0, 30),
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/engagement?key=...
+      //
+      // P0.7.158 (2026-05-14) — per-user engagement scoring for the
+      // Mission Control user table. Composite score combines:
+      //   • login_count (cumulative)
+      //   • login_days (distinct days with at least one login)
+      //   • recency (days since last login)
+      //
+      // Score formula:
+      //   active = recency <= 7 days   ⇒ +30
+      //   highly active = recency <= 1 ⇒ +50 (replaces above)
+      //   login_days bonus = min(30, login_days * 2)
+      //   login_count bonus = min(20, log10(login_count + 1) * 12)
+      //
+      // Range 0–100. Tier mapping: 80+ = "power", 50+ = "engaged",
+      // 20+ = "casual", below = "dormant".
+      if (routeKey === "GET /timed/admin/engagement") {
+        const _engAuthFail = await requireKeyOrAdmin(req, env);
+        if (_engAuthFail) return _engAuthFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const rows = (await db.prepare(
+            `SELECT email, tier, role, last_login_at, COALESCE(login_count, 0) AS login_count,
+                    COALESCE(login_days, 0) AS login_days, created_at
+             FROM users
+             ORDER BY last_login_at DESC NULLS LAST
+             LIMIT 200`
+          ).all().catch(() => null))?.results || [];
+          const now = Date.now();
+          const scored = rows.map(u => {
+            const last = Number(u.last_login_at) || 0;
+            const recencyDays = last > 0 ? (now - last) / 86400000 : Infinity;
+            let score = 0;
+            if (recencyDays <= 1) score += 50;
+            else if (recencyDays <= 7) score += 30;
+            else if (recencyDays <= 30) score += 10;
+            const loginDays = Number(u.login_days) || 0;
+            score += Math.min(30, loginDays * 2);
+            const loginCount = Number(u.login_count) || 0;
+            score += Math.min(20, Math.log10(loginCount + 1) * 12);
+            score = Math.round(Math.min(100, Math.max(0, score)));
+            const tier = score >= 80 ? "power"
+                       : score >= 50 ? "engaged"
+                       : score >= 20 ? "casual"
+                       : "dormant";
+            return {
+              email: u.email,
+              role: u.role, plan_tier: u.tier,
+              last_login_at: last,
+              recency_days: recencyDays === Infinity ? null : Math.round(recencyDays * 10) / 10,
+              login_count: loginCount,
+              login_days: loginDays,
+              engagement_score: score,
+              engagement_tier: tier,
+              created_at: u.created_at,
+            };
+          });
+          // Sort: power → engaged → casual → dormant, then by recency
+          const order = { power: 0, engaged: 1, casual: 2, dormant: 3 };
+          scored.sort((a, b) => {
+            if (order[a.engagement_tier] !== order[b.engagement_tier])
+              return order[a.engagement_tier] - order[b.engagement_tier];
+            return (a.recency_days ?? 999) - (b.recency_days ?? 999);
+          });
+          const buckets = { power: 0, engaged: 0, casual: 0, dormant: 0 };
+          for (const u of scored) buckets[u.engagement_tier]++;
+          return sendJSON({
+            ok: true, total: scored.length, buckets, users: scored,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/weekly-retrospective?key=...
+      //
+      // P0.7.158 (2026-05-14) — assembles the prior 7 days of trades,
+      // brief accuracy, system uptime, and AI CIO activity into a
+      // single markdown digest. Stored at KV `timed:retro:weekly:latest`
+      // and `timed:retro:weekly:{ISO_WEEK}` (7d retention) so Mission
+      // Control + the user-facing email can render it. Wired into a
+      // Sunday 6 PM ET cron.
+      //
+      // Behind a feature flag (`weekly_retro_enabled` in model_config,
+      // default OFF) so emails don't go out before the operator
+      // smoke-tests once.
+      if (routeKey === "POST /timed/admin/weekly-retrospective") {
+        const _retAuthFail = await requireKeyOrAdmin(req, env);
+        if (_retAuthFail) return _retAuthFail;
+        const db = env?.DB;
+        const KV = env?.KV_TIMED;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+
+        const sendEmail = String(url.searchParams.get("send_email") || "0") === "1";
+        const dryRun = String(url.searchParams.get("dry_run") || "0") === "1";
+        try {
+          const now = Date.now();
+          const weekAgo = now - 7 * 86400000;
+
+          // 1. Trade summary
+          const tradeSummary = await db.prepare(
+            `SELECT
+               COUNT(*) AS total,
+               SUM(CASE WHEN status='WIN' THEN 1 ELSE 0 END) AS wins,
+               SUM(CASE WHEN status='LOSS' THEN 1 ELSE 0 END) AS losses,
+               ROUND(SUM(COALESCE(pnl, 0)), 2) AS pnl_usd,
+               ROUND(AVG(CASE WHEN status='WIN' THEN pnl END), 2) AS avg_win,
+               ROUND(AVG(CASE WHEN status='LOSS' THEN pnl END), 2) AS avg_loss
+             FROM trades
+             WHERE status IN ('WIN','LOSS','FLAT') AND exit_ts >= ?1`
+          ).bind(weekAgo).first().catch(() => null);
+
+          // 2. Top winners + losers
+          const topWinners = (await db.prepare(
+            `SELECT ticker, ROUND(pnl, 2) AS pnl FROM trades
+             WHERE status='WIN' AND exit_ts >= ?1 ORDER BY pnl DESC LIMIT 5`
+          ).bind(weekAgo).all().catch(() => null))?.results || [];
+          const topLosers = (await db.prepare(
+            `SELECT ticker, ROUND(pnl, 2) AS pnl FROM trades
+             WHERE status='LOSS' AND exit_ts >= ?1 ORDER BY pnl ASC LIMIT 5`
+          ).bind(weekAgo).all().catch(() => null))?.results || [];
+
+          // 3. Brief accuracy (avg score across indices for the week)
+          const cutoff = new Date(weekAgo).toISOString().slice(0, 10);
+          const briefRows = (await db.prepare(
+            `SELECT date, spy_score, qqq_score, iwm_score FROM daily_briefs
+             WHERE type='morning' AND date >= ?1 AND evaluated_at IS NOT NULL`
+          ).bind(cutoff).all().catch(() => null))?.results || [];
+          const allScores = briefRows.flatMap(r => [r.spy_score, r.qqq_score, r.iwm_score])
+            .filter(s => Number.isFinite(s));
+          const briefMean = allScores.length > 0
+            ? allScores.reduce((a, b) => a + b, 0) / allScores.length
+            : null;
+          const briefHits = allScores.filter(s => s >= 0.5).length;
+
+          // 4. Cron / system health summary (failing tombstones in last week)
+          let failingOps = 0;
+          if (KV) {
+            try {
+              const list = await KV.list({ prefix: "timed:cron:failure:" });
+              for (const k of (list?.keys || [])) {
+                try {
+                  const row = await KV.get(k.name, "json");
+                  if (row && Number(row.count) > 0) failingOps++;
+                } catch {}
+              }
+            } catch {}
+          }
+
+          // 5. AI CIO activity
+          const cioRow = await db.prepare(
+            `SELECT COUNT(*) AS total,
+                    SUM(CASE WHEN action='enter' THEN 1 ELSE 0 END) AS enter,
+                    SUM(CASE WHEN action='block' THEN 1 ELSE 0 END) AS block
+             FROM ai_cio_decisions WHERE ts >= ?1`
+          ).bind(weekAgo).first().catch(() => null);
+
+          // ── Build markdown ──
+          const wkLabel = `${new Date(weekAgo).toISOString().slice(0, 10)} → ${new Date(now).toISOString().slice(0, 10)}`;
+          const totalTrades = Number(tradeSummary?.total) || 0;
+          const wins = Number(tradeSummary?.wins) || 0;
+          const wr = totalTrades > 0 ? Math.round(wins / totalTrades * 100) : 0;
+          const pnl = Number(tradeSummary?.pnl_usd) || 0;
+          const md = [
+            `# Weekly Retrospective`,
+            ``,
+            `**${wkLabel}**`,
+            ``,
+            `## Trades`,
+            `- Closed: **${totalTrades}** (${wins} wins / ${tradeSummary?.losses || 0} losses)`,
+            `- Net P&L: **${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}**`,
+            `- Win rate: **${wr}%**`,
+            tradeSummary?.avg_win ? `- Avg win: $${tradeSummary.avg_win}` : null,
+            tradeSummary?.avg_loss ? `- Avg loss: $${tradeSummary.avg_loss}` : null,
+            ``,
+            topWinners.length > 0 ? `### Top winners` : null,
+            ...topWinners.map(t => `- ${t.ticker}: +$${t.pnl}`),
+            topLosers.length > 0 ? `### Top losers` : null,
+            ...topLosers.map(t => `- ${t.ticker}: $${t.pnl}`),
+            ``,
+            `## Daily Brief Accuracy`,
+            briefMean != null
+              ? `- Avg score: **${(briefMean * 100).toFixed(0)}%** across ${briefRows.length} morning briefs (${briefHits}/${allScores.length} index hits)`
+              : `- No scored briefs in the window — predictions will be evaluated as data arrives.`,
+            ``,
+            `## System Health`,
+            failingOps > 0
+              ? `- ⚠ ${failingOps} cron op(s) failing in the last 7 days. Check Mission Control.`
+              : `- ✓ All cron ops healthy.`,
+            ``,
+            `## AI CIO`,
+            cioRow && Number(cioRow.total) > 0
+              ? `- ${cioRow.total} decisions logged (${cioRow.enter} enter / ${cioRow.block} block)`
+              : `- No CIO decisions this week (entry engine quiet or shadow mode).`,
+            ``,
+            `---`,
+            `*Generated automatically by the Mission Control retrospective cron at ${new Date(now).toISOString()}*`,
+          ].filter(Boolean).join("\n");
+
+          const blob = {
+            ok: true, generated_at: now,
+            window: { start: weekAgo, end: now, label: wkLabel },
+            stats: {
+              trades: tradeSummary, top_winners: topWinners, top_losers: topLosers,
+              brief: { mean: briefMean, hits: briefHits, total: allScores.length },
+              cron_failing: failingOps,
+              ai_cio: cioRow,
+            },
+            markdown: md,
+          };
+          if (!dryRun && KV) {
+            await KV.put("timed:retro:weekly:latest", JSON.stringify(blob), { expirationTtl: 90 * 86400 });
+            const wkKey = `timed:retro:weekly:${new Date(now).toISOString().slice(0, 10)}`;
+            await KV.put(wkKey, JSON.stringify(blob), { expirationTtl: 90 * 86400 });
+          }
+
+          let emailResult = null;
+          if (sendEmail && !dryRun) {
+            try {
+              const opted = await getEmailOptedInUsers(env, "weekly_retrospective").catch(() => []);
+              emailResult = { recipients: opted.length, sent: 0, failed: 0 };
+              // Reuse the daily-brief email path so styling stays consistent.
+              for (const u of opted) {
+                try {
+                  const res = await sendDailyBriefEmail(env, u.email, {
+                    type: "retro", date: new Date(now).toISOString().slice(0, 10),
+                    content: md, esPrediction: null, infographic: null,
+                  });
+                  if (res?.ok) emailResult.sent++; else emailResult.failed++;
+                } catch { emailResult.failed++; }
+              }
+            } catch (e) {
+              emailResult = { error: String(e?.message || e).slice(0, 200) };
+            }
+          }
+          return sendJSON({ ...blob, dry_run: dryRun, email: emailResult }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // GET /timed/admin/mission-control?key=...
       //
       // P0.7.157 (2026-05-14) — Mission Control unified aggregate. One
@@ -52726,7 +53212,109 @@ export default {
         }
 
         })();
-        await Promise.all([_sec1, _sec2, _sec3, _sec4, _sec5]);
+
+        // ─ Section 6: brief_accuracy (P0.7.158) ─
+        const _sec6 = (async () => {
+          try {
+            const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+            const rows = (await db.prepare(
+              `SELECT spy_score, qqq_score, iwm_score FROM daily_briefs
+               WHERE type='morning' AND date >= ?1 AND evaluated_at IS NOT NULL`
+            ).bind(cutoff).all().catch(() => null))?.results || [];
+            const collect = (k) => {
+              const s = rows.map(r => Number(r[k])).filter(x => Number.isFinite(x));
+              if (s.length === 0) return { n: 0, mean: null };
+              return { n: s.length, mean: Math.round(s.reduce((a, b) => a + b, 0) / s.length * 1000) / 1000 };
+            };
+            // Latest scored brief
+            const latest = await db.prepare(
+              `SELECT date, spy_score, qqq_score, iwm_score FROM daily_briefs
+               WHERE type='morning' AND evaluated_at IS NOT NULL
+               ORDER BY date DESC LIMIT 1`
+            ).first().catch(() => null);
+            out.brief_accuracy = {
+              window_days: 30,
+              spy: collect("spy_score"),
+              qqq: collect("qqq_score"),
+              iwm: collect("iwm_score"),
+              total_scored: rows.length,
+              latest,
+            };
+          } catch (e) {
+            out.brief_accuracy = { error: String(e?.message || e).slice(0, 200) };
+          }
+        })();
+
+        // ─ Section 7: engagement (P0.7.158, summary only) ─
+        const _sec7 = (async () => {
+          try {
+            const rows = (await db.prepare(
+              `SELECT last_login_at, COALESCE(login_count, 0) AS login_count,
+                      COALESCE(login_days, 0) AS login_days
+               FROM users LIMIT 500`
+            ).all().catch(() => null))?.results || [];
+            const now = Date.now();
+            const buckets = { power: 0, engaged: 0, casual: 0, dormant: 0 };
+            for (const u of rows) {
+              const last = Number(u.last_login_at) || 0;
+              const recencyDays = last > 0 ? (now - last) / 86400000 : Infinity;
+              let score = 0;
+              if (recencyDays <= 1) score += 50;
+              else if (recencyDays <= 7) score += 30;
+              else if (recencyDays <= 30) score += 10;
+              score += Math.min(30, (Number(u.login_days) || 0) * 2);
+              score += Math.min(20, Math.log10((Number(u.login_count) || 0) + 1) * 12);
+              if (score >= 80) buckets.power++;
+              else if (score >= 50) buckets.engaged++;
+              else if (score >= 20) buckets.casual++;
+              else buckets.dormant++;
+            }
+            out.engagement = { total: rows.length, buckets };
+          } catch (e) {
+            out.engagement = { error: String(e?.message || e).slice(0, 200) };
+          }
+        })();
+
+        // ─ Section 8: weekly retro (P0.7.158, KV read only) ─
+        const _sec8 = (async () => {
+          try {
+            const blob = KV ? await KV.get("timed:retro:weekly:latest", "json").catch(() => null) : null;
+            out.weekly_retro = blob || { ok: false, reason: "no_retro_yet" };
+          } catch (e) {
+            out.weekly_retro = { error: String(e?.message || e).slice(0, 200) };
+          }
+        })();
+
+        // ─ Section 9: abuse / DoS counters (P0.7.158) ─
+        const _sec9 = (async () => {
+          try {
+            const counters = [];
+            if (KV) {
+              const list = await KV.list({ prefix: "timed:abuse:counter:" });
+              for (const k of (list?.keys || [])) {
+                try {
+                  const row = await KV.get(k.name, "json");
+                  if (row) counters.push({
+                    endpoint: row.endpoint || k.name.replace(/^timed:abuse:counter:/, ""),
+                    count: Number(row.count) || 0,
+                    last_ip: row.last_ip || null,
+                    last_ts: row.last_ts || null,
+                    first_ts: row.first_ts || null,
+                  });
+                } catch {}
+              }
+            }
+            counters.sort((a, b) => (b.count || 0) - (a.count || 0));
+            out.abuse = {
+              total_blocks_24h: counters.reduce((a, b) => a + b.count, 0),
+              endpoints: counters,
+            };
+          } catch (e) {
+            out.abuse = { error: String(e?.message || e).slice(0, 200) };
+          }
+        })();
+
+        await Promise.all([_sec1, _sec2, _sec3, _sec4, _sec5, _sec6, _sec7, _sec8, _sec9]);
         out.elapsed_ms = Date.now() - _mcStart;
         return sendJSON(out, 200, corsHeaders(env, req));
       }
@@ -62782,6 +63370,9 @@ export default {
 
       // GET /timed/portfolio/equity-curve?mode=trader|investor|both&since=YYYY-MM-DD&until=YYYY-MM-DD
       if (routeKey === "GET /timed/portfolio/equity-curve") {
+        // P0.7.158 — rate-limit unauthenticated reads (proof.html etc.)
+        const _eqRl = await publicRateLimit(req, env, "portfolio_equity_curve", 120, sendJSON, corsHeaders);
+        if (_eqRl) return _eqRl;
         try {
           const db = env?.DB;
           if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
@@ -71114,6 +71705,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       if (_isWeekday && (_utcH === 13 || _utcH === 14))             vc.add("0 14 * * 1-5");
       if (_isWeekday && (_utcH === 21 || _utcH === 22))           { vc.add("0 21 * * 1-5"); vc.add("0 22 * * 1-5"); }
       if (_isWeekday && (_utcH === 7 || _utcH === 8))               vc.add("0 8 * * 1-5");
+      // P0.7.158 (2026-05-14) — 6 AM ET pre-market tick (UTC 10 EDT / 11 EST)
+      // for the candle auto-refresh sweep. Distinct label from "0 12 * * 1-5"
+      // (8 AM ET) so the auto-refresh handler can gate independently.
+      if (_isWeekday && (_utcH === 10 || _utcH === 11))             vc.add("0 11 * * 1-5");
       if (_isWeekday && (_utcH === 11 || _utcH === 12))             vc.add("0 12 * * 1-5");
       if (_utcH === 4)                                              vc.add("0 4 * * *");
       if (_utcDay === 1 && (_utcH === 14 || _utcH === 15))          vc.add("0 15 * * 1");
@@ -71476,25 +72071,70 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       })());
     }
 
-    // ── Candle Freshness Monitor (P0.7.156, 2026-05-14) ──
+    // ── Candle Freshness Monitor + Auto-Refresh (P0.7.156, 2026-05-14) ──
     //
-    // After the user's report of DBA showing wrong bias due to 27 days
-    // of stale daily candles (April 17 → May 14), wire an automated
-    // freshness check so the next regression alerts within HOURS not
-    // weeks. Runs at the 9 AM ET hourly tick (1 hour after market open
-    // — the first top-of-hour cron fetch should have populated current
-    // D candles by then). If anything is stale beyond threshold, fires
-    // recordCronFailure → Discord alert + KV tombstone.
+    // Two complementary jobs running on the same hourly tick:
+    //
+    //   1. PRE-MARKET AUTO-REFRESH (6 AM ET) — proactively backfill any
+    //      tickers whose D / 60m candles are stale BEFORE the trading day
+    //      starts. Eliminates the class of bug where one ticker silently
+    //      stales out and surfaces a wrong-bias signal mid-session.
+    //      Calls the existing /timed/admin/alpaca-backfill endpoint with
+    //      sinceDays=7 to keep the work small and frequent.
+    //
+    //   2. MONITORING (9 AM + 3 PM ET) — passive check that fires
+    //      recordCronFailure → Discord alert + KV tombstone if anything is
+    //      stale beyond threshold even after the auto-refresh ran.
+    //      Runs twice/day so a midday data-feed outage gets caught by
+    //      the 3 PM probe before it ruins the next morning's brief.
     //
     // Thresholds (deliberately generous to avoid flapping on holidays
     // and weekends — picks up REAL multi-day regressions):
     //   • Daily TF:  > 5 days stale → alert
     //   • 60m TF:    > 24 hours stale during RTH → alert
     //
-    // 5-day window covers a normal long weekend (Mon holiday + weekend).
-    // 24-hour 60m is generous enough to skip weekends cleanly.
-    if (vc.has("0 14-21 * * 1-5")) {
+    // P0.7.158 (2026-05-14) — added the 6 AM auto-refresh per user request
+    // ("eventually this should be automated if not already") so a stale
+    // ticker self-heals before any user sees it.
+    if (vc.has("0 14-21 * * 1-5") || vc.has("0 11 * * 1-5")) {
       const _frEtH = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }), 10);
+
+      // ── 6 AM ET pre-market auto-refresh ──
+      if (_frEtH === 6) ctx.waitUntil((async () => {
+        try {
+          const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
+          const _arKey = env?.TIMED_API_KEY ? `&key=${encodeURIComponent(env.TIMED_API_KEY)}` : "";
+          console.log("[CANDLE AUTO-REFRESH] Pre-market sweep (6 AM ET)…");
+          // Backfill last 7 days for D + 60 + 240 across canonical + user-added tickers.
+          // sinceDays=7 keeps each call <30s; the cronFetchLatest at top-of-hour
+          // typically handles last-day deltas, this catches multi-day gaps.
+          const tfs = ["D", "60", "240"];
+          const results = {};
+          for (const tf of tfs) {
+            try {
+              const r = await fetch(`${selfUrl}/timed/admin/alpaca-backfill?tf=${tf}&sinceDays=7&include_user=1${_arKey}`, {
+                method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+              });
+              const j = await r.json().catch(() => ({}));
+              results[tf] = { upserted: j?.upserted || 0, errors: j?.errors || 0 };
+              console.log(`[CANDLE AUTO-REFRESH] ${tf}: ${j?.upserted || 0} upserted, ${j?.errors || 0} errors`);
+            } catch (e) {
+              results[tf] = { error: String(e?.message || e).slice(0, 100) };
+              console.warn(`[CANDLE AUTO-REFRESH] ${tf} failed:`, String(e?.message || e).slice(0, 200));
+            }
+          }
+          recordCronSuccess(env, "candle_auto_refresh").catch(() => {});
+        } catch (e) {
+          console.warn("[CANDLE AUTO-REFRESH] Sweep failed:", String(e?.message || e).slice(0, 200));
+          recordCronFailure(env, {
+            op: "candle_auto_refresh",
+            error: String(e?.message || e),
+            caller: "scheduled_event",
+          }).catch(() => {});
+        }
+      })());
+
+      // ── 9 AM + 3 PM ET monitoring ──
       if (_frEtH === 9 || _frEtH === 15) ctx.waitUntil((async () => {
         try {
           const db = env?.DB;
@@ -71613,6 +72253,105 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           }
         })());
       }
+    }
+
+    // ── Brief Accuracy Evaluator (P0.7.158, 2026-05-14) ──
+    //
+    // Runs at 4:30 PM ET — after RTH close (4 PM) and after the candle bar
+    // cron has had 30 min to ingest the day's final D candle. Reads the
+    // morning brief's per-index bull/bear triggers + targets and scores
+    // them against the actual session high/low/close. Result persisted on
+    // the daily_briefs row + surfaced via /timed/admin/brief-accuracy and
+    // Mission Control.
+    //
+    // Cron tick 4:30 PM ET = 20:30 UTC EDT / 21:30 UTC EST. The */5 cron
+    // already registers `30 21 * * 1-5` for that minute window.
+    if (vc.has("30 20 * * 1-5") || vc.has("30 21 * * 1-5")) {
+      const _bcEtH = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }), 10);
+      const _bcEtM = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/New_York", minute: "numeric" }), 10);
+      if (_bcEtH === 16 && _bcEtM >= 25 && _bcEtM <= 35) ctx.waitUntil((async () => {
+        try {
+          const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
+          const _bcKey = env?.TIMED_API_KEY ? `?key=${encodeURIComponent(env.TIMED_API_KEY)}` : "";
+          const r = await fetch(`${selfUrl}/timed/admin/brief-eval-accuracy${_bcKey}`, { method: "POST" });
+          const j = await r.json().catch(() => ({}));
+          if (j?.ok) {
+            console.log(`[BRIEF EVAL] ${j.date} avg_score=${j.avg_score?.toFixed?.(2) ?? "—"} (SPY=${j.spy?.score} QQQ=${j.qqq?.score} IWM=${j.iwm?.score})`);
+            recordCronSuccess(env, "brief_accuracy_eval").catch(() => {});
+          } else {
+            console.warn(`[BRIEF EVAL] failed: ${j?.error || "unknown"}`);
+            recordCronFailure(env, {
+              op: "brief_accuracy_eval",
+              error: j?.error || "unknown",
+              caller: "scheduled_event",
+            }).catch(() => {});
+          }
+        } catch (e) {
+          console.warn("[BRIEF EVAL] cron failed:", String(e?.message || e).slice(0, 200));
+          recordCronFailure(env, {
+            op: "brief_accuracy_eval",
+            error: String(e?.message || e),
+            caller: "scheduled_event",
+          }).catch(() => {});
+        }
+      })());
+    }
+
+    // ── Weekly Retrospective (P0.7.158, 2026-05-14) ──
+    //
+    // Sunday 6 PM ET (22:00 UTC EDT / 23:00 UTC EST). Aggregates the past
+    // 7 days of trades + brief accuracy + system health into a markdown
+    // digest stored at KV `timed:retro:weekly:latest`. Behind the
+    // `weekly_retro_enabled` flag in model_config (default OFF) so emails
+    // don't go out before the operator smoke-tests once.
+    //
+    // 22 UTC Sunday is registered as `0 22 * * 1-5` only on weekdays — so
+    // for Sunday (UTC day=0) we piggy-back on the hourly cron and gate by
+    // ET day + hour explicitly.
+    if (_isHourly) {
+      const _retNyParts = new Date().toLocaleString("en-US", {
+        timeZone: "America/New_York", weekday: "short", hour: "numeric", hour12: false,
+      }).split(", ");
+      const _retDay = _retNyParts[0] || "";
+      const _retHour = parseInt(_retNyParts[1] || "0", 10);
+      if (_retDay === "Sun" && _retHour === 18) ctx.waitUntil((async () => {
+        try {
+          const flagRow = await env.DB.prepare(
+            "SELECT value FROM model_config WHERE key = 'weekly_retro_enabled' LIMIT 1"
+          ).first().catch(() => null);
+          const enabled = String(flagRow?.value ?? "0") === "1";
+          const sendEmail = String(flagRow?.value ?? "0") === "1"; // share flag
+          const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
+          const _retKey = env?.TIMED_API_KEY ? `&key=${encodeURIComponent(env.TIMED_API_KEY)}` : "";
+          const _emailFlag = sendEmail ? "1" : "0";
+          if (!enabled) {
+            console.log("[WEEKLY RETRO] Skipped (flag weekly_retro_enabled=0). Generating dry preview anyway for KV.");
+          }
+          const r = await fetch(
+            `${selfUrl}/timed/admin/weekly-retrospective?send_email=${_emailFlag}${_retKey}`,
+            { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }
+          );
+          const j = await r.json().catch(() => ({}));
+          if (j?.ok) {
+            console.log(`[WEEKLY RETRO] Generated. Email: ${JSON.stringify(j.email || {})}`);
+            recordCronSuccess(env, "weekly_retro").catch(() => {});
+          } else {
+            console.warn(`[WEEKLY RETRO] failed: ${j?.error || "unknown"}`);
+            recordCronFailure(env, {
+              op: "weekly_retro",
+              error: j?.error || "unknown",
+              caller: "scheduled_event",
+            }).catch(() => {});
+          }
+        } catch (e) {
+          console.warn("[WEEKLY RETRO] cron failed:", String(e?.message || e).slice(0, 200));
+          recordCronFailure(env, {
+            op: "weekly_retro",
+            error: String(e?.message || e),
+            caller: "scheduled_event",
+          }).catch(() => {});
+        }
+      })());
     }
 
     // ── Intraday Flash Insights: 11 AM + 2 PM ET (twice per session) ──

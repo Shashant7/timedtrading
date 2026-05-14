@@ -134,6 +134,10 @@ function MissionControl({
   const dc = data?.data_coverage || {};
   const us = data?.users || {};
   const po = data?.positions || {};
+  const ba = data?.brief_accuracy || {};
+  const eg = data?.engagement || {};
+  const wr = data?.weekly_retro || {};
+  const ab = data?.abuse || {};
   const allTimePnl = Number(mp?.all_time?.pnl_usd) || 0;
   const allTimeWR = mp?.all_time?.total > 0 ? (Number(mp.all_time.wins) || 0) / Number(mp.all_time.total) * 100 : null;
   const trailing = mp?.trailing || {};
@@ -236,7 +240,7 @@ function MissionControl({
       className: "text-xs mc-mute"
     }, total, " trades")));
   })), mp.ai_cio_7d && React.createElement("div", {
-    className: "mc-kpi"
+    className: "mc-kpi mb-3"
   }, React.createElement("div", {
     className: "mc-kpi-label"
   }, "AI CIO Activity (7d)"), React.createElement("div", {
@@ -255,7 +259,30 @@ function MissionControl({
     className: "mc-mute"
   }, Number(mp.ai_cio_7d.total) === 0 ? "No CIO activity in last 7d — entry engine may be quiet" : Number(mp.ai_cio_7d.fallback) > Number(mp.ai_cio_7d.total) * 0.5 ? React.createElement("span", {
     className: "mc-warn"
-  }, "\u26A0 More than half are fallbacks \u2014 check OpenAI key") : "Healthy"))))), React.createElement("div", {
+  }, "\u26A0 More than half are fallbacks \u2014 check OpenAI key") : "Healthy"))), React.createElement("div", {
+    className: "mc-kpi"
+  }, React.createElement("div", {
+    className: "mc-kpi-label"
+  }, "Daily Brief Accuracy (30d)"), ba.error ? React.createElement("div", {
+    className: "text-red-400 text-xs"
+  }, ba.error) : React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-3 gap-3 mt-1"
+  }, ["spy", "qqq", "iwm"].map(sym => {
+    const s = ba[sym] || {};
+    const pct = Number.isFinite(s.mean) ? Math.round(s.mean * 100) : null;
+    const cls = pct == null ? "" : pct >= 60 ? "mc-pos" : pct >= 40 ? "mc-warn" : "mc-neg";
+    return React.createElement("div", {
+      key: sym
+    }, React.createElement("div", {
+      className: "text-[10px] mc-mute uppercase"
+    }, sym), React.createElement("div", {
+      className: `text-lg font-bold ${cls}`
+    }, pct != null ? `${pct}%` : "—"), React.createElement("div", {
+      className: "text-[10px] mc-mute"
+    }, s.n || 0, " scored"));
+  })), ba.latest && React.createElement("div", {
+    className: "mt-2 text-[10px] mc-mute"
+  }, "Most-recent scored: ", ba.latest.date, " \xB7 SPY ", Number.isFinite(ba.latest.spy_score) ? `${Math.round(ba.latest.spy_score * 100)}%` : "—", " \xB7 QQQ ", Number.isFinite(ba.latest.qqq_score) ? `${Math.round(ba.latest.qqq_score * 100)}%` : "—", " \xB7 IWM ", Number.isFinite(ba.latest.iwm_score) ? `${Math.round(ba.latest.iwm_score * 100)}%` : "—")))), React.createElement("div", {
     className: "mc-card mb-5"
   }, React.createElement("div", {
     className: "mc-section-title"
@@ -266,7 +293,10 @@ function MissionControl({
     }
   }), "2. System Health", sh.failing_count > 0 && React.createElement("span", {
     className: "mc-pill mc-pill-fail ml-2"
-  }, sh.failing_count, " FAILING")), sh.error ? React.createElement("div", {
+  }, sh.failing_count, " FAILING"), Number(ab.total_blocks_24h) > 0 && React.createElement("span", {
+    className: "mc-pill mc-pill-warn ml-2",
+    title: "Public-endpoint requests blocked by per-IP rate limiter"
+  }, ab.total_blocks_24h, " ABUSE BLOCKS 24h")), sh.error ? React.createElement("div", {
     className: "text-red-400 text-xs"
   }, sh.error) : React.createElement(React.Fragment, null, React.createElement("div", {
     className: "grid grid-cols-2 md:grid-cols-6 gap-2 mb-4"
@@ -295,7 +325,27 @@ function MissionControl({
     className: "mc-kpi-label"
   }, d.label), React.createElement("div", {
     className: `text-lg font-bold ${sh[d.k] ? "mc-pos" : "mc-mute"}`
-  }, sh[d.k] ? "✓" : "—")))), React.createElement("div", {
+  }, sh[d.k] ? "✓" : "—")))), Array.isArray(ab.endpoints) && ab.endpoints.length > 0 && React.createElement("div", {
+    className: "mb-4"
+  }, React.createElement("div", {
+    className: "text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold"
+  }, "Public-Endpoint Abuse Blocks (24h)"), React.createElement("div", {
+    style: {
+      overflowX: "auto"
+    }
+  }, React.createElement("table", {
+    className: "mc-table"
+  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Endpoint"), React.createElement("th", null, "Blocked Requests"), React.createElement("th", null, "Last IP"), React.createElement("th", null, "Last Block"))), React.createElement("tbody", null, ab.endpoints.slice(0, 10).map((e, i) => React.createElement("tr", {
+    key: i
+  }, React.createElement("td", {
+    className: "font-mono text-[11px]"
+  }, e.endpoint), React.createElement("td", null, React.createElement("span", {
+    className: e.count > 50 ? "mc-warn" : "mc-mute"
+  }, e.count)), React.createElement("td", {
+    className: "font-mono text-[11px] mc-mute"
+  }, e.last_ip || "—"), React.createElement("td", {
+    className: "text-xs mc-mute"
+  }, fmtAgo(e.last_ts)))))))), React.createElement("div", {
     className: "text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold"
   }, "Cron Tombstones (last 7 days)"), (sh.cron_ops || []).length === 0 ? React.createElement("div", {
     className: "text-xs mc-mute py-3"
@@ -432,7 +482,38 @@ function MissionControl({
     className: `mc-kpi-value ${Number(us.new_7d) > 0 ? "mc-pos" : ""}`
   }, Number(us.new_7d) || 0), React.createElement("div", {
     className: "mc-kpi-sub"
-  }, "signups last 7 days"))), React.createElement("div", {
+  }, "signups last 7 days"))), eg.buckets && React.createElement("div", {
+    className: "grid grid-cols-2 md:grid-cols-4 gap-3 mb-4"
+  }, [{
+    k: "power",
+    label: "Power",
+    sub: "score 80+",
+    cls: "mc-pos"
+  }, {
+    k: "engaged",
+    label: "Engaged",
+    sub: "score 50-79",
+    cls: "mc-pos"
+  }, {
+    k: "casual",
+    label: "Casual",
+    sub: "score 20-49",
+    cls: "mc-warn"
+  }, {
+    k: "dormant",
+    label: "Dormant",
+    sub: "score <20",
+    cls: "mc-mute"
+  }].map(b => React.createElement("div", {
+    key: b.k,
+    className: "mc-kpi"
+  }, React.createElement("div", {
+    className: "mc-kpi-label"
+  }, b.label), React.createElement("div", {
+    className: `mc-kpi-value ${b.cls}`
+  }, Number(eg.buckets[b.k]) || 0), React.createElement("div", {
+    className: "mc-kpi-sub"
+  }, b.sub)))), React.createElement("div", {
     className: "text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold"
   }, "Recent Logins (top 25)"), (us.recent_logins || []).length === 0 ? React.createElement("div", {
     className: "text-xs mc-mute py-3"
@@ -551,8 +632,66 @@ function MissionControl({
   }, l.action)), React.createElement("td", null, l.shares != null ? Number(l.shares).toFixed(2) : "—"), React.createElement("td", null, fmtUsd(l.price, 2)), React.createElement("td", {
     className: "text-[11px] mc-mute"
   }, l.reason || "—"))))))))), React.createElement("div", {
+    className: "mc-card mb-5"
+  }, React.createElement("div", {
+    className: "mc-section-title"
+  }, React.createElement("span", {
+    className: "mc-dot"
+  }), "6. Weekly Retrospective", wr?.generated_at && React.createElement("span", {
+    className: "text-[10px] mc-mute ml-2"
+  }, "Last: ", fmtAgo(wr.generated_at))), wr?.error ? React.createElement("div", {
+    className: "text-red-400 text-xs"
+  }, wr.error) : !wr?.markdown ? React.createElement("div", {
+    className: "text-xs mc-mute py-3"
+  }, "No weekly retrospective generated yet. Cron runs every Sunday at 6 PM ET. Set ", React.createElement("code", {
+    className: "text-[#34d399]"
+  }, "model_config.weekly_retro_enabled = '1'"), " to enable email distribution; report is generated regardless and stored at", React.createElement("code", {
+    className: "ml-1"
+  }, "timed:retro:weekly:latest"), ".") : React.createElement(React.Fragment, null, React.createElement("div", {
+    className: "grid grid-cols-2 md:grid-cols-4 gap-3 mb-4"
+  }, React.createElement("div", {
+    className: "mc-kpi"
+  }, React.createElement("div", {
+    className: "mc-kpi-label"
+  }, "Window"), React.createElement("div", {
+    className: "mc-kpi-value text-[14px]"
+  }, wr.window?.label || "—")), React.createElement("div", {
+    className: "mc-kpi"
+  }, React.createElement("div", {
+    className: "mc-kpi-label"
+  }, "Closed Trades"), React.createElement("div", {
+    className: "mc-kpi-value"
+  }, Number(wr.stats?.trades?.total) || 0), React.createElement("div", {
+    className: "mc-kpi-sub"
+  }, Number(wr.stats?.trades?.wins) || 0, "W / ", Number(wr.stats?.trades?.losses) || 0, "L")), React.createElement("div", {
+    className: "mc-kpi"
+  }, React.createElement("div", {
+    className: "mc-kpi-label"
+  }, "Net P&L"), React.createElement("div", {
+    className: `mc-kpi-value ${Number(wr.stats?.trades?.pnl_usd) >= 0 ? "mc-pos" : "mc-neg"}`
+  }, fmtUsd(wr.stats?.trades?.pnl_usd))), React.createElement("div", {
+    className: "mc-kpi"
+  }, React.createElement("div", {
+    className: "mc-kpi-label"
+  }, "Brief Avg"), React.createElement("div", {
+    className: "mc-kpi-value"
+  }, Number.isFinite(wr.stats?.brief?.mean) ? `${Math.round(wr.stats.brief.mean * 100)}%` : "—"), React.createElement("div", {
+    className: "mc-kpi-sub"
+  }, wr.stats?.brief?.total || 0, " predictions scored"))), React.createElement("div", {
+    className: "text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold"
+  }, "Markdown Report"), React.createElement("pre", {
+    className: "text-[11px] text-[#d1d5db] whitespace-pre-wrap font-mono leading-snug",
+    style: {
+      maxHeight: 380,
+      overflowY: "auto",
+      background: "rgba(0,0,0,0.3)",
+      padding: 12,
+      borderRadius: 8,
+      border: "1px solid rgba(255,255,255,0.04)"
+    }
+  }, wr.markdown))), React.createElement("div", {
     className: "text-center text-[10px] mc-mute mt-6 mb-4"
-  }, "Mission Control \xB7 admin only \xB7 auto-refreshes every 30s when enabled", React.createElement("br", null), "Weekly retrospective + automated user-facing report coming next iteration"));
+  }, "Mission Control \xB7 admin only \xB7 auto-refreshes every 30s when enabled", React.createElement("br", null), "Weekly retrospective fires Sunday 6 PM ET \xB7 brief accuracy evaluator runs at 4:30 PM ET", React.createElement("br", null), "Daily candle auto-refresh runs at 6 AM ET \xB7 Public reads rate-limited to 120/hr per IP"));
 }
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(React.createElement(AuthGate, {
