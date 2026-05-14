@@ -53108,10 +53108,14 @@ export default {
                         MIN(ts) AS min_ts
                  FROM ticker_candles WHERE tf = ?1`
               ).bind(tf).first();
+              // Exclude tickers with no candles in the last 90 days — those
+              // are likely delisted/inactive and permanently skew the metric.
+              const _mcNowMs = Date.now();
               const worst = await db.prepare(
-                `SELECT ticker, MAX(ts) AS max_ts FROM ticker_candles
-                 WHERE tf = ?1 GROUP BY ticker ORDER BY max_ts ASC LIMIT 1`
-              ).bind(tf).first();
+                `SELECT ticker, max_ts FROM (
+                   SELECT ticker, MAX(ts) AS max_ts FROM ticker_candles WHERE tf = ?1 GROUP BY ticker
+                 ) WHERE max_ts >= ?2 ORDER BY max_ts ASC LIMIT 1`
+              ).bind(tf, _mcNowMs - 90 * 86400000).first();
               by_tf[tf] = {
                 tickers: Number(row?.n_tickers) || 0,
                 rows: Number(row?.n_rows) || 0,
@@ -53119,7 +53123,7 @@ export default {
                 min_ts: Number(row?.min_ts) || null,
                 worst_stale: worst ? {
                   ticker: worst.ticker,
-                  days_stale: Math.round((Date.now() - Number(worst.max_ts)) / 8640000) / 10,
+                  days_stale: Math.round((_mcNowMs - Number(worst.max_ts)) / 8640000) / 10,
                 } : null,
               };
             } catch (e) {
