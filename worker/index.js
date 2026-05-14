@@ -34188,6 +34188,19 @@ async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMap
         rank: c.score,
         rr: null,
       });
+      // Discord notification so the operator sees new investor entries
+      // in real-time (email requires SENDGRID; Discord fires unconditionally).
+      notifyDiscord(env, {
+        title: `🟢 Investor New Entry: ${c.sym} LONG`,
+        description: `New investor position opened.\nScore: ${c.score} | Stage: accumulate`,
+        color: 0x22c55e,
+        fields: [
+          { name: "Entry Price", value: `$${price.toFixed(2)}`, inline: true },
+          { name: "Shares", value: shares.toFixed(2), inline: true },
+          { name: "Value", value: `$${targetValue.toFixed(0)}`, inline: true },
+        ],
+        footer: { text: `Investor Portfolio • Daily Eval` },
+      }).catch(() => {});
     }
     opened++;
   }
@@ -52541,6 +52554,9 @@ export default {
         if (_baAuthFail) return _baAuthFail;
         const db = env?.DB;
         if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        // Ensure evaluation columns exist (spy_score, qqq_score, iwm_score,
+        // spy_close, qqq_close, iwm_close, evaluated_at). Safe if already present.
+        await d1EnsureBriefSchema(env).catch(() => {});
 
         // Default date = today in NY tz
         const _nyParts = new Date().toLocaleString("en-US", {
@@ -52999,9 +53015,9 @@ export default {
                  COUNT(*) AS total,
                  SUM(CASE WHEN shadow=1 THEN 1 ELSE 0 END) AS shadow,
                  SUM(CASE WHEN fallback=1 THEN 1 ELSE 0 END) AS fallback,
-                 SUM(CASE WHEN action='enter' THEN 1 ELSE 0 END) AS enter,
-                 SUM(CASE WHEN action='block' THEN 1 ELSE 0 END) AS block
-               FROM ai_cio_decisions WHERE ts >= ?1`
+                 SUM(CASE WHEN decision IN ('APPROVE','ADJUST') THEN 1 ELSE 0 END) AS enter,
+                 SUM(CASE WHEN decision = 'REJECT' THEN 1 ELSE 0 END) AS block
+               FROM ai_cio_decisions WHERE created_at >= ?1`
             ).bind(cutoff).first().catch(() => null);
             aicio = cioRow || { total: 0, shadow: 0, fallback: 0, enter: 0, block: 0 };
           } catch {}
@@ -67504,6 +67520,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
               remainingCapital -= value;
               added.push({ ticker: t.ticker, shares: addShares, price: t.price, value: Math.round(value * 100) / 100, stage: t.stage, score: t.score });
+              // Discord notification for each add-to-existing investor position
+              notifyDiscord(env, {
+                title: `🔵 Investor Add: ${t.ticker} LONG`,
+                description: `Added to existing position.\nScore: ${t.score} | Stage: ${t.stage}`,
+                color: 0x3b82f6,
+                fields: [
+                  { name: "Price", value: `$${t.price.toFixed(2)}`, inline: true },
+                  { name: "Shares Added", value: `${addShares.toFixed(2)}`, inline: true },
+                  { name: "Value Added", value: `$${Math.round(value * 100) / 100}`, inline: true },
+                ],
+                footer: { text: `Investor Portfolio • Auto-Rebalance` },
+              }).catch(() => {});
             } else {
               // New position
               if (positionsCount >= MAX_POSITIONS) {
@@ -67545,6 +67573,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               remainingCapital -= value;
               positionsCount++;
               opened.push({ ticker: t.ticker, shares, price: t.price, value: Math.round(value * 100) / 100, stage: t.stage, score: t.score });
+              // Discord notification for each new investor position
+              notifyDiscord(env, {
+                title: `🟢 Investor New Entry: ${t.ticker} LONG`,
+                description: `New investor position opened.\nScore: ${t.score} | Stage: ${t.stage}`,
+                color: 0x22c55e,
+                fields: [
+                  { name: "Entry Price", value: `$${t.price.toFixed(2)}`, inline: true },
+                  { name: "Shares", value: `${shares.toFixed(2)}`, inline: true },
+                  { name: "Value", value: `$${Math.round(value * 100) / 100}`, inline: true },
+                ],
+                footer: { text: `Investor Portfolio • Auto-Rebalance` },
+              }).catch(() => {});
             }
           }
 
@@ -71899,14 +71939,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // (POST /timed/admin/investor-daily-eval) before promoting.
           //
           // Default OFF. To enable:
-          //   UPDATE model_config SET value='1', updated_at=strftime('%s','now')*1000
-          //   WHERE key='investor_daily_eval_enabled';
+          //   UPDATE model_config SET config_value='1', updated_at=strftime('%s','now')*1000
+          //   WHERE config_key='investor_daily_eval_enabled';
           if (_etH === 16) {
             try {
               const flagRow = await env.DB.prepare(
-                "SELECT value FROM model_config WHERE key = 'investor_daily_eval_enabled' LIMIT 1"
+                "SELECT config_value FROM model_config WHERE config_key = 'investor_daily_eval_enabled' LIMIT 1"
               ).first();
-              const enabled = String(flagRow?.value ?? "0") === "1";
+              const enabled = String(flagRow?.config_value ?? "0") === "1";
               if (enabled) {
                 console.log(`[INVESTOR HOURLY] ET=16h — Running DAILY EVAL (regime exits, trailing stops, DCA)`);
                 const evalKey = env.TIMED_API_KEY ? `?key=${encodeURIComponent(env.TIMED_API_KEY)}` : "";
@@ -72142,10 +72182,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const nowMs = Date.now();
           const STALE_D_DAYS = 5;
           const STALE_60_HOURS = 24;
-          // Worst-case D
+          // Exclude tickers whose newest candle is >90 days old — those are
+          // likely delisted/inactive symbols that can never be healed by
+          // backfill and would permanently trip the alarm. Only consider
+          // tickers that had a candle in the last 90 days (active universe).
+          const ACTIVE_WINDOW_D_MS = 90 * 86400000;
+          const ACTIVE_WINDOW_60_MS = 30 * 86400000;
+          // Worst-case D (among active tickers only)
           const dRow = await db.prepare(
-            `SELECT ticker, MAX(ts) as max_ts FROM ticker_candles WHERE tf = 'D' GROUP BY ticker ORDER BY max_ts ASC LIMIT 1`
-          ).first();
+            `SELECT ticker, max_ts FROM (
+               SELECT ticker, MAX(ts) AS max_ts FROM ticker_candles WHERE tf = 'D' GROUP BY ticker
+             ) WHERE max_ts >= ?1 ORDER BY max_ts ASC LIMIT 1`
+          ).bind(nowMs - ACTIVE_WINDOW_D_MS).first();
           if (dRow) {
             const dDays = (nowMs - Number(dRow.max_ts)) / 86400000;
             if (dDays > STALE_D_DAYS) {
@@ -72158,11 +72206,16 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             } else {
               recordCronSuccess(env, "candle_freshness_d").catch(() => {});
             }
+          } else {
+            // No active tickers found in the last 90 days — not an alarm condition
+            recordCronSuccess(env, "candle_freshness_d").catch(() => {});
           }
           // Worst-case 60m (only check during RTH so weekends don't trip it)
           const _h60Row = await db.prepare(
-            `SELECT ticker, MAX(ts) as max_ts FROM ticker_candles WHERE tf = '60' GROUP BY ticker ORDER BY max_ts ASC LIMIT 1`
-          ).first();
+            `SELECT ticker, max_ts FROM (
+               SELECT ticker, MAX(ts) AS max_ts FROM ticker_candles WHERE tf = '60' GROUP BY ticker
+             ) WHERE max_ts >= ?1 ORDER BY max_ts ASC LIMIT 1`
+          ).bind(nowMs - ACTIVE_WINDOW_60_MS).first();
           if (_h60Row) {
             const h60Hours = (nowMs - Number(_h60Row.max_ts)) / 3600000;
             if (h60Hours > STALE_60_HOURS) {
@@ -72175,6 +72228,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             } else {
               recordCronSuccess(env, "candle_freshness_60").catch(() => {});
             }
+          } else {
+            recordCronSuccess(env, "candle_freshness_60").catch(() => {});
           }
         } catch (e) {
           console.warn("[FRESHNESS MONITOR] Probe failed:", String(e?.message || e).slice(0, 200));
@@ -72279,10 +72334,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             console.log(`[BRIEF EVAL] ${j.date} avg_score=${j.avg_score?.toFixed?.(2) ?? "—"} (SPY=${j.spy?.score} QQQ=${j.qqq?.score} IWM=${j.iwm?.score})`);
             recordCronSuccess(env, "brief_accuracy_eval").catch(() => {});
           } else {
-            console.warn(`[BRIEF EVAL] failed: ${j?.error || "unknown"}`);
+            const _baErr = j?.error || (j && Object.keys(j).length > 0 ? JSON.stringify(j).slice(0, 120) : "no_response_body");
+            console.warn(`[BRIEF EVAL] failed: ${_baErr}`);
             recordCronFailure(env, {
               op: "brief_accuracy_eval",
-              error: j?.error || "unknown",
+              error: _baErr,
               caller: "scheduled_event",
             }).catch(() => {});
           }
@@ -72317,10 +72373,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       if (_retDay === "Sun" && _retHour === 18) ctx.waitUntil((async () => {
         try {
           const flagRow = await env.DB.prepare(
-            "SELECT value FROM model_config WHERE key = 'weekly_retro_enabled' LIMIT 1"
+            "SELECT config_value FROM model_config WHERE config_key = 'weekly_retro_enabled' LIMIT 1"
           ).first().catch(() => null);
-          const enabled = String(flagRow?.value ?? "0") === "1";
-          const sendEmail = String(flagRow?.value ?? "0") === "1"; // share flag
+          const enabled = String(flagRow?.config_value ?? "0") === "1";
+          const sendEmail = String(flagRow?.config_value ?? "0") === "1"; // share flag
           const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
           const _retKey = env?.TIMED_API_KEY ? `&key=${encodeURIComponent(env.TIMED_API_KEY)}` : "";
           const _emailFlag = sendEmail ? "1" : "0";
