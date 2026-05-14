@@ -1315,6 +1315,7 @@ const ROUTES = [
   // P0.7.154 — surface cron failure tombstones so the operator can
   // grep "what's been silently broken?" without trawling logs.
   ["GET", "/timed/admin/cron-status", "GET /timed/admin/cron-status"],
+  ["POST", "/timed/admin/cron-clear", "POST /timed/admin/cron-clear"],
   // P0.7.156 — candle freshness probe. Returns the worst-stale ticker
   // per TF so the operator can spot a dead backfill cron at a glance.
   ["GET", "/timed/admin/candle-freshness", "GET /timed/admin/candle-freshness"],
@@ -53099,23 +53100,31 @@ export default {
         try {
           const tfsToCheck = ["D", "60", "240"];
           const by_tf = {};
+          // P0.7.161 (2026-05-14) — Bound future-dated ts and use TF-
+          // appropriate active windows. The "max(ts)" headline metric was
+          // wildly wrong (year-34227 row for SPX D) and the 90-day active
+          // window was too loose for intraday — a ticker that hasn't
+          // ticked in 60+ days would persistently report as the "worst"
+          // even though it's not actually a live data-pipeline issue.
           for (const tf of tfsToCheck) {
             try {
+              const _mcNowMs = Date.now();
+              const _futureGuard = _mcNowMs + 86400000;
+              // Active window — wider for D (90d), tight for intraday (10d).
+              const activeWindowMs = tf === "D" ? 90 * 86400000 : 10 * 86400000;
               const row = await db.prepare(
                 `SELECT COUNT(DISTINCT ticker) AS n_tickers,
                         COUNT(*) AS n_rows,
                         MAX(ts) AS max_ts,
                         MIN(ts) AS min_ts
-                 FROM ticker_candles WHERE tf = ?1`
-              ).bind(tf).first();
-              // Exclude tickers with no candles in the last 90 days — those
-              // are likely delisted/inactive and permanently skew the metric.
-              const _mcNowMs = Date.now();
+                 FROM ticker_candles WHERE tf = ?1 AND ts <= ?2`
+              ).bind(tf, _futureGuard).first();
               const worst = await db.prepare(
                 `SELECT ticker, max_ts FROM (
-                   SELECT ticker, MAX(ts) AS max_ts FROM ticker_candles WHERE tf = ?1 GROUP BY ticker
+                   SELECT ticker, MAX(ts) AS max_ts FROM ticker_candles
+                   WHERE tf = ?1 AND ts <= ?3 GROUP BY ticker
                  ) WHERE max_ts >= ?2 ORDER BY max_ts ASC LIMIT 1`
-              ).bind(tf, _mcNowMs - 90 * 86400000).first();
+              ).bind(tf, _mcNowMs - activeWindowMs, _futureGuard).first();
               by_tf[tf] = {
                 tickers: Number(row?.n_tickers) || 0,
                 rows: Number(row?.n_rows) || 0,
@@ -53442,6 +53451,49 @@ export default {
             return (b.count || 0) - (a.count || 0);
           });
           return sendJSON({ ok: true, ops, count: ops.length, ts: Date.now() }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/cron-clear?key=...&op=<op_name>
+      //
+      // P0.7.161 (2026-05-14) — Clear a cron failure tombstone after the
+      // root cause has been fixed. Without this, the operator has to wait
+      // for the next scheduled run to call recordCronSuccess() to flip the
+      // tombstone — for once-a-day crons that's a 24h wait.
+      //
+      // `?op=all` clears every tombstone in one call.
+      // `?op=<specific_op>` clears just that one.
+      if (routeKey === "POST /timed/admin/cron-clear") {
+        const _ccAuthFail = await requireKeyOrAdmin(req, env);
+        if (_ccAuthFail) return _ccAuthFail;
+        const KV = env?.KV_TIMED;
+        if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+        const op = String(url.searchParams.get("op") || "").trim();
+        if (!op) return sendJSON({ ok: false, error: "op required (use 'all' to clear every tombstone)" }, 400, corsHeaders(env, req));
+        try {
+          const cleared = [];
+          if (op === "all") {
+            let cursor;
+            for (let i = 0; i < 10; i++) {
+              const list = await KV.list({ prefix: "timed:cron:failure:", cursor });
+              for (const k of (list?.keys || [])) {
+                const opName = k.name.replace(/^timed:cron:failure:/, "");
+                await KV.delete(k.name).catch(() => {});
+                cleared.push(opName);
+              }
+              if (list?.list_complete) break;
+              cursor = list?.cursor;
+              if (!cursor) break;
+            }
+          } else {
+            const safe = String(op).slice(0, 64).replace(/[^a-z0-9_]/gi, "_");
+            const key = `timed:cron:failure:${safe}`;
+            await KV.delete(key).catch(() => {});
+            cleared.push(safe);
+          }
+          return sendJSON({ ok: true, cleared, count: cleared.length }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
@@ -71957,8 +72009,25 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 const evalResp = await fetch(`${selfUrl}/timed/admin/investor-daily-eval${evalKey}`, { method: "POST" });
                 const evalData = await evalResp.json().catch(() => ({}));
                 console.log(`[INVESTOR HOURLY] Daily eval: opened=${evalData?.investor?.opened || 0} closed=${evalData?.investor?.closed || 0} dca=${evalData?.investor?.dcaBuys || 0} trim=${evalData?.investor?.trimmed || 0}`);
+                // P0.7.161 (2026-05-14) — explicitly record success / failure for
+                // the investor_daily_eval op so the Mission Control tombstone
+                // list reflects reality. Previously only recordCronFailure was
+                // wired up (on catch), so any prior tombstone stuck forever
+                // because recordCronSuccess was never called.
+                if (evalData?.ok === false) {
+                  recordCronFailure(env, {
+                    op: "investor_daily_eval",
+                    error: String(evalData?.error || "endpoint_returned_ok_false").slice(0, 300),
+                    caller: "investor_hourly_cron",
+                  }).catch(() => {});
+                } else {
+                  recordCronSuccess(env, "investor_daily_eval").catch(() => {});
+                }
               } else {
+                // Flag disabled — treat as a healthy/no-op (otherwise an old
+                // tombstone from a previous deploy will sit FAILING forever).
                 console.log(`[INVESTOR HOURLY] ET=16h — Daily eval skipped (flag investor_daily_eval_enabled=0)`);
+                recordCronSuccess(env, "investor_daily_eval").catch(() => {});
               }
             } catch (e) {
               console.warn(`[INVESTOR HOURLY] Daily eval check failed:`, String(e?.message || e).slice(0, 200));
@@ -72191,13 +72260,25 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // backfill and would permanently trip the alarm. Only consider
           // tickers that had a candle in the last 90 days (active universe).
           const ACTIVE_WINDOW_D_MS = 90 * 86400000;
-          const ACTIVE_WINDOW_60_MS = 30 * 86400000;
+          // P0.7.161 (2026-05-14) — Bound the active window for intraday
+          // freshness checking. PSTG, DELL, and other tickers in M&A/
+          // corporate-action limbo can have a fresh D candle (still trading)
+          // but an intraday feed that dried up weeks ago (Alpaca stopped
+          // serving bars when liquidity dried up). 10d window is tight
+          // enough to surface "actually broken" without false alarms.
+          const ACTIVE_WINDOW_60_MS = 10 * 86400000;
+          // P0.7.161 (2026-05-14) — Cap ts at now + 24h to filter out
+          // corrupt future-dated rows (we had a SPX D row stamped year
+          // 34227 from a pre-existing data glitch). The cleanup is a
+          // separate one-time DELETE; this guard prevents the next
+          // accidental insertion from permanently masking real staleness.
+          const FUTURE_GUARD_MS = nowMs + 86400000;
           // Worst-case D (among active tickers only)
           const dRow = await db.prepare(
             `SELECT ticker, max_ts FROM (
-               SELECT ticker, MAX(ts) AS max_ts FROM ticker_candles WHERE tf = 'D' GROUP BY ticker
+               SELECT ticker, MAX(ts) AS max_ts FROM ticker_candles WHERE tf = 'D' AND ts <= ?3 GROUP BY ticker
              ) WHERE max_ts >= ?1 ORDER BY max_ts ASC LIMIT 1`
-          ).bind(nowMs - ACTIVE_WINDOW_D_MS).first();
+          ).bind(nowMs - ACTIVE_WINDOW_D_MS, 0, FUTURE_GUARD_MS).first();
           if (dRow) {
             const dDays = (nowMs - Number(dRow.max_ts)) / 86400000;
             if (dDays > STALE_D_DAYS) {
@@ -72214,12 +72295,27 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             // No active tickers found in the last 90 days — not an alarm condition
             recordCronSuccess(env, "candle_freshness_d").catch(() => {});
           }
-          // Worst-case 60m (only check during RTH so weekends don't trip it)
+          // Worst-case 60m, scoped to tickers whose D feed is also fresh
+          // (catches genuine 60m ingestion failure; ignores tickers that
+          // have stopped trading intraday for corporate-action reasons but
+          // still get a daily aggregate).
           const _h60Row = await db.prepare(
-            `SELECT ticker, max_ts FROM (
-               SELECT ticker, MAX(ts) AS max_ts FROM ticker_candles WHERE tf = '60' GROUP BY ticker
-             ) WHERE max_ts >= ?1 ORDER BY max_ts ASC LIMIT 1`
-          ).bind(nowMs - ACTIVE_WINDOW_60_MS).first();
+            `SELECT c60.ticker AS ticker, c60.max_ts AS max_ts FROM (
+               SELECT ticker, MAX(ts) AS max_ts FROM ticker_candles
+               WHERE tf = '60' AND ts <= ?2 GROUP BY ticker
+             ) c60
+             JOIN (
+               SELECT ticker, MAX(ts) AS d_ts FROM ticker_candles
+               WHERE tf = 'D' AND ts <= ?2 GROUP BY ticker
+             ) cD ON c60.ticker = cD.ticker
+             WHERE c60.max_ts >= ?1
+               AND cD.d_ts >= ?3
+             ORDER BY c60.max_ts ASC LIMIT 1`
+          ).bind(
+            nowMs - ACTIVE_WINDOW_60_MS,
+            FUTURE_GUARD_MS,
+            nowMs - 7 * 86400000,   // D candle within the last 7 days
+          ).first();
           if (_h60Row) {
             const h60Hours = (nowMs - Number(_h60Row.max_ts)) / 3600000;
             if (h60Hours > STALE_60_HOURS) {
@@ -72335,10 +72431,20 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const r = await fetch(`${selfUrl}/timed/admin/brief-eval-accuracy${_bcKey}`, { method: "POST" });
           const j = await r.json().catch(() => ({}));
           if (j?.ok) {
+            // P0.7.161 (2026-05-14) — treat a successful eval where the
+            // morning brief is missing / unscored as success too. A null
+            // avg_score just means today's D candle hasn't landed yet
+            // (the cron fires 30 min after close), not an engine failure.
+            // The next day's run will overwrite with the correct value.
             console.log(`[BRIEF EVAL] ${j.date} avg_score=${j.avg_score?.toFixed?.(2) ?? "—"} (SPY=${j.spy?.score} QQQ=${j.qqq?.score} IWM=${j.iwm?.score})`);
             recordCronSuccess(env, "brief_accuracy_eval").catch(() => {});
           } else {
-            const _baErr = j?.error || (j && Object.keys(j).length > 0 ? JSON.stringify(j).slice(0, 120) : "no_response_body");
+            // P0.7.161 — never tombstone `unknown`. Use whatever the
+            // endpoint reported, falling back to HTTP status + body
+            // shape if the JSON omitted `error`.
+            const _baErr = j?.error
+              || (j && Object.keys(j).length > 0 ? JSON.stringify(j).slice(0, 120) : null)
+              || `http_${r.status}_no_body`;
             console.warn(`[BRIEF EVAL] failed: ${_baErr}`);
             recordCronFailure(env, {
               op: "brief_accuracy_eval",
