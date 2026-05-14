@@ -71181,6 +71181,72 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       })());
     }
 
+    // ── Candle Freshness Monitor (P0.7.156, 2026-05-14) ──
+    //
+    // After the user's report of DBA showing wrong bias due to 27 days
+    // of stale daily candles (April 17 → May 14), wire an automated
+    // freshness check so the next regression alerts within HOURS not
+    // weeks. Runs at the 9 AM ET hourly tick (1 hour after market open
+    // — the first top-of-hour cron fetch should have populated current
+    // D candles by then). If anything is stale beyond threshold, fires
+    // recordCronFailure → Discord alert + KV tombstone.
+    //
+    // Thresholds (deliberately generous to avoid flapping on holidays
+    // and weekends — picks up REAL multi-day regressions):
+    //   • Daily TF:  > 5 days stale → alert
+    //   • 60m TF:    > 24 hours stale during RTH → alert
+    //
+    // 5-day window covers a normal long weekend (Mon holiday + weekend).
+    // 24-hour 60m is generous enough to skip weekends cleanly.
+    if (vc.has("0 14-21 * * 1-5")) {
+      const _frEtH = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }), 10);
+      if (_frEtH === 9 || _frEtH === 15) ctx.waitUntil((async () => {
+        try {
+          const db = env?.DB;
+          if (!db) return;
+          const nowMs = Date.now();
+          const STALE_D_DAYS = 5;
+          const STALE_60_HOURS = 24;
+          // Worst-case D
+          const dRow = await db.prepare(
+            `SELECT ticker, MAX(ts) as max_ts FROM ticker_candles WHERE tf = 'D' GROUP BY ticker ORDER BY max_ts ASC LIMIT 1`
+          ).first();
+          if (dRow) {
+            const dDays = (nowMs - Number(dRow.max_ts)) / 86400000;
+            if (dDays > STALE_D_DAYS) {
+              console.warn(`[FRESHNESS MONITOR] D candles stale: ${dRow.ticker} ${dDays.toFixed(1)}d`);
+              recordCronFailure(env, {
+                op: "candle_freshness_d",
+                error: `Worst D candle stale ${dDays.toFixed(1)}d (${dRow.ticker}). Threshold ${STALE_D_DAYS}d.`,
+                caller: "freshness_monitor",
+              }).catch(() => {});
+            } else {
+              recordCronSuccess(env, "candle_freshness_d").catch(() => {});
+            }
+          }
+          // Worst-case 60m (only check during RTH so weekends don't trip it)
+          const _h60Row = await db.prepare(
+            `SELECT ticker, MAX(ts) as max_ts FROM ticker_candles WHERE tf = '60' GROUP BY ticker ORDER BY max_ts ASC LIMIT 1`
+          ).first();
+          if (_h60Row) {
+            const h60Hours = (nowMs - Number(_h60Row.max_ts)) / 3600000;
+            if (h60Hours > STALE_60_HOURS) {
+              console.warn(`[FRESHNESS MONITOR] 60m candles stale: ${_h60Row.ticker} ${h60Hours.toFixed(1)}h`);
+              recordCronFailure(env, {
+                op: "candle_freshness_60",
+                error: `Worst 60m candle stale ${h60Hours.toFixed(1)}h (${_h60Row.ticker}). Threshold ${STALE_60_HOURS}h.`,
+                caller: "freshness_monitor",
+              }).catch(() => {});
+            } else {
+              recordCronSuccess(env, "candle_freshness_60").catch(() => {});
+            }
+          }
+        } catch (e) {
+          console.warn("[FRESHNESS MONITOR] Probe failed:", String(e?.message || e).slice(0, 200));
+        }
+      })());
+    }
+
     // ── Daily Brief: Morning (9 AM ET — 13:00 UTC in EDT, 14:00 UTC in EST) ──
     if (vc.has("0 13 * * 1-5") || vc.has("0 14 * * 1-5")) {
       const etHour = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
@@ -71429,9 +71495,21 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             const result = await DataProvider.cronFetchLatest(env, allTickers);
             if (result) {
               console.log(`[TD CRON] Bars: ${result.upserted} upserted, ${result.errors} errors`);
+              // P0.7.156 — record success at top-of-hour (when D/W/M are
+              // refreshed). Resets the failure tombstone counter so the
+              // operator can see the cron is healthy.
+              if (_isTopOfHour) recordCronSuccess(env, "bar_cron_aggregated").catch(() => {});
             }
           } catch (err) {
             console.error("[TD CRON] Error:", err);
+            // P0.7.156 — record failure so silent stale-data regressions
+            // (like the April 17 → May 14 incident) get an alert within
+            // the hour rather than 4 weeks later.
+            recordCronFailure(env, {
+              op: "bar_cron_td",
+              error: String(err?.message || err),
+              caller: "scheduled_event",
+            }).catch(() => {});
           }
           // ── TwelveData crypto bars ──
           try {
@@ -71458,8 +71536,15 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             );
             const result = await alpacaCronFetchLatest(env, allTickers, d1UpsertCandle);
             console.log(`[ALPACA CRON] Fetched bars for ${allTickers.length} stocks (${userAddedForAlpaca.length} user-added): ${result.upserted} upserted, ${result.errors} errors`);
+            // P0.7.156 — same success/failure wiring as the TD path.
+            if (_isTopOfHour) recordCronSuccess(env, "bar_cron_aggregated").catch(() => {});
           } catch (err) {
             console.error("[ALPACA CRON] Error:", err);
+            recordCronFailure(env, {
+              op: "bar_cron_alpaca",
+              error: String(err?.message || err),
+              caller: "scheduled_event",
+            }).catch(() => {});
           }
           if (!streamActive) {
             try {
