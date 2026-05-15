@@ -7948,6 +7948,24 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         const _tfEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_thesis_flip_enabled ?? "true") === "true";
         const _tfMinAgeMin = Number(tickerData?._env?._deepAuditConfig?.deep_audit_thesis_flip_min_age_min) || 60;
         const _tfMinPnlPct = Number(tickerData?._env?._deepAuditConfig?.deep_audit_thesis_flip_min_pnl_pct) || -0.5;
+        // P0.7.180 (2026-05-15) — Same-day thesis_flip_htf skip.
+        //
+        // User report 2026-05-15: RPG and TT both entered and exited the
+        // same trading day via thesis_flip_htf for -$140 combined. Early-
+        // day HTF SuperTrend flips are noisy and don't give the trade a
+        // chance to work. Skip the exit if entry was the same NY trading
+        // day (lets it fire next session if the flip persists).
+        //
+        // Config: deep_audit_thesis_flip_skip_same_day (default "true").
+        const _tfSkipSameDay = String(tickerData?._env?._deepAuditConfig?.deep_audit_thesis_flip_skip_same_day ?? "true") === "true";
+        let _tfIsSameDay = false;
+        try {
+          if (_tfSkipSameDay) {
+            const _entryNyDay = new Date(entryMsNorm).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+            const _nowNyDay = new Date(now).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+            _tfIsSameDay = _entryNyDay === _nowNyDay;
+          }
+        } catch (_) {}
         // V15 P0.7.66 (2026-05-05) — Tier 1A: skip thesis_flip_htf for ETFs.
         // ETF audit Path A Jul-Feb: thesis_flip_htf fired 17× on ETFs,
         // 6% WR, -$1,246. The rule fires on macro noise that doesn't
@@ -7956,7 +7974,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         // (SOFT_FUSE_RSI_CONFIRMED: 100% WR, +$1,179 on ETFs).
         const _tfTickerForSkip = String(tickerData?.ticker || "").toUpperCase();
         const _tfIsEtf = EtfProfile.isEtfProfileTicker(_tfTickerForSkip);
-        if (_tfEnabled && !_tfIsEtf && positionAgeMarketMin >= _tfMinAgeMin && pnlPct <= _tfMinPnlPct) {
+        if (_tfEnabled && !_tfIsEtf && !_tfIsSameDay && positionAgeMarketMin >= _tfMinAgeMin && pnlPct <= _tfMinPnlPct) {
           const _st30 = Number(tickerData?.tf_tech?.["30"]?.stDir) || 0;
           const _st1H = Number(tickerData?.tf_tech?.["1H"]?.stDir ?? tickerData?.tf_tech?.["60"]?.stDir) || 0;
           const _st4H = Number(tickerData?.tf_tech?.["4H"]?.stDir ?? tickerData?.tf_tech?.["240"]?.stDir) || 0;
@@ -9573,6 +9591,19 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         openPosition.__tradeRef.ripster_pending_34_50 = pending34;
       }
 
+      // P0.7.181 (2026-05-15) — Raise the early-trim PnL floors.
+      // User report: 'small trims need adjustment' (MLI got trimmed at
+      // ~0.67% via ripster_5_12_defend_trim — a TP1 hit barely worth the
+      // commission). The old thresholds (0.4% / 0.5%) were too eager.
+      // Configurable so the operator can tune without code changes.
+      const _earlyTrim512Floor = Number(tickerData?._env?._deepAuditConfig?.deep_audit_ripster_5_12_trim_min_pnl_pct);
+      const _earlyTrim3450Floor = Number(tickerData?._env?._deepAuditConfig?.deep_audit_ripster_34_50_trim_min_pnl_pct);
+      const _trim512MinPnl = Number.isFinite(_earlyTrim512Floor) && _earlyTrim512Floor >= 0
+        ? _earlyTrim512Floor
+        : 1.5;
+      const _trim3450MinPnl = Number.isFinite(_earlyTrim3450Floor) && _earlyTrim3450Floor >= 0
+        ? _earlyTrim3450Floor
+        : 1.5;
       if (positionAgeMin >= 30 && ripsterLose5_12) {
         if (ripsterTuneV2 && pending5 < exitDebounceBars) {
           tickerData.__exit_reason = "ripster_5_12_pending";
@@ -9581,7 +9612,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         }
         if (ripsterTuneV2) {
           const trimmedPct = Number(openPosition?.trimmedPct ?? openPosition?.trimmed_pct) || 0;
-          if (pnlPct > 0.4 && trimmedPct < 0.33) {
+          if (pnlPct > _trim512MinPnl && trimmedPct < 0.33) {
             tickerData.__exit_reason = "ripster_5_12_defend_trim";
             tickerData.__exit_family = "ripster_cloud";
             return "trim";
@@ -9603,7 +9634,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         if (ripsterTuneV2) {
           const trimmedPct = Number(openPosition?.trimmedPct ?? openPosition?.trimmed_pct) || 0;
           if (direction === "LONG" && (holdPivotLong || (lost72_89 && farFrom180_200) || cloudCompression)) {
-            if (pnlPct > 0.5 && trimmedPct < 0.33) {
+            if (pnlPct > _trim3450MinPnl && trimmedPct < 0.33) {
               tickerData.__exit_reason = "ripster_34_50_trim_then_hold";
               tickerData.__exit_family = "ripster_cloud";
               return "trim";
