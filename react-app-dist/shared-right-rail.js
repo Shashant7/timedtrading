@@ -3870,7 +3870,23 @@
                     In workspace mode this becomes the right column with its
                     own scroll. In modal mode it just continues the body
                     flow as before. */}
-                <div className="tt-rail-area-right-pane flex-1 overflow-y-auto tt-rail-body" style={{ padding: "var(--ds-space-4)" }}>
+                <div
+                  className={`tt-rail-area-right-pane flex-1 overflow-y-auto tt-rail-body ${v2RailTab === "CHART" ? "tt-rail-body--chart" : ""}`}
+                  style={{
+                    padding: "var(--ds-space-4)",
+                    /* P0.7.162 (2026-05-14) — when the CHART tab is active,
+                       the right pane becomes a vertical flex container so the
+                       inner chart canvas can flex:1 and fill the available
+                       height (rail body minus header + tab nav). Other tabs
+                       keep the default scroll behaviour. */
+                    ...(v2RailTab === "CHART" ? {
+                      display: "flex",
+                      flexDirection: "column",
+                      overflow: "hidden",
+                      padding: "var(--ds-space-2) var(--ds-space-3) var(--ds-space-3)",
+                    } : {}),
+                  }}
+                >
                   {/* CHART TAB (V15 P0.7.161, 2026-05-14)
                       Pure tab body — renders the price chart inside the same
                       right pane that hosts every other tab. No portal, no
@@ -3882,51 +3898,71 @@
                       (already used by the desktop workspace left pane), so
                       flipping to this tab does NOT re-create the chart React
                       element or refetch candles — the same instance just gets
-                      rendered in a different position in the JSX tree. */}
+                      rendered in a different position in the JSX tree.
+
+                      P0.7.162 (2026-05-14) — full-height + static. The chart
+                      grows to fill the rail body via flex:1 (no fixed 240px
+                      height). The wrapper is keyed on tickerSymbol only, NOT
+                      on chartCandles, so streaming candle updates don't
+                      remount the canvas — the LWChart UPDATE effect handles
+                      incremental redraws internally without flicker. */}
                   {v2RailTab === "CHART" && (
-                    <>
-                      {chartCandles && chartCandles.length >= 2 ? (
-                        <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-3)" }}>
-                          {/* Timeframe selector — mirrors the desktop chart-panel
-                              header so mobile users get the same control. */}
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
-                            <span style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", letterSpacing: "0.06em" }}>
-                              {tickerSymbol} · {chartTf === "D" ? "Daily" : chartTf === "60" ? "1H" : chartTf === "240" ? "4H" : `${chartTf}m`}
-                            </span>
-                            <div className="ds-chipgroup" style={{ padding: 2 }}>
-                              {["15", "30", "60", "240", "D"].map((tf) => (
-                                <button
-                                  key={`charttab-tf-${tf}`}
-                                  onClick={() => setChartTf(tf)}
-                                  className={`ds-chipgroup__item ${chartTf === tf ? "ds-chipgroup__item--active" : ""}`}
-                                  style={{ padding: "3px 8px", fontSize: 10 }}
-                                >{tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`}</button>
-                              ))}
-                            </div>
-                          </div>
-                          {/* The chart canvas. tt-rail-chart-canvas controls
-                              height per breakpoint (see index-react.html). */}
-                          <div className="tt-rail-chart-canvas" style={{ minHeight: 320 }}>
-                            {_railChartElement}
+                    <div
+                      key={`chart-tab-${tickerSymbol}`}
+                      className="tt-rail-chart-tab"
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        flex: "1 1 auto",
+                        minHeight: 0,
+                        gap: "var(--ds-space-2)",
+                      }}
+                    >
+                      {/* Timeframe selector — keep it compact so the chart
+                          gets the rest of the height. */}
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, flex: "0 0 auto" }}>
+                        <span style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", letterSpacing: "0.06em" }}>
+                          {tickerSymbol} · {chartTf === "D" ? "Daily" : chartTf === "60" ? "1H" : chartTf === "240" ? "4H" : `${chartTf}m`}
+                        </span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <div className="ds-chipgroup" style={{ padding: 2 }}>
+                            {["15", "30", "60", "240", "D"].map((tf) => (
+                              <button
+                                key={`charttab-tf-${tf}`}
+                                onClick={() => setChartTf(tf)}
+                                className={`ds-chipgroup__item ${chartTf === tf ? "ds-chipgroup__item--active" : ""}`}
+                                style={{ padding: "3px 8px", fontSize: 10 }}
+                              >{tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`}</button>
+                            ))}
                           </div>
                           <a
                             href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tickerSymbol)}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="ds-chip ds-chip--sm"
-                            style={{ alignSelf: "flex-start", fontFamily: "var(--tt-font-mono)" }}
-                          >
-                            Open in TradingView ↗
-                          </a>
+                            style={{ fontFamily: "var(--tt-font-mono)", fontSize: 10 }}
+                            title="Open in TradingView"
+                            aria-label="Open in TradingView"
+                          >TV ↗</a>
                         </div>
-                      ) : (
-                        <Panel title="Chart">
-                          <div style={{ padding: "20px 12px", textAlign: "center", color: "var(--ds-text-muted)", fontSize: "var(--ds-fs-body)" }}>
-                            Loading price candles…
-                          </div>
-                        </Panel>
-                      )}
-                    </>
+                      </div>
+                      {/* Chart canvas — flex:1 to fill remaining height.
+                          tt-rail-chart-tab-canvas overrides the fixed 240px
+                          height of tt-rail-chart-canvas (see CSS in
+                          index-react.html). */}
+                      <div
+                        className="tt-rail-chart-canvas tt-rail-chart-tab-canvas"
+                        style={{ flex: "1 1 auto", minHeight: 280 }}
+                      >
+                        {chartCandles && chartCandles.length >= 2
+                          ? _railChartElement
+                          : (
+                            <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--ds-text-muted)", fontSize: "var(--ds-fs-body)" }}>
+                              Loading price candles…
+                            </div>
+                          )}
+                      </div>
+                    </div>
                   )}
 
                   {/* SNAPSHOT TAB
@@ -6167,9 +6203,13 @@
                 {/* ─── Footer ───────────────────────────────────────── */}
                 {/* V15 P0.7.159 — CHART button lives here next to "Open in
                     TradingView". This is the primary chart-access point on
-                    mobile (where the left-pane chart panel is hidden). The
-                    button portals the fullscreen modal to document.body so
-                    it is never clipped by the rail's stacking context. */}
+                    mobile (where the left-pane chart panel is hidden).
+                    P0.7.162 (2026-05-14) — hide the footer entirely while
+                    the CHART tab is active: the green CHART button is
+                    redundant (you're already on Chart) and the chart tab
+                    has its own TradingView link, so this row just steals
+                    height from the chart canvas. */}
+                {v2RailTab !== "CHART" && (
                 <div style={{ borderTop: "1px solid var(--ds-stroke)", padding: "var(--ds-space-3) var(--ds-space-4)", display: "flex", alignItems: "center", gap: 8 }}>
                   <a href={`https://www.tradingview.com/symbols/${tickerSymbol}/`} target="_blank" rel="noopener noreferrer" className="ds-chip ds-chip--sm" style={{ display: "inline-flex" }}>
                     Open in TradingView ↗
@@ -6203,6 +6243,7 @@
                     <span>CHART</span>
                   </button>
                 </div>
+                )}
               </div>
               {/* P0.7.135 follow-up — autopsy modal sibling. Without this the
                   History tab's row click would call setAutopsyModal(t) but

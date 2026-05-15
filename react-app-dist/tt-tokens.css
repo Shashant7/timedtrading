@@ -603,7 +603,13 @@ input, button, select, textarea {
 }
 .ds-metric__value {
   font-family: var(--tt-font-mono);
-  font-size: var(--ds-fs-hero);
+  /* P0.7.173 (2026-05-15) — Fluid hero sizing. User report: the
+     Portfolio Overview headline numbers ($139.5K / $39.5K / -$345 etc.)
+     overlap each other on intermediate widths (640-900px) because the
+     fixed 32px hero never shrinks between the mobile (≤640 → 22px) and
+     desktop breakpoints. clamp() scales 18px → 28px between 360px and
+     900px viewport so neighbour numbers don't bleed into each other. */
+  font-size: clamp(18px, 2.4vw + 10px, 28px);
   font-weight: 600;
   line-height: 1;
   color: var(--ds-text-display);
@@ -627,17 +633,12 @@ input, button, select, textarea {
 }
 
 /* Mobile: shrink metric tiles so the value never overflows into the next cell.
-   At ≤640px the 32px hero font of "$140.1K" was bleeding into the adjacent
-   tile (Total P&L → Open P&L). Reduce font, padding, and min-width so the
-   grid lays out cleanly. */
+   P0.7.173 (2026-05-15): the fluid clamp() above handles most of this, but
+   keep the explicit small-screen rules so labels + deltas stay readable. */
 @media (max-width: 640px) {
   .ds-metric {
     padding: var(--ds-space-2) var(--ds-space-3);
     min-width: 0;
-  }
-  .ds-metric__value {
-    font-size: 22px;
-    letter-spacing: -0.01em;
   }
   .ds-metric__label {
     font-size: 9px;

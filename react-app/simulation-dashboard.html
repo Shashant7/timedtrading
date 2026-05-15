@@ -208,6 +208,21 @@
           display: none !important;
         }
       }
+      /* V15 P0.7.162 (2026-05-14) → P0.7.171 (2026-05-15) — CHART tab
+         full-height + static. */
+      .tt-rail-chart-tab-canvas {
+        height: 100% !important;
+        min-height: 320px;
+        flex: 1 1 0 !important;
+        width: 100%;
+      }
+      @media (min-width: 1024px) {
+        .tt-rail-chart-tab-canvas { min-height: 480px; }
+      }
+      .tt-rail-body--chart {
+        overflow: hidden !important;
+        height: 100%;
+      }
     </style>
   </head>
   <body class="ds-v2">
@@ -217,7 +232,7 @@
     <script src="shared-price-utils.js?v=20260211a"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260514-chart-tab"></script>
+    <script src="shared-right-rail.compiled.js?v=20260515-p7-fixes"></script>
     <!-- V15 P0.7.36 (2026-04-30): Trades Performance overview component
          (Monthly perf table, setup breakdown, P&L calendar heatmap).
          Self-contained factory at react-app/trades-performance.js. -->
@@ -6579,7 +6594,7 @@
             <${EquityCurveChart} curveData=${curveData} mode=${mode} />
           </div>
 
-          <div className="ds-card" style=${{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: "var(--ds-space-2)" }}>
+          <div className="ds-card" style=${{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "var(--ds-space-2)" }}>
             <div className="ds-metric">
               <div className="ds-metric__label">Account</div>
               <div className="ds-metric__row">

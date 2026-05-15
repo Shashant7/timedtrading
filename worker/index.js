@@ -1316,6 +1316,7 @@ const ROUTES = [
   // grep "what's been silently broken?" without trawling logs.
   ["GET", "/timed/admin/cron-status", "GET /timed/admin/cron-status"],
   ["POST", "/timed/admin/cron-clear", "POST /timed/admin/cron-clear"],
+  ["POST", "/timed/admin/rebuild-snapshots", "POST /timed/admin/rebuild-snapshots"],
   // P0.7.156 — candle freshness probe. Returns the worst-stale ticker
   // per TF so the operator can spot a dead backfill cron at a glance.
   ["GET", "/timed/admin/candle-freshness", "GET /timed/admin/candle-freshness"],
@@ -1834,14 +1835,26 @@ async function loadUpcomingRiskEventCandidates(env, replayCtx, sym, nowTs) {
     : Array.isArray(env?._cioMemoryCache?.marketEvents)
       ? env._cioMemoryCache.marketEvents
       : null;
+  // P0.7.164 (2026-05-15) — A macro release that has already been resolved
+  // (actual filled in) is NOT an "upcoming" risk event, regardless of what
+  // the data feed says about it. The daily-brief economic calendar
+  // re-states the latest CPI / PPI / PCE reading every day with the same
+  // `actual` value, which used to seed a fresh "CPI today" market_events
+  // row each day — and then any trade entered before 12:30 ET got a 10%
+  // PRE_CPI_RISK_REDUCTION trim ~90 seconds after entry (reported on MLI
+  // 2026-05-15). Filter out resolved rows here so the runtime decision
+  // matches operator intent even when the calendar source is noisy.
+  const isResolved = (row) => String(row?.status || "").toLowerCase() === "resolved"
+    || (row?.actual != null && String(row.actual).trim() !== "");
   let rows = null;
   if (Array.isArray(allCached) && allCached.length > 0) {
     rows = allCached.filter((row) => {
       const dateKey = String(row?.date || "").slice(0, 10);
       const eventType = String(row?.event_type || "").toLowerCase();
       if (dateKey < nowDateKey || (nextDateKey && dateKey > nextDateKey)) return false;
-      if (eventType === "earnings") return String(row?.ticker || "").toUpperCase() === sym;
+      if (eventType === "earnings") return String(row?.ticker || "").toUpperCase() === sym && !isResolved(row);
       if (eventType !== "macro") return false;
+      if (isResolved(row)) return false;
       const eventKey = classifyRiskEventKey(row);
       return PRE_EVENT_RISK_MACRO_KEYS.has(eventKey);
     });
@@ -1853,6 +1866,8 @@ async function loadUpcomingRiskEventCandidates(env, replayCtx, sym, nowTs) {
          FROM market_events
          WHERE date >= ?1 AND date <= ?2
            AND ((event_type = 'earnings' AND ticker = ?3) OR event_type = 'macro')
+           AND COALESCE(status, '') != 'resolved'
+           AND (actual IS NULL OR TRIM(CAST(actual AS TEXT)) = '')
          ORDER BY COALESCE(scheduled_ts, 0) ASC, date ASC`
       ).bind(nowDateKey, nextDateKey || nowDateKey, sym).all();
       rows = q?.results || [];
@@ -15589,6 +15604,38 @@ async function processTradeSimulation(
   const asOfMs = (isReplay && asOfMsRaw != null)
     ? (Number(asOfMsRaw) < 1e12 ? Number(asOfMsRaw) * 1000 : Number(asOfMsRaw))
     : null;
+
+  // P0.7.170 (2026-05-15) — Lazy-load AI CIO config when missing.
+  //
+  // Bug: every entry-time check for AI CIO reads `env._deepAuditConfig
+  // ?.ai_cio_enabled`, but `_deepAuditConfig` is ONLY populated inside
+  // the */5 scoring cron handler (see scheduled handler ~line 73779).
+  // When processTradeSimulation is invoked from:
+  //   - the queue-drain at market open (line ~27045)
+  //   - any HTTP-triggered scoring or replay route
+  //   - the investor lane re-evaluator
+  // ...`_deepAuditConfig` is undefined, so `_cioLiveEnabled` evaluates to
+  // false and CIO is silently bypassed. That is why ai_cio_decisions has
+  // 0 new rows since 2026-03-23 despite ~24 entries firing.
+  //
+  // Fix: if not already loaded, pull just the ai_cio_* keys from model_config
+  // here. Cheap point lookup. Subsequent calls within the same isolate use
+  // the cached env._deepAuditConfig.
+  if (!isReplay && env?.DB && !env._deepAuditConfig) {
+    try {
+      const _daKeys = ["ai_cio_enabled", "ai_cio_replay_enabled", "ai_cio_shadow_mode", "ai_cio_reference_enabled"];
+      const _daRes = await env.DB.prepare(
+        `SELECT config_key, config_value FROM model_config WHERE config_key IN (${_daKeys.map((_, i) => `?${i + 1}`).join(",")})`
+      ).bind(..._daKeys).all().catch(() => ({ results: [] }));
+      const _daCfg = {};
+      for (const r of (_daRes?.results || [])) {
+        try { _daCfg[r.config_key] = JSON.parse(r.config_value); } catch { _daCfg[r.config_key] = r.config_value; }
+      }
+      env._deepAuditConfig = _daCfg;
+    } catch (_) {
+      env._deepAuditConfig = env._deepAuditConfig || {};
+    }
+  }
   const eventTs = () =>
     Number.isFinite(asOfMs) ? new Date(asOfMs).toISOString() : new Date().toISOString();
 
@@ -19354,6 +19401,25 @@ async function processTradeSimulation(
         : ((_eSP15 >= 3 && _eSP15 <= 7) || (_eSP30 >= 3 && _eSP30 <= 7)));
 
       _exitPullbackShield = _eSt15Hold || _eCloud7289_15 || _eCloud3450_15 || _eCloud7289_30 || _eTdActive;
+
+      // P0.7.176 (2026-05-15) — Doctrine-class exits override the pullback
+      // shield. The shield protects healthy trimmed runners from being
+      // closed on minor signal noise (e.g. an isolated bearish 5/12 flip
+      // while the larger structure holds). But the exit-doctrine layer
+      // already weighs structure + MFE + PnL + age before deciding to
+      // force-exit. If doctrine says "force exit" (fresh-failure rule,
+      // regime-decay rule, etc.), structure-only shields should not veto
+      // it — otherwise the trade sits in DEFEND lane indefinitely while
+      // the engine "wants out" but the shield blocks closure.
+      // User report 2026-05-15: 'IWM is still in DEFEND lane' after 26h
+      // of doctrine_force_exit not actually closing the trade.
+      const _doctrineForceExit = String(exitReasonRaw || "").startsWith("doctrine_")
+        || String(exitReasonRaw || "") === "tape_capitulation_force_exit";
+      if (_exitPullbackShield && _doctrineForceExit) {
+        console.log(`[EXIT SHIELD OVERRIDE] ${sym} pullback shield bypassed by doctrine class exit reason=${exitReasonRaw}`);
+        _exitPullbackShield = false;
+      }
+
       if (_exitPullbackShield) {
         const shieldReasons = [];
         if (_eSt15Hold) shieldReasons.push("st15");
@@ -33192,6 +33258,21 @@ async function auditDataChange(env, { op, scope, caller, rowsAffected, meta } = 
  */
 async function publicRateLimit(req, env, endpoint, limitPerHour, sendJSON, corsHeaders) {
   try {
+    // P0.7.168 (2026-05-15) — Skip rate limiting for authenticated users.
+    //
+    // Reported: ledger_trades (26 blocks/24h) + portfolio_equity_curve (23
+    // blocks/24h) for the user's own IP. The trades page auto-polls every
+    // ~30s and the right rail fetches per-ticker; combined with normal page
+    // visits, a single signed-in user hits 120 req/hour easily. Public
+    // rate-limiting is meant to keep anonymous scrapers from hammering the
+    // worker, NOT to throttle the operator's own dashboard. Any session
+    // with a CF Access JWT or a Stripe-customer session token is by
+    // definition not anonymous.
+    try {
+      const _authUser = await authenticateUser(req, env);
+      if (_authUser?.email) return null;
+    } catch (_) { /* unauth — fall through to IP-based limit */ }
+
     const ip = req.headers.get("CF-Connecting-IP") ||
                (req.headers.get("X-Forwarded-For") || "").split(",")[0].trim() ||
                "unknown";
@@ -34258,17 +34339,81 @@ async function snapshotBothPortfolios(env, KV, replayCtx, dayDate, tickerDataMap
   // --- Active Trader snapshot ---
   let traderCash = await d1GetLedgerBalance(env, "trader");
   let traderPositionsValue = 0;
+  let traderUnrealized = 0;
   let traderOpenCount = 0;
+  // P0.7.172 (2026-05-15) — Mark-to-market open positions from the D1
+  // `positions` table (authoritative), not the legacy `timed:trades:all`
+  // KV blob (which used wrong field names `qty`/`currentPrice` →
+  // positionsValue=0 for every snapshot).
+  //
+  // P0.7.174 (2026-05-15) — Use the SAME equity formula as /timed/account-
+  // summary so the equity-curve doesn't disagree with the header number
+  // the user sees: equity = startCash + cumulative_realized_pnl + unrealized.
+  // cash + positionsValue diverges from this formula because cash can
+  // include trim proceeds + partial entry/exits in ways the simple sum
+  // double-counts. The display source-of-truth is the account-summary
+  // route; the curve must match it.
+  let _cumRealizedThroughDay = 0;
   try {
-    const kvTrades = await kvGetJSON(KV, "timed:trades:all") || [];
-    const openTrades = kvTrades.filter(t => t.status === "OPEN");
-    traderOpenCount = openTrades.length;
-    for (const t of openTrades) {
-      const qty = Number(t.qty) || 0;
-      const curPrice = Number(t.currentPrice) || Number(t.price) || 0;
-      traderPositionsValue += qty * curPrice;
+    const _realRow = await db.prepare(
+      `SELECT SUM(COALESCE(realized_pnl, 0)) AS s FROM account_ledger
+       WHERE mode = 'trader' AND ts <= ?1`
+    ).bind(dayMs).first().catch(() => null);
+    _cumRealizedThroughDay = Number(_realRow?.s) || 0;
+  } catch (e) {
+    console.warn("[SNAPSHOT trader] realized PnL lookup failed:", String(e?.message || e).slice(0, 200));
+  }
+
+  try {
+    // For historical dates, use trades that were OPEN at dayDate (not
+    // positions table — that only shows current state). Use the trades
+    // table + entry_ts/exit_ts to determine "open as-of dayDate".
+    const _tradesRes = await db.prepare(
+      `SELECT ticker, direction, entry_price, shares, entry_ts, exit_ts, status,
+              COALESCE(trimmed_pct, 0) AS trimmed_pct
+       FROM trades
+       WHERE entry_ts <= ?1 AND (exit_ts IS NULL OR exit_ts > ?1)
+         AND COALESCE(run_id, '') = ''`
+    ).bind(dayMs).all().catch(() => ({ results: [] }));
+    const _openAsOfDay = Array.isArray(_tradesRes?.results) ? _tradesRes.results : [];
+    traderOpenCount = _openAsOfDay.length;
+
+    if (_openAsOfDay.length > 0) {
+      const _snapTickers = _openAsOfDay.map((t) => String(t.ticker).toUpperCase());
+      const _snapHistPrices = await loadHistoricalClosesAt(env, _snapTickers, dayMs).catch(() => ({}));
+
+      for (const t of _openAsOfDay) {
+        const ticker = String(t.ticker).toUpperCase();
+        const fullShares = Number(t.shares) || 0;
+        const trimPct = Math.max(0, Math.min(1, Number(t.trimmed_pct) || 0));
+        const sharesOpen = fullShares * (1 - trimPct);
+        if (sharesOpen <= 0) continue;
+
+        let curPrice = Number(_snapHistPrices?.[ticker]) || 0;
+        if (!curPrice) {
+          if (tickerDataMapOverride && tickerDataMapOverride[ticker]) {
+            curPrice = Number(tickerDataMapOverride[ticker]?.price) || 0;
+          } else {
+            try {
+              const td = await kvGetJSON(KV, `timed:latest:${ticker}`);
+              curPrice = Number(td?.price) || 0;
+            } catch {}
+          }
+        }
+        if (curPrice <= 0) continue;
+
+        const entryPrice = Number(t.entry_price) || 0;
+        const isShort = String(t.direction || "").toUpperCase() === "SHORT";
+        const dir = isShort ? -1 : 1;
+        const mtm = curPrice * sharesOpen;
+        const cb = entryPrice * sharesOpen;
+        traderPositionsValue += mtm;
+        traderUnrealized += dir * (mtm - cb);
+      }
     }
-  } catch {}
+  } catch (e) {
+    console.warn("[SNAPSHOT trader] mark-to-market failed:", String(e?.message || e).slice(0, 200));
+  }
 
   let traderDayPnl = 0;
   let traderDayTrades = 0;
@@ -34282,7 +34427,12 @@ async function snapshotBothPortfolios(env, KV, replayCtx, dayDate, tickerDataMap
     traderDayTrades = Number(rows?.cnt) || 0;
   } catch {}
 
-  const traderEquity = traderCash + traderPositionsValue;
+  // P0.7.174 — equity formula aligned with /timed/account-summary:
+  //   accountValue = startCash + cumulative_realized + unrealized
+  // This matches the dashboard header so the equity curve doesn't
+  // appear to disagree with the headline number.
+  const TRADER_START_CASH = (typeof PORTFOLIO_START_CASH !== "undefined" ? PORTFOLIO_START_CASH : 100000);
+  const traderEquity = TRADER_START_CASH + _cumRealizedThroughDay + traderUnrealized;
   const traderSnapId = `snap-trader-${dayDate}`;
   try {
     await db.prepare(
@@ -42111,6 +42261,47 @@ export default {
               if (activeSet.has(sym)) data[sym] = payload;
             }
 
+            // P0.7.166 (2026-05-15) — Position overlay for the snapshot fast-path.
+            //
+            // Bug: the snapshot fast-path served the pre-built KV blob as-is and
+            // never enriched with current `positions` row data. So every open
+            // position (IWM, MLI, DE, INFL, INTC, DIA, ...) came back with
+            // `has_open_position=null` and `position_sl=null`, forcing the
+            // frontend to fall through to engine ticker.sl (an at-this-moment
+            // recomputed value that has nothing to do with the actually-enforced
+            // stop_loss in the positions table). Result: cards showed an SL
+            // that disagreed with the engine's enforcement value, and the user
+            // saw "DEFEND" with a stale visual SL.
+            //
+            // Fix: always overlay current positions table values on top of the
+            // cached snapshot. The query is cheap (point lookup by status,
+            // typically <30 rows) and runs once per /timed/all request.
+            try {
+              if (env?.DB) {
+                const _posOverlayRes = await env.DB.prepare(
+                  `SELECT p.ticker, p.direction, p.stop_loss, p.take_profit,
+                          CASE WHEN p.total_qty > 0 AND p.cost_basis > 0
+                               THEN p.cost_basis / p.total_qty
+                               ELSE (SELECT l.price FROM lots l WHERE l.position_id = p.position_id ORDER BY l.ts ASC LIMIT 1)
+                          END AS avg_entry
+                   FROM positions p
+                   WHERE p.status IN ('OPEN','TP_HIT_TRIM')`
+                ).all().catch(() => ({ results: [] }));
+                const _posRows = Array.isArray(_posOverlayRes?.results) ? _posOverlayRes.results : [];
+                for (const _p of _posRows) {
+                  const _sym = String(_p.ticker || "").toUpperCase();
+                  if (!_sym || !data[_sym]) continue;
+                  data[_sym].has_open_position = true;
+                  data[_sym].position_direction = _p.direction;
+                  data[_sym].position_entry = Number(_p.avg_entry) || null;
+                  data[_sym].position_sl = Number(_p.stop_loss) || null;
+                  data[_sym].position_tp = Number(_p.take_profit) || null;
+                }
+              }
+            } catch (_posOverlayErr) {
+              console.warn("[/timed/all snapshot] Position overlay failed:", String(_posOverlayErr?.message || _posOverlayErr).slice(0, 200));
+            }
+
             // ── Fill gaps: tickers in SECTOR_MAP but missing from snapshot ──
             if (env?.DB) {
               const missingSyms = [...activeSet].filter(s => !data[s]);
@@ -48144,7 +48335,12 @@ export default {
       // GET /timed/ledger/trades?since&until&ticker&status&limit&cursor&mode=trader|investor
       if (routeKey === "GET /timed/ledger/trades") {
         // P0.7.158 — rate-limit unauthenticated reads (proof.html etc.)
-        const _ltRl = await publicRateLimit(req, env, "ledger_trades", 120, sendJSON, corsHeaders);
+        // P0.7.168 (2026-05-15) — raise from 120 → 1200/hr (20/min). The Pages
+        // trades page polls this endpoint from multiple components (trades
+        // tab + right rail + investor view), and 120/hr is far below normal
+        // single-user usage. CF Access JWT isn't passed cross-domain to the
+        // worker so the authenticated-bypass in publicRateLimit doesn't help.
+        const _ltRl = await publicRateLimit(req, env, "ledger_trades", 1200, sendJSON, corsHeaders);
         if (_ltRl) return _ltRl;
         const db = env?.DB;
         if (!db) {
@@ -53469,6 +53665,57 @@ export default {
             return (b.count || 0) - (a.count || 0);
           });
           return sendJSON({ ok: true, ops, count: ops.length, ts: Date.now() }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/rebuild-snapshots?key=...&fromDate=YYYY-MM-DD[&toDate=YYYY-MM-DD]
+      //
+      // P0.7.172 (2026-05-15) — rebuild trader+investor portfolio snapshots
+      // for a date range. Use after a snapshot-logic bug fix (like the
+      // qty/currentPrice→shares/positions_table fix in snapshotBothPortfolios)
+      // to restore the equity curve from the correct mark-to-market values.
+      //
+      // Iterates day-by-day, calling snapshotBothPortfolios which uses
+      // loadHistoricalClosesAt for past dates (D1 ticker_candles) and KV
+      // timed:latest for today.
+      if (routeKey === "POST /timed/admin/rebuild-snapshots") {
+        const _rsAuthFail = await requireKeyOrAdmin(req, env);
+        if (_rsAuthFail) return _rsAuthFail;
+        const fromDate = url.searchParams.get("fromDate");
+        const _nyPartsToday = new Date().toLocaleString("en-US", {
+          timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+        }).split("/");
+        const _todayNy = `${_nyPartsToday[2]}-${_nyPartsToday[0]}-${_nyPartsToday[1]}`;
+        const toDate = url.searchParams.get("toDate") || _todayNy;
+        if (!fromDate || !/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) {
+          return sendJSON({ ok: false, error: "fromDate required (YYYY-MM-DD); toDate optional (defaults to today NY)" }, 400, corsHeaders(env, req));
+        }
+        try {
+          const start = new Date(`${fromDate}T12:00:00Z`).getTime();
+          const end = new Date(`${toDate}T12:00:00Z`).getTime();
+          if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+            return sendJSON({ ok: false, error: "bad_date_range" }, 400, corsHeaders(env, req));
+          }
+          const days = [];
+          for (let t = start; t <= end; t += 86400000) {
+            const d = new Date(t);
+            const _ny = d.toLocaleString("en-US", {
+              timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+            }).split("/");
+            days.push(`${_ny[2]}-${_ny[0]}-${_ny[1]}`);
+          }
+          const results = [];
+          for (const d of days) {
+            try {
+              const r = await snapshotBothPortfolios(env, KV, null, d, null);
+              results.push({ date: d, trader: r?.trader, investor: r?.investor });
+            } catch (e) {
+              results.push({ date: d, error: String(e?.message || e).slice(0, 200) });
+            }
+          }
+          return sendJSON({ ok: true, range: { from: fromDate, to: toDate }, days: results.length, results }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
@@ -63461,7 +63708,9 @@ export default {
       // GET /timed/portfolio/equity-curve?mode=trader|investor|both&since=YYYY-MM-DD&until=YYYY-MM-DD
       if (routeKey === "GET /timed/portfolio/equity-curve") {
         // P0.7.158 — rate-limit unauthenticated reads (proof.html etc.)
-        const _eqRl = await publicRateLimit(req, env, "portfolio_equity_curve", 120, sendJSON, corsHeaders);
+        // P0.7.168 (2026-05-15) — raise from 120 → 1200/hr. Same rationale
+        // as ledger_trades above (Pages page polls from multiple components).
+        const _eqRl = await publicRateLimit(req, env, "portfolio_equity_curve", 1200, sendJSON, corsHeaders);
         if (_eqRl) return _eqRl;
         try {
           const db = env?.DB;
@@ -72282,9 +72531,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // freshness checking. PSTG, DELL, and other tickers in M&A/
           // corporate-action limbo can have a fresh D candle (still trading)
           // but an intraday feed that dried up weeks ago (Alpaca stopped
-          // serving bars when liquidity dried up). 10d window is tight
+          // serving bars when liquidity dried up). 7d window is tight
           // enough to surface "actually broken" without false alarms.
-          const ACTIVE_WINDOW_60_MS = 10 * 86400000;
+          // P0.7.163 (2026-05-15) — Tightened to 7d so a ticker whose
+          // intraday feed stopped >7d ago (PSTG-style M&A limbo) drops
+          // out of the alarm universe entirely. A real cron failure would
+          // show up across the full universe of actively-streamed tickers
+          // within hours, not weeks.
+          const ACTIVE_WINDOW_60_MS = 7 * 86400000;
           // P0.7.161 (2026-05-14) — Cap ts at now + 24h to filter out
           // corrupt future-dated rows (we had a SPX D row stamped year
           // 34227 from a pre-existing data glitch). The cleanup is a
@@ -72348,6 +72602,62 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             }
           } else {
             recordCronSuccess(env, "candle_freshness_60").catch(() => {});
+          }
+
+          // P0.7.177 (2026-05-15) — Auto-backfill self-heal.
+          //
+          // When the freshness monitor finds stale candles, automatically
+          // try to backfill the affected tickers via TwelveData REST. Cheap
+          // (a handful of bars per ticker, runs in waitUntil so doesn't
+          // block the cron). If TD has the data, the next monitor cycle
+          // will be clean. If TD doesn't (delisted / corp-action), the
+          // monitor will still alert and the operator can decide what to do.
+          try {
+            const _staleTickersToHeal = [];
+            // Gather all tickers that are stale on either D or 60m
+            const _staleDRes = await db.prepare(
+              `SELECT ticker, MAX(ts) AS max_ts FROM ticker_candles
+               WHERE tf = 'D' AND ts <= ?2 GROUP BY ticker
+               HAVING (?1 - MAX(ts)) / 86400000 > ?3`
+            ).bind(nowMs, FUTURE_GUARD_MS, STALE_D_DAYS).all().catch(() => ({ results: [] }));
+            for (const r of (_staleDRes?.results || [])) {
+              const t = String(r.ticker || "").toUpperCase();
+              if (t && !_staleTickersToHeal.includes(t)) _staleTickersToHeal.push(t);
+            }
+            const _stale60Res = await db.prepare(
+              `SELECT c60.ticker AS ticker FROM (
+                 SELECT ticker, MAX(ts) AS max_ts FROM ticker_candles
+                 WHERE tf = '60' AND ts <= ?2 GROUP BY ticker
+               ) c60 JOIN (
+                 SELECT ticker, MAX(ts) AS d_ts FROM ticker_candles
+                 WHERE tf = 'D' AND ts <= ?2 GROUP BY ticker
+               ) cD ON c60.ticker = cD.ticker
+               WHERE c60.max_ts >= ?1 AND cD.d_ts >= ?3 AND (?4 - c60.max_ts) / 3600000 > ?5`
+            ).bind(
+              nowMs - ACTIVE_WINDOW_60_MS, FUTURE_GUARD_MS,
+              nowMs - 7 * 86400000, nowMs, STALE_60_HOURS,
+            ).all().catch(() => ({ results: [] }));
+            for (const r of (_stale60Res?.results || [])) {
+              const t = String(r.ticker || "").toUpperCase();
+              if (t && !_staleTickersToHeal.includes(t)) _staleTickersToHeal.push(t);
+            }
+
+            if (_staleTickersToHeal.length > 0 && _staleTickersToHeal.length <= 50) {
+              console.log(`[FRESHNESS MONITOR] auto-backfill heal: ${_staleTickersToHeal.join(",")}`);
+              // Use the same backfill plumbing as the admin route
+              const _bfTfs = ["D", "60", "240"];
+              for (const tf of _bfTfs) {
+                try {
+                  await DataProvider.backfill(env, _staleTickersToHeal, tf, { sinceDays: 5 });
+                } catch (bfErr) {
+                  console.warn(`[FRESHNESS MONITOR] auto-backfill tf=${tf} failed:`, String(bfErr?.message || bfErr).slice(0, 200));
+                }
+              }
+            } else if (_staleTickersToHeal.length > 50) {
+              console.warn(`[FRESHNESS MONITOR] auto-backfill SKIPPED — ${_staleTickersToHeal.length} stale tickers (too many for safe self-heal). Manual /timed/admin/alpaca-backfill required.`);
+            }
+          } catch (healErr) {
+            console.warn("[FRESHNESS MONITOR] auto-backfill failed:", String(healErr?.message || healErr).slice(0, 200));
           }
         } catch (e) {
           console.warn("[FRESHNESS MONITOR] Probe failed:", String(e?.message || e).slice(0, 200));
@@ -72443,40 +72753,87 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       const _bcEtH = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }), 10);
       const _bcEtM = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/New_York", minute: "numeric" }), 10);
       if (_bcEtH === 16 && _bcEtM >= 25 && _bcEtM <= 35) ctx.waitUntil((async () => {
+        // P0.7.178 (2026-05-15) — Idempotent + retry-friendly eval.
+        //
+        // The */5 cron fires at :25, :30, :35 ET — three independent attempts
+        // in the 10-min window. Each call hits the eval route independently.
+        // If :30 happened to query before the morning brief was visible (D1
+        // eventual-consistency window, brief publication race, etc.), the
+        // old code immediately tombstoned + fired a Discord alert. Then :35
+        // succeeded and cleared the tombstone. Result: spurious Discord
+        // alerts on transient timing races.
+        //
+        // Fix:
+        // 1. Track per-day completion via KV (`timed:cron:brief_eval_done:YYYY-MM-DD`).
+        //    If already done today, skip — no DB hit, no retry, no alert.
+        // 2. Within the retry window (:25/:30/:35), TREAT a "missing brief"
+        //    404 as a soft retry — log it, do NOT tombstone. Only the LAST
+        //    attempt of the day (the :35 tick OR an end-of-day sweep) is
+        //    allowed to tombstone if the brief still isn't available.
+        // 3. Genuine errors (5xx, network) still tombstone immediately —
+        //    those are infra problems we want to know about.
+        const _nyPartsTd = new Date().toLocaleString("en-US", {
+          timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+        }).split("/");
+        const _nyDateToday = `${_nyPartsTd[2]}-${_nyPartsTd[0]}-${_nyPartsTd[1]}`;
+        const _bcDoneKey = `timed:cron:brief_eval_done:${_nyDateToday}`;
+        const _isLastWindowTick = _bcEtM >= 33; // only :33-:35 ticks may tombstone
         try {
+          const KV = env?.KV_TIMED;
+          if (KV) {
+            const _done = await KV.get(_bcDoneKey).catch(() => null);
+            if (_done) {
+              return; // already evaluated successfully today
+            }
+          }
+
           const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
           const _bcKey = env?.TIMED_API_KEY ? `?key=${encodeURIComponent(env.TIMED_API_KEY)}` : "";
           const r = await fetch(`${selfUrl}/timed/admin/brief-eval-accuracy${_bcKey}`, { method: "POST" });
           const j = await r.json().catch(() => ({}));
           if (j?.ok) {
-            // P0.7.161 (2026-05-14) — treat a successful eval where the
-            // morning brief is missing / unscored as success too. A null
-            // avg_score just means today's D candle hasn't landed yet
-            // (the cron fires 30 min after close), not an engine failure.
-            // The next day's run will overwrite with the correct value.
             console.log(`[BRIEF EVAL] ${j.date} avg_score=${j.avg_score?.toFixed?.(2) ?? "—"} (SPY=${j.spy?.score} QQQ=${j.qqq?.score} IWM=${j.iwm?.score})`);
             recordCronSuccess(env, "brief_accuracy_eval").catch(() => {});
-          } else {
-            // P0.7.161 — never tombstone `unknown`. Use whatever the
-            // endpoint reported, falling back to HTTP status + body
-            // shape if the JSON omitted `error`.
-            const _baErr = j?.error
-              || (j && Object.keys(j).length > 0 ? JSON.stringify(j).slice(0, 120) : null)
-              || `http_${r.status}_no_body`;
-            console.warn(`[BRIEF EVAL] failed: ${_baErr}`);
+            // Mark today as done so subsequent ticks in the same window
+            // skip cleanly. 36h TTL covers the cron window + safety margin.
+            if (KV) {
+              await KV.put(_bcDoneKey, "1", { expirationTtl: 36 * 3600 }).catch(() => {});
+            }
+            return;
+          }
+
+          // Failure path — categorize the error.
+          const _baErr = j?.error
+            || (j && Object.keys(j).length > 0 ? JSON.stringify(j).slice(0, 120) : null)
+            || `http_${r.status}_no_body`;
+          const _isMissingBrief = r.status === 404
+            && (String(_baErr).includes("no_brief") || String(_baErr).includes("404"));
+
+          if (_isMissingBrief && !_isLastWindowTick) {
+            // Transient miss — brief not yet visible. Retry on next 5-min tick.
+            console.log(`[BRIEF EVAL] transient miss (will retry): ${_baErr}`);
+            return;
+          }
+
+          // Either a real error OR the brief is genuinely missing at end of
+          // the retry window — tombstone now so the operator sees it.
+          console.warn(`[BRIEF EVAL] failed: ${_baErr}`);
+          recordCronFailure(env, {
+            op: "brief_accuracy_eval",
+            error: _baErr,
+            caller: "scheduled_event",
+          }).catch(() => {});
+        } catch (e) {
+          console.warn("[BRIEF EVAL] cron failed:", String(e?.message || e).slice(0, 200));
+          // Network / DB failure — only tombstone on the last tick of the
+          // window (transient infra blips earlier in the window may resolve).
+          if (_isLastWindowTick) {
             recordCronFailure(env, {
               op: "brief_accuracy_eval",
-              error: _baErr,
+              error: String(e?.message || e),
               caller: "scheduled_event",
             }).catch(() => {});
           }
-        } catch (e) {
-          console.warn("[BRIEF EVAL] cron failed:", String(e?.message || e).slice(0, 200));
-          recordCronFailure(env, {
-            op: "brief_accuracy_eval",
-            error: String(e?.message || e),
-            caller: "scheduled_event",
-          }).catch(() => {});
         }
       })());
     }
@@ -73328,7 +73685,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       // this only does work after an actual eviction.
       try {
         if (_usesTwelveData(env) && env?.PRICE_STREAM && isWithinOperatingHours()) {
-          const _muteCheck = await KV.get("phase-c:cron-mute").catch(() => null);
+          // P0.7.167 (2026-05-15) — Was `KV.get(...)` but `const KV` is declared
+          // 200 lines below in the */5 block (line ~73585), so this reference
+          // hit the TDZ ("Cannot access 'KV' before initialization") on every
+          // */1 cron tick. The whole STREAM keep-alive silently failed —
+          // visible in tail as "[STREAM keep-alive] outer check failed".
+          // Use env.KV_TIMED directly to avoid the hoist dependency.
+          const _muteKv = env?.KV_TIMED || env?.KV;
+          const _muteCheck = _muteKv ? await _muteKv.get("phase-c:cron-mute").catch(() => null) : null;
           if (!_muteCheck) {
             ctx.waitUntil((async () => {
               try {
@@ -73362,7 +73726,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       // CME data subscription that we decided not to pay for).
       try {
         if (_isTradovateEnabled(env) && env?.TRADOVATE_STREAM && isWithinOperatingHours()) {
-          const _muteCheckTv = await KV.get("phase-c:cron-mute").catch(() => null);
+          // Same TDZ fix as STREAM keep-alive above — env.KV_TIMED instead of KV.
+          const _muteKvTv = env?.KV_TIMED || env?.KV;
+          const _muteCheckTv = _muteKvTv ? await _muteKvTv.get("phase-c:cron-mute").catch(() => null) : null;
           if (!_muteCheckTv) {
             ctx.waitUntil((async () => {
               try {
