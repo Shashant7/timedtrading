@@ -81,6 +81,7 @@ function continuationProofActive({
   rankScore,
   completionPct,
   phasePct,
+  entryQualityScore,    // P0.7.182 — added so the PULLBACK extension can guard on quality
 }) {
   const enabled = String(daCfg.deep_audit_continuation_trigger_enabled ?? "false") === "true";
   if (!enabled) return false;
@@ -89,13 +90,43 @@ function continuationProofActive({
   const tickerUpper = String(ticker || "").toUpperCase();
   if (includeTickers.size > 0 && !includeTickers.has(tickerUpper)) return false;
 
+  // P0.7.182 (2026-05-15) — Extended continuation_trigger to also accept
+  // HTF-aligned + LTF-PULLBACK state for high-quality setups.
+  //
+  // Original gate required BULL_LTF_BULL / BEAR_LTF_BEAR (fully aligned).
+  // But the missed-winner audit (May 2026) showed every trending mega-cap
+  // (NVDA +15%, TSLA +9%, GOOGL +3%, FIX +5%) was in HTF_BULL_LTF_PULLBACK
+  // state — by design, that's where pullback dips form during an uptrend.
+  // The existing tt_pullback trigger required specific 10m cloud patterns
+  // that rarely fire on slow-and-steady mega caps. We need a path for
+  // "healthy HTF trend + shallow LTF dip + high quality setup".
+  //
+  // Guard: PULLBACK acceptance requires HIGHER quality (rank, entry_quality)
+  // than the aligned case, since the LTF is fighting the entry direction.
   const alignedLong = side === "LONG" && currentState === "HTF_BULL_LTF_BULL";
   const alignedShort = side === "SHORT" && currentState === "HTF_BEAR_LTF_BEAR";
-  if (!alignedLong && !alignedShort) return false;
+  const pullbackLong = side === "LONG" && currentState === "HTF_BULL_LTF_PULLBACK";
+  const pullbackShort = side === "SHORT" && currentState === "HTF_BEAR_LTF_PULLBACK";
+  const acceptPullbackEnabled = String(daCfg.deep_audit_continuation_trigger_accept_pullback ?? "true") === "true";
+  const isAligned = alignedLong || alignedShort;
+  const isPullback = (pullbackLong || pullbackShort) && acceptPullbackEnabled;
+  if (!isAligned && !isPullback) return false;
 
-  const minRank = Number(daCfg.deep_audit_continuation_trigger_min_rank) || 60;
-  if (rankScore < minRank) return false;
+  // Quality gate — defaults to 50 (lowered from 60). PULLBACK requires
+  // both higher rank AND a strong entry_quality score.
+  const minRank = Number(daCfg.deep_audit_continuation_trigger_min_rank) || 50;
+  const pullbackMinRank = Number(daCfg.deep_audit_continuation_trigger_pullback_min_rank) || 65;
+  const pullbackMinEq = Number(daCfg.deep_audit_continuation_trigger_pullback_min_entry_quality) || 70;
+  if (isAligned && rankScore < minRank) return false;
+  if (isPullback) {
+    if (rankScore < pullbackMinRank) return false;
+    if (Number.isFinite(entryQualityScore) && entryQualityScore < pullbackMinEq) return false;
+  }
 
+  // Completion / phase — same caps for both. Completion measures how far
+  // through the model's target move the current price is; phase measures
+  // intraday session phase. Both >0.5 means "late stage move — wait for
+  // next setup".
   const maxCompletion = Number(daCfg.deep_audit_continuation_trigger_max_completion) || 0.45;
   if (!Number.isFinite(completionPct) || completionPct > maxCompletion) return false;
 
@@ -1104,6 +1135,8 @@ export function evaluateEntry(ctx) {
   // END PHASE-H.3 GATES
   // ═════════════════════════════════════════════════════════════════════════
 
+  // P0.7.182 — pass entry_quality so the PULLBACK extension can guard on it.
+  const _eqForCont = Number(d?.entry_quality?.score ?? d?.__entry_quality ?? d?.entry_quality_score);
   const scopedContinuationProof = continuationProofActive({
     ticker: ctx.ticker,
     daCfg,
@@ -1112,6 +1145,7 @@ export function evaluateEntry(ctx) {
     rankScore,
     completionPct,
     phasePct,
+    entryQualityScore: Number.isFinite(_eqForCont) ? _eqForCont : null,
   });
   const consensusDirection = String(d?.swing_consensus?.dir ?? d?.consensus_direction ?? "").toUpperCase();
   const laggingH1BreakoutLong = config.ripsterTuneV2
@@ -1483,7 +1517,55 @@ export function evaluateEntry(ctx) {
       const _grRvol = Number(ctx?.rvol?.best) || Number(d?.rvol_map?.["30"]?.vr) || Number(d?.rvol_best) || 0;
       const _grMinGap = Number(daCfg.deep_audit_gap_reversal_min_gap_pct ?? 1.5);
 
-      if (side === "LONG" && _gr.long_setup_active
+      // P0.7.183 (2026-05-15) — Anti-falling-knife filter.
+      //
+      // NFLX postmortem (May 2026): the detector fired 3 consecutive days
+      // on NFLX as the stock kept gapping down on a multi-day decline.
+      // Each trade lost (-$153, -$86, -$63 = -$302 total). The "reclaim
+      // partial" signal kept firing during a continuous downtrend, and
+      // every entry got run over by the next day's continued gap-down.
+      //
+      // Filter: if the prior N daily closes were each lower than the one
+      // before (consecutive decline) AND the cumulative N-day drop is
+      // beyond a threshold, skip the gap-reversal entry. The setup is
+      // for "panic gap-down → relief bounce", NOT "stock in continuous
+      // decline". Default N=3, threshold=-5%.
+      let _grBlockedFallingKnife = false;
+      const _grKnifeEnabled = String(daCfg.deep_audit_gap_reversal_knife_filter_enabled ?? "true") === "true";
+      const _grKnifeMinDays = Number(daCfg.deep_audit_gap_reversal_knife_min_consecutive_down) || 3;
+      const _grKnifeMaxDrop = Number(daCfg.deep_audit_gap_reversal_knife_max_drop_pct) || -5.0;
+      if (_grKnifeEnabled && side === "LONG") {
+        try {
+          // Use rawBars D from the bundle (last N+1 daily closes)
+          const _dailyBars = Array.isArray(d?.rawBars?.D) ? d.rawBars.D : (Array.isArray(d?.bundles?.D?.bars) ? d.bundles.D.bars : []);
+          const _recent = _dailyBars.slice(-(_grKnifeMinDays + 2)); // need N+2 to compute N consecutive closes
+          if (_recent.length >= _grKnifeMinDays + 1) {
+            let consecutiveDown = 0;
+            for (let i = _recent.length - 1; i > 0; i--) {
+              const cur = Number(_recent[i]?.c ?? _recent[i]?.close);
+              const prev = Number(_recent[i - 1]?.c ?? _recent[i - 1]?.close);
+              if (Number.isFinite(cur) && Number.isFinite(prev) && cur < prev) consecutiveDown++;
+              else break;
+            }
+            const _firstClose = Number(_recent[_recent.length - 1 - _grKnifeMinDays]?.c);
+            const _lastClose = Number(_recent[_recent.length - 1]?.c);
+            const _cumDrop = (Number.isFinite(_firstClose) && Number.isFinite(_lastClose) && _firstClose > 0)
+              ? ((_lastClose - _firstClose) / _firstClose) * 100
+              : 0;
+            if (consecutiveDown >= _grKnifeMinDays && _cumDrop <= _grKnifeMaxDrop) {
+              _grBlockedFallingKnife = true;
+              d.__gap_reversal_knife_block = {
+                consecutiveDown,
+                cumDropPct: Math.round(_cumDrop * 100) / 100,
+                threshold: _grKnifeMaxDrop,
+                minConsecutive: _grKnifeMinDays,
+              };
+            }
+          }
+        } catch (_) { /* best-effort */ }
+      }
+
+      if (side === "LONG" && _gr.long_setup_active && !_grBlockedFallingKnife
           && Math.abs(_gr.gap_pct) >= _grMinGap
           && (_grRvol === 0 || _grRvol >= _grMinRvol)) {
         gapReversalTrigger = true;

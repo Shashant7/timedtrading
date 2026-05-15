@@ -15654,7 +15654,29 @@ async function processTradeSimulation(
   // the cached env._deepAuditConfig.
   if (!isReplay && env?.DB && !env._deepAuditConfig) {
     try {
-      const _daKeys = ["ai_cio_enabled", "ai_cio_replay_enabled", "ai_cio_shadow_mode", "ai_cio_reference_enabled"];
+      // P0.7.184 (2026-05-15) — expanded lazy-load to include the
+      // continuation_trigger + thesis_flip + gap-knife + early-trim knobs
+      // we tuned in P0.7.180..183. Without this, HTTP-path-triggered entries
+      // wouldn't see the new behavior until the next */5 scoring cron run.
+      const _daKeys = [
+        "ai_cio_enabled", "ai_cio_replay_enabled", "ai_cio_shadow_mode", "ai_cio_reference_enabled",
+        "deep_audit_continuation_trigger_enabled",
+        "deep_audit_continuation_trigger_include_tickers",
+        "deep_audit_continuation_trigger_min_rank",
+        "deep_audit_continuation_trigger_max_completion",
+        "deep_audit_continuation_trigger_max_phase",
+        "deep_audit_continuation_trigger_accept_pullback",
+        "deep_audit_continuation_trigger_pullback_min_rank",
+        "deep_audit_continuation_trigger_pullback_min_entry_quality",
+        "deep_audit_gap_reversal_knife_filter_enabled",
+        "deep_audit_gap_reversal_knife_min_consecutive_down",
+        "deep_audit_gap_reversal_knife_max_drop_pct",
+        "deep_audit_thesis_flip_skip_same_day",
+        "deep_audit_ripster_5_12_trim_min_pnl_pct",
+        "deep_audit_ripster_34_50_trim_min_pnl_pct",
+        "deep_audit_ticker_blacklist",
+        "deep_audit_hard_loss_cap", "deep_audit_hard_loss_cap_pct",
+      ];
       const _daRes = await env.DB.prepare(
         `SELECT config_key, config_value FROM model_config WHERE config_key IN (${_daKeys.map((_, i) => `?${i + 1}`).join(",")})`
       ).bind(..._daKeys).all().catch(() => ({ results: [] }));
