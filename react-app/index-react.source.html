@@ -8066,11 +8066,14 @@
         // Same logic applied to kanban categorizer + bubble map stage chip
         // + bubble icon in P0.7.79 / P0.7.82 — this is the third copy that
         // got missed (drives the bubble's icon-under-bubble label).
+        // P0.7.175 (2026-05-15) — Engine EXIT/DEFEND wins over TP_HIT_TRIM.
+        // See lane categorizer at ~line 14985 for the full priority rationale.
         let effectiveStage = rawStage;
         if (tradeIsOpen) {
-          if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) effectiveStage = "trim";
-          else if (rawStage === "exit") effectiveStage = "defend";
-          else if (!["defend", "trim", "hold", "active", "just_entered"].includes(rawStage)) effectiveStage = "hold";
+          if (rawStage === "exit") effectiveStage = "defend";
+          else if (rawStage === "defend") effectiveStage = "defend";
+          else if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) effectiveStage = "trim";
+          else if (!["trim", "hold", "active", "just_entered"].includes(rawStage)) effectiveStage = "hold";
         }
 
         return {
@@ -13086,11 +13089,15 @@
         // categorizer uses. Open positions never show EXIT (engine 'exit'
         // on an open position is DEFEND).
         if (hasOpen) {
+          // P0.7.175 (2026-05-15) — Engine EXIT/DEFEND recommendation wins
+          // over the static TP_HIT_TRIM check (see lane categorizer at
+          // ~line 14985 for full rationale + priority order).
           const _st = String(openTrade?.status || "").toUpperCase();
           const _trim = Number(openTrade?.trimmed_pct ?? openTrade?.trimmedPct ?? 0);
-          if (_st === "TP_HIT_TRIM" || _trim > 0) stage = "trim";
-          else if (stage === "exit") stage = "defend";
-          else if (stage !== "defend" && stage !== "trim" && stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
+          if (stage === "exit") stage = "defend";
+          else if (stage === "defend") { /* keep */ }
+          else if (_st === "TP_HIT_TRIM" || _trim > 0) stage = "trim";
+          else if (stage !== "trim" && stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
         }
 
         /* V2.1 round 2 — TT Selected check */
@@ -13902,11 +13909,12 @@
                 || !!(trade?.exit_ts ?? trade?.exitTs) || trimPct >= 0.9999;
               const isOpen = !isClosed && (st === "OPEN" || st === "TP_HIT_TRIM");
               if (isOpen) {
-                // V15 P0.7.79: open positions never end up in EXIT — engine
-                // 'exit' on an open position means urgent close, not closed.
-                if (st === "TP_HIT_TRIM" || trimPct > 0) stage = "trim";
-                else if (stage === "exit") stage = "defend";
-                else if (stage !== "defend" && stage !== "trim" &&
+                // P0.7.175 (2026-05-15) — Engine EXIT/DEFEND wins over the
+                // static TP_HIT_TRIM check. See lane categorizer at ~14985.
+                if (stage === "exit") stage = "defend";
+                else if (stage === "defend") { /* keep */ }
+                else if (st === "TP_HIT_TRIM" || trimPct > 0) stage = "trim";
+                else if (stage !== "trim" &&
                          stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
               }
               // Recently closed trades (< 24h) count in Exit lane — unless scorer is promoting a new setup
@@ -14978,27 +14986,43 @@
             // up in the EXIT lane (EXIT means closed/closing — open
             // positions belong in TRIM, DEFEND, or HOLD).
             //
-            // V15 P0.7.79: SNDK was showing in EXIT lane while still half-
-            // open after a 50% trim (status=TP_HIT_TRIM, engine emitted
-            // 'exit'). Engine 'exit' on an open position means "urgent
-            // close needed" — that's the DEFEND lane semantically.
-            // Priority for OPEN positions:
-            //   1. status=TP_HIT_TRIM         → TRIM
-            //   2. trimmed_pct > 0            → TRIM
-            //   3. engine stage = exit        → DEFEND  (urgent close)
-            //   4. engine stage = defend|trim → keep
-            //   5. anything else              → HOLD
+            // P0.7.175 (2026-05-15) — Re-order priority so the engine's
+            // EXIT recommendation wins over the static "trade has been
+            // trimmed at some point" check. Previous order put TP_HIT_TRIM
+            // FIRST (→ TRIM lane), even when the engine was actively
+            // recommending exit. Result: trades like IWM (trimmed at TP1
+            // on entry day, then doctrine_force_exit fired the next day
+            // when MFE never grew and PnL went negative) sat in the TRIM
+            // lane with "Defend" badge — a contradiction the user flagged.
+            //
+            // New priority for OPEN positions:
+            //   1. engine stage = exit        → DEFEND  (engine wants out)
+            //   2. engine stage = defend      → DEFEND  (engine sees danger)
+            //   3. status=TP_HIT_TRIM         → TRIM   (carrying runner)
+            //   4. trimmed_pct > 0            → TRIM
+            //   5. engine stage = trim        → TRIM
+            //   6. anything else              → HOLD
+            //
+            // Semantics:
+            //   DEFEND = engine sees a problem and wants action (close /
+            //            tighten). User intuition: "danger zone".
+            //   TRIM   = engine is healthy + position has been partially
+            //            trimmed; runner working. User intuition: "managing
+            //            a winner".
+            //   HOLD   = engine sees no actionable signal; trade healthy.
             // ═══════════════════════════════════════════════════════════════
             if (trade && isOpen) {
-              if (status === "TP_HIT_TRIM" || (Number(trade.trimmed_pct ?? trade.trimmedPct ?? 0) > 0)) {
-                stage = "trim";
-              }
-              else if (stage === "exit") {
-                // Engine wants to close but position is still open. That's
-                // a DEFEND (act now), not a closed-trade EXIT entry.
+              if (stage === "exit") {
+                // Engine wants to close but position is still open.
                 stage = "defend";
               }
-              else if (stage === "defend" || stage === "trim") {
+              else if (stage === "defend") {
+                // Engine wants to defend. Keep.
+              }
+              else if (status === "TP_HIT_TRIM" || (Number(trade.trimmed_pct ?? trade.trimmedPct ?? 0) > 0)) {
+                stage = "trim";
+              }
+              else if (stage === "trim") {
                 // Already a valid open-position management lane.
               }
               else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") {
@@ -19750,8 +19774,10 @@
                 || !!(trade?.exit_ts ?? trade?.exitTs) || trimPct >= 0.9999;
               const isOpen = !isClosed && (st === "OPEN" || st === "TP_HIT_TRIM");
               if (isOpen) {
-                if (st === "TP_HIT_TRIM" || trimPct > 0) stage = "trim";
-                else if (!["defend","trim","exit","hold","active","just_entered"].includes(stage)) stage = "hold";
+                // P0.7.175 — engine EXIT/DEFEND wins over TP_HIT_TRIM.
+                if (stage === "exit" || stage === "defend") stage = "defend";
+                else if (st === "TP_HIT_TRIM" || trimPct > 0) stage = "trim";
+                else if (!["trim","hold","active","just_entered"].includes(stage)) stage = "hold";
               }
             }
             if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") counts.setup++;

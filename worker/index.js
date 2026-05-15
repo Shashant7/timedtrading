@@ -19401,6 +19401,25 @@ async function processTradeSimulation(
         : ((_eSP15 >= 3 && _eSP15 <= 7) || (_eSP30 >= 3 && _eSP30 <= 7)));
 
       _exitPullbackShield = _eSt15Hold || _eCloud7289_15 || _eCloud3450_15 || _eCloud7289_30 || _eTdActive;
+
+      // P0.7.176 (2026-05-15) — Doctrine-class exits override the pullback
+      // shield. The shield protects healthy trimmed runners from being
+      // closed on minor signal noise (e.g. an isolated bearish 5/12 flip
+      // while the larger structure holds). But the exit-doctrine layer
+      // already weighs structure + MFE + PnL + age before deciding to
+      // force-exit. If doctrine says "force exit" (fresh-failure rule,
+      // regime-decay rule, etc.), structure-only shields should not veto
+      // it — otherwise the trade sits in DEFEND lane indefinitely while
+      // the engine "wants out" but the shield blocks closure.
+      // User report 2026-05-15: 'IWM is still in DEFEND lane' after 26h
+      // of doctrine_force_exit not actually closing the trade.
+      const _doctrineForceExit = String(exitReasonRaw || "").startsWith("doctrine_")
+        || String(exitReasonRaw || "") === "tape_capitulation_force_exit";
+      if (_exitPullbackShield && _doctrineForceExit) {
+        console.log(`[EXIT SHIELD OVERRIDE] ${sym} pullback shield bypassed by doctrine class exit reason=${exitReasonRaw}`);
+        _exitPullbackShield = false;
+      }
+
       if (_exitPullbackShield) {
         const shieldReasons = [];
         if (_eSt15Hold) shieldReasons.push("st15");
@@ -34320,42 +34339,56 @@ async function snapshotBothPortfolios(env, KV, replayCtx, dayDate, tickerDataMap
   // --- Active Trader snapshot ---
   let traderCash = await d1GetLedgerBalance(env, "trader");
   let traderPositionsValue = 0;
+  let traderUnrealized = 0;
   let traderOpenCount = 0;
   // P0.7.172 (2026-05-15) — Mark-to-market open positions from the D1
   // `positions` table (authoritative), not the legacy `timed:trades:all`
-  // KV blob.
+  // KV blob (which used wrong field names `qty`/`currentPrice` →
+  // positionsValue=0 for every snapshot).
   //
-  // Bug: previous version read `t.qty` and `t.currentPrice` from the KV
-  // blob. Trade objects use `shares`, and `currentPrice` was never set
-  // on any trade record. So `qty=0` for every row → `positionsValue=0`
-  // for every snapshot → cash spent on opening positions silently
-  // disappeared from the equity curve. User report 2026-05-15:
-  // 'Equity curve shows $117,009; should be ~$140,000.'
-  //
-  // Trader's account on 2026-05-12: $139,631 equity (matches account
-  // header). 2026-05-14: $117,009 equity (after ~$22.6K of new
-  // positions were opened with no mark-to-market). Header showed $139.6K.
-  //
-  // Fix: read open positions from D1 (same source the rest of the UI
-  // uses), get current price from `timed:latest:{sym}` or D1 ticker_latest.
+  // P0.7.174 (2026-05-15) — Use the SAME equity formula as /timed/account-
+  // summary so the equity-curve doesn't disagree with the header number
+  // the user sees: equity = startCash + cumulative_realized_pnl + unrealized.
+  // cash + positionsValue diverges from this formula because cash can
+  // include trim proceeds + partial entry/exits in ways the simple sum
+  // double-counts. The display source-of-truth is the account-summary
+  // route; the curve must match it.
+  let _cumRealizedThroughDay = 0;
   try {
-    const _posRes = await db.prepare(
-      `SELECT ticker, total_qty FROM positions WHERE status IN ('OPEN','TP_HIT_TRIM') AND total_qty > 0`
-    ).all().catch(() => ({ results: [] }));
-    const _openPositions = Array.isArray(_posRes?.results) ? _posRes.results : [];
-    traderOpenCount = _openPositions.length;
+    const _realRow = await db.prepare(
+      `SELECT SUM(COALESCE(realized_pnl, 0)) AS s FROM account_ledger
+       WHERE mode = 'trader' AND ts <= ?1`
+    ).bind(dayMs).first().catch(() => null);
+    _cumRealizedThroughDay = Number(_realRow?.s) || 0;
+  } catch (e) {
+    console.warn("[SNAPSHOT trader] realized PnL lookup failed:", String(e?.message || e).slice(0, 200));
+  }
 
-    if (_openPositions.length > 0) {
-      // Try the historical-close path first when snapshot is for a past
-      // date (matches investor snapshot semantics). For today's snapshot,
-      // fall through to KV live price.
-      const _snapTickers = _openPositions.map((p) => String(p.ticker).toUpperCase());
+  try {
+    // For historical dates, use trades that were OPEN at dayDate (not
+    // positions table — that only shows current state). Use the trades
+    // table + entry_ts/exit_ts to determine "open as-of dayDate".
+    const _tradesRes = await db.prepare(
+      `SELECT ticker, direction, entry_price, shares, entry_ts, exit_ts, status,
+              COALESCE(trimmed_pct, 0) AS trimmed_pct
+       FROM trades
+       WHERE entry_ts <= ?1 AND (exit_ts IS NULL OR exit_ts > ?1)
+         AND COALESCE(run_id, '') = ''`
+    ).bind(dayMs).all().catch(() => ({ results: [] }));
+    const _openAsOfDay = Array.isArray(_tradesRes?.results) ? _tradesRes.results : [];
+    traderOpenCount = _openAsOfDay.length;
+
+    if (_openAsOfDay.length > 0) {
+      const _snapTickers = _openAsOfDay.map((t) => String(t.ticker).toUpperCase());
       const _snapHistPrices = await loadHistoricalClosesAt(env, _snapTickers, dayMs).catch(() => ({}));
 
-      for (const p of _openPositions) {
-        const ticker = String(p.ticker).toUpperCase();
-        const shares = Number(p.total_qty) || 0;
-        if (shares <= 0) continue;
+      for (const t of _openAsOfDay) {
+        const ticker = String(t.ticker).toUpperCase();
+        const fullShares = Number(t.shares) || 0;
+        const trimPct = Math.max(0, Math.min(1, Number(t.trimmed_pct) || 0));
+        const sharesOpen = fullShares * (1 - trimPct);
+        if (sharesOpen <= 0) continue;
+
         let curPrice = Number(_snapHistPrices?.[ticker]) || 0;
         if (!curPrice) {
           if (tickerDataMapOverride && tickerDataMapOverride[ticker]) {
@@ -34367,9 +34400,15 @@ async function snapshotBothPortfolios(env, KV, replayCtx, dayDate, tickerDataMap
             } catch {}
           }
         }
-        if (curPrice > 0) {
-          traderPositionsValue += shares * curPrice;
-        }
+        if (curPrice <= 0) continue;
+
+        const entryPrice = Number(t.entry_price) || 0;
+        const isShort = String(t.direction || "").toUpperCase() === "SHORT";
+        const dir = isShort ? -1 : 1;
+        const mtm = curPrice * sharesOpen;
+        const cb = entryPrice * sharesOpen;
+        traderPositionsValue += mtm;
+        traderUnrealized += dir * (mtm - cb);
       }
     }
   } catch (e) {
@@ -34388,7 +34427,12 @@ async function snapshotBothPortfolios(env, KV, replayCtx, dayDate, tickerDataMap
     traderDayTrades = Number(rows?.cnt) || 0;
   } catch {}
 
-  const traderEquity = traderCash + traderPositionsValue;
+  // P0.7.174 — equity formula aligned with /timed/account-summary:
+  //   accountValue = startCash + cumulative_realized + unrealized
+  // This matches the dashboard header so the equity curve doesn't
+  // appear to disagree with the headline number.
+  const TRADER_START_CASH = (typeof PORTFOLIO_START_CASH !== "undefined" ? PORTFOLIO_START_CASH : 100000);
+  const traderEquity = TRADER_START_CASH + _cumRealizedThroughDay + traderUnrealized;
   const traderSnapId = `snap-trader-${dayDate}`;
   try {
     await db.prepare(
@@ -72558,6 +72602,62 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             }
           } else {
             recordCronSuccess(env, "candle_freshness_60").catch(() => {});
+          }
+
+          // P0.7.177 (2026-05-15) — Auto-backfill self-heal.
+          //
+          // When the freshness monitor finds stale candles, automatically
+          // try to backfill the affected tickers via TwelveData REST. Cheap
+          // (a handful of bars per ticker, runs in waitUntil so doesn't
+          // block the cron). If TD has the data, the next monitor cycle
+          // will be clean. If TD doesn't (delisted / corp-action), the
+          // monitor will still alert and the operator can decide what to do.
+          try {
+            const _staleTickersToHeal = [];
+            // Gather all tickers that are stale on either D or 60m
+            const _staleDRes = await db.prepare(
+              `SELECT ticker, MAX(ts) AS max_ts FROM ticker_candles
+               WHERE tf = 'D' AND ts <= ?2 GROUP BY ticker
+               HAVING (?1 - MAX(ts)) / 86400000 > ?3`
+            ).bind(nowMs, FUTURE_GUARD_MS, STALE_D_DAYS).all().catch(() => ({ results: [] }));
+            for (const r of (_staleDRes?.results || [])) {
+              const t = String(r.ticker || "").toUpperCase();
+              if (t && !_staleTickersToHeal.includes(t)) _staleTickersToHeal.push(t);
+            }
+            const _stale60Res = await db.prepare(
+              `SELECT c60.ticker AS ticker FROM (
+                 SELECT ticker, MAX(ts) AS max_ts FROM ticker_candles
+                 WHERE tf = '60' AND ts <= ?2 GROUP BY ticker
+               ) c60 JOIN (
+                 SELECT ticker, MAX(ts) AS d_ts FROM ticker_candles
+                 WHERE tf = 'D' AND ts <= ?2 GROUP BY ticker
+               ) cD ON c60.ticker = cD.ticker
+               WHERE c60.max_ts >= ?1 AND cD.d_ts >= ?3 AND (?4 - c60.max_ts) / 3600000 > ?5`
+            ).bind(
+              nowMs - ACTIVE_WINDOW_60_MS, FUTURE_GUARD_MS,
+              nowMs - 7 * 86400000, nowMs, STALE_60_HOURS,
+            ).all().catch(() => ({ results: [] }));
+            for (const r of (_stale60Res?.results || [])) {
+              const t = String(r.ticker || "").toUpperCase();
+              if (t && !_staleTickersToHeal.includes(t)) _staleTickersToHeal.push(t);
+            }
+
+            if (_staleTickersToHeal.length > 0 && _staleTickersToHeal.length <= 50) {
+              console.log(`[FRESHNESS MONITOR] auto-backfill heal: ${_staleTickersToHeal.join(",")}`);
+              // Use the same backfill plumbing as the admin route
+              const _bfTfs = ["D", "60", "240"];
+              for (const tf of _bfTfs) {
+                try {
+                  await DataProvider.backfill(env, _staleTickersToHeal, tf, { sinceDays: 5 });
+                } catch (bfErr) {
+                  console.warn(`[FRESHNESS MONITOR] auto-backfill tf=${tf} failed:`, String(bfErr?.message || bfErr).slice(0, 200));
+                }
+              }
+            } else if (_staleTickersToHeal.length > 50) {
+              console.warn(`[FRESHNESS MONITOR] auto-backfill SKIPPED — ${_staleTickersToHeal.length} stale tickers (too many for safe self-heal). Manual /timed/admin/alpaca-backfill required.`);
+            }
+          } catch (healErr) {
+            console.warn("[FRESHNESS MONITOR] auto-backfill failed:", String(healErr?.message || healErr).slice(0, 200));
           }
         } catch (e) {
           console.warn("[FRESHNESS MONITOR] Probe failed:", String(e?.message || e).slice(0, 200));
