@@ -15603,6 +15603,38 @@ async function processTradeSimulation(
   const asOfMs = (isReplay && asOfMsRaw != null)
     ? (Number(asOfMsRaw) < 1e12 ? Number(asOfMsRaw) * 1000 : Number(asOfMsRaw))
     : null;
+
+  // P0.7.170 (2026-05-15) — Lazy-load AI CIO config when missing.
+  //
+  // Bug: every entry-time check for AI CIO reads `env._deepAuditConfig
+  // ?.ai_cio_enabled`, but `_deepAuditConfig` is ONLY populated inside
+  // the */5 scoring cron handler (see scheduled handler ~line 73779).
+  // When processTradeSimulation is invoked from:
+  //   - the queue-drain at market open (line ~27045)
+  //   - any HTTP-triggered scoring or replay route
+  //   - the investor lane re-evaluator
+  // ...`_deepAuditConfig` is undefined, so `_cioLiveEnabled` evaluates to
+  // false and CIO is silently bypassed. That is why ai_cio_decisions has
+  // 0 new rows since 2026-03-23 despite ~24 entries firing.
+  //
+  // Fix: if not already loaded, pull just the ai_cio_* keys from model_config
+  // here. Cheap point lookup. Subsequent calls within the same isolate use
+  // the cached env._deepAuditConfig.
+  if (!isReplay && env?.DB && !env._deepAuditConfig) {
+    try {
+      const _daKeys = ["ai_cio_enabled", "ai_cio_replay_enabled", "ai_cio_shadow_mode", "ai_cio_reference_enabled"];
+      const _daRes = await env.DB.prepare(
+        `SELECT config_key, config_value FROM model_config WHERE config_key IN (${_daKeys.map((_, i) => `?${i + 1}`).join(",")})`
+      ).bind(..._daKeys).all().catch(() => ({ results: [] }));
+      const _daCfg = {};
+      for (const r of (_daRes?.results || [])) {
+        try { _daCfg[r.config_key] = JSON.parse(r.config_value); } catch { _daCfg[r.config_key] = r.config_value; }
+      }
+      env._deepAuditConfig = _daCfg;
+    } catch (_) {
+      env._deepAuditConfig = env._deepAuditConfig || {};
+    }
+  }
   const eventTs = () =>
     Number.isFinite(asOfMs) ? new Date(asOfMs).toISOString() : new Date().toISOString();
 
@@ -33206,6 +33238,21 @@ async function auditDataChange(env, { op, scope, caller, rowsAffected, meta } = 
  */
 async function publicRateLimit(req, env, endpoint, limitPerHour, sendJSON, corsHeaders) {
   try {
+    // P0.7.168 (2026-05-15) — Skip rate limiting for authenticated users.
+    //
+    // Reported: ledger_trades (26 blocks/24h) + portfolio_equity_curve (23
+    // blocks/24h) for the user's own IP. The trades page auto-polls every
+    // ~30s and the right rail fetches per-ticker; combined with normal page
+    // visits, a single signed-in user hits 120 req/hour easily. Public
+    // rate-limiting is meant to keep anonymous scrapers from hammering the
+    // worker, NOT to throttle the operator's own dashboard. Any session
+    // with a CF Access JWT or a Stripe-customer session token is by
+    // definition not anonymous.
+    try {
+      const _authUser = await authenticateUser(req, env);
+      if (_authUser?.email) return null;
+    } catch (_) { /* unauth — fall through to IP-based limit */ }
+
     const ip = req.headers.get("CF-Connecting-IP") ||
                (req.headers.get("X-Forwarded-For") || "").split(",")[0].trim() ||
                "unknown";
@@ -42125,6 +42172,47 @@ export default {
               if (activeSet.has(sym)) data[sym] = payload;
             }
 
+            // P0.7.166 (2026-05-15) — Position overlay for the snapshot fast-path.
+            //
+            // Bug: the snapshot fast-path served the pre-built KV blob as-is and
+            // never enriched with current `positions` row data. So every open
+            // position (IWM, MLI, DE, INFL, INTC, DIA, ...) came back with
+            // `has_open_position=null` and `position_sl=null`, forcing the
+            // frontend to fall through to engine ticker.sl (an at-this-moment
+            // recomputed value that has nothing to do with the actually-enforced
+            // stop_loss in the positions table). Result: cards showed an SL
+            // that disagreed with the engine's enforcement value, and the user
+            // saw "DEFEND" with a stale visual SL.
+            //
+            // Fix: always overlay current positions table values on top of the
+            // cached snapshot. The query is cheap (point lookup by status,
+            // typically <30 rows) and runs once per /timed/all request.
+            try {
+              if (env?.DB) {
+                const _posOverlayRes = await env.DB.prepare(
+                  `SELECT p.ticker, p.direction, p.stop_loss, p.take_profit,
+                          CASE WHEN p.total_qty > 0 AND p.cost_basis > 0
+                               THEN p.cost_basis / p.total_qty
+                               ELSE (SELECT l.price FROM lots l WHERE l.position_id = p.position_id ORDER BY l.ts ASC LIMIT 1)
+                          END AS avg_entry
+                   FROM positions p
+                   WHERE p.status IN ('OPEN','TP_HIT_TRIM')`
+                ).all().catch(() => ({ results: [] }));
+                const _posRows = Array.isArray(_posOverlayRes?.results) ? _posOverlayRes.results : [];
+                for (const _p of _posRows) {
+                  const _sym = String(_p.ticker || "").toUpperCase();
+                  if (!_sym || !data[_sym]) continue;
+                  data[_sym].has_open_position = true;
+                  data[_sym].position_direction = _p.direction;
+                  data[_sym].position_entry = Number(_p.avg_entry) || null;
+                  data[_sym].position_sl = Number(_p.stop_loss) || null;
+                  data[_sym].position_tp = Number(_p.take_profit) || null;
+                }
+              }
+            } catch (_posOverlayErr) {
+              console.warn("[/timed/all snapshot] Position overlay failed:", String(_posOverlayErr?.message || _posOverlayErr).slice(0, 200));
+            }
+
             // ── Fill gaps: tickers in SECTOR_MAP but missing from snapshot ──
             if (env?.DB) {
               const missingSyms = [...activeSet].filter(s => !data[s]);
@@ -48158,7 +48246,12 @@ export default {
       // GET /timed/ledger/trades?since&until&ticker&status&limit&cursor&mode=trader|investor
       if (routeKey === "GET /timed/ledger/trades") {
         // P0.7.158 — rate-limit unauthenticated reads (proof.html etc.)
-        const _ltRl = await publicRateLimit(req, env, "ledger_trades", 120, sendJSON, corsHeaders);
+        // P0.7.168 (2026-05-15) — raise from 120 → 1200/hr (20/min). The Pages
+        // trades page polls this endpoint from multiple components (trades
+        // tab + right rail + investor view), and 120/hr is far below normal
+        // single-user usage. CF Access JWT isn't passed cross-domain to the
+        // worker so the authenticated-bypass in publicRateLimit doesn't help.
+        const _ltRl = await publicRateLimit(req, env, "ledger_trades", 1200, sendJSON, corsHeaders);
         if (_ltRl) return _ltRl;
         const db = env?.DB;
         if (!db) {
@@ -63475,7 +63568,9 @@ export default {
       // GET /timed/portfolio/equity-curve?mode=trader|investor|both&since=YYYY-MM-DD&until=YYYY-MM-DD
       if (routeKey === "GET /timed/portfolio/equity-curve") {
         // P0.7.158 — rate-limit unauthenticated reads (proof.html etc.)
-        const _eqRl = await publicRateLimit(req, env, "portfolio_equity_curve", 120, sendJSON, corsHeaders);
+        // P0.7.168 (2026-05-15) — raise from 120 → 1200/hr. Same rationale
+        // as ledger_trades above (Pages page polls from multiple components).
+        const _eqRl = await publicRateLimit(req, env, "portfolio_equity_curve", 1200, sendJSON, corsHeaders);
         if (_eqRl) return _eqRl;
         try {
           const db = env?.DB;
@@ -73347,7 +73442,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       // this only does work after an actual eviction.
       try {
         if (_usesTwelveData(env) && env?.PRICE_STREAM && isWithinOperatingHours()) {
-          const _muteCheck = await KV.get("phase-c:cron-mute").catch(() => null);
+          // P0.7.167 (2026-05-15) — Was `KV.get(...)` but `const KV` is declared
+          // 200 lines below in the */5 block (line ~73585), so this reference
+          // hit the TDZ ("Cannot access 'KV' before initialization") on every
+          // */1 cron tick. The whole STREAM keep-alive silently failed —
+          // visible in tail as "[STREAM keep-alive] outer check failed".
+          // Use env.KV_TIMED directly to avoid the hoist dependency.
+          const _muteKv = env?.KV_TIMED || env?.KV;
+          const _muteCheck = _muteKv ? await _muteKv.get("phase-c:cron-mute").catch(() => null) : null;
           if (!_muteCheck) {
             ctx.waitUntil((async () => {
               try {
@@ -73381,7 +73483,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       // CME data subscription that we decided not to pay for).
       try {
         if (_isTradovateEnabled(env) && env?.TRADOVATE_STREAM && isWithinOperatingHours()) {
-          const _muteCheckTv = await KV.get("phase-c:cron-mute").catch(() => null);
+          // Same TDZ fix as STREAM keep-alive above — env.KV_TIMED instead of KV.
+          const _muteKvTv = env?.KV_TIMED || env?.KV;
+          const _muteCheckTv = _muteKvTv ? await _muteKvTv.get("phase-c:cron-mute").catch(() => null) : null;
           if (!_muteCheckTv) {
             ctx.waitUntil((async () => {
               try {

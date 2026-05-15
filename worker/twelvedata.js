@@ -102,6 +102,14 @@ export async function tdFetchTimeSeries(env, symbols, interval, start, end = nul
   if (!apiKey) return { bars: {}, error: "missing_credentials" };
   if (!symbols || symbols.length === 0) return { bars: {} };
 
+  // P0.7.169 (2026-05-15) — TwelveData enforces outputsize <= 5000. Callers
+  // were passing 10000 (intended as "as many as possible") which returned
+  // the API error 'Invalid outputsize provided: 10000' for every batch on
+  // every */5 cron tick. Clamp at 5000 (TD's max). At 5000 bars, 10m bars
+  // = ~35 trading days, 1h bars = ~10 months — far beyond any cron lookback
+  // window we use.
+  const _outputsizeClamped = Math.max(1, Math.min(5000, Number(outputsize) || 5000));
+
   const result = {};
   const BATCH = 8; // TwelveData supports batch, but safer in small groups
   const filtered = symbols.filter(s => !SKIP_TICKERS.has(s));
@@ -113,7 +121,7 @@ export async function tdFetchTimeSeries(env, symbols, interval, start, end = nul
       symbol: tdSyms.join(","),
       interval,
       apikey: apiKey,
-      outputsize: String(outputsize),
+      outputsize: String(_outputsizeClamped),
       order: "asc",
       timezone: "UTC",
     });

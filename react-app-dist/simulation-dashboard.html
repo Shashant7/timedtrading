@@ -207,17 +207,20 @@
           display: none !important;
         }
       }
-      /* V15 P0.7.162 (2026-05-14) — CHART tab full-height + static. */
+      /* V15 P0.7.162 (2026-05-14) → P0.7.171 (2026-05-15) — CHART tab
+         full-height + static. */
       .tt-rail-chart-tab-canvas {
-        height: auto !important;
-        min-height: 280px;
-        flex: 1 1 auto;
+        height: 100% !important;
+        min-height: 320px;
+        flex: 1 1 0 !important;
+        width: 100%;
       }
       @media (min-width: 1024px) {
         .tt-rail-chart-tab-canvas { min-height: 480px; }
       }
       .tt-rail-body--chart {
         overflow: hidden !important;
+        height: 100%;
       }
     </style>
   </head>
@@ -228,7 +231,7 @@
     <script src="shared-price-utils.js?v=20260211a"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260515-chart-tab-fullscreen"></script>
+    <script src="shared-right-rail.compiled.js?v=20260515-p7-fixes"></script>
     <!-- V15 P0.7.36 (2026-04-30): Trades Performance overview component
          (Monthly perf table, setup breakdown, P&L calendar heatmap).
          Self-contained factory at react-app/trades-performance.js. -->
