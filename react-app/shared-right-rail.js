@@ -6201,47 +6201,20 @@
                   )}
                 </div>
                 {/* ─── Footer ───────────────────────────────────────── */}
-                {/* V15 P0.7.159 — CHART button lives here next to "Open in
-                    TradingView". This is the primary chart-access point on
-                    mobile (where the left-pane chart panel is hidden).
-                    P0.7.162 (2026-05-14) — hide the footer entirely while
-                    the CHART tab is active: the green CHART button is
-                    redundant (you're already on Chart) and the chart tab
-                    has its own TradingView link, so this row just steals
-                    height from the chart canvas. */}
+                {/* P0.7.179 (2026-05-15) — Footer simplified. The green
+                    "⤢ CHART" button was redundant with the new CHART tab
+                    in the tab nav above. User report: "I still see the
+                    Green Chart Button on the other Tabs." Removing the
+                    button entirely; users now access the chart by tapping
+                    the CHART tab. The "Open in TradingView ↗" link stays
+                    on non-chart tabs for users who want to drill in
+                    externally; on the CHART tab the same link is rendered
+                    inline next to the TF chips. */}
                 {v2RailTab !== "CHART" && (
                 <div style={{ borderTop: "1px solid var(--ds-stroke)", padding: "var(--ds-space-3) var(--ds-space-4)", display: "flex", alignItems: "center", gap: 8 }}>
                   <a href={`https://www.tradingview.com/symbols/${tickerSymbol}/`} target="_blank" rel="noopener noreferrer" className="ds-chip ds-chip--sm" style={{ display: "inline-flex" }}>
                     Open in TradingView ↗
                   </a>
-                  {/* V15 P0.7.161 (2026-05-14) — Tap CHART button switches
-                      to the CHART tab (added to the tab nav above). No more
-                      position:fixed / portal / pane-swap dance — just a normal
-                      tab change. Works reliably on iOS Safari because there's
-                      nothing to fight a stacking context. */}
-                  <button
-                    className="ds-chip ds-chip--sm"
-                    onClick={() => setRailTab("CHART")}
-                    title="View chart"
-                    aria-label="View chart"
-                    style={{
-                      fontFamily: "var(--tt-font-mono)",
-                      padding: "0 12px",
-                      fontSize: 11,
-                      fontWeight: 800,
-                      letterSpacing: "0.05em",
-                      color: "#051a10",
-                      background: "linear-gradient(135deg, rgba(34, 197, 94, 0.96), rgba(16, 185, 129, 0.96))",
-                      border: "1px solid rgba(34, 197, 94, 0.85)",
-                      boxShadow: "0 2px 8px rgba(34, 197, 94, 0.35)",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 5,
-                    }}
-                  >
-                    <span style={{ fontSize: 13, lineHeight: 1 }}>⤢</span>
-                    <span>CHART</span>
-                  </button>
                 </div>
                 )}
               </div>

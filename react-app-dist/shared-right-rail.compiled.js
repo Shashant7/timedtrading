@@ -7671,31 +7671,7 @@
           style: {
             display: "inline-flex"
           }
-        }, "Open in TradingView \u2197"), React.createElement("button", {
-          className: "ds-chip ds-chip--sm",
-          onClick: () => setRailTab("CHART"),
-          title: "View chart",
-          "aria-label": "View chart",
-          style: {
-            fontFamily: "var(--tt-font-mono)",
-            padding: "0 12px",
-            fontSize: 11,
-            fontWeight: 800,
-            letterSpacing: "0.05em",
-            color: "#051a10",
-            background: "linear-gradient(135deg, rgba(34, 197, 94, 0.96), rgba(16, 185, 129, 0.96))",
-            border: "1px solid rgba(34, 197, 94, 0.85)",
-            boxShadow: "0 2px 8px rgba(34, 197, 94, 0.35)",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 5
-          }
-        }, React.createElement("span", {
-          style: {
-            fontSize: 13,
-            lineHeight: 1
-          }
-        }, "\u2922"), React.createElement("span", null, "CHART")))), renderAutopsyOverlay());
+        }, "Open in TradingView \u2197"))), renderAutopsyOverlay());
       }
       return React.createElement(React.Fragment, null, React.createElement("div", {
         className: "w-full h-full flex flex-col",
