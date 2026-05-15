@@ -5524,7 +5524,7 @@ function getTradeLifecycleState(ticker, trade) {
   const tradeIsOpen = !tradeIsClosed && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !tradeStatus);
   let effectiveStage = rawStage;
   if (tradeIsOpen) {
-    if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) effectiveStage = "trim";else if (rawStage === "exit") effectiveStage = "defend";else if (!["defend", "trim", "hold", "active", "just_entered"].includes(rawStage)) effectiveStage = "hold";
+    if (rawStage === "exit") effectiveStage = "defend";else if (rawStage === "defend") effectiveStage = "defend";else if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) effectiveStage = "trim";else if (!["trim", "hold", "active", "just_entered"].includes(rawStage)) effectiveStage = "hold";
   }
   return {
     trade: resolvedTrade,
@@ -9664,7 +9664,7 @@ const DsCompactCard = React.memo(function DsCompactCard({
   if (hasOpen) {
     const _st = String(openTrade?.status || "").toUpperCase();
     const _trim = Number(openTrade?.trimmed_pct ?? openTrade?.trimmedPct ?? 0);
-    if (_st === "TP_HIT_TRIM" || _trim > 0) stage = "trim";else if (stage === "exit") stage = "defend";else if (stage !== "defend" && stage !== "trim" && stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
+    if (stage === "exit") stage = "defend";else if (stage === "defend") {} else if (_st === "TP_HIT_TRIM" || _trim > 0) stage = "trim";else if (stage !== "trim" && stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
   }
   const isTTSel = typeof isTickerTTSelected === "function" ? isTickerTTSelected(sym) : false;
   const earnings = typeof window !== "undefined" && window._ttEarningsMap ? window._ttEarningsMap[sym] : null;
@@ -10658,7 +10658,7 @@ function ActionCenterPanel({
         const isClosed = st === "WIN" || st === "LOSS" || st === "FLAT" || st === "CLOSED" || st === "CANCELED" || !!(trade?.exit_ts ?? trade?.exitTs) || trimPct >= 0.9999;
         const isOpen = !isClosed && (st === "OPEN" || st === "TP_HIT_TRIM");
         if (isOpen) {
-          if (st === "TP_HIT_TRIM" || trimPct > 0) stage = "trim";else if (stage === "exit") stage = "defend";else if (stage !== "defend" && stage !== "trim" && stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
+          if (stage === "exit") stage = "defend";else if (stage === "defend") {} else if (st === "TP_HIT_TRIM" || trimPct > 0) stage = "trim";else if (stage !== "trim" && stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
         }
         if (isClosed) {
           const exitMs = Number(trade.exit_ts ?? trade.exitTs ?? 0);
@@ -11875,11 +11875,11 @@ function EarlyMoversPanel({
       const isClosed = status === "WIN" || status === "LOSS" || status === "FLAT" || status === "CLOSED" || status === "CANCELED" || !!(trade?.exit_ts ?? trade?.exitTs) || trimmedPct >= 0.9999;
       const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM");
       if (trade && isOpen) {
-        if (status === "TP_HIT_TRIM" || Number(trade.trimmed_pct ?? trade.trimmedPct ?? 0) > 0) {
-          stage = "trim";
-        } else if (stage === "exit") {
+        if (stage === "exit") {
           stage = "defend";
-        } else if (stage === "defend" || stage === "trim") {} else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") {
+        } else if (stage === "defend") {} else if (status === "TP_HIT_TRIM" || Number(trade.trimmed_pct ?? trade.trimmedPct ?? 0) > 0) {
+          stage = "trim";
+        } else if (stage === "trim") {} else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") {
           stage = "hold";
         }
       }
@@ -15699,7 +15699,7 @@ function App() {
         const isClosed = st === "WIN" || st === "LOSS" || st === "FLAT" || st === "CLOSED" || st === "CANCELED" || !!(trade?.exit_ts ?? trade?.exitTs) || trimPct >= 0.9999;
         const isOpen = !isClosed && (st === "OPEN" || st === "TP_HIT_TRIM");
         if (isOpen) {
-          if (st === "TP_HIT_TRIM" || trimPct > 0) stage = "trim";else if (!["defend", "trim", "exit", "hold", "active", "just_entered"].includes(stage)) stage = "hold";
+          if (stage === "exit" || stage === "defend") stage = "defend";else if (st === "TP_HIT_TRIM" || trimPct > 0) stage = "trim";else if (!["trim", "hold", "active", "just_entered"].includes(stage)) stage = "hold";
         }
       }
       if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") counts.setup++;else if (stage === "in_review" || stage === "enter" || stage === "enter_now" || stage === "just_flipped") counts.enter++;else if (stage === "active" || stage === "just_entered" || stage === "hold") counts.hold++;else if (stage === "defend") counts.defend++;else if (stage === "trim") counts.trim++;else if (stage === "exit") counts.exit++;
