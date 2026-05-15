@@ -5145,7 +5145,7 @@ function PortfolioColumn({
 
           <div className="ds-card" style=${{
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
     gap: "var(--ds-space-2)"
   }}>
             <div className="ds-metric">

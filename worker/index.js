@@ -1316,6 +1316,7 @@ const ROUTES = [
   // grep "what's been silently broken?" without trawling logs.
   ["GET", "/timed/admin/cron-status", "GET /timed/admin/cron-status"],
   ["POST", "/timed/admin/cron-clear", "POST /timed/admin/cron-clear"],
+  ["POST", "/timed/admin/rebuild-snapshots", "POST /timed/admin/rebuild-snapshots"],
   // P0.7.156 — candle freshness probe. Returns the worst-stale ticker
   // per TF so the operator can spot a dead backfill cron at a glance.
   ["GET", "/timed/admin/candle-freshness", "GET /timed/admin/candle-freshness"],
@@ -34320,16 +34321,60 @@ async function snapshotBothPortfolios(env, KV, replayCtx, dayDate, tickerDataMap
   let traderCash = await d1GetLedgerBalance(env, "trader");
   let traderPositionsValue = 0;
   let traderOpenCount = 0;
+  // P0.7.172 (2026-05-15) — Mark-to-market open positions from the D1
+  // `positions` table (authoritative), not the legacy `timed:trades:all`
+  // KV blob.
+  //
+  // Bug: previous version read `t.qty` and `t.currentPrice` from the KV
+  // blob. Trade objects use `shares`, and `currentPrice` was never set
+  // on any trade record. So `qty=0` for every row → `positionsValue=0`
+  // for every snapshot → cash spent on opening positions silently
+  // disappeared from the equity curve. User report 2026-05-15:
+  // 'Equity curve shows $117,009; should be ~$140,000.'
+  //
+  // Trader's account on 2026-05-12: $139,631 equity (matches account
+  // header). 2026-05-14: $117,009 equity (after ~$22.6K of new
+  // positions were opened with no mark-to-market). Header showed $139.6K.
+  //
+  // Fix: read open positions from D1 (same source the rest of the UI
+  // uses), get current price from `timed:latest:{sym}` or D1 ticker_latest.
   try {
-    const kvTrades = await kvGetJSON(KV, "timed:trades:all") || [];
-    const openTrades = kvTrades.filter(t => t.status === "OPEN");
-    traderOpenCount = openTrades.length;
-    for (const t of openTrades) {
-      const qty = Number(t.qty) || 0;
-      const curPrice = Number(t.currentPrice) || Number(t.price) || 0;
-      traderPositionsValue += qty * curPrice;
+    const _posRes = await db.prepare(
+      `SELECT ticker, total_qty FROM positions WHERE status IN ('OPEN','TP_HIT_TRIM') AND total_qty > 0`
+    ).all().catch(() => ({ results: [] }));
+    const _openPositions = Array.isArray(_posRes?.results) ? _posRes.results : [];
+    traderOpenCount = _openPositions.length;
+
+    if (_openPositions.length > 0) {
+      // Try the historical-close path first when snapshot is for a past
+      // date (matches investor snapshot semantics). For today's snapshot,
+      // fall through to KV live price.
+      const _snapTickers = _openPositions.map((p) => String(p.ticker).toUpperCase());
+      const _snapHistPrices = await loadHistoricalClosesAt(env, _snapTickers, dayMs).catch(() => ({}));
+
+      for (const p of _openPositions) {
+        const ticker = String(p.ticker).toUpperCase();
+        const shares = Number(p.total_qty) || 0;
+        if (shares <= 0) continue;
+        let curPrice = Number(_snapHistPrices?.[ticker]) || 0;
+        if (!curPrice) {
+          if (tickerDataMapOverride && tickerDataMapOverride[ticker]) {
+            curPrice = Number(tickerDataMapOverride[ticker]?.price) || 0;
+          } else {
+            try {
+              const td = await kvGetJSON(KV, `timed:latest:${ticker}`);
+              curPrice = Number(td?.price) || 0;
+            } catch {}
+          }
+        }
+        if (curPrice > 0) {
+          traderPositionsValue += shares * curPrice;
+        }
+      }
     }
-  } catch {}
+  } catch (e) {
+    console.warn("[SNAPSHOT trader] mark-to-market failed:", String(e?.message || e).slice(0, 200));
+  }
 
   let traderDayPnl = 0;
   let traderDayTrades = 0;
@@ -53576,6 +53621,57 @@ export default {
             return (b.count || 0) - (a.count || 0);
           });
           return sendJSON({ ok: true, ops, count: ops.length, ts: Date.now() }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/rebuild-snapshots?key=...&fromDate=YYYY-MM-DD[&toDate=YYYY-MM-DD]
+      //
+      // P0.7.172 (2026-05-15) — rebuild trader+investor portfolio snapshots
+      // for a date range. Use after a snapshot-logic bug fix (like the
+      // qty/currentPrice→shares/positions_table fix in snapshotBothPortfolios)
+      // to restore the equity curve from the correct mark-to-market values.
+      //
+      // Iterates day-by-day, calling snapshotBothPortfolios which uses
+      // loadHistoricalClosesAt for past dates (D1 ticker_candles) and KV
+      // timed:latest for today.
+      if (routeKey === "POST /timed/admin/rebuild-snapshots") {
+        const _rsAuthFail = await requireKeyOrAdmin(req, env);
+        if (_rsAuthFail) return _rsAuthFail;
+        const fromDate = url.searchParams.get("fromDate");
+        const _nyPartsToday = new Date().toLocaleString("en-US", {
+          timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+        }).split("/");
+        const _todayNy = `${_nyPartsToday[2]}-${_nyPartsToday[0]}-${_nyPartsToday[1]}`;
+        const toDate = url.searchParams.get("toDate") || _todayNy;
+        if (!fromDate || !/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) {
+          return sendJSON({ ok: false, error: "fromDate required (YYYY-MM-DD); toDate optional (defaults to today NY)" }, 400, corsHeaders(env, req));
+        }
+        try {
+          const start = new Date(`${fromDate}T12:00:00Z`).getTime();
+          const end = new Date(`${toDate}T12:00:00Z`).getTime();
+          if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+            return sendJSON({ ok: false, error: "bad_date_range" }, 400, corsHeaders(env, req));
+          }
+          const days = [];
+          for (let t = start; t <= end; t += 86400000) {
+            const d = new Date(t);
+            const _ny = d.toLocaleString("en-US", {
+              timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+            }).split("/");
+            days.push(`${_ny[2]}-${_ny[0]}-${_ny[1]}`);
+          }
+          const results = [];
+          for (const d of days) {
+            try {
+              const r = await snapshotBothPortfolios(env, KV, null, d, null);
+              results.push({ date: d, trader: r?.trader, investor: r?.investor });
+            } catch (e) {
+              results.push({ date: d, error: String(e?.message || e).slice(0, 200) });
+            }
+          }
+          return sendJSON({ ok: true, range: { from: fromDate, to: toDate }, days: results.length, results }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
