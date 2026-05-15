@@ -364,22 +364,37 @@ export async function cronFetchLatest(env, allTickers) {
   const slotIdx = Math.floor(minuteOfHour / 5);
   const isTopOfHour = minuteOfHour < 5;
 
-  const tfsThisCycle = isTopOfHour
-    ? ["5", "10", "15", "30", "60", "240", "D", "W", "M"]
-    : ["5", "10", "15", "30", "60", "240"];
+  // P0.7.163 (2026-05-15) — Split intraday TFs from D/W/M scheduling.
+  //
+  // Bug fixed: prior version sliced `allTickers` into halves by `slotIdx % 2`,
+  // and only ran D/W/M at top-of-hour (slotIdx === 0). slotIdx === 0 always
+  // maps to halfIdx === 0 (= first half), so D/W/M for the second half of
+  // the universe was NEVER fetched. User-added tickers are appended after
+  // SECTOR_MAP and almost always land in the second half, which is why
+  // PCI / GME / DBA / HIMX / IGV / FBL all had D bars stuck 33–61h stale
+  // even though SECTOR_MAP tickers were fresh.
+  //
+  // Fix: at top-of-hour, fetch D/W/M for the FULL universe (1 call/hour
+  // for ~250 tickers is well within TwelveData rate budget — D/W/M only
+  // returns a handful of bars each). Intraday TFs keep the half-slice for
+  // rate control, but now slotIdx === 0 is for intraday-half-0 too, so the
+  // top-of-hour run still fetches BOTH the full universe (for D/W/M) AND
+  // half-0 (for 5/10/15/30/60/240).
+  const intradayTfs = ["5", "10", "15", "30", "60", "240"];
+  const aggregatedTfs = isTopOfHour ? ["D", "W", "M"] : [];
 
   const halfIdx = slotIdx % 2;
   const mid = Math.ceil(allTickers.length / 2);
-  const tickersThisCycle = halfIdx === 0 ? allTickers.slice(0, mid) : allTickers.slice(mid);
-  console.log(`[TD CRON] TFs=[${tfsThisCycle}] half=${halfIdx} tickers=${tickersThisCycle.length}/${allTickers.length} slot=${slotIdx}${isTopOfHour ? " (hourly D/W/M)" : ""}`);
+  const intradayTickers = halfIdx === 0 ? allTickers.slice(0, mid) : allTickers.slice(mid);
+  console.log(`[TD CRON] intraday TFs=[${intradayTfs}] half=${halfIdx} tickers=${intradayTickers.length}/${allTickers.length} slot=${slotIdx}${isTopOfHour ? ` + aggregated TFs=[${aggregatedTfs}] across full universe (${allTickers.length})` : ""}`);
 
   let totalUpserted = 0, totalErrors = 0;
 
-  for (const tf of tfsThisCycle) {
+  for (const tf of intradayTfs) {
     try {
       const lookback = CRON_TF_LOOKBACK_MS[tf] || 24 * 60 * 60 * 1000;
       const start = new Date(Date.now() - lookback).toISOString();
-      const result = await fetchAllBars(env, tickersThisCycle, tf, start, null, 10000);
+      const result = await fetchAllBars(env, intradayTickers, tf, start, null, 10000);
       if (!result?.bars) continue;
 
       const { upserted, errors } = await _batchUpsertBars(db, result.bars, tf);
@@ -387,7 +402,23 @@ export async function cronFetchLatest(env, allTickers) {
       totalErrors += errors;
     } catch (tfErr) {
       totalErrors++;
-      console.warn(`[TD CRON] TF ${tf} error:`, String(tfErr).slice(0, 200));
+      console.warn(`[TD CRON] intraday TF ${tf} error:`, String(tfErr).slice(0, 200));
+    }
+  }
+
+  for (const tf of aggregatedTfs) {
+    try {
+      const lookback = CRON_TF_LOOKBACK_MS[tf] || 7 * 24 * 60 * 60 * 1000;
+      const start = new Date(Date.now() - lookback).toISOString();
+      const result = await fetchAllBars(env, allTickers, tf, start, null, 10000);
+      if (!result?.bars) continue;
+
+      const { upserted, errors } = await _batchUpsertBars(db, result.bars, tf);
+      totalUpserted += upserted;
+      totalErrors += errors;
+    } catch (tfErr) {
+      totalErrors++;
+      console.warn(`[TD CRON] aggregated TF ${tf} error:`, String(tfErr).slice(0, 200));
     }
   }
 

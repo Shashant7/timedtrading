@@ -72282,9 +72282,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // freshness checking. PSTG, DELL, and other tickers in M&A/
           // corporate-action limbo can have a fresh D candle (still trading)
           // but an intraday feed that dried up weeks ago (Alpaca stopped
-          // serving bars when liquidity dried up). 10d window is tight
+          // serving bars when liquidity dried up). 7d window is tight
           // enough to surface "actually broken" without false alarms.
-          const ACTIVE_WINDOW_60_MS = 10 * 86400000;
+          // P0.7.163 (2026-05-15) — Tightened to 7d so a ticker whose
+          // intraday feed stopped >7d ago (PSTG-style M&A limbo) drops
+          // out of the alarm universe entirely. A real cron failure would
+          // show up across the full universe of actively-streamed tickers
+          // within hours, not weeks.
+          const ACTIVE_WINDOW_60_MS = 7 * 86400000;
           // P0.7.161 (2026-05-14) — Cap ts at now + 24h to filter out
           // corrupt future-dated rows (we had a SPX D row stamped year
           // 34227 from a pre-existing data glitch). The cleanup is a
