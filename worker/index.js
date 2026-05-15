@@ -72753,40 +72753,87 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       const _bcEtH = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }), 10);
       const _bcEtM = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/New_York", minute: "numeric" }), 10);
       if (_bcEtH === 16 && _bcEtM >= 25 && _bcEtM <= 35) ctx.waitUntil((async () => {
+        // P0.7.178 (2026-05-15) — Idempotent + retry-friendly eval.
+        //
+        // The */5 cron fires at :25, :30, :35 ET — three independent attempts
+        // in the 10-min window. Each call hits the eval route independently.
+        // If :30 happened to query before the morning brief was visible (D1
+        // eventual-consistency window, brief publication race, etc.), the
+        // old code immediately tombstoned + fired a Discord alert. Then :35
+        // succeeded and cleared the tombstone. Result: spurious Discord
+        // alerts on transient timing races.
+        //
+        // Fix:
+        // 1. Track per-day completion via KV (`timed:cron:brief_eval_done:YYYY-MM-DD`).
+        //    If already done today, skip — no DB hit, no retry, no alert.
+        // 2. Within the retry window (:25/:30/:35), TREAT a "missing brief"
+        //    404 as a soft retry — log it, do NOT tombstone. Only the LAST
+        //    attempt of the day (the :35 tick OR an end-of-day sweep) is
+        //    allowed to tombstone if the brief still isn't available.
+        // 3. Genuine errors (5xx, network) still tombstone immediately —
+        //    those are infra problems we want to know about.
+        const _nyPartsTd = new Date().toLocaleString("en-US", {
+          timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+        }).split("/");
+        const _nyDateToday = `${_nyPartsTd[2]}-${_nyPartsTd[0]}-${_nyPartsTd[1]}`;
+        const _bcDoneKey = `timed:cron:brief_eval_done:${_nyDateToday}`;
+        const _isLastWindowTick = _bcEtM >= 33; // only :33-:35 ticks may tombstone
         try {
+          const KV = env?.KV_TIMED;
+          if (KV) {
+            const _done = await KV.get(_bcDoneKey).catch(() => null);
+            if (_done) {
+              return; // already evaluated successfully today
+            }
+          }
+
           const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
           const _bcKey = env?.TIMED_API_KEY ? `?key=${encodeURIComponent(env.TIMED_API_KEY)}` : "";
           const r = await fetch(`${selfUrl}/timed/admin/brief-eval-accuracy${_bcKey}`, { method: "POST" });
           const j = await r.json().catch(() => ({}));
           if (j?.ok) {
-            // P0.7.161 (2026-05-14) — treat a successful eval where the
-            // morning brief is missing / unscored as success too. A null
-            // avg_score just means today's D candle hasn't landed yet
-            // (the cron fires 30 min after close), not an engine failure.
-            // The next day's run will overwrite with the correct value.
             console.log(`[BRIEF EVAL] ${j.date} avg_score=${j.avg_score?.toFixed?.(2) ?? "—"} (SPY=${j.spy?.score} QQQ=${j.qqq?.score} IWM=${j.iwm?.score})`);
             recordCronSuccess(env, "brief_accuracy_eval").catch(() => {});
-          } else {
-            // P0.7.161 — never tombstone `unknown`. Use whatever the
-            // endpoint reported, falling back to HTTP status + body
-            // shape if the JSON omitted `error`.
-            const _baErr = j?.error
-              || (j && Object.keys(j).length > 0 ? JSON.stringify(j).slice(0, 120) : null)
-              || `http_${r.status}_no_body`;
-            console.warn(`[BRIEF EVAL] failed: ${_baErr}`);
+            // Mark today as done so subsequent ticks in the same window
+            // skip cleanly. 36h TTL covers the cron window + safety margin.
+            if (KV) {
+              await KV.put(_bcDoneKey, "1", { expirationTtl: 36 * 3600 }).catch(() => {});
+            }
+            return;
+          }
+
+          // Failure path — categorize the error.
+          const _baErr = j?.error
+            || (j && Object.keys(j).length > 0 ? JSON.stringify(j).slice(0, 120) : null)
+            || `http_${r.status}_no_body`;
+          const _isMissingBrief = r.status === 404
+            && (String(_baErr).includes("no_brief") || String(_baErr).includes("404"));
+
+          if (_isMissingBrief && !_isLastWindowTick) {
+            // Transient miss — brief not yet visible. Retry on next 5-min tick.
+            console.log(`[BRIEF EVAL] transient miss (will retry): ${_baErr}`);
+            return;
+          }
+
+          // Either a real error OR the brief is genuinely missing at end of
+          // the retry window — tombstone now so the operator sees it.
+          console.warn(`[BRIEF EVAL] failed: ${_baErr}`);
+          recordCronFailure(env, {
+            op: "brief_accuracy_eval",
+            error: _baErr,
+            caller: "scheduled_event",
+          }).catch(() => {});
+        } catch (e) {
+          console.warn("[BRIEF EVAL] cron failed:", String(e?.message || e).slice(0, 200));
+          // Network / DB failure — only tombstone on the last tick of the
+          // window (transient infra blips earlier in the window may resolve).
+          if (_isLastWindowTick) {
             recordCronFailure(env, {
               op: "brief_accuracy_eval",
-              error: _baErr,
+              error: String(e?.message || e),
               caller: "scheduled_event",
             }).catch(() => {});
           }
-        } catch (e) {
-          console.warn("[BRIEF EVAL] cron failed:", String(e?.message || e).slice(0, 200));
-          recordCronFailure(env, {
-            op: "brief_accuracy_eval",
-            error: String(e?.message || e),
-            caller: "scheduled_event",
-          }).catch(() => {});
         }
       })());
     }
