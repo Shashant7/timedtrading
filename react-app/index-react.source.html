@@ -1164,7 +1164,7 @@
     <script src="ds-components.js?v=20260501a"></script>
     <script src="investor-panel.js?v=20260226a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260515-sl-engine"></script>
+    <script src="shared-right-rail.compiled.js?v=20260515-chart-tab-fullscreen"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef, memo } = React;
@@ -12446,42 +12446,12 @@
           const score = Number(rankScoreForTicker(t)) || Number(t?.score ?? t?.flip_watch_score ?? t?.weighted_score);
           const price = Number(t?.price ?? t?.close);
 
-          // P0.7.165 (2026-05-15) — Stop-loss display source-of-truth fix.
-          //
-          // Previously: prefer `position_sl` (positions table stop_loss field)
-          // over `ticker.sl` (engine's live SL). The position record's
-          // stop_loss is the SL at PLACEMENT and is never updated as the
-          // engine trails / widens / re-anchors the live SL. Result on IWM
-          // (entry $282.99, position_sl=$281.01, engine sl=$270.61, price
-          // $277.59): the card showed SL=$281, current $277.59 — making the
-          // user (correctly) infer that SL had been breached, yet the trade
-          // stayed open in Defend. The engine wasn't using $281 — it was
-          // using $270.61, and the price was still above that. Display was
-          // out of sync with enforcement.
-          //
-          // Now: prefer the engine's live SL when it's sane for the direction.
-          // Position SL is the fallback for cases where engine SL is missing
-          // or pointing the wrong way (which used to happen on SHORT trades
-          // where engine SL was below price instead of above).
+          // Use position SL/TP when available (correct for SHORT trades), else fall back to ticker SL/TP
           const hasPos = !!t?.has_open_position;
           const posDir = hasPos ? String(t?.position_direction || "").toUpperCase() : null;
-          const _slSaneForDir = (raw) => {
-            if (!Number.isFinite(raw) || raw <= 0 || !Number.isFinite(price) || price <= 0) return false;
-            if (dir === "LONG" && raw >= price) return false;
-            if (dir === "SHORT" && raw <= price) return false;
-            return true;
-          };
-          const _engineSL = Number(t?.sl ?? t?.sl_price ?? t?.stop_loss ?? t?.stop);
-          const _posSL = hasPos ? Number(t?.position_sl) : NaN;
-          const slRaw = (() => {
-            const engineOk = _slSaneForDir(_engineSL);
-            const posOk = hasPos && _slSaneForDir(_posSL);
-            if (engineOk) return _engineSL;
-            if (posOk) return _posSL;
-            if (Number.isFinite(_engineSL) && _engineSL > 0) return _engineSL;
-            if (Number.isFinite(_posSL) && _posSL > 0) return _posSL;
-            return NaN;
-          })();
+          const slRaw = hasPos && Number.isFinite(Number(t?.position_sl)) && Number(t?.position_sl) > 0
+            ? Number(t.position_sl)
+            : Number(t?.sl ?? t?.sl_price ?? t?.stop_loss ?? t?.stop);
           const tpRaw = hasPos && Number.isFinite(Number(t?.position_tp)) && Number(t?.position_tp) > 0
             ? Number(t.position_tp)
             : numFromAny(t?.tp ?? t?.tp_trim);
@@ -12489,7 +12459,12 @@
           // Direction for SL/TP sanity: use `dir` which already accounts for
           // trade direction, position direction, and ticker bias (lines 10892-10901)
           const effectiveDir = dir;
-          const slSane = _slSaneForDir(slRaw) ? slRaw : null;
+          const slSane = (() => {
+            if (!Number.isFinite(slRaw) || slRaw <= 0 || !Number.isFinite(price) || price <= 0) return null;
+            if (dir === "LONG" && slRaw >= price) return null;
+            if (dir === "SHORT" && slRaw <= price) return null;
+            return slRaw;
+          })();
           const tpSane = (() => {
             if (!Number.isFinite(tpRaw) || tpRaw <= 0 || !Number.isFinite(price) || price <= 0) return null;
             if (dir === "LONG" && tpRaw <= price) return null;
@@ -14410,28 +14385,18 @@
           const posDir = t?.has_open_position ? String(t?.position_direction || "").toUpperCase() : null;
           const effectiveDir = (posDir === "LONG" || posDir === "SHORT") ? posDir : dir;
           const price = Number(t?.price ?? t?.close);
-          // P0.7.165 (2026-05-15) — Prefer engine's LIVE sl over positions
-          // table stop_loss. See main rationale at line ~12450.
+          // Prefer position SL (direction-aware) over ticker SL
           const hasPos = !!t?.has_open_position;
-          const _slSaneForDir2 = (raw) => {
-            if (!Number.isFinite(raw) || raw <= 0 || !Number.isFinite(price) || price <= 0) return false;
-            if (effectiveDir === "LONG" && raw >= price) return false;
-            if (effectiveDir === "SHORT" && raw <= price) return false;
-            return true;
-          };
-          const _engineSL2 = Number(t?.sl ?? t?.sl_price ?? t?.stop_loss ?? t?.stop);
-          const _posSL2 = hasPos ? Number(t?.position_sl) : NaN;
-          const slRaw = (() => {
-            const engineOk = _slSaneForDir2(_engineSL2);
-            const posOk = hasPos && _slSaneForDir2(_posSL2);
-            if (engineOk) return _engineSL2;
-            if (posOk) return _posSL2;
-            if (Number.isFinite(_engineSL2) && _engineSL2 > 0) return _engineSL2;
-            if (Number.isFinite(_posSL2) && _posSL2 > 0) return _posSL2;
-            return NaN;
-          })();
+          const slRaw = hasPos && Number.isFinite(Number(t?.position_sl)) && Number(t?.position_sl) > 0
+            ? Number(t.position_sl)
+            : Number(t?.sl ?? t?.sl_price ?? t?.stop_loss ?? t?.stop);
           const tpRaw = numFromAny(t?.tp ?? t?.tp_trim);
-          const slSane = _slSaneForDir2(slRaw) ? slRaw : null;
+          const slSane = (() => {
+            if (!Number.isFinite(slRaw) || slRaw <= 0 || !Number.isFinite(price) || price <= 0) return null;
+            if (effectiveDir === "LONG" && slRaw >= price) return null;
+            if (effectiveDir === "SHORT" && slRaw <= price) return null;
+            return slRaw;
+          })();
           // Original SL for TSL detection
           const slOrigRaw = Number(trade?.sl_original ?? t?.position_sl_original ?? 0);
           const slOrig = Number.isFinite(slOrigRaw) && slOrigRaw > 0 ? slOrigRaw : null;

@@ -7420,31 +7420,16 @@
                         if (!Array.isArray(chartCandles) || chartCandles.length < 2) return null;
 
                         const price = Number(ticker?.price);
-                        // P0.7.165 (2026-05-15) — Prefer engine's live SL over
-                        // the position record's stop_loss (which is the AT-ENTRY
-                        // value, not updated as engine trails). See IWM bug
-                        // report 2026-05-15: position_sl=$281.01 (placement),
-                        // engine sl=$270.61 (live), price=$277.59. Card was
-                        // showing $281 — visually breached but engine was NOT
-                        // closing because it uses $270.61.
-                        const posSlRaw2 = ticker?.has_open_position ? Number(ticker?.position_sl) : NaN;
-                        const engineSlRaw2 = Number(ticker?.sl ?? ticker?.sl_price ?? ticker?.stop_loss);
+                        const posSlRaw = ticker?.has_open_position ? Number(ticker?.position_sl) : NaN;
                         const kijunSL2 = resolvedDir === "LONG" ? Number(ticker?.ichimoku_d?.kijunSL_long) : Number(ticker?.ichimoku_d?.kijunSL_short);
-                        const _slDirOk2 = (raw) => {
-                          if (!Number.isFinite(raw) || raw <= 0 || !Number.isFinite(price) || price <= 0) return false;
-                          if (resolvedDir === "LONG" && raw >= price) return false;
-                          if (resolvedDir === "SHORT" && raw <= price) return false;
-                          return true;
-                        };
-                        const slRaw = (() => {
-                          if (_slDirOk2(engineSlRaw2)) return engineSlRaw2;
-                          if (_slDirOk2(posSlRaw2)) return posSlRaw2;
-                          if (Number.isFinite(kijunSL2) && kijunSL2 > 0 && _slDirOk2(kijunSL2)) return kijunSL2;
-                          if (Number.isFinite(engineSlRaw2) && engineSlRaw2 > 0) return engineSlRaw2;
-                          if (Number.isFinite(posSlRaw2) && posSlRaw2 > 0) return posSlRaw2;
-                          return null;
+                        const slRaw = Number.isFinite(posSlRaw) && posSlRaw > 0 ? posSlRaw : (ticker?.sl ?? ticker?.sl_price ?? ticker?.stop_loss) ? Number(ticker?.sl ?? ticker?.sl_price ?? ticker?.stop_loss) : (Number.isFinite(kijunSL2) && kijunSL2 > 0 ? kijunSL2 : null);
+                        const slVal = (() => {
+                          if (!Number.isFinite(slRaw) || slRaw <= 0) return null;
+                          if (!resolvedDir || !Number.isFinite(price) || price <= 0) return slRaw;
+                          if (resolvedDir === "LONG" && slRaw >= price) return null;
+                          if (resolvedDir === "SHORT" && slRaw <= price) return null;
+                          return slRaw;
                         })();
-                        const slVal = _slDirOk2(slRaw) ? slRaw : null;
 
                         const tradeTpArr = Array.isArray(trade?.tpArray) && trade.tpArray.length > 0
                           ? trade.tpArray
@@ -10630,25 +10615,9 @@
             {/* ═══════════════════════════════════════════════════════════════════════ */}
             {chartExpanded && (() => {
               const price = Number(ticker?.price);
-              // P0.7.165 (2026-05-15) — Same engine-SL-preferred logic as the
-              // chart-tab block above. See rationale at line ~7423.
-              const posSlRaw3 = ticker?.has_open_position ? Number(ticker?.position_sl) : NaN;
-              const engineSlRaw3 = Number(ticker?.sl ?? ticker?.sl_price ?? ticker?.stop_loss);
+              const posSlRaw = ticker?.has_open_position ? Number(ticker?.position_sl) : NaN;
               const kijunSL3 = resolvedDir === "LONG" ? Number(ticker?.ichimoku_d?.kijunSL_long) : Number(ticker?.ichimoku_d?.kijunSL_short);
-              const _slDirOk3 = (raw) => {
-                if (!Number.isFinite(raw) || raw <= 0 || !Number.isFinite(price) || price <= 0) return false;
-                if (resolvedDir === "LONG" && raw >= price) return false;
-                if (resolvedDir === "SHORT" && raw <= price) return false;
-                return true;
-              };
-              const slRaw = (() => {
-                if (_slDirOk3(engineSlRaw3)) return engineSlRaw3;
-                if (_slDirOk3(posSlRaw3)) return posSlRaw3;
-                if (Number.isFinite(kijunSL3) && kijunSL3 > 0 && _slDirOk3(kijunSL3)) return kijunSL3;
-                if (Number.isFinite(engineSlRaw3) && engineSlRaw3 > 0) return engineSlRaw3;
-                if (Number.isFinite(posSlRaw3) && posSlRaw3 > 0) return posSlRaw3;
-                return null;
-              })();
+              const slRaw = Number.isFinite(posSlRaw) && posSlRaw > 0 ? posSlRaw : (ticker?.sl ?? ticker?.sl_price ?? ticker?.stop_loss) ? Number(ticker?.sl ?? ticker?.sl_price ?? ticker?.stop_loss) : (Number.isFinite(kijunSL3) && kijunSL3 > 0 ? kijunSL3 : null);
               const slVal = (() => {
                 if (!Number.isFinite(slRaw) || slRaw <= 0) return null;
                 if (!resolvedDir || !Number.isFinite(price) || price <= 0) return slRaw;
