@@ -364,63 +364,66 @@ export async function cronFetchLatest(env, allTickers) {
   const slotIdx = Math.floor(minuteOfHour / 5);
   const isTopOfHour = minuteOfHour < 5;
 
-  // P0.7.163 (2026-05-15) — Split intraday TFs from D/W/M scheduling.
+  // P0.7.163 (2026-05-15) / P0.7.164 (2026-05-15) — Three-tier scheduling.
   //
-  // Bug fixed: prior version sliced `allTickers` into halves by `slotIdx % 2`,
-  // and only ran D/W/M at top-of-hour (slotIdx === 0). slotIdx === 0 always
-  // maps to halfIdx === 0 (= first half), so D/W/M for the second half of
-  // the universe was NEVER fetched. User-added tickers are appended after
-  // SECTOR_MAP and almost always land in the second half, which is why
-  // PCI / GME / DBA / HIMX / IGV / FBL all had D bars stuck 33–61h stale
-  // even though SECTOR_MAP tickers were fresh.
+  // Background: during RTH the bar cron wrapper (in index.js) gates REST
+  // fetches on `streamActive && !_isTopOfHour` — i.e. only top-of-hour runs
+  // REST at all when the WS stream is up. The stream only delivers 5/10/
+  // 15/30 minute bars; 60m / 240m / D / W / M MUST come from REST.
   //
-  // Fix: at top-of-hour, fetch D/W/M for the FULL universe (1 call/hour
-  // for ~250 tickers is well within TwelveData rate budget — D/W/M only
-  // returns a handful of bars each). Intraday TFs keep the half-slice for
-  // rate control, but now slotIdx === 0 is for intraday-half-0 too, so the
-  // top-of-hour run still fetches BOTH the full universe (for D/W/M) AND
-  // half-0 (for 5/10/15/30/60/240).
-  const intradayTfs = ["5", "10", "15", "30", "60", "240"];
+  // Prior version sliced `allTickers` into halves by `slotIdx % 2` and ran
+  // D/W/M only at top-of-hour. slotIdx === 0 always maps to halfIdx === 0
+  // (first half), so D/W/M / 60m / 240m for the SECOND half of the universe
+  // was never fetched while the stream was active. User-added tickers and
+  // late-added ETFs (PCI, GME, DBA, DIA, GLD, IWM, SPY, XL*, etc.) all
+  // landed in the second half, which is why their D/60m/240m bars stuck
+  // ~33-61h stale even though their 5m/30m streamed fine.
+  //
+  // Fix:
+  //   tier A — stream-redundant TFs (5/10/15/30): keep the half-slice for
+  //            TwelveData rate budget; the stream already covers them.
+  //   tier B — stream-uncovered intraday TFs (60/240): at top-of-hour run
+  //            against the FULL universe so they refresh every hour for
+  //            every ticker. Off-hour cycles keep the half-slice (~10 min
+  //            full refresh, fine since stream isn't filling these gaps).
+  //   tier C — aggregated TFs (D/W/M): top-of-hour only, full universe.
+  //            ~250 tickers × 3 TFs × a handful of bars each is well within
+  //            TwelveData's per-minute quota.
+  const streamRedundantTfs = ["5", "10", "15", "30"];
+  const streamUncoveredIntradayTfs = ["60", "240"];
   const aggregatedTfs = isTopOfHour ? ["D", "W", "M"] : [];
 
   const halfIdx = slotIdx % 2;
   const mid = Math.ceil(allTickers.length / 2);
-  const intradayTickers = halfIdx === 0 ? allTickers.slice(0, mid) : allTickers.slice(mid);
-  console.log(`[TD CRON] intraday TFs=[${intradayTfs}] half=${halfIdx} tickers=${intradayTickers.length}/${allTickers.length} slot=${slotIdx}${isTopOfHour ? ` + aggregated TFs=[${aggregatedTfs}] across full universe (${allTickers.length})` : ""}`);
+  const halfTickers = halfIdx === 0 ? allTickers.slice(0, mid) : allTickers.slice(mid);
+  // 60/240 use the half slice off-hour for rate control; at top-of-hour they
+  // upgrade to the full universe (closes the second-half stale-bar gap).
+  const uncoveredIntradayTickers = isTopOfHour ? allTickers : halfTickers;
+  console.log(`[TD CRON] redundant=[${streamRedundantTfs}] (half=${halfIdx}, ${halfTickers.length}/${allTickers.length}) uncovered_intraday=[${streamUncoveredIntradayTfs}] (${uncoveredIntradayTickers.length}/${allTickers.length}${isTopOfHour ? ", full @ top-of-hour" : ", half"}) slot=${slotIdx}${isTopOfHour ? ` + aggregated=[${aggregatedTfs}] full` : ""}`);
 
   let totalUpserted = 0, totalErrors = 0;
 
-  for (const tf of intradayTfs) {
-    try {
-      const lookback = CRON_TF_LOOKBACK_MS[tf] || 24 * 60 * 60 * 1000;
-      const start = new Date(Date.now() - lookback).toISOString();
-      const result = await fetchAllBars(env, intradayTickers, tf, start, null, 10000);
-      if (!result?.bars) continue;
+  const runTfBatch = async (tfs, tickers) => {
+    for (const tf of tfs) {
+      try {
+        const lookback = CRON_TF_LOOKBACK_MS[tf] || 24 * 60 * 60 * 1000;
+        const start = new Date(Date.now() - lookback).toISOString();
+        const result = await fetchAllBars(env, tickers, tf, start, null, 10000);
+        if (!result?.bars) continue;
 
-      const { upserted, errors } = await _batchUpsertBars(db, result.bars, tf);
-      totalUpserted += upserted;
-      totalErrors += errors;
-    } catch (tfErr) {
-      totalErrors++;
-      console.warn(`[TD CRON] intraday TF ${tf} error:`, String(tfErr).slice(0, 200));
+        const { upserted, errors } = await _batchUpsertBars(db, result.bars, tf);
+        totalUpserted += upserted;
+        totalErrors += errors;
+      } catch (tfErr) {
+        totalErrors++;
+        console.warn(`[TD CRON] TF ${tf} error:`, String(tfErr).slice(0, 200));
+      }
     }
-  }
+  };
 
-  for (const tf of aggregatedTfs) {
-    try {
-      const lookback = CRON_TF_LOOKBACK_MS[tf] || 7 * 24 * 60 * 60 * 1000;
-      const start = new Date(Date.now() - lookback).toISOString();
-      const result = await fetchAllBars(env, allTickers, tf, start, null, 10000);
-      if (!result?.bars) continue;
-
-      const { upserted, errors } = await _batchUpsertBars(db, result.bars, tf);
-      totalUpserted += upserted;
-      totalErrors += errors;
-    } catch (tfErr) {
-      totalErrors++;
-      console.warn(`[TD CRON] aggregated TF ${tf} error:`, String(tfErr).slice(0, 200));
-    }
-  }
+  await runTfBatch(streamRedundantTfs, halfTickers);
+  await runTfBatch(streamUncoveredIntradayTfs, uncoveredIntradayTickers);
+  await runTfBatch(aggregatedTfs, allTickers);
 
   return { ok: true, upserted: totalUpserted, errors: totalErrors };
 }

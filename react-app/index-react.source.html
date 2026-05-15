@@ -13554,11 +13554,19 @@
               .filter(tr => !tr?.exit_ts && !tr?.exit_timestamp)
               .map(tr => String(tr?.ticker || "").toUpperCase())
           );
-          const eligible = allTickersWithRanks.filter(t => {
-            const sym = String(t?.ticker || "").toUpperCase();
-            const rank = Number(t?.rank);
-            return sym && !openSet.has(sym) && Number.isFinite(rank) && rank > 0;
-          });
+          /* P0.7.164 (2026-05-15) — Sort by rank DESCENDING before picking
+             the "Top Rank" candidate. Previously the eligible array was in
+             whatever order Object.values(data) returned (insertion order,
+             which made AMZN appear first regardless of its rank). Result:
+             the top-bar "TOP RANK" pill always showed AMZN R34 even when
+             NKE/INFL/APP had rank 70+. */
+          const eligible = allTickersWithRanks
+            .filter(t => {
+              const sym = String(t?.ticker || "").toUpperCase();
+              const rank = Number(t?.rank);
+              return sym && !openSet.has(sym) && Number.isFinite(rank) && rank > 0;
+            })
+            .sort((a, b) => Number(b?.rank || 0) - Number(a?.rank || 0));
           if (eligible.length === 0) return [];
           const oneHrAgo = Date.now() - 60 * 60 * 1000;
           const cats = [

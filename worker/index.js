@@ -1834,14 +1834,26 @@ async function loadUpcomingRiskEventCandidates(env, replayCtx, sym, nowTs) {
     : Array.isArray(env?._cioMemoryCache?.marketEvents)
       ? env._cioMemoryCache.marketEvents
       : null;
+  // P0.7.164 (2026-05-15) — A macro release that has already been resolved
+  // (actual filled in) is NOT an "upcoming" risk event, regardless of what
+  // the data feed says about it. The daily-brief economic calendar
+  // re-states the latest CPI / PPI / PCE reading every day with the same
+  // `actual` value, which used to seed a fresh "CPI today" market_events
+  // row each day — and then any trade entered before 12:30 ET got a 10%
+  // PRE_CPI_RISK_REDUCTION trim ~90 seconds after entry (reported on MLI
+  // 2026-05-15). Filter out resolved rows here so the runtime decision
+  // matches operator intent even when the calendar source is noisy.
+  const isResolved = (row) => String(row?.status || "").toLowerCase() === "resolved"
+    || (row?.actual != null && String(row.actual).trim() !== "");
   let rows = null;
   if (Array.isArray(allCached) && allCached.length > 0) {
     rows = allCached.filter((row) => {
       const dateKey = String(row?.date || "").slice(0, 10);
       const eventType = String(row?.event_type || "").toLowerCase();
       if (dateKey < nowDateKey || (nextDateKey && dateKey > nextDateKey)) return false;
-      if (eventType === "earnings") return String(row?.ticker || "").toUpperCase() === sym;
+      if (eventType === "earnings") return String(row?.ticker || "").toUpperCase() === sym && !isResolved(row);
       if (eventType !== "macro") return false;
+      if (isResolved(row)) return false;
       const eventKey = classifyRiskEventKey(row);
       return PRE_EVENT_RISK_MACRO_KEYS.has(eventKey);
     });
@@ -1853,6 +1865,8 @@ async function loadUpcomingRiskEventCandidates(env, replayCtx, sym, nowTs) {
          FROM market_events
          WHERE date >= ?1 AND date <= ?2
            AND ((event_type = 'earnings' AND ticker = ?3) OR event_type = 'macro')
+           AND COALESCE(status, '') != 'resolved'
+           AND (actual IS NULL OR TRIM(CAST(actual AS TEXT)) = '')
          ORDER BY COALESCE(scheduled_ts, 0) ASC, date ASC`
       ).bind(nowDateKey, nextDateKey || nowDateKey, sym).all();
       rows = q?.results || [];
