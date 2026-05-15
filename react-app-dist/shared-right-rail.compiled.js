@@ -4222,22 +4222,33 @@
             }
           }, pcDir, " bias \xB7 ", aboveSubtitle.replace(/^Levels above .*? — /, "Above: "), " \xB7 ", belowSubtitle.replace(/^Levels below .*? — /, "Below: "))));
         })()), React.createElement("div", {
-          className: "tt-rail-area-right-pane flex-1 overflow-y-auto tt-rail-body",
+          className: `tt-rail-area-right-pane flex-1 overflow-y-auto tt-rail-body ${v2RailTab === "CHART" ? "tt-rail-body--chart" : ""}`,
           style: {
-            padding: "var(--ds-space-4)"
+            padding: "var(--ds-space-4)",
+            ...(v2RailTab === "CHART" ? {
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+              padding: "var(--ds-space-2) var(--ds-space-3) var(--ds-space-3)"
+            } : {})
           }
-        }, v2RailTab === "CHART" && React.createElement(React.Fragment, null, chartCandles && chartCandles.length >= 2 ? React.createElement("div", {
+        }, v2RailTab === "CHART" && React.createElement("div", {
+          key: `chart-tab-${tickerSymbol}`,
+          className: "tt-rail-chart-tab",
           style: {
             display: "flex",
             flexDirection: "column",
-            gap: "var(--ds-space-3)"
+            flex: "1 1 auto",
+            minHeight: 0,
+            gap: "var(--ds-space-2)"
           }
         }, React.createElement("div", {
           style: {
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            gap: 6
+            gap: 6,
+            flex: "0 0 auto"
           }
         }, React.createElement("span", {
           style: {
@@ -4247,6 +4258,12 @@
             letterSpacing: "0.06em"
           }
         }, tickerSymbol, " \xB7 ", chartTf === "D" ? "Daily" : chartTf === "60" ? "1H" : chartTf === "240" ? "4H" : `${chartTf}m`), React.createElement("div", {
+          style: {
+            display: "flex",
+            alignItems: "center",
+            gap: 6
+          }
+        }, React.createElement("div", {
           className: "ds-chipgroup",
           style: {
             padding: 2
@@ -4259,26 +4276,29 @@
             padding: "3px 8px",
             fontSize: 10
           }
-        }, tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`)))), React.createElement("div", {
-          className: "tt-rail-chart-canvas",
-          style: {
-            minHeight: 320
-          }
-        }, _railChartElement), React.createElement("a", {
+        }, tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`))), React.createElement("a", {
           href: `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tickerSymbol)}`,
           target: "_blank",
           rel: "noopener noreferrer",
           className: "ds-chip ds-chip--sm",
           style: {
-            alignSelf: "flex-start",
-            fontFamily: "var(--tt-font-mono)"
-          }
-        }, "Open in TradingView \u2197")) : React.createElement(Panel, {
-          title: "Chart"
-        }, React.createElement("div", {
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: 10
+          },
+          title: "Open in TradingView",
+          "aria-label": "Open in TradingView"
+        }, "TV \u2197"))), React.createElement("div", {
+          className: "tt-rail-chart-canvas tt-rail-chart-tab-canvas",
           style: {
-            padding: "20px 12px",
-            textAlign: "center",
+            flex: "1 1 auto",
+            minHeight: 280
+          }
+        }, chartCandles && chartCandles.length >= 2 ? _railChartElement : React.createElement("div", {
+          style: {
+            height: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
             color: "var(--ds-text-muted)",
             fontSize: "var(--ds-fs-body)"
           }
@@ -7635,7 +7655,7 @@
             value: `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`,
             deltaClass: n >= 0 ? "up" : "dn"
           });
-        }))))), React.createElement("div", {
+        }))))), v2RailTab !== "CHART" && React.createElement("div", {
           style: {
             borderTop: "1px solid var(--ds-stroke)",
             padding: "var(--ds-space-3) var(--ds-space-4)",

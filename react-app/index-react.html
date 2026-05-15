@@ -337,13 +337,10 @@
           display: none !important;
         }
       }
-      /* V15 P0.7.160 — Mobile chart view toggle.
-         When the user taps ⤢ CHART, the shell gets .tt-rail-chart-active.
-         We swap the visible pane: show the chart left-pane, hide the tab
-         right-pane. This is a pure CSS/DOM toggle — no position:fixed,
-         no z-index battle, no portal, no iOS Safari stacking-context bugs.
-         The "← Back to tabs" button in the chart block header closes it.
-         Only applies on screens narrower than 1024px (modal mode). */
+      /* V15 P0.7.160 — Mobile chart view toggle (DEPRECATED).
+         Replaced by P0.7.161 CHART tab. Kept here behind .tt-rail-chart-active
+         so any stale client that still toggles it falls back gracefully:
+         the pane swap shows the chart, no broken layout. Hidden on desktop. */
       @media (max-width: 1023px) {
         .tt-rail-shell.tt-rail-chart-active:not(.tt-rail-shell--workspace) > .tt-rail-area-left-pane {
           display: flex !important;
@@ -354,15 +351,34 @@
         .tt-rail-shell.tt-rail-chart-active:not(.tt-rail-shell--workspace) > .tt-rail-area-right-pane {
           display: none !important;
         }
-        /* Hide the "← Back" bar on desktop where the pane is always visible */
-        .tt-rail-chart-back-bar {
-          display: none !important;
-        }
+        .tt-rail-chart-back-bar { display: none !important; }
       }
       @media (max-width: 1023px) {
         .tt-rail-chart-active .tt-rail-chart-back-bar {
           display: flex !important;
         }
+      }
+      /* V15 P0.7.162 (2026-05-14) — CHART tab full-height + static.
+         When the user is on the CHART tab the right pane becomes a vertical
+         flex container (set inline by shared-right-rail.js). This rule
+         overrides the default 240px fixed height of .tt-rail-chart-canvas
+         so the chart fills the remaining body height (rail body minus the
+         sticky header + tab nav). On phones (~600-700px usable rail height)
+         that yields a chart of ~480-580px instead of the previous 240px.
+         min-height keeps it usable on very short viewports. */
+      .tt-rail-chart-tab-canvas {
+        height: auto !important;
+        min-height: 280px;
+        flex: 1 1 auto;
+      }
+      @media (min-width: 1024px) {
+        .tt-rail-chart-tab-canvas { min-height: 480px; }
+      }
+      /* Suppress horizontal/vertical body scroll on the chart tab — the
+         chart canvas owns its own gesture surface (pan/zoom) and an outer
+         scroll would steal those gestures on iOS Safari. */
+      .tt-rail-body--chart {
+        overflow: hidden !important;
       }
 
       @keyframes fadeIn {
@@ -1153,7 +1169,7 @@
     <script src="ds-components.js?v=20260501a"></script>
     <script src="investor-panel.js?v=20260226a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260514-chart-tab"></script>
+    <script src="shared-right-rail.compiled.js?v=20260515-chart-tab-fullscreen"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
     <script src="./index-react.compiled.15c23ab1db.js"></script>
 
