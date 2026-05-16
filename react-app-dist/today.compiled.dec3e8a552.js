@@ -706,10 +706,10 @@ function BubbleMap({
     };
   }, [allTickers]);
   const VB = {
-    w: 880,
-    h: 540,
-    mx: 50,
-    my: 36
+    w: 1400,
+    h: 620,
+    mx: 70,
+    my: 42
   };
   const plotW = VB.w - 2 * VB.mx;
   const plotH = VB.h - 2 * VB.my;
@@ -721,7 +721,7 @@ function BubbleMap({
   const matchesQuery = sym => q.length > 0 && String(sym).toUpperCase().startsWith(q);
   const radiusFor = t => {
     const r = Math.min(Math.abs(Number(t.htf_score) || 0), 35);
-    return 4 + r / 35 * 12;
+    return 6 + r / 35 * 16;
   };
   const handleHover = (e, t) => {
     if (!stageRef.current) return;
@@ -828,52 +828,52 @@ function BubbleMap({
     stroke: "rgba(255,255,255,0.12)",
     strokeWidth: 1
   }), h("text", {
-    x: VB.mx + plotW - 8,
-    y: VB.my + 16,
+    x: VB.mx + plotW - 12,
+    y: VB.my + 22,
     textAnchor: "end",
-    fill: "rgba(34,197,94,0.50)",
-    fontSize: 11,
+    fill: "rgba(34,197,94,0.55)",
+    fontSize: 14,
     fontWeight: 700,
-    letterSpacing: "0.06em"
+    letterSpacing: "0.08em"
   }, "STRONG TREND · HIGH MOMENTUM"), h("text", {
-    x: VB.mx + 8,
-    y: VB.my + 16,
+    x: VB.mx + 12,
+    y: VB.my + 22,
     textAnchor: "start",
-    fill: "rgba(245,194,92,0.50)",
-    fontSize: 11,
+    fill: "rgba(245,194,92,0.55)",
+    fontSize: 14,
     fontWeight: 700,
-    letterSpacing: "0.06em"
+    letterSpacing: "0.08em"
   }, "STRONG TREND · PULLING BACK"), h("text", {
-    x: VB.mx + 8,
-    y: VB.my + plotH - 6,
+    x: VB.mx + 12,
+    y: VB.my + plotH - 8,
     textAnchor: "start",
-    fill: "rgba(244,63,94,0.50)",
-    fontSize: 11,
+    fill: "rgba(244,63,94,0.55)",
+    fontSize: 14,
     fontWeight: 700,
-    letterSpacing: "0.06em"
+    letterSpacing: "0.08em"
   }, "DOWNTREND"), h("text", {
-    x: VB.mx + plotW - 8,
-    y: VB.my + plotH - 6,
+    x: VB.mx + plotW - 12,
+    y: VB.my + plotH - 8,
     textAnchor: "end",
-    fill: "rgba(255,255,255,0.30)",
-    fontSize: 11,
+    fill: "rgba(255,255,255,0.32)",
+    fontSize: 14,
     fontWeight: 700,
-    letterSpacing: "0.06em"
+    letterSpacing: "0.08em"
   }, "BUILDING / RECOVERY"), h("text", {
     x: VB.mx + plotW / 2,
-    y: VB.h - 8,
+    y: VB.h - 10,
     textAnchor: "middle",
-    fill: "rgba(255,255,255,0.45)",
-    fontSize: 11,
+    fill: "rgba(255,255,255,0.50)",
+    fontSize: 13,
     fontWeight: 600
   }, "SHORT-TERM MOMENTUM (LTF) →"), h("text", {
-    x: 14,
+    x: 20,
     y: VB.my + plotH / 2,
     textAnchor: "middle",
-    fill: "rgba(255,255,255,0.45)",
-    fontSize: 11,
+    fill: "rgba(255,255,255,0.50)",
+    fontSize: 13,
     fontWeight: 600,
-    transform: `rotate(-90 14 ${VB.my + plotH / 2})`
+    transform: `rotate(-90 20 ${VB.my + plotH / 2})`
   }, "TREND STRENGTH (HTF) →"), visible.map(t => {
     const sym = String(t.ticker || "").toUpperCase();
     const bucket = classifyStateBucket(t.state);
@@ -904,11 +904,11 @@ function BubbleMap({
       fillOpacity: isMatch ? 0.95 : 0.55,
       stroke: isMatch ? "#fff" : "rgba(0,0,0,0.4)",
       strokeWidth: isMatch ? 2 : 1
-    }), (isMatch || r >= 9) && h("text", {
+    }), (isMatch || r >= 11) && h("text", {
       x: cx,
-      y: cy + 3,
+      y: cy + 4,
       textAnchor: "middle",
-      fontSize: Math.max(8, Math.min(11, r * 0.9)),
+      fontSize: Math.max(10, Math.min(14, r * 0.75)),
       fontWeight: 700,
       fill: isMatch ? "#fff" : "rgba(255,255,255,0.92)",
       style: {
