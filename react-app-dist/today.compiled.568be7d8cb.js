@@ -543,122 +543,343 @@ const STATE_BUCKET_COLOR = {
   bear_mixed: "#fb7185",
   neutral: "#6b7280"
 };
-function applyFilters(tickers, f) {
+const TT_NORM_TICKER = t => {
+  let s = String(t || "").trim().toUpperCase();
+  if (s === "BRK.B" || s === "BRK-B") s = "BRK-B";
+  return s;
+};
+const MARKET_PULSE_PUBLIC_SYMBOLS = ["SPY", "QQQ", "IWM", "GLD", "SLV", "USO", "BTCUSD", "ETHUSD", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
+const MARKET_PULSE_ADMIN_SYMBOLS = ["SPY", "QQQ", "IWM", "US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
+const INDEX_SYMS = ["SPY", "QQQ", "IWM"];
+const FUTURES_SYMS = ["ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD"];
+const SP_ETF_SYMS = ["XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
+const ENTRY_STAGES = new Set(["setup", "setup_watch", "enter", "enter_now", "flip_watch", "just_flipped"]);
+const ACTIONABLE_STAGES = new Set(["enter", "enter_now", "trim", "exit", "defend"]);
+const KANBAN_STAGES = new Set(["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped", "just_entered", "hold", "trim", "defend", "exit"]);
+function computeInsightChips(allTickers, opts) {
+  const isAdmin = !!(opts && opts.isAdmin);
+  const all = (Array.isArray(allTickers) ? allTickers : []).filter(t => t && Number.isFinite(Number(t.ltf_score)));
+  if (all.length === 0) return [];
+  const TT = window.TimedBubbleChart || {};
+  const entryType = TT.entryType || (() => ({
+    corridor: false,
+    side: null
+  }));
+  const completionForSize = TT.completionForSize || (t => Number(t?.completion) || 0);
+  const chips = [];
+  const _focusSet = new Set();
+  for (const t of allTickers) {
+    const ks = String(t.kanban_stage || "").toLowerCase();
+    if (KANBAN_STAGES.has(ks)) _focusSet.add(TT_NORM_TICKER(t?.ticker));
+  }
+  const _mpSyms = isAdmin ? MARKET_PULSE_ADMIN_SYMBOLS : MARKET_PULSE_PUBLIC_SYMBOLS;
+  for (const s of _mpSyms) _focusSet.add(TT_NORM_TICKER(s));
+  const focusTickers = allTickers.filter(t => _focusSet.has(TT_NORM_TICKER(t?.ticker)));
+  chips.push({
+    id: "focus",
+    label: "Focus",
+    count: focusTickers.length,
+    tickers: focusTickers.map(t => t.ticker),
+    row: "focus",
+    isDefault: true,
+    tooltip: "Default view — Kanban lanes + Market Pulse. Keeps the chart actionable, not cluttered."
+  });
+  const actionable = allTickers.filter(t => ACTIONABLE_STAGES.has(String(t.kanban_stage || "").toLowerCase()));
+  if (actionable.length > 0) {
+    chips.push({
+      id: "actionable",
+      label: "Actionable",
+      count: actionable.length,
+      tickers: actionable.map(t => t.ticker),
+      row: "focus",
+      tooltip: "Tickers in enter / trim / exit / defend stages."
+    });
+  }
+  const earlyLong = all.filter(t => {
+    const htf = Number(t.htf_score),
+      ltf = Number(t.ltf_score);
+    const ks = String(t.kanban_stage || "").toLowerCase();
+    return htf > 0 && ltf >= -8 && ltf <= 12 && ENTRY_STAGES.has(ks);
+  });
+  chips.push({
+    id: "early_long",
+    label: "Early LONG",
+    count: earlyLong.length,
+    tickers: earlyLong.map(t => t.ticker),
+    row: "focus",
+    tooltip: "HTF bullish + LTF approaching entry corridor."
+  });
+  const earlyShort = all.filter(t => {
+    const htf = Number(t.htf_score),
+      ltf = Number(t.ltf_score);
+    const ks = String(t.kanban_stage || "").toLowerCase();
+    return htf < 0 && ltf >= -12 && ltf <= 8 && ENTRY_STAGES.has(ks);
+  });
+  chips.push({
+    id: "early_short",
+    label: "Early SHORT",
+    count: earlyShort.length,
+    tickers: earlyShort.map(t => t.ticker),
+    row: "focus",
+    tooltip: "HTF bearish + LTF approaching entry corridor."
+  });
+  const corridor = all.filter(t => {
+    const htf = Number(t.htf_score),
+      ltf = Number(t.ltf_score);
+    return htf > 0 && ltf >= -8 && ltf <= 12 || htf < 0 && ltf >= -12 && ltf <= 8;
+  });
+  chips.push({
+    id: "corridor",
+    label: "In Corridor",
+    count: corridor.length,
+    tickers: corridor.map(t => t.ticker),
+    row: "focus",
+    tooltip: "LTF score in the optimal entry zone for the HTF trend direction."
+  });
+  const highRrEarly = all.filter(t => {
+    const rr = Number(t?.rr) || 0;
+    const comp = completionForSize(t);
+    const flags = t?.flags || {};
+    const ent = entryType(t);
+    const staleness = String(t?.staleness || "").toUpperCase();
+    const actionableTiming = ent?.corridor || flags.flip_watch || flags.sq30_release;
+    if (staleness && staleness !== "FRESH") return false;
+    return rr >= 2.0 && comp <= 0.45 && actionableTiming;
+  });
+  chips.push({
+    id: "high_rr_early",
+    label: "High R:R Early",
+    count: highRrEarly.length,
+    tickers: highRrEarly.map(t => t.ticker),
+    row: "focus",
+    tooltip: "R:R ≥ 2.0, completion ≤ 45%, plus corridor / flip / release timing."
+  });
+  const squeeze = all.filter(t => t.flags?.sq30_on === true);
+  chips.push({
+    id: "squeeze",
+    label: "Squeeze",
+    count: squeeze.length,
+    tickers: squeeze.map(t => t.ticker),
+    row: "momentum",
+    tooltip: "Bollinger Bands inside Keltner Channels on 30m — volatility contracting."
+  });
+  const breakout = all.filter(t => {
+    const ks = String(t.kanban_stage || "").toLowerCase();
+    return t.flags?.sq30_release === true || ks === "just_entered" || ks === "just_flipped";
+  });
+  chips.push({
+    id: "breakout",
+    label: "Breakout",
+    count: breakout.length,
+    tickers: breakout.map(t => t.ticker),
+    row: "momentum",
+    tooltip: "Squeeze released or fresh stage transition — move in progress."
+  });
+  const accel = all.filter(t => {
+    const d = t.deltas && typeof t.deltas === "object" ? t.deltas : {};
+    const ltf4h = Number(d.ltf_4h),
+      htf4h = Number(d.htf_4h);
+    const ltf = Number(t.ltf_score),
+      htf = Number(t.htf_score);
+    return ltf4h > 5 || htf4h > 3 || ltf > 15 && htf > 15;
+  });
+  chips.push({
+    id: "accelerating",
+    label: "Accelerating",
+    count: accel.length,
+    tickers: accel.map(t => t.ticker),
+    row: "momentum",
+    tooltip: "Score delta > 5 (LTF) or > 3 (HTF) in last 4h."
+  });
+  const moElite = all.filter(t => t.flags?.momentum_elite === true);
+  chips.push({
+    id: "momentum_elite",
+    label: "Mo Elite",
+    count: moElite.length,
+    tickers: moElite.map(t => t.ticker),
+    row: "momentum",
+    tooltip: "Confirmed strong momentum across 2+ timeframes (30m / 15m / 5m)."
+  });
+  const volSurge = all.filter(t => {
+    const rm = t.rvol_map || {};
+    const rv = Math.max(Number(rm?.["30"]?.vr) || 0, Number(rm?.["60"]?.vr) || 0);
+    return rv >= 1.5;
+  });
+  chips.push({
+    id: "volume_surge",
+    label: "Vol Surge",
+    count: volSurge.length,
+    tickers: volSurge.map(t => t.ticker),
+    row: "momentum",
+    tooltip: "Relative volume ≥ 1.5× on 30m or 60m — unusual activity."
+  });
+  const sectorBull = {},
+    sectorTotal = {};
+  for (const t of all) {
+    const sec = t.sector || t.fundamentals && t.fundamentals.sector || t._cohort || "";
+    if (!sec) continue;
+    sectorTotal[sec] = (sectorTotal[sec] || 0) + 1;
+    if (Number(t.htf_score) > 0) sectorBull[sec] = (sectorBull[sec] || 0) + 1;
+  }
+  const sectorRanking = Object.keys(sectorTotal).filter(s => sectorTotal[s] >= 2).map(s => ({
+    sector: s,
+    bullPct: (sectorBull[s] || 0) / sectorTotal[s] * 100,
+    count: sectorTotal[s]
+  })).sort((a, b) => b.bullPct - a.bullPct);
+  if (sectorRanking.length >= 2) {
+    const best = sectorRanking[0],
+      worst = sectorRanking[sectorRanking.length - 1];
+    if (best.sector !== worst.sector) {
+      const short = s => s.length > 14 ? s.slice(0, 12) + "…" : s;
+      const rotTickers = all.filter(t => {
+        const sec = t.sector || t.fundamentals && t.fundamentals.sector || t._cohort || "";
+        return sec === best.sector || sec === worst.sector;
+      }).map(t => t.ticker);
+      chips.push({
+        id: "sector_rotation",
+        label: `${short(best.sector)} ↑ ${short(worst.sector)} ↓`,
+        count: null,
+        tickers: rotTickers,
+        row: "structure",
+        tooltip: `Money rotating into ${best.sector}, out of ${worst.sector}.`
+      });
+    }
+  }
+  const mpSyms = isAdmin ? MARKET_PULSE_ADMIN_SYMBOLS : MARKET_PULSE_PUBLIC_SYMBOLS;
+  const marketPulseTickers = allTickers.filter(t => mpSyms.includes(TT_NORM_TICKER(t?.ticker)));
+  chips.push({
+    id: "market_pulse",
+    label: "Market Pulse",
+    count: marketPulseTickers.length,
+    tickers: marketPulseTickers.map(t => t.ticker),
+    row: "context",
+    tooltip: isAdmin ? "Futures, indices, S&P sectors, and crypto." : "SPY, QQQ, IWM, commodity ETF equivalents, crypto, and S&P sectors."
+  });
+  const dailyChange = window.TimedPriceUtils && window.TimedPriceUtils.getDailyChange || (() => ({
+    dayPct: 0
+  }));
+  const rthArr = allTickers.map(t => {
+    const sym = TT_NORM_TICKER(t?.ticker || "");
+    if (!sym) return null;
+    const px = Number(t?.price ?? t?.close);
+    if (!Number.isFinite(px) || px <= 0) return null;
+    const pct = Number(dailyChange(t)?.dayPct);
+    if (!Number.isFinite(pct)) return null;
+    return {
+      ticker: sym,
+      pct
+    };
+  }).filter(Boolean).sort((a, b) => b.pct - a.pct);
+  const moverSet = new Set([...rthArr.slice(0, 5).map(t => t.ticker), ...rthArr.slice(-5).map(t => t.ticker)]);
+  chips.push({
+    id: "top_movers",
+    label: "Top Movers",
+    count: moverSet.size,
+    tickers: Array.from(moverSet),
+    row: "context",
+    tooltip: "Top 5 gainers + top 5 losers on the session."
+  });
+  const idxTickers = allTickers.filter(t => INDEX_SYMS.includes(TT_NORM_TICKER(t?.ticker)));
+  chips.push({
+    id: "indexes",
+    label: "Indexes",
+    count: idxTickers.length,
+    tickers: idxTickers.map(t => t.ticker),
+    row: "context",
+    tooltip: `Major index ETFs (${INDEX_SYMS.join(", ")}).`
+  });
+  if (isAdmin) {
+    const futTickers = allTickers.filter(t => FUTURES_SYMS.includes(TT_NORM_TICKER(t?.ticker)));
+    chips.push({
+      id: "futures",
+      label: "Futures",
+      count: futTickers.length,
+      tickers: futTickers.map(t => t.ticker),
+      row: "context",
+      tooltip: `Futures & crypto (${FUTURES_SYMS.join(", ")}).`
+    });
+  }
+  const spEtfTickers = allTickers.filter(t => SP_ETF_SYMS.includes(TT_NORM_TICKER(t?.ticker)));
+  chips.push({
+    id: "sp_sectors",
+    label: "S&P Sectors",
+    count: spEtfTickers.length,
+    tickers: spEtfTickers.map(t => t.ticker),
+    row: "context",
+    tooltip: `S&P sector ETFs (${SP_ETF_SYMS.join(", ")}).`
+  });
+  return chips;
+}
+function applyFilters(tickers, f, chips) {
+  const q = String(f?.query || "").trim().toUpperCase();
+  const activeId = f?.activeChip || "focus";
+  const chip = (chips || []).find(c => c.id === activeId);
+  const chipSet = chip && Array.isArray(chip.tickers) && chip.tickers.length > 0 ? new Set(chip.tickers.map(s => TT_NORM_TICKER(s))) : null;
   return tickers.filter(t => {
     if (!t || !t.ticker) return false;
-    if (f.stateF !== "all") {
-      const b = classifyStateBucket(t.state);
-      if (f.stateF === "bull" && !(b === "bull_aligned" || b === "bull_mixed")) return false;
-      if (f.stateF === "pull" && b !== "pullback") return false;
-      if (f.stateF === "bear" && !(b === "bear_aligned" || b === "bear_mixed")) return false;
-    }
-    if (f.focusF !== "all") {
-      const stage = String(t.kanban_stage || "").toLowerCase();
-      const eq = t.entry_quality && typeof t.entry_quality === "object" ? Number(t.entry_quality.score) : NaN;
-      const rr = Number(t.rr);
-      const rankScore = Number(t.rank);
-      if (f.focusF === "setup" && stage !== "setup") return false;
-      if (f.focusF === "enter" && stage !== "enter" && stage !== "just_entered" && stage !== "in_review") return false;
-      if (f.focusF === "highRR" && !(rr >= 2)) return false;
-      if (f.focusF === "hiQuality" && !(Number.isFinite(eq) && eq >= 70)) return false;
-      if (f.focusF === "top30" && !(Number.isFinite(rankScore) && rankScore >= 100)) return false;
-    }
-    if (f.momF !== "all") {
-      const fl = t.flags || {};
-      if (f.momF === "elite" && !fl.momentum_elite) return false;
-      if (f.momF === "squeeze" && !(fl.sq30_on || fl.sq1h_on)) return false;
-      if (f.momF === "breakout" && !fl.sq30_release) return false;
-      if (f.momF === "compression" && !fl.saty_compression_multi_tf) return false;
-    }
-    if (f.sectorF !== "all") {
-      const co = String(t._cohort || "").toLowerCase();
-      if (co !== String(f.sectorF).toLowerCase()) return false;
-    }
+    const sym = TT_NORM_TICKER(t.ticker);
+    if (chipSet && !chipSet.has(sym)) return false;
+    if (q && !sym.includes(q)) return false;
     return true;
   });
 }
 function AnalysisControls({
-  allTickers,
+  chips,
+  totalCount,
   visibleCount,
   filters,
   setFilters
 }) {
   const {
-    query
+    query,
+    activeChip
   } = filters;
   const setQ = v => setFilters(f => ({
     ...f,
     query: v
   }));
-  const setS = (k, v) => setFilters(f => ({
+  const setChip = id => setFilters(f => ({
     ...f,
-    [k]: v
+    activeChip: id
   }));
-  const counts = useMemo(() => {
-    const c = {
-      state: {
-        all: 0,
-        bull: 0,
-        pull: 0,
-        bear: 0
-      },
-      focus: {
-        setup: 0,
-        enter: 0,
-        highRR: 0,
-        hiQuality: 0,
-        top30: 0
-      },
-      mom: {
-        elite: 0,
-        squeeze: 0,
-        breakout: 0,
-        compression: 0
-      },
-      sector: {}
+  const rows = useMemo(() => {
+    const byRow = {
+      focus: [],
+      momentum: [],
+      structure: [],
+      context: []
     };
-    for (const t of allTickers) {
-      if (!t || !t.ticker) continue;
-      c.state.all++;
-      const b = classifyStateBucket(t.state);
-      if (b === "bull_aligned" || b === "bull_mixed") c.state.bull++;else if (b === "pullback") c.state.pull++;else if (b === "bear_aligned" || b === "bear_mixed") c.state.bear++;
-      const stage = String(t.kanban_stage || "").toLowerCase();
-      const eq = t.entry_quality && typeof t.entry_quality === "object" ? Number(t.entry_quality.score) : NaN;
-      const rr = Number(t.rr);
-      const rankScore = Number(t.rank);
-      if (stage === "setup") c.focus.setup++;
-      if (stage === "enter" || stage === "just_entered" || stage === "in_review") c.focus.enter++;
-      if (rr >= 2) c.focus.highRR++;
-      if (Number.isFinite(eq) && eq >= 70) c.focus.hiQuality++;
-      if (Number.isFinite(rankScore) && rankScore >= 100) c.focus.top30++;
-      const fl = t.flags || {};
-      if (fl.momentum_elite) c.mom.elite++;
-      if (fl.sq30_on || fl.sq1h_on) c.mom.squeeze++;
-      if (fl.sq30_release) c.mom.breakout++;
-      if (fl.saty_compression_multi_tf) c.mom.compression++;
-      const co = String(t._cohort || "").toLowerCase();
-      if (co) c.sector[co] = (c.sector[co] || 0) + 1;
+    for (const c of chips) {
+      if (byRow[c.row]) byRow[c.row].push(c);
     }
-    return c;
-  }, [allTickers]);
-  const sectorRows = useMemo(() => {
-    return Object.entries(counts.sector).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, n]) => ({
-      name,
-      n
-    }));
-  }, [counts.sector]);
-  const chip = (rowKey, key, label, count, tone) => {
-    const isActive = filters[rowKey] === key;
-    const cls = `ac-chip${isActive ? " active" : ""}${isActive && tone ? " " + tone : ""}`;
+    return byRow;
+  }, [chips]);
+  const renderChip = c => {
+    const isActive = activeChip === c.id;
+    const tone = c.row === "focus" && c.isDefault && isActive ? "pull" : null;
+    const cls = `ac-chip${isActive ? " active" : ""}${tone ? " " + tone : ""}`;
     return h("button", {
-      key,
+      key: c.id,
       className: cls,
-      onClick: () => setS(rowKey, key)
-    }, label, count != null && h("span", {
+      onClick: () => setChip(c.id),
+      title: c.tooltip || c.label
+    }, c.label, c.count != null && h("span", {
       className: "ac-count"
-    }, count));
+    }, c.count));
   };
-  const total = counts.state.all || 0;
+  const Row = ({
+    label,
+    items
+  }) => {
+    if (!items || items.length === 0) return null;
+    return h("div", {
+      className: "ac-row"
+    }, h("div", {
+      className: "ac-row-label"
+    }, label), h("div", {
+      className: "ac-chips"
+    }, items.map(renderChip)));
+  };
   return h("div", {
     className: "analysis-controls"
   }, h("div", {
@@ -669,7 +890,7 @@ function AnalysisControls({
     className: "tt-sec-h"
   }, "Find what is moving — filter both views below")), h("div", {
     className: "ac-meta"
-  }, h("strong", null, visibleCount), " of ", h("strong", null, total), " tickers")), h("div", {
+  }, h("strong", null, visibleCount), " of ", h("strong", null, totalCount), " tickers")), h("div", {
     className: "ac-search"
   }, h("span", {
     className: "ac-search-icon"
@@ -684,69 +905,123 @@ function AnalysisControls({
   }), query && h("button", {
     className: "ac-search-clear",
     onClick: () => setQ("")
-  }, "clear")), h("div", {
-    className: "ac-row"
-  }, h("div", {
-    className: "ac-row-label"
-  }, "State"), h("div", {
-    className: "ac-chips"
-  }, chip("stateF", "all", "All", counts.state.all), chip("stateF", "bull", "Bull", counts.state.bull, "bull"), chip("stateF", "pull", "Pullback", counts.state.pull, "pull"), chip("stateF", "bear", "Bear", counts.state.bear, "bear"))), h("div", {
-    className: "ac-row"
-  }, h("div", {
-    className: "ac-row-label"
-  }, "Focus"), h("div", {
-    className: "ac-chips"
-  }, chip("focusF", "all", "All"), chip("focusF", "setup", "Setup", counts.focus.setup), chip("focusF", "enter", "Actionable", counts.focus.enter), chip("focusF", "hiQuality", "High Quality", counts.focus.hiQuality), chip("focusF", "highRR", "High R:R", counts.focus.highRR), chip("focusF", "top30", "Top Rank", counts.focus.top30))), h("div", {
-    className: "ac-row"
-  }, h("div", {
-    className: "ac-row-label"
-  }, "Momentum"), h("div", {
-    className: "ac-chips"
-  }, chip("momF", "all", "All"), chip("momF", "elite", "Mo Elite", counts.mom.elite), chip("momF", "squeeze", "Squeeze", counts.mom.squeeze), chip("momF", "breakout", "Breakout", counts.mom.breakout), chip("momF", "compression", "Compression", counts.mom.compression))), sectorRows.length > 0 && h("div", {
-    className: "ac-row"
-  }, h("div", {
-    className: "ac-row-label"
-  }, "Sector"), h("div", {
-    className: "ac-chips"
-  }, chip("sectorF", "all", "All"), ...sectorRows.map(({
-    name,
-    n
-  }) => {
-    const label = name.split(" ").map(w => w ? w[0].toUpperCase() + w.slice(1) : w).join(" ");
-    return chip("sectorF", name, label, n);
-  }))));
+  }, "clear")), h(Row, {
+    label: "Focus",
+    items: rows.focus
+  }), h(Row, {
+    label: "Momentum",
+    items: rows.momentum
+  }), h(Row, {
+    label: "Structure",
+    items: rows.structure
+  }), h(Row, {
+    label: "Context",
+    items: rows.context
+  }));
 }
-function SharedBubbleMapSection({
+function Viewport({
+  visible,
+  rankedTickerPositions,
+  query
+}) {
+  const TT = window.TimedBubbleChart || {};
+  const getDir = t => {
+    const s = String(t?.state || "");
+    if (s.startsWith("HTF_BULL") || s.includes("BULL")) return "LONG";
+    if (s.startsWith("HTF_BEAR") || s.includes("BEAR")) return "SHORT";
+    return "FLAT";
+  };
+  const dailyChange = window.TimedPriceUtils && window.TimedPriceUtils.getDailyChange || (() => ({
+    dayPct: null,
+    dayChg: null
+  }));
+  const ranked = useMemo(() => {
+    const list = (visible || []).slice();
+    list.sort((a, b) => {
+      const ra = rankedTickerPositions?.get?.(a.ticker);
+      const rb = rankedTickerPositions?.get?.(b.ticker);
+      if (Number.isFinite(ra) && Number.isFinite(rb)) return ra - rb;
+      if (Number.isFinite(ra)) return -1;
+      if (Number.isFinite(rb)) return 1;
+      const rra = Number(a.rr) || 0,
+        rrb = Number(b.rr) || 0;
+      if (rra !== rrb) return rrb - rra;
+      return String(a.ticker).localeCompare(String(b.ticker));
+    });
+    return list;
+  }, [visible, rankedTickerPositions]);
+  const onOpen = sym => {
+    window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+  };
+  return h("aside", {
+    className: "vp-card",
+    "aria-label": "Ticker viewport"
+  }, h("div", {
+    className: "vp-head"
+  }, h("div", {
+    className: "vp-title"
+  }, "VIEWPORT"), h("div", {
+    className: "vp-count"
+  }, `${ranked.length} tickers`)), h("div", {
+    className: "vp-list",
+    style: {
+      flex: "1 1 auto"
+    }
+  }, ranked.length === 0 ? h("div", {
+    className: "vp-empty"
+  }, "No tickers match. Try a different filter or clear the search.") : ranked.slice(0, 200).map(t => {
+    const sym = t.ticker;
+    const dir = getDir(t);
+    const dc = dailyChange(t);
+    const pct = Number(dc?.dayPct);
+    const pctStr = Number.isFinite(pct) ? `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%` : "—";
+    const pctCls = !Number.isFinite(pct) ? "" : pct >= 0 ? "up" : "down";
+    const rr = Number(t.rr);
+    const rank = rankedTickerPositions?.get?.(sym);
+    const stage = String(t.kanban_stage || "").toLowerCase();
+    const stageCls = stage && /^(setup|enter|enter_now|hold|trim|defend|exit|just_entered|just_flipped|in_review)$/.test(stage) ? stage.startsWith("enter") ? "enter" : stage.startsWith("hold") || stage === "just_entered" ? "hold" : stage === "trim" ? "trim" : stage === "defend" ? "defend" : stage === "exit" ? "exit" : "setup" : "";
+    const showStage = stage && stage !== "—";
+    const stageLabel = stage === "just_entered" ? "HOLD" : stage === "just_flipped" ? "ENTER" : stage === "enter_now" ? "ENTER" : stage === "in_review" ? "REVIEW" : stage.toUpperCase();
+    return h("div", {
+      key: sym,
+      className: "vp-row",
+      onClick: () => onOpen(sym),
+      role: "button",
+      tabIndex: 0,
+      onKeyDown: e => {
+        if (e.key === "Enter" || e.key === " ") onOpen(sym);
+      },
+      title: `Open ${sym} in Active Trader`
+    }, h("div", null, h("div", {
+      className: "vp-sym"
+    }, sym), Number.isFinite(rank) && h("div", {
+      className: "vp-rank"
+    }, `#${rank}`)), h("div", {
+      className: "vp-mid"
+    }, h("div", null, h("span", {
+      className: `vp-dir ${dir.toLowerCase()}`
+    }, dir), showStage && h("span", {
+      className: `vp-stage ${stageCls}`
+    }, stageLabel)), h("div", {
+      className: "vp-meta"
+    }, Number.isFinite(rr) ? `R:R ${rr.toFixed(2)}` : "R:R —", Number.isFinite(Number(t.eta_days_v2 ?? t.eta_days)) ? ` · ETA ${Math.round(Number(t.eta_days_v2 ?? t.eta_days))}d` : "")), h("div", {
+      className: `vp-pct ${pctCls}`
+    }, pctStr));
+  })), ranked.length > 200 && h("div", {
+    className: "vp-empty",
+    style: {
+      fontSize: 10
+    }
+  }, `Showing 200 of ${ranked.length} — narrow the filter to see more.`));
+}
+function BubbleMapViewportSplit({
   allTickers,
   visible,
   query,
-  data
+  data,
+  rankedTickers,
+  rankedTickerPositions
 }) {
-  const SharedChart = typeof window !== "undefined" && window.TimedBubbleChart && window.TimedBubbleChart.BubbleChart || null;
-  const getRankedTickers = window.TimedBubbleChart && window.TimedBubbleChart.getRankedTickers || null;
-  const rankedTickers = useMemo(() => {
-    if (!getRankedTickers || !data) return [];
-    try {
-      return getRankedTickers(data) || [];
-    } catch {
-      return [];
-    }
-  }, [data]);
-  const rankedTickerPositions = useMemo(() => {
-    const m = new Map();
-    rankedTickers.forEach((t, idx) => {
-      if (t?.ticker) m.set(t.ticker, idx + 1);
-    });
-    return m;
-  }, [rankedTickers]);
-  const [hovered, setHovered] = useState(null);
-  if (!SharedChart) {
-    return h(BubbleMap, {
-      allTickers,
-      visible,
-      query
-    });
-  }
   return h("section", {
     className: "tt-row"
   }, h("div", {
@@ -790,6 +1065,101 @@ function SharedBubbleMapSection({
       background: "#f43f5e"
     }
   }), "Bear aligned"))), h("div", {
+    className: "bmv-split"
+  }, h(Viewport, {
+    visible,
+    rankedTickerPositions,
+    query
+  }), h("div", {
+    className: "bmv-bubble"
+  }, h(SharedBubbleMapSection, {
+    allTickers,
+    visible,
+    query,
+    data,
+    rankedTickers,
+    rankedTickerPositions,
+    embedded: true
+  }))));
+}
+function SharedBubbleMapSection({
+  allTickers,
+  visible,
+  query,
+  data,
+  rankedTickers: rtProp,
+  rankedTickerPositions: rtpProp,
+  embedded = false
+}) {
+  const SharedChart = typeof window !== "undefined" && window.TimedBubbleChart && window.TimedBubbleChart.BubbleChart || null;
+  const getRankedTickers = window.TimedBubbleChart && window.TimedBubbleChart.getRankedTickers || null;
+  const rankedTickersLocal = useMemo(() => {
+    if (Array.isArray(rtProp) && rtProp.length > 0) return rtProp;
+    if (!getRankedTickers || !data) return [];
+    try {
+      return getRankedTickers(data) || [];
+    } catch {
+      return [];
+    }
+  }, [data, rtProp]);
+  const rankedTickerPositionsLocal = useMemo(() => {
+    if (rtpProp && typeof rtpProp.get === "function" && rtpProp.size > 0) return rtpProp;
+    const m = new Map();
+    rankedTickersLocal.forEach((t, idx) => {
+      if (t?.ticker) m.set(t.ticker, idx + 1);
+    });
+    return m;
+  }, [rankedTickersLocal, rtpProp]);
+  const [hovered, setHovered] = useState(null);
+  if (!SharedChart) {
+    return h(BubbleMap, {
+      allTickers,
+      visible,
+      query
+    });
+  }
+  const headerNode = embedded ? null : h("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      justifyContent: "space-between",
+      gap: 12,
+      flexWrap: "wrap",
+      marginBottom: 8
+    }
+  }, h("div", null, h("div", {
+    className: "tt-sec-title"
+  }, "BUBBLE MAP"), h("div", {
+    className: "tt-sec-h"
+  }, "Where every ticker sits on momentum \u00d7 trend")), h("div", {
+    className: "bm-legend"
+  }, h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#22c55e"
+    }
+  }), "Bull aligned"), h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#34d399"
+    }
+  }), "Bull mixed"), h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#f5c25c"
+    }
+  }), "Pullback"), h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#fb7185"
+    }
+  }), "Bear mixed"), h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#f43f5e"
+    }
+  }), "Bear aligned")));
+  const chartBody = h("div", {
     className: "tt-card tt-card-pad",
     style: {
       padding: 0,
@@ -803,8 +1173,8 @@ function SharedBubbleMapSection({
   }, h(SharedChart, {
     tickers: visible,
     allData: data,
-    rankedTickers: rankedTickers,
-    rankedTickerPositions: rankedTickerPositions,
+    rankedTickers: rankedTickersLocal,
+    rankedTickerPositions: rankedTickerPositionsLocal,
     hoveredTicker: hovered,
     onHover: setHovered,
     onBubbleClick: sym => {
@@ -819,7 +1189,11 @@ function SharedBubbleMapSection({
     forwardReturns: null,
     activeInsightTickers: null,
     layoutMode: "score"
-  }))));
+  })));
+  if (embedded) return chartBody;
+  return h("section", {
+    className: "tt-row"
+  }, headerNode, chartBody);
 }
 function BubbleMap({
   allTickers,
@@ -1238,10 +1612,7 @@ function TodayApp() {
   const [error, setError] = useState(null);
   const [filters, setFilters] = useState({
     query: "",
-    stateF: "all",
-    focusF: "all",
-    momF: "all",
-    sectorF: "all"
+    activeChip: "focus"
   });
   useEffect(() => {
     let alive = true;
@@ -1269,7 +1640,27 @@ function TodayApp() {
     };
   }, []);
   const allTickers = useMemo(() => data ? Object.values(data).filter(t => t && t.ticker) : [], [data]);
-  const visible = useMemo(() => applyFilters(allTickers, filters), [allTickers, filters]);
+  const isAdmin = !!window._ttIsAdmin;
+  const chips = useMemo(() => computeInsightChips(allTickers, {
+    isAdmin
+  }), [allTickers, isAdmin]);
+  const visible = useMemo(() => applyFilters(allTickers, filters, chips), [allTickers, filters, chips]);
+  const rankedTickers = useMemo(() => {
+    const TT = window.TimedBubbleChart;
+    if (!TT?.getRankedTickers || !data) return [];
+    try {
+      return TT.getRankedTickers(data) || [];
+    } catch {
+      return [];
+    }
+  }, [data]);
+  const rankedTickerPositions = useMemo(() => {
+    const m = new Map();
+    rankedTickers.forEach((t, idx) => {
+      if (t?.ticker) m.set(t.ticker, idx + 1);
+    });
+    return m;
+  }, [rankedTickers]);
   if (error) {
     return h("main", null, h("div", {
       className: "tt-card tt-card-pad",
@@ -1292,15 +1683,18 @@ function TodayApp() {
   }), earnings && h(EarningsStrip, {
     earnings
   }), data && h(AnalysisControls, {
-    allTickers,
+    chips,
+    totalCount: allTickers.length,
     visibleCount: visible.length,
     filters,
     setFilters
-  }), data && h(SharedBubbleMapSection, {
+  }), data && h(BubbleMapViewportSplit, {
     allTickers,
     visible,
     query: filters.query,
-    data
+    data,
+    rankedTickers,
+    rankedTickerPositions
   }), data && h(UniverseHeatmap, {
     visible,
     query: filters.query
