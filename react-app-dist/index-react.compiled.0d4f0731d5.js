@@ -16069,7 +16069,11 @@ function App() {
     }
   })))), React.createElement("div", {
     className: "flex items-center gap-1.5 md:gap-2 shrink-0"
-  }, React.createElement("button", {
+  }, React.createElement("a", {
+    href: "/learn.html",
+    className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-emerald-300 hover:bg-emerald-500/[0.06] transition-all font-medium",
+    title: "How Timed Trading works"
+  }, "Learn"), React.createElement("button", {
     onClick: () => setShowWelcomeDashboard(true),
     className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
   }, "Guide"), React.createElement("button", {
@@ -16188,7 +16192,11 @@ function App() {
     href: "daily-brief.html",
     className: "px-3 py-2 rounded-md text-[13px] text-[#f59e0b]/80 hover:text-[#f59e0b] hover:bg-[#f59e0b]/[0.06] transition-all font-medium",
     onClick: () => setMobileMenuOpen(false)
-  }, "Daily Brief"), React.createElement("div", {
+  }, "Daily Brief"), React.createElement("a", {
+    href: "/learn.html",
+    className: "px-3 py-2 rounded-md text-[13px] text-emerald-300/80 hover:text-emerald-300 hover:bg-emerald-500/[0.06] transition-all font-medium",
+    onClick: () => setMobileMenuOpen(false)
+  }, "Learn how it works"), React.createElement("div", {
     className: "border-t border-white/[0.06] mt-1 pt-1 flex items-center gap-2"
   }, React.createElement("button", {
     onClick: () => {

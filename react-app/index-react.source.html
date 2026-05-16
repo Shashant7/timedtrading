@@ -20124,6 +20124,7 @@
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
+                    <a href="/learn.html" className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-emerald-300 hover:bg-emerald-500/[0.06] transition-all font-medium" title="How Timed Trading works">Learn</a>
                     <button onClick={() => setShowWelcomeDashboard(true)} className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Guide</button>
                     <button onClick={() => { try { localStorage.removeItem("tt_coachmarks_completed_v1"); } catch {} window.__restartCoachmarks?.(); }} className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" title="Restart the UI tour">Tour</button>
                     <a href="/faq.html" className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" title="Frequently Asked Questions">FAQ</a>
@@ -20157,6 +20158,7 @@
                       </>
                     )}
                     <a href="daily-brief.html" className="px-3 py-2 rounded-md text-[13px] text-[#f59e0b]/80 hover:text-[#f59e0b] hover:bg-[#f59e0b]/[0.06] transition-all font-medium" onClick={() => setMobileMenuOpen(false)}>Daily Brief</a>
+                    <a href="/learn.html" className="px-3 py-2 rounded-md text-[13px] text-emerald-300/80 hover:text-emerald-300 hover:bg-emerald-500/[0.06] transition-all font-medium" onClick={() => setMobileMenuOpen(false)}>Learn how it works</a>
                     <div className="border-t border-white/[0.06] mt-1 pt-1 flex items-center gap-2">
                       <button onClick={() => { setShowWelcomeDashboard(true); setMobileMenuOpen(false); }} className="px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Guide</button>
                       <button onClick={() => { try { localStorage.removeItem("tt_coachmarks_completed_v1"); } catch {} window.__restartCoachmarks?.(); setMobileMenuOpen(false); }} className="px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" title="Restart tour">Tour</button>

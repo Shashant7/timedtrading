@@ -1,0 +1,1424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>How Timed Trading works — A guide to the platform</title>
+  <meta name="description" content="A complete walkthrough of how Timed Trading works — the TT Universe, the Daily Brief, Active Trader vs Investor modes, kanban lanes, and how every trade gets scored, validated, and learned from." />
+  <meta property="og:title" content="How Timed Trading works — A guide to the platform" />
+  <meta property="og:description" content="The TT Universe, the Daily Brief, Active Trader vs Investor modes, kanban lanes, and how every trade gets scored." />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2048%2048%27%20fill%3D%27none%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27r%27%20x1%3D%276%27%20y1%3D%2742%27%20x2%3D%2742%27%20y2%3D%276%27%3E%3Cstop%20offset%3D%270%25%27%20stop-color%3D%27%2334d399%27%2F%3E%3Cstop%20offset%3D%27100%25%27%20stop-color%3D%27%2367e8f9%27%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20width%3D%2748%27%20height%3D%2748%27%20rx%3D%2711%27%20fill%3D%27%23000%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%2717%27%20stroke%3D%27url%28%23r%29%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%277.5%27%20x2%3D%2724%27%20y2%3D%2710.5%27%20stroke%3D%27%2334d399%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20opacity%3D%270.5%27%2F%3E%3Cline%20x1%3D%277.5%27%20y1%3D%2724%27%20x2%3D%2710.5%27%20y2%3D%2724%27%20stroke%3D%27%2334d399%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20opacity%3D%270.5%27%2F%3E%3Cline%20x1%3D%2719%27%20y1%3D%2718.5%27%20x2%3D%2716%27%20y2%3D%2715.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2719%27%20y2%3D%2718.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%273.5%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2729.5%27%20y1%3D%2716.5%27%20x2%3D%2732%27%20y2%3D%2712.9%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2729.5%27%20y2%3D%2716.5%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%274%27%20stroke-linecap%3D%27round%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%273.2%27%20fill%3D%27%2330d158%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%271.3%27%20fill%3D%27%23000%27%2F%3E%3C%2Fsvg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="tt-tokens.css?v=20260516-learn" />
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg-base: #0b0e11;
+      --bg-surface: rgba(255,255,255,0.025);
+      --bg-elev: rgba(255,255,255,0.04);
+      --border: rgba(255,255,255,0.06);
+      --border-hi: rgba(255,255,255,0.12);
+      --text-primary: #e5e7eb;
+      --text-secondary: #9ca3af;
+      --text-muted: #6b7280;
+      --text-dim: #4b5563;
+      --accent: #00c853;
+      --accent-glow: rgba(0,200,83,0.15);
+      --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      /* Stage colors — Active Trader */
+      --c-watch:  #6b7280;
+      --c-setup:  #9ca3af;
+      --c-enter:  #10b981;
+      --c-hold:   #10b981;
+      --c-defend: #fb923c;
+      --c-trim:   #facc15;
+      --c-exit:   #f87171;
+      /* Investor stage colors */
+      --c-accum:    #10b981;
+      --c-corehold: #3b82f6;
+      --c-iwatch:   #f59e0b;
+      --c-reduce:   #ef4444;
+      --c-on-watch: #a78bfa;
+      --c-low:      #8b5cf6;
+      --c-avoid:    #6b7280;
+      /* Direction */
+      --long:  #22d3ee;
+      --short: #f43f5e;
+    }
+    html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+    body {
+      font-family: var(--font);
+      background: var(--bg-base);
+      color: var(--text-primary);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+    a { color: inherit; }
+
+    /* ── Top Nav ──────────────────────────────────────────────── */
+    nav.topnav {
+      position: sticky; top: 0; z-index: 50;
+      background: rgba(10,12,16,0.85);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-row {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .nav-brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: var(--text-primary);
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+    .nav-brand svg { width: 30px; height: 30px; }
+    .nav-actions { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .nav-link {
+      font-size: 13px;
+      color: var(--text-secondary);
+      text-decoration: none;
+      padding: 7px 12px;
+      border-radius: 8px;
+      transition: all 0.15s;
+    }
+    .nav-link:hover { background: var(--bg-surface); color: var(--text-primary); }
+    .nav-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #00c853, #00a844);
+      color: white;
+      font-size: 13px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.15s;
+    }
+    .nav-cta:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,200,83,0.25); }
+
+    /* ── Layout ───────────────────────────────────────────────── */
+    main { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+    .layout {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: 48px;
+      padding: 48px 0 96px;
+    }
+    @media (max-width: 1024px) { .layout { grid-template-columns: 1fr; gap: 24px; } }
+
+    /* ── Side TOC ─────────────────────────────────────────────── */
+    aside.toc {
+      position: sticky;
+      top: 80px;
+      align-self: start;
+      max-height: calc(100vh - 100px);
+      overflow-y: auto;
+    }
+    .toc-title {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.10em;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+    .toc-list { list-style: none; display: flex; flex-direction: column; gap: 2px; }
+    .toc-list a {
+      display: block;
+      padding: 7px 12px;
+      font-size: 13px;
+      color: var(--text-secondary);
+      text-decoration: none;
+      border-radius: 7px;
+      border-left: 2px solid transparent;
+      transition: all 0.15s;
+    }
+    .toc-list a:hover { color: var(--text-primary); background: var(--bg-surface); }
+    .toc-list a.active { color: var(--accent); border-left-color: var(--accent); background: rgba(0,200,83,0.04); }
+    @media (max-width: 1024px) {
+      aside.toc {
+        position: static;
+        max-height: none;
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px;
+      }
+      .toc-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; }
+    }
+    @media (max-width: 600px) {
+      .toc-list { grid-template-columns: 1fr; }
+    }
+
+    /* ── Hero ─────────────────────────────────────────────────── */
+    .hero {
+      padding: 64px 0 32px;
+      text-align: center;
+      border-bottom: 1px solid var(--border);
+    }
+    .hero-eyebrow {
+      display: inline-block;
+      padding: 5px 12px;
+      border-radius: 999px;
+      background: rgba(0,200,83,0.08);
+      border: 1px solid rgba(0,200,83,0.22);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+      text-transform: uppercase;
+      margin-bottom: 18px;
+    }
+    .hero h1 {
+      font-size: clamp(28px, 5vw, 48px);
+      font-weight: 900;
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+      margin-bottom: 14px;
+    }
+    .hero p.lede {
+      font-size: clamp(15px, 2vw, 18px);
+      color: var(--text-secondary);
+      max-width: 660px;
+      margin: 0 auto;
+      line-height: 1.6;
+    }
+    .hero-meta {
+      margin-top: 24px;
+      display: inline-flex;
+      gap: 18px;
+      flex-wrap: wrap;
+      justify-content: center;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .hero-meta span::before {
+      content: "•";
+      margin-right: 8px;
+      color: var(--text-dim);
+    }
+    .hero-meta span:first-child::before { content: ""; margin: 0; }
+
+    /* ── Section ──────────────────────────────────────────────── */
+    section.chapter {
+      padding: 56px 0 24px;
+      scroll-margin-top: 80px;
+      border-bottom: 1px solid var(--border);
+    }
+    section.chapter:last-of-type { border-bottom: none; }
+    .chapter-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px; height: 32px;
+      border-radius: 8px;
+      background: var(--bg-elev);
+      border: 1px solid var(--border);
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--accent);
+      margin-bottom: 14px;
+    }
+    .chapter-title {
+      font-size: clamp(22px, 3.5vw, 32px);
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+      margin-bottom: 12px;
+    }
+    .chapter-subtitle {
+      font-size: 15px;
+      color: var(--text-secondary);
+      max-width: 720px;
+      line-height: 1.7;
+      margin-bottom: 28px;
+    }
+    .chapter h3 {
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+      margin: 28px 0 10px;
+    }
+    .chapter p {
+      font-size: 14.5px;
+      color: var(--text-secondary);
+      line-height: 1.7;
+      margin-bottom: 14px;
+      max-width: 720px;
+    }
+    .chapter ul, .chapter ol { padding-left: 20px; max-width: 720px; }
+    .chapter li { font-size: 14.5px; color: var(--text-secondary); line-height: 1.7; margin-bottom: 8px; }
+    .chapter li strong { color: var(--text-primary); font-weight: 600; }
+    .chapter strong { color: var(--text-primary); font-weight: 600; }
+    .chapter em.term { color: var(--accent); font-style: normal; font-weight: 600; }
+
+    /* ── Callouts ─────────────────────────────────────────────── */
+    .callout {
+      margin: 16px 0;
+      padding: 14px 16px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      border-radius: 10px;
+      font-size: 13.5px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      max-width: 720px;
+    }
+    .callout strong { color: var(--text-primary); }
+    .callout.warn { border-left-color: #f59e0b; }
+    .callout.tip  { border-left-color: #22d3ee; }
+
+    /* ── Two-up Mode comparison ───────────────────────────────── */
+    .mode-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin: 24px 0;
+    }
+    @media (max-width: 720px) { .mode-grid { grid-template-columns: 1fr; } }
+    .mode-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 22px;
+    }
+    .mode-card h4 {
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+      margin-bottom: 4px;
+    }
+    .mode-card .mode-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    .mode-card.active-trader { border-color: rgba(34,211,238,0.22); }
+    .mode-card.active-trader .mode-tag { background: rgba(34,211,238,0.10); color: #67e8f9; border: 1px solid rgba(34,211,238,0.30); }
+    .mode-card.investor { border-color: rgba(59,130,246,0.22); }
+    .mode-card.investor .mode-tag { background: rgba(59,130,246,0.10); color: #93c5fd; border: 1px solid rgba(59,130,246,0.30); }
+    .mode-card p { font-size: 13.5px; line-height: 1.65; margin-bottom: 10px; }
+    .mode-card dl {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 6px 14px;
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+      font-size: 12.5px;
+    }
+    .mode-card dt { color: var(--text-muted); font-weight: 600; }
+    .mode-card dd { color: var(--text-primary); }
+
+    /* ── Lane Walkthrough ─────────────────────────────────────── */
+    .lanes-track {
+      display: grid;
+      gap: 10px;
+      margin: 20px 0;
+    }
+    .lane-row {
+      display: grid;
+      grid-template-columns: 132px 1fr auto;
+      gap: 16px;
+      align-items: center;
+      padding: 14px 16px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-left-width: 4px;
+      border-radius: 12px;
+    }
+    @media (max-width: 720px) {
+      .lane-row { grid-template-columns: 1fr; gap: 8px; padding: 14px; }
+    }
+    .lane-label {
+      display: inline-flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .lane-name {
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .lane-icon {
+      font-size: 16px;
+    }
+    .lane-desc {
+      font-size: 13.5px;
+      color: var(--text-secondary);
+      line-height: 1.55;
+    }
+    .lane-desc strong { color: var(--text-primary); }
+    .lane-action {
+      display: inline-block;
+      padding: 5px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    /* Active Trader lane colors */
+    .ln-watch  { border-left-color: var(--c-watch);  }
+    .ln-watch  .lane-name { color: var(--c-watch);  }
+    .ln-setup  { border-left-color: var(--c-setup);  }
+    .ln-setup  .lane-name { color: var(--c-setup);  }
+    .ln-enter  { border-left-color: var(--c-enter);  }
+    .ln-enter  .lane-name { color: var(--c-enter);  }
+    .ln-hold   { border-left-color: var(--c-hold);   }
+    .ln-hold   .lane-name { color: var(--c-hold);   }
+    .ln-defend { border-left-color: var(--c-defend); }
+    .ln-defend .lane-name { color: var(--c-defend); }
+    .ln-trim   { border-left-color: var(--c-trim);   }
+    .ln-trim   .lane-name { color: var(--c-trim);   }
+    .ln-exit   { border-left-color: var(--c-exit);   }
+    .ln-exit   .lane-name { color: var(--c-exit);   }
+    /* Investor lane colors */
+    .ln-accum    { border-left-color: var(--c-accum);    }
+    .ln-accum    .lane-name { color: var(--c-accum);    }
+    .ln-corehold { border-left-color: var(--c-corehold); }
+    .ln-corehold .lane-name { color: var(--c-corehold); }
+    .ln-iwatch   { border-left-color: var(--c-iwatch);   }
+    .ln-iwatch   .lane-name { color: var(--c-iwatch);   }
+    .ln-reduce   { border-left-color: var(--c-reduce);   }
+    .ln-reduce   .lane-name { color: var(--c-reduce);   }
+    .ln-on-watch { border-left-color: var(--c-on-watch); }
+    .ln-on-watch .lane-name { color: var(--c-on-watch); }
+    .ln-low      { border-left-color: var(--c-low);      }
+    .ln-low      .lane-name { color: var(--c-low);      }
+    .ln-avoid    { border-left-color: var(--c-avoid);    }
+    .ln-avoid    .lane-name { color: var(--c-avoid);    }
+    .a-monitor { background: rgba(107,114,128,0.15); color: #d1d5db; }
+    .a-stalk   { background: rgba(156,163,175,0.15); color: #d1d5db; }
+    .a-enter   { background: rgba(16,185,129,0.18);  color: #6ee7b7; }
+    .a-hold    { background: rgba(16,185,129,0.15);  color: #6ee7b7; }
+    .a-defend  { background: rgba(251,146,60,0.18);  color: #fdba74; }
+    .a-trim    { background: rgba(250,204,21,0.18);  color: #fde68a; }
+    .a-exit    { background: rgba(248,113,113,0.20); color: #fca5a5; }
+    .a-buy     { background: rgba(16,185,129,0.18);  color: #6ee7b7; }
+    .a-hold-i  { background: rgba(59,130,246,0.18);  color: #93c5fd; }
+    .a-monitor-i { background: rgba(245,158,11,0.15); color: #fcd34d; }
+    .a-trim-i  { background: rgba(239,68,68,0.18);   color: #fca5a5; }
+    .a-research { background: rgba(167,139,250,0.15); color: #c4b5fd; }
+    .a-watch   { background: rgba(139,92,246,0.13);  color: #c4b5fd; }
+    .a-skip    { background: rgba(107,114,128,0.15); color: #d1d5db; }
+
+    /* ── Annotated card SVG ───────────────────────────────────── */
+    .card-anatomy {
+      margin: 28px 0;
+      padding: 24px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow-x: auto;
+    }
+    .card-anatomy svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+    .anno-legend {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px 24px;
+      margin-top: 20px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+    }
+    @media (max-width: 720px) { .anno-legend { grid-template-columns: 1fr; } }
+    .anno-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 13px;
+      line-height: 1.55;
+      color: var(--text-secondary);
+    }
+    .anno-item .num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #0a0d11;
+      font-size: 11px;
+      font-weight: 800;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .anno-item strong { color: var(--text-primary); font-weight: 600; }
+
+    /* ── TT Selected indicator visual ─────────────────────────── */
+    .tt-selected-demo {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(0,200,83,0.10);
+      border: 1px solid rgba(0,200,83,0.28);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: var(--accent);
+      text-transform: uppercase;
+    }
+    .tt-selected-demo::before {
+      content: "";
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px rgba(0,200,83,0.6);
+    }
+
+    /* ── CTA at bottom ────────────────────────────────────────── */
+    .cta-end {
+      margin: 64px 0 0;
+      padding: 40px 28px;
+      background: linear-gradient(180deg, rgba(0,200,83,0.04) 0%, var(--bg-surface) 60%);
+      border: 1px solid rgba(0,200,83,0.22);
+      border-radius: 16px;
+      text-align: center;
+    }
+    .cta-end h3 {
+      font-size: 22px;
+      font-weight: 800;
+      margin-bottom: 8px !important;
+    }
+    .cta-end p { color: var(--text-secondary); margin-bottom: 24px !important; max-width: 540px; margin-left: auto !important; margin-right: auto !important; }
+    .cta-row { display: inline-flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+    .cta-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 22px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #00c853, #00a844);
+      color: white;
+      font-size: 14px;
+      font-weight: 700;
+      text-decoration: none;
+      transition: all 0.15s;
+    }
+    .cta-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0,200,83,0.28); }
+    .cta-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 22px;
+      border-radius: 10px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.15s;
+    }
+    .cta-secondary:hover { background: var(--bg-elev); border-color: var(--border-hi); }
+
+    /* ── Footer ───────────────────────────────────────────────── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 28px 24px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    footer a { color: var(--text-muted); text-decoration: underline; }
+    footer .disc { max-width: 800px; margin: 12px auto 0; line-height: 1.6; font-size: 11px; color: var(--text-dim); }
+  </style>
+</head>
+<body>
+
+  <!-- ── TOP NAV ─────────────────────────────────────────────── -->
+  <nav class="topnav">
+    <div class="nav-row">
+      <a href="/splash.html" class="nav-brand">
+        <svg viewBox="0 0 48 48" fill="none"><defs><linearGradient id="ng" x1="6" y1="42" x2="42" y2="6"><stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#67e8f9"/></linearGradient></defs><rect width="48" height="48" rx="11" fill="#000"/><circle cx="24" cy="24" r="17" stroke="url(#ng)" stroke-width="2.5" fill="none"/><line x1="19" y1="18.5" x2="16" y2="15.5" stroke="#636366" stroke-width="1.2" stroke-linecap="round"/><line x1="24" y1="24" x2="19" y2="18.5" stroke="#636366" stroke-width="3.5" stroke-linecap="round"/><line x1="29.5" y1="16.5" x2="32" y2="12.9" stroke="#30d158" stroke-width="1.2" stroke-linecap="round"/><line x1="24" y1="24" x2="29.5" y2="16.5" stroke="#30d158" stroke-width="4" stroke-linecap="round"/><circle cx="24" cy="24" r="3.2" fill="#30d158"/><circle cx="24" cy="24" r="1.3" fill="#000"/></svg>
+        Timed Trading
+      </a>
+      <div class="nav-actions">
+        <a href="/splash.html" class="nav-link">Home</a>
+        <a href="/faq.html" class="nav-link">FAQ</a>
+        <a href="/index-react.html" class="nav-cta">
+          Open dashboard
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
+          </svg>
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    <!-- ── HERO ──────────────────────────────────────────────── -->
+    <header class="hero">
+      <span class="hero-eyebrow">Start Here · A guide to the platform</span>
+      <h1>How Timed Trading works</h1>
+      <p class="lede">
+        From the ticker universe we curate, to the daily brief that frames every session, to the
+        kanban lanes that tell you exactly when to act &mdash; here&rsquo;s the complete picture in
+        about ten minutes.
+      </p>
+      <div class="hero-meta">
+        <span>~10 min read</span>
+        <span>Updated for the current platform</span>
+        <span>No prior experience required</span>
+      </div>
+    </header>
+
+    <!-- ── LAYOUT (TOC + content) ────────────────────────────── -->
+    <div class="layout">
+      <aside class="toc" aria-label="Table of contents">
+        <div class="toc-title">On this page</div>
+        <ul class="toc-list">
+          <li><a href="#how-it-works" data-section="how-it-works">1. How TT works</a></li>
+          <li><a href="#universe" data-section="universe">2. The TT Universe</a></li>
+          <li><a href="#brief" data-section="brief">3. The Daily Brief</a></li>
+          <li><a href="#modes" data-section="modes">4. Active Trader vs Investor</a></li>
+          <li><a href="#active-lanes" data-section="active-lanes">5. Active Trader lanes</a></li>
+          <li><a href="#investor-lanes" data-section="investor-lanes">6. Investor lanes</a></li>
+          <li><a href="#card-anatomy" data-section="card-anatomy">7. Anatomy of a card</a></li>
+          <li><a href="#scoring" data-section="scoring">8. How we keep score</a></li>
+        </ul>
+      </aside>
+
+      <article>
+
+        <!-- ── 1. How TT works ───────────────────────────────── -->
+        <section id="how-it-works" class="chapter">
+          <span class="chapter-num">1</span>
+          <h2 class="chapter-title">How Timed Trading works &mdash; the 60-second mental model</h2>
+          <p class="chapter-subtitle">
+            One paragraph before the deep dive: Timed Trading is a model that watches a curated list
+            of stocks, scores them across multiple timeframes every five minutes, decides when
+            conditions actually line up for a trade, and then manages that trade through a clear
+            lifecycle. You see exactly what it&rsquo;s thinking, exactly when something changes, and
+            you can follow along or use the same read to position your own way.
+          </p>
+
+          <h3>The four-step loop</h3>
+          <ol>
+            <li><strong>Universe</strong> &mdash; we seed a focused list of tickers (the <em class="term">TT Universe</em>) based on what&rsquo;s actually moving in the current market cycle. You can add your own on top of it.</li>
+            <li><strong>Scoring</strong> &mdash; every ticker is scored across 8+ timeframes every 5 minutes. The model reads trend, momentum, structure, and confluence.</li>
+            <li><strong>Decision</strong> &mdash; when a setup actually qualifies, the AI CIO validates it, then it gets placed in the right <em class="term">kanban lane</em> with explicit entry, stop, and target levels.</li>
+            <li><strong>Management</strong> &mdash; from the moment a trade is open, the model moves it through lanes (Hold &rarr; Defend &rarr; Trim &rarr; Exit) based on what the data is doing in real time.</li>
+          </ol>
+          <div class="callout tip">
+            <strong>The mental shift:</strong> Timed Trading isn&rsquo;t a chart-reading shortcut. It&rsquo;s a system
+            that watches more tickers than you can, more carefully than you can, and only surfaces the
+            ones that pass its filters. Your job is to read the lanes, not the charts.
+          </div>
+        </section>
+
+        <!-- ── 2. The TT Universe ────────────────────────────── -->
+        <section id="universe" class="chapter">
+          <span class="chapter-num">2</span>
+          <h2 class="chapter-title">The TT Universe &mdash; what we watch and why</h2>
+          <p class="chapter-subtitle">
+            The universe is a deliberately curated list, not the whole market. Watching everything
+            means watching nothing well. We focus on the names that actually move and re-balance as
+            cycles shift.
+          </p>
+
+          <h3>TT Selected tickers</h3>
+          <p>
+            Every ticker we seed gets a <span class="tt-selected-demo">TT Selected</span> indicator
+            in the dashboard. This is our shortlist of names the model has identified as potential
+            high-performers in the current market cycle &mdash; trending mega-caps, sector leaders,
+            high-momentum mid-caps, theme plays, and macro proxies (commodities, defense, AI infra,
+            etc.).
+          </p>
+          <p>
+            The universe is not static. As market regimes shift &mdash; energy rolls over, AI rotates
+            back in, defense breaks out &mdash; we add, remove, or re-weight tickers to match what&rsquo;s
+            actually moving.
+          </p>
+
+          <h3>Universe-change alerts</h3>
+          <p>
+            Every time the universe is refreshed, a user-facing alert fires. You see exactly what
+            changed:
+          </p>
+          <ul>
+            <li><strong>Added</strong> &mdash; new tickers entering the universe, with our rationale</li>
+            <li><strong>Removed</strong> &mdash; tickers we&rsquo;re no longer tracking (e.g. M&amp;A, regime change)</li>
+            <li><strong>Boosted weighting</strong> &mdash; existing tickers we&rsquo;re upgrading</li>
+            <li><strong>Lowered weighting</strong> &mdash; existing tickers we&rsquo;re downgrading</li>
+          </ul>
+          <p>
+            These alerts are tied to two events: <strong>ETF rebalance activity</strong>, where we
+            mirror systematic shifts in major sector ETFs, and <strong>admin uplift</strong>, when we
+            promote tickers from the broader watchlist (we call this <em class="term">Upticks</em>) into
+            the active universe.
+          </p>
+
+          <h3>Your own tickers</h3>
+          <p>
+            You can add tickers outside the seeded list, with a soft limit applied to keep your
+            dashboard focused. Any ticker you add gets the <strong>same scoring and analysis</strong>
+            the model runs on TT Selected names.
+          </p>
+          <div class="callout">
+            <strong>One nuance:</strong> the model needs historical data to evaluate a new ticker
+            properly. When you first add one, you&rsquo;ll see scoring populate within the next hour as
+            we backfill bars, but a full read (across 8 timeframes with multi-week structure) takes a
+            full session to mature. Once data is harvested, you get the full model analysis &mdash;
+            same lanes, same triggers.
+          </div>
+        </section>
+
+        <!-- ── 3. The Daily Brief ────────────────────────────── -->
+        <section id="brief" class="chapter">
+          <span class="chapter-num">3</span>
+          <h2 class="chapter-title">The Daily Brief &mdash; how the model frames the session</h2>
+          <p class="chapter-subtitle">
+            Every trading day, before the open, the model publishes a Daily Brief. This is your
+            two-minute orientation: what the market is, what&rsquo;s driving it, and what the model is
+            doing with its open positions.
+          </p>
+
+          <h3>What&rsquo;s inside</h3>
+          <ul>
+            <li><strong>Regime &amp; market state</strong> &mdash; risk-on, risk-off, or transitional? Are major indices stacked bull or bear on the daily?</li>
+            <li><strong>What&rsquo;s driving price action</strong> &mdash; macro events, sector rotation, earnings tape, technical catalysts</li>
+            <li><strong>Index predictions</strong> &mdash; SPY and QQQ key levels for the session, ATR-based expected range, and game plan</li>
+            <li><strong>Open position guidance</strong> &mdash; for every trade the model has open, the brief tells you whether to hold, defend, trim, or exit, and why</li>
+            <li><strong>Setups in formation</strong> &mdash; tickers that aren&rsquo;t triggers yet but are building toward one</li>
+          </ul>
+
+          <div class="callout tip">
+            <strong>How to use it:</strong> read the brief at the start of your session. It gives you
+            the same framing the model is using to make its own decisions. If you only have two
+            minutes before the open, this is the page to read.
+          </div>
+        </section>
+
+        <!-- ── 4. The two modes ──────────────────────────────── -->
+        <section id="modes" class="chapter">
+          <span class="chapter-num">4</span>
+          <h2 class="chapter-title">Two modes, one universe &mdash; Active Trader vs Investor</h2>
+          <p class="chapter-subtitle">
+            Active Trader and Investor share the same ticker universe but score and act on it
+            differently. Same data, different time horizons, different triggers. You decide which
+            mode (or both) fits your style.
+          </p>
+
+          <div class="mode-grid">
+            <div class="mode-card active-trader">
+              <span class="mode-tag">Active Trader</span>
+              <h4>Short to medium swings</h4>
+              <p>The model is looking for setups that resolve in <strong>1 to 10 trading days</strong>,
+              occasionally longer when momentum stays intact. These are swing trades meant to hold
+              overnight but exit decisively when the setup is done.</p>
+              <dl>
+                <dt>Horizon</dt><dd>1&ndash;10 days (rarely 30+)</dd>
+                <dt>Direction</dt><dd>LONG or SHORT</dd>
+                <dt>Trigger</dt><dd>Momentum, pullback, gap reversal, continuation, range reversal</dd>
+                <dt>Exit</dt><dd>SL hit, TP1/TP2/TP3, doctrine, time-stop, thesis flip</dd>
+              </dl>
+            </div>
+            <div class="mode-card investor">
+              <span class="mode-tag">Investor</span>
+              <h4>Multi-week to multi-month</h4>
+              <p>The model is looking for tickers transitioning into accumulation zones or holding
+              strong trends. These are positions meant to last <strong>weeks, months, or
+              longer</strong>. When a ticker enters Accumulate or Core Hold, that&rsquo;s when Investor
+              mode adds to it.</p>
+              <dl>
+                <dt>Horizon</dt><dd>Weeks to many months</dd>
+                <dt>Direction</dt><dd>LONG-only (currently)</dd>
+                <dt>Trigger</dt><dd>Accumulation zone entry, trend health, RS new high</dd>
+                <dt>Exit</dt><dd>Reduce signal, trend break, structural failure</dd>
+              </dl>
+            </div>
+          </div>
+
+          <h3>You&rsquo;re not locked to following the model exactly</h3>
+          <p>
+            When the model takes a trade, you have options. You can:
+          </p>
+          <ul>
+            <li>Follow along directly &mdash; buy or short the same shares the model is using</li>
+            <li>Position for the same move via <strong>options</strong> &mdash; calls or puts on the same direction</li>
+            <li>Position via <strong>leveraged ETFs</strong> &mdash; TQQQ for QQQ moves, SOXL for semis, etc.</li>
+            <li>Use the read but size differently for your own risk tolerance</li>
+          </ul>
+          <div class="callout">
+            <strong>Coming soon:</strong> we&rsquo;re building dedicated <em class="term">play paths</em>
+            into the app so each trade card will surface the matching options strike, leveraged ETF,
+            or futures contract for whoever wants to play the same move a different way.
+          </div>
+        </section>
+
+        <!-- ── 5. Active Trader lanes ────────────────────────── -->
+        <section id="active-lanes" class="chapter">
+          <span class="chapter-num">5</span>
+          <h2 class="chapter-title">Active Trader kanban lanes &mdash; what each one means and how to act</h2>
+          <p class="chapter-subtitle">
+            Every ticker in Active Trader mode sits in exactly one lane at a time. The lane tells you
+            where the ticker is in its lifecycle and what action (if any) the model is taking.
+          </p>
+
+          <div class="lanes-track">
+            <div class="lane-row ln-watch">
+              <div class="lane-label">
+                <span class="lane-icon">&#128065;</span>
+                <span class="lane-name">Watch</span>
+              </div>
+              <div class="lane-desc">
+                The model is tracking this ticker but <strong>no setup is forming yet</strong>. Price
+                is sitting between meaningful levels, scores are neutral. Background context only.
+              </div>
+              <span class="lane-action a-monitor">Just monitor</span>
+            </div>
+
+            <div class="lane-row ln-setup">
+              <div class="lane-label">
+                <span class="lane-icon">&#128302;</span>
+                <span class="lane-name">Setup</span>
+              </div>
+              <div class="lane-desc">
+                A pattern is <strong>building</strong> &mdash; pullback into a key zone, structure
+                forming, momentum returning. Not a trade yet, but worth keeping in your peripheral vision.
+              </div>
+              <span class="lane-action a-stalk">Stalk</span>
+            </div>
+
+            <div class="lane-row ln-enter">
+              <div class="lane-label">
+                <span class="lane-icon">&#127919;</span>
+                <span class="lane-name">Enter / Just Entered</span>
+              </div>
+              <div class="lane-desc">
+                A setup has <strong>qualified</strong>. The AI CIO is doing its final check, or the
+                trade has just been initiated. Entry, SL, and TP1/TP2/TP3 are all defined &mdash; you
+                can size and join the trade right here.
+              </div>
+              <span class="lane-action a-enter">Position now</span>
+            </div>
+
+            <div class="lane-row ln-hold">
+              <div class="lane-label">
+                <span class="lane-icon">&#128218;</span>
+                <span class="lane-name">Hold</span>
+              </div>
+              <div class="lane-desc">
+                Position is <strong>working as expected</strong>. No warning signals, no targets hit
+                yet. Trust the plan &mdash; the model is letting it run.
+              </div>
+              <span class="lane-action a-hold">Hold</span>
+            </div>
+
+            <div class="lane-row ln-defend">
+              <div class="lane-label">
+                <span class="lane-icon">&#128737;&#65039;</span>
+                <span class="lane-name">Defend</span>
+              </div>
+              <div class="lane-desc">
+                The trade is <strong>under pressure</strong> &mdash; adverse P&amp;L, RSI weakening,
+                phase against, or below the trigger. The model is tightening the stop and protecting
+                capital, not exiting.
+              </div>
+              <span class="lane-action a-defend">Tighten / wait</span>
+            </div>
+
+            <div class="lane-row ln-trim">
+              <div class="lane-label">
+                <span class="lane-icon">&#9986;</span>
+                <span class="lane-name">Trim</span>
+              </div>
+              <div class="lane-desc">
+                The trade hit a <strong>partial profit target</strong> (TP1 or TP2) or a doctrine
+                trim signal fired. The model is locking in gains while keeping a runner on for the
+                full target.
+              </div>
+              <span class="lane-action a-trim">Take partial</span>
+            </div>
+
+            <div class="lane-row ln-exit">
+              <div class="lane-label">
+                <span class="lane-icon">&#10060;</span>
+                <span class="lane-name">Exit</span>
+              </div>
+              <div class="lane-desc">
+                <strong>Close it now.</strong> Either the SL was hit, the final target was reached,
+                a doctrine exit fired (thesis flip, time stop, macro risk), or the structure broke.
+                This is the most urgent lane &mdash; act fast.
+              </div>
+              <span class="lane-action a-exit">Exit immediately</span>
+            </div>
+          </div>
+
+          <div class="callout">
+            <strong>How transitions work:</strong> A ticker moves between lanes in real time as the
+            model re-scores. A Setup can become an Enter within five minutes if the trigger fires. A
+            Hold can become a Defend if RSI weakens. A Defend can become a Trim or back to Hold
+            depending on what price does. The <strong>card itself never moves</strong> &mdash; you scroll
+            through lanes to see what&rsquo;s where.
+          </div>
+        </section>
+
+        <!-- ── 6. Investor lanes ─────────────────────────────── -->
+        <section id="investor-lanes" class="chapter">
+          <span class="chapter-num">6</span>
+          <h2 class="chapter-title">Investor kanban lanes &mdash; the long-game equivalent</h2>
+          <p class="chapter-subtitle">
+            Investor mode uses different lanes because the time horizon is fundamentally different.
+            A Hold in Active Trader might last 3 days. A Core Hold in Investor mode might last 6
+            months. Same universe, different rhythm.
+          </p>
+
+          <div class="lanes-track">
+            <div class="lane-row ln-accum">
+              <div class="lane-label">
+                <span class="lane-icon">&#128200;</span>
+                <span class="lane-name">Accumulate</span>
+              </div>
+              <div class="lane-desc">
+                Strong score with the ticker sitting in a <strong>favorable accumulation zone</strong>.
+                The model is building or adding to this position. Healthy trend + actionable price.
+              </div>
+              <span class="lane-action a-buy">Consider buying</span>
+            </div>
+
+            <div class="lane-row ln-corehold">
+              <div class="lane-label">
+                <span class="lane-icon">&#128202;</span>
+                <span class="lane-name">Core Hold</span>
+              </div>
+              <div class="lane-desc">
+                Position is <strong>working</strong>. Trend stays intact, relative strength is solid,
+                no structural concerns. The model holds and lets it compound.
+              </div>
+              <span class="lane-action a-hold-i">Hold</span>
+            </div>
+
+            <div class="lane-row ln-iwatch">
+              <div class="lane-label">
+                <span class="lane-icon">&#128065;</span>
+                <span class="lane-name">Watch</span>
+              </div>
+              <div class="lane-desc">
+                Signals are <strong>mixed</strong>. Score is moderate, trend is uncertain, price is
+                neither in a buying zone nor showing weakness. Wait for a directional break.
+              </div>
+              <span class="lane-action a-monitor-i">Wait and monitor</span>
+            </div>
+
+            <div class="lane-row ln-reduce">
+              <div class="lane-label">
+                <span class="lane-icon">&#128201;</span>
+                <span class="lane-name">Reduce</span>
+              </div>
+              <div class="lane-desc">
+                The ticker is <strong>showing weakness</strong>. Trend rolling, relative strength
+                fading. The model is trimming or fully exiting the position.
+              </div>
+              <span class="lane-action a-trim-i">Consider trimming</span>
+            </div>
+
+            <div class="lane-row ln-on-watch">
+              <div class="lane-label">
+                <span class="lane-icon">&#128269;</span>
+                <span class="lane-name">On Watch</span>
+              </div>
+              <div class="lane-desc">
+                Moderate score, worth <strong>tracking</strong>. Not actionable yet, but a few good
+                sessions could move it into Accumulate.
+              </div>
+              <span class="lane-action a-research">On the radar</span>
+            </div>
+
+            <div class="lane-row ln-low">
+              <div class="lane-label">
+                <span class="lane-icon">&#128203;</span>
+                <span class="lane-name">Low Conviction</span>
+              </div>
+              <div class="lane-desc">
+                Weak read overall. The model isn&rsquo;t <strong>building a thesis</strong> here &mdash;
+                shown for completeness so you know where the rest of the universe sits.
+              </div>
+              <span class="lane-action a-watch">Skip for now</span>
+            </div>
+
+            <div class="lane-row ln-avoid">
+              <div class="lane-label">
+                <span class="lane-icon">&#9940;</span>
+                <span class="lane-name">Avoid</span>
+              </div>
+              <div class="lane-desc">
+                <strong>Cautionary</strong>. Trend broken, weak relative strength, structural concerns.
+                The model is not interested in long-term exposure here.
+              </div>
+              <span class="lane-action a-skip">Skip</span>
+            </div>
+          </div>
+
+          <div class="callout tip">
+            <strong>Action Board vs Research lanes:</strong> the first four lanes (Accumulate, Core
+            Hold, Watch, Reduce) are the <em>Action Board</em> &mdash; tickers that need attention.
+            On Watch / Low Conviction / Avoid are <em>Research lanes</em> &mdash; the rest of the
+            universe, parked for context.
+          </div>
+        </section>
+
+        <!-- ── 7. Anatomy of a Kanban Card ─────────────────────── -->
+        <section id="card-anatomy" class="chapter">
+          <span class="chapter-num">7</span>
+          <h2 class="chapter-title">Anatomy of a kanban card &mdash; reading every element</h2>
+          <p class="chapter-subtitle">
+            Each kanban card packs a lot of information into a small space. Here&rsquo;s every element,
+            what it means, and how to read it &mdash; for both modes.
+          </p>
+
+          <h3>Active Trader card</h3>
+          <div class="card-anatomy">
+            <!-- Annotated SVG of an Active Trader card -->
+            <svg viewBox="0 0 720 360" role="img" aria-label="Annotated Active Trader card diagram">
+              <defs>
+                <linearGradient id="cardAccentLong" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.7"/>
+                  <stop offset="100%" stop-color="#22d3ee" stop-opacity="0.2"/>
+                </linearGradient>
+                <pattern id="grid" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
+                  <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(255,255,255,0.02)" stroke-width="1"/>
+                </pattern>
+              </defs>
+              <rect width="720" height="360" fill="url(#grid)"/>
+
+              <!-- Card body -->
+              <g transform="translate(40,28)">
+                <!-- Card outer with cyan LONG outline + left accent -->
+                <rect width="440" height="260" rx="10" fill="rgba(255,255,255,0.025)" stroke="rgba(34,211,238,0.4)" stroke-width="1.5"/>
+                <!-- Top accent stripe -->
+                <rect x="0" y="0" width="440" height="3" rx="1.5" fill="url(#cardAccentLong)"/>
+                <!-- Left accent (LONG) -->
+                <rect x="0" y="3" width="4" height="257" fill="#22d3ee" opacity="0.9"/>
+
+                <!-- Header row -->
+                <g transform="translate(16,18)">
+                  <!-- (1) Move emoji -->
+                  <text x="0" y="14" font-family="Inter" font-size="14" fill="#10b981">&#x1F7E2;</text>
+                  <!-- (2) Ticker -->
+                  <text x="22" y="15" font-family="Inter" font-size="15" font-weight="800" fill="#ffffff">NVDA</text>
+                  <!-- (3) Badges -->
+                  <g transform="translate(74,3)">
+                    <rect width="32" height="16" rx="3" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.06)"/>
+                    <text x="6" y="12" font-family="Inter" font-size="10" font-weight="600" fill="#d1d5db">&#127942;&#x1F4A1;</text>
+                  </g>
+                  <!-- (4) Status pill -->
+                  <g transform="translate(115,3)">
+                    <rect width="42" height="16" rx="3" fill="rgba(234,179,8,0.15)" stroke="rgba(234,179,8,0.4)"/>
+                    <text x="7" y="12" font-family="Inter" font-size="9.5" font-weight="700" fill="#fcd34d">PRIME</text>
+                  </g>
+                  <!-- (5) Direction pill -->
+                  <g transform="translate(167,1)">
+                    <rect width="20" height="20" rx="4" fill="rgba(34,211,238,0.2)" stroke="rgba(34,211,238,0.5)"/>
+                    <text x="7" y="14" font-family="Inter" font-size="11" font-weight="800" fill="#67e8f9">L</text>
+                  </g>
+                  <!-- (6) Horizon chip -->
+                  <g transform="translate(197,3)">
+                    <rect width="36" height="16" rx="3" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.06)"/>
+                    <text x="7" y="12" font-family="Inter" font-size="9.5" fill="#6b7280">≤7d</text>
+                  </g>
+
+                  <!-- (7) Sparkline -->
+                  <g transform="translate(258,2)">
+                    <polyline fill="none" stroke="#22c55e" stroke-width="1.5"
+                      points="0,14 12,12 24,14 36,9 48,11 60,7 72,5 84,3 96,2"/>
+                  </g>
+
+                  <!-- (8) Price + (9) Day change -->
+                  <g transform="translate(360,0)">
+                    <text x="0" y="11" font-family="Inter" font-size="12" fill="#ffffff" text-anchor="end">$1,124.50</text>
+                    <text x="0" y="24" font-family="Inter" font-size="10" fill="#10b981" text-anchor="end">+2.41% (+$26.42)</text>
+                  </g>
+                </g>
+
+                <!-- Subtitle: action -->
+                <text x="40" y="56" font-family="Inter" font-size="10.5" fill="#4b5563">Position now &mdash; setup qualified, CIO approved</text>
+
+                <!-- Metric strip: 6 cols -->
+                <g transform="translate(16,76)" font-family="Inter" font-size="10">
+                  <!-- divider -->
+                  <line x1="0" y1="-4" x2="408" y2="-4" stroke="rgba(255,255,255,0.06)"/>
+                  <!-- (10) Score -->
+                  <g transform="translate(0,0)">
+                    <text x="0" y="10" fill="#4b5563">Score</text>
+                    <text x="34" y="10" fill="#ffffff" font-weight="700">78.2</text>
+                  </g>
+                  <!-- (11) Rank -->
+                  <g transform="translate(68,0)">
+                    <text x="0" y="10" fill="#4b5563">Rank</text>
+                    <text x="32" y="10" fill="#ffffff" font-weight="700">#8</text>
+                  </g>
+                  <!-- (12) RR -->
+                  <g transform="translate(136,0)">
+                    <text x="0" y="10" fill="#4b5563">RR</text>
+                    <text x="22" y="10" fill="#ffffff" font-weight="700">2.4</text>
+                  </g>
+                  <!-- (13) SL -->
+                  <g transform="translate(195,0)">
+                    <text x="0" y="10" fill="#4b5563">SL</text>
+                    <text x="20" y="10" fill="#f87171" font-weight="700">$1,108</text>
+                  </g>
+                  <!-- (14) TP -->
+                  <g transform="translate(272,0)">
+                    <text x="0" y="10" fill="#4b5563">TP</text>
+                    <text x="20" y="10" fill="#2dd4bf" font-weight="700">$1,158</text>
+                  </g>
+                  <!-- (15) ETA -->
+                  <g transform="translate(348,0)">
+                    <text x="0" y="10" fill="#4b5563">ETA</text>
+                    <text x="28" y="10" fill="#ffffff" font-weight="700">2.5d</text>
+                  </g>
+                </g>
+
+                <!-- (16) Progress bars -->
+                <g transform="translate(16,110)" font-family="Inter" font-size="9.5" fill="#4b5563">
+                  <text x="0" y="9">Phase</text>
+                  <g transform="translate(54,2)">
+                    <rect width="280" height="6" rx="3" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.06)"/>
+                    <rect width="168" height="6" rx="3" fill="#10b981"/>
+                  </g>
+                  <text x="346" y="9" fill="#6b7280" text-anchor="end">60%</text>
+
+                  <text x="0" y="28">Completion</text>
+                  <g transform="translate(54,21)">
+                    <rect width="280" height="6" rx="3" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.06)"/>
+                    <rect width="98" height="6" rx="3" fill="#22c55e"/>
+                  </g>
+                  <text x="346" y="28" fill="#6b7280" text-anchor="end">35%</text>
+                </g>
+
+                <!-- Lane indicator chip on right edge -->
+                <g transform="translate(380,18)">
+                  <rect x="0" y="0" width="48" height="22" rx="11" fill="rgba(16,185,129,0.18)" stroke="rgba(16,185,129,0.5)"/>
+                  <text x="24" y="14" font-family="Inter" font-size="9" font-weight="800" fill="#6ee7b7" text-anchor="middle">ENTER</text>
+                </g>
+              </g>
+
+              <!-- Annotation labels (numbered) -->
+              <g font-family="Inter" font-size="11" fill="#9ca3af">
+                <!-- 1 -->
+                <circle cx="58" cy="46" r="9" fill="#00c853"/>
+                <text x="58" y="50" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">1</text>
+                <line x1="68" y1="46" x2="558" y2="320" stroke="#00c853" stroke-opacity="0.25" stroke-width="1" stroke-dasharray="3,3"/>
+                <!-- 2 -->
+                <circle cx="80" cy="46" r="9" fill="#00c853"/>
+                <text x="80" y="50" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">2</text>
+                <!-- 3 -->
+                <circle cx="132" cy="46" r="9" fill="#00c853"/>
+                <text x="132" y="50" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">3</text>
+                <!-- 4 -->
+                <circle cx="173" cy="46" r="9" fill="#00c853"/>
+                <text x="173" y="50" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">4</text>
+                <!-- 5 -->
+                <circle cx="225" cy="46" r="9" fill="#00c853"/>
+                <text x="225" y="50" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">5</text>
+                <!-- 6 -->
+                <circle cx="255" cy="46" r="9" fill="#00c853"/>
+                <text x="255" y="50" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">6</text>
+                <!-- 7 sparkline -->
+                <circle cx="330" cy="46" r="9" fill="#00c853"/>
+                <text x="330" y="50" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">7</text>
+                <!-- 8 price -->
+                <circle cx="416" cy="46" r="9" fill="#00c853"/>
+                <text x="416" y="50" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">8</text>
+                <!-- 9 day change -->
+                <circle cx="416" cy="68" r="9" fill="#00c853"/>
+                <text x="416" y="72" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">9</text>
+                <!-- 10 score -->
+                <circle cx="100" cy="120" r="9" fill="#00c853"/>
+                <text x="100" y="124" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">10</text>
+                <!-- 11 rank -->
+                <circle cx="155" cy="120" r="9" fill="#00c853"/>
+                <text x="155" y="124" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">11</text>
+                <!-- 12 RR -->
+                <circle cx="208" cy="120" r="9" fill="#00c853"/>
+                <text x="208" y="124" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">12</text>
+                <!-- 13 SL -->
+                <circle cx="252" cy="120" r="9" fill="#00c853"/>
+                <text x="252" y="124" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">13</text>
+                <!-- 14 TP -->
+                <circle cx="328" cy="120" r="9" fill="#00c853"/>
+                <text x="328" y="124" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">14</text>
+                <!-- 15 ETA -->
+                <circle cx="404" cy="120" r="9" fill="#00c853"/>
+                <text x="404" y="124" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">15</text>
+                <!-- 16 bars -->
+                <circle cx="120" cy="156" r="9" fill="#00c853"/>
+                <text x="120" y="160" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">16</text>
+                <!-- 17 lane indicator -->
+                <circle cx="448" cy="46" r="9" fill="#00c853"/>
+                <text x="448" y="50" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">17</text>
+              </g>
+            </svg>
+
+            <div class="anno-legend">
+              <div class="anno-item"><span class="num">1</span><span><strong>Move-status emoji</strong> &mdash; 🟢 active, ✅ target achieved, ⛔ thesis invalidated.</span></div>
+              <div class="anno-item"><span class="num">2</span><span><strong>Ticker symbol</strong> &mdash; the stock. Click anywhere on the card to open it in the right rail.</span></div>
+              <div class="anno-item"><span class="num">3</span><span><strong>Quality badges</strong> &mdash; 🏆 multi-confluence, 💡 unique setup, ⭐ user-saved, and others.</span></div>
+              <div class="anno-item"><span class="num">4</span><span><strong>Status pill</strong> &mdash; Prime (highest conviction), Eligible, or Watch.</span></div>
+              <div class="anno-item"><span class="num">5</span><span><strong>Direction pill</strong> &mdash; <span style="color:var(--long)">L</span> for LONG, <span style="color:var(--short)">S</span> for SHORT. Card outline color matches.</span></div>
+              <div class="anno-item"><span class="num">6</span><span><strong>Horizon chip</strong> &mdash; ≤7d short-term, 8–30d swing, 31d+ longer hold.</span></div>
+              <div class="anno-item"><span class="num">7</span><span><strong>Sparkline</strong> &mdash; the last several bars of price action at a glance.</span></div>
+              <div class="anno-item"><span class="num">8</span><span><strong>Live price</strong> &mdash; current quote (or last close after-hours).</span></div>
+              <div class="anno-item"><span class="num">9</span><span><strong>Day change</strong> &mdash; intraday move, % and dollar amount.</span></div>
+              <div class="anno-item"><span class="num">10</span><span><strong>Score</strong> &mdash; the model&rsquo;s composite score across all timeframes (0–100).</span></div>
+              <div class="anno-item"><span class="num">11</span><span><strong>Rank</strong> &mdash; where this ticker sits in the universe today.</span></div>
+              <div class="anno-item"><span class="num">12</span><span><strong>RR</strong> &mdash; reward-to-risk ratio (potential gain ÷ potential loss). Higher is better.</span></div>
+              <div class="anno-item"><span class="num">13</span><span><strong>SL</strong> &mdash; the stop-loss price. <span style="color:#f87171">Red</span> means &ldquo;exit if hit.&rdquo;</span></div>
+              <div class="anno-item"><span class="num">14</span><span><strong>TP</strong> &mdash; the next take-profit target (TP1 → TP2 → TP3 progression).</span></div>
+              <div class="anno-item"><span class="num">15</span><span><strong>ETA</strong> &mdash; the model&rsquo;s estimate of how many days to target.</span></div>
+              <div class="anno-item"><span class="num">16</span><span><strong>Phase &amp; Completion bars</strong> &mdash; <em>Phase</em> = where price is between SL and TP; <em>Completion</em> = how far the setup has matured. Markers tell you where SL/TP sit relative to current price.</span></div>
+              <div class="anno-item"><span class="num">17</span><span><strong>Lane indicator</strong> &mdash; this card&rsquo;s current lane. When it changes, the card pulses.</span></div>
+            </div>
+          </div>
+
+          <h3>Investor card</h3>
+          <div class="card-anatomy">
+            <svg viewBox="0 0 720 240" role="img" aria-label="Annotated Investor card diagram">
+              <defs>
+                <pattern id="grid2" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
+                  <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(255,255,255,0.02)" stroke-width="1"/>
+                </pattern>
+              </defs>
+              <rect width="720" height="240" fill="url(#grid2)"/>
+
+              <!-- Card body -->
+              <g transform="translate(40,40)">
+                <rect width="320" height="142" rx="10" fill="rgba(10,16,28,0.45)" stroke="rgba(255,255,255,0.08)"/>
+                <!-- Left accent (Accumulate green) -->
+                <rect x="0" y="0" width="3" height="142" fill="#10b981" rx="1.5"/>
+
+                <!-- Header row -->
+                <g transform="translate(12,12)">
+                  <!-- (A) Star save toggle -->
+                  <text x="0" y="14" font-family="Inter" font-size="14" fill="#fbbf24">&#9733;</text>
+                  <!-- (B) Ticker -->
+                  <text x="18" y="14" font-family="Inter" font-size="13" font-weight="800" fill="#ffffff">NBIS</text>
+                  <!-- Company name -->
+                  <text x="18" y="26" font-family="Inter" font-size="9.5" fill="#9ca3af">Nebius Group</text>
+
+                  <!-- (C) Price -->
+                  <text x="300" y="13" font-family="Inter" font-size="11" fill="#9ca3af" text-anchor="end">$213.76</text>
+                  <!-- (D) Day change -->
+                  <text x="300" y="26" font-family="Inter" font-size="10" font-weight="700" fill="#10b981" text-anchor="end">+3.4%</text>
+                </g>
+
+                <!-- Score + tags row -->
+                <g transform="translate(12,52)">
+                  <!-- (E) Score -->
+                  <text x="0" y="14" font-family="Inter" font-size="20" font-weight="800" fill="#10b981">78</text>
+                  <!-- (F) Tags -->
+                  <g transform="translate(46,3)">
+                    <rect width="40" height="14" rx="3" fill="rgba(0,200,83,0.10)" stroke="rgba(0,200,83,0.22)"/>
+                    <text x="6" y="10" font-family="Inter" font-size="9" fill="#6ee7b7">ZONE</text>
+                  </g>
+                  <g transform="translate(92,3)">
+                    <rect width="48" height="14" rx="3" fill="rgba(14,165,233,0.10)" stroke="rgba(14,165,233,0.22)"/>
+                    <text x="6" y="10" font-family="Inter" font-size="9" fill="#7dd3fc">RS HIGH</text>
+                  </g>
+                </g>
+
+                <!-- Stage label -->
+                <g transform="translate(12,98)">
+                  <text x="0" y="0" font-family="Inter" font-size="9" fill="#6b7280" letter-spacing="1.5">STAGE</text>
+                  <!-- (G) Stage badge -->
+                  <g transform="translate(0,8)">
+                    <rect width="74" height="18" rx="4" fill="rgba(16,185,129,0.15)" stroke="rgba(16,185,129,0.30)"/>
+                    <text x="37" y="13" font-family="Inter" font-size="10" font-weight="700" fill="#34d399" text-anchor="middle">Accumulate</text>
+                  </g>
+                </g>
+              </g>
+
+              <!-- Annotations -->
+              <g font-family="Inter" font-size="11">
+                <circle cx="56" cy="58" r="9" fill="#3b82f6"/>
+                <text x="56" y="62" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">A</text>
+                <circle cx="86" cy="58" r="9" fill="#3b82f6"/>
+                <text x="86" y="62" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">B</text>
+                <circle cx="334" cy="58" r="9" fill="#3b82f6"/>
+                <text x="334" y="62" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">C</text>
+                <circle cx="334" cy="74" r="9" fill="#3b82f6"/>
+                <text x="334" y="78" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">D</text>
+                <circle cx="62" cy="100" r="9" fill="#3b82f6"/>
+                <text x="62" y="104" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">E</text>
+                <circle cx="128" cy="100" r="9" fill="#3b82f6"/>
+                <text x="128" y="104" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">F</text>
+                <circle cx="92" cy="155" r="9" fill="#3b82f6"/>
+                <text x="92" y="159" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">G</text>
+              </g>
+            </svg>
+
+            <div class="anno-legend">
+              <div class="anno-item"><span class="num" style="background:#3b82f6;color:#fff">A</span><span><strong>Save star</strong> &mdash; click to add this ticker to your Saved list (☆ → ★).</span></div>
+              <div class="anno-item"><span class="num" style="background:#3b82f6;color:#fff">B</span><span><strong>Ticker + company name</strong> &mdash; symbol and full name. Click to open in right rail.</span></div>
+              <div class="anno-item"><span class="num" style="background:#3b82f6;color:#fff">C</span><span><strong>Price</strong> &mdash; current quote (or last close).</span></div>
+              <div class="anno-item"><span class="num" style="background:#3b82f6;color:#fff">D</span><span><strong>Day change</strong> &mdash; intraday %. Green up, red down.</span></div>
+              <div class="anno-item"><span class="num" style="background:#3b82f6;color:#fff">E</span><span><strong>Score</strong> &mdash; investor composite (0–100). Color-coded: green ≥70, amber 50–69, red &lt;50.</span></div>
+              <div class="anno-item"><span class="num" style="background:#3b82f6;color:#fff">F</span><span><strong>Signal tags</strong> &mdash; <em>ZONE</em> = price in accumulation zone, <em>RS HIGH</em> = relative-strength new high. Strong corroborating signals.</span></div>
+              <div class="anno-item"><span class="num" style="background:#3b82f6;color:#fff">G</span><span><strong>Stage</strong> &mdash; which Investor lane this ticker is in. Left accent stripe matches lane color.</span></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── 8. How we keep score ──────────────────────────── -->
+        <section id="scoring" class="chapter">
+          <span class="chapter-num">8</span>
+          <h2 class="chapter-title">How we keep score &mdash; transparency, self-learning, AI CIO</h2>
+          <p class="chapter-subtitle">
+            Every trade the model takes is recorded, scored, and reviewed. Win or loss. There&rsquo;s no
+            hidden cherry-picking. The system learns from its own results and the AI CIO actively
+            reviews each entry decision against historical context.
+          </p>
+
+          <h3>Full transparency</h3>
+          <p>
+            Every trade in Active Trader and Investor mode is visible in the <strong>Trade
+            Ledger</strong> &mdash; entry, exit, P&amp;L, why it triggered, and why it exited. Wins,
+            losses, scratches, every one. This is the truth check on the model. If you ever wonder
+            &ldquo;is this thing actually working?&rdquo; &mdash; the ledger answers it.
+          </p>
+
+          <h3>Setup-level performance</h3>
+          <p>
+            Trades are tagged by setup family: <em>gap reversal, momentum, pullback, continuation,
+            range reversal, ATH breakout, n-test support</em>, and others. We track win rate and
+            expectancy for each one over time. When a setup&rsquo;s expectancy drops, we throttle it. When
+            a setup runs hot, we let it work.
+          </p>
+
+          <h3>Weekly retrospective</h3>
+          <p>
+            Every week, the model runs a retrospective on its own trades. What setups paid? Which
+            tickers misbehaved? Where did the AI CIO save us, and where did it block a winner? The
+            findings are stored in memory and actively consulted by the AI CIO when the next entry
+            qualifies.
+          </p>
+
+          <h3>The AI CIO</h3>
+          <p>
+            The Agent-in-the-Loop CIO (Chief Investment Officer) is a final review layer before any
+            entry is taken. It checks the proposed trade against:
+          </p>
+          <ul>
+            <li>The current regime and risk environment</li>
+            <li>Recent results for the same setup family and ticker</li>
+            <li>Concentration limits (sector, direction)</li>
+            <li>Open positions and overall portfolio shape</li>
+            <li>Macro events on the calendar (CPI, FOMC, earnings)</li>
+          </ul>
+          <p>
+            If the CIO approves, the trade enters. If it blocks, the card stays in Setup with a
+            <em>__cio_blocked</em> reason you can read. Either way, the decision is recorded.
+          </p>
+
+          <div class="callout tip">
+            <strong>Why this matters:</strong> a model that says &ldquo;trust me&rdquo; without showing its
+            work is just a black box. Timed Trading is the opposite &mdash; every signal, every entry,
+            every exit is logged and reviewable. The system improves because it has to face its own
+            results every week.
+          </div>
+        </section>
+
+        <!-- ── End CTA ───────────────────────────────────────── -->
+        <div class="cta-end">
+          <h3>Ready to use it?</h3>
+          <p>
+            You now have the vocabulary. Open the dashboard, find a card in the Enter lane, and read
+            it the way the model reads it. The rest is just practice.
+          </p>
+          <div class="cta-row">
+            <a href="/index-react.html" class="cta-primary">
+              Open dashboard
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
+              </svg>
+            </a>
+            <a href="/splash.html#pricing" class="cta-secondary">
+              Reserve charter seat
+            </a>
+            <a href="/faq.html" class="cta-secondary">
+              Read the FAQ
+            </a>
+          </div>
+        </div>
+
+      </article>
+    </div>
+  </main>
+
+  <!-- ── FOOTER ────────────────────────────────────────────── -->
+  <footer>
+    <div>
+      <a href="/splash.html">Home</a> &middot;
+      <a href="/faq.html">FAQ</a> &middot;
+      <a href="/terms.html">Terms</a> &middot;
+      <a href="mailto:support@timed-trading.com">Contact</a>
+    </div>
+    <p class="disc">
+      For informational and educational purposes only. Not investment advice. Past performance does
+      not guarantee future results. All trading involves risk of loss. Market data powered by
+      <a href="https://twelvedata.com" target="_blank" rel="noopener">Twelve Data</a>.
+    </p>
+  </footer>
+
+  <!-- ── TOC active-link tracking ───────────────────────────── -->
+  <script>
+    (function () {
+      var links = document.querySelectorAll('.toc-list a[data-section]');
+      var sections = Array.prototype.map.call(links, function (a) {
+        return document.getElementById(a.getAttribute('data-section'));
+      });
+
+      function activate() {
+        var fromTop = window.scrollY + 120;
+        var current = sections[0];
+        for (var i = 0; i < sections.length; i++) {
+          if (sections[i] && sections[i].offsetTop <= fromTop) current = sections[i];
+        }
+        if (!current) return;
+        for (var j = 0; j < links.length; j++) {
+          if (links[j].getAttribute('data-section') === current.id) {
+            links[j].classList.add('active');
+          } else {
+            links[j].classList.remove('active');
+          }
+        }
+      }
+
+      window.addEventListener('scroll', activate, { passive: true });
+      window.addEventListener('resize', activate);
+      activate();
+    })();
+  </script>
+
+</body>
+</html>
