@@ -429,47 +429,297 @@
     .a-watch   { background: rgba(139,92,246,0.13);  color: #c4b5fd; }
     .a-skip    { background: rgba(107,114,128,0.15); color: #d1d5db; }
 
-    /* ── Annotated card SVG ───────────────────────────────────── */
+    /* ── Card anatomy — real HTML cards + visual legend ───────── */
     .card-anatomy {
       margin: 28px 0;
-      padding: 24px;
+      padding: 28px 24px;
       background: var(--bg-surface);
       border: 1px solid var(--border);
       border-radius: 14px;
-      overflow-x: auto;
     }
-    .card-anatomy svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
-    .anno-legend {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 10px 24px;
-      margin-top: 20px;
-      padding-top: 20px;
-      border-top: 1px solid var(--border);
-    }
-    @media (max-width: 720px) { .anno-legend { grid-template-columns: 1fr; } }
-    .anno-item {
+    .card-anatomy-stage {
       display: flex;
-      align-items: flex-start;
-      gap: 10px;
-      font-size: 13px;
-      line-height: 1.55;
-      color: var(--text-secondary);
+      justify-content: center;
+      padding: 32px 16px;
+      background: radial-gradient(ellipse at top, rgba(255,255,255,0.03), transparent 65%), #0a0d11;
+      border-radius: 12px;
+      margin-bottom: 24px;
     }
-    .anno-item .num {
+
+    /* ── Demo card — matches production ds-tickercard ─────────── */
+    .demo-card {
+      width: 320px;
+      max-width: 100%;
+      padding: 14px 14px 12px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      font-family: var(--font);
+      color: #F4F5F7;
+      position: relative;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+      text-align: left;
+    }
+    .demo-card.owned {
+      border-color: rgba(167,139,250,0.55);
+      background: linear-gradient(180deg, rgba(167,139,250,0.05) 0%, rgba(255,255,255,0.04) 35%);
+      box-shadow: inset 0 0 0 1px rgba(167,139,250,0.22), 0 8px 24px rgba(0,0,0,0.35);
+    }
+    .demo-head {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+    .demo-logo {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #2563eb, #1e40af);
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 22px; height: 22px;
-      border-radius: 50%;
-      background: var(--accent);
-      color: #0a0d11;
-      font-size: 11px;
+      font-size: 9px;
       font-weight: 800;
+      color: white;
       flex-shrink: 0;
-      margin-top: 1px;
     }
-    .anno-item strong { color: var(--text-primary); font-weight: 600; }
+    .demo-logo.nvda { background: linear-gradient(135deg, #166534, #14532d); }
+    .demo-sym { font-size: 13px; font-weight: 800; color: #F4F5F7; letter-spacing: 0.02em; }
+    .demo-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 1px 7px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      font-family: ui-monospace, "JetBrains Mono", monospace;
+      letter-spacing: 0.03em;
+      border: 1px solid var(--ds-stroke, rgba(255,255,255,0.08));
+      background: rgba(255,255,255,0.04);
+      color: #C8CDD9;
+      height: 18px;
+      line-height: 1;
+      white-space: nowrap;
+    }
+    .demo-chip.up    { color: #22C55E; background: rgba(34,197,94,0.12); border-color: rgba(34,197,94,0.25); }
+    .demo-chip.dn    { color: #F43F5E; background: rgba(244,63,94,0.12); border-color: rgba(244,63,94,0.25); }
+    .demo-chip.accent { color: #F5C25C; background: rgba(245,194,92,0.14); border-color: rgba(245,194,92,0.30); }
+    .demo-chip.owned { color: rgb(196,181,253); background: rgba(167,139,250,0.15); border-color: rgba(167,139,250,0.45); }
+    .demo-chip.star  { background: transparent; color: #F5C25C; padding: 0 6px; border-color: #F5C25C; }
+    .demo-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: #F5C25C;
+      box-shadow: 0 0 0 2px rgba(245,194,92,0.20);
+      flex-shrink: 0;
+    }
+    .demo-price {
+      font-size: 22px;
+      font-weight: 700;
+      color: #F4F5F7;
+      letter-spacing: -0.01em;
+      line-height: 1;
+      margin: 2px 0;
+    }
+    .demo-change {
+      font-family: ui-monospace, "JetBrains Mono", monospace;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+    .demo-change.up { color: #22C55E; }
+    .demo-change.dn { color: #F43F5E; }
+    .demo-change small { font-size: 10px; opacity: 0.75; margin-left: 4px; }
+
+    /* Position bar — Active Trader open trade */
+    .demo-posbar {
+      margin-top: 8px;
+      position: relative;
+    }
+    .demo-posbar-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: ui-monospace, "JetBrains Mono", monospace;
+      font-size: 9px;
+      color: #8C92A0;
+      margin-bottom: 4px;
+    }
+    .demo-posbar-head .label {
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+    .demo-posbar-head .pnl { font-weight: 700; color: #22C55E; }
+    .demo-posbar-track {
+      position: relative;
+      height: 6px;
+      background: rgba(255,255,255,0.07);
+      border-radius: 3px;
+    }
+    .demo-posbar-fill {
+      position: absolute;
+      height: 100%;
+      background: rgba(34,197,94,0.18);
+      border-radius: 3px;
+    }
+    .demo-posbar-tick {
+      position: absolute;
+      top: -4px; bottom: -4px;
+      width: 2px;
+      transform: translateX(-50%);
+    }
+    .demo-posbar-tick.sl { background: #F43F5E; }
+    .demo-posbar-tick.e  { background: #8C92A0; }
+    .demo-posbar-tick.t1 { background: #22C55E; }
+    .demo-posbar-current {
+      position: absolute;
+      top: 50%;
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: #F5C25C;
+      box-shadow: 0 0 0 2px #0a0d11, 0 0 0 3px rgba(245,194,92,0.40);
+      transform: translate(-50%, -50%);
+    }
+    .demo-posbar-labels {
+      position: relative;
+      height: 12px;
+      margin-top: 4px;
+      font-family: ui-monospace, "JetBrains Mono", monospace;
+      font-size: 8px;
+      font-weight: 700;
+    }
+    .demo-posbar-labels span {
+      position: absolute;
+      transform: translateX(-50%);
+    }
+    .demo-posbar-labels .sl-lbl { color: #F43F5E; }
+    .demo-posbar-labels .e-lbl  { color: #8C92A0; }
+    .demo-posbar-labels .t1-lbl { color: #22C55E; }
+
+    /* Investor POS strip (purple) */
+    .demo-pos-strip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 8px;
+      margin-top: 10px;
+      border-radius: 4px;
+      background: rgba(167,139,250,0.07);
+      border: 1px solid rgba(167,139,250,0.18);
+      font-family: ui-monospace, "JetBrains Mono", monospace;
+      font-size: 11px;
+      flex-wrap: wrap;
+    }
+    .demo-pos-strip .pos-label { color: rgb(196,181,253); font-weight: 600; letter-spacing: 0.04em; }
+    .demo-pos-strip .pos-shares,
+    .demo-pos-strip .pos-avg    { color: #8C92A0; }
+    .demo-pos-strip .pos-pnl    { margin-left: auto; color: #22C55E; font-weight: 700; }
+    .demo-pos-strip .pos-pnl-abs { color: #22C55E; opacity: 0.85; }
+
+    /* Investor LAST trace */
+    .demo-last-line {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      margin-top: 6px;
+      border-radius: 4px;
+      background: rgba(255,255,255,0.02);
+      font-family: ui-monospace, "JetBrains Mono", monospace;
+      font-size: 10.5px;
+      color: #8C92A0;
+    }
+    .demo-last-line .last-label { color: rgb(196,181,253); font-weight: 600; letter-spacing: 0.04em; }
+    .demo-last-line .last-action { color: #C8CDD9; }
+    .demo-last-line .last-ago { margin-left: auto; color: #6b7280; }
+
+    /* Bottom chip row */
+    .demo-chips {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
+
+    /* ── Anatomy legend (visual) ──────────────────────────────── */
+    .anno-legend {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 18px;
+      margin-top: 24px;
+      padding-top: 22px;
+      border-top: 1px solid var(--border);
+    }
+    @media (max-width: 720px) { .anno-legend { grid-template-columns: 1fr; } }
+    .anno-row {
+      display: grid;
+      grid-template-columns: 64px 1fr;
+      gap: 12px;
+      align-items: flex-start;
+      padding: 6px 0;
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--text-secondary);
+    }
+    .anno-row .anno-visual {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 22px;
+    }
+    .anno-row .anno-text strong {
+      display: block;
+      color: var(--text-primary);
+      font-weight: 600;
+      margin-bottom: 1px;
+    }
+    .anno-row .anno-text { font-size: 12.5px; line-height: 1.55; }
+
+    /* Mini visual preview elements that match the card */
+    .v-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-family: ui-monospace, "JetBrains Mono", monospace;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.04);
+      color: #C8CDD9;
+      height: 16px;
+      line-height: 1;
+      white-space: nowrap;
+    }
+    .v-chip.up    { color: #22C55E; background: rgba(34,197,94,0.12); border-color: rgba(34,197,94,0.25); }
+    .v-chip.dn    { color: #F43F5E; background: rgba(244,63,94,0.12); border-color: rgba(244,63,94,0.25); }
+    .v-chip.acc   { color: #F5C25C; background: rgba(245,194,92,0.14); border-color: rgba(245,194,92,0.30); }
+    .v-chip.owned { color: rgb(196,181,253); background: rgba(167,139,250,0.15); border-color: rgba(167,139,250,0.45); }
+    .v-logo {
+      width: 18px; height: 18px; border-radius: 50%;
+      background: linear-gradient(135deg, #2563eb, #1e40af);
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 7px; font-weight: 800; color: white;
+    }
+    .v-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: #F5C25C; box-shadow: 0 0 0 2px rgba(245,194,92,0.20);
+    }
+    .v-price {
+      font-size: 14px; font-weight: 700; color: #F4F5F7; letter-spacing: -0.01em;
+    }
+    .v-change.up { color: #22C55E; font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 11px; font-weight: 600; }
+    .v-change.dn { color: #F43F5E; font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 11px; font-weight: 600; }
+    .v-star { color: #8C92A0; font-size: 12px; }
+    .v-bar {
+      width: 50px; height: 5px; background: rgba(255,255,255,0.07); border-radius: 2px; position: relative;
+    }
+    .v-bar::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 60%; background: rgba(34,197,94,0.25); border-radius: 2px; }
+    .v-bar::after { content: ""; position: absolute; left: 55%; top: 50%; transform: translate(-50%,-50%); width: 7px; height: 7px; border-radius: 50%; background: #F5C25C; box-shadow: 0 0 0 1px #0a0d11; }
 
     /* ── TT Selected indicator visual ─────────────────────────── */
     .tt-selected-demo {
@@ -996,297 +1246,193 @@
             what it means, and how to read it &mdash; for both modes.
           </p>
 
-          <h3>Active Trader card</h3>
+          <h3>Active Trader card &mdash; with an open trade</h3>
           <div class="card-anatomy">
-            <!-- Annotated SVG of an Active Trader card -->
-            <svg viewBox="0 0 720 360" role="img" aria-label="Annotated Active Trader card diagram">
-              <defs>
-                <linearGradient id="cardAccentLong" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.7"/>
-                  <stop offset="100%" stop-color="#22d3ee" stop-opacity="0.2"/>
-                </linearGradient>
-                <pattern id="grid" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
-                  <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(255,255,255,0.02)" stroke-width="1"/>
-                </pattern>
-              </defs>
-              <rect width="720" height="360" fill="url(#grid)"/>
-
-              <!-- Card body -->
-              <g transform="translate(40,28)">
-                <!-- Card outer with cyan LONG outline + left accent -->
-                <rect width="440" height="260" rx="10" fill="rgba(255,255,255,0.025)" stroke="rgba(34,211,238,0.4)" stroke-width="1.5"/>
-                <!-- Top accent stripe -->
-                <rect x="0" y="0" width="440" height="3" rx="1.5" fill="url(#cardAccentLong)"/>
-                <!-- Left accent (LONG) -->
-                <rect x="0" y="3" width="4" height="257" fill="#22d3ee" opacity="0.9"/>
-
-                <!-- Header row -->
-                <g transform="translate(16,18)">
-                  <!-- (1) Move emoji -->
-                  <text x="0" y="14" font-family="Inter" font-size="14" fill="#10b981">&#x1F7E2;</text>
-                  <!-- (2) Ticker -->
-                  <text x="22" y="15" font-family="Inter" font-size="15" font-weight="800" fill="#ffffff">NVDA</text>
-                  <!-- (3) Badges -->
-                  <g transform="translate(74,3)">
-                    <rect width="32" height="16" rx="3" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.06)"/>
-                    <text x="6" y="12" font-family="Inter" font-size="10" font-weight="600" fill="#d1d5db">&#127942;&#x1F4A1;</text>
-                  </g>
-                  <!-- (4) Status pill -->
-                  <g transform="translate(115,3)">
-                    <rect width="42" height="16" rx="3" fill="rgba(234,179,8,0.15)" stroke="rgba(234,179,8,0.4)"/>
-                    <text x="7" y="12" font-family="Inter" font-size="9.5" font-weight="700" fill="#fcd34d">PRIME</text>
-                  </g>
-                  <!-- (5) Direction pill -->
-                  <g transform="translate(167,1)">
-                    <rect width="20" height="20" rx="4" fill="rgba(34,211,238,0.2)" stroke="rgba(34,211,238,0.5)"/>
-                    <text x="7" y="14" font-family="Inter" font-size="11" font-weight="800" fill="#67e8f9">L</text>
-                  </g>
-                  <!-- (6) Horizon chip -->
-                  <g transform="translate(197,3)">
-                    <rect width="36" height="16" rx="3" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.06)"/>
-                    <text x="7" y="12" font-family="Inter" font-size="9.5" fill="#6b7280">≤7d</text>
-                  </g>
-
-                  <!-- (7) Sparkline -->
-                  <g transform="translate(258,2)">
-                    <polyline fill="none" stroke="#22c55e" stroke-width="1.5"
-                      points="0,14 12,12 24,14 36,9 48,11 60,7 72,5 84,3 96,2"/>
-                  </g>
-
-                  <!-- (8) Price + (9) Day change -->
-                  <g transform="translate(360,0)">
-                    <text x="0" y="11" font-family="Inter" font-size="12" fill="#ffffff" text-anchor="end">$1,124.50</text>
-                    <text x="0" y="24" font-family="Inter" font-size="10" fill="#10b981" text-anchor="end">+2.41% (+$26.42)</text>
-                  </g>
-                </g>
-
-                <!-- Subtitle: action -->
-                <text x="40" y="56" font-family="Inter" font-size="10.5" fill="#4b5563">Position now &mdash; setup qualified, CIO approved</text>
-
-                <!-- Metric strip: 6 cols -->
-                <g transform="translate(16,76)" font-family="Inter" font-size="10">
-                  <!-- divider -->
-                  <line x1="0" y1="-4" x2="408" y2="-4" stroke="rgba(255,255,255,0.06)"/>
-                  <!-- (10) Score -->
-                  <g transform="translate(0,0)">
-                    <text x="0" y="10" fill="#4b5563">Score</text>
-                    <text x="34" y="10" fill="#ffffff" font-weight="700">78.2</text>
-                  </g>
-                  <!-- (11) Rank -->
-                  <g transform="translate(68,0)">
-                    <text x="0" y="10" fill="#4b5563">Rank</text>
-                    <text x="32" y="10" fill="#ffffff" font-weight="700">#8</text>
-                  </g>
-                  <!-- (12) RR -->
-                  <g transform="translate(136,0)">
-                    <text x="0" y="10" fill="#4b5563">RR</text>
-                    <text x="22" y="10" fill="#ffffff" font-weight="700">2.4</text>
-                  </g>
-                  <!-- (13) SL -->
-                  <g transform="translate(195,0)">
-                    <text x="0" y="10" fill="#4b5563">SL</text>
-                    <text x="20" y="10" fill="#f87171" font-weight="700">$1,108</text>
-                  </g>
-                  <!-- (14) TP -->
-                  <g transform="translate(272,0)">
-                    <text x="0" y="10" fill="#4b5563">TP</text>
-                    <text x="20" y="10" fill="#2dd4bf" font-weight="700">$1,158</text>
-                  </g>
-                  <!-- (15) ETA -->
-                  <g transform="translate(348,0)">
-                    <text x="0" y="10" fill="#4b5563">ETA</text>
-                    <text x="28" y="10" fill="#ffffff" font-weight="700">2.5d</text>
-                  </g>
-                </g>
-
-                <!-- (16) Progress bars -->
-                <g transform="translate(16,110)" font-family="Inter" font-size="9.5" fill="#4b5563">
-                  <text x="0" y="9">Phase</text>
-                  <g transform="translate(54,2)">
-                    <rect width="280" height="6" rx="3" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.06)"/>
-                    <rect width="168" height="6" rx="3" fill="#10b981"/>
-                  </g>
-                  <text x="346" y="9" fill="#6b7280" text-anchor="end">60%</text>
-
-                  <text x="0" y="28">Completion</text>
-                  <g transform="translate(54,21)">
-                    <rect width="280" height="6" rx="3" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.06)"/>
-                    <rect width="98" height="6" rx="3" fill="#22c55e"/>
-                  </g>
-                  <text x="346" y="28" fill="#6b7280" text-anchor="end">35%</text>
-                </g>
-
-                <!-- Lane indicator chip on right edge -->
-                <g transform="translate(380,18)">
-                  <rect x="0" y="0" width="48" height="22" rx="11" fill="rgba(16,185,129,0.18)" stroke="rgba(16,185,129,0.5)"/>
-                  <text x="24" y="14" font-family="Inter" font-size="9" font-weight="800" fill="#6ee7b7" text-anchor="middle">ENTER</text>
-                </g>
-              </g>
-
-              <!-- Annotation labels (numbered) -->
-              <g font-family="Inter" font-size="11" fill="#9ca3af">
-                <!-- 1 -->
-                <circle cx="58" cy="46" r="9" fill="#00c853"/>
-                <text x="58" y="50" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">1</text>
-                <line x1="68" y1="46" x2="558" y2="320" stroke="#00c853" stroke-opacity="0.25" stroke-width="1" stroke-dasharray="3,3"/>
-                <!-- 2 -->
-                <circle cx="80" cy="46" r="9" fill="#00c853"/>
-                <text x="80" y="50" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">2</text>
-                <!-- 3 -->
-                <circle cx="132" cy="46" r="9" fill="#00c853"/>
-                <text x="132" y="50" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">3</text>
-                <!-- 4 -->
-                <circle cx="173" cy="46" r="9" fill="#00c853"/>
-                <text x="173" y="50" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">4</text>
-                <!-- 5 -->
-                <circle cx="225" cy="46" r="9" fill="#00c853"/>
-                <text x="225" y="50" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">5</text>
-                <!-- 6 -->
-                <circle cx="255" cy="46" r="9" fill="#00c853"/>
-                <text x="255" y="50" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">6</text>
-                <!-- 7 sparkline -->
-                <circle cx="330" cy="46" r="9" fill="#00c853"/>
-                <text x="330" y="50" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">7</text>
-                <!-- 8 price -->
-                <circle cx="416" cy="46" r="9" fill="#00c853"/>
-                <text x="416" y="50" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">8</text>
-                <!-- 9 day change -->
-                <circle cx="416" cy="68" r="9" fill="#00c853"/>
-                <text x="416" y="72" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">9</text>
-                <!-- 10 score -->
-                <circle cx="100" cy="120" r="9" fill="#00c853"/>
-                <text x="100" y="124" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">10</text>
-                <!-- 11 rank -->
-                <circle cx="155" cy="120" r="9" fill="#00c853"/>
-                <text x="155" y="124" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">11</text>
-                <!-- 12 RR -->
-                <circle cx="208" cy="120" r="9" fill="#00c853"/>
-                <text x="208" y="124" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">12</text>
-                <!-- 13 SL -->
-                <circle cx="252" cy="120" r="9" fill="#00c853"/>
-                <text x="252" y="124" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">13</text>
-                <!-- 14 TP -->
-                <circle cx="328" cy="120" r="9" fill="#00c853"/>
-                <text x="328" y="124" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">14</text>
-                <!-- 15 ETA -->
-                <circle cx="404" cy="120" r="9" fill="#00c853"/>
-                <text x="404" y="124" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">15</text>
-                <!-- 16 bars -->
-                <circle cx="120" cy="156" r="9" fill="#00c853"/>
-                <text x="120" y="160" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">16</text>
-                <!-- 17 lane indicator -->
-                <circle cx="448" cy="46" r="9" fill="#00c853"/>
-                <text x="448" y="50" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">17</text>
-              </g>
-            </svg>
+            <div class="card-anatomy-stage">
+              <div class="demo-card">
+                <div class="demo-head">
+                  <span class="demo-logo">OK</span>
+                  <span class="demo-sym">OKE</span>
+                  <span class="demo-chip up">LONG</span>
+                  <span class="demo-dot" title="TT Selected"></span>
+                  <span class="demo-chip dn" style="margin-left:auto">Defend</span>
+                  <span class="demo-chip star">&#9734;</span>
+                </div>
+                <div class="demo-price">$92.32</div>
+                <div class="demo-change up">&#9650; +1.42%<small>(+$1.29)</small></div>
+                <div class="demo-posbar">
+                  <div class="demo-posbar-head">
+                    <span class="label">Position</span>
+                    <span class="pnl">+3.98%</span>
+                  </div>
+                  <div class="demo-posbar-track">
+                    <div class="demo-posbar-fill" style="left:30%;width:30%"></div>
+                    <div class="demo-posbar-tick sl" style="left:8%"></div>
+                    <div class="demo-posbar-tick e"  style="left:30%"></div>
+                    <div class="demo-posbar-tick t1" style="left:88%"></div>
+                    <div class="demo-posbar-current" style="left:60%"></div>
+                  </div>
+                  <div class="demo-posbar-labels">
+                    <span class="sl-lbl" style="left:8%">SL</span>
+                    <span class="e-lbl"  style="left:30%">E</span>
+                    <span class="t1-lbl" style="left:88%">T1</span>
+                  </div>
+                </div>
+                <div class="demo-chips">
+                  <span class="demo-chip up">S99</span>
+                  <span class="demo-chip accent">C&middot;56</span>
+                  <span class="demo-chip up">2.0R</span>
+                </div>
+              </div>
+            </div>
 
             <div class="anno-legend">
-              <div class="anno-item"><span class="num">1</span><span><strong>Move-status emoji</strong> &mdash; 🟢 active, ✅ target achieved, ⛔ thesis invalidated.</span></div>
-              <div class="anno-item"><span class="num">2</span><span><strong>Ticker symbol</strong> &mdash; the stock. Click anywhere on the card to open it in the right rail.</span></div>
-              <div class="anno-item"><span class="num">3</span><span><strong>Quality badges</strong> &mdash; 🏆 multi-confluence, 💡 unique setup, ⭐ user-saved, and others.</span></div>
-              <div class="anno-item"><span class="num">4</span><span><strong>Status pill</strong> &mdash; Prime (highest conviction), Eligible, or Watch.</span></div>
-              <div class="anno-item"><span class="num">5</span><span><strong>Direction pill</strong> &mdash; <span style="color:var(--long)">L</span> for LONG, <span style="color:var(--short)">S</span> for SHORT. Card outline color matches.</span></div>
-              <div class="anno-item"><span class="num">6</span><span><strong>Horizon chip</strong> &mdash; ≤7d short-term, 8–30d swing, 31d+ longer hold.</span></div>
-              <div class="anno-item"><span class="num">7</span><span><strong>Sparkline</strong> &mdash; the last several bars of price action at a glance.</span></div>
-              <div class="anno-item"><span class="num">8</span><span><strong>Live price</strong> &mdash; current quote (or last close after-hours).</span></div>
-              <div class="anno-item"><span class="num">9</span><span><strong>Day change</strong> &mdash; intraday move, % and dollar amount.</span></div>
-              <div class="anno-item"><span class="num">10</span><span><strong>Score</strong> &mdash; the model&rsquo;s composite score across all timeframes (0–100).</span></div>
-              <div class="anno-item"><span class="num">11</span><span><strong>Rank</strong> &mdash; where this ticker sits in the universe today.</span></div>
-              <div class="anno-item"><span class="num">12</span><span><strong>RR</strong> &mdash; reward-to-risk ratio (potential gain ÷ potential loss). Higher is better.</span></div>
-              <div class="anno-item"><span class="num">13</span><span><strong>SL</strong> &mdash; the stop-loss price. <span style="color:#f87171">Red</span> means &ldquo;exit if hit.&rdquo;</span></div>
-              <div class="anno-item"><span class="num">14</span><span><strong>TP</strong> &mdash; the next take-profit target (TP1 → TP2 → TP3 progression).</span></div>
-              <div class="anno-item"><span class="num">15</span><span><strong>ETA</strong> &mdash; the model&rsquo;s estimate of how many days to target.</span></div>
-              <div class="anno-item"><span class="num">16</span><span><strong>Phase &amp; Completion bars</strong> &mdash; <em>Phase</em> = where price is between SL and TP; <em>Completion</em> = how far the setup has matured. Markers tell you where SL/TP sit relative to current price.</span></div>
-              <div class="anno-item"><span class="num">17</span><span><strong>Lane indicator</strong> &mdash; this card&rsquo;s current lane. When it changes, the card pulses.</span></div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-logo">OK</span></div>
+                <div class="anno-text"><strong>Logo + ticker</strong> &mdash; brand logo and stock symbol. Click anywhere on the card to open the right rail with full detail.</div>
+              </div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-chip up">LONG</span></div>
+                <div class="anno-text"><strong>Direction chip</strong> &mdash; <em>LONG</em> = buying shares, <em>SHORT</em> = selling short. When no trade is open this shows the bias (<em>BULL</em>/<em>BEAR</em>).</div>
+              </div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-dot"></span></div>
+                <div class="anno-text"><strong>TT Selected dot</strong> &mdash; this ticker is in the curated TT Universe (not a user-added name).</div>
+              </div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-chip dn">Defend</span></div>
+                <div class="anno-text"><strong>Lane chip</strong> &mdash; the kanban lane the model has this ticker in right now (Setup, Enter, Hold, Defend, Trim, Exit).</div>
+              </div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-star">&#9734;</span></div>
+                <div class="anno-text"><strong>Save</strong> &mdash; click to add this ticker to your Saved list (&#9734; &rarr; &#9733;).</div>
+              </div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-price">$92.32</span></div>
+                <div class="anno-text"><strong>Live price</strong> &mdash; current quote (or last close after-hours).</div>
+              </div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-change up">&#9650; +1.42%</span></div>
+                <div class="anno-text"><strong>Day change</strong> &mdash; intraday move with arrow and absolute dollar amount in parens. Green up, red down.</div>
+              </div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-bar"></span></div>
+                <div class="anno-text"><strong>Position bar</strong> &mdash; only shown when a trade is open. Red <em>SL</em> tick, grey <em>E</em> (entry) tick, green <em>T1/T2/T3</em> ticks, and a gold current-price dot. The fill from entry to current is green when in profit, red when in loss. The <strong>+3.98%</strong> label on the right is your live unrealized P&amp;L.</div>
+              </div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-chip up">S99</span></div>
+                <div class="anno-text"><strong>Score (S)</strong> &mdash; composite alignment score across all timeframes. Higher is better. Green at 100+, gold at 75+.</div>
+              </div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-chip acc">C&middot;56</span></div>
+                <div class="anno-text"><strong>Conviction tier</strong> &mdash; A (best), B, or C, plus the focus-conviction score. A &amp; B grades indicate the model is leaning in.</div>
+              </div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-chip up">2.0R</span></div>
+                <div class="anno-text"><strong>Risk:Reward (R)</strong> &mdash; potential reward divided by potential risk. <em>2.0R</em> means the upside is 2&times; the downside. Green at 2+, gold at 1.5+.</div>
+              </div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-chip" title="rank">R8</span></div>
+                <div class="anno-text"><strong>Rank (R, when displayed)</strong> &mdash; this ticker's position in the universe today, 1 = best. Top 10 shown in green, top 30 in gold.</div>
+              </div>
             </div>
           </div>
 
-          <h3>Investor card</h3>
+          <h3>Investor card &mdash; with an owned position</h3>
           <div class="card-anatomy">
-            <svg viewBox="0 0 720 240" role="img" aria-label="Annotated Investor card diagram">
-              <defs>
-                <pattern id="grid2" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
-                  <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(255,255,255,0.02)" stroke-width="1"/>
-                </pattern>
-              </defs>
-              <rect width="720" height="240" fill="url(#grid2)"/>
-
-              <!-- Card body -->
-              <g transform="translate(40,40)">
-                <rect width="320" height="142" rx="10" fill="rgba(10,16,28,0.45)" stroke="rgba(255,255,255,0.08)"/>
-                <!-- Left accent (Accumulate green) -->
-                <rect x="0" y="0" width="3" height="142" fill="#10b981" rx="1.5"/>
-
-                <!-- Header row -->
-                <g transform="translate(12,12)">
-                  <!-- (A) Star save toggle -->
-                  <text x="0" y="14" font-family="Inter" font-size="14" fill="#fbbf24">&#9733;</text>
-                  <!-- (B) Ticker -->
-                  <text x="18" y="14" font-family="Inter" font-size="13" font-weight="800" fill="#ffffff">NBIS</text>
-                  <!-- Company name -->
-                  <text x="18" y="26" font-family="Inter" font-size="9.5" fill="#9ca3af">Nebius Group</text>
-
-                  <!-- (C) Price -->
-                  <text x="300" y="13" font-family="Inter" font-size="11" fill="#9ca3af" text-anchor="end">$213.76</text>
-                  <!-- (D) Day change -->
-                  <text x="300" y="26" font-family="Inter" font-size="10" font-weight="700" fill="#10b981" text-anchor="end">+3.4%</text>
-                </g>
-
-                <!-- Score + tags row -->
-                <g transform="translate(12,52)">
-                  <!-- (E) Score -->
-                  <text x="0" y="14" font-family="Inter" font-size="20" font-weight="800" fill="#10b981">78</text>
-                  <!-- (F) Tags -->
-                  <g transform="translate(46,3)">
-                    <rect width="40" height="14" rx="3" fill="rgba(0,200,83,0.10)" stroke="rgba(0,200,83,0.22)"/>
-                    <text x="6" y="10" font-family="Inter" font-size="9" fill="#6ee7b7">ZONE</text>
-                  </g>
-                  <g transform="translate(92,3)">
-                    <rect width="48" height="14" rx="3" fill="rgba(14,165,233,0.10)" stroke="rgba(14,165,233,0.22)"/>
-                    <text x="6" y="10" font-family="Inter" font-size="9" fill="#7dd3fc">RS HIGH</text>
-                  </g>
-                </g>
-
-                <!-- Stage label -->
-                <g transform="translate(12,98)">
-                  <text x="0" y="0" font-family="Inter" font-size="9" fill="#6b7280" letter-spacing="1.5">STAGE</text>
-                  <!-- (G) Stage badge -->
-                  <g transform="translate(0,8)">
-                    <rect width="74" height="18" rx="4" fill="rgba(16,185,129,0.15)" stroke="rgba(16,185,129,0.30)"/>
-                    <text x="37" y="13" font-family="Inter" font-size="10" font-weight="700" fill="#34d399" text-anchor="middle">Accumulate</text>
-                  </g>
-                </g>
-              </g>
-
-              <!-- Annotations -->
-              <g font-family="Inter" font-size="11">
-                <circle cx="56" cy="58" r="9" fill="#3b82f6"/>
-                <text x="56" y="62" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">A</text>
-                <circle cx="86" cy="58" r="9" fill="#3b82f6"/>
-                <text x="86" y="62" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">B</text>
-                <circle cx="334" cy="58" r="9" fill="#3b82f6"/>
-                <text x="334" y="62" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">C</text>
-                <circle cx="334" cy="74" r="9" fill="#3b82f6"/>
-                <text x="334" y="78" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">D</text>
-                <circle cx="62" cy="100" r="9" fill="#3b82f6"/>
-                <text x="62" y="104" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">E</text>
-                <circle cx="128" cy="100" r="9" fill="#3b82f6"/>
-                <text x="128" y="104" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">F</text>
-                <circle cx="92" cy="155" r="9" fill="#3b82f6"/>
-                <text x="92" y="159" font-size="11" font-weight="800" fill="#0a0d11" text-anchor="middle">G</text>
-              </g>
-            </svg>
+            <div class="card-anatomy-stage">
+              <div class="demo-card owned">
+                <div class="demo-head">
+                  <span class="demo-logo nvda">N</span>
+                  <span class="demo-sym">NVDA</span>
+                  <span class="demo-chip owned">OWNED</span>
+                  <span class="demo-chip accent">RS HI</span>
+                  <span class="demo-dot" title="TT Selected"></span>
+                  <span class="demo-chip accent">EPS 4d</span>
+                </div>
+                <div class="demo-price">$225.32</div>
+                <div class="demo-change dn">&#9660; -4.42%</div>
+                <div class="demo-pos-strip">
+                  <span class="pos-label">POS</span>
+                  <span class="pos-shares">27.3 sh</span>
+                  <span class="pos-avg">@ $183.22</span>
+                  <span class="pos-pnl">+23.0%</span>
+                  <span class="pos-pnl-abs">(+$1149)</span>
+                </div>
+                <div class="demo-last-line">
+                  <span class="last-label">LAST</span>
+                  <span class="last-action">BUY 27.3sh</span>
+                  <span class="last-ago">60d ago</span>
+                </div>
+                <div class="demo-chips">
+                  <span class="demo-chip">S46</span>
+                  <span class="demo-chip up">RS 94</span>
+                  <span class="demo-chip up">1M +16.4%</span>
+                  <span class="demo-chip up">3M +39.8%</span>
+                </div>
+              </div>
+            </div>
 
             <div class="anno-legend">
-              <div class="anno-item"><span class="num" style="background:#3b82f6;color:#fff">A</span><span><strong>Save star</strong> &mdash; click to add this ticker to your Saved list (☆ → ★).</span></div>
-              <div class="anno-item"><span class="num" style="background:#3b82f6;color:#fff">B</span><span><strong>Ticker + company name</strong> &mdash; symbol and full name. Click to open in right rail.</span></div>
-              <div class="anno-item"><span class="num" style="background:#3b82f6;color:#fff">C</span><span><strong>Price</strong> &mdash; current quote (or last close).</span></div>
-              <div class="anno-item"><span class="num" style="background:#3b82f6;color:#fff">D</span><span><strong>Day change</strong> &mdash; intraday %. Green up, red down.</span></div>
-              <div class="anno-item"><span class="num" style="background:#3b82f6;color:#fff">E</span><span><strong>Score</strong> &mdash; investor composite (0–100). Color-coded: green ≥70, amber 50–69, red &lt;50.</span></div>
-              <div class="anno-item"><span class="num" style="background:#3b82f6;color:#fff">F</span><span><strong>Signal tags</strong> &mdash; <em>ZONE</em> = price in accumulation zone, <em>RS HIGH</em> = relative-strength new high. Strong corroborating signals.</span></div>
-              <div class="anno-item"><span class="num" style="background:#3b82f6;color:#fff">G</span><span><strong>Stage</strong> &mdash; which Investor lane this ticker is in. Left accent stripe matches lane color.</span></div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-logo" style="background:linear-gradient(135deg,#166534,#14532d)">N</span></div>
+                <div class="anno-text"><strong>Logo + ticker</strong> &mdash; brand logo and stock symbol. Click anywhere to open in the right rail.</div>
+              </div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-chip owned">OWNED</span></div>
+                <div class="anno-text"><strong>OWNED chip</strong> &mdash; the model has an open Investor position in this ticker. Card gets a violet halo too.</div>
+              </div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-chip acc">RS HI</span></div>
+                <div class="anno-text"><strong>RS HI</strong> &mdash; relative strength just made a new 3-month high. A strong corroborating signal for accumulation.</div>
+              </div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-chip up">BUY</span></div>
+                <div class="anno-text"><strong>BUY (when shown)</strong> &mdash; price is in a favorable accumulation zone. Together with <em>RS HI</em> it&rsquo;s the Investor mode&rsquo;s strongest setup signal.</div>
+              </div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-dot"></span></div>
+                <div class="anno-text"><strong>TT Selected dot</strong> &mdash; this ticker is in the curated TT Universe.</div>
+              </div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-chip acc">EPS 4d</span></div>
+                <div class="anno-text"><strong>Earnings badge</strong> &mdash; earnings within 7 days. Heads-up for event-driven risk.</div>
+              </div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-price">$225.32</span></div>
+                <div class="anno-text"><strong>Live price</strong> &mdash; current quote (or last close).</div>
+              </div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-change dn">&#9660; -4.42%</span></div>
+                <div class="anno-text"><strong>Day change</strong> &mdash; intraday %, green up / red down. Arrows match direction.</div>
+              </div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-chip owned">POS</span></div>
+                <div class="anno-text"><strong>Position strip</strong> &mdash; shares held, average entry price, live unrealized P&amp;L (% and $). Updates as the price ticks.</div>
+              </div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-chip owned">LAST</span></div>
+                <div class="anno-text"><strong>LAST trace</strong> &mdash; the most recent action the model took on this position (BUY/SELL/DCA/TRIM) and how long ago. Helps you see &ldquo;is the model still doing things here?&rdquo;</div>
+              </div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-chip">S46</span></div>
+                <div class="anno-text"><strong>Score (S)</strong> &mdash; Investor composite score. Green at high score, gold at moderate, plain at low. Re-rated daily.</div>
+              </div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-chip up">RS 94</span></div>
+                <div class="anno-text"><strong>Relative Strength rank</strong> &mdash; this ticker&rsquo;s RS percentile vs the universe (1&ndash;100). Higher = leading the market.</div>
+              </div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-chip up">1M +16.4%</span></div>
+                <div class="anno-text"><strong>Trailing 1-month return</strong> &mdash; how the ticker has performed over the last month. Greens accumulate, reds bleed.</div>
+              </div>
+              <div class="anno-row">
+                <div class="anno-visual"><span class="v-chip up">3M +39.8%</span></div>
+                <div class="anno-text"><strong>Trailing 3-month return</strong> &mdash; longer-horizon performance. The pair (1M, 3M) tells you if the trend is accelerating or fading.</div>
+              </div>
             </div>
           </div>
+
         </section>
 
         <!-- ── 8. How we keep score ──────────────────────────── -->
