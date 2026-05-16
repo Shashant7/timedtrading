@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260516-today2" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260516-today3" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -18,6 +18,9 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="auth-gate.js?v=20260516a"></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
+    <!-- DS — design-system primitives (ticker logos + sparkline SVG generator).
+         Required for the Viewport cards to match Active Trader's DsCompactCard. -->
+    <script src="ds-components.js?v=20260501a"></script>
     <!-- BubbleChart component (extracted from index-react.source.html). Uses
          native-SVG rendering (FORCE_NATIVE_SVG=true) so Recharts is NOT loaded. -->
     <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
@@ -403,7 +406,7 @@
       .bmv-bubble { min-width: 0; }
       .bmv-bubble .tt-card { padding: 0; overflow: hidden; }
 
-      /* Viewport — vertical list of compact ticker cards */
+      /* Viewport — wraps the list of ds-tickercards (production DS) */
       .vp-card {
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
@@ -411,7 +414,7 @@
         padding: 12px;
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: 10px;
         max-height: 720px;
       }
       .vp-head {
@@ -425,9 +428,9 @@
       .vp-list {
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: 10px;
         overflow-y: auto;
-        padding-right: 2px;
+        padding-right: 4px;
         scrollbar-width: thin;
         scrollbar-color: rgba(255,255,255,0.12) transparent;
       }
@@ -439,82 +442,13 @@
         text-align: center;
         padding: 24px 8px;
       }
-      .vp-row {
-        display: grid;
-        grid-template-columns: 56px 1fr auto;
-        gap: 8px;
-        align-items: center;
-        padding: 8px 10px;
-        border: 1px solid var(--tt-border);
-        background: rgba(255,255,255,0.015);
-        border-radius: 8px;
-        cursor: pointer;
-        transition: background 120ms ease, border-color 120ms ease;
+      /* Make the production ds-tickercard fill the Viewport column width
+         (the AT version uses fixed width: 280 inline). */
+      .vp-list .ds-tickercard {
+        width: 100% !important;
+        box-sizing: border-box;
+        margin: 0;
       }
-      .vp-row:hover { background: var(--tt-bg-elev); border-color: var(--tt-border-hi); }
-      .vp-row .vp-sym {
-        font-family: var(--tt-font);
-        font-weight: 800;
-        font-size: 13px;
-        letter-spacing: 0.02em;
-        color: var(--tt-text);
-      }
-      .vp-row .vp-mid {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        min-width: 0;
-      }
-      .vp-row .vp-dir {
-        font-size: 9.5px;
-        font-weight: 700;
-        letter-spacing: 0.07em;
-        text-transform: uppercase;
-      }
-      .vp-row .vp-dir.long  { color: var(--tt-up-soft); }
-      .vp-row .vp-dir.short { color: var(--tt-dn-soft); }
-      .vp-row .vp-dir.flat  { color: var(--tt-text-dim); }
-      .vp-row .vp-meta {
-        font-size: 10.5px;
-        color: var(--tt-text-dim);
-        font-family: var(--tt-font-mono);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      .vp-row .vp-pct {
-        font-size: 11.5px;
-        font-weight: 700;
-        font-family: var(--tt-font-mono);
-        text-align: right;
-        white-space: nowrap;
-      }
-      .vp-row .vp-pct.up   { color: var(--tt-up); }
-      .vp-row .vp-pct.down { color: var(--tt-dn); }
-      .vp-row .vp-rank {
-        font-size: 10px;
-        color: var(--tt-text-faint);
-        font-family: var(--tt-font-mono);
-      }
-      .vp-stage {
-        font-size: 9px;
-        font-weight: 700;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        padding: 1px 5px;
-        border-radius: 4px;
-        background: rgba(255,255,255,0.05);
-        color: var(--tt-text-dim);
-        border: 1px solid var(--tt-border);
-        margin-left: 4px;
-        flex-shrink: 0;
-      }
-      .vp-stage.enter   { color: #4ade80; background: rgba(74,222,128,0.10); border-color: rgba(74,222,128,0.30); }
-      .vp-stage.hold    { color: #34d399; background: rgba(52,211,153,0.10); border-color: rgba(52,211,153,0.30); }
-      .vp-stage.trim    { color: #facc15; background: rgba(250,204,21,0.10); border-color: rgba(250,204,21,0.30); }
-      .vp-stage.defend  { color: #fb923c; background: rgba(251,146,60,0.10); border-color: rgba(251,146,60,0.30); }
-      .vp-stage.exit    { color: #f87171; background: rgba(248,113,113,0.10); border-color: rgba(248,113,113,0.30); }
-      .vp-stage.setup   { color: #a5b4fc; background: rgba(165,180,252,0.08); border-color: rgba(165,180,252,0.25); }
 
       /* Skeleton */
       .sk {
@@ -660,7 +594,7 @@
     </div>
 
     <script type="text/babel">
-      const { useState, useEffect, useMemo } = React;
+      const { useState, useEffect, useMemo, useCallback, useRef } = React;
       const h = React.createElement;
 
       // ── API base ───────────────────────────────────────────────
@@ -1449,16 +1383,241 @@
       // Click a row → deep-link into /index-react.html for the full
       // Active Trader analysis (chart, kanban, right-rail).
       // ═══════════════════════════════════════════════════════════
-      function Viewport({ visible, rankedTickerPositions, query }) {
-        const TT = window.TimedBubbleChart || {};
-        const getDir = (t) => {
-          const s = String(t?.state || "");
-          if (s.startsWith("HTF_BULL") || s.includes("BULL")) return "LONG";
-          if (s.startsWith("HTF_BEAR") || s.includes("BEAR")) return "SHORT";
-          return "FLAT";
-        };
+      // ── ViewportCard — production DsCompactCard ported from
+      //    index-react.source.html lines 13048-13433. Trimmed for the
+      //    Today digest context: no open-trade progress bar, no save star,
+      //    no earnings badge (those belong to the Active Trader workflow).
+      //
+      //    Visual: logo + symbol + BIAS chip + stage chip · big price ·
+      //    daily change · sparkline (1H, behind text wash) · bottom chips
+      //    (R# rank, S# score, RR, SQ state).
+      //
+      //    Uses production CSS classes from tt-tokens.css (.ds-tickercard*,
+      //    .ds-chip*) so it renders identically to the Active Trader cards.
+      function ViewportCard({ t, rankPosition, onOpen, sparkSrc }) {
+        const sym = String(t?.ticker || "").toUpperCase();
         const dailyChange = (window.TimedPriceUtils && window.TimedPriceUtils.getDailyChange)
           || (() => ({ dayPct: null, dayChg: null }));
+        const dc = (() => { try { return dailyChange(t); } catch (_) { return null; } })();
+        const price = Number(t?.price ?? t?.close);
+        const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
+        const dayChg = Number.isFinite(dc?.dayChg) ? Number(dc.dayChg) : null;
+        const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
+
+        const TT = window.TimedBubbleChart || {};
+        const score = (() => {
+          try {
+            const dyn = TT.rankScoreForTicker ? Number(TT.rankScoreForTicker(t)) : NaN;
+            if (Number.isFinite(dyn) && dyn !== 0) return Math.round(dyn);
+          } catch (_) {}
+          const fallback = Number(t?.score ?? t?.rank);
+          return Number.isFinite(fallback) && fallback !== 0 ? Math.round(fallback) : null;
+        })();
+        const rank = Number.isFinite(rankPosition) ? rankPosition
+                  : (Number(t?.rank_position ?? t?.rp) || null);
+        const rr = Number(t?.rr) || null;
+
+        // Bias chip — BULL / BEAR / NEUTRAL derived from state (no trades
+        // on Today, so no LONG/SHORT override).
+        const state = String(t?.state || "").toUpperCase();
+        const biasLabel = state.startsWith("HTF_BULL") || (!state.startsWith("HTF_BEAR") && state.includes("BULL")) ? "BULL"
+                       : state.startsWith("HTF_BEAR") || state.includes("BEAR") ? "BEAR"
+                       : "NEUTRAL";
+        const biasChipCls = biasLabel === "BULL" ? "ds-chip--up"
+                         : biasLabel === "BEAR" ? "ds-chip--dn"
+                         : "ds-chip--solid";
+
+        // Stage chip — uses kanban_stage as-is (Today doesn't track open trades).
+        const stage = String(t?.kanban_stage || "").toLowerCase();
+        const stageChip = (() => {
+          if (stage === "trim") return { label: "Trim", cls: "ds-chip--accent" };
+          if (stage === "defend") return { label: "Defend", cls: "ds-chip--dn" };
+          if (stage === "exit") return { label: "Exit", cls: "ds-chip--dn" };
+          if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return { label: "Enter", cls: "ds-chip--accent" };
+          if (stage === "hold" || stage === "active" || stage === "just_entered") return { label: "Hold", cls: "ds-chip--up" };
+          if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") return { label: "Setup", cls: "" };
+          return null;
+        })();
+
+        // TT Selected dot (small gold indicator).
+        const isTTSel = (typeof window !== "undefined" && typeof window.isTickerTTSelected === "function")
+          ? window.isTickerTTSelected(sym)
+          : false;
+
+        // Squeeze chip — most-actionable LTF signal (release > on > compressed).
+        const sqChipInfo = (() => {
+          const tfm = t?.tf_tech || {};
+          const tfList = ["10","15","30","1H","60","4H","240"];
+          for (const tfk of tfList) {
+            const row = tfm[tfk]; if (!row?.sq) continue;
+            if (row.sq.r) return { state: "release", tf: tfk, label: "SQ RLS", cls: "ds-chip--accent" };
+          }
+          for (const tfk of tfList) {
+            const row = tfm[tfk]; if (!row?.sq) continue;
+            if (row.sq.s) return { state: "on", tf: tfk, label: "SQ ON", cls: "" };
+            if (row.sq.c) return { state: "compressed", tf: tfk, label: "SQ CMP", cls: "ds-chip--solid" };
+          }
+          return null;
+        })();
+
+        // 1H sparkline — read from the cache; the card will re-render once
+        // the fetch lands and updates the cache.
+        const sparkPoints = (sparkSrc && sparkSrc.length >= 2)
+          ? sparkSrc
+          : [price || 0, price || 0];
+        const sparkSvg = (window.DS && Number.isFinite(price) && price > 0)
+          ? window.DS.sparklineSvg(sparkPoints, { width: 280, height: 44, direction: dir, strokeWidth: 1.4 })
+          : "";
+
+        const cardStyle = isTTSel
+          ? { borderColor: "var(--ds-accent-dim)", boxShadow: "inset 0 0 0 1px rgba(245,194,92,0.18)" }
+          : null;
+
+        return h("button", {
+          onClick: () => onOpen(sym),
+          className: "ds-tickercard",
+          style: cardStyle,
+          title: `Open ${sym} in Active Trader`,
+        },
+          h("div", { className: "ds-tickercard__head" },
+            h("div", {
+              className: "ds-tickercard__logo",
+              ref: (el) => {
+                if (el && !el.dataset.dsInit && window.DS) {
+                  el.dataset.dsInit = "1";
+                  try { el.replaceWith(window.DS.tickerLogo(sym, { size: 22 })); } catch (_) {}
+                }
+              },
+              style: { width: 22, height: 22 },
+            }, sym.slice(0, 2)),
+            h("span", { className: "ds-tickercard__symbol", style: { fontSize: 13 } }, sym),
+            h("span", {
+              className: `ds-chip ds-chip--sm ${biasChipCls}`,
+              style: { fontFamily: "var(--tt-font-mono)", marginLeft: 4 },
+              title: "Bias",
+            }, biasLabel),
+            isTTSel && h("span", {
+              title: "TT Selected",
+              style: {
+                width: 6, height: 6, borderRadius: "50%",
+                background: "var(--ds-accent)",
+                boxShadow: "0 0 0 2px rgba(245,194,92,0.20)",
+                marginLeft: 4, flexShrink: 0,
+              },
+            }),
+            stageChip && h("span", {
+              className: `ds-chip ds-chip--sm ${stageChip.cls}`,
+              style: { marginLeft: "auto" },
+            }, stageChip.label),
+          ),
+          h("div", { className: "ds-tickercard__price", style: { fontSize: 18 } },
+            Number.isFinite(price) ? `$${price.toFixed(2)}` : "—",
+          ),
+          dayPct != null && h("div", {
+            className: `ds-tickercard__change ds-tickercard__change--${dir}`,
+            style: { fontSize: 12 },
+          },
+            dir === "up" ? "▲" : dir === "dn" ? "▼" : "◆",
+            " ",
+            `${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`,
+            Number.isFinite(dayChg) && Math.abs(dayChg) > 0.001 && h("span", {
+              style: { marginLeft: 4, opacity: 0.7, fontSize: 10 },
+            },
+              ` (${dayChg >= 0 ? "+" : ""}$${Math.abs(dayChg).toFixed(2)})`,
+            ),
+          ),
+          sparkSvg && h("div", {
+            className: "ds-tickercard__spark",
+            dangerouslySetInnerHTML: { __html: sparkSvg },
+          }),
+          h("div", {
+            style: {
+              display: "flex", alignItems: "center", gap: "var(--ds-space-1)",
+              marginTop: "var(--ds-space-2)", flexWrap: "wrap",
+              zIndex: 2, position: "relative",
+            },
+          },
+            rank != null && h("span", {
+              className: `ds-chip ds-chip--sm ${rank <= 10 ? "ds-chip--up" : rank <= 30 ? "ds-chip--accent" : ""}`,
+              style: { fontFamily: "var(--tt-font-mono)" },
+              title: `Rank position: ${rank} of all eligible tickers (1 = best).`,
+            }, `R${rank}`),
+            score != null && h("span", {
+              className: `ds-chip ds-chip--sm ${score >= 100 ? "ds-chip--up" : score >= 75 ? "ds-chip--accent" : ""}`,
+              style: { fontFamily: "var(--tt-font-mono)" },
+              title: `Score: ${Math.round(score)} (composite alignment, higher = better).`,
+            }, `S${Math.round(score)}`),
+            rr != null && h("span", {
+              className: `ds-chip ds-chip--sm ${rr >= 2 ? "ds-chip--up" : rr >= 1.5 ? "ds-chip--accent" : ""}`,
+              style: { fontFamily: "var(--tt-font-mono)" },
+              title: "Risk:Reward",
+            }, `${rr.toFixed(1)}R`),
+            sqChipInfo && h("span", {
+              className: `ds-chip ds-chip--sm ${sqChipInfo.cls}`,
+              style: { fontFamily: "var(--tt-font-mono)" },
+              title: `Squeeze ${sqChipInfo.state} on ${sqChipInfo.tf}`,
+            }, sqChipInfo.label),
+          ),
+        );
+      }
+
+      // ── useSparklineCache — fetches 1H candles per visible symbol on
+      //    demand, refreshes every 5 min. Exposes window._dsEnsureSparkline
+      //    so cards (and any DS-driven render path) can read the cache.
+      function useSparklineCache() {
+        const [cache, setCache] = useState({});
+
+        const fetchSpark = useCallback(async (sym) => {
+          try {
+            const r = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=60&limit=24`, { cache: "no-store" });
+            const j = await r.json();
+            const candles = Array.isArray(j?.candles) ? j.candles : [];
+            return candles.map(c => Number(c?.c ?? c?.close)).filter(Number.isFinite);
+          } catch (_) {
+            return null;
+          }
+        }, []);
+
+        const ensure = useCallback((sym) => {
+          if (!sym) return null;
+          const upper = String(sym).toUpperCase();
+          if (cache[upper]) return cache[upper];
+          if (cache[upper] === undefined) {
+            setCache(prev => ({ ...prev, [upper]: null }));
+            fetchSpark(upper).then(arr => {
+              if (arr && arr.length >= 2) {
+                setCache(prev => ({ ...prev, [upper]: arr }));
+              }
+            });
+          }
+          return null;
+        }, [cache, fetchSpark]);
+
+        // Mirror Active Trader: expose on window so legacy DS code paths
+        // (e.g. window._dsEnsureSparkline) can read the cache.
+        useEffect(() => {
+          window._dsEnsureSparkline = ensure;
+          window._dsSparklineCache = cache;
+        }, [ensure, cache]);
+
+        // Refresh on a 5-min interval.
+        useEffect(() => {
+          const interval = setInterval(() => {
+            const symbols = Object.keys(cache).filter((s) => Array.isArray(cache[s]));
+            symbols.forEach((sym) => {
+              fetchSpark(sym).then(arr => {
+                if (arr && arr.length >= 2) setCache(prev => ({ ...prev, [sym]: arr }));
+              });
+            });
+          }, 5 * 60 * 1000);
+          return () => clearInterval(interval);
+        }, [cache, fetchSpark]);
+
+        return { cache, ensure };
+      }
+
+      function Viewport({ visible, rankedTickerPositions, query }) {
+        const { cache: sparkCache, ensure: ensureSpark } = useSparklineCache();
 
         const ranked = useMemo(() => {
           const list = (visible || []).slice();
@@ -1468,13 +1627,20 @@
             if (Number.isFinite(ra) && Number.isFinite(rb)) return ra - rb;
             if (Number.isFinite(ra)) return -1;
             if (Number.isFinite(rb)) return 1;
-            // Fall back to RR desc, then ticker name asc.
             const rra = Number(a.rr) || 0, rrb = Number(b.rr) || 0;
             if (rra !== rrb) return rrb - rra;
             return String(a.ticker).localeCompare(String(b.ticker));
           });
           return list;
         }, [visible, rankedTickerPositions]);
+
+        // Kick off sparkline fetches for the visible top-N (cards trigger
+        // their own ensure() on render, but a proactive sweep makes the
+        // first paint feel less twitchy).
+        useEffect(() => {
+          if (!ensureSpark) return;
+          ranked.slice(0, 60).forEach((t) => ensureSpark(t.ticker));
+        }, [ranked, ensureSpark]);
 
         const onOpen = (sym) => {
           window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
@@ -1488,61 +1654,16 @@
           h("div", { className: "vp-list", style: { flex: "1 1 auto" } },
             ranked.length === 0
               ? h("div", { className: "vp-empty" }, "No tickers match. Try a different filter or clear the search.")
-              : ranked.slice(0, 200).map((t) => {
-                  const sym = t.ticker;
-                  const dir = getDir(t);
-                  const dc = dailyChange(t);
-                  const pct = Number(dc?.dayPct);
-                  const pctStr = Number.isFinite(pct) ? `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%` : "—";
-                  const pctCls = !Number.isFinite(pct) ? "" : (pct >= 0 ? "up" : "down");
-                  const rr = Number(t.rr);
-                  const rank = rankedTickerPositions?.get?.(sym);
-                  const stage = String(t.kanban_stage || "").toLowerCase();
-                  const stageCls = stage && /^(setup|enter|enter_now|hold|trim|defend|exit|just_entered|just_flipped|in_review)$/.test(stage)
-                    ? (stage.startsWith("enter") ? "enter"
-                      : stage.startsWith("hold") || stage === "just_entered" ? "hold"
-                      : stage === "trim" ? "trim"
-                      : stage === "defend" ? "defend"
-                      : stage === "exit" ? "exit"
-                      : "setup")
-                    : "";
-                  const showStage = stage && stage !== "—";
-                  const stageLabel = stage === "just_entered" ? "HOLD"
-                    : stage === "just_flipped" ? "ENTER"
-                    : stage === "enter_now" ? "ENTER"
-                    : stage === "in_review" ? "REVIEW"
-                    : stage.toUpperCase();
-                  return h("div", {
-                    key: sym,
-                    className: "vp-row",
-                    onClick: () => onOpen(sym),
-                    role: "button",
-                    tabIndex: 0,
-                    onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") onOpen(sym); },
-                    title: `Open ${sym} in Active Trader`,
-                  },
-                    h("div", null,
-                      h("div", { className: "vp-sym" }, sym),
-                      Number.isFinite(rank) && h("div", { className: "vp-rank" }, `#${rank}`),
-                    ),
-                    h("div", { className: "vp-mid" },
-                      h("div", null,
-                        h("span", { className: `vp-dir ${dir.toLowerCase()}` }, dir),
-                        showStage && h("span", { className: `vp-stage ${stageCls}` }, stageLabel),
-                      ),
-                      h("div", { className: "vp-meta" },
-                        Number.isFinite(rr) ? `R:R ${rr.toFixed(2)}` : "R:R —",
-                        Number.isFinite(Number(t.eta_days_v2 ?? t.eta_days))
-                          ? ` · ETA ${Math.round(Number(t.eta_days_v2 ?? t.eta_days))}d`
-                          : "",
-                      ),
-                    ),
-                    h("div", { className: `vp-pct ${pctCls}` }, pctStr),
-                  );
-                }),
+              : ranked.slice(0, 60).map((t) => h(ViewportCard, {
+                  key: t.ticker,
+                  t,
+                  rankPosition: rankedTickerPositions?.get?.(t.ticker),
+                  sparkSrc: sparkCache[String(t.ticker).toUpperCase()] || null,
+                  onOpen,
+                })),
           ),
-          ranked.length > 200 && h("div", { className: "vp-empty", style: { fontSize: 10 } },
-            `Showing 200 of ${ranked.length} — narrow the filter to see more.`,
+          ranked.length > 60 && h("div", { className: "vp-empty", style: { fontSize: 10 } },
+            `Showing 60 of ${ranked.length} — narrow the filter to see more.`,
           ),
         );
       }
