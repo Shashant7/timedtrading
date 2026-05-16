@@ -1007,8 +1007,10 @@ function ViewportCard({
     const fallback = Number(t?.score ?? t?.rank);
     return Number.isFinite(fallback) && fallback !== 0 ? Math.round(fallback) : null;
   })();
-  const rank = Number.isFinite(rankPosition) ? rankPosition : Number(t?.rank_position ?? t?.rp) || null;
+  const rank = Number(t?.rank_position ?? t?.rp) || null;
   const rr = Number(t?.rr) || null;
+  const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
+  const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
   const state = String(t?.state || "").toUpperCase();
   const biasLabel = state.startsWith("HTF_BULL") || !state.startsWith("HTF_BEAR") && state.includes("BULL") ? "BULL" : state.startsWith("HTF_BEAR") || state.includes("BEAR") ? "BEAR" : "NEUTRAL";
   const biasChipCls = biasLabel === "BULL" ? "ds-chip--up" : biasLabel === "BEAR" ? "ds-chip--dn" : "ds-chip--solid";
@@ -1177,7 +1179,13 @@ function ViewportCard({
       fontFamily: "var(--tt-font-mono)"
     },
     title: `Score: ${Math.round(score)} (composite alignment, higher = better).`
-  }, `S${Math.round(score)}`), rr != null && h("span", {
+  }, `S${Math.round(score)}`), conv != null && h("span", {
+    className: `ds-chip ds-chip--sm ${tier === "A" ? "ds-chip--up" : tier === "B" ? "ds-chip--accent" : "ds-chip--solid"}`,
+    style: {
+      fontFamily: "var(--tt-font-mono)"
+    },
+    title: "Conviction tier · focus score"
+  }, `${tier || "C"}·${Math.round(conv)}`), rr != null && h("span", {
     className: `ds-chip ds-chip--sm ${rr >= 2 ? "ds-chip--up" : rr >= 1.5 ? "ds-chip--accent" : ""}`,
     style: {
       fontFamily: "var(--tt-font-mono)"
