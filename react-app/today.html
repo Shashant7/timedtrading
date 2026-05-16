@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260516-today5" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260516-today6" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -1476,7 +1476,7 @@
       //
       //    Visual: logo + symbol + BIAS chip + stage chip · big price ·
       //    daily change · sparkline (1H, behind text wash) · bottom chips
-      //    (R# rank, S# score, RR, SQ state).
+      //    (S# score, B·/C· conviction, RR, SQ state).
       //
       //    Uses production CSS classes from tt-tokens.css (.ds-tickercard*,
       //    .ds-chip*) so it renders identically to the Active Trader cards.
@@ -1499,9 +1499,13 @@
           const fallback = Number(t?.score ?? t?.rank);
           return Number.isFinite(fallback) && fallback !== 0 ? Math.round(fallback) : null;
         })();
-        const rank = Number.isFinite(rankPosition) ? rankPosition
-                  : (Number(t?.rank_position ?? t?.rp) || null);
-        const rr = Number(t?.rr) || null;
+        // Read rank straight from the data the way DsCompactCard does — do
+        // NOT synthesize from client-side ranking. Otherwise Today would
+        // show an R# chip on every card while AT (same data) doesn't.
+        const rank = Number(t?.rank_position ?? t?.rp) || null;
+        const rr   = Number(t?.rr) || null;
+        const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
+        const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
 
         // Bias chip — BULL / BEAR / NEUTRAL derived from state (no trades
         // on Today, so no LONG/SHORT override).
@@ -1635,6 +1639,11 @@
               style: { fontFamily: "var(--tt-font-mono)" },
               title: `Score: ${Math.round(score)} (composite alignment, higher = better).`,
             }, `S${Math.round(score)}`),
+            conv != null && h("span", {
+              className: `ds-chip ds-chip--sm ${tier === "A" ? "ds-chip--up" : tier === "B" ? "ds-chip--accent" : "ds-chip--solid"}`,
+              style: { fontFamily: "var(--tt-font-mono)" },
+              title: "Conviction tier · focus score",
+            }, `${tier || "C"}·${Math.round(conv)}`),
             rr != null && h("span", {
               className: `ds-chip ds-chip--sm ${rr >= 2 ? "ds-chip--up" : rr >= 1.5 ? "ds-chip--accent" : ""}`,
               style: { fontFamily: "var(--tt-font-mono)" },
