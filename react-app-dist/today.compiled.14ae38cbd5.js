@@ -174,8 +174,23 @@ function BriefPreview({
 }) {
   const info = brief?.infographic || {};
   const top3 = Array.isArray(info.topThree) ? info.topThree : [];
-  const headline = info.headline || "";
-  const closing = info.closingLine || "";
+  const headlineRaw = info.headline;
+  const headline = (() => {
+    if (typeof headlineRaw === "string") return headlineRaw;
+    if (!headlineRaw || typeof headlineRaw !== "object") return "";
+    const parts = [];
+    if (headlineRaw.regime) parts.push(`Regime: ${String(headlineRaw.regime).replace(/_/g, " ")}`);
+    if (Number.isFinite(Number(headlineRaw.vix))) parts.push(`VIX ${Number(headlineRaw.vix).toFixed(2)}`);
+    if (headlineRaw.breadth && typeof headlineRaw.breadth === "object") {
+      const g = Number(headlineRaw.breadth.green);
+      const t = Number(headlineRaw.breadth.total);
+      if (Number.isFinite(g) && Number.isFinite(t)) parts.push(`Breadth ${g}/${t} sectors green`);
+    }
+    if (Number.isFinite(Number(headlineRaw.openTrades))) parts.push(`${Number(headlineRaw.openTrades)} open trades`);
+    return parts.join(" \u00b7 ");
+  })();
+  const closingRaw = info.closingLine;
+  const closing = typeof closingRaw === "string" ? closingRaw : closingRaw ? String(closingRaw) : "";
   return h("section", {
     className: "tt-card tt-card-pad tt-row"
   }, h("div", {
@@ -286,17 +301,41 @@ function MacroStrip({
     className: "tt-sec-title"
   }, "MACRO ON THE TAPE"), h("div", {
     className: "tt-sec-h"
-  }, "Events the model is weighting"), h("div", {
+  }, "Cross-asset signals the model is weighting"), h("div", {
     className: "macro-row"
   }, items.map((m, i) => {
-    const label = typeof m === "string" ? m : m?.label || m?.event || m?.name || JSON.stringify(m);
-    const ts = typeof m === "object" ? m?.when || m?.timestamp || m?.date || "" : "";
+    if (typeof m === "string") {
+      return h("span", {
+        key: i,
+        className: "macro-chip"
+      }, m);
+    }
+    if (!m || typeof m !== "object") return null;
+    const label = m.label || m.event || m.name || m.sym || "";
+    const value = Number(m.value);
+    const chgPct = Number(m.chgPct);
+    const hasValue = Number.isFinite(value);
+    const hasChg = Number.isFinite(chgPct);
+    const chgColor = hasChg ? chgPct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)" : "var(--tt-text-dim)";
+    if (!label && !hasValue) return null;
     return h("span", {
       key: i,
-      className: "macro-chip"
-    }, label, ts && h("span", {
+      className: "macro-chip",
+      title: m.hint || ""
+    }, label && h("span", {
+      style: {
+        color: "var(--tt-text)"
+      }
+    }, label), hasValue && h("span", {
       className: "ts"
-    }, ts));
+    }, fmtUsd(value)), hasChg && h("span", {
+      style: {
+        color: chgColor,
+        fontFamily: "var(--tt-font-mono)",
+        fontSize: 11,
+        fontWeight: 700
+      }
+    }, (chgPct >= 0 ? "+" : "") + chgPct.toFixed(2) + "%"));
   })));
 }
 function MoverRow({
