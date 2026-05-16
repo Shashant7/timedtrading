@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260516-today6" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260516-today7" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -617,6 +617,50 @@
       // workers.dev cross-domain would drop the auth cookie and return
       // 401, kicking the user to the login screen.
       const API_BASE = "";
+
+      // ── TT Selected universe (mirror of index-react.source.html GROUPS
+      //   at line 2965). The static UPTICKS list is hard-coded; GRNY/GRNI/
+      //   GRNJ are fetched from /timed/etf/groups. We expose
+      //   window.isTickerTTSelected so ViewportCard renders the gold dot
+      //   on universe members, matching AT.
+      const TT_GROUPS = {
+        UPTICKS: new Set([
+          "RDDT","AMZN","BABA","TSLA","KO","WMT","ETHA","BRK-B","MTB",
+          "AMGN","GILD","CSX","GEV","HII","JCI","PH","PWR","TT",
+          "CLS","FSLR","PANW","CRS","VST","BG","MRK","QXO","AXP",
+        ]),
+        GRNI: new Set(),
+        GRNJ: new Set(),
+        GRNY: new Set(),
+      };
+      function _norm(s) {
+        let v = String(s || "").trim().toUpperCase();
+        if (v === "BRK.B") v = "BRK-B";
+        return v;
+      }
+      window.isTickerTTSelected = function (sym) {
+        const T = _norm(sym);
+        return (
+          TT_GROUPS.UPTICKS.has(T) ||
+          TT_GROUPS.GRNI.has(T) ||
+          TT_GROUPS.GRNJ.has(T) ||
+          TT_GROUPS.GRNY.has(T)
+        );
+      };
+      (async () => {
+        try {
+          const r = await fetch(`${API_BASE}/timed/etf/groups`, { cache: "no-store" });
+          if (!r.ok) return;
+          const j = await r.json();
+          if (j?.ok && j.groups) {
+            for (const [etf, tickers] of Object.entries(j.groups)) {
+              if (TT_GROUPS[etf] !== undefined && Array.isArray(tickers)) {
+                TT_GROUPS[etf] = new Set(tickers.map((t) => _norm(t)));
+              }
+            }
+          }
+        } catch (_) { /* non-fatal — UPTICKS still works */ }
+      })();
 
       // ── Helpers ────────────────────────────────────────────────
       function fmtUsd(v, d=2) {
@@ -1561,9 +1605,19 @@
           ? window.DS.sparklineSvg(sparkPoints, { width: 280, height: 44, direction: dir, strokeWidth: 1.4 })
           : "";
 
-        const cardStyle = isTTSel
-          ? { borderColor: "var(--ds-accent-dim)", boxShadow: "inset 0 0 0 1px rgba(245,194,92,0.18)" }
-          : null;
+        // Match AT's cardStyle exactly (index-react.source.html line 13304):
+        //  - textAlign: "left"        → keep the price + change left-aligned
+        //                                instead of inheriting <button>'s
+        //                                default text-align: center
+        //  - padding: --ds-space-3    → 12px instead of the default 16px so
+        //                                the card matches AT's tighter layout
+        const cardStyle = {
+          textAlign: "left",
+          padding: "var(--ds-space-3)",
+          ...(isTTSel
+            ? { borderColor: "var(--ds-accent-dim)", boxShadow: "inset 0 0 0 1px rgba(245,194,92,0.18)" }
+            : {}),
+        };
 
         return h("button", {
           onClick: () => onOpen(sym),
