@@ -589,6 +589,21 @@
     return Math.round(dynamicScore * 100) / 100; // Round to 2 decimals for precision
   }
 
+  // toTickerArray — missed in initial extraction. Used by getRankedTickers.
+  // Extracted from index-react.source.html line 4232.
+  function toTickerArray(source) {
+    if (!source) return [];
+    if (Array.isArray(source)) {
+      return source.filter((t) => t && typeof t === "object" && t.ticker);
+    }
+    if (typeof source === "object") {
+      return Object.values(source).filter(
+        (t) => t && typeof t === "object" && t.ticker,
+      );
+    }
+    return [];
+  }
+
   function rankScoreForTicker(ticker) {
     const rankScore = Number(ticker?.rank_score);
     if (Number.isFinite(rankScore)) return rankScore;
@@ -2978,5 +2993,6 @@
     getRankPosition: getRankPosition,
     getRankPositionFromMap: getRankPositionFromMap,
     computeDynamicRank: computeDynamicRank,
+    toTickerArray: toTickerArray,
   };
 })();

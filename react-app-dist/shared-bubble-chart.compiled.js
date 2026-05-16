@@ -409,6 +409,16 @@
     dynamicScore = Math.max(0, dynamicScore);
     return Math.round(dynamicScore * 100) / 100;
   }
+  function toTickerArray(source) {
+    if (!source) return [];
+    if (Array.isArray(source)) {
+      return source.filter(t => t && typeof t === "object" && t.ticker);
+    }
+    if (typeof source === "object") {
+      return Object.values(source).filter(t => t && typeof t === "object" && t.ticker);
+    }
+    return [];
+  }
   function rankScoreForTicker(ticker) {
     const rankScore = Number(ticker?.rank_score);
     if (Number.isFinite(rankScore)) return rankScore;
@@ -2194,6 +2204,7 @@
     getRankedTickers: getRankedTickers,
     getRankPosition: getRankPosition,
     getRankPositionFromMap: getRankPositionFromMap,
-    computeDynamicRank: computeDynamicRank
+    computeDynamicRank: computeDynamicRank,
+    toTickerArray: toTickerArray
   };
 })();
