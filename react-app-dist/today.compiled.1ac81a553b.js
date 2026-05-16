@@ -492,47 +492,203 @@ function EarningsStrip({
     className: "hour"
   }, "$" + (Number(ev?.eps_est) || 0).toFixed(2) + " est"))))))));
 }
-function BubbleMap({
-  data
+function classifyStateBucket(state) {
+  const s = String(state || "");
+  if (s === "HTF_BULL_LTF_BULL") return "bull_aligned";
+  if (s === "HTF_BEAR_LTF_BEAR") return "bear_aligned";
+  if (s.includes("PULLBACK")) return "pullback";
+  if (s.startsWith("HTF_BULL")) return "bull_mixed";
+  if (s.startsWith("HTF_BEAR")) return "bear_mixed";
+  return "neutral";
+}
+const STATE_BUCKET_COLOR = {
+  bull_aligned: "#22c55e",
+  bear_aligned: "#f43f5e",
+  pullback: "#f5c25c",
+  bull_mixed: "#34d399",
+  bear_mixed: "#fb7185",
+  neutral: "#6b7280"
+};
+function applyFilters(tickers, f) {
+  return tickers.filter(t => {
+    if (!t || !t.ticker) return false;
+    if (f.stateF !== "all") {
+      const b = classifyStateBucket(t.state);
+      if (f.stateF === "bull" && !(b === "bull_aligned" || b === "bull_mixed")) return false;
+      if (f.stateF === "pull" && b !== "pullback") return false;
+      if (f.stateF === "bear" && !(b === "bear_aligned" || b === "bear_mixed")) return false;
+    }
+    if (f.focusF !== "all") {
+      const stage = String(t.kanban_stage || "").toLowerCase();
+      const eq = t.entry_quality && typeof t.entry_quality === "object" ? Number(t.entry_quality.score) : NaN;
+      const rr = Number(t.rr);
+      const rankScore = Number(t.rank);
+      if (f.focusF === "setup" && stage !== "setup") return false;
+      if (f.focusF === "enter" && stage !== "enter" && stage !== "just_entered" && stage !== "in_review") return false;
+      if (f.focusF === "highRR" && !(rr >= 2)) return false;
+      if (f.focusF === "hiQuality" && !(Number.isFinite(eq) && eq >= 70)) return false;
+      if (f.focusF === "top30" && !(Number.isFinite(rankScore) && rankScore >= 100)) return false;
+    }
+    if (f.momF !== "all") {
+      const fl = t.flags || {};
+      if (f.momF === "elite" && !fl.momentum_elite) return false;
+      if (f.momF === "squeeze" && !(fl.sq30_on || fl.sq1h_on)) return false;
+      if (f.momF === "breakout" && !fl.sq30_release) return false;
+      if (f.momF === "compression" && !fl.saty_compression_multi_tf) return false;
+    }
+    if (f.sectorF !== "all") {
+      const co = String(t._cohort || "").toLowerCase();
+      if (co !== String(f.sectorF).toLowerCase()) return false;
+    }
+    return true;
+  });
+}
+function AnalysisControls({
+  allTickers,
+  visibleCount,
+  filters,
+  setFilters
 }) {
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState("all");
+  const {
+    query
+  } = filters;
+  const setQ = v => setFilters(f => ({
+    ...f,
+    query: v
+  }));
+  const setS = (k, v) => setFilters(f => ({
+    ...f,
+    [k]: v
+  }));
+  const counts = useMemo(() => {
+    const c = {
+      state: {
+        all: 0,
+        bull: 0,
+        pull: 0,
+        bear: 0
+      },
+      focus: {
+        setup: 0,
+        enter: 0,
+        highRR: 0,
+        hiQuality: 0,
+        top30: 0
+      },
+      mom: {
+        elite: 0,
+        squeeze: 0,
+        breakout: 0,
+        compression: 0
+      },
+      sector: {}
+    };
+    for (const t of allTickers) {
+      if (!t || !t.ticker) continue;
+      c.state.all++;
+      const b = classifyStateBucket(t.state);
+      if (b === "bull_aligned" || b === "bull_mixed") c.state.bull++;else if (b === "pullback") c.state.pull++;else if (b === "bear_aligned" || b === "bear_mixed") c.state.bear++;
+      const stage = String(t.kanban_stage || "").toLowerCase();
+      const eq = t.entry_quality && typeof t.entry_quality === "object" ? Number(t.entry_quality.score) : NaN;
+      const rr = Number(t.rr);
+      const rankScore = Number(t.rank);
+      if (stage === "setup") c.focus.setup++;
+      if (stage === "enter" || stage === "just_entered" || stage === "in_review") c.focus.enter++;
+      if (rr >= 2) c.focus.highRR++;
+      if (Number.isFinite(eq) && eq >= 70) c.focus.hiQuality++;
+      if (Number.isFinite(rankScore) && rankScore >= 100) c.focus.top30++;
+      const fl = t.flags || {};
+      if (fl.momentum_elite) c.mom.elite++;
+      if (fl.sq30_on || fl.sq1h_on) c.mom.squeeze++;
+      if (fl.sq30_release) c.mom.breakout++;
+      if (fl.saty_compression_multi_tf) c.mom.compression++;
+      const co = String(t._cohort || "").toLowerCase();
+      if (co) c.sector[co] = (c.sector[co] || 0) + 1;
+    }
+    return c;
+  }, [allTickers]);
+  const sectorRows = useMemo(() => {
+    return Object.entries(counts.sector).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, n]) => ({
+      name,
+      n
+    }));
+  }, [counts.sector]);
+  const chip = (rowKey, key, label, count, tone) => {
+    const isActive = filters[rowKey] === key;
+    const cls = `ac-chip${isActive ? " active" : ""}${isActive && tone ? " " + tone : ""}`;
+    return h("button", {
+      key,
+      className: cls,
+      onClick: () => setS(rowKey, key)
+    }, label, count != null && h("span", {
+      className: "ac-count"
+    }, count));
+  };
+  const total = counts.state.all || 0;
+  return h("div", {
+    className: "analysis-controls"
+  }, h("div", {
+    className: "ac-head"
+  }, h("div", null, h("div", {
+    className: "tt-sec-title"
+  }, "ANALYSIS"), h("div", {
+    className: "tt-sec-h"
+  }, "Find what is moving — filter both views below")), h("div", {
+    className: "ac-meta"
+  }, h("strong", null, visibleCount), " of ", h("strong", null, total), " tickers")), h("div", {
+    className: "ac-search"
+  }, h("span", {
+    className: "ac-search-icon"
+  }, "⌕"), h("input", {
+    type: "search",
+    placeholder: "Search ticker (e.g. NBIS, AAPL, GOOGL, MSFT)",
+    value: query,
+    onChange: e => setQ(e.target.value),
+    spellCheck: false,
+    autoComplete: "off",
+    "aria-label": "Search ticker symbol"
+  }), query && h("button", {
+    className: "ac-search-clear",
+    onClick: () => setQ("")
+  }, "clear")), h("div", {
+    className: "ac-row"
+  }, h("div", {
+    className: "ac-row-label"
+  }, "State"), h("div", {
+    className: "ac-chips"
+  }, chip("stateF", "all", "All", counts.state.all), chip("stateF", "bull", "Bull", counts.state.bull, "bull"), chip("stateF", "pull", "Pullback", counts.state.pull, "pull"), chip("stateF", "bear", "Bear", counts.state.bear, "bear"))), h("div", {
+    className: "ac-row"
+  }, h("div", {
+    className: "ac-row-label"
+  }, "Focus"), h("div", {
+    className: "ac-chips"
+  }, chip("focusF", "all", "All"), chip("focusF", "setup", "Setup", counts.focus.setup), chip("focusF", "enter", "Actionable", counts.focus.enter), chip("focusF", "hiQuality", "High Quality", counts.focus.hiQuality), chip("focusF", "highRR", "High R:R", counts.focus.highRR), chip("focusF", "top30", "Top Rank", counts.focus.top30))), h("div", {
+    className: "ac-row"
+  }, h("div", {
+    className: "ac-row-label"
+  }, "Momentum"), h("div", {
+    className: "ac-chips"
+  }, chip("momF", "all", "All"), chip("momF", "elite", "Mo Elite", counts.mom.elite), chip("momF", "squeeze", "Squeeze", counts.mom.squeeze), chip("momF", "breakout", "Breakout", counts.mom.breakout), chip("momF", "compression", "Compression", counts.mom.compression))), sectorRows.length > 0 && h("div", {
+    className: "ac-row"
+  }, h("div", {
+    className: "ac-row-label"
+  }, "Sector"), h("div", {
+    className: "ac-chips"
+  }, chip("sectorF", "all", "All"), ...sectorRows.map(({
+    name,
+    n
+  }) => {
+    const label = name.split(" ").map(w => w ? w[0].toUpperCase() + w.slice(1) : w).join(" ");
+    return chip("sectorF", name, label, n);
+  }))));
+}
+function BubbleMap({
+  allTickers,
+  visible,
+  query
+}) {
   const [tooltip, setTooltip] = useState(null);
   const stageRef = React.useRef(null);
-  const allTickers = useMemo(() => Object.values(data || {}).filter(t => t && t.ticker), [data]);
-  const classify = state => {
-    const s = String(state || "");
-    if (s === "HTF_BULL_LTF_BULL") return "bull_aligned";
-    if (s === "HTF_BEAR_LTF_BEAR") return "bear_aligned";
-    if (s.includes("PULLBACK")) return "pullback";
-    if (s.startsWith("HTF_BULL")) return "bull_mixed";
-    if (s.startsWith("HTF_BEAR")) return "bear_mixed";
-    return "neutral";
-  };
-  const colorFor = bucket => {
-    if (bucket === "bull_aligned") return "#22c55e";
-    if (bucket === "bear_aligned") return "#f43f5e";
-    if (bucket === "pullback") return "#f5c25c";
-    if (bucket === "bull_mixed") return "#34d399";
-    if (bucket === "bear_mixed") return "#fb7185";
-    return "#6b7280";
-  };
-  const visible = useMemo(() => {
-    return allTickers.filter(t => {
-      const bucket = classify(t.state);
-      if (filter === "bull") return bucket === "bull_aligned" || bucket === "bull_mixed";
-      if (filter === "bear") return bucket === "bear_aligned" || bucket === "bear_mixed";
-      if (filter === "pull") return bucket === "pullback";
-      if (filter === "ttsel") {
-        try {
-          return typeof window.isTickerTTSelected === "function" ? window.isTickerTTSelected(String(t.ticker).toUpperCase()) : true;
-        } catch {
-          return true;
-        }
-      }
-      return true;
-    });
-  }, [allTickers, filter]);
   const domain = useMemo(() => {
     let maxLtf = 5,
       maxHtf = 5;
@@ -561,21 +717,8 @@ function BubbleMap({
   const yScale = v => VB.my + (domain.yMax - (Number(v) || 0)) / (2 * domain.yMax) * plotH;
   const cx0 = xScale(0);
   const cy0 = yScale(0);
-  const q = query.trim().toUpperCase();
+  const q = String(query || "").trim().toUpperCase();
   const matchesQuery = sym => q.length > 0 && String(sym).toUpperCase().startsWith(q);
-  const counts = useMemo(() => {
-    const c = {
-      all: allTickers.length,
-      bull: 0,
-      bear: 0,
-      pull: 0
-    };
-    for (const t of allTickers) {
-      const b = classify(t.state);
-      if (b === "bull_aligned" || b === "bull_mixed") c.bull++;else if (b === "bear_aligned" || b === "bear_mixed") c.bear++;else if (b === "pullback") c.pull++;
-    }
-    return c;
-  }, [allTickers]);
   const radiusFor = t => {
     const r = Math.min(Math.abs(Number(t.htf_score) || 0), 35);
     return 4 + r / 35 * 12;
@@ -590,14 +733,7 @@ function BubbleMap({
     });
   };
   const handleLeave = () => setTooltip(null);
-  const leaders = useMemo(() => {
-    const sorted = [...allTickers].sort((a, b) => (Number(b.htf_score) || 0) - (Number(a.htf_score) || 0));
-    return {
-      bull: sorted.slice(0, 5),
-      bear: sorted.slice(-5).reverse()
-    };
-  }, [allTickers]);
-  if (allTickers.length === 0) return null;
+  if (visible.length === 0 && allTickers.length === 0) return null;
   return h("section", {
     className: "tt-row"
   }, h("div", {
@@ -606,7 +742,8 @@ function BubbleMap({
       alignItems: "baseline",
       justifyContent: "space-between",
       gap: 12,
-      flexWrap: "wrap"
+      flexWrap: "wrap",
+      marginBottom: 8
     }
   }, h("div", null, h("div", {
     className: "tt-sec-title"
@@ -642,39 +779,6 @@ function BubbleMap({
   }), "Bear aligned"))), h("div", {
     className: "tt-card tt-card-pad"
   }, h("div", {
-    className: "bm-toolbar"
-  }, h("div", {
-    className: "bm-search"
-  }, h("span", {
-    className: "bm-search-icon"
-  }, "\u2315"), h("input", {
-    type: "search",
-    placeholder: "Search ticker (e.g. NBIS, AAPL, GOOGL)",
-    value: query,
-    onChange: e => setQuery(e.target.value),
-    spellCheck: false,
-    autoComplete: "off"
-  }), query && h("button", {
-    className: "bm-search-clear",
-    onClick: () => setQuery("")
-  }, "clear")), h("div", {
-    className: "bm-filters"
-  }, h("button", {
-    className: `bm-chip ${filter === "all" ? "active" : ""}`,
-    onClick: () => setFilter("all")
-  }, `All · ${counts.all}`), h("button", {
-    className: `bm-chip ${filter === "bull" ? "active bull" : ""}`,
-    onClick: () => setFilter("bull")
-  }, `Bull · ${counts.bull}`), h("button", {
-    className: `bm-chip ${filter === "pull" ? "active pull" : ""}`,
-    onClick: () => setFilter("pull")
-  }, `Pullback · ${counts.pull}`), h("button", {
-    className: `bm-chip ${filter === "bear" ? "active bear" : ""}`,
-    onClick: () => setFilter("bear")
-  }, `Bear · ${counts.bear}`), h("button", {
-    className: `bm-chip ${filter === "ttsel" ? "active" : ""}`,
-    onClick: () => setFilter("ttsel")
-  }, "TT Selected"))), h("div", {
     className: "bm-stage",
     ref: stageRef
   }, h("svg", {
@@ -772,8 +876,8 @@ function BubbleMap({
     transform: `rotate(-90 14 ${VB.my + plotH / 2})`
   }, "TREND STRENGTH (HTF) →"), visible.map(t => {
     const sym = String(t.ticker || "").toUpperCase();
-    const bucket = classify(t.state);
-    const color = colorFor(bucket);
+    const bucket = classifyStateBucket(t.state);
+    const color = STATE_BUCKET_COLOR[bucket];
     const cx = xScale(t.ltf_score);
     const cy = yScale(t.htf_score);
     const r = radiusFor(t);
@@ -842,34 +946,15 @@ function BubbleMap({
       fontSize: 10,
       color: "var(--tt-text-dim)"
     }
-  }, "Click to open in Active Trader"))), h("div", {
-    className: "bm-meta"
-  }, h("span", null, "Showing ", h("strong", null, visible.length), " of ", allTickers.length, " tickers"), h("span", null, "Top trend: ", leaders.bull.slice(0, 5).map((t, i) => h("a", {
-    key: t.ticker,
-    href: `/index-react.html?ticker=${encodeURIComponent(t.ticker)}`,
-    style: {
-      color: "#34d399",
-      marginRight: 6,
-      textDecoration: "none",
-      fontWeight: 600
-    }
-  }, t.ticker))), h("span", null, "Weakest: ", leaders.bear.slice(0, 5).map((t, i) => h("a", {
-    key: t.ticker,
-    href: `/index-react.html?ticker=${encodeURIComponent(t.ticker)}`,
-    style: {
-      color: "#fb7185",
-      marginRight: 6,
-      textDecoration: "none",
-      fontWeight: 600
-    }
-  }, t.ticker))))));
+  }, "Click to open in Active Trader")))));
 }
 function UniverseHeatmap({
-  data
+  visible,
+  query
 }) {
   const [showAll, setShowAll] = useState(false);
   const items = useMemo(() => {
-    const arr = Object.values(data || {}).filter(t => t && t.ticker);
+    const arr = visible.slice();
     arr.sort((a, b) => {
       const sa = Number(a?.htf_score);
       const sb = Number(b?.htf_score);
@@ -879,9 +964,27 @@ function UniverseHeatmap({
       return String(a.ticker).localeCompare(String(b.ticker));
     });
     return arr;
-  }, [data]);
-  const visible = showAll ? items : items.slice(0, 80);
-  if (items.length === 0) return null;
+  }, [visible]);
+  if (items.length === 0) {
+    return h("section", {
+      className: "tt-row"
+    }, h("div", {
+      className: "tt-sec-title"
+    }, "HEAT MAP"), h("div", {
+      className: "tt-sec-h"
+    }, "Ranked by today’s score"), h("div", {
+      className: "tt-card tt-card-pad",
+      style: {
+        textAlign: "center",
+        color: "var(--tt-text-dim)",
+        fontSize: 13,
+        fontStyle: "italic"
+      }
+    }, "No tickers match the current filters. Try clearing a filter above."));
+  }
+  const cap = 80;
+  const shown = showAll ? items : items.slice(0, cap);
+  const q = String(query || "").trim().toUpperCase();
   return h("section", {
     className: "tt-row"
   }, h("div", {
@@ -894,9 +997,9 @@ function UniverseHeatmap({
     }
   }, h("div", null, h("div", {
     className: "tt-sec-title"
-  }, "UNIVERSE AT A GLANCE"), h("div", {
+  }, "HEAT MAP"), h("div", {
     className: "tt-sec-h"
-  }, "Every ticker, ranked by today's score")), h("div", {
+  }, "Ranked by today’s score")), h("div", {
     style: {
       display: "flex",
       gap: 8,
@@ -914,24 +1017,34 @@ function UniverseHeatmap({
     className: "tt-card tt-card-pad"
   }, h("div", {
     className: "heat-grid"
-  }, visible.map(t => {
+  }, shown.map(t => {
     const sym = String(t.ticker).toUpperCase();
     const dc = getDailyChange(t);
     const pct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
     const score = Number(t?.htf_score) || 0;
     const lvl = score >= 20 ? "lvl-strong" : score <= -15 ? "lvl-weak" : Math.abs(score) >= 5 ? "lvl-mid" : "";
     const pdir = !Number.isFinite(pct) ? "" : pct >= 0 ? "up" : "dn";
+    const isMatch = q.length > 0 && sym.startsWith(q);
+    const isDim = q.length > 0 && !isMatch;
     return h("a", {
       key: sym,
       className: `heat-cell ${lvl}`,
       href: `/index-react.html?ticker=${encodeURIComponent(sym)}`,
-      title: `${sym} · HTF ${score.toFixed(1)} · LTF ${(Number(t?.ltf_score) || 0).toFixed(1)} · ${t?.state || ""}`
+      title: `${sym} · HTF ${score.toFixed(1)} · LTF ${(Number(t?.ltf_score) || 0).toFixed(1)} · ${t?.state || ""}`,
+      style: {
+        opacity: isDim ? 0.30 : 1,
+        transition: "opacity 0.15s",
+        ...(isMatch ? {
+          outline: "1px solid #fff",
+          outlineOffset: "-1px"
+        } : {})
+      }
     }, h("span", {
       className: "sym"
     }, sym), h("span", {
       className: `pct ${pdir}`
     }, pct != null ? (pct >= 0 ? "+" : "") + pct.toFixed(1) + "%" : "—"));
-  })), items.length > 80 && h("div", {
+  })), items.length > cap && h("div", {
     style: {
       textAlign: "center",
       marginTop: 14
@@ -948,7 +1061,7 @@ function UniverseHeatmap({
       color: "var(--tt-text)",
       cursor: "pointer"
     }
-  }, showAll ? `Show top 80` : `Show all ${items.length}`))));
+  }, showAll ? `Show top ${cap}` : `Show all ${items.length}`))));
 }
 function EndCTA() {
   return h("section", {
@@ -984,6 +1097,13 @@ function TodayApp() {
   const [earnings, setEarnings] = useState(null);
   const [cal, setCal] = useState(null);
   const [error, setError] = useState(null);
+  const [filters, setFilters] = useState({
+    query: "",
+    stateF: "all",
+    focusF: "all",
+    momF: "all",
+    sectorF: "all"
+  });
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -1009,6 +1129,8 @@ function TodayApp() {
       alive = false;
     };
   }, []);
+  const allTickers = useMemo(() => data ? Object.values(data).filter(t => t && t.ticker) : [], [data]);
+  const visible = useMemo(() => applyFilters(allTickers, filters), [allTickers, filters]);
   if (error) {
     return h("main", null, h("div", {
       className: "tt-card tt-card-pad",
@@ -1030,10 +1152,18 @@ function TodayApp() {
     data
   }), earnings && h(EarningsStrip, {
     earnings
+  }), data && h(AnalysisControls, {
+    allTickers,
+    visibleCount: visible.length,
+    filters,
+    setFilters
   }), data && h(BubbleMap, {
-    data
+    allTickers,
+    visible,
+    query: filters.query
   }), data && h(UniverseHeatmap, {
-    data
+    visible,
+    query: filters.query
   }), h(EndCTA, null));
 }
 const AuthGate = window.TimedAuthGate;
