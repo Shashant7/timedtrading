@@ -2,7 +2,9 @@
 const {
   useState,
   useEffect,
-  useMemo
+  useMemo,
+  useCallback,
+  useRef
 } = React;
 const h = React.createElement;
 const API_BASE = "";
@@ -919,22 +921,287 @@ function AnalysisControls({
     items: rows.context
   }));
 }
+function ViewportCard({
+  t,
+  rankPosition,
+  onOpen,
+  sparkSrc
+}) {
+  const sym = String(t?.ticker || "").toUpperCase();
+  const dailyChange = window.TimedPriceUtils && window.TimedPriceUtils.getDailyChange || (() => ({
+    dayPct: null,
+    dayChg: null
+  }));
+  const dc = (() => {
+    try {
+      return dailyChange(t);
+    } catch (_) {
+      return null;
+    }
+  })();
+  const price = Number(t?.price ?? t?.close);
+  const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
+  const dayChg = Number.isFinite(dc?.dayChg) ? Number(dc.dayChg) : null;
+  const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
+  const TT = window.TimedBubbleChart || {};
+  const score = (() => {
+    try {
+      const dyn = TT.rankScoreForTicker ? Number(TT.rankScoreForTicker(t)) : NaN;
+      if (Number.isFinite(dyn) && dyn !== 0) return Math.round(dyn);
+    } catch (_) {}
+    const fallback = Number(t?.score ?? t?.rank);
+    return Number.isFinite(fallback) && fallback !== 0 ? Math.round(fallback) : null;
+  })();
+  const rank = Number.isFinite(rankPosition) ? rankPosition : Number(t?.rank_position ?? t?.rp) || null;
+  const rr = Number(t?.rr) || null;
+  const state = String(t?.state || "").toUpperCase();
+  const biasLabel = state.startsWith("HTF_BULL") || !state.startsWith("HTF_BEAR") && state.includes("BULL") ? "BULL" : state.startsWith("HTF_BEAR") || state.includes("BEAR") ? "BEAR" : "NEUTRAL";
+  const biasChipCls = biasLabel === "BULL" ? "ds-chip--up" : biasLabel === "BEAR" ? "ds-chip--dn" : "ds-chip--solid";
+  const stage = String(t?.kanban_stage || "").toLowerCase();
+  const stageChip = (() => {
+    if (stage === "trim") return {
+      label: "Trim",
+      cls: "ds-chip--accent"
+    };
+    if (stage === "defend") return {
+      label: "Defend",
+      cls: "ds-chip--dn"
+    };
+    if (stage === "exit") return {
+      label: "Exit",
+      cls: "ds-chip--dn"
+    };
+    if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return {
+      label: "Enter",
+      cls: "ds-chip--accent"
+    };
+    if (stage === "hold" || stage === "active" || stage === "just_entered") return {
+      label: "Hold",
+      cls: "ds-chip--up"
+    };
+    if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") return {
+      label: "Setup",
+      cls: ""
+    };
+    return null;
+  })();
+  const isTTSel = typeof window !== "undefined" && typeof window.isTickerTTSelected === "function" ? window.isTickerTTSelected(sym) : false;
+  const sqChipInfo = (() => {
+    const tfm = t?.tf_tech || {};
+    const tfList = ["10", "15", "30", "1H", "60", "4H", "240"];
+    for (const tfk of tfList) {
+      const row = tfm[tfk];
+      if (!row?.sq) continue;
+      if (row.sq.r) return {
+        state: "release",
+        tf: tfk,
+        label: "SQ RLS",
+        cls: "ds-chip--accent"
+      };
+    }
+    for (const tfk of tfList) {
+      const row = tfm[tfk];
+      if (!row?.sq) continue;
+      if (row.sq.s) return {
+        state: "on",
+        tf: tfk,
+        label: "SQ ON",
+        cls: ""
+      };
+      if (row.sq.c) return {
+        state: "compressed",
+        tf: tfk,
+        label: "SQ CMP",
+        cls: "ds-chip--solid"
+      };
+    }
+    return null;
+  })();
+  const sparkPoints = sparkSrc && sparkSrc.length >= 2 ? sparkSrc : [price || 0, price || 0];
+  const sparkSvg = window.DS && Number.isFinite(price) && price > 0 ? window.DS.sparklineSvg(sparkPoints, {
+    width: 280,
+    height: 44,
+    direction: dir,
+    strokeWidth: 1.4
+  }) : "";
+  const cardStyle = isTTSel ? {
+    borderColor: "var(--ds-accent-dim)",
+    boxShadow: "inset 0 0 0 1px rgba(245,194,92,0.18)"
+  } : null;
+  return h("button", {
+    onClick: () => onOpen(sym),
+    className: "ds-tickercard",
+    style: cardStyle,
+    title: `Open ${sym} in Active Trader`
+  }, h("div", {
+    className: "ds-tickercard__head"
+  }, h("div", {
+    className: "ds-tickercard__logo",
+    ref: el => {
+      if (el && !el.dataset.dsInit && window.DS) {
+        el.dataset.dsInit = "1";
+        try {
+          el.replaceWith(window.DS.tickerLogo(sym, {
+            size: 22
+          }));
+        } catch (_) {}
+      }
+    },
+    style: {
+      width: 22,
+      height: 22
+    }
+  }, sym.slice(0, 2)), h("span", {
+    className: "ds-tickercard__symbol",
+    style: {
+      fontSize: 13
+    }
+  }, sym), h("span", {
+    className: `ds-chip ds-chip--sm ${biasChipCls}`,
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      marginLeft: 4
+    },
+    title: "Bias"
+  }, biasLabel), isTTSel && h("span", {
+    title: "TT Selected",
+    style: {
+      width: 6,
+      height: 6,
+      borderRadius: "50%",
+      background: "var(--ds-accent)",
+      boxShadow: "0 0 0 2px rgba(245,194,92,0.20)",
+      marginLeft: 4,
+      flexShrink: 0
+    }
+  }), stageChip && h("span", {
+    className: `ds-chip ds-chip--sm ${stageChip.cls}`,
+    style: {
+      marginLeft: "auto"
+    }
+  }, stageChip.label)), h("div", {
+    className: "ds-tickercard__price",
+    style: {
+      fontSize: 18
+    }
+  }, Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"), dayPct != null && h("div", {
+    className: `ds-tickercard__change ds-tickercard__change--${dir}`,
+    style: {
+      fontSize: 12
+    }
+  }, dir === "up" ? "▲" : dir === "dn" ? "▼" : "◆", " ", `${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`, Number.isFinite(dayChg) && Math.abs(dayChg) > 0.001 && h("span", {
+    style: {
+      marginLeft: 4,
+      opacity: 0.7,
+      fontSize: 10
+    }
+  }, ` (${dayChg >= 0 ? "+" : ""}$${Math.abs(dayChg).toFixed(2)})`)), sparkSvg && h("div", {
+    className: "ds-tickercard__spark",
+    dangerouslySetInnerHTML: {
+      __html: sparkSvg
+    }
+  }), h("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: "var(--ds-space-1)",
+      marginTop: "var(--ds-space-2)",
+      flexWrap: "wrap",
+      zIndex: 2,
+      position: "relative"
+    }
+  }, rank != null && h("span", {
+    className: `ds-chip ds-chip--sm ${rank <= 10 ? "ds-chip--up" : rank <= 30 ? "ds-chip--accent" : ""}`,
+    style: {
+      fontFamily: "var(--tt-font-mono)"
+    },
+    title: `Rank position: ${rank} of all eligible tickers (1 = best).`
+  }, `R${rank}`), score != null && h("span", {
+    className: `ds-chip ds-chip--sm ${score >= 100 ? "ds-chip--up" : score >= 75 ? "ds-chip--accent" : ""}`,
+    style: {
+      fontFamily: "var(--tt-font-mono)"
+    },
+    title: `Score: ${Math.round(score)} (composite alignment, higher = better).`
+  }, `S${Math.round(score)}`), rr != null && h("span", {
+    className: `ds-chip ds-chip--sm ${rr >= 2 ? "ds-chip--up" : rr >= 1.5 ? "ds-chip--accent" : ""}`,
+    style: {
+      fontFamily: "var(--tt-font-mono)"
+    },
+    title: "Risk:Reward"
+  }, `${rr.toFixed(1)}R`), sqChipInfo && h("span", {
+    className: `ds-chip ds-chip--sm ${sqChipInfo.cls}`,
+    style: {
+      fontFamily: "var(--tt-font-mono)"
+    },
+    title: `Squeeze ${sqChipInfo.state} on ${sqChipInfo.tf}`
+  }, sqChipInfo.label)));
+}
+function useSparklineCache() {
+  const [cache, setCache] = useState({});
+  const fetchSpark = useCallback(async sym => {
+    try {
+      const r = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=60&limit=24`, {
+        cache: "no-store"
+      });
+      const j = await r.json();
+      const candles = Array.isArray(j?.candles) ? j.candles : [];
+      return candles.map(c => Number(c?.c ?? c?.close)).filter(Number.isFinite);
+    } catch (_) {
+      return null;
+    }
+  }, []);
+  const ensure = useCallback(sym => {
+    if (!sym) return null;
+    const upper = String(sym).toUpperCase();
+    if (cache[upper]) return cache[upper];
+    if (cache[upper] === undefined) {
+      setCache(prev => ({
+        ...prev,
+        [upper]: null
+      }));
+      fetchSpark(upper).then(arr => {
+        if (arr && arr.length >= 2) {
+          setCache(prev => ({
+            ...prev,
+            [upper]: arr
+          }));
+        }
+      });
+    }
+    return null;
+  }, [cache, fetchSpark]);
+  useEffect(() => {
+    window._dsEnsureSparkline = ensure;
+    window._dsSparklineCache = cache;
+  }, [ensure, cache]);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const symbols = Object.keys(cache).filter(s => Array.isArray(cache[s]));
+      symbols.forEach(sym => {
+        fetchSpark(sym).then(arr => {
+          if (arr && arr.length >= 2) setCache(prev => ({
+            ...prev,
+            [sym]: arr
+          }));
+        });
+      });
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [cache, fetchSpark]);
+  return {
+    cache,
+    ensure
+  };
+}
 function Viewport({
   visible,
   rankedTickerPositions,
   query
 }) {
-  const TT = window.TimedBubbleChart || {};
-  const getDir = t => {
-    const s = String(t?.state || "");
-    if (s.startsWith("HTF_BULL") || s.includes("BULL")) return "LONG";
-    if (s.startsWith("HTF_BEAR") || s.includes("BEAR")) return "SHORT";
-    return "FLAT";
-  };
-  const dailyChange = window.TimedPriceUtils && window.TimedPriceUtils.getDailyChange || (() => ({
-    dayPct: null,
-    dayChg: null
-  }));
+  const {
+    cache: sparkCache,
+    ensure: ensureSpark
+  } = useSparklineCache();
   const ranked = useMemo(() => {
     const list = (visible || []).slice();
     list.sort((a, b) => {
@@ -950,6 +1217,10 @@ function Viewport({
     });
     return list;
   }, [visible, rankedTickerPositions]);
+  useEffect(() => {
+    if (!ensureSpark) return;
+    ranked.slice(0, 60).forEach(t => ensureSpark(t.ticker));
+  }, [ranked, ensureSpark]);
   const onOpen = sym => {
     window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
   };
@@ -969,50 +1240,18 @@ function Viewport({
     }
   }, ranked.length === 0 ? h("div", {
     className: "vp-empty"
-  }, "No tickers match. Try a different filter or clear the search.") : ranked.slice(0, 200).map(t => {
-    const sym = t.ticker;
-    const dir = getDir(t);
-    const dc = dailyChange(t);
-    const pct = Number(dc?.dayPct);
-    const pctStr = Number.isFinite(pct) ? `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%` : "—";
-    const pctCls = !Number.isFinite(pct) ? "" : pct >= 0 ? "up" : "down";
-    const rr = Number(t.rr);
-    const rank = rankedTickerPositions?.get?.(sym);
-    const stage = String(t.kanban_stage || "").toLowerCase();
-    const stageCls = stage && /^(setup|enter|enter_now|hold|trim|defend|exit|just_entered|just_flipped|in_review)$/.test(stage) ? stage.startsWith("enter") ? "enter" : stage.startsWith("hold") || stage === "just_entered" ? "hold" : stage === "trim" ? "trim" : stage === "defend" ? "defend" : stage === "exit" ? "exit" : "setup" : "";
-    const showStage = stage && stage !== "—";
-    const stageLabel = stage === "just_entered" ? "HOLD" : stage === "just_flipped" ? "ENTER" : stage === "enter_now" ? "ENTER" : stage === "in_review" ? "REVIEW" : stage.toUpperCase();
-    return h("div", {
-      key: sym,
-      className: "vp-row",
-      onClick: () => onOpen(sym),
-      role: "button",
-      tabIndex: 0,
-      onKeyDown: e => {
-        if (e.key === "Enter" || e.key === " ") onOpen(sym);
-      },
-      title: `Open ${sym} in Active Trader`
-    }, h("div", null, h("div", {
-      className: "vp-sym"
-    }, sym), Number.isFinite(rank) && h("div", {
-      className: "vp-rank"
-    }, `#${rank}`)), h("div", {
-      className: "vp-mid"
-    }, h("div", null, h("span", {
-      className: `vp-dir ${dir.toLowerCase()}`
-    }, dir), showStage && h("span", {
-      className: `vp-stage ${stageCls}`
-    }, stageLabel)), h("div", {
-      className: "vp-meta"
-    }, Number.isFinite(rr) ? `R:R ${rr.toFixed(2)}` : "R:R —", Number.isFinite(Number(t.eta_days_v2 ?? t.eta_days)) ? ` · ETA ${Math.round(Number(t.eta_days_v2 ?? t.eta_days))}d` : "")), h("div", {
-      className: `vp-pct ${pctCls}`
-    }, pctStr));
-  })), ranked.length > 200 && h("div", {
+  }, "No tickers match. Try a different filter or clear the search.") : ranked.slice(0, 60).map(t => h(ViewportCard, {
+    key: t.ticker,
+    t,
+    rankPosition: rankedTickerPositions?.get?.(t.ticker),
+    sparkSrc: sparkCache[String(t.ticker).toUpperCase()] || null,
+    onOpen
+  }))), ranked.length > 60 && h("div", {
     className: "vp-empty",
     style: {
       fontSize: 10
     }
-  }, `Showing 200 of ${ranked.length} — narrow the filter to see more.`));
+  }, `Showing 60 of ${ranked.length} — narrow the filter to see more.`));
 }
 function BubbleMapViewportSplit({
   allTickers,

@@ -10,13 +10,16 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260516-today2" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260516-today3" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <link rel="stylesheet" href="tailwind.generated.css" />
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="auth-gate.js?v=20260516a"></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
+    <!-- DS — design-system primitives (ticker logos + sparkline SVG generator).
+         Required for the Viewport cards to match Active Trader's DsCompactCard. -->
+    <script src="ds-components.js?v=20260501a"></script>
     <!-- BubbleChart component (extracted from index-react.source.html). Uses
          native-SVG rendering (FORCE_NATIVE_SVG=true) so Recharts is NOT loaded. -->
     <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
@@ -402,7 +405,7 @@
       .bmv-bubble { min-width: 0; }
       .bmv-bubble .tt-card { padding: 0; overflow: hidden; }
 
-      /* Viewport — vertical list of compact ticker cards */
+      /* Viewport — wraps the list of ds-tickercards (production DS) */
       .vp-card {
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
@@ -410,7 +413,7 @@
         padding: 12px;
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: 10px;
         max-height: 720px;
       }
       .vp-head {
@@ -424,9 +427,9 @@
       .vp-list {
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: 10px;
         overflow-y: auto;
-        padding-right: 2px;
+        padding-right: 4px;
         scrollbar-width: thin;
         scrollbar-color: rgba(255,255,255,0.12) transparent;
       }
@@ -438,82 +441,13 @@
         text-align: center;
         padding: 24px 8px;
       }
-      .vp-row {
-        display: grid;
-        grid-template-columns: 56px 1fr auto;
-        gap: 8px;
-        align-items: center;
-        padding: 8px 10px;
-        border: 1px solid var(--tt-border);
-        background: rgba(255,255,255,0.015);
-        border-radius: 8px;
-        cursor: pointer;
-        transition: background 120ms ease, border-color 120ms ease;
+      /* Make the production ds-tickercard fill the Viewport column width
+         (the AT version uses fixed width: 280 inline). */
+      .vp-list .ds-tickercard {
+        width: 100% !important;
+        box-sizing: border-box;
+        margin: 0;
       }
-      .vp-row:hover { background: var(--tt-bg-elev); border-color: var(--tt-border-hi); }
-      .vp-row .vp-sym {
-        font-family: var(--tt-font);
-        font-weight: 800;
-        font-size: 13px;
-        letter-spacing: 0.02em;
-        color: var(--tt-text);
-      }
-      .vp-row .vp-mid {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        min-width: 0;
-      }
-      .vp-row .vp-dir {
-        font-size: 9.5px;
-        font-weight: 700;
-        letter-spacing: 0.07em;
-        text-transform: uppercase;
-      }
-      .vp-row .vp-dir.long  { color: var(--tt-up-soft); }
-      .vp-row .vp-dir.short { color: var(--tt-dn-soft); }
-      .vp-row .vp-dir.flat  { color: var(--tt-text-dim); }
-      .vp-row .vp-meta {
-        font-size: 10.5px;
-        color: var(--tt-text-dim);
-        font-family: var(--tt-font-mono);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      .vp-row .vp-pct {
-        font-size: 11.5px;
-        font-weight: 700;
-        font-family: var(--tt-font-mono);
-        text-align: right;
-        white-space: nowrap;
-      }
-      .vp-row .vp-pct.up   { color: var(--tt-up); }
-      .vp-row .vp-pct.down { color: var(--tt-dn); }
-      .vp-row .vp-rank {
-        font-size: 10px;
-        color: var(--tt-text-faint);
-        font-family: var(--tt-font-mono);
-      }
-      .vp-stage {
-        font-size: 9px;
-        font-weight: 700;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        padding: 1px 5px;
-        border-radius: 4px;
-        background: rgba(255,255,255,0.05);
-        color: var(--tt-text-dim);
-        border: 1px solid var(--tt-border);
-        margin-left: 4px;
-        flex-shrink: 0;
-      }
-      .vp-stage.enter   { color: #4ade80; background: rgba(74,222,128,0.10); border-color: rgba(74,222,128,0.30); }
-      .vp-stage.hold    { color: #34d399; background: rgba(52,211,153,0.10); border-color: rgba(52,211,153,0.30); }
-      .vp-stage.trim    { color: #facc15; background: rgba(250,204,21,0.10); border-color: rgba(250,204,21,0.30); }
-      .vp-stage.defend  { color: #fb923c; background: rgba(251,146,60,0.10); border-color: rgba(251,146,60,0.30); }
-      .vp-stage.exit    { color: #f87171; background: rgba(248,113,113,0.10); border-color: rgba(248,113,113,0.30); }
-      .vp-stage.setup   { color: #a5b4fc; background: rgba(165,180,252,0.08); border-color: rgba(165,180,252,0.25); }
 
       /* Skeleton */
       .sk {
@@ -658,7 +592,7 @@
       </main>
     </div>
 
-    <script src="today.compiled.568be7d8cb.js"></script>
+    <script src="today.compiled.e6181cf3c7.js"></script>
 
     <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
