@@ -5,12 +5,7 @@ const {
   useMemo
 } = React;
 const h = React.createElement;
-const API_BASE = (() => {
-  try {
-    if (window.TIMED_API_BASE) return String(window.TIMED_API_BASE);
-  } catch (_) {}
-  return "https://timed-trading-ingest.shashant.workers.dev";
-})();
+const API_BASE = "";
 function fmtUsd(v, d = 2) {
   if (v == null || !Number.isFinite(Number(v))) return "—";
   const n = Number(v);
