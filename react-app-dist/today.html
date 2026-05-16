@@ -224,6 +224,117 @@
       .heat-cell.lvl-strong  { border-color: rgba(34,197,94,0.35); background: rgba(34,197,94,0.06); }
       .heat-cell.lvl-mid     { border-color: rgba(245,194,92,0.22); background: rgba(245,194,92,0.04); }
       .heat-cell.lvl-weak    { border-color: rgba(244,63,94,0.30); background: rgba(244,63,94,0.05); }
+      /* ── Bubble Map ─────────────────────────────────────────────── */
+      .bm-toolbar {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+      @media (max-width: 720px) { .bm-toolbar { grid-template-columns: 1fr; } }
+      .bm-search {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 9px;
+      }
+      .bm-search:focus-within { border-color: var(--tt-border-hi); background: var(--tt-bg-elev); }
+      .bm-search input {
+        flex: 1;
+        background: transparent;
+        border: 0;
+        outline: 0;
+        color: var(--tt-text);
+        font-family: var(--tt-font-mono);
+        font-size: 12.5px;
+        letter-spacing: 0.02em;
+      }
+      .bm-search input::placeholder { color: var(--tt-text-faint); }
+      .bm-search-icon { color: var(--tt-text-dim); font-size: 13px; }
+      .bm-search-clear {
+        cursor: pointer;
+        font-size: 11px;
+        color: var(--tt-text-dim);
+        background: transparent;
+        border: 0;
+        padding: 0 4px;
+      }
+      .bm-search-clear:hover { color: var(--tt-text); }
+      .bm-filters {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .bm-chip {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        color: var(--tt-text-muted);
+        cursor: pointer;
+        white-space: nowrap;
+        transition: all 0.12s;
+      }
+      .bm-chip:hover { color: var(--tt-text); background: var(--tt-bg-elev); }
+      .bm-chip.active { color: var(--tt-text); background: var(--tt-bg-elev); border-color: var(--tt-border-hi); }
+      .bm-chip.active.bull   { color: var(--tt-up-soft); background: var(--tt-up-bg); border-color: rgba(34,197,94,0.40); }
+      .bm-chip.active.bear   { color: var(--tt-dn-soft); background: var(--tt-dn-bg); border-color: rgba(244,63,94,0.40); }
+      .bm-chip.active.pull   { color: var(--tt-accent); background: var(--tt-accent-dim); border-color: rgba(245,194,92,0.40); }
+      .bm-stage {
+        position: relative;
+        background: radial-gradient(ellipse at center, rgba(255,255,255,0.025) 0%, transparent 65%), #06080b;
+        border: 1px solid var(--tt-border);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+      .bm-stage svg { display: block; width: 100%; height: auto; }
+      .bm-tooltip {
+        position: absolute;
+        pointer-events: none;
+        padding: 8px 10px;
+        background: rgba(10,12,16,0.96);
+        border: 1px solid var(--tt-border-hi);
+        border-radius: 8px;
+        font-size: 11.5px;
+        line-height: 1.45;
+        color: var(--tt-text);
+        box-shadow: 0 6px 16px rgba(0,0,0,0.50);
+        z-index: 10;
+        font-family: var(--tt-font-mono);
+        white-space: nowrap;
+        max-width: 260px;
+      }
+      .bm-tooltip .sym { font-weight: 800; font-family: var(--tt-font); margin-bottom: 4px; font-size: 13px; }
+      .bm-tooltip .row { color: var(--tt-text-muted); }
+      .bm-tooltip .row strong { color: var(--tt-text); }
+      .bm-legend {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        align-items: center;
+        font-size: 10.5px;
+        color: var(--tt-text-dim);
+        margin-top: 8px;
+      }
+      .bm-leg-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+      .bm-meta {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-top: 10px;
+        font-size: 11px;
+        color: var(--tt-text-dim);
+      }
+      .bm-meta strong { color: var(--tt-text); }
       /* Skeleton */
       .sk {
         background: linear-gradient(90deg, var(--tt-bg-surface), var(--tt-bg-elev), var(--tt-bg-surface));
@@ -367,7 +478,7 @@
       </main>
     </div>
 
-    <script src="today.compiled.b13f4247db.js"></script>
+    <script src="today.compiled.2510185e6b.js"></script>
 
     <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>

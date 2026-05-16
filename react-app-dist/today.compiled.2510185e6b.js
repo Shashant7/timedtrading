@@ -492,6 +492,378 @@ function EarningsStrip({
     className: "hour"
   }, "$" + (Number(ev?.eps_est) || 0).toFixed(2) + " est"))))))));
 }
+function BubbleMap({
+  data
+}) {
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [tooltip, setTooltip] = useState(null);
+  const stageRef = React.useRef(null);
+  const allTickers = useMemo(() => Object.values(data || {}).filter(t => t && t.ticker), [data]);
+  const classify = state => {
+    const s = String(state || "");
+    if (s === "HTF_BULL_LTF_BULL") return "bull_aligned";
+    if (s === "HTF_BEAR_LTF_BEAR") return "bear_aligned";
+    if (s.includes("PULLBACK")) return "pullback";
+    if (s.startsWith("HTF_BULL")) return "bull_mixed";
+    if (s.startsWith("HTF_BEAR")) return "bear_mixed";
+    return "neutral";
+  };
+  const colorFor = bucket => {
+    if (bucket === "bull_aligned") return "#22c55e";
+    if (bucket === "bear_aligned") return "#f43f5e";
+    if (bucket === "pullback") return "#f5c25c";
+    if (bucket === "bull_mixed") return "#34d399";
+    if (bucket === "bear_mixed") return "#fb7185";
+    return "#6b7280";
+  };
+  const visible = useMemo(() => {
+    return allTickers.filter(t => {
+      const bucket = classify(t.state);
+      if (filter === "bull") return bucket === "bull_aligned" || bucket === "bull_mixed";
+      if (filter === "bear") return bucket === "bear_aligned" || bucket === "bear_mixed";
+      if (filter === "pull") return bucket === "pullback";
+      if (filter === "ttsel") {
+        try {
+          return typeof window.isTickerTTSelected === "function" ? window.isTickerTTSelected(String(t.ticker).toUpperCase()) : true;
+        } catch {
+          return true;
+        }
+      }
+      return true;
+    });
+  }, [allTickers, filter]);
+  const domain = useMemo(() => {
+    let maxLtf = 5,
+      maxHtf = 5;
+    for (const t of allTickers) {
+      const l = Math.abs(Number(t.ltf_score) || 0);
+      const v = Math.abs(Number(t.htf_score) || 0);
+      if (l > maxLtf) maxLtf = l;
+      if (v > maxHtf) maxHtf = v;
+    }
+    const xMax = Math.max(10, Math.min(50, maxLtf * 1.12));
+    const yMax = Math.max(10, Math.min(50, maxHtf * 1.12));
+    return {
+      xMax,
+      yMax
+    };
+  }, [allTickers]);
+  const VB = {
+    w: 880,
+    h: 540,
+    mx: 50,
+    my: 36
+  };
+  const plotW = VB.w - 2 * VB.mx;
+  const plotH = VB.h - 2 * VB.my;
+  const xScale = v => VB.mx + ((Number(v) || 0) + domain.xMax) / (2 * domain.xMax) * plotW;
+  const yScale = v => VB.my + (domain.yMax - (Number(v) || 0)) / (2 * domain.yMax) * plotH;
+  const cx0 = xScale(0);
+  const cy0 = yScale(0);
+  const q = query.trim().toUpperCase();
+  const matchesQuery = sym => q.length > 0 && String(sym).toUpperCase().startsWith(q);
+  const counts = useMemo(() => {
+    const c = {
+      all: allTickers.length,
+      bull: 0,
+      bear: 0,
+      pull: 0
+    };
+    for (const t of allTickers) {
+      const b = classify(t.state);
+      if (b === "bull_aligned" || b === "bull_mixed") c.bull++;else if (b === "bear_aligned" || b === "bear_mixed") c.bear++;else if (b === "pullback") c.pull++;
+    }
+    return c;
+  }, [allTickers]);
+  const radiusFor = t => {
+    const r = Math.min(Math.abs(Number(t.htf_score) || 0), 35);
+    return 4 + r / 35 * 12;
+  };
+  const handleHover = (e, t) => {
+    if (!stageRef.current) return;
+    const rect = stageRef.current.getBoundingClientRect();
+    setTooltip({
+      t,
+      x: e.clientX - rect.left + 12,
+      y: e.clientY - rect.top - 8
+    });
+  };
+  const handleLeave = () => setTooltip(null);
+  const leaders = useMemo(() => {
+    const sorted = [...allTickers].sort((a, b) => (Number(b.htf_score) || 0) - (Number(a.htf_score) || 0));
+    return {
+      bull: sorted.slice(0, 5),
+      bear: sorted.slice(-5).reverse()
+    };
+  }, [allTickers]);
+  if (allTickers.length === 0) return null;
+  return h("section", {
+    className: "tt-row"
+  }, h("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      justifyContent: "space-between",
+      gap: 12,
+      flexWrap: "wrap"
+    }
+  }, h("div", null, h("div", {
+    className: "tt-sec-title"
+  }, "BUBBLE MAP"), h("div", {
+    className: "tt-sec-h"
+  }, "Where every ticker sits on momentum × trend")), h("div", {
+    className: "bm-legend"
+  }, h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#22c55e"
+    }
+  }), "Bull aligned"), h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#34d399"
+    }
+  }), "Bull mixed"), h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#f5c25c"
+    }
+  }), "Pullback"), h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#fb7185"
+    }
+  }), "Bear mixed"), h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#f43f5e"
+    }
+  }), "Bear aligned"))), h("div", {
+    className: "tt-card tt-card-pad"
+  }, h("div", {
+    className: "bm-toolbar"
+  }, h("div", {
+    className: "bm-search"
+  }, h("span", {
+    className: "bm-search-icon"
+  }, "\u2315"), h("input", {
+    type: "search",
+    placeholder: "Search ticker (e.g. NBIS, AAPL, GOOGL)",
+    value: query,
+    onChange: e => setQuery(e.target.value),
+    spellCheck: false,
+    autoComplete: "off"
+  }), query && h("button", {
+    className: "bm-search-clear",
+    onClick: () => setQuery("")
+  }, "clear")), h("div", {
+    className: "bm-filters"
+  }, h("button", {
+    className: `bm-chip ${filter === "all" ? "active" : ""}`,
+    onClick: () => setFilter("all")
+  }, `All · ${counts.all}`), h("button", {
+    className: `bm-chip ${filter === "bull" ? "active bull" : ""}`,
+    onClick: () => setFilter("bull")
+  }, `Bull · ${counts.bull}`), h("button", {
+    className: `bm-chip ${filter === "pull" ? "active pull" : ""}`,
+    onClick: () => setFilter("pull")
+  }, `Pullback · ${counts.pull}`), h("button", {
+    className: `bm-chip ${filter === "bear" ? "active bear" : ""}`,
+    onClick: () => setFilter("bear")
+  }, `Bear · ${counts.bear}`), h("button", {
+    className: `bm-chip ${filter === "ttsel" ? "active" : ""}`,
+    onClick: () => setFilter("ttsel")
+  }, "TT Selected"))), h("div", {
+    className: "bm-stage",
+    ref: stageRef
+  }, h("svg", {
+    viewBox: `0 0 ${VB.w} ${VB.h}`,
+    role: "img",
+    "aria-label": "Universe bubble map",
+    preserveAspectRatio: "xMidYMid meet"
+  }, h("g", {
+    stroke: "rgba(255,255,255,0.04)",
+    strokeWidth: 1
+  }, [0.25, 0.5, 0.75].map(p => h("line", {
+    key: `v${p}`,
+    x1: VB.mx + plotW * p,
+    y1: VB.my,
+    x2: VB.mx + plotW * p,
+    y2: VB.my + plotH
+  })), [0.25, 0.5, 0.75].map(p => h("line", {
+    key: `h${p}`,
+    x1: VB.mx,
+    y1: VB.my + plotH * p,
+    x2: VB.mx + plotW,
+    y2: VB.my + plotH * p
+  }))), h("rect", {
+    x: cx0,
+    y: VB.my,
+    width: plotW / 2,
+    height: plotH / 2,
+    fill: "rgba(34,197,94,0.025)"
+  }), h("rect", {
+    x: VB.mx,
+    y: cy0,
+    width: plotW / 2,
+    height: plotH / 2,
+    fill: "rgba(244,63,94,0.025)"
+  }), h("line", {
+    x1: VB.mx,
+    y1: cy0,
+    x2: VB.mx + plotW,
+    y2: cy0,
+    stroke: "rgba(255,255,255,0.12)",
+    strokeWidth: 1
+  }), h("line", {
+    x1: cx0,
+    y1: VB.my,
+    x2: cx0,
+    y2: VB.my + plotH,
+    stroke: "rgba(255,255,255,0.12)",
+    strokeWidth: 1
+  }), h("text", {
+    x: VB.mx + plotW - 8,
+    y: VB.my + 16,
+    textAnchor: "end",
+    fill: "rgba(34,197,94,0.50)",
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: "0.06em"
+  }, "STRONG TREND · HIGH MOMENTUM"), h("text", {
+    x: VB.mx + 8,
+    y: VB.my + 16,
+    textAnchor: "start",
+    fill: "rgba(245,194,92,0.50)",
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: "0.06em"
+  }, "STRONG TREND · PULLING BACK"), h("text", {
+    x: VB.mx + 8,
+    y: VB.my + plotH - 6,
+    textAnchor: "start",
+    fill: "rgba(244,63,94,0.50)",
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: "0.06em"
+  }, "DOWNTREND"), h("text", {
+    x: VB.mx + plotW - 8,
+    y: VB.my + plotH - 6,
+    textAnchor: "end",
+    fill: "rgba(255,255,255,0.30)",
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: "0.06em"
+  }, "BUILDING / RECOVERY"), h("text", {
+    x: VB.mx + plotW / 2,
+    y: VB.h - 8,
+    textAnchor: "middle",
+    fill: "rgba(255,255,255,0.45)",
+    fontSize: 11,
+    fontWeight: 600
+  }, "SHORT-TERM MOMENTUM (LTF) →"), h("text", {
+    x: 14,
+    y: VB.my + plotH / 2,
+    textAnchor: "middle",
+    fill: "rgba(255,255,255,0.45)",
+    fontSize: 11,
+    fontWeight: 600,
+    transform: `rotate(-90 14 ${VB.my + plotH / 2})`
+  }, "TREND STRENGTH (HTF) →"), visible.map(t => {
+    const sym = String(t.ticker || "").toUpperCase();
+    const bucket = classify(t.state);
+    const color = colorFor(bucket);
+    const cx = xScale(t.ltf_score);
+    const cy = yScale(t.htf_score);
+    const r = radiusFor(t);
+    const isMatch = matchesQuery(sym);
+    const isDim = q.length > 0 && !isMatch;
+    return h("g", {
+      key: sym,
+      style: {
+        cursor: "pointer",
+        opacity: isDim ? 0.22 : 1,
+        transition: "opacity 0.18s"
+      },
+      onMouseEnter: e => handleHover(e, t),
+      onMouseMove: e => handleHover(e, t),
+      onMouseLeave: handleLeave,
+      onClick: () => {
+        window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+      }
+    }, h("circle", {
+      cx,
+      cy,
+      r,
+      fill: color,
+      fillOpacity: isMatch ? 0.95 : 0.55,
+      stroke: isMatch ? "#fff" : "rgba(0,0,0,0.4)",
+      strokeWidth: isMatch ? 2 : 1
+    }), (isMatch || r >= 9) && h("text", {
+      x: cx,
+      y: cy + 3,
+      textAnchor: "middle",
+      fontSize: Math.max(8, Math.min(11, r * 0.9)),
+      fontWeight: 700,
+      fill: isMatch ? "#fff" : "rgba(255,255,255,0.92)",
+      style: {
+        pointerEvents: "none",
+        textShadow: "0 1px 1px rgba(0,0,0,0.6)"
+      }
+    }, sym.length <= 4 ? sym : sym.slice(0, 4)));
+  })), tooltip && h("div", {
+    className: "bm-tooltip",
+    style: {
+      left: tooltip.x,
+      top: tooltip.y
+    }
+  }, h("div", {
+    className: "sym"
+  }, String(tooltip.t.ticker || "").toUpperCase()), h("div", {
+    className: "row"
+  }, "State: ", h("strong", null, tooltip.t.state || "—")), h("div", {
+    className: "row"
+  }, "HTF ", h("strong", null, (Number(tooltip.t.htf_score) || 0).toFixed(1)), " · LTF ", h("strong", null, (Number(tooltip.t.ltf_score) || 0).toFixed(1))), Number.isFinite(Number(tooltip.t.price)) && h("div", {
+    className: "row"
+  }, "Price: ", h("strong", null, fmtUsd(Number(tooltip.t.price)))), (() => {
+    const dc = getDailyChange(tooltip.t);
+    return Number.isFinite(dc?.dayPct) && h("div", {
+      className: "row"
+    }, "Today: ", h("strong", {
+      style: {
+        color: dc.dayPct >= 0 ? "#22c55e" : "#f43f5e"
+      }
+    }, (dc.dayPct >= 0 ? "+" : "") + dc.dayPct.toFixed(2) + "%"));
+  })(), h("div", {
+    className: "row",
+    style: {
+      marginTop: 4,
+      fontSize: 10,
+      color: "var(--tt-text-dim)"
+    }
+  }, "Click to open in Active Trader"))), h("div", {
+    className: "bm-meta"
+  }, h("span", null, "Showing ", h("strong", null, visible.length), " of ", allTickers.length, " tickers"), h("span", null, "Top trend: ", leaders.bull.slice(0, 5).map((t, i) => h("a", {
+    key: t.ticker,
+    href: `/index-react.html?ticker=${encodeURIComponent(t.ticker)}`,
+    style: {
+      color: "#34d399",
+      marginRight: 6,
+      textDecoration: "none",
+      fontWeight: 600
+    }
+  }, t.ticker))), h("span", null, "Weakest: ", leaders.bear.slice(0, 5).map((t, i) => h("a", {
+    key: t.ticker,
+    href: `/index-react.html?ticker=${encodeURIComponent(t.ticker)}`,
+    style: {
+      color: "#fb7185",
+      marginRight: 6,
+      textDecoration: "none",
+      fontWeight: 600
+    }
+  }, t.ticker))))));
+}
 function UniverseHeatmap({
   data
 }) {
@@ -658,6 +1030,8 @@ function TodayApp() {
     data
   }), earnings && h(EarningsStrip, {
     earnings
+  }), data && h(BubbleMap, {
+    data
   }), data && h(UniverseHeatmap, {
     data
   }), h(EndCTA, null));
