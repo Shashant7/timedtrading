@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260516-today7" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260516-today8" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -129,8 +129,12 @@
         border-bottom: 1px solid var(--tt-border);
       }
       .nav-row {
-        max-width: 1200px; margin: 0 auto;
-        padding: 12px 16px;
+        /* Match `main` max-width so the nav lines up with the page
+           content below (was 1200px while main is 1600px, which made
+           the top of the page feel mis-aligned — nav too narrow,
+           content too wide). */
+        max-width: 1600px; margin: 0 auto;
+        padding: 12px 24px;
         display: flex; align-items: center; justify-content: space-between; gap: 12px;
       }
       .nav-brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: var(--tt-text); font-weight: 700; }
@@ -393,10 +397,12 @@
       }
       .bm-meta strong { color: var(--tt-text); }
 
-      /* Bubble Map + Viewport split layout (mirrors Active Trader) */
+      /* Bubble Map + Viewport split layout (mirrors Active Trader).
+         300px column gives the ds-tickercard the same visual width
+         as AT's fixed-width 280px cards (column - 12px padding ≈ 288). */
       .bmv-split {
         display: grid;
-        grid-template-columns: 360px 1fr;
+        grid-template-columns: 300px 1fr;
         gap: 12px;
         align-items: stretch;
       }
@@ -406,12 +412,16 @@
       .bmv-bubble { min-width: 0; }
       .bmv-bubble .tt-card { padding: 0; overflow: hidden; }
 
-      /* Viewport — wraps the list of ds-tickercards (production DS) */
+      /* Viewport — list of ds-tickercards (production DS).
+         Intentionally NO outer background/border: AT's viewport is just
+         a title row + flat list of cards, with each card being the only
+         bordered surface. Wrapping the list in another card created
+         visual nesting that looked off compared to AT. */
       .vp-card {
-        background: var(--tt-bg-surface);
-        border: 1px solid var(--tt-border);
-        border-radius: 12px;
-        padding: 12px;
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+        padding: 0;
         display: flex;
         flex-direction: column;
         gap: 10px;
@@ -1369,6 +1379,61 @@
         return rawStage;
       }
 
+      // ── useSavedTickers — saved-ticker set + toggle. Mirrors AT's
+      //   pattern (index-react.source.html lines 18992-19033). Reads
+      //   initial state from window.TimedAuthHelpers stored bootstrap,
+      //   listens for the tt-auth-bootstrap-updated event, optimistically
+      //   updates locally, and persists via POST /timed/saved/toggle.
+      //   Without this Today couldn't render the star save button so
+      //   ViewportCard always omitted it — feedback was "Saved Icon is
+      //   not being shown".
+      function useSavedTickers() {
+        const [saved, setSaved] = useState(() => {
+          const bootstrap = window.TimedAuthHelpers?.getStoredBootstrap?.();
+          return new Set(Array.isArray(bootstrap?.saved_tickers)
+            ? bootstrap.saved_tickers.map((s) => String(s).toUpperCase())
+            : []);
+        });
+
+        useEffect(() => {
+          const applyBootstrap = (detail) => {
+            if (!Array.isArray(detail?.saved_tickers)) return;
+            setSaved(new Set(detail.saved_tickers.map((s) => String(s).toUpperCase())));
+          };
+          const handler = (event) => applyBootstrap(event?.detail);
+          try { applyBootstrap(window.TimedAuthHelpers?.getStoredBootstrap?.()); } catch (_) {}
+          window.addEventListener("tt-auth-bootstrap-updated", handler);
+          return () => window.removeEventListener("tt-auth-bootstrap-updated", handler);
+        }, []);
+
+        const toggle = useCallback(async (ticker) => {
+          const T = String(ticker || "").toUpperCase();
+          if (!T) return;
+          setSaved((prev) => {
+            const next = new Set(prev);
+            if (next.has(T)) next.delete(T); else next.add(T);
+            try {
+              const bootstrap = window.TimedAuthHelpers?.getStoredBootstrap?.() || {};
+              window.TimedAuthHelpers?.storeBootstrap?.({
+                ...bootstrap,
+                saved_tickers: Array.from(next),
+              });
+            } catch (_) {}
+            return next;
+          });
+          try {
+            await fetch(`${API_BASE}/timed/saved/toggle`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ ticker: T }),
+            });
+          } catch (_) { /* optimistic — keep local state */ }
+        }, []);
+
+        return { saved, toggle };
+      }
+
       // ── useOpenTrades — fetches live positions + promoted trades and
       //   builds a tradeByTicker map. Mirrors Active Trader's `useTrades`
       //   (index-react.source.html line 2238) so the open-position stage
@@ -1524,7 +1589,7 @@
       //
       //    Uses production CSS classes from tt-tokens.css (.ds-tickercard*,
       //    .ds-chip*) so it renders identically to the Active Trader cards.
-      function ViewportCard({ t, rankPosition, onOpen, sparkSrc }) {
+      function ViewportCard({ t, rankPosition, onOpen, sparkSrc, isSaved, onToggleSaved }) {
         const sym = String(t?.ticker || "").toUpperCase();
         const dailyChange = (window.TimedPriceUtils && window.TimedPriceUtils.getDailyChange)
           || (() => ({ dayPct: null, dayChg: null }));
@@ -1653,8 +1718,27 @@
             }),
             stageChip && h("span", {
               className: `ds-chip ds-chip--sm ${stageChip.cls}`,
-              style: { marginLeft: "auto" },
+              style: { marginLeft: stageChip && onToggleSaved ? "auto" : "auto" },
             }, stageChip.label),
+            // Save star — port of AT's toggleSavedTicker render
+            // (index-react.source.html line 13347). Outer card is a
+            // <button>, so this nested click handler MUST preventDefault +
+            // stopPropagation so toggling the star doesn't also open the
+            // card in /index-react.html.
+            onToggleSaved && h("button", {
+              onClick: (e) => { e.preventDefault(); e.stopPropagation(); onToggleSaved(sym); },
+              className: "ds-chip ds-chip--sm",
+              style: {
+                marginLeft: stageChip ? 4 : "auto",
+                padding: "0 6px",
+                height: 18,
+                color: isSaved ? "var(--ds-accent)" : "var(--ds-text-muted)",
+                background: isSaved ? "var(--ds-accent-dim)" : "transparent",
+                borderColor: isSaved ? "var(--ds-accent)" : "var(--ds-stroke)",
+              },
+              title: isSaved ? "Saved — click to unsave" : "Save ticker",
+              "aria-label": isSaved ? "Unsave ticker" : "Save ticker",
+            }, isSaved ? "★" : "☆"),
           ),
           h("div", { className: "ds-tickercard__price", style: { fontSize: 18 } },
             Number.isFinite(price) ? `$${price.toFixed(2)}` : "—",
@@ -1769,6 +1853,7 @@
 
       function Viewport({ visible, rankedTickerPositions, query }) {
         const { cache: sparkCache, ensure: ensureSpark } = useSparklineCache();
+        const { saved, toggle: toggleSaved } = useSavedTickers();
 
         const ranked = useMemo(() => {
           const list = (visible || []).slice();
@@ -1805,13 +1890,18 @@
           h("div", { className: "vp-list", style: { flex: "1 1 auto" } },
             ranked.length === 0
               ? h("div", { className: "vp-empty" }, "No tickers match. Try a different filter or clear the search.")
-              : ranked.slice(0, 60).map((t) => h(ViewportCard, {
-                  key: t.ticker,
-                  t,
-                  rankPosition: rankedTickerPositions?.get?.(t.ticker),
-                  sparkSrc: sparkCache[String(t.ticker).toUpperCase()] || null,
-                  onOpen,
-                })),
+              : ranked.slice(0, 60).map((t) => {
+                  const SYM = String(t.ticker || "").toUpperCase();
+                  return h(ViewportCard, {
+                    key: t.ticker,
+                    t,
+                    rankPosition: rankedTickerPositions?.get?.(t.ticker),
+                    sparkSrc: sparkCache[SYM] || null,
+                    onOpen,
+                    isSaved: saved.has(SYM),
+                    onToggleSaved: toggleSaved,
+                  });
+                }),
           ),
           ranked.length > 60 && h("div", { className: "vp-empty", style: { fontSize: 10 } },
             `Showing 60 of ${ranked.length} — narrow the filter to see more.`,
