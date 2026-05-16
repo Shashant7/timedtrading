@@ -537,12 +537,13 @@
       const h = React.createElement;
 
       // ── API base ───────────────────────────────────────────────
-      const API_BASE = (() => {
-        try {
-          if (window.TIMED_API_BASE) return String(window.TIMED_API_BASE);
-        } catch (_) {}
-        return "https://timed-trading-ingest.shashant.workers.dev";
-      })();
+      // Same pattern as every other dashboard (daily-brief.html,
+      // index-react.html, investor-dashboard.html, etc.): empty string =
+      // same-origin, proxied by Pages Function. Crucial because
+      // CF Access JWT cookies are scoped to timed-trading.com — calling
+      // workers.dev cross-domain would drop the auth cookie and return
+      // 401, kicking the user to the login screen.
+      const API_BASE = "";
 
       // ── Helpers ────────────────────────────────────────────────
       function fmtUsd(v, d=2) {
@@ -1445,6 +1446,11 @@
           // Bubble Map: shared component extracted from Active Trader (P0.B.1).
           // Renders the EXACT same plot as /index-react.html. Falls back to the
           // simpler in-page BubbleMap if the shared module isn't loaded yet.
+          //
+          // Previously misdiagnosed as causing a 'kick to login' issue and
+          // hotfix-reverted — the actual cause was a cross-domain API_BASE.
+          // Once API_BASE was switched to "" (same-origin), the shared chart
+          // works correctly.
           data && h(SharedBubbleMapSection, { allTickers, visible, query: filters.query, data }),
           data && h(UniverseHeatmap, { visible, query: filters.query }),
           h(EndCTA, null),
