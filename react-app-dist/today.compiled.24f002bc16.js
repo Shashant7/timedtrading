@@ -812,6 +812,61 @@ function computeInsightChips(allTickers, opts) {
   });
   return chips;
 }
+function computeEffectiveStage(ticker, trade) {
+  const rawStage = String(ticker?.kanban_stage || "").trim().toLowerCase();
+  if (!trade) return rawStage;
+  const tradeStatus = String(trade.status || "").toUpperCase();
+  const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
+  const tradeIsClosed = tradeStatus === "WIN" || tradeStatus === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs) || trimmedPct >= 0.9999;
+  const tradeIsOpen = !tradeIsClosed && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !tradeStatus);
+  if (!tradeIsOpen) return rawStage;
+  if (rawStage === "exit") return "defend";
+  if (rawStage === "defend") return "defend";
+  if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) return "trim";
+  if (!["trim", "hold", "active", "just_entered"].includes(rawStage)) return "hold";
+  return rawStage;
+}
+function useOpenTrades(enabled) {
+  const [tradeByTicker, setTradeByTicker] = useState(() => new Map());
+  const refresh = useCallback(async () => {
+    try {
+      const [posRes, promRes] = await Promise.all([fetch(`${API_BASE}/timed/trades?source=positions`, {
+        cache: "no-store"
+      }).then(r => r.ok ? r.json() : null).catch(() => null), fetch(`${API_BASE}/timed/trades?source=promoted`, {
+        cache: "no-store"
+      }).then(r => r.ok ? r.json() : null).catch(() => null)]);
+      const m = new Map();
+      const accept = tr => {
+        const sym = String(tr?.ticker || "").toUpperCase();
+        if (!sym) return;
+        const exitTs = tr?.exit_ts ?? tr?.exitTs ?? 0;
+        const entryTs = tr?.entry_ts ?? tr?.entryTime ?? tr?.entryTs ?? 0;
+        const existing = m.get(sym);
+        if (!existing) {
+          m.set(sym, tr);
+          return;
+        }
+        const exExit = existing?.exit_ts ?? existing?.exitTs ?? 0;
+        const exEntry = existing?.entry_ts ?? existing?.entryTime ?? existing?.entryTs ?? 0;
+        const trOpen = !exitTs,
+          exOpen = !exExit;
+        if (trOpen && !exOpen || trOpen && exOpen && entryTs > exEntry || !trOpen && !exOpen && exitTs > exExit) {
+          m.set(sym, tr);
+        }
+      };
+      if (posRes?.ok && Array.isArray(posRes.trades)) posRes.trades.forEach(accept);
+      if (promRes?.ok && Array.isArray(promRes.trades)) promRes.trades.forEach(accept);
+      setTradeByTicker(m);
+    } catch (_) {}
+  }, []);
+  useEffect(() => {
+    if (!enabled) return undefined;
+    refresh();
+    const id = setInterval(refresh, 180000);
+    return () => clearInterval(id);
+  }, [enabled, refresh]);
+  return tradeByTicker;
+}
 function applyFilters(tickers, f, chips) {
   const q = String(f?.query || "").trim().toUpperCase();
   const activeId = f?.activeChip || "focus";
@@ -1878,8 +1933,24 @@ function TodayApp() {
       alive = false;
     };
   }, []);
-  const allTickers = useMemo(() => data ? Object.values(data).filter(t => t && t.ticker) : [], [data]);
   const isAdmin = !!window._ttIsAdmin;
+  const tradeByTicker = useOpenTrades(!!data);
+  const allTickers = useMemo(() => {
+    if (!data) return [];
+    const raw = Object.values(data).filter(t => t && t.ticker);
+    return raw.map(t => {
+      const sym = String(t.ticker || "").toUpperCase();
+      const trade = tradeByTicker.get(sym) || null;
+      const eff = computeEffectiveStage(t, trade);
+      if (eff === String(t?.kanban_stage || "").toLowerCase() && !trade) return t;
+      return {
+        ...t,
+        _openTrade: trade,
+        _effectiveKanbanStage: eff,
+        kanban_stage: eff
+      };
+    });
+  }, [data, tradeByTicker]);
   const chips = useMemo(() => computeInsightChips(allTickers, {
     isAdmin
   }), [allTickers, isAdmin]);
