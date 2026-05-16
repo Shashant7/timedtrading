@@ -114,10 +114,20 @@ function continuationProofActive({
 
   // Quality gate — defaults to 50 (lowered from 60). PULLBACK requires
   // both higher rank AND a strong entry_quality score.
+  //
+  // P0.7.185 (2026-05-15) — Also enforce an entry_quality floor for the
+  // aligned path. Previously only PULLBACK had an eq guard, which meant
+  // a HTF_BULL_LTF_BULL ticker with rank=55 but eq=30 (genuinely weak
+  // structure) could still fire. Default floor 50 = "passes the
+  // mediocre threshold" — looser than PULLBACK's 70.
   const minRank = Number(daCfg.deep_audit_continuation_trigger_min_rank) || 50;
+  const alignedMinEq = Number(daCfg.deep_audit_continuation_trigger_aligned_min_entry_quality) || 50;
   const pullbackMinRank = Number(daCfg.deep_audit_continuation_trigger_pullback_min_rank) || 65;
   const pullbackMinEq = Number(daCfg.deep_audit_continuation_trigger_pullback_min_entry_quality) || 70;
-  if (isAligned && rankScore < minRank) return false;
+  if (isAligned) {
+    if (rankScore < minRank) return false;
+    if (Number.isFinite(entryQualityScore) && entryQualityScore < alignedMinEq) return false;
+  }
   if (isPullback) {
     if (rankScore < pullbackMinRank) return false;
     if (Number.isFinite(entryQualityScore) && entryQualityScore < pullbackMinEq) return false;

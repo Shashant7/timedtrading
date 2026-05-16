@@ -15668,6 +15668,7 @@ async function processTradeSimulation(
         "deep_audit_continuation_trigger_accept_pullback",
         "deep_audit_continuation_trigger_pullback_min_rank",
         "deep_audit_continuation_trigger_pullback_min_entry_quality",
+        "deep_audit_continuation_trigger_aligned_min_entry_quality",
         "deep_audit_gap_reversal_knife_filter_enabled",
         "deep_audit_gap_reversal_knife_min_consecutive_down",
         "deep_audit_gap_reversal_knife_max_drop_pct",
