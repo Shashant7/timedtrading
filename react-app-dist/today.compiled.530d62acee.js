@@ -8,6 +8,37 @@ const {
 } = React;
 const h = React.createElement;
 const API_BASE = "";
+const TT_GROUPS = {
+  UPTICKS: new Set(["RDDT", "AMZN", "BABA", "TSLA", "KO", "WMT", "ETHA", "BRK-B", "MTB", "AMGN", "GILD", "CSX", "GEV", "HII", "JCI", "PH", "PWR", "TT", "CLS", "FSLR", "PANW", "CRS", "VST", "BG", "MRK", "QXO", "AXP"]),
+  GRNI: new Set(),
+  GRNJ: new Set(),
+  GRNY: new Set()
+};
+function _norm(s) {
+  let v = String(s || "").trim().toUpperCase();
+  if (v === "BRK.B") v = "BRK-B";
+  return v;
+}
+window.isTickerTTSelected = function (sym) {
+  const T = _norm(sym);
+  return TT_GROUPS.UPTICKS.has(T) || TT_GROUPS.GRNI.has(T) || TT_GROUPS.GRNJ.has(T) || TT_GROUPS.GRNY.has(T);
+};
+(async () => {
+  try {
+    const r = await fetch(`${API_BASE}/timed/etf/groups`, {
+      cache: "no-store"
+    });
+    if (!r.ok) return;
+    const j = await r.json();
+    if (j?.ok && j.groups) {
+      for (const [etf, tickers] of Object.entries(j.groups)) {
+        if (TT_GROUPS[etf] !== undefined && Array.isArray(tickers)) {
+          TT_GROUPS[etf] = new Set(tickers.map(t => _norm(t)));
+        }
+      }
+    }
+  } catch (_) {}
+})();
 function fmtUsd(v, d = 2) {
   if (v == null || !Number.isFinite(Number(v))) return "—";
   const n = Number(v);
@@ -1081,10 +1112,14 @@ function ViewportCard({
     direction: dir,
     strokeWidth: 1.4
   }) : "";
-  const cardStyle = isTTSel ? {
-    borderColor: "var(--ds-accent-dim)",
-    boxShadow: "inset 0 0 0 1px rgba(245,194,92,0.18)"
-  } : null;
+  const cardStyle = {
+    textAlign: "left",
+    padding: "var(--ds-space-3)",
+    ...(isTTSel ? {
+      borderColor: "var(--ds-accent-dim)",
+      boxShadow: "inset 0 0 0 1px rgba(245,194,92,0.18)"
+    } : {})
+  };
   return h("button", {
     onClick: () => onOpen(sym),
     className: "ds-tickercard",
