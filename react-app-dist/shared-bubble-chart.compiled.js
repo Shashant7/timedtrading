@@ -20,6 +20,41 @@
     };
   };
   const debugLog = typeof window !== 'undefined' && typeof window.__ttDebugLog === 'function' ? window.__ttDebugLog : function () {};
+  const LONG_CORRIDOR = {
+    ltfMin: -8,
+    ltfMax: 12
+  };
+  const SHORT_CORRIDOR = {
+    ltfMin: -12,
+    ltfMax: 8
+  };
+  const JOURNEY_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
+  function entryType(ticker) {
+    const h = Number(ticker.htf_score);
+    const l = Number(ticker.ltf_score);
+    if (!Number.isFinite(h) || !Number.isFinite(l)) {
+      return {
+        corridor: false,
+        side: null
+      };
+    }
+    if (h > 0 && l >= LONG_CORRIDOR.ltfMin && l <= LONG_CORRIDOR.ltfMax) {
+      return {
+        corridor: true,
+        side: "LONG"
+      };
+    }
+    if (h < 0 && l >= SHORT_CORRIDOR.ltfMin && l <= SHORT_CORRIDOR.ltfMax) {
+      return {
+        corridor: true,
+        side: "SHORT"
+      };
+    }
+    return {
+      corridor: false,
+      side: null
+    };
+  }
   let RechartsComponents = null;
   try {
     if (typeof Recharts !== 'undefined') {
@@ -2205,6 +2240,10 @@
     getRankPosition: getRankPosition,
     getRankPositionFromMap: getRankPositionFromMap,
     computeDynamicRank: computeDynamicRank,
-    toTickerArray: toTickerArray
+    toTickerArray: toTickerArray,
+    entryType: entryType,
+    LONG_CORRIDOR: LONG_CORRIDOR,
+    SHORT_CORRIDOR: SHORT_CORRIDOR,
+    JOURNEY_LOOKBACK_MS: JOURNEY_LOOKBACK_MS
   };
 })();

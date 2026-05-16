@@ -53,6 +53,32 @@
     ? window.__ttDebugLog
     : function () { /* no-op */ };
 
+  // Constants from index-react.source.html (lines 1218, 1219, 4052).
+  // Missed in initial extraction (PR #153) and #155 — needed by entryType
+  // (which is called by computeDynamicScore + isPrimeBubble) and by
+  // downsampleTrailToDaily (uses JOURNEY_LOOKBACK_MS for trail age cutoff).
+  const LONG_CORRIDOR  = { ltfMin: -8, ltfMax: 12 };
+  const SHORT_CORRIDOR = { ltfMin: -12, ltfMax: 8 };
+  const JOURNEY_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
+
+  // entryType — from index-react.source.html line 3458.
+  // Classifies a ticker's corridor status (LONG/SHORT/none).
+  // Missed in initial extraction; called by computeDynamicScore + isPrimeBubble.
+  function entryType(ticker) {
+    const h = Number(ticker.htf_score);
+    const l = Number(ticker.ltf_score);
+    if (!Number.isFinite(h) || !Number.isFinite(l)) {
+      return { corridor: false, side: null };
+    }
+    if (h > 0 && l >= LONG_CORRIDOR.ltfMin && l <= LONG_CORRIDOR.ltfMax) {
+      return { corridor: true, side: "LONG" };
+    }
+    if (h < 0 && l >= SHORT_CORRIDOR.ltfMin && l <= SHORT_CORRIDOR.ltfMax) {
+      return { corridor: true, side: "SHORT" };
+    }
+    return { corridor: false, side: null };
+  }
+
   // Recharts is OPTIONAL — BubbleChart has a native-SVG fallback
   let RechartsComponents = null;
   try {
@@ -2994,5 +3020,9 @@
     getRankPositionFromMap: getRankPositionFromMap,
     computeDynamicRank: computeDynamicRank,
     toTickerArray: toTickerArray,
+    entryType: entryType,
+    LONG_CORRIDOR: LONG_CORRIDOR,
+    SHORT_CORRIDOR: SHORT_CORRIDOR,
+    JOURNEY_LOOKBACK_MS: JOURNEY_LOOKBACK_MS,
   };
 })();
