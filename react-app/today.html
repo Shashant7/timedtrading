@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260516-today3" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260516-today5" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -444,10 +444,22 @@
       }
       /* Make the production ds-tickercard fill the Viewport column width
          (the AT version uses fixed width: 280 inline). */
+      /* Make the production ds-tickercard fill the Viewport column width
+         (the AT version uses fixed width: 280 inline) AND prevent the
+         flex-column .vp-list from shrinking cards down to a one-line
+         strip. With flex-shrink: 1 (default) every card collapsed to
+         ~28px and clipped its content via .ds-tickercard {overflow:hidden}.
+         Pin flex-shrink: 0 + a sane min-height so cards stay readable. */
       .vp-list .ds-tickercard {
         width: 100% !important;
         box-sizing: border-box;
         margin: 0;
+        flex: 0 0 auto;
+        min-height: 130px;
+      }
+      .vp-list .ds-tickercard .ds-tickercard__head {
+        flex-wrap: wrap;
+        row-gap: 4px;
       }
 
       /* Skeleton */
@@ -1283,6 +1295,80 @@
         return chips;
       }
 
+      // ── computeEffectiveStage — mirror of getTradeLifecycleState
+      //   (index-react.source.html line 8036).
+      //
+      // Open positions never end up in EXIT — engine 'exit' on an open
+      // position means urgent close (DEFEND). Mirrors the same logic
+      // Active Trader uses for its kanban categorizer + bubble overlays.
+      //
+      // Without this, OKE could show "Exit" on Today's bubble chart
+      // while AT's Defend lane has the same ticker — confusing.
+      function computeEffectiveStage(ticker, trade) {
+        const rawStage = String(ticker?.kanban_stage || "").trim().toLowerCase();
+        if (!trade) return rawStage;
+        const tradeStatus = String(trade.status || "").toUpperCase();
+        const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
+        const tradeIsClosed =
+          tradeStatus === "WIN" ||
+          tradeStatus === "LOSS" ||
+          !!(trade?.exit_ts ?? trade?.exitTs) ||
+          trimmedPct >= 0.9999;
+        const tradeIsOpen =
+          !tradeIsClosed &&
+          (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !tradeStatus);
+        if (!tradeIsOpen) return rawStage;
+        if (rawStage === "exit") return "defend";
+        if (rawStage === "defend") return "defend";
+        if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) return "trim";
+        if (!["trim","hold","active","just_entered"].includes(rawStage)) return "hold";
+        return rawStage;
+      }
+
+      // ── useOpenTrades — fetches live positions + promoted trades and
+      //   builds a tradeByTicker map. Mirrors Active Trader's `useTrades`
+      //   (index-react.source.html line 2238) so the open-position stage
+      //   override is computed the same way on both pages.
+      function useOpenTrades(enabled) {
+        const [tradeByTicker, setTradeByTicker] = useState(() => new Map());
+
+        const refresh = useCallback(async () => {
+          try {
+            const [posRes, promRes] = await Promise.all([
+              fetch(`${API_BASE}/timed/trades?source=positions`, { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null),
+              fetch(`${API_BASE}/timed/trades?source=promoted`,  { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null),
+            ]);
+            const m = new Map();
+            const accept = (tr) => {
+              const sym = String(tr?.ticker || "").toUpperCase();
+              if (!sym) return;
+              const exitTs = tr?.exit_ts ?? tr?.exitTs ?? 0;
+              const entryTs = tr?.entry_ts ?? tr?.entryTime ?? tr?.entryTs ?? 0;
+              const existing = m.get(sym);
+              if (!existing) { m.set(sym, tr); return; }
+              const exExit = existing?.exit_ts ?? existing?.exitTs ?? 0;
+              const exEntry = existing?.entry_ts ?? existing?.entryTime ?? existing?.entryTs ?? 0;
+              const trOpen = !exitTs, exOpen = !exExit;
+              if ((trOpen && !exOpen) || (trOpen && exOpen && entryTs > exEntry) || (!trOpen && !exOpen && exitTs > exExit)) {
+                m.set(sym, tr);
+              }
+            };
+            if (posRes?.ok && Array.isArray(posRes.trades))  posRes.trades.forEach(accept);
+            if (promRes?.ok && Array.isArray(promRes.trades)) promRes.trades.forEach(accept);
+            setTradeByTicker(m);
+          } catch (_) { /* leave previous map */ }
+        }, []);
+
+        useEffect(() => {
+          if (!enabled) return undefined;
+          refresh();
+          const id = setInterval(refresh, 180000);
+          return () => clearInterval(id);
+        }, [enabled, refresh]);
+
+        return tradeByTicker;
+      }
+
       // Master filter — narrow by activeChip + query, applied once at the
       // TodayApp level so Bubble Map + Heat Map + Viewport all agree.
       function applyFilters(tickers, f, chips) {
@@ -1427,7 +1513,9 @@
                          : biasLabel === "BEAR" ? "ds-chip--dn"
                          : "ds-chip--solid";
 
-        // Stage chip — uses kanban_stage as-is (Today doesn't track open trades).
+        // Stage chip — reads kanban_stage AFTER TodayApp has rewritten it
+        // to the effective stage (engine 'exit' on an open position → DEFEND,
+        // etc.). See computeEffectiveStage + the allTickers useMemo.
         const stage = String(t?.kanban_stage || "").toLowerCase();
         const stageChip = (() => {
           if (stage === "trim") return { label: "Trim", cls: "ds-chip--accent" };
@@ -2054,11 +2142,27 @@
           return () => { alive = false; };
         }, []);
 
-        // Single source of truth for the universe, chips, and filtered set.
-        const allTickers = useMemo(() => data ? Object.values(data).filter(t => t && t.ticker) : [], [data]);
-        const isAdmin    = !!window._ttIsAdmin;
-        const chips      = useMemo(() => computeInsightChips(allTickers, { isAdmin }), [allTickers, isAdmin]);
-        const visible    = useMemo(() => applyFilters(allTickers, filters, chips),    [allTickers, filters, chips]);
+        // Single source of truth for the universe, trades, chips, and
+        // filtered set. allTickers is enriched with _openTrade +
+        // _effectiveKanbanStage so the bubble chart's stage overlay,
+        // the Viewport card stage chip, and Active Trader's kanban lanes
+        // all agree (e.g. OKE shows DEFEND on both pages instead of EXIT
+        // on Today + DEFEND on AT).
+        const isAdmin = !!window._ttIsAdmin;
+        const tradeByTicker = useOpenTrades(!!data);
+        const allTickers = useMemo(() => {
+          if (!data) return [];
+          const raw = Object.values(data).filter((t) => t && t.ticker);
+          return raw.map((t) => {
+            const sym = String(t.ticker || "").toUpperCase();
+            const trade = tradeByTicker.get(sym) || null;
+            const eff = computeEffectiveStage(t, trade);
+            if (eff === String(t?.kanban_stage || "").toLowerCase() && !trade) return t;
+            return { ...t, _openTrade: trade, _effectiveKanbanStage: eff, kanban_stage: eff };
+          });
+        }, [data, tradeByTicker]);
+        const chips   = useMemo(() => computeInsightChips(allTickers, { isAdmin }), [allTickers, isAdmin]);
+        const visible = useMemo(() => applyFilters(allTickers, filters, chips),     [allTickers, filters, chips]);
         const rankedTickers = useMemo(() => {
           const TT = window.TimedBubbleChart;
           if (!TT?.getRankedTickers || !data) return [];
