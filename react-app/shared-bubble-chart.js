@@ -689,6 +689,62 @@
   // Alias: computeDynamicRank → computeDynamicScore (from index-react line 4230)
   const computeDynamicRank = computeDynamicScore;
 
+  // ── summarizeEntryDecision (entry decision summarizer) ───────
+  //   Extracted from index-react.source.html lines 7782-7837 (PR #158).
+  //   Missed in PR #153 — defined OUTSIDE the BubbleChart 5449-7746 range.
+  //   Called by SVGBubble at shared-bubble-chart.js line ~833.
+  const ENTRY_DECISION_LABELS = {
+    futures_disabled: "Futures excluded",
+    missing_levels: "Missing price/SL/TP",
+    not_in_corridor: "Not in entry corridor",
+    corridor_misaligned: "Corridor misaligned",
+    no_trigger: "No trigger/squeeze",
+    rr_below_min: "RR below minimum",
+    completion_high: "Completion too high",
+    phase_high: "Phase too high",
+    rank_low: "Rank too low",
+    stale_data: "Data delayed",
+  };
+
+  function summarizeEntryDecision(ticker) {
+    const decision = ticker && ticker.entry_decision;
+    if (!decision || typeof decision !== "object") return null;
+    const blockers = Array.isArray(decision.blockers) ? decision.blockers : [];
+    const warnings = Array.isArray(decision.warnings) ? decision.warnings : [];
+    const label = (code) =>
+      ENTRY_DECISION_LABELS[code] || String(code || "").replace(/_/g, " ");
+    if (decision.ok) {
+      return {
+        status: "Eligible",
+        detail: "All entry checks passed",
+        tone: "text-teal-400",
+        bg: "bg-teal-500/20",
+        blockers: [],
+        warnings: warnings.map(label),
+      };
+    }
+    if (blockers.length === 0) {
+      return {
+        status: "Waiting",
+        detail: "Setup not confirmed yet",
+        tone: "text-[#6b7280]",
+        bg: "bg-white/[0.04]",
+        blockers: [],
+        warnings: warnings.map(label),
+      };
+    }
+    const shown = blockers.slice(0, 3).map(label);
+    const extra = blockers.length > 3 ? ` +${blockers.length - 3} more` : "";
+    return {
+      status: "Blocked",
+      detail: `${shown.join(", ")}${extra}`,
+      tone: "text-yellow-400",
+      bg: "bg-yellow-500/20",
+      blockers: blockers.map(label),
+      warnings: warnings.map(label),
+    };
+  }
+
   // ── SVGBubble (native SVG bubble component) ────────────────
   //   Extracted from index-react.source.html line 5019 (258 lines).
   //   Missed in PR #153 — defined OUTSIDE the BubbleChart 5449-7746 range.
@@ -3289,5 +3345,7 @@
     SHORT_CORRIDOR: SHORT_CORRIDOR,
     JOURNEY_LOOKBACK_MS: JOURNEY_LOOKBACK_MS,
     SVGBubble: SVGBubble,
+    summarizeEntryDecision: summarizeEntryDecision,
+    ENTRY_DECISION_LABELS: ENTRY_DECISION_LABELS,
   };
 })();
