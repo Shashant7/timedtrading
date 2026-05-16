@@ -57,7 +57,8 @@
         border: 1px solid var(--tt-border);
         border-radius: 14px;
       }
-      .tt-card-pad { padding: 18px 18px 16px; }
+      .tt-card-pad { padding: 22px 24px 20px; }
+      @media (max-width: 720px) { .tt-card-pad { padding: 16px 16px 14px; } }
       .tt-sec-title {
         font-size: 11px;
         font-weight: 700;
@@ -107,9 +108,12 @@
       @media (max-width: 919px) {
         .tt-grid-2, .tt-grid-3, .tt-grid-4 { grid-template-columns: 1fr; }
       }
-      /* Sections row spacing */
-      main { max-width: 1200px; margin: 0 auto; padding: 16px 16px 80px; }
-      .tt-row { margin-bottom: 18px; }
+      /* Sections row spacing — wider container so the Bubble Map + Heat Map
+         get the full horizontal real estate they need. Content can breathe. */
+      main { max-width: 1600px; margin: 0 auto; padding: 18px 24px 96px; }
+      @media (max-width: 720px) { main { padding: 14px 12px 96px; } }
+      .tt-row { margin-bottom: 28px; }
+      @media (max-width: 720px) { .tt-row { margin-bottom: 20px; } }
       /* Nav */
       nav.topnav {
         position: sticky; top: 0; z-index: 50;
@@ -200,8 +204,11 @@
       /* Heatmap chip */
       .heat-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(82px, 1fr));
-        gap: 6px;
+        grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+        gap: 8px;
+      }
+      @media (max-width: 720px) {
+        .heat-grid { grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 6px; }
       }
       .heat-cell {
         position: relative;
@@ -209,17 +216,18 @@
         flex-direction: column;
         align-items: stretch;
         justify-content: space-between;
-        padding: 6px 7px;
-        border-radius: 7px;
+        padding: 9px 11px;
+        border-radius: 8px;
         background: rgba(255,255,255,0.02);
         border: 1px solid var(--tt-border);
         text-decoration: none;
         color: inherit;
-        min-height: 50px;
+        min-height: 62px;
+        transition: all 0.12s;
       }
-      .heat-cell:hover { border-color: var(--tt-border-hi); }
-      .heat-cell .sym { font-size: 11.5px; font-weight: 700; color: var(--tt-text); letter-spacing: 0.01em; }
-      .heat-cell .pct { font-family: var(--tt-font-mono); font-size: 10.5px; font-weight: 700; }
+      .heat-cell:hover { border-color: var(--tt-border-hi); transform: translateY(-1px); }
+      .heat-cell .sym { font-size: 13px; font-weight: 700; color: var(--tt-text); letter-spacing: 0.01em; }
+      .heat-cell .pct { font-family: var(--tt-font-mono); font-size: 11.5px; font-weight: 700; }
       .heat-cell .pct.up { color: var(--tt-up-soft); }
       .heat-cell .pct.dn { color: var(--tt-dn-soft); }
       .heat-cell.lvl-strong  { border-color: rgba(34,197,94,0.35); background: rgba(34,197,94,0.06); }
@@ -227,20 +235,21 @@
       .heat-cell.lvl-weak    { border-color: rgba(244,63,94,0.30); background: rgba(244,63,94,0.05); }
       /* ── Analysis header (unified controls for Bubble Map + Heat Map) ── */
       .analysis-controls {
-        margin-bottom: 14px;
-        padding: 18px 18px 12px;
+        margin-bottom: 22px;
+        padding: 24px 26px 18px;
         background: linear-gradient(180deg, var(--tt-bg-elev), var(--tt-bg-surface));
         border: 1px solid var(--tt-border);
         border-top: 2px solid rgba(245,194,92,0.35);
         border-radius: 14px;
       }
+      @media (max-width: 720px) { .analysis-controls { padding: 18px 16px 14px; } }
       .ac-head {
         display: flex;
         justify-content: space-between;
         align-items: baseline;
         gap: 16px;
         flex-wrap: wrap;
-        margin-bottom: 14px;
+        margin-bottom: 18px;
       }
       .ac-head .ac-meta { font-size: 12px; color: var(--tt-text-dim); font-family: var(--tt-font-mono); }
       .ac-head .ac-meta strong { color: var(--tt-text); }
@@ -279,10 +288,10 @@
       /* Filter row: label + chips. Each row is a single-select group. */
       .ac-row {
         display: grid;
-        grid-template-columns: 80px 1fr;
+        grid-template-columns: 92px 1fr;
         align-items: start;
-        gap: 12px;
-        padding: 4px 0;
+        gap: 14px;
+        padding: 7px 0;
       }
       @media (max-width: 720px) {
         .ac-row { grid-template-columns: 1fr; gap: 4px; }
@@ -1068,7 +1077,9 @@
           return { xMax, yMax };
         }, [allTickers]);
 
-        const VB = { w: 880, h: 540, mx: 50, my: 36 };
+        // Widescreen aspect (~7:3) — uses the full horizontal width of the
+        // 1600px container so bubbles spread out and labels don't collide.
+        const VB = { w: 1400, h: 620, mx: 70, my: 42 };
         const plotW = VB.w - 2 * VB.mx;
         const plotH = VB.h - 2 * VB.my;
         const xScale = (v) => VB.mx + ((Number(v) || 0) + domain.xMax) / (2 * domain.xMax) * plotW;
@@ -1079,9 +1090,10 @@
         const q = String(query || "").trim().toUpperCase();
         const matchesQuery = (sym) => q.length > 0 && String(sym).toUpperCase().startsWith(q);
 
+        // Bigger plot = bigger bubbles. Range 6..22 px (was 4..16).
         const radiusFor = (t) => {
           const r = Math.min(Math.abs(Number(t.htf_score) || 0), 35);
-          return 4 + (r / 35) * 12;
+          return 6 + (r / 35) * 16;
         };
 
         const handleHover = (e, t) => {
@@ -1118,12 +1130,12 @@
                 h("rect", { x: VB.mx, y: cy0,   width: plotW / 2, height: plotH / 2, fill: "rgba(244,63,94,0.025)" }),
                 h("line", { x1: VB.mx, y1: cy0, x2: VB.mx + plotW, y2: cy0,             stroke: "rgba(255,255,255,0.12)", strokeWidth: 1 }),
                 h("line", { x1: cx0,   y1: VB.my, x2: cx0,           y2: VB.my + plotH, stroke: "rgba(255,255,255,0.12)", strokeWidth: 1 }),
-                h("text", { x: VB.mx + plotW - 8, y: VB.my + 16,         textAnchor: "end",   fill: "rgba(34,197,94,0.50)",  fontSize: 11, fontWeight: 700, letterSpacing: "0.06em" }, "STRONG TREND · HIGH MOMENTUM"),
-                h("text", { x: VB.mx + 8,         y: VB.my + 16,         textAnchor: "start", fill: "rgba(245,194,92,0.50)", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em" }, "STRONG TREND · PULLING BACK"),
-                h("text", { x: VB.mx + 8,         y: VB.my + plotH - 6,  textAnchor: "start", fill: "rgba(244,63,94,0.50)",  fontSize: 11, fontWeight: 700, letterSpacing: "0.06em" }, "DOWNTREND"),
-                h("text", { x: VB.mx + plotW - 8, y: VB.my + plotH - 6,  textAnchor: "end",   fill: "rgba(255,255,255,0.30)", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em" }, "BUILDING / RECOVERY"),
-                h("text", { x: VB.mx + plotW / 2, y: VB.h - 8, textAnchor: "middle", fill: "rgba(255,255,255,0.45)", fontSize: 11, fontWeight: 600 }, "SHORT-TERM MOMENTUM (LTF) →"),
-                h("text", { x: 14,                y: VB.my + plotH / 2, textAnchor: "middle", fill: "rgba(255,255,255,0.45)", fontSize: 11, fontWeight: 600, transform: `rotate(-90 14 ${VB.my + plotH / 2})` }, "TREND STRENGTH (HTF) →"),
+                h("text", { x: VB.mx + plotW - 12, y: VB.my + 22,         textAnchor: "end",   fill: "rgba(34,197,94,0.55)",  fontSize: 14, fontWeight: 700, letterSpacing: "0.08em" }, "STRONG TREND · HIGH MOMENTUM"),
+                h("text", { x: VB.mx + 12,         y: VB.my + 22,         textAnchor: "start", fill: "rgba(245,194,92,0.55)", fontSize: 14, fontWeight: 700, letterSpacing: "0.08em" }, "STRONG TREND · PULLING BACK"),
+                h("text", { x: VB.mx + 12,         y: VB.my + plotH - 8,  textAnchor: "start", fill: "rgba(244,63,94,0.55)",  fontSize: 14, fontWeight: 700, letterSpacing: "0.08em" }, "DOWNTREND"),
+                h("text", { x: VB.mx + plotW - 12, y: VB.my + plotH - 8,  textAnchor: "end",   fill: "rgba(255,255,255,0.32)", fontSize: 14, fontWeight: 700, letterSpacing: "0.08em" }, "BUILDING / RECOVERY"),
+                h("text", { x: VB.mx + plotW / 2, y: VB.h - 10, textAnchor: "middle", fill: "rgba(255,255,255,0.50)", fontSize: 13, fontWeight: 600 }, "SHORT-TERM MOMENTUM (LTF) →"),
+                h("text", { x: 20,                y: VB.my + plotH / 2, textAnchor: "middle", fill: "rgba(255,255,255,0.50)", fontSize: 13, fontWeight: 600, transform: `rotate(-90 20 ${VB.my + plotH / 2})` }, "TREND STRENGTH (HTF) →"),
 
                 visible.map((t) => {
                   const sym = String(t.ticker || "").toUpperCase();
@@ -1148,10 +1160,10 @@
                       stroke:      isMatch ? "#fff" : "rgba(0,0,0,0.4)",
                       strokeWidth: isMatch ? 2 : 1,
                     }),
-                    (isMatch || r >= 9) && h("text", {
-                      x: cx, y: cy + 3,
+                    (isMatch || r >= 11) && h("text", {
+                      x: cx, y: cy + 4,
                       textAnchor: "middle",
-                      fontSize: Math.max(8, Math.min(11, r * 0.9)),
+                      fontSize: Math.max(10, Math.min(14, r * 0.75)),
                       fontWeight: 700,
                       fill: isMatch ? "#fff" : "rgba(255,255,255,0.92)",
                       style: { pointerEvents: "none", textShadow: "0 1px 1px rgba(0,0,0,0.6)" },
