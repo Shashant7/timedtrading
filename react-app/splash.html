@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Timed Trading — Your trading co-pilot. Stop guessing, start timing.</title>
-  <meta name="description" content="Live signals, clear levels, the moment to act. Timed Trading scores every major ticker in real time and tells you when conditions actually line up — so you trade with a system, not a hunch." />
-  <meta property="og:title" content="Timed Trading — Your trading co-pilot." />
-  <meta property="og:description" content="Live signals, clear levels, the moment to act. Score every major ticker in real time and know when to strike." />
+  <title>Timed Trading — Founder's Charter. $60/mo locked for life.</title>
+  <meta name="description" content="Lock in $60/mo Charter pricing — for life. Timed Trading scores every major ticker in real time and tells you when conditions line up. Active Trader + Investor modes, AI-validated entries, full transparency. Charter members get the discount and a direct line to the team." />
+  <meta property="og:title" content="Timed Trading — Founder's Charter. $60/mo locked for life." />
+  <meta property="og:description" content="Charter members lock today's rate as standard pricing rises. Live signals, clear levels, the moment to act." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://timed-trading.com/" />
   <meta name="twitter:card" content="summary_large_image" />
@@ -823,63 +823,130 @@
 
     /* ── Pricing ──────────────────────────────────────────────── */
     .pricing-card {
-      max-width: 460px;
+      max-width: 520px;
       margin: 48px auto 0;
-      background: var(--bg-surface);
-      border: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(0,200,83,0.04) 0%, var(--bg-surface) 60%);
+      border: 1px solid rgba(0,200,83,0.22);
       border-radius: 20px;
-      padding: 40px 32px;
+      padding: 40px 32px 32px;
       text-align: center;
       position: relative;
       overflow: hidden;
+      box-shadow: 0 0 40px rgba(0,200,83,0.04);
     }
     .pricing-card::before {
       content: "";
       position: absolute;
       top: 0; left: 0; right: 0;
       height: 3px;
-      background: linear-gradient(90deg, var(--accent), #00e676);
+      background: linear-gradient(90deg, #34d399, #67e8f9);
     }
     .pricing-badge {
-      display: inline-block;
-      padding: 4px 14px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 14px;
       border-radius: 20px;
       font-size: 11px;
       font-weight: 700;
       letter-spacing: 0.6px;
       color: var(--accent);
-      background: rgba(0,200,83,0.08);
-      border: 1px solid rgba(0,200,83,0.18);
-      margin-bottom: 16px;
+      background: rgba(0,200,83,0.10);
+      border: 1px solid rgba(0,200,83,0.28);
+      margin-bottom: 18px;
+      text-transform: uppercase;
+    }
+    .pricing-badge::before {
+      content: "";
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px rgba(0,200,83,0.6);
+      animation: pulse-glow 2s ease-in-out infinite;
     }
     .pricing-name {
-      font-size: 22px;
+      font-size: 24px;
       font-weight: 800;
       letter-spacing: -0.02em;
-      margin-bottom: 8px;
+      margin-bottom: 4px;
+    }
+    .pricing-tagline {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-bottom: 18px;
+      line-height: 1.5;
+    }
+    /* Anchored price row: struck-through "future" anchor next to locked-in founder price */
+    .pricing-price-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: center;
+      gap: 14px;
+      margin-bottom: 6px;
+      flex-wrap: wrap;
+    }
+    .pricing-price-anchor {
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-decoration: line-through;
+      text-decoration-thickness: 2px;
+      text-decoration-color: rgba(239,68,68,0.55);
+      letter-spacing: -0.01em;
+    }
+    .pricing-price-anchor span {
+      font-size: 13px;
+      font-weight: 400;
     }
     .pricing-price {
-      font-size: 48px;
+      font-size: 52px;
       font-weight: 900;
       color: #fff;
-      margin-bottom: 4px;
+      letter-spacing: -0.03em;
+      line-height: 1;
     }
     .pricing-price span {
       font-size: 18px;
       font-weight: 400;
       color: var(--text-secondary);
     }
+    .pricing-lock {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--accent);
+      background: rgba(0,200,83,0.08);
+      border: 1px solid rgba(0,200,83,0.22);
+      border-radius: 999px;
+      padding: 4px 12px;
+      margin-bottom: 10px;
+    }
     .pricing-fine {
       font-size: 12px;
       color: var(--text-muted);
       margin-bottom: 28px;
+      line-height: 1.6;
     }
-    .pricing-features { text-align: left; margin-bottom: 28px; list-style: none; }
+    .pricing-section-title {
+      text-align: left;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.10em;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-bottom: 12px;
+      padding-top: 4px;
+      border-top: 1px solid var(--border);
+      padding-top: 18px;
+    }
+    .pricing-features { text-align: left; margin-bottom: 24px; list-style: none; }
     .pricing-features li {
       display: flex;
       align-items: flex-start;
       gap: 10px;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
       font-size: 13px;
       color: var(--text-secondary);
       line-height: 1.5;
@@ -891,6 +958,47 @@
       flex-shrink: 0;
       margin-top: 1px;
     }
+    .pricing-features li strong {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+    .pricing-charter-perks {
+      text-align: left;
+      margin-bottom: 24px;
+      list-style: none;
+    }
+    .pricing-charter-perks li {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 10px;
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+    .pricing-charter-perks li::before {
+      content: "\2605";
+      color: #fbbf24;
+      font-weight: 700;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .pricing-charter-perks li strong {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+    .pricing-honest-note {
+      margin-top: 20px;
+      padding: 14px 16px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      text-align: left;
+    }
+    .pricing-honest-note strong { color: var(--text-primary); }
 
     /* ── CTA Banner ──────────────────────────────────────────── */
     .cta-banner {
@@ -967,6 +1075,12 @@
       nav .container { padding: 0 16px; }
       .nav-links a:not(.btn-signin) { display: none; }
       .rail-regime-grid { grid-template-columns: repeat(2, 1fr); }
+      .pricing-card { padding: 28px 20px 24px; }
+      .pricing-price { font-size: 44px; }
+      .pricing-price-anchor { font-size: 18px; }
+      .pricing-price-row { gap: 10px; }
+      .pricing-lock { font-size: 11px; padding: 4px 10px; }
+      .pricing-features li, .pricing-charter-perks li { font-size: 12.5px; }
     }
   </style>
 </head>
@@ -1008,14 +1122,14 @@
       </p>
       <div class="hero-cta-row">
         <a href="/index-react.html" class="hero-cta">
-          Start Free Trial
+          Reserve Charter Seat &mdash; $60/mo locked
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
           </svg>
         </a>
       </div>
       <p class="hero-footnote">
-        14-day free trial &middot; Cancel anytime
+        14-day free trial &middot; Lock your rate at signup &middot; Cancel anytime
       </p>
     </div>
 
@@ -1522,19 +1636,35 @@
   <section id="pricing">
     <div class="container">
       <div class="reveal" style="text-align:center">
-        <span class="section-label">Pricing</span>
-        <h2 class="section-title">One plan. Everything included.</h2>
+        <span class="section-label">Founder's Charter</span>
+        <h2 class="section-title">Lock in early-access pricing</h2>
         <p class="section-desc" style="margin:0 auto">
-          Full access to both modes with a 14-day free trial. No feature gates.
+          We're in our founder phase. Charter members lock today's rate for life &mdash;
+          even when standard pricing rises as the product matures.
         </p>
       </div>
       <div class="pricing-card reveal">
-        <span class="pricing-badge">14-DAY FREE TRIAL</span>
-        <div class="pricing-name">Timed Trading Pro</div>
-        <div class="pricing-price">$60<span>/month</span></div>
-        <p class="pricing-fine">14-day free trial. Cancel anytime. Charged monthly after trial.</p>
+        <span class="pricing-badge">Charter Pricing &middot; Limited Window</span>
+        <div class="pricing-name">Timed Trading &mdash; Charter Member</div>
+        <p class="pricing-tagline">Full platform access. Founder's Charter perks. Locked rate.</p>
+
+        <div class="pricing-price-row">
+          <span class="pricing-price-anchor">$99<span>/mo</span></span>
+          <span class="pricing-price">$60<span>/month</span></span>
+        </div>
+        <div class="pricing-lock">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+          Locked for life as long as your subscription stays active
+        </div>
+        <p class="pricing-fine">
+          14-day free trial &middot; Cancel anytime &middot; Your rate is locked the moment you reserve a seat
+        </p>
+
+        <div class="pricing-section-title">What every member gets</div>
         <ul class="pricing-features">
-          <li>Active Trader + Investor modes included</li>
+          <li><strong>Active Trader + Investor modes</strong> &mdash; the full platform, no feature gates</li>
           <li>Curated ticker universe, scored across 8 timeframes every 5 minutes</li>
           <li>Precise stop-loss and multi-tier take-profit levels on every setup</li>
           <li>Kanban trade pipeline with entry, trim, and exit signals</li>
@@ -1543,12 +1673,27 @@
           <li>AI-powered daily market briefs</li>
           <li>Full trade history with equity curve and portfolio tracking</li>
         </ul>
+
+        <div class="pricing-section-title">Charter perks (founder phase only)</div>
+        <ul class="pricing-charter-perks">
+          <li><strong>$60/mo locked for life</strong> &mdash; never raised on you, even when standard pricing hits $99+</li>
+          <li><strong>Charter Member badge</strong> in the app and on your trades</li>
+          <li><strong>Direct line to the team</strong> &mdash; bring us feature requests, bugs, roadmap input</li>
+          <li><strong>Early access to new features</strong> as they ship &mdash; options play paths, leveraged ETF setups, more</li>
+        </ul>
+
         <a href="/index-react.html" class="hero-cta" style="display:inline-flex;width:100%;justify-content:center">
-          Start Free Trial
+          Reserve Your Charter Seat
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
           </svg>
         </a>
+
+        <div class="pricing-honest-note">
+          <strong>Why a charter phase?</strong> We're still actively building. The platform is real and live,
+          but features are landing weekly. As the product matures, standard pricing rises. Charter members
+          get the discount &mdash; and a real say in what comes next.
+        </div>
       </div>
     </div>
   </section>
@@ -1557,10 +1702,10 @@
   <section class="cta-banner">
     <div class="container reveal">
       <h2>The system is watching. The scores are live.</h2>
-      <p>Find what's moving. Know when to act. Start your free trial.</p>
+      <p>Lock in $60/mo as a Charter Member &mdash; before standard pricing arrives.</p>
       <div class="hero-cta-row" style="justify-content:center">
         <a href="/index-react.html" class="hero-cta">
-          Start Free Trial
+          Reserve Charter Seat
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
           </svg>
