@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260516-today7" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260516-today8" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <link rel="stylesheet" href="tailwind.generated.css" />
@@ -128,8 +128,12 @@
         border-bottom: 1px solid var(--tt-border);
       }
       .nav-row {
-        max-width: 1200px; margin: 0 auto;
-        padding: 12px 16px;
+        /* Match `main` max-width so the nav lines up with the page
+           content below (was 1200px while main is 1600px, which made
+           the top of the page feel mis-aligned — nav too narrow,
+           content too wide). */
+        max-width: 1600px; margin: 0 auto;
+        padding: 12px 24px;
         display: flex; align-items: center; justify-content: space-between; gap: 12px;
       }
       .nav-brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: var(--tt-text); font-weight: 700; }
@@ -392,10 +396,12 @@
       }
       .bm-meta strong { color: var(--tt-text); }
 
-      /* Bubble Map + Viewport split layout (mirrors Active Trader) */
+      /* Bubble Map + Viewport split layout (mirrors Active Trader).
+         300px column gives the ds-tickercard the same visual width
+         as AT's fixed-width 280px cards (column - 12px padding ≈ 288). */
       .bmv-split {
         display: grid;
-        grid-template-columns: 360px 1fr;
+        grid-template-columns: 300px 1fr;
         gap: 12px;
         align-items: stretch;
       }
@@ -405,12 +411,16 @@
       .bmv-bubble { min-width: 0; }
       .bmv-bubble .tt-card { padding: 0; overflow: hidden; }
 
-      /* Viewport — wraps the list of ds-tickercards (production DS) */
+      /* Viewport — list of ds-tickercards (production DS).
+         Intentionally NO outer background/border: AT's viewport is just
+         a title row + flat list of cards, with each card being the only
+         bordered surface. Wrapping the list in another card created
+         visual nesting that looked off compared to AT. */
       .vp-card {
-        background: var(--tt-bg-surface);
-        border: 1px solid var(--tt-border);
-        border-radius: 12px;
-        padding: 12px;
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+        padding: 0;
         display: flex;
         flex-direction: column;
         gap: 10px;
@@ -604,7 +614,7 @@
       </main>
     </div>
 
-    <script src="today.compiled.530d62acee.js"></script>
+    <script src="today.compiled.03ea9afd74.js"></script>
 
     <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
