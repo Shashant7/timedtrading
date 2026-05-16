@@ -549,6 +549,15 @@
           },
         }, loading ? "Redirecting to Stripe..." : "Reserve Your Charter Seat"),
         error && h("p", { style: { color: "#ff5252", fontSize: "13px", marginTop: "12px" } }, error),
+        h("a", {
+          href: "/learn.html",
+          style: {
+            display: "inline-flex", alignItems: "center", gap: "6px", marginTop: "14px",
+            fontSize: "13px", color: "#67e8f9", textDecoration: "none", fontWeight: "600",
+          },
+        },
+          "Not sure how it works? Read the 10-minute guide \u2192",
+        ),
         h("p", { style: { fontSize: "12px", color: "#374151", marginTop: "16px" } },
           "Signed in as ", h("span", { style: { color: "#6b7280" } }, user?.email || "Unknown")),
         h("a", {
