@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260516-today3" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260516-today4" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <link rel="stylesheet" href="tailwind.generated.css" />
@@ -442,11 +442,21 @@
         padding: 24px 8px;
       }
       /* Make the production ds-tickercard fill the Viewport column width
-         (the AT version uses fixed width: 280 inline). */
+         (the AT version uses fixed width: 280 inline) AND prevent the
+         flex-column .vp-list from shrinking cards down to a one-line
+         strip. With flex-shrink: 1 (default) every card collapsed to
+         ~28px and clipped its content via .ds-tickercard {overflow:hidden}.
+         Pin flex-shrink: 0 + a sane min-height so cards stay readable. */
       .vp-list .ds-tickercard {
         width: 100% !important;
         box-sizing: border-box;
         margin: 0;
+        flex: 0 0 auto;
+        min-height: 130px;
+      }
+      .vp-list .ds-tickercard .ds-tickercard__head {
+        flex-wrap: wrap;
+        row-gap: 4px;
       }
 
       /* Skeleton */
