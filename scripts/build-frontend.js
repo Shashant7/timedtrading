@@ -41,6 +41,7 @@ function shouldSkipCopy(relativePath) {
   return (
     relativePath === "index-react.source.html" ||
     relativePath === "tailwind.input.css" ||
+    relativePath === "shared-bubble-chart.js" ||
     /^index-react\.compiled\.[a-f0-9]+\.js$/.test(relativePath)
   );
 }
@@ -65,8 +66,19 @@ function copyStaticTree(srcDir, destDir, prefix = "") {
 }
 
 function compileSharedRightRail() {
-  const srcPath = path.join(sourceDir, "shared-right-rail.js");
-  const destPath = path.join(outputDir, "shared-right-rail.compiled.js");
+  compileSharedScript("shared-right-rail.js", "shared-right-rail.compiled.js");
+}
+
+function compileSharedBubbleChart() {
+  // P0.B.1 — extracted from index-react.source.html. Loaded by today.html
+  // (and eventually active-trader.html / investor.html after Phase 4 split).
+  // Has JSX (BubbleChart React component) so needs babel transform.
+  compileSharedScript("shared-bubble-chart.js", "shared-bubble-chart.compiled.js");
+}
+
+function compileSharedScript(srcName, destName) {
+  const srcPath = path.join(sourceDir, srcName);
+  const destPath = path.join(outputDir, destName);
   const code = fs.readFileSync(srcPath, "utf8");
   const result = babel.transformSync(code, {
     configFile: false,
@@ -78,7 +90,7 @@ function compileSharedRightRail() {
   });
 
   if (!result?.code) {
-    fail("Babel transpilation returned no code for shared-right-rail.js");
+    fail(`Babel transpilation returned no code for ${srcName}`);
   }
 
   fs.writeFileSync(
@@ -232,6 +244,7 @@ function main() {
   removeOutputDir();
   copyStaticTree(sourceDir, outputDir);
   compileSharedRightRail();
+  compileSharedBubbleChart();
   buildTailwindCss();
   buildHtmlPages();
 

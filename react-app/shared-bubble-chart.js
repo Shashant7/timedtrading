@@ -1,0 +1,2982 @@
+// shared-bubble-chart.js — Extracted from index-react.source.html (P0.B.1)
+//
+// Exposes window.TimedBubbleChart with BubbleChart React component +
+// helper functions used internally. Loaded by /today.html.
+//
+// HOW THIS FILE IS USED:
+//   1. Page HTML loads <script src='shared-bubble-chart.compiled.js'>
+//   2. JS exposes window.TimedBubbleChart = { BubbleChart, helpers... }
+//   3. React app uses h(window.TimedBubbleChart.BubbleChart, props)
+//
+// EXTRACTED FROM index-react.source.html lines:
+//   phaseCompletionToColor         (line 3066)
+//   phaseToColor                   (line 3080)
+//   prettyMoveReason               (line 3116)
+//   getMoveStatusInfo              (line 3130)
+//   isPrimeBubble                  (line 3398)
+//   isWinnerSignature              (line 3453)
+//   completionForSize              (line 3473)
+//   getDirectionFromState          (line 3484)
+//   computeEntryRef                (line 3496)
+//   numFromAny                     (line 3555)
+//   computeReturnPct               (line 3838)
+//   computeRiskPct                 (line 3851)
+//   computeEtaDays                 (line 3867)
+//   bubbleSizeSeed                 (line 3923)
+//   computeBubbleRadiusModel       (line 3930)
+//   bubbleVisualForTrailPoint      (line 3980)
+//   splitTrailByGaps               (line 4025)
+//   downsampleTrailToDaily         (line 4053)
+//   catmullRomPath                 (line 4074)
+//   computeDynamicScore            (line 4147)
+//   rankScoreForTicker             (line 4245)
+//   getRankedTickers               (line 4255)
+//   getRankPosition                (line 4277)
+//   getRankPositionFromMap         (line 4291)
+//   BubbleChart (line 5449)
+
+(function () {
+  "use strict";
+
+  if (typeof React === 'undefined') {
+    console.warn('[shared-bubble-chart] React not loaded; bailing');
+    return;
+  }
+  const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+  // Soft-dep on shared-price-utils for daily-change calculations.
+  const getDailyChange = (window.TimedPriceUtils && window.TimedPriceUtils.getDailyChange)
+    || function () { return { dayPct: null, dayChg: null }; };
+
+  // debugLog: page may inject one; fall back to no-op
+  const debugLog = (typeof window !== 'undefined' && typeof window.__ttDebugLog === 'function')
+    ? window.__ttDebugLog
+    : function () { /* no-op */ };
+
+  // Recharts is OPTIONAL — BubbleChart has a native-SVG fallback
+  let RechartsComponents = null;
+  try {
+    if (typeof Recharts !== 'undefined') {
+      RechartsComponents = {
+        ScatterChart: Recharts.ScatterChart,
+        Scatter: Recharts.Scatter,
+        XAxis: Recharts.XAxis,
+        YAxis: Recharts.YAxis,
+        CartesianGrid: Recharts.CartesianGrid,
+        Tooltip: Recharts.Tooltip,
+        ResponsiveContainer: Recharts.ResponsiveContainer,
+        ReferenceLine: Recharts.ReferenceLine,
+        ReferenceArea: Recharts.ReferenceArea,
+      };
+    }
+  } catch (_) {}
+
+  // ── Helpers ─────────────────────────────────────────────
+
+  function phaseCompletionToColor(phasePct) {
+    const p = Math.max(0, Math.min(1, phasePct));
+    if (p < 0.3) {
+      // Green: #14b8a6 (under 30%)
+      return "#14b8a6";
+    } else if (p < 0.6) {
+      // Yellow: #eab308 (30-60%)
+      return "#eab308";
+    } else {
+      // Red: #e11d48 (60-100%)
+      return "#e11d48";
+    }
+  }
+
+  function phaseToColor(phase) {
+    const p = Math.max(0, Math.min(1, phase));
+    if (p < 0.2) {
+      // Teal to darker teal: #14b8a6 (20,184,166) → #0d9488 (13,148,136)
+      const t = p / 0.2;
+      return `rgb(${Math.round(20 + (13 - 20) * t)}, ${Math.round(
+        184 + (148 - 184) * t,
+      )}, ${Math.round(166 + (136 - 166) * t)})`;
+    } else if (p < 0.4) {
+      // Darker teal to yellow: #0d9488 (13,148,136) → #eab308 (234,179,8)
+      const t = (p - 0.2) / 0.2;
+      return `rgb(${Math.round(13 + (234 - 13) * t)}, ${Math.round(
+        148 + (179 - 148) * t,
+      )}, ${Math.round(136 + (8 - 136) * t)})`;
+    } else if (p < 0.6) {
+      // Yellow to orange: #eab308 (234,179,8) → #f97316 (249,115,22)
+      const t = (p - 0.4) / 0.2;
+      return `rgb(${Math.round(234 + (249 - 234) * t)}, ${Math.round(
+        179 + (115 - 179) * t,
+      )}, ${Math.round(8 + (22 - 8) * t)})`;
+    } else if (p < 0.8) {
+      // Orange to cherry: #f97316 (249,115,22) → #e11d48 (225,29,72)
+      const t = (p - 0.6) / 0.2;
+      return `rgb(${Math.round(249 + (225 - 249) * t)}, ${Math.round(
+        115 + (29 - 115) * t,
+      )}, ${Math.round(22 + (72 - 22) * t)})`;
+    } else {
+      // Cherry to dark cherry: #e11d48 (225,29,72) → #9f1239 (159,18,57)
+      const t = (p - 0.8) / 0.2;
+      return `rgb(${Math.round(225 + (159 - 225) * t)}, ${Math.round(
+        29 + (18 - 29) * t,
+      )}, ${Math.round(72 + (57 - 72) * t)})`;
+    }
+  }
+
+  function prettyMoveReason(r) {
+    const key = String(r || "").trim();
+    const map = {
+      sl_breached: "SL breached",
+      tp_reached: "TP reached",
+      daily_ema_regime_break: "Daily EMA regime break",
+      ichimoku_regime_break: "Ichimoku regime break",
+      late_cycle: "Late-cycle",
+      overextended: "Overextended",
+      left_entry_corridor: "Left entry corridor",
+    };
+    return map[key] || key.replace(/_/g, " ");
+  }
+
+  function getMoveStatusInfo(ticker) {
+    const ms =
+      ticker?.move_status && typeof ticker.move_status === "object"
+        ? ticker.move_status
+        : null;
+    const hasMoveStatus = !!(ms && ms.status);
+    const statusRaw = ms?.status ? String(ms.status) : "";
+    const status = statusRaw ? statusRaw.trim().toUpperCase() : "ACTIVE";
+    const sideRaw = ms?.side ? String(ms.side) : "";
+    const side = sideRaw ? sideRaw.trim().toUpperCase() : null;
+    const severityRaw = ms?.severity ? String(ms.severity) : "";
+    const severity = severityRaw
+      ? severityRaw.trim().toUpperCase()
+      : "NONE";
+    const reasons = Array.isArray(ms?.reasons)
+      ? ms.reasons
+          .filter((x) => x != null)
+          .map((x) => String(x))
+          .map((x) => x.trim())
+          .filter(Boolean)
+      : [];
+    const headlineReason = reasons.length
+      ? prettyMoveReason(reasons[0])
+      : null;
+
+    if (status === "INVALIDATED") {
+      return {
+        hasMoveStatus,
+        status,
+        side,
+        severity,
+        reasons,
+        icon: "⛔",
+        pillCls: "bg-rose-500/15 text-rose-300 border-rose-500/40",
+        stroke: "#e11d48",
+        dash: "4 3",
+        headlineReason,
+      };
+    }
+    if (status === "COMPLETED") {
+      return {
+        hasMoveStatus,
+        status,
+        side,
+        severity,
+        reasons,
+        icon: "✅",
+        pillCls: "bg-purple-500/15 text-purple-300 border-purple-500/40",
+        stroke: "#a855f7",
+        dash: "2 3",
+        headlineReason,
+      };
+    }
+    return {
+      hasMoveStatus,
+      status: "ACTIVE",
+      side,
+      severity,
+      reasons,
+      icon: "🟢",
+      pillCls: "bg-teal-500/10 text-teal-300 border-teal-500/30",
+      stroke: "#14b8a6",
+      dash: null,
+      headlineReason,
+    };
+  }
+
+  function isPrimeBubble(ticker) {
+    if (!ticker) return false;
+    // rank and score are the same 0-100 composite; use either as fallback
+    const rank = Number(ticker.rank ?? ticker.score ?? 0);
+    const rr = ticker.rr != null ? Number(ticker.rr) : 0;
+    const comp = ticker.completion != null ? Number(ticker.completion) : 1;
+    const phase = ticker.phase_pct != null ? Number(ticker.phase_pct) : 1;
+    const flags = ticker.flags || {};
+    const state = String(ticker.state || "");
+
+    // ── Quality gate (all must pass) ──
+    if (!(rank >= 70 && rr >= 1.5 && comp < 0.5 && phase < 0.65)) return false;
+
+    // ── Confirmation signals (at least one) ──
+    const aligned = state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
+    const sqRel = !!flags.sq30_release;
+    const phaseZoneChange = !!flags.phase_zone_change;
+    const thesisMatch = flags.thesis_match === true;
+    const momentumElite = !!flags.momentum_elite;
+
+    // Winner pattern: pullback + corridor + very early
+    const ent = entryType(ticker);
+    const inPullback = state.includes("PULLBACK");
+    const inCorridor = !!ent?.corridor;
+    const veryEarly = comp < 0.15 && phase < 0.6;
+    const inSqueeze = !!flags.sq30_on && !flags.sq30_release;
+    const winnerPattern = inPullback && inCorridor && veryEarly;
+
+    if (aligned) return { reason: "aligned" };
+    if (thesisMatch) return { reason: "thesis" };
+    if (winnerPattern) return { reason: "winner" };
+    if (sqRel) return { reason: "squeeze_release" };
+    if (momentumElite) return { reason: "momentum" };
+    if (phaseZoneChange) return { reason: "phase_change" };
+
+    return false;
+  }
+
+  function isWinnerSignature(ticker) {
+    const p = isPrimeBubble(ticker);
+    return p && p.reason === "winner";
+  }
+
+  function completionForSize(ticker) {
+    // Use the completion value from Pine Script payload directly
+    // Pine Script calculates: completion = abs(close - triggerPrice) / expectedMove
+    // This is more accurate than recalculating from trigger to TP because:
+    // 1. It accounts for expectedMove (which may differ from TP distance)
+    // 2. It handles direction correctly
+    // 3. It works even when price hasn't reached trigger yet
+    const c = Number(ticker.completion);
+    return Number.isFinite(c) ? Math.max(0, Math.min(1, c)) : 0;
+  }
+
+  function getDirectionFromState(ticker) {
+    const state = String(ticker?.state || "");
+    // Use HTF (higher timeframe) direction — the primary trend.
+    // state.includes("BULL") is wrong: it matches LTF_BULL in HTF_BEAR_LTF_BULL.
+    if (state.startsWith("HTF_BULL")) return "LONG";
+    if (state.startsWith("HTF_BEAR")) return "SHORT";
+    // Fallback for non-standard states
+    if (state.includes("BULL")) return "LONG";
+    if (state.includes("BEAR")) return "SHORT";
+    return null;
+  }
+
+  function computeEntryRef(ticker) {
+    const entryRef = numFromAny(ticker?.entry_ref);
+    if (Number.isFinite(entryRef) && entryRef > 0) return entryRef;
+    const trigger = numFromAny(ticker?.trigger_price);
+    if (Number.isFinite(trigger) && trigger > 0) return trigger;
+    const price = numFromAny(
+      ticker?.price ?? ticker?.close ?? ticker?.c ?? ticker?.last,
+    );
+    return Number.isFinite(price) && price > 0 ? price : null;
+  }
+
+  function numFromAny(v) {
+    if (v == null) return null;
+    if (typeof v === "number") return Number.isFinite(v) ? v : null;
+    if (typeof v === "string") {
+      const s = v.trim();
+      if (!s) return null;
+      // Accept things like "$77.16", "77.16 USD", "1,234.50"
+      const m = s.replace(/,/g, "").match(/-?\d+(\.\d+)?/);
+      if (!m) return null;
+      const n = Number(m[0]);
+      return Number.isFinite(n) ? n : null;
+    }
+    // Common object formats: { price }, etc.
+    if (typeof v === "object" && v.price != null)
+      return numFromAny(v.price);
+    return null;
+  }
+
+  function computeReturnPct(ticker) {
+    const direct =
+      numFromAny(ticker?.expected_return_pct) ||
+      numFromAny(ticker?.tp_target_pct) ||
+      numFromAny(ticker?.tp_max_pct);
+    if (Number.isFinite(direct)) return direct;
+    const entry = computeEntryRef(ticker);
+    // Use server-provided TP directly
+    const tpTarget = numFromAny(ticker?.tp ?? ticker?.tp_trim);
+    if (!Number.isFinite(entry) || !Number.isFinite(tpTarget)) return null;
+    return (Math.abs(tpTarget - entry) / entry) * 100;
+  }
+
+  function computeRiskPct(ticker) {
+    const direct = numFromAny(ticker?.risk_pct);
+    if (Number.isFinite(direct)) return direct;
+    const entry = computeEntryRef(ticker);
+    const sl = numFromAny(
+      ticker?.sl ??
+        ticker?.sl_price ??
+        ticker?.stop_loss ??
+        ticker?.stop ??
+        ticker?.trade?.sl ??
+        ticker?.trade?.sl_price,
+    );
+    if (!Number.isFinite(entry) || !Number.isFinite(sl)) return null;
+    return (Math.abs(entry - sl) / entry) * 100;
+  }
+
+  function computeEtaDays(ticker) {
+    const staleness = String(ticker?.staleness || "").toUpperCase();
+    if (staleness && staleness !== "FRESH") return null;
+    const baseEta = numFromAny(ticker?.eta_days_v2 ?? ticker?.eta_days);
+    if (!Number.isFinite(baseEta) || baseEta <= 0) return null;
+    const dir = getDirectionFromState(ticker);
+    const entry = computeEntryRef(ticker);
+    // Use server-provided TP directly
+    const target = numFromAny(ticker?.tp ?? ticker?.tp_trim);
+    const current = numFromAny(
+      ticker?.price ?? ticker?.close ?? ticker?.c ?? ticker?.last,
+    );
+    if (
+      !Number.isFinite(entry) ||
+      !Number.isFinite(target) ||
+      !Number.isFinite(current) ||
+      !dir
+    ) {
+      return baseEta;
+    }
+    const totalDist = Math.abs(target - entry);
+    if (!Number.isFinite(totalDist) || totalDist <= 0) return baseEta;
+    const progress =
+      dir === "LONG"
+        ? (current - entry) / (target - entry)
+        : (entry - current) / (entry - target);
+    if (!Number.isFinite(progress)) return baseEta;
+    const clamped = Math.max(0, Math.min(1, progress));
+    const remaining = baseEta * (1 - clamped);
+    return Math.max(0.1, Math.round(remaining * 100) / 100);
+  }
+
+  function bubbleSizeSeed(symbol, step = 0.8) {
+    const seed = String(symbol || "")
+      .split("")
+      .reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+    return (seed % 5) * step;
+  }
+
+  function computeBubbleRadiusModel(
+    tickerLike,
+    symbolOverride = null,
+    { baseSize = 4, rrCap = 5, rrMultiplier = 2, minRadius = 3, maxRadius = 30 } = {},
+  ) {
+    const waiting = tickerLike?.waitingForData === true;
+    const comp = completionForSize(tickerLike);
+    const validComp = Number.isFinite(comp)
+      ? Math.max(0, Math.min(1, comp))
+      : 0;
+    const rrRaw = tickerLike?.rr != null ? Number(tickerLike.rr) : 0.5;
+    const rr = Number.isFinite(rrRaw) && rrRaw > 0 ? rrRaw : 0.5;
+    const cappedRR = Math.min(rr, rrCap);
+    // V15 P0.7.43 — small conviction-tier bump so the bubble size also
+    // reflects setup quality, not just R:R + completion. Tier A/B/C is
+    // the focus-tier composite emitted by the worker; absent ⇒ 0 bump.
+    const tier = String(
+      tickerLike?.focus_tier
+        ?? tickerLike?.__focus_tier
+        ?? tickerLike?.focusTier
+        ?? "",
+    ).toUpperCase();
+    const tierBump = tier === "A" ? 1.5 : tier === "B" ? 0.8 : tier === "C" ? 0.3 : 0;
+    const size = waiting
+      ? baseSize * 0.7
+      : baseSize + cappedRR * rrMultiplier * (1 - validComp) + tierBump;
+    const finalSize = Math.max(
+      baseSize,
+      size + bubbleSizeSeed(symbolOverride || tickerLike?.ticker),
+    );
+    return Math.max(minRadius, Math.min(maxRadius, finalSize));
+  }
+
+  function bubbleVisualForTrailPoint(point, tickerSymbol) {
+    const comp =
+      point && point.completion != null ? Number(point.completion) : 0;
+    const validComp = Number.isFinite(comp)
+      ? Math.max(0, Math.min(1, comp))
+      : 0;
+
+    // Prefer explicit phase_pct; otherwise fall back to completion as a proxy
+    const phasePctRaw =
+      point && point.phase_pct != null ? Number(point.phase_pct) : null;
+    const phasePct =
+      phasePctRaw != null && Number.isFinite(phasePctRaw)
+        ? Math.max(0, Math.min(1, phasePctRaw))
+        : validComp > 0
+          ? validComp
+          : 0.1;
+
+    const rrRaw = point && point.rr != null ? Number(point.rr) : null;
+    const rankRaw = point && point.rank != null ? Number(point.rank) : null;
+    const fallbackRR =
+      rrRaw != null && Number.isFinite(rrRaw) && rrRaw > 0
+        ? rrRaw
+        : rankRaw != null && Number.isFinite(rankRaw)
+          ? Math.max(0.5, Math.min(5, rankRaw / 50))
+          : 0.5;
+
+    // Trail bubbles should reflect their true size-at-the-time.
+    const TRAIL_SIZE_SCALE = 1.0;
+    const radius = Math.max(
+      2.5,
+      Math.min(
+        50,
+        computeBubbleRadiusModel(
+          { ...point, rr: fallbackRR, completion: validComp },
+          tickerSymbol || point?.ticker,
+          { maxRadius: 50 },
+        ) * TRAIL_SIZE_SCALE,
+      ),
+    );
+    const color = phaseCompletionToColor(phasePct);
+    return { radius, color, phasePct, validComp, validRR: fallbackRR };
+  }
+
+  function splitTrailByGaps(trail, gapMs = 30 * 60 * 1000) {
+    if (!Array.isArray(trail) || trail.length === 0) return [];
+    const segments = [];
+    let cur = [];
+    for (let i = 0; i < trail.length; i++) {
+      const p = trail[i];
+      const prev = i > 0 ? trail[i - 1] : null;
+      const ts = Number(p?.ts);
+      const prevTs = Number(prev?.ts);
+      const hasGap =
+        prev &&
+        Number.isFinite(ts) &&
+        Number.isFinite(prevTs) &&
+        ts - prevTs > gapMs;
+      if (hasGap && cur.length > 0) {
+        segments.push(cur);
+        cur = [];
+      }
+      cur.push(p);
+    }
+    if (cur.length > 0) segments.push(cur);
+    return segments;
+  }
+
+  function downsampleTrailToDaily(trail) {
+    if (!Array.isArray(trail) || trail.length === 0) return [];
+    const cutoffMs = Date.now() - JOURNEY_LOOKBACK_MS;
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      month: "numeric",
+      day: "numeric",
+    });
+    const byDate = new Map();
+    for (const p of trail) {
+      const tsRaw = Number(p?.ts);
+      if (!Number.isFinite(tsRaw) || tsRaw <= 0) continue;
+      const tsMs = tsRaw < 1e12 ? tsRaw * 1000 : tsRaw;
+      if (tsMs < cutoffMs) continue;
+      const dateKey = fmt.format(new Date(tsMs));
+      byDate.set(dateKey, { ...p, _dateLabel: dateKey });
+    }
+    return Array.from(byDate.values());
+  }
+
+  function catmullRomPath(points) {
+    if (!Array.isArray(points) || points.length < 2) return "";
+    const pts = points.map((p) => ({
+      x: Number(p?.x) || 0,
+      y: Number(p?.y) || 0,
+    }));
+    let d = `M ${pts[0].x} ${pts[0].y}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = i > 0 ? pts[i - 1] : pts[i];
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const p3 = i + 2 < pts.length ? pts[i + 2] : p2;
+      const c1x = p1.x + (p2.x - p0.x) / 6;
+      const c1y = p1.y + (p2.y - p0.y) / 6;
+      const c2x = p2.x - (p3.x - p1.x) / 6;
+      const c2y = p2.y - (p3.y - p1.y) / 6;
+      d += ` C ${c1x} ${c1y}, ${c2x} ${c2y}, ${p2.x} ${p2.y}`;
+    }
+    return d;
+  }
+
+  function computeDynamicScore(ticker) {
+    const baseScore = Number(ticker.rank) || 50; // Base score from worker (0-100)
+    const htf = Number(ticker.htf_score) || 0;
+    const ltf = Number(ticker.ltf_score) || 0;
+    const comp = completionForSize(ticker);
+    const phase = Number(ticker.phase_pct) || 0;
+    const rr = Number(ticker.rr) || 0;
+    const flags = ticker.flags || {};
+    const state = String(ticker.state || "");
+
+    const sqRel = !!flags.sq30_release;
+    const sqOn = !!flags.sq30_on;
+    const phaseZoneChange = !!flags.phase_zone_change;
+    const aligned =
+      state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
+    const ent = entryType(ticker);
+    const inCorridor = ent.corridor;
+
+    let dynamicScore = baseScore;
+
+    // Corridor bonus (high priority - active setups)
+    if (inCorridor) {
+      dynamicScore += 12; // Strong bonus for being in corridor
+
+      // Extra bonus if aligned AND in corridor (perfect setup)
+      if (aligned) {
+        dynamicScore += 8;
+      }
+    }
+
+    // Squeeze release in corridor = very strong signal
+    if (sqRel && inCorridor) {
+      dynamicScore += 10;
+    }
+
+    // Squeeze on in corridor = building pressure
+    if (sqOn && inCorridor && !sqRel) {
+      dynamicScore += 5;
+    }
+
+    // RR bonus (scaled - better RR = higher score)
+    if (rr >= 2.0) {
+      dynamicScore += 8; // Excellent RR
+    } else if (rr >= 1.5) {
+      dynamicScore += 5; // Good RR
+    } else if (rr >= 1.0) {
+      dynamicScore += 2; // Acceptable RR
+    }
+
+    // Phase bonus (early phase = better opportunity)
+    if (phase < 0.3) {
+      dynamicScore += 6; // Very early
+    } else if (phase < 0.5) {
+      dynamicScore += 3; // Early
+    } else if (phase > 0.7) {
+      dynamicScore -= 5; // Late phase penalty
+    }
+
+    // Completion bonus (low completion = more room to run)
+    if (comp < 0.3) {
+      dynamicScore += 5; // Early in move
+    } else if (comp > 0.8) {
+      dynamicScore -= 8; // Near completion penalty
+    }
+
+    // Score strength bonus (strong HTF/LTF scores)
+    const htfStrength = Math.min(12, Math.abs(htf) * 0.25);
+    const ltfStrength = Math.min(6, Math.abs(ltf) * 0.12);
+    dynamicScore += htfStrength + ltfStrength;
+
+    // Phase zone change bonus
+    if (phaseZoneChange) {
+      dynamicScore += 4;
+    }
+
+    // NO CAP - let scores go above 100 to avoid ties
+    // Minimum is 0, but no maximum cap
+    dynamicScore = Math.max(0, dynamicScore);
+
+    return Math.round(dynamicScore * 100) / 100; // Round to 2 decimals for precision
+  }
+
+  function rankScoreForTicker(ticker) {
+    const rankScore = Number(ticker?.rank_score);
+    if (Number.isFinite(rankScore)) return rankScore;
+    const dynamicRank = Number(ticker?.dynamicRank);
+    if (Number.isFinite(dynamicRank)) return dynamicRank;
+    const dynamicScore = Number(ticker?.dynamicScore);
+    if (Number.isFinite(dynamicScore)) return dynamicScore;
+    return Number(computeDynamicRank(ticker)) || 0;
+  }
+
+  function getRankedTickers(source) {
+    const list = toTickerArray(source);
+    const withScores = list.map((t) => ({
+      ...t,
+      __rankPos: Number(t?.rank_position),
+      __rankScore: rankScoreForTicker(t),
+    }));
+    withScores.sort((a, b) => {
+      const rankA = Number(a.__rankPos);
+      const rankB = Number(b.__rankPos);
+      const hasRankA = Number.isFinite(rankA) && rankA > 0;
+      const hasRankB = Number.isFinite(rankB) && rankB > 0;
+      if (hasRankA && hasRankB) return rankA - rankB;
+      if (hasRankA) return -1;
+      if (hasRankB) return 1;
+      const scoreA = Number(a.__rankScore) || 0;
+      const scoreB = Number(b.__rankScore) || 0;
+      return scoreB - scoreA;
+    });
+    return withScores;
+  }
+
+  function getRankPosition(sortedTickers, tickerSymbol) {
+    const sym = String(tickerSymbol || "")
+      .trim()
+      .toUpperCase();
+    if (!sym) return null;
+    const index = sortedTickers.findIndex(
+      (t) =>
+        String(t.ticker || "")
+          .trim()
+          .toUpperCase() === sym,
+    );
+    return index >= 0 ? index + 1 : null;
+  }
+
+  function getRankPositionFromMap(rankPositions, tickerSymbol) {
+    if (!rankPositions) return null;
+    const sym = String(tickerSymbol || "")
+      .trim()
+      .toUpperCase();
+    if (!sym) return null;
+    const pos = Number(rankPositions[sym]);
+    return Number.isFinite(pos) && pos > 0 ? pos : null;
+  }
+
+  // Alias: computeDynamicRank → computeDynamicScore (from index-react line 4230)
+  const computeDynamicRank = computeDynamicScore;
+
+  // ── BubbleChart React component ─────────────────────────
+
+  function BubbleChart({
+    tickers,
+    onBubbleClick,
+    onBackgroundClick,
+    hoveredTicker,
+    onHover,
+    selectedTicker,
+    selectedTrail,
+    isTimeTravelActive = false,
+    highlightTrailPoint = null,
+    allData,
+    rankedTickers,
+    rankedTickerPositions,
+    thesisMode = false,
+    forwardReturns = null,
+    activeInsightTickers = null,
+    layoutMode = "score",
+  }) {
+
+    /* V2.1 round 7 (2026-05-01) — When a ticker is SELECTED, solo it.
+       Per user: "When a ticker card is selected the bubble map should
+       only show that ticker's bubble and the journey, right now all
+       the bubbles also show up."
+       Previously we returned the full filtered universe whenever an
+       insight filter was active. Now selection always wins: if the
+       selected ticker is in scope, show ONLY it + journey trail.
+       The chart zoom domain is still computed from the full universe
+       (not displayTickers) so the bubble doesn't shift around. */
+    const displayTickers = React.useMemo(() => {
+      const list = Array.isArray(tickers) ? tickers : [];
+      if (!selectedTicker) return list;
+      const sym = String(selectedTicker).toUpperCase();
+      const solo = list.filter(
+        (t) => String(t?.ticker || "").toUpperCase() === sym,
+      );
+      // If selection is no longer in the filtered universe, fall back to showing the current universe.
+      return solo.length > 0 ? solo : list;
+    }, [tickers, selectedTicker, activeInsightTickers]);
+
+    // Daily-downsampled trail for cleaner journey view (non-Time-Travel only).
+    const displayTrail = React.useMemo(() => {
+      if (!selectedTicker || !Array.isArray(selectedTrail) || selectedTrail.length === 0) return selectedTrail;
+      if (isTimeTravelActive) return selectedTrail;
+      return downsampleTrailToDaily(selectedTrail);
+    }, [selectedTrail, selectedTicker, isTimeTravelActive]);
+
+    // Time Travel mode is snapshot-only: BubbleChart does NOT render trails for all bubbles.
+    // The only trail we render is `selectedTrail` (Selected Ticker mode).
+    // Debug: Log what BubbleChart receives
+    React.useEffect(() => {
+      if (!window._bubbleChartPropsLogged) {
+        window._bubbleChartPropsLogged = true;
+        debugLog(`[BUBBLE CHART PROPS] Received:`, {
+          tickersCount: tickers ? tickers.length : 0,
+          hasTickers: !!tickers,
+          isArray: Array.isArray(tickers),
+          firstTicker:
+            tickers && tickers.length > 0
+              ? {
+                  ticker: tickers[0].ticker,
+                  hasPhasePct: "phase_pct" in (tickers[0] || {}),
+                  hasCompletion: "completion" in (tickers[0] || {}),
+                  hasRR: "rr" in (tickers[0] || {}),
+                  keys: Object.keys(tickers[0] || {}).slice(0, 15),
+                }
+              : null,
+          hasAllData: !!allData,
+          allDataKeys: allData ? Object.keys(allData).slice(0, 10) : [],
+        });
+      }
+    }, [tickers, allData]);
+
+    const [tooltip, setTooltip] = useState(null);
+    const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+    const [showLabels, setShowLabels] = useState(true);
+    const [crosshairPos, setCrosshairPos] = useState(null); // { x, y, ltfValue, htfValue }
+    const containerRef = React.useRef(null);
+    const hoveredTickerRef = React.useRef(hoveredTicker);
+    React.useEffect(() => { hoveredTickerRef.current = hoveredTicker; }, [hoveredTicker]);
+
+    // Calculate #1 ranked ticker using SAME data source as Ranked List
+    const topRankedTicker = React.useMemo(() => {
+      if (rankedTickers && rankedTickers.length > 0) {
+        return rankedTickers[0].ticker;
+      }
+      if (!allData || typeof allData !== "object") return null;
+      const sorted = getRankedTickers(allData);
+      return sorted.length > 0 ? sorted[0].ticker : null;
+    }, [rankedTickers, allData]);
+    const [dimensions, setDimensions] = React.useState({
+      width: 900,
+      height: 800,
+    });
+
+    // Update dimensions on mount and resize to use full container space
+    React.useEffect(() => {
+      const updateDimensions = () => {
+        if (containerRef.current) {
+          const rect = containerRef.current.getBoundingClientRect();
+          // Use actual container size (padding already handled by CSS p-2 = 8px each side)
+          setDimensions({
+            width: Math.max(rect.width - 16, 400),
+            height: Math.max(rect.height - 16, 400),
+          });
+        }
+      };
+      // Use ResizeObserver for responsive tracking of actual container size
+      updateDimensions(); // immediate first measurement
+      let ro;
+      if (typeof ResizeObserver !== "undefined" && containerRef.current) {
+        ro = new ResizeObserver(() => updateDimensions());
+        ro.observe(containerRef.current);
+      }
+      window.addEventListener("resize", updateDimensions);
+      return () => {
+        if (ro) ro.disconnect();
+        window.removeEventListener("resize", updateDimensions);
+      };
+    }, []);
+
+    // No rAF animation — bubbles slide into place via CSS transition when scores update.
+
+    // Check Recharts availability (may load later)
+    // Re-check inside component in case Recharts loaded after initial script execution
+    let currentRechartsComponents = RechartsComponents;
+    if (!currentRechartsComponents && typeof Recharts !== "undefined") {
+      currentRechartsComponents = {
+        ScatterChart: Recharts.ScatterChart,
+        Scatter: Recharts.Scatter,
+        XAxis: Recharts.XAxis,
+        YAxis: Recharts.YAxis,
+        CartesianGrid: Recharts.CartesianGrid,
+        Tooltip: Recharts.Tooltip,
+        ResponsiveContainer: Recharts.ResponsiveContainer,
+        ReferenceLine: Recharts.ReferenceLine,
+        ReferenceArea: Recharts.ReferenceArea,
+      };
+    }
+
+    // TEMP: force Native SVG rendering (selection + trail lives here)
+    const FORCE_NATIVE_SVG = true;
+    if (FORCE_NATIVE_SVG) currentRechartsComponents = null;
+
+
+    // Fallback: Native SVG chart (works without Recharts)
+    if (!currentRechartsComponents) {
+      const chartWidth = dimensions.width;
+      const chartHeight = dimensions.height;
+      const margin = 70; // Extra margin so axis labels don't clip
+      const plotWidth = chartWidth - 2 * margin;
+      const plotHeight = chartHeight - 2 * margin;
+
+      // Auto-zoom: set domains based on active tickers (symmetric around 0)
+      const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+      const axisDomain = (arr, key, fallback = 50) => {
+        let min = Infinity;
+        let max = -Infinity;
+        for (const t of arr) {
+          const v = Number(t?.[key]);
+          if (!Number.isFinite(v)) continue;
+          if (v < min) min = v;
+          if (v > max) max = v;
+        }
+        if (!Number.isFinite(min) || !Number.isFinite(max)) return fallback;
+        const maxAbs = Math.max(Math.abs(min), Math.abs(max), 5);
+        // Pad a bit, but keep within canonical -50..50 score space
+        return clamp(maxAbs * 1.15, 10, 50);
+      };
+      // Domain base: full loaded universe (stable across filter clicks), fallback to current tickers list.
+      const domainBase = (() => {
+        if (allData && typeof allData === "object") {
+          return Object.values(allData).filter(
+            (t) => t && typeof t === "object",
+          );
+        }
+        return Array.isArray(tickers) ? tickers : [];
+      })();
+      const domainXMax = axisDomain(domainBase, "ltf_score", 50);
+      const domainYMax = axisDomain(domainBase, "htf_score", 50);
+
+      // Scaling based on dynamic domains
+      const scaleX = plotWidth / (2 * domainXMax);
+      const scaleY = plotHeight / (2 * domainYMax);
+      const offsetX = margin;
+      const offsetY = margin;
+      const axisExponentX = layoutMode === "timing" ? 0.74 : 0.88;
+      const axisExponentY = layoutMode === "timing" ? 0.8 : 0.92;
+      const projectAxisValue = (value, max, exponent) => {
+        const safeMax = Math.max(1, Number(max) || 1);
+        const raw = Number(value) || 0;
+        const normalized = clamp(raw / safeMax, -1, 1);
+        return Math.sign(normalized) * Math.pow(Math.abs(normalized), exponent);
+      };
+      const invertAxisProjection = (projected, max, exponent) => {
+        const safeMax = Math.max(1, Number(max) || 1);
+        const clampedProjected = clamp(projected, -1, 1);
+        return (
+          Math.sign(clampedProjected) *
+          Math.pow(Math.abs(clampedProjected), 1 / exponent) *
+          safeMax
+        );
+      };
+      const xForLtf = (value) =>
+        offsetX +
+        ((projectAxisValue(value, domainXMax, axisExponentX) + 1) / 2) *
+          plotWidth;
+      const yForHtf = (value) =>
+        offsetY +
+        (1 -
+          (projectAxisValue(value, domainYMax, axisExponentY) + 1) / 2) *
+          plotHeight;
+      const chartXForLtf = (value) => xForLtf(value) - offsetX;
+      const chartYForHtf = (value) => yForHtf(value) - offsetY;
+      const ltfFromChartX = (chartX) => {
+        const normalized =
+          ((clamp(chartX, 0, plotWidth) / Math.max(plotWidth, 1)) * 2) - 1;
+        return invertAxisProjection(normalized, domainXMax, axisExponentX);
+      };
+      const htfFromChartY = (chartY) => {
+        const normalized =
+          (1 - clamp(chartY, 0, plotHeight) / Math.max(plotHeight, 1)) * 2 -
+          1;
+        return invertAxisProjection(normalized, domainYMax, axisExponentY);
+      };
+
+      const handlePointerMove = (clientX, clientY, targetEl) => {
+        const rect = targetEl.getBoundingClientRect();
+
+        // CSS pixels within the rendered SVG element (used for HTML tooltip positioning)
+        const cssX = clientX - rect.left;
+        const cssY = clientY - rect.top;
+        setTooltipPos({ x: cssX, y: cssY });
+
+        // Convert screen coords → SVG viewBox units using the SVG's actual transform.
+        // This accounts for preserveAspectRatio letterboxing and any scaling caused by layout changes.
+        let svgX;
+        let svgY;
+        try {
+          if (targetEl && typeof targetEl.createSVGPoint === "function") {
+            const pt = targetEl.createSVGPoint();
+            pt.x = clientX;
+            pt.y = clientY;
+            const ctm = targetEl.getScreenCTM && targetEl.getScreenCTM();
+            if (ctm && typeof ctm.inverse === "function") {
+              const p = pt.matrixTransform(ctm.inverse());
+              svgX = p.x;
+              svgY = p.y;
+            }
+          }
+        } catch {}
+
+        // Fallback if CTM isn't available
+        if (!Number.isFinite(svgX) || !Number.isFinite(svgY)) {
+          const sx = rect.width ? chartWidth / rect.width : 1;
+          const sy = rect.height ? chartHeight / rect.height : 1;
+          svgX = cssX * sx;
+          svgY = cssY * sy;
+        }
+
+        // Convert SVG position to plot-area coordinates
+        const chartX = svgX - offsetX;
+        const chartY = svgY - offsetY;
+
+        // Check if mouse is within plot area
+        if (
+          chartX >= 0 &&
+          chartX <= plotWidth &&
+          chartY >= 0 &&
+          chartY <= plotHeight
+        ) {
+          // Convert to LTF/HTF scores
+          const ltfValue = ltfFromChartX(chartX);
+          const htfValue = htfFromChartY(chartY);
+
+          setCrosshairPos({
+            x: svgX,
+            y: svgY,
+            ltfValue: ltfValue,
+            htfValue: htfValue,
+            chartX: chartX,
+            chartY: chartY,
+          });
+        } else {
+          setCrosshairPos(null);
+        }
+      };
+
+      const handleMouseMove = (e) => {
+        handlePointerMove(e.clientX, e.clientY, e.currentTarget);
+      };
+
+      const handleMouseLeave = () => {
+        setTooltip(null);
+        setCrosshairPos(null);
+      };
+
+      // Collision avoidance: lightly repel overlapping bubbles while anchoring to true score position
+      const layoutPositions = (() => {
+        const list = Array.isArray(displayTickers) ? displayTickers : [];
+        if (list.length === 0) return {};
+
+        const hash = (s) =>
+          String(s || "")
+            .split("")
+            .reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+
+        const bubbleRadius = (t) => {
+          return computeBubbleRadiusModel(t, t?.ticker, { maxRadius: 30 });
+        };
+
+        const nodes = list.map((t) => {
+          const ltf = Number(t?.ltf_score) || 0;
+          const htf = Number(t?.htf_score) || 0;
+          const x0 = xForLtf(ltf);
+          const y0 = yForHtf(htf);
+          const r = bubbleRadius(t);
+          const j = (hash(t?.ticker) % 7) - 3; // deterministic tiny offset
+          return {
+            ticker: String(t?.ticker || ""),
+            x0,
+            y0,
+            x: x0 + j * 0.15,
+            y: y0 + j * 0.15,
+            r,
+          };
+        });
+
+        const PAD = layoutMode === "timing" ? 2.2 : 1.2;
+        const ITER = layoutMode === "timing" ? 18 : 14;
+        const ANCHOR = layoutMode === "timing" ? 0.14 : 0.18;
+        const REPULSE = layoutMode === "timing" ? 0.98 : 0.72;
+        const minX = offsetX + 2;
+        const maxX = offsetX + plotWidth - 2;
+        const minY = offsetY + 2;
+        const maxY = offsetY + plotHeight - 2;
+
+        for (let it = 0; it < ITER; it++) {
+          for (let i = 0; i < nodes.length; i++) {
+            const a = nodes[i];
+            for (let j = i + 1; j < nodes.length; j++) {
+              const b = nodes[j];
+              let dx = b.x - a.x;
+              let dy = b.y - a.y;
+              let dist = Math.hypot(dx, dy);
+              const minDist = a.r + b.r + PAD;
+              if (!Number.isFinite(dist) || dist === 0) {
+                const n = ((hash(a.ticker + b.ticker) % 10) - 5) * 0.02;
+                dx = n;
+                dy = -n;
+                dist = Math.hypot(dx, dy) || 1;
+              }
+              if (dist < minDist) {
+                const push = ((minDist - dist) / dist) * 0.5 * REPULSE;
+                a.x -= dx * push;
+                a.y -= dy * push;
+                b.x += dx * push;
+                b.y += dy * push;
+              }
+            }
+          }
+          for (const n of nodes) {
+            n.x += (n.x0 - n.x) * ANCHOR;
+            n.y += (n.y0 - n.y) * ANCHOR;
+            n.x = clamp(n.x, minX + n.r, maxX - n.r);
+            n.y = clamp(n.y, minY + n.r, maxY - n.r);
+          }
+        }
+
+        const out = {};
+        for (const n of nodes) {
+          if (!n.ticker) continue;
+          out[n.ticker] = { x: n.x, y: n.y };
+        }
+        return out;
+      })();
+
+      return (
+        <div
+          ref={containerRef}
+          className="w-full h-full bg-white/[0.02] rounded-xl border border-white/[0.06] p-2 relative"
+        >
+          {/* Label toggle */}
+          <div className="absolute top-2 right-2 z-10">
+            <button
+              onClick={() => setShowLabels(!showLabels)}
+              className="px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06] text-xs text-[#6b7280] hover:bg-white/5 transition-colors"
+            >
+              {showLabels ? "Hide Labels" : "Show Labels"}
+            </button>
+          </div>
+          <svg
+            width="100%"
+            height="100%"
+            viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+            preserveAspectRatio="xMidYMid meet"
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
+            onClick={(e) => {
+              const tag = e.target.tagName?.toLowerCase();
+              const isBg = e.target === e.currentTarget || tag === "rect" || tag === "line" || tag === "text";
+              if (isBg && typeof onBackgroundClick === "function") {
+                onBackgroundClick();
+              }
+            }}
+            onTouchMove={(e) => {
+              // Convert touch event to mouse-like coordinates for mobile
+              const touch = e.touches[0];
+              if (touch) {
+                handlePointerMove(
+                  touch.clientX,
+                  touch.clientY,
+                  e.currentTarget,
+                );
+              }
+            }}
+            onTouchEnd={handleMouseLeave}
+            className="w-full h-full touch-none"
+          >
+            {/* Grid with better styling */}
+            <defs>
+              <pattern
+                id="grid"
+                width="50"
+                height="50"
+                patternUnits="userSpaceOnUse"
+              >
+                <path
+                  d="M 50 0 L 0 0 0 50"
+                  fill="none"
+                  stroke="#252b36"
+                  strokeWidth="0.5"
+                  opacity="0.5"
+                />
+              </pattern>
+              <filter id="glow">
+                <feGaussianBlur stdDeviation="3" result="coloredBlur" />
+                <feMerge>
+                  <feMergeNode in="coloredBlur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+
+              {/* Arrowhead marker for the Bubble Trail path */}
+              <marker
+                id="trailArrow"
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="6"
+                markerHeight="6"
+                orient="auto"
+              >
+                <path
+                  d="M 0 0 L 10 5 L 0 10 z"
+                  fill="#00ffff"
+                  opacity="0.8"
+                />
+              </marker>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#grid)" />
+
+            {/* Axes - Zero lines (X=0 and Y=0) - Make them very visible */}
+            {/* Vertical center line (X=0) */}
+            <line
+              x1={xForLtf(0)}
+              y1={offsetY}
+              x2={xForLtf(0)}
+              y2={offsetY + plotHeight}
+              stroke="#ffffff"
+              strokeWidth="2"
+              opacity="1"
+            />
+            {/* Horizontal center line (Y=0) */}
+            <line
+              x1={offsetX}
+              y1={offsetY + plotHeight / 2}
+              x2={offsetX + plotWidth}
+              y2={offsetY + plotHeight / 2}
+              stroke="#ffffff"
+              strokeWidth="2"
+              opacity="1"
+            />
+            {/* Vertical axis line (y-axis) */}
+            <line
+              x1={offsetX}
+              y1={offsetY}
+              x2={offsetX}
+              y2={offsetY + plotHeight}
+              stroke="#8b92a0"
+              strokeWidth="2"
+              opacity="0.6"
+            />
+
+            {/* Axis labels */}
+            <text
+              x={offsetX - 50}
+              y={offsetY + plotHeight / 2}
+              fill="#8b92a0"
+              textAnchor="middle"
+              fontSize="13"
+              fontWeight="600"
+              transform={`rotate(-90 ${offsetX - 50} ${
+                offsetY + plotHeight / 2
+              })`}
+            >
+              HTF Score
+            </text>
+            <text
+              x={offsetX + plotWidth / 2}
+              y={offsetY + plotHeight + 40}
+              fill="#8b92a0"
+              textAnchor="middle"
+              fontSize="13"
+              fontWeight="600"
+            >
+              LTF Score
+            </text>
+
+            {/* Axis scale markers */}
+            {[
+              -domainXMax,
+              -domainXMax / 2,
+              0,
+              domainXMax / 2,
+              domainXMax,
+            ].map((val) => {
+              const x = xForLtf(val);
+              const y = offsetY + plotHeight / 2;
+              return (
+                <g key={`x-${val}`}>
+                  <line
+                    x1={x}
+                    y1={y - 5}
+                    x2={x}
+                    y2={y + 5}
+                    stroke="#8b92a0"
+                    strokeWidth="2"
+                  />
+                  <text
+                    x={x}
+                    y={y + 20}
+                    fill="#8b92a0"
+                    textAnchor="middle"
+                    fontSize="10"
+                  >
+                    {Math.round(val)}
+                  </text>
+                </g>
+              );
+            })}
+            {[
+              -domainYMax,
+              -domainYMax / 2,
+              0,
+              domainYMax / 2,
+              domainYMax,
+            ].map((val) => {
+              const x = offsetX;
+              const y = yForHtf(val);
+              return (
+                <g key={`y-${val}`}>
+                  <line
+                    x1={x - 5}
+                    y1={y}
+                    x2={x + 5}
+                    y2={y}
+                    stroke="#8b92a0"
+                    strokeWidth="2"
+                  />
+                  <text
+                    x={x - 15}
+                    y={y + 4}
+                    fill="#8b92a0"
+                    textAnchor="end"
+                    fontSize="10"
+                  >
+                    {Math.round(val)}
+                  </text>
+                </g>
+              );
+            })}
+
+            {/* Quadrant labels — descriptive with subtitles */}
+            {/* Top-Left: PULLBACK (HTF>0, LTF<0) */}
+            <text x={offsetX + plotWidth * 0.12} y={offsetY + 18} fill="#f59e0b" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.18">PULLBACK</text>
+            <text x={offsetX + plotWidth * 0.12} y={offsetY + 30} fill="#f59e0b" fontSize="7" textAnchor="middle" opacity="0.15">HTF Bullish, LTF Weak</text>
+            {/* Top-Right: BULLISH MOMENTUM (HTF>0, LTF>0) */}
+            <text x={offsetX + plotWidth * 0.88} y={offsetY + 18} fill="#22c55e" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.18">BULLISH MOMENTUM</text>
+            <text x={offsetX + plotWidth * 0.88} y={offsetY + 30} fill="#22c55e" fontSize="7" textAnchor="middle" opacity="0.15">All Timeframes Aligned</text>
+            {/* Bottom-Left: BEARISH MOMENTUM (HTF<0, LTF<0) */}
+            <text x={offsetX + plotWidth * 0.12} y={offsetY + plotHeight - 14} fill="#ef4444" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.18">BEARISH MOMENTUM</text>
+            <text x={offsetX + plotWidth * 0.12} y={offsetY + plotHeight - 3} fill="#ef4444" fontSize="7" textAnchor="middle" opacity="0.15">All Timeframes Aligned</text>
+            {/* Bottom-Right: BOUNCE / REVERSAL (HTF<0, LTF>0) */}
+            <text x={offsetX + plotWidth * 0.88} y={offsetY + plotHeight - 14} fill="#f59e0b" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.18">BOUNCE / REVERSAL</text>
+            <text x={offsetX + plotWidth * 0.88} y={offsetY + plotHeight - 3} fill="#f59e0b" fontSize="7" textAnchor="middle" opacity="0.15">HTF Bearish, LTF Strong</text>
+
+            {/* Corridors — subtle fill with dashed borders and labels */}
+            {(() => {
+              const longX = xForLtf(LONG_CORRIDOR.ltfMin);
+              const longW = xForLtf(LONG_CORRIDOR.ltfMax) - longX;
+              const shortX = xForLtf(SHORT_CORRIDOR.ltfMin);
+              const shortW = xForLtf(SHORT_CORRIDOR.ltfMax) - shortX;
+              return (
+                <>
+                  <rect x={longX} y={offsetY} width={longW} height={plotHeight / 2} fill="rgba(34,197,94,0.06)" stroke="rgba(34,197,94,0.25)" strokeWidth="1" strokeDasharray="6 4" />
+                  {/* V15 P0.7.84: BULL/BEAR vocabulary for setup zones
+                      (no active trade); LONG/SHORT reserved for the
+                      actual position direction. */}
+                  <text x={longX + longW / 2} y={offsetY + plotHeight * 0.25} fill="rgba(34,197,94,0.25)" fontSize="10" fontWeight="600" textAnchor="middle" dominantBaseline="middle" style={{pointerEvents:"none"}}>BULL SETUP ZONE</text>
+                  <rect x={shortX} y={offsetY + plotHeight / 2} width={shortW} height={plotHeight / 2} fill="rgba(239,68,68,0.06)" stroke="rgba(239,68,68,0.25)" strokeWidth="1" strokeDasharray="6 4" />
+                  <text x={shortX + shortW / 2} y={offsetY + plotHeight * 0.75} fill="rgba(239,68,68,0.25)" fontSize="10" fontWeight="600" textAnchor="middle" dominantBaseline="middle" style={{pointerEvents:"none"}}>BEAR SETUP ZONE</text>
+                </>
+              );
+            })()}
+
+            {/* Crosshair - Vertical line */}
+            {crosshairPos &&
+              crosshairPos.chartX >= 0 &&
+              crosshairPos.chartX <= plotWidth && (
+                <line
+                  x1={offsetX + crosshairPos.chartX}
+                  y1={offsetY}
+                  x2={offsetX + crosshairPos.chartX}
+                  y2={offsetY + plotHeight}
+                  stroke="#00ffff"
+                  strokeWidth="1"
+                  strokeDasharray="4 4"
+                  opacity="0.7"
+                  pointerEvents="none"
+                />
+              )}
+
+            {/* Crosshair - Horizontal line */}
+            {crosshairPos &&
+              crosshairPos.chartY >= 0 &&
+              crosshairPos.chartY <= plotHeight && (
+                <line
+                  x1={offsetX}
+                  y1={offsetY + crosshairPos.chartY}
+                  x2={offsetX + plotWidth}
+                  y2={offsetY + crosshairPos.chartY}
+                  stroke="#00ffff"
+                  strokeWidth="1"
+                  strokeDasharray="4 4"
+                  opacity="0.7"
+                  pointerEvents="none"
+                />
+              )}
+
+            {/* Crosshair value labels - Always show when crosshair is active */}
+            {crosshairPos && (
+              <>
+                {/* LTF value at bottom - show if crosshair is in plot area */}
+                {crosshairPos.chartX >= 0 &&
+                  crosshairPos.chartX <= plotWidth && (
+                    <g>
+                      <rect
+                        x={offsetX + crosshairPos.chartX - 30}
+                        y={offsetY + plotHeight + 5}
+                        width="60"
+                        height="20"
+                        fill="#0c0f14"
+                        stroke="#00ffff"
+                        strokeWidth="1.5"
+                        opacity="0.95"
+                        rx="3"
+                      />
+                      <text
+                        x={offsetX + crosshairPos.chartX}
+                        y={offsetY + plotHeight + 18}
+                        fill="#00ffff"
+                        textAnchor="middle"
+                        fontSize="12"
+                        fontWeight="700"
+                      >
+                        LTF: {crosshairPos.ltfValue.toFixed(1)}
+                      </text>
+                    </g>
+                  )}
+
+                {/* HTF value on left - show if crosshair is in plot area */}
+                {crosshairPos.chartY >= 0 &&
+                  crosshairPos.chartY <= plotHeight && (
+                    <g>
+                      <rect
+                        x={offsetX - 55}
+                        y={offsetY + crosshairPos.chartY - 10}
+                        width="50"
+                        height="20"
+                        fill="#0c0f14"
+                        stroke="#00ffff"
+                        strokeWidth="1.5"
+                        opacity="0.95"
+                        rx="3"
+                      />
+                      <text
+                        x={offsetX - 30}
+                        y={offsetY + crosshairPos.chartY + 5}
+                        fill="#00ffff"
+                        textAnchor="middle"
+                        fontSize="12"
+                        fontWeight="700"
+                      >
+                        HTF: {crosshairPos.htfValue.toFixed(1)}
+                      </text>
+                    </g>
+                  )}
+              </>
+            )}
+
+            {/* Bubble Journey overlay (daily snapshots when not in Time Travel) */}
+            {selectedTicker &&
+              displayTrail &&
+              displayTrail.length > 1 && (
+                <>
+                  {/* Trail path */}
+                  {(() => {
+                    const GAP_MS = 4 * 24 * 60 * 60 * 1000;
+                    const segments = splitTrailByGaps(
+                      displayTrail,
+                      GAP_MS,
+                    );
+                    return segments
+                      .filter((seg) => Array.isArray(seg) && seg.length > 1)
+                      .map((seg, segIdx) => {
+                        const pts = seg.map((p) => ({
+                          x: xForLtf(Number(p?.ltf_score) || 0),
+                          y: yForHtf(Number(p?.htf_score) || 0),
+                        }));
+                        const d = catmullRomPath(pts);
+                        if (!d) return null;
+                        const isLast = segIdx === segments.length - 1;
+                        const opacity =
+                          0.45 +
+                          (segIdx / Math.max(1, segments.length - 1)) *
+                            0.35;
+                        return (
+                          <path
+                            key={`trail-path-${segIdx}`}
+                            d={d}
+                            fill="none"
+                            stroke="#00ffff"
+                            strokeWidth="2.5"
+                            opacity={opacity}
+                            className="trail-path"
+                            strokeDasharray="6 3"
+                            markerEnd={
+                              isLast ? "url(#trailArrow)" : undefined
+                            }
+                            pointerEvents="none"
+                          />
+                        );
+                      });
+                  })()}
+
+                  {/* Trail points with date labels */}
+                  {displayTrail.slice(0, -1).map((point, idx) => {
+                    const x = xForLtf(Number(point?.ltf_score) || 0);
+                    const y = yForHtf(Number(point?.htf_score) || 0);
+                    const visual = bubbleVisualForTrailPoint(
+                      point,
+                      selectedTicker,
+                    );
+                    const size = Math.max(4.5, visual.radius);
+                    const opacity =
+                      0.45 + (idx / displayTrail.length) * 0.45;
+                    const dateLabel = point._dateLabel || (() => {
+                      const tsMs = Number(point?.ts);
+                      if (!Number.isFinite(tsMs) || tsMs <= 0) return null;
+                      const d = new Date(tsMs < 1e12 ? tsMs * 1000 : tsMs);
+                      return `${d.getMonth() + 1}/${d.getDate()}`;
+                    })();
+                    return (
+                      <g key={`trail-point-${idx}`} pointerEvents="none">
+                        <circle
+                          cx={x}
+                          cy={y}
+                          r={size}
+                          fill={visual.color}
+                          fillOpacity={opacity}
+                          stroke="#fff"
+                          strokeWidth="1.2"
+                          strokeOpacity={opacity * 0.6}
+                        />
+                        {dateLabel && (
+                          <text
+                            x={x}
+                            y={y - size - 3}
+                            fill="#d1d5db"
+                            textAnchor="middle"
+                            fontSize="8"
+                            fontWeight="600"
+                            opacity={opacity}
+                            style={{ pointerEvents: "none" }}
+                          >
+                            {dateLabel}
+                          </text>
+                        )}
+                      </g>
+                    );
+                  })}
+
+                  {/* Highlight a specific historical point */}
+                  {highlightTrailPoint &&
+                    Number.isFinite(
+                      Number(highlightTrailPoint?.ltf_score),
+                    ) &&
+                    Number.isFinite(
+                      Number(highlightTrailPoint?.htf_score),
+                    ) &&
+                    (() => {
+                      const hx = xForLtf(
+                        Number(highlightTrailPoint.ltf_score) || 0,
+                      );
+                      const hy = yForHtf(
+                        Number(highlightTrailPoint.htf_score) || 0,
+                      );
+                      const visual = bubbleVisualForTrailPoint(
+                        highlightTrailPoint,
+                        selectedTicker,
+                      );
+                      const r = Math.max(3, Number(visual?.radius) || 6);
+                      return (
+                        <g
+                          key={`trail-highlight-${String(
+                            highlightTrailPoint?.ts ?? "",
+                          )}`}
+                          pointerEvents="none"
+                        >
+                          <circle
+                            cx={hx}
+                            cy={hy}
+                            r={r + 3}
+                            fill="none"
+                            stroke="#00ffff"
+                            strokeWidth="2.25"
+                            opacity="0.9"
+                          >
+                            <animate
+                              attributeName="r"
+                              values={`${r + 2};${r + 10};${r + 2}`}
+                              dur="1.4s"
+                              repeatCount="indefinite"
+                            />
+                            <animate
+                              attributeName="opacity"
+                              values="0.95;0.25;0.95"
+                              dur="1.4s"
+                              repeatCount="indefinite"
+                            />
+                          </circle>
+                          <circle
+                            cx={hx}
+                            cy={hy}
+                            r={r + 1}
+                            fill="none"
+                            stroke={visual?.color || "#00ffff"}
+                            strokeWidth="1.5"
+                            opacity="0.8"
+                          />
+                        </g>
+                      );
+                    })()}
+                </>
+              )}
+
+            {/* Current bubbles */}
+            {displayTickers.map((ticker) => (
+              <SVGBubble
+                key={ticker.ticker}
+                ticker={ticker}
+                onClick={onBubbleClick}
+                onHover={(t) => {
+                  onHover(t);
+                  if (t) setTooltip(tickers.find((tt) => tt.ticker === t));
+                }}
+                isHovered={
+                  hoveredTicker === ticker.ticker ||
+                  (selectedTicker &&
+                    String(selectedTicker).toUpperCase() ===
+                      String(ticker.ticker || "").toUpperCase())
+                }
+                scaleX={scaleX}
+                scaleY={-scaleY}
+                offsetX={xForLtf(0)}
+                offsetY={yForHtf(0)}
+                layoutX={layoutPositions?.[ticker.ticker]?.x}
+                layoutY={layoutPositions?.[ticker.ticker]?.y}
+                showLabels={showLabels}
+                isTopRanked={topRankedTicker === ticker.ticker}
+                thesisMode={thesisMode}
+                insightDimmed={activeInsightTickers ? !activeInsightTickers.has(String(ticker.ticker).toUpperCase()) : false}
+              />
+            ))}
+
+            {/* Time Travel floating label near the selected bubble */}
+            {isTimeTravelActive &&
+              selectedTicker &&
+              (() => {
+                const sym = String(selectedTicker || "")
+                  .trim()
+                  .toUpperCase();
+                if (!sym) return null;
+                const selectedObj = (
+                  Array.isArray(tickers) ? tickers : []
+                ).find(
+                  (t) =>
+                    t &&
+                    String(t.ticker || "")
+                      .trim()
+                      .toUpperCase() === sym,
+                );
+                if (!selectedObj) return null;
+
+                const ltf = Number(selectedObj?.ltf_score) || 0;
+                const htf = Number(selectedObj?.htf_score) || 0;
+                const lx = layoutPositions?.[selectedObj.ticker]?.x;
+                const ly = layoutPositions?.[selectedObj.ticker]?.y;
+
+                const x = Number.isFinite(Number(lx))
+                  ? Number(lx)
+                  : xForLtf(ltf);
+                const y = Number.isFinite(Number(ly))
+                  ? Number(ly)
+                  : yForHtf(htf);
+
+                const toMs = (v) => {
+                  if (v == null) return NaN;
+                  if (typeof v === "number") {
+                    const n = v;
+                    // Heuristic: if seconds, convert to ms
+                    return n > 0 && n < 1e12 ? n * 1000 : n;
+                  }
+                  const n = Number(v);
+                  if (Number.isFinite(n))
+                    return n > 0 && n < 1e12 ? n * 1000 : n;
+                  const d = new Date(String(v));
+                  const ms = d.getTime();
+                  return Number.isFinite(ms) ? ms : NaN;
+                };
+
+                const tsMs = toMs(
+                  selectedObj.ts ??
+                    selectedObj.ingest_ts ??
+                    selectedObj.ingest_time,
+                );
+                const price = Number(selectedObj.price);
+
+                const tsText = Number.isFinite(tsMs)
+                  ? new Date(tsMs).toLocaleString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })
+                  : "—";
+                const pxText = Number.isFinite(price)
+                  ? `$${price.toFixed(2)}`
+                  : "—";
+                const labelText = `${tsText} • ${pxText}`;
+
+                // Position the label near the bubble; clamp inside the SVG viewport.
+                const pad = 8;
+                const approxW = Math.min(
+                  260,
+                  Math.max(140, labelText.length * 6.2),
+                );
+                const w = approxW;
+                const h = 22;
+                let lx0 = x + 14;
+                let ly0 = y - 34;
+                lx0 = Math.max(pad, Math.min(chartWidth - w - pad, lx0));
+                ly0 = Math.max(pad, Math.min(chartHeight - h - pad, ly0));
+
+                return (
+                  <g pointerEvents="none" opacity="0.98">
+                    <rect
+                      x={lx0}
+                      y={ly0}
+                      width={w}
+                      height={h}
+                      rx="6"
+                      fill="#0c0f14"
+                      stroke="#00ffff"
+                      strokeWidth="1"
+                      fillOpacity="0.85"
+                    />
+                    <text
+                      x={lx0 + w / 2}
+                      y={ly0 + 15}
+                      fill="#f0f2f5"
+                      textAnchor="middle"
+                      fontSize="11"
+                      fontWeight="700"
+                    >
+                      {labelText}
+                    </text>
+                  </g>
+                );
+              })()}
+
+            {/* Forward returns badges (Time Travel paused) */}
+            {isTimeTravelActive && forwardReturns && !selectedTicker && displayTickers.map((ticker) => {
+              const sym = ticker?.ticker;
+              const fr = forwardReturns?.[sym];
+              if (!fr || (fr.return_1d_pct == null && fr.return_1w_pct == null)) return null;
+              const ltf = Number(ticker?.ltf_score) || 0;
+              const htf = Number(ticker?.htf_score) || 0;
+              const lx = layoutPositions?.[sym]?.x;
+              const ly = layoutPositions?.[sym]?.y;
+              const bx = Number.isFinite(Number(lx)) ? Number(lx) : xForLtf(ltf);
+              const by = Number.isFinite(Number(ly)) ? Number(ly) : yForHtf(htf);
+              const r1d = fr.return_1d_pct;
+              const r1w = fr.return_1w_pct;
+              const fmt = (v) => (v > 0 ? "+" : "") + v.toFixed(1) + "%";
+              const col = (v) => v > 0 ? "#22c55e" : v < 0 ? "#ef4444" : "#9ca3af";
+              return (
+                <g key={`fr-${sym}`} pointerEvents="none">
+                  {r1d != null && (
+                    <text x={bx} y={by + 18} fill={col(r1d)} textAnchor="middle" fontSize="8" fontWeight="700" opacity="0.85">
+                      1D: {fmt(r1d)}
+                    </text>
+                  )}
+                  {r1w != null && (
+                    <text x={bx} y={by + 27} fill={col(r1w)} textAnchor="middle" fontSize="8" fontWeight="700" opacity="0.85">
+                      1W: {fmt(r1w)}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
+          </svg>
+
+          {/* Tooltip */}
+          {tooltip &&
+            (() => {
+              // Calculate rank position using worker's rank field (stored at worker level)
+              // This matches the ranking system used throughout the platform
+              let rankPosition = null;
+              let totalTickers = 0;
+              const sortedByRank =
+                rankedTickers && rankedTickers.length > 0
+                  ? rankedTickers
+                  : getRankedTickers(allData);
+              totalTickers = sortedByRank.length;
+              rankPosition =
+                getRankPositionFromMap(
+                  rankedTickerPositions,
+                  tooltip.ticker,
+                ) ?? getRankPosition(sortedByRank, tooltip.ticker);
+              const rankTotal =
+                Number.isFinite(Number(tooltip.rank_total)) &&
+                Number(tooltip.rank_total) > 0
+                  ? Number(tooltip.rank_total)
+                  : totalTickers;
+              totalTickers = rankTotal;
+              return (
+                <div
+                  className="absolute rounded-2xl p-3 text-sm pointer-events-none z-10 shadow-2xl fade-in border border-white/[0.10]"
+                  style={{
+                    left: tooltipPos.x > dimensions.width * 0.65 ? tooltipPos.x - 240 : tooltipPos.x + 10,
+                    top: tooltipPos.y > dimensions.height * 0.55 ? tooltipPos.y - 280 : tooltipPos.y - 10,
+                    minWidth: "220px",
+                    background: "rgba(255,255,255,0.06)",
+                    backdropFilter: "blur(24px) saturate(1.4)",
+                    WebkitBackdropFilter: "blur(24px) saturate(1.4)",
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.45), inset 0 0.5px 0 rgba(255,255,255,0.08)",
+                  }}
+                >
+                  <div className="font-bold text-base mb-2 flex items-center gap-2 flex-wrap">
+                    <span>{tooltip.ticker}</span>
+                    {tooltip.price && (
+                      <span className="text-sm font-normal text-white">
+                        ${Number(tooltip.price).toFixed(2)}
+                      </span>
+                    )}
+                    {(() => {
+                      const dc = getDailyChange(tooltip);
+                      if (!dc || !Number.isFinite(dc.dayPct)) return null;
+                      const pos = dc.dayPct >= 0;
+                      return (
+                        <span className={`text-xs font-semibold ${pos ? "text-emerald-400" : "text-rose-400"}`}>
+                          {pos ? "+" : ""}{dc.dayPct.toFixed(2)}%{Number.isFinite(dc.dayChg) ? ` (${pos ? "+" : ""}${dc.dayChg.toFixed(2)})` : ""}
+                        </span>
+                      );
+                    })()}
+                    {(() => {
+                      // V15 P0.7.83: bias terminology unified.
+                      // LONG/SHORT only when there's an actual open
+                      // position; otherwise BULL/BEAR for the signal
+                      // direction. Matches kanban cards / right rail.
+                      const b = tooltip.bias_direction || getDirectionFromState(tooltip);
+                      if (!b) return null;
+                      const sym = String(tooltip?.ticker || "").toUpperCase();
+                      const tr = (typeof tradeByTicker !== "undefined" && tradeByTicker?.get?.(sym)) || null;
+                      const _trStatus = String(tr?.status || "").toUpperCase();
+                      const hasOpenTrade = !!(tr && (_trStatus === "OPEN" || _trStatus === "TP_HIT_TRIM"));
+                      const l = String(b).toUpperCase() === "LONG";
+                      const s = String(b).toUpperCase() === "SHORT";
+                      const longLabel = hasOpenTrade ? "LONG" : "BULL";
+                      const shortLabel = hasOpenTrade ? "SHORT" : "BEAR";
+                      return (
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${l ? "bg-teal-500/20 text-teal-400" : s ? "bg-rose-500/20 text-rose-400" : "bg-white/[0.04] text-[#6b7280]"}`}>
+                          {l ? longLabel : s ? shortLabel : "NEUTRAL"}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                  {(() => {
+                    // Prioritize ingest_ts (when data was ingested) over ts (TradingView timestamp)
+                    const ingestTime =
+                      tooltip.ingest_ts ||
+                      tooltip.ingest_time ||
+                      tooltip.ts;
+                    if (ingestTime) {
+                      try {
+                        let timeValue;
+                        if (typeof ingestTime === "string") {
+                          timeValue = new Date(ingestTime);
+                        } else {
+                          const n = Number(ingestTime);
+                          const ms = n > 0 && n < 1e12 ? n * 1000 : n;
+                          timeValue = new Date(ms);
+                        }
+                        if (!isNaN(timeValue.getTime())) {
+                          const ageMs = Date.now() - timeValue.getTime();
+                          const ageMinutes = Math.floor(ageMs / 60000);
+                          const ageHours = Math.floor(ageMinutes / 60);
+
+                          // Warn if data is stale (older than 30 minutes)
+                          const isStale = ageMinutes > 30;
+                          const etOpt = { timeZone: "America/New_York" };
+
+                          const displayTime = timeValue.toLocaleTimeString(
+                            "en-US",
+                            { hour: "numeric", minute: "2-digit", hour12: true, ...etOpt },
+                          );
+                          const displayDate = timeValue.toLocaleDateString(
+                            "en-US",
+                            { month: "short", day: "numeric", ...etOpt },
+                          );
+                          return (
+                            <div
+                              className={`text-[10px] mb-2 ${
+                                isStale
+                                  ? "text-yellow-400"
+                                  : "text-[#6b7280]"
+                              }`}
+                            >
+                              {displayDate} {displayTime}
+                              {isStale && (
+                                <span
+                                  className="ml-1"
+                                  title={`Data is ${
+                                    ageHours > 0 ? `${ageHours}h ` : ""
+                                  }${ageMinutes % 60}m old`}
+                                >
+                                  ⚠️
+                                </span>
+                              )}
+                            </div>
+                          );
+                        }
+                      } catch (e) {}
+                    }
+                    return null;
+                  })()}
+                  {(() => {
+                    const p = isPrimeBubble(tooltip);
+                    if (!p) return null;
+                    const labels = { aligned: "Aligned", thesis: "Thesis Confirmed", winner: "Early Pattern", squeeze_release: "Squeeze Release", momentum: "Momentum", phase_change: "Phase Shift" };
+                    return (
+                      <div className="mb-2 px-2 py-1 rounded bg-teal-500/20 text-teal-400 text-xs font-semibold text-center">
+                        💎 PRIME — {labels[p.reason] || "Quality Setup"}
+                      </div>
+                    );
+                  })()}
+                  {(() => {
+                    const mv = getMoveStatusInfo(tooltip);
+                    return (
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="text-[11px] text-[#6b7280]">
+                          Move
+                        </span>
+                        <span
+                          className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${mv.pillCls}`}
+                        >
+                          {mv.icon} {mv.status}
+                        </span>
+                      </div>
+                    );
+                  })()}
+                  {(() => {
+                    const mv = getMoveStatusInfo(tooltip);
+                    if (mv.status === "ACTIVE" || !mv.headlineReason)
+                      return null;
+                    return (
+                      <div className="mb-2 text-[10px] text-[#4b5563]">
+                        <span className="text-[#6b7280]">
+                          {mv.status === "INVALIDATED"
+                            ? "Invalidated"
+                            : "Completed"}
+                          :
+                        </span>{" "}
+                        <span className="text-[#d1d5db]">
+                          {mv.headlineReason}
+                        </span>
+                      </div>
+                    );
+                  })()}
+                  <div className="space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-[#6b7280]">Score</span>
+                      <span className="font-semibold">
+                        {(() => {
+                          const s = rankScoreForTicker(tooltip);
+                          return Number.isFinite(s) ? s.toFixed(1) : "—";
+                        })()}
+                      </span>
+                    </div>
+                    {rankPosition !== null && totalTickers > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-[#6b7280]">Rank</span>
+                        <span className="font-semibold">
+                          {rankPosition} / {totalTickers}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex justify-between">
+                      <span className="text-[#6b7280]">RR</span>
+                      <span className="font-semibold">
+                        {window._ttIsPro
+                          ? (tooltip.rr ? Number(tooltip.rr).toFixed(2) : "—")
+                          : <span className="text-amber-400" title="Upgrade to Pro for R:R">Go Pro</span>}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-[#6b7280]">State</span>
+                      <span className="font-semibold">
+                        {tooltip.state || "—"}
+                      </span>
+                    </div>
+                    {/* Bias tag moved to header next to ticker name */}
+                    {window._ttIsPro ? (
+                      <>
+                        <div className="flex justify-between">
+                          <span className="text-[#6b7280]">Phase</span>
+                          <span
+                            className="font-semibold"
+                            style={{
+                              color: phaseToColor(
+                                Number(tooltip.saty_phase_pct ?? tooltip.phase_pct) || 0,
+                              ),
+                            }}
+                          >
+                            {Math.round((Number(tooltip.saty_phase_pct ?? tooltip.phase_pct) || 0) * 100)}
+                            %{tooltip.phase_zone && ` (${tooltip.phase_zone})`}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-[#6b7280]">Completion</span>
+                          <span className="font-semibold">
+                            {Math.round(completionForSize(tooltip) * 100)}%
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex justify-between">
+                        <span className="text-[#6b7280]">Progress</span>
+                        <span className="font-semibold text-amber-400" title="Upgrade to Pro for Phase & Completion">Go Pro</span>
+                      </div>
+                    )}
+                    {tooltip.regime_class && (
+                      <div className="flex justify-between">
+                        <span className="text-[#6b7280]">Regime</span>
+                        <span className={`font-semibold ${tooltip.regime_class === "TRENDING" ? "text-emerald-400" : tooltip.regime_class === "CHOPPY" ? "text-rose-400" : "text-amber-400"}`}>
+                          {tooltip.regime_class}
+                        </span>
+                      </div>
+                    )}
+                    {(() => {
+                      const rm = tooltip.rvol_map || {};
+                      const rv = Math.max(Number(rm?.["30"]?.vr) || 0, Number(rm?.["60"]?.vr) || 0);
+                      if (rv <= 0) return null;
+                      return (
+                        <div className="flex justify-between">
+                          <span className="text-[#6b7280]">RVOL</span>
+                          <span className={`font-semibold ${rv >= 1.5 ? "text-emerald-400" : rv >= 0.8 ? "text-white" : "text-rose-400"}`}>
+                            {rv.toFixed(2)}x
+                          </span>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              );
+            })()}
+        </div>
+      );
+    }
+
+    // Recharts version (if loaded) - use currentRechartsComponents
+    const {
+      ScatterChart,
+      Scatter,
+      XAxis,
+      YAxis,
+      CartesianGrid,
+      Tooltip,
+      ResponsiveContainer,
+      ReferenceLine,
+      ReferenceArea,
+    } = currentRechartsComponents;
+
+    const [rechartsCrosshair, setRechartsCrosshair] = useState(null);
+    const chartContainerRef = React.useRef(null);
+
+    // Store ranked tickers for tooltip access
+    const allTickersForRanking = rankedTickers;
+
+    // Filter data based on selectedTicker, except in insight mode where
+    // the user expects the whole matching chip universe to stay visible.
+    const data = useMemo(() => {
+      const insightMode = !!(activeInsightTickers && activeInsightTickers.size > 0);
+      const tickersToUse = insightMode
+        ? tickers
+        : selectedTicker
+          ? tickers.filter((t) => {
+              if (!t || typeof t !== "object") return false;
+              const tTicker = String(t.ticker || "").toUpperCase();
+              return tTicker === String(selectedTicker).toUpperCase();
+            })
+          : tickers;
+
+      debugLog(
+        `[RECHARTS DATA] selectedTicker=${selectedTicker}, insightMode=${insightMode}, using ${tickersToUse.length} of ${tickers.length} tickers`,
+      );
+
+      return tickersToUse.map((t) => ({
+        x: Number(t.ltf_score) || 0,
+        y: Number(t.htf_score) || 0,
+        ticker: t,
+      }));
+    }, [tickers, selectedTicker, activeInsightTickers]);
+
+    // Recharts shape renderer - receives cx, cy, payload from Recharts
+    const BubbleShape = React.useCallback(
+      (props) => {
+        const { cx, cy, payload } = props;
+        const ticker = payload?.ticker;
+        if (!ticker) return null;
+
+        const phasePct =
+          ticker.phase_pct != null ? Number(ticker.phase_pct) : 0;
+        const waitingForData = ticker.waitingForData === true;
+
+        const validPhase = Number.isFinite(phasePct)
+          ? Math.max(0, Math.min(1, phasePct))
+          : 0.1;
+        const tickerHash = (ticker.ticker || "")
+          .split("")
+          .reduce((acc, char) => acc + char.charCodeAt(0), 0);
+        const finalSize = computeBubbleRadiusModel(
+          ticker,
+          ticker?.ticker,
+          { minRadius: 4, maxRadius: 30 },
+        );
+
+        // Direction-aware color (matches kanban card accents)
+        const flags = ticker.flags || {};
+        const prime = isPrimeBubble(ticker);
+        const winnerSig = isWinnerSignature(ticker);
+        const move = getMoveStatusInfo(ticker);
+        const dir = getDirectionFromState(ticker);
+        const flipWatch = !!flags.flip_watch;
+        const isTopRanked = topRankedTicker === ticker.ticker;
+        const isBubbleHovered = hoveredTickerRef.current === ticker.ticker;
+        const isInSqueeze = !!flags.sq30_on && !flags.sq30_release;
+
+        let color;
+        if (waitingForData) {
+          color = "#5c6475";
+        } else if (dir === "LONG") {
+          color = validPhase < 0.3 ? "#22d3ee" : validPhase < 0.6 ? "#06b6d4" : "#0891b2";
+        } else if (dir === "SHORT") {
+          color = validPhase < 0.3 ? "#fb7185" : validPhase < 0.6 ? "#e11d48" : "#be123c";
+        } else {
+          color = validPhase < 0.3 ? "#14b8a6" : validPhase < 0.6 ? "#eab308" : "#e11d48";
+        }
+
+        const emojis = [];
+        if (isTopRanked) emojis.push("👑");
+        if (waitingForData) emojis.push("⏳");
+        if (!waitingForData) {
+          if (prime) emojis.push("💎");
+          if (flipWatch) emojis.push("🎯");
+          if (!!flags.momentum_elite) emojis.push("🔥");
+          if (flags.sq30_release) emojis.push("⚡");
+          if (isInSqueeze) emojis.push("🧨");
+          if (flags.saty_compression_multi_tf) emojis.push("🗜️");
+        }
+        const emojiText = emojis.join("");
+
+        let borderColor = waitingForData ? "#8b92a0"
+          : dir === "LONG" ? "#22d3ee"
+          : dir === "SHORT" ? "#e11d48"
+          : flipWatch ? "#fbbf24"
+          : prime ? "#14b8a6"
+          : winnerSig ? "#a855f7"
+          : flags.sq30_release ? "#00ffff"
+          : flags.sq30_on ? "#ffd700"
+          : "rgba(255,255,255,0.25)";
+
+        const baseOpacity = waitingForData ? 0.55
+          : dir ? 0.92
+          : prime || winnerSig ? 0.9
+          : 0.8;
+        const moveOpacityMult = waitingForData ? 1
+          : move.status === "INVALIDATED" ? 0.25
+          : move.status === "COMPLETED" ? 0.6
+          : 1;
+        const opacity = Math.max(0.12, baseOpacity * moveOpacityMult);
+
+        if (!waitingForData && move.status !== "ACTIVE" && !dir) {
+          borderColor = move.stroke;
+        }
+        const borderWidth = waitingForData ? 1.5
+          : dir ? 2.5
+          : flipWatch ? 3.5
+          : prime || winnerSig ? 3
+          : flags.sq30_release || flags.sq30_on ? 2
+          : 1.5;
+        const bubbleSize = finalSize;
+        const labelY =
+          cy - bubbleSize - (emojiText ? (isTopRanked ? 20 : 12) : 8);
+
+        const rcGradId = `rc-bg-${ticker.ticker}`;
+        const rcRenderedSize = Math.max(3, bubbleSize);
+
+        const ks = String(ticker?._effectiveKanbanStage || ticker.kanban_stage || "").toLowerCase();
+        const isActionable = ["in_review", "enter", "enter_now", "just_entered", "just_flipped", "flip_watch"].includes(ks);
+
+        return (
+          <g
+            className="bubble-g"
+            data-dir={dir || "NEUTRAL"}
+            data-seed={tickerHash}
+            data-actionable={isActionable ? "1" : "0"}
+            onClick={() => onBubbleClick(ticker.ticker)}
+            onMouseEnter={() => onHover(ticker.ticker)}
+            onMouseLeave={() => onHover(null)}
+            onTouchStart={(e) => { e.preventDefault(); onHover(ticker.ticker); onBubbleClick(ticker.ticker); }}
+            onTouchEnd={(e) => { e.preventDefault(); onHover(null); }}
+            style={{ cursor: "pointer", touchAction: "manipulation" }}
+          >
+            <defs>
+              <radialGradient id={rcGradId} cx="35%" cy="35%">
+                <stop offset="0%" stopColor="#ffffff" stopOpacity="0.18" />
+                <stop offset="50%" stopColor={color} stopOpacity={opacity} />
+                <stop offset="100%" stopColor={color} stopOpacity={opacity * 0.7} />
+              </radialGradient>
+            </defs>
+            {/* Outer glow ring for direction / special states */}
+            {(dir || flipWatch || prime || winnerSig) && (
+              <circle
+                cx={cx} cy={cy}
+                r={rcRenderedSize + 3}
+                fill="none"
+                stroke={borderColor}
+                strokeWidth={flipWatch ? 2 : 1}
+                opacity={flipWatch ? 0.5 : 0.2}
+              >
+                {flipWatch && (
+                  <>
+                    <animate attributeName="r" values={`${rcRenderedSize + 3};${rcRenderedSize + 6};${rcRenderedSize + 3}`} dur="2s" repeatCount="indefinite" />
+                    <animate attributeName="opacity" values="0.3;0.7;0.3" dur="2s" repeatCount="indefinite" />
+                  </>
+                )}
+              </circle>
+            )}
+            {/* #1 ranked glow */}
+            {isTopRanked && (
+              <>
+                <circle cx={cx} cy={cy} r={rcRenderedSize + 5} fill="none" stroke="#ffd700" strokeWidth="2" opacity="0.6">
+                  <animate attributeName="opacity" values="0.3;0.9;0.3" dur="2s" repeatCount="indefinite" />
+                  <animate attributeName="r" values={`${rcRenderedSize + 4};${rcRenderedSize + 7};${rcRenderedSize + 4}`} dur="2s" repeatCount="indefinite" />
+                </circle>
+              </>
+            )}
+            {/* Main bubble — gradient fill */}
+            <circle
+              cx={cx} cy={cy}
+              r={rcRenderedSize}
+              fill={`url(#${rcGradId})`}
+              stroke={borderColor}
+              strokeWidth={borderWidth}
+              strokeDasharray={!waitingForData && move.dash ? move.dash : undefined}
+            />
+            {/* Highlight arc for glassy look */}
+            {rcRenderedSize > 5 && (
+              <circle
+                cx={cx - rcRenderedSize * 0.2}
+                cy={cy - rcRenderedSize * 0.2}
+                r={rcRenderedSize * 0.45}
+                fill="#ffffff"
+                fillOpacity="0.08"
+                style={{ pointerEvents: "none" }}
+              />
+            )}
+            {/* Move status badge (Completed / Invalidated) */}
+            {!waitingForData && move.status !== "ACTIVE" && (
+              <g style={{ pointerEvents: "none" }}>
+                <text
+                  x={cx + bubbleSize * 0.55}
+                  y={cy - bubbleSize * 0.55}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fontSize="12"
+                  fontWeight="800"
+                  style={{ textShadow: "0 0 4px rgba(0,0,0,0.9)" }}
+                >
+                  {move.icon}
+                </text>
+              </g>
+            )}
+            {/* Emoji above bubble */}
+            {emojiText && (
+              <g style={{ pointerEvents: "none" }}>
+                {/* Background circle for #1 ranked - reduced size */}
+                {isTopRanked && (
+                  <circle
+                    cx={cx}
+                    cy={labelY - 5}
+                    r="18"
+                    fill="#ffd700"
+                    fillOpacity="0.3"
+                  >
+                    <animate
+                      attributeName="fillOpacity"
+                      values="0.2;0.5;0.2"
+                      dur="1.5s"
+                      repeatCount="indefinite"
+                    />
+                  </circle>
+                )}
+                {/* Outer glow ring for #1 - reduced size */}
+                {isTopRanked && (
+                  <>
+                    <circle
+                      cx={cx}
+                      cy={labelY - 5}
+                      r="22"
+                      fill="none"
+                      stroke="#ffd700"
+                      strokeWidth="2"
+                      opacity="0.6"
+                    >
+                      <animate
+                        attributeName="r"
+                        values="20;24;20"
+                        dur="2s"
+                        repeatCount="indefinite"
+                      />
+                      <animate
+                        attributeName="opacity"
+                        values="0.4;0.8;0.4"
+                        dur="2s"
+                        repeatCount="indefinite"
+                      />
+                    </circle>
+                  </>
+                )}
+                {/* Main emoji text */}
+                <text
+                  x={cx}
+                  y={labelY}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fontSize={
+                    isTopRanked
+                      ? "24"
+                      : waitingForData
+                        ? "10"
+                        : prime
+                          ? "14"
+                          : "12"
+                  }
+                  fill={
+                    isTopRanked
+                      ? "#ffd700"
+                      : waitingForData
+                        ? "#8b92a0"
+                        : prime
+                          ? "#14b8a6"
+                          : winnerSig
+                            ? "#a855f7"
+                            : flags.sq30_release
+                              ? "#00ffff"
+                              : flags.momentum_elite
+                                ? "#a855f7"
+                                : "#ffd700"
+                  }
+                  fontWeight="bold"
+                  style={{
+                    textShadow: isTopRanked
+                      ? "0 0 20px rgba(255, 215, 0, 1), 0 0 40px rgba(255, 215, 0, 0.8)"
+                      : "0 0 3px rgba(0,0,0,0.8)",
+                    filter: isTopRanked
+                      ? "drop-shadow(0 0 15px rgba(255, 215, 0, 1))"
+                      : "none",
+                    pointerEvents: "none",
+                  }}
+                >
+                  {emojiText}
+                </text>
+                {/* Sparkle effects for #1 - reduced size */}
+                {isTopRanked && (
+                  <>
+                    <text
+                      x={cx - 15}
+                      y={labelY - 10}
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      fontSize="12"
+                      fill="#ffd700"
+                      opacity="0.9"
+                      style={{ pointerEvents: "none" }}
+                    >
+                      ✨
+                    </text>
+                    <text
+                      x={cx + 15}
+                      y={labelY - 10}
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      fontSize="12"
+                      fill="#ffd700"
+                      opacity="0.9"
+                      style={{ pointerEvents: "none" }}
+                    >
+                      ✨
+                    </text>
+                  </>
+                )}
+              </g>
+            )}
+            {/* Ticker label */}
+            {(showLabels || isBubbleHovered) && (
+              <text
+                x={cx}
+                y={labelY - (emojiText ? 14 : 8)}
+                textAnchor="middle"
+                fontSize="10"
+                fill={waitingForData ? "#8b92a0" : "#f0f2f5"}
+                fontWeight="600"
+                style={{
+                  textShadow: "0 0 4px rgba(0,0,0,0.9)",
+                  pointerEvents: "none",
+                }}
+              >
+                {ticker.ticker}
+              </text>
+            )}
+          </g>
+        );
+      },
+      [onBubbleClick, onHover, topRankedTicker, showLabels],
+    );
+
+    const handleRechartsMouseMove = (e) => {
+      if (
+        e &&
+        e.activeCoordinate &&
+        e.chartX !== undefined &&
+        e.chartY !== undefined
+      ) {
+        // Calculate values from chart coordinates
+        // Domain is [-50, 50] for both axes
+        // activeCoordinate gives us pixel position, we need to convert to data values
+        const chart = e.chart;
+        if (chart && chartContainerRef.current) {
+          const rect = chartContainerRef.current.getBoundingClientRect();
+          const margin = { top: 20, right: 20, bottom: 20, left: 20 };
+          const plotWidth = rect.width - margin.left - margin.right;
+          const plotHeight = rect.height - margin.top - margin.bottom;
+
+          // Convert pixel coordinates to data values
+          const ltfValue =
+            ((e.chartX - margin.left) / plotWidth) * 100 - 50;
+          const htfValue =
+            50 - ((e.chartY - margin.top) / plotHeight) * 100;
+
+          setRechartsCrosshair({
+            x: e.chartX,
+            y: e.chartY,
+            ltfValue: ltfValue,
+            htfValue: htfValue,
+          });
+        } else if (e.activePayload && e.activePayload[0]) {
+          // Fallback: use payload data if available
+          const payload = e.activePayload[0].payload;
+          setRechartsCrosshair({
+            x: e.activeCoordinate.x,
+            y: e.activeCoordinate.y,
+            ltfValue: payload.x,
+            htfValue: payload.y,
+          });
+        }
+      }
+    };
+
+    const handleRechartsMouseLeave = () => {
+      setRechartsCrosshair(null);
+    };
+
+    return (
+      <div
+        ref={chartContainerRef}
+        className="w-full h-full bg-white/[0.02] rounded-xl border border-white/[0.06] p-4 relative"
+      >
+        <ResponsiveContainer width="100%" height="100%">
+          <ScatterChart
+            margin={{ top: 20, right: 20, bottom: 20, left: 20 }}
+            onMouseMove={handleRechartsMouseMove}
+            onMouseLeave={handleRechartsMouseLeave}
+            onTouchMove={(e) => {
+              // Recharts handles touch events, but we need to ensure they work
+              if (e.activeCoordinate) {
+                handleRechartsMouseMove(e);
+              }
+            }}
+            onTouchEnd={handleRechartsMouseLeave}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="#252b36" />
+            <XAxis
+              type="number"
+              dataKey="x"
+              name="LTF Score"
+              domain={[-50, 50]}
+              stroke="#8b92a0"
+            />
+            <YAxis
+              type="number"
+              dataKey="y"
+              name="HTF Score"
+              domain={[-50, 50]}
+              stroke="#8b92a0"
+            />
+            {/* Corridors - Long corridor (top half, LTF: -8 to +12) - More pronounced */}
+            <ReferenceArea
+              x1={LONG_CORRIDOR.ltfMin}
+              x2={LONG_CORRIDOR.ltfMax}
+              y1={0}
+              y2={50}
+              fill="rgba(46,204,113,0.25)"
+              stroke="rgba(46,204,113,0.6)"
+              strokeWidth={2}
+              strokeDasharray="4 4"
+            />
+            {/* Corridors - Short corridor (bottom half, LTF: -12 to +8) - More pronounced */}
+            <ReferenceArea
+              x1={SHORT_CORRIDOR.ltfMin}
+              x2={SHORT_CORRIDOR.ltfMax}
+              y1={-50}
+              y2={0}
+              fill="rgba(231,76,60,0.25)"
+              stroke="rgba(231,76,60,0.6)"
+              strokeWidth={2}
+              strokeDasharray="4 4"
+            />
+            {/* Zero lines - X=0 and Y=0 */}
+            <ReferenceLine
+              x={0}
+              stroke="#ffffff"
+              strokeWidth={2}
+              opacity={1}
+            />
+            <ReferenceLine
+              y={0}
+              stroke="#ffffff"
+              strokeWidth={2}
+              opacity={1}
+            />
+            {/* Crosshair - Vertical line */}
+            {rechartsCrosshair && rechartsCrosshair.ltfValue !== null && (
+              <ReferenceLine
+                x={rechartsCrosshair.ltfValue}
+                stroke="#00ffff"
+                strokeWidth={1}
+                strokeDasharray="4 4"
+                opacity={0.7}
+              />
+            )}
+            {/* Crosshair - Horizontal line */}
+            {rechartsCrosshair && rechartsCrosshair.htfValue !== null && (
+              <ReferenceLine
+                y={rechartsCrosshair.htfValue}
+                stroke="#00ffff"
+                strokeWidth={1}
+                strokeDasharray="4 4"
+                opacity={0.7}
+              />
+            )}
+            <Tooltip
+              content={({ active, payload }) => {
+                if (!active || !payload?.[0]) return null;
+                const t = payload[0].payload.ticker;
+
+                // Calculate rank position (same logic as native SVG tooltip)
+                let rankPosition = null;
+                let totalTickers = 0;
+                const sortedByRank =
+                  allTickersForRanking &&
+                  Array.isArray(allTickersForRanking)
+                    ? allTickersForRanking
+                    : getRankedTickers(allData);
+                totalTickers = sortedByRank.length;
+                rankPosition =
+                  getRankPositionFromMap(rankedTickerPositions, t.ticker) ??
+                  getRankPosition(sortedByRank, t.ticker);
+                const rankTotal =
+                  Number.isFinite(Number(t.rank_total)) &&
+                  Number(t.rank_total) > 0
+                    ? Number(t.rank_total)
+                    : totalTickers;
+                totalTickers = rankTotal;
+
+                return (
+                  <div className="bg-white/[0.02] border-2 border-white/[0.06] rounded-lg p-3 text-sm pointer-events-none z-10 shadow-xl">
+                    <div className="font-bold text-base mb-2">
+                      {t.ticker}
+                      {t.price && (
+                        <span className="ml-2 text-sm font-normal text-white">
+                          ${Number(t.price).toFixed(2)}
+                        </span>
+                      )}
+                    </div>
+                    {(() => {
+                      // Show ingest time (same logic as native SVG tooltip)
+                      const ingestTime =
+                        t.ingest_ts || t.ingest_time || t.ts;
+                      if (ingestTime) {
+                        try {
+                          const timeValue =
+                            typeof ingestTime === "string"
+                              ? new Date(ingestTime)
+                              : new Date(Number(ingestTime));
+                          if (!isNaN(timeValue.getTime())) {
+                            const ageMs = Date.now() - timeValue.getTime();
+                            const ageMinutes = Math.floor(ageMs / 60000);
+                            const ageHours = Math.floor(ageMinutes / 60);
+                            const isStale = ageMinutes > 30;
+
+                            const displayTime =
+                              timeValue.toLocaleTimeString("en-US", {
+                                hour: "numeric",
+                                minute: "2-digit",
+                                hour12: true,
+                              });
+                            const displayDate =
+                              timeValue.toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                              });
+                            return (
+                              <div
+                                className={`text-[10px] mb-2 ${
+                                  isStale
+                                    ? "text-yellow-400"
+                                    : "text-[#6b7280]"
+                                }`}
+                              >
+                                {displayDate} {displayTime}
+                                {isStale && (
+                                  <span
+                                    className="ml-1"
+                                    title={`Data is ${
+                                      ageHours > 0 ? `${ageHours}h ` : ""
+                                    }${ageMinutes % 60}m old`}
+                                  >
+                                    ⚠️
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          }
+                        } catch (e) {}
+                      }
+                      return null;
+                    })()}
+                    {(() => {
+                      const p = isPrimeBubble(t);
+                      if (!p) return null;
+                      const labels = { aligned: "Aligned", thesis: "Thesis Confirmed", winner: "Early Pattern", squeeze_release: "Squeeze Release", momentum: "Momentum", phase_change: "Phase Shift" };
+                      return (
+                        <div className="mb-2 px-2 py-1 rounded bg-teal-500/20 text-teal-400 text-xs font-semibold text-center">
+                          💎 PRIME — {labels[p.reason] || "Quality Setup"}
+                        </div>
+                      );
+                    })()}
+                    {(() => {
+                      const mv = getMoveStatusInfo(t);
+                      return (
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <span className="text-[11px] text-[#6b7280]">
+                            Move
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${mv.pillCls}`}
+                          >
+                            {mv.icon} {mv.status}
+                          </span>
+                        </div>
+                      );
+                    })()}
+                    {(() => {
+                      const mv = getMoveStatusInfo(t);
+                      if (mv.status === "ACTIVE" || !mv.headlineReason)
+                        return null;
+                      return (
+                        <div className="mb-2 text-[10px] text-[#4b5563]">
+                          <span className="text-[#6b7280]">
+                            {mv.status === "INVALIDATED"
+                              ? "Invalidated"
+                              : "Completed"}
+                            :
+                          </span>{" "}
+                          <span className="text-[#d1d5db]">
+                            {mv.headlineReason}
+                          </span>
+                        </div>
+                      );
+                    })()}
+                    <div className="space-y-1">
+                      <div className="flex justify-between">
+                        <span className="text-[#6b7280]">Score</span>
+                        <span className="font-semibold">
+                          {(() => {
+                            const s = rankScoreForTicker(t);
+                            return Number.isFinite(s) ? s.toFixed(1) : "—";
+                          })()}
+                        </span>
+                      </div>
+                      {rankPosition !== null && totalTickers > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-[#6b7280]">Rank</span>
+                          <span className="font-semibold">
+                            {rankPosition} / {totalTickers}
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex justify-between">
+                        <span className="text-[#6b7280]">RR</span>
+                        <span className="font-semibold">
+                          {t.rr ? Number(t.rr).toFixed(2) : "—"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-[#6b7280]">State</span>
+                        <span className="font-semibold">
+                          {t.state || "—"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-[#6b7280]">Phase</span>
+                        <span
+                          className="font-semibold"
+                          style={{
+                            color: phaseToColor(Number(t.saty_phase_pct ?? t.phase_pct) || 0),
+                          }}
+                        >
+                          {Math.round((Number(t.saty_phase_pct ?? t.phase_pct) || 0) * 100)}%
+                          {t.phase_zone && ` (${t.phase_zone})`}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-[#6b7280]">Completion</span>
+                        <span className="font-semibold">
+                          {Math.round(completionForSize(t) * 100)}%
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-[#6b7280]">Horizon</span>
+                        <span className="font-semibold">
+                          {(() => {
+                            const eta = computeEtaDays(t);
+                            const bucket = String(t.horizon_bucket || "")
+                              .trim()
+                              .toUpperCase();
+                            if (bucket) return bucket.replace("_", " ");
+                            if (!Number.isFinite(eta)) return "—";
+                            if (eta <= 7) return "SHORT TERM";
+                            if (eta <= 30) return "SWING";
+                            return "POSITIONAL";
+                          })()}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-[#6b7280]">ETA</span>
+                        <span className="font-semibold">
+                          {(() => {
+                            const eta = computeEtaDays(t);
+                            return Number.isFinite(eta)
+                              ? `${eta.toFixed(1)}d`
+                              : "—";
+                          })()}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-[#6b7280]">Return %</span>
+                        <span className="font-semibold">
+                          {(() => {
+                            const ret = computeReturnPct(t);
+                            return Number.isFinite(ret)
+                              ? `${ret.toFixed(1)}%`
+                              : "—";
+                          })()}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-[#6b7280]">Risk %</span>
+                        <span className="font-semibold">
+                          {(() => {
+                            const risk = computeRiskPct(t);
+                            return Number.isFinite(risk)
+                              ? `${risk.toFixed(1)}%`
+                              : "—";
+                          })()}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }}
+            />
+            <Scatter data={data} shape={BubbleShape} />
+          </ScatterChart>
+        </ResponsiveContainer>
+
+        {/* Trail rendering overlay for selected ticker (Recharts mode, daily snapshots) */}
+        {selectedTicker &&
+          displayTrail &&
+          Array.isArray(displayTrail) &&
+          displayTrail.length > 1 && (
+            <svg
+              className="absolute inset-0 pointer-events-none z-10"
+              style={{ width: "100%", height: "100%" }}
+            >
+              <defs>
+                <linearGradient
+                  id="trailGradient"
+                  x1="0%"
+                  y1="0%"
+                  x2="100%"
+                  y2="100%"
+                >
+                  <stop offset="0%" stopColor="#00ffff" stopOpacity="0.3" />
+                  <stop
+                    offset="100%"
+                    stopColor="#00ffff"
+                    stopOpacity="0.6"
+                  />
+                </linearGradient>
+
+                {/* Arrowhead marker for the Bubble Trail path */}
+                <marker
+                  id="trailArrowRecharts"
+                  viewBox="0 0 10 10"
+                  refX="9"
+                  refY="5"
+                  markerWidth="6"
+                  markerHeight="6"
+                  orient="auto"
+                >
+                  <path
+                    d="M 0 0 L 10 5 L 0 10 z"
+                    fill="#00ffff"
+                    opacity="0.8"
+                  />
+                </marker>
+              </defs>
+              <g>
+                {/* Trail lines */}
+                {(() => {
+                  const chartWidth =
+                    chartContainerRef.current?.clientWidth || 1200;
+                  const chartHeight =
+                    chartContainerRef.current?.clientHeight || 800;
+                  const margin = 20;
+                  const plotWidth = chartWidth - 2 * margin;
+                  const plotHeight = chartHeight - 2 * margin;
+
+                  const GAP_MS = 4 * 24 * 60 * 60 * 1000;
+                  const segments = splitTrailByGaps(displayTrail, GAP_MS);
+
+                  return segments
+                    .filter((seg) => Array.isArray(seg) && seg.length > 1)
+                    .map((seg, segIdx) => {
+                      const pts = seg.map((p) => ({
+                        x:
+                          (((Number(p?.ltf_score) || 0) + 50) / 100) *
+                            plotWidth +
+                          margin,
+                        y:
+                          ((50 - (Number(p?.htf_score) || 0)) / 100) *
+                            plotHeight +
+                          margin,
+                      }));
+                      const d = catmullRomPath(pts);
+                      if (!d) return null;
+                      const isLast = segIdx === segments.length - 1;
+                      const opacity =
+                        0.35 +
+                        (segIdx / Math.max(1, segments.length - 1)) * 0.25;
+                      return (
+                        <path
+                          key={`trail-path-recharts-${segIdx}`}
+                          d={d}
+                          fill="none"
+                          stroke="#00ffff"
+                          strokeWidth="2.25"
+                          opacity={opacity}
+                          className="trail-path"
+                          markerEnd={
+                            isLast ? "url(#trailArrowRecharts)" : undefined
+                          }
+                        />
+                      );
+                    });
+                })()}
+                {/* Trail points (daily snapshots) with date labels */}
+                {displayTrail.slice(0, -1).map((point, idx) => {
+                  const chartWidth =
+                    chartContainerRef.current?.clientWidth || 1200;
+                  const chartHeight =
+                    chartContainerRef.current?.clientHeight || 800;
+                  const margin = 20;
+                  const plotWidth = chartWidth - 2 * margin;
+                  const plotHeight = chartHeight - 2 * margin;
+
+                  const cx =
+                    (((Number(point.ltf_score) || 0) + 50) / 100) *
+                      plotWidth +
+                    margin;
+                  const cy =
+                    ((50 - (Number(point.htf_score) || 0)) / 100) *
+                      plotHeight +
+                    margin;
+                  const visual = bubbleVisualForTrailPoint(
+                    point,
+                    selectedTicker,
+                  );
+                  const size = Math.max(4.5, visual.radius);
+                  const opacity = 0.3 + (idx / displayTrail.length) * 0.4;
+                  const color = visual.color;
+                  const dateLabel = point._dateLabel || (() => {
+                    const tsMs = Number(point?.ts);
+                    if (!Number.isFinite(tsMs) || tsMs <= 0) return null;
+                    const d = new Date(tsMs < 1e12 ? tsMs * 1000 : tsMs);
+                    return `${d.getMonth() + 1}/${d.getDate()}`;
+                  })();
+
+                  return (
+                    <g key={`trail-point-${idx}`}>
+                      <circle
+                        cx={cx}
+                        cy={cy}
+                        r={size}
+                        fill={color}
+                        fillOpacity={opacity}
+                        stroke="#fff"
+                        strokeWidth="1.2"
+                        strokeOpacity={opacity * 0.6}
+                      />
+                      {dateLabel && (
+                        <text
+                          x={cx}
+                          y={cy - size - 3}
+                          fill="#d1d5db"
+                          textAnchor="middle"
+                          fontSize="8"
+                          fontWeight="600"
+                          opacity={opacity}
+                          style={{ pointerEvents: "none" }}
+                        >
+                          {dateLabel}
+                        </text>
+                      )}
+                    </g>
+                  );
+                })}
+                {/* Highlight a specific historical point (from Bubble Journey hover/click) */}
+                {highlightTrailPoint &&
+                  Number.isFinite(Number(highlightTrailPoint?.ltf_score)) &&
+                  Number.isFinite(Number(highlightTrailPoint?.htf_score)) &&
+                  (() => {
+                    const chartWidth =
+                      chartContainerRef.current?.clientWidth || 1200;
+                    const chartHeight =
+                      chartContainerRef.current?.clientHeight || 800;
+                    const margin = 20;
+                    const plotWidth = chartWidth - 2 * margin;
+                    const plotHeight = chartHeight - 2 * margin;
+
+                    const hx =
+                      (((Number(highlightTrailPoint.ltf_score) || 0) + 50) /
+                        100) *
+                        plotWidth +
+                      margin;
+                    const hy =
+                      ((50 - (Number(highlightTrailPoint.htf_score) || 0)) /
+                        100) *
+                        plotHeight +
+                      margin;
+
+                    const visual = bubbleVisualForTrailPoint(
+                      highlightTrailPoint,
+                      selectedTicker,
+                    );
+                    const r = Math.max(3, Number(visual?.radius) || 6);
+
+                    return (
+                      <g
+                        key={`trail-highlight-recharts-${String(
+                          highlightTrailPoint?.ts ?? "",
+                        )}`}
+                        pointerEvents="none"
+                      >
+                        <circle
+                          cx={hx}
+                          cy={hy}
+                          r={r + 3}
+                          fill="none"
+                          stroke="#00ffff"
+                          strokeWidth="2.25"
+                          opacity="0.9"
+                        >
+                          <animate
+                            attributeName="r"
+                            values={`${r + 2};${r + 10};${r + 2}`}
+                            dur="1.4s"
+                            repeatCount="indefinite"
+                          />
+                          <animate
+                            attributeName="opacity"
+                            values="0.95;0.25;0.95"
+                            dur="1.4s"
+                            repeatCount="indefinite"
+                          />
+                        </circle>
+                        <circle
+                          cx={hx}
+                          cy={hy}
+                          r={r + 1}
+                          fill="none"
+                          stroke={visual?.color || "#00ffff"}
+                          strokeWidth="1.5"
+                          opacity="0.8"
+                        />
+                      </g>
+                    );
+                  })()}
+              </g>
+            </svg>
+          )}
+
+        {/* Crosshair value labels for Recharts */}
+        {rechartsCrosshair && (
+          <>
+            {rechartsCrosshair.ltfValue !== null && (
+              <div
+                className="absolute bg-[#0f1117] border border-[#00ffff] rounded px-2 py-1 text-[#00ffff] text-xs font-semibold pointer-events-none z-20"
+                style={{
+                  left: `${rechartsCrosshair.x + 20}px`,
+                  bottom: "20px",
+                  transform: "translateX(-50%)",
+                }}
+              >
+                LTF: {rechartsCrosshair.ltfValue.toFixed(1)}
+              </div>
+            )}
+            {rechartsCrosshair.htfValue !== null && (
+              <div
+                className="absolute bg-[#0f1117] border border-[#00ffff] rounded px-2 py-1 text-[#00ffff] text-xs font-semibold pointer-events-none z-20"
+                style={{
+                  left: "20px",
+                  top: `${rechartsCrosshair.y + 20}px`,
+                  transform: "translateY(-50%)",
+                }}
+              >
+                HTF: {rechartsCrosshair.htfValue.toFixed(1)}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  }
+
+
+  // ── Expose on window ────────────────────────────────────
+  window.TimedBubbleChart = {
+    BubbleChart: BubbleChart,
+    phaseCompletionToColor: phaseCompletionToColor,
+    phaseToColor: phaseToColor,
+    prettyMoveReason: prettyMoveReason,
+    getMoveStatusInfo: getMoveStatusInfo,
+    isPrimeBubble: isPrimeBubble,
+    isWinnerSignature: isWinnerSignature,
+    completionForSize: completionForSize,
+    getDirectionFromState: getDirectionFromState,
+    computeEntryRef: computeEntryRef,
+    numFromAny: numFromAny,
+    computeReturnPct: computeReturnPct,
+    computeRiskPct: computeRiskPct,
+    computeEtaDays: computeEtaDays,
+    bubbleSizeSeed: bubbleSizeSeed,
+    computeBubbleRadiusModel: computeBubbleRadiusModel,
+    bubbleVisualForTrailPoint: bubbleVisualForTrailPoint,
+    splitTrailByGaps: splitTrailByGaps,
+    downsampleTrailToDaily: downsampleTrailToDaily,
+    catmullRomPath: catmullRomPath,
+    computeDynamicScore: computeDynamicScore,
+    rankScoreForTicker: rankScoreForTicker,
+    getRankedTickers: getRankedTickers,
+    getRankPosition: getRankPosition,
+    getRankPositionFromMap: getRankPositionFromMap,
+    computeDynamicRank: computeDynamicRank,
+  };
+})();

@@ -682,6 +682,111 @@ function AnalysisControls({
     return chip("sectorF", name, label, n);
   }))));
 }
+function SharedBubbleMapSection({
+  allTickers,
+  visible,
+  query,
+  data
+}) {
+  const SharedChart = typeof window !== "undefined" && window.TimedBubbleChart && window.TimedBubbleChart.BubbleChart || null;
+  const getRankedTickers = window.TimedBubbleChart && window.TimedBubbleChart.getRankedTickers || null;
+  const rankedTickers = useMemo(() => {
+    if (!getRankedTickers || !data) return [];
+    try {
+      return getRankedTickers(data) || [];
+    } catch {
+      return [];
+    }
+  }, [data]);
+  const rankedTickerPositions = useMemo(() => {
+    const m = new Map();
+    rankedTickers.forEach((t, idx) => {
+      if (t?.ticker) m.set(t.ticker, idx + 1);
+    });
+    return m;
+  }, [rankedTickers]);
+  const [hovered, setHovered] = useState(null);
+  if (!SharedChart) {
+    return h(BubbleMap, {
+      allTickers,
+      visible,
+      query
+    });
+  }
+  return h("section", {
+    className: "tt-row"
+  }, h("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      justifyContent: "space-between",
+      gap: 12,
+      flexWrap: "wrap",
+      marginBottom: 8
+    }
+  }, h("div", null, h("div", {
+    className: "tt-sec-title"
+  }, "BUBBLE MAP"), h("div", {
+    className: "tt-sec-h"
+  }, "Where every ticker sits on momentum \u00d7 trend")), h("div", {
+    className: "bm-legend"
+  }, h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#22c55e"
+    }
+  }), "Bull aligned"), h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#34d399"
+    }
+  }), "Bull mixed"), h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#f5c25c"
+    }
+  }), "Pullback"), h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#fb7185"
+    }
+  }), "Bear mixed"), h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#f43f5e"
+    }
+  }), "Bear aligned"))), h("div", {
+    className: "tt-card tt-card-pad",
+    style: {
+      padding: 0,
+      overflow: "hidden"
+    }
+  }, h("div", {
+    style: {
+      height: 700,
+      position: "relative"
+    }
+  }, h(SharedChart, {
+    tickers: visible,
+    allData: data,
+    rankedTickers: rankedTickers,
+    rankedTickerPositions: rankedTickerPositions,
+    hoveredTicker: hovered,
+    onHover: setHovered,
+    onBubbleClick: sym => {
+      window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+    },
+    onBackgroundClick: () => {},
+    selectedTicker: null,
+    selectedTrail: null,
+    isTimeTravelActive: false,
+    highlightTrailPoint: null,
+    thesisMode: false,
+    forwardReturns: null,
+    activeInsightTickers: null,
+    layoutMode: "score"
+  }))));
+}
 function BubbleMap({
   allTickers,
   visible,
@@ -1157,10 +1262,11 @@ function TodayApp() {
     visibleCount: visible.length,
     filters,
     setFilters
-  }), data && h(BubbleMap, {
+  }), data && h(SharedBubbleMapSection, {
     allTickers,
     visible,
-    query: filters.query
+    query: filters.query,
+    data
   }), data && h(UniverseHeatmap, {
     visible,
     query: filters.query

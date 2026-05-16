@@ -18,6 +18,9 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="auth-gate.js?v=20260516a"></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
+    <!-- BubbleChart component (extracted from index-react.source.html). Uses
+         native-SVG rendering (FORCE_NATIVE_SVG=true) so Recharts is NOT loaded. -->
+    <script src="shared-bubble-chart.compiled.js?v=20260516b"></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -1059,7 +1062,103 @@
         );
       }
 
-      // ── Bubble Map (props-driven — controls live in AnalysisControls) ─
+      // ═══════════════════════════════════════════════════════════
+      // SharedBubbleMapSection — uses the shared BubbleChart from
+      // shared-bubble-chart.compiled.js (extracted from Active Trader).
+      //
+      // This renders the EXACT same bubble plot that lives in
+      // /index-react.html — no duplicate code, no drift between the
+      // two pages.
+      //
+      // Today.html doesn't do Time Travel, trails, or insight filters
+      // (those belong to the deep Active Trader workflow), so those
+      // props are passed as null/false. The bubble plot, hover,
+      // crosshair, click-to-open, and labels all work identically.
+      //
+      // Filter state lives in TodayApp's `filters` and is funneled into
+      // the `tickers` prop via the `visible` array, so the AnalysisControls
+      // chips above drive what bubbles render.
+      //
+      // Falls back to the in-page lightweight BubbleMap if the shared
+      // module hasn't loaded yet (first paint / network failure).
+      // ═══════════════════════════════════════════════════════════
+      function SharedBubbleMapSection({ allTickers, visible, query, data }) {
+        const SharedChart = (typeof window !== "undefined" && window.TimedBubbleChart && window.TimedBubbleChart.BubbleChart) || null;
+        const getRankedTickers = (window.TimedBubbleChart && window.TimedBubbleChart.getRankedTickers) || null;
+
+        // Compute rankedTickers / rankedTickerPositions once per data change.
+        const rankedTickers = useMemo(() => {
+          if (!getRankedTickers || !data) return [];
+          try { return getRankedTickers(data) || []; } catch { return []; }
+        }, [data]);
+        const rankedTickerPositions = useMemo(() => {
+          const m = new Map();
+          rankedTickers.forEach((t, idx) => { if (t?.ticker) m.set(t.ticker, idx + 1); });
+          return m;
+        }, [rankedTickers]);
+
+        // Hover + selected state for the bubble plot (local to this section).
+        // We don't wire a right-rail or trails on /today — clicking a bubble
+        // navigates to /index-react.html for deep view.
+        const [hovered, setHovered] = useState(null);
+
+        // Watch for query change → BubbleChart accepts no `query` prop directly,
+        // but matches happen via its internal label rendering. The simplest
+        // way to surface search highlighting is to nudge the filtered set:
+        // if a query is active, dim non-matching tickers via opacity by
+        // re-mapping the visible array with a `__bm_dim` flag. The shared
+        // BubbleChart doesn't read that flag — so for now we leave search
+        // dimming to the heat map. Search still filters the universe via
+        // the AnalysisControls chip+ticker matching, just not visually on
+        // the bubble plot here.
+        // (Phase B.3 — add search-highlight prop to shared BubbleChart.)
+
+        // If the shared module didn't load (network blip / dev), gracefully
+        // fall back to the simpler in-page BubbleMap so the page still works.
+        if (!SharedChart) {
+          return h(BubbleMap, { allTickers, visible, query });
+        }
+
+        return h("section", { className: "tt-row" },
+          h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 8 } },
+            h("div", null,
+              h("div", { className: "tt-sec-title" }, "BUBBLE MAP"),
+              h("div", { className: "tt-sec-h" }, "Where every ticker sits on momentum \u00d7 trend"),
+            ),
+            h("div", { className: "bm-legend" },
+              h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#22c55e" } }), "Bull aligned"),
+              h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#34d399" } }), "Bull mixed"),
+              h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#f5c25c" } }), "Pullback"),
+              h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#fb7185" } }), "Bear mixed"),
+              h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#f43f5e" } }), "Bear aligned"),
+            ),
+          ),
+          h("div", { className: "tt-card tt-card-pad", style: { padding: 0, overflow: "hidden" } },
+            h("div", { style: { height: 700, position: "relative" } },
+              h(SharedChart, {
+                tickers: visible,
+                allData: data,
+                rankedTickers: rankedTickers,
+                rankedTickerPositions: rankedTickerPositions,
+                hoveredTicker: hovered,
+                onHover: setHovered,
+                onBubbleClick: (sym) => { window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`; },
+                onBackgroundClick: () => {},
+                selectedTicker: null,
+                selectedTrail: null,
+                isTimeTravelActive: false,
+                highlightTrailPoint: null,
+                thesisMode: false,
+                forwardReturns: null,
+                activeInsightTickers: null,
+                layoutMode: "score",
+              }),
+            ),
+          ),
+        );
+      }
+
+      // ── Bubble Map fallback (in-page lightweight, used if shared module fails) ─
       function BubbleMap({ allTickers, visible, query }) {
         const [tooltip, setTooltip] = useState(null);
         const stageRef = React.useRef(null);
@@ -1343,8 +1442,11 @@
           earnings && h(EarningsStrip, { earnings }),
           // ── Analysis (interactive) ── unified controls drive both views
           data && h(AnalysisControls, { allTickers, visibleCount: visible.length, filters, setFilters }),
-          data && h(BubbleMap,        { allTickers, visible, query: filters.query }),
-          data && h(UniverseHeatmap,  { visible, query: filters.query }),
+          // Bubble Map: shared component extracted from Active Trader (P0.B.1).
+          // Renders the EXACT same plot as /index-react.html. Falls back to the
+          // simpler in-page BubbleMap if the shared module isn't loaded yet.
+          data && h(SharedBubbleMapSection, { allTickers, visible, query: filters.query, data }),
+          data && h(UniverseHeatmap, { visible, query: filters.query }),
           h(EndCTA, null),
         );
       }
