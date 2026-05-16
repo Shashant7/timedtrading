@@ -2261,9 +2261,16 @@ function App({
   }, "Timed Trading")), React.createElement("div", {
     className: "hidden md:flex items-center gap-0.5"
   }, React.createElement("a", {
+    href: "today.html",
+    className: "px-3 py-1 rounded-md text-[13px] text-[#f5c25c]/90 hover:text-[#f5c25c] hover:bg-[#f5c25c]/[0.08] transition-all font-medium",
+    title: "Daily Ingest"
+  }, "Today"), React.createElement("a", {
     href: "index-react.html",
     className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "Analysis"), React.createElement("a", {
+  }, "Active Trader"), React.createElement("a", {
+    href: "investor-dashboard.html",
+    className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
+  }, "Investor"), React.createElement("a", {
     href: "simulation-dashboard.html",
     className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
   }, "Trades"), React.createElement("a", {

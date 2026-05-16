@@ -1,0 +1,848 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <title>Today — Timed Trading</title>
+    <meta name="description" content="Your morning ingest: regime, Daily Brief, market state, macro events, top movers, and the full universe at a glance." />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2048%2048%27%20fill%3D%27none%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27r%27%20x1%3D%276%27%20y1%3D%2742%27%20x2%3D%2742%27%20y2%3D%276%27%3E%3Cstop%20offset%3D%270%25%27%20stop-color%3D%27%2334d399%27%2F%3E%3Cstop%20offset%3D%27100%25%27%20stop-color%3D%27%2367e8f9%27%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20width%3D%2748%27%20height%3D%2748%27%20rx%3D%2711%27%20fill%3D%27%23000%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%2717%27%20stroke%3D%27url%28%23r%29%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3Cline%20x1%3D%2719%27%20y1%3D%2718.5%27%20x2%3D%2716%27%20y2%3D%2715.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2719%27%20y2%3D%2718.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%273.5%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2729.5%27%20y1%3D%2716.5%27%20x2%3D%2732%27%20y2%3D%2712.9%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2729.5%27%20y2%3D%2716.5%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%274%27%20stroke-linecap%3D%27round%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%273.2%27%20fill%3D%27%2330d158%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%271.3%27%20fill%3D%27%23000%27%2F%3E%3C%2Fsvg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260516-today" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="auth-gate.js?v=20260516a"></script>
+    <script src="shared-price-utils.js?v=20260304a"></script>
+    <style>
+      :root {
+        --tt-bg-base: #0b0e11;
+        --tt-bg-surface: rgba(255,255,255,0.025);
+        --tt-bg-elev: rgba(255,255,255,0.04);
+        --tt-border: rgba(255,255,255,0.06);
+        --tt-border-hi: rgba(255,255,255,0.12);
+        --tt-text: #e5e7eb;
+        --tt-text-muted: #9ca3af;
+        --tt-text-dim: #6b7280;
+        --tt-text-faint: #4b5563;
+        --tt-up: #22c55e;
+        --tt-up-soft: #34d399;
+        --tt-up-bg: rgba(34,197,94,0.10);
+        --tt-dn: #f43f5e;
+        --tt-dn-soft: #fb7185;
+        --tt-dn-bg: rgba(244,63,94,0.10);
+        --tt-accent: #f5c25c;
+        --tt-accent-dim: rgba(245,194,92,0.14);
+        --tt-violet: #a78bfa;
+        --tt-violet-dim: rgba(167,139,250,0.14);
+        --tt-cyan: #22d3ee;
+        --tt-cyan-dim: rgba(34,211,238,0.10);
+        --tt-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        --tt-font-mono: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+      }
+      body {
+        background: var(--tt-bg-base);
+        color: var(--tt-text);
+        font-family: var(--tt-font);
+        -webkit-font-smoothing: antialiased;
+        margin: 0;
+        min-height: 100vh;
+      }
+      .tt-card {
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 14px;
+      }
+      .tt-card-pad { padding: 18px 18px 16px; }
+      .tt-sec-title {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.10em;
+        color: var(--tt-text-dim);
+        text-transform: uppercase;
+        margin-bottom: 6px;
+      }
+      .tt-sec-h {
+        font-size: 18px;
+        font-weight: 800;
+        color: var(--tt-text);
+        letter-spacing: -0.02em;
+        margin-bottom: 12px;
+      }
+      .tt-sec-sub {
+        font-size: 13px;
+        color: var(--tt-text-muted);
+        margin-bottom: 14px;
+        line-height: 1.55;
+      }
+      .tt-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 3px 9px;
+        border-radius: 999px;
+        font-family: var(--tt-font-mono);
+        font-size: 10.5px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        border: 1px solid var(--tt-border);
+        background: var(--tt-bg-elev);
+        color: var(--tt-text-muted);
+      }
+      .tt-pill.up    { color: var(--tt-up-soft); background: var(--tt-up-bg); border-color: rgba(34,197,94,0.25); }
+      .tt-pill.dn    { color: var(--tt-dn-soft); background: var(--tt-dn-bg); border-color: rgba(244,63,94,0.25); }
+      .tt-pill.accent { color: var(--tt-accent); background: var(--tt-accent-dim); border-color: rgba(245,194,92,0.30); }
+      .tt-pill.violet { color: var(--tt-violet); background: var(--tt-violet-dim); border-color: rgba(167,139,250,0.30); }
+      .tt-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+      .tt-grid { display: grid; gap: 14px; }
+      @media (min-width: 920px) {
+        .tt-grid-2 { grid-template-columns: 1fr 1fr; }
+        .tt-grid-3 { grid-template-columns: repeat(3, 1fr); }
+        .tt-grid-4 { grid-template-columns: repeat(4, 1fr); }
+      }
+      @media (max-width: 919px) {
+        .tt-grid-2, .tt-grid-3, .tt-grid-4 { grid-template-columns: 1fr; }
+      }
+      /* Sections row spacing */
+      main { max-width: 1200px; margin: 0 auto; padding: 16px 16px 80px; }
+      .tt-row { margin-bottom: 18px; }
+      /* Nav */
+      nav.topnav {
+        position: sticky; top: 0; z-index: 50;
+        background: rgba(10,12,16,0.85);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border-bottom: 1px solid var(--tt-border);
+      }
+      .nav-row {
+        max-width: 1200px; margin: 0 auto;
+        padding: 12px 16px;
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      }
+      .nav-brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: var(--tt-text); font-weight: 700; }
+      .nav-links { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      .nav-link {
+        font-size: 12.5px;
+        color: var(--tt-text-muted);
+        text-decoration: none;
+        padding: 6px 11px;
+        border-radius: 7px;
+        font-weight: 500;
+        transition: all 0.15s;
+      }
+      .nav-link:hover { background: var(--tt-bg-surface); color: var(--tt-text); }
+      .nav-link.active { color: var(--tt-text); background: var(--tt-bg-surface); }
+      .nav-link.today { color: var(--tt-accent); background: var(--tt-accent-dim); border: 1px solid rgba(245,194,92,0.22); }
+      .nav-link.learn { color: var(--tt-up-soft); }
+      .nav-link.learn:hover { background: var(--tt-up-bg); }
+      /* Status header */
+      .tt-status {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+        padding: 16px 18px;
+        background: linear-gradient(180deg, var(--tt-bg-elev), var(--tt-bg-surface));
+        border: 1px solid var(--tt-border);
+        border-radius: 14px;
+      }
+      .tt-status .label { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; color: var(--tt-text-dim); text-transform: uppercase; margin-bottom: 4px; }
+      .tt-status .greeting { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
+      .tt-status .date { font-size: 13px; color: var(--tt-text-muted); margin-top: 2px; }
+      .tt-status .session { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      /* Index card */
+      .idx-card {
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 12px;
+        padding: 12px 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .idx-card .name { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: var(--tt-text-dim); text-transform: uppercase; }
+      .idx-card .px { font-size: 20px; font-weight: 800; color: var(--tt-text); letter-spacing: -0.02em; font-family: var(--tt-font-mono); }
+      .idx-card .chg { font-family: var(--tt-font-mono); font-size: 12px; font-weight: 600; }
+      .idx-card .chg.up { color: var(--tt-up); }
+      .idx-card .chg.dn { color: var(--tt-dn); }
+      /* Mover card */
+      .mvr {
+        display: grid;
+        grid-template-columns: 22px 1fr auto auto;
+        align-items: center;
+        gap: 10px;
+        padding: 7px 10px;
+        background: rgba(255,255,255,0.015);
+        border: 1px solid var(--tt-border);
+        border-radius: 8px;
+        text-decoration: none;
+        color: inherit;
+      }
+      .mvr:hover { background: var(--tt-bg-elev); border-color: var(--tt-border-hi); }
+      .mvr .rk {
+        font-family: var(--tt-font-mono);
+        font-size: 10px;
+        color: var(--tt-text-faint);
+        font-weight: 700;
+        text-align: center;
+      }
+      .mvr .sym { font-size: 13px; font-weight: 700; color: var(--tt-text); }
+      .mvr .name { font-size: 10.5px; color: var(--tt-text-dim); margin-top: 1px; }
+      .mvr .px { font-family: var(--tt-font-mono); font-size: 12px; color: var(--tt-text); font-weight: 600; }
+      .mvr .chg { font-family: var(--tt-font-mono); font-size: 12px; font-weight: 700; min-width: 60px; text-align: right; }
+      .mvr .chg.up { color: var(--tt-up-soft); }
+      .mvr .chg.dn { color: var(--tt-dn-soft); }
+      /* Heatmap chip */
+      .heat-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(82px, 1fr));
+        gap: 6px;
+      }
+      .heat-cell {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: space-between;
+        padding: 6px 7px;
+        border-radius: 7px;
+        background: rgba(255,255,255,0.02);
+        border: 1px solid var(--tt-border);
+        text-decoration: none;
+        color: inherit;
+        min-height: 50px;
+      }
+      .heat-cell:hover { border-color: var(--tt-border-hi); }
+      .heat-cell .sym { font-size: 11.5px; font-weight: 700; color: var(--tt-text); letter-spacing: 0.01em; }
+      .heat-cell .pct { font-family: var(--tt-font-mono); font-size: 10.5px; font-weight: 700; }
+      .heat-cell .pct.up { color: var(--tt-up-soft); }
+      .heat-cell .pct.dn { color: var(--tt-dn-soft); }
+      .heat-cell.lvl-strong  { border-color: rgba(34,197,94,0.35); background: rgba(34,197,94,0.06); }
+      .heat-cell.lvl-mid     { border-color: rgba(245,194,92,0.22); background: rgba(245,194,92,0.04); }
+      .heat-cell.lvl-weak    { border-color: rgba(244,63,94,0.30); background: rgba(244,63,94,0.05); }
+      /* Skeleton */
+      .sk {
+        background: linear-gradient(90deg, var(--tt-bg-surface), var(--tt-bg-elev), var(--tt-bg-surface));
+        background-size: 200% 100%;
+        animation: sk 1.6s ease-in-out infinite;
+        border-radius: 6px;
+      }
+      @keyframes sk { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+      /* Brief preview specifics */
+      .brief-head {
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--tt-text);
+        line-height: 1.5;
+        margin-bottom: 12px;
+      }
+      .brief-three {
+        display: grid;
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+      .brief-three .item {
+        display: grid;
+        grid-template-columns: 26px 1fr;
+        gap: 10px;
+        align-items: flex-start;
+        font-size: 13.5px;
+        line-height: 1.55;
+        color: var(--tt-text-muted);
+      }
+      .brief-three .num {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px; height: 22px;
+        border-radius: 7px;
+        background: var(--tt-accent-dim);
+        border: 1px solid rgba(245,194,92,0.22);
+        color: var(--tt-accent);
+        font-size: 11px;
+        font-weight: 800;
+        margin-top: 1px;
+      }
+      .brief-three .item strong { color: var(--tt-text); font-weight: 700; }
+      .brief-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 14px;
+        border-radius: 9px;
+        background: var(--tt-bg-elev);
+        border: 1px solid var(--tt-border-hi);
+        color: var(--tt-text);
+        font-size: 13px;
+        font-weight: 600;
+        text-decoration: none;
+        transition: all 0.15s;
+      }
+      .brief-link:hover { border-color: rgba(245,194,92,0.40); background: var(--tt-accent-dim); color: var(--tt-accent); }
+      /* Macro chip row */
+      .macro-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+      }
+      .macro-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 10px;
+        background: var(--tt-bg-elev);
+        border: 1px solid var(--tt-border-hi);
+        border-radius: 7px;
+        font-size: 12px;
+        color: var(--tt-text);
+      }
+      .macro-chip .ts { color: var(--tt-text-dim); font-size: 11px; font-family: var(--tt-font-mono); }
+      /* Earnings list */
+      .earn-row {
+        display: grid;
+        grid-template-columns: 80px 1fr auto;
+        align-items: center;
+        gap: 10px;
+        padding: 6px 10px;
+        background: rgba(255,255,255,0.015);
+        border: 1px solid var(--tt-border);
+        border-radius: 7px;
+      }
+      .earn-row .date { font-family: var(--tt-font-mono); font-size: 11px; color: var(--tt-text-muted); }
+      .earn-row .sym { font-size: 12.5px; font-weight: 700; color: var(--tt-text); }
+      .earn-row .hour { font-size: 10.5px; color: var(--tt-text-dim); }
+      /* Markdown content from brief */
+      .brief-md p { font-size: 13.5px; color: var(--tt-text-muted); line-height: 1.65; margin-bottom: 10px; }
+      .brief-md strong { color: var(--tt-text); }
+      /* CTA row at bottom */
+      .end-cta {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        justify-content: center;
+        margin-top: 20px;
+      }
+      .end-cta a {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 11px 18px;
+        border-radius: 9px;
+        font-size: 13px;
+        font-weight: 600;
+        text-decoration: none;
+        border: 1px solid var(--tt-border-hi);
+        background: var(--tt-bg-elev);
+        color: var(--tt-text);
+      }
+      .end-cta a.primary { background: linear-gradient(135deg, var(--tt-up), #16a34a); color: white; border-color: transparent; }
+      .end-cta a:hover { transform: translateY(-1px); }
+    </style>
+  </head>
+  <body>
+
+    <nav class="topnav">
+      <div class="nav-row">
+        <a href="/index-react.html" class="nav-brand">
+          <svg width="28" height="28" viewBox="0 0 48 48" fill="none"><defs><linearGradient id="ttng" x1="6" y1="42" x2="42" y2="6"><stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#67e8f9"/></linearGradient></defs><rect width="48" height="48" rx="11" fill="#000"/><circle cx="24" cy="24" r="17" stroke="url(#ttng)" stroke-width="2.5" fill="none"/><line x1="19" y1="18.5" x2="16" y2="15.5" stroke="#636366" stroke-width="1.2" stroke-linecap="round"/><line x1="24" y1="24" x2="19" y2="18.5" stroke="#636366" stroke-width="3.5" stroke-linecap="round"/><line x1="29.5" y1="16.5" x2="32" y2="12.9" stroke="#30d158" stroke-width="1.2" stroke-linecap="round"/><line x1="24" y1="24" x2="29.5" y2="16.5" stroke="#30d158" stroke-width="4" stroke-linecap="round"/><circle cx="24" cy="24" r="3.2" fill="#30d158"/><circle cx="24" cy="24" r="1.3" fill="#000"/></svg>
+          Timed Trading
+        </a>
+        <div class="nav-links">
+          <a href="/today.html" class="nav-link today">Today</a>
+          <a href="/index-react.html" class="nav-link">Active Trader</a>
+          <a href="/investor-dashboard.html" class="nav-link">Investor</a>
+          <a href="/simulation-dashboard.html" class="nav-link">Trades</a>
+          <a href="/learn.html" class="nav-link learn">Learn</a>
+        </div>
+      </div>
+    </nav>
+
+    <div id="root">
+      <main>
+        <div class="tt-card tt-card-pad" style="text-align:center;color:var(--tt-text-muted)">Loading today's ingest…</div>
+      </main>
+    </div>
+
+    <script type="text/babel">
+      const { useState, useEffect, useMemo } = React;
+      const h = React.createElement;
+
+      // ── API base ───────────────────────────────────────────────
+      const API_BASE = (() => {
+        try {
+          if (window.TIMED_API_BASE) return String(window.TIMED_API_BASE);
+        } catch (_) {}
+        return "https://timed-trading-ingest.shashant.workers.dev";
+      })();
+
+      // ── Helpers ────────────────────────────────────────────────
+      function fmtUsd(v, d=2) {
+        if (v == null || !Number.isFinite(Number(v))) return "—";
+        const n = Number(v);
+        return n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: d, maximumFractionDigits: d });
+      }
+      function fmtPct(v, d=2) {
+        if (v == null || !Number.isFinite(Number(v))) return "—";
+        const n = Number(v);
+        return (n >= 0 ? "+" : "") + n.toFixed(d) + "%";
+      }
+      function getDailyChange(t) {
+        if (window.TimedPriceUtils?.getDailyChange) return window.TimedPriceUtils.getDailyChange(t);
+        return { dayPct: t?.day_change_pct, dayChg: t?.day_change };
+      }
+      function safeArr(v) { return Array.isArray(v) ? v : []; }
+      function nyFmtDate() {
+        try {
+          return new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "America/New_York" });
+        } catch { return new Date().toDateString(); }
+      }
+      function isNyRegularMarketOpen() {
+        try {
+          const f = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, weekday: "short", hour: "2-digit", minute: "2-digit" });
+          const parts = f.formatToParts(new Date());
+          const wd = parts.find(p => p.type === "weekday")?.value;
+          if (wd === "Sat" || wd === "Sun") return false;
+          const hh = Number(parts.find(p => p.type === "hour")?.value || 0);
+          const mm = Number(parts.find(p => p.type === "minute")?.value || 0);
+          const min = hh * 60 + mm;
+          return min >= (9 * 60 + 30) && min < (16 * 60);
+        } catch { return false; }
+      }
+
+      // ── Fetch helpers ──────────────────────────────────────────
+      async function fetchAll() {
+        const r = await fetch(`${API_BASE}/timed/all`, { credentials: "include" });
+        return r.ok ? r.json() : { ok: false };
+      }
+      async function fetchBrief() {
+        const r = await fetch(`${API_BASE}/timed/daily-brief`, { credentials: "include" });
+        return r.ok ? r.json() : { ok: false };
+      }
+      async function fetchEarnings() {
+        const r = await fetch(`${API_BASE}/timed/earnings/upcoming`, { credentials: "include" });
+        return r.ok ? r.json() : { ok: false };
+      }
+      async function fetchCal() {
+        const r = await fetch(`${API_BASE}/timed/market-calendar`, { credentials: "include" });
+        return r.ok ? r.json() : { ok: false };
+      }
+
+      // ── Session pill ───────────────────────────────────────────
+      function SessionPill({ cal }) {
+        const open = isNyRegularMarketOpen();
+        let label, cls;
+        if (open) { label = "Market open · RTH"; cls = "up"; }
+        else {
+          try {
+            const f = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit", weekday: "short" });
+            const parts = f.formatToParts(new Date());
+            const wd = parts.find(p => p.type === "weekday")?.value;
+            const hh = Number(parts.find(p => p.type === "hour")?.value || 0);
+            const mm = Number(parts.find(p => p.type === "minute")?.value || 0);
+            const min = hh*60+mm;
+            if (wd === "Sat" || wd === "Sun") { label = "Weekend · Market closed"; cls = ""; }
+            else if (min < 9*60+30) { label = "Pre-market"; cls = "accent"; }
+            else if (min >= 16*60 && min < 20*60) { label = "After-hours"; cls = "accent"; }
+            else { label = "Market closed"; cls = ""; }
+          } catch { label = "Market closed"; cls = ""; }
+        }
+        return h("span", { className: `tt-pill ${cls}` },
+          h("span", { className: "dot" }),
+          label,
+        );
+      }
+
+      // ── Status header ──────────────────────────────────────────
+      function StatusHeader({ cal, briefDate }) {
+        const hour = new Date().getHours();
+        const greeting = hour < 5 ? "Up early" : hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+        return h("section", { className: "tt-status tt-row" },
+          h("div", null,
+            h("div", { className: "label" }, "TODAY"),
+            h("div", { className: "greeting" }, greeting + " · Here's the read"),
+            h("div", { className: "date" }, nyFmtDate()),
+          ),
+          h("div", { className: "session" },
+            h(SessionPill, { cal }),
+            briefDate && h("span", { className: "tt-pill" },
+              h("span", { className: "dot", style: { background: "var(--tt-accent)" } }),
+              "Brief: " + briefDate,
+            ),
+          ),
+        );
+      }
+
+      // ── Daily Brief preview ────────────────────────────────────
+      function BriefPreview({ brief }) {
+        const info = brief?.infographic || {};
+        const top3 = Array.isArray(info.topThree) ? info.topThree : [];
+        const headline = info.headline || "";
+        const closing = info.closingLine || "";
+
+        return h("section", { className: "tt-card tt-card-pad tt-row" },
+          h("div", { className: "tt-sec-title" }, "DAILY BRIEF — MORNING READ"),
+          h("div", { className: "tt-sec-h" }, "What the model is watching today"),
+          headline && h("p", { className: "brief-head" }, headline),
+          top3.length > 0 && h("div", { className: "brief-three" },
+            top3.slice(0, 3).map((item, i) => {
+              const text = typeof item === "string" ? item : (item?.text || item?.label || item?.summary || JSON.stringify(item));
+              return h("div", { key: i, className: "item" },
+                h("span", { className: "num" }, String(i + 1)),
+                h("span", { dangerouslySetInnerHTML: { __html: marked.parseInline(text) } }),
+              );
+            }),
+          ),
+          closing && h("p", { style: { fontSize: 13, color: "var(--tt-text-muted)", fontStyle: "italic", marginBottom: 14 } }, closing),
+          h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+            h("a", { href: "/daily-brief.html", className: "brief-link" },
+              "Read full brief",
+              h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2.5, strokeLinecap: "round", strokeLinejoin: "round" },
+                h("line", { x1: 5, y1: 12, x2: 19, y2: 12 }), h("polyline", { points: "12 5 19 12 12 19" }),
+              ),
+            ),
+            h("a", { href: "/learn.html", className: "brief-link" }, "How to use the brief"),
+          ),
+        );
+      }
+
+      // ── Index card ─────────────────────────────────────────────
+      function IndexCard({ sym, t }) {
+        const dc = getDailyChange(t || {});
+        const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
+        const price = Number(t?.price);
+        const dir = dayPct == null ? "" : dayPct > 0 ? "up" : "dn";
+        return h("a", { className: "idx-card", href: `/index-react.html?ticker=${encodeURIComponent(sym)}` },
+          h("span", { className: "name" }, sym),
+          h("span", { className: "px" }, Number.isFinite(price) ? fmtUsd(price) : "—"),
+          h("span", { className: `chg ${dir}` }, dayPct != null ? (dayPct >= 0 ? "▲ " : "▼ ") + fmtPct(dayPct) : "—"),
+        );
+      }
+
+      // ── Market state ───────────────────────────────────────────
+      function MarketState({ data }) {
+        // Use whichever index symbols are actually populated.
+        // Universe has SPY/QQQ/IWM/DIA/SPX/VIXY but not raw VIX.
+        const candidates = ["SPY", "QQQ", "IWM", "VIXY", "DIA"];
+        const order = candidates.filter(sym => data?.[sym]).slice(0, 4);
+        if (order.length === 0) return null;
+        return h("section", { className: "tt-row" },
+          h("div", { className: "tt-sec-title" }, "MARKET STATE"),
+          h("div", { className: "tt-sec-h" }, "Where the indices stand"),
+          h("div", { className: "tt-grid tt-grid-4" },
+            order.map(sym => h(IndexCard, { key: sym, sym, t: data[sym] })),
+          ),
+        );
+      }
+
+      // ── Macro events strip ─────────────────────────────────────
+      function MacroStrip({ brief }) {
+        const macro = brief?.infographic?.macro || [];
+        const items = Array.isArray(macro) ? macro.slice(0, 12) : [];
+        if (items.length === 0) return null;
+        return h("section", { className: "tt-row" },
+          h("div", { className: "tt-sec-title" }, "MACRO ON THE TAPE"),
+          h("div", { className: "tt-sec-h" }, "Events the model is weighting"),
+          h("div", { className: "macro-row" },
+            items.map((m, i) => {
+              const label = typeof m === "string" ? m : (m?.label || m?.event || m?.name || JSON.stringify(m));
+              const ts = typeof m === "object" ? (m?.when || m?.timestamp || m?.date || "") : "";
+              return h("span", { key: i, className: "macro-chip" },
+                label,
+                ts && h("span", { className: "ts" }, ts),
+              );
+            }),
+          ),
+        );
+      }
+
+      // ── Top movers ─────────────────────────────────────────────
+      function MoverRow({ rk, t, mode }) {
+        const dc = getDailyChange(t);
+        const pct = mode === "ext" ? Number(t?._ah_change_pct ?? t?.extended_percent_change) : Number(dc?.dayPct);
+        const price = Number(t?.price);
+        const sym = String(t?.ticker || "").toUpperCase();
+        const dir = !Number.isFinite(pct) ? "" : pct >= 0 ? "up" : "dn";
+        return h("a", { className: "mvr", href: `/index-react.html?ticker=${encodeURIComponent(sym)}` },
+          h("span", { className: "rk" }, "#" + (rk + 1)),
+          h("span", null,
+            h("div", { className: "sym" }, sym),
+          ),
+          h("span", { className: "px" }, Number.isFinite(price) ? fmtUsd(price) : "—"),
+          h("span", { className: `chg ${dir}` }, Number.isFinite(pct) ? (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : "—"),
+        );
+      }
+      function MoversCol({ title, items, mode }) {
+        return h("div", { className: "tt-card tt-card-pad" },
+          h("div", { className: "tt-sec-title", style: { marginBottom: 10 } }, title),
+          items.length === 0
+            ? h("div", { style: { fontSize: 12, color: "var(--tt-text-dim)", fontStyle: "italic" } }, "No movers right now")
+            : h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
+                items.map((t, i) => h(MoverRow, { key: t.ticker || i, rk: i, t, mode })),
+              ),
+        );
+      }
+      function TopMovers({ data }) {
+        const arr = useMemo(() => {
+          if (!data) return [];
+          return Object.values(data).filter(t => t && t.ticker);
+        }, [data]);
+
+        const open = isNyRegularMarketOpen();
+        const CRYPTO = new Set(["BTCUSD", "ETHUSD"]);
+
+        // RTH gainers/losers
+        const rthGain = useMemo(() => arr
+          .map(t => { const dc = getDailyChange(t); return { t, pct: Number(dc?.dayPct) }; })
+          .filter(x => Number.isFinite(x.pct))
+          .sort((a, b) => b.pct - a.pct)
+          .slice(0, 5)
+          .map(x => x.t)
+        , [arr]);
+        const rthLoss = useMemo(() => arr
+          .map(t => { const dc = getDailyChange(t); return { t, pct: Number(dc?.dayPct) }; })
+          .filter(x => Number.isFinite(x.pct))
+          .sort((a, b) => a.pct - b.pct)
+          .slice(0, 5)
+          .map(x => x.t)
+        , [arr]);
+
+        // EXT (after-hours) — only when market closed, exclude crypto
+        const extGain = useMemo(() => {
+          if (open) return [];
+          return arr
+            .filter(t => !CRYPTO.has(String(t.ticker).toUpperCase()))
+            .map(t => ({ t, pct: Number(t?._ah_change_pct ?? t?.extended_percent_change) }))
+            .filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) > 0.05)
+            .sort((a, b) => b.pct - a.pct)
+            .slice(0, 5)
+            .map(x => x.t);
+        }, [arr, open]);
+        const extLoss = useMemo(() => {
+          if (open) return [];
+          return arr
+            .filter(t => !CRYPTO.has(String(t.ticker).toUpperCase()))
+            .map(t => ({ t, pct: Number(t?._ah_change_pct ?? t?.extended_percent_change) }))
+            .filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) > 0.05)
+            .sort((a, b) => a.pct - b.pct)
+            .slice(0, 5)
+            .map(x => x.t);
+        }, [arr, open]);
+
+        const hasExt = extGain.length > 0 || extLoss.length > 0;
+
+        return h("section", { className: "tt-row" },
+          h("div", { className: "tt-sec-title" }, "TOP MOVERS"),
+          h("div", { className: "tt-sec-h" }, "Who's running and who's getting hit"),
+          h("p", { className: "tt-sec-sub" },
+            open
+              ? "Live RTH movers across the universe. Click a row to open the ticker."
+              : "RTH movers from today's session. EXT row shows after-hours follow-through."
+          ),
+          h("div", { className: "tt-grid tt-grid-2" },
+            h(MoversCol, { title: "RTH GAINERS", items: rthGain, mode: "rth" }),
+            h(MoversCol, { title: "RTH LOSERS", items: rthLoss, mode: "rth" }),
+          ),
+          hasExt && h("div", { className: "tt-grid tt-grid-2", style: { marginTop: 12 } },
+            h(MoversCol, { title: "EXT GAINERS (after-hours)", items: extGain, mode: "ext" }),
+            h(MoversCol, { title: "EXT LOSERS (after-hours)", items: extLoss, mode: "ext" }),
+          ),
+        );
+      }
+
+      // ── Earnings strip ─────────────────────────────────────────
+      function EarningsStrip({ earnings }) {
+        const events = safeArr(earnings?.events).slice();
+        if (events.length === 0) return null;
+        // Sort by date asc then BMO < DMH < AMC then symbol asc
+        const HOUR_ORDER = (h) => {
+          const hl = String(h || "").toLowerCase();
+          if (hl.startsWith("bmo") || hl.includes("before")) return 0;
+          if (hl.startsWith("dmh") || hl.includes("during")) return 1;
+          if (hl.startsWith("amc") || hl.includes("after"))  return 2;
+          return 3;
+        };
+        events.sort((a, b) => {
+          const da = String(a?.date || ""); const db = String(b?.date || "");
+          if (da !== db) return da.localeCompare(db);
+          const ho = HOUR_ORDER(a?.hour) - HOUR_ORDER(b?.hour);
+          if (ho !== 0) return ho;
+          return String(a?.symbol || "").localeCompare(String(b?.symbol || ""));
+        });
+        const limited = events.slice(0, 18);
+        // Group by date
+        const byDay = {};
+        for (const ev of limited) { (byDay[ev.date] = byDay[ev.date] || []).push(ev); }
+        const days = Object.keys(byDay).slice(0, 5);
+        if (days.length === 0) return null;
+
+        return h("section", { className: "tt-row" },
+          h("div", { className: "tt-sec-title" }, "EARNINGS THIS WEEK"),
+          h("div", { className: "tt-sec-h" }, "Event-driven risk on the radar"),
+          h("div", { className: "tt-grid tt-grid-3" },
+            days.slice(0, 6).map(d =>
+              h("div", { key: d, className: "tt-card tt-card-pad" },
+                h("div", { style: { fontSize: 11, color: "var(--tt-text-dim)", fontWeight: 700, letterSpacing: "0.06em", marginBottom: 8 } }, d),
+                h("div", { style: { display: "flex", flexDirection: "column", gap: 5 } },
+                  byDay[d].slice(0, 6).map((ev, i) => h("div", { key: i, className: "earn-row" },
+                    h("span", { className: "date" }, String(ev?.hour || "—").toUpperCase()),
+                    h("span", null, h("span", { className: "sym" }, ev?.symbol || "?")),
+                    h("span", { className: "hour" }, "$" + (Number(ev?.eps_est) || 0).toFixed(2) + " est"),
+                  )),
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
+      // ── Universe heatmap ───────────────────────────────────────
+      function UniverseHeatmap({ data }) {
+        const [showAll, setShowAll] = useState(false);
+        const items = useMemo(() => {
+          const arr = Object.values(data || {}).filter(t => t && t.ticker);
+          // Sort by HTF score descending (bull leaders first, bears last).
+          // rank_position is often null on the snapshot, so HTF is more reliable.
+          arr.sort((a, b) => {
+            const sa = Number(a?.htf_score);
+            const sb = Number(b?.htf_score);
+            const va = Number.isFinite(sa) ? sa : -999;
+            const vb = Number.isFinite(sb) ? sb : -999;
+            if (va !== vb) return vb - va;
+            return String(a.ticker).localeCompare(String(b.ticker));
+          });
+          return arr;
+        }, [data]);
+        const visible = showAll ? items : items.slice(0, 80);
+
+        if (items.length === 0) return null;
+
+        return h("section", { className: "tt-row" },
+          h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" } },
+            h("div", null,
+              h("div", { className: "tt-sec-title" }, "UNIVERSE AT A GLANCE"),
+              h("div", { className: "tt-sec-h" }, "Every ticker, ranked by today's score"),
+            ),
+            h("div", { style: { display: "flex", gap: 8, alignItems: "center", fontSize: 11, color: "var(--tt-text-dim)" } },
+              h("span", { className: "tt-pill up" }, "Strong"),
+              h("span", { className: "tt-pill accent" }, "Mid"),
+              h("span", { className: "tt-pill dn" }, "Weak"),
+            ),
+          ),
+          h("div", { className: "tt-card tt-card-pad" },
+            h("div", { className: "heat-grid" },
+              visible.map(t => {
+                const sym = String(t.ticker).toUpperCase();
+                const dc = getDailyChange(t);
+                const pct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
+                const score = Number(t?.htf_score) || 0;
+                const lvl = score >= 20 ? "lvl-strong" : score <= -15 ? "lvl-weak" : Math.abs(score) >= 5 ? "lvl-mid" : "";
+                const pdir = !Number.isFinite(pct) ? "" : pct >= 0 ? "up" : "dn";
+                return h("a", {
+                  key: sym,
+                  className: `heat-cell ${lvl}`,
+                  href: `/index-react.html?ticker=${encodeURIComponent(sym)}`,
+                  title: `${sym} · HTF ${score.toFixed(1)} · LTF ${(Number(t?.ltf_score) || 0).toFixed(1)} · ${t?.state || ""}`,
+                },
+                  h("span", { className: "sym" }, sym),
+                  h("span", { className: `pct ${pdir}` }, pct != null ? (pct >= 0 ? "+" : "") + pct.toFixed(1) + "%" : "—"),
+                );
+              }),
+            ),
+            items.length > 80 && h("div", { style: { textAlign: "center", marginTop: 14 } },
+              h("button", {
+                onClick: () => setShowAll(s => !s),
+                style: {
+                  padding: "8px 18px", borderRadius: 8, fontSize: 12.5, fontWeight: 600,
+                  background: "var(--tt-bg-elev)", border: "1px solid var(--tt-border-hi)",
+                  color: "var(--tt-text)", cursor: "pointer",
+                },
+              }, showAll ? `Show top 80` : `Show all ${items.length}`),
+            ),
+          ),
+        );
+      }
+
+      // ── End CTA ────────────────────────────────────────────────
+      function EndCTA() {
+        return h("section", { className: "end-cta tt-row" },
+          h("a", { href: "/index-react.html", className: "primary" },
+            "Open Active Trader",
+            h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2.5, strokeLinecap: "round", strokeLinejoin: "round" },
+              h("line", { x1: 5, y1: 12, x2: 19, y2: 12 }), h("polyline", { points: "12 5 19 12 12 19" }),
+            ),
+          ),
+          h("a", { href: "/investor-dashboard.html" }, "Open Investor"),
+          h("a", { href: "/simulation-dashboard.html" }, "View Trades"),
+        );
+      }
+
+      // ── App root ───────────────────────────────────────────────
+      function TodayApp() {
+        const [data, setData] = useState(null);
+        const [brief, setBrief] = useState(null);
+        const [earnings, setEarnings] = useState(null);
+        const [cal, setCal] = useState(null);
+        const [error, setError] = useState(null);
+
+        useEffect(() => {
+          let alive = true;
+          (async () => {
+            try {
+              const [a, b, e, c] = await Promise.all([fetchAll(), fetchBrief(), fetchEarnings(), fetchCal()]);
+              if (!alive) return;
+              if (a?.ok) setData(a.data || {});
+              if (b?.ok) {
+                // Prefer evening brief if it's past 4pm NY, else morning
+                const _now = new Date();
+                const _ny = new Date(_now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+                const past4 = _ny.getHours() >= 16;
+                setBrief(past4 ? (b.brief?.evening || b.brief?.morning) : (b.brief?.morning || b.brief?.evening));
+              }
+              if (e?.ok) setEarnings(e);
+              if (c?.ok) setCal(c);
+            } catch (err) {
+              if (alive) setError(String(err?.message || err));
+            }
+          })();
+          return () => { alive = false; };
+        }, []);
+
+        if (error) {
+          return h("main", null,
+            h("div", { className: "tt-card tt-card-pad", style: { color: "var(--tt-dn-soft)" } },
+              "Couldn't load today's data: " + error
+            ),
+          );
+        }
+
+        return h("main", null,
+          h(StatusHeader, { cal, briefDate: brief?.date }),
+          brief && h(BriefPreview, { brief }),
+          data && h(MarketState, { data }),
+          brief && h(MacroStrip, { brief }),
+          data && h(TopMovers, { data }),
+          earnings && h(EarningsStrip, { earnings }),
+          data && h(UniverseHeatmap, { data }),
+          h(EndCTA, null),
+        );
+      }
+
+      // ── Mount with auth gate ───────────────────────────────────
+      const AuthGate = window.TimedAuthGate;
+      const app = AuthGate
+        ? <AuthGate apiBase={API_BASE} requiredTier="pro">{(user) => <TodayApp user={user} />}</AuthGate>
+        : <TodayApp />;
+      ReactDOM.createRoot(document.getElementById("root")).render(app);
+    </script>
+
+    <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
+      For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
+    </footer>
+
+  </body>
+</html>
