@@ -42,7 +42,7 @@
     console.warn('[shared-bubble-chart] React not loaded; bailing');
     return;
   }
-  const { useState, useEffect, useMemo, useRef, useCallback } = React;
+  const { useState, useEffect, useMemo, useRef, useCallback, memo } = React;
 
   // Soft-dep on shared-price-utils for daily-change calculations.
   const getDailyChange = (window.TimedPriceUtils && window.TimedPriceUtils.getDailyChange)
@@ -688,6 +688,270 @@
 
   // Alias: computeDynamicRank → computeDynamicScore (from index-react line 4230)
   const computeDynamicRank = computeDynamicScore;
+
+  // ── SVGBubble (native SVG bubble component) ────────────────
+  //   Extracted from index-react.source.html line 5019 (258 lines).
+  //   Missed in PR #153 — defined OUTSIDE the BubbleChart 5449-7746 range.
+  //   Used by BubbleChart at line ~1562 (in shared file).
+
+  const SVGBubble = memo(
+    ({
+      ticker,
+      onClick,
+      onHover,
+      isHovered,
+      scaleX,
+      scaleY,
+      offsetX,
+      offsetY,
+      layoutX = null,
+      layoutY = null,
+      showLabels,
+      isTopRanked = false,
+      thesisMode = false,
+      insightDimmed = false,
+    }) => {
+      // CRITICAL DEBUG: Log EVERY bubble call immediately
+      if (!window._svgBubbleCallCount) {
+        window._svgBubbleCallCount = 0;
+      }
+      window._svgBubbleCallCount++;
+
+      // Always log first 10 to see what's happening
+      if (window._svgBubbleCallCount <= 10) {
+        debugLog(
+          `[SVGBUBBLE CALLED] #${window._svgBubbleCallCount} - ${
+            ticker?.ticker || "NO TICKER"
+          }`,
+          {
+            ticker: ticker?.ticker,
+            hasTicker: !!ticker,
+            tickerKeys: ticker ? Object.keys(ticker).slice(0, 20) : [],
+            hasPhasePct: ticker ? "phase_pct" in ticker : false,
+            phasePct: ticker ? ticker.phase_pct : undefined,
+          },
+        );
+      }
+
+      // CRITICAL: If no ticker, return null immediately
+      if (!ticker || !ticker.ticker) {
+        console.error(`[SVGBUBBLE ERROR] No ticker provided!`, { ticker });
+        return null;
+      }
+
+      // Ensure we have valid numeric values - check for null/undefined explicitly
+      // Try multiple property names in case data structure varies
+      const waitingForData = ticker.waitingForData === true;
+
+      // R:R and completion drive size so late-in-move setups naturally shrink.
+      const baseBubbleR = computeBubbleRadiusModel(
+        ticker,
+        ticker?.ticker,
+        { minRadius: 6, maxRadius: 28 },
+      );
+
+      const ks = String(ticker?._effectiveKanbanStage || ticker?.kanban_stage || "").toLowerCase();
+      const isActionable = ["in_review", "enter", "enter_now", "just_entered", "just_flipped", "flip_watch", "trim", "defend", "exit"].includes(ks);
+      const finalSize = isActionable ? baseBubbleR + 2 : baseBubbleR;
+
+      const move = getMoveStatusInfo(ticker);
+
+      // Daily change % fill color — normalized by ticker type
+      const dayPct = Number(ticker?.day_change_pct || ticker?.dailyChgPct || ticker?.dp || 0);
+      const _bTickerType = ticker?.tickerType || ticker?._tickerType || ticker?.ticker_type || "";
+      const _bVolAtr = Number(ticker?.volatility_atr_pct || ticker?._volatility_atr_pct) || undefined;
+      const _bTickerSym = ticker?.ticker || "";
+      const _bNorm = window.TimedPriceUtils?.getNormalizedIntensity
+        ? window.TimedPriceUtils.getNormalizedIntensity(dayPct, _bTickerType, _bVolAtr, _bTickerSym)
+        : Math.abs(dayPct) / 2.5;
+      let tintAlpha;
+      if (_bNorm <= 0.2) tintAlpha = 0.25 + _bNorm * 1.25;
+      else if (_bNorm <= 0.5) tintAlpha = 0.50 + ((_bNorm - 0.2) / 0.3) * 0.20;
+      else if (_bNorm <= 1.0) tintAlpha = 0.70 + ((_bNorm - 0.5) / 0.5) * 0.15;
+      else tintAlpha = Math.min(0.95, 0.85 + (_bNorm - 1) * 0.05);
+
+      const isUp = dayPct >= 0;
+      const hasDayData = (ticker?.day_change_pct != null || ticker?.dailyChgPct != null || ticker?.dp != null);
+      const fillColor = waitingForData
+        ? "rgba(55,65,81,0.4)"
+        : !hasDayData
+          ? "rgba(100,116,139,0.3)"
+          : isUp ? `rgba(34,197,94,${tintAlpha})` : `rgba(239,68,68,${tintAlpha})`;
+
+      // Opacity: clean fade for invalidated/completed
+      const baseOpacity = waitingForData ? 0.55 : isHovered ? 1 : 0.92;
+      const moveOpacityMult = waitingForData || isHovered ? 1
+        : move.status === "INVALIDATED" ? 0.25
+        : move.status === "COMPLETED" ? 0.6
+        : 1;
+      const opacity = Math.max(0.12, baseOpacity * moveOpacityMult);
+
+      // Flat, clean border
+      const borderWidth = waitingForData ? 1 : isActionable ? 2 : 1.2;
+      const borderColor = waitingForData
+        ? "rgba(139,146,160,0.5)"
+        : isActionable
+          ? "rgba(255,255,255,0.85)"
+          : isUp ? "rgba(34,197,94,0.6)" : "rgba(239,68,68,0.5)";
+
+      const bubbleSize = isHovered ? finalSize * 1.15 : finalSize;
+
+      // Calculate position correctly:
+      // BubbleChart passes pre-adjusted offsets:
+      // - offsetX already includes +50*scaleX (centers at x=0)
+      // - offsetY already includes plotHeight - 50*scaleY (centers at y=0)
+      // - scaleY is negative for y-axis inversion
+      // So we just multiply scores by scales and add offsets
+      const ltfScore = Number(ticker.ltf_score) || 0;
+      const htfScore = Number(ticker.htf_score) || 0;
+
+      // X: LTF score * scaleX + offsetX (offsetX already centered)
+      const x = Number.isFinite(Number(layoutX))
+        ? Number(layoutX)
+        : ltfScore * scaleX + offsetX;
+
+      // Y: HTF score * scaleY + offsetY (scaleY is negative, offsetY already centered)
+      const y = Number.isFinite(Number(layoutY))
+        ? Number(layoutY)
+        : htfScore * scaleY + offsetY;
+
+      const hasEarnings = !!window._ttEarningsMap?.[ticker.ticker];
+
+      const stageIconData = (() => {
+        if (ks === "in_review" || ks === "enter_now" || ks === "enter") return { icon: "🔍", fill: "#f59e0b", bg: "rgba(245,158,11,0.25)", border: "#f59e0b", label: "REVIEW" };
+        if (ks === "just_entered" || ks === "just_flipped") return { icon: "✅", fill: "#00e676", bg: "rgba(0,230,118,0.25)", border: "#00e676", label: "INITIATED" };
+        if (ks === "trim") return { icon: "✂", fill: "#facc15", bg: "rgba(250,204,21,0.2)", border: "#facc15", label: "TRIM" };
+        if (ks === "exit") return { icon: "✕", fill: "#f87171", bg: "rgba(248,113,113,0.25)", border: "#f87171", label: "EXIT" };
+        if (ks === "defend") return { icon: "🛡", fill: "#fb923c", bg: "rgba(251,146,60,0.2)", border: "#fb923c", label: "DEFEND" };
+        return null;
+      })();
+
+      const showGlow = !waitingForData && isActionable;
+      const renderedSize = Math.max(3, Math.min(50, bubbleSize));
+      const labelY = y - renderedSize - 8;
+
+      const decisionSummary = summarizeEntryDecision(ticker);
+      const decisionTooltip = decisionSummary ? `System ${decisionSummary.status}: ${decisionSummary.detail}` : null;
+
+      const relLabelY = -renderedSize - 8;
+
+      const isTimeTravel = !!ticker._isTimeTravel;
+      const clampPx = (v, mx) => Math.sign(v) * Math.min(Math.abs(v), mx);
+      // In Time Travel mode, strip live-data offsets so position is purely score-driven
+      const dayChgPts = isTimeTravel ? 0 : Number(ticker?.day_change || ticker?.change || 0);
+      const baseDriftY = clampPx(-dayChgPts * 2, 15);
+      const baseDriftX = clampPx(dayChgPts * 1, 8);
+      const impulseX = isTimeTravel ? 0 : (Number(ticker._price_impulse_x) || 0);
+      const impulseY = isTimeTravel ? 0 : (Number(ticker._price_impulse_y) || 0);
+
+      const targetX = x + baseDriftX + impulseX;
+      const targetY = y + baseDriftY + impulseY;
+
+      // Stable per-bubble seed from ticker name for organic randomization
+      const seed = useMemo(() => {
+        let h = 0;
+        const s = ticker.ticker || '';
+        for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+        return Math.abs(h);
+      }, [ticker.ticker]);
+
+      const gRef = useRef(null);
+      const animRef = useRef({ cx: 0, cy: 0, tx: 0, ty: 0, rafId: null, init: false, isTimeTravel: false });
+
+      // Keep target in sync without restarting the loop
+      useEffect(() => {
+        const a = animRef.current;
+        a.tx = targetX;
+        a.ty = targetY;
+        a.isTimeTravel = isTimeTravel;
+        if (!a.init) { a.cx = targetX; a.cy = targetY; a.init = true; }
+      }, [targetX, targetY, isTimeTravel]);
+
+      // Persistent animation loop — runs for the lifetime of the bubble
+      useEffect(() => {
+        const a = animRef.current;
+        // Per-bubble frequencies (different for each so they don't move in unison)
+        const fX1 = 0.4 + (seed % 200) / 500;
+        const fY1 = 0.3 + ((seed >> 8) % 200) / 500;
+        const fX2 = 0.15 + ((seed >> 4) % 100) / 800;
+        const fY2 = 0.12 + ((seed >> 12) % 100) / 800;
+        const phX = (seed % 628) / 100;
+        const phY = ((seed >> 6) % 628) / 100;
+        const amp = isActionable ? 2.5 : 1.8;
+
+        const loop = (now) => {
+          if (a.isTimeTravel) {
+            // Time Travel: fast snap to target (like scrubbing a video)
+            a.cx += (a.tx - a.cx) * 0.25;
+            a.cy += (a.ty - a.cy) * 0.25;
+            if (gRef.current) gRef.current.setAttribute("transform", `translate(${a.cx.toFixed(1)}, ${a.cy.toFixed(1)})`);
+          } else {
+            // Live mode: smooth chase + organic ambient oscillation
+            const t = now * 0.001;
+            a.cx += (a.tx - a.cx) * 0.06;
+            a.cy += (a.ty - a.cy) * 0.06;
+            const ox = Math.sin(t * fX1 + phX) * amp + Math.sin(t * fX2 + phX * 0.7) * (amp * 0.5);
+            const oy = Math.cos(t * fY1 + phY) * amp + Math.cos(t * fY2 + phY * 1.3) * (amp * 0.5);
+            if (gRef.current) gRef.current.setAttribute("transform", `translate(${(a.cx + ox).toFixed(1)}, ${(a.cy + oy).toFixed(1)})`);
+          }
+          a.rafId = requestAnimationFrame(loop);
+        };
+        a.rafId = requestAnimationFrame(loop);
+        return () => { if (a.rafId) { cancelAnimationFrame(a.rafId); a.rafId = null; } };
+      }, [seed, isActionable]);
+
+      return (
+        <g
+          ref={gRef}
+          className="bubble-g"
+          onClick={() => onClick(ticker.ticker)}
+          onMouseEnter={() => onHover(ticker.ticker)}
+          onMouseLeave={() => onHover(null)}
+          onTouchStart={(e) => { e.preventDefault(); onHover(ticker.ticker); onClick(ticker.ticker); }}
+          onTouchEnd={(e) => { e.preventDefault(); onHover(null); }}
+          transform={`translate(${targetX.toFixed(1)}, ${targetY.toFixed(1)})`}
+          style={{ cursor: "pointer", touchAction: "manipulation", opacity: insightDimmed && !isHovered ? 0.12 : 1 }}
+        >
+          {decisionTooltip && <title>{decisionTooltip}</title>}
+          {showGlow && (
+            <>
+              <circle cx={0} cy={0} r={renderedSize + 6} fill="none" stroke={borderColor} strokeWidth="1.5" opacity="0.4">
+                <animate attributeName="r" values={`${renderedSize + 3};${renderedSize + 8};${renderedSize + 3}`} dur="2s" repeatCount="indefinite" />
+                <animate attributeName="opacity" values="0.5;0.15;0.5" dur="2s" repeatCount="indefinite" />
+              </circle>
+              <circle cx={0} cy={0} r={renderedSize + 2} fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="1">
+                <animate attributeName="opacity" values="0.2;0.6;0.2" dur="1.8s" repeatCount="indefinite" />
+              </circle>
+            </>
+          )}
+          <circle cx={0} cy={0} r={renderedSize} fill={fillColor} stroke={borderColor} strokeWidth={borderWidth} opacity={opacity} />
+          {hasEarnings && (
+            <g style={{pointerEvents: "none"}}>
+              <circle cx={renderedSize * 0.7} cy={-renderedSize * 0.7} r={6} fill="rgba(245,158,11,0.3)" stroke="#f59e0b" strokeWidth="0.8" />
+              <text x={renderedSize * 0.7} y={-renderedSize * 0.7 + 0.5} fontSize="7" textAnchor="middle" dominantBaseline="middle">📅</text>
+            </g>
+          )}
+          {stageIconData && (() => {
+            const pillW = stageIconData.label.length > 4 ? 36 : 28;
+            return (
+              <g style={{pointerEvents: "none"}}>
+                <rect x={-pillW / 2} y={renderedSize + 2} width={pillW} height="12" rx="6" fill={stageIconData.bg} stroke={stageIconData.border} strokeWidth="0.8" />
+                <text x={0} y={renderedSize + 8.5} fontSize="7" fontWeight="bold" textAnchor="middle" dominantBaseline="middle" fill={stageIconData.fill} letterSpacing="0.5">{stageIconData.label}</text>
+              </g>
+            );
+          })()}
+          {waitingForData && (
+            <text x={0} y={-renderedSize - 10} textAnchor="middle" fontSize="10" fill="#8b92a0" style={{pointerEvents: "none"}}>⏳</text>
+          )}
+          {(showLabels || isHovered) && (
+            <text x={0} y={relLabelY} textAnchor="middle" fontSize="10" fill={waitingForData ? "#8b92a0" : "#f0f2f5"} fontWeight="600" style={{ textShadow: "0 0 4px rgba(0,0,0,0.9)", pointerEvents: "none" }}>
+              {ticker.ticker}
+            </text>
+          )}
+        </g>
+      );
+    },
+  );
 
   // ── BubbleChart React component ─────────────────────────
 
@@ -3024,5 +3288,6 @@
     LONG_CORRIDOR: LONG_CORRIDOR,
     SHORT_CORRIDOR: SHORT_CORRIDOR,
     JOURNEY_LOOKBACK_MS: JOURNEY_LOOKBACK_MS,
+    SVGBubble: SVGBubble,
   };
 })();
