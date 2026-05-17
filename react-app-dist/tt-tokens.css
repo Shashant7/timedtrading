@@ -1257,7 +1257,13 @@ input, button, select, textarea {
  * the user reported.
  * ═══════════════════════════════════════════════════════════════════════ */
 @media (max-width: 767px) {
-  .nav-links { display: none !important; }
+  .nav-links,
+  /* tt-nav-extras.js injects this strip on admin pages so users
+     can navigate back to the journey pages. The bottom tab-bar
+     covers the same links on mobile, so hide it here too. */
+  .tt-journey-strip {
+    display: none !important;
+  }
 
   /* Tighten the top row so the slim header reads as a hero strip,
      not a heavy block. */
@@ -1282,6 +1288,32 @@ input, button, select, textarea {
   /* Compact right-side widgets so all three (Discord, Bell, Avatar)
      fit on the same row alongside the brand. */
   .tt-nav-widgets { gap: 6px !important; margin-left: auto !important; }
+
+  /* ── Legal footer — inline on mobile ──
+     The legal disclaimer footer is `position: fixed; bottom: 0`
+     on desktop so it stays anchored to the viewport. On mobile
+     that's wasteful: it competes with the bottom tab-bar for the
+     bottom strip and steals real estate from the page content
+     (user feedback "The terms footer should be in line with the
+     page so it doesn't take up real estate"). Override the inline
+     styles set on #legal-footer in each page's HTML — !important
+     is required because the page sets the styles inline.
+
+     The bottom tab-bar adds 64px of body padding via tt-bottom-nav.js;
+     the inline footer sits inside that buffer so it stays just
+     above the tab-bar. */
+  #legal-footer {
+    position: static !important;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    border-top: 1px solid var(--tt-border-weak, rgba(255,255,255,0.04)) !important;
+    padding: 14px 14px 18px !important;
+    margin-top: 40px;
+    font-size: 10.5px !important;
+    line-height: 1.5 !important;
+    z-index: 1 !important;
+  }
 }
 
 /* (Bottom tab-bar self-hides on desktop via its own .tt-bn media
