@@ -18,6 +18,7 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="auth-gate.js?v=20260516a"></script>
     <script src="tt-bottom-nav.js?v=20260517a" defer></script>
+    <script src="tt-nav-extras.js?v=20260517a" defer></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
     <!-- DS — design-system primitives (ticker logos + sparkline SVG generator).
          Required for the Viewport cards to match Active Trader's DsCompactCard. -->
@@ -917,16 +918,21 @@
         const headline = (() => {
           if (typeof headlineRaw === "string") return headlineRaw;
           if (!headlineRaw || typeof headlineRaw !== "object") return "";
-          // Build a brief summary string from known fields.
+          // Build a brief summary string from known fields. Guard each
+          // line so missing/zero values don't produce noisy "VIX 0.00"
+          // or "Breadth 0/0 sectors green" placeholders (the brief
+          // endpoint returns null when the field hasn't been computed).
           const parts = [];
           if (headlineRaw.regime) parts.push(`Regime: ${String(headlineRaw.regime).replace(/_/g, " ")}`);
-          if (Number.isFinite(Number(headlineRaw.vix))) parts.push(`VIX ${Number(headlineRaw.vix).toFixed(2)}`);
+          const vixNum = Number(headlineRaw.vix);
+          if (Number.isFinite(vixNum) && vixNum > 0) parts.push(`VIX ${vixNum.toFixed(2)}`);
           if (headlineRaw.breadth && typeof headlineRaw.breadth === "object") {
             const g = Number(headlineRaw.breadth.green);
             const t = Number(headlineRaw.breadth.total);
-            if (Number.isFinite(g) && Number.isFinite(t)) parts.push(`Breadth ${g}/${t} sectors green`);
+            if (Number.isFinite(g) && Number.isFinite(t) && t > 0) parts.push(`Breadth ${g}/${t} sectors green`);
           }
-          if (Number.isFinite(Number(headlineRaw.openTrades))) parts.push(`${Number(headlineRaw.openTrades)} open trades`);
+          const openN = Number(headlineRaw.openTrades);
+          if (Number.isFinite(openN) && openN > 0) parts.push(`${openN} open trades`);
           return parts.join(" \u00b7 ");
         })();
 
@@ -1049,8 +1055,13 @@
       // ── Market Pulse — port from AT's Market Pulse row.
       // User feedback: 'The Today Page should use the Market Pulse Tiles.'
       function MarketState({ data, onSelectTicker }) {
-        const candidates = ["SPY", "QQQ", "IWM", "VIXY", "BTCUSD", "GLD", "USO", "SLV"];
-        const order = candidates.filter(sym => data?.[sym]).slice(0, 6);
+        // Order mirrors the AT Market Pulse row: equity indices first,
+        // VIX, crypto pair (BTC + ETH), then commodity ETFs (gold, oil).
+        // User requested ETH and an oil-equivalent tile alongside the
+        // existing ones so the strip reads as a single-glance regime
+        // snapshot. Up to 8 tiles fit comfortably at desktop width.
+        const candidates = ["SPY", "QQQ", "IWM", "VIXY", "BTCUSD", "ETHUSD", "GLD", "USO"];
+        const order = candidates.filter(sym => data?.[sym]).slice(0, 8);
         if (order.length === 0) return null;
         return h("section", { className: "tt-row" },
           h("div", { className: "tt-sec-title" }, "MARKET PULSE"),

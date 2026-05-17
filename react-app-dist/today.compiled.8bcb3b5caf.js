@@ -239,13 +239,15 @@ function BriefPreview({
     if (!headlineRaw || typeof headlineRaw !== "object") return "";
     const parts = [];
     if (headlineRaw.regime) parts.push(`Regime: ${String(headlineRaw.regime).replace(/_/g, " ")}`);
-    if (Number.isFinite(Number(headlineRaw.vix))) parts.push(`VIX ${Number(headlineRaw.vix).toFixed(2)}`);
+    const vixNum = Number(headlineRaw.vix);
+    if (Number.isFinite(vixNum) && vixNum > 0) parts.push(`VIX ${vixNum.toFixed(2)}`);
     if (headlineRaw.breadth && typeof headlineRaw.breadth === "object") {
       const g = Number(headlineRaw.breadth.green);
       const t = Number(headlineRaw.breadth.total);
-      if (Number.isFinite(g) && Number.isFinite(t)) parts.push(`Breadth ${g}/${t} sectors green`);
+      if (Number.isFinite(g) && Number.isFinite(t) && t > 0) parts.push(`Breadth ${g}/${t} sectors green`);
     }
-    if (Number.isFinite(Number(headlineRaw.openTrades))) parts.push(`${Number(headlineRaw.openTrades)} open trades`);
+    const openN = Number(headlineRaw.openTrades);
+    if (Number.isFinite(openN) && openN > 0) parts.push(`${openN} open trades`);
     return parts.join(" \u00b7 ");
   })();
   const closingRaw = info.closingLine;
@@ -412,8 +414,8 @@ function MarketState({
   data,
   onSelectTicker
 }) {
-  const candidates = ["SPY", "QQQ", "IWM", "VIXY", "BTCUSD", "GLD", "USO", "SLV"];
-  const order = candidates.filter(sym => data?.[sym]).slice(0, 6);
+  const candidates = ["SPY", "QQQ", "IWM", "VIXY", "BTCUSD", "ETHUSD", "GLD", "USO"];
+  const order = candidates.filter(sym => data?.[sym]).slice(0, 8);
   if (order.length === 0) return null;
   return h("section", {
     className: "tt-row"
