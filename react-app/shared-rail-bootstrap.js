@@ -109,10 +109,80 @@
   // ticker-detail panel as a slide-in drawer. Pages can render it like:
   //   const Rail = window.TimedRightRail.Overlay;
   //   <Rail ticker={selectedTicker} allLoadedData={data} onClose={...} />
+  //
+  // The overlay also fetches /timed/latest?ticker=X and merges the
+  // result into the ticker prop. This is required for the Technicals,
+  // Analysis (Behavior Profile), and Fundamentals tabs because
+  // /timed/all strips heavy fields (tf_tech, _ticker_profile,
+  // td_sequential, fundamentals, etc.) to keep its response small,
+  // while /timed/latest returns the full payload for a single ticker.
+  // /index-react.html does the same dance in TickerDetailsLoader.
   const e = React.createElement;
+  const { useState, useEffect, useMemo } = React;
   function RailOverlay(props) {
     const { ticker, allLoadedData, onClose } = props || {};
-    React.useEffect(() => {
+    const tickerSym = useMemo(() => String(ticker?.ticker || ticker?.symbol || "").toUpperCase(), [ticker]);
+
+    // Full-payload fetch: hits /timed/latest for the open ticker so the
+    // rail has tf_tech, td_sequential, _ticker_profile, fundamentals,
+    // execution_profile, ichimoku_map, etc. — everything the heavy
+    // tabs depend on. Hides behind a sentinel so we don't re-fetch on
+    // every render. Falls back to the prop ticker if the fetch fails.
+    const [fullPayload, setFullPayload] = useState(null);
+    useEffect(() => {
+      if (!tickerSym) { setFullPayload(null); return; }
+      let alive = true;
+      const ts = Date.now();
+      fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(tickerSym)}&_t=${ts}`, {
+        cache: "no-store",
+        credentials: "include",
+        headers: { Accept: "application/json", "Cache-Control": "no-cache" },
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          if (!alive || !j?.ok) return;
+          const latest = j.latestData || j.data || null;
+          if (latest && typeof latest === "object") setFullPayload(latest);
+        })
+        .catch(() => {/* silent — keep prop ticker */});
+      return () => { alive = false; };
+    }, [tickerSym]);
+
+    // Merge: full payload wins, but the prop ticker fills in anything
+    // the latest endpoint dropped (rare). This preserves the kanban
+    // stage / open trade overlay the parent passed in.
+    const enrichedTicker = useMemo(() => {
+      if (!ticker) return null;
+      if (!fullPayload) return ticker;
+      return {
+        ...fullPayload,
+        ...ticker,
+        // Heavy fields the rail's Technicals / Analysis / Fundamentals
+        // / Investor / History tabs all rely on — always prefer the
+        // full /timed/latest copy because /timed/all strips these.
+        tf_tech: fullPayload.tf_tech ?? ticker.tf_tech,
+        _ticker_profile: fullPayload._ticker_profile ?? ticker._ticker_profile,
+        _tickerProfile: fullPayload._tickerProfile ?? ticker._tickerProfile,
+        td_sequential: fullPayload.td_sequential ?? ticker.td_sequential,
+        fundamentals: fullPayload.fundamentals ?? ticker.fundamentals,
+        execution_profile: fullPayload.execution_profile ?? ticker.execution_profile,
+        ichimoku_map: fullPayload.ichimoku_map ?? ticker.ichimoku_map,
+        ichimoku_d: fullPayload.ichimoku_d ?? ticker.ichimoku_d,
+        ema_map: fullPayload.ema_map ?? ticker.ema_map,
+        fuel: fullPayload.fuel ?? ticker.fuel,
+        atr_levels: fullPayload.atr_levels ?? ticker.atr_levels,
+        liq_4h: fullPayload.liq_4h ?? ticker.liq_4h,
+        liq_D: fullPayload.liq_D ?? ticker.liq_D,
+        regime: fullPayload.regime ?? ticker.regime,
+        regime_class: fullPayload.regime_class ?? ticker.regime_class,
+        market_internals: fullPayload.market_internals ?? ticker.market_internals,
+        // Ensure ticker symbol field is preserved (some /timed/latest
+        // payloads don't include a top-level `ticker` field).
+        ticker: ticker.ticker || fullPayload.ticker || tickerSym,
+      };
+    }, [ticker, fullPayload, tickerSym]);
+
+    useEffect(() => {
       if (!ticker) return;
       const onKey = (ev) => { if (ev.key === "Escape") onClose && onClose(); };
       document.addEventListener("keydown", onKey);
@@ -123,7 +193,7 @@
         document.body.style.overflow = prev;
       };
     }, [ticker, onClose]);
-    if (!ticker) return null;
+    if (!ticker || !enrichedTicker) return null;
     return e(React.Fragment, null,
       e("div", {
         className: "rail-backdrop",
@@ -134,7 +204,7 @@
         className: "rail-panel",
         role: "dialog",
         "aria-modal": "true",
-        "aria-label": `${ticker.ticker || ticker.symbol || "Ticker"} detail`,
+        "aria-label": `${tickerSym || "Ticker"} detail`,
       },
         e("button", {
           className: "rail-close",
@@ -143,7 +213,7 @@
           title: "Close (Esc)",
         }, "✕"),
         e(Component, {
-          ticker,
+          ticker: enrichedTicker,
           allLoadedData: allLoadedData || null,
           onClose,
         }),
