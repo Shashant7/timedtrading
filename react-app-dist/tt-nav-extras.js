@@ -107,6 +107,30 @@
         color: var(--tt-text-faint, #4b5563);
         padding: 8px 14px 4px;
       }
+
+      /* Right-edge widgets — Discord / Alerts / Avatar. */
+      .tt-nav-widgets {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: 12px;
+      }
+      .tt-nav-widget {
+        display: inline-flex;
+        align-items: center;
+      }
+      .tt-nav-widget-fallback {
+        font-size: 12px;
+        color: var(--tt-text-muted, #9ca3af);
+        text-decoration: none;
+        padding: 6px 10px;
+        border-radius: 8px;
+        border: 1px solid var(--tt-border, rgba(255,255,255,0.06));
+      }
+      .tt-nav-widget-fallback:hover {
+        color: var(--tt-text, #e5e7eb);
+        background: var(--tt-bg-surface, rgba(255,255,255,0.025));
+      }
     `;
     document.head.appendChild(el);
   }
@@ -178,11 +202,22 @@
       });
       if (!r.ok) return null;
       const j = await r.json();
-      const scores = j?.scores || j?.data || j;
-      if (!scores || typeof scores !== "object") return null;
+      // V15 P0.7.181 (2026-05-17) — /timed/investor/scores returns
+      // { ok, count, computedAt, tickers: [...] }. Previous code looked
+      // for `j.scores` (which doesn't exist) and fell through to
+      // iterating the response object itself, which never matched a
+      // stage and left the Investor nav badge blank. Pull the array
+      // explicitly and count stages.
+      const list = Array.isArray(j?.tickers)
+        ? j.tickers
+        : Array.isArray(j?.scores)
+        ? j.scores
+        : Array.isArray(j?.data)
+        ? j.data
+        : (j?.scores && typeof j.scores === "object" ? Object.values(j.scores) : []);
       // Actionable = Accumulate or Reduce stage (per investor-panel).
       let n = 0;
-      for (const v of Object.values(scores)) {
+      for (const v of list) {
         if (!v || typeof v !== "object") continue;
         const stage = String(v.stage || v.investor_stage || "").toLowerCase();
         if (stage === "accumulate" || stage === "reduce") n += 1;
@@ -262,10 +297,83 @@
     });
   }
 
+  // ── Right-side widgets: Discord / Alerts / Avatar ────────────
+  //
+  // Mount React widgets (`window.TimedWaitlistButton`,
+  // `window.TimedNotificationCenter`, `window.TimedUserBadge`) into a
+  // host container at the right of the nav-row. The host appears
+  // *after* the .nav-links container so it sits on the far right
+  // (matches the layout of /index-react.html's top nav).
+  function injectRightWidgets() {
+    if (!isAdminUser() && !document.body?.dataset?.userTier) {
+      // Skip if we don't know auth status yet — re-run on auth event.
+      // (Discord waitlist is fine to show always, but avatar/alerts
+      //  expect a user object; we defer until auth resolves.)
+    }
+    const navRow = document.querySelector("nav.topnav .nav-row");
+    if (!navRow) return;
+    let host = navRow.querySelector(".tt-nav-widgets");
+    if (host) return; // already mounted
+
+    host = document.createElement("div");
+    host.className = "tt-nav-widgets";
+    navRow.appendChild(host);
+
+    // Pull the auth-gate session so we can pass user / apiBase to the
+    // React widgets. WaitlistButton + NotificationCenter accept
+    // apiBase; UserBadge accepts a user prop.
+    const session = (window.TimedAuthHelpers?.getStoredSession?.() || null);
+    const user = session?.user || null;
+    const apiBase = window.TT_API_BASE || "";
+
+    if (typeof React === "undefined" || typeof ReactDOM === "undefined") {
+      // React not available — just put a Discord CTA link as a
+      // graceful fallback.
+      const a = document.createElement("a");
+      a.href = "https://discord.gg/timedtrading";
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.className = "tt-nav-widget-fallback";
+      a.textContent = "Discord";
+      host.appendChild(a);
+      return;
+    }
+
+    const slots = [
+      { key: "discord",  Factory: window.TimedWaitlistButton    || window.TimedDiscordButton },
+      { key: "alerts",   Factory: window.TimedNotificationCenter, requiresUser: true },
+      { key: "avatar",   Factory: window.TimedUserBadge,          requiresUser: true },
+    ];
+
+    for (const slot of slots) {
+      if (typeof slot.Factory !== "function") continue;
+      if (slot.requiresUser && !user) continue;
+      const mount = document.createElement("div");
+      mount.className = `tt-nav-widget tt-nav-widget--${slot.key}`;
+      host.appendChild(mount);
+      try {
+        const root = ReactDOM.createRoot ? ReactDOM.createRoot(mount) : null;
+        const props =
+          slot.key === "avatar"  ? { user, compact: true } :
+          slot.key === "alerts"  ? { apiBase } :
+          /* discord */            { apiBase };
+        const el = React.createElement(slot.Factory, props);
+        if (root) {
+          root.render(el);
+        } else if (ReactDOM.render) {
+          ReactDOM.render(el, mount);
+        }
+      } catch (e) {
+        console.warn(`[nav-extras] ${slot.key} mount failed:`, e?.message || e);
+      }
+    }
+  }
+
   // ── Init ──────────────────────────────────────────────────────
   async function init() {
     ensureStyles();
     injectAdminMenu();
+    injectRightWidgets();
 
     // Badges — kick off in parallel; render whichever returns.
     fetchOpenTradeCount().then((n) => {

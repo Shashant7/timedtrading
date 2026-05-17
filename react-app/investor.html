@@ -16,8 +16,10 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="auth-gate.js?v=20260516a"></script>
+    <script src="tt-fetch-cache.js?v=20260517a"></script>
     <script src="tt-bottom-nav.js?v=20260517a" defer></script>
-    <script src="tt-nav-extras.js?v=20260517a" defer></script>
+    <script src="tt-nav-extras.js?v=20260517b" defer></script>
+    <script src="tt-activity-strip.js?v=20260517a" defer></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="investor-panel.js?v=20260517a"></script>
@@ -206,10 +208,49 @@
         cursor: not-allowed;
       }
 
-      /* Bubble map row at the bottom of the page */
-      .inv-bubble-row { margin-top: 32px; }
+      /* Bubble map row at the bottom of the page — match AT sizing
+         + heading typography exactly so the rhythm is consistent
+         across the journey pages. */
+      .inv-bubble-row { margin-top: 40px; }
+      .inv-bubble-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 18px;
+        flex-wrap: wrap;
+        margin-bottom: 14px;
+      }
+      .inv-bubble-legend {
+        display: flex;
+        gap: 14px;
+        font-size: 11.5px;
+        color: var(--tt-text-muted);
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .inv-bubble-legend .bdot {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        margin-right: 5px;
+        vertical-align: middle;
+      }
+      .inv-bubble-card {
+        padding: 0;
+        overflow: hidden;
+        border-radius: 14px;
+      }
+      .inv-bubble-stage {
+        position: relative;
+        height: min(82vh, 900px);
+        min-height: 600px;
+      }
+      @media (max-width: 1024px) {
+        .inv-bubble-stage { height: 70vh; min-height: 520px; }
+      }
       @media (max-width: 720px) {
-        .inv-bubble-row .tt-card > div { height: 460px !important; }
+        .inv-bubble-stage { height: 70vh; min-height: 460px; }
       }
       @media (max-width: 720px) {
         .inv-hero { grid-template-columns: 1fr; }
@@ -352,8 +393,8 @@
       }
 
       // ── InvBubbleMap — renders the shared BubbleChart filtered to
-      //    tickers with an active investor_stage. Lets users see where
-      //    the model's investor universe sits on momentum × trend.
+      //    tickers the Investor panel actually surfaces. Matches the
+      //    same heading typography + height tokens as Active Trader.
       function InvBubbleMap({ data, onSelectTicker }) {
         const SharedChart = window.TimedBubbleChart?.BubbleChart || null;
         const getRankedTickers = window.TimedBubbleChart?.getRankedTickers || null;
@@ -386,21 +427,20 @@
         if (!SharedChart || visible.length === 0) return null;
 
         return h("section", { className: "tt-row inv-bubble-row" },
-          h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 8 } },
+          h("div", { className: "inv-bubble-head" },
             h("div", null,
-              h("div", { className: "tt-sec-title" }, "INVESTOR BUBBLE MAP"),
-              h("div", { className: "tt-sec-h" }, "Where the long-horizon universe sits on momentum × trend"),
+              h("div", { className: "tt-sec-title" }, "BUBBLE MAP"),
+              h("h2", { className: "tt-sec-h2" }, "Where the long-horizon universe sits on momentum \u00d7 trend"),
+              h("p", { className: "tt-sec-sub" }, `${visible.length} tickers`),
             ),
-            h("div", {
-              style: { display: "flex", gap: 12, fontSize: 11, color: "var(--tt-text-muted)", flexWrap: "wrap" },
-            },
-              h("span", null, h("span", { style: { display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "#22c55e", marginRight: 4 } }), "Bull aligned"),
-              h("span", null, h("span", { style: { display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "#f5c25c", marginRight: 4 } }), "Pullback"),
-              h("span", null, h("span", { style: { display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "#f43f5e", marginRight: 4 } }), "Bear aligned"),
+            h("div", { className: "inv-bubble-legend" },
+              h("span", null, h("span", { className: "bdot", style: { background: "#22c55e" } }), "Bull aligned"),
+              h("span", null, h("span", { className: "bdot", style: { background: "#f5c25c" } }), "Pullback"),
+              h("span", null, h("span", { className: "bdot", style: { background: "#f43f5e" } }), "Bear aligned"),
             ),
           ),
-          h("div", { className: "tt-card", style: { padding: 0, overflow: "hidden", borderRadius: 14 } },
-            h("div", { style: { height: 620, position: "relative" } },
+          h("div", { className: "tt-card inv-bubble-card" },
+            h("div", { className: "inv-bubble-stage" },
               h(SharedChart, {
                 tickers: visible,
                 allData: data,
@@ -473,16 +513,35 @@
           if (!raw) return { ticker: key };
           return raw.ticker ? raw : { ticker: key, ...raw };
         }, [railTicker, data]);
+
+        // V15 P0.7.181 — Poll for the rail Overlay component instead of
+        // capturing it at first render. Before this fix, the page
+        // briefly rendered with RailOverlay=null (rail scripts hadn't
+        // finished loading) and the first card click fell through to
+        // the legacy /index-react navigation. Polling reactively
+        // mounts the rail in state so once it's available React
+        // re-renders and card clicks open in-place immediately.
+        const [RailOverlay, setRailOverlay] = useState(() => window.TimedRightRail?.Overlay || null);
+        useEffect(() => {
+          if (RailOverlay) return;
+          const id = setInterval(() => {
+            if (window.TimedRightRail?.Overlay) {
+              setRailOverlay(() => window.TimedRightRail.Overlay);
+              clearInterval(id);
+            }
+          }, 80);
+          return () => clearInterval(id);
+        }, [RailOverlay]);
+
         const onSelectTicker = useCallback((sym) => {
           if (!sym) return;
-          if (!window.TimedRightRail?.Overlay) {
-            window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
-            return;
-          }
+          // Always set state — even if RailOverlay is briefly null, the
+          // poll above will mount it within ~80ms and the overlay will
+          // render. Avoids the legacy-nav fall-through that caused the
+          // "small delay after page loads" feedback.
           setRailTicker(String(sym).toUpperCase());
         }, []);
         const onCloseRail = useCallback(() => setRailTicker(null), []);
-        const RailOverlay = window.TimedRightRail?.Overlay || null;
 
         // Search + filter — Investor mode now shows the entire universe
         // so a search bar narrows down to a specific ticker, and quick

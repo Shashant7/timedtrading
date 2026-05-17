@@ -466,139 +466,50 @@ function PerformanceSection({
     mode
   });
 }
-function OpenPositions({
-  trades,
-  investorPositions,
-  priceMap,
-  onSelectTicker
+function OpenPositionsTable({
+  rows,
+  mode,
+  accent
 }) {
-  const rows = useMemo(() => {
-    const out = [];
-    if (Array.isArray(trades)) {
-      for (const t of trades) {
-        const s = String(t?.status || "").toUpperCase();
-        const isOpen = s === "OPEN" || s === "TP_HIT_TRIM" || !s && !(t?.exit_ts ?? t?.exitTs);
-        if (!isOpen) continue;
-        const sym = String(t?.ticker || "").toUpperCase();
-        const dir = String(t?.direction || "").toUpperCase() || "LONG";
-        const ep = Number(t?.entry_price ?? t?.entryPrice ?? t?.avgEntry) || null;
-        const shares = Number(t?.shares) || null;
-        const cur = Number(priceMap?.[sym]?.price ?? priceMap?.[sym]?.close) || null;
-        const dirMul = dir === "SHORT" ? -1 : 1;
-        const plPct = cur && ep && ep > 0 ? (cur - ep) / ep * 100 * dirMul : null;
-        const plDollar = cur && ep && shares ? (cur - ep) * shares * dirMul : null;
-        out.push({
-          _key: `t-${sym}-${t.entry_ts || t.entryTs || ""}`,
-          mode: "trader",
-          modeLabel: "Active Trader",
-          modeCls: "mode-trader",
-          sym,
-          dir,
-          ep,
-          entryTs: Number(t?.entry_ts ?? t?.entryTs ?? 0),
-          sl: Number(t?.sl ?? t?.stop_loss) || null,
-          tp: Number(t?.tp ?? t?.take_profit) || null,
-          cur,
-          plPct,
-          plDollar,
-          status: s || "OPEN"
-        });
-      }
-    }
-    if (Array.isArray(investorPositions)) {
-      for (const p of investorPositions) {
-        if (String(p?.status || "").toUpperCase() !== "OPEN") continue;
-        const sym = String(p?.ticker || "").toUpperCase();
-        const ep = Number(p?.avg_entry) || null;
-        const cur = Number(p?.currentPrice ?? priceMap?.[sym]?.price ?? priceMap?.[sym]?.close) || null;
-        const plPct = Number(p?.unrealizedPnlPct);
-        const plDollar = Number(p?.unrealizedPnl);
-        out.push({
-          _key: `i-${sym}-${p.first_entry_ts || ""}`,
-          mode: "investor",
-          modeLabel: "Investor",
-          modeCls: "mode-investor",
-          sym,
-          dir: "LONG",
-          ep,
-          entryTs: Number(p?.first_entry_ts ?? 0),
-          sl: null,
-          tp: null,
-          cur,
-          plPct: Number.isFinite(plPct) ? plPct : null,
-          plDollar: Number.isFinite(plDollar) ? plDollar : null,
-          status: String(p?.investor_stage || p?.status || "OPEN").toUpperCase()
-        });
-      }
-    }
-    out.sort((a, b) => {
-      const aHas = Number.isFinite(a.plDollar);
-      const bHas = Number.isFinite(b.plDollar);
-      if (aHas && bHas) return Math.abs(b.plDollar) - Math.abs(a.plDollar);
-      if (aHas) return -1;
-      if (bHas) return 1;
-      return b.entryTs - a.entryTs;
-    });
-    return out;
-  }, [trades, investorPositions, priceMap]);
-  const totals = useMemo(() => {
-    let traderPl = 0,
-      investorPl = 0,
-      n = 0;
-    for (const r of rows) {
-      if (!Number.isFinite(r.plDollar)) continue;
-      if (r.mode === "trader") traderPl += r.plDollar;else investorPl += r.plDollar;
-      n += 1;
-    }
-    return {
-      traderPl,
-      investorPl,
-      totalPl: traderPl + investorPl,
-      n
-    };
-  }, [rows]);
+  if (!Array.isArray(rows)) return null;
   const fmtPnl = n => Number.isFinite(n) ? `${n >= 0 ? "+" : "-"}${fmtUsdDec(Math.abs(n))}` : "—";
+  const totalPl = rows.reduce((s, r) => s + (Number.isFinite(r.plDollar) ? r.plDollar : 0), 0);
   return h("section", {
     className: "tt-row"
   }, h("div", {
-    style: {
-      display: "flex",
-      alignItems: "baseline",
-      justifyContent: "space-between",
-      marginBottom: 8,
-      flexWrap: "wrap",
-      gap: 10
-    }
+    className: "op-head"
   }, h("div", null, h("div", {
     className: "tt-sec-title"
-  }, "OPEN POSITIONS"), h("div", {
-    className: "tt-sec-h"
-  }, "Currently held — both modes")), totals.n > 0 && h("div", {
-    className: "open-pl-row"
-  }, h("span", null, "Trader ", h("strong", {
-    className: totals.traderPl >= 0 ? "up" : "dn"
-  }, fmtPnl(totals.traderPl))), h("span", null, "Investor ", h("strong", {
-    className: totals.investorPl >= 0 ? "up" : "dn"
-  }, fmtPnl(totals.investorPl))), h("span", null, "Total ", h("strong", {
-    className: totals.totalPl >= 0 ? "up" : "dn"
-  }, fmtPnl(totals.totalPl))))), h("div", {
-    className: "tbl-scroll"
+  }, mode === "investor" ? "INVESTOR · OPEN POSITIONS" : "ACTIVE TRADER · OPEN POSITIONS"), h("h2", {
+    className: "tt-sec-h2"
+  }, `Currently held by ${mode === "investor" ? "Investor mode" : "Active Trader mode"}`), h("p", {
+    className: "tt-sec-sub"
+  }, `${rows.length} position${rows.length === 1 ? "" : "s"}`)), rows.length > 0 && h("div", {
+    className: "op-total"
+  }, h("span", {
+    className: "op-total-l"
+  }, "Open P&L"), h("strong", {
+    className: totalPl >= 0 ? "up" : "dn",
+    style: {
+      fontSize: 16
+    }
+  }, fmtPnl(totalPl)))), h("div", {
+    className: "tbl-scroll",
+    "data-accent": accent || "trader"
   }, h("table", {
     className: "tbl"
-  }, h("thead", null, h("tr", null, h("th", null, "Mode"), h("th", null, "Ticker"), h("th", null, "Dir"), h("th", null, "Entry"), h("th", null, "Current"), h("th", null, "Open P&L %"), h("th", null, "Open P&L $"), h("th", null, "Entry Date"), h("th", null, "Status"))), h("tbody", null, rows.length === 0 ? h("tr", null, h("td", {
+  }, h("thead", null, h("tr", null, h("th", null, "Ticker"), h("th", null, "Dir"), h("th", null, "Entry"), h("th", null, "Current"), h("th", null, "Open P&L %"), h("th", null, "Open P&L $"), h("th", null, "Entry Date"), h("th", null, "Status"))), h("tbody", null, rows.length === 0 ? h("tr", null, h("td", {
     className: "empty",
-    colSpan: 9
+    colSpan: 8
   }, "No open positions.")) : rows.map(r => {
     const openTicker = () => {
-      if (typeof onSelectTicker === "function") onSelectTicker(r.sym);else window.location.href = `/index-react.html?ticker=${encodeURIComponent(r.sym)}`;
+      if (typeof r._onSelect === "function") r._onSelect(r.sym);else window.location.href = `/index-react.html?ticker=${encodeURIComponent(r.sym)}`;
     };
     const plPctCls = r.plPct == null ? "" : r.plPct >= 0 ? "up" : "dn";
     const plDollarCls = r.plDollar == null ? "" : r.plDollar >= 0 ? "up" : "dn";
     return h("tr", {
       key: r._key
-    }, h("td", null, h("span", {
-      className: `mode-pill ${r.modeCls}`
-    }, r.modeLabel)), h("td", {
+    }, h("td", {
       className: "sym",
       onClick: openTicker,
       style: {
@@ -612,6 +523,77 @@ function OpenPositions({
       className: plDollarCls
     }, fmtPnl(r.plDollar)), h("td", null, fmtDate(r.entryTs)), h("td", null, r.status));
   })))));
+}
+function buildTraderRows(trades, priceMap, onSelect) {
+  if (!Array.isArray(trades)) return [];
+  const out = [];
+  for (const t of trades) {
+    const s = String(t?.status || "").toUpperCase();
+    const isOpen = s === "OPEN" || s === "TP_HIT_TRIM" || !s && !(t?.exit_ts ?? t?.exitTs);
+    if (!isOpen) continue;
+    const sym = String(t?.ticker || "").toUpperCase();
+    const dir = String(t?.direction || "").toUpperCase() || "LONG";
+    const ep = Number(t?.entry_price ?? t?.entryPrice ?? t?.avgEntry) || null;
+    const shares = Number(t?.shares) || null;
+    const cur = Number(priceMap?.[sym]?.price ?? priceMap?.[sym]?.close) || null;
+    const dirMul = dir === "SHORT" ? -1 : 1;
+    const plPct = cur && ep && ep > 0 ? (cur - ep) / ep * 100 * dirMul : null;
+    const plDollar = cur && ep && shares ? (cur - ep) * shares * dirMul : null;
+    out.push({
+      _key: `t-${sym}-${t.entry_ts || t.entryTs || ""}`,
+      _onSelect: onSelect,
+      sym,
+      dir,
+      ep,
+      entryTs: Number(t?.entry_ts ?? t?.entryTs ?? 0),
+      cur,
+      plPct,
+      plDollar,
+      status: s || "OPEN"
+    });
+  }
+  out.sort((a, b) => {
+    const aHas = Number.isFinite(a.plDollar);
+    const bHas = Number.isFinite(b.plDollar);
+    if (aHas && bHas) return Math.abs(b.plDollar) - Math.abs(a.plDollar);
+    if (aHas) return -1;
+    if (bHas) return 1;
+    return b.entryTs - a.entryTs;
+  });
+  return out;
+}
+function buildInvestorRows(investorPositions, priceMap, onSelect) {
+  if (!Array.isArray(investorPositions)) return [];
+  const out = [];
+  for (const p of investorPositions) {
+    if (String(p?.status || "").toUpperCase() !== "OPEN") continue;
+    const sym = String(p?.ticker || "").toUpperCase();
+    const ep = Number(p?.avg_entry) || null;
+    const cur = Number(p?.currentPrice ?? priceMap?.[sym]?.price ?? priceMap?.[sym]?.close) || null;
+    const plPct = Number(p?.unrealizedPnlPct);
+    const plDollar = Number(p?.unrealizedPnl);
+    out.push({
+      _key: `i-${sym}-${p.first_entry_ts || ""}`,
+      _onSelect: onSelect,
+      sym,
+      dir: "LONG",
+      ep,
+      entryTs: Number(p?.first_entry_ts ?? 0),
+      cur,
+      plPct: Number.isFinite(plPct) ? plPct : null,
+      plDollar: Number.isFinite(plDollar) ? plDollar : null,
+      status: String(p?.investor_stage || p?.status || "OPEN").toUpperCase()
+    });
+  }
+  out.sort((a, b) => {
+    const aHas = Number.isFinite(a.plDollar);
+    const bHas = Number.isFinite(b.plDollar);
+    if (aHas && bHas) return Math.abs(b.plDollar) - Math.abs(a.plDollar);
+    if (aHas) return -1;
+    if (bHas) return 1;
+    return b.entryTs - a.entryTs;
+  });
+  return out;
 }
 function TradeHistory({
   trades,
@@ -717,16 +699,22 @@ function PortfolioApp() {
       ticker: key
     };
   }, [railTicker, allData]);
+  const [RailOverlay, setRailOverlay] = useState(() => window.TimedRightRail?.Overlay || null);
+  useEffect(() => {
+    if (RailOverlay) return;
+    const id = setInterval(() => {
+      if (window.TimedRightRail?.Overlay) {
+        setRailOverlay(() => window.TimedRightRail.Overlay);
+        clearInterval(id);
+      }
+    }, 80);
+    return () => clearInterval(id);
+  }, [RailOverlay]);
   const onSelectTicker = useCallback(sym => {
     if (!sym) return;
-    if (!window.TimedRightRail?.Overlay) {
-      window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
-      return;
-    }
     setRailTicker(String(sym).toUpperCase());
   }, []);
   const onCloseRail = useCallback(() => setRailTicker(null), []);
-  const RailOverlay = window.TimedRightRail?.Overlay || null;
   if (error && !eq) {
     return h("main", null, h("div", {
       className: "tt-card tt-card-pad",
@@ -777,12 +765,15 @@ function PortfolioApp() {
     color: "#a78bfa",
     payload: investorPayload,
     history: investorHistory
-  }))), positions || investorPositions ? h(OpenPositions, {
-    trades: positions,
-    investorPositions,
-    priceMap,
-    onSelectTicker
-  }) : h("section", {
+  }))), positions || investorPositions ? h(React.Fragment, null, h(OpenPositionsTable, {
+    rows: buildTraderRows(positions || [], priceMap, onSelectTicker),
+    mode: "trader",
+    accent: "trader"
+  }), h(OpenPositionsTable, {
+    rows: buildInvestorRows(investorPositions || [], priceMap, onSelectTicker),
+    mode: "investor",
+    accent: "investor"
+  })) : h("section", {
     className: "tt-row"
   }, h("div", {
     className: "tt-sec-title"
