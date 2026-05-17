@@ -1362,6 +1362,7 @@ const ROUTES = [
   ["GET", "/timed/admin/data-audit-log", "GET /timed/admin/data-audit-log"],
   ["GET", "/timed/admin/activity-feed", "GET /timed/admin/activity-feed"],
   ["POST", "/timed/admin/model-config", "POST /timed/admin/model-config"],
+  ["GET",  "/timed/admin/model-config", "GET /timed/admin/model-config"],
   ["GET",  "/timed/admin/grade-config",  "GET /timed/admin/grade-config"],
   // ── System Intelligence (unified Calibration + Model) ──
   ["GET", "/timed/system/dashboard", "GET /timed/system/dashboard"],
@@ -62882,6 +62883,47 @@ export default {
             await db.batch(stmts);
           }
           return sendJSON({ ok: true, written: stmts.length }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // V15 P0.7.183 (2026-05-17) — GET handler so the System
+      // Intelligence page (and humans curl'ing the worker) can
+      // verify what's actually persisted in model_config. The POST
+      // counterpart writes; this GET reads back so the user can
+      // confirm "did my Apply click actually persist?". Optional
+      // ?prefix=foo filter narrows to keys starting with that
+      // prefix (e.g. ?prefix=deep_audit_ or ?prefix=calibrated_).
+      if (routeKey === "GET /timed/admin/model-config") {
+        const _mcAuthFail = await requireKeyOrAdmin(req, env);
+        if (_mcAuthFail) return _mcAuthFail;
+        try {
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          const prefix = String(url.searchParams.get("prefix") || "").trim();
+          let sql = `SELECT config_key, config_value, description, updated_at, updated_by
+                     FROM model_config`;
+          const binds = [];
+          if (prefix) {
+            sql += ` WHERE config_key LIKE ?1`;
+            binds.push(prefix + "%");
+          }
+          sql += ` ORDER BY updated_at DESC LIMIT 500`;
+          const rows = await db.prepare(sql).bind(...binds).all();
+          const items = (rows?.results || []).map((r) => {
+            let parsed = r.config_value;
+            try { parsed = JSON.parse(r.config_value); } catch { /* keep string */ }
+            return {
+              key: r.config_key,
+              value: parsed,
+              raw_value: r.config_value,
+              description: r.description,
+              updated_at: r.updated_at,
+              updated_by: r.updated_by,
+            };
+          });
+          return sendJSON({ ok: true, count: items.length, items }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }

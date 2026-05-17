@@ -305,6 +305,8 @@ function CIOWatchlist({
       exit: 0
     };
     const watching = [];
+    const positions = [];
+    const sectorTallies = {};
     for (const [sym, t] of Object.entries(data)) {
       if (!t || typeof t !== "object") continue;
       const stage = String(t.kanban_stage || "").toLowerCase();
@@ -334,26 +336,78 @@ function CIOWatchlist({
         case "active":
         case "just_entered":
           counts.hold += 1;
+          positions.push({
+            sym,
+            stage,
+            t
+          });
           break;
         case "defend":
           counts.defend += 1;
+          positions.push({
+            sym,
+            stage,
+            t
+          });
           break;
         case "trim":
           counts.trim += 1;
+          positions.push({
+            sym,
+            stage,
+            t
+          });
           break;
         case "exit":
           counts.exit += 1;
           break;
       }
+      if (["hold", "active", "just_entered", "defend", "trim"].includes(stage)) {
+        const sector = String(t?.context?.sector || t?.sector || "Unknown");
+        sectorTallies[sector] = (sectorTallies[sector] || 0) + 1;
+      }
     }
+    let totalPl = 0;
+    let plKnown = 0;
+    let best = null;
+    let worst = null;
+    for (const p of positions) {
+      const ep = Number(p.t?.entry_price);
+      const cp = Number(p.t?.price ?? p.t?.close);
+      const dir = String(p.t?.position_direction || p.t?.direction || "LONG").toUpperCase();
+      if (!Number.isFinite(ep) || !Number.isFinite(cp) || ep <= 0) continue;
+      const mul = dir === "SHORT" ? -1 : 1;
+      const plPct = (cp - ep) / ep * 100 * mul;
+      totalPl += plPct;
+      plKnown += 1;
+      if (!best || plPct > best.plPct) best = {
+        sym: p.sym,
+        plPct
+      };
+      if (!worst || plPct < worst.plPct) worst = {
+        sym: p.sym,
+        plPct
+      };
+    }
+    const avgPl = plKnown > 0 ? totalPl / plKnown : null;
     watching.sort((a, b) => {
       const ra = Number(a.t?.rank_position) || Number(a.t?.rank_score) || 999;
       const rb = Number(b.t?.rank_position) || Number(b.t?.rank_score) || 999;
       return ra - rb;
     });
+    const sectors = Object.entries(sectorTallies).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, n]) => ({
+      name,
+      n
+    }));
     return {
       counts,
-      watching: watching.slice(0, 8)
+      watching: watching.slice(0, 8),
+      avgPl,
+      best,
+      worst,
+      sectors,
+      liveCount: positions.length,
+      plKnown
     };
   }, [data]);
   const learnings = useMemo(() => {
@@ -436,9 +490,54 @@ function CIOWatchlist({
     className: "cio-stage cio-stage--trim"
   }, "Trim ", h("strong", null, board.counts.trim)), h("span", {
     className: "cio-stage cio-stage--exit"
-  }, "Exit ", h("strong", null, board.counts.exit))), h("p", {
+  }, "Exit ", h("strong", null, board.counts.exit))), board.plKnown > 0 && h("div", {
+    className: "cio-board-stats"
+  }, h("div", {
+    className: "cio-board-stat"
+  }, h("div", {
+    className: "cio-board-stat-l"
+  }, "Avg open"), h("div", {
+    className: "cio-board-stat-v",
+    style: {
+      color: board.avgPl >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)"
+    }
+  }, `${board.avgPl >= 0 ? "+" : ""}${board.avgPl.toFixed(2)}%`)), board.best && h("div", {
+    className: "cio-board-stat"
+  }, h("div", {
+    className: "cio-board-stat-l"
+  }, "Best"), h("div", {
+    className: "cio-board-stat-v"
+  }, h("span", {
+    className: "cio-board-stat-sym"
+  }, board.best.sym), h("span", {
+    style: {
+      color: "var(--tt-up-soft)",
+      marginLeft: 6
+    }
+  }, `+${board.best.plPct.toFixed(2)}%`))), board.worst && board.worst.sym !== board.best?.sym && h("div", {
+    className: "cio-board-stat"
+  }, h("div", {
+    className: "cio-board-stat-l"
+  }, "Worst"), h("div", {
+    className: "cio-board-stat-v"
+  }, h("span", {
+    className: "cio-board-stat-sym"
+  }, board.worst.sym), h("span", {
+    style: {
+      color: board.worst.plPct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)",
+      marginLeft: 6
+    }
+  }, `${board.worst.plPct >= 0 ? "+" : ""}${board.worst.plPct.toFixed(2)}%`)))), board.sectors.length > 0 && h("div", {
+    className: "cio-board-sectors"
+  }, h("span", {
+    className: "cio-board-sectors-l"
+  }, "Exposure"), board.sectors.map(s => h("span", {
+    key: s.name,
+    className: "cio-board-sector-pill",
+    title: `${s.n} live position${s.n === 1 ? "" : "s"}`
+  }, s.name, " ", h("strong", null, s.n)))), h("p", {
     className: "cio-card-sub"
-  }, `${board.counts.hold + board.counts.defend + board.counts.trim} live position${board.counts.hold + board.counts.defend + board.counts.trim === 1 ? "" : "s"}. `, `${board.counts.setup + board.counts.enter} setup${board.counts.setup + board.counts.enter === 1 ? "" : "s"} on deck.`)), h("div", {
+  }, `${board.liveCount} live position${board.liveCount === 1 ? "" : "s"}. `, `${board.counts.setup + board.counts.enter} setup${board.counts.setup + board.counts.enter === 1 ? "" : "s"} on deck. `, board.counts.defend + board.counts.exit > 0 ? `${board.counts.defend + board.counts.exit} under stress.` : "All clear on stress lanes.")), h("div", {
     className: "cio-card"
   }, h("div", {
     className: "cio-card-l"
@@ -583,6 +682,39 @@ function UniverseChanges({
       }
     }, sym);
   });
+  const renderReweighted = (arr, limit = 8) => arr.slice(0, limit).map((a, i) => {
+    if (typeof a === "string") {
+      return h("span", {
+        key: i,
+        className: "rw-pill"
+      }, a);
+    }
+    const sym = a?.ticker || "?";
+    const delta = Number(a?.delta);
+    const oldW = Number(a?.oldWeight);
+    const newW = Number(a?.newWeight);
+    const hasDelta = Number.isFinite(delta);
+    const isUp = hasDelta && delta > 0;
+    const isDn = hasDelta && delta < 0;
+    const cls = `rw-pill ${isUp ? "rw-up" : isDn ? "rw-dn" : ""}`;
+    const arrow = isUp ? "▲" : isDn ? "▼" : "·";
+    const deltaStr = hasDelta ? `${delta >= 0 ? "+" : ""}${delta.toFixed(2)}` : "";
+    const titleParts = [];
+    if (Number.isFinite(oldW)) titleParts.push(`was ${oldW.toFixed(2)}%`);
+    if (Number.isFinite(newW)) titleParts.push(`now ${newW.toFixed(2)}%`);
+    const title = titleParts.length > 0 ? `${sym}: ${titleParts.join(" → ")}` : sym;
+    return h("span", {
+      key: i,
+      className: cls,
+      title
+    }, h("span", {
+      className: "rw-sym"
+    }, sym), hasDelta && h("span", {
+      className: "rw-delta"
+    }, h("span", {
+      className: "rw-arrow"
+    }, arrow), " ", deltaStr));
+  });
   return h("section", {
     className: "tt-row"
   }, h("div", {
@@ -660,18 +792,35 @@ function UniverseChanges({
       border: "1px solid rgba(244,63,94,0.25)"
     },
     title: e.removed.map(a => typeof a === "string" ? a : a?.ticker || "").join(", ")
-  }, `−${e.removed.length} removed · `, renderTickers(e.removed), e.removed.length > 8 && h("span", null, `+${e.removed.length - 8} more`)), e.reweighted.length > 0 && h("span", {
-    style: {
-      fontSize: 11.5,
-      fontFamily: "var(--tt-font-mono)",
-      padding: "4px 10px",
-      borderRadius: 6,
-      color: "var(--tt-accent)",
-      background: "var(--tt-accent-dim)",
-      border: "1px solid rgba(245,194,92,0.30)"
-    },
-    title: e.reweighted.map(a => typeof a === "string" ? a : a?.ticker || "").join(", ")
-  }, `~${e.reweighted.length} reweighted · `, renderTickers(e.reweighted), e.reweighted.length > 8 && h("span", null, `+${e.reweighted.length - 8} more`)))))));
+  }, `−${e.removed.length} removed · `, renderTickers(e.removed), e.removed.length > 8 && h("span", null, `+${e.removed.length - 8} more`)), e.reweighted.length > 0 && (() => {
+    let ups = 0,
+      dns = 0;
+    for (const a of e.reweighted) {
+      const d = Number(a?.delta);
+      if (Number.isFinite(d)) {
+        if (d > 0) ups += 1;else if (d < 0) dns += 1;
+      }
+    }
+    return h("div", {
+      className: "rw-block"
+    }, h("span", {
+      className: "rw-block-label"
+    }, `${e.reweighted.length} reweighted`, (ups > 0 || dns > 0) && h("span", {
+      className: "rw-block-tally"
+    }, " (", ups > 0 && h("span", {
+      style: {
+        color: "var(--tt-up-soft)"
+      }
+    }, `${ups}▲`), ups > 0 && dns > 0 && " ", dns > 0 && h("span", {
+      style: {
+        color: "var(--tt-dn-soft)"
+      }
+    }, `${dns}▼`), ")")), h("div", {
+      className: "rw-list"
+    }, renderReweighted(e.reweighted), e.reweighted.length > 8 && h("span", {
+      className: "rw-more"
+    }, `+${e.reweighted.length - 8} more`)));
+  })())))));
 }
 function InsightsApp() {
   const [allMeta, setAllMeta] = useState(null);
