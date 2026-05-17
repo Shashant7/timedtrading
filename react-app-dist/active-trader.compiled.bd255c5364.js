@@ -390,6 +390,60 @@ function ATCard({
     direction: dir,
     strokeWidth: 1.4
   }) : "";
+  const hasOpen = !!openTrade && !openTrade.exit_ts && !openTrade.exitTs;
+  const progressBarData = (() => {
+    if (!hasOpen) return null;
+    const ep = Number(openTrade.entry_price ?? openTrade.entryPrice) || null;
+    if (!ep) return null;
+    const isLong = tradeDir === "LONG";
+    const tickerDir = String(t?.direction || t?.consensus_direction || "").toUpperCase();
+    const tickerAgrees = tickerDir === tradeDir;
+    const sl = Number(openTrade.sl ?? openTrade.stop_loss) || (tickerAgrees ? Number(t?.sl) || null : null);
+    const tpArrRaw = Array.isArray(openTrade.tpArray) ? openTrade.tpArray : Array.isArray(openTrade.tp_array) ? openTrade.tp_array : null;
+    const tps = (() => {
+      if (tpArrRaw && tpArrRaw.length > 0) {
+        return tpArrRaw.map(x => Number(x?.price ?? x)).filter(Number.isFinite);
+      }
+      const single = Number(openTrade.tp) || Number(openTrade.take_profit) || (tickerAgrees ? Number(t?.tp) || Number(t?.tp_target_price) : null) || null;
+      return single ? [single] : [];
+    })();
+    const slValid = sl == null || (isLong ? sl < ep : sl > ep);
+    const slToUse = slValid ? sl : null;
+    const tpsValid = tps.filter(tp => isLong ? tp > ep : tp < ep);
+    const allPx = [ep, price, slToUse, ...tpsValid].filter(p => Number.isFinite(p) && p > 0);
+    if (allPx.length < 2) return null;
+    const min = Math.min(...allPx);
+    const max = Math.max(...allPx);
+    const padding = (max - min) * 0.05 || 0.5;
+    const lo = min - padding;
+    const hi = max + padding;
+    const xPct = px => Math.max(0, Math.min(100, (px - lo) / (hi - lo) * 100));
+    const pnlPct = isLong ? (price - ep) / ep * 100 : (ep - price) / ep * 100;
+    const ticks = [];
+    if (slToUse) ticks.push({
+      px: slToUse,
+      label: "SL",
+      color: "var(--ds-dn)"
+    });
+    ticks.push({
+      px: ep,
+      label: "E",
+      color: "var(--ds-text-muted)"
+    });
+    tpsValid.forEach((tp, i) => ticks.push({
+      px: tp,
+      label: `T${i + 1}`,
+      color: "var(--ds-up)"
+    }));
+    ticks.sort((a, b) => a.px - b.px);
+    return {
+      xPct,
+      pnlPct,
+      ticks,
+      ep,
+      curX: xPct(price)
+    };
+  })();
   const cardStyle = {
     textAlign: "left",
     padding: "var(--ds-space-3)",
@@ -482,7 +536,121 @@ function ATCard({
       opacity: 0.7,
       fontSize: 10
     }
-  }, ` (${dayChg >= 0 ? "+" : ""}$${Math.abs(dayChg).toFixed(2)})`)), sparkSvg && h("div", {
+  }, ` (${dayChg >= 0 ? "+" : ""}$${Math.abs(dayChg).toFixed(2)})`)), progressBarData && (() => {
+    const {
+      xPct,
+      pnlPct,
+      ticks,
+      ep,
+      curX
+    } = progressBarData;
+    const epX = xPct(ep);
+    const fillStart = Math.min(epX, curX);
+    const fillW = Math.abs(curX - epX);
+    const fillBg = pnlPct >= 0 ? "var(--ds-up-bg)" : "var(--ds-dn-bg)";
+    return h("div", {
+      style: {
+        marginTop: "var(--ds-space-2)",
+        zIndex: 2,
+        position: "relative"
+      }
+    }, h("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        fontSize: 9,
+        color: "var(--ds-text-muted)",
+        marginBottom: 4,
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, h("span", {
+      style: {
+        textTransform: "uppercase",
+        letterSpacing: "0.16em",
+        fontWeight: 700
+      }
+    }, "Position"), h("span", {
+      style: {
+        color: pnlPct >= 0 ? "var(--ds-up)" : "var(--ds-dn)",
+        fontWeight: 700
+      }
+    }, `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`)), h("div", {
+      style: {
+        position: "relative",
+        height: 6,
+        background: "var(--ds-bg-glass-hi, rgba(255,255,255,0.06))",
+        borderRadius: 3,
+        overflow: "visible"
+      }
+    }, h("div", {
+      style: {
+        position: "absolute",
+        left: `${fillStart}%`,
+        width: `${fillW}%`,
+        top: 0,
+        bottom: 0,
+        background: fillBg,
+        borderRadius: 3
+      }
+    }), ...ticks.map((tick, i) => h("div", {
+      key: `tick-${i}`,
+      title: `${tick.label}: $${Number(tick.px).toFixed(2)}`,
+      style: {
+        position: "absolute",
+        left: `${xPct(tick.px)}%`,
+        top: -8,
+        bottom: -8,
+        width: 12,
+        transform: "translateX(-6px)",
+        cursor: "help",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center"
+      }
+    }, h("div", {
+      style: {
+        width: 2,
+        height: "calc(100% - 8px)",
+        background: tick.color
+      }
+    }))), h("div", {
+      title: `Current: $${Number(price).toFixed(2)} (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%)`,
+      style: {
+        position: "absolute",
+        left: `${curX}%`,
+        top: "50%",
+        transform: "translate(-50%, -50%)",
+        width: 10,
+        height: 10,
+        borderRadius: "50%",
+        background: "var(--ds-accent)",
+        boxShadow: "0 0 0 2px var(--ds-bg-surface), 0 0 0 3px var(--ds-accent-glow, rgba(245,194,92,0.40))",
+        cursor: "help"
+      }
+    })), h("div", {
+      style: {
+        position: "relative",
+        height: 12,
+        marginTop: 2,
+        fontFamily: "var(--tt-font-mono)",
+        fontSize: 8,
+        color: "var(--ds-text-muted)"
+      }
+    }, ...ticks.map((tick, i) => h("span", {
+      key: `lbl-${i}`,
+      title: `${tick.label}: $${Number(tick.px).toFixed(2)}`,
+      style: {
+        position: "absolute",
+        left: `${xPct(tick.px)}%`,
+        transform: "translateX(-50%)",
+        color: tick.color,
+        fontWeight: 700,
+        whiteSpace: "nowrap",
+        cursor: "help"
+      }
+    }, tick.label))));
+  })(), sparkSvg && h("div", {
     className: "ds-tickercard__spark",
     dangerouslySetInnerHTML: {
       __html: sparkSvg
