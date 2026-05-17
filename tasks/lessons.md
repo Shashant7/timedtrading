@@ -5,6 +5,183 @@
 
 ---
 
+## UX redesign + May 2026 calibration session [2026-05-14 → 2026-05-17]
+
+Comprehensive session covering (a) UX redesign into journey pages, (b)
+tf_tech + login redirect fixes, (c) full May performance analysis, (d) P0+P1
+engine calibrations. Full handoff doc in
+`tasks/2026-05-17-session-handoff.md`. Lessons that future agents must know:
+
+### Mega-cap cohort caps are silently destructive in trending tape
+
+`worker/pipeline/tt-core-entry.js` has cohort overlays (index_etf, megacap_tech,
+industrial, speculative, sector_etf). Each cohort imposes its own slope /
+extension / RSI caps on top of the standard entry gates. The `megacap_tech`
+overlay shipped with `extensionMaxOverride = 8.0` — i.e. reject any LONG
+entry where the price is more than 8% above the daily E48. That's sensible
+for mean-reverting cyclicals; it's fatal for trending tech leaders in a
+bull tape. Result: **zero trades on NVDA, TSLA, MSFT, NBIS, GOOGL, META,
+AAPL, AMD, AVGO, PLTR, CRWD in 60 days** despite all being in the universe,
+scored, and with TSLA/MSFT sitting at rank 69 (above the 60 cutoff).
+
+**Rule**: every cohort cap should be reviewed quarterly against the
+empirical distribution of `pct_above_e48` for the cohort's actual members.
+A static 8% cap rejects ~70-80% of mega-cap entries in a bull regime.
+
+The cohort ticker LIST is also a hazard — if it's narrow, newer primary
+movers (PLTR, NBIS, CRWD, ASML, MU, ORCL) silently fall into the default
+"other" cohort with even tighter caps tuned for cyclicals. Keep the cohort
+list explicit and updated.
+
+Fixed in PR #194: extension cap 8.0 → 15.0, list expanded.
+
+### Diagnose "missing trades on ticker X" in three commands
+
+```bash
+# 1. In universe?
+curl -s 'https://.../timed/tickers' | python3 -c "import json,sys; d=json.load(sys.stdin); print('X' in [t.upper() for t in d.get('tickers',[])])"
+
+# 2. Scored, with what rank + stage?
+curl -s 'https://.../timed/all' | python3 -c "..."
+# rank, kanban_stage tell you whether the issue is at scoring or at admission
+
+# 3. If rank is good but stuck in 'watch'/'setup', the leak is at entry
+#    qualification — search worker logs for the symbol + reason codes
+#    prefixed `tt_cohort_` / `phase_i_` / `h3_` / `doa_` / `da_`.
+```
+
+### `/timed/all` returns ticker data WITHOUT a `ticker` field in the value
+
+The endpoint shape is `{ ok, count, totalIndex, data: { SYM: { ts, price, ... } } }`.
+The value object does NOT contain a `ticker` field — the symbol is only the
+map key. So `Object.values(data).filter(t => t && t.ticker)` silently drops
+every scored entry. This bug appeared in Today, Active Trader, and Investor
+during the journey-page port, was fixed across three pages with
+`Object.entries(data).map(([k, v]) => ({ ticker: k, ...(v || {}) }))`. Rule:
+when consuming `/timed/all`, ALWAYS attach the ticker symbol from the map
+key.
+
+### Cohort + admission + doctrine are three different layers
+
+It's easy to confuse "the model wouldn't take this trade" with "the model
+took it and exited badly." Three engine layers are involved, in this order:
+
+1. **Universal gates** (`worker/pipeline/gates.js`) — RVOL, blacklist, SHORT
+   min rank. Hard fail = no engine consulted.
+2. **Entry qualification** (`worker/pipeline/tt-core-entry.js`) — regime
+   gates, cohort overlays, consensus signals, setup-specific triggers.
+   Returns `{qualifies, reason}`.
+3. **Setup admission** (`worker/phase-c-setup-admission.js`) — final check
+   against the (setup × direction × grade × regime) matrix. Can require
+   `min_rr` and `min_conviction` floors.
+4. (Then exit doctrine — `worker/phase-c-exit-doctrine.js` — manages the
+   trade once it's live.)
+
+When debugging "missing entry," check layers 1-3 in order. When debugging
+"bad exit," look at layer 4 (force_exit / fresh_fail / regime_decay) and
+the per-setup parameters.
+
+### Calibration apply requires a promotion-candidate report
+
+`/timed/calibration/run` produces `diagnostic_only: true` reports by default.
+`/timed/calibration/apply` rejects those. The Insights page's `handleApply`
+now transparently re-runs the same window as a non-diagnostic report before
+calling apply. If you implement another consumer of the apply endpoint, do
+the same — don't ask the user to remember which kind of run produced their
+recommendations.
+
+### Login loop = CF Access policy regex missing the destination page
+
+Every HTML page under `react-app/` MUST be listed in either the User Pages
+or Admin Pages CF Access policy regex. If a page is missing, the user
+completes Google SSO but CF Access refuses to issue the `CF_Authorization`
+cookie, so the next hit bounces back to SSO. Looks like a "stuck on login"
+to the user. The agent CANNOT update the CF Access policy; the user must do
+it in the Cloudflare Dashboard. The current regex shape (after this session):
+
+```
+(index-react|simulation-dashboard|daily-brief|alerts|investor-dashboard|today|active-trader|investor|portfolio|insights|learn)\.html
+```
+
+### Pages worker root routing target had to change with the UX redesign
+
+`react-app/_worker.js` was hard-coded to redirect `/` → `/index-react.html`
+for authenticated users. That sends every legitimate user to the legacy
+monolithic dashboard, not the new product entry point. Updated to
+`/today.html`. The same target lives in **three** places that must stay in
+sync: `_worker.js` (the redirect), `react-app/index.html` (meta-refresh
+fallback for the no-JS case), `react-app/auth-gate.js` (the redirect target
+inside `handleLogin`). If you change one, change all three.
+
+### Fresh-login iframe-logout hang on Safari / mobile
+
+`auth-gate.js handleLogin` originally always loaded `/cdn-cgi/access/logout`
+in a hidden iframe before redirecting, on the assumption that the user might
+have stale session state to clear. For users with NO current session, that
+iframe load can hang indefinitely on mobile Safari, leaving the user stuck.
+Fix: split into two modes — if `isLoggedIn === false`, skip the iframe and
+redirect directly; if true, keep the iframe-clear-then-redirect dance but
+with a 1.5s safety timeout. The redirect target is now `/today.html?_auth=<ts>`
+(the timestamp param defeats CDN cache of the redirect).
+
+### Right Rail needs `lightweight-charts` + `ticker-spider-chart.js` on the page
+
+The compiled `shared-right-rail.compiled.js` expects `window.LightweightCharts`
+and `window.TickerSpiderChartFactory` to be present. They're loaded
+implicitly on `/index-react.html` but had to be added to every journey
+page individually. Symptoms when missing:
+
+- Chart tab shows "Charts library not loaded"
+- Signal Radar / spider chart fails silently
+- Sometimes the entire rail throws and never mounts
+
+Add to every new page:
+```html
+<script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+<script src="ticker-spider-chart.js?v=..."></script>
+```
+
+### `tf_tech` and heavy ticker fields can be stripped by D1 payload limit
+
+PR #184 raised `D1_MAX` from 50KB to 200KB and added a 3-tier serialization
+cascade (`slim` → `compact-slim` → `minimal`). Critical because `tf_tech`,
+`_ticker_profile`, `td_sequential`, etc. are needed by the Right Rail's
+Technicals/Analysis tabs and were silently being dropped from `ticker_latest`
+rows whose ticker had verbose payloads. Old rows that pre-date the fix still
+miss these fields; the worker now has KV-rescue logic on `GET /timed/latest`
+to backfill from KV if D1 is missing them.
+
+**Rule**: when adding a new heavy field to ticker scoring, verify it lands
+in `D1_MINIMAL_KEYS` in `worker/storage.js` if the UI depends on it.
+Without that, the field is the FIRST thing dropped under payload pressure.
+
+### Trade analysis recipe (re-runnable script in `tasks/scripts/may-2026-perf.py`)
+
+When the user asks "is the engine OK?" or "do we need to recalibrate?":
+
+1. `curl /timed/ledger/trades?limit=1000 > /tmp/trades.json` — closed trades
+2. Run `python3 tasks/scripts/may-2026-perf.py` — produces multi-window
+   summary, setup performance, exit reasons, ticker breakdowns
+3. Cross-reference exit reasons against `worker/phase-c-exit-doctrine.js`
+   and `worker/index.js` (HLC, stall force-close) to find the lever
+4. Cross-reference setup names against `worker/phase-c-setup-admission.js`
+   to find admission gates
+
+Always compute multiple windows (7d, current month, prior months, 30d, 90d,
+all-time). A single window can mislead — March 2026 and May 2026 were both
+bad, but April between them was great. The 90-day rolling number is the
+honest performance signal.
+
+### Don't open up SHORT setups in a bull regime "because we're not catching shorts"
+
+`tt_gap_reversal_short` has PF 8.86 all-time *because* it's gated to bear
+regimes. Removing the gate in pursuit of "more short trades" destroys the
+statistic. The right answer to "no shorts in 30 days" during a bull tape
+is to confirm the gate fired (correct behavior) and validate it on the
+next bear regime.
+
+---
+
 ## Always rebuild react-app-dist after frontend source changes [2026-05-14]
 
 Cloudflare Pages serves from `react-app-dist/` (`pages_build_output_dir = "react-app-dist"` in `wrangler.toml`). Both directories are tracked in git. Editing `react-app/` source files (including `shared-right-rail.js`, `index-react.source.html`) does NOT update `react-app-dist/` automatically.
