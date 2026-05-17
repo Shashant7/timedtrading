@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-today3" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-today4" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -1772,7 +1772,16 @@
         // Stage chip — reads kanban_stage AFTER TodayApp has rewritten it
         // to the effective stage (engine 'exit' on an open position → DEFEND,
         // etc.). See computeEffectiveStage + the allTickers useMemo.
+        //
+        // User feedback: 'The Cards should show the Kanban stage it is in.'
+        // We now ALWAYS render a stage chip when a card has scoring data
+        // (so the user can always see where the engine has placed each
+        // ticker). For tickers that don't have an explicit engine stage,
+        // we fall back to 'In Review' (engine evaluating but no signal yet)
+        // when scoring data exists, and 'Watch' (universe member with no
+        // active scoring at all — the placeholder rows from /timed/tickers).
         const stage = String(t?.kanban_stage || "").toLowerCase();
+        const hasScoring = Number.isFinite(Number(t?.ltf_score));
         const stageChip = (() => {
           if (stage === "trim") return { label: "Trim", cls: "ds-chip--accent" };
           if (stage === "defend") return { label: "Defend", cls: "ds-chip--dn" };
@@ -1780,6 +1789,8 @@
           if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return { label: "Enter", cls: "ds-chip--accent" };
           if (stage === "hold" || stage === "active" || stage === "just_entered") return { label: "Hold", cls: "ds-chip--up" };
           if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") return { label: "Setup", cls: "" };
+          if (stage === "in_review") return { label: "Review", cls: "ds-chip--accent" };
+          if (hasScoring) return { label: "Watch", cls: "ds-chip--solid" };
           return null;
         })();
 
@@ -2002,7 +2013,15 @@
         const { saved, toggle: toggleSaved } = useSavedTickers();
 
         const ranked = useMemo(() => {
-          const list = (visible || []).slice();
+          // Drop pure placeholders (universe roster entries with no scoring
+          // data — they have `{ ticker: SYM }` only). They'd render as
+          // mostly-empty cards in the viewport, which is worse UX than
+          // hiding them. Chip counts + Heat Map still match against the
+          // full universe; the viewport stays focused on cards that have
+          // something to show.
+          const list = (visible || [])
+            .filter((t) => t && Number.isFinite(Number(t.ltf_score)))
+            .slice();
           list.sort((a, b) => {
             const ra = rankedTickerPositions?.get?.(a.ticker);
             const rb = rankedTickerPositions?.get?.(b.ticker);

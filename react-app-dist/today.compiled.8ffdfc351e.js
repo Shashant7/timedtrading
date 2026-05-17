@@ -1134,6 +1134,7 @@ function ViewportCard({
   const biasLabel = state.startsWith("HTF_BULL") || !state.startsWith("HTF_BEAR") && state.includes("BULL") ? "BULL" : state.startsWith("HTF_BEAR") || state.includes("BEAR") ? "BEAR" : "NEUTRAL";
   const biasChipCls = biasLabel === "BULL" ? "ds-chip--up" : biasLabel === "BEAR" ? "ds-chip--dn" : "ds-chip--solid";
   const stage = String(t?.kanban_stage || "").toLowerCase();
+  const hasScoring = Number.isFinite(Number(t?.ltf_score));
   const stageChip = (() => {
     if (stage === "trim") return {
       label: "Trim",
@@ -1158,6 +1159,14 @@ function ViewportCard({
     if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") return {
       label: "Setup",
       cls: ""
+    };
+    if (stage === "in_review") return {
+      label: "Review",
+      cls: "ds-chip--accent"
+    };
+    if (hasScoring) return {
+      label: "Watch",
+      cls: "ds-chip--solid"
     };
     return null;
   })();
@@ -1411,7 +1420,7 @@ function Viewport({
     toggle: toggleSaved
   } = useSavedTickers();
   const ranked = useMemo(() => {
-    const list = (visible || []).slice();
+    const list = (visible || []).filter(t => t && Number.isFinite(Number(t.ltf_score))).slice();
     list.sort((a, b) => {
       const ra = rankedTickerPositions?.get?.(a.ticker);
       const rb = rankedTickerPositions?.get?.(b.ticker);
