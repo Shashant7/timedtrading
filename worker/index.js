@@ -314,6 +314,7 @@ import {
   d1InsertTrailPoint,
   d1InsertIngestReceipt,
   slimPayloadForD1,
+  compactSlimPayloadForD1,
   minimalPayloadForD1,
 } from "./storage.js";
 import {
@@ -656,6 +657,7 @@ export function getReplayExecutorRuntime() {
     deriveKanbanMeta,
     processTradeSimulation,
     slimPayloadForD1,
+    compactSlimPayloadForD1,
     minimalPayloadForD1,
     d1UpsertTrade,
     d1StampRunIdForTrades,
@@ -31952,14 +31954,36 @@ async function d1UpsertTickerLatest(env, ticker, payload) {
       ? String(payload.prev_kanban_stage)
       : null;
 
-  const D1_MAX = 50000;
+  // V15 P0.7.180 (2026-05-17) — Bumped from 50000 → 200000 and added
+  // a compact-slim middle step. Previously the slim payload exceeded
+  // 50KB for ~70% of the universe (any ticker with tf_tech + regime
+  // telemetry attached) which forced a fallback to minimal — and
+  // minimal dropped tf_tech / _ticker_profile / td_sequential, which
+  // is exactly what the right-rail Technicals + Analysis tabs need.
+  // D1 TEXT columns are documented up to 1MB per row; 200KB is a safe
+  // ceiling that leaves headroom for the largest scored payloads
+  // (e.g. ETFs with full tf_tech + futures with rich seq data).
+  // Cascade is now: slim (everything except large optional / context
+  // / fundamentals) → compact-slim (drops _marketInternals, regime
+  // telemetry, ML maps, diagnostic blobs — KEEPS tf_tech +
+  // _ticker_profile + ichimoku_*) → minimal (UI essentials + the
+  // rail's deep-tab fields).
+  const D1_MAX = 200000;
   let payloadJson = null;
+  let _payloadTier = "none";
   try {
     let slim = slimPayloadForD1(payload);
     let s = JSON.stringify(slim);
+    _payloadTier = "slim";
+    if (s.length > D1_MAX) {
+      slim = compactSlimPayloadForD1(payload);
+      s = JSON.stringify(slim);
+      _payloadTier = "compact_slim";
+    }
     if (s.length > D1_MAX) {
       slim = minimalPayloadForD1(payload);
       s = JSON.stringify(slim);
+      _payloadTier = "minimal";
     }
     payloadJson = s.length <= D1_MAX ? s : null;
   } catch {
@@ -41680,6 +41704,52 @@ export default {
             } catch {
               // ignore
             }
+          }
+        }
+
+        // V15 P0.7.180 (2026-05-17) — Heavy-field rescue.
+        //
+        // D1 ticker_latest stores a size-capped payload. Until this
+        // release, tickers whose slim payload exceeded 50KB fell back
+        // to minimal which dropped tf_tech / _ticker_profile /
+        // td_sequential / ema_map / ichimoku_* — exactly the fields
+        // the right-rail Technicals + Analysis tabs read. The
+        // production D1 store has thousands of rows written before
+        // the cap was raised + minimal was widened; we can't wait for
+        // the next scoring cron to rewrite them all.
+        //
+        // If the D1 row is missing tf_tech (the canonical signal
+        // that it's a "minimal" or pre-fix row), pull KV in parallel
+        // and re-merge any heavy fields KV has. KV always stores the
+        // full untruncated payload — it has no per-value size limit
+        // in our usage. One extra KV GET per /timed/latest call;
+        // skipped when D1 already has tf_tech.
+        if (data && !data.tf_tech) {
+          try {
+            const kvFull = await kvGetJSON(KV, `timed:latest:${ticker}`);
+            if (kvFull && typeof kvFull === "object") {
+              const HEAVY_RESCUE_KEYS = [
+                "tf_tech", "_ticker_profile", "_tickerProfile",
+                "td_sequential", "ema_map",
+                "ichimoku_d", "ichimoku_map",
+                "execution_profile", "fuel", "atr_levels",
+                "st_support", "liq_4h", "liq_D",
+                "fvg_4h", "fvg_D", "fvg_imbalance_D",
+                "pdz_4h", "pdz_D", "pdz_pct_4h", "pdz_pct_D", "pdz_zone_4h", "pdz_zone_D",
+                "rvol_map", "seq", "deltas",
+                "tf_summary", "regime_factors", "market_internals",
+                "phase_divergence", "phase_slope_5bar",
+                "swing_consensus", "daily_structure",
+                "momentum_pct", "momentum_elite_criteria",
+              ];
+              for (const k of HEAVY_RESCUE_KEYS) {
+                if (kvFull[k] !== undefined && data[k] === undefined) {
+                  data[k] = kvFull[k];
+                }
+              }
+            }
+          } catch (_rescErr) {
+            // Best-effort — read continues with whatever D1 had.
           }
         }
         const capture = await kvGetJSON(KV, `timed:capture:latest:${ticker}`);
@@ -74924,7 +74994,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             // when the KV snapshot expired and /timed/all fell back to D1.
             try {
               await d1EnsureLatestSchema(env);
-              const D1_MAX = 50000;
+              // V15 P0.7.180 — Bumped D1_MAX from 50000 → 200000 and
+              // added the compact-slim middle step. Without this, the
+              // batch sync stripped tf_tech / _ticker_profile from
+              // ~70% of tickers, leaving the right-rail Technicals
+              // tab in a permanent "not loaded" state. Mirror of the
+              // d1UpsertTickerLatest cascade.
+              const D1_MAX = 200000;
               const _d1Now = Date.now();
               const _d1Entries = Object.entries(snapshot);
               const _D1_CHUNK = 40;
@@ -74940,7 +75016,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   try {
                     let _slim = slimPayloadForD1(_pl);
                     let _s = JSON.stringify(_slim);
-                    if (_s.length > D1_MAX) { _slim = minimalPayloadForD1(_pl); _s = JSON.stringify(_slim); }
+                    if (_s.length > D1_MAX) {
+                      _slim = compactSlimPayloadForD1(_pl);
+                      _s = JSON.stringify(_slim);
+                    }
+                    if (_s.length > D1_MAX) {
+                      _slim = minimalPayloadForD1(_pl);
+                      _s = JSON.stringify(_slim);
+                    }
                     _pj = _s.length <= D1_MAX ? _s : null;
                   } catch { _pj = null; }
                   if (!_pj) continue;
