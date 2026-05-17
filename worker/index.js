@@ -1244,6 +1244,8 @@ const ROUTES = [
   ["GET", "/timed/etf/history", "GET /timed/etf/history"],
   ["GET", "/timed/etf/core-ideas", "GET /timed/etf/core-ideas"],
   ["POST", "/timed/etf/core-ideas", "POST /timed/etf/core-ideas"],
+  // ── Universe-change alerts (Phase 9) ──
+  ["GET", "/timed/universe/changes", "GET /timed/universe/changes"],
   // ── Email ──
   ["GET", "/timed/email/unsubscribe", "GET /timed/email/unsubscribe"],
   ["GET", "/timed/email/preferences", "GET /timed/email/preferences"],
@@ -66890,6 +66892,78 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           return sendJSON(result, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ── Universe-change alerts (Phase 9 of the UX redesign).
+      //
+      // Surfaces recent ETF rebalance events from `etf_rebalance_history`
+      // so the user-facing dashboard can show 'TT Universe changed'
+      // banners. The table already stores diff_added_json /
+      // diff_removed_json / diff_reweighted_json per snapshot — this
+      // endpoint just parses + flattens them into a single event feed.
+      //
+      // Future: extend with admin upticks add/remove events when those
+      // get logged to a similar history table.
+      //
+      // Public read (gated only by the same auth that protects
+      // /timed/all). Cache 5 min so clients hammering the page don't
+      // re-query D1.
+      if (routeKey === "GET /timed/universe/changes") {
+        try {
+          const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit")) || 20));
+          const days  = Math.min(180, Math.max(1, Number(url.searchParams.get("days")) || 30));
+          await d1EnsureEtfHistorySchema(env);
+          const cutoffDate = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+          const { results } = await env.DB.prepare(
+            `SELECT etf_symbol, snapshot_date, captured_at, source_label,
+                    ticker_count, diff_added_json, diff_removed_json,
+                    diff_reweighted_json, is_rebalance
+             FROM etf_rebalance_history
+             WHERE snapshot_date >= ?1
+               AND (is_rebalance = 1
+                    OR diff_added_json IS NOT NULL
+                    OR diff_removed_json IS NOT NULL
+                    OR diff_reweighted_json IS NOT NULL)
+             ORDER BY snapshot_date DESC, captured_at DESC
+             LIMIT ?2`
+          ).bind(cutoffDate, limit).all();
+
+          const parseJsonField = (raw) => {
+            if (!raw) return [];
+            try {
+              const parsed = JSON.parse(raw);
+              return Array.isArray(parsed) ? parsed : [];
+            } catch (_) { return []; }
+          };
+
+          const events = (results || []).map((r) => ({
+            kind: "etf_rebalance",
+            etf: String(r.etf_symbol || "").toUpperCase(),
+            date: r.snapshot_date,
+            captured_at: Number(r.captured_at) || null,
+            source: r.source_label || null,
+            ticker_count: Number(r.ticker_count) || 0,
+            added:      parseJsonField(r.diff_added_json),
+            removed:    parseJsonField(r.diff_removed_json),
+            reweighted: parseJsonField(r.diff_reweighted_json),
+            is_rebalance: !!r.is_rebalance,
+          })).filter((e) =>
+            e.added.length > 0 || e.removed.length > 0 ||
+            e.reweighted.length > 0 || e.is_rebalance,
+          );
+
+          return sendJSON(
+            { ok: true, events, count: events.length, window_days: days },
+            200,
+            { ...corsHeaders(env, req), "Cache-Control": "public, max-age=300" },
+          );
+        } catch (e) {
+          return sendJSON(
+            { ok: false, error: String(e?.message || e).slice(0, 200) },
+            500,
+            corsHeaders(env, req),
+          );
         }
       }
 
