@@ -374,6 +374,21 @@
     return out;
   }
 
+  // Expose isTickerTTSelected on window for the right rail (which reads
+  // it as a global on /index-react.html). Keep idempotent so pages that
+  // already wire it (active-trader.html / today.html) win.
+  if (typeof window.isTickerTTSelected !== "function") {
+    window.isTickerTTSelected = function (sym) {
+      const T = normTicker(sym);
+      return (
+        GROUPS.UPTICKS.has(T) ||
+        GROUPS.GRNI.has(T) ||
+        GROUPS.GRNJ.has(T) ||
+        GROUPS.GRNY.has(T)
+      );
+    };
+  }
+
   // ── loadETFGroups — populates GRNI/GRNJ/GRNY from server (line 2983 of source) ──
   let _etfGroupsLoaded = false;
   async function loadETFGroups() {
