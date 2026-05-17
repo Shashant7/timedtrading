@@ -311,7 +311,8 @@ function BriefPreview({
 }
 function MarketPulseTile({
   sym,
-  t
+  t,
+  onSelectTicker
 }) {
   const SYM = String(sym || "").toUpperCase();
   const tx = t && typeof t === "object" ? t.ticker ? t : {
@@ -338,6 +339,10 @@ function MarketPulseTile({
   }) : "";
   const onClick = e => {
     e.preventDefault();
+    if (typeof onSelectTicker === "function") {
+      onSelectTicker(SYM);
+      return;
+    }
     window.location.href = `/index-react.html?ticker=${encodeURIComponent(SYM)}`;
   };
   return h("button", {
@@ -404,7 +409,8 @@ function MarketPulseTile({
   }));
 }
 function MarketState({
-  data
+  data,
+  onSelectTicker
 }) {
   const candidates = ["SPY", "QQQ", "IWM", "VIXY", "BTCUSD", "GLD", "USO", "SLV"];
   const order = candidates.filter(sym => data?.[sym]).slice(0, 6);
@@ -424,7 +430,8 @@ function MarketState({
   }, order.map(sym => h(MarketPulseTile, {
     key: sym,
     sym,
-    t: data[sym]
+    t: data[sym],
+    onSelectTicker
   }))));
 }
 function MacroStrip({
@@ -479,7 +486,8 @@ function MacroStrip({
 function MoverRow({
   rk,
   t,
-  mode
+  mode,
+  onSelectTicker
 }) {
   const dc = getDailyChange(t);
   const pct = mode === "ext" ? Number(t?._ah_change_pct ?? t?.extended_percent_change) : Number(dc?.dayPct);
@@ -488,7 +496,13 @@ function MoverRow({
   const dir = !Number.isFinite(pct) ? "" : pct >= 0 ? "up" : "dn";
   return h("a", {
     className: "mvr",
-    href: `/index-react.html?ticker=${encodeURIComponent(sym)}`
+    href: `/index-react.html?ticker=${encodeURIComponent(sym)}`,
+    onClick: e => {
+      if (typeof onSelectTicker === "function") {
+        e.preventDefault();
+        onSelectTicker(sym);
+      }
+    }
   }, h("span", {
     className: "rk"
   }, "#" + (rk + 1)), h("span", null, h("div", {
@@ -502,7 +516,8 @@ function MoverRow({
 function MoversCol({
   title,
   items,
-  mode
+  mode,
+  onSelectTicker
 }) {
   return h("div", {
     className: "tt-card tt-card-pad"
@@ -527,11 +542,13 @@ function MoversCol({
     key: t.ticker || i,
     rk: i,
     t,
-    mode
+    mode,
+    onSelectTicker
   }))));
 }
 function TopMovers({
-  data
+  data,
+  onSelectTicker
 }) {
   const arr = useMemo(() => {
     if (!data) return [];
@@ -581,11 +598,13 @@ function TopMovers({
   }, h(MoversCol, {
     title: "RTH GAINERS",
     items: rthGain,
-    mode: "rth"
+    mode: "rth",
+    onSelectTicker
   }), h(MoversCol, {
     title: "RTH LOSERS",
     items: rthLoss,
-    mode: "rth"
+    mode: "rth",
+    onSelectTicker
   })), hasExt && h("div", {
     className: "tt-grid tt-grid-2",
     style: {
@@ -594,11 +613,13 @@ function TopMovers({
   }, h(MoversCol, {
     title: "EXT GAINERS (after-hours)",
     items: extGain,
-    mode: "ext"
+    mode: "ext",
+    onSelectTicker
   }), h(MoversCol, {
     title: "EXT LOSERS (after-hours)",
     items: extLoss,
-    mode: "ext"
+    mode: "ext",
+    onSelectTicker
   })));
 }
 function EarningsStrip({
@@ -1481,7 +1502,8 @@ function Viewport({
   rankedTickerPositions,
   query,
   sparkCache,
-  ensureSpark
+  ensureSpark,
+  onSelectTicker
 }) {
   const {
     saved,
@@ -1507,6 +1529,10 @@ function Viewport({
     ranked.slice(0, 60).forEach(t => ensureSpark(t.ticker));
   }, [ranked, ensureSpark]);
   const onOpen = sym => {
+    if (typeof onSelectTicker === "function") {
+      onSelectTicker(sym);
+      return;
+    }
     window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
   };
   return h("aside", {
@@ -1551,7 +1577,8 @@ function BubbleMapViewportSplit({
   rankedTickers,
   rankedTickerPositions,
   sparkCache,
-  ensureSpark
+  ensureSpark,
+  onSelectTicker
 }) {
   return h("section", {
     className: "tt-row"
@@ -1602,7 +1629,8 @@ function BubbleMapViewportSplit({
     rankedTickerPositions,
     query,
     sparkCache,
-    ensureSpark
+    ensureSpark,
+    onSelectTicker
   }), h("div", {
     className: "bmv-bubble"
   }, h(SharedBubbleMapSection, {
@@ -1612,7 +1640,8 @@ function BubbleMapViewportSplit({
     data,
     rankedTickers,
     rankedTickerPositions,
-    embedded: true
+    embedded: true,
+    onSelectTicker
   }))));
 }
 function SharedBubbleMapSection({
@@ -1622,7 +1651,8 @@ function SharedBubbleMapSection({
   data,
   rankedTickers: rtProp,
   rankedTickerPositions: rtpProp,
-  embedded = false
+  embedded = false,
+  onSelectTicker
 }) {
   const SharedChart = typeof window !== "undefined" && window.TimedBubbleChart && window.TimedBubbleChart.BubbleChart || null;
   const getRankedTickers = window.TimedBubbleChart && window.TimedBubbleChart.getRankedTickers || null;
@@ -1711,6 +1741,10 @@ function SharedBubbleMapSection({
     hoveredTicker: hovered,
     onHover: setHovered,
     onBubbleClick: sym => {
+      if (typeof onSelectTicker === "function") {
+        onSelectTicker(sym);
+        return;
+      }
       window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
     },
     onBackgroundClick: () => {},
@@ -1996,7 +2030,8 @@ function BubbleMap({
 }
 function UniverseHeatmap({
   visible,
-  query
+  query,
+  onSelectTicker
 }) {
   const [showAll, setShowAll] = useState(false);
   const items = useMemo(() => {
@@ -2076,6 +2111,12 @@ function UniverseHeatmap({
       key: sym,
       className: `heat-cell ${lvl}`,
       href: `/index-react.html?ticker=${encodeURIComponent(sym)}`,
+      onClick: e => {
+        if (typeof onSelectTicker === "function") {
+          e.preventDefault();
+          onSelectTicker(sym);
+        }
+      },
       title: `${sym} · HTF ${score.toFixed(1)} · LTF ${(Number(t?.ltf_score) || 0).toFixed(1)} · ${t?.state || ""}`,
       style: {
         opacity: isDim ? 0.30 : 1,
@@ -2231,6 +2272,23 @@ function TodayApp() {
     });
     return m;
   }, [rankedTickers]);
+  const [railTicker, setRailTicker] = useState(null);
+  const railTickerObj = useMemo(() => {
+    if (!railTicker) return null;
+    const key = String(railTicker).toUpperCase();
+    const found = allTickers.find(t => String(t?.ticker || "").toUpperCase() === key);
+    return found || null;
+  }, [railTicker, allTickers]);
+  const onSelectTicker = useCallback(sym => {
+    if (!sym) return;
+    if (!window.TimedRightRail?.Overlay) {
+      window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+      return;
+    }
+    setRailTicker(String(sym).toUpperCase());
+  }, []);
+  const onCloseRail = useCallback(() => setRailTicker(null), []);
+  const RailOverlay = window.TimedRightRail?.Overlay || null;
   if (error) {
     return h("main", null, h("div", {
       className: "tt-card tt-card-pad",
@@ -2250,11 +2308,13 @@ function TodayApp() {
   }), brief ? h(BriefPreview, {
     brief
   }) : h(BriefSkeleton, null), data ? h(MarketState, {
-    data
+    data,
+    onSelectTicker
   }) : h(MarketStateSkeleton, null), brief && h(MacroStrip, {
     brief
   }), data && h(TopMovers, {
-    data
+    data,
+    onSelectTicker
   }), earnings && h(EarningsStrip, {
     earnings
   }), data ? h(AnalysisControls, {
@@ -2271,11 +2331,17 @@ function TodayApp() {
     rankedTickers,
     rankedTickerPositions,
     sparkCache,
-    ensureSpark
+    ensureSpark,
+    onSelectTicker
   }) : h(BubbleViewportSkeleton, null), data ? h(UniverseHeatmap, {
     visible,
-    query: filters.query
-  }) : h(HeatmapSkeleton, null), h(EndCTA, null)));
+    query: filters.query,
+    onSelectTicker
+  }) : h(HeatmapSkeleton, null), h(EndCTA, null)), RailOverlay && railTickerObj && h(RailOverlay, {
+    ticker: railTickerObj,
+    allLoadedData: data,
+    onClose: onCloseRail
+  }));
 }
 function BriefSkeleton() {
   return h("section", {

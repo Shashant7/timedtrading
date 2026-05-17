@@ -2,6 +2,7 @@
 const {
   useState,
   useEffect,
+  useMemo,
   useCallback
 } = React;
 const h = React.createElement;
@@ -115,10 +116,47 @@ function InvestorApp() {
     }, 100);
     return () => clearInterval(id);
   }, [panelMounted]);
-  const onSelectTicker = sym => {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch(`${API_BASE}/timed/all`, {
+          cache: "no-store",
+          credentials: "include"
+        });
+        if (!r.ok || !alive) return;
+        const j = await r.json();
+        if (alive && j?.ok) setData(j.data || {});
+      } catch (_) {}
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const [railTicker, setRailTicker] = useState(null);
+  const railTickerObj = useMemo(() => {
+    if (!railTicker || !data) return null;
+    const key = String(railTicker).toUpperCase();
+    const raw = data[key];
+    if (!raw) return {
+      ticker: key
+    };
+    return raw.ticker ? raw : {
+      ticker: key,
+      ...raw
+    };
+  }, [railTicker, data]);
+  const onSelectTicker = useCallback(sym => {
     if (!sym) return;
-    window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
-  };
+    if (!window.TimedRightRail?.Overlay) {
+      window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+      return;
+    }
+    setRailTicker(String(sym).toUpperCase());
+  }, []);
+  const onCloseRail = useCallback(() => setRailTicker(null), []);
+  const RailOverlay = window.TimedRightRail?.Overlay || null;
   return h(React.Fragment, null, !panelMounted && h("div", {
     className: "tt-loadbar",
     role: "progressbar",
@@ -159,7 +197,11 @@ function InvestorApp() {
     style: {
       width: 240
     }
-  }))))))));
+  }))))))), RailOverlay && railTickerObj && h(RailOverlay, {
+    ticker: railTickerObj,
+    allLoadedData: data,
+    onClose: onCloseRail
+  }));
 }
 const AuthGate = window.TimedAuthGate;
 const app = AuthGate ? React.createElement(AuthGate, {

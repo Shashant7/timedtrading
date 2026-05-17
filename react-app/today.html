@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-today8" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-today9" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -25,6 +25,11 @@
     <!-- BubbleChart component (extracted from index-react.source.html). Uses
          native-SVG rendering (FORCE_NATIVE_SVG=true) so Recharts is NOT loaded. -->
     <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
+    <!-- Right rail factory + helpers + bootstrap so card clicks open the
+         ticker detail panel inline (verbatim port of /index-react's rail). -->
+    <script src="shared-rail-helpers.js?v=20260517b"></script>
+    <script src="shared-right-rail.compiled.js?v=20260517b"></script>
+    <script src="shared-rail-bootstrap.js?v=20260517b"></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -955,7 +960,7 @@
       // ── MarketPulseTile — production ds-tickercard layout (logo +
       //    symbol + dot + big price + change + 1H sparkline). Matches
       //    AT's Market Pulse row exactly.
-      function MarketPulseTile({ sym, t }) {
+      function MarketPulseTile({ sym, t, onSelectTicker }) {
         const SYM = String(sym || "").toUpperCase();
         // /timed/all values lack a 'ticker' field — synthesise it from
         // the key so getDailyChange + DS helpers work.
@@ -982,6 +987,10 @@
 
         const onClick = (e) => {
           e.preventDefault();
+          if (typeof onSelectTicker === "function") {
+            onSelectTicker(SYM);
+            return;
+          }
           window.location.href = `/index-react.html?ticker=${encodeURIComponent(SYM)}`;
         };
 
@@ -1035,7 +1044,7 @@
 
       // ── Market Pulse — port from AT's Market Pulse row.
       // User feedback: 'The Today Page should use the Market Pulse Tiles.'
-      function MarketState({ data }) {
+      function MarketState({ data, onSelectTicker }) {
         const candidates = ["SPY", "QQQ", "IWM", "VIXY", "BTCUSD", "GLD", "USO", "SLV"];
         const order = candidates.filter(sym => data?.[sym]).slice(0, 6);
         if (order.length === 0) return null;
@@ -1049,7 +1058,7 @@
               gap: 12,
             },
           },
-            order.map(sym => h(MarketPulseTile, { key: sym, sym, t: data[sym] })),
+            order.map(sym => h(MarketPulseTile, { key: sym, sym, t: data[sym], onSelectTicker })),
           ),
         );
       }
@@ -1088,13 +1097,22 @@
       }
 
       // ── Top movers ─────────────────────────────────────────────
-      function MoverRow({ rk, t, mode }) {
+      function MoverRow({ rk, t, mode, onSelectTicker }) {
         const dc = getDailyChange(t);
         const pct = mode === "ext" ? Number(t?._ah_change_pct ?? t?.extended_percent_change) : Number(dc?.dayPct);
         const price = Number(t?.price);
         const sym = String(t?.ticker || "").toUpperCase();
         const dir = !Number.isFinite(pct) ? "" : pct >= 0 ? "up" : "dn";
-        return h("a", { className: "mvr", href: `/index-react.html?ticker=${encodeURIComponent(sym)}` },
+        return h("a", {
+          className: "mvr",
+          href: `/index-react.html?ticker=${encodeURIComponent(sym)}`,
+          onClick: (e) => {
+            if (typeof onSelectTicker === "function") {
+              e.preventDefault();
+              onSelectTicker(sym);
+            }
+          },
+        },
           h("span", { className: "rk" }, "#" + (rk + 1)),
           h("span", null,
             h("div", { className: "sym" }, sym),
@@ -1103,17 +1121,17 @@
           h("span", { className: `chg ${dir}` }, Number.isFinite(pct) ? (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : "—"),
         );
       }
-      function MoversCol({ title, items, mode }) {
+      function MoversCol({ title, items, mode, onSelectTicker }) {
         return h("div", { className: "tt-card tt-card-pad" },
           h("div", { className: "tt-sec-title", style: { marginBottom: 10 } }, title),
           items.length === 0
             ? h("div", { style: { fontSize: 12, color: "var(--tt-text-dim)", fontStyle: "italic" } }, "No movers right now")
             : h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
-                items.map((t, i) => h(MoverRow, { key: t.ticker || i, rk: i, t, mode })),
+                items.map((t, i) => h(MoverRow, { key: t.ticker || i, rk: i, t, mode, onSelectTicker })),
               ),
         );
       }
-      function TopMovers({ data }) {
+      function TopMovers({ data, onSelectTicker }) {
         const arr = useMemo(() => {
           if (!data) return [];
           return Object.values(data).filter(t => t && t.ticker);
@@ -1171,12 +1189,12 @@
               : "RTH movers from today's session. EXT row shows after-hours follow-through."
           ),
           h("div", { className: "tt-grid tt-grid-2" },
-            h(MoversCol, { title: "RTH GAINERS", items: rthGain, mode: "rth" }),
-            h(MoversCol, { title: "RTH LOSERS", items: rthLoss, mode: "rth" }),
+            h(MoversCol, { title: "RTH GAINERS", items: rthGain, mode: "rth", onSelectTicker }),
+            h(MoversCol, { title: "RTH LOSERS",  items: rthLoss, mode: "rth", onSelectTicker }),
           ),
           hasExt && h("div", { className: "tt-grid tt-grid-2", style: { marginTop: 12 } },
-            h(MoversCol, { title: "EXT GAINERS (after-hours)", items: extGain, mode: "ext" }),
-            h(MoversCol, { title: "EXT LOSERS (after-hours)", items: extLoss, mode: "ext" }),
+            h(MoversCol, { title: "EXT GAINERS (after-hours)", items: extGain, mode: "ext", onSelectTicker }),
+            h(MoversCol, { title: "EXT LOSERS (after-hours)",  items: extLoss, mode: "ext", onSelectTicker }),
           ),
         );
       }
@@ -2073,7 +2091,7 @@
         return { cache, ensure };
       }
 
-      function Viewport({ visible, rankedTickerPositions, query, sparkCache, ensureSpark }) {
+      function Viewport({ visible, rankedTickerPositions, query, sparkCache, ensureSpark, onSelectTicker }) {
         const { saved, toggle: toggleSaved } = useSavedTickers();
 
         const ranked = useMemo(() => {
@@ -2100,6 +2118,10 @@
         }, [ranked, ensureSpark]);
 
         const onOpen = (sym) => {
+          if (typeof onSelectTicker === "function") {
+            onSelectTicker(sym);
+            return;
+          }
           window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
         };
 
@@ -2135,7 +2157,7 @@
       // beside the Bubble Map (right), mirroring Active Trader's split
       // experience. On narrow screens (<1100px) they stack vertically.
       // ═══════════════════════════════════════════════════════════
-      function BubbleMapViewportSplit({ allTickers, visible, query, data, rankedTickers, rankedTickerPositions, sparkCache, ensureSpark }) {
+      function BubbleMapViewportSplit({ allTickers, visible, query, data, rankedTickers, rankedTickerPositions, sparkCache, ensureSpark, onSelectTicker }) {
         return h("section", { className: "tt-row" },
           h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 8 } },
             h("div", null,
@@ -2151,12 +2173,13 @@
             ),
           ),
           h("div", { className: "bmv-split" },
-            h(Viewport, { visible, rankedTickerPositions, query, sparkCache, ensureSpark }),
+            h(Viewport, { visible, rankedTickerPositions, query, sparkCache, ensureSpark, onSelectTicker }),
             h("div", { className: "bmv-bubble" },
               h(SharedBubbleMapSection, {
                 allTickers, visible, query, data,
                 rankedTickers, rankedTickerPositions,
                 embedded: true,
+                onSelectTicker,
               }),
             ),
           ),
@@ -2183,7 +2206,7 @@
       // Falls back to the in-page lightweight BubbleMap if the shared
       // module hasn't loaded yet (first paint / network failure).
       // ═══════════════════════════════════════════════════════════
-      function SharedBubbleMapSection({ allTickers, visible, query, data, rankedTickers: rtProp, rankedTickerPositions: rtpProp, embedded = false }) {
+      function SharedBubbleMapSection({ allTickers, visible, query, data, rankedTickers: rtProp, rankedTickerPositions: rtpProp, embedded = false, onSelectTicker }) {
         const SharedChart = (typeof window !== "undefined" && window.TimedBubbleChart && window.TimedBubbleChart.BubbleChart) || null;
         const getRankedTickers = (window.TimedBubbleChart && window.TimedBubbleChart.getRankedTickers) || null;
 
@@ -2233,7 +2256,10 @@
               rankedTickerPositions: rankedTickerPositionsLocal,
               hoveredTicker: hovered,
               onHover: setHovered,
-              onBubbleClick: (sym) => { window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`; },
+              onBubbleClick: (sym) => {
+                if (typeof onSelectTicker === "function") { onSelectTicker(sym); return; }
+                window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+              },
               onBackgroundClick: () => {},
               selectedTicker: null,
               selectedTrail: null,
@@ -2383,7 +2409,7 @@
       }
 
       // ── Universe heatmap (props-driven) ────────────────────────
-      function UniverseHeatmap({ visible, query }) {
+      function UniverseHeatmap({ visible, query, onSelectTicker }) {
         const [showAll, setShowAll] = useState(false);
 
         const items = useMemo(() => {
@@ -2440,6 +2466,12 @@
                   key: sym,
                   className: `heat-cell ${lvl}`,
                   href: `/index-react.html?ticker=${encodeURIComponent(sym)}`,
+                  onClick: (e) => {
+                    if (typeof onSelectTicker === "function") {
+                      e.preventDefault();
+                      onSelectTicker(sym);
+                    }
+                  },
                   title: `${sym} · HTF ${score.toFixed(1)} · LTF ${(Number(t?.ltf_score) || 0).toFixed(1)} · ${t?.state || ""}`,
                   style: { opacity: isDim ? 0.30 : 1, transition: "opacity 0.15s", ...(isMatch ? { outline: "1px solid #fff", outlineOffset: "-1px" } : {}) },
                 },
@@ -2582,6 +2614,28 @@
           return m;
         }, [rankedTickers]);
 
+        // Right rail overlay state — clicking a card / bubble / heat tile
+        // pops the slide-in TickerDetail panel (same component used by
+        // /index-react.html) so users can drill into a ticker without
+        // leaving Today.
+        const [railTicker, setRailTicker] = useState(null);
+        const railTickerObj = useMemo(() => {
+          if (!railTicker) return null;
+          const key = String(railTicker).toUpperCase();
+          const found = allTickers.find((t) => String(t?.ticker || "").toUpperCase() === key);
+          return found || null;
+        }, [railTicker, allTickers]);
+        const onSelectTicker = useCallback((sym) => {
+          if (!sym) return;
+          if (!window.TimedRightRail?.Overlay) {
+            window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+            return;
+          }
+          setRailTicker(String(sym).toUpperCase());
+        }, []);
+        const onCloseRail = useCallback(() => setRailTicker(null), []);
+        const RailOverlay = window.TimedRightRail?.Overlay || null;
+
         if (error) {
           return h("main", null,
             h("div", { className: "tt-card tt-card-pad", style: { color: "var(--tt-dn-soft)" } },
@@ -2605,10 +2659,10 @@
               ? h(BriefPreview, { brief })
               : h(BriefSkeleton, null),
             data
-              ? h(MarketState, { data })
+              ? h(MarketState, { data, onSelectTicker })
               : h(MarketStateSkeleton, null),
             brief && h(MacroStrip, { brief }),
-            data && h(TopMovers, { data }),
+            data && h(TopMovers, { data, onSelectTicker }),
             earnings && h(EarningsStrip, { earnings }),
             // ── Analysis (interactive) ──
             data
@@ -2630,13 +2684,20 @@
                   rankedTickerPositions,
                   sparkCache,
                   ensureSpark,
+                  onSelectTicker,
                 })
               : h(BubbleViewportSkeleton, null),
             data
-              ? h(UniverseHeatmap, { visible, query: filters.query })
+              ? h(UniverseHeatmap, { visible, query: filters.query, onSelectTicker })
               : h(HeatmapSkeleton, null),
             h(EndCTA, null),
           ),
+          // Right rail slide-in overlay (TickerDetailRightRail).
+          RailOverlay && railTickerObj && h(RailOverlay, {
+            ticker: railTickerObj,
+            allLoadedData: data,
+            onClose: onCloseRail,
+          }),
         );
       }
 
