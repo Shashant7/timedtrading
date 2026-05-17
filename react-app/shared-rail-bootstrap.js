@@ -123,6 +123,21 @@
     const { ticker, allLoadedData, onClose } = props || {};
     const tickerSym = useMemo(() => String(ticker?.ticker || ticker?.symbol || "").toUpperCase(), [ticker]);
 
+    // Workspace mode at >= 1024px: chart on the left, tabs on the
+    // right (same CSS grid /index-react.html uses when opening a
+    // ticker). Sub-1024px falls back to the single-column modal
+    // layout. Resize-aware so the rail re-lays out on tablet rotate.
+    // The breakpoint matches the .rail-panel width media query in
+    // tt-tokens.css (full-page takeover at desktop, drawer below).
+    const [layoutMode, setLayoutMode] = useState(() =>
+      typeof window !== "undefined" && window.innerWidth >= 1024 ? "workspace" : "modal"
+    );
+    useEffect(() => {
+      const update = () => setLayoutMode(window.innerWidth >= 1024 ? "workspace" : "modal");
+      window.addEventListener("resize", update, { passive: true });
+      return () => window.removeEventListener("resize", update);
+    }, []);
+
     // Full-payload fetch: hits /timed/latest for the open ticker so the
     // rail has tf_tech, td_sequential, _ticker_profile, fundamentals,
     // execution_profile, ichimoku_map, etc. — everything the heavy
@@ -216,6 +231,7 @@
           ticker: enrichedTicker,
           allLoadedData: allLoadedData || null,
           onClose,
+          layoutMode,
         }),
       ),
     );
