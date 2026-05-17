@@ -1,0 +1,966 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <title>Active Trader — Timed Trading</title>
+    <meta name="description" content="Swing-trade kanban: what the model is currently setting up, entering, holding, defending, trimming, and exiting." />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2048%2048%27%20fill%3D%27none%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27r%27%20x1%3D%276%27%20y1%3D%2742%27%20x2%3D%2742%27%20y2%3D%276%27%3E%3Cstop%20offset%3D%270%25%27%20stop-color%3D%27%2334d399%27%2F%3E%3Cstop%20offset%3D%27100%25%27%20stop-color%3D%27%2367e8f9%27%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20width%3D%2748%27%20height%3D%2748%27%20rx%3D%2711%27%20fill%3D%27%23000%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%2717%27%20stroke%3D%27url%28%23r%29%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3Cline%20x1%3D%2719%27%20y1%3D%2718.5%27%20x2%3D%2716%27%20y2%3D%2715.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2719%27%20y2%3D%2718.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%273.5%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2729.5%27%20y1%3D%2716.5%27%20x2%3D%2732%27%20y2%3D%2712.9%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2729.5%27%20y2%3D%2716.5%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%274%27%20stroke-linecap%3D%27round%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%273.2%27%20fill%3D%27%2330d158%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%271.3%27%20fill%3D%27%23000%27%2F%3E%3C%2Fsvg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-at1" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="auth-gate.js?v=20260516a"></script>
+    <script src="shared-price-utils.js?v=20260304a"></script>
+    <script src="ds-components.js?v=20260501a"></script>
+    <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
+    <style>
+      :root {
+        --tt-bg-base: #0b0e11;
+        --tt-bg-surface: rgba(255,255,255,0.025);
+        --tt-bg-elev: rgba(255,255,255,0.04);
+        --tt-border: rgba(255,255,255,0.06);
+        --tt-border-hi: rgba(255,255,255,0.12);
+        --tt-text: #e5e7eb;
+        --tt-text-muted: #9ca3af;
+        --tt-text-dim: #6b7280;
+        --tt-text-faint: #4b5563;
+        --tt-up: #22c55e;
+        --tt-up-soft: #34d399;
+        --tt-up-bg: rgba(34,197,94,0.10);
+        --tt-dn: #f43f5e;
+        --tt-dn-soft: #fb7185;
+        --tt-dn-bg: rgba(244,63,94,0.10);
+        --tt-accent: #f5c25c;
+        --tt-accent-dim: rgba(245,194,92,0.14);
+        --tt-violet: #a78bfa;
+        --tt-violet-dim: rgba(167,139,250,0.14);
+        --tt-cyan: #22d3ee;
+        --tt-cyan-dim: rgba(34,211,238,0.10);
+        --tt-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        --tt-font-mono: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+      }
+      body {
+        background: var(--tt-bg-base);
+        color: var(--tt-text);
+        font-family: var(--tt-font);
+        -webkit-font-smoothing: antialiased;
+        margin: 0;
+        min-height: 100vh;
+      }
+      main { max-width: 1600px; margin: 0 auto; padding: 18px 24px 96px; }
+      @media (max-width: 720px) { main { padding: 14px 12px 96px; } }
+      .tt-row { margin-bottom: 28px; }
+      @media (max-width: 720px) { .tt-row { margin-bottom: 20px; } }
+      .tt-card { background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: 12px; }
+      .tt-card-pad { padding: 14px 16px; }
+      .tt-sec-title { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; color: var(--tt-text-dim); text-transform: uppercase; margin-bottom: 4px; }
+      .tt-sec-h { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; color: var(--tt-text); }
+
+      /* Top nav (matches /today.html) */
+      nav.topnav {
+        position: sticky; top: 0; z-index: 50;
+        background: rgba(10,12,16,0.85);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border-bottom: 1px solid var(--tt-border);
+      }
+      .nav-row {
+        max-width: 1600px; margin: 0 auto;
+        padding: 12px 24px;
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      }
+      .nav-brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: var(--tt-text); font-weight: 700; }
+      .nav-links { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      .nav-link {
+        font-size: 12.5px;
+        color: var(--tt-text-muted);
+        text-decoration: none;
+        padding: 6px 12px;
+        border-radius: 8px;
+        transition: background 120ms ease, color 120ms ease;
+      }
+      .nav-link:hover { color: var(--tt-text); background: var(--tt-bg-surface); }
+      .nav-link.active {
+        color: var(--tt-accent);
+        background: var(--tt-accent-dim);
+      }
+      .nav-link.learn { color: var(--tt-up-soft); }
+      .nav-link.learn:hover { background: var(--tt-up-bg); }
+
+      /* Page hero */
+      .at-hero {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 16px;
+        align-items: center;
+        padding: 18px 22px;
+        background: linear-gradient(180deg, var(--tt-bg-elev), var(--tt-bg-surface));
+        border: 1px solid var(--tt-border);
+        border-radius: 14px;
+        margin-bottom: 20px;
+      }
+      .at-hero h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; margin: 0; }
+      .at-hero .label { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; color: var(--tt-text-dim); text-transform: uppercase; margin-bottom: 4px; }
+      .at-hero .sub { font-size: 13px; color: var(--tt-text-muted); margin-top: 4px; }
+      .at-hero .pills { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+      .at-pill {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 4px 10px;
+        font-size: 11.5px; font-weight: 700;
+        border-radius: 999px;
+        border: 1px solid var(--tt-border);
+        background: var(--tt-bg-elev);
+        color: var(--tt-text-muted);
+      }
+      .at-pill .dot { width: 6px; height: 6px; border-radius: 50%; }
+      .at-pill.regime-on   { color: var(--tt-up-soft);  background: var(--tt-up-bg);  border-color: rgba(34,197,94,0.25); }
+      .at-pill.regime-off  { color: var(--tt-dn-soft);  background: var(--tt-dn-bg);  border-color: rgba(244,63,94,0.25); }
+      .at-pill.regime-mix  { color: var(--tt-accent);   background: var(--tt-accent-dim); border-color: rgba(245,194,92,0.30); }
+      .at-pill strong { color: inherit; }
+      @media (max-width: 720px) {
+        .at-hero { grid-template-columns: 1fr; }
+        .at-hero h1 { font-size: 18px; }
+      }
+
+      /* Brief summary block (regime + open positions chips + pipeline) */
+      .at-brief {
+        padding: 16px 18px;
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 12px;
+        margin-bottom: 24px;
+      }
+      .at-brief-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 18px;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+      .at-brief-row:last-child { margin-bottom: 0; }
+      .at-brief-label {
+        font-size: 11px; font-weight: 700; letter-spacing: 0.10em;
+        color: var(--tt-text-dim);
+        text-transform: uppercase;
+        margin-right: 6px;
+        min-width: 110px;
+      }
+      .at-brief-chip {
+        font-family: var(--tt-font-mono);
+        font-size: 11px;
+        padding: 3px 8px;
+        border-radius: 6px;
+        background: var(--tt-bg-elev);
+        border: 1px solid var(--tt-border);
+        color: var(--tt-text-muted);
+        white-space: nowrap;
+      }
+      .at-brief-chip.lane-hold   { color: var(--tt-up-soft);  background: var(--tt-up-bg);  border-color: rgba(34,197,94,0.25); }
+      .at-brief-chip.lane-defend { color: #fb923c;            background: rgba(251,146,60,0.10); border-color: rgba(251,146,60,0.30); }
+      .at-brief-chip.lane-trim   { color: #facc15;            background: rgba(250,204,21,0.10); border-color: rgba(250,204,21,0.30); }
+      .at-brief-chip.lane-exit   { color: var(--tt-dn-soft);  background: var(--tt-dn-bg);  border-color: rgba(244,63,94,0.25); }
+      .at-brief-chip .pl { font-weight: 700; margin-left: 4px; }
+      .at-brief-chip .pl.up   { color: var(--tt-up); }
+      .at-brief-chip .pl.down { color: var(--tt-dn); }
+
+      /* Kanban lanes */
+      .lane {
+        display: grid;
+        grid-template-columns: 100px 1fr;
+        align-items: stretch;
+        margin-bottom: 14px;
+      }
+      @media (max-width: 720px) {
+        .lane { grid-template-columns: 1fr; }
+      }
+      .lane-head {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: flex-start;
+        gap: 4px;
+        padding: 14px 12px;
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-right: 0;
+        border-radius: 12px 0 0 12px;
+        position: relative;
+      }
+      @media (max-width: 720px) {
+        .lane-head {
+          flex-direction: row;
+          justify-content: space-between;
+          border-right: 1px solid var(--tt-border);
+          border-bottom: 0;
+          border-radius: 12px 12px 0 0;
+        }
+      }
+      .lane-head::before {
+        content: "";
+        position: absolute;
+        top: 14px; bottom: 14px; left: 0;
+        width: 4px;
+        background: var(--lane-accent, var(--tt-text-faint));
+        border-radius: 2px;
+      }
+      .lane-name {
+        font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--lane-accent, var(--tt-text-dim));
+      }
+      .lane-count {
+        font-family: var(--tt-font-mono);
+        font-size: 11px;
+        color: var(--tt-text-dim);
+      }
+      .lane-body {
+        padding: 12px;
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 0 12px 12px 0;
+        min-height: 100px;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255,255,255,0.12) transparent;
+      }
+      @media (max-width: 720px) {
+        .lane-body { border-radius: 0 0 12px 12px; }
+      }
+      .lane-body::-webkit-scrollbar { height: 6px; }
+      .lane-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 6px; }
+      .lane-cards {
+        display: flex;
+        flex-direction: row;
+        gap: 10px;
+        min-height: 100px;
+      }
+      .lane-cards .ds-tickercard {
+        flex: 0 0 auto;
+        width: 280px;
+      }
+      .lane-empty {
+        font-size: 12px;
+        color: var(--tt-text-faint);
+        padding: 24px 8px;
+      }
+      /* Lane accents */
+      .lane.setup            { --lane-accent: #93c5fd; }
+      .lane.review           { --lane-accent: var(--tt-accent); }
+      .lane.initiated        { --lane-accent: var(--tt-cyan); }
+      .lane.hold             { --lane-accent: var(--tt-up-soft); }
+      .lane.defend           { --lane-accent: #fb923c; }
+      .lane.trim             { --lane-accent: #facc15; }
+      .lane.exit             { --lane-accent: var(--tt-dn-soft); }
+
+      /* Loading bar */
+      .tt-loadbar {
+        position: fixed; top: 0; left: 0; right: 0;
+        height: 2px;
+        background: rgba(245,194,92,0.12);
+        z-index: 9000;
+        overflow: hidden;
+      }
+      .tt-loadbar::after {
+        content: "";
+        position: absolute;
+        top: 0; bottom: 0;
+        width: 30%;
+        background: linear-gradient(90deg, transparent, var(--tt-accent), transparent);
+        animation: tt-loadbar 1.4s ease-in-out infinite;
+      }
+      @keyframes tt-loadbar { 0% { left: -30%; } 100% { left: 100%; } }
+
+      /* Skeleton primitive */
+      .sk {
+        background: linear-gradient(90deg, var(--tt-bg-surface), var(--tt-bg-elev), var(--tt-bg-surface));
+        background-size: 200% 100%;
+        animation: sk 1.6s ease-in-out infinite;
+        border-radius: 6px;
+      }
+      @keyframes sk { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+      .sk-card { height: 134px; background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: 12px; }
+    </style>
+  </head>
+  <body>
+    <nav class="topnav">
+      <div class="nav-row">
+        <a href="/today.html" class="nav-brand">
+          <svg width="28" height="28" viewBox="0 0 48 48" fill="none"><defs><linearGradient id="ttng" x1="6" y1="42" x2="42" y2="6"><stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#67e8f9"/></linearGradient></defs><rect width="48" height="48" rx="11" fill="#000"/><circle cx="24" cy="24" r="17" stroke="url(#ttng)" stroke-width="2.5" fill="none"/><line x1="19" y1="18.5" x2="16" y2="15.5" stroke="#636366" stroke-width="1.2" stroke-linecap="round"/><line x1="24" y1="24" x2="19" y2="18.5" stroke="#636366" stroke-width="3.5" stroke-linecap="round"/><line x1="29.5" y1="16.5" x2="32" y2="12.9" stroke="#30d158" stroke-width="1.2" stroke-linecap="round"/><line x1="24" y1="24" x2="29.5" y2="16.5" stroke="#30d158" stroke-width="4" stroke-linecap="round"/><circle cx="24" cy="24" r="3.2" fill="#30d158"/><circle cx="24" cy="24" r="1.3" fill="#000"/></svg>
+          Timed Trading
+        </a>
+        <div class="nav-links">
+          <a href="/today.html" class="nav-link">Today</a>
+          <a href="/active-trader.html" class="nav-link active">Active Trader</a>
+          <a href="/investor-dashboard.html" class="nav-link">Investor</a>
+          <a href="/simulation-dashboard.html" class="nav-link">Trades</a>
+          <a href="/learn.html" class="nav-link learn">Learn</a>
+        </div>
+      </div>
+    </nav>
+
+    <div id="root">
+      <main>
+        <div class="tt-card tt-card-pad" style="text-align:center;color:var(--tt-text-muted)">Loading Active Trader…</div>
+      </main>
+    </div>
+
+    <script type="text/babel">
+      const { useState, useEffect, useMemo, useCallback } = React;
+      const h = React.createElement;
+      const API_BASE = "";
+
+      // ── TT Selected universe (mirror of index-react GROUPS at line 2965).
+      //   Same shape as today.html.
+      const TT_GROUPS = {
+        UPTICKS: new Set([
+          "RDDT","AMZN","BABA","TSLA","KO","WMT","ETHA","BRK-B","MTB",
+          "AMGN","GILD","CSX","GEV","HII","JCI","PH","PWR","TT",
+          "CLS","FSLR","PANW","CRS","VST","BG","MRK","QXO","AXP",
+        ]),
+        GRNI: new Set(), GRNJ: new Set(), GRNY: new Set(),
+      };
+      function _norm(s) {
+        let v = String(s || "").trim().toUpperCase();
+        if (v === "BRK.B") v = "BRK-B";
+        return v;
+      }
+      window.isTickerTTSelected = function (sym) {
+        const T = _norm(sym);
+        return (
+          TT_GROUPS.UPTICKS.has(T) ||
+          TT_GROUPS.GRNI.has(T) ||
+          TT_GROUPS.GRNJ.has(T) ||
+          TT_GROUPS.GRNY.has(T)
+        );
+      };
+      (async () => {
+        try {
+          const r = await fetch(`${API_BASE}/timed/etf/groups`, { cache: "no-store" });
+          if (!r.ok) return;
+          const j = await r.json();
+          if (j?.ok && j.groups) {
+            for (const [etf, tickers] of Object.entries(j.groups)) {
+              if (TT_GROUPS[etf] !== undefined && Array.isArray(tickers)) {
+                TT_GROUPS[etf] = new Set(tickers.map((t) => _norm(t)));
+              }
+            }
+          }
+        } catch (_) {}
+      })();
+
+      // ── Fetch helpers ──────────────────────────────────────────
+      async function fetchAll() {
+        const ts = Date.now();
+        const r = await fetch(`${API_BASE}/timed/all?_t=${ts}`, {
+          credentials: "include",
+          cache: "no-store",
+          headers: { Accept: "application/json", "Cache-Control": "no-cache, no-store, must-revalidate", Pragma: "no-cache" },
+        });
+        return r.ok ? r.json() : { ok: false };
+      }
+
+      // ── useOpenTrades — port from today.html ──────────────────
+      function useOpenTrades(enabled) {
+        const [tradeByTicker, setTradeByTicker] = useState(() => new Map());
+        const refresh = useCallback(async () => {
+          try {
+            const [posRes, promRes] = await Promise.all([
+              fetch(`${API_BASE}/timed/trades?source=positions`, { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null),
+              fetch(`${API_BASE}/timed/trades?source=promoted`,  { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null),
+            ]);
+            const m = new Map();
+            const accept = (tr) => {
+              const sym = String(tr?.ticker || "").toUpperCase();
+              if (!sym) return;
+              const exitTs = tr?.exit_ts ?? tr?.exitTs ?? 0;
+              const entryTs = tr?.entry_ts ?? tr?.entryTime ?? tr?.entryTs ?? 0;
+              const existing = m.get(sym);
+              if (!existing) { m.set(sym, tr); return; }
+              const exExit = existing?.exit_ts ?? existing?.exitTs ?? 0;
+              const exEntry = existing?.entry_ts ?? existing?.entryTime ?? existing?.entryTs ?? 0;
+              const trOpen = !exitTs, exOpen = !exExit;
+              if ((trOpen && !exOpen) || (trOpen && exOpen && entryTs > exEntry) || (!trOpen && !exOpen && exitTs > exExit)) {
+                m.set(sym, tr);
+              }
+            };
+            if (posRes?.ok && Array.isArray(posRes.trades))  posRes.trades.forEach(accept);
+            if (promRes?.ok && Array.isArray(promRes.trades)) promRes.trades.forEach(accept);
+            setTradeByTicker(m);
+          } catch (_) {}
+        }, []);
+        useEffect(() => {
+          if (!enabled) return undefined;
+          refresh();
+          const id = setInterval(refresh, 180000);
+          return () => clearInterval(id);
+        }, [enabled, refresh]);
+        return tradeByTicker;
+      }
+
+      // ── useSavedTickers — port from today.html ─────────────────
+      function useSavedTickers() {
+        const [saved, setSaved] = useState(() => {
+          const bootstrap = window.TimedAuthHelpers?.getStoredBootstrap?.();
+          return new Set(Array.isArray(bootstrap?.saved_tickers)
+            ? bootstrap.saved_tickers.map((s) => String(s).toUpperCase())
+            : []);
+        });
+        useEffect(() => {
+          const applyBootstrap = (detail) => {
+            if (!Array.isArray(detail?.saved_tickers)) return;
+            setSaved(new Set(detail.saved_tickers.map((s) => String(s).toUpperCase())));
+          };
+          const handler = (event) => applyBootstrap(event?.detail);
+          try { applyBootstrap(window.TimedAuthHelpers?.getStoredBootstrap?.()); } catch (_) {}
+          window.addEventListener("tt-auth-bootstrap-updated", handler);
+          return () => window.removeEventListener("tt-auth-bootstrap-updated", handler);
+        }, []);
+        const toggle = useCallback(async (ticker) => {
+          const T = String(ticker || "").toUpperCase();
+          if (!T) return;
+          setSaved((prev) => {
+            const next = new Set(prev);
+            if (next.has(T)) next.delete(T); else next.add(T);
+            try {
+              const bootstrap = window.TimedAuthHelpers?.getStoredBootstrap?.() || {};
+              window.TimedAuthHelpers?.storeBootstrap?.({ ...bootstrap, saved_tickers: Array.from(next) });
+            } catch (_) {}
+            return next;
+          });
+          try {
+            await fetch(`${API_BASE}/timed/saved/toggle`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ ticker: T }),
+            });
+          } catch (_) {}
+        }, []);
+        return { saved, toggle };
+      }
+
+      // ── useSparklineCache — 1H candles for cards ───────────────
+      function useSparklineCache() {
+        const [cache, setCache] = useState({});
+        const fetchSpark = useCallback(async (sym) => {
+          try {
+            const r = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=60&limit=24`, { cache: "no-store" });
+            if (!r.ok) return null;
+            const j = await r.json();
+            const candles = Array.isArray(j?.candles) ? j.candles : [];
+            return candles.map(c => Number(c?.c ?? c?.close)).filter(Number.isFinite);
+          } catch (_) { return null; }
+        }, []);
+        const ensure = useCallback((sym) => {
+          if (!sym) return null;
+          const upper = String(sym).toUpperCase();
+          if (cache[upper]) return cache[upper];
+          if (cache[upper] === undefined) {
+            setCache(prev => ({ ...prev, [upper]: null }));
+            fetchSpark(upper).then(arr => {
+              if (arr && arr.length >= 2) setCache(prev => ({ ...prev, [upper]: arr }));
+            });
+          }
+          return null;
+        }, [cache, fetchSpark]);
+        useEffect(() => {
+          window._dsEnsureSparkline = ensure;
+          window._dsSparklineCache = cache;
+        }, [ensure, cache]);
+        return { cache, ensure };
+      }
+
+      // ── computeEffectiveStage — mirror of getTradeLifecycleState ─
+      //    (index-react.source.html line 8036). Same logic as today.html.
+      function computeEffectiveStage(ticker, trade) {
+        const rawStage = String(ticker?.kanban_stage || "").trim().toLowerCase();
+        if (!trade) return rawStage;
+        const tradeStatus = String(trade.status || "").toUpperCase();
+        const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
+        const tradeIsClosed =
+          tradeStatus === "WIN" || tradeStatus === "LOSS" ||
+          !!(trade?.exit_ts ?? trade?.exitTs) || trimmedPct >= 0.9999;
+        const tradeIsOpen =
+          !tradeIsClosed &&
+          (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !tradeStatus);
+        if (!tradeIsOpen) return rawStage;
+        if (rawStage === "exit") return "defend";
+        if (rawStage === "defend") return "defend";
+        if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) return "trim";
+        if (!["trim","hold","active","just_entered"].includes(rawStage)) return "hold";
+        return rawStage;
+      }
+
+      // ── categorizeKanbanLanes — port of EarlyMoversPanel categorizer
+      //    (index-react.source.html line 14951). Returns the 7 lanes.
+      function categorizeKanbanLanes(tickers, tradeByTicker) {
+        const setup = [];
+        const enter = [];
+        const newLane = [];
+        const hold = [];
+        const defend = [];
+        const trim = [];
+        const exit = [];
+        for (const t of tickers) {
+          if (!t || t.kanban_stage === null) continue;
+          let stage = String(t?.kanban_stage || "").toLowerCase();
+          const sym = String(t?.ticker || "").toUpperCase();
+          const trade = tradeByTicker?.get?.(sym) || null;
+          const status = trade ? String(trade.status || "").toUpperCase() : "";
+          const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
+          const isClosed =
+            status === "WIN" || status === "LOSS" || status === "FLAT" ||
+            status === "CLOSED" || status === "CANCELED" ||
+            !!(trade?.exit_ts ?? trade?.exitTs) || trimmedPct >= 0.9999;
+          const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM");
+
+          // Open-trade override (priority order matches AT exactly):
+          //   exit → DEFEND, defend → DEFEND, TP_HIT_TRIM → TRIM,
+          //   trimmed_pct > 0 → TRIM, anything else → HOLD.
+          if (trade && isOpen) {
+            if (stage === "exit") stage = "defend";
+            else if (stage === "defend") { /* keep */ }
+            else if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";
+            else if (stage === "trim") { /* keep */ }
+            else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
+          }
+
+          // Closed-trade 24h sticky-exit (unless new opportunity is promoting it).
+          if (trade && isClosed) {
+            const exitMs = Number(trade.exit_ts ?? trade.exitTs ?? 0);
+            const scorerStage = String(t?.kanban_stage || "");
+            const newOpportunity = ["setup","enter","enter_now","just_flipped"].includes(scorerStage);
+            if (exitMs > 0 && (Date.now() - exitMs) < 24 * 60 * 60 * 1000 && !newOpportunity) stage = "exit";
+          }
+
+          switch (stage) {
+            case "setup": case "setup_watch": case "flip_watch":
+              setup.push(t); break;
+            case "in_review": case "enter": case "enter_now": case "just_flipped":
+              enter.push(t); break;
+            case "just_entered":
+              newLane.push(t); break;
+            case "active": case "hold":
+              hold.push(t); break;
+            case "defend": defend.push(t); break;
+            case "trim":   trim.push(t);   break;
+            case "exit":   exit.push(t);   break;
+            default: /* watch / unrecognized → not shown */ break;
+          }
+        }
+        // Sort discovery lanes (setup/enter) by score desc; management by symbol asc.
+        const byScore = (a, b) => {
+          const sa = Number(a?.score ?? a?.flip_watch_score ?? 0) || 0;
+          const sb = Number(b?.score ?? b?.flip_watch_score ?? 0) || 0;
+          if (sb !== sa) return sb - sa;
+          return String(a?.ticker || "").localeCompare(String(b?.ticker || ""));
+        };
+        const byAlpha = (a, b) => String(a?.ticker || "").localeCompare(String(b?.ticker || ""));
+        setup.sort(byScore); enter.sort(byScore);
+        newLane.sort(byAlpha); hold.sort(byAlpha);
+        defend.sort(byAlpha); trim.sort(byAlpha); exit.sort(byAlpha);
+        return { setup, enter, new: newLane, hold, defend, trim, exit };
+      }
+
+      // ── ActiveTraderCard — DS card (port of today.html ViewportCard).
+      function ATCard({ t, onOpen, sparkSrc, isSaved, onToggleSaved, openTrade }) {
+        const sym = String(t?.ticker || "").toUpperCase();
+        const dailyChange = (window.TimedPriceUtils && window.TimedPriceUtils.getDailyChange)
+          || (() => ({ dayPct: null, dayChg: null }));
+        const dc = (() => { try { return dailyChange(t); } catch (_) { return null; } })();
+        const price = Number(t?.price ?? t?.close);
+        const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
+        const dayChg = Number.isFinite(dc?.dayChg) ? Number(dc.dayChg) : null;
+        const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
+
+        const TT = window.TimedBubbleChart || {};
+        const score = (() => {
+          try {
+            const dyn = TT.rankScoreForTicker ? Number(TT.rankScoreForTicker(t)) : NaN;
+            if (Number.isFinite(dyn) && dyn !== 0) return Math.round(dyn);
+          } catch (_) {}
+          const fallback = Number(t?.score ?? t?.rank);
+          return Number.isFinite(fallback) && fallback !== 0 ? Math.round(fallback) : null;
+        })();
+        const rank = Number(t?.rank_position ?? t?.rp) || null;
+        const rr   = Number(t?.rr) || null;
+        const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
+        const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
+
+        // Bias chip — if there's an open trade, use trade direction (LONG/SHORT);
+        // otherwise derive from state (BULL/BEAR/NEUTRAL).
+        const state = String(t?.state || "").toUpperCase();
+        const tradeDir = openTrade ? String(openTrade.direction || "").toUpperCase() : "";
+        const biasLabel = tradeDir === "LONG" ? "LONG"
+                       : tradeDir === "SHORT" ? "SHORT"
+                       : state.startsWith("HTF_BULL") || (!state.startsWith("HTF_BEAR") && state.includes("BULL")) ? "BULL"
+                       : state.startsWith("HTF_BEAR") || state.includes("BEAR") ? "BEAR"
+                       : "NEUTRAL";
+        const biasChipCls = biasLabel === "BULL" || biasLabel === "LONG" ? "ds-chip--up"
+                         : biasLabel === "BEAR" || biasLabel === "SHORT" ? "ds-chip--dn"
+                         : "ds-chip--solid";
+
+        const stage = String(t?.kanban_stage || "").toLowerCase();
+        const stageChip = (() => {
+          if (stage === "trim") return { label: "Trim", cls: "ds-chip--accent" };
+          if (stage === "defend") return { label: "Defend", cls: "ds-chip--dn" };
+          if (stage === "exit") return { label: "Exit", cls: "ds-chip--dn" };
+          if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return { label: "Enter", cls: "ds-chip--accent" };
+          if (stage === "hold" || stage === "active" || stage === "just_entered") return { label: "Hold", cls: "ds-chip--up" };
+          if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") return { label: "Setup", cls: "" };
+          return null;
+        })();
+
+        const isTTSel = typeof window.isTickerTTSelected === "function" ? window.isTickerTTSelected(sym) : false;
+
+        const sqChipInfo = (() => {
+          const tfm = t?.tf_tech || {};
+          const tfList = ["10","15","30","1H","60","4H","240"];
+          for (const tfk of tfList) {
+            const row = tfm[tfk]; if (!row?.sq) continue;
+            if (row.sq.r) return { state: "release", tf: tfk, label: "SQ RLS", cls: "ds-chip--accent" };
+          }
+          for (const tfk of tfList) {
+            const row = tfm[tfk]; if (!row?.sq) continue;
+            if (row.sq.s) return { state: "on", tf: tfk, label: "SQ ON", cls: "" };
+            if (row.sq.c) return { state: "compressed", tf: tfk, label: "SQ CMP", cls: "ds-chip--solid" };
+          }
+          return null;
+        })();
+
+        const sparkPoints = (sparkSrc && sparkSrc.length >= 2) ? sparkSrc : [price || 0, price || 0];
+        const sparkSvg = (window.DS && Number.isFinite(price) && price > 0)
+          ? window.DS.sparklineSvg(sparkPoints, { width: 280, height: 44, direction: dir, strokeWidth: 1.4 })
+          : "";
+
+        const cardStyle = {
+          textAlign: "left",
+          padding: "var(--ds-space-3)",
+          ...(isTTSel
+            ? { borderColor: "var(--ds-accent-dim)", boxShadow: "inset 0 0 0 1px rgba(245,194,92,0.18)" }
+            : {}),
+        };
+
+        return h("button", {
+          onClick: () => onOpen(sym),
+          className: "ds-tickercard",
+          style: cardStyle,
+          title: `Open ${sym} in Active Trader detail`,
+        },
+          h("div", { className: "ds-tickercard__head" },
+            h("div", {
+              className: "ds-tickercard__logo",
+              ref: (el) => {
+                if (el && !el.dataset.dsInit && window.DS) {
+                  el.dataset.dsInit = "1";
+                  try { el.replaceWith(window.DS.tickerLogo(sym, { size: 22 })); } catch (_) {}
+                }
+              },
+              style: { width: 22, height: 22 },
+            }, sym.slice(0, 2)),
+            h("span", { className: "ds-tickercard__symbol", style: { fontSize: 13 } }, sym),
+            h("span", {
+              className: `ds-chip ds-chip--sm ${biasChipCls}`,
+              style: { fontFamily: "var(--tt-font-mono)", marginLeft: 4 },
+              title: openTrade ? "Trade direction" : "Bias",
+            }, biasLabel),
+            isTTSel && h("span", {
+              title: "TT Selected",
+              style: { width: 6, height: 6, borderRadius: "50%", background: "var(--ds-accent)", boxShadow: "0 0 0 2px rgba(245,194,92,0.20)", marginLeft: 4, flexShrink: 0 },
+            }),
+            stageChip && h("span", {
+              className: `ds-chip ds-chip--sm ${stageChip.cls}`,
+              style: { marginLeft: "auto" },
+            }, stageChip.label),
+            onToggleSaved && h("button", {
+              onClick: (e) => { e.preventDefault(); e.stopPropagation(); onToggleSaved(sym); },
+              className: "ds-chip ds-chip--sm",
+              style: {
+                marginLeft: stageChip ? 4 : "auto",
+                padding: "0 6px", height: 18,
+                color: isSaved ? "var(--ds-accent)" : "var(--ds-text-muted)",
+                background: isSaved ? "var(--ds-accent-dim)" : "transparent",
+                borderColor: isSaved ? "var(--ds-accent)" : "var(--ds-stroke)",
+              },
+              title: isSaved ? "Saved — click to unsave" : "Save ticker",
+              "aria-label": isSaved ? "Unsave ticker" : "Save ticker",
+            }, isSaved ? "★" : "☆"),
+          ),
+          h("div", { className: "ds-tickercard__price", style: { fontSize: 18 } },
+            Number.isFinite(price) ? `$${price.toFixed(2)}` : "—",
+          ),
+          dayPct != null && h("div", {
+            className: `ds-tickercard__change ds-tickercard__change--${dir}`,
+            style: { fontSize: 12 },
+          },
+            dir === "up" ? "▲" : dir === "dn" ? "▼" : "◆",
+            " ",
+            `${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`,
+            Number.isFinite(dayChg) && Math.abs(dayChg) > 0.001 && h("span", {
+              style: { marginLeft: 4, opacity: 0.7, fontSize: 10 },
+            }, ` (${dayChg >= 0 ? "+" : ""}$${Math.abs(dayChg).toFixed(2)})`),
+          ),
+          sparkSvg && h("div", {
+            className: "ds-tickercard__spark",
+            dangerouslySetInnerHTML: { __html: sparkSvg },
+          }),
+          h("div", {
+            style: {
+              display: "flex", alignItems: "center", gap: "var(--ds-space-1)",
+              marginTop: "var(--ds-space-2)", flexWrap: "wrap",
+              zIndex: 2, position: "relative",
+            },
+          },
+            rank != null && h("span", {
+              className: `ds-chip ds-chip--sm ${rank <= 10 ? "ds-chip--up" : rank <= 30 ? "ds-chip--accent" : ""}`,
+              style: { fontFamily: "var(--tt-font-mono)" },
+              title: `Rank position: ${rank} of all eligible tickers.`,
+            }, `R${rank}`),
+            score != null && h("span", {
+              className: `ds-chip ds-chip--sm ${score >= 100 ? "ds-chip--up" : score >= 75 ? "ds-chip--accent" : ""}`,
+              style: { fontFamily: "var(--tt-font-mono)" },
+              title: `Score: ${Math.round(score)}`,
+            }, `S${Math.round(score)}`),
+            conv != null && h("span", {
+              className: `ds-chip ds-chip--sm ${tier === "A" ? "ds-chip--up" : tier === "B" ? "ds-chip--accent" : "ds-chip--solid"}`,
+              style: { fontFamily: "var(--tt-font-mono)" },
+              title: "Conviction tier · focus score",
+            }, `${tier || "C"}·${Math.round(conv)}`),
+            rr != null && h("span", {
+              className: `ds-chip ds-chip--sm ${rr >= 2 ? "ds-chip--up" : rr >= 1.5 ? "ds-chip--accent" : ""}`,
+              style: { fontFamily: "var(--tt-font-mono)" },
+              title: "Risk:Reward",
+            }, `${rr.toFixed(1)}R`),
+            sqChipInfo && h("span", {
+              className: `ds-chip ds-chip--sm ${sqChipInfo.cls}`,
+              style: { fontFamily: "var(--tt-font-mono)" },
+              title: `Squeeze ${sqChipInfo.state} on ${sqChipInfo.tf}`,
+            }, sqChipInfo.label),
+          ),
+        );
+      }
+
+      // ── KanbanLane — one row of the board.
+      function KanbanLane({ id, title, accentClass, tickers, sparkCache, savedSet, onToggleSaved, onOpen, tradeByTicker }) {
+        return h("div", { className: `lane ${accentClass}` },
+          h("div", { className: "lane-head" },
+            h("div", { className: "lane-name" }, title),
+            h("div", { className: "lane-count" }, `${tickers.length} ${tickers.length === 1 ? "ticker" : "tickers"}`),
+          ),
+          h("div", { className: "lane-body" },
+            tickers.length === 0
+              ? h("div", { className: "lane-empty" }, "No tickers in this lane right now.")
+              : h("div", { className: "lane-cards" },
+                  tickers.map((t) => h(ATCard, {
+                    key: t.ticker,
+                    t,
+                    sparkSrc: sparkCache[String(t.ticker).toUpperCase()] || null,
+                    isSaved: savedSet.has(String(t.ticker).toUpperCase()),
+                    onToggleSaved,
+                    onOpen,
+                    openTrade: tradeByTicker?.get?.(String(t.ticker).toUpperCase()) || null,
+                  })),
+                ),
+          ),
+        );
+      }
+
+      // ── ATBrief — regime + open-position summary + pipeline counts.
+      function ATBrief({ allTickers, lanes, tradeByTicker }) {
+        const dailyChange = (window.TimedPriceUtils && window.TimedPriceUtils.getDailyChange)
+          || (() => ({ dayPct: null }));
+        const spy = allTickers.find((t) => String(t?.ticker || "").toUpperCase() === "SPY");
+        const spyPct = spy ? Number(dailyChange(spy)?.dayPct) : NaN;
+        const regime = (() => {
+          if (!Number.isFinite(spyPct)) return { word: "Mixed", cls: "regime-mix" };
+          if (spyPct >  0.3) return { word: "Risk-On",  cls: "regime-on"  };
+          if (spyPct < -0.3) return { word: "Risk-Off", cls: "regime-off" };
+          return { word: "Mixed", cls: "regime-mix" };
+        })();
+
+        // Open positions — derive from lanes (hold / defend / trim are open).
+        const openLanes = [
+          ...lanes.hold.map((t) => ({ t, lane: "hold" })),
+          ...lanes.defend.map((t) => ({ t, lane: "defend" })),
+          ...lanes.trim.map((t) => ({ t, lane: "trim" })),
+        ];
+        const openCount = openLanes.length;
+        const positionChip = ({ t, lane }) => {
+          const sym = String(t.ticker || "").toUpperCase();
+          const trade = tradeByTicker?.get?.(sym);
+          const px = Number(t?.price ?? t?.close);
+          const ep = Number(trade?.entry_price ?? trade?.entryPrice);
+          const dirMul = String(trade?.direction || "").toUpperCase() === "SHORT" ? -1 : 1;
+          const pl = (Number.isFinite(px) && Number.isFinite(ep) && ep > 0)
+            ? ((px - ep) / ep) * 100 * dirMul
+            : null;
+          const plStr = Number.isFinite(pl) ? `${pl >= 0 ? "+" : ""}${pl.toFixed(2)}%` : "";
+          return h("span", { key: `${sym}-${lane}`, className: `at-brief-chip lane-${lane}` },
+            sym, " ", lane.toUpperCase(),
+            Number.isFinite(pl) && h("span", { className: `pl ${pl >= 0 ? "up" : "down"}` }, plStr),
+          );
+        };
+
+        return h("section", { className: "at-brief" },
+          h("div", { className: "at-brief-row" },
+            h("span", { className: "at-brief-label" }, "Market"),
+            h("span", { className: `at-pill ${regime.cls}` },
+              h("span", { className: "dot", style: { background: "currentColor" } }),
+              regime.word,
+              Number.isFinite(spyPct) && h("strong", null,
+                ` · SPY ${spyPct >= 0 ? "+" : ""}${spyPct.toFixed(2)}%`,
+              ),
+            ),
+          ),
+          openCount > 0 && h("div", { className: "at-brief-row" },
+            h("span", { className: "at-brief-label" }, `${openCount} Open`),
+            openLanes.slice(0, 20).map(positionChip),
+            openLanes.length > 20 && h("span", { className: "at-brief-chip" },
+              `+${openLanes.length - 20} more`,
+            ),
+          ),
+          (lanes.setup.length > 0 || lanes.enter.length > 0 || lanes.new.length > 0) && h("div", { className: "at-brief-row" },
+            h("span", { className: "at-brief-label" }, "Pipeline"),
+            lanes.setup.length > 0 && h("span", { className: "at-brief-chip" }, `Setup ${lanes.setup.length}`),
+            lanes.enter.length > 0 && h("span", { className: "at-brief-chip" }, `In Review ${lanes.enter.length}`),
+            lanes.new.length > 0   && h("span", { className: "at-brief-chip" }, `Initiated ${lanes.new.length}`),
+          ),
+        );
+      }
+
+      // ── ActiveTraderApp ────────────────────────────────────────
+      function ActiveTraderApp() {
+        const [data, setData] = useState(null);
+        const [error, setError] = useState(null);
+
+        useEffect(() => {
+          let alive = true;
+          (async () => {
+            try {
+              const a = await fetchAll();
+              if (!alive) return;
+              if (a?.ok) setData(a.data || {});
+              else setError("Failed to load /timed/all");
+            } catch (err) { if (alive) setError(String(err?.message || err)); }
+          })();
+          return () => { alive = false; };
+        }, []);
+
+        const tradeByTicker = useOpenTrades(!!data);
+        const { saved, toggle: toggleSaved } = useSavedTickers();
+        const { cache: sparkCache, ensure: ensureSpark } = useSparklineCache();
+
+        const allTickers = useMemo(() => {
+          if (!data) return [];
+          const raw = Object.values(data).filter((t) => t && t.ticker);
+          return raw.map((t) => {
+            const sym = String(t.ticker || "").toUpperCase();
+            const trade = tradeByTicker.get(sym) || null;
+            const eff = computeEffectiveStage(t, trade);
+            if (eff === String(t?.kanban_stage || "").toLowerCase() && !trade) return t;
+            return { ...t, _openTrade: trade, _effectiveKanbanStage: eff, kanban_stage: eff };
+          });
+        }, [data, tradeByTicker]);
+
+        const lanes = useMemo(() => categorizeKanbanLanes(allTickers, tradeByTicker), [allTickers, tradeByTicker]);
+
+        // Pre-fetch sparklines for the visible top of each lane (first ~6)
+        useEffect(() => {
+          if (!ensureSpark) return;
+          const heads = []
+            .concat(lanes.setup.slice(0, 6))
+            .concat(lanes.enter.slice(0, 6))
+            .concat(lanes.new.slice(0, 6))
+            .concat(lanes.hold.slice(0, 12))
+            .concat(lanes.defend.slice(0, 12))
+            .concat(lanes.trim.slice(0, 6))
+            .concat(lanes.exit.slice(0, 6));
+          heads.forEach((t) => t?.ticker && ensureSpark(t.ticker));
+        }, [lanes, ensureSpark]);
+
+        const onOpen = (sym) => {
+          window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+        };
+
+        if (error) {
+          return h("main", null,
+            h("div", { className: "tt-card tt-card-pad", style: { color: "var(--tt-dn-soft)" } },
+              "Couldn't load Active Trader: " + error,
+            ),
+          );
+        }
+
+        const loading = !data;
+
+        return h(React.Fragment, null,
+          loading && h("div", { className: "tt-loadbar", role: "progressbar", "aria-label": "Loading Active Trader" }),
+          h("main", null,
+            h("section", { className: "at-hero" },
+              h("div", null,
+                h("div", { className: "label" }, "ACTIVE TRADER"),
+                h("h1", null, "What the model is trading"),
+                h("div", { className: "sub" }, "Swing trades — typically 1–10 day holds. Click any card to deep-dive in the full chart + right rail."),
+              ),
+              loading
+                ? h("div", { className: "pills" }, h("span", { className: "sk", style: { width: 120, height: 26, borderRadius: 999 } }))
+                : null,
+            ),
+            loading
+              ? h("section", { className: "at-brief" },
+                  h("div", { className: "at-brief-row" },
+                    h("span", { className: "sk", style: { width: 110, height: 12 } }),
+                    h("span", { className: "sk", style: { width: 160, height: 22, borderRadius: 999 } }),
+                  ),
+                  h("div", { className: "at-brief-row" },
+                    h("span", { className: "sk", style: { width: 110, height: 12 } }),
+                    [0,1,2,3].map((i) => h("span", { key: i, className: "sk", style: { width: 110, height: 22, borderRadius: 6 } })),
+                  ),
+                )
+              : h(ATBrief, { allTickers, lanes, tradeByTicker }),
+            loading
+              ? [0,1,2,3,4,5,6].map((i) =>
+                  h("div", { key: i, className: "lane" },
+                    h("div", { className: "lane-head" },
+                      h("span", { className: "sk", style: { width: 80, height: 11 } }),
+                      h("span", { className: "sk", style: { width: 50, height: 10, marginTop: 6 } }),
+                    ),
+                    h("div", { className: "lane-body" },
+                      h("div", { className: "lane-cards" },
+                        [0,1,2].map((j) => h("div", { key: j, className: "sk sk-card", style: { width: 280 } })),
+                      ),
+                    ),
+                  ),
+                )
+              : [
+                  h(KanbanLane, { key: "setup",     id: "setup",     title: "Setup",             accentClass: "setup",     tickers: lanes.setup,  sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
+                  h(KanbanLane, { key: "review",    id: "review",    title: "In Review",         accentClass: "review",    tickers: lanes.enter,  sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
+                  h(KanbanLane, { key: "initiated", id: "initiated", title: "Position Initiated", accentClass: "initiated", tickers: lanes.new,    sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
+                  h(KanbanLane, { key: "hold",      id: "hold",      title: "Hold",              accentClass: "hold",      tickers: lanes.hold,   sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
+                  h(KanbanLane, { key: "defend",    id: "defend",    title: "Defend",            accentClass: "defend",    tickers: lanes.defend, sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
+                  h(KanbanLane, { key: "trim",      id: "trim",      title: "Trim",              accentClass: "trim",      tickers: lanes.trim,   sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
+                  h(KanbanLane, { key: "exit",      id: "exit",      title: "Exit",              accentClass: "exit",      tickers: lanes.exit,   sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
+                ],
+          ),
+        );
+      }
+
+      // ── Mount with auth gate ───────────────────────────────────
+      const AuthGate = window.TimedAuthGate;
+      const app = AuthGate
+        ? <AuthGate apiBase={API_BASE} requiredTier="pro">{(user) => <ActiveTraderApp user={user} />}</AuthGate>
+        : <ActiveTraderApp />;
+      ReactDOM.createRoot(document.getElementById("root")).render(app);
+    </script>
+
+    <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
+      For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
+    </footer>
+  </body>
+</html>
