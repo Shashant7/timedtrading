@@ -378,7 +378,7 @@
         React.createElement(
           "a",
           {
-            href: "index-react.html",
+            href: "/today.html",
             style: {
               display: "inline-block",
               padding: "10px 24px",
@@ -392,7 +392,7 @@
               transition: "all 0.15s",
             },
           },
-          "Go to Dashboard",
+          "Open Today",
         ),
       ),
     );

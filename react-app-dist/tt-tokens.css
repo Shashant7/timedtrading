@@ -1299,39 +1299,36 @@ input, button, select, textarea {
 /* ═══════════════════════════════════════════════════════════════════════
  * LEGAL FOOTER — inline at the bottom of every page, never floating.
  *
- * Every page that ships a `<footer id="legal-footer">` sets it with an
- * inline `style="position:fixed;bottom:0;..."`. That made the
- * footer hover over the page on every viewport — wasting real
- * estate on mobile (where it competed with the bottom tab-bar)
- * AND on desktop (where it cropped 30px off the visible page
- * area at all times).
- *
- * Override globally with !important (required because the inline
- * attribute would otherwise win). Footer now sits AT THE BOTTOM
- * of the page's content flow, scrolling away once the user has
- * passed it. On mobile, it sits in the buffer below the bottom
- * tab-bar (which adds `body { padding-bottom: 64px }`).
+ * The inline `style="position:fixed;bottom:0;..."` attribute has been
+ * stripped from every page's <footer id="legal-footer"> tag in
+ * P0.7.187 so the footer relies purely on this rule. It flows in
+ * the document body at the end of page content, scrolling away
+ * with the rest of the page. On mobile the bottom tab-bar (fixed
+ * at the bottom of the viewport, 64px tall) covers the bottom
+ * portion of the viewport — the footer sits inside the body's
+ * `padding-bottom: 64px` buffer (set by tt-bottom-nav.js) so it's
+ * just above the tab-bar when scrolled to the end of the page.
  * ═══════════════════════════════════════════════════════════════════════ */
 #legal-footer {
-  position: static !important;
-  inset: auto !important;
-  bottom: auto !important;
-  left: auto !important;
-  right: auto !important;
-  background: transparent !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-  z-index: 1 !important;
+  position: static;
+  background: transparent;
+  color: var(--tt-text-3, #6b7280);
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.5;
   margin-top: 56px;
-  border-top: 1px solid var(--tt-border-weak, rgba(255,255,255,0.04)) !important;
-  padding: 18px 24px 22px !important;
+  border-top: 1px solid var(--tt-border-weak, rgba(255,255,255,0.04));
+  padding: 18px 24px 22px;
+}
+#legal-footer a {
+  color: var(--tt-cyan, #22d3ee);
+  text-decoration: underline;
 }
 @media (max-width: 720px) {
   #legal-footer {
-    margin-top: 32px;
-    padding: 14px 14px 18px !important;
-    font-size: 10.5px !important;
-    line-height: 1.5 !important;
+    margin-top: 28px;
+    padding: 14px 14px 18px;
+    font-size: 10.5px;
   }
 }
 
