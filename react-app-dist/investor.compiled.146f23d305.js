@@ -213,6 +213,98 @@ function InvBubbleMap({
     layoutMode: "score"
   }))));
 }
+function AccountStrip() {
+  const [acc, setAcc] = useState(null);
+  const [summary, setSummary] = useState(null);
+  const [err, setErr] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const [a, s] = await Promise.all([fetch(`${API_BASE}/timed/account-summary?mode=investor`, {
+          cache: "no-store",
+          credentials: "include"
+        }).then(r => r.ok ? r.json() : null).catch(() => null), fetch(`${API_BASE}/timed/ledger/summary?mode=investor`, {
+          cache: "no-store",
+          credentials: "include"
+        }).then(r => r.ok ? r.json() : null).catch(() => null)]);
+        if (!alive) return;
+        if (a?.ok) setAcc(a);
+        if (s?.ok) setSummary(s);
+        if (!a?.ok && !s?.ok) setErr(true);
+      } catch (_) {
+        if (alive) setErr(true);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+  if (err) return null;
+  const fmtUsd = n => {
+    if (!Number.isFinite(n)) return "—";
+    const sign = n < 0 ? "-" : "";
+    const abs = Math.abs(n);
+    if (abs >= 1000) return `${sign}$${(abs / 1000).toFixed(abs >= 10000 ? 1 : 2)}K`;
+    return `${sign}$${abs.toFixed(0)}`;
+  };
+  const fmtUsdSigned = n => {
+    if (!Number.isFinite(n)) return "—";
+    const sign = n >= 0 ? "+" : "-";
+    return `${sign}${fmtUsd(Math.abs(n))}`;
+  };
+  const accountValue = Number(acc?.accountValue);
+  const unrealized = Number(acc?.unrealized);
+  const totalRealized = Number(acc?.totalRealized);
+  const totals = summary?.totals || {};
+  const entries = Number(totals.totalTrades);
+  const exits = Number(totals.closedTrades);
+  const winRate = Number(totals.winRate);
+  return h("section", {
+    className: "inv-account-strip"
+  }, h("div", {
+    className: "inv-account-strip__head"
+  }, h("div", {
+    className: "inv-account-strip__label"
+  }, "Investor account"), h("a", {
+    href: "/portfolio.html",
+    className: "inv-account-strip__link"
+  }, "View portfolio →")), h("div", {
+    className: "inv-account-strip__grid"
+  }, h("div", {
+    className: "inv-account-strip__tile"
+  }, h("div", {
+    className: "inv-account-strip__l"
+  }, "Account"), h("div", {
+    className: "inv-account-strip__v"
+  }, fmtUsd(accountValue))), h("div", {
+    className: "inv-account-strip__tile"
+  }, h("div", {
+    className: "inv-account-strip__l"
+  }, "Open P&L"), h("div", {
+    className: `inv-account-strip__v ${unrealized >= 0 ? "up" : "dn"}`
+  }, fmtUsdSigned(unrealized))), h("div", {
+    className: "inv-account-strip__tile"
+  }, h("div", {
+    className: "inv-account-strip__l"
+  }, "Realized"), h("div", {
+    className: `inv-account-strip__v ${totalRealized >= 0 ? "up" : "dn"}`
+  }, fmtUsdSigned(totalRealized))), h("div", {
+    className: "inv-account-strip__tile"
+  }, h("div", {
+    className: "inv-account-strip__l"
+  }, "Entries"), h("div", {
+    className: "inv-account-strip__v"
+  }, Number.isFinite(entries) ? String(entries) : "—")), h("div", {
+    className: "inv-account-strip__tile"
+  }, h("div", {
+    className: "inv-account-strip__l"
+  }, "Exits"), h("div", {
+    className: "inv-account-strip__v"
+  }, Number.isFinite(exits) ? String(exits) : "—", Number.isFinite(winRate) && h("span", {
+    className: "inv-account-strip__sub"
+  }, ` · ${winRate.toFixed(0)}% WR`)))));
+}
 function InvestorApp() {
   const {
     saved,
@@ -342,7 +434,7 @@ function InvestorApp() {
     onClick: () => setFilterGroup("SAVED"),
     title: "Your saved tickers (star icon on any card)",
     disabled: !saved || saved.size === 0
-  }, `Saved${saved && saved.size > 0 ? ` (${saved.size})` : ""}`))), panelMounted ? h(window.InvestorPanel, {
+  }, `Saved${saved && saved.size > 0 ? ` (${saved.size})` : ""}`))), h(AccountStrip, null), panelMounted ? h(window.InvestorPanel, {
     apiBase: API_BASE,
     onSelectTicker,
     savedTickers: saved,

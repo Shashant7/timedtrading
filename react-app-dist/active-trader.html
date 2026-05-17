@@ -140,6 +140,77 @@
         .at-hero h1 { font-size: 18px; }
       }
 
+      /* Account summary strip — small KPI tiles for the trader / investor account */
+      .at-account-strip {
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 12px;
+        padding: 12px 14px;
+        margin-bottom: 14px;
+      }
+      .at-account-strip__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .at-account-strip__label {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.10em;
+        color: var(--tt-text-dim);
+        text-transform: uppercase;
+      }
+      .at-account-strip__link {
+        font-size: 11.5px;
+        color: var(--tt-cyan);
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .at-account-strip__link:hover { text-decoration: underline; }
+      .at-account-strip__grid {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 10px;
+      }
+      @media (max-width: 1024px) {
+        .at-account-strip__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      }
+      @media (max-width: 540px) {
+        .at-account-strip__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
+      .at-account-strip__tile {
+        padding: 8px 10px;
+        background: var(--tt-bg-elev);
+        border: 1px solid var(--tt-border);
+        border-radius: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+      }
+      .at-account-strip__l {
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--tt-text-dim);
+      }
+      .at-account-strip__v {
+        font-family: var(--tt-font-mono);
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--tt-text);
+        line-height: 1.2;
+      }
+      .at-account-strip__v.up { color: var(--tt-up-soft); }
+      .at-account-strip__v.dn { color: var(--tt-dn-soft); }
+      .at-account-strip__sub {
+        font-size: 11px;
+        color: var(--tt-text-dim);
+        font-weight: 600;
+      }
+
       /* Brief summary block (regime + open positions chips + pipeline) */
       .at-brief {
         padding: 16px 18px;
@@ -382,7 +453,7 @@
       </main>
     </div>
 
-    <script src="active-trader.compiled.9b13ff26fd.js"></script>
+    <script src="active-trader.compiled.f905ae210c.js"></script>
 
     <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
