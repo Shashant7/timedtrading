@@ -18894,13 +18894,24 @@ async function processTradeSimulation(
         }
       }
       // ── PER-TRADE HARD LOSS CAP: percentage-based + dollar-based ──
-      // Percentage cap at -5% prevents catastrophic -8% avg on HLC trades.
+      // P0.7.193 (2026-05-17) — May calibration: 90-day data showed
+      // hard_loss_cap firing on 3 trades at 0% WR for -$1,771 cumulative
+      // (-$590 avg per trade), well past the documented $300/5% caps.
+      // Root cause: 30-min min-hold let trades drop further than the cap
+      // before HLC could activate. Tighten by:
+      //   - cap dollar default 300 → 250
+      //   - cap pct default 5% → 4%
+      //   - min-hold 30 → 15 min (now activates between fresh-fail at
+      //     60 min and pre-fresh-fail entry noise)
+      // The doctrine fresh-fail (worker/phase-c-exit-doctrine.js, now at
+      // 60-min) handles "wrong from bar 1" cases at -2%; HLC is the
+      // disaster backstop only.
       if (!_sameIntervalAsTrade && !fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow)) {
-        const _hlcCapDollar = Number(tickerData?._env?._deepAuditConfig?.deep_audit_hard_loss_cap) || 300;
-        const _hlcCapPct = Number(tickerData?._env?._deepAuditConfig?.deep_audit_hard_loss_cap_pct) || 5;
+        const _hlcCapDollar = Number(tickerData?._env?._deepAuditConfig?.deep_audit_hard_loss_cap) || 250;
+        const _hlcCapPct = Number(tickerData?._env?._deepAuditConfig?.deep_audit_hard_loss_cap_pct) || 4;
         const _hlcEntryTs = Number(openTrade.entry_ts || openTrade.created_at) || 0;
         const _hlcAgeMs = _hlcEntryTs > 0 ? (now - _hlcEntryTs) : 0;
-        const _hlcMinHoldMs = 30 * 60 * 1000;
+        const _hlcMinHoldMs = 15 * 60 * 1000;
         if (_hlcAgeMs >= _hlcMinHoldMs) {
           const _hlcEntry = Number(openTrade.entryPrice);
           const _hlcDir = String(openTrade.direction || "").toUpperCase();

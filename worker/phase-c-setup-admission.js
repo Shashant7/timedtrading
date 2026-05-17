@@ -113,7 +113,15 @@ const DEFAULT_ADMISSION_MATRIX = {
   // ───────────────────────────────────────────────────────────────────
   "tt_ath_breakout:LONG:Prime": {
     allow_only_in: ["STRONG_BULL", "EARLY_BULL"],
-    reason: "ATH breakouts only in bull regimes (need momentum tape)",
+    // P0.7.193 (2026-05-17) — May calibration: add min_rr + min_conviction
+    // gates to demote this cohort. 90-day data: 23 trades / 34.8% WR / PF
+    // 0.39 / -$1,011. Even canon (24 trades, +0.57 PnL%) showed effectively
+    // zero edge; the live 90-day window is materially worse. Rather than
+    // pause this setup entirely, require explicit R:R ≥ 2.0 and conviction
+    // bin B4+ (top half) so we only take the cleanest breakouts.
+    min_rr: 2.0,
+    min_conviction: 4,
+    reason: "ATH breakouts only in bull regimes + min_rr 2.0 + conviction B4+ (May calibration)",
     cohort_stats: { n: 24, wr: 0.542, pnl_sum: 0.57, big_w: 0, big_l: 0 },
   },
   "tt_ath_breakout:LONG:Confirmed": {

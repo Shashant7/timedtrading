@@ -112,17 +112,28 @@ const DEFAULT_DOCTRINE = {
       ride_runner_trail_pct: 0.85,         // very loose trail
       tighten_lock_pct: 0.65,
       tighten_trail_pct: 0.50,
+      // P0.7.193 (2026-05-17) — May calibration: workhorse force-exit pnl
+      // threshold relaxed from -1.0 to -1.5. 90-day data showed
+      // doctrine_force_exit firing on 17 trades at 11.8% WR for -$2,107
+      // (single biggest exit leak). The -1.0 threshold was too eager —
+      // trades sitting at -1% were getting killed on regime noise and
+      // never given the chance to revert. -1.5 keeps the catastrophic-
+      // loss prevention but lets shallow-but-recoverable trades breathe.
       force_exit_min_age_sessions: 5,
-      force_exit_pnl_threshold: -1.0,      // fire if pnl <= -1% AND regime flipped
+      force_exit_pnl_threshold: -1.5,      // fire if pnl <= -1.5% AND regime flipped
       gave_back_giveback_pct: 0.55,        // 55% MFE giveback triggers tighten
       gave_back_min_mfe: 5.0,              // only if MFE >= 5%
       // Oct-13 cluster fix (ALB -6.28, BE -9.23, SNDK -2.63):
       // Workhorse gets aggressive fresh-failure — cut at -2% if MFE
       // never cleared 0.5% within first 90 min. Stops the bleed
       // before HARD_LOSS_CAP fires at -8%.
+      // P0.7.193: shorten fresh_fail_min_age_min from 90 → 60 so the
+      // doctrine fires before HARD_LOSS_CAP (which now activates at
+      // 15 min — see worker/index.js). Without this, HLC could fire
+      // first and lock in larger losses.
       fresh_fail_max_mfe_pct: 0.5,
       fresh_fail_pnl_threshold: -2.0,
-      fresh_fail_min_age_min: 90,
+      fresh_fail_min_age_min: 60,
       // Regime decay: even without a hard flip, kill the trade if it's
       // sat for 1 session showing < 1% MFE and -1.5% loss.
       regime_decay_max_mfe_pct: 1.0,
@@ -134,13 +145,15 @@ const DEFAULT_DOCTRINE = {
       ride_runner_trail_pct: 0.80,
       tighten_lock_pct: 0.65,
       tighten_trail_pct: 0.50,
+      // P0.7.193 (2026-05-17) — May calibration: mirror of the long-side
+      // softening. -1.0 → -1.5 threshold, 90 → 60 min fresh-fail window.
       force_exit_min_age_sessions: 4,
-      force_exit_pnl_threshold: -1.0,
+      force_exit_pnl_threshold: -1.5,
       gave_back_giveback_pct: 0.55,
       gave_back_min_mfe: 5.0,
       fresh_fail_max_mfe_pct: 0.5,
       fresh_fail_pnl_threshold: -2.0,
-      fresh_fail_min_age_min: 90,
+      fresh_fail_min_age_min: 60,
       regime_decay_max_mfe_pct: 1.0,
       regime_decay_pnl_threshold: -1.5,
       regime_decay_min_age_sessions: 1.0,
@@ -166,11 +179,15 @@ const DEFAULT_DOCTRINE = {
       ride_runner_trail_pct: 0.80,
       tighten_lock_pct: 0.65,
       tighten_trail_pct: 0.45,
-      force_exit_min_age_sessions: 2,      // ATH break MUST work fast or it's wrong
-      force_exit_pnl_threshold: -0.5,
+      // P0.7.193 (2026-05-17) — May calibration: ATH breakouts MUST work
+      // fast but -0.5% was too hair-trigger. Multiple May ATH entries
+      // were force-exited at -$70 only to see the stock recover the same
+      // session. -1.0 still cuts wrong-from-bar-1 breakouts before they
+      // become disasters.
+      force_exit_min_age_sessions: 2,
+      force_exit_pnl_threshold: -1.0,
       gave_back_giveback_pct: 0.45,
       gave_back_min_mfe: 4.0,
-      // ATH breakouts MUST work fast — extra-aggressive fresh-fail
       fresh_fail_max_mfe_pct: 0.3,
       fresh_fail_pnl_threshold: -1.5,
       fresh_fail_min_age_min: 60,
@@ -183,8 +200,9 @@ const DEFAULT_DOCTRINE = {
       ride_runner_trail_pct: 0.80,
       tighten_lock_pct: 0.65,
       tighten_trail_pct: 0.45,
+      // P0.7.193 (2026-05-17): mirror ATH softening on the short side.
       force_exit_min_age_sessions: 2,
-      force_exit_pnl_threshold: -0.5,
+      force_exit_pnl_threshold: -1.0,
       gave_back_giveback_pct: 0.45,
       gave_back_min_mfe: 4.0,
       fresh_fail_max_mfe_pct: 0.3,
