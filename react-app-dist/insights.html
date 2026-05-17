@@ -4,20 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-    <title>Active Trader — Timed Trading</title>
-    <meta name="description" content="Swing-trade kanban: what the model is currently setting up, entering, holding, defending, trimming, and exiting." />
+    <title>Insights — Timed Trading</title>
+    <meta name="description" content="System Intelligence: model status, setup-level performance, and weekly retrospective for the Timed Trading engine." />
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2048%2048%27%20fill%3D%27none%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27r%27%20x1%3D%276%27%20y1%3D%2742%27%20x2%3D%2742%27%20y2%3D%276%27%3E%3Cstop%20offset%3D%270%25%27%20stop-color%3D%27%2334d399%27%2F%3E%3Cstop%20offset%3D%27100%25%27%20stop-color%3D%27%2367e8f9%27%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20width%3D%2748%27%20height%3D%2748%27%20rx%3D%2711%27%20fill%3D%27%23000%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%2717%27%20stroke%3D%27url%28%23r%29%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3Cline%20x1%3D%2719%27%20y1%3D%2718.5%27%20x2%3D%2716%27%20y2%3D%2715.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2719%27%20y2%3D%2718.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%273.5%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2729.5%27%20y1%3D%2716.5%27%20x2%3D%2732%27%20y2%3D%2712.9%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2729.5%27%20y2%3D%2716.5%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%274%27%20stroke-linecap%3D%27round%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%273.2%27%20fill%3D%27%2330d158%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%271.3%27%20fill%3D%27%23000%27%2F%3E%3C%2Fsvg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-at1" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-ins1" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <link rel="stylesheet" href="tailwind.generated.css" />
 <script src="auth-gate.js?v=20260516a"></script>
-    <script src="shared-price-utils.js?v=20260304a"></script>
-    <script src="ds-components.js?v=20260501a"></script>
-    <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -55,13 +52,12 @@
       main { max-width: 1600px; margin: 0 auto; padding: 18px 24px 96px; }
       @media (max-width: 720px) { main { padding: 14px 12px 96px; } }
       .tt-row { margin-bottom: 28px; }
-      @media (max-width: 720px) { .tt-row { margin-bottom: 20px; } }
       .tt-card { background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: 12px; }
-      .tt-card-pad { padding: 14px 16px; }
+      .tt-card-pad { padding: 16px 18px; }
       .tt-sec-title { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; color: var(--tt-text-dim); text-transform: uppercase; margin-bottom: 4px; }
-      .tt-sec-h { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; color: var(--tt-text); }
+      .tt-sec-h { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; color: var(--tt-text); margin-bottom: 10px; }
 
-      /* Top nav (matches /today.html) */
+      /* Top nav */
       nav.topnav {
         position: sticky; top: 0; z-index: 50;
         background: rgba(10,12,16,0.85);
@@ -82,18 +78,14 @@
         text-decoration: none;
         padding: 6px 12px;
         border-radius: 8px;
-        transition: background 120ms ease, color 120ms ease;
       }
       .nav-link:hover { color: var(--tt-text); background: var(--tt-bg-surface); }
-      .nav-link.active {
-        color: var(--tt-accent);
-        background: var(--tt-accent-dim);
-      }
+      .nav-link.active { color: var(--tt-accent); background: var(--tt-accent-dim); }
       .nav-link.learn { color: var(--tt-up-soft); }
       .nav-link.learn:hover { background: var(--tt-up-bg); }
 
-      /* Page hero */
-      .at-hero {
+      /* Hero */
+      .ins-hero {
         display: grid;
         grid-template-columns: 1fr auto;
         gap: 16px;
@@ -102,163 +94,106 @@
         background: linear-gradient(180deg, var(--tt-bg-elev), var(--tt-bg-surface));
         border: 1px solid var(--tt-border);
         border-radius: 14px;
-        margin-bottom: 20px;
+        margin-bottom: 24px;
       }
-      .at-hero h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; margin: 0; }
-      .at-hero .label { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; color: var(--tt-text-dim); text-transform: uppercase; margin-bottom: 4px; }
-      .at-hero .sub { font-size: 13px; color: var(--tt-text-muted); margin-top: 4px; }
-      .at-hero .pills { display: inline-flex; gap: 8px; flex-wrap: wrap; }
-      .at-pill {
+      .ins-hero h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; margin: 0; }
+      .ins-hero .label { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; color: var(--tt-text-dim); text-transform: uppercase; margin-bottom: 4px; }
+      .ins-hero .sub { font-size: 13px; color: var(--tt-text-muted); margin-top: 4px; max-width: 720px; }
+      @media (max-width: 720px) {
+        .ins-hero { grid-template-columns: 1fr; }
+        .ins-hero h1 { font-size: 18px; }
+      }
+
+      .health-pill {
         display: inline-flex; align-items: center; gap: 6px;
-        padding: 4px 10px;
-        font-size: 11.5px; font-weight: 700;
+        padding: 5px 12px;
+        font-size: 12px; font-weight: 700;
         border-radius: 999px;
         border: 1px solid var(--tt-border);
         background: var(--tt-bg-elev);
-        color: var(--tt-text-muted);
       }
-      .at-pill .dot { width: 6px; height: 6px; border-radius: 50%; }
-      .at-pill.regime-on   { color: var(--tt-up-soft);  background: var(--tt-up-bg);  border-color: rgba(34,197,94,0.25); }
-      .at-pill.regime-off  { color: var(--tt-dn-soft);  background: var(--tt-dn-bg);  border-color: rgba(244,63,94,0.25); }
-      .at-pill.regime-mix  { color: var(--tt-accent);   background: var(--tt-accent-dim); border-color: rgba(245,194,92,0.30); }
-      .at-pill strong { color: inherit; }
-      @media (max-width: 720px) {
-        .at-hero { grid-template-columns: 1fr; }
-        .at-hero h1 { font-size: 18px; }
-      }
+      .health-pill .dot { width: 8px; height: 8px; border-radius: 50%; }
+      .health-pill.ok { color: var(--tt-up-soft); background: var(--tt-up-bg); border-color: rgba(34,197,94,0.30); }
+      .health-pill.warn { color: var(--tt-accent); background: var(--tt-accent-dim); border-color: rgba(245,194,92,0.30); }
+      .health-pill.err  { color: var(--tt-dn-soft); background: var(--tt-dn-bg); border-color: rgba(244,63,94,0.30); }
 
-      /* Brief summary block (regime + open positions chips + pipeline) */
-      .at-brief {
-        padding: 16px 18px;
+      /* Status grid */
+      .status-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+      }
+      @media (max-width: 920px) { .status-grid { grid-template-columns: 1fr 1fr; } }
+      @media (max-width: 540px) { .status-grid { grid-template-columns: 1fr; } }
+      .status-card {
+        padding: 14px 16px;
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
         border-radius: 12px;
-        margin-bottom: 24px;
       }
-      .at-brief-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px 18px;
-        align-items: center;
-        margin-bottom: 12px;
+      .status-card .l { font-size: 10.5px; color: var(--tt-text-dim); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+      .status-card .v { font-size: 22px; font-weight: 700; font-family: var(--tt-font-mono); }
+      .status-card .v.up { color: var(--tt-up-soft); }
+      .status-card .v.dn { color: var(--tt-dn-soft); }
+      .status-card .s { font-size: 11.5px; color: var(--tt-text-muted); margin-top: 6px; font-family: var(--tt-font-mono); }
+
+      /* Setup table */
+      .tbl { width: 100%; border-collapse: collapse; }
+      .tbl th, .tbl td {
+        padding: 10px 12px;
+        text-align: left;
+        font-size: 12.5px;
+        border-bottom: 1px solid var(--tt-border);
       }
-      .at-brief-row:last-child { margin-bottom: 0; }
-      .at-brief-label {
-        font-size: 11px; font-weight: 700; letter-spacing: 0.10em;
+      .tbl th {
+        font-size: 10.5px;
         color: var(--tt-text-dim);
+        font-weight: 700;
         text-transform: uppercase;
-        margin-right: 6px;
-        min-width: 110px;
-      }
-      .at-brief-chip {
-        font-family: var(--tt-font-mono);
-        font-size: 11px;
-        padding: 3px 8px;
-        border-radius: 6px;
+        letter-spacing: 0.07em;
         background: var(--tt-bg-elev);
-        border: 1px solid var(--tt-border);
-        color: var(--tt-text-muted);
-        white-space: nowrap;
       }
-      .at-brief-chip.lane-hold   { color: var(--tt-up-soft);  background: var(--tt-up-bg);  border-color: rgba(34,197,94,0.25); }
-      .at-brief-chip.lane-defend { color: #fb923c;            background: rgba(251,146,60,0.10); border-color: rgba(251,146,60,0.30); }
-      .at-brief-chip.lane-trim   { color: #facc15;            background: rgba(250,204,21,0.10); border-color: rgba(250,204,21,0.30); }
-      .at-brief-chip.lane-exit   { color: var(--tt-dn-soft);  background: var(--tt-dn-bg);  border-color: rgba(244,63,94,0.25); }
-      .at-brief-chip .pl { font-weight: 700; margin-left: 4px; }
-      .at-brief-chip .pl.up   { color: var(--tt-up); }
-      .at-brief-chip .pl.down { color: var(--tt-dn); }
-
-      /* Kanban lanes */
-      .lane {
-        display: grid;
-        grid-template-columns: 100px 1fr;
-        align-items: stretch;
-        margin-bottom: 14px;
-      }
-      @media (max-width: 720px) {
-        .lane { grid-template-columns: 1fr; }
-      }
-      .lane-head {
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: flex-start;
-        gap: 4px;
-        padding: 14px 12px;
-        background: var(--tt-bg-surface);
-        border: 1px solid var(--tt-border);
-        border-right: 0;
-        border-radius: 12px 0 0 12px;
-        position: relative;
-      }
-      @media (max-width: 720px) {
-        .lane-head {
-          flex-direction: row;
-          justify-content: space-between;
-          border-right: 1px solid var(--tt-border);
-          border-bottom: 0;
-          border-radius: 12px 12px 0 0;
-        }
-      }
-      .lane-head::before {
-        content: "";
-        position: absolute;
-        top: 14px; bottom: 14px; left: 0;
-        width: 4px;
-        background: var(--lane-accent, var(--tt-text-faint));
-        border-radius: 2px;
-      }
-      .lane-name {
-        font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
-        text-transform: uppercase;
-        color: var(--lane-accent, var(--tt-text-dim));
-      }
-      .lane-count {
-        font-family: var(--tt-font-mono);
-        font-size: 11px;
-        color: var(--tt-text-dim);
-      }
-      .lane-body {
-        padding: 12px;
-        background: var(--tt-bg-surface);
-        border: 1px solid var(--tt-border);
-        border-radius: 0 12px 12px 0;
-        min-height: 100px;
-        overflow-x: auto;
-        overflow-y: hidden;
-        scrollbar-width: thin;
-        scrollbar-color: rgba(255,255,255,0.12) transparent;
-      }
-      @media (max-width: 720px) {
-        .lane-body { border-radius: 0 0 12px 12px; }
-      }
-      .lane-body::-webkit-scrollbar { height: 6px; }
-      .lane-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 6px; }
-      .lane-cards {
-        display: flex;
-        flex-direction: row;
-        gap: 10px;
-        min-height: 100px;
-      }
-      .lane-cards .ds-tickercard {
-        flex: 0 0 auto;
-        width: 280px;
-      }
-      .lane-empty {
-        font-size: 12px;
+      .tbl td { font-family: var(--tt-font-mono); color: var(--tt-text); }
+      .tbl td.label { font-weight: 700; font-family: var(--tt-font); }
+      .tbl td.up { color: var(--tt-up-soft); }
+      .tbl td.dn { color: var(--tt-dn-soft); }
+      .tbl tr:hover td { background: rgba(255,255,255,0.018); }
+      .tbl .empty {
+        text-align: center;
         color: var(--tt-text-faint);
-        padding: 24px 8px;
+        font-style: italic;
+        font-family: var(--tt-font);
+        padding: 28px 12px;
       }
-      /* Lane accents */
-      .lane.setup            { --lane-accent: #93c5fd; }
-      .lane.review           { --lane-accent: var(--tt-accent); }
-      .lane.initiated        { --lane-accent: var(--tt-cyan); }
-      .lane.hold             { --lane-accent: var(--tt-up-soft); }
-      .lane.defend           { --lane-accent: #fb923c; }
-      .lane.trim             { --lane-accent: #facc15; }
-      .lane.exit             { --lane-accent: var(--tt-dn-soft); }
+      .tbl-scroll {
+        max-height: 520px;
+        overflow-y: auto;
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 12px;
+      }
+      .tbl-scroll::-webkit-scrollbar { width: 6px; }
+      .tbl-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 6px; }
 
-      /* Loading bar */
+      /* Mini win-rate bar inside cells */
+      .wr-bar {
+        position: relative;
+        height: 6px;
+        background: var(--tt-bg-elev);
+        border-radius: 4px;
+        overflow: hidden;
+        width: 100%;
+        min-width: 100px;
+      }
+      .wr-bar > .fill {
+        position: absolute; left: 0; top: 0; bottom: 0;
+        border-radius: 4px;
+      }
+      .wr-bar > .fill.up { background: var(--tt-up); opacity: 0.8; }
+      .wr-bar > .fill.mid { background: var(--tt-accent); opacity: 0.8; }
+      .wr-bar > .fill.dn { background: var(--tt-dn); opacity: 0.8; }
+
+      /* Loading bar + skeletons */
       .tt-loadbar {
         position: fixed; top: 0; left: 0; right: 0;
         height: 2px;
@@ -275,8 +210,6 @@
         animation: tt-loadbar 1.4s ease-in-out infinite;
       }
       @keyframes tt-loadbar { 0% { left: -30%; } 100% { left: 100%; } }
-
-      /* Skeleton primitive */
       .sk {
         background: linear-gradient(90deg, var(--tt-bg-surface), var(--tt-bg-elev), var(--tt-bg-surface));
         background-size: 200% 100%;
@@ -284,7 +217,23 @@
         border-radius: 6px;
       }
       @keyframes sk { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-      .sk-card { height: 134px; background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: 12px; }
+
+      .toggle-row { display: inline-flex; gap: 4px; padding: 3px; background: var(--tt-bg-elev); border: 1px solid var(--tt-border); border-radius: 999px; }
+      .toggle-row button {
+        font-family: var(--tt-font);
+        font-size: 11.5px; font-weight: 600;
+        padding: 5px 12px;
+        background: transparent;
+        color: var(--tt-text-muted);
+        border: 0;
+        border-radius: 999px;
+        cursor: pointer;
+      }
+      .toggle-row button.active {
+        background: var(--tt-bg-base);
+        color: var(--tt-text);
+        box-shadow: 0 0 0 1px var(--tt-border-hi);
+      }
     </style>
   </head>
   <body>
@@ -296,10 +245,10 @@
         </a>
         <div class="nav-links">
           <a href="/today.html" class="nav-link">Today</a>
-          <a href="/active-trader.html" class="nav-link active">Active Trader</a>
+          <a href="/active-trader.html" class="nav-link">Active Trader</a>
           <a href="/investor.html" class="nav-link">Investor</a>
           <a href="/portfolio.html" class="nav-link">Portfolio</a>
-          <a href="/insights.html" class="nav-link">Insights</a>
+          <a href="/insights.html" class="nav-link active">Insights</a>
           <a href="/learn.html" class="nav-link learn">Learn</a>
         </div>
       </div>
@@ -307,11 +256,11 @@
 
     <div id="root">
       <main>
-        <div class="tt-card tt-card-pad" style="text-align:center;color:var(--tt-text-muted)">Loading Active Trader…</div>
+        <div class="tt-card tt-card-pad" style="text-align:center;color:var(--tt-text-muted)">Loading Insights…</div>
       </main>
     </div>
 
-    <script src="active-trader.compiled.2c6f5985b6.js"></script>
+    <script src="insights.compiled.d0e4fe1045.js"></script>
 
     <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
