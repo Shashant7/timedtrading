@@ -250,6 +250,42 @@
       .tbl-scroll::-webkit-scrollbar { width: 6px; }
       .tbl-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 6px; }
 
+      /* Mode badge in the Open Positions table */
+      .mode-pill {
+        display: inline-flex;
+        align-items: center;
+        font-family: var(--tt-font);
+        font-size: 10.5px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        padding: 2px 8px;
+        border-radius: 999px;
+        white-space: nowrap;
+      }
+      .mode-pill.mode-trader {
+        background: rgba(52,211,153,0.10);
+        color: var(--tt-up-soft);
+        border: 1px solid rgba(52,211,153,0.25);
+      }
+      .mode-pill.mode-investor {
+        background: rgba(167,139,250,0.10);
+        color: var(--tt-violet);
+        border: 1px solid rgba(167,139,250,0.25);
+      }
+
+      /* Aggregate Open P&L header row (Trader / Investor / Total) */
+      .open-pl-row {
+        display: inline-flex;
+        gap: 18px;
+        flex-wrap: wrap;
+        font-size: 11.5px;
+        color: var(--tt-text-muted);
+        font-family: var(--tt-font-mono);
+      }
+      .open-pl-row strong { font-weight: 700; margin-left: 4px; }
+      .open-pl-row strong.up { color: var(--tt-up-soft); }
+      .open-pl-row strong.dn { color: var(--tt-dn-soft); }
+
       .mode-toggle {
         display: inline-flex;
         gap: 4px;
@@ -326,7 +362,7 @@
       </main>
     </div>
 
-    <script src="portfolio.compiled.34286f8042.js"></script>
+    <script src="portfolio.compiled.17584f02b7.js"></script>
 
     <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>

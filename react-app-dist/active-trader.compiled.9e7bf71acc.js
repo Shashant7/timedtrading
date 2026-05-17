@@ -789,9 +789,53 @@ function ATBrief({
       className: `pl ${pl >= 0 ? "up" : "down"}`
     }, plStr));
   };
+  const narrative = (() => {
+    let winners = 0,
+      losers = 0,
+      totalPl = 0,
+      plKnown = 0;
+    for (const o of openLanes) {
+      const sym = String(o.t.ticker || "").toUpperCase();
+      const trade = tradeByTicker?.get?.(sym);
+      const px = Number(o.t?.price ?? o.t?.close);
+      const ep = Number(trade?.entry_price ?? trade?.entryPrice);
+      if (!(Number.isFinite(px) && Number.isFinite(ep) && ep > 0)) continue;
+      const dirMul = String(trade?.direction || "").toUpperCase() === "SHORT" ? -1 : 1;
+      const pl = (px - ep) / ep * 100 * dirMul;
+      plKnown += 1;
+      totalPl += pl;
+      if (pl > 0) winners += 1;else if (pl < 0) losers += 1;
+    }
+    const avgPl = plKnown > 0 ? totalPl / plKnown : null;
+    const parts = [];
+    if (openCount === 0) {
+      parts.push("No open trades right now — the model is in scouting mode.");
+    } else {
+      const verbs = [];
+      if (lanes.hold.length > 0) verbs.push(`holding ${lanes.hold.length}`);
+      if (lanes.defend.length > 0) verbs.push(`defending ${lanes.defend.length}`);
+      if (lanes.trim.length > 0) verbs.push(`trimming ${lanes.trim.length}`);
+      parts.push(`The model is ${verbs.join(", ")}.`);
+      if (Number.isFinite(avgPl)) {
+        const direction = avgPl >= 0 ? "in aggregate profit" : "drawing down";
+        parts.push(`Average open P&L ${avgPl >= 0 ? "+" : ""}${avgPl.toFixed(2)}% (${winners} winning · ${losers} red).`);
+      }
+    }
+    if (lanes.enter.length > 0) {
+      parts.push(`${lanes.enter.length} setup${lanes.enter.length === 1 ? "" : "s"} in review for entry today.`);
+    } else if (lanes.setup.length > 0) {
+      parts.push(`${lanes.setup.length} on the setup watchlist — not yet triggered.`);
+    }
+    if (lanes.exit.length > 0) {
+      parts.push(`${lanes.exit.length} recently exited (last 24h) — review what worked.`);
+    }
+    return parts.join(" ");
+  })();
   return h("section", {
     className: "at-brief"
-  }, h("div", {
+  }, narrative && h("p", {
+    className: "at-brief-narrative"
+  }, narrative), h("div", {
     className: "at-brief-row"
   }, h("span", {
     className: "at-brief-label"

@@ -157,6 +157,8 @@ function InvestorApp() {
   }, []);
   const onCloseRail = useCallback(() => setRailTicker(null), []);
   const RailOverlay = window.TimedRightRail?.Overlay || null;
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterGroup, setFilterGroup] = useState(null);
   return h(React.Fragment, null, !panelMounted && h("div", {
     className: "tt-loadbar",
     role: "progressbar",
@@ -167,12 +169,63 @@ function InvestorApp() {
     className: "label"
   }, "INVESTOR"), h("h1", null, "Long-horizon positions"), h("div", {
     className: "sub"
-  }, "Multi-week + multi-month holds. The model recommends ", h("strong", null, "Accumulate"), " when a Buy Zone aligns with positive trend strength, ", h("strong", null, "Core Hold"), " for established winners, ", h("strong", null, "Hold & Watch"), " for owned positions without an active signal, and ", h("strong", null, "Reduce"), " when the thesis weakens. Click any card to deep-dive in the full chart + right rail."))), panelMounted ? h(window.InvestorPanel, {
+  }, "Multi-week + multi-month holds. The model recommends ", h("strong", null, "Accumulate"), " when a Buy Zone aligns with positive trend strength, ", h("strong", null, "Core Hold"), " for established winners, ", h("strong", null, "Hold & Watch"), " for owned positions without an active signal, and ", h("strong", null, "Reduce"), " when the thesis weakens. Click any card to deep-dive in the full chart + right rail."))), h("section", {
+    className: "tt-row inv-controls"
+  }, h("div", {
+    className: "inv-search-wrap"
+  }, h("svg", {
+    width: 14,
+    height: 14,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    className: "inv-search-icon"
+  }, h("circle", {
+    cx: 11,
+    cy: 11,
+    r: 8
+  }), h("line", {
+    x1: 21,
+    y1: 21,
+    x2: 16.65,
+    y2: 16.65
+  })), h("input", {
+    type: "text",
+    className: "inv-search",
+    placeholder: "Search ticker (e.g. NVDA, AAPL, GOOGL, MSFT)",
+    value: searchQuery,
+    onChange: e => setSearchQuery(e.target.value),
+    "aria-label": "Search Investor tickers"
+  }), searchQuery && h("button", {
+    className: "inv-search-clear",
+    onClick: () => setSearchQuery(""),
+    "aria-label": "Clear search",
+    title: "Clear"
+  }, "×")), h("div", {
+    className: "inv-filter-chips"
+  }, h("button", {
+    className: "inv-chip" + (filterGroup === null ? " active" : ""),
+    onClick: () => setFilterGroup(null)
+  }, "All"), h("button", {
+    className: "inv-chip" + (filterGroup === "INVESTOR_ACTIONABLE" ? " active" : ""),
+    onClick: () => setFilterGroup("INVESTOR_ACTIONABLE"),
+    title: "Tickers in Accumulate or Reduce — the model has an active recommendation"
+  }, "Actionable"), h("button", {
+    className: "inv-chip" + (filterGroup === "SAVED" ? " active" : ""),
+    onClick: () => setFilterGroup("SAVED"),
+    title: "Your saved tickers (star icon on any card)",
+    disabled: !saved || saved.size === 0
+  }, `Saved${saved && saved.size > 0 ? ` (${saved.size})` : ""}`))), panelMounted ? h(window.InvestorPanel, {
     apiBase: API_BASE,
     onSelectTicker,
     savedTickers: saved,
     toggleSavedTicker: toggleSaved,
-    selectedTicker: null
+    selectedTicker: null,
+    searchQuery,
+    filterGroup
   }) : h("div", null, h("div", {
     className: "tt-card tt-card-pad",
     style: {
