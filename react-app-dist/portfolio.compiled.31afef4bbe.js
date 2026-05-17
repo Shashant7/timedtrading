@@ -44,9 +44,10 @@ async function fetchPositions() {
     return null;
   }
 }
-async function fetchHistory() {
+async function fetchHistoryByMode(mode) {
+  const qs = mode === "investor" ? "?mode=investor&limit=500" : "?limit=500";
   try {
-    const r = await fetch(`${API_BASE}/timed/ledger/trades?limit=200`, {
+    const r = await fetch(`${API_BASE}/timed/ledger/trades${qs}`, {
       credentials: "include",
       cache: "no-store"
     });
@@ -295,69 +296,40 @@ function EquityCurveCard({
     color
   }));
 }
-function MonthlyPnL({
-  traderPoints,
-  investorPoints,
+function PerformanceSection({
+  traderTrades,
+  investorTrades,
   mode
 }) {
-  const points = mode === "trader" ? traderPoints : investorPoints;
-  const months = useMemo(() => {
-    if (!Array.isArray(points) || points.length === 0) return [];
-    const byMonth = new Map();
-    for (const p of points) {
-      const key = String(p.date).slice(0, 7);
-      const cur = byMonth.get(key) || {
-        month: key,
-        pnl: 0,
-        days: 0
-      };
-      cur.pnl += Number(p.dayPnl) || 0;
-      cur.days += 1;
-      byMonth.set(key, cur);
+  const TradesPerformance = useMemo(() => {
+    const factory = typeof window !== "undefined" && window.TradesPerformanceFactory;
+    if (!factory) return null;
+    try {
+      return factory({
+        React,
+        API_BASE
+      });
+    } catch (e) {
+      console.warn("[Portfolio] TradesPerformanceFactory failed:", e);
+      return null;
     }
-    return Array.from(byMonth.values()).sort((a, b) => a.month < b.month ? 1 : -1);
-  }, [points]);
-  const maxAbs = useMemo(() => months.reduce((m, x) => Math.max(m, Math.abs(x.pnl)), 1), [months]);
-  return h("section", {
-    className: "tt-row"
-  }, h("div", {
-    className: "tt-sec-title"
-  }, "MONTHLY P&L"), h("div", {
-    className: "tt-sec-h"
-  }, mode === "trader" ? "Active Trader" : "Investor", " — month-by-month realized P&L"), h("div", {
-    className: "tt-card tt-card-pad"
-  }, months.length === 0 ? h("div", {
-    className: "tbl empty"
-  }, "No monthly P&L yet.") : months.map(m => {
-    const pct = Math.min(100, Math.abs(m.pnl) / maxAbs * 100);
-    const up = m.pnl >= 0;
+  }, []);
+  if (!TradesPerformance) {
     return h("div", {
-      key: m.month,
-      className: "pl-row"
-    }, h("div", {
-      className: "pl-month"
-    }, fmtMonth(m.month)), h("div", {
-      className: "pl-bar-track"
-    }, h("div", {
-      className: `pl-bar ${up ? "up" : "dn"}`,
+      className: "tt-card tt-card-pad",
       style: {
-        width: `${pct}%`,
-        left: up ? "50%" : `${50 - pct}%`,
-        opacity: 0.85
+        color: "var(--tt-text-dim)"
       }
-    }), h("div", {
-      style: {
-        position: "absolute",
-        left: "50%",
-        top: 0,
-        bottom: 0,
-        width: 1,
-        background: "rgba(255,255,255,0.10)"
-      }
-    })), h("div", {
-      className: `pl-amt ${up ? "up" : "dn"}`
-    }, `${up ? "+" : "-"}${fmtUsd(Math.abs(m.pnl))}`));
-  })));
+    }, "Performance overview is loading…");
+  }
+  const trades = mode === "trader" ? traderTrades || [] : investorTrades || [];
+  const startCash = 100000;
+  return h(TradesPerformance, {
+    trades,
+    loading: !Array.isArray(trades) || trades.length === 0,
+    accountStartCash: startCash,
+    mode
+  });
 }
 function OpenPositions({
   trades
@@ -455,18 +427,20 @@ function TradeHistory({
 function PortfolioApp() {
   const [eq, setEq] = useState(null);
   const [positions, setPositions] = useState(null);
-  const [history, setHistory] = useState(null);
+  const [traderHistory, setTraderHistory] = useState(null);
+  const [investorHistory, setInvestorHistory] = useState(null);
   const [monthlyMode, setMonthlyMode] = useState("trader");
   const [error, setError] = useState(null);
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const [e, p, h_] = await Promise.all([fetchEquityCurve(), fetchPositions(), fetchHistory()]);
+        const [e, p, ht, hi] = await Promise.all([fetchEquityCurve(), fetchPositions(), fetchHistoryByMode("trader"), fetchHistoryByMode("investor")]);
         if (!alive) return;
         if (e?.ok) setEq(e);else setError("Failed to load equity curve");
         if (p?.ok) setPositions(p.trades || []);
-        if (h_?.ok) setHistory(h_.trades || []);
+        if (ht?.ok) setTraderHistory(ht.trades || []);
+        if (hi?.ok) setInvestorHistory(hi.trades || []);
       } catch (err) {
         if (alive) setError(String(err?.message || err));
       }
@@ -544,16 +518,18 @@ function PortfolioApp() {
       display: "flex",
       alignItems: "center",
       justifyContent: "space-between",
-      marginBottom: 10
+      marginBottom: 10,
+      flexWrap: "wrap",
+      gap: 10
     }
   }, h("div", null, h("div", {
     className: "tt-sec-title"
-  }, "MONTHLY P&L"), h("div", {
+  }, "PERFORMANCE OVERVIEW"), h("div", {
     className: "tt-sec-h",
     style: {
       margin: 0
     }
-  }, monthlyMode === "trader" ? "Active Trader" : "Investor")), h("div", {
+  }, monthlyMode === "trader" ? "Active Trader" : "Investor", " — calendar, monthly P&L, setup breakdown")), h("div", {
     className: "mode-toggle"
   }, h("button", {
     className: monthlyMode === "trader" ? "active" : "",
@@ -561,12 +537,12 @@ function PortfolioApp() {
   }, "Active Trader"), h("button", {
     className: monthlyMode === "investor" ? "active" : "",
     onClick: () => setMonthlyMode("investor")
-  }, "Investor"))), h(MonthlyPnL, {
-    traderPoints: traderPayload?.points || [],
-    investorPoints: investorPayload?.points || [],
+  }, "Investor"))), h(PerformanceSection, {
+    traderTrades: traderHistory,
+    investorTrades: investorHistory,
     mode: monthlyMode
-  })), history ? h(TradeHistory, {
-    trades: history
+  })), traderHistory || investorHistory ? h(TradeHistory, {
+    trades: monthlyMode === "trader" ? traderHistory || [] : investorHistory || []
   }) : h("section", {
     className: "tt-row"
   }, h("div", {

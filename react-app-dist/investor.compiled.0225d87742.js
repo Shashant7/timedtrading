@@ -56,11 +56,54 @@ function useSavedTickers() {
     toggle
   };
 }
+function useSparklineCache() {
+  const [cache, setCache] = useState({});
+  const fetchSpark = useCallback(async sym => {
+    try {
+      const r = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=60&limit=24`, {
+        cache: "no-store"
+      });
+      if (!r.ok) return null;
+      const j = await r.json();
+      const candles = Array.isArray(j?.candles) ? j.candles : [];
+      return candles.map(c => Number(c?.c ?? c?.close)).filter(Number.isFinite);
+    } catch (_) {
+      return null;
+    }
+  }, []);
+  const ensure = useCallback(sym => {
+    if (!sym) return null;
+    const upper = String(sym).toUpperCase();
+    if (cache[upper]) return cache[upper];
+    if (cache[upper] === undefined) {
+      setCache(prev => ({
+        ...prev,
+        [upper]: null
+      }));
+      fetchSpark(upper).then(arr => {
+        if (arr && arr.length >= 2) setCache(prev => ({
+          ...prev,
+          [upper]: arr
+        }));
+      });
+    }
+    return null;
+  }, [cache, fetchSpark]);
+  useEffect(() => {
+    window._dsEnsureSparkline = ensure;
+    window._dsSparklineCache = cache;
+  }, [ensure, cache]);
+  return {
+    cache,
+    ensure
+  };
+}
 function InvestorApp() {
   const {
     saved,
     toggle: toggleSaved
   } = useSavedTickers();
+  useSparklineCache();
   const [panelMounted, setPanelMounted] = useState(typeof window.InvestorPanel === "function");
   useEffect(() => {
     if (panelMounted) return;
