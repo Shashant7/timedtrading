@@ -3,16 +3,12 @@ name: Deploy worker
 # Auto-deploys worker/index.js to Cloudflare Workers (timed-trading-ingest)
 # whenever the worker source changes on main. Previously the worker had to
 # be deployed manually via `wrangler deploy` from a developer machine —
-# easy to forget after merging a PR, which caused PR #167's roster-floor
-# fix to sit unshipped even after merge.
+# easy to forget after merging a PR.
 #
-# To configure:
-#   1. Repo Settings → Secrets and variables → Actions
-#   2. Add secret: CLOUDFLARE_API_TOKEN
-#      (create at https://dash.cloudflare.com/profile/api-tokens
-#       with the "Edit Cloudflare Workers" template)
-#   3. Add secret: CLOUDFLARE_ACCOUNT_ID
-#      (found on the right sidebar of the Cloudflare dashboard)
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   CLOUDFLARE_API_TOKEN   — https://dash.cloudflare.com/profile/api-tokens
+#                            using the "Edit Cloudflare Workers" template
+#   CLOUDFLARE_ACCOUNT_ID  — right sidebar of any Cloudflare dashboard page
 
 on:
   push:
@@ -39,10 +35,37 @@ jobs:
         with:
           node-version: "20"
 
+      # Friendly check — fail fast with a clear message if the user
+      # hasn't configured the required secrets yet. The cloudflare/
+      # wrangler-action errors with a generic 'CLOUDFLARE_API_TOKEN
+      # missing' message that's hard to act on.
+      - name: Check required secrets
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCT:  ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CF_TOKEN" ] || [ -z "$CF_ACCT" ]; then
+            echo "::error::Missing CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID repo secrets."
+            echo "::error::Configure them in Repo Settings → Secrets and variables → Actions."
+            echo "::error::See https://developers.cloudflare.com/fundamentals/api/get-started/create-token/"
+            exit 1
+          fi
+          echo "✓ Secrets present (API_TOKEN length=${#CF_TOKEN}, ACCOUNT_ID length=${#CF_ACCT})"
+
       - name: Deploy worker
         uses: cloudflare/wrangler-action@v3
+        env:
+          # Also pass as env vars so wrangler picks them up even if the
+          # action's `apiToken:` input wiring breaks for any reason. Belt +
+          # suspenders — wrangler will read either the action input or
+          # the env var.
+          CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          apiToken:    ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId:   ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # Pin to wrangler@4 so we don't pick up the action's default v3
+          # (which prints a deprecation banner on every run).
+          wranglerVersion: "4.92.0"
           workingDirectory: worker
           command: deploy
