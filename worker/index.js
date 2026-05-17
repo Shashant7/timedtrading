@@ -42239,7 +42239,31 @@ export default {
         // Include user-added tickers so they appear on Ticker Management page
         let userAdded = [];
         try { userAdded = await d1GetActiveUserTickersCached(env); } catch (_) {}
-        const merged = [...new Set([...tickers, ...kvActive, ...userAdded.map(t => String(t).toUpperCase())])].filter(t => !removedSet.has(t)).sort();
+
+        // Canonical universe floor — SECTOR_MAP (226 entries) and the
+        // Market Pulse roster define the known tradeable universe. These
+        // are static constants in worker code and should ALWAYS be part of
+        // /timed/tickers' response. Previously the handler trusted the
+        // dynamic state (D1 `ticker_index` + KV `timed:tickers`) which can
+        // fall out of sync if the scoring cron lags or the watchlist
+        // upsert hasn't run — symptom: Today + Active Trader both reported
+        // 'only 45 tickers' even though SECTOR_MAP has 226. The fix is to
+        // merge the static rosters as a floor; the client uses placeholders
+        // for symbols without scoring data, and /timed/all separately
+        // serves the scored payloads for whichever subset is currently
+        // active.
+        const sectorMapSyms = Object.keys(SECTOR_MAP || {}).map((s) => String(s).toUpperCase());
+        const marketPulseSyms = Array.isArray(MARKET_PULSE_SYMS)
+          ? MARKET_PULSE_SYMS.map((s) => String(s).toUpperCase())
+          : [];
+
+        const merged = [...new Set([
+          ...tickers,
+          ...kvActive,
+          ...userAdded.map((t) => String(t).toUpperCase()),
+          ...sectorMapSyms,
+          ...marketPulseSyms,
+        ])].filter((t) => t && !removedSet.has(t)).sort();
         if (merged.length > (tickers.length || 0)) {
           tickers = merged;
           try {
@@ -42357,9 +42381,18 @@ export default {
             }
 
             // ── Fill gaps: tickers in SECTOR_MAP but missing from snapshot ──
+            // Bumped KV fan-out 30 → 250 and D1 fallback 20 → 80 to cover
+            // the full SECTOR_MAP (226 entries) + MP/user-added on a
+            // single request. Previously the 30-cap meant a degraded
+            // snapshot (e.g. when the scoring cron is mid-rebuild) could
+            // never serve more than ~75 tickers (45 from snapshot + 30
+            // KV-filled) — symptom: '/timed/all' returning only 45 even
+            // though SECTOR_MAP defines 226. Promise.all keeps these
+            // parallel; each KV read is sub-10ms so the worst case for
+            // 250 parallel reads is roughly the same as 30.
             if (env?.DB) {
               const missingSyms = [...activeSet].filter(s => !data[s]);
-              const kvResults = await Promise.all(missingSyms.slice(0, 30).map(s => kvGetJSON(KV, `timed:latest:${s}`).catch(() => null)));
+              const kvResults = await Promise.all(missingSyms.slice(0, 250).map(s => kvGetJSON(KV, `timed:latest:${s}`).catch(() => null)));
               const stillMissingFromKv = [];
               for (let i = 0; i < kvResults.length; i++) {
                 const kvPayload = kvResults[i];
@@ -42369,7 +42402,7 @@ export default {
                   stillMissingFromKv.push(missingSyms[i]);
                 }
               }
-              if (stillMissingFromKv.length > 0 && stillMissingFromKv.length <= 20) {
+              if (stillMissingFromKv.length > 0 && stillMissingFromKv.length <= 80) {
                 try {
                   const batchResults = await env.DB.batch(stillMissingFromKv.map(sym =>
                     env.DB.prepare(`SELECT ts, o, h, l, c FROM ticker_candles WHERE ticker=?1 AND tf='D' ORDER BY ts DESC LIMIT 2`).bind(sym)
