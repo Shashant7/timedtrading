@@ -58,9 +58,53 @@ npm run deploy:worker   # worker only (skip right-rail)
 | Data     | D1 (ticker_candles, trades, positions), KV (timed:latest, timed:prices) |
 | External | TwelveData (primary), Alpaca (execution, backfill) |
 
+## Product entry point (post May 2026)
+
+The product is now split into dedicated journey pages. The user-facing
+entry point is **`/today.html`** (not `/index-react.html`). Authenticated
+root redirect lives in `react-app/_worker.js`.
+
+| Page | Path | Replaces / What it does |
+|---|---|---|
+| Today | `/today.html` | Daily Ingest — Market Pulse, Brief, Bubble Map + Viewport |
+| Active Trader | `/active-trader.html` | Kanban lanes + narrative brief |
+| Investor | `/investor.html` | Investor cards + search/filter |
+| Portfolio | `/portfolio.html` | Equity curves, calendar, open positions tables |
+| Insights | `/insights.html` | System Intelligence + CIO Watchlist |
+| Learn | `/learn.html` | Step Zero educational walkthrough |
+| Splash | `/splash.html` | Public landing |
+| Index | `/index-react.html` | **Legacy monolithic admin dashboard — still source-of-truth reference for component logic** |
+
+**Rule:** journey pages must **port** existing components from
+`index-react.source.html` verbatim, not redesign them. Full handoff doc at
+`tasks/2026-05-17-session-handoff.md`.
+
+**Login redirect target lives in 3 places — keep in sync:**
+1. `react-app/_worker.js` — Pages worker root redirect
+2. `react-app/index.html` — meta-refresh fallback
+3. `react-app/auth-gate.js` — `handleLogin()` redirect target
+
+**Right rail on a journey page requires:**
+```html
+<script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+<script src="ticker-spider-chart.js?v=..."></script>
+<script src="shared-rail-helpers.js?v=..."></script>
+<script src="shared-right-rail.compiled.js?v=..."></script>
+<script src="shared-rail-bootstrap.js?v=..."></script>
+```
+
+**CF Access policy regex (User Pages) must list every new HTML page** or
+authenticated users hit a login loop. Current shape:
+```
+(index-react|simulation-dashboard|daily-brief|alerts|investor-dashboard|today|active-trader|investor|portfolio|insights|learn)\.html
+```
+Only the user can update this — it lives in the Cloudflare Dashboard.
+
 ## Plan
 
 - **`tasks/PLAN.md`** — Consolidated status, phases, and next steps. Read first each session.
+- **`tasks/2026-05-17-session-handoff.md`** — full UX redesign + May calibration session handoff.
+- **`tasks/may-2026-performance-analysis.md`** — full performance writeup + P0/P1 calibration plan.
 
 ## Key Paths
 
@@ -130,6 +174,26 @@ npm run deploy:worker   # worker only (skip right-rail)
 - Never "you/your" in copy (compliance)
 - `window._ttIsPro` for feature gating
 - Admin-gate live prices
+- **`/timed/all` returns `data: { SYM: { ts, price, ... } }` — the value object has NO `ticker` field.** Always extract via `Object.entries(data).map(([k, v]) => ({ ticker: k, ...(v || {}) }))`. `Object.values(...).filter(t => t.ticker)` silently drops every entry.
+
+**Engine — where the levers live** (May 2026 calibration session)
+- `worker/pipeline/gates.js` — universal gates: RVOL dead zone, SHORT min rank, ticker blacklist (Gate 3 = `deep_audit_ticker_blacklist` from model_config; Gate 4 = hardcoded May calibration list NFLX/APD).
+- `worker/pipeline/tt-core-entry.js` — entry pipeline. **Cohort overlays** (index_etf, megacap_tech, industrial, speculative, sector_etf) impose per-cohort caps. **`extensionMaxOverride` for megacap_tech was 8% — silently rejected every NVDA/TSLA/MSFT entry in trending tape for 60 days**. Raised to 15% in PR #194. Cohort ticker lists go stale; review quarterly.
+- `worker/phase-c-setup-admission.js` — `(setup × DIRECTION × Grade)` admission matrix. Block via `block_when: "always"`, restrict via `allow_only_in: [...]`, gate via `min_rr` / `min_conviction`.
+- `worker/phase-c-exit-doctrine.js` — per-setup force_exit / fresh_fail / regime_decay thresholds. `force_exit_pnl_threshold` was too aggressive at -1.0% (workhorse) / -0.5% (ATH); softened to -1.5% / -1.0% in PR #194 to stop killing trades on regime noise. Fresh-fail window shortened from 90 → 60 min so doctrine fires BEFORE the hard-loss cap.
+- `worker/index.js` line ~18896 — Hard Loss Cap (`_hlcCapDollar`, `_hlcCapPct`, `_hlcMinHoldMs`). Defaults tightened to $250 / 4% / 15min in PR #194.
+
+**Setup names (memorize)**
+- LONG: `tt_gap_reversal_long` (workhorse, PF 2.98), `tt_pullback`, `tt_ath_breakout` (bleeding), `tt_range_reversal_long`, `tt_n_test_support`, `tt_momentum`
+- SHORT: `tt_gap_reversal_short` (PF 8.86 — bear-regime only by design; **do not** open up in bull tape), `tt_atl_breakdown`, `tt_n_test_resistance`, `tt_range_reversal_short`
+- Grades: Prime / Confirmed / Speculative. Speculative is generally blocked.
+- Regimes: STRONG_BULL / EARLY_BULL / LATE_BULL / COUNTER_TREND_BULL / NEUTRAL / EARLY_BEAR / LATE_BEAR / STRONG_BEAR / COUNTER_TREND_BEAR
+
+**Performance analysis recipe**
+- `curl /timed/ledger/trades?limit=1000` → `python3 tasks/scripts/may-2026-perf.py`
+- Always compute multiple windows (7d, current month, prior months, 30d, 90d, all-time). A single window misleads — March -$3K → April +$3K → May -$1K is a noisy 90-day flat, not a structural break.
+- The diagnostic calibration report at `/timed/calibration/report` is authoritative for all-time per-setup stats (`entry_paths`). VIX buckets and regime_filters are currently empty (known calibration-pipeline gap).
+- Calibration apply rejects `diagnostic_only: true` reports. The Insights `handleApply` transparently re-runs as promotion candidate first — replicate that pattern in any new apply consumer.
 
 **Backtest Run Registry & Archival**
 - D1 tables: `backtest_runs` (metadata), `backtest_run_metrics` (aggregated stats), `backtest_run_trades` (archived trade copies), `backtest_run_direction_accuracy` (archived DA), `backtest_run_annotations` (archived classifications), `backtest_run_config` (model_config snapshot per run)
