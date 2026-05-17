@@ -98,8 +98,15 @@ function isNyRegularMarketOpen() {
   }
 }
 async function fetchAll() {
-  const r = await fetch(`${API_BASE}/timed/all`, {
-    credentials: "include"
+  const ts = Date.now();
+  const r = await fetch(`${API_BASE}/timed/all?_t=${ts}`, {
+    credentials: "include",
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      Pragma: "no-cache"
+    }
   });
   return r.ok ? r.json() : {
     ok: false
@@ -857,6 +864,56 @@ function computeEffectiveStage(ticker, trade) {
   if (!["trim", "hold", "active", "just_entered"].includes(rawStage)) return "hold";
   return rawStage;
 }
+function useSavedTickers() {
+  const [saved, setSaved] = useState(() => {
+    const bootstrap = window.TimedAuthHelpers?.getStoredBootstrap?.();
+    return new Set(Array.isArray(bootstrap?.saved_tickers) ? bootstrap.saved_tickers.map(s => String(s).toUpperCase()) : []);
+  });
+  useEffect(() => {
+    const applyBootstrap = detail => {
+      if (!Array.isArray(detail?.saved_tickers)) return;
+      setSaved(new Set(detail.saved_tickers.map(s => String(s).toUpperCase())));
+    };
+    const handler = event => applyBootstrap(event?.detail);
+    try {
+      applyBootstrap(window.TimedAuthHelpers?.getStoredBootstrap?.());
+    } catch (_) {}
+    window.addEventListener("tt-auth-bootstrap-updated", handler);
+    return () => window.removeEventListener("tt-auth-bootstrap-updated", handler);
+  }, []);
+  const toggle = useCallback(async ticker => {
+    const T = String(ticker || "").toUpperCase();
+    if (!T) return;
+    setSaved(prev => {
+      const next = new Set(prev);
+      if (next.has(T)) next.delete(T);else next.add(T);
+      try {
+        const bootstrap = window.TimedAuthHelpers?.getStoredBootstrap?.() || {};
+        window.TimedAuthHelpers?.storeBootstrap?.({
+          ...bootstrap,
+          saved_tickers: Array.from(next)
+        });
+      } catch (_) {}
+      return next;
+    });
+    try {
+      await fetch(`${API_BASE}/timed/saved/toggle`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          ticker: T
+        })
+      });
+    } catch (_) {}
+  }, []);
+  return {
+    saved,
+    toggle
+  };
+}
 function useOpenTrades(enabled) {
   const [tradeByTicker, setTradeByTicker] = useState(() => new Map());
   const refresh = useCallback(async () => {
@@ -1011,7 +1068,9 @@ function ViewportCard({
   t,
   rankPosition,
   onOpen,
-  sparkSrc
+  sparkSrc,
+  isSaved,
+  onToggleSaved
 }) {
   const sym = String(t?.ticker || "").toUpperCase();
   const dailyChange = window.TimedPriceUtils && window.TimedPriceUtils.getDailyChange || (() => ({
@@ -1169,9 +1228,26 @@ function ViewportCard({
   }), stageChip && h("span", {
     className: `ds-chip ds-chip--sm ${stageChip.cls}`,
     style: {
-      marginLeft: "auto"
+      marginLeft: stageChip && onToggleSaved ? "auto" : "auto"
     }
-  }, stageChip.label)), h("div", {
+  }, stageChip.label), onToggleSaved && h("button", {
+    onClick: e => {
+      e.preventDefault();
+      e.stopPropagation();
+      onToggleSaved(sym);
+    },
+    className: "ds-chip ds-chip--sm",
+    style: {
+      marginLeft: stageChip ? 4 : "auto",
+      padding: "0 6px",
+      height: 18,
+      color: isSaved ? "var(--ds-accent)" : "var(--ds-text-muted)",
+      background: isSaved ? "var(--ds-accent-dim)" : "transparent",
+      borderColor: isSaved ? "var(--ds-accent)" : "var(--ds-stroke)"
+    },
+    title: isSaved ? "Saved — click to unsave" : "Save ticker",
+    "aria-label": isSaved ? "Unsave ticker" : "Save ticker"
+  }, isSaved ? "★" : "☆")), h("div", {
     className: "ds-tickercard__price",
     style: {
       fontSize: 18
@@ -1241,6 +1317,7 @@ function useSparklineCache() {
       const r = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=60&limit=24`, {
         cache: "no-store"
       });
+      if (!r.ok) return null;
       const j = await r.json();
       const candles = Array.isArray(j?.candles) ? j.candles : [];
       return candles.map(c => Number(c?.c ?? c?.close)).filter(Number.isFinite);
@@ -1300,6 +1377,10 @@ function Viewport({
     cache: sparkCache,
     ensure: ensureSpark
   } = useSparklineCache();
+  const {
+    saved,
+    toggle: toggleSaved
+  } = useSavedTickers();
   const ranked = useMemo(() => {
     const list = (visible || []).slice();
     list.sort((a, b) => {
@@ -1338,13 +1419,18 @@ function Viewport({
     }
   }, ranked.length === 0 ? h("div", {
     className: "vp-empty"
-  }, "No tickers match. Try a different filter or clear the search.") : ranked.slice(0, 60).map(t => h(ViewportCard, {
-    key: t.ticker,
-    t,
-    rankPosition: rankedTickerPositions?.get?.(t.ticker),
-    sparkSrc: sparkCache[String(t.ticker).toUpperCase()] || null,
-    onOpen
-  }))), ranked.length > 60 && h("div", {
+  }, "No tickers match. Try a different filter or clear the search.") : ranked.slice(0, 60).map(t => {
+    const SYM = String(t.ticker || "").toUpperCase();
+    return h(ViewportCard, {
+      key: t.ticker,
+      t,
+      rankPosition: rankedTickerPositions?.get?.(t.ticker),
+      sparkSrc: sparkCache[SYM] || null,
+      onOpen,
+      isSaved: saved.has(SYM),
+      onToggleSaved: toggleSaved
+    });
+  })), ranked.length > 60 && h("div", {
     className: "vp-empty",
     style: {
       fontSize: 10
