@@ -1959,7 +1959,16 @@ export function evaluateEntry(ctx) {
       daCfg.deep_audit_cohort_index_etf_tickers || "SPY,QQQ,IWM",
     );
     const megaCapSet = deepAuditTickerSet(
-      daCfg.deep_audit_cohort_megacap_tickers || "AAPL,MSFT,GOOGL,AMZN,META,NVDA,TSLA",
+      // P0.7.193 (2026-05-17) — May calibration: expand the megacap_tech cohort
+      // beyond the original Mag-7 so the cohort overlay applies to ALL primary
+      // tech leaders. The model was missing NVDA/TSLA/MSFT/AVGO/AMD/PLTR/NBIS
+      // entries for ~30 days during May's tech-led tape because:
+      //   1. extension cap of 8% above E48 rejected runners (see below — now 15%)
+      //   2. several names (AVGO, AMD, PLTR, NBIS, CRWD, ORCL, MU, ASML, GOOG)
+      //      fell into the default "other" cohort which has tighter slope/RSI
+      //      caps tuned for cyclicals.
+      daCfg.deep_audit_cohort_megacap_tickers
+        || "AAPL,MSFT,GOOGL,GOOG,AMZN,META,NVDA,TSLA,AVGO,AMD,PLTR,NBIS,CRWD,ORCL,MU,ASML",
     );
     const industrialSet = deepAuditTickerSet(
       daCfg.deep_audit_cohort_industrial_tickers || "ETN,FIX,IESC,MTZ,PH,SWK",
@@ -2001,7 +2010,15 @@ export function evaluateEntry(ctx) {
       slopeMinOverride = Number(daCfg.deep_audit_cohort_slope_min_megacap);
       extensionMaxOverride = Number(daCfg.deep_audit_cohort_extension_max_megacap);
       if (!Number.isFinite(slopeMinOverride)) slopeMinOverride = 0.3;
-      if (!Number.isFinite(extensionMaxOverride)) extensionMaxOverride = 8.0;
+      // P0.7.193 (2026-05-17) — May calibration: extension cap raised from
+      // 8.0 → 15.0. The 8% cap was tuned for mean-reverting cyclicals but
+      // mega-cap tech leaders routinely trend 10-20% above E48 daily in
+      // strong bull regimes. Inspection of /timed/all (May 17) showed
+      // every mega-cap stuck in "watch" stage because the cohort overlay
+      // was rejecting LONG entries with `tt_cohort_extension_too_wide`.
+      // 15% still rejects parabolic blow-offs while allowing healthy
+      // primary-trend extensions on NVDA/TSLA/MSFT/PLTR/NBIS etc.
+      if (!Number.isFinite(extensionMaxOverride)) extensionMaxOverride = 15.0;
       // RSI: overbought is GREEN for mega-caps; no cap
     } else if (industrialSet.has(_tickerUpperEarly)) {
       cohortLabel = "industrial";

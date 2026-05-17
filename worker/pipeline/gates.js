@@ -63,5 +63,23 @@ export function runUniversalGates(ctx) {
     }
   }
 
+  // Gate 4: May 2026 calibration blocklist — toxic in the last 30-day window.
+  // These tickers had cumulative R < -2.5% across n>=2 trades inside the
+  // May review period and are blocked from new entries until they re-earn
+  // their spot via cleaner price action. Reversible: clear via the
+  // deep_audit_calibration_blocklist_disabled flag in model_config.
+  // See tasks/may-2026-performance-analysis.md.
+  if (String(daCfg.deep_audit_calibration_blocklist_disabled ?? "false") !== "true") {
+    const calibrationBlocklist = new Set(["NFLX", "APD"]);
+    const symNormCal = String(ticker || "").toUpperCase();
+    if (calibrationBlocklist.has(symNormCal)) {
+      return {
+        pass: false,
+        reason: "may_2026_calibration_blocklist",
+        ticker: symNormCal,
+      };
+    }
+  }
+
   return { pass: true };
 }
