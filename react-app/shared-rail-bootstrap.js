@@ -118,10 +118,70 @@
   // while /timed/latest returns the full payload for a single ticker.
   // /index-react.html does the same dance in TickerDetailsLoader.
   const e = React.createElement;
-  const { useState, useEffect, useMemo } = React;
+  const { useState, useEffect, useMemo, useCallback } = React;
+
+  // V15 P0.7.184 (2026-05-17) — Shared saved-tickers hook. Centralizes
+  // the read-from-bootstrap + POST /timed/saved/toggle pattern that
+  // each journey page implemented inline. The rail overlay now uses
+  // this so the Save (★) button on the rail header works on every
+  // host page without each page wiring savedTickers / toggleSavedTicker
+  // through. User feedback: "The Right Rail is now missing the Save
+  // Icon. This should be placed next to the Share Icon at the top
+  // right."
+  function useSavedTickersInRail() {
+    const [saved, setSaved] = useState(() => {
+      try {
+        const bootstrap = window.TimedAuthHelpers?.getStoredBootstrap?.();
+        return new Set(Array.isArray(bootstrap?.saved_tickers)
+          ? bootstrap.saved_tickers.map((s) => String(s).toUpperCase())
+          : []);
+      } catch (_) { return new Set(); }
+    });
+    useEffect(() => {
+      const apply = (detail) => {
+        if (!Array.isArray(detail?.saved_tickers)) return;
+        setSaved(new Set(detail.saved_tickers.map((s) => String(s).toUpperCase())));
+      };
+      try { apply(window.TimedAuthHelpers?.getStoredBootstrap?.()); } catch (_) {}
+      const handler = (event) => apply(event?.detail);
+      window.addEventListener("tt-auth-bootstrap-updated", handler);
+      return () => window.removeEventListener("tt-auth-bootstrap-updated", handler);
+    }, []);
+    const toggle = useCallback(async (ticker) => {
+      const T = String(ticker || "").toUpperCase();
+      if (!T) return;
+      setSaved((prev) => {
+        const next = new Set(prev);
+        if (next.has(T)) next.delete(T); else next.add(T);
+        try {
+          const bootstrap = window.TimedAuthHelpers?.getStoredBootstrap?.() || {};
+          window.TimedAuthHelpers?.storeBootstrap?.({ ...bootstrap, saved_tickers: Array.from(next) });
+        } catch (_) {}
+        return next;
+      });
+      try {
+        await fetch(`${window.TT_API_BASE || ""}/timed/saved/toggle`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ ticker: T }),
+        });
+      } catch (_) {}
+    }, []);
+    return { saved, toggle };
+  }
   function RailOverlay(props) {
     const { ticker, allLoadedData, onClose } = props || {};
     const tickerSym = useMemo(() => String(ticker?.ticker || ticker?.symbol || "").toUpperCase(), [ticker]);
+
+    // Wire saved-ticker state into the rail so the ★ button at the
+    // top of the rail header renders + works on every journey page.
+    // Allow callers to override (e.g. if a page already has its own
+    // optimistic state it wants to keep in sync) by passing
+    // savedTickers + toggleSavedTicker through props.
+    const _internalSaved = useSavedTickersInRail();
+    const savedTickers = props.savedTickers || _internalSaved.saved;
+    const toggleSavedTicker = props.toggleSavedTicker || _internalSaved.toggle;
 
     // Workspace mode at >= 1024px: chart on the left, tabs on the
     // right (same CSS grid /index-react.html uses when opening a
@@ -232,6 +292,12 @@
           allLoadedData: allLoadedData || null,
           onClose,
           layoutMode,
+          // Save (★) button data — wired automatically in the rail
+          // bootstrap so every host page gets the toggle without
+          // having to thread savedTickers / toggleSavedTicker
+          // through manually.
+          savedTickers,
+          toggleSavedTicker,
         }),
       ),
     );

@@ -36,7 +36,7 @@
     <script src="shared-rail-helpers.js?v=20260517e"></script>
     <script src="shared-right-rail.compiled.js?v=20260517c"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
-    <script src="shared-rail-bootstrap.js?v=20260517e"></script>
+    <script src="shared-rail-bootstrap.js?v=20260517f"></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -396,6 +396,106 @@
         border-style: solid;
       }
       .ac-chip--addon.active .ac-count { color: inherit; opacity: 0.7; }
+
+      /* FocusRail — categorized actionable tickers (pass5) */
+      .focus-rail {
+        margin-bottom: 28px;
+      }
+      .focus-rail-head {
+        margin-bottom: 12px;
+      }
+      .focus-rail-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+      @media (max-width: 1024px) {
+        .focus-rail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
+      @media (max-width: 640px) {
+        .focus-rail-grid { grid-template-columns: 1fr; }
+      }
+      .focus-lane {
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 12px;
+        padding: 12px 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        position: relative;
+      }
+      .focus-lane::before {
+        content: "";
+        position: absolute;
+        top: 12px; bottom: 12px; left: 0;
+        width: 3px;
+        border-radius: 2px;
+        background: var(--lane-accent, var(--tt-text-faint));
+      }
+      .focus-lane--accent  { --lane-accent: var(--tt-accent); }
+      .focus-lane--up      { --lane-accent: var(--tt-up-soft); }
+      .focus-lane--cyan    { --lane-accent: var(--tt-cyan); }
+      .focus-lane--violet  { --lane-accent: var(--tt-violet); }
+      .focus-lane-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 6px;
+      }
+      .focus-lane-label {
+        font-family: var(--tt-font);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.10em;
+        color: var(--lane-accent, var(--tt-text-dim));
+      }
+      .focus-lane-count {
+        font-family: var(--tt-font-mono);
+        font-size: 10.5px;
+        color: var(--tt-text-dim);
+      }
+      .focus-lane-sub {
+        font-size: 11px;
+        color: var(--tt-text-muted);
+        margin-bottom: 4px;
+      }
+      .focus-lane-chips {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .focus-chip {
+        display: grid;
+        grid-template-columns: 1fr auto auto;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border-radius: 8px;
+        background: var(--tt-bg-elev);
+        border: 1px solid var(--tt-border);
+        color: var(--tt-text);
+        font-family: var(--tt-font-mono);
+        font-size: 12px;
+        cursor: pointer;
+        transition: background 120ms ease, border-color 120ms ease;
+        text-align: left;
+      }
+      .focus-chip:hover {
+        background: var(--tt-bg-surface);
+        border-color: var(--tt-border-hi);
+      }
+      .focus-chip-sym {
+        font-family: var(--tt-font);
+        font-weight: 700;
+        color: var(--tt-text);
+      }
+      .focus-chip-metric {
+        font-size: 10.5px;
+        color: var(--tt-text-muted);
+      }
+      .focus-chip-pct.up { color: var(--tt-up); }
+      .focus-chip-pct.dn { color: var(--tt-dn); }
 
       /* Bubble Map */
       .bm-stage {
@@ -1137,6 +1237,157 @@
                   (chgPct >= 0 ? "+" : "") + chgPct.toFixed(2) + "%"),
               );
             }),
+          ),
+        );
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // FocusRail — categorized actionable ticker rail.
+      //
+      // V15 P0.7.184 (2026-05-17) — Per user feedback: "the Today
+      // Page also doesn't have the Regime Bar with the Categorized
+      // tickers by Rank, Squeeze, RR, and other categories. This is
+      // what should be shown at all times, giving users tickers
+      // that can be focused on."
+      //
+      // Renders a horizontal scroller of 4 mini-lanes (Top Rank /
+      // High RR / Squeeze / Early Setup) — each with 5 tickers
+      // pulled directly from the /timed/all snapshot. Click any
+      // chip → opens the right-rail overlay. No extra fetch.
+      // ═══════════════════════════════════════════════════════════
+      function FocusRail({ data, onSelectTicker }) {
+        const lanes = useMemo(() => {
+          if (!data) return [];
+          const all = Object.entries(data)
+            .map(([k, v]) => (v && v.ticker ? v : { ticker: String(k).toUpperCase(), ...(v || {}) }))
+            .filter((t) => t && t.ticker);
+
+          const TT = window.TimedBubbleChart || {};
+          const entryType = TT.entryType || (() => ({ corridor: false }));
+          const completionForSize = TT.completionForSize || ((t) => Number(t?.completion) || 0);
+
+          // Lane 1 — Top Rank. Sort by rank_position asc; need a
+          // real rank to qualify (rank_position > 0).
+          const topRank = all
+            .filter((t) => Number(t.rank_position) > 0)
+            .sort((a, b) => Number(a.rank_position) - Number(b.rank_position))
+            .slice(0, 8);
+
+          // Lane 2 — High R:R Early. RR ≥ 2.0 + completion ≤ 0.45 +
+          // some actionable timing (corridor / flip / squeeze release).
+          const highRr = all
+            .filter((t) => {
+              const rr = Number(t.rr) || 0;
+              const comp = completionForSize(t);
+              const flags = t.flags || {};
+              const ent = entryType(t);
+              const timing = ent?.corridor || flags.flip_watch || flags.sq30_release;
+              return rr >= 2.0 && comp <= 0.45 && timing;
+            })
+            .sort((a, b) => (Number(b.rr) || 0) - (Number(a.rr) || 0))
+            .slice(0, 8);
+
+          // Lane 3 — Squeeze setups (sq30_on but not yet released, or
+          // freshly released within the scoring snapshot).
+          const squeeze = all
+            .filter((t) => {
+              const flags = t.flags || {};
+              return flags.sq30_on || flags.sq30_release;
+            })
+            .sort((a, b) => {
+              // Released > on (release is the trigger event)
+              const ra = a.flags?.sq30_release ? 1 : 0;
+              const rb = b.flags?.sq30_release ? 1 : 0;
+              if (ra !== rb) return rb - ra;
+              return (Number(b.rank_score) || 0) - (Number(a.rank_score) || 0);
+            })
+            .slice(0, 8);
+
+          // Lane 4 — Early entry setups: in corridor with kanban
+          // stage in the entry-zone (setup / in_review / enter / etc).
+          const ENTRY_STAGES = new Set(["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped"]);
+          const earlySetup = all
+            .filter((t) => {
+              const ent = entryType(t);
+              const stage = String(t.kanban_stage || "").toLowerCase();
+              return ent?.corridor && ENTRY_STAGES.has(stage);
+            })
+            .sort((a, b) => (Number(b.rank_score) || 0) - (Number(a.rank_score) || 0))
+            .slice(0, 8);
+
+          return [
+            { id: "rank",    label: "TOP RANK",   sub: "Best composite score",       items: topRank,    accent: "accent" },
+            { id: "rr",      label: "HIGH R:R",   sub: "RR ≥ 2.0 + early",           items: highRr,     accent: "up" },
+            { id: "squeeze", label: "SQUEEZE",    sub: "On / released — primed to break",     items: squeeze,    accent: "cyan" },
+            { id: "setup",   label: "ENTRY ZONE", sub: "In corridor + entry stage",  items: earlySetup, accent: "violet" },
+          ].filter((lane) => lane.items.length > 0);
+        }, [data]);
+
+        if (lanes.length === 0) return null;
+
+        const fmtMetric = (t, laneId) => {
+          if (laneId === "rank") {
+            const r = Number(t.rank_position);
+            return Number.isFinite(r) ? `R${r}` : "";
+          }
+          if (laneId === "rr") {
+            const rr = Number(t.rr);
+            return Number.isFinite(rr) ? `${rr.toFixed(1)}R` : "";
+          }
+          if (laneId === "squeeze") {
+            const f = t.flags || {};
+            return f.sq30_release ? "RLS" : f.sq30_on ? "ON" : "";
+          }
+          if (laneId === "setup") {
+            const dir = String(t.state || "").startsWith("HTF_BULL") ? "L" : String(t.state || "").startsWith("HTF_BEAR") ? "S" : "·";
+            return dir;
+          }
+          return "";
+        };
+
+        return h("section", { className: "tt-row focus-rail" },
+          h("div", { className: "focus-rail-head" },
+            h("div", null,
+              h("div", { className: "tt-sec-title" }, "FOCUS"),
+              h("h2", { className: "tt-sec-h2" }, "Actionable tickers worth a look"),
+              h("p", { className: "tt-sec-sub" }, "Top ranks · best R:R · squeeze candidates · corridor entries — straight from the scoring snapshot."),
+            ),
+          ),
+          h("div", { className: "focus-rail-grid" },
+            lanes.map((lane) => h("div", {
+              key: lane.id,
+              className: `focus-lane focus-lane--${lane.accent}`,
+            },
+              h("div", { className: "focus-lane-head" },
+                h("span", { className: "focus-lane-label" }, lane.label),
+                h("span", { className: "focus-lane-count" }, lane.items.length),
+              ),
+              h("div", { className: "focus-lane-sub" }, lane.sub),
+              h("div", { className: "focus-lane-chips" },
+                lane.items.slice(0, 6).map((t) => {
+                  const sym = String(t.ticker || "").toUpperCase();
+                  const metric = fmtMetric(t, lane.id);
+                  const dc = getDailyChange(t);
+                  const pct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
+                  const pctCls = pct == null ? "" : pct >= 0 ? "up" : "dn";
+                  return h("button", {
+                    key: `${lane.id}-${sym}`,
+                    className: "focus-chip",
+                    onClick: () => {
+                      if (typeof onSelectTicker === "function") onSelectTicker(sym);
+                      else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+                    },
+                    title: `${sym}${metric ? " · " + metric : ""}${pct != null ? " · " + (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : ""}`,
+                  },
+                    h("span", { className: "focus-chip-sym" }, sym),
+                    metric && h("span", { className: "focus-chip-metric" }, metric),
+                    pct != null && h("span", { className: `focus-chip-pct ${pctCls}` },
+                      (pct >= 0 ? "+" : "") + pct.toFixed(1) + "%",
+                    ),
+                  );
+                }),
+              ),
+            )),
           ),
         );
       }
@@ -2799,6 +3050,11 @@
             brief
               ? h(BriefPreview, { brief })
               : h(BriefSkeleton, null),
+            // Categorized actionable tickers (Top Rank / High RR /
+            // Squeeze / Entry Zone). Shown right after the Daily
+            // Brief so users always have something to focus on
+            // before scrolling down into market pulse + analysis.
+            data && h(FocusRail, { data, onSelectTicker }),
             data
               ? h(MarketState, { data, onSelectTicker })
               : h(MarketStateSkeleton, null),
