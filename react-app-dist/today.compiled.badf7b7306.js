@@ -2032,7 +2032,7 @@ function EndCTA() {
   return h("section", {
     className: "end-cta tt-row"
   }, h("a", {
-    href: "/index-react.html",
+    href: "/active-trader.html",
     className: "primary"
   }, "Open Active Trader", h("svg", {
     width: 14,
@@ -2051,10 +2051,10 @@ function EndCTA() {
   }), h("polyline", {
     points: "12 5 19 12 12 19"
   }))), h("a", {
-    href: "/investor-dashboard.html"
+    href: "/investor.html"
   }, "Open Investor"), h("a", {
-    href: "/simulation-dashboard.html"
-  }, "View Trades"));
+    href: "/portfolio.html"
+  }, "Open Portfolio"));
 }
 function TodayApp() {
   const [data, setData] = useState(null);
