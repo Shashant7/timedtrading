@@ -150,6 +150,14 @@ function ModelStatus({
     className: "s"
   }, "All-time"))));
 }
+function prettySetupName(name) {
+  if (!name) return "Unknown";
+  let s = String(name);
+  s = s.replace(/^TT\s+/i, "");
+  s = s.replace(/^Tt\s+/i, "");
+  s = s.replace(/^tt[_\s]+/i, "");
+  return s;
+}
 function SetupBreakdown({
   history,
   dim
@@ -160,7 +168,8 @@ function SetupBreakdown({
     for (const t of history) {
       const closed = Number.isFinite(Number(t?.pnl)) && t?.exit_ts;
       if (!closed) continue;
-      const key = String(t?.[dim] || "—");
+      const rawKey = String(t?.[dim] || "—");
+      const key = dim === "setup_name" ? prettySetupName(rawKey) : rawKey;
       const cur = buckets.get(key) || {
         name: key,
         count: 0,
@@ -326,7 +335,40 @@ function BriefThesis({
 function UniverseChanges({
   events
 }) {
-  if (!Array.isArray(events) || events.length === 0) {
+  const rolled = useMemo(() => {
+    if (!Array.isArray(events) || events.length === 0) return [];
+    const byDate = new Map();
+    for (const e of events) {
+      const key = e.date || `auto-${Math.random()}`;
+      const cur = byDate.get(key) || {
+        date: e.date,
+        captured_at: e.captured_at,
+        added: new Map(),
+        removed: new Map(),
+        reweighted: new Map(),
+        is_rebalance: false
+      };
+      const collect = (bucket, arr) => {
+        for (const a of arr || []) {
+          const sym = typeof a === "string" ? a : a?.ticker || "";
+          if (!sym) continue;
+          bucket.set(String(sym).toUpperCase(), a);
+        }
+      };
+      collect(cur.added, e.added);
+      collect(cur.removed, e.removed);
+      collect(cur.reweighted, e.reweighted);
+      cur.is_rebalance ||= !!e.is_rebalance;
+      byDate.set(key, cur);
+    }
+    return Array.from(byDate.values()).map(g => ({
+      ...g,
+      added: Array.from(g.added.values()),
+      removed: Array.from(g.removed.values()),
+      reweighted: Array.from(g.reweighted.values())
+    })).sort((a, b) => a.date < b.date ? 1 : -1);
+  }, [events]);
+  if (rolled.length === 0) {
     return h("section", {
       className: "tt-row"
     }, h("div", {
@@ -339,23 +381,32 @@ function UniverseChanges({
         color: "var(--tt-text-dim)",
         fontSize: 13
       }
-    }, "No universe changes in the last 30 days. When the ETF holdings refresh or an admin adds / removes a ticker, those events will appear here."));
+    }, "No universe changes in the last 30 days. When the universe is refreshed or an admin adds / removes a ticker, those events will appear here."));
   }
   const fmtDate = d => String(d || "—");
+  const renderTickers = (arr, limit = 8) => arr.slice(0, limit).map((a, i) => {
+    const sym = typeof a === "string" ? a : a?.ticker || "?";
+    return h("span", {
+      key: i,
+      style: {
+        marginRight: 6
+      }
+    }, sym);
+  });
   return h("section", {
     className: "tt-row"
   }, h("div", {
     className: "tt-sec-title"
   }, "TT UNIVERSE CHANGES"), h("div", {
     className: "tt-sec-h"
-  }, `Adds, removes, and rebalances · last 30 days (${events.length})`), h("div", {
+  }, `Adds, removes, and rebalances · last 30 days (${rolled.length})`), h("div", {
     style: {
       display: "flex",
       flexDirection: "column",
       gap: 10
     }
-  }, events.map((e, i) => h("div", {
-    key: `${e.etf}-${e.date}-${i}`,
+  }, rolled.map((e, i) => h("div", {
+    key: `${e.date}-${i}`,
     className: "tt-card tt-card-pad"
   }, h("div", {
     style: {
@@ -368,29 +419,22 @@ function UniverseChanges({
     }
   }, h("div", null, h("span", {
     style: {
-      fontFamily: "var(--tt-font-mono)",
-      fontWeight: 700,
-      fontSize: 12,
-      color: "var(--tt-text)"
-    }
-  }, e.etf), e.is_rebalance && h("span", {
-    style: {
-      marginLeft: 8,
-      fontSize: 9.5,
+      fontSize: 11.5,
       fontWeight: 700,
       letterSpacing: "0.08em",
-      padding: "2px 6px",
+      padding: "3px 8px",
       borderRadius: 4,
       color: "var(--tt-accent)",
       background: "var(--tt-accent-dim)",
       border: "1px solid rgba(245,194,92,0.30)",
       textTransform: "uppercase"
     }
-  }, "REBALANCE"), h("span", {
+  }, "Universe Rebalance"), h("span", {
     style: {
-      color: "var(--tt-text-faint)",
-      marginLeft: 8,
-      fontSize: 11
+      color: "var(--tt-text-muted)",
+      marginLeft: 10,
+      fontSize: 12,
+      fontWeight: 600
     }
   }, fmtDate(e.date))), h("span", {
     style: {
@@ -398,62 +442,46 @@ function UniverseChanges({
       color: "var(--tt-text-dim)",
       fontFamily: "var(--tt-font-mono)"
     }
-  }, `${e.ticker_count} tickers`)), (e.added.length > 0 || e.removed.length > 0 || e.reweighted.length > 0) && h("div", {
+  }, `${e.added.length + e.removed.length + e.reweighted.length} tickers affected`)), (e.added.length > 0 || e.removed.length > 0 || e.reweighted.length > 0) && h("div", {
     style: {
       display: "flex",
       flexWrap: "wrap",
-      gap: 6
+      gap: 8
     }
   }, e.added.length > 0 && h("span", {
     style: {
-      fontSize: 11,
+      fontSize: 11.5,
       fontFamily: "var(--tt-font-mono)",
-      padding: "3px 8px",
+      padding: "4px 10px",
       borderRadius: 6,
       color: "var(--tt-up-soft)",
       background: "var(--tt-up-bg)",
       border: "1px solid rgba(34,197,94,0.25)"
     },
-    title: e.added.map(a => typeof a === "string" ? a : a?.ticker || JSON.stringify(a)).join(", ")
-  }, `+${e.added.length} added · `, e.added.slice(0, 6).map((a, idx) => h("span", {
-    key: idx,
+    title: e.added.map(a => typeof a === "string" ? a : a?.ticker || "").join(", ")
+  }, `+${e.added.length} added · `, renderTickers(e.added), e.added.length > 8 && h("span", null, `+${e.added.length - 8} more`)), e.removed.length > 0 && h("span", {
     style: {
-      marginRight: 6
-    }
-  }, typeof a === "string" ? a : a?.ticker || "?")), e.added.length > 6 && h("span", null, `+${e.added.length - 6} more`)), e.removed.length > 0 && h("span", {
-    style: {
-      fontSize: 11,
+      fontSize: 11.5,
       fontFamily: "var(--tt-font-mono)",
-      padding: "3px 8px",
+      padding: "4px 10px",
       borderRadius: 6,
       color: "var(--tt-dn-soft)",
       background: "var(--tt-dn-bg)",
       border: "1px solid rgba(244,63,94,0.25)"
     },
-    title: e.removed.map(a => typeof a === "string" ? a : a?.ticker || JSON.stringify(a)).join(", ")
-  }, `−${e.removed.length} removed · `, e.removed.slice(0, 6).map((a, idx) => h("span", {
-    key: idx,
+    title: e.removed.map(a => typeof a === "string" ? a : a?.ticker || "").join(", ")
+  }, `−${e.removed.length} removed · `, renderTickers(e.removed), e.removed.length > 8 && h("span", null, `+${e.removed.length - 8} more`)), e.reweighted.length > 0 && h("span", {
     style: {
-      marginRight: 6
-    }
-  }, typeof a === "string" ? a : a?.ticker || "?")), e.removed.length > 6 && h("span", null, `+${e.removed.length - 6} more`)), e.reweighted.length > 0 && h("span", {
-    style: {
-      fontSize: 11,
+      fontSize: 11.5,
       fontFamily: "var(--tt-font-mono)",
-      padding: "3px 8px",
+      padding: "4px 10px",
       borderRadius: 6,
       color: "var(--tt-accent)",
       background: "var(--tt-accent-dim)",
       border: "1px solid rgba(245,194,92,0.30)"
     },
-    title: e.reweighted.map(a => typeof a === "string" ? a : a?.ticker || JSON.stringify(a)).join(", ")
-  }, `~${e.reweighted.length} reweighted`)), e.source && h("div", {
-    style: {
-      fontSize: 10.5,
-      color: "var(--tt-text-faint)",
-      marginTop: 8
-    }
-  }, "Source: ", e.source)))));
+    title: e.reweighted.map(a => typeof a === "string" ? a : a?.ticker || "").join(", ")
+  }, `~${e.reweighted.length} reweighted · `, renderTickers(e.reweighted), e.reweighted.length > 8 && h("span", null, `+${e.reweighted.length - 8} more`)))))));
 }
 function InsightsApp() {
   const [allMeta, setAllMeta] = useState(null);

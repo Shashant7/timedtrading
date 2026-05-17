@@ -309,40 +309,119 @@ function BriefPreview({
     className: "brief-link"
   }, "How to use the brief")));
 }
-function IndexCard({
+function MarketPulseTile({
   sym,
   t
 }) {
-  const dc = getDailyChange(t || {});
+  const SYM = String(sym || "").toUpperCase();
+  const tx = t && typeof t === "object" ? t.ticker ? t : {
+    ticker: SYM,
+    ...t
+  } : {
+    ticker: SYM
+  };
+  const dc = getDailyChange(tx);
   const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
-  const price = Number(t?.price);
-  const dir = dayPct == null ? "" : dayPct > 0 ? "up" : "dn";
-  return h("a", {
-    className: "idx-card",
-    href: `/index-react.html?ticker=${encodeURIComponent(sym)}`
-  }, h("span", {
-    className: "name"
-  }, sym), h("span", {
-    className: "px"
-  }, Number.isFinite(price) ? fmtUsd(price) : "—"), h("span", {
-    className: `chg ${dir}`
-  }, dayPct != null ? (dayPct >= 0 ? "▲ " : "▼ ") + fmtPct(dayPct) : "—"));
+  const dayChg = Number.isFinite(dc?.dayChg) ? Number(dc.dayChg) : null;
+  const price = Number(tx.price);
+  const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
+  const sparkSrc = window._dsSparklineCache && window._dsSparklineCache[SYM] || null;
+  useEffect(() => {
+    if (typeof window._dsEnsureSparkline === "function") window._dsEnsureSparkline(SYM);
+  }, [SYM]);
+  const sparkPoints = sparkSrc && sparkSrc.length >= 2 ? sparkSrc : [price || 0, price || 0];
+  const sparkSvg = window.DS && Number.isFinite(price) && price > 0 ? window.DS.sparklineSvg(sparkPoints, {
+    width: 280,
+    height: 44,
+    direction: dir,
+    strokeWidth: 1.4
+  }) : "";
+  const onClick = e => {
+    e.preventDefault();
+    window.location.href = `/index-react.html?ticker=${encodeURIComponent(SYM)}`;
+  };
+  return h("button", {
+    onClick,
+    className: "ds-tickercard",
+    style: {
+      textAlign: "left",
+      padding: "var(--ds-space-3)"
+    },
+    title: `Open ${SYM} in Active Trader detail`
+  }, h("div", {
+    className: "ds-tickercard__head"
+  }, h("div", {
+    className: "ds-tickercard__logo",
+    ref: el => {
+      if (el && !el.dataset.dsInit && window.DS) {
+        el.dataset.dsInit = "1";
+        try {
+          el.replaceWith(window.DS.tickerLogo(SYM, {
+            size: 22
+          }));
+        } catch (_) {}
+      }
+    },
+    style: {
+      width: 22,
+      height: 22
+    }
+  }, SYM.slice(0, 2)), h("span", {
+    className: "ds-tickercard__symbol",
+    style: {
+      fontSize: 13
+    }
+  }, SYM), dayPct != null && h("span", {
+    style: {
+      marginLeft: 4,
+      width: 6,
+      height: 6,
+      borderRadius: "50%",
+      background: dir === "up" ? "var(--ds-up)" : dir === "dn" ? "var(--ds-dn)" : "var(--ds-text-muted)",
+      opacity: 0.7
+    }
+  })), h("div", {
+    className: "ds-tickercard__price",
+    style: {
+      fontSize: 18
+    }
+  }, Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"), dayPct != null && h("div", {
+    className: `ds-tickercard__change ds-tickercard__change--${dir}`,
+    style: {
+      fontSize: 12
+    }
+  }, dir === "up" ? "▲" : dir === "dn" ? "▼" : "◆", " ", `${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`, Number.isFinite(dayChg) && Math.abs(dayChg) > 0.001 && h("span", {
+    style: {
+      marginLeft: 4,
+      opacity: 0.7,
+      fontSize: 10
+    }
+  }, ` (${dayChg >= 0 ? "+" : ""}$${Math.abs(dayChg).toFixed(2)})`)), sparkSvg && h("div", {
+    className: "ds-tickercard__spark",
+    dangerouslySetInnerHTML: {
+      __html: sparkSvg
+    }
+  }));
 }
 function MarketState({
   data
 }) {
-  const candidates = ["SPY", "QQQ", "IWM", "VIXY", "DIA"];
-  const order = candidates.filter(sym => data?.[sym]).slice(0, 4);
+  const candidates = ["SPY", "QQQ", "IWM", "VIXY", "BTCUSD", "GLD", "USO", "SLV"];
+  const order = candidates.filter(sym => data?.[sym]).slice(0, 6);
   if (order.length === 0) return null;
   return h("section", {
     className: "tt-row"
   }, h("div", {
     className: "tt-sec-title"
-  }, "MARKET STATE"), h("div", {
+  }, "MARKET PULSE"), h("div", {
     className: "tt-sec-h"
   }, "Where the indices stand"), h("div", {
-    className: "tt-grid tt-grid-4"
-  }, order.map(sym => h(IndexCard, {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+      gap: 12
+    }
+  }, order.map(sym => h(MarketPulseTile, {
     key: sym,
     sym,
     t: data[sym]
@@ -1400,12 +1479,10 @@ function useSparklineCache() {
 function Viewport({
   visible,
   rankedTickerPositions,
-  query
+  query,
+  sparkCache,
+  ensureSpark
 }) {
-  const {
-    cache: sparkCache,
-    ensure: ensureSpark
-  } = useSparklineCache();
   const {
     saved,
     toggle: toggleSaved
@@ -1472,7 +1549,9 @@ function BubbleMapViewportSplit({
   query,
   data,
   rankedTickers,
-  rankedTickerPositions
+  rankedTickerPositions,
+  sparkCache,
+  ensureSpark
 }) {
   return h("section", {
     className: "tt-row"
@@ -1521,7 +1600,9 @@ function BubbleMapViewportSplit({
   }, h(Viewport, {
     visible,
     rankedTickerPositions,
-    query
+    query,
+    sparkCache,
+    ensureSpark
   }), h("div", {
     className: "bmv-bubble"
   }, h(SharedBubbleMapSection, {
@@ -2107,9 +2188,16 @@ function TodayApp() {
   }, []);
   const isAdmin = !!window._ttIsAdmin;
   const tradeByTicker = useOpenTrades(!!data);
+  const {
+    cache: sparkCache,
+    ensure: ensureSpark
+  } = useSparklineCache();
   const allTickers = useMemo(() => {
     if (!data) return [];
-    const raw = Object.values(data).filter(t => t && t.ticker);
+    const raw = Object.entries(data).filter(([k, v]) => !!k && v && typeof v === "object").map(([k, v]) => v && v.ticker ? v : {
+      ticker: String(k).toUpperCase(),
+      ...(v || {})
+    });
     return raw.map(t => {
       const sym = String(t.ticker || "").toUpperCase();
       const trade = tradeByTicker.get(sym) || null;
@@ -2181,7 +2269,9 @@ function TodayApp() {
     query: filters.query,
     data,
     rankedTickers,
-    rankedTickerPositions
+    rankedTickerPositions,
+    sparkCache,
+    ensureSpark
   }) : h(BubbleViewportSkeleton, null), data ? h(UniverseHeatmap, {
     visible,
     query: filters.query

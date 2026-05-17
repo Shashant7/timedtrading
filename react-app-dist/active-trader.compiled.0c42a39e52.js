@@ -849,7 +849,10 @@ function ActiveTraderApp() {
   } = useSparklineCache();
   const allTickers = useMemo(() => {
     if (!data) return [];
-    const raw = Object.values(data).filter(t => t && t.ticker);
+    const raw = Object.entries(data).filter(([k, v]) => !!k && v && typeof v === "object").map(([k, v]) => v && v.ticker ? v : {
+      ticker: String(k).toUpperCase(),
+      ...(v || {})
+    });
     return raw.map(t => {
       const sym = String(t.ticker || "").toUpperCase();
       const trade = tradeByTicker.get(sym) || null;
