@@ -3,13 +3,18 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta http-equiv="refresh" content="0; url=/index-react.html" />
+    <!-- V15 P0.7.187 (2026-05-17) — Post-login + bare-domain landing
+         points at /today.html (the new product home) instead of the
+         legacy /index-react.html. Users coming from Cloudflare
+         Access SSO or a bookmark hitting the root URL now see the
+         daily-ingest digest first. -->
+    <meta http-equiv="refresh" content="0; url=/today.html" />
     <title>Timed Trading</title>
   </head>
   <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; padding: 24px;">
     <p>
-      Redirecting to the dashboard…
-      <a href="/index-react.html">Open dashboard</a>
+      Redirecting to Today…
+      <a href="/today.html">Open Today</a>
     </p>
   </body>
 </html>
