@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-port1" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-port2" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -18,6 +18,10 @@
     <script src="auth-gate.js?v=20260516a"></script>
     <script src="tt-bottom-nav.js?v=20260517a" defer></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
+    <!-- TradesPerformance — same component the legacy /simulation-dashboard
+         uses. Provides the P&L calendar + monthly perf table + setup
+         breakdown. Loaded via window.TradesPerformanceFactory(deps). -->
+    <script src="trades-performance.js?v=20260517a"></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -358,9 +362,14 @@
           return await r.json();
         } catch (_) { return null; }
       }
-      async function fetchHistory() {
+      // Trade history is split by mode in the ledger. /timed/ledger/trades
+      // defaults to trader; ?mode=investor returns the investor mode's
+      // history. Phase 6 fetches both so the calendar + monthly perf
+      // tables can render per mode.
+      async function fetchHistoryByMode(mode) {
+        const qs = mode === "investor" ? "?mode=investor&limit=500" : "?limit=500";
         try {
-          const r = await fetch(`${API_BASE}/timed/ledger/trades?limit=200`, {
+          const r = await fetch(`${API_BASE}/timed/ledger/trades${qs}`, {
             credentials: "include", cache: "no-store",
           });
           if (!r.ok) return null;
@@ -519,59 +528,35 @@
         );
       }
 
-      // ── MonthlyPnL — bar list grouped from equity-curve points.
-      function MonthlyPnL({ traderPoints, investorPoints, mode }) {
-        const points = mode === "trader" ? traderPoints : investorPoints;
-        const months = useMemo(() => {
-          if (!Array.isArray(points) || points.length === 0) return [];
-          const byMonth = new Map();
-          for (const p of points) {
-            const key = String(p.date).slice(0, 7);
-            const cur = byMonth.get(key) || { month: key, pnl: 0, days: 0 };
-            cur.pnl += Number(p.dayPnl) || 0;
-            cur.days += 1;
-            byMonth.set(key, cur);
-          }
-          return Array.from(byMonth.values()).sort((a, b) => a.month < b.month ? 1 : -1);
-        }, [points]);
-        const maxAbs = useMemo(() => months.reduce((m, x) => Math.max(m, Math.abs(x.pnl)), 1), [months]);
+      // ── PerformanceSection — wraps the production TradesPerformance
+      //    component from /trades-performance.js (the same factory the
+      //    legacy /simulation-dashboard.html uses). Renders the full
+      //    P&L Calendar + Monthly Performance table + Setup Breakdown
+      //    panel for the selected mode. Toggle between Active Trader
+      //    and Investor.
+      function PerformanceSection({ traderTrades, investorTrades, mode }) {
+        const TradesPerformance = useMemo(() => {
+          const factory = (typeof window !== "undefined") && window.TradesPerformanceFactory;
+          if (!factory) return null;
+          try { return factory({ React, API_BASE }); }
+          catch (e) { console.warn("[Portfolio] TradesPerformanceFactory failed:", e); return null; }
+        }, []);
 
-        return h("section", { className: "tt-row" },
-          h("div", { className: "tt-sec-title" }, "MONTHLY P&L"),
-          h("div", { className: "tt-sec-h" },
-            mode === "trader" ? "Active Trader" : "Investor",
-            " — month-by-month realized P&L",
-          ),
-          h("div", { className: "tt-card tt-card-pad" },
-            months.length === 0
-              ? h("div", { className: "tbl empty" }, "No monthly P&L yet.")
-              : months.map((m) => {
-                  const pct = Math.min(100, (Math.abs(m.pnl) / maxAbs) * 100);
-                  const up = m.pnl >= 0;
-                  return h("div", { key: m.month, className: "pl-row" },
-                    h("div", { className: "pl-month" }, fmtMonth(m.month)),
-                    h("div", { className: "pl-bar-track" },
-                      h("div", {
-                        className: `pl-bar ${up ? "up" : "dn"}`,
-                        style: {
-                          width: `${pct}%`,
-                          left: up ? "50%" : `${50 - pct}%`,
-                          opacity: 0.85,
-                        },
-                      }),
-                      h("div", { style: {
-                        position: "absolute",
-                        left: "50%", top: 0, bottom: 0,
-                        width: 1, background: "rgba(255,255,255,0.10)",
-                      } }),
-                    ),
-                    h("div", { className: `pl-amt ${up ? "up" : "dn"}` },
-                      `${up ? "+" : "-"}${fmtUsd(Math.abs(m.pnl))}`,
-                    ),
-                  );
-                }),
-          ),
-        );
+        if (!TradesPerformance) {
+          return h("div", { className: "tt-card tt-card-pad", style: { color: "var(--tt-text-dim)" } },
+            "Performance overview is loading…",
+          );
+        }
+
+        const trades = mode === "trader" ? (traderTrades || []) : (investorTrades || []);
+        const startCash = 100000;
+
+        return h(TradesPerformance, {
+          trades,
+          loading: !Array.isArray(trades) || trades.length === 0,
+          accountStartCash: startCash,
+          mode,
+        });
       }
 
       // ── OpenPositions — current open trades.
@@ -689,7 +674,8 @@
       function PortfolioApp() {
         const [eq, setEq] = useState(null);
         const [positions, setPositions] = useState(null);
-        const [history, setHistory] = useState(null);
+        const [traderHistory, setTraderHistory] = useState(null);
+        const [investorHistory, setInvestorHistory] = useState(null);
         const [monthlyMode, setMonthlyMode] = useState("trader");
         const [error, setError] = useState(null);
 
@@ -697,15 +683,17 @@
           let alive = true;
           (async () => {
             try {
-              const [e, p, h_] = await Promise.all([
+              const [e, p, ht, hi] = await Promise.all([
                 fetchEquityCurve(),
                 fetchPositions(),
-                fetchHistory(),
+                fetchHistoryByMode("trader"),
+                fetchHistoryByMode("investor"),
               ]);
               if (!alive) return;
               if (e?.ok) setEq(e); else setError("Failed to load equity curve");
               if (p?.ok) setPositions(p.trades || []);
-              if (h_?.ok) setHistory(h_.trades || []);
+              if (ht?.ok) setTraderHistory(ht.trades || []);
+              if (hi?.ok) setInvestorHistory(hi.trades || []);
             } catch (err) { if (alive) setError(String(err?.message || err)); }
           })();
           return () => { alive = false; };
@@ -767,27 +755,35 @@
                   h("div", { className: "tt-sec-h" }, "Currently held by the model"),
                   h("div", { className: "sk", style: { height: 200, borderRadius: 12 } }),
                 ),
-            // Monthly P&L with mode toggle
+            // P&L Calendar + Monthly Performance + Setup Breakdown.
+            // Uses the production TradesPerformance component from
+            // /trades-performance.js — the same one /simulation-dashboard
+            // uses — so the calendar / monthly table / setup breakdown
+            // render identically to the legacy page.
             !loading && h("section", { className: "tt-row" },
-              h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 } },
+              h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 10 } },
                 h("div", null,
-                  h("div", { className: "tt-sec-title" }, "MONTHLY P&L"),
-                  h("div", { className: "tt-sec-h", style: { margin: 0 } }, monthlyMode === "trader" ? "Active Trader" : "Investor"),
+                  h("div", { className: "tt-sec-title" }, "PERFORMANCE OVERVIEW"),
+                  h("div", { className: "tt-sec-h", style: { margin: 0 } },
+                    monthlyMode === "trader" ? "Active Trader" : "Investor",
+                    " — calendar, monthly P&L, setup breakdown",
+                  ),
                 ),
                 h("div", { className: "mode-toggle" },
                   h("button", { className: monthlyMode === "trader" ? "active" : "", onClick: () => setMonthlyMode("trader") }, "Active Trader"),
                   h("button", { className: monthlyMode === "investor" ? "active" : "", onClick: () => setMonthlyMode("investor") }, "Investor"),
                 ),
               ),
-              h(MonthlyPnL, {
-                traderPoints:   traderPayload?.points   || [],
-                investorPoints: investorPayload?.points || [],
+              h(PerformanceSection, {
+                traderTrades: traderHistory,
+                investorTrades: investorHistory,
                 mode: monthlyMode,
               }),
             ),
-            // Trade history
-            history
-              ? h(TradeHistory, { trades: history })
+            // Trade history table (recent closed trades — supplements the
+            // calendar above with a row-by-row view).
+            (traderHistory || investorHistory)
+              ? h(TradeHistory, { trades: monthlyMode === "trader" ? (traderHistory || []) : (investorHistory || []) })
               : h("section", { className: "tt-row" },
                   h("div", { className: "tt-sec-title" }, "TRADE HISTORY"),
                   h("div", { className: "tt-sec-h" }, "Recent closed trades"),
