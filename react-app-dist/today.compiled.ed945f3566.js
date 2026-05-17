@@ -957,8 +957,8 @@ function useOpenTrades(enabled) {
 }
 function applyFilters(tickers, f, chips) {
   const q = String(f?.query || "").trim().toUpperCase();
-  const activeId = f?.activeChip || "focus";
-  const chip = (chips || []).find(c => c.id === activeId);
+  const activeId = f?.activeChip || null;
+  const chip = activeId && activeId !== "all" ? (chips || []).find(c => c.id === activeId) : null;
   const chipSet = chip && Array.isArray(chip.tickers) && chip.tickers.length > 0 ? new Set(chip.tickers.map(s => TT_NORM_TICKER(s))) : null;
   return tickers.filter(t => {
     if (!t || !t.ticker) return false;
@@ -987,6 +987,12 @@ function AnalysisControls({
     ...f,
     activeChip: id
   }));
+  const clearAll = () => setFilters({
+    activeChip: "all",
+    query: ""
+  });
+  const isCleared = activeChip === "all" || activeChip == null;
+  const isFiltered = !isCleared || String(query || "").trim().length > 0;
   const rows = useMemo(() => {
     const byRow = {
       focus: [],
@@ -1035,7 +1041,11 @@ function AnalysisControls({
     className: "tt-sec-h"
   }, "Find what is moving — filter both views below")), h("div", {
     className: "ac-meta"
-  }, h("strong", null, visibleCount), " of ", h("strong", null, totalCount), " tickers")), h("div", {
+  }, isFiltered && h("button", {
+    className: "ac-clear",
+    onClick: clearAll,
+    title: "Clear active chip + search · show every ticker"
+  }, "✕ Clear filters"), h("span", null, h("strong", null, visibleCount), " of ", h("strong", null, totalCount), " tickers"))), h("div", {
     className: "ac-search"
   }, h("span", {
     className: "ac-search-icon"
@@ -2035,7 +2045,7 @@ function TodayApp() {
   const [error, setError] = useState(null);
   const [filters, setFilters] = useState({
     query: "",
-    activeChip: "focus"
+    activeChip: "all"
   });
   useEffect(() => {
     let alive = true;
