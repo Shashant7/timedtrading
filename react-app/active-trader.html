@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-at4" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-at5" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -20,6 +20,11 @@
     <script src="shared-price-utils.js?v=20260304a"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
+    <!-- Right rail factory + helpers + bootstrap so card clicks open the
+         ticker detail panel inline (verbatim port of /index-react's rail). -->
+    <script src="shared-rail-helpers.js?v=20260517b"></script>
+    <script src="shared-right-rail.compiled.js?v=20260517b"></script>
+    <script src="shared-rail-bootstrap.js?v=20260517b"></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -259,6 +264,8 @@
       .lane.defend           { --lane-accent: #fb923c; }
       .lane.trim             { --lane-accent: #facc15; }
       .lane.exit             { --lane-accent: var(--tt-dn-soft); }
+
+      /* Right rail overlay CSS lives in tt-tokens.css (shared). */
 
       /* Loading bar */
       .tt-loadbar {
@@ -1037,9 +1044,26 @@
           heads.forEach((t) => t?.ticker && ensureSpark(t.ticker));
         }, [lanes, ensureSpark]);
 
-        const onOpen = (sym) => {
-          window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
-        };
+        // Right rail overlay state — card clicks pop the slide-in panel
+        // (same component /index-react.html uses) so users can drill into
+        // a ticker without leaving the Active Trader board.
+        const [railTicker, setRailTicker] = useState(null);
+        const railTickerObj = useMemo(() => {
+          if (!railTicker || !data) return null;
+          const key = String(railTicker).toUpperCase();
+          const found = allTickers.find((t) => String(t?.ticker || "").toUpperCase() === key);
+          return found || null;
+        }, [railTicker, allTickers, data]);
+        const onOpen = useCallback((sym) => {
+          if (!sym) return;
+          if (!window.TimedRightRail?.Overlay) {
+            window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+            return;
+          }
+          setRailTicker(String(sym).toUpperCase());
+        }, []);
+        const onCloseRail = useCallback(() => setRailTicker(null), []);
+        const RailOverlay = window.TimedRightRail?.Overlay || null;
 
         if (error) {
           return h("main", null,
@@ -1100,6 +1124,15 @@
                   h(KanbanLane, { key: "exit",      id: "exit",      title: "Exit",              accentClass: "exit",      tickers: lanes.exit,   sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
                 ],
           ),
+          // Right rail slide-in. The Overlay component lives in
+          // shared-rail-bootstrap.js and reuses the same factory the
+          // Active Trader dashboard uses, so tabs / actions / sector
+          // group / pattern detection all match.
+          RailOverlay && railTickerObj && h(RailOverlay, {
+            ticker: railTickerObj,
+            allLoadedData: data,
+            onClose: onCloseRail,
+          }),
         );
       }
 

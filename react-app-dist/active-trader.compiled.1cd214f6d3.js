@@ -872,9 +872,23 @@ function ActiveTraderApp() {
     const heads = [].concat(lanes.setup.slice(0, 6)).concat(lanes.enter.slice(0, 6)).concat(lanes.new.slice(0, 6)).concat(lanes.hold.slice(0, 12)).concat(lanes.defend.slice(0, 12)).concat(lanes.trim.slice(0, 6)).concat(lanes.exit.slice(0, 6));
     heads.forEach(t => t?.ticker && ensureSpark(t.ticker));
   }, [lanes, ensureSpark]);
-  const onOpen = sym => {
-    window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
-  };
+  const [railTicker, setRailTicker] = useState(null);
+  const railTickerObj = useMemo(() => {
+    if (!railTicker || !data) return null;
+    const key = String(railTicker).toUpperCase();
+    const found = allTickers.find(t => String(t?.ticker || "").toUpperCase() === key);
+    return found || null;
+  }, [railTicker, allTickers, data]);
+  const onOpen = useCallback(sym => {
+    if (!sym) return;
+    if (!window.TimedRightRail?.Overlay) {
+      window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+      return;
+    }
+    setRailTicker(String(sym).toUpperCase());
+  }, []);
+  const onCloseRail = useCallback(() => setRailTicker(null), []);
+  const RailOverlay = window.TimedRightRail?.Overlay || null;
   if (error) {
     return h("main", null, h("div", {
       className: "tt-card tt-card-pad",
@@ -1045,7 +1059,11 @@ function ActiveTraderApp() {
     onToggleSaved: toggleSaved,
     onOpen,
     tradeByTicker
-  })]));
+  })]), RailOverlay && railTickerObj && h(RailOverlay, {
+    ticker: railTickerObj,
+    allLoadedData: data,
+    onClose: onCloseRail
+  }));
 }
 const AuthGate = window.TimedAuthGate;
 const app = AuthGate ? React.createElement(AuthGate, {

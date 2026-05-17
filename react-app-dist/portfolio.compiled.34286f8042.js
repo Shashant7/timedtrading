@@ -2,7 +2,8 @@
 const {
   useState,
   useEffect,
-  useMemo
+  useMemo,
+  useCallback
 } = React;
 const h = React.createElement;
 const API_BASE = "";
@@ -441,7 +442,8 @@ function PerformanceSection({
   });
 }
 function OpenPositions({
-  trades
+  trades,
+  onSelectTicker
 }) {
   const rows = useMemo(() => {
     if (!Array.isArray(trades)) return [];
@@ -467,13 +469,14 @@ function OpenPositions({
     const sym = String(t?.ticker || "").toUpperCase();
     const dir = String(t?.direction || "").toUpperCase();
     const isLong = dir === "LONG";
+    const openTicker = () => {
+      if (typeof onSelectTicker === "function") onSelectTicker(sym);else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+    };
     return h("tr", {
       key: `${sym}-${t.entry_ts || t.entryTs || sym}`
     }, h("td", {
       className: "sym",
-      onClick: () => {
-        window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
-      },
+      onClick: openTicker,
       style: {
         cursor: "pointer"
       }
@@ -483,7 +486,8 @@ function OpenPositions({
   })))));
 }
 function TradeHistory({
-  trades
+  trades,
+  onSelectTicker
 }) {
   const rows = useMemo(() => {
     if (!Array.isArray(trades)) return [];
@@ -512,13 +516,14 @@ function TradeHistory({
     const realized = Number(t?.realized_pnl ?? t?.realizedPnl ?? t?.pnl);
     const realizedPct = Number(t?.realized_pct ?? t?.realizedPct ?? t?.pct_return);
     const result = String(t?.status || "").toUpperCase() || (realized > 0 ? "WIN" : realized < 0 ? "LOSS" : "FLAT");
+    const openTicker = () => {
+      if (typeof onSelectTicker === "function") onSelectTicker(sym);else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+    };
     return h("tr", {
       key: `${sym}-${t.exit_ts || t.exitTs || sym}-${t.entry_ts || ""}`
     }, h("td", {
       className: "sym",
-      onClick: () => {
-        window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
-      },
+      onClick: openTicker,
       style: {
         cursor: "pointer"
       }
@@ -540,16 +545,21 @@ function PortfolioApp() {
   const [investorHistory, setInvestorHistory] = useState(null);
   const [monthlyMode, setMonthlyMode] = useState("trader");
   const [error, setError] = useState(null);
+  const [allData, setAllData] = useState(null);
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const [e, p, ht, hi] = await Promise.all([fetchEquityCurve(), fetchPositions(), fetchHistoryByMode("trader"), fetchHistoryByMode("investor")]);
+        const [e, p, ht, hi, all] = await Promise.all([fetchEquityCurve(), fetchPositions(), fetchHistoryByMode("trader"), fetchHistoryByMode("investor"), fetch(`${API_BASE}/timed/all`, {
+          cache: "no-store",
+          credentials: "include"
+        }).then(r => r.ok ? r.json() : null).catch(() => null)]);
         if (!alive) return;
         if (e?.ok) setEq(e);else setError("Failed to load equity curve");
         if (p?.ok) setPositions(p.trades || []);
         if (ht?.ok) setTraderHistory(ht.trades || []);
         if (hi?.ok) setInvestorHistory(hi.trades || []);
+        if (all?.ok) setAllData(all.data || {});
       } catch (err) {
         if (alive) setError(String(err?.message || err));
       }
@@ -558,6 +568,31 @@ function PortfolioApp() {
       alive = false;
     };
   }, []);
+  const [railTicker, setRailTicker] = useState(null);
+  const railTickerObj = useMemo(() => {
+    if (!railTicker) return null;
+    const key = String(railTicker).toUpperCase();
+    if (allData && allData[key]) {
+      const raw = allData[key];
+      return raw.ticker ? raw : {
+        ticker: key,
+        ...raw
+      };
+    }
+    return {
+      ticker: key
+    };
+  }, [railTicker, allData]);
+  const onSelectTicker = useCallback(sym => {
+    if (!sym) return;
+    if (!window.TimedRightRail?.Overlay) {
+      window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+      return;
+    }
+    setRailTicker(String(sym).toUpperCase());
+  }, []);
+  const onCloseRail = useCallback(() => setRailTicker(null), []);
+  const RailOverlay = window.TimedRightRail?.Overlay || null;
   if (error && !eq) {
     return h("main", null, h("div", {
       className: "tt-card tt-card-pad",
@@ -609,7 +644,8 @@ function PortfolioApp() {
     payload: investorPayload,
     history: investorHistory
   }))), positions ? h(OpenPositions, {
-    trades: positions
+    trades: positions,
+    onSelectTicker
   }) : h("section", {
     className: "tt-row"
   }, h("div", {
@@ -653,7 +689,8 @@ function PortfolioApp() {
     investorTrades: investorHistory,
     mode: monthlyMode
   })), traderHistory || investorHistory ? h(TradeHistory, {
-    trades: monthlyMode === "trader" ? traderHistory || [] : investorHistory || []
+    trades: monthlyMode === "trader" ? traderHistory || [] : investorHistory || [],
+    onSelectTicker
   }) : h("section", {
     className: "tt-row"
   }, h("div", {
@@ -666,7 +703,11 @@ function PortfolioApp() {
       height: 200,
       borderRadius: 12
     }
-  }))));
+  }))), RailOverlay && railTickerObj && h(RailOverlay, {
+    ticker: railTickerObj,
+    allLoadedData: allData,
+    onClose: onCloseRail
+  }));
 }
 const AuthGate = window.TimedAuthGate;
 const app = AuthGate ? React.createElement(AuthGate, {

@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-port4" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-port5" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -22,6 +22,12 @@
          uses. Provides the P&L calendar + monthly perf table + setup
          breakdown. Loaded via window.TradesPerformanceFactory(deps). -->
     <script src="trades-performance.js?v=20260517a"></script>
+    <!-- Right rail factory + helpers + bootstrap so positions / history
+         rows open the same ticker-detail panel /index-react.html uses. -->
+    <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
+    <script src="shared-rail-helpers.js?v=20260517b"></script>
+    <script src="shared-right-rail.compiled.js?v=20260517b"></script>
+    <script src="shared-rail-bootstrap.js?v=20260517b"></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -317,7 +323,7 @@
     </div>
 
     <script type="text/babel">
-      const { useState, useEffect, useMemo } = React;
+      const { useState, useEffect, useMemo, useCallback } = React;
       const h = React.createElement;
       const API_BASE = "";
 
@@ -642,7 +648,7 @@
       }
 
       // ── OpenPositions — current open trades.
-      function OpenPositions({ trades }) {
+      function OpenPositions({ trades, onSelectTicker }) {
         const rows = useMemo(() => {
           if (!Array.isArray(trades)) return [];
           return trades
@@ -676,8 +682,12 @@
                       const sym = String(t?.ticker || "").toUpperCase();
                       const dir = String(t?.direction || "").toUpperCase();
                       const isLong = dir === "LONG";
+                      const openTicker = () => {
+                        if (typeof onSelectTicker === "function") onSelectTicker(sym);
+                        else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+                      };
                       return h("tr", { key: `${sym}-${t.entry_ts || t.entryTs || sym}` },
-                        h("td", { className: "sym", onClick: () => { window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`; }, style: { cursor: "pointer" } }, sym),
+                        h("td", { className: "sym", onClick: openTicker, style: { cursor: "pointer" } }, sym),
                         h("td", { className: isLong ? "up" : "dn" }, dir || "—"),
                         h("td", null, fmtUsdDec(Number(t?.entry_price ?? t?.entryPrice))),
                         h("td", null, fmtDate(Number(t?.entry_ts ?? t?.entryTs))),
@@ -693,7 +703,7 @@
       }
 
       // ── TradeHistory — closed trades (most recent first).
-      function TradeHistory({ trades }) {
+      function TradeHistory({ trades, onSelectTicker }) {
         const rows = useMemo(() => {
           if (!Array.isArray(trades)) return [];
           return trades
@@ -732,8 +742,12 @@
                       const realized = Number(t?.realized_pnl ?? t?.realizedPnl ?? t?.pnl);
                       const realizedPct = Number(t?.realized_pct ?? t?.realizedPct ?? t?.pct_return);
                       const result = String(t?.status || "").toUpperCase() || (realized > 0 ? "WIN" : realized < 0 ? "LOSS" : "FLAT");
+                      const openTicker = () => {
+                        if (typeof onSelectTicker === "function") onSelectTicker(sym);
+                        else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+                      };
                       return h("tr", { key: `${sym}-${t.exit_ts || t.exitTs || sym}-${t.entry_ts || ""}` },
-                        h("td", { className: "sym", onClick: () => { window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`; }, style: { cursor: "pointer" } }, sym),
+                        h("td", { className: "sym", onClick: openTicker, style: { cursor: "pointer" } }, sym),
                         h("td", { className: isLong ? "up" : "dn" }, dir || "—"),
                         h("td", null, fmtUsdDec(Number(t?.entry_price ?? t?.entryPrice))),
                         h("td", null, fmtUsdDec(Number(t?.exit_price ?? t?.exitPrice))),
@@ -760,26 +774,58 @@
         const [investorHistory, setInvestorHistory] = useState(null);
         const [monthlyMode, setMonthlyMode] = useState("trader");
         const [error, setError] = useState(null);
+        const [allData, setAllData] = useState(null);
 
         useEffect(() => {
           let alive = true;
           (async () => {
             try {
-              const [e, p, ht, hi] = await Promise.all([
+              const [e, p, ht, hi, all] = await Promise.all([
                 fetchEquityCurve(),
                 fetchPositions(),
                 fetchHistoryByMode("trader"),
                 fetchHistoryByMode("investor"),
+                // /timed/all gives the rail full universe context for
+                // ranking / sector rollups / market state when opened
+                // from a Portfolio row.
+                fetch(`${API_BASE}/timed/all`, { cache: "no-store", credentials: "include" })
+                  .then((r) => r.ok ? r.json() : null).catch(() => null),
               ]);
               if (!alive) return;
               if (e?.ok) setEq(e); else setError("Failed to load equity curve");
               if (p?.ok) setPositions(p.trades || []);
               if (ht?.ok) setTraderHistory(ht.trades || []);
               if (hi?.ok) setInvestorHistory(hi.trades || []);
+              if (all?.ok) setAllData(all.data || {});
             } catch (err) { if (alive) setError(String(err?.message || err)); }
           })();
           return () => { alive = false; };
         }, []);
+
+        // Right rail overlay state — Portfolio table rows pop the same
+        // ticker-detail panel /index-react.html uses.
+        const [railTicker, setRailTicker] = useState(null);
+        const railTickerObj = useMemo(() => {
+          if (!railTicker) return null;
+          const key = String(railTicker).toUpperCase();
+          if (allData && allData[key]) {
+            const raw = allData[key];
+            return raw.ticker ? raw : { ticker: key, ...raw };
+          }
+          // Fall back to a minimal stub so the rail still renders the
+          // header / live price fetch (its internal hooks ask /timed/all).
+          return { ticker: key };
+        }, [railTicker, allData]);
+        const onSelectTicker = useCallback((sym) => {
+          if (!sym) return;
+          if (!window.TimedRightRail?.Overlay) {
+            window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+            return;
+          }
+          setRailTicker(String(sym).toUpperCase());
+        }, []);
+        const onCloseRail = useCallback(() => setRailTicker(null), []);
+        const RailOverlay = window.TimedRightRail?.Overlay || null;
 
         if (error && !eq) {
           return h("main", null,
@@ -833,7 +879,7 @@
             ),
             // Open positions
             positions
-              ? h(OpenPositions, { trades: positions })
+              ? h(OpenPositions, { trades: positions, onSelectTicker })
               : h("section", { className: "tt-row" },
                   h("div", { className: "tt-sec-title" }, "OPEN POSITIONS"),
                   h("div", { className: "tt-sec-h" }, "Currently held by the model"),
@@ -867,13 +913,19 @@
             // Trade history table (recent closed trades — supplements the
             // calendar above with a row-by-row view).
             (traderHistory || investorHistory)
-              ? h(TradeHistory, { trades: monthlyMode === "trader" ? (traderHistory || []) : (investorHistory || []) })
+              ? h(TradeHistory, { trades: monthlyMode === "trader" ? (traderHistory || []) : (investorHistory || []), onSelectTicker })
               : h("section", { className: "tt-row" },
                   h("div", { className: "tt-sec-title" }, "TRADE HISTORY"),
                   h("div", { className: "tt-sec-h" }, "Recent closed trades"),
                   h("div", { className: "sk", style: { height: 200, borderRadius: 12 } }),
                 ),
           ),
+          // Right rail slide-in (TickerDetailRightRail).
+          RailOverlay && railTickerObj && h(RailOverlay, {
+            ticker: railTickerObj,
+            allLoadedData: allData,
+            onClose: onCloseRail,
+          }),
         );
       }
 

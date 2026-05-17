@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-inv1" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-inv2" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -20,6 +20,12 @@
     <script src="shared-price-utils.js?v=20260304a"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="investor-panel.js?v=20260517a"></script>
+    <!-- Right rail factory + helpers + bootstrap so card clicks open the
+         ticker detail panel inline (verbatim port of /index-react's rail). -->
+    <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
+    <script src="shared-rail-helpers.js?v=20260517b"></script>
+    <script src="shared-right-rail.compiled.js?v=20260517b"></script>
+    <script src="shared-rail-bootstrap.js?v=20260517b"></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -166,7 +172,7 @@
     </div>
 
     <script type="text/babel">
-      const { useState, useEffect, useCallback } = React;
+      const { useState, useEffect, useMemo, useCallback } = React;
       const h = React.createElement;
       const API_BASE = "";
 
@@ -266,12 +272,43 @@
           return () => clearInterval(id);
         }, [panelMounted]);
 
-        const onSelectTicker = (sym) => {
-          // Investor cards click → deep-link into /index-react.html?ticker=X
-          // with the investor tab pre-selected (legacy behavior preserved).
+        // Loaded ticker data — InvestorPanel can also hand it back via prop but
+        // we pull /timed/all once here so the right-rail overlay has the
+        // full universe context (allLoadedData) when a card is clicked.
+        const [data, setData] = useState(null);
+        useEffect(() => {
+          let alive = true;
+          (async () => {
+            try {
+              const r = await fetch(`${API_BASE}/timed/all`, { cache: "no-store", credentials: "include" });
+              if (!r.ok || !alive) return;
+              const j = await r.json();
+              if (alive && j?.ok) setData(j.data || {});
+            } catch (_) {}
+          })();
+          return () => { alive = false; };
+        }, []);
+
+        // Right rail overlay state — card clicks pop the same ticker
+        // detail panel /index-react.html uses (no full page nav).
+        const [railTicker, setRailTicker] = useState(null);
+        const railTickerObj = useMemo(() => {
+          if (!railTicker || !data) return null;
+          const key = String(railTicker).toUpperCase();
+          const raw = data[key];
+          if (!raw) return { ticker: key };
+          return raw.ticker ? raw : { ticker: key, ...raw };
+        }, [railTicker, data]);
+        const onSelectTicker = useCallback((sym) => {
           if (!sym) return;
-          window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
-        };
+          if (!window.TimedRightRail?.Overlay) {
+            window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+            return;
+          }
+          setRailTicker(String(sym).toUpperCase());
+        }, []);
+        const onCloseRail = useCallback(() => setRailTicker(null), []);
+        const RailOverlay = window.TimedRightRail?.Overlay || null;
 
         return h(React.Fragment, null,
           !panelMounted && h("div", { className: "tt-loadbar", role: "progressbar", "aria-label": "Loading Investor" }),
@@ -314,6 +351,12 @@
                   ),
                 ),
           ),
+          // Right rail slide-in (TickerDetailRightRail).
+          RailOverlay && railTickerObj && h(RailOverlay, {
+            ticker: railTickerObj,
+            allLoadedData: data,
+            onClose: onCloseRail,
+          }),
         );
       }
 
