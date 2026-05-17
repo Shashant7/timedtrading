@@ -360,9 +360,31 @@
   function injectJourneyLinks() {
     // Only run on admin pages — journey pages already have these
     // links in their HTML, no need to duplicate.
-    const path = (window.location?.pathname || "").toLowerCase();
-    const JOURNEY_PATHS = new Set(["/today.html", "/active-trader.html", "/investor.html", "/portfolio.html", "/insights.html", "/learn.html", "/faq.html"]);
-    if (JOURNEY_PATHS.has(path)) return;
+    //
+    // V15 P0.7.185 (2026-05-17) — Cloudflare Pages serves journey
+    // pages WITHOUT the .html extension (`/today` not
+    // `/today.html`). The earlier strict-match check missed those
+    // URLs and ended up injecting the strip ON journey pages too,
+    // which created a redundant nav row above the brand. Normalize
+    // by stripping the .html suffix before comparing.
+    const rawPath = (window.location?.pathname || "").toLowerCase();
+    const path = rawPath.replace(/\.html$/, "").replace(/\/$/, "") || "/";
+    const JOURNEY_PATHS = new Set([
+      "/today",
+      "/active-trader",
+      "/investor",
+      "/portfolio",
+      "/insights",
+      "/learn",
+      "/faq",
+    ]);
+    if (JOURNEY_PATHS.has(path)) {
+      // If a prior version of this script injected the strip on a
+      // journey page (cached old code or stale tab), clean it up so
+      // the user sees only the page's native nav.
+      document.querySelectorAll(".tt-journey-strip").forEach((el) => el.remove());
+      return;
+    }
 
     // Find the first <nav> on the page (admin pages render their nav
     // through React but the rendered DOM has a top-level <nav>).
@@ -371,7 +393,7 @@
     if (nav.querySelector(".tt-journey-strip")) return; // already injected
 
     // Skip splash / standalone pages where injecting nav makes no sense.
-    if (path === "/" || path === "/splash.html") return;
+    if (path === "/" || path === "/splash") return;
 
     const strip = document.createElement("div");
     strip.className = "tt-journey-strip";
