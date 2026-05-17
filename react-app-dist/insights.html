@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-ins7" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-ins8" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <link rel="stylesheet" href="tailwind.generated.css" />
@@ -18,7 +18,7 @@
     <script src="auth-gate.js?v=20260516a"></script>
     <script src="tt-fetch-cache.js?v=20260517a"></script>
     <script src="tt-bottom-nav.js?v=20260517a" defer></script>
-    <script src="tt-nav-extras.js?v=20260517c" defer></script>
+    <script src="tt-nav-extras.js?v=20260517d" defer></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -227,6 +227,123 @@
         color: var(--tt-text-muted);
       }
       .cio-stage strong { font-weight: 700; font-family: var(--tt-font-mono); color: var(--tt-text); }
+      /* Universe Rebalance — directional reweight pills */
+      .rw-block {
+        flex: 1 1 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .rw-block-label {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--tt-text-dim);
+        font-family: var(--tt-font);
+      }
+      .rw-block-tally { font-family: var(--tt-font-mono); margin-left: 4px; font-weight: 600; }
+      .rw-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .rw-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 4px 9px;
+        border-radius: 6px;
+        font-size: 11.5px;
+        font-family: var(--tt-font-mono);
+        background: var(--tt-bg-elev);
+        border: 1px solid var(--tt-border);
+        color: var(--tt-text-muted);
+      }
+      .rw-pill .rw-sym { font-weight: 700; color: var(--tt-text); }
+      .rw-pill .rw-delta { display: inline-flex; gap: 2px; align-items: center; }
+      .rw-pill.rw-up {
+        color: var(--tt-up-soft);
+        background: var(--tt-up-bg);
+        border-color: rgba(34,197,94,0.30);
+      }
+      .rw-pill.rw-dn {
+        color: var(--tt-dn-soft);
+        background: var(--tt-dn-bg);
+        border-color: rgba(244,63,94,0.30);
+      }
+      .rw-more {
+        align-self: center;
+        font-size: 11px;
+        color: var(--tt-text-dim);
+        font-family: var(--tt-font-mono);
+      }
+
+      /* Active-board live P&L stat strip */
+      .cio-board-stats {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid var(--tt-border);
+      }
+      @media (max-width: 720px) {
+        .cio-board-stats { grid-template-columns: 1fr 1fr; }
+      }
+      .cio-board-stat {
+        display: flex;
+        flex-direction: column;
+      }
+      .cio-board-stat-l {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--tt-text-faint);
+        margin-bottom: 4px;
+      }
+      .cio-board-stat-v {
+        font-family: var(--tt-font-mono);
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--tt-text);
+      }
+      .cio-board-stat-sym {
+        font-family: var(--tt-font);
+        font-weight: 700;
+        color: var(--tt-text);
+      }
+      .cio-board-sectors {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 10px;
+        align-items: center;
+      }
+      .cio-board-sectors-l {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--tt-text-faint);
+        margin-right: 4px;
+      }
+      .cio-board-sector-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 8px;
+        border-radius: 6px;
+        font-size: 11px;
+        background: var(--tt-bg-elev);
+        border: 1px solid var(--tt-border);
+        color: var(--tt-text-muted);
+        font-family: var(--tt-font);
+      }
+      .cio-board-sector-pill strong {
+        font-family: var(--tt-font-mono);
+        color: var(--tt-text);
+      }
+
       .cio-stage--setup  { color: #93c5fd; background: rgba(96,165,250,0.08); border-color: rgba(96,165,250,0.24); }
       .cio-stage--enter  { color: var(--tt-accent); background: var(--tt-accent-dim); border-color: rgba(245,194,92,0.30); }
       .cio-stage--hold   { color: var(--tt-up-soft); background: var(--tt-up-bg); border-color: rgba(34,197,94,0.25); }
@@ -414,6 +531,7 @@
           <a href="/investor.html" class="nav-link">Investor</a>
           <a href="/portfolio.html" class="nav-link">Portfolio</a>
           <a href="/insights.html" class="nav-link active">Insights</a>
+          <a href="/faq.html" class="nav-link faq">FAQ</a>
           <a href="/learn.html" class="nav-link learn">Learn</a>
         </div>
       </div>
@@ -425,7 +543,7 @@
       </main>
     </div>
 
-    <script src="insights.compiled.ca1ba1acb5.js"></script>
+    <script src="insights.compiled.e7470602f6.js"></script>
 
     <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
