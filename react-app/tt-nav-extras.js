@@ -304,38 +304,46 @@
   // host container at the right of the nav-row. The host appears
   // *after* the .nav-links container so it sits on the far right
   // (matches the layout of /index-react.html's top nav).
+  // Mounted React roots so we can update them in place when auth
+  // resolves (e.g. show the avatar + alerts bell after login).
+  const _navRoots = new Map();
+
+  function getCurrentUser() {
+    // V15 P0.7.182 (2026-05-17) — getStoredSession returns the user
+    // object directly (the user fields are top-level — email,
+    // display_name, role, tier — and cachedAt is added as a sibling).
+    // The earlier nav-extras read `session?.user` which is always
+    // undefined for valid sessions, so the Avatar + Alerts widgets
+    // never received a user prop and silently rendered null.
+    const session = window.TimedAuthHelpers?.getStoredSession?.();
+    if (!session || typeof session !== "object") return null;
+    if (!session.email) return null;
+    return session;
+  }
+
   function injectRightWidgets() {
-    if (!isAdminUser() && !document.body?.dataset?.userTier) {
-      // Skip if we don't know auth status yet — re-run on auth event.
-      // (Discord waitlist is fine to show always, but avatar/alerts
-      //  expect a user object; we defer until auth resolves.)
-    }
     const navRow = document.querySelector("nav.topnav .nav-row");
     if (!navRow) return;
     let host = navRow.querySelector(".tt-nav-widgets");
-    if (host) return; // already mounted
+    if (!host) {
+      host = document.createElement("div");
+      host.className = "tt-nav-widgets";
+      navRow.appendChild(host);
+    }
 
-    host = document.createElement("div");
-    host.className = "tt-nav-widgets";
-    navRow.appendChild(host);
-
-    // Pull the auth-gate session so we can pass user / apiBase to the
-    // React widgets. WaitlistButton + NotificationCenter accept
-    // apiBase; UserBadge accepts a user prop.
-    const session = (window.TimedAuthHelpers?.getStoredSession?.() || null);
-    const user = session?.user || null;
+    const user = getCurrentUser();
     const apiBase = window.TT_API_BASE || "";
 
     if (typeof React === "undefined" || typeof ReactDOM === "undefined") {
-      // React not available — just put a Discord CTA link as a
-      // graceful fallback.
-      const a = document.createElement("a");
-      a.href = "https://discord.gg/timedtrading";
-      a.target = "_blank";
-      a.rel = "noopener";
-      a.className = "tt-nav-widget-fallback";
-      a.textContent = "Discord";
-      host.appendChild(a);
+      if (!host.querySelector(".tt-nav-widget-fallback")) {
+        const a = document.createElement("a");
+        a.href = "https://discord.gg/timedtrading";
+        a.target = "_blank";
+        a.rel = "noopener";
+        a.className = "tt-nav-widget-fallback";
+        a.textContent = "Discord";
+        host.appendChild(a);
+      }
       return;
     }
 
@@ -347,12 +355,27 @@
 
     for (const slot of slots) {
       if (typeof slot.Factory !== "function") continue;
-      if (slot.requiresUser && !user) continue;
-      const mount = document.createElement("div");
-      mount.className = `tt-nav-widget tt-nav-widget--${slot.key}`;
-      host.appendChild(mount);
+      const hasUser = !!user;
+
+      // Find or create the mount node for this slot.
+      let mount = host.querySelector(`.tt-nav-widget--${slot.key}`);
+      if (!mount) {
+        mount = document.createElement("div");
+        mount.className = `tt-nav-widget tt-nav-widget--${slot.key}`;
+        host.appendChild(mount);
+      }
+
+      // Slots that require a user stay empty (but mounted) until auth
+      // resolves. When the user finally arrives we render into the
+      // same root so the layout doesn't reshuffle.
+      if (slot.requiresUser && !hasUser) continue;
+
       try {
-        const root = ReactDOM.createRoot ? ReactDOM.createRoot(mount) : null;
+        let root = _navRoots.get(slot.key);
+        if (!root && ReactDOM.createRoot) {
+          root = ReactDOM.createRoot(mount);
+          _navRoots.set(slot.key, root);
+        }
         const props =
           slot.key === "avatar"  ? { user, compact: true } :
           slot.key === "alerts"  ? { apiBase } :
@@ -393,8 +416,28 @@
   // Re-run when auth-gate finishes (sets _ttIsAdmin via body.dataset).
   // Auth-gate dispatches `tt-auth-bootstrap-updated` with the user
   // profile; admin status is reflected in body.dataset.isAdmin /
-  // window._ttIsAdmin shortly after that fires.
+  // window._ttIsAdmin shortly after that fires. We re-inject both the
+  // admin menu AND the right-side widgets so Avatar + Alerts mount
+  // once the user is known (they were always hidden on first load
+  // because the session wasn't read yet).
   window.addEventListener("tt-auth-bootstrap-updated", () => {
     injectAdminMenu();
+    injectRightWidgets();
   });
+
+  // Also poll briefly during the first ~3s in case the user is
+  // present in localStorage already but the auth event hasn't fired
+  // yet (which happens on a hard refresh — the session cache is hot
+  // but the React auth gate is still booting).
+  (function pollForUser() {
+    let tries = 0;
+    const id = setInterval(() => {
+      tries += 1;
+      const u = getCurrentUser();
+      if (u || tries > 20) {
+        injectRightWidgets();
+        if (u || tries > 20) clearInterval(id);
+      }
+    }, 150);
+  })();
 })();

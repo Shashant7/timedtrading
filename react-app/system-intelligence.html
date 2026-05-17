@@ -1730,6 +1730,18 @@ function CalibrationTab({ report, recs, reportId, onApply, applying, appliedMsg 
                 </div>
                 <button className="si-action si-action--primary" onClick={() => onApply(reportId)} disabled={applying}>{applying ? "Applying…" : "Apply All"}</button>
               </div>
+              {/* V15 P0.7.182 — Diagnostic-only banner so users know
+                  the report can't be applied directly. The handleApply
+                  flow now transparently re-runs as a promotion
+                  candidate first, so this banner is informative
+                  rather than blocking. */}
+              {report.diagnostic_only && (
+                <div className="si-banner si-banner--warn" style={{marginBottom:"var(--ds-space-3)"}}>
+                  <span style={{color:"var(--ds-accent)", fontSize:"var(--ds-fs-meta)"}}>
+                    <strong>Diagnostic report.</strong> Apply will first re-run the calibration as a promotion candidate (analysis_only=false), then persist the recommended deltas to <code>model_config</code>. The next scoring cron run will pick them up.
+                  </span>
+                </div>
+              )}
               {appliedMsg && (
                 <div className="si-banner si-banner--ok" style={{marginBottom:"var(--ds-space-3)"}}>
                   <span style={{color:"var(--ds-up)", fontSize:"var(--ds-fs-meta)"}}>{appliedMsg}</span>
@@ -1738,6 +1750,15 @@ function CalibrationTab({ report, recs, reportId, onApply, applying, appliedMsg 
               {report.wfo_summary?.verdict === "WARNING" && (
                 <div className="si-banner si-banner--warn" style={{marginBottom:"var(--ds-space-3)"}}>
                   <span style={{color:"var(--ds-accent)", fontSize:"var(--ds-fs-meta)"}}>WFO verdict is WARNING — apply with caution.</span>
+                </div>
+              )}
+              {/* Show when the report was generated + how many trades
+                  fed the analysis so users can judge freshness. */}
+              {(report.run_ts || report.trade_count != null) && (
+                <div style={{fontSize:"var(--ds-fs-meta)", color:"var(--ds-text-muted)", marginBottom:"var(--ds-space-3)"}}>
+                  {report.run_ts && <span>Generated {new Date(Number(report.run_ts)).toLocaleString()}</span>}
+                  {report.trade_count != null && <span> · trained on {report.trade_count} closed trades</span>}
+                  {report.applied_at && <span> · last applied {new Date(Number(report.applied_at)).toLocaleString()}</span>}
                 </div>
               )}
               <div className="space-y-2" style={{fontSize:"var(--ds-fs-meta)"}}>
@@ -5346,14 +5367,70 @@ function App() {
     } catch (e) { setError(String(e)); }
     setRunning(false);
   };
+  // V15 P0.7.182 (2026-05-17) — Better Apply UX.
+  //
+  // Two improvements:
+  //   1. If the report is `diagnostic_only`, transparently re-run the
+  //      calibration as a promotion candidate FIRST (analysis_only=
+  //      false) so the apply has something it can actually persist
+  //      to model_config. Previously the apply silently 409'd with
+  //      `diagnostic_only_report` and users assumed it worked.
+  //
+  //   2. Surface the worker's reply verbatim in the appliedMsg so
+  //      users can SEE what changed (or didn't). Includes the
+  //      message field for the diagnostic-only case.
   const handleApply = async (id) => {
-    setApplying(true); setAppliedMsg(null);
+    setApplying(true); setAppliedMsg(null); setError(null);
     try {
-      const res = await fetch(`${API_BASE}/timed/calibration/apply`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ report_id: id }), credentials: "include" });
+      let applyId = id;
+
+      // If we know the loaded report is diagnostic-only, re-run as a
+      // promotion candidate first so the apply has live deltas.
+      if (report && (report.diagnostic_only || report.diagnosticOnly)) {
+        setAppliedMsg("Re-running as promotion candidate so apply can persist…");
+        const runRes = await fetch(`${API_BASE}/timed/calibration/run`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ analysis_only: false, source_run_id: report.source_run_id || null, scope_kind: "global" }),
+          credentials: "include",
+        });
+        const runData = await runRes.json();
+        if (!runData?.ok || !runData.report?.report_id) {
+          setError(`Promotion run failed: ${runData?.error || "unknown"}`);
+          setAppliedMsg(null);
+          setApplying(false);
+          return;
+        }
+        applyId = runData.report.report_id;
+        setReport(runData.report);
+        setRecs(runData.report?.recommendations);
+        setReportId(applyId);
+      }
+
+      const res = await fetch(`${API_BASE}/timed/calibration/apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ report_id: applyId }),
+        credentials: "include",
+      });
       const data = await res.json();
-      if (data.ok) setAppliedMsg(`Applied: ${data.applied?.join(", ")}`);
-      else setError(data.error);
-    } catch (e) { setError(String(e)); }
+      if (data.ok) {
+        const parts = [];
+        if (Array.isArray(data.applied) && data.applied.length) parts.push(`Applied: ${data.applied.join(", ")}`);
+        if (Array.isArray(data.clamped) && data.clamped.length) parts.push(`(clamped ${data.clamped.length} values to safe bounds)`);
+        if (parts.length === 0) parts.push("Applied — no values changed.");
+        setAppliedMsg(parts.join(" "));
+        // Refresh data so the user sees the new effective config.
+        fetchData();
+      } else {
+        const msg = data.message || data.error || "Apply failed";
+        setError(msg);
+        setAppliedMsg(null);
+      }
+    } catch (e) {
+      setError(String(e?.message || e));
+      setAppliedMsg(null);
+    }
     setApplying(false);
   };
   const handleReset = async () => {

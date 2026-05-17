@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-port7" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-port8" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -18,7 +18,7 @@
     <script src="auth-gate.js?v=20260516a"></script>
     <script src="tt-fetch-cache.js?v=20260517a"></script>
     <script src="tt-bottom-nav.js?v=20260517a" defer></script>
-    <script src="tt-nav-extras.js?v=20260517b" defer></script>
+    <script src="tt-nav-extras.js?v=20260517c" defer></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
     <!-- TradesPerformance — same component the legacy /simulation-dashboard
          uses. Provides the P&L calendar + monthly perf table + setup
@@ -317,6 +317,29 @@
       .tbl-scroll[data-accent="trader"] { border-left: 2px solid rgba(52,211,153,0.45); }
       .tbl-scroll[data-accent="investor"] { border-left: 2px solid rgba(167,139,250,0.45); }
 
+      /* V15 P0.7.182 — Side-by-side Open Positions grid */
+      .op-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 18px;
+        margin-bottom: 28px;
+      }
+      @media (max-width: 1100px) {
+        .op-grid { grid-template-columns: 1fr; gap: 24px; }
+      }
+      .op-pane { min-width: 0; }
+      .op-pane .tbl-scroll { max-height: 460px; }
+
+      /* Condensed table — tighter columns + smaller padding so two
+         tables fit in the side-by-side grid without horizontal scroll. */
+      .tbl--condensed th, .tbl--condensed td {
+        padding: 8px 10px;
+        font-size: 12px;
+      }
+      .tbl--condensed th { font-size: 10px; }
+      .tbl--condensed .num { text-align: right; font-variant-numeric: tabular-nums; }
+      .tbl--condensed td.sym { font-weight: 700; font-family: var(--tt-font); }
+
       .mode-toggle {
         display: inline-flex;
         gap: 4px;
@@ -606,7 +629,7 @@
         return `${sign}${fmtUsdK(Math.abs(n))}`;
       };
 
-      function EquityCurveCard({ title, sub, color, payload, history }) {
+      function EquityCurveCard({ title, sub, color, payload, history, openPnlOverride }) {
         const points = payload?.points || [];
         const sm = payload?.summary || {};
         const totalRet = Number(sm.totalReturnPct);
@@ -614,9 +637,31 @@
         const sharpe  = Number(sm.sharpe);
         const account = Number(sm.endEquity);
         const startCash = Number(sm.startCash) || 100000;
-        const totalPnl = Number.isFinite(account) ? account - startCash : null;
         const realized = Number(sm.cumRealized);
-        const openPnl = (Number.isFinite(totalPnl) && Number.isFinite(realized)) ? totalPnl - realized : null;
+        // V15 P0.7.182 (2026-05-17) — Open P&L source of truth.
+        //
+        // Previously this card computed openPnl = endEquity - startCash
+        // - cumRealized, which is the equity-curve summary's view. The
+        // Open Positions table below computes Open P&L from /timed/all
+        // CURRENT price × entry × shares, which is live mark-to-market.
+        // Those two values almost never matched because the equity
+        // curve snapshot is taken once daily and the table uses
+        // intraday prices. User feedback: "Numbers on the Headline
+        // Metrics, Open PnL do not Match the Numbers on Open
+        // Positions for both Active Trader and Investor."
+        //
+        // Fix: PortfolioApp computes the row totals first (same source
+        // as the table) and passes them down as openPnlOverride. The
+        // headline number now always matches the table sum.
+        const openPnlFromCurve = (Number.isFinite(account) && Number.isFinite(realized) && Number.isFinite(startCash))
+          ? (account - startCash) - realized
+          : null;
+        const openPnl = Number.isFinite(openPnlOverride) ? openPnlOverride : openPnlFromCurve;
+        // Total P&L = realized + open (when openPnlOverride is provided
+        // we honor it; otherwise fall back to the summary's view).
+        const totalPnl = (Number.isFinite(realized) && Number.isFinite(openPnl))
+          ? realized + openPnl
+          : (Number.isFinite(account) ? account - startCash : null);
 
         // Headline metrics — match the legacy /simulation-dashboard layout
         // (Account / Total P&L / Open P&L / Closed / Realized). Derived
@@ -748,6 +793,11 @@
       // table) per user feedback "Portfolio Open Positions should
       // separate each Active Trader and Investor into two sections,
       // underneath the Equity Curves".
+      // V15 P0.7.182 — Condensed table, side-by-side layout.
+      // Columns kept: Ticker / Bias / Entry / Open P&L % / Open P&L $
+      // / Entry Date. Current price + Status dropped — Current is
+      // implicit in the live Open P&L; Status was redundant with the
+      // section header ("ACTIVE TRADER · OPEN POSITIONS").
       function OpenPositionsTable({ rows, mode, accent }) {
         if (!Array.isArray(rows)) return null;
         const fmtPnl = (n) => Number.isFinite(n)
@@ -755,11 +805,11 @@
           : "—";
         const totalPl = rows.reduce((s, r) => s + (Number.isFinite(r.plDollar) ? r.plDollar : 0), 0);
 
-        return h("section", { className: "tt-row" },
+        return h("div", { className: "op-pane" },
           h("div", { className: "op-head" },
-            h("div", null,
+            h("div", { style: { minWidth: 0 } },
               h("div", { className: "tt-sec-title" }, mode === "investor" ? "INVESTOR · OPEN POSITIONS" : "ACTIVE TRADER · OPEN POSITIONS"),
-              h("h2", { className: "tt-sec-h2" }, `Currently held by ${mode === "investor" ? "Investor mode" : "Active Trader mode"}`),
+              h("h2", { className: "tt-sec-h2" }, `Currently held — ${mode === "investor" ? "Investor mode" : "Active Trader mode"}`),
               h("p", { className: "tt-sec-sub" }, `${rows.length} position${rows.length === 1 ? "" : "s"}`),
             ),
             rows.length > 0 && h("div", { className: "op-total" },
@@ -768,22 +818,20 @@
             ),
           ),
           h("div", { className: "tbl-scroll", "data-accent": accent || "trader" },
-            h("table", { className: "tbl" },
+            h("table", { className: "tbl tbl--condensed" },
               h("thead", null,
                 h("tr", null,
                   h("th", null, "Ticker"),
-                  h("th", null, "Dir"),
-                  h("th", null, "Entry"),
-                  h("th", null, "Current"),
-                  h("th", null, "Open P&L %"),
-                  h("th", null, "Open P&L $"),
+                  h("th", null, "Bias"),
+                  h("th", { className: "num" }, "Entry"),
+                  h("th", { className: "num" }, "Open P&L %"),
+                  h("th", { className: "num" }, "Open P&L $"),
                   h("th", null, "Entry Date"),
-                  h("th", null, "Status"),
                 ),
               ),
               h("tbody", null,
                 rows.length === 0
-                  ? h("tr", null, h("td", { className: "empty", colSpan: 8 }, "No open positions."))
+                  ? h("tr", null, h("td", { className: "empty", colSpan: 6 }, "No open positions."))
                   : rows.map((r) => {
                       const openTicker = () => {
                         if (typeof r._onSelect === "function") r._onSelect(r.sym);
@@ -794,14 +842,12 @@
                       return h("tr", { key: r._key },
                         h("td", { className: "sym", onClick: openTicker, style: { cursor: "pointer" } }, r.sym),
                         h("td", { className: r.dir === "LONG" ? "up" : "dn" }, r.dir),
-                        h("td", null, fmtUsdDec(r.ep)),
-                        h("td", null, fmtUsdDec(r.cur)),
-                        h("td", { className: plPctCls },
+                        h("td", { className: "num" }, fmtUsdDec(r.ep)),
+                        h("td", { className: `num ${plPctCls}` },
                           Number.isFinite(r.plPct) ? `${r.plPct >= 0 ? "+" : ""}${r.plPct.toFixed(2)}%` : "—",
                         ),
-                        h("td", { className: plDollarCls }, fmtPnl(r.plDollar)),
+                        h("td", { className: `num ${plDollarCls}` }, fmtPnl(r.plDollar)),
                         h("td", null, fmtDate(r.entryTs)),
-                        h("td", null, r.status),
                       );
                     }),
               ),
@@ -1037,6 +1083,29 @@
         const traderPayload   = eq?.trader   || null;
         const investorPayload = eq?.investor || null;
 
+        // V15 P0.7.182 — Compute row sets once at the parent so the
+        // equity-curve headline Open P&L AND the table totals share a
+        // single source of truth (live /timed/all mark-to-market).
+        // Previously the headline came from the daily equity-curve
+        // snapshot and the table from live prices, so they almost
+        // never matched.
+        const traderRows = useMemo(
+          () => buildTraderRows(positions || [], priceMap, onSelectTicker),
+          [positions, priceMap, onSelectTicker],
+        );
+        const investorRows = useMemo(
+          () => buildInvestorRows(investorPositions || [], priceMap, onSelectTicker),
+          [investorPositions, priceMap, onSelectTicker],
+        );
+        const traderOpenPl = useMemo(
+          () => traderRows.reduce((s, r) => s + (Number.isFinite(r.plDollar) ? r.plDollar : 0), 0),
+          [traderRows],
+        );
+        const investorOpenPl = useMemo(
+          () => investorRows.reduce((s, r) => s + (Number.isFinite(r.plDollar) ? r.plDollar : 0), 0),
+          [investorRows],
+        );
+
         return h(React.Fragment, null,
           loading && h("div", { className: "tt-loadbar", role: "progressbar", "aria-label": "Loading Portfolio" }),
           h("main", null,
@@ -1064,6 +1133,7 @@
                       color: "#34d399",
                       payload: traderPayload,
                       history: traderHistory,
+                      openPnlOverride: traderOpenPl,
                     }),
                     h(EquityCurveCard, {
                       title: "Investor",
@@ -1071,23 +1141,26 @@
                       color: "#a78bfa",
                       payload: investorPayload,
                       history: investorHistory,
+                      openPnlOverride: investorOpenPl,
                     }),
                   ),
             ),
-            // Open positions — split into Active Trader + Investor
-            // sections, each under its own equity curve in reading
-            // order. Trader rows compute Open P&L from /timed/all
-            // overlay; Investor rows use the server-provided
-            // unrealizedPnl (already mark-to-market).
+            // Open positions — two condensed tables sitting side-by-
+            // side underneath the equity curves (one column per
+            // mode), so each table aligns under its own curve. On
+            // narrow screens they stack vertically. Columns kept:
+            // Ticker / Bias / Entry / Open P&L % / Open P&L $ /
+            // Entry Date. Strips Current price + Status to keep the
+            // tables narrow enough for the side-by-side grid.
             (positions || investorPositions)
-              ? h(React.Fragment, null,
+              ? h("section", { className: "op-grid" },
                   h(OpenPositionsTable, {
-                    rows: buildTraderRows(positions || [], priceMap, onSelectTicker),
+                    rows: traderRows,
                     mode: "trader",
                     accent: "trader",
                   }),
                   h(OpenPositionsTable, {
-                    rows: buildInvestorRows(investorPositions || [], priceMap, onSelectTicker),
+                    rows: investorRows,
                     mode: "investor",
                     accent: "investor",
                   }),
