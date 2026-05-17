@@ -101,23 +101,50 @@ function useSparklineCache() {
 }
 function InvBubbleMap({
   data,
-  onSelectTicker
+  scores,
+  onSelectTicker,
+  searchQuery,
+  filterGroup,
+  savedTickers
 }) {
   const SharedChart = window.TimedBubbleChart?.BubbleChart || null;
   const getRankedTickers = window.TimedBubbleChart?.getRankedTickers || null;
   const [hovered, setHovered] = useState(null);
+  const stageBySym = useMemo(() => {
+    const m = new Map();
+    const list = Array.isArray(scores?.tickers) ? scores.tickers : Array.isArray(scores) ? scores : [];
+    for (const row of list) {
+      const sym = String(row?.ticker || "").toUpperCase();
+      if (!sym) continue;
+      const stage = String(row?.stage || row?.investor_stage || "").toLowerCase();
+      if (stage) m.set(sym, stage);
+    }
+    return m;
+  }, [scores]);
   const visible = useMemo(() => {
     if (!data) return [];
+    const q = String(searchQuery || "").trim().toUpperCase();
+    const filter = String(filterGroup || "").toUpperCase();
     const arr = Object.entries(data).map(([k, v]) => v && v.ticker ? v : {
       ticker: String(k).toUpperCase(),
       ...(v || {})
     }).filter(t => {
-      const stage = String(t?.investor_stage || "").toLowerCase();
+      const sym = String(t?.ticker || "").toUpperCase();
+      if (q && !sym.includes(q)) return false;
+      if (filter === "SAVED") {
+        if (!savedTickers || savedTickers.size === 0) return false;
+        if (!savedTickers.has(sym)) return false;
+      }
+      if (filter === "INVESTOR_ACTIONABLE") {
+        const stage = stageBySym.get(sym) || "";
+        if (stage !== "accumulate" && stage !== "reduce") return false;
+      }
+      const stage = String(t?.investor_stage || stageBySym.get(sym) || "").toLowerCase();
       if (stage && stage !== "null") return true;
       return Number(t?.htf_score) !== 0 || Number(t?.ltf_score) !== 0;
     });
     return arr.slice(0, 250);
-  }, [data]);
+  }, [data, scores, searchQuery, filterGroup, savedTickers, stageBySym]);
   const rankedTickers = useMemo(() => {
     if (!getRankedTickers || !data) return [];
     try {
@@ -204,17 +231,21 @@ function InvestorApp() {
     return () => clearInterval(id);
   }, [panelMounted]);
   const [data, setData] = useState(null);
+  const [investorScores, setInvestorScores] = useState(null);
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const r = await fetch(`${API_BASE}/timed/all`, {
+        const [allRes, scoresRes] = await Promise.all([fetch(`${API_BASE}/timed/all`, {
           cache: "no-store",
           credentials: "include"
-        });
-        if (!r.ok || !alive) return;
-        const j = await r.json();
-        if (alive && j?.ok) setData(j.data || {});
+        }).then(r => r.ok ? r.json() : null).catch(() => null), fetch(`${API_BASE}/timed/investor/scores`, {
+          cache: "no-store",
+          credentials: "include"
+        }).then(r => r.ok ? r.json() : null).catch(() => null)]);
+        if (!alive) return;
+        if (allRes?.ok) setData(allRes.data || {});
+        if (scoresRes?.ok) setInvestorScores(scoresRes);
       } catch (_) {}
     })();
     return () => {
@@ -345,6 +376,10 @@ function InvestorApp() {
     }
   })))))), data && h(InvBubbleMap, {
     data,
+    scores: investorScores,
+    searchQuery,
+    filterGroup,
+    savedTickers: saved,
     onSelectTicker
   })), RailOverlay && railTickerObj && h(RailOverlay, {
     ticker: railTickerObj,

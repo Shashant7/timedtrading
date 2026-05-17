@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-inv4" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-inv5" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -18,7 +18,7 @@
     <script src="auth-gate.js?v=20260516a"></script>
     <script src="tt-fetch-cache.js?v=20260517a"></script>
     <script src="tt-bottom-nav.js?v=20260517a" defer></script>
-    <script src="tt-nav-extras.js?v=20260517b" defer></script>
+    <script src="tt-nav-extras.js?v=20260517c" defer></script>
     <script src="tt-activity-strip.js?v=20260517a" defer></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
     <script src="ds-components.js?v=20260501a"></script>
@@ -393,26 +393,67 @@
       }
 
       // ── InvBubbleMap — renders the shared BubbleChart filtered to
-      //    tickers the Investor panel actually surfaces. Matches the
-      //    same heading typography + height tokens as Active Trader.
-      function InvBubbleMap({ data, onSelectTicker }) {
+      //    tickers the Investor panel actually surfaces. Now respects
+      //    the page-level search + filter chips (All / Actionable /
+      //    Saved) so the bubble plot scope matches what the cards
+      //    below show. User feedback: "The Search and Filters should
+      //    apply to the Bubble Map as well."
+      function InvBubbleMap({ data, scores, onSelectTicker, searchQuery, filterGroup, savedTickers }) {
         const SharedChart = window.TimedBubbleChart?.BubbleChart || null;
         const getRankedTickers = window.TimedBubbleChart?.getRankedTickers || null;
         const [hovered, setHovered] = useState(null);
 
+        // Build a stage map from /timed/investor/scores. The endpoint
+        // returns { tickers: [{ ticker, stage, ... }] } so we hash by
+        // symbol → stage for fast lookup when applying the
+        // Actionable filter.
+        const stageBySym = useMemo(() => {
+          const m = new Map();
+          const list = Array.isArray(scores?.tickers)
+            ? scores.tickers
+            : Array.isArray(scores)
+            ? scores
+            : [];
+          for (const row of list) {
+            const sym = String(row?.ticker || "").toUpperCase();
+            if (!sym) continue;
+            const stage = String(row?.stage || row?.investor_stage || "").toLowerCase();
+            if (stage) m.set(sym, stage);
+          }
+          return m;
+        }, [scores]);
+
         const visible = useMemo(() => {
           if (!data) return [];
+          const q = String(searchQuery || "").trim().toUpperCase();
+          const filter = String(filterGroup || "").toUpperCase();
           const arr = Object.entries(data)
             .map(([k, v]) => (v && v.ticker ? v : { ticker: String(k).toUpperCase(), ...(v || {}) }))
             .filter((t) => {
-              // Keep tickers with an investor_stage OR strong scoring
-              // signal so the chart isn't a sparse void.
-              const stage = String(t?.investor_stage || "").toLowerCase();
+              const sym = String(t?.ticker || "").toUpperCase();
+              // Search filter — substring match on symbol (mirrors
+              // InvestorPanel's behavior at line 694 of investor-panel.js).
+              if (q && !sym.includes(q)) return false;
+              // Saved filter — same as the panel.
+              if (filter === "SAVED") {
+                if (!savedTickers || savedTickers.size === 0) return false;
+                if (!savedTickers.has(sym)) return false;
+              }
+              // Actionable filter — Accumulate or Reduce stage from
+              // /timed/investor/scores. Matches the panel's
+              // INVESTOR_ACTIONABLE filter exactly.
+              if (filter === "INVESTOR_ACTIONABLE") {
+                const stage = stageBySym.get(sym) || "";
+                if (stage !== "accumulate" && stage !== "reduce") return false;
+              }
+              // Default: keep tickers with an investor_stage OR a
+              // non-zero scoring signal so the chart has context.
+              const stage = String(t?.investor_stage || stageBySym.get(sym) || "").toLowerCase();
               if (stage && stage !== "null") return true;
               return Number(t?.htf_score) !== 0 || Number(t?.ltf_score) !== 0;
             });
           return arr.slice(0, 250);
-        }, [data]);
+        }, [data, scores, searchQuery, filterGroup, savedTickers, stageBySym]);
 
         const rankedTickers = useMemo(() => {
           if (!getRankedTickers || !data) return [];
@@ -490,14 +531,20 @@
         // we pull /timed/all once here so the right-rail overlay has the
         // full universe context (allLoadedData) when a card is clicked.
         const [data, setData] = useState(null);
+        // Investor scores (with stage) so the bubble map can apply the
+        // same Actionable filter the cards do.
+        const [investorScores, setInvestorScores] = useState(null);
         useEffect(() => {
           let alive = true;
           (async () => {
             try {
-              const r = await fetch(`${API_BASE}/timed/all`, { cache: "no-store", credentials: "include" });
-              if (!r.ok || !alive) return;
-              const j = await r.json();
-              if (alive && j?.ok) setData(j.data || {});
+              const [allRes, scoresRes] = await Promise.all([
+                fetch(`${API_BASE}/timed/all`, { cache: "no-store", credentials: "include" }).then((r) => r.ok ? r.json() : null).catch(() => null),
+                fetch(`${API_BASE}/timed/investor/scores`, { cache: "no-store", credentials: "include" }).then((r) => r.ok ? r.json() : null).catch(() => null),
+              ]);
+              if (!alive) return;
+              if (allRes?.ok) setData(allRes.data || {});
+              if (scoresRes?.ok) setInvestorScores(scoresRes);
             } catch (_) {}
           })();
           return () => { alive = false; };
@@ -638,8 +685,17 @@
                 ),
             // Bubble map of the investor universe — bottom of page so
             // the lane grid stays the focus, but users can still get a
-            // momentum × trend overview at a glance.
-            data && h(InvBubbleMap, { data, onSelectTicker }),
+            // momentum × trend overview at a glance. Respects the
+            // search + filter chip state so the bubble plot scope
+            // matches the cards above.
+            data && h(InvBubbleMap, {
+              data,
+              scores: investorScores,
+              searchQuery,
+              filterGroup,
+              savedTickers: saved,
+              onSelectTicker,
+            }),
           ),
           // Right rail slide-in (TickerDetailRightRail).
           RailOverlay && railTickerObj && h(RailOverlay, {

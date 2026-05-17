@@ -2213,7 +2213,17 @@ function CalibrationTab({
     className: "si-action si-action--primary",
     onClick: () => onApply(reportId),
     disabled: applying
-  }, applying ? "Applying…" : "Apply All")), appliedMsg && React.createElement("div", {
+  }, applying ? "Applying…" : "Apply All")), report.diagnostic_only && React.createElement("div", {
+    className: "si-banner si-banner--warn",
+    style: {
+      marginBottom: "var(--ds-space-3)"
+    }
+  }, React.createElement("span", {
+    style: {
+      color: "var(--ds-accent)",
+      fontSize: "var(--ds-fs-meta)"
+    }
+  }, React.createElement("strong", null, "Diagnostic report."), " Apply will first re-run the calibration as a promotion candidate (analysis_only=false), then persist the recommended deltas to ", React.createElement("code", null, "model_config"), ". The next scoring cron run will pick them up.")), appliedMsg && React.createElement("div", {
     className: "si-banner si-banner--ok",
     style: {
       marginBottom: "var(--ds-space-3)"
@@ -2233,7 +2243,13 @@ function CalibrationTab({
       color: "var(--ds-accent)",
       fontSize: "var(--ds-fs-meta)"
     }
-  }, "WFO verdict is WARNING \u2014 apply with caution.")), React.createElement("div", {
+  }, "WFO verdict is WARNING \u2014 apply with caution.")), (report.run_ts || report.trade_count != null) && React.createElement("div", {
+    style: {
+      fontSize: "var(--ds-fs-meta)",
+      color: "var(--ds-text-muted)",
+      marginBottom: "var(--ds-space-3)"
+    }
+  }, report.run_ts && React.createElement("span", null, "Generated ", new Date(Number(report.run_ts)).toLocaleString()), report.trade_count != null && React.createElement("span", null, " \xB7 trained on ", report.trade_count, " closed trades"), report.applied_at && React.createElement("span", null, " \xB7 last applied ", new Date(Number(report.applied_at)).toLocaleString())), React.createElement("div", {
     className: "space-y-2",
     style: {
       fontSize: "var(--ds-fs-meta)"
@@ -6997,21 +7013,61 @@ function App() {
   const handleApply = async id => {
     setApplying(true);
     setAppliedMsg(null);
+    setError(null);
     try {
+      let applyId = id;
+      if (report && (report.diagnostic_only || report.diagnosticOnly)) {
+        setAppliedMsg("Re-running as promotion candidate so apply can persist…");
+        const runRes = await fetch(`${API_BASE}/timed/calibration/run`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            analysis_only: false,
+            source_run_id: report.source_run_id || null,
+            scope_kind: "global"
+          }),
+          credentials: "include"
+        });
+        const runData = await runRes.json();
+        if (!runData?.ok || !runData.report?.report_id) {
+          setError(`Promotion run failed: ${runData?.error || "unknown"}`);
+          setAppliedMsg(null);
+          setApplying(false);
+          return;
+        }
+        applyId = runData.report.report_id;
+        setReport(runData.report);
+        setRecs(runData.report?.recommendations);
+        setReportId(applyId);
+      }
       const res = await fetch(`${API_BASE}/timed/calibration/apply`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          report_id: id
+          report_id: applyId
         }),
         credentials: "include"
       });
       const data = await res.json();
-      if (data.ok) setAppliedMsg(`Applied: ${data.applied?.join(", ")}`);else setError(data.error);
+      if (data.ok) {
+        const parts = [];
+        if (Array.isArray(data.applied) && data.applied.length) parts.push(`Applied: ${data.applied.join(", ")}`);
+        if (Array.isArray(data.clamped) && data.clamped.length) parts.push(`(clamped ${data.clamped.length} values to safe bounds)`);
+        if (parts.length === 0) parts.push("Applied — no values changed.");
+        setAppliedMsg(parts.join(" "));
+        fetchData();
+      } else {
+        const msg = data.message || data.error || "Apply failed";
+        setError(msg);
+        setAppliedMsg(null);
+      }
     } catch (e) {
-      setError(String(e));
+      setError(String(e?.message || e));
+      setAppliedMsg(null);
     }
     setApplying(false);
   };

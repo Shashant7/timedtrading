@@ -283,7 +283,8 @@ function EquityCurveCard({
   sub,
   color,
   payload,
-  history
+  history,
+  openPnlOverride
 }) {
   const points = payload?.points || [];
   const sm = payload?.summary || {};
@@ -292,9 +293,10 @@ function EquityCurveCard({
   const sharpe = Number(sm.sharpe);
   const account = Number(sm.endEquity);
   const startCash = Number(sm.startCash) || 100000;
-  const totalPnl = Number.isFinite(account) ? account - startCash : null;
   const realized = Number(sm.cumRealized);
-  const openPnl = Number.isFinite(totalPnl) && Number.isFinite(realized) ? totalPnl - realized : null;
+  const openPnlFromCurve = Number.isFinite(account) && Number.isFinite(realized) && Number.isFinite(startCash) ? account - startCash - realized : null;
+  const openPnl = Number.isFinite(openPnlOverride) ? openPnlOverride : openPnlFromCurve;
+  const totalPnl = Number.isFinite(realized) && Number.isFinite(openPnl) ? realized + openPnl : Number.isFinite(account) ? account - startCash : null;
   const closedCount = Array.isArray(history) ? history.filter(t => Number.isFinite(Number(t?.pnl)) && t?.exit_ts).length : 0;
   const winLoss = (() => {
     if (!Array.isArray(history)) return {
@@ -474,15 +476,19 @@ function OpenPositionsTable({
   if (!Array.isArray(rows)) return null;
   const fmtPnl = n => Number.isFinite(n) ? `${n >= 0 ? "+" : "-"}${fmtUsdDec(Math.abs(n))}` : "—";
   const totalPl = rows.reduce((s, r) => s + (Number.isFinite(r.plDollar) ? r.plDollar : 0), 0);
-  return h("section", {
-    className: "tt-row"
+  return h("div", {
+    className: "op-pane"
   }, h("div", {
     className: "op-head"
-  }, h("div", null, h("div", {
+  }, h("div", {
+    style: {
+      minWidth: 0
+    }
+  }, h("div", {
     className: "tt-sec-title"
   }, mode === "investor" ? "INVESTOR · OPEN POSITIONS" : "ACTIVE TRADER · OPEN POSITIONS"), h("h2", {
     className: "tt-sec-h2"
-  }, `Currently held by ${mode === "investor" ? "Investor mode" : "Active Trader mode"}`), h("p", {
+  }, `Currently held — ${mode === "investor" ? "Investor mode" : "Active Trader mode"}`), h("p", {
     className: "tt-sec-sub"
   }, `${rows.length} position${rows.length === 1 ? "" : "s"}`)), rows.length > 0 && h("div", {
     className: "op-total"
@@ -497,10 +503,16 @@ function OpenPositionsTable({
     className: "tbl-scroll",
     "data-accent": accent || "trader"
   }, h("table", {
-    className: "tbl"
-  }, h("thead", null, h("tr", null, h("th", null, "Ticker"), h("th", null, "Dir"), h("th", null, "Entry"), h("th", null, "Current"), h("th", null, "Open P&L %"), h("th", null, "Open P&L $"), h("th", null, "Entry Date"), h("th", null, "Status"))), h("tbody", null, rows.length === 0 ? h("tr", null, h("td", {
+    className: "tbl tbl--condensed"
+  }, h("thead", null, h("tr", null, h("th", null, "Ticker"), h("th", null, "Bias"), h("th", {
+    className: "num"
+  }, "Entry"), h("th", {
+    className: "num"
+  }, "Open P&L %"), h("th", {
+    className: "num"
+  }, "Open P&L $"), h("th", null, "Entry Date"))), h("tbody", null, rows.length === 0 ? h("tr", null, h("td", {
     className: "empty",
-    colSpan: 8
+    colSpan: 6
   }, "No open positions.")) : rows.map(r => {
     const openTicker = () => {
       if (typeof r._onSelect === "function") r._onSelect(r.sym);else window.location.href = `/index-react.html?ticker=${encodeURIComponent(r.sym)}`;
@@ -517,11 +529,13 @@ function OpenPositionsTable({
       }
     }, r.sym), h("td", {
       className: r.dir === "LONG" ? "up" : "dn"
-    }, r.dir), h("td", null, fmtUsdDec(r.ep)), h("td", null, fmtUsdDec(r.cur)), h("td", {
-      className: plPctCls
+    }, r.dir), h("td", {
+      className: "num"
+    }, fmtUsdDec(r.ep)), h("td", {
+      className: `num ${plPctCls}`
     }, Number.isFinite(r.plPct) ? `${r.plPct >= 0 ? "+" : ""}${r.plPct.toFixed(2)}%` : "—"), h("td", {
-      className: plDollarCls
-    }, fmtPnl(r.plDollar)), h("td", null, fmtDate(r.entryTs)), h("td", null, r.status));
+      className: `num ${plDollarCls}`
+    }, fmtPnl(r.plDollar)), h("td", null, fmtDate(r.entryTs)));
   })))));
 }
 function buildTraderRows(trades, priceMap, onSelect) {
@@ -726,6 +740,10 @@ function PortfolioApp() {
   const loading = !eq && !error;
   const traderPayload = eq?.trader || null;
   const investorPayload = eq?.investor || null;
+  const traderRows = useMemo(() => buildTraderRows(positions || [], priceMap, onSelectTicker), [positions, priceMap, onSelectTicker]);
+  const investorRows = useMemo(() => buildInvestorRows(investorPositions || [], priceMap, onSelectTicker), [investorPositions, priceMap, onSelectTicker]);
+  const traderOpenPl = useMemo(() => traderRows.reduce((s, r) => s + (Number.isFinite(r.plDollar) ? r.plDollar : 0), 0), [traderRows]);
+  const investorOpenPl = useMemo(() => investorRows.reduce((s, r) => s + (Number.isFinite(r.plDollar) ? r.plDollar : 0), 0), [investorRows]);
   return h(React.Fragment, null, loading && h("div", {
     className: "tt-loadbar",
     role: "progressbar",
@@ -758,19 +776,23 @@ function PortfolioApp() {
     sub: "Swing — 1 to 10 day holds",
     color: "#34d399",
     payload: traderPayload,
-    history: traderHistory
+    history: traderHistory,
+    openPnlOverride: traderOpenPl
   }), h(EquityCurveCard, {
     title: "Investor",
     sub: "Long-horizon — weeks to months",
     color: "#a78bfa",
     payload: investorPayload,
-    history: investorHistory
-  }))), positions || investorPositions ? h(React.Fragment, null, h(OpenPositionsTable, {
-    rows: buildTraderRows(positions || [], priceMap, onSelectTicker),
+    history: investorHistory,
+    openPnlOverride: investorOpenPl
+  }))), positions || investorPositions ? h("section", {
+    className: "op-grid"
+  }, h(OpenPositionsTable, {
+    rows: traderRows,
     mode: "trader",
     accent: "trader"
   }), h(OpenPositionsTable, {
-    rows: buildInvestorRows(investorPositions || [], priceMap, onSelectTicker),
+    rows: investorRows,
     mode: "investor",
     accent: "investor"
   })) : h("section", {

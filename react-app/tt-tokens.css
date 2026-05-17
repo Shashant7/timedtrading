@@ -1201,10 +1201,16 @@ input, button, select, textarea {
 .rail-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 6px; }
 
 .rail-close {
-  position: absolute;
-  top: 12px; right: 12px;
-  z-index: 10;
-  width: 32px; height: 32px;
+  position: fixed;
+  /* V15 P0.7.182 (2026-05-17) — Moved to top-left of the rail
+     panel so it doesn't overlap the Share / Saved icons that live
+     in the top-right of the rail's own header. Previously the
+     close button sat at top-right and covered those native
+     header actions, making them unclickable. */
+  top: 14px;
+  z-index: 9102; /* above .rail-panel (9101) */
+  width: 32px;
+  height: 32px;
   border-radius: 8px;
   border: 1px solid var(--tt-border-strong, rgba(255,255,255,0.08));
   background: var(--tt-bg-2, rgba(255,255,255,0.04));
@@ -1214,6 +1220,16 @@ input, button, select, textarea {
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Default: drawer (sub-1024px), aligned to the right edge of the
+     760px drawer with 14px inset. */
+  right: calc(100vw - 760px + 14px);
+}
+@media (min-width: 1024px) {
+  /* Desktop: full-page takeover with 60px left sliver. Close
+     button sits in the 60px sliver itself so it's visually
+     anchored to the workspace boundary but well clear of the
+     rail's internal Share / Saved icons. */
+  .rail-close { right: auto; left: 14px; }
 }
 .rail-close:hover {
   color: var(--tt-text-0, #f4f5f7);
@@ -1223,7 +1239,7 @@ input, button, select, textarea {
 
 @media (max-width: 720px) {
   .rail-panel { width: 100vw; }
-  .rail-close { top: 10px; right: 10px; }
+  .rail-close { top: 10px; right: 10px; left: auto; }
 }
 
 /* ───────────────────────────────────────────────────────────────────────
