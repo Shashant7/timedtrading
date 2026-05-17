@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260516-today8" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-today1" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -708,7 +708,22 @@
 
       // ── Fetch helpers ──────────────────────────────────────────
       async function fetchAll() {
-        const r = await fetch(`${API_BASE}/timed/all`, { credentials: "include" });
+        // Match AT's fetch — bust any cache layer (Cloudflare, browser)
+        // so Today gets the same fresh snapshot AT does. Without the
+        // cache-bust + no-store, Today was sometimes seeing a stale
+        // /timed/all response with only the MP / crypto subset of
+        // tickers while AT (which uses ?_t=) saw the full 242-ticker
+        // universe.
+        const ts = Date.now();
+        const r = await fetch(`${API_BASE}/timed/all?_t=${ts}`, {
+          credentials: "include",
+          cache: "no-store",
+          headers: {
+            Accept: "application/json",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            Pragma: "no-cache",
+          },
+        });
         return r.ok ? r.json() : { ok: false };
       }
       async function fetchBrief() {
@@ -1805,6 +1820,9 @@
         const fetchSpark = useCallback(async (sym) => {
           try {
             const r = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=60&limit=24`, { cache: "no-store" });
+            // Don't try to parse a 4xx/5xx body — endpoint can return
+            // 500 for tickers the candle store hasn't backfilled yet.
+            if (!r.ok) return null;
             const j = await r.json();
             const candles = Array.isArray(j?.candles) ? j.candles : [];
             return candles.map(c => Number(c?.c ?? c?.close)).filter(Number.isFinite);

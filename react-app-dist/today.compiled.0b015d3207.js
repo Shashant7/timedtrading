@@ -98,8 +98,15 @@ function isNyRegularMarketOpen() {
   }
 }
 async function fetchAll() {
-  const r = await fetch(`${API_BASE}/timed/all`, {
-    credentials: "include"
+  const ts = Date.now();
+  const r = await fetch(`${API_BASE}/timed/all?_t=${ts}`, {
+    credentials: "include",
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      Pragma: "no-cache"
+    }
   });
   return r.ok ? r.json() : {
     ok: false
@@ -1310,6 +1317,7 @@ function useSparklineCache() {
       const r = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=60&limit=24`, {
         cache: "no-store"
       });
+      if (!r.ok) return null;
       const j = await r.json();
       const candles = Array.isArray(j?.candles) ? j.candles : [];
       return candles.map(c => Number(c?.c ?? c?.close)).filter(Number.isFinite);
