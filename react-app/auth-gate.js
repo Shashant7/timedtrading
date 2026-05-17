@@ -905,22 +905,32 @@
     }, [user, apiBase, verifyAuth]);
 
     const handleLogin = useCallback(() => {
-      // Force CF Access re-authentication flow:
-      // 1. Clear localStorage session so stale cached data can't bypass auth.
-      // 2. Clear CF_Authorization cookie client-side (may not work if HttpOnly).
-      // 3. Use hidden iframe to hit /cdn-cgi/access/logout which clears the
-      //    HttpOnly CF_Authorization cookie server-side (Set-Cookie response).
-      // 4. After iframe loads (cookie cleared), redirect to /today.html
-      //    (the new product landing page — was /index-react.html before
-      //    the journey-page split) with a cache-buster query param.
-      //    This forces a fresh server request that CF Access can
-      //    intercept at the CDN level, showing the identity provider
-      //    login page (Google SSO).
-      //    NOTE: Never redirect to /cdn-cgi/access/login — it requires
-      //    server-generated JWT params and breaks from client-side JS.
+      // V15 P0.7.188 (2026-05-17) — Two-mode login redirect.
+      //
+      // CASE A (already authenticated — wants to switch account):
+      //   We have a session cached locally. To FORCE Cloudflare Access
+      //   to re-prompt the user with the IdP picker we have to clear
+      //   the HttpOnly CF_Authorization cookie first. Server-side
+      //   clear via hidden /cdn-cgi/access/logout iframe, then
+      //   redirect to a protected URL to re-trigger SSO.
+      //
+      // CASE B (NOT authenticated yet — fresh login):
+      //   No cookie to clear. The hidden iframe + 300ms wait + 3s
+      //   safety timeout adds latency for no benefit AND can hang
+      //   on mobile Safari (cross-frame policy quirks) which is
+      //   exactly the "stuck on the login page" symptom the user
+      //   reported. Skip the iframe and redirect directly.
+      //
+      // The redirect target is /today.html (the new product landing
+      // page) — it's in the user's CF Access policy regex, so CF
+      // Access will intercept the request, redirect to Google SSO,
+      // and on return set the CF_Authorization cookie for the whole
+      // domain. From there every other page authenticates without
+      // re-prompting.
+      const isLoggedIn = !!user;
       clearSession();
 
-      // Attempt client-side cookie deletion (handles non-HttpOnly cases)
+      // Attempt client-side cookie deletion (handles non-HttpOnly cases).
       try {
         const d = window.location.hostname;
         document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
@@ -928,15 +938,20 @@
         document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=." + d;
       } catch (_) {}
 
-      // Use hidden iframe for server-side cookie clearing (handles HttpOnly)
+      const redirectTarget = "/today.html?_auth=" + Date.now();
+
+      if (!isLoggedIn) {
+        // CASE B — straight to the protected URL, let CF Access drive SSO.
+        window.location.href = redirectTarget;
+        return;
+      }
+
+      // CASE A — server-side cookie clear via hidden iframe, then redirect.
       let redirected = false;
       const doRedirect = () => {
         if (redirected) return;
         redirected = true;
-        // Cache-busted URL forces a fresh server request that CF Access
-        // intercepts. /today.html is the new product landing page so
-        // logged-in users land on the daily-ingest digest first.
-        window.location.href = "/today.html?_auth=" + Date.now();
+        window.location.href = redirectTarget;
       };
       try {
         const iframe = document.createElement("iframe");
@@ -948,9 +963,10 @@
       } catch (_) {
         doRedirect();
       }
-      // Safety timeout: if iframe doesn't respond in 3 seconds, redirect anyway
-      setTimeout(doRedirect, 3000);
-    }, []);
+      // Safety timeout: if iframe doesn't respond in 1.5 seconds, redirect anyway
+      // (was 3000ms — too long for users to wait staring at a frozen button).
+      setTimeout(doRedirect, 1500);
+    }, [user]);
 
     // Set user role on body for CSS-based admin gating of nav links
     // Expose _ttIsPro and _ttMemberTickers for freemium gating
