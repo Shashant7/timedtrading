@@ -1,14 +1,19 @@
 name: Deploy worker
 
 # Auto-deploys worker/index.js to Cloudflare Workers (timed-trading-ingest)
-# whenever the worker source changes on main. Previously the worker had to
-# be deployed manually via `wrangler deploy` from a developer machine —
-# easy to forget after merging a PR.
+# whenever the worker source changes on main.
 #
 # Required repo secrets (Settings → Secrets and variables → Actions):
 #   CLOUDFLARE_API_TOKEN   — https://dash.cloudflare.com/profile/api-tokens
-#                            using the "Edit Cloudflare Workers" template
-#   CLOUDFLARE_ACCOUNT_ID  — right sidebar of any Cloudflare dashboard page
+#                            using the "Edit Cloudflare Workers" template.
+#                            Or one of the aliases checked below.
+#   CLOUDFLARE_ACCOUNT_ID  — right sidebar of any Cloudflare dashboard page.
+#                            Or one of the aliases checked below.
+#
+# If the secrets aren't configured the workflow SKIPS the deploy step with
+# a warning (instead of failing). That way merging worker changes doesn't
+# spam failure emails until secrets are configured; once you add them, the
+# next merge auto-deploys.
 
 on:
   push:
@@ -35,37 +40,57 @@ jobs:
         with:
           node-version: "20"
 
-      # Friendly check — fail fast with a clear message if the user
-      # hasn't configured the required secrets yet. The cloudflare/
-      # wrangler-action errors with a generic 'CLOUDFLARE_API_TOKEN
-      # missing' message that's hard to act on.
-      - name: Check required secrets
+      # Check the standard secret names AND a couple of common aliases.
+      # Sets `secrets-ok=true` on the step output when both a token and
+      # an account ID are found.
+      - name: Resolve Cloudflare secrets
+        id: cfsec
         env:
-          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CF_ACCT:  ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_TOKEN_A: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_TOKEN_B: ${{ secrets.CF_API_TOKEN }}
+          CF_TOKEN_C: ${{ secrets.CLOUDFLARE_TOKEN }}
+          CF_ACCT_A:  ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCT_B:  ${{ secrets.CF_ACCOUNT_ID }}
         run: |
-          if [ -z "$CF_TOKEN" ] || [ -z "$CF_ACCT" ]; then
-            echo "::error::Missing CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID repo secrets."
-            echo "::error::Configure them in Repo Settings → Secrets and variables → Actions."
-            echo "::error::See https://developers.cloudflare.com/fundamentals/api/get-started/create-token/"
-            exit 1
+          CF_TOKEN=""
+          CF_ACCT=""
+          if   [ -n "$CF_TOKEN_A" ]; then CF_TOKEN="$CF_TOKEN_A"; SRC_T="CLOUDFLARE_API_TOKEN";
+          elif [ -n "$CF_TOKEN_B" ]; then CF_TOKEN="$CF_TOKEN_B"; SRC_T="CF_API_TOKEN";
+          elif [ -n "$CF_TOKEN_C" ]; then CF_TOKEN="$CF_TOKEN_C"; SRC_T="CLOUDFLARE_TOKEN";
           fi
-          echo "✓ Secrets present (API_TOKEN length=${#CF_TOKEN}, ACCOUNT_ID length=${#CF_ACCT})"
+          if   [ -n "$CF_ACCT_A" ];  then CF_ACCT="$CF_ACCT_A";   SRC_A="CLOUDFLARE_ACCOUNT_ID";
+          elif [ -n "$CF_ACCT_B" ];  then CF_ACCT="$CF_ACCT_B";   SRC_A="CF_ACCOUNT_ID";
+          fi
+          if [ -z "$CF_TOKEN" ] || [ -z "$CF_ACCT" ]; then
+            echo "::warning::Cloudflare API token or Account ID not configured."
+            echo "::warning::Worker auto-deploy is SKIPPED. Configure repo secrets:"
+            echo "::warning::  CLOUDFLARE_API_TOKEN (or CF_API_TOKEN / CLOUDFLARE_TOKEN)"
+            echo "::warning::  CLOUDFLARE_ACCOUNT_ID (or CF_ACCOUNT_ID)"
+            echo "::warning::See https://developers.cloudflare.com/fundamentals/api/get-started/create-token/"
+            echo "secrets-ok=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "✓ Found secrets (token: $SRC_T length=${#CF_TOKEN}, account: $SRC_A length=${#CF_ACCT})"
+          echo "secrets-ok=true" >> "$GITHUB_OUTPUT"
+          # Re-export under the canonical env var names that wrangler reads.
+          {
+            echo "CLOUDFLARE_API_TOKEN=$CF_TOKEN"
+            echo "CLOUDFLARE_ACCOUNT_ID=$CF_ACCT"
+          } >> "$GITHUB_ENV"
 
       - name: Deploy worker
+        if: steps.cfsec.outputs.secrets-ok == 'true'
         uses: cloudflare/wrangler-action@v3
-        env:
-          # Also pass as env vars so wrangler picks them up even if the
-          # action's `apiToken:` input wiring breaks for any reason. Belt +
-          # suspenders — wrangler will read either the action input or
-          # the env var.
-          CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         with:
-          apiToken:    ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId:   ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          # Pin to wrangler@4 so we don't pick up the action's default v3
-          # (which prints a deprecation banner on every run).
+          apiToken:        ${{ env.CLOUDFLARE_API_TOKEN }}
+          accountId:       ${{ env.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: "4.92.0"
           workingDirectory: worker
           command: deploy
+
+      - name: Deploy skipped notice
+        if: steps.cfsec.outputs.secrets-ok != 'true'
+        run: |
+          echo "Worker auto-deploy SKIPPED (no Cloudflare secrets configured)."
+          echo "Run 'npx wrangler deploy' from the worker/ directory manually,"
+          echo "or configure CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID."
