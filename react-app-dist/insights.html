@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-ins5" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-ins6" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <link rel="stylesheet" href="tailwind.generated.css" />
@@ -179,6 +179,132 @@
       .tbl-scroll::-webkit-scrollbar { width: 6px; }
       .tbl-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 6px; }
 
+      /* CIO Watchlist — three-card grid */
+      .cio-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+      }
+      @media (max-width: 1024px) {
+        .cio-grid { grid-template-columns: 1fr; }
+      }
+      .cio-card {
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 12px;
+        padding: 14px 16px;
+      }
+      .cio-card--learnings { grid-column: 1 / -1; }
+      .cio-card-l {
+        font-size: 10.5px;
+        font-weight: 700;
+        letter-spacing: 0.10em;
+        text-transform: uppercase;
+        color: var(--tt-text-dim);
+        margin-bottom: 10px;
+      }
+      .cio-card-sub {
+        font-size: 12.5px;
+        color: var(--tt-text-muted);
+        margin: 10px 0 0;
+        line-height: 1.5;
+      }
+      .cio-pipeline {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .cio-stage {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-family: var(--tt-font);
+        font-size: 11.5px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: var(--tt-bg-elev);
+        border: 1px solid var(--tt-border);
+        color: var(--tt-text-muted);
+      }
+      .cio-stage strong { font-weight: 700; font-family: var(--tt-font-mono); color: var(--tt-text); }
+      .cio-stage--setup  { color: #93c5fd; background: rgba(96,165,250,0.08); border-color: rgba(96,165,250,0.24); }
+      .cio-stage--enter  { color: var(--tt-accent); background: var(--tt-accent-dim); border-color: rgba(245,194,92,0.30); }
+      .cio-stage--hold   { color: var(--tt-up-soft); background: var(--tt-up-bg); border-color: rgba(34,197,94,0.25); }
+      .cio-stage--defend { color: #fb923c; background: rgba(251,146,60,0.10); border-color: rgba(251,146,60,0.30); }
+      .cio-stage--trim   { color: #facc15; background: rgba(250,204,21,0.10); border-color: rgba(250,204,21,0.30); }
+      .cio-stage--exit   { color: var(--tt-dn-soft); background: var(--tt-dn-bg); border-color: rgba(244,63,94,0.25); }
+
+      .cio-watch-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        max-height: 320px;
+        overflow-y: auto;
+      }
+      .cio-watch-row {
+        display: grid;
+        grid-template-columns: 70px auto 1fr auto auto;
+        gap: 8px;
+        align-items: center;
+        padding: 6px 10px;
+        border-radius: 8px;
+        background: var(--tt-bg-elev);
+        border: 1px solid var(--tt-border);
+        text-decoration: none;
+        font-size: 12px;
+        font-family: var(--tt-font-mono);
+        transition: background 120ms ease, border-color 120ms ease;
+      }
+      .cio-watch-row:hover {
+        background: var(--tt-bg-surface);
+        border-color: var(--tt-border-hi);
+      }
+      .cio-watch-sym { font-weight: 700; color: var(--tt-text); font-family: var(--tt-font); }
+      .cio-watch-dir {
+        font-size: 9.5px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        padding: 1px 6px;
+        border-radius: 4px;
+        background: var(--tt-bg-surface);
+      }
+      .cio-watch-dir.up { color: var(--tt-up-soft); }
+      .cio-watch-dir.dn { color: var(--tt-dn-soft); }
+      .cio-watch-setup { color: var(--tt-text-muted); font-family: var(--tt-font); font-size: 11.5px; }
+      .cio-watch-rank, .cio-watch-rr { color: var(--tt-text-dim); font-size: 11px; }
+
+      .cio-learn-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+      @media (max-width: 720px) {
+        .cio-learn-grid { grid-template-columns: 1fr; }
+      }
+      .cio-learn-h {
+        font-size: 11.5px;
+        font-weight: 700;
+        margin-bottom: 8px;
+        letter-spacing: 0.04em;
+      }
+      .cio-learn-h--up { color: var(--tt-up-soft); }
+      .cio-learn-h--dn { color: var(--tt-dn-soft); }
+      .cio-learn-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 6px 0;
+        border-bottom: 1px solid var(--tt-border);
+        font-family: var(--tt-font-mono);
+        font-size: 12px;
+      }
+      .cio-learn-row:last-child { border-bottom: 0; }
+      .cio-learn-name { color: var(--tt-text); font-family: var(--tt-font); }
+      .cio-learn-stats { display: flex; flex-direction: column; align-items: flex-end; }
+      .cio-learn-stats strong.up { color: var(--tt-up-soft); }
+      .cio-learn-stats strong.dn { color: var(--tt-dn-soft); }
+      .cio-learn-wr { font-size: 10px; color: var(--tt-text-dim); }
+
       /* AI CIO commentary — markdown rendered from brief.content */
       .brief-commentary {
         max-height: 320px;
@@ -299,7 +425,7 @@
       </main>
     </div>
 
-    <script src="insights.compiled.3e2b5374b9.js"></script>
+    <script src="insights.compiled.ca1ba1acb5.js"></script>
 
     <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
